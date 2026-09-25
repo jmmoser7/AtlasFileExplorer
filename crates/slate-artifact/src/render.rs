@@ -2504,6 +2504,90 @@ mod tests {
         assert!(s.contains("width:200.0000%"));
         assert!(s.contains("left:-50.0000%"));
     }
+
+    fn base64_decode(s: &str) -> Vec<u8> {
+        let value = |c: u8| match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            _ => 63,
+        } as u32;
+        let digits: Vec<u8> = s.bytes().filter(|c| *c != b'=').collect();
+        let mut out = Vec::new();
+        for chunk in digits.chunks(4) {
+            let mut n = 0u32;
+            for (i, c) in chunk.iter().enumerate() {
+                n |= value(*c) << (18 - 6 * i);
+            }
+            out.extend_from_slice(&n.to_be_bytes()[1..chunk.len()]);
+        }
+        out
+    }
+
+    /// A wide, soft, heavily blurred brush dab exports a PNG whose falloff
+    /// changes smoothly instead of holding one alpha in rings.
+    #[test]
+    fn a_blurred_soft_brush_exports_without_banded_rings() {
+        let path = PathData {
+            start: [0.5, 0.5],
+            ..PathData::default()
+        };
+        let shape = slate_doc::scene::ShapeNode {
+            shape: slate_doc::scene::ShapeKind::Path,
+            fill: None,
+            stroke: slate_doc::scene::Stroke {
+                width: 600.0,
+                color: slate_doc::scene::Rgba([30, 60, 200, 40]),
+                softness: 1.0,
+                stamp: true,
+                gaussian_blur: 12.0,
+                ..Default::default()
+            },
+            corner: Corner::Square,
+            sides: slate_doc::scene::default_regular_sides(),
+            flip: false,
+            path: Some(path.clone().into()),
+            text: None,
+        };
+        let rect = WorldRect::new(0.0, 0.0, 1.0, 1.0);
+        let node = slate_doc::scene::Scene::default()
+            .build_node(rect, slate_doc::scene::NodeKind::Shape(shape.clone()));
+        let mut html = String::new();
+        assert!(render_brush_stamp(&mut html, &node, &shape, &path, rect));
+        let b64 = html
+            .split("base64,")
+            .nth(1)
+            .and_then(|s| s.split('"').next())
+            .expect("embedded PNG");
+        let img = image::load_from_memory(&base64_decode(b64))
+            .expect("PNG decodes")
+            .to_rgba8();
+        let (w, h) = img.dimensions();
+        let (cx, cy) = (w / 2, h / 2);
+        let band = |x: u32| -> u32 {
+            (cy - 4..cy + 4)
+                .map(|y| img.get_pixel(x, y)[3] as u32)
+                .sum()
+        };
+        let peak = band(cx);
+        let (mut best, mut run, mut last) = (0usize, 0usize, None);
+        for x in cx..w {
+            let sum = band(x);
+            if sum * 20 < peak || sum * 20 > peak * 19 {
+                last = None;
+                run = 0;
+                continue;
+            }
+            run = if last == Some(sum) { run + 1 } else { 1 };
+            last = Some(sum);
+            best = best.max(run);
+        }
+        assert!(
+            best <= 3,
+            "exported falloff holds one alpha for {best} px ({w}x{h})"
+        );
+    }
 }
 
 #[cfg(test)]

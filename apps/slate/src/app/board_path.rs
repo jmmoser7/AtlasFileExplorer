@@ -724,18 +724,23 @@ pub(crate) fn world_to_node_norm(p: Pos2, rect: WorldRect, rotation_deg: f32) ->
     ]
 }
 
-fn hit_brush_dab(node: &Node, shape: &ShapeNode, wx: f32, wy: f32, zoom: f32) -> bool {
-    let Some(path) = shape.path.as_ref() else {
-        return false;
-    };
+/// The ink disc of a single-click brush stroke: world center and radius.
+/// `None` for anything that is not a lone stamp dab.
+fn brush_dab_disc(node: &Node, shape: &ShapeNode) -> Option<(Pos2, f32)> {
+    let path = shape.path.as_ref()?;
     if !path.is_empty() || shape.stroke.is_none() || !shape.stroke.paints_as_stamp() {
-        return false;
+        return None;
     }
     let (cx, cy) = node.rect.center();
-    let reach = shape.stroke.width.max(0.0) * 0.5 + pick_slop_world(zoom);
-    let dx = wx - cx;
-    let dy = wy - cy;
-    dx * dx + dy * dy <= reach * reach
+    Some((Pos2::new(cx, cy), shape.stroke.width.max(0.0) * 0.5))
+}
+
+fn hit_brush_dab(node: &Node, shape: &ShapeNode, wx: f32, wy: f32, zoom: f32) -> bool {
+    let Some((c, r)) = brush_dab_disc(node, shape) else {
+        return false;
+    };
+    let reach = r + pick_slop_world(zoom);
+    c.distance_sq(Pos2::new(wx, wy)) <= reach * reach
 }
 
 /// Stroke-precise point pick for any shape node (open or closed path).
@@ -996,6 +1001,9 @@ pub fn marquee_contains_node(
             flattened_inside(&bez, marquee)
         }
         NodeKind::Shape(s) => {
+            if let Some((c, r)) = brush_dab_disc(node, s) {
+                return marquee.contains(c.x - r, c.y - r) && marquee.contains(c.x + r, c.y + r);
+            }
             if shape_uses_stroke_pick(node, s) {
                 let Some(bez) = bez_from_open_curve(node, s) else {
                     return false;
@@ -1054,6 +1062,13 @@ pub fn marquee_hits_node(
             })
         }
         NodeKind::Shape(s) => {
+            if let Some((c, r)) = brush_dab_disc(node, s) {
+                let near = Pos2::new(
+                    c.x.clamp(marquee.x, marquee.x + marquee.w),
+                    c.y.clamp(marquee.y, marquee.y + marquee.h),
+                );
+                return near.distance_sq(c) <= r * r;
+            }
             if shape_uses_stroke_pick(node, s) {
                 if let Some((a, b)) = open_curve_endpoints(node, s) {
                     if segment_intersects_rect(a, b, marquee) {
@@ -1477,9 +1492,44 @@ pub(crate) fn stamped_contours(
     contours
 }
 
-/// Stamps rebuilt per frame for a zoom change. A stroke without any bitmap
-/// always builds, so a commit never flickers.
+/// Stamps rasterized on the frame loop per frame: rebuilds for a zoom change
+/// and live eraser previews. A stroke without any bitmap always builds, so a
+/// commit never flickers; a stroke waiting for its eraser preview keeps
+/// painting as committed.
 const STAMP_REBUILDS_PER_FRAME: u32 = 3;
+
+/// Build the live eraser preview for strokes the pass reached, a few per
+/// frame. Until a stroke has one it stays on the tile path, as committed.
+pub(crate) fn ensure_erase_live(app: &mut SlateApp, painter: &egui::Painter, xf: &BoardXf) {
+    let Some(super::board::BoardDrag::Erase { spot, .. }) = &app.board_drag else {
+        return;
+    };
+    let waiting: Vec<NodeId> = spot
+        .iter()
+        .filter(|id| !app.erase_live.contains_key(id))
+        .copied()
+        .collect();
+    let want = stamp_pixel_for_zoom(xf.z, painter.ctx().pixels_per_point());
+    for id in waiting {
+        if app.brush_stamp_rebuilds >= STAMP_REBUILDS_PER_FRAME {
+            painter.ctx().request_repaint();
+            return;
+        }
+        let Some(node) = app.doc().scene.node(id).cloned() else {
+            continue;
+        };
+        let NodeKind::Shape(shape) = &node.kind else {
+            continue;
+        };
+        let Some(path) = shape.path.as_ref() else {
+            continue;
+        };
+        app.brush_stamp_rebuilds += 1;
+        if let Some(live) = EraseLive::new(painter, &node, shape, path, want) {
+            app.erase_live.insert(id, live);
+        }
+    }
+}
 const STAMP_CACHE_BYTES: usize = 384 * 1024 * 1024;
 
 /// Cached radial stamp for one committed stroke.
@@ -1513,7 +1563,10 @@ fn paint_stamped_stroke(
         if spot.contains(&node.id) {
             let (points, straight) = (points.clone(), *straight);
             let tip = app.eraser_tip();
-            if !app.erase_live.contains_key(&node.id) {
+            if !app.erase_live.contains_key(&node.id)
+                && app.brush_stamp_rebuilds < STAMP_REBUILDS_PER_FRAME
+            {
+                app.brush_stamp_rebuilds += 1;
                 if let Some(live) = EraseLive::new(painter, node, shape, path, want) {
                     app.erase_live.insert(node.id, live);
                 }
@@ -2711,6 +2764,90 @@ mod tests {
             routing,
             MarqueeMode::Window
         ));
+    }
+
+    /// A one-click brush dab: a single vertex stamped at 20 world units.
+    fn brush_dab(at: Pos2) -> Node {
+        let (rect, data) = points_to_path_data(&[at], false);
+        let mut stroke = default_curve_stroke(Rgba::BLACK);
+        stroke.width = 20.0;
+        stroke.stamp = true;
+        stroke.softness = 0.5;
+        Node {
+            id: NodeId(9),
+            rect,
+            rotation_deg: 0.0,
+            opacity: 1.0,
+            locked: false,
+            hidden: false,
+            group: None,
+            clip: None,
+            bumper: None,
+            kind: NodeKind::Shape(ShapeNode {
+                shape: ShapeKind::Path,
+                fill: None,
+                stroke,
+                corner: slate_doc::scene::Corner::Square,
+                sides: slate_doc::scene::default_regular_sides(),
+                flip: false,
+                path: Some(data.into()),
+                text: None,
+            }),
+        }
+    }
+
+    #[test]
+    fn a_brush_dab_answers_both_sweep_directions() {
+        let node = brush_dab(Pos2::new(100.0, 100.0));
+        let scene = slate_doc::scene::Scene::default();
+        let routing = slate_doc::WireRouting::Bezier;
+        let sweep = |r: WorldRect, mode| marquee_selects_node(&node, r, 1.0, &scene, routing, mode);
+        // A box around the whole dab, well off its center.
+        let around = WorldRect::new(60.0, 70.0, 70.0, 50.0);
+        assert!(
+            sweep(around, MarqueeMode::Window),
+            "window around a dab selects it"
+        );
+        assert!(
+            sweep(around, MarqueeMode::Crossing),
+            "crossing around a dab selects it"
+        );
+        // A box over the dab's ink but not its center: crossing only.
+        let rim = WorldRect::new(106.0, 90.0, 30.0, 20.0);
+        assert!(
+            sweep(rim, MarqueeMode::Crossing),
+            "crossing the ink selects"
+        );
+        assert!(
+            !sweep(rim, MarqueeMode::Window),
+            "window needs the whole dab"
+        );
+        // Around the center point only, cutting the ink: not a window hit.
+        let tight = WorldRect::new(96.0, 96.0, 8.0, 8.0);
+        assert!(!sweep(tight, MarqueeMode::Window));
+        assert!(sweep(tight, MarqueeMode::Crossing));
+        let away = WorldRect::new(130.0, 130.0, 30.0, 30.0);
+        assert!(!sweep(away, MarqueeMode::Window));
+        assert!(!sweep(away, MarqueeMode::Crossing));
+    }
+
+    #[test]
+    fn a_brush_dab_picks_on_its_ink() {
+        let mut scene = slate_doc::scene::Scene::default();
+        scene.nodes.push(brush_dab(Pos2::new(100.0, 100.0)));
+        for (x, y) in [
+            (100.0, 100.0),
+            (108.0, 100.0),
+            (100.0, 91.0),
+            (106.0, 106.0),
+        ] {
+            assert_eq!(
+                board_pick_node(&scene, x, y, 1.0),
+                Some(NodeId(9)),
+                "click at {x},{y}"
+            );
+        }
+        assert_eq!(board_pick_node(&scene, 120.0, 100.0, 1.0), None);
     }
 
     #[test]

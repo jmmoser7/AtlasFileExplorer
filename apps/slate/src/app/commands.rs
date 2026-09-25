@@ -1876,6 +1876,19 @@ pub static SPECS: &[CommandSpec] = &[
         &["hud", "color", "recent"],
     ),
     spec(
+        "board.brush.sample",
+        "Board",
+        "Sample brush color",
+        "Alt+left-click while Brush is armed samples the screen color under \
+         the cursor, as Photoshop's eyedropper does. It becomes the brush \
+         foreground (opacity kept) and a recent color. Releasing Alt paints \
+         again.",
+        None,
+        Repeat::Never,
+        BOARD,
+        &["eyedropper", "sample", "pick color"],
+    ),
+    spec(
         "board.brush.opacity_hud",
         "Board",
         "Scrub brush opacity",

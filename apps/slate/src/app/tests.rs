@@ -6224,6 +6224,39 @@ fn sweep_gp5_window_replaces() {
     assert!(!h.app.board_sel.contains(&other));
 }
 
+/// A single-click brush dab answers a left-to-right window sweep, a
+/// right-to-left crossing sweep that only grazes its rim, and a click on its
+/// ink away from the center.
+#[test]
+fn a_brush_dab_answers_sweeps_both_ways_and_a_click() {
+    let mut h = align_board("brush_dab_sweep");
+    h.app.brush_width = 20.0;
+    h.app.finish_freehand_brush(vec![Pos2::new(100.0, 100.0)]);
+    let dab = h.app.doc().scene.nodes.last().unwrap().id;
+    h.frame();
+    let none = egui::Modifiers::NONE;
+    let swept = |h: &mut Harness, from: Pos2, to: Pos2| {
+        h.app.board_sel.clear();
+        sweep(h, from, to, none);
+        h.app.board_sel.contains(&dab)
+    };
+    assert!(
+        swept(&mut h, Pos2::new(50.0, 50.0), Pos2::new(125.0, 125.0)),
+        "left-to-right window around the dab"
+    );
+    assert!(
+        swept(&mut h, Pos2::new(150.0, 150.0), Pos2::new(104.0, 104.0)),
+        "right-to-left crossing through the dab's rim"
+    );
+    assert!(
+        !swept(&mut h, Pos2::new(50.0, 50.0), Pos2::new(104.0, 104.0)),
+        "a window that cuts the dab leaves it"
+    );
+    h.app.board_sel.clear();
+    h.app.board_click_for_test(Pos2::new(106.0, 100.0), none);
+    assert!(h.app.board_sel.contains(&dab), "a click on the dab's ink");
+}
+
 /// A frame that covers the viewport selects its members on drag. A smaller
 /// frame still moves.
 #[test]
@@ -9032,6 +9065,198 @@ fn fillet_drag_percent_mode_roundtrip() {
     ));
     let (_, r) = slate_doc::scene::resolved_corner_effective(&n, None);
     assert!((r - 30.0).abs() < 0.01);
+}
+
+fn primary_button(pos: Pos2, pressed: bool, alt: bool) -> impl FnOnce(&mut egui::RawInput) {
+    move |input: &mut egui::RawInput| {
+        let modifiers = egui::Modifiers {
+            alt,
+            ..Default::default()
+        };
+        input.modifiers = modifiers;
+        input.events.push(egui::Event::PointerMoved(pos));
+        input.events.push(egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers,
+        });
+    }
+}
+
+fn pointer_to(pos: Pos2, alt: bool) -> impl FnOnce(&mut egui::RawInput) {
+    move |input: &mut egui::RawInput| {
+        input.modifiers.alt = alt;
+        input.events.push(egui::Event::PointerMoved(pos));
+    }
+}
+
+/// Alt+left-click with the Brush samples instead of painting; releasing Alt
+/// paints again.
+#[test]
+fn brush_alt_click_samples_and_releasing_alt_paints_again() {
+    let mut h = web_board("brush_alt_sample");
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.frame();
+    let c = h.app.canvas_rect.center();
+    h.frame_with(pointer_to(c, true));
+    assert!(h.app.eyedropper_active(), "Alt spring-loads the eyedropper");
+    h.frame_with(primary_button(c, true, true));
+    h.frame_with(primary_button(c, false, true));
+    assert!(
+        h.app.doc().scene.nodes.is_empty(),
+        "Alt+click painted a dab"
+    );
+    assert_eq!(h.app.board_tool, board::BoardTool::Brush);
+
+    h.frame_with(pointer_to(c, false));
+    assert!(!h.app.eyedropper_active());
+    h.frame_with(primary_button(c, true, false));
+    for i in 1..=6 {
+        h.frame_with(pointer_to(c + EVec2::new(i as f32 * 12.0, 0.0), false));
+    }
+    h.frame_with(primary_button(c + EVec2::new(80.0, 0.0), false, false));
+    assert_eq!(h.app.doc().scene.nodes.len(), 1, "plain drag paints again");
+}
+
+/// The Alt sample reads the screen pixel under the hotspot, so the sampling
+/// cursor must leave that pixel showing the canvas, not the current color.
+#[test]
+fn brush_alt_sampling_cursor_leaves_the_hotspot_clear() {
+    use eframe::epaint::{Shape, Vertex};
+    fn covers(shape: &Shape, p: Pos2, fg: egui::Color32) -> bool {
+        match shape {
+            Shape::Vec(list) => list.iter().any(|s| covers(s, p, fg)),
+            Shape::Circle(c) => {
+                let d = c.center.distance(p);
+                (c.fill == fg && d <= c.radius)
+                    || (c.stroke.color == fg && (d - c.radius).abs() <= c.stroke.width * 0.5)
+            }
+            Shape::Mesh(m) => m.indices.chunks(3).any(|t| {
+                let v: Vec<&Vertex> = t.iter().map(|i| &m.vertices[*i as usize]).collect();
+                v.iter().all(|v| v.color == fg) && {
+                    let s =
+                        |a: Pos2, b: Pos2| (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+                    let (d0, d1, d2) = (
+                        s(v[0].pos, v[1].pos),
+                        s(v[1].pos, v[2].pos),
+                        s(v[2].pos, v[0].pos),
+                    );
+                    (d0 >= 0.0 && d1 >= 0.0 && d2 >= 0.0) || (d0 <= 0.0 && d1 <= 0.0 && d2 <= 0.0)
+                }
+            }),
+            _ => false,
+        }
+    }
+    let mut h = web_board("brush_alt_cursor");
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.board_colors.fg = slate_doc::scene::Rgba([12, 200, 34, 255]);
+    let fg = board::rgba32(h.app.board_colors.fg);
+    h.frame();
+    let c = h.app.canvas_rect.center();
+    h.frame_with(pointer_to(c, true));
+    let mut input = egui::RawInput {
+        screen_rect: Some(ERect::from_min_size(Pos2::ZERO, EVec2::new(1440.0, 900.0))),
+        ..Default::default()
+    };
+    pointer_to(c, true)(&mut input);
+    let ctx = h.ctx.clone();
+    let app = &mut h.app;
+    let out = ctx.run(input, |c| app.update_app(c));
+    assert!(h.app.eyedropper_active());
+    let hits = out
+        .shapes
+        .iter()
+        .filter(|s| covers(&s.shape, c, fg))
+        .count();
+    assert_eq!(
+        hits, 0,
+        "the sampling cursor paints the foreground on the hotspot"
+    );
+}
+
+#[test]
+fn a_brush_sample_sets_the_foreground_and_recent_colors() {
+    let mut h = web_board("brush_sample_apply");
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.board_colors.fg = slate_doc::scene::Rgba([1, 2, 3, 200]);
+    h.app.adopt_sampled_brush_color([90, 140, 210]);
+    assert_eq!(h.app.board_colors.fg.0, [90, 140, 210, 200]);
+    let recent = h.app.doc().view.recent_colors.clone().unwrap_or_default();
+    assert_eq!(recent.first().copied(), Some([90, 140, 210]));
+}
+
+/// A two-point diagonal line crossing `(x, x)` at a right angle.
+fn crossing_line(app: &mut SlateApp, x: f32) -> NodeId {
+    use slate_doc::scene::{ShapeKind, ShapeNode};
+    let (rect, data) = board_path::points_to_path_data(
+        &[Pos2::new(x - 12.0, x + 12.0), Pos2::new(x + 12.0, x - 12.0)],
+        false,
+    );
+    let node = app.doc_mut().scene.build_node(
+        rect,
+        NodeKind::Shape(ShapeNode {
+            shape: ShapeKind::Path,
+            fill: None,
+            stroke: board_path::default_curve_stroke(Rgba::BLACK),
+            corner: slate_doc::scene::Corner::Square,
+            sides: slate_doc::scene::default_regular_sides(),
+            flip: false,
+            path: Some(data.into()),
+            text: None,
+        }),
+    );
+    let id = node.id;
+    app.add_nodes(vec![node]);
+    id
+}
+
+/// One fast pointer move is one long segment. Everything under that segment
+/// is erased, not only what sits under its two ends.
+#[test]
+fn a_fast_eraser_segment_erases_along_its_whole_length() {
+    let mut h = web_board("eraser_fast_segment");
+    let lines: Vec<NodeId> = (1..=7)
+        .map(|i| crossing_line(&mut h.app, i as f32 * 50.0))
+        .collect();
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.brush_width = 10.0;
+    let dots: Vec<NodeId> = (1..=6)
+        .map(|i| {
+            let p = Pos2::new(i as f32 * 50.0 + 25.0, i as f32 * 50.0 + 25.0);
+            h.app.finish_freehand_brush(vec![p]);
+            h.app.doc().scene.nodes.last().unwrap().id
+        })
+        .collect();
+    {
+        let cam = &mut h.app.tab_mut().cam;
+        cam.z = 1.0;
+        cam.offset = EVec2::new(200.0, 200.0);
+    }
+    h.app.set_board_tool(board::BoardTool::Eraser);
+    h.app.eraser_width = 30.0;
+    h.app.eraser_softness = 0.0;
+    h.app.eraser_opacity = 1.0;
+    h.frame();
+    let xf = h.app.board_xf();
+    let (a, b) = (xf.w2s(Pos2::new(0.0, 0.0)), xf.w2s(Pos2::new(400.0, 400.0)));
+    assert!(h.app.canvas_rect.contains(a) && h.app.canvas_rect.contains(b));
+    h.frame_with(pointer_to(a, false));
+    h.frame_with(primary_button(a, true, false));
+    h.frame_with(pointer_to(b, false));
+    h.frame_with(primary_button(b, false, false));
+    let left: Vec<NodeId> = lines
+        .iter()
+        .chain(&dots)
+        .copied()
+        .filter(|id| h.app.doc().scene.node(*id).is_some())
+        .collect();
+    assert!(
+        left.is_empty(),
+        "{} of {} marks under the segment survived",
+        left.len(),
+        lines.len() + dots.len()
+    );
 }
 
 /// Machine-local: time until `SlateApp::with_ctx` returns (headless `new`).

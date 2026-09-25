@@ -3719,11 +3719,11 @@
       "canvas": "brush-tool-contract",
       "decisions": {
         "D01": {
-          "behavior": "B still arms Brush through board.tool.brush. Size, softness, and the color wheel are modifiers on that tool: board.brush.softness_down, board.brush.softness_up, board.brush.size_hud, board.brush.color_wheel.",
+          "behavior": "B still arms Brush through board.tool.brush. Size, softness, the color wheel, and Alt+click sampling are modifiers on that tool: board.brush.softness_down, board.brush.softness_up, board.brush.size_hud, board.brush.color_wheel, board.brush.sample.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-22"
+          "decided": "2026-09-25"
         },
         "D02": {
           "behavior": "P2.StickyInk: Brush stays armed after each stroke, and each stroke is one undo step.",
@@ -3782,18 +3782,18 @@
           "decided": "2026-09-22"
         },
         "D10": {
-          "behavior": "Idle Brush and the size HUD paint a filled tip in the foreground color. The fill is opaque from the center out to (1 - softness) of the radius, then fades to clear at the rim. A thin white ring marks the full diameter.",
+          "behavior": "Idle Brush and the size HUD paint a filled tip in the foreground color. The fill is opaque from the center out to (1 - softness) of the radius, then fades to clear at the rim. A thin white ring marks the full diameter. While Alt is held the eyedropper cursor replaces it: the foreground swatch is a ring, so the pixel under the hotspot, which the sample reads, still shows the canvas.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-22"
+          "decided": "2026-09-25"
         },
         "D11": {
-          "behavior": "Releasing a stroke journals one Add and stores the softness used. Width, softness, and foreground edits from keys or HUDs are tool state and are not journaled. Releasing the color wheel keeps the foreground and writes it into the 24-slot recent list. A brush stroke is a radial bitmap of its centerline (Stroke.stamp, and any softness above zero). Both painters share that bitmap: opaque out to (1 - softness) of the radius, clear at the rim, maximum coverage where dabs overlap. The HTML artifact embeds the PNG. A hard non-brush stroke stays a vector path. A Shift segment that starts at the end of the last brush mark extends that stroke instead of adding a node, with one tip per vertex, so the chain is one stamp: joints and self-overlaps never exceed the opacity, and each segment is its own undo step. Finished brush strokes use Photoshop's default Normal blend: source-over, opacity on the whole stroke, so one stroke does not build past that opacity and a later stroke covers an earlier one.",
+          "behavior": "Releasing a stroke journals one Add and stores the softness used. Width, softness, and foreground edits from keys or HUDs are tool state and are not journaled. Releasing the color wheel keeps the foreground and writes it into the 24-slot recent list. A brush stroke is a radial bitmap of its centerline (Stroke.stamp, and any softness above zero). Both painters share that bitmap: opaque out to (1 - softness) of the radius, clear at the rim, maximum coverage where dabs overlap. Coverage is dithered to 8 bits on a world-aligned grid, so a wide soft falloff does not band into rings and neighbouring tiles continue one pattern. The HTML artifact embeds the PNG. A hard non-brush stroke stays a vector path. A Shift segment that starts at the end of the last brush mark extends that stroke instead of adding a node, with one tip per vertex, so the chain is one stamp: joints and self-overlaps never exceed the opacity, and each segment is its own undo step. Finished brush strokes use Photoshop's default Normal blend: source-over, opacity on the whole stroke, so one stroke does not build past that opacity and a later stroke covers an earlier one. Committing a stroke never blanks earlier strokes: each cached tile keeps painting its previous raster until the replacement lands, and tiles the new stroke does not touch keep their textures. Erasing never blanks strokes the eraser did not reach: while a pass lifts reached strokes out of the cache, the tiles from before the pass stand in for the rest until their own rasters land.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-22"
+          "decided": "2026-09-25"
         },
         "D12": {
           "behavior": "Esc during SizeHud or the color wheel restores width, softness, and foreground from the moment the right button went down, then closes the overlay. Brush stays armed. The next Esc disarms to Select. A stroke still commits on pointer release.",
@@ -4486,7 +4486,7 @@
           "decided": null
         },
         "D17": {
-          "behavior": "Window selects a node only when its pick geometry lies entirely inside the rect. Stroke-pick shapes and connectors: every flattened centerline sample is inside. Other nodes: all four corners of the rotated rect are inside. Crossing keeps marquee_hits_node: stroke intersection, or the rotated rect intersecting the sweep. A line that only crosses the box is selected right-to-left and missed left-to-right.",
+          "behavior": "Window selects a node only when its pick geometry lies entirely inside the rect. Stroke-pick shapes and connectors: every flattened centerline sample is inside. Other nodes: all four corners of the rotated rect are inside. Crossing keeps marquee_hits_node: stroke intersection, or the rotated rect intersecting the sweep. A line that only crosses the box is selected right-to-left and missed left-to-right. A single-click brush dab is its ink disc (stroke width across): window needs the whole disc inside, crossing needs the rect to touch the disc, and a click anywhere on the disc picks it.",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",
@@ -4727,7 +4727,7 @@
           "decided": "2026-09-25"
         },
         "D14": {
-          "behavior": "Vector results stay editable paths. Smoothed lines/arcs become cubic paths. Stamp blur is authored on the stroke.",
+          "behavior": "Vector results stay editable paths. Smoothed lines/arcs become cubic paths. Stamp blur is authored on the stroke. The board and the HTML artifact share one blur: premultiplied f32 passes, dithered back to 8 bits, so a heavy blur fades smoothly instead of banding into rings. A blurred stroke paints from its own blurred raster, never from an unblurred tile.",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",

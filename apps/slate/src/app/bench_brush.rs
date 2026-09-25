@@ -225,6 +225,96 @@ fn bench_brush_drag() {
     assert_eq!(h.app.doc().scene.nodes.len(), 3);
 }
 
+/// Fifty committed brush strokes in a 10 x 5 grid around the view center,
+/// rastered into settled tiles.
+fn erase_board(tag: &str) -> Harness {
+    let mut h = board(tag);
+    let origin = h.app.board_xf().s2w(center(&h));
+    for i in 0..50 {
+        let (mut rect, shape) = stamp_stroke(i);
+        rect.x = origin.x - 250.0 + (i % 10) as f32 * 50.0;
+        rect.y = origin.y - 125.0 + (i / 10) as f32 * 50.0;
+        let node = h
+            .app
+            .doc_mut()
+            .scene
+            .build_node(rect, NodeKind::Shape(shape));
+        h.app.doc_mut().scene.nodes.push(node);
+    }
+    h.app.note_scene_change();
+    let deadline = Instant::now() + std::time::Duration::from_secs(20);
+    loop {
+        h.frame();
+        if h.app.brush_tiles.last.settled && h.app.brush_tiles.last.ready_tiles > 0 {
+            break;
+        }
+        assert!(Instant::now() < deadline, "fixture tiles did not settle");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    h
+}
+
+/// A zigzag through every row of the grid, in screen space.
+fn erase_path(h: &Harness) -> Vec<Pos2> {
+    let xf = h.app.board_xf();
+    let origin = xf.s2w(center(h));
+    let mut out = Vec::new();
+    for row in 0..5 {
+        let y = origin.y - 125.0 + row as f32 * 50.0 + 10.0;
+        for step in 0..=20 {
+            let t = step as f32 / 20.0;
+            let t = if row % 2 == 0 { t } else { 1.0 - t };
+            out.push(xf.w2s(Pos2::new(origin.x - 260.0 + t * 520.0, y)));
+        }
+    }
+    out
+}
+
+/// Eraser drag across fifty committed brush strokes: frame cost per move and
+/// the release that commits the erase.
+#[test]
+#[ignore]
+fn bench_eraser_across_strokes() {
+    let mut h = erase_board("eraser_bench_50");
+    h.app.set_board_tool(BoardTool::Eraser);
+    h.app.eraser_width = 24.0;
+    let path = erase_path(&h);
+    hover_frame(&mut h, path[0]);
+    let press = timed(&mut h, button(path[0], true));
+    let mut moves = Vec::new();
+    let mut sections: Vec<(&'static str, f32)> = Vec::new();
+    for p in &path[1..] {
+        brush_prof::begin();
+        moves.push(timed(&mut h, pointer_at(*p)));
+        for (name, ms) in brush_prof::take() {
+            match sections.iter_mut().find(|(n, _)| *n == name) {
+                Some(slot) => slot.1 += ms,
+                None => sections.push((name, ms)),
+            }
+        }
+    }
+    println!("eraser move sections, mean ms per move:");
+    for (name, ms) in &sections {
+        println!("  {name:12} {:.2}", ms / moves.len() as f32);
+    }
+    let end = *path.last().unwrap();
+    let release = timed(&mut h, button(end, false));
+    let mut after = Vec::new();
+    for _ in 0..10 {
+        after.push(timed(&mut h, pointer_at(end)));
+    }
+    let left = h.app.doc().scene.nodes.len();
+    println!(
+        "eraser across 50 strokes: press {press:.2} ms, move median {:.2} max {:.2} ms over {} moves, release {release:.2} ms, next 10 median {:.2} max {:.2} ms, {} of 50 left",
+        median_ms(moves.clone()),
+        moves.iter().cloned().fold(0.0, f32::max),
+        moves.len(),
+        median_ms(after.clone()),
+        after.iter().cloned().fold(0.0, f32::max),
+        left,
+    );
+}
+
 #[test]
 #[ignore]
 fn bench_brush_input() {

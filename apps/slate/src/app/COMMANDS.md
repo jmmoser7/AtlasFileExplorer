@@ -198,7 +198,10 @@ drag the address-bar URL or a page link instead.
   = fg, width = `brush_width` (persisted). The tool **stays armed** after a
   stroke. **Shift+click** draws a straight segment chained from the last
   stroke end (chain breaks when the tool re-arms). Held **Alt**
-  spring-loads the eyedropper (click samples fg) — Select-tool Alt-drag
+  spring-loads the eyedropper (`board.brush.sample`): a click samples the
+  screen color under the cursor into fg (opacity kept) and the recent
+  colors, and releasing Alt paints again. The sampling cursor's swatch is a
+  ring, so the hotspot pixel shows the canvas. Select-tool Alt-drag
   duplicate is untouched.
 - **E — Eraser**: drag scrubs across ink; only Path/Line shape strokes are
   erasable (images, text, frames, and connectors never are). Touched

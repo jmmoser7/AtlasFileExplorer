@@ -59,6 +59,12 @@ pub struct BoardColors { pub fg: Rgba, pub bg: Rgba }
   a click erases one dab, Shift+drag or Shift+click erases a straight line
   from the end of the last pass, and Ctrl+Z restores the last setting
   change. The cursor is the soft tip disc. No color wheel.
+- The eraser follows the pointer's path, not its samples: each frame tests
+  the segment from the previous sample to the cursor, stepped at no more
+  than half the eraser radius, so a fast diagonal pass erases its whole
+  length. Only strokes whose bounds meet that segment are tested, and at
+  most three painted strokes build their live erase preview per frame; the
+  rest join on the next frames.
 - Only ink/shape strokes are erasable — images, text, frames, connectors
   are not (delete covers those).
 - Esc cancels the drag (no journal; the live preview drops).
@@ -111,6 +117,7 @@ pub struct BoardColors { pub fg: Rgba, pub bg: Rgba }
 | Alt+right-drag | `board.brush.size_hud` |
 | Shift+right-drag | `board.brush.opacity_hud` (Brush only; Ctrl and Alt win) |
 | Ctrl+right-drag | `board.brush.color_wheel` |
+| Alt+click (Brush) | `board.brush.sample` (screen color to fg and recent colors) |
 | Shift+click (Brush) | steps opacity down 10% |
 | Alt+click (Eyedropper) | sample to bg |
 | , / . | preset cycling — **P2** (reserved, not bound in P1) |
