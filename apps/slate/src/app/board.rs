@@ -4627,18 +4627,45 @@ impl SlateApp {
         }
 
         if let Some(draft) = &self.board_path_draft {
+            let zoom = self.tab().cam.z.max(f32::EPSILON);
             let cursor = self.board_osnap_hit.map(|h| h.point).or_else(|| {
                 if board_snap::effective_ortho(self.board_ortho, self.shift_down) {
-                    if let (board_path::BoardPathDraft::Polyline { points }, Some(w)) = (draft, wp)
-                    {
-                        return points
+                    let from = match draft {
+                        board_path::BoardPathDraft::Polyline { points } => points.last().copied(),
+                        board_path::BoardPathDraft::Bezier { anchors, placing } => anchors
                             .last()
-                            .map(|last| board_snap::ortho_snap_point(*last, w));
+                            .map(|(p, _)| *p)
+                            .or_else(|| placing.map(|(p, _)| p)),
+                        _ => None,
+                    };
+                    if let (Some(last), Some(w)) = (from, wp) {
+                        return Some(board_snap::ortho_snap_point(last, w));
                     }
                 }
                 wp
             });
-            board_path::paint_path_draft(&painter, &xf, draft, cursor, palette.accent);
+            let close_first = match draft {
+                board_path::BoardPathDraft::Bezier { anchors, .. } if anchors.len() >= 2 => cursor
+                    .is_some_and(|c| (c - anchors[0].0).length() * zoom <= board_snap::SNAP_SCREEN_PX),
+                _ => false,
+            };
+            board_path::paint_path_draft(
+                &painter,
+                &xf,
+                draft,
+                cursor,
+                board_path::PathDraftPaintStyle {
+                    stroke: palette.accent,
+                    overlay: super::path_edit_overlay::PathEditAnchorColors {
+                        select: palette.select,
+                        bg: palette.bg,
+                        accent: palette.accent,
+                        sub: palette.sub,
+                    },
+                    zoom,
+                    close_first_anchor: close_first,
+                },
+            );
         }
         // Line draft: rubber band in the fg color the committed stroke will
         // use (D09) + the Tab-lock padlock beside the pointer (D10).
@@ -5878,6 +5905,7 @@ impl SlateApp {
                     _ => None,
                 };
                 let press = self.resolve_point_snap(world, &[], from, mods.shift, from.is_some());
+                self.bezier_anchor_press(press);
                 Some(BoardDrag::BezierAnchor { press })
             }
             BoardTool::Polyline | BoardTool::Arc | BoardTool::Line => None,
@@ -5976,7 +6004,11 @@ impl SlateApp {
             return;
         }
         if let Some(BoardDrag::BezierAnchor { press }) = &self.board_drag {
-            self.bezier_anchor_move(*press, world);
+            let mut w = world;
+            if board_snap::effective_ortho(self.board_ortho, mods.shift) {
+                w = board_snap::ortho_snap_point(*press, world);
+            }
+            self.bezier_anchor_move(*press, w, mods.alt);
             return;
         }
         if matches!(self.board_drag, Some(BoardDrag::LineDraw { .. })) {
@@ -6619,7 +6651,7 @@ impl SlateApp {
                 self.finish_direct_drag(d, pointer);
             }
             Some(BoardDrag::BezierAnchor { press }) => {
-                self.bezier_anchor_release(press, world);
+                self.bezier_anchor_release(press, world, mods.alt);
             }
             Some(BoardDrag::LineDraw { started }) => {
                 self.line_release(world, started, mods.shift);

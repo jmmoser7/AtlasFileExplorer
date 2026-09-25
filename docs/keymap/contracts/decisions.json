@@ -3308,32 +3308,32 @@
           "decided": "2026-09-17"
         },
         "D03": {
-          "behavior": "Retain the existing anchor/handle creation grammar. This refinement adds capability-aware property editing and tight-bounds dimensions to the committed curve.",
-          "source": "guess",
-          "confidence": 55,
+          "behavior": "Illustrator-style draft: paint anchor squares on press; rubber-band cubic from the last anchor to the snapped cursor while hovering; dragging shows the outgoing handle with symmetric in/out unless Alt splits to a corner.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D04": {
-          "behavior": "Existing Bezier handle drag recognition is unchanged; the moving-click fix in this revision applies to Line, Polyline and Arc.",
-          "source": "guess",
-          "confidence": 55,
+          "behavior": "Handle drag uses draft.drag_threshold = 4 screen px (world travel = px/zoom); shorter release commits a corner anchor with zero handles.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D05": {
-          "behavior": "Retain tool-specific creation modifiers and P1.node.transform for selected objects.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Alt while dragging an outgoing handle breaks symmetry (corner anchor with independent out handle). Other creation modifiers unchanged.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D06": {
-          "behavior": "P1.node.osnap: one resolved point feeds preview and commit; Alt suspends, ortho/direction constraints retain priority.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "P1.node.osnap: one resolved point feeds preview and commit; Alt suspends object snap while dragging handles; F8/Shift ortho constrains draft segments including Bézier outgoing handles.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D07": {
           "behavior": "No new lock binding. Preserve existing locks; numeric property editing is separate from drawing.",
@@ -3350,11 +3350,11 @@
           "decided": "2026-09-17"
         },
         "D09": {
-          "behavior": "P1.shape.properties: preview resolved creation geometry and show the shared geometry-appropriate selection strip.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Draft preview paints committed anchors through the shared path-edit overlay and rubber-bands to the same snapped cursor used on commit.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D10": {
           "behavior": "Retain existing armed-tool cursor; controls use shell hover and focus feedback.",

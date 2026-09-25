@@ -10,6 +10,9 @@
 //! See `docs/keymap/specs/direct-selection.md`.
 
 use super::board::{BoardXf, MIN_DRAW};
+use super::path_edit_overlay::{
+    paint_path_edit_anchors, PathEditAnchorColors, PathEditAnchorPaint,
+};
 use super::{board_path, SlateApp};
 use eframe::egui::{self, Pos2, Rect, Stroke as EStroke, Vec2};
 use slate_doc::scene::{Node, NodeKind, SceneCmd, ShapeKind, WorldRect};
@@ -21,8 +24,6 @@ use vector_ink::{
     move_handle, segment_hit, toggle_anchor_kind, translate_segment, Anchor, AnchorKind, HandleEnd,
 };
 
-/// Screen-constant anchor square half-size (~7 px squares).
-const ANCHOR_PX: f32 = 3.5;
 /// Anchor / handle pick radius (screen px).
 const ANCHOR_HIT_PX: f32 = 7.0;
 /// Segment pick radius (screen px).
@@ -667,49 +668,50 @@ impl SlateApp {
             return;
         };
         let palette = self.palette();
-        // Path highlight so the edit target is unmistakable.
         let bez = bezpath_from_anchors(&anchors, closed);
         let flat = vector_ink::flatten(&bez, 0.5);
-        if flat.len() >= 2 {
-            let pts: Vec<Pos2> = flat
-                .iter()
-                .map(|[x, y]| xf.w2s(Pos2::new(*x, *y)))
-                .collect();
-            painter.add(egui::Shape::line(
-                pts,
-                EStroke::new(1.0_f32, palette.select.gamma_multiply(0.6)),
-            ));
-        }
-        // Handles of selected smooth/handled anchors first (under squares).
-        for idx in &self.direct.anchors {
-            let Some(a) = anchors.get(*idx) else { continue };
-            let ap = xf.w2s(from_point(a.point));
-            for h in [a.handle_in, a.handle_out].into_iter().flatten() {
-                let hp = xf.w2s(from_point(h));
-                painter.line_segment([ap, hp], EStroke::new(1.0_f32, palette.accent));
-                painter.circle_filled(hp, 3.0, palette.accent);
-            }
-        }
+        let path_line: Option<Vec<Pos2>> = if flat.len() >= 2 {
+            Some(
+                flat.iter()
+                    .map(|[x, y]| xf.w2s(Pos2::new(*x, *y)))
+                    .collect(),
+            )
+        } else {
+            None
+        };
+        let mut overlay: Vec<PathEditAnchorPaint> = Vec::with_capacity(anchors.len());
         for (i, a) in anchors.iter().enumerate() {
-            let p = xf.w2s(from_point(a.point));
-            let r = Rect::from_center_size(p, Vec2::splat(ANCHOR_PX * 2.0));
             let selected = self.direct.anchors.contains(&i);
-            if selected {
-                painter.rect_filled(r, 0.0, palette.select);
-            } else {
-                painter.rect_filled(r, 0.0, palette.bg);
-                painter.rect_stroke(
-                    r,
-                    0.0,
-                    EStroke::new(1.2_f32, palette.select),
-                    egui::StrokeKind::Inside,
-                );
-            }
-            // Smooth anchors read as slightly rounded (kind hint).
-            if a.kind == AnchorKind::Smooth && !selected {
-                painter.circle_stroke(p, ANCHOR_PX + 2.5, EStroke::new(0.6_f32, palette.sub));
-            }
+            let ap = xf.w2s(from_point(a.point));
+            let show_handles = selected;
+            overlay.push(PathEditAnchorPaint {
+                point: ap,
+                handle_in: show_handles
+                    .then(|| a.handle_in)
+                    .flatten()
+                    .map(from_point)
+                    .map(|p| xf.w2s(p)),
+                handle_out: show_handles
+                    .then(|| a.handle_out)
+                    .flatten()
+                    .map(from_point)
+                    .map(|p| xf.w2s(p)),
+                selected,
+                smooth_hint: a.kind == AnchorKind::Smooth,
+                close_hint: false,
+            });
         }
+        paint_path_edit_anchors(
+            painter,
+            path_line.as_deref(),
+            &overlay,
+            PathEditAnchorColors {
+                select: palette.select,
+                bg: palette.bg,
+                accent: palette.accent,
+                sub: palette.sub,
+            },
+        );
     }
 }
 

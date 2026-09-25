@@ -45,6 +45,7 @@ mod board_join;
 mod board_line;
 mod board_osnap;
 mod board_path;
+mod path_edit_overlay;
 mod board_place;
 mod board_portal;
 mod board_portal_chrome;
