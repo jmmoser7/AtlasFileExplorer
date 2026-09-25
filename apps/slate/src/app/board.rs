@@ -4436,33 +4436,38 @@ impl SlateApp {
             }
         }
 
-        // Line tool: crosshair while armed (D10) and the constraint-resolved
-        // rubber-band cursor on plain hover (a live press updates through
-        // update_gesture instead).
-        if matches!(self.board_tool, BoardTool::Trim | BoardTool::Split)
+        // Crosshair while a drawing tool is armed (D10). The Line tool also
+        // resolves its rubber-band cursor on plain hover (a live press
+        // updates through update_gesture instead).
+        if board_place::armed_cursor(self.board_tool) == board_place::ArmedCursor::Crosshair
             && resp.hovered()
             && !panning
             && !zoom_tool
         {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+        }
+        if matches!(self.board_tool, BoardTool::Trim | BoardTool::Split)
+            && resp.hovered()
+            && !panning
+            && !zoom_tool
+        {
             if let Some(w) = wp {
                 let shift = ui.input(|i| i.modifiers.shift);
                 self.trim_hover(w, shift);
             }
         }
-        if self.board_tool == BoardTool::Deck && resp.hovered() && !panning && !zoom_tool {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
-        }
-        if self.board_tool == BoardTool::Line && resp.hovered() && !panning && !zoom_tool {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
-            if self.board_drag.is_none() {
-                if let Some(w) = wp {
-                    let shift = ui.input(|i| i.modifiers.shift);
-                    if self.line_draft.is_some() {
-                        self.line_hover(w, shift);
-                    } else {
-                        let _ = self.resolve_point_snap(w, &[], None, false, false);
-                    }
+        if self.board_tool == BoardTool::Line
+            && resp.hovered()
+            && !panning
+            && !zoom_tool
+            && self.board_drag.is_none()
+        {
+            if let Some(w) = wp {
+                let shift = ui.input(|i| i.modifiers.shift);
+                if self.line_draft.is_some() {
+                    self.line_hover(w, shift);
+                } else {
+                    let _ = self.resolve_point_snap(w, &[], None, false, false);
                 }
             }
         }
@@ -4822,8 +4827,11 @@ impl SlateApp {
 
         // Armed create-tool chrome (P2.GhostFollow): tinted pointer + small
         // silhouette until the first press. During DragScale the silhouette
-        // yields to the live rubber-band; the pointer stays.
+        // yields to the live rubber-band; the pointer stays. The rectangle
+        // and ellipse keep the OS crosshair in place of the tinted pointer.
         let armed_kind = board_place::ghost_kind(self.board_tool);
+        let crosshair =
+            board_place::armed_cursor(self.board_tool) == board_place::ArmedCursor::Crosshair;
         if armed_kind.is_some()
             && self.text_box_draft.is_none()
             && resp.hovered()
@@ -4833,11 +4841,13 @@ impl SlateApp {
             && !web_capture
         {
             if let Some(p) = pointer {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::None);
                 // Glyph stays screen-space (P0.9); the hotspot is the snapped
                 // world point so the armed cursor is not a naked hunt.
                 let hot = self.board_point_snap.map(|w| xf.w2s(w)).unwrap_or(p);
-                board_place::paint_armed_pointer(&painter, hot, palette.accent);
+                if !crosshair {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::None);
+                    board_place::paint_armed_pointer(&painter, hot, palette.accent);
+                }
                 let drawing = match &self.board_drag {
                     Some(BoardDrag::Draw { start_screen, .. }) => {
                         (p - *start_screen).length() > board_place::place_tokens::DRAG_THRESHOLD
@@ -5145,8 +5155,9 @@ impl SlateApp {
             }
         }
 
-        // Tool cursors: width circle for Brush/Eraser, sampling ring for the
-        // eyedropper (also spring-loaded via Alt while Brush is armed).
+        // Tool cursors: tip circle for Brush/Eraser/Smooth/Pen (the OS
+        // cursor hides under it), sampling ring for the eyedropper (also
+        // spring-loaded via Alt while Brush is armed).
         // The size HUD and color wheel are pointer-attached chrome.
         if let Some(p) = pointer {
             if self.brush_hud.is_some() {
@@ -5155,11 +5166,13 @@ impl SlateApp {
                 if let Some(w) = wp {
                     if self.eyedropper_active() {
                         self.paint_eyedropper_cursor(&painter, p, w);
-                    } else if matches!(
-                        self.board_tool,
-                        BoardTool::Brush | BoardTool::Eraser | BoardTool::Smooth
-                    ) {
+                    } else if board_place::armed_cursor(self.board_tool)
+                        == board_place::ArmedCursor::TipCircle
+                    {
                         let _cursor = atlas_core::session_log::span("slate.board.brush_cursor");
+                        if resp.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::None);
+                        }
                         self.paint_width_cursor(&painter, p);
                     }
                 }

@@ -187,6 +187,48 @@ pub fn ghost_kind(tool: BoardTool) -> Option<GhostKind> {
     }
 }
 
+/// What an armed tool shows under the pointer over the board.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ArmedCursor {
+    /// A disc the size of the tip; the OS cursor hides.
+    TipCircle,
+    /// The OS crosshair. A create silhouette, if the tool has one, still
+    /// follows it.
+    Crosshair,
+    /// P2.GhostFollow: accent pointer plus silhouette.
+    Ghost,
+    /// The tool's own cursor (selection, hand, sampling ring).
+    Own,
+}
+
+pub fn armed_cursor(tool: BoardTool) -> ArmedCursor {
+    match tool {
+        BoardTool::Brush | BoardTool::Eraser | BoardTool::Smooth | BoardTool::Pen => {
+            ArmedCursor::TipCircle
+        }
+        BoardTool::Line
+        | BoardTool::Arc
+        | BoardTool::Polyline
+        | BoardTool::BezierSpan
+        | BoardTool::RectShape
+        | BoardTool::Ellipse
+        | BoardTool::Polygon
+        | BoardTool::Trim
+        | BoardTool::Split
+        | BoardTool::Deck => ArmedCursor::Crosshair,
+        BoardTool::Frame
+        | BoardTool::Text
+        | BoardTool::Sticky
+        | BoardTool::AgentPortal
+        | BoardTool::WebPortal
+        | BoardTool::AtlasPortal
+        | BoardTool::SlatePortal => ArmedCursor::Ghost,
+        BoardTool::Select | BoardTool::Pan | BoardTool::DirectSelect | BoardTool::Eyedropper => {
+            ArmedCursor::Own
+        }
+    }
+}
+
 /// Accent pointer painted at the hotspot (`CursorIcon::None` + this).
 pub fn paint_armed_pointer(painter: &egui::Painter, pos: Pos2, color: Color32) {
     let tip = pos;

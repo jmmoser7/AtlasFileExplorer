@@ -1432,11 +1432,11 @@
           "decided": "2026-08-15"
         },
         "D10": {
-          "behavior": "P2.GhostFollow.cursor. Text / Sticky get the tint and a small glyph (OQ4, 2026-08-15).",
+          "behavior": "P2.GhostFollow.cursor. Text / Sticky get the tint and a small glyph (OQ4, 2026-08-15). Every armed drawing tool shows a crosshair or a tip circle (stated 2026-09-25): Brush, Eraser, Smooth, and Pen a circle sized to the tip; Line, Arc, Polyline, Bezier, Rectangle, Ellipse, and Polygon the crosshair. board_place::armed_cursor names every tool's cursor.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-15"
+          "decided": "2026-09-25"
         },
         "D11": {
           "behavior": "Unchanged. Existing finish_draw / place_*_at / journal cmds. The ghost never commits. One gesture = one undo (P0.2 / P0.3).",
@@ -2742,11 +2742,11 @@
           "decided": "2026-09-17"
         },
         "D10": {
-          "behavior": "Retain existing armed-tool cursor; controls use shell hover and focus feedback.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Crosshair while armed over the board (stated 2026-09-25). The P2.GhostFollow silhouette still follows it until the press, without the tinted pointer. Controls use shell hover and focus feedback.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D11": {
           "behavior": "P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history.",
@@ -2872,11 +2872,11 @@
           "decided": "2026-09-17"
         },
         "D10": {
-          "behavior": "Retain existing armed-tool cursor; controls use shell hover and focus feedback.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Crosshair while armed over the board (stated 2026-09-25). The P2.GhostFollow silhouette still follows it until the press, without the tinted pointer. Controls use shell hover and focus feedback.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D11": {
           "behavior": "P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history.",
@@ -3132,11 +3132,11 @@
           "decided": "2026-09-17"
         },
         "D10": {
-          "behavior": "Retain existing armed-tool cursor; controls use shell hover and focus feedback.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Crosshair while armed over the board, before and during the draft (stated 2026-09-25). Controls use shell hover and focus feedback.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D11": {
           "behavior": "After at least three vertices, returning to the first vertex closes one PathData without a duplicated start anchor. Fill remains unset until chosen. Enter commits an open path. A moving primary press places one vertex; release adds none.",
@@ -3262,9 +3262,9 @@
           "decided": "2026-09-25"
         },
         "D10": {
-          "behavior": "Armed-tool cursor; shell hover on controls.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Crosshair while armed over the board (stated 2026-09-25); shell hover on controls.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
           "decided": "2026-09-25"
         },
@@ -3392,11 +3392,11 @@
           "decided": "2026-09-25"
         },
         "D10": {
-          "behavior": "Retain existing armed-tool cursor; controls use shell hover and focus feedback.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Crosshair while armed over the board, before and during the draft (stated 2026-09-25). Controls use shell hover and focus feedback.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D11": {
           "behavior": "P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history.",
@@ -3522,11 +3522,11 @@
           "decided": "2026-09-25"
         },
         "D10": {
-          "behavior": "Retain existing armed-tool cursor; controls use shell hover and focus feedback.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Crosshair while armed over the board, before and during the draft (stated 2026-09-25). Controls use shell hover and focus feedback.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D11": {
           "behavior": "P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history.",
@@ -3652,11 +3652,11 @@
           "decided": "2026-09-25"
         },
         "D10": {
-          "behavior": "Retain existing armed-tool cursor; controls use shell hover and focus feedback.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "A hard circle of the pen's own width and color, the same disc the Brush shows for its tip; the OS cursor hides under it over the board. The user offered circle or crosshair (stated 2026-09-25); the circle was chosen because it previews the width the width chord scrubs. The size HUD replaces it while open. Controls use shell hover and focus feedback.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D11": {
           "behavior": "P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history.",
@@ -3782,7 +3782,7 @@
           "decided": "2026-09-22"
         },
         "D10": {
-          "behavior": "Idle Brush and the size HUD paint a filled tip in the foreground color. The fill is opaque from the center out to (1 - softness) of the radius, then fades to clear at the rim. A thin white ring marks the full diameter. While Alt is held the eyedropper cursor replaces it: the foreground swatch is a ring, so the pixel under the hotspot, which the sample reads, still shows the canvas.",
+          "behavior": "Idle Brush and the size HUD paint a filled tip in the foreground color. The fill is opaque from the center out to (1 - softness) of the radius, then fades to clear at the rim. A thin white ring marks the full diameter. While Alt is held the eyedropper cursor replaces it: the foreground swatch is a ring, so the pixel under the hotspot, which the sample reads, still shows the canvas. The tip circle is the cursor for Brush and Eraser: the OS arrow hides under it over the board (stated 2026-09-25).",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -4699,10 +4699,10 @@
           "decided": "2026-09-25"
         },
         "D10": {
-          "behavior": "Filled radial tip + white diameter ring (P0.9); gray fill for Smooth.",
+          "behavior": "Filled radial tip + white diameter ring (P0.9); gray fill for Smooth. The circle is the cursor: the OS arrow hides under it over the board (stated 2026-09-25).",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
+          "verdict": "approved",
           "decided": "2026-09-25"
         },
         "D11": {

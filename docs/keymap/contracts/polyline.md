@@ -23,7 +23,7 @@ D01–D17 are every tool-scoped dimension. D18–D35 are portal-only and do not 
 | D07 | Direction / value locks | Deviates P2.RhinoDraft.tab: no new Tab direction lock in this first refinement; consider parity after reliable point capture. | pattern | 85 |
 | D08 | Numeric / manual entry | Bounding-box W/H stringers in a stable local frame (initially XY); no dimension fields in the palette. scaling vertices about the box center. Alternative: per-segment lengths in Direct Selection, or total L with uniform scaling. | guess | 55 |
 | D09 | Preview & readouts | Preview and commit consume the same snap result and existing snap marker. Snapping to another earlier segment places a vertex without inferring trimming or loop extraction. | pattern | 85 |
-| D10 | Cursor | Retain existing armed-tool cursor; controls use shell hover and focus feedback. | pattern | 85 |
+| D10 | Cursor | Crosshair while armed over the board, before and during the draft (stated 2026-09-25). Controls use shell hover and focus feedback. | stated | 100 |
 | D11 | Commit | After at least three vertices, returning to the first vertex closes one PathData without a duplicated start anchor. Fill remains unset until chosen. Enter commits an open path. A moving primary press places one vertex; release adds none. | pattern | 85 |
 | D12 | Cancel | Retain the existing creation cancel/undo grammar; palette cancellation follows P1.shape.properties. | pattern | 85 |
 | D13 | Selected presentation | P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers. | pattern | 85 |

@@ -414,6 +414,15 @@ impl Harness {
     /// One frame with real input, which is the only way to test what the board
     /// and a focused page each do with the same wheel notch or keystroke.
     pub(super) fn frame_with(&mut self, prepare: impl FnOnce(&mut egui::RawInput)) {
+        let _ = self.frame_output(prepare);
+    }
+
+    /// [`Self::frame_with`], keeping what the frame asked of the platform
+    /// (the cursor icon, for one).
+    pub(super) fn frame_output(
+        &mut self,
+        prepare: impl FnOnce(&mut egui::RawInput),
+    ) -> egui::FullOutput {
         let mut input = egui::RawInput {
             screen_rect: Some(ERect::from_min_size(Pos2::ZERO, EVec2::new(1440.0, 900.0))),
             ..Default::default()
@@ -421,8 +430,9 @@ impl Harness {
         prepare(&mut input);
         let ctx = self.ctx.clone();
         let app = &mut self.app;
-        let _ = ctx.run(input, |c| app.update_app(c));
+        let out = ctx.run(input, |c| app.update_app(c));
         assert_invariants(&self.app);
+        out
     }
 
     /// A workbook with two facet groups, three tags, and three linked files
@@ -8580,6 +8590,89 @@ fn the_width_chord_mid_stroke_widens_the_rest_of_the_pen_stroke() {
     };
     assert!(shape.path.as_ref().unwrap().tips.is_empty());
     assert_eq!(plain.width, wide, "the next stroke starts at the new width");
+}
+
+/// Stated: every armed drawing tool shows a crosshair or a circle cursor.
+/// The match is exhaustive, so a new tool cannot ship without a choice.
+#[test]
+fn every_armed_tool_names_its_cursor() {
+    use board::BoardTool as T;
+    use board_place::ArmedCursor as C;
+    for tool in T::ALL {
+        let want = match tool {
+            T::Brush | T::Eraser | T::Smooth | T::Pen => C::TipCircle,
+            T::Line
+            | T::Arc
+            | T::Polyline
+            | T::BezierSpan
+            | T::RectShape
+            | T::Ellipse
+            | T::Polygon
+            | T::Trim
+            | T::Split
+            | T::Deck => C::Crosshair,
+            T::Frame
+            | T::Text
+            | T::Sticky
+            | T::AgentPortal
+            | T::WebPortal
+            | T::AtlasPortal
+            | T::SlatePortal => C::Ghost,
+            T::Select | T::Pan | T::DirectSelect | T::Eyedropper => C::Own,
+        };
+        assert_eq!(board_place::armed_cursor(tool), want, "{tool:?}");
+    }
+}
+
+/// Stated: line, arc, polyline, Bézier, and the shape tools hover with a
+/// crosshair; brush, eraser, smooth, and pen hide the arrow under their tip.
+#[test]
+fn armed_drawing_tools_hover_with_a_crosshair_or_tip_circle() {
+    use board::BoardTool as T;
+    let mut h = line_board("armed_cursors");
+    h.frame();
+    let c = h.app.canvas_rect.center();
+    let hover = |h: &mut Harness, tool: T| {
+        h.app.set_board_tool(tool);
+        h.frame_with(pointer_to(c, false));
+        h.frame_output(pointer_to(c + EVec2::new(4.0, 0.0), false))
+            .platform_output
+            .cursor_icon
+    };
+    for tool in [
+        T::Line,
+        T::Arc,
+        T::Polyline,
+        T::BezierSpan,
+        T::RectShape,
+        T::Ellipse,
+        T::Polygon,
+    ] {
+        assert_eq!(hover(&mut h, tool), egui::CursorIcon::Crosshair, "{tool:?}");
+    }
+    for tool in [T::Brush, T::Eraser, T::Smooth, T::Pen] {
+        assert_eq!(hover(&mut h, tool), egui::CursorIcon::None, "{tool:?}");
+    }
+}
+
+/// Chosen: the pen's cursor is a hard circle of the pen's own width and
+/// color, the same disc the brush shows for its tip.
+#[test]
+fn the_pen_cursor_is_a_hard_circle_of_its_width() {
+    let mut h = line_board("pen_cursor");
+    h.app.tab_mut().cam.z = 2.0;
+    h.app.set_board_tool(board::BoardTool::Pen);
+    h.app.set_tool_width(slate_doc::StrokeTool::Pen, 8.0);
+    let pen = h.app.stroke_for_tool(slate_doc::StrokeTool::Pen);
+    let (r, softness, ink) = h.app.width_cursor_disc().expect("the pen shows a disc");
+    assert_eq!(r, 8.0, "radius is half the width, zoomed");
+    assert_eq!(softness, 0.0, "the pen is hard");
+    assert_eq!(ink, board::rgba32(pen.color));
+    h.app.set_board_tool(board::BoardTool::Line);
+    assert!(
+        h.app.width_cursor_disc().is_none(),
+        "the line uses a crosshair"
+    );
 }
 
 #[test]

@@ -40,7 +40,7 @@ P2.PortalPlace — deviations flagged below.
 | D07 | Direction / value locks | n/a for area placement. Tab does not lock during GhostFollow or DragScale. | pattern | 85 |
 | D08 | Numeric / manual entry | n/a during place (Art. III). Size after commit via bbox grips / inspector only. | pattern | 80 |
 | D09 | Preview & readouts | P2.GhostFollow.glyph. Frame / Rect / Ellipse / portals / Text / Sticky each have a silhouette. During DragScale the silhouette is replaced by the existing live rubber-band. No new dock readout. The glyph is pointer-attached chrome (P0.9): screen-space, no zoom coupling, no authored text. | stated | 100 |
-| D10 | Cursor | P2.GhostFollow.cursor. Text / Sticky get the tint **and** a small glyph (OQ4, 2026-08-15). | stated | 100 |
+| D10 | Cursor | P2.GhostFollow.cursor. Text / Sticky get the tint **and** a small glyph (OQ4, 2026-08-15). Every armed drawing tool shows a crosshair or a tip circle (stated 2026-09-25): Brush, Eraser, Smooth, and Pen a circle sized to the tip; Line, Arc, Polyline, Bézier, Rectangle, Ellipse, and Polygon the crosshair. `board_place::armed_cursor` names every tool's cursor. | stated | 100 |
 | D11 | Commit | Unchanged. Existing `finish_draw` / `place_*_at` / journal cmds. The ghost never commits. One gesture = one undo (P0.2 / P0.3). | pattern | 90 |
 | D12 | Cancel | Esc during GhostFollow or mid-DragScale disarms to Select, no node (P0.1 Mode layer). | pattern | 88 |
 | D13 | Selected presentation | n/a — this contract does not change post-commit handles (P1.node bbox / P1.curve.grips). | pattern | 85 |

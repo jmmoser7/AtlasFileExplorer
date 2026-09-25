@@ -23,7 +23,7 @@ D01–D17 are every tool-scoped dimension. D18–D35 are portal-only and do not 
 | D07 | Direction / value locks | n/a: no direction/value lock while sketching. | pattern | 85 |
 | D08 | Numeric / manual entry | tight local W/H stringers; change dimensions by scaling the committed path around bounds center without re-fitting the stroke. Alternative: one curve-length L stringer for uniform scaling. No dimensions in the toolbar. | guess | 55 |
 | D09 | Preview & readouts | Keep press/release endpoints and all intermediate events separated by at least 0.5 screen px. Fitter simplification tolerance is 0.5 screen px at capture zoom; this is a tuning parameter, not a proof of a global error bound. | pattern | 85 |
-| D10 | Cursor | Retain existing armed-tool cursor; controls use shell hover and focus feedback. | pattern | 85 |
+| D10 | Cursor | A hard circle of the pen's own width and color, the same disc the Brush shows for its tip; the OS cursor hides under it over the board. The user offered circle or crosshair (stated 2026-09-25); the circle was chosen because it previews the width the width chord scrubs. The size HUD replaces it while open. Controls use shell hover and focus feedback. | stated | 100 |
 | D11 | Commit | P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history. | pattern | 85 |
 | D12 | Cancel | P1.shape.properties: Esc cancels the pending property edit and preserves selection. Existing creation cancellation remains unchanged. | pattern | 85 |
 | D13 | Selected presentation | P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers. | pattern | 85 |

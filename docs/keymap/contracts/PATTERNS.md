@@ -531,8 +531,12 @@ P2.DragShape, P2.PortalPlace, or P2.PlaceOnce.
 - **P2.GhostFollow.cursor** while armed and the pointer is over the board,
   hide the OS cursor and paint a pointer in `place.cursor_tint`
   (`palette.accent`). Same paint path as the rotate cursor
-  (`CursorIcon::None` + glyph). Line keeps its crosshair; Brush / Eraser
-  keep the width circle; Select / Pan are unchanged.
+  (`CursorIcon::None` + glyph). Every armed drawing tool shows a crosshair
+  or a tip circle instead (stated 2026-09-25): Line, Arc, Polyline, Bézier,
+  Polygon, Rectangle, and Ellipse show the OS crosshair (Rectangle and
+  Ellipse keep the silhouette); Brush / Eraser / Smooth / Pen hide the OS
+  cursor under a circle sized to the tip; Select / Pan are unchanged.
+  `board_place::armed_cursor` is the one table.
 - **P2.GhostFollow.glyph** a small **screen-space** silhouette of the armed
   result follows the pointer: size `place.ghost_size` (22 px), offset
   `place.ghost_offset` (14, 14) from the hotspot, alpha `place.ghost_alpha`

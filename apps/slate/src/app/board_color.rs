@@ -1528,18 +1528,31 @@ impl SlateApp {
 
     // ---------- cursor feedback ----------
 
-    /// Filled tip while Brush or Eraser is armed. Softness is a solid core
-    /// that fades to the rim, the same stamp Photoshop shows for the brush.
-    pub(crate) fn paint_width_cursor(&self, painter: &egui::Painter, pointer: Pos2) {
+    /// Screen radius, softness, and color of the tip disc for Brush, Eraser,
+    /// Smooth, and Pen; `None` for every other tool.
+    pub(crate) fn width_cursor_disc(&self) -> Option<(f32, f32, Color32)> {
         let z = self.tab().cam.z;
-        let (w, softness, strength) = self.active_tip();
-        let r = (w * 0.5 * z).max(1.5);
+        let (w, softness, strength) = self.chord_tip();
         let ink = match self.board_tool {
+            BoardTool::Brush => self.brush_preview_color(),
             BoardTool::Eraser => {
                 Color32::from_gray(180).gamma_multiply(self.eraser_opacity.clamp(0.1, 1.0))
             }
             BoardTool::Smooth => Color32::from_gray(160).gamma_multiply(strength.clamp(0.1, 1.0)),
-            _ => self.brush_preview_color(),
+            BoardTool::Pen => {
+                super::board::rgba32(self.stroke_for_tool(slate_doc::StrokeTool::Pen).color)
+            }
+            _ => return None,
+        };
+        Some(((w * 0.5 * z).max(1.5), softness, ink))
+    }
+
+    /// Filled tip while Brush, Eraser, Smooth, or Pen is armed. Softness is
+    /// a solid core that fades to the rim, the same stamp Photoshop shows for
+    /// the brush.
+    pub(crate) fn paint_width_cursor(&self, painter: &egui::Painter, pointer: Pos2) {
+        let Some((r, softness, ink)) = self.width_cursor_disc() else {
+            return;
         };
         paint_soft_disc(painter, pointer, r, softness, ink);
         if self.shift_down {
