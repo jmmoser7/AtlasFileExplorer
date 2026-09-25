@@ -151,6 +151,7 @@ mod tests {
             WorldRect::new(10.0, 10.0, 80.0, 80.0),
             NodeKind::Shape(ShapeNode {
                 shape: ShapeKind::Rect,
+                sides: 6,
                 fill: Some(Rgba::opaque(255, 0, 0)),
                 stroke: Stroke::none(),
                 corner: Default::default(),

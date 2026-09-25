@@ -552,6 +552,7 @@ mod tests {
             WorldRect::new(10.0, 10.0, 30.0, 30.0),
             NodeKind::Shape(ShapeNode {
                 shape: ShapeKind::Rect,
+                sides: 6,
                 fill: None,
                 stroke: Stroke::none(),
                 corner: Corner::Square,
