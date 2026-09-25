@@ -2045,6 +2045,10 @@ pub(crate) fn fillet_overhangs(rect: Rect, radius: f32) -> [Vec<Pos2>; 4] {
     })
 }
 
+/// The edge of a rotated rect that faces up on screen, ordered left to right.
+/// Corners wind clockwise, so an edge's outward normal is `(d.y, -d.x)`: the
+/// edge running most nearly rightward faces most nearly up. Ties keep the
+/// local top edge.
 pub(crate) fn upper_edge(rect: WorldRect, rotation_deg: f32) -> [Pos2; 2] {
     let c = rect
         .corners_rotated(rotation_deg)
@@ -3218,10 +3222,13 @@ impl SlateApp {
                         .unwrap_or(0);
                     let title = canvas_scale::px(12.0, z);
                     if canvas_text::legible(title) {
-                        canvas_text::text(
+                        paint_frame_label(
                             painter,
-                            srect.left_top() + Vec2::new(2.0 * z, -6.0 * z),
-                            Align2::LEFT_BOTTOM,
+                            xf,
+                            node,
+                            false,
+                            2.0,
+                            6.0,
                             format!("{order} · {}", f.title),
                             FontId::proportional(title),
                             palette.sub,
@@ -3237,10 +3244,13 @@ impl SlateApp {
                             .collect();
                         let tag_px = canvas_scale::px(10.5, z);
                         if canvas_text::legible(tag_px) {
-                            canvas_text::text(
+                            paint_frame_label(
                                 painter,
-                                srect.right_top() + Vec2::new(-2.0 * z, -6.0 * z),
-                                Align2::RIGHT_BOTTOM,
+                                xf,
+                                node,
+                                true,
+                                2.0,
+                                6.0,
                                 format!("⬦ {}", tags.join(", ")),
                                 FontId::proportional(tag_px),
                                 palette.accent,
@@ -8576,6 +8586,107 @@ pub(crate) mod brush_prof {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_rotated_frame_keeps_its_title_edge_on_top() {
+        // Letter portrait, 8.5 × 11 at 72 u per inch.
+        let rect = WorldRect::new(100.0, 50.0, 612.0, 792.0);
+        let [a, b] = upper_edge(rect, 0.0);
+        assert_eq!((a, b), (Pos2::new(100.0, 50.0), Pos2::new(712.0, 50.0)));
+        for rotation in [90.0, -90.0, 180.0, 270.0, 30.0, -30.0, 135.0] {
+            let [a, b] = upper_edge(rect, rotation);
+            let bounds = rect.rotated_bounds(rotation);
+            let top = a.y.min(b.y);
+            assert!((top - bounds.y).abs() < 0.01, "{rotation}° edge is the top");
+            assert!(b.x > a.x, "{rotation}° label reads left to right");
+            let corners = rect.corners_rotated(rotation);
+            let mid = a.lerp(b, 0.5);
+            let center = Pos2::new(rect.center().0, rect.center().1);
+            let up = Vec2::new((b - a).y, -(b - a).x).normalized();
+            assert!(
+                (mid - center).dot(up) > 0.0,
+                "{rotation}° normal is outward"
+            );
+            assert!(
+                corners
+                    .iter()
+                    .all(|&(x, y)| (Pos2::new(x, y) - center).dot(up)
+                        <= (mid - center).dot(up) + 0.01)
+            );
+        }
+        // Turned to landscape, the title runs along the long 792 u side.
+        for rotation in [90.0, -90.0] {
+            let [a, b] = upper_edge(rect, rotation);
+            assert!(((b - a).length() - 792.0).abs() < 0.01);
+            assert!((a.y - b.y).abs() < 0.01);
+        }
+    }
+
+    fn frame(rect: WorldRect, rotation_deg: f32) -> Node {
+        let mut node = slate_doc::scene::Scene::default().build_node(
+            rect,
+            NodeKind::Frame(slate_doc::scene::FrameNode {
+                title: "Slide 2".into(),
+                order: 1,
+                fill: Rgba::WHITE,
+                fill_authored: false,
+                assignments: Default::default(),
+                stroke: slate_doc::scene::Stroke::none(),
+                corner: Corner::Square,
+            }),
+        );
+        node.rotation_deg = rotation_deg;
+        node
+    }
+
+    /// The screenshot case: a 223.57 × 289.326 portrait frame (and a Letter
+    /// 8.5 × 11 one) turned to landscape. The title's bottom-left sits at the
+    /// rotated frame's visual top-left, inset and lifted exactly as on an
+    /// unrotated frame, horizontal, never offset toward the old portrait corner.
+    #[test]
+    fn a_quarter_turned_frame_title_sits_at_its_visual_top_left() {
+        let xf = BoardXf {
+            center: Pos2::new(400.0, 300.0),
+            offset: Vec2::new(50.0, -20.0),
+            z: 1.7,
+        };
+        let size = Vec2::new(90.0, 20.0);
+        let (inset, lift) = (2.0, 6.0);
+        for (w, h) in [(223.57, 289.326), (612.0, 792.0)] {
+            let rect = WorldRect::new(100.0, 50.0, w, h);
+            for rotation in [0.0, 90.0, -90.0, 180.0, 270.0] {
+                let node = frame(rect, rotation);
+                let bounds = xf.rect_w2s(rect.rotated_bounds(rotation));
+                let (center, angle) = frame_label_placement(&xf, &node, false, inset, lift, size);
+                assert_eq!(angle, 0.0, "{w}×{h} at {rotation}° is horizontal");
+                let bottom_left = center + Vec2::new(-size.x, size.y) * 0.5;
+                let want = bounds.left_top() + Vec2::new(inset * xf.z, -lift * xf.z);
+                assert!(
+                    (bottom_left - want).length() < 0.01,
+                    "{w}×{h} at {rotation}°: {bottom_left:?} vs {want:?}"
+                );
+                // The tag label mirrors it at the visual top-right.
+                let (center, angle) = frame_label_placement(&xf, &node, true, inset, lift, size);
+                assert_eq!(angle, 0.0);
+                let bottom_right = center + Vec2::new(size.x, size.y) * 0.5;
+                let want = bounds.right_top() + Vec2::new(-inset * xf.z, -lift * xf.z);
+                assert!(
+                    (bottom_right - want).length() < 0.01,
+                    "{w}×{h} at {rotation}° tags"
+                );
+            }
+        }
+        // Off-axis turns still read left to right, riding the upper edge.
+        for rotation in [30.0, -30.0, 135.0, -150.0] {
+            let node = frame(WorldRect::new(100.0, 50.0, 223.57, 289.326), rotation);
+            let (_, angle) = frame_label_placement(&xf, &node, false, inset, lift, size);
+            assert!(angle.cos() > 0.0, "{rotation}° reads left to right");
+            assert!(
+                angle.abs() <= std::f32::consts::FRAC_PI_4 + 1e-4,
+                "{rotation}°"
+            );
+        }
+    }
 
     #[test]
     fn sheet_viewport_shows_a_dozen_and_scrolls_the_rest() {
