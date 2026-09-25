@@ -321,10 +321,26 @@ egui still decides what reaches the page and Esc can peel focus off it.
 
 The page has no channel back into Slate — web messages and host objects are
 disabled — which is what makes Art. VII.4 structural rather than a promise.
+
+A `window.open` that asks for a size or position (sign-in windows) opens in a
+small top-level window owned by the board window, hosting a second view from
+the same environment and profile, handed to the page with `SetNewWindow` so
+`window.opener` survives. WebView2 refuses a windowed controller in an
+environment that already hosts composition controllers, so that view is
+composition-hosted too: a desktop window target for its visuals, mouse and
+cursor forwarded from the window procedure, and keyboard through WebView2's
+own focus. `board_web.rs` owns the policy (`popup_disposition`,
+`popup_window_rect`, `PopupBook`, and the `pinned` admission rule that keeps
+the opener in the pool); every eviction path closes the portal's pop-ups.
+`release_keyboard` only reclaims focus from the board window's own children,
+so a focused board field cannot steal keys from a sign-in window. Links and
+featureless `window.open` still navigate the portal in place.
 The user-data folder is `%LOCALAPPDATA%\NativeFileAtlas\webview2`, never
 beside the workbook. Each remote origin gets its own WebView2 profile
 (`slate_doc::scene::web_profile_name`); local files share `local`. Sign-in
-therefore belongs to this Windows user and this site. Export skips any
+therefore belongs to this Windows user and this site. The profile comes from
+the authored locator (`WebRequest::profile`), never the page's current URL, so
+a sign-in redirect or a followed link stays in the portal's own jar. Export skips any
 locator `atlas_core::secrets::is_machine_private` would flag. The contract
 is `docs/keymap/contracts/portal-web-embed.md`.
 

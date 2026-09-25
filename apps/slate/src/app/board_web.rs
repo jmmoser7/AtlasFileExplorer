@@ -81,6 +81,10 @@ pub const BORDER_HIT_PX: f32 = 6.0;
 pub const POLL_SECS: f32 = 1.0;
 /// Poster alpha while a recapture is in flight.
 pub const STALE_ALPHA: f32 = 0.6;
+/// Content size, in CSS pixels, of a pop-up that gave a position but no size.
+pub const POPUP_DEFAULT_CSS: (u32, u32) = (500, 600);
+/// Smallest pop-up content, in CSS pixels, whatever the page asked for.
+pub const POPUP_MIN_CSS: (u32, u32) = (240, 160);
 
 // ---------------------------------------------------------------------------
 // States (D30) and level of detail (D23)
@@ -225,6 +229,13 @@ pub struct WebRequest {
     /// Runs in the page after load so a wired spreadsheet can feed a chart.
     /// Empty for remote pages.
     pub link_script: String,
+    /// Where the portal was last painted, in physical pixels of the board
+    /// window's client area. A pop-up with no requested position centres on it.
+    pub anchor_px: Option<PxRect>,
+    /// WebView2 profile, from the authored locator — never from `target`,
+    /// which follows the page. A sign-in redirect or a followed link must not
+    /// move the portal into another origin's cookie jar (D15, D32).
+    pub profile: String,
 }
 
 impl WebRequest {
@@ -351,6 +362,12 @@ pub trait WebHost {
     fn take_text(&mut self, _id: NodeId) -> Option<Result<String, String>> {
         None
     }
+    /// Whether a pop-up window this portal's page opened is still up. Such a
+    /// portal keeps its pool slot: evicting it would destroy the opener a
+    /// sign-in window reports back to (D15 / D22 amendment, 25 September 2026).
+    fn holds_popup(&self, _id: NodeId) -> bool {
+        false
+    }
 }
 
 /// A captured page. Shared, so keeping the latest frame for posters costs a
@@ -409,6 +426,8 @@ struct WebView {
     width_px: f32,
     height_px: f32,
     area_px: f32,
+    /// Last painted rect in client physical pixels, for pop-up placement.
+    anchor_px: Option<PxRect>,
     on_screen: bool,
     live: bool,
     last_focus: Option<Instant>,
@@ -441,6 +460,7 @@ impl WebView {
             width_px: 0.0,
             height_px: 0.0,
             area_px: 0.0,
+            anchor_px: None,
             on_screen: false,
             live: false,
             last_focus: None,
@@ -689,6 +709,8 @@ pub struct Candidate {
     pub renderable: bool,
     /// Already holding a pool slot last frame — hysteresis uses this.
     pub was_live: bool,
+    /// Its page has a pop-up window open, which needs the opener alive.
+    pub pinned: bool,
 }
 
 /// Chooses which portals hold the pool's webviews this frame (D29).
@@ -699,15 +721,18 @@ pub struct Candidate {
 ///
 /// Focus overrides the size gate rather than merely sorting ahead of it: a
 /// human who double-clicks into a page has said what they want, and answering
-/// "too small" would be the app arguing with them.
+/// "too small" would be the app arguing with them. A portal whose page has a
+/// pop-up open overrides both the size and the on-screen gates, because the
+/// person is signing in through a window that reports back to this page.
 pub fn admit(candidates: &[Candidate], pool: usize) -> Vec<NodeId> {
     let mut eligible: Vec<&Candidate> = candidates
         .iter()
-        .filter(|c| c.renderable && c.on_screen && size_keeps_slot(c))
+        .filter(|c| c.renderable && (c.pinned || (c.on_screen && size_keeps_slot(c))))
         .collect();
     eligible.sort_by(|a, b| {
         b.focused
             .cmp(&a.focused)
+            .then_with(|| b.pinned.cmp(&a.pinned))
             .then_with(|| {
                 b.area_px
                     .partial_cmp(&a.area_px)
@@ -728,6 +753,188 @@ fn size_keeps_slot(c: &Candidate) -> bool {
     // Keep a visible browser alive while zooming; size controls painting, not
     // document lifetime. The pool cap and off-screen eviction still apply.
     c.was_live && c.height_px > 0.0
+}
+
+// ---------------------------------------------------------------------------
+// Page-opened pop-ups (D15 / D22, amended 25 September 2026)
+// ---------------------------------------------------------------------------
+
+/// What a page's `window.open` asked for, as WebView2 reports it. Position
+/// and size are CSS pixels; position is in screen coordinates.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PopupFeatures {
+    pub position: Option<(i32, i32)>,
+    pub size: Option<(u32, u32)>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PopupDisposition {
+    /// An ordinary `_blank` link or bare `window.open`: the view that asked
+    /// navigates in place.
+    NavigateInPlace,
+    /// A pop-up-style request, as Google and Microsoft sign-in make: a small
+    /// Slate-owned window on the same profile, so `window.opener` survives.
+    OwnedWindow,
+}
+
+/// The one rule for every page-opened window, whether a portal or one of its
+/// pop-ups asked. Requesting a size or a position is what a sign-in window
+/// does and a link does not.
+pub fn popup_disposition(features: &PopupFeatures) -> PopupDisposition {
+    if features.size.is_some() || features.position.is_some() {
+        PopupDisposition::OwnedWindow
+    } else {
+        PopupDisposition::NavigateInPlace
+    }
+}
+
+/// A pop-up window's title: where its page is, never what the page calls
+/// itself, so a sign-in window cannot claim to be something else (Art. IV).
+pub fn popup_title(url: &str) -> String {
+    if let Some(origin) = web_origin(url) {
+        return origin;
+    }
+    let bare = url.split(['?', '#']).next().unwrap_or(url).trim();
+    if bare.is_empty() || bare.to_ascii_lowercase().starts_with("about:") {
+        "Pop-up".to_string()
+    } else {
+        bare.to_string()
+    }
+}
+
+/// A rectangle in physical pixels.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PxRect {
+    pub left: i32,
+    pub top: i32,
+    pub right: i32,
+    pub bottom: i32,
+}
+
+impl PxRect {
+    pub fn new(left: i32, top: i32, right: i32, bottom: i32) -> Self {
+        Self {
+            left,
+            top,
+            right,
+            bottom,
+        }
+    }
+    pub fn width(&self) -> i32 {
+        self.right - self.left
+    }
+    pub fn height(&self) -> i32 {
+        self.bottom - self.top
+    }
+    pub fn offset(&self, dx: i32, dy: i32) -> Self {
+        Self::new(
+            self.left + dx,
+            self.top + dy,
+            self.right + dx,
+            self.bottom + dy,
+        )
+    }
+}
+
+/// An egui screen rect in physical pixels of the board window's client area.
+fn physical_rect(rect: Rect, ppp: f32) -> PxRect {
+    PxRect::new(
+        (rect.min.x * ppp).round() as i32,
+        (rect.min.y * ppp).round() as i32,
+        (rect.max.x * ppp).round() as i32,
+        (rect.max.y * ppp).round() as i32,
+    )
+}
+
+/// The outer rect of a pop-up window, in physical screen pixels.
+///
+/// `scale` is physical pixels per CSS pixel on the target monitor. `frame`
+/// holds the non-client thickness on each side (left, top, right, bottom), so
+/// the page gets the content size it asked for. `anchor` is the portal (or
+/// the opener pop-up) on screen, and `work` is that monitor's work area. The
+/// result always fits inside `work`.
+pub fn popup_window_rect(
+    features: &PopupFeatures,
+    scale: f64,
+    frame: PxRect,
+    anchor: PxRect,
+    work: PxRect,
+) -> PxRect {
+    let scale = if scale.is_finite() && scale > 0.0 {
+        scale
+    } else {
+        1.0
+    };
+    let px = |css: f64| (css * scale).round() as i32;
+    let (cw, ch) = features.size.unwrap_or(POPUP_DEFAULT_CSS);
+    let cw = cw.max(POPUP_MIN_CSS.0);
+    let ch = ch.max(POPUP_MIN_CSS.1);
+    let w = (px(cw as f64) + frame.left + frame.right).min(work.width().max(1));
+    let h = (px(ch as f64) + frame.top + frame.bottom).min(work.height().max(1));
+    let (left, top) = match features.position {
+        Some((x, y)) => (px(x as f64) - frame.left, px(y as f64) - frame.top),
+        None => (
+            anchor.left + (anchor.width() - w) / 2,
+            anchor.top + (anchor.height() - h) / 2,
+        ),
+    };
+    let left = left.clamp(work.left, (work.right - w).max(work.left));
+    let top = top.clamp(work.top, (work.bottom - h).max(work.top));
+    PxRect::new(left, top, left + w, top + h)
+}
+
+/// Which portal owns which pop-up windows, and who closes when.
+///
+/// Generic over the window handle so the close rules run without Win32. A
+/// pop-up's own pop-ups belong to the same portal. Nothing here is journaled,
+/// exported, or written into the `.slate` (D26 / D31).
+#[derive(Debug)]
+pub struct PopupBook<W> {
+    open: Vec<(NodeId, W)>,
+}
+
+impl<W> Default for PopupBook<W> {
+    fn default() -> Self {
+        Self { open: Vec::new() }
+    }
+}
+
+impl<W: Copy + PartialEq> PopupBook<W> {
+    pub fn opened(&mut self, portal: NodeId, window: W) {
+        if !self.open.iter().any(|(_, w)| *w == window) {
+            self.open.push((portal, window));
+        }
+    }
+
+    /// The pop-up closed itself (`window.close()`), or the person closed it.
+    /// Only that window goes; its portal and siblings are untouched.
+    pub fn closed(&mut self, window: W) {
+        self.open.retain(|(_, w)| *w != window);
+    }
+
+    /// The portal's page is going away — deleted, evicted from the pool, its
+    /// tab or workbook closed. Returns every window that must close with it.
+    pub fn evicted(&mut self, portal: NodeId) -> Vec<W> {
+        let mut gone = Vec::new();
+        self.open.retain(|(p, w)| {
+            if *p == portal {
+                gone.push(*w);
+                false
+            } else {
+                true
+            }
+        });
+        gone
+    }
+
+    pub fn holds(&self, portal: NodeId) -> bool {
+        self.open.iter().any(|(p, _)| *p == portal)
+    }
+
+    /// Every window, for host shutdown.
+    pub fn drain(&mut self) -> Vec<W> {
+        self.open.drain(..).map(|(_, w)| w).collect()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -934,6 +1141,7 @@ impl SlateApp {
                     v.width_px = layout.body.width() * ppp;
                     v.height_px = layout.body.height() * ppp;
                     v.area_px = v.width_px * v.height_px;
+                    v.anchor_px = Some(physical_rect(layout.body, ppp));
                     v.on_screen = true;
                 }
             }
@@ -952,6 +1160,7 @@ impl SlateApp {
                 last_focus: view.last_focus,
                 renderable,
                 was_live: view.live,
+                pinned: self.web.host.holds_popup(*id),
             });
         }
 
@@ -1254,6 +1463,7 @@ impl SlateApp {
                 .into_owned(),
         };
         let target = self.resume_target(id, &authored);
+        let profile = slate_doc::scene::web_profile_name(&authored);
         let (width_css, height_css) = css_size(&web, rect);
         let display = ctx.screen_rect().size() * ctx.pixels_per_point();
         let (raster_w, raster_h) = self
@@ -1268,6 +1478,7 @@ impl SlateApp {
         } else {
             self.dashboard_link_script(id)
         };
+        let anchor_px = self.web.views.get(&id).and_then(|v| v.anchor_px);
         Some(WebRequest {
             target,
             kind,
@@ -1276,6 +1487,8 @@ impl SlateApp {
             raster_w,
             raster_h,
             link_script,
+            anchor_px,
+            profile,
         })
     }
 
@@ -1521,6 +1734,9 @@ impl SlateApp {
             v.height_px = srect.height() * ppp;
             v.area_px = v.width_px * v.height_px;
             v.on_screen = clip.intersects(srect);
+            if v.on_screen {
+                v.anchor_px = Some(physical_rect(srect.intersect(clip), ppp));
+            }
         }
     }
 
@@ -3012,6 +3228,7 @@ mod tests {
             last_focus: None,
             renderable: true,
             was_live: false,
+            pinned: false,
         }
     }
 
@@ -3129,6 +3346,165 @@ mod tests {
             })
             .collect();
         assert!(admit(&blocked, LIVE_POOL).is_empty());
+    }
+
+    #[test]
+    fn sign_in_popups_get_a_window_and_links_navigate_in_place() {
+        let sized = PopupFeatures {
+            size: Some((500, 600)),
+            ..Default::default()
+        };
+        let placed = PopupFeatures {
+            position: Some((100, 80)),
+            ..Default::default()
+        };
+        assert_eq!(popup_disposition(&sized), PopupDisposition::OwnedWindow);
+        assert_eq!(popup_disposition(&placed), PopupDisposition::OwnedWindow);
+        assert_eq!(
+            popup_disposition(&PopupFeatures::default()),
+            PopupDisposition::NavigateInPlace,
+            "a _blank link keeps navigating the portal"
+        );
+    }
+
+    #[test]
+    fn a_popup_title_names_its_origin_not_its_page() {
+        assert_eq!(
+            popup_title("https://accounts.google.com/o/oauth2/v2/auth?client_id=x#frag"),
+            "https://accounts.google.com"
+        );
+        assert_eq!(popup_title("about:blank"), "Pop-up");
+        assert_eq!(popup_title(""), "Pop-up");
+        assert_eq!(
+            popup_title("file:///C:/dash/login.html?next=1"),
+            "file:///C:/dash/login.html"
+        );
+    }
+
+    #[test]
+    fn a_popup_centres_on_its_portal_and_keeps_the_requested_content_size() {
+        let work = PxRect::new(0, 0, 1920, 1040);
+        let frame = PxRect::new(8, 31, 8, 8);
+        let anchor = PxRect::new(400, 200, 1400, 800);
+        let features = PopupFeatures {
+            size: Some((500, 600)),
+            ..Default::default()
+        };
+        let r = popup_window_rect(&features, 1.0, frame, anchor, work);
+        assert_eq!((r.width(), r.height()), (516, 639));
+        assert_eq!((r.left + r.width() / 2, r.top + r.height() / 2), (900, 500));
+
+        // 150% display: the page's CSS size becomes physical pixels.
+        let r = popup_window_rect(&features, 1.5, frame, anchor, work);
+        assert_eq!((r.width(), r.height()), (766, 939));
+    }
+
+    #[test]
+    fn a_popup_honours_a_requested_position_and_never_leaves_the_work_area() {
+        let work = PxRect::new(0, 0, 1920, 1040);
+        let frame = PxRect::new(8, 31, 8, 8);
+        let anchor = PxRect::new(0, 0, 100, 100);
+        let at = PopupFeatures {
+            position: Some((300, 200)),
+            size: Some((400, 300)),
+        };
+        let r = popup_window_rect(&at, 1.0, frame, anchor, work);
+        assert_eq!((r.left + frame.left, r.top + frame.top), (300, 200));
+        assert_eq!(r.width(), 416, "position alone does not change the size");
+
+        let off = PopupFeatures {
+            position: Some((5000, -400)),
+            size: Some((400, 300)),
+        };
+        let r = popup_window_rect(&off, 1.0, frame, anchor, work);
+        assert_eq!((r.right, r.top), (1920, 0));
+
+        let huge = PopupFeatures {
+            position: None,
+            size: Some((6000, 4000)),
+        };
+        let r = popup_window_rect(&huge, 1.0, frame, anchor, work);
+        assert_eq!(r, work, "clamped to the monitor");
+
+        let tiny = PopupFeatures {
+            position: None,
+            size: Some((1, 1)),
+        };
+        let r = popup_window_rect(&tiny, 1.0, PxRect::default(), anchor, work);
+        assert_eq!(
+            (r.width(), r.height()),
+            (POPUP_MIN_CSS.0 as i32, POPUP_MIN_CSS.1 as i32)
+        );
+        assert!(
+            r.left >= 0 && r.top >= 0,
+            "an anchor near the edge stays on screen"
+        );
+
+        let only_position = PopupFeatures {
+            position: Some((10, 10)),
+            size: None,
+        };
+        let r = popup_window_rect(&only_position, 1.0, PxRect::default(), anchor, work);
+        assert_eq!(
+            (r.width(), r.height()),
+            (POPUP_DEFAULT_CSS.0 as i32, POPUP_DEFAULT_CSS.1 as i32)
+        );
+    }
+
+    #[test]
+    fn popups_close_with_their_portal_and_on_their_own_request() {
+        let (earth, maps) = (NodeId(1), NodeId(2));
+        let mut book: PopupBook<u32> = PopupBook::default();
+        book.opened(earth, 10);
+        // A pop-up's own pop-up follows the same rule and the same portal.
+        book.opened(earth, 11);
+        book.opened(maps, 20);
+        assert!(book.holds(earth) && book.holds(maps));
+
+        // `window.close()` in the sign-in page closes only that window.
+        book.closed(11);
+        assert!(book.holds(earth));
+
+        // Evicting or deleting the portal closes everything it opened.
+        book.opened(earth, 12);
+        let mut gone = book.evicted(earth);
+        gone.sort();
+        assert_eq!(gone, vec![10, 12]);
+        assert!(!book.holds(earth));
+        assert!(book.holds(maps), "another portal's sign-in is untouched");
+
+        // Closing the tab or workbook drops the host, which closes the rest.
+        assert_eq!(book.drain(), vec![20]);
+        assert!(!book.holds(maps));
+    }
+
+    #[test]
+    fn a_portal_with_a_popup_open_keeps_its_slot() {
+        // Off-screen, too small, and outranked: still admitted while its
+        // sign-in window reports back to it.
+        let mut all: Vec<Candidate> = (0..10)
+            .map(|i| candidate(i, 500.0, 500.0 * (i as f32 + 10.0)))
+            .collect();
+        all.push(Candidate {
+            on_screen: false,
+            pinned: true,
+            ..candidate(99, 20.0, 10.0)
+        });
+        let admitted = admit(&all, LIVE_POOL);
+        assert_eq!(admitted.len(), LIVE_POOL);
+        assert_eq!(admitted[0], NodeId(99));
+
+        let mut focused = candidate(70, 500.0, 1.0);
+        focused.focused = true;
+        all.push(focused);
+        assert_eq!(admit(&all, LIVE_POOL)[..2], [NodeId(70), NodeId(99)]);
+
+        let blocked = Candidate {
+            renderable: false,
+            pinned: true,
+            ..candidate(50, 500.0, 1.0)
+        };
+        assert!(admit(&[blocked], LIVE_POOL).is_empty());
     }
 
     #[test]
