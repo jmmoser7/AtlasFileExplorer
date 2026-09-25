@@ -3709,6 +3709,10 @@ impl SlateApp {
         self.patch_nodes(&[id], |node| bind_program(node, &program, &binding));
 
         self.agents.project_picker = atlas_ai::runtime::linear_provider(provider).then_some(id);
+        if self.agents.project_picker.is_some() && self.agents.recents_rx.is_none() {
+            // Rediscover for this workbook; the last list shows meanwhile.
+            self.agents.recents_started = false;
+        }
         self.agents.sessions.remove(&id);
         self.agents.local_turns.remove(&id);
         self.agents.awaiting.remove(&id);
@@ -6910,19 +6914,23 @@ impl SlateApp {
             .and_then(|n| n.to_str())
             .unwrap_or("Project")
             .to_string();
-        let mut recents = RecentList::load(AGENT_RECENTS_KEY);
-        recents.record(path.clone(), title.clone());
-        recents.save(AGENT_RECENTS_KEY);
-        self.agents.recents.retain(|e| !paths_same(&e.path, &path));
-        self.agents.recents.insert(
-            0,
-            RecentEntry {
-                path: path.clone(),
-                title,
-                opened_at: atlas_ai::context::now_secs(),
-                cover: None,
-            },
-        );
+        if !cfg!(test) {
+            let mut recents = RecentList::load(AGENT_RECENTS_KEY);
+            recents.record(path.clone(), title.clone());
+            recents.save(AGENT_RECENTS_KEY);
+        }
+        let used = RecentEntry {
+            path: path.clone(),
+            title,
+            opened_at: atlas_ai::context::now_secs(),
+            cover: None,
+        };
+        for list in std::iter::once(&mut self.agents.recents)
+            .chain(self.agents.provider_recents.values_mut())
+        {
+            list.retain(|e| !paths_same(&e.path, &path));
+            list.insert(0, used.clone());
+        }
         self.agents.pending_chat_pick = Some(portal);
         self.agent_focus(portal);
         #[cfg(not(test))]
@@ -6956,16 +6964,39 @@ impl SlateApp {
             return;
         }
         self.agents.recents_started = true;
+        let workspace = self.ai.config.workspace_dir.clone();
+        let workbook: Vec<PathBuf> = self
+            .doc()
+            .scene
+            .nodes
+            .iter()
+            .filter(|n| slate_doc::agent_chat::agent(n).is_some())
+            .filter_map(|n| self.agent_folder_for(n.id))
+            .collect();
+        let used = self.agents.recents.clone();
         let (tx, rx) = unbounded();
         self.agents.recents_rx = Some(rx);
         std::thread::spawn(move || {
+            let mut slate = used;
+            if !cfg!(test) {
+                slate.extend(RecentList::load(AGENT_RECENTS_KEY).entries);
+            }
+            if let Some(ws) = &workspace {
+                slate.extend(atlas_ai::projects::session_projects(ws));
+            }
+            slate.extend(
+                workbook
+                    .into_iter()
+                    .map(|p| atlas_ai::projects::entry(p, 0)),
+            );
             let list = ["codex", "cursor"]
                 .into_iter()
                 .map(|provider| {
-                    (
-                        provider.to_string(),
+                    let merged = atlas_ai::projects::merge([
+                        slate.clone(),
                         collect_agent_project_recents(provider),
-                    )
+                    ]);
+                    (provider.to_string(), merged)
                 })
                 .collect();
             let _ = tx.send(list);
@@ -9188,8 +9219,11 @@ fn chat_key(path: &std::path::Path) -> PathBuf {
     }
 }
 
+/// The provider's own recent projects. Tests never ask a real provider.
 fn collect_agent_project_recents(provider: &str) -> Vec<RecentEntry> {
-    let mut out: Vec<RecentEntry> = Vec::new();
+    if cfg!(test) {
+        return Vec::new();
+    }
     let projects = if provider == "codex" {
         atlas_ai::runtime::codex_projects()
     } else {
@@ -9198,26 +9232,16 @@ fn collect_agent_project_recents(provider: &str) -> Vec<RecentEntry> {
             .map(|p| (String::new(), p))
             .collect()
     };
-    for (name, path) in projects {
-        if out.iter().any(|e| paths_same(&e.path, &path)) {
-            continue;
-        }
-        let title = if !name.is_empty() {
-            name
-        } else {
-            path.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("Project")
-                .to_string()
-        };
-        out.push(RecentEntry {
-            path,
-            title,
-            opened_at: 0,
-            cover: None,
-        });
-    }
-    out
+    projects
+        .into_iter()
+        .map(|(name, path)| {
+            let mut entry = atlas_ai::projects::entry(path, 0);
+            if !name.is_empty() {
+                entry.title = name;
+            }
+            entry
+        })
+        .collect()
 }
 
 fn paths_same(a: &std::path::Path, b: &std::path::Path) -> bool {
@@ -9450,6 +9474,92 @@ mod agent_await_tests {
         h.app.agents.output_epoch += 1;
         h.frame();
         assert!(h.app.doc().scene.node(id).unwrap().rect.h > short * 2.0);
+    }
+
+    /// A link folder whose conversation wrote outputs into `project`.
+    fn prior_link(ws: &std::path::Path, session: &str, project: &std::path::Path, at: u64) {
+        let link = atlas_ai::agent::agent_dir(ws, session);
+        std::fs::create_dir_all(&link).unwrap();
+        let out = project
+            .join("slate-outputs")
+            .join("untitled-board")
+            .join("2026-09-24-cursor-abc123");
+        let record = link.join("output.json");
+        atlas_ai::agent::atomic_write_json(&record, &serde_json::json!({ "dir": out })).unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(record)
+            .unwrap()
+            .set_modified(std::time::UNIX_EPOCH + Duration::from_secs(at))
+            .unwrap();
+    }
+
+    fn listed(h: &super::super::tests::Harness, provider: &str) -> Vec<PathBuf> {
+        h.app
+            .agents
+            .provider_recents
+            .get(provider)
+            .map(|list| list.iter().map(|e| e.path.clone()).collect())
+            .unwrap_or_default()
+    }
+
+    fn same_folder(a: &std::path::Path, b: &std::path::Path) -> bool {
+        paths_same(a, b)
+    }
+
+    #[test]
+    fn projects_the_agent_portal_used_before_are_offered_again() {
+        let mut h = super::super::tests::Harness::new("agent_projects_mru");
+        h.app.leave_home();
+        h.app.ensure_work_tab();
+        h.app.doc_mut().view.active_view = slate_doc::ViewKind::Board;
+        let ws = h.base.join("ai-ws");
+        let older = h.base.join("older-project");
+        let newer = h.base.join("newer-project");
+        let open = h.base.join("open-project");
+        let gone = h.base.join("deleted-project");
+        for dir in [&ws, &older, &newer, &open] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        prior_link(&ws, "agent-req-1-new", &newer, 1_790_000_300);
+        prior_link(&ws, "agent-req-1-gone", &gone, 1_790_000_400);
+        prior_link(&ws, "agent-req-1-dup", &older, 1_790_000_200);
+        prior_link(&ws, "agent-req-1-old", &older, 1_790_000_100);
+        h.app.ai.config.workspace_dir = Some(ws);
+        h.app.place_agent_portal_at(Pos2::ZERO);
+        let id = h.app.doc().scene.nodes[0].id;
+        h.app.set_agent_program(id, "cursor");
+        h.app.bind_portal_source(id, open.clone());
+        h.app.agents.project_picker = Some(id);
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            h.frame();
+            let done = h.app.agents.recents_started && h.app.agents.recents_rx.is_none();
+            if done && !listed(&h, "cursor").is_empty() {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "project discovery never finished"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        for provider in ["cursor", "codex"] {
+            let list = listed(&h, provider);
+            let at = |p: &std::path::Path| list.iter().position(|e| same_folder(e, p));
+            let (Some(n), Some(o), Some(w)) = (at(&newer), at(&older), at(&open)) else {
+                panic!("{provider} lists earlier agent projects: {list:?}");
+            };
+            assert!(n < o, "newest first for {provider}: {list:?}");
+            assert!(w < list.len());
+            assert!(at(&gone).is_none(), "a deleted folder is not offered");
+            assert_eq!(
+                list.iter().filter(|e| same_folder(e, &older)).count(),
+                1,
+                "one entry per folder"
+            );
+        }
     }
 
     #[test]
