@@ -3632,14 +3632,17 @@ impl SlateApp {
                 let _ = tx.send(atlas_ai::runtime::discover_programs(ws.as_deref()));
             });
         }
-        if let Some(programs) = self
-            .agents
-            .programs_rx
-            .as_ref()
-            .and_then(|rx| rx.try_recv().ok())
-        {
-            self.agents.programs = programs;
-            self.agents.programs_rx = None;
+        if let Some(rx) = &self.agents.programs_rx {
+            match rx.try_recv() {
+                Ok(programs) => {
+                    self.agents.programs = programs;
+                    self.agents.programs_rx = None;
+                }
+                Err(crossbeam_channel::TryRecvError::Empty) => {}
+                Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                    self.agents.programs_rx = None;
+                }
+            }
         }
     }
 
