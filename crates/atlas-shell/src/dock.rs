@@ -312,9 +312,6 @@ struct DockState {
     bar_collapsed: bool,
     last_icon_rects: HashMap<&'static str, Rect>,
     last_panel_rects: HashMap<&'static str, Rect>,
-    /// Icon-bar center X / baseline Y, so the blister stays on that line.
-    last_bar_center_x: Option<f32>,
-    last_bar_seam_y: Option<f32>,
 }
 
 fn ease_out_cubic(t: f32) -> f32 {
@@ -1545,13 +1542,21 @@ struct BlisterGeom {
     seam: f32,
 }
 
-fn blister_geom(
-    ctx: &egui::Context,
-    canvas: Rect,
-    anchor_x: f32,
-    p: &DockPaletteTokens,
-) -> BlisterGeom {
-    let pixels = ctx.pixels_per_point();
+/// Center line of the readout blister. The icon bar is re-placed from the
+/// canvas every frame, so a collapsed bar's line is derived from the same
+/// placement rather than remembered: a remembered x goes stale as soon as the
+/// canvas moves or resizes while the bar is tucked away.
+fn blister_anchor_x(side: DockSide, canvas: Rect, tokens: &DockTokens, live_bar: Rect) -> f32 {
+    if live_bar.is_positive() && live_bar.width() > 4.0 {
+        return live_bar.center().x;
+    }
+    match side {
+        DockSide::LeftCenter => canvas.left() + tokens.left_margin + tokens.icon_size * 0.5,
+        DockSide::BottomCenter => canvas.center().x,
+    }
+}
+
+fn blister_geom(pixels: f32, canvas: Rect, anchor_x: f32, p: &DockPaletteTokens) -> BlisterGeom {
     let seam = (canvas.bottom() * pixels).round() / pixels;
     let half = p.blister_width.min(canvas.width()) * 0.5;
     let anchor_x = anchor_x.clamp(canvas.left() + half, canvas.right() - half);
@@ -1574,7 +1579,7 @@ fn interact_blister(
     anchor_x: f32,
     reveal: bool,
 ) -> bool {
-    let BlisterGeom { rect, seam } = blister_geom(ctx, canvas, anchor_x, p);
+    let BlisterGeom { rect, seam } = blister_geom(ctx.pixels_per_point(), canvas, anchor_x, p);
     if rect.width() < 8.0 || rect.height() < 2.0 {
         return false;
     }
@@ -3321,10 +3326,6 @@ pub fn floating_dock(
     });
     let bar_rect = if let Some(resp) = bar_response {
         state.last_icon_rects = icon_rects.clone();
-        if resp.response.rect.width() > 4.0 {
-            state.last_bar_center_x = Some(resp.response.rect.center().x);
-            state.last_bar_seam_y = Some(resp.response.rect.bottom());
-        }
         remember_bar_rect(ctx, resp.response.rect);
         resp.response.rect
     } else {
@@ -3333,14 +3334,9 @@ pub fn floating_dock(
         } else {
             estimated_icon_rects(&visible, &tokens, canvas, side)
         };
-        if state.last_bar_center_x.is_none() {
-            state.last_bar_center_x = Some(canvas.center().x);
-        }
-        if state.last_bar_seam_y.is_none() {
-            state.last_bar_seam_y = Some(canvas.bottom());
-        }
         Rect::NOTHING
     };
+    let blister_anchor = blister_anchor_x(side, canvas, &tokens, bar_rect);
 
     let host_associate = hovered_icon
         .filter(|id| state.pinned.contains(id) || state.body_preview == Some(*id))
@@ -3348,8 +3344,6 @@ pub fn floating_dock(
 
     let mut zone_hover = false;
     if !state.bar_collapsed && bar_rect.width() > 4.0 {
-        state.last_bar_center_x = Some(bar_rect.center().x);
-        state.last_bar_seam_y = Some(bar_rect.bottom());
         let zones = collapse_zone_rects(side, bar_rect, canvas, tokens.palette.collapse_zone);
         for (i, z) in zones.iter().enumerate() {
             if z.width() < 6.0 || z.height() < 6.0 {
@@ -3370,11 +3364,6 @@ pub fn floating_dock(
             }
         }
     }
-    let blister_anchor = if bar_rect.width() > 4.0 {
-        bar_rect.center().x
-    } else {
-        state.last_bar_center_x.unwrap_or_else(|| canvas.center().x)
-    };
     if interact_blister(
         ctx,
         state_id,
@@ -3815,9 +3804,9 @@ pub fn floating_dock(
             .contains(p)
             || travel.is_some_and(|r| r.contains(p))
             || blister_geom(
-                ctx,
+                ctx.pixels_per_point(),
                 canvas,
-                state.last_bar_center_x.unwrap_or_else(|| canvas.center().x),
+                blister_anchor,
                 &tokens.palette,
             )
             .rect
@@ -4449,6 +4438,116 @@ mod tests {
         }
     }
     use super::*;
+
+    fn test_dock_tokens() -> DockTokens {
+        let mut tokens = crate::tokens::current().dock.clone();
+        tokens.normalize();
+        tokens
+    }
+
+    #[test]
+    fn blister_centers_on_the_bar_line_expanded_collapsed_and_in_transition() {
+        let tokens = test_dock_tokens();
+        let p = &tokens.palette;
+        let wide = Rect::from_min_size(Pos2::new(0.0, 40.0), Vec2::new(1440.0, 820.0));
+        let narrow = Rect::from_min_size(Pos2::new(0.0, 40.0), Vec2::new(1000.0, 820.0));
+        let bar = Rect::from_center_size(
+            Pos2::new(wide.center().x, wide.bottom() - 40.0),
+            Vec2::new(300.0, tokens.icon_size),
+        );
+
+        let expanded = blister_anchor_x(DockSide::BottomCenter, wide, &tokens, bar);
+        assert_eq!(expanded, bar.center().x);
+        // The frame that collapses has no bar rect; the line must not jump.
+        let transition = blister_anchor_x(DockSide::BottomCenter, wide, &tokens, Rect::NOTHING);
+        assert_eq!(transition, expanded);
+        // Canvas resized while collapsed: follow the canvas, not the old bar.
+        let collapsed = blister_anchor_x(DockSide::BottomCenter, narrow, &tokens, Rect::NOTHING);
+        assert_eq!(collapsed, narrow.center().x);
+
+        for (canvas, anchor) in [(wide, expanded), (narrow, collapsed)] {
+            let g = blister_geom(1.0, canvas, anchor, p);
+            let width = p.blister_width.min(canvas.width());
+            assert!(
+                (g.rect.center().x - anchor).abs() < 0.01,
+                "centered, not offset"
+            );
+            assert!((g.rect.width() - width).abs() < 0.01);
+            assert!((g.rect.left() - (anchor - width * 0.5)).abs() < 0.01);
+            assert_eq!(g.seam, canvas.bottom());
+        }
+
+        let column = Rect::from_min_size(
+            Pos2::new(wide.left() + tokens.left_margin, 300.0),
+            Vec2::new(tokens.icon_size, 400.0),
+        );
+        assert_eq!(
+            blister_anchor_x(DockSide::LeftCenter, wide, &tokens, column),
+            blister_anchor_x(DockSide::LeftCenter, wide, &tokens, Rect::NOTHING),
+        );
+    }
+
+    #[test]
+    fn a_collapsed_blister_follows_a_canvas_that_moved_after_collapse() {
+        let ctx = egui::Context::default();
+        let items = [DockItem {
+            id: "tools",
+            label: "Tools",
+            description: "",
+            icon: DockIcon::Grid,
+            kind: DockItemKind::Tool,
+            active: false,
+            visible: true,
+            gap_before: false,
+        }];
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0));
+        let blister_hit = |canvas: Rect| {
+            let _ = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    ..Default::default()
+                },
+                |ctx| {
+                    floating_dock(
+                        ctx,
+                        "test_blister",
+                        canvas,
+                        &Palette::light(),
+                        DockSide::BottomCenter,
+                        &items,
+                        &[],
+                        &[],
+                        &[],
+                        &[],
+                        false,
+                        |_, _| {},
+                    );
+                },
+            );
+            let frame = nav_frame(&ctx);
+            frame.rects[..frame.n_rects as usize]
+                .iter()
+                .copied()
+                .find(|r| r.bottom() > canvas.bottom())
+                .expect("blister hit rect straddles the readout seam")
+        };
+        let wide = Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 860.0));
+        let narrow = Rect::from_min_size(Pos2::ZERO, Vec2::new(1000.0, 860.0));
+        for _ in 0..2 {
+            let hit = blister_hit(wide);
+            assert!((hit.center().x - wide.center().x).abs() < 1.0);
+        }
+        set_bar_collapsed(&ctx, "test_blister", true);
+        let hit = blister_hit(wide);
+        assert!((hit.center().x - wide.center().x).abs() < 1.0);
+        let hit = blister_hit(narrow);
+        assert!(
+            (hit.center().x - narrow.center().x).abs() < 1.0,
+            "blister at {} but the collapsed bar belongs at {}",
+            hit.center().x,
+            narrow.center().x
+        );
+    }
 
     #[test]
     fn inspector_commands_override_saved_pins_and_keep_forms_in_strip_mode() {
