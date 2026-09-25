@@ -488,7 +488,7 @@ pub fn tab_strip(
 
         if busy {
             ui.add_space(6.0);
-            ui.spinner();
+            busy_spinner(ui);
         }
     });
 
@@ -544,6 +544,35 @@ pub struct PortalTabModel<'a> {
     pub tooltip: &'a str,
     pub live: bool,
     pub maximized: bool,
+}
+
+/// Wait between busy-spinner frames. A file dialog can stay open for
+/// minutes, and egui's `Spinner` repaints the whole window every frame.
+const BUSY_SPINNER_FRAME: std::time::Duration = std::time::Duration::from_millis(50);
+
+/// egui's spinner arc, animated at [`BUSY_SPINNER_FRAME`] instead of the
+/// display rate.
+fn busy_spinner(ui: &mut Ui) {
+    let size = ui.style().spacing.interact_size.y;
+    let (rect, _) = ui.allocate_exact_size(Vec2::splat(size), Sense::hover());
+    if !ui.is_rect_visible(rect) {
+        return;
+    }
+    let radius = rect.height() / 2.0 - 2.0;
+    let time = ui.input(|i| i.time);
+    let start = time * std::f64::consts::TAU;
+    let end = start + 240f64.to_radians() * time.sin();
+    let points: Vec<Pos2> = (0..20)
+        .map(|i| {
+            let angle = start + (end - start) * i as f64 / 20.0;
+            let (sin, cos) = angle.sin_cos();
+            rect.center() + radius * Vec2::new(cos as f32, sin as f32)
+        })
+        .collect();
+    let color = ui.visuals().strong_text_color();
+    ui.painter()
+        .add(Shape::line(points, Stroke::new(3.0_f32, color)));
+    ui.ctx().request_repaint_after(BUSY_SPINNER_FRAME);
 }
 
 /// Clicks on a portal identity tab or its chrome buttons.
@@ -771,6 +800,47 @@ pub fn portal_reveal_hint(ui: &Ui, palette: &Palette, strip: Rect, id_salt: u64)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_busy_strip_repaints_at_the_spinner_rate_not_every_frame() {
+        let ctx = egui::Context::default();
+        let tabs = [TabSpec {
+            title: "Board".into(),
+            tooltip: String::new(),
+            closable: true,
+            content_action_label: None,
+            is_empty: false,
+            height_scale: 1.0,
+        }];
+        let delay = |busy| {
+            let mut delay = std::time::Duration::ZERO;
+            for _ in 0..3 {
+                let out = ctx.run(egui::RawInput::default(), |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        tab_strip(
+                            ui,
+                            &Palette::dark(),
+                            &TopBarTokens::default(),
+                            &tabs,
+                            0,
+                            busy,
+                        );
+                    });
+                });
+                delay = out.viewport_output[&egui::ViewportId::ROOT].repaint_delay;
+            }
+            delay
+        };
+        let idle = delay(false);
+        let busy = delay(true);
+        // egui reports the wait minus the predicted frame time.
+        let frame = std::time::Duration::from_secs_f32(egui::RawInput::default().predicted_dt);
+        let slack = std::time::Duration::from_millis(1);
+        assert!(
+            busy + frame + slack >= BUSY_SPINNER_FRAME,
+            "idle {idle:?}, busy {busy:?}"
+        );
+    }
 
     #[test]
     fn idle_scrollbars_keep_their_gutter_and_share_the_chrome_scale() {

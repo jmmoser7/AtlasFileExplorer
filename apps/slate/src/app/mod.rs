@@ -28,6 +28,8 @@ pub mod association;
 mod bench_brush;
 #[cfg(test)]
 mod bench_brush_tiles;
+#[cfg(test)]
+mod bench_model3d;
 pub mod board;
 mod board_agent;
 mod board_align;
@@ -452,6 +454,7 @@ pub struct SlateApp {
     /// Interactive 3D model viewport state (see `model3d.rs`).
     pub model3d: model3d::ModelSpace,
     pub(crate) model_shot_popup: Option<model_screenshot::ModelScreenshotPopup>,
+    model_shot_pending: Option<model_screenshot::PendingModelShot>,
     pending_view_drop: Option<model_screenshot::PendingViewDrop>,
     pending_view_wire_cache: Vec<model_wired_views::PendingViewWireCache>,
     /// Canvas video scrub and playback. Derived; not journaled.
@@ -836,6 +839,7 @@ impl SlateApp {
             frame_hwnd: 0,
             model3d: model3d::ModelSpace::default(),
             model_shot_popup: None,
+            model_shot_pending: None,
             pending_view_drop: None,
             pending_view_wire_cache: Vec::new(),
             video: board_video::VideoBoard::default(),
@@ -2623,6 +2627,7 @@ impl eframe::App for SlateApp {
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.dialogs.set_owner(DialogOwner::from_window(frame));
+        self.model3d.register_live_textures(frame);
         let _attach = self.session_log.attach();
         let t0 = Instant::now();
         let delivered = ctx.input(|i| i.unstable_dt);

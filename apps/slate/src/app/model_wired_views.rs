@@ -36,9 +36,10 @@ struct WiredViewEntry {
 }
 
 impl SlateApp {
+    /// A model keeps the plain host: View wires land through the ordinary
+    /// edge snap, so no port is drawn or hit at rest.
     pub(crate) fn wire_host(&self, node: &slate_doc::scene::Node) -> WireHost {
-        let model_view = self.model_has_viewport(node.id);
-        WireHost::from_node_flow(node, agent_inputs::input_ports_of(node, model_view))
+        WireHost::from_node(node)
     }
 
     pub(crate) fn note_view_wires_added(&mut self, ids: &[NodeId]) {

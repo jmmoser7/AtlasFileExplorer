@@ -2178,6 +2178,16 @@ impl SlateApp {
             false,
         );
     }
+
+    /// Screen rect of the selection strip's screenshot button, last frame.
+    #[cfg(test)]
+    pub(crate) fn model_screenshot_button(&self) -> Option<Rect> {
+        let items = &self.shape_properties.last_chrome.as_ref()?.items;
+        let index = items
+            .iter()
+            .position(|item| matches!(item, StripItem::ModelScreenshot))?;
+        self.shape_properties.chrome_hits.get(index).copied()
+    }
 }
 
 #[cfg(test)]
