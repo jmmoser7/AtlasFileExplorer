@@ -1767,6 +1767,7 @@ mod tests {
                 arrow_b: false,
                 label: None,
                 display: WireDisplay::Default,
+                cached_slate_view: None,
             }),
         }
     }

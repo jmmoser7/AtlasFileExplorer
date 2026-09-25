@@ -1194,6 +1194,7 @@ impl SlateApp {
             })
             .collect();
         if self.commit_scene(cmds) {
+            self.note_view_wires_added(&ids);
             ids
         } else {
             Vec::new()
@@ -1565,11 +1566,23 @@ impl SlateApp {
             .map(|item| self.image_natural_size(*item))
             .collect();
         let rects = grid_drop_rects(&sizes, at);
+        let model_flags: Vec<bool> = items
+            .iter()
+            .map(|item| {
+                self.doc().item(*item).is_some_and(|it| {
+                    slate_doc::media_kind(&it.path) == slate_doc::MediaKind::Model
+                })
+            })
+            .collect();
         let mut nodes = Vec::new();
         {
             let scene = &mut self.doc_mut().scene;
             for (i, item) in items.iter().enumerate() {
-                nodes.push(scene.build_node(rects[i], NodeKind::Image(ImageNode::new(*item))));
+                let mut img = ImageNode::new(*item);
+                if model_flags[i] {
+                    img.model_viewport = true;
+                }
+                nodes.push(scene.build_node(rects[i], NodeKind::Image(img)));
             }
         }
         let ids = self.add_nodes(nodes);
@@ -1592,6 +1605,14 @@ impl SlateApp {
         let cols = (items.len() as f32).sqrt().ceil().max(1.0) as usize;
         let cell_w = ((rect.w - pad * 2.0) / cols as f32).clamp(60.0, IMAGE_W);
         let cell_h = cell_w * (IMAGE_H / IMAGE_W);
+        let model_flags: Vec<bool> = items
+            .iter()
+            .map(|item| {
+                self.doc().item(*item).is_some_and(|it| {
+                    slate_doc::media_kind(&it.path) == slate_doc::MediaKind::Model
+                })
+            })
+            .collect();
         let mut nodes = Vec::new();
         {
             let scene = &mut self.doc_mut().scene;
@@ -1604,7 +1625,11 @@ impl SlateApp {
                     cell_w,
                     cell_h,
                 );
-                nodes.push(scene.build_node(r, NodeKind::Image(ImageNode::new(*item))));
+                let mut img = ImageNode::new(*item);
+                if model_flags[i] {
+                    img.model_viewport = true;
+                }
+                nodes.push(scene.build_node(r, NodeKind::Image(img)));
             }
         }
         let ids = self.add_nodes(nodes);
@@ -1651,6 +1676,22 @@ impl SlateApp {
     }
 
     // ----- textures -------------------------------------------------------------
+
+    /// Effective photo filter for paint, including in-progress strip previews.
+    fn model_adjust_for_paint(&self, node_id: NodeId) -> ImageAdjust {
+        self.shape_properties
+            .preview
+            .iter()
+            .find(|n| n.id == node_id)
+            .and_then(slate_doc::scene::adjust_of)
+            .or_else(|| {
+                self.doc()
+                    .scene
+                    .node(node_id)
+                    .and_then(slate_doc::scene::adjust_of)
+            })
+            .unwrap_or_default()
+    }
 
     /// Texture for an image node, applying non-destructive adjustments via
     /// the fx cache. Falls back to the plain thumb while pixels are pending.
@@ -2765,8 +2806,8 @@ impl SlateApp {
     /// standalone): live offscreen render while the viewport is unlocked,
     /// cached frozen-camera poster while locked, item thumbnail while the
     /// poster is still being generated. Files with no mesh reader stay on
-    /// this card and say so. Crop and filter adjustments don't apply — the
-    /// camera pose is the framing.
+    /// this card and say so. Photo filters apply over the render (once per
+    /// camera/size/adjust stamp — not per idle frame).
     #[allow(clippy::too_many_arguments)]
     fn paint_model_viewport(
         &mut self,
@@ -2780,13 +2821,14 @@ impl SlateApp {
     ) {
         let tint = Color32::WHITE.gamma_multiply(alpha);
         let live = self.model3d.live.contains_key(&node_id);
+        let adjust = self.model_adjust_for_paint(node_id);
 
         let rendered = if live {
-            self.model_live_texture(ui.ctx(), node_id, srect.width(), srect.height())
+            self.model_live_texture(ui.ctx(), node_id, srect.width(), srect.height(), &adjust)
         } else {
             let poster = self
                 .model_node_info(node_id)
-                .and_then(|info| self.model_poster_texture(ui.ctx(), &info));
+                .and_then(|info| self.model_poster_texture(ui.ctx(), &info, &adjust));
             if poster.is_none() {
                 self.request_model_poster(node_id);
             }
@@ -2922,6 +2964,8 @@ impl SlateApp {
                 egui::StrokeKind::Inside,
             );
         }
+
+        self.paint_model_wired_view_strip(ui, node_id, srect, self.board_xf().z);
     }
 
     /// The pool item behind an image node, if any.

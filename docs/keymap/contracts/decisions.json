@@ -250,9 +250,23 @@
           "decided": "2026-09-25"
         },
         "D15": {
-          "behavior": "PowerPoint renders as static PDF pages. No PowerPoint editing, transitions, or animation playback. No new 3D formats in this change. JPG and other supported image formats remain native previews. The board video viewer does not edit a timeline, cut clips, play audio, or shuttle with JKL. Photo filters on a 3D viewport and switchable saved views (Cover-Flow style) are later work. Viewport screenshots with embedded camera metadata are in scope via D36–D38.",
+          "behavior": "PowerPoint renders as static PDF pages. No PowerPoint editing, transitions, or animation playback. No new 3D formats in this change. JPG and other supported image formats remain native previews. The board video viewer does not edit a timeline, cut clips, play audio, or shuttle with JKL. Viewport screenshots with embedded camera metadata are in scope via D36–D38.",
           "source": "stated",
           "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-25"
+        },
+        "D39": {
+          "behavior": "Filters reuse the image node's ImageAdjust / CSS-filter model (imagefx on the board, same chain in the HTML artifact on the model poster). The filter applies over the live render or frozen poster, not per idle frame: one CPU pass when the (camera, size, adjust) stamp changes, cached like other board FX. Screenshot export bakes the filter into pixels (WYSIWYG) and may record slateview:imageAdjustHash in XMP for future restore (read ignored today).",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-25"
+        },
+        "D40": {
+          "behavior": "A mesh model with model_viewport exposes a left View input. Wiring any image node registers a saved view (journaled connector + binding). On connect, slateview XMP is read once on a worker and cached on the connector as cached_slate_view. Preview squares under the viewport reuse atlas-shell::home::album_index_strip (min_images 1); the active square is highlighted. Click applies one journaled ModelCamera patch; a short camera tween is derived (not journaled). Squares without XMP stay visible but disabled with tooltip No saved Slate view. Cover Flow wheel browse for many views is deferred.",
+          "source": "guess",
+          "confidence": 70,
           "verdict": "approved",
           "decided": "2026-09-25"
         },

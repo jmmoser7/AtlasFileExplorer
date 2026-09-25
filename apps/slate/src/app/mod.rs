@@ -70,6 +70,7 @@ pub mod imagefx;
 pub mod kits;
 pub mod model3d;
 mod model_screenshot;
+mod model_wired_views;
 mod overlays;
 pub mod pdf;
 pub mod present;
@@ -431,6 +432,7 @@ pub struct SlateApp {
     pub model3d: model3d::ModelSpace,
     pub(crate) model_shot_popup: Option<model_screenshot::ModelScreenshotPopup>,
     pending_view_drop: Option<model_screenshot::PendingViewDrop>,
+    pending_view_wire_cache: Vec<model_wired_views::PendingViewWireCache>,
     /// Canvas video scrub and playback. Derived; not journaled.
     video: board_video::VideoBoard,
     /// Transient smart-guide lines shown during board move/resize (cleared each frame).
@@ -799,6 +801,7 @@ impl SlateApp {
             model3d: model3d::ModelSpace::default(),
             model_shot_popup: None,
             pending_view_drop: None,
+            pending_view_wire_cache: Vec::new(),
             video: board_video::VideoBoard::default(),
             board_snap_guides: Vec::new(),
             board_forcefield: board_forcefield::Forcefield::default(),

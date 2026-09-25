@@ -903,6 +903,7 @@ impl SlateApp {
             arrow_b: false,
             label: None,
             display: WireDisplay::Default,
+            cached_slate_view: None,
         };
         if let Some(binding) = &mut conn.binding {
             if binding.kind == slate_doc::agent_inputs::InputKind::Images {

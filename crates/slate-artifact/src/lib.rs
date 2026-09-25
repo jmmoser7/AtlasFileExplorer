@@ -233,6 +233,8 @@ mod tests {
                 sheet: Default::default(),
                 video: Default::default(),
                 model: Default::default(),
+                model_viewport: false,
+                active_view_wire: None,
                 agent: None,
             }),
         );
@@ -605,6 +607,7 @@ mod tests {
             arrow_b: true,
             label: Some("flows".into()),
             display,
+            cached_slate_view: None,
         })
     }
 

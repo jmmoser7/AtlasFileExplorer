@@ -1867,6 +1867,12 @@ pub struct ImageNode {
     /// otherwise.
     #[serde(default)]
     pub model: ModelCamera,
+    /// True when this node is an interactive 3D viewport (saved-view input port).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub model_viewport: bool,
+    /// Highlight for the wired saved-view strip (`Connector` node id).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_view_wire: Option<NodeId>,
     /// The agent generating this picture. Its results are the card's album;
     /// `item` is the result a person picked, and [`ItemId::NONE`] shows the
     /// newest (see [`crate::agent_inputs::newest_image`]).
@@ -1893,6 +1899,8 @@ impl ImageNode {
             adjust: ImageAdjust::default(),
             video: VideoOpts::default(),
             model: ModelCamera::default(),
+            model_viewport: false,
+            active_view_wire: None,
             agent: None,
         }
     }
@@ -2259,6 +2267,9 @@ pub struct ConnectorNode {
     /// None is a decorative wire. Bound wires use these existing A/B endpoints.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub binding: Option<crate::agent_inputs::WireBinding>,
+    /// Camera parsed once from a wired screenshot (`slateview` XMP).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cached_slate_view: Option<ModelCamera>,
 }
 
 impl ConnectorNode {
@@ -4145,6 +4156,7 @@ mod tests {
             arrow_b: true,
             label: Some("relates".into()),
             display: WireDisplay::Faint,
+            cached_slate_view: None,
         }
     }
 
@@ -4568,8 +4580,8 @@ pub fn set_adjust(node: &mut Node, adjust: ImageAdjust) {
     }
 }
 
-/// Photo-filter / ImageAdjust editors apply to placed images (and video
-/// posters). 3D model viewports skip pixel filters in both interpreters.
+/// Photo-filter / ImageAdjust editors apply to placed images, including 3D
+/// model viewports (over the live render or frozen poster).
 pub fn supports_image_adjust(node: &Node) -> bool {
     matches!(node.kind, NodeKind::Image(_))
 }

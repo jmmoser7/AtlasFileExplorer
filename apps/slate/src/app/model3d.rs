@@ -274,6 +274,21 @@ pub fn resolve_camera(cam: &ModelCamera, min: [f32; 3], max: [f32; 3]) -> ModelC
     out
 }
 
+pub fn lerp_model_camera(from: ModelCamera, to: ModelCamera, t: f32) -> ModelCamera {
+    let t = t.clamp(0.0, 1.0);
+    ModelCamera {
+        target: [
+            from.target[0] + (to.target[0] - from.target[0]) * t,
+            from.target[1] + (to.target[1] - from.target[1]) * t,
+            from.target[2] + (to.target[2] - from.target[2]) * t,
+        ],
+        yaw: from.yaw + (to.yaw - from.yaw) * t,
+        pitch: from.pitch + (to.pitch - from.pitch) * t,
+        distance: from.distance + (to.distance - from.distance) * t,
+        display: if t >= 1.0 { to.display } else { from.display },
+    }
+}
+
 /// Rhino-style orbit: the model turns with the drag (drag right = the model
 /// swings right; drag down = its top tips toward you).
 pub fn orbit(cam: &mut ModelCamera, dx: f32, dy: f32) {
@@ -596,6 +611,13 @@ pub enum ModelState {
     External(String),
 }
 
+/// Derived camera blend when picking a wired saved view (not journaled).
+pub struct ViewTween {
+    pub from: ModelCamera,
+    pub to: ModelCamera,
+    pub started: Instant,
+}
+
 /// One live (unlocked) viewport.
 pub struct LiveViewport {
     /// The item cache key of the model file this node shows.
@@ -606,7 +628,7 @@ pub struct LiveViewport {
     pub before: ModelCamera,
     pub last_interact: Instant,
     tex: Option<TextureHandle>,
-    pub(crate) rendered: Option<(u64, u32, u32)>,
+    pub(crate) rendered: Option<(u64, u32, u32, u64)>,
     /// Bounds radius once known (zoom clamps, pan scale).
     pub radius: f32,
     pub tool: ModelViewportTool,
@@ -616,6 +638,7 @@ pub struct LiveViewport {
     pub measure_preview: Option<[f32; 3]>,
     /// Completed measurements this live session (cleared on lock).
     pub measures: Vec<DistanceMeasurement>,
+    pub view_tween: Option<ViewTween>,
 }
 
 impl LiveViewport {
@@ -1113,6 +1136,7 @@ impl SlateApp {
                 measure_first: None,
                 measure_preview: None,
                 measures: Vec::new(),
+                view_tween: None,
             },
         );
     }
@@ -1207,6 +1231,26 @@ impl SlateApp {
         }
     }
 
+    fn tick_model_view_tweens(&mut self) -> bool {
+        const VIEW_TWEEN: Duration = Duration::from_millis(220);
+        let mut changed = false;
+        for vp in self.model3d.live.values_mut() {
+            let Some(ref tween) = vp.view_tween else {
+                continue;
+            };
+            let t =
+                (tween.started.elapsed().as_secs_f32() / VIEW_TWEEN.as_secs_f32()).clamp(0.0, 1.0);
+            if t >= 1.0 {
+                vp.cam = tween.to;
+                vp.view_tween = None;
+            } else {
+                vp.cam = lerp_model_camera(tween.from, tween.to, t);
+            }
+            changed = true;
+        }
+        changed
+    }
+
     /// Per-frame upkeep: parse results, auto-lock, eviction, repaint ticks.
     pub fn model3d_frame(&mut self, ctx: &egui::Context) {
         if self.model3d.drain_parses() | self.model3d.drain_sniffs() {
@@ -1215,6 +1259,10 @@ impl SlateApp {
         self.queue_executable_sniffs();
         self.maintain_enscape();
         self.maintain_view_drop();
+        self.maintain_view_wire_cache();
+        if self.tick_model_view_tweens() {
+            ctx.request_repaint();
+        }
 
         // Live viewports whose node vanished (undo, delete) just drop.
         let dead: Vec<NodeId> = self
@@ -1325,6 +1373,7 @@ impl SlateApp {
         &mut self,
         ctx: &egui::Context,
         info: &ModelNodeInfo,
+        adjust: &slate_doc::scene::ImageAdjust,
     ) -> Option<TextureHandle> {
         // Auto-fit cameras can only be resolved once bounds are known.
         let cam = if info.cam.distance > 0.0 {
@@ -1335,19 +1384,37 @@ impl SlateApp {
         };
         let aq = aspect_q(info.rect.w, info.rect.h);
         let name = poster_file_name(&info.cache_key, &cam, aq);
-        if let Some(tex) = self.model3d.posters.get(&name) {
+        let fx_key = (format!("model-poster-{name}"), adjust.cache_hash(), 0u32);
+        if !adjust.is_identity() {
+            if let Some(tex) = self.fx_textures.get(&fx_key) {
+                return Some(tex.clone());
+            }
+        } else if let Some(tex) = self.model3d.posters.get(&name) {
             return Some(tex.clone());
         }
         let path = poster_dir().join(&name);
         let img = image::open(&path).ok()?.to_rgba8();
         let (w, h) = (img.width() as usize, img.height() as usize);
         let color = egui::ColorImage::from_rgba_unmultiplied([w, h], img.as_raw());
+        if adjust.is_identity() {
+            let tex = ctx.load_texture(
+                format!("slate-model-poster-{name}"),
+                color,
+                egui::TextureOptions::LINEAR,
+            );
+            self.model3d.posters.insert(name, tex.clone());
+            return Some(tex);
+        }
+        let filtered = super::imagefx::adjusted(&color, adjust);
         let tex = ctx.load_texture(
-            format!("slate-model-poster-{name}"),
-            color,
+            format!("slate-model-poster-fx-{}-{}", name, adjust.cache_hash()),
+            filtered,
             egui::TextureOptions::LINEAR,
         );
-        self.model3d.posters.insert(name, tex.clone());
+        if self.fx_textures.len() > 256 {
+            self.fx_textures.clear();
+        }
+        self.fx_textures.insert(fx_key, tex.clone());
         Some(tex)
     }
 
@@ -1379,6 +1446,7 @@ impl SlateApp {
         id: NodeId,
         screen_w: f32,
         screen_h: f32,
+        adjust: &slate_doc::scene::ImageAdjust,
     ) -> Option<TextureHandle> {
         let gl = self.gl.clone()?;
         // Resolve the camera as soon as bounds exist.
@@ -1399,14 +1467,17 @@ impl SlateApp {
         let ppp = ctx.pixels_per_point();
         let w = quantize_px(screen_w * ppp);
         let h = quantize_px(screen_h * ppp);
-        let stamp = (cam.cache_hash(), w, h);
+        let stamp = (cam.cache_hash(), w, h, adjust.cache_hash());
         let up_to_date = self
             .model3d
             .live
             .get(&id)
             .is_some_and(|vp| vp.rendered == Some(stamp) && vp.tex.is_some());
         if !up_to_date {
-            let img = self.model3d.render_image(&gl, &cache_key, &cam, w, h)?;
+            let mut img = self.model3d.render_image(&gl, &cache_key, &cam, w, h)?;
+            if !adjust.is_identity() {
+                img = super::imagefx::adjusted(&img, adjust);
+            }
             let vp = self.model3d.live.get_mut(&id)?;
             match &mut vp.tex {
                 Some(tex) => tex.set(img, egui::TextureOptions::LINEAR),
@@ -2975,12 +3046,13 @@ mod tests {
                     egui::ColorImage::new([2, 2], egui::Color32::RED),
                     Default::default(),
                 )),
-                rendered: Some((cam.cache_hash(), 2, 2)),
+                rendered: Some((cam.cache_hash(), 2, 2, 0)),
                 radius: bounds_sphere(model.bounds_min, model.bounds_max).1,
                 tool: ModelViewportTool::Navigate,
                 measure_first: None,
                 measure_preview: None,
                 measures: Vec::new(),
+                view_tween: None,
             },
         );
         (h, id)
@@ -3091,7 +3163,10 @@ mod tests {
         assert_eq!(info.cam, cam);
         assert!(!h.app.model3d.live.contains_key(&id));
         assert_eq!(
-            h.app.model_poster_texture(&h.ctx, &info).unwrap().id(),
+            h.app
+                .model_poster_texture(&h.ctx, &info, &slate_doc::scene::ImageAdjust::default())
+                .unwrap()
+                .id(),
             texture
         );
         h.app.board_undo();

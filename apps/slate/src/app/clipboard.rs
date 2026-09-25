@@ -836,6 +836,7 @@ mod tests {
                 arrow_b: false,
                 label: None,
                 display: WireDisplay::Default,
+                cached_slate_view: None,
             }),
         )
     }
@@ -961,6 +962,7 @@ mod tests {
                 arrow_b: false,
                 label: None,
                 display: WireDisplay::Default,
+                cached_slate_view: None,
             }),
         );
         let payload = vec![a, b, free_wire];

@@ -5093,6 +5093,7 @@ impl SlateApp {
                             .as_ref()
                             .map(|t| t.size_vec2())
                             .unwrap_or(egui::vec2(1.0, 1.0)),
+                        enabled: true,
                     }
                 })
                 .collect();
@@ -5206,6 +5207,7 @@ impl SlateApp {
                             .as_ref()
                             .map(|t| t.size_vec2())
                             .unwrap_or(egui::vec2(1.0, 1.0)),
+                        enabled: true,
                     }
                 })
                 .collect();
@@ -5220,6 +5222,7 @@ impl SlateApp {
                 reveal,
                 z,
                 self.palette(),
+                2,
             ) {
                 self.pick_agent_result(id, pick);
             }

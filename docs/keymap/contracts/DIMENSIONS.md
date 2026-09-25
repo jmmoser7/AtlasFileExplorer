@@ -69,3 +69,5 @@ Rules:
 | D36 | Viewport screenshot | How a selected 3D model exports the current camera to canvas or disk (formats, placement, picker path, outputs folder)? | media | media |
 | D37 | View metadata | What camera and model provenance is embedded in exported rasters (XMP schema, owner crate, version policy)? | media | media |
 | D38 | View drop-back restore | How dropping a raster onto a 3D model restores an embedded camera (hash match, toasts, undo grouping)? | media | media |
+| D39 | Viewport photo filters | How non-destructive `ImageAdjust` applies over a 3D viewport render/poster, board FX caching, artifact CSS, and screenshot bake? | media | media |
+| D40 | Wired saved views | How screenshot images wire into a 3D viewport, cache cameras, preview strip, and apply views? | media | media |

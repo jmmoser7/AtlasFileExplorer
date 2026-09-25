@@ -575,6 +575,7 @@ fn v2_document() -> SlateDoc {
         arrow_b: true,
         label: Some("informs".into()),
         display: WireDisplay::Faint,
+        cached_slate_view: None,
     };
     // The board keeps a connector's rect equal to its derived curve bounds.
     let rect = connector_aabb(&connector, |id| scene.node(id).map(|n| n.rect))

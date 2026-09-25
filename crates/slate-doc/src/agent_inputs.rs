@@ -80,6 +80,10 @@ fn directional_binding<'a>(
         return None;
     }
     let port = target_slot(scene, target_id, target);
+    if let Some(binding) = model_view_binding(scene, source, target, target_id, input_b, item_path)
+    {
+        return Some(binding);
+    }
     let source = scene.node(endpoint_node(source)?)?;
     let target = scene.node(target_id)?;
     if let Some(binding) = table_link(source, target, input_b, item_path) {
@@ -106,6 +110,48 @@ fn directional_binding<'a>(
         all_images: false,
         consumed: false,
         slot: slot.map(|s| s.id().to_string()),
+    })
+}
+
+fn model_view_binding<'a>(
+    scene: &Scene,
+    source_end: &ConnectorEnd,
+    target_end: &ConnectorEnd,
+    target_id: NodeId,
+    input_b: bool,
+    item_path: &dyn Fn(crate::ids::ItemId) -> Option<&'a std::path::Path>,
+) -> Option<WireBinding> {
+    let target_node = scene.node(target_id)?;
+    let NodeKind::Image(img) = &target_node.kind else {
+        return None;
+    };
+    if !img.model_viewport {
+        return None;
+    }
+    let ConnectorEnd::Anchored {
+        side: Side::Left,
+        t,
+        ..
+    } = target_end
+    else {
+        return None;
+    };
+    if (*t - MODEL_VIEW_PORT_T).abs() > 0.001 {
+        return None;
+    }
+    let source_id = endpoint_node(source_end)?;
+    let NodeKind::Image(src) = &scene.node(source_id)?.kind else {
+        return None;
+    };
+    item_path(src.item)?;
+    Some(WireBinding {
+        input_b,
+        kind: InputKind::Images,
+        output: None,
+        order: vec![],
+        all_images: false,
+        consumed: false,
+        slot: Some("view".into()),
     })
 }
 
@@ -139,6 +185,15 @@ const GENERATOR_PORTS: [InputPort; 3] = [
     },
 ];
 
+/// Saved views wired from screenshot images into a 3D viewport.
+pub const MODEL_VIEW_PORT_T: f32 = 0.72;
+
+const MODEL_VIEW_PORTS: [InputPort; 1] = [InputPort {
+    slot: InputSlot::Media,
+    t: MODEL_VIEW_PORT_T,
+    label: "View",
+}];
+
 const TEXT_PORTS: [InputPort; 2] = [
     InputPort {
         slot: InputSlot::Media,
@@ -155,6 +210,11 @@ const TEXT_PORTS: [InputPort; 2] = [
 /// The input ports a node draws and binds, top to bottom. Empty for every node
 /// that is not a generator or text block. `WireHost::ports` reads this table.
 pub fn input_ports_of(node: &Node) -> &'static [InputPort] {
+    if let NodeKind::Image(img) = &node.kind {
+        if img.model_viewport {
+            return &MODEL_VIEW_PORTS;
+        }
+    }
     match flow_view(node) {
         Some(atlas_agent::PortalView::Images) => &GENERATOR_PORTS,
         Some(atlas_agent::PortalView::Text) => &TEXT_PORTS,
@@ -876,6 +936,39 @@ pub fn unbundle(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ids::ItemId;
+
+    #[test]
+    fn model_view_port_binds_any_wired_image() {
+        let mut doc = SlateDoc::new("views");
+        let mut model = ImageNode::new(ItemId(1));
+        model.model_viewport = true;
+        let model_id = add(&mut doc, NodeKind::Image(model), 0.0);
+        let shot = add(&mut doc, NodeKind::Image(ImageNode::new(ItemId(2))), 200.0);
+        let binding = infer_binding_with(
+            &doc.scene,
+            &ConnectorEnd::Anchored {
+                node: shot,
+                side: Side::Right,
+                t: 0.5,
+            },
+            &ConnectorEnd::Anchored {
+                node: model_id,
+                side: Side::Left,
+                t: MODEL_VIEW_PORT_T,
+            },
+            &|id| {
+                if id.0 == 2 {
+                    Some(std::path::Path::new("view.png"))
+                } else {
+                    None
+                }
+            },
+        )
+        .expect("view wire");
+        assert_eq!(binding.slot.as_deref(), Some("view"));
+    }
+
     #[test]
     fn context_uses_midpoint_input_and_portal_locators_only_when_wired() {
         let mut doc = SlateDoc::new("midpoint");
@@ -965,6 +1058,7 @@ mod tests {
                 arrow_b: false,
                 label: None,
                 display,
+                cached_slate_view: None,
             })
         };
         // An unbound wire saved by an older build still feeds the generator.
@@ -1072,6 +1166,7 @@ mod tests {
                 arrow_b: false,
                 label: None,
                 display: Default::default(),
+                cached_slate_view: None,
             }),
             0.0,
         )
@@ -1557,6 +1652,7 @@ mod tests {
                 arrow_b: false,
                 label: None,
                 display: Default::default(),
+                cached_slate_view: None,
             }),
             0.0,
         );
@@ -1671,6 +1767,7 @@ mod tests {
                 arrow_b: false,
                 label: None,
                 display: Default::default(),
+                cached_slate_view: None,
             })
         };
         let media = wire(&doc.scene, out(picture), port(generator, InputSlot::Media));
@@ -1735,6 +1832,7 @@ mod tests {
                 arrow_b: false,
                 label: None,
                 display: Default::default(),
+                cached_slate_view: None,
             })
         };
         add(&mut doc, wire, 0.0);
@@ -1803,6 +1901,7 @@ mod tests {
                 arrow_b: false,
                 label: None,
                 display: Default::default(),
+                cached_slate_view: None,
             });
             add(&mut doc, wire, 0.0);
         }
