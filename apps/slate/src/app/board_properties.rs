@@ -598,6 +598,11 @@ fn dimensions(nodes: &[Node]) -> (Option<WorldRect>, Vec<Dimension>) {
     let circle = nodes.len() == 1
         && matches!(&nodes[0].kind,NodeKind::Shape(s) if s.shape==ShapeKind::Ellipse)
         && (local.w - local.h).abs() < local.w.max(local.h) * 1e-5;
+    let (ends, offset) = stringer_lane(
+        [pts[3], pts[2]],
+        -(pts[2] - pts[3]).normalized().rot90(),
+        [pts[0], pts[1]],
+    );
     let mut result = vec![Dimension {
         kind: if circle {
             DimensionKind::Diameter
@@ -605,18 +610,43 @@ fn dimensions(nodes: &[Node]) -> (Option<WorldRect>, Vec<Dimension>) {
             DimensionKind::Width
         },
         value: local.w,
-        ends: [pts[3], pts[2]],
-        offset: -(pts[2] - pts[3]).normalized().rot90() * chrome::STRINGER_GAP,
+        ends,
+        offset,
     }];
     if !circle {
+        let (ends, offset) = stringer_lane(
+            [pts[1], pts[2]],
+            (pts[2] - pts[1]).normalized().rot90(),
+            [pts[0], pts[3]],
+        );
         result.push(Dimension {
             kind: DimensionKind::Height,
             value: local.h,
-            ends: [pts[1], pts[2]],
-            offset: (pts[2] - pts[1]).normalized().rot90() * chrome::STRINGER_GAP,
+            ends,
+            offset,
         });
     }
     (Some(bounds), result)
+}
+
+/// Which of an axis's two parallel edges carries its stringer. `home` is the
+/// unrotated choice (local bottom for width, local right for height) and
+/// `outward` its exterior normal. On screen a mostly horizontal span sits
+/// below and a mostly vertical one to the right, so rotation never moves a
+/// stringer into the upper lane the selection strip owns. The measured axis,
+/// and so what W and H mean, never changes.
+fn stringer_lane(home: [Pos2; 2], outward: Vec2, opposite: [Pos2; 2]) -> ([Pos2; 2], Vec2) {
+    let along = home[1] - home[0];
+    let lane = if along.x.abs() >= along.y.abs() {
+        Vec2::DOWN
+    } else {
+        Vec2::RIGHT
+    };
+    if outward.dot(lane) < -1e-4 {
+        (opposite, -outward * chrome::STRINGER_GAP)
+    } else {
+        (home, outward * chrome::STRINGER_GAP)
+    }
 }
 
 impl SlateApp {
@@ -2209,6 +2239,49 @@ mod tests {
             let midpoint = d.ends[0].lerp(d.ends[1], 0.5);
             assert!((midpoint - center).dot(d.offset) > 0.0);
         }
+    }
+
+    #[test]
+    fn rotated_frame_stringers_stay_below_and_beside_never_on_top() {
+        let mut h = board();
+        let id = frame_node(&mut h, WorldRect::new(0.0, 0.0, 612.0, 792.0));
+        for rotation in [0.0, 90.0, -90.0, 180.0, 270.0, 30.0, -30.0, 60.0, -120.0] {
+            h.app.patch_nodes(&[id], |n| n.rotation_deg = rotation);
+            let n = h.app.doc().scene.node(id).unwrap();
+            let center = Pos2::new(n.rect.center().0, n.rect.center().1);
+            let (_, dims) = dimensions(std::slice::from_ref(n));
+            assert_eq!(dims[0].kind, DimensionKind::Width, "{rotation}°");
+            assert!((dims[0].value - 612.0).abs() < 0.01, "{rotation}°");
+            assert_eq!(dims[1].kind, DimensionKind::Height, "{rotation}°");
+            assert!((dims[1].value - 792.0).abs() < 0.01, "{rotation}°");
+            for d in &dims {
+                let span = d.ends[1] - d.ends[0];
+                assert!(
+                    (span.length() - d.value).abs() < 0.01,
+                    "{rotation}° measures its own axis"
+                );
+                let midpoint = d.ends[0].lerp(d.ends[1], 0.5);
+                assert!(
+                    (midpoint - center).dot(d.offset) > 0.0,
+                    "{rotation}° exterior"
+                );
+                let lane = if span.x.abs() >= span.y.abs() {
+                    Vec2::DOWN
+                } else {
+                    Vec2::RIGHT
+                };
+                assert!(
+                    d.offset.normalized().dot(lane) > 0.7,
+                    "{rotation}° {:?}",
+                    d.kind
+                );
+            }
+        }
+        // Portrait turned to landscape: the long side's stringer sits below.
+        h.app.patch_nodes(&[id], |n| n.rotation_deg = -90.0);
+        let (_, dims) = dimensions(std::slice::from_ref(h.app.doc().scene.node(id).unwrap()));
+        assert!(dims[1].offset.y > 0.99, "height runs along the bottom");
+        assert!(dims[0].offset.x > 0.99, "width stands on the right");
     }
 
     #[test]
