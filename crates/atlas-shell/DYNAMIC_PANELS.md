@@ -63,11 +63,27 @@ currently 120 ms), without changing document opacity or creating an undo step.
 
 One shared color editor has this vertical order:
 
-1. A broad, shallow saturation/value color field across the panel.
-2. Full-width opacity/checkerboard, neutral value, and hue rails, in that order.
+1. A broad, shallow color square across the panel: hue runs left to right
+   and light/dark (HSV value) top to bottom, painted at the current
+   saturation. Dragging in it sets hue and value together.
+2. Full-width opacity/checkerboard and saturation rails, in that order. The
+   saturation rail runs from gray to full color at the current hue and
+   value.
 3. For Stroke only, one additional matching rail for stroke width.
 4. A single footer: desktop eyedropper, recent-color dots, a subtle divider,
    and inline R/G/B percentage values.
+
+Hue, saturation, and value each have exactly one control: the square owns
+hue and value, the rail owns saturation. Do not add a hue or value rail back
+beside the square. Gray has no hue and black has no hue or saturation, so a
+color arriving at saturation 0 keeps the previous hue, and one at value 0
+keeps the previous hue and saturation; raising the missing component restores
+the earlier color. The square and rails are small cached textures in
+`ColorState`, rebuilt only when their inputs change (the square when
+saturation changes, the saturation rail when hue or value changes), never
+tessellated per frame. The square is 86 units tall so the panel keeps
+`FILL_HEIGHT` / `STROKE_HEIGHT` after the hue and value rails were removed
+(25 September 2026, user-approved).
 
 **Rails have no permanent metrics, captions, unit labels, or metric gutter.**
 During adjustment, display the active value beside the cursor; remove it on
@@ -211,6 +227,14 @@ A/B/C and earlier revisions are historical rejected directions.
 - Native slender controls and short stringers:
   [light](../../design/shape-palettes-2026-09-17/native/wire-properties-light.png)
   and [dark](../../design/shape-palettes-2026-09-17/native/wire-properties-dark.png).
+
+**Needs refresh (25 September 2026):** these references still show the
+retired color editor (saturation/value field plus value and hue rails). The
+text above is authoritative until they are recaptured with `shape_palettes
+--capture` in both themes: `native/palette-{light,dark}.png`,
+`native/refined-{light,dark}.png`, `native/wire-properties-{light,dark}.png`,
+and the generated `revision-3/fill.png` and `revision-3/stroke.png`, whose rail
+set is superseded while their footer and layout remain approved.
 
 Before accepting a visual change, render the production widgets with
 [shape_palettes](examples/shape_palettes.rs) (`--capture <prefix>`) in both

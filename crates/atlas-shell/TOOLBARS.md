@@ -114,6 +114,18 @@ Dual-handle timelines and thin sliders must own the pointer while hovered or
 dragged. Parent `ScrollArea` drag-to-scroll and wheel must not bury handles
 (see `timeline.rs` / thin sliders in `widgets.rs`).
 
+**End overhang.** Every slider grabs a press that lands up to
+`[slider] end_overhang` past either end of its rail and clamps to that end,
+so a drag started just outside min or max still moves the handle. The zone
+grows only horizontally: the rail's own hit rect already spans the grip,
+and a taller zone would let stacked rails claim one press twice. Custom
+rails get this from `widgets::rail_interaction`, and built-in sliders from
+`widgets::slider`, never `ui.add(egui::Slider)`. Window-chrome sliders use
+screen px (`scale = 1`). Canvas-attached editors pass the camera zoom, so
+the overhang scales like the rest of the object (P0.9). The activity
+timeline already conforms: its press zone includes the weekday gutter and
+`pad_right`.
+
 ## Activity timeline (File Atlas)
 
 `atlas_shell::timeline::ActivityTimeline` — the contribution graph and the

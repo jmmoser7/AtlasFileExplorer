@@ -122,6 +122,65 @@ pub fn format_slider_number(value: f32) -> String {
         .to_owned()
 }
 
+/// Screen px a press may land past either end of a rail. `scale` is `1.0`
+/// for window chrome and the camera zoom for canvas-attached sliders (P0.9).
+pub fn slider_end_overhang(scale: f32) -> f32 {
+    crate::canvas_scale::px(tokens::current().slider.end_overhang, scale)
+}
+
+/// Where a press grabs a slider: the caller's `hit`, widened to `overhang`
+/// past both ends of `travel`. The value clamps to the nearest end, so a
+/// press in the overhang means min or max. Height stays the caller's: `hit`
+/// must already span the grip, and growing it would let stacked rails
+/// overlap and claim one press twice.
+pub fn slider_press_zone(hit: Rect, travel: egui::emath::Rangef, overhang: f32) -> Rect {
+    let overhang = overhang.max(0.0);
+    Rect::from_x_y_ranges(
+        hit.left().min(travel.min - overhang)..=hit.right().max(travel.max + overhang),
+        hit.y_range(),
+    )
+}
+
+/// A built-in [`egui::Slider`] with the shared end overhang. egui sizes its
+/// own hit rect, so a press just past either end is claimed for the slider
+/// here; egui then clamps the pointer value to that end.
+pub fn slider(ui: &mut Ui, slider: egui::Slider<'_>) -> egui::Response {
+    let response = ui.add(slider);
+    // While its value box has focus, egui reports the box's id, not the rail's.
+    if response.has_focus() || response.gained_focus() || response.lost_focus() {
+        return response;
+    }
+    let Some(rail) = ui.ctx().read_response(response.id) else {
+        return response;
+    };
+    // Stay short of the label and value box laid out beside the rail.
+    let overhang = slider_end_overhang(1.0).min(ui.spacing().item_spacing.x - 1.0);
+    let zone = slider_press_zone(rail.rect, rail.rect.x_range(), overhang);
+    let origin = ui.input(|i| {
+        i.pointer
+            .button_pressed(egui::PointerButton::Primary)
+            .then(|| i.pointer.press_origin())
+            .flatten()
+    });
+    let Some(origin) = origin else {
+        return response;
+    };
+    if !ui.is_enabled() || !zone.contains(origin) || rail.rect.contains(origin) {
+        return response;
+    }
+    // Only take the press from a container (window, panel, canvas), never
+    // from a neighboring widget that sits inside the overhang.
+    let claimed_by_container = ui.ctx().dragged_id().is_none_or(|id| {
+        ui.ctx()
+            .read_response(id)
+            .is_none_or(|owner| owner.rect.contains_rect(rail.rect))
+    });
+    if claimed_by_container {
+        ui.ctx().set_dragged_id(rail.id);
+    }
+    response
+}
+
 #[derive(Clone, Copy, Default)]
 struct RailPress {
     origin: Pos2,
@@ -131,7 +190,9 @@ struct RailPress {
 }
 
 /// Pointer semantics shared by sidebar sliders and canvas property buffers.
-/// `freeze` holds the value while a numeric field is open.
+/// `freeze` holds the value while a numeric field is open. `scale` sizes the
+/// end overhang: `1.0` on window chrome, the camera zoom on the canvas.
+#[allow(clippy::too_many_arguments)]
 pub fn rail_interaction(
     ui: &mut Ui,
     id: Id,
@@ -140,7 +201,9 @@ pub fn rail_interaction(
     fraction: &mut f32,
     handle: Rect,
     freeze: bool,
+    scale: f32,
 ) -> RailHit {
+    let hit = slider_press_zone(hit, travel, slider_end_overhang(scale));
     let mut response = ui.interact(hit, id, Sense::click_and_drag());
     let press_id = id.with("rail_press");
     let mut press: Option<RailPress> = ui.ctx().data(|d| d.get_temp(press_id));
@@ -437,6 +500,7 @@ fn thin_slider_rail(ui: &mut Ui, frac: &mut f32, hover: &str, freeze: bool) -> T
         frac,
         handle,
         freeze,
+        1.0,
     );
     let resp = hit.response.on_hover_text(hover);
     if resp.is_pointer_button_down_on() || resp.dragged() {
@@ -867,5 +931,128 @@ mod tests {
         assert_eq!(parse_slider_number("33", 0.0..=100.0), Some(33.0));
         assert_eq!(format_slider_number(18.0), "18");
         assert_eq!(format_slider_number(0.5), "0.5");
+    }
+
+    use super::{rail_interaction, slider, slider_end_overhang, slider_press_zone};
+    use eframe::egui::{self, Id, Pos2, Rect, Vec2};
+
+    #[test]
+    fn the_press_zone_overhangs_both_ends_and_keeps_its_height() {
+        let hit = Rect::from_min_max(Pos2::new(100.0, 90.0), Pos2::new(300.0, 104.0));
+        let zone = slider_press_zone(hit, (102.0..=298.0).into(), 6.0);
+        assert_eq!(zone.left(), 96.0);
+        assert_eq!(zone.right(), 304.0);
+        assert_eq!(zone.y_range(), hit.y_range());
+        let wide = hit.expand2(Vec2::new(10.0, 0.0));
+        assert_eq!(slider_press_zone(wide, hit.x_range(), 6.0), wide);
+        assert_eq!(slider_press_zone(hit, hit.x_range(), -3.0), hit);
+        let chrome = slider_end_overhang(1.0);
+        assert!(chrome > 0.0);
+        assert!((slider_end_overhang(2.0) - chrome * 2.0).abs() < 1e-4);
+    }
+
+    fn frame(ctx: &egui::Context, events: Vec<egui::Event>, mut add: impl FnMut(&mut egui::Ui)) {
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(480.0, 240.0))),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.interact(
+                        ui.max_rect(),
+                        Id::new("canvas"),
+                        egui::Sense::click_and_drag(),
+                    );
+                    add(&mut *ui);
+                });
+            },
+        );
+    }
+
+    fn press(pos: Pos2) -> Vec<egui::Event> {
+        vec![
+            egui::Event::PointerMoved(pos),
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Default::default(),
+            },
+        ]
+    }
+
+    fn release(pos: Pos2) -> Vec<egui::Event> {
+        vec![egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Default::default(),
+        }]
+    }
+
+    #[test]
+    fn a_press_just_past_either_end_of_a_rail_scrubs_from_that_end() {
+        let rail = Rect::from_min_max(Pos2::new(100.0, 90.0), Pos2::new(300.0, 104.0));
+        let overhang = slider_end_overhang(1.0);
+        let scrub = |at: Pos2| {
+            let ctx = egui::Context::default();
+            let mut fraction = 0.5_f32;
+            let mut run = |events| {
+                frame(&ctx, events, |ui| {
+                    let x = egui::lerp(rail.x_range(), fraction);
+                    let handle = Rect::from_center_size(Pos2::new(x, 97.0), Vec2::splat(8.0));
+                    rail_interaction(
+                        ui,
+                        Id::new("rail"),
+                        rail,
+                        rail.x_range(),
+                        &mut fraction,
+                        handle,
+                        false,
+                        1.0,
+                    );
+                });
+            };
+            run(Vec::new());
+            run(press(at));
+            run(release(at));
+            fraction
+        };
+        let y = rail.center().y;
+        assert_eq!(scrub(Pos2::new(rail.left() - overhang * 0.5, y)), 0.0);
+        assert_eq!(scrub(Pos2::new(rail.right() + overhang * 0.5, y)), 1.0);
+        assert_eq!(scrub(Pos2::new(rail.left() - overhang - 2.0, y)), 0.5);
+        assert_eq!(scrub(Pos2::new(rail.right() + overhang + 2.0, y)), 0.5);
+    }
+
+    #[test]
+    fn a_builtin_slider_grabs_a_press_just_past_its_end_over_a_canvas() {
+        let drag_from = |dx: f32| {
+            let ctx = egui::Context::default();
+            let mut value = 50.0_f32;
+            let run = |events, value: &mut f32| {
+                let mut rail = Rect::NOTHING;
+                frame(&ctx, events, |ui| {
+                    let slider_widget =
+                        egui::Slider::new(&mut *value, 0.0..=100.0).show_value(false);
+                    let id = slider(ui, slider_widget).id;
+                    rail = ui.ctx().read_response(id).map_or(Rect::NOTHING, |r| r.rect);
+                });
+                rail
+            };
+            let rail = run(Vec::new(), &mut value);
+            let start = Pos2::new(rail.right() + dx, rail.center().y);
+            run(press(start), &mut value);
+            let moved = start + Vec2::new(12.0, 0.0);
+            run(vec![egui::Event::PointerMoved(moved)], &mut value);
+            run(release(moved), &mut value);
+            value
+        };
+        let spacing = egui::Style::default().spacing.item_spacing.x;
+        let overhang = slider_end_overhang(1.0).min(spacing - 1.0);
+        assert_eq!(drag_from(overhang - 0.5), 100.0);
+        assert_eq!(drag_from(overhang + 3.0), 50.0);
     }
 }

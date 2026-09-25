@@ -103,34 +103,34 @@ fn preview_section(app: &mut SlateApp, ui: &mut egui::Ui) {
         .on_hover_text("Off = thumbnails only (lowest memory, softest zoom)")
         .changed();
     ui.add_enabled_ui(s.enabled, |ui| {
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut s.max_px, MAX_PX_MIN..=MAX_PX_MAX)
-                    .logarithmic(true)
-                    .suffix(" px")
-                    .text("Max resolution"),
-            )
-            .on_hover_text(
-                "Longest-edge cap for full-resolution decodes. 2048 px is \
+        changed |= atlas_shell::widgets::slider(
+            ui,
+            egui::Slider::new(&mut s.max_px, MAX_PX_MIN..=MAX_PX_MAX)
+                .logarithmic(true)
+                .suffix(" px")
+                .text("Max resolution"),
+        )
+        .on_hover_text(
+            "Longest-edge cap for full-resolution decodes. 2048 px is \
                  sharp on most displays; raise it for large monitors or deep \
                  zooms, at the cost of memory per image.",
+        )
+        .changed();
+        changed |= atlas_shell::widgets::slider(
+            ui,
+            egui::Slider::new(
+                &mut s.budget_mb,
+                settings::BUDGET_MB_MIN..=settings::BUDGET_MB_MAX,
             )
-            .changed();
-        changed |= ui
-            .add(
-                egui::Slider::new(
-                    &mut s.budget_mb,
-                    settings::BUDGET_MB_MIN..=settings::BUDGET_MB_MAX,
-                )
-                .logarithmic(true)
-                .suffix(" MB")
-                .text("Memory budget"),
-            )
-            .on_hover_text(
-                "How much RAM decoded previews may hold. When exceeded, the \
+            .logarithmic(true)
+            .suffix(" MB")
+            .text("Memory budget"),
+        )
+        .on_hover_text(
+            "How much RAM decoded previews may hold. When exceeded, the \
                  least recently viewed previews unload back to thumbnails.",
-            )
-            .changed();
+        )
+        .changed();
     });
     if changed {
         app.settings.save();

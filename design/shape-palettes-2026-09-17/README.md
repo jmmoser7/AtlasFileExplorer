@@ -24,6 +24,13 @@ At 100% corner amount, fillet radius is half the shorter side, giving a circle f
 
 Fill, Stroke, and Corners were created using the built-in image generator. [Exact prompt set and source paths](revision-3/prompts.json). Stringers and RGB styling reuse the approved user attachments. Earlier images and prompts are historical only; README-v2.md describes the superseded revision.
 
+### Color square and saturation (25 September 2026)
+
+User-approved: the color square now runs hue across and light/dark down at
+the current saturation, and the rails are opacity then saturation. The hue and
+value rails are gone, so every Fill/Stroke image here (revision-3 and native)
+shows the retired rail set until recaptured. The guide lists which to refresh.
+
 ### Native refinements
 
 Curve-quality follow-up: [light](native/curve-quality-light.png), [dark](native/curve-quality-dark.png).
