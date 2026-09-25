@@ -165,10 +165,11 @@ is searchable.
 
 ### P1.shape — closed shapes (rect, ellipse, frame)
 
-- **P1.shape.style** fill + stroke; new shapes consume the last single-node
-  fill and stroke (`BoardLastStyle`) when the kit recipe is inherit.
-  Color applies via fg/bg state and inspector. A stroke-only create does
-  not wipe the remembered fill.
+- **P1.shape.style** fill + stroke; new **closed** shapes (rect, ellipse,
+  regular polygon, closed path with fill, …) consume the last closed-form
+  memory (`CreateStyleMemory.closed`, mirrored in `BoardLastStyle.closed`)
+  when the kit recipe is inherit. A stroke-only create does not wipe the
+  remembered fill.
 - **P1.shape.aspect** Shift during creation locks aspect (square/circle).
 
 ### P1.curve — open curves (line, arc, polyline, bezier span, pen, brush ink)
@@ -182,15 +183,15 @@ is searchable.
 
 - **P1.curve.style** stroke only, no fill; stroke width/cap/dash editable
   after the fact; Ctrl+J joins endpoints.
-- **P1.curve.create-style** the last **single-node** edit (inspector patch,
-  grip edit, or prior create) seeds stroke + opacity on the next compatible
-  create (draft curves: Line, arc, polyline, …). When nothing was edited yet,
-  draft curves use `default_curve_stroke` at the current fg color — **Square**
-  end caps, Miter joins (distinct from expressive ink's round caps). Brush/Pen
-  ink keeps its own round defaults (`P2.StickyInk`). Stroke-only nodes do
-  not replace the remembered fill. Implementation:
+- **P1.curve.create-style** the last **single-node** edit seeds stroke +
+  opacity on the next **open** create (line, arc, polyline, open path, …)
+  from `CreateStyleMemory.open` / `BoardLastStyle.open`. Remembered open stroke
+  width is never 0 (minimum 2 world units). When nothing was edited yet, draft
+  curves use `default_curve_stroke` at the current fg color — **Square** end
+  caps, Miter joins (distinct from expressive ink's round caps). Brush/Pen ink
+  keeps its own round defaults (`P2.StickyInk`). Implementation:
   `board_style::BoardLastStyle`, updated from `patch_nodes` (single target) and
-  grip commits.
+  grip commits; persisted on `ViewState.create_style`.
 - **P1.curve.grips** selected open curves expose their defining points as
   gripable handles (endpoints, on-curve anchors) — **not** a resize bbox.
   Applies to **every** selected simple line in the selection, not only when

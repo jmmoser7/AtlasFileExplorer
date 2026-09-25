@@ -1,26 +1,59 @@
 //! Style memory for board creation tools (P1.curve.create-style /
-//! P1.shape.create-style). The last single-node edit seeds stroke, fill,
-//! and opacity for the next compatible create commit.
+//! P1.shape.create-style). Closed shapes and open curves remember styles
+//! separately so a fill-only rectangle does not zero out the next line.
 
+use slate_doc::create_style::{CreateStyleMemory, StyleMemorySlot};
 use slate_doc::scene::{Node, NodeKind, Rgba, ShapeKind, ShapeNode, Stroke};
 
 use super::board_line;
 use super::board_path;
 use super::SlateApp;
 
+/// Which create-style bucket a node edit updates.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StyleMemoryKind {
+    Closed,
+    Open,
+}
+
 /// Properties copied from the most recently edited node onto the next
 /// compatible create (inspector patch, grip edit, or prior create).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct BoardLastStyle {
-    pub opacity: Option<f32>,
-    pub stroke: Option<Stroke>,
-    pub fill: Option<Rgba>,
+    pub closed: StyleMemorySlot,
+    pub open: StyleMemorySlot,
 }
 
 impl BoardLastStyle {
+    pub fn from_memory(mem: &CreateStyleMemory) -> Self {
+        Self {
+            closed: mem.closed.clone(),
+            open: mem.open.clone(),
+        }
+    }
+
+    pub fn write_into(&self, mem: &mut CreateStyleMemory) {
+        mem.closed = self.closed.clone();
+        mem.open = self.open.clone();
+    }
+
+    fn slot_mut(&mut self, kind: StyleMemoryKind) -> &mut StyleMemorySlot {
+        match kind {
+            StyleMemoryKind::Closed => &mut self.closed,
+            StyleMemoryKind::Open => &mut self.open,
+        }
+    }
+
+    fn slot(&self, kind: StyleMemoryKind) -> &StyleMemorySlot {
+        match kind {
+            StyleMemoryKind::Closed => &self.closed,
+            StyleMemoryKind::Open => &self.open,
+        }
+    }
+
     /// Capture style fields worth replaying on the next create.
-    pub fn from_node(node: &Node) -> Self {
-        let mut style = BoardLastStyle {
+    pub fn from_node(node: &Node) -> StyleMemorySlot {
+        let mut style = StyleMemorySlot {
             opacity: Some(node.opacity),
             ..Default::default()
         };
@@ -49,30 +82,86 @@ impl BoardLastStyle {
         }
         style
     }
+
+    pub fn kind_for_node(node: &Node) -> Option<StyleMemoryKind> {
+        match &node.kind {
+            NodeKind::Shape(s) => Some(Self::kind_for_shape(s)),
+            NodeKind::Connector(_) => Some(StyleMemoryKind::Open),
+            NodeKind::Image(i) if !i.stroke.is_none() => Some(StyleMemoryKind::Closed),
+            NodeKind::Text(_) | NodeKind::Frame(_) => Some(StyleMemoryKind::Closed),
+            _ => None,
+        }
+    }
+
+    fn kind_for_shape(s: &ShapeNode) -> StyleMemoryKind {
+        match s.shape {
+            ShapeKind::Rect | ShapeKind::Ellipse | ShapeKind::RegularPolygon => {
+                StyleMemoryKind::Closed
+            }
+            ShapeKind::Line => StyleMemoryKind::Open,
+            ShapeKind::Path => {
+                if s.path.as_ref().is_some_and(|p| p.closed) && s.fill.is_some() {
+                    StyleMemoryKind::Closed
+                } else {
+                    StyleMemoryKind::Open
+                }
+            }
+        }
+    }
 }
 
 impl SlateApp {
+    const OPEN_STROKE_MIN: f32 = 2.0;
+
+    pub(crate) fn load_create_style_from_doc(&mut self) {
+        let mem = self
+            .tab_mut()
+            .doc
+            .view
+            .ensure_create_style(Self::OPEN_STROKE_MIN);
+        self.board_last_style = BoardLastStyle::from_memory(mem);
+    }
+
+    pub(crate) fn flush_create_style_to_doc(&mut self) {
+        let style = self.board_last_style.clone();
+        let mem = self
+            .tab_mut()
+            .doc
+            .view
+            .ensure_create_style(Self::OPEN_STROKE_MIN);
+        style.write_into(mem);
+    }
+
     /// Remember the style of a node after a single-node edit or create.
-    /// Stroke-only nodes (lines, open paths) update stroke/opacity and leave
-    /// the last fill alone so the next rectangle still gets that color.
     pub(crate) fn note_last_style(&mut self, node: &Node) {
+        let Some(kind) = BoardLastStyle::kind_for_node(node) else {
+            return;
+        };
         let next = BoardLastStyle::from_node(node);
+        let slot = self.board_last_style.slot_mut(kind);
         if next.opacity.is_some() {
-            self.board_last_style.opacity = next.opacity;
+            slot.opacity = next.opacity;
         }
         if next.stroke.is_some() {
-            self.board_last_style.stroke = next.stroke;
+            let mut stroke = next.stroke.unwrap();
+            if kind == StyleMemoryKind::Open && stroke.width <= 0.0 {
+                stroke.width = Self::OPEN_STROKE_MIN;
+            }
+            slot.stroke = Some(stroke);
         }
         if Self::node_records_fill(node) {
-            self.board_last_style.fill = next.fill;
+            slot.fill = next.fill;
         }
+        self.flush_create_style_to_doc();
     }
 
     fn node_records_fill(node: &Node) -> bool {
         match &node.kind {
             NodeKind::Shape(s) => {
-                matches!(s.shape, ShapeKind::Rect | ShapeKind::Ellipse)
-                    || (s.shape == ShapeKind::Path && s.fill.is_some())
+                matches!(
+                    s.shape,
+                    ShapeKind::Rect | ShapeKind::Ellipse | ShapeKind::RegularPolygon
+                ) || (s.shape == ShapeKind::Path && s.fill.is_some())
             }
             NodeKind::Frame(_) | NodeKind::Portal(_) => true,
             _ => false,
@@ -80,10 +169,11 @@ impl SlateApp {
     }
 
     /// Stroke for a new open curve (Line, arc, polyline span, …).
-    /// Last-edited stroke wins when present; otherwise Square-cap draft
-    /// defaults at the current fg color (P1.curve.create-style).
     pub(crate) fn stroke_for_new_curve(&self) -> Stroke {
-        if let Some(s) = self.board_last_style.stroke {
+        if let Some(mut s) = self.board_last_style.open.stroke {
+            if s.width <= 0.0 {
+                s.width = Self::OPEN_STROKE_MIN;
+            }
             return s;
         }
         board_path::default_curve_stroke(self.board_colors.fg)
@@ -91,37 +181,39 @@ impl SlateApp {
 
     /// Fill for a new closed shape. `None` leaves the kit recipe fill.
     pub(crate) fn fill_for_new_shape(&self) -> Option<Rgba> {
-        self.board_last_style.fill
+        self.board_last_style.closed.fill
     }
 
-    /// Replay last stroke / fill / opacity onto a just-instantiated node
-    /// (`CreateStyle::Inherit`). Missing last-style fields stay as the recipe
-    /// built them.
-    pub(crate) fn apply_inherited_style(&self, node: &mut Node) {
-        if let Some(op) = self.board_last_style.opacity {
+    pub(crate) fn apply_inherited_style(&self, node: &mut Node, closed: bool) {
+        let slot = if closed {
+            &self.board_last_style.closed
+        } else {
+            &self.board_last_style.open
+        };
+        if let Some(op) = slot.opacity {
             node.opacity = op;
         }
         match &mut node.kind {
             NodeKind::Shape(s) => {
-                if let Some(stroke) = self.board_last_style.stroke {
+                if let Some(mut stroke) = slot.stroke {
+                    if !closed && stroke.width <= 0.0 {
+                        stroke.width = Self::OPEN_STROKE_MIN;
+                    }
                     s.stroke = stroke;
                 }
-                if Self::shape_takes_fill(s) {
-                    if let Some(fill) = self.board_last_style.fill {
+                if closed && Self::shape_takes_fill(s) {
+                    if let Some(fill) = slot.fill {
                         s.fill = Some(fill);
                     }
                 }
             }
-            NodeKind::Frame(_) => {
-                // A new frame keeps the theme plate until Fill is edited.
-            }
             NodeKind::Image(i) => {
-                if let Some(stroke) = self.board_last_style.stroke {
+                if let Some(stroke) = slot.stroke {
                     i.stroke = stroke;
                 }
             }
             NodeKind::Connector(c) => {
-                if let Some(stroke) = self.board_last_style.stroke {
+                if let Some(stroke) = slot.stroke {
                     c.stroke = stroke;
                 }
             }
@@ -130,17 +222,21 @@ impl SlateApp {
     }
 
     fn shape_takes_fill(s: &ShapeNode) -> bool {
-        matches!(s.shape, ShapeKind::Rect | ShapeKind::Ellipse)
-            || (s.shape == ShapeKind::Path && s.path.as_ref().is_some_and(|p| p.closed))
+        matches!(
+            s.shape,
+            ShapeKind::Rect | ShapeKind::Ellipse | ShapeKind::RegularPolygon
+        ) || (s.shape == ShapeKind::Path && s.path.as_ref().is_some_and(|p| p.closed))
     }
 
-    /// Opacity for a newly created node (`1.0` when nothing was edited yet).
-    pub(crate) fn opacity_for_new_node(&self) -> f32 {
-        self.board_last_style.opacity.unwrap_or(1.0)
+    pub(crate) fn opacity_for_new_node(&self, closed: bool) -> f32 {
+        let slot = if closed {
+            &self.board_last_style.closed
+        } else {
+            &self.board_last_style.open
+        };
+        slot.opacity.unwrap_or(1.0)
     }
 
-    /// True when every selected node is a simple two-point line (P1.curve.grips
-    /// multi-select — endpoint grips only, no bbox adornment).
     pub(crate) fn selection_all_simple_lines(&self) -> bool {
         !self.board_sel.is_empty()
             && self.board_sel.iter().all(|id| {
@@ -151,8 +247,6 @@ impl SlateApp {
             })
     }
 
-    /// True when a node is an open curve that uses endpoint grips, not a
-    /// resize bbox (simple lines today; extend for other P1.curve kinds).
     pub(crate) fn node_uses_curve_grips(node: &Node) -> bool {
         board_line::line_endpoints(node).is_some()
     }

@@ -1242,7 +1242,9 @@ impl SlateApp {
                 // freeze them before another doc's ids can collide.
                 self.lock_all_models();
                 self.sync_agent_doc();
+                self.flush_create_style_to_doc();
                 self.active_tab = i;
+                self.load_create_style_from_doc();
                 self.sync_agent_doc();
                 self.selection.clear();
                 self.note_scene_change();
@@ -1583,6 +1585,7 @@ impl SlateApp {
                     tab.cam.offset = Vec2::new(view.cam_x, view.cam_y);
                     tab.cam.z = atlas_core::display::SLATE_CANVAS.clamp(view.zoom);
                 }
+                self.load_create_style_from_doc();
                 self.selection.clear();
                 self.note_scene_change();
                 self.leave_home();
@@ -1615,6 +1618,9 @@ impl SlateApp {
             view.cam_x = cam.offset.x;
             view.cam_y = cam.offset.y;
             view.zoom = cam.z;
+        }
+        if tab_idx == self.active_tab {
+            self.flush_create_style_to_doc();
         }
         if let Err(e) = self.tabs[tab_idx].doc.save_to(&path) {
             self.toast(format!("Save failed: {e}"));

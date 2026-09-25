@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::create_style::{CreateStyleMemory, StyleMemorySlot};
+
 /// Active canvas layout mode for the workbook view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -43,6 +45,12 @@ pub struct ViewState {
     pub recent_color_used: Vec<u64>,
     #[serde(default)]
     pub recent_color_clock: u64,
+    /// Split closed/open create style (P1.shape.style / P1.curve.create-style).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub create_style: Option<CreateStyleMemory>,
+    /// Pre-split workbooks: one memory seeded into both slots on first read.
+    #[serde(default, rename = "board_last_style", skip_serializing)]
+    legacy_board_last_style: Option<StyleMemorySlot>,
 }
 
 impl Default for ViewState {
@@ -55,6 +63,8 @@ impl Default for ViewState {
             recent_colors: Some(Vec::new()),
             recent_color_used: Vec::new(),
             recent_color_clock: 0,
+            create_style: None,
+            legacy_board_last_style: None,
         }
     }
 }
@@ -119,6 +129,21 @@ impl ViewState {
         for color in colors {
             self.remember_color(color);
         }
+    }
+
+    /// Ensure split create-style memory exists; migrate legacy single slot once.
+    pub fn ensure_create_style(&mut self, min_open_stroke_width: f32) -> &mut CreateStyleMemory {
+        if self.create_style.is_none() {
+            if let Some(legacy) = self.legacy_board_last_style.take() {
+                self.create_style = Some(CreateStyleMemory::from_legacy(
+                    legacy,
+                    min_open_stroke_width,
+                ));
+            } else {
+                self.create_style = Some(CreateStyleMemory::default());
+            }
+        }
+        self.create_style.as_mut().unwrap()
     }
 }
 
