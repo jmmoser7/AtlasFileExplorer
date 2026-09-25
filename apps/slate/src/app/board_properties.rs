@@ -1714,11 +1714,16 @@ impl SlateApp {
             let slider_amount = if layer_mode { layer_opacity } else { amount };
             let thumbs = self.filter_swatch_ids(ui.ctx(), amount);
             let radios = photo_filter_radios(thumbs);
+            if paint_image.is_some() {
+                self.shape_properties
+                    .chrome_hits
+                    .push(chrome::filter_add_rect(rect, z));
+            }
             let (edit, layer_edit) = chrome::filter_editor(
                 ui,
                 rect,
                 &radios,
-                selected,
+                if layer_mode { None } else { selected },
                 slider_amount,
                 &layer_chips,
                 layer_selected,
@@ -2895,6 +2900,139 @@ mod tests {
         assert!(scrubbed.iter().all(|rgb| !colors.contains(rgb)));
         h.app.board_undo();
         assert_eq!(h.app.doc().scene.node(id).unwrap(), &before);
+    }
+
+    #[test]
+    fn filter_plus_outside_the_capsule_adds_a_paint_layer_and_keeps_the_image() {
+        let mut h = board();
+        h.app.doc_mut().view.active_view = slate_doc::ViewKind::Board;
+        let p = h.base.join("photo.png");
+        std::fs::write(&p, b"png").unwrap();
+        let item = h.app.add_paths(&[p])[0];
+        let node = h.app.doc_mut().scene.build_node(
+            WorldRect::new(200.0, 300.0, 240.0, 160.0),
+            NodeKind::Image(scene::ImageNode::new(item)),
+        );
+        let image = h.app.add_nodes(vec![node])[0];
+        h.app.board_sel = std::iter::once(image).collect();
+        h.app.sync_shape_properties();
+        h.app.shape_properties.panel = Some(Panel::Filter);
+        h.frame();
+        h.frame();
+        let z = h.app.tab().cam.z;
+        let capsule = h
+            .app
+            .shape_properties
+            .chrome_hits
+            .iter()
+            .copied()
+            .find(|r| (r.height() - chrome::FILTER_HEIGHT * z).abs() < 0.01)
+            .expect("filter capsule is live");
+        let plus = Pos2::new(capsule.right() + 10.5 * z, capsule.center().y);
+        click(&mut h, plus);
+        let NodeKind::Image(img) = &h.app.doc().scene.node(image).unwrap().kind else {
+            panic!("image");
+        };
+        assert_eq!(img.paint_layers.len(), 1, "+ appends a paint layer");
+        assert_eq!(h.app.board_sel, std::iter::once(image).collect());
+    }
+
+    fn click(h: &mut Harness, p: Pos2) {
+        h.frame_with(|i| i.events.push(egui::Event::PointerMoved(p)));
+        for pressed in [true, false] {
+            h.frame_with(|i| {
+                i.events.push(egui::Event::PointerButton {
+                    pos: p,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                })
+            });
+        }
+    }
+
+    /// Chip rings painted inside `capsule` next frame: (center, accent?).
+    fn chip_rings(h: &mut Harness, capsule: Rect) -> Vec<(Pos2, bool)> {
+        let output = h.ctx.clone().run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))),
+                ..Default::default()
+            },
+            |c| h.app.update_app(c),
+        );
+        let accent = h.app.palette().accent;
+        let mut rings: Vec<(Pos2, bool)> = output
+            .shapes
+            .iter()
+            .filter_map(|s| match &s.shape {
+                egui::Shape::Circle(c)
+                    if c.fill == egui::Color32::TRANSPARENT && capsule.contains(c.center) =>
+                {
+                    Some((c.center, c.stroke.color == accent))
+                }
+                _ => None,
+            })
+            .collect();
+        rings.sort_by(|a, b| a.0.x.total_cmp(&b.0.x));
+        rings
+    }
+
+    #[test]
+    fn filter_layer_chip_takes_the_accent_ring_and_the_slider() {
+        let mut h = board();
+        h.app.doc_mut().view.active_view = slate_doc::ViewKind::Board;
+        let p = h.base.join("photo.png");
+        std::fs::write(&p, b"png").unwrap();
+        let item = h.app.add_paths(&[p])[0];
+        let node = h.app.doc_mut().scene.build_node(
+            WorldRect::new(200.0, 300.0, 240.0, 160.0),
+            NodeKind::Image(scene::ImageNode::new(item)),
+        );
+        let image = h.app.add_nodes(vec![node])[0];
+        h.app.board_sel = std::iter::once(image).collect();
+        h.app.on_image_paint_add_clicked(image);
+        h.app.set_board_tool(BoardTool::Select);
+        h.frame();
+        h.app.sync_shape_properties();
+        h.app.shape_properties.panel = Some(Panel::Filter);
+        h.frame();
+        h.frame();
+        let z = h.app.tab().cam.z;
+        let capsule = h
+            .app
+            .shape_properties
+            .chrome_hits
+            .iter()
+            .copied()
+            .find(|r| (r.height() - chrome::FILTER_HEIGHT * z).abs() < 0.01)
+            .expect("filter capsule is live");
+        let rings = chip_rings(&mut h, capsule);
+        let layer_chip = rings.last().unwrap().0;
+        assert_eq!(
+            rings.iter().filter(|r| r.1).count(),
+            1,
+            "one active chip: {rings:?}"
+        );
+        assert!(!rings.last().unwrap().1, "the layer is not active yet");
+
+        click(&mut h, layer_chip);
+        h.frame();
+        let rings = chip_rings(&mut h, capsule);
+        let active: Vec<Pos2> = rings.iter().filter(|r| r.1).map(|r| r.0).collect();
+        assert_eq!(active, vec![layer_chip], "only the layer chip is ringed");
+
+        let adjust = scene::adjust_of(h.app.doc().scene.node(image).unwrap());
+        let track = Pos2::new((layer_chip.x + capsule.right()) * 0.5, capsule.center().y);
+        click(&mut h, track);
+        let host = h.app.doc().scene.node(image).unwrap();
+        let NodeKind::Image(img) = &host.kind else {
+            panic!("image");
+        };
+        assert!(
+            img.paint_layers[0].opacity < 0.99,
+            "the slider sets the active layer's opacity"
+        );
+        assert_eq!(scene::adjust_of(host), adjust, "not the filter intensity");
     }
 
     fn frame_node(h: &mut Harness, rect: WorldRect) -> NodeId {

@@ -63,27 +63,24 @@ currently 120 ms), without changing document opacity or creating an undo step.
 
 One shared color editor has this vertical order:
 
-1. A broad, shallow color square across the panel: hue runs left to right
-   and light/dark (HSV value) top to bottom, painted at the current
-   saturation. Dragging in it sets hue and value together.
-2. Full-width opacity/checkerboard and saturation rails, in that order. The
-   saturation rail runs from gray to full color at the current hue and
-   value.
+1. A broad, shallow saturation/value color field across the panel, painted
+   at the current hue: white to full hue left to right, fading to black top
+   to bottom, with a round marker. Dragging in it sets saturation and value.
+2. Full-width opacity/checkerboard, saturation, and hue rails, in that order.
+   The saturation rail runs from gray to full color at the current hue and
+   value; the hue rail is the full spectrum.
 3. For Stroke only, one additional matching rail for stroke width.
 4. A single footer: desktop eyedropper, recent-color dots, a subtle divider,
    and inline R/G/B percentage values.
 
-Hue, saturation, and value each have exactly one control: the square owns
-hue and value, the rail owns saturation. Do not add a hue or value rail back
-beside the square. Gray has no hue and black has no hue or saturation, so a
-color arriving at saturation 0 keeps the previous hue, and one at value 0
-keeps the previous hue and saturation; raising the missing component restores
-the earlier color. The square and rails are small cached textures in
-`ColorState`, rebuilt only when their inputs change (the square when
-saturation changes, the saturation rail when hue or value changes), never
-tessellated per frame. The square is 86 units tall so the panel keeps
-`FILL_HEIGHT` / `STROKE_HEIGHT` after the hue and value rails were removed
-(25 September 2026, user-approved).
+The saturation rail replaces the former neutral value rail; the field, the
+opacity rail, and the hue rail are unchanged from the approved original
+(user decision, 25 September 2026). Gray has no hue and black has no hue or
+saturation, so a color arriving at saturation 0 keeps the previous hue, and
+one at value 0 keeps the previous hue and saturation. The field and rails are
+small cached textures in `ColorState`, rebuilt only when their inputs change
+(the field when hue changes, the saturation rail when hue or value changes),
+never tessellated per frame.
 
 **Rails have no permanent metrics, captions, unit labels, or metric gutter.**
 During adjustment, display the active value beside the cursor; remove it on
@@ -177,6 +174,14 @@ radius and stays vertically centered in the row.
 Hovering a radio previews that recipe at the current intensity;
 click or slider records a pending `ImageAdjust`. Intensity 0% is identity.
 
+On a raster image the capsule also hosts paint layers. A small circled `+`
+(`filter_add_rect`: 9 units across, 6 units past the capsule's right end, on
+its vertical center, canvas-scaled) sits just outside the capsule and adds a
+layer. Each layer is one more circle chip in the same row, after the filter
+radios. Only the active chip carries the accent ring, and the one slider
+drives that chip: filter intensity for a filter radio, opacity for a layer.
+The `+` is editor chrome, so a click on it is not a click-away.
+
 A **chips-only** variant (`FILTER_CHIPS_HEIGHT`, `FilterCapsuleStyle::ChipsOnly`)
 reuses the same circle chips and selection ring but omits the intensity track;
 width follows the chip count via `filter_chips_width`. The 3D viewport-display
@@ -240,13 +245,13 @@ A/B/C and earlier revisions are historical rejected directions.
   [light](../../design/shape-palettes-2026-09-17/native/wire-properties-light.png)
   and [dark](../../design/shape-palettes-2026-09-17/native/wire-properties-dark.png).
 
-**Needs refresh (25 September 2026):** these references still show the
-retired color editor (saturation/value field plus value and hue rails). The
-text above is authoritative until they are recaptured with `shape_palettes
---capture` in both themes: `native/palette-{light,dark}.png`,
-`native/refined-{light,dark}.png`, `native/wire-properties-{light,dark}.png`,
-and the generated `revision-3/fill.png` and `revision-3/stroke.png`, whose rail
-set is superseded while their footer and layout remain approved.
+**Needs refresh (25 September 2026):** these references show the second rail
+as the neutral value rail (white to dark); it is now the saturation rail.
+Their color field, opacity and hue rails, footer, and layout remain approved.
+Recapture with `shape_palettes --capture` in both themes:
+`native/palette-{light,dark}.png`, `native/refined-{light,dark}.png`,
+`native/wire-properties-{light,dark}.png`, and the generated
+`revision-3/fill.png` and `revision-3/stroke.png`.
 
 Before accepting a visual change, render the production widgets with
 [shape_palettes](examples/shape_palettes.rs) (`--capture <prefix>`) in both

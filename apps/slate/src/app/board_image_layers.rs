@@ -175,7 +175,12 @@ impl SlateApp {
         let Some(session) = self.image_paint.as_ref() else {
             return;
         };
-        if !tool_hosts_on_image(self.board_tool)
+        // A layer chip picked on the Filters strip in Select keeps its focus
+        // so the strip's one slider drives that layer's opacity.
+        let strip_layer = self.board_tool == BoardTool::Select
+            && self.shape_properties.panel == Some(super::board_properties::Panel::Filter)
+            && matches!(session.focus, ImageStripFocus::Layer(_));
+        if !(tool_hosts_on_image(self.board_tool) || strip_layer)
             || self.board_sel.len() != 1
             || !self.board_sel.contains(&session.image)
         {
