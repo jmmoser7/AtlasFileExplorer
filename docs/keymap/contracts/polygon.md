@@ -1,6 +1,6 @@
 # Regular polygon — interaction contract
 
-Status: draft
+Status: **agreed** (user approved D07 on 2026-09-25; every row decided)
 Family: tool
 Reference: [Shapes research](../research/shapes-selection-2026-09-17.md), 2026-09-25
 Command: board.tool.polygon · Key: Y · Palette: Shapes flyout (polygon)
