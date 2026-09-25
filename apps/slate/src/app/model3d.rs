@@ -1635,6 +1635,8 @@ impl SlateApp {
                 cam = resolve_camera(&cam, min, max);
             }
         }
+        // Each chip renders every mode itself; switching modes is not a new pose.
+        cam.display = ModelDisplay::default();
         self.model3d
             .queue_display_swatches(self.tab().id, id, cam.cache_hash())
     }
@@ -1704,6 +1706,8 @@ impl SlateApp {
                 continue;
             }
             if !self.model_display_swatch_tex.contains_key(&key) {
+                self.model_display_swatch_tex
+                    .retain(|k, _| (k.0, k.1) != (doc, id) || k.2 == gen);
                 let image = self.model3d.display_swatch_pixels[&key].clone();
                 let tex = ctx.load_texture(
                     format!("slate-model-display-{doc}-{}-{}-{}", id.0, gen, mode.key()),
@@ -3741,6 +3745,29 @@ mod tests {
         assert!(
             rings.iter().any(|(pts, _)| same(pts, &expected)),
             "the frozen selection outline is the corner outline"
+        );
+    }
+
+    #[test]
+    fn display_swatches_render_once_per_pose_not_per_mode() {
+        let (mut h, id) = live_model("model_swatch_once");
+        h.app.lock_model(id);
+        let first = h.app.ensure_model_display_swatches(id);
+        assert!(h.app.set_model_display(id, ModelDisplay::Depth));
+        assert_eq!(
+            h.app.ensure_model_display_swatches(id),
+            first,
+            "picking a mode keeps the four chips"
+        );
+        h.app.patch_nodes(&[id], |n| {
+            if let NodeKind::Image(img) = &mut n.kind {
+                img.model.yaw += 0.5;
+            }
+        });
+        assert_ne!(
+            h.app.ensure_model_display_swatches(id),
+            first,
+            "a new pose re-renders them"
         );
     }
 
