@@ -2841,7 +2841,7 @@ impl SlateApp {
                     ui.ctx(),
                     node_id,
                     self.image_item(node_id)?,
-                    &ImageAdjust::default(),
+                    &adjust,
                     desired_px,
                 )
             });
