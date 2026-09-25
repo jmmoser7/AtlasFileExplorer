@@ -6,9 +6,15 @@
 
 use super::board::{BoardDrag, BoardXf};
 use super::{board_handles, SlateApp};
-use eframe::egui::{self, Pos2};
+use eframe::egui::{self, Pos2, Vec2};
 use slate_doc::scene::{Corner, Node, NodeKind};
 use slate_doc::NodeId;
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub(crate) struct FilletRequest {
+    pub ids: Vec<NodeId>,
+    pub radius: f32,
+}
 
 impl SlateApp {
     /// Portals stay axis-aligned; connectors and simple lines have no bbox
@@ -94,9 +100,23 @@ impl SlateApp {
         if atlas_shell::canvas_scale::too_small(grip_px) {
             return None;
         }
-        let r = self.node_fillet_radius_world(node);
-        let grip = board_handles::fillet_grip_screen(xf, node.rect, node.rotation_deg, r);
-        Some(grip)
+        let edge = self.node_corner_grip_edge(node)?;
+        let travel = match &self.board_drag {
+            Some(BoardDrag::FilletRadius { id, travel, .. }) if *id == node.id => *travel,
+            _ => board_handles::corner_grip_rest_travel(&edge, self.node_fillet_radius_world(node)),
+        };
+        Some(board_handles::corner_grip_screen(xf, &edge, travel))
+    }
+
+    /// The edge the corner grip rides on `node` (P1.node.corner-grip).
+    pub(crate) fn node_corner_grip_edge(
+        &self,
+        node: &Node,
+    ) -> Option<slate_doc::geom::CornerGripEdge> {
+        let (chamfer, _) = self
+            .node_resolved_corner(node)
+            .effective(node.rect.w, node.rect.h);
+        slate_doc::geom::corner_grip_edge(node, chamfer)
     }
 
     pub(crate) fn fillet_grip_hit_at(&self, screen: Pos2) -> Option<NodeId> {
@@ -111,10 +131,97 @@ impl SlateApp {
     pub(crate) fn begin_fillet_drag(&mut self, screen: Pos2, world: Pos2) -> Option<BoardDrag> {
         let id = self.fillet_grip_hit_at(screen)?;
         let before = self.doc().scene.node(id)?.clone();
-        let press_radius =
-            board_handles::fillet_radius_from_world_point(before.rect, before.rotation_deg, world);
-        let grab = self.node_fillet_radius_world(&before) - press_radius;
-        Some(BoardDrag::FilletRadius { id, before, grab })
+        let edge = self.node_corner_grip_edge(&before)?;
+        let travel =
+            board_handles::corner_grip_rest_travel(&edge, self.node_fillet_radius_world(&before));
+        let grab = travel - edge.project([world.x, world.y]);
+        Some(BoardDrag::FilletRadius {
+            id,
+            before,
+            grab,
+            travel,
+            press: screen,
+            max_px: 0.0,
+        })
+    }
+
+    /// Follow the pointer along the grip's edge: the grip stays under the
+    /// pointer's projection and the corner amount is read from its travel.
+    pub(crate) fn update_fillet_drag(&mut self, world: Pos2, shift: bool) {
+        let Some(BoardDrag::FilletRadius {
+            id,
+            before,
+            grab,
+            press,
+            max_px,
+            ..
+        }) = &self.board_drag
+        else {
+            return;
+        };
+        let moved = press.distance(self.board_xf().w2s(world));
+        // A press that has not moved yet leaves the corner as it was.
+        if *max_px <= 0.0 && moved < 1e-3 {
+            return;
+        }
+        let (id, grab) = (*id, *grab);
+        let before = before.clone();
+        let Some(edge) = self.node_corner_grip_edge(&before) else {
+            return;
+        };
+        let mut travel = (edge.project([world.x, world.y]) + grab).clamp(0.0, edge.max_travel);
+        let mut radius = edge.amount_for_travel(travel);
+        if shift {
+            radius = radius.round().min(edge.max_amount().floor());
+            travel = edge.travel_for_amount(radius);
+        }
+        let path = self
+            .node_item_path(&before)
+            .map(std::path::Path::to_path_buf);
+        if let Some(n) = self.doc_mut().scene.node_mut(id) {
+            Self::apply_fillet_radius_to_node(n, &before, radius, false, path.as_deref());
+        }
+        if let Some(BoardDrag::FilletRadius {
+            travel: t, max_px, ..
+        }) = &mut self.board_drag
+        {
+            *t = travel;
+            *max_px = max_px.max(moved);
+        }
+    }
+
+    /// Typed corner amount from the grip's inline field: one journaled patch,
+    /// clamped to what the host can show.
+    pub(crate) fn shape_fillet_command(&mut self, detail: Option<&str>) -> bool {
+        let Some(req) = detail.and_then(|s| serde_json::from_str::<FilletRequest>(s).ok()) else {
+            return false;
+        };
+        if !req.radius.is_finite() || req.radius < 0.0 || self.refuse_read_only_edit() {
+            return false;
+        }
+        let mut cmds = Vec::new();
+        for id in req.ids {
+            let Some(before) = self.doc().scene.node(id).cloned() else {
+                continue;
+            };
+            if before.locked || !slate_doc::scene::supports_corners(&before) {
+                continue;
+            }
+            let Some(edge) = self.node_corner_grip_edge(&before) else {
+                continue;
+            };
+            let radius = req.radius.min(edge.max_amount());
+            let mut after = before.clone();
+            let path = self.node_item_path(&before);
+            Self::apply_fillet_radius_to_node(&mut after, &before, radius, false, path);
+            if after != before {
+                cmds.push(slate_doc::scene::SceneCmd::Patch {
+                    before: Box::new(before),
+                    after: Box::new(after),
+                });
+            }
+        }
+        !cmds.is_empty() && self.commit_scene(cmds)
     }
 
     fn node_offers_bbox_transform(&self, node: &Node) -> bool {
@@ -202,12 +309,13 @@ impl SlateApp {
             if let Some(id) = self.fillet_grip_hit_at(p) {
                 self.board_hover_hit = Some(board_handles::BoardHitTarget::FilletRadius);
                 self.board_hover_node = Some(id);
-                if let Some(n) = self.doc().scene.node(id) {
-                    let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
-                    ctx.set_cursor_icon(board_handles::cursor_for_resize(
-                        board_handles::ResizeHandle::Nw,
-                        &geom,
-                    ));
+                if let Some(edge) = self
+                    .doc()
+                    .scene
+                    .node(id)
+                    .and_then(|n| self.node_corner_grip_edge(n))
+                {
+                    ctx.set_cursor_icon(board_handles::cursor_along(Vec2::from(edge.dir)));
                 }
                 return;
             }

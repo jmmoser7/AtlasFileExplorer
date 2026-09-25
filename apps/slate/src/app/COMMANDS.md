@@ -106,9 +106,13 @@ drag the address-bar URL or a page link instead.
   honor this even when the press lands on the hover-resize band.
   Selection chrome is a subtle highlight of each shape (not a union box).
 - **Corner-radius grip** (`board.shape.fillet`) — on one selected rectangle,
-  frame, portal, or placed-media node, drag the inset square at the local
-  top-left corner to set its radius. Shift snaps to whole world units; Esc
-  cancels the active drag; release records one undo step.
+  regular polygon, line polyline, frame, portal, or placed-media node, the
+  square grip sits on the border at the corner's tangent point (the top edge
+  from the top-left corner on boxes). Drag it along that edge: away from the
+  corner rounds more, toward it less, and the grip stays under the pointer.
+  Shift snaps to whole world units; Esc cancels the active drag; release
+  records one undo step. Click the grip to type the amount: Enter applies it
+  as one undo step, Esc cancels.
 - **Align widget** (Grasshopper): with the Select tool and 2+ nodes selected,
   two icon clusters sit outside the group box (bottom and left). Bottom:
   align left / center / right / distribute horizontally; the row sits past

@@ -168,6 +168,7 @@ fn aspect_from_dx(start: Pos2, dx: f32, dy: f32, aspect: f32) -> WorldRect {
 pub enum GhostKind {
     RoundedRect,
     Ellipse,
+    Polygon,
     Portal,
     TextBox,
     Sticky,
@@ -177,6 +178,7 @@ pub fn ghost_kind(tool: BoardTool) -> Option<GhostKind> {
     match tool {
         BoardTool::Frame | BoardTool::RectShape => Some(GhostKind::RoundedRect),
         BoardTool::Ellipse => Some(GhostKind::Ellipse),
+        BoardTool::Polygon => Some(GhostKind::Polygon),
         BoardTool::AgentPortal
         | BoardTool::WebPortal
         | BoardTool::AtlasPortal
@@ -185,6 +187,16 @@ pub fn ghost_kind(tool: BoardTool) -> Option<GhostKind> {
         BoardTool::Sticky => Some(GhostKind::Sticky),
         _ => None,
     }
+}
+
+/// The Polygon tool's new-node silhouette in a screen rect: the committed
+/// polygon's vertices at its default side count.
+pub fn polygon_outline(rect: Rect) -> Vec<Pos2> {
+    let world = WorldRect::new(rect.min.x, rect.min.y, rect.width(), rect.height());
+    slate_doc::scene::regular_polygon_vertices(world, slate_doc::scene::default_regular_sides())
+        .into_iter()
+        .map(|[x, y]| Pos2::new(x, y))
+        .collect()
 }
 
 /// Accent pointer painted at the hotspot (`CursorIcon::None` + this).
@@ -232,6 +244,14 @@ pub fn paint_ghost(
                 fill,
                 stroke: EStroke::new(GHOST_STROKE, stroke),
             });
+        }
+        GhostKind::Polygon => {
+            let r = Rect::from_min_size(origin, Vec2::splat(GHOST_SIZE));
+            painter.add(egui::Shape::convex_polygon(
+                polygon_outline(r),
+                fill,
+                EStroke::new(GHOST_STROKE, stroke),
+            ));
         }
         GhostKind::Portal => {
             let r = Rect::from_min_size(origin, Vec2::new(GHOST_SIZE, 16.0));

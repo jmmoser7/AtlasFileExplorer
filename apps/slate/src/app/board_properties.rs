@@ -285,6 +285,10 @@ struct NumberEdit {
     kind: DimensionKind,
     input: Option<chrome::NumberEdit>,
 }
+struct CornerEntry {
+    id: NodeId,
+    input: Option<chrome::NumberEdit>,
+}
 
 #[derive(Default)]
 pub struct ShapeProperties {
@@ -302,6 +306,8 @@ pub struct ShapeProperties {
     /// beside the radios, so a scrub starts after hover has already ended.
     filter_aim: Option<usize>,
     number: Option<NumberEdit>,
+    /// Typed corner amount opened by a click on the corner grip.
+    corner_entry: Option<CornerEntry>,
     text_family_open: bool,
     text_size_open: bool,
     /// Screen rects of the strip and open editor, so a text caret can ignore them.
@@ -1091,19 +1097,107 @@ impl SlateApp {
     }
 
     pub(crate) fn shape_property_keys(&mut self, ctx: &egui::Context) -> bool {
-        if self.shape_properties.number.is_some() || self.shape_properties.panel.is_some() {
+        let corner_entry = self.shape_properties.corner_entry.is_some();
+        if self.shape_properties.number.is_some()
+            || self.shape_properties.panel.is_some()
+            || corner_entry
+        {
             if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
                 self.shape_properties.preview.clear();
                 self.shape_properties.edits.clear();
                 self.shape_properties.number = None;
+                self.shape_properties.corner_entry = None;
                 self.shape_properties.panel = None;
                 self.shape_properties.color = Default::default();
                 return true;
             }
             // Numeric/color text fields own typing; global shortcuts must not arm tools.
-            return ctx.wants_keyboard_input();
+            // The corner field opens on release and takes focus when it first paints.
+            return ctx.wants_keyboard_input() || corner_entry;
         }
         false
+    }
+
+    /// Click on the corner grip: type the corner amount (P1.node.corner-grip).
+    pub(crate) fn open_corner_entry(&mut self, id: NodeId) {
+        let Some(node) = self.doc().scene.node(id) else {
+            return;
+        };
+        if node.locked || self.tab().read_only {
+            return;
+        }
+        let amount = self.node_fillet_radius_world(node);
+        self.shape_properties.number = None;
+        self.shape_properties.corner_entry = Some(CornerEntry {
+            id,
+            input: Some(chrome::NumberEdit::new(amount)),
+        });
+    }
+
+    /// The corner grip's typed amount, beside the grip on the inside of its
+    /// edge. Enter dispatches one `board.shape.fillet`; Esc cancels.
+    pub(crate) fn corner_entry_ui(&mut self, ui: &mut egui::Ui, xf: &BoardXf) -> bool {
+        let Some(mut entry) = self.shape_properties.corner_entry.take() else {
+            return false;
+        };
+        let Some(node) = self.doc().scene.node(entry.id).cloned() else {
+            return false;
+        };
+        if node.locked || self.board_drag.is_some() {
+            return false;
+        }
+        let (Some(edge), Some(grip)) = (
+            self.node_corner_grip_edge(&node),
+            self.fillet_grip_at(&node, xf),
+        ) else {
+            return false;
+        };
+        let ctx = ui.ctx().clone();
+        let theme = self.palette();
+        let z = xf.z;
+        let mut angle = Vec2::from(edge.dir).angle();
+        if angle > std::f32::consts::FRAC_PI_2 - 0.001 {
+            angle -= std::f32::consts::PI;
+        }
+        if angle < -std::f32::consts::FRAC_PI_2 {
+            angle += std::f32::consts::PI;
+        }
+        let center = grip + Vec2::from(edge.inward) * canvas_scale::px(16.0, z);
+        let amount = self.node_fillet_radius_world(&node);
+        let result = chrome::inline_number(
+            ui,
+            Id::new(("corner_entry", entry.id)),
+            center,
+            angle,
+            "",
+            " u",
+            amount,
+            z,
+            theme,
+            theme.select,
+            &mut entry.input,
+            0.0..=f32::MAX,
+            false,
+        );
+        let captures = result.response.contains_pointer() || ctx.wants_keyboard_input();
+        if let Some(radius) = result.value {
+            let request = board_transform::FilletRequest {
+                ids: vec![entry.id],
+                radius,
+            };
+            self.dispatch(
+                &ctx,
+                CommandId("board.shape.fillet"),
+                serde_json::to_string(&request).ok(),
+            );
+        }
+        if entry.input.is_some() {
+            self.shape_properties.corner_entry = Some(entry);
+        }
+        if captures && ctx.input(|i| i.pointer.any_pressed()) {
+            self.board_align_eat_press = true;
+        }
+        captures
     }
 
     /// Runs before board input. Layout is recomputed from the host transform every frame.
@@ -2979,6 +3073,332 @@ mod tests {
             Some(Corner::ChamferPercent { .. })
         ));
         assert!((scene::resolved_corner_effective(node, None).1 - expected).abs() < 1e-4);
+    }
+
+    fn pointer(h: &mut Harness, p: Pos2, pressed: Option<bool>) {
+        h.frame_with(|i| {
+            i.events.push(egui::Event::PointerMoved(p));
+            if let Some(pressed) = pressed {
+                i.events.push(egui::Event::PointerButton {
+                    pos: p,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                });
+            }
+        });
+    }
+
+    fn key(h: &mut Harness, key: egui::Key) {
+        h.frame_with(|i| {
+            i.events.push(egui::Event::Key {
+                key,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            })
+        });
+    }
+
+    fn corner_grip(h: &Harness, id: NodeId) -> Pos2 {
+        let xf = h.app.board_xf();
+        let node = h.app.doc().scene.node(id).unwrap();
+        h.app
+            .fillet_grip_at(node, &xf)
+            .expect("visible corner grip")
+    }
+
+    fn corner_amount(h: &Harness, id: NodeId) -> f32 {
+        let node = h.app.doc().scene.node(id).unwrap();
+        h.app
+            .node_resolved_corner(node)
+            .effective(node.rect.w, node.rect.h)
+            .1
+    }
+
+    fn polygon(h: &mut Harness, rect: WorldRect, corner: Corner) -> NodeId {
+        let node = h.app.doc_mut().scene.build_node(
+            rect,
+            NodeKind::Shape(scene::ShapeNode {
+                shape: ShapeKind::RegularPolygon,
+                fill: Some(Rgba([10, 20, 30, 255])),
+                stroke: scene::Stroke::default(),
+                corner,
+                sides: 6,
+                flip: false,
+                path: None,
+                text: None,
+            }),
+        );
+        let id = h.app.add_nodes(vec![node])[0];
+        h.app.board_sel.insert(id);
+        id
+    }
+
+    fn polyline(h: &mut Harness, rect: WorldRect) -> NodeId {
+        let path = scene::PathData {
+            start: [0.0, 0.0],
+            segs: vec![
+                scene::PathSeg::Line { to: [1.0, 0.0] },
+                scene::PathSeg::Line { to: [1.0, 1.0] },
+            ],
+            closed: false,
+            ..Default::default()
+        };
+        let node = h.app.doc_mut().scene.build_node(
+            rect,
+            NodeKind::Shape(scene::ShapeNode {
+                shape: ShapeKind::Path,
+                fill: None,
+                stroke: scene::Stroke::default(),
+                corner: Corner::Square,
+                sides: scene::default_regular_sides(),
+                flip: false,
+                path: Some(std::sync::Arc::new(path)),
+                text: None,
+            }),
+        );
+        let id = h.app.add_nodes(vec![node])[0];
+        h.app.board_sel.insert(id);
+        id
+    }
+
+    #[test]
+    fn corner_grip_rides_the_top_edge_at_the_fillet_tangent_point() {
+        for angle in [0.0, 30.0] {
+            let mut h = board();
+            let rect = WorldRect::new(-90.0, -60.0, 180.0, 120.0);
+            let id = rectangle(&mut h, rect, angle);
+            h.frame();
+            let xf = h.app.board_xf();
+            let at = |local: [f32; 2]| {
+                let [x, y] = rect.rotate_point(local, angle);
+                xf.w2s(Pos2::new(x, y))
+            };
+            let inset = super::super::board_handles::FILLET_GRIP_MIN_INSET_WORLD;
+            assert!(
+                corner_grip(&h, id).distance(at([-90.0 + inset, -60.0])) < 0.01,
+                "square corner: grip inset along the top edge ({angle} deg)"
+            );
+            h.app.patch_nodes(&[id], |n| {
+                scene::set_corner(n, Corner::Rounded { radius: 24.0 })
+            });
+            assert!(
+                corner_grip(&h, id).distance(at([-66.0, -60.0])) < 0.01,
+                "the grip sits where the fillet meets the top edge ({angle} deg)"
+            );
+            h.app.patch_nodes(&[id], |n| {
+                scene::set_corner(n, Corner::Chamfer { cut: 30.0 })
+            });
+            assert!(
+                corner_grip(&h, id).distance(at([-60.0, -60.0])) < 0.01,
+                "a chamfer's grip sits at the cut ({angle} deg)"
+            );
+        }
+    }
+
+    #[test]
+    fn corner_grip_tracks_the_pointer_from_the_first_pixel() {
+        let mut h = board();
+        let id = rectangle(&mut h, WorldRect::new(-90.0, -60.0, 180.0, 120.0), 0.0);
+        h.app.patch_nodes(&[id], |n| {
+            scene::set_corner(n, Corner::Rounded { radius: 24.0 })
+        });
+        h.frame();
+        let g0 = corner_grip(&h, id);
+        pointer(&mut h, g0, None);
+        pointer(&mut h, g0, Some(true));
+        let g1 = g0 + Vec2::new(1.0, 0.0);
+        pointer(&mut h, g1, None);
+        assert!(
+            corner_grip(&h, id).distance(g1) < 0.01,
+            "1 px of travel moves the grip 1 px: {:?} vs {g1:?}",
+            corner_grip(&h, id)
+        );
+        assert!((corner_amount(&h, id) - 25.0).abs() < 0.01);
+        pointer(&mut h, g0 + Vec2::new(10.0, 7.0), None);
+        assert!(
+            corner_grip(&h, id).distance(g0 + Vec2::new(10.0, 0.0)) < 0.01,
+            "off the edge, the grip stays on the edge under the pointer"
+        );
+        assert!((corner_amount(&h, id) - 34.0).abs() < 0.01);
+        let g3 = g0 + Vec2::new(-20.0, 0.0);
+        pointer(&mut h, g3, None);
+        assert!(corner_grip(&h, id).distance(g3) < 0.01);
+        assert!(
+            (corner_amount(&h, id) - 4.0).abs() < 0.01,
+            "toward the corner decreases the radius"
+        );
+        pointer(&mut h, g3, Some(false));
+        assert!((corner_amount(&h, id) - 4.0).abs() < 0.01);
+        assert_eq!(h.app.board_sel, [id].into_iter().collect());
+        h.app.board_undo();
+        assert!(
+            (corner_amount(&h, id) - 24.0).abs() < 0.01,
+            "the drag is one undo step"
+        );
+    }
+
+    #[test]
+    fn corner_grip_click_types_a_radius_enter_commits_esc_cancels() {
+        let mut h = board();
+        let id = rectangle(&mut h, WorldRect::new(-90.0, -60.0, 180.0, 120.0), 0.0);
+        h.app.patch_nodes(&[id], |n| {
+            scene::set_corner(n, Corner::Rounded { radius: 24.0 })
+        });
+        h.frame();
+        let click = |h: &mut Harness| {
+            let g = corner_grip(h, id);
+            pointer(h, g, None);
+            pointer(h, g, Some(true));
+            pointer(h, g, Some(false));
+        };
+        click(&mut h);
+        assert!(
+            (corner_amount(&h, id) - 24.0).abs() < 1e-4,
+            "a click does not change the radius"
+        );
+        assert_eq!(h.app.board_sel, [id].into_iter().collect());
+        h.frame_with(|i| i.events.push(egui::Event::Text("40".into())));
+        key(&mut h, egui::Key::Enter);
+        assert!(
+            (corner_amount(&h, id) - 40.0).abs() < 1e-4,
+            "Enter commits the typed radius, got {}",
+            corner_amount(&h, id)
+        );
+        assert_eq!(h.app.board_sel, [id].into_iter().collect());
+
+        h.frame();
+        click(&mut h);
+        h.frame_with(|i| i.events.push(egui::Event::Text("7".into())));
+        key(&mut h, egui::Key::Escape);
+        h.frame();
+        assert!(
+            (corner_amount(&h, id) - 40.0).abs() < 1e-4,
+            "Esc leaves the radius alone"
+        );
+        assert_eq!(
+            h.app.board_sel,
+            [id].into_iter().collect(),
+            "Esc cancels the entry, not the selection"
+        );
+
+        h.app.board_undo();
+        assert!((corner_amount(&h, id) - 24.0).abs() < 1e-4);
+        h.app.board_undo();
+        assert!(
+            corner_amount(&h, id).abs() < 1e-4,
+            "the typed radius added exactly one undo step"
+        );
+    }
+
+    #[test]
+    fn corner_grip_typed_radius_clamps_to_the_host() {
+        let mut h = board();
+        let id = rectangle(&mut h, WorldRect::new(-90.0, -60.0, 180.0, 120.0), 0.0);
+        h.frame();
+        let g = corner_grip(&h, id);
+        pointer(&mut h, g, None);
+        pointer(&mut h, g, Some(true));
+        pointer(&mut h, g, Some(false));
+        h.frame_with(|i| i.events.push(egui::Event::Text("500".into())));
+        key(&mut h, egui::Key::Enter);
+        assert!((corner_amount(&h, id) - 60.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn polygon_corner_grip_rides_a_side_and_drags_along_it() {
+        let mut h = board();
+        let id = polygon(
+            &mut h,
+            WorldRect::new(-50.0, -50.0, 100.0, 100.0),
+            Corner::Rounded { radius: 40.0 },
+        );
+        h.frame();
+        let xf = h.app.board_xf();
+        let v0 = Pos2::new(0.0, -50.0);
+        let dir = Vec2::new(43.30127, 25.0).normalized();
+        // Tangent distance per unit radius at a 120 degree vertex.
+        let k = 30f32.to_radians().tan();
+        let expected = xf.w2s(v0 + dir * 40.0 * k);
+        let g0 = corner_grip(&h, id);
+        assert!(g0.distance(expected) < 0.01, "{g0:?} vs {expected:?}");
+        pointer(&mut h, g0, None);
+        pointer(&mut h, g0, Some(true));
+        let g1 = g0 + dir;
+        pointer(&mut h, g1, None);
+        assert!(corner_grip(&h, id).distance(g1) < 0.01);
+        assert!((corner_amount(&h, id) - (40.0 * k + 1.0) / k).abs() < 0.01);
+        let g2 = g0 - dir * 10.0;
+        pointer(&mut h, g2, None);
+        assert!(corner_grip(&h, id).distance(g2) < 0.01);
+        pointer(&mut h, g2, Some(false));
+        assert!((corner_amount(&h, id) - (40.0 * k - 10.0) / k).abs() < 0.01);
+    }
+
+    #[test]
+    fn corner_grip_rides_the_top_edge_of_frames_portals_and_media() {
+        let rect = WorldRect::new(-160.0, -120.0, 320.0, 240.0);
+        let inset = super::super::board_handles::FILLET_GRIP_MIN_INSET_WORLD;
+        for kind in ["frame", "portal", "image"] {
+            let mut h = board();
+            let id = match kind {
+                "frame" => frame_node(&mut h, rect),
+                "portal" => portal_node(&mut h, rect),
+                _ => image_node(&mut h, rect),
+            };
+            h.frame();
+            let along = corner_amount(&h, id).max(inset);
+            let xf = h.app.board_xf();
+            let expected = xf.w2s(Pos2::new(rect.x + along, rect.y));
+            assert!(
+                corner_grip(&h, id).distance(expected) < 0.01,
+                "{kind}: {:?} vs {expected:?}",
+                corner_grip(&h, id)
+            );
+        }
+    }
+
+    #[test]
+    fn polyline_corners_slider_reads_the_committed_radius_and_chamfer_is_selectable() {
+        let mut h = board();
+        let id = polyline(&mut h, WorldRect::new(-60.0, -60.0, 120.0, 120.0));
+        apply(&mut h, vec![id], vec![Property::CornerAmount(12.0)]);
+        let node = h.app.doc().scene.node(id).unwrap();
+        assert_eq!(
+            h.app.corner_for_editor(node).parameters(),
+            (false, false, 12.0),
+            "the slider shows the stored radius"
+        );
+        apply(&mut h, vec![id], vec![Property::CornerTreatment(true)]);
+        let node = h.app.doc().scene.node(id).unwrap().clone();
+        assert_eq!(scene::corner_of(&node), Some(Corner::Chamfer { cut: 12.0 }));
+        assert_eq!(
+            h.app.corner_for_editor(&node).parameters(),
+            (true, false, 12.0),
+            "Chamfer stays selected"
+        );
+        let NodeKind::Shape(shape) = &node.kind else {
+            panic!("shape");
+        };
+        let bez = super::super::board_path::shape_path_world_bez(
+            &node,
+            shape,
+            shape.path.as_ref().unwrap(),
+        );
+        assert!(
+            bez.elements().iter().all(|e| !matches!(
+                e,
+                vector_ink::kurbo::PathEl::CurveTo(..) | vector_ink::kurbo::PathEl::QuadTo(..)
+            )),
+            "the board draws a chamfered polyline with straight cuts"
+        );
+        assert_eq!(
+            bez.elements().len(),
+            4,
+            "move, line to the cut, the cut, the far end"
+        );
     }
 
     fn item_kinds(items: &[StripItem]) -> Vec<&'static str> {

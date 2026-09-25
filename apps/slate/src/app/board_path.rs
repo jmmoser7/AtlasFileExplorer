@@ -559,8 +559,9 @@ fn path_content_hash(
     hash_f32(&mut h, rect.h);
     hash_f32(&mut h, rotation_deg);
     if slate_doc::geom::path_is_line_polyline(path) {
-        let (_, radius) = corner.effective(rect.w, rect.h);
-        hash_f32(&mut h, radius);
+        let (chamfer, amount) = corner.effective(rect.w, rect.h);
+        chamfer.hash(&mut h);
+        hash_f32(&mut h, amount);
     }
     bucket.hash(&mut h);
     h.finish()
@@ -581,8 +582,9 @@ fn path_fill_hash(
     hash_f32(&mut h, rect.h);
     hash_f32(&mut h, rotation_deg);
     if slate_doc::geom::path_is_line_polyline(path) {
-        let (_, radius) = corner.effective(rect.w, rect.h);
-        hash_f32(&mut h, radius);
+        let (chamfer, amount) = corner.effective(rect.w, rect.h);
+        chamfer.hash(&mut h);
+        hash_f32(&mut h, amount);
     }
     bucket.hash(&mut h);
     h.finish()
@@ -2894,6 +2896,33 @@ mod tests {
         let c = path_content_hash(&path, &stroke, rect, 0.0, corner, 9);
         assert_eq!(a, b);
         assert_ne!(a, c);
+    }
+
+    #[test]
+    fn polyline_mesh_keys_tell_fillet_from_chamfer() {
+        use slate_doc::scene::Corner;
+        let path = PathData {
+            start: [0.0, 0.0],
+            segs: vec![
+                PathSeg::Line { to: [1.0, 0.0] },
+                PathSeg::Line { to: [1.0, 1.0] },
+            ],
+            closed: false,
+            ..Default::default()
+        };
+        let stroke = default_curve_stroke(Rgba::BLACK);
+        let rect = WorldRect::new(0.0, 0.0, 100.0, 100.0);
+        let fillet = Corner::Rounded { radius: 10.0 };
+        let chamfer = Corner::Chamfer { cut: 10.0 };
+        assert_ne!(
+            path_content_hash(&path, &stroke, rect, 0.0, fillet, 8),
+            path_content_hash(&path, &stroke, rect, 0.0, chamfer, 8),
+            "switching to Chamfer must not reuse the filleted stroke mesh"
+        );
+        assert_ne!(
+            path_fill_hash(&path, rect, 0.0, fillet, 8),
+            path_fill_hash(&path, rect, 0.0, chamfer, 8)
+        );
     }
 
     #[test]

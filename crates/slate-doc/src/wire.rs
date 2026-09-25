@@ -537,82 +537,156 @@ pub fn filleted_polyline(pts: &[[f32; 2]], radius: f32) -> Vec<PathCmd> {
     cmds
 }
 
-/// Fillet every vertex of a closed polyline. Radius is clamped per vertex so
-/// adjacent fillets never overlap.
-pub fn filleted_polyline_closed(pts: &[[f32; 2]], radius: f32) -> Vec<PathCmd> {
-    let n = pts.len();
-    if n < 3 {
-        return Vec::new();
-    }
-    if radius <= 0.0 {
-        let mut cmds = vec![PathCmd::Move(pts[0])];
-        for p in &pts[1..] {
-            cmds.push(PathCmd::Line(*p));
-        }
-        cmds.push(PathCmd::Line(pts[0]));
-        return cmds;
-    }
-    let mut cmds = Vec::new();
-    let mut cursor = pts[0];
-    let mut started = false;
-    for i in 0..n {
-        let prev = pts[(i + n - 1) % n];
-        let cur = pts[i];
-        let next = pts[(i + 1) % n];
-        let in_v = sub(cur, prev);
-        let out_v = sub(next, cur);
-        let in_len = len(in_v);
-        let out_len = len(out_v);
-        let r = radius.min(in_len * 0.5).min(out_len * 0.5);
-        if r < 0.5 || in_len < 0.5 || out_len < 0.5 {
-            if !started {
-                cmds.push(PathCmd::Move(cur));
-                started = true;
-                cursor = cur;
-            } else if len(sub(cur, cursor)) >= 0.5 {
-                cmds.push(PathCmd::Line(cur));
-                cursor = cur;
-            }
-            continue;
-        }
-        let a = add(cur, scale(norm(in_v), -r));
-        let b = add(cur, scale(norm(out_v), r));
-        if !started {
-            cmds.push(PathCmd::Move(a));
-            started = true;
-        } else {
-            cmds.push(PathCmd::Line(a));
-        }
-        cmds.push(PathCmd::Cubic {
-            c1: cur,
-            c2: cur,
-            to: b,
-        });
-        cursor = b;
-    }
-    if started {
-        cmds.push(PathCmd::Line(pts[0]));
-    }
-    cmds
+/// Shorter than this, two vertex-corner points are the same point.
+const VERTEX_EPS: f32 = 1e-3;
+
+/// How a corner treatment sits on one polyline vertex.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VertexCorner {
+    /// Unit direction arriving at the vertex.
+    pub u_in: [f32; 2],
+    /// Unit direction leaving the vertex.
+    pub u_out: [f32; 2],
+    /// Turning angle in radians, `(0, π)`.
+    pub turn: f32,
+    /// Tangent distance along each edge per unit of authored amount. A
+    /// fillet amount is the arc radius (`tan(turn / 2)`); a chamfer amount
+    /// is the cut along each edge (`1`).
+    pub per_amount: f32,
+    /// Half the shorter adjacent edge, so neighbouring corners never overlap.
+    pub max_tangent: f32,
 }
 
-/// Line-only path vertices with optional vertex fillet (open or closed).
-pub fn filleted_vertex_path(pts: &[[f32; 2]], radius: f32, closed: bool) -> Vec<PathCmd> {
-    if radius <= 0.0 {
-        let mut cmds = vec![PathCmd::Move(pts[0])];
-        for p in &pts[1..] {
-            cmds.push(PathCmd::Line(*p));
+/// `None` when the vertex does not turn, or turns back on itself: there is
+/// nothing to round or cut there.
+pub fn vertex_corner(
+    prev: [f32; 2],
+    cur: [f32; 2],
+    next: [f32; 2],
+    chamfer: bool,
+) -> Option<VertexCorner> {
+    let in_v = sub(cur, prev);
+    let out_v = sub(next, cur);
+    let (in_len, out_len) = (len(in_v), len(out_v));
+    if in_len.is_nan() || out_len.is_nan() || in_len <= VERTEX_EPS || out_len <= VERTEX_EPS {
+        return None;
+    }
+    let u_in = scale(in_v, 1.0 / in_len);
+    let u_out = scale(out_v, 1.0 / out_len);
+    let turn = (u_in[0] * u_out[0] + u_in[1] * u_out[1])
+        .clamp(-1.0, 1.0)
+        .acos();
+    if !(1e-4..std::f32::consts::PI - 1e-3).contains(&turn) {
+        return None;
+    }
+    Some(VertexCorner {
+        u_in,
+        u_out,
+        turn,
+        per_amount: if chamfer { 1.0 } else { (turn * 0.5).tan() },
+        max_tangent: in_len.min(out_len) * 0.5,
+    })
+}
+
+fn rotate_vec(v: [f32; 2], angle: f32) -> [f32; 2] {
+    let (s, c) = angle.sin_cos();
+    [v[0] * c - v[1] * s, v[0] * s + v[1] * c]
+}
+
+/// Line-only path vertices with every interior vertex filleted (circular
+/// arc of radius `amount`) or chamfered (cut `amount` along each edge),
+/// clamped per vertex. Open paths keep their end vertices sharp.
+pub fn filleted_vertex_path(
+    pts: &[[f32; 2]],
+    amount: f32,
+    chamfer: bool,
+    closed: bool,
+) -> Vec<PathCmd> {
+    let mut pts = pts.to_vec();
+    pts.dedup_by(|a, b| len(sub(*a, *b)) < VERTEX_EPS);
+    if closed && pts.len() > 1 && len(sub(pts[0], pts[pts.len() - 1])) < VERTEX_EPS {
+        pts.pop();
+    }
+    let n = pts.len();
+    let Some(&first) = pts.first() else {
+        return Vec::new();
+    };
+    let amount = if amount.is_finite() {
+        amount.max(0.0)
+    } else {
+        0.0
+    };
+    let mut cmds = Vec::new();
+    let mut cursor: Option<[f32; 2]> = None;
+    let mut start = first;
+    let mut line_to = |cmds: &mut Vec<PathCmd>, cursor: &mut Option<[f32; 2]>, p: [f32; 2]| {
+        match *cursor {
+            None => {
+                cmds.push(PathCmd::Move(p));
+                start = p;
+            }
+            Some(c) if len(sub(p, c)) < VERTEX_EPS => return,
+            Some(_) => cmds.push(PathCmd::Line(p)),
         }
-        if closed && pts.len() > 2 {
-            cmds.push(PathCmd::Line(pts[0]));
+        *cursor = Some(p);
+    };
+    for i in 0..n {
+        let cur = pts[i];
+        let interior = n >= 3 && (closed || (i > 0 && i + 1 < n));
+        let corner = interior
+            .then(|| vertex_corner(pts[(i + n - 1) % n], cur, pts[(i + 1) % n], chamfer))
+            .flatten();
+        let Some(vc) = corner.filter(|_| amount > 0.0) else {
+            line_to(&mut cmds, &mut cursor, cur);
+            continue;
+        };
+        let t = (amount * vc.per_amount).min(vc.max_tangent);
+        if t.is_nan() || t <= VERTEX_EPS {
+            line_to(&mut cmds, &mut cursor, cur);
+            continue;
         }
-        return cmds;
+        let a = add(cur, scale(vc.u_in, -t));
+        let b = add(cur, scale(vc.u_out, t));
+        line_to(&mut cmds, &mut cursor, a);
+        if chamfer {
+            line_to(&mut cmds, &mut cursor, b);
+            continue;
+        }
+        // Circular arc from `a` to `b`, one cubic per quarter turn at most.
+        let radius = t / vc.per_amount;
+        let side = (vc.u_in[0] * vc.u_out[1] - vc.u_in[1] * vc.u_out[0]).signum();
+        let center = add(a, scale([-vc.u_in[1] * side, vc.u_in[0] * side], radius));
+        let pieces = (vc.turn / std::f32::consts::FRAC_PI_2).ceil().max(1.0);
+        let sweep = vc.turn / pieces;
+        let handle = 4.0 / 3.0 * (sweep * 0.25).tan() * radius;
+        let from = sub(a, center);
+        let mut p0 = a;
+        for k in 1..=pieces as usize {
+            let angle = side * sweep * k as f32;
+            let p1 = if k == pieces as usize {
+                b
+            } else {
+                add(center, rotate_vec(from, angle))
+            };
+            let tan0 = rotate_vec(vc.u_in, side * sweep * (k - 1) as f32);
+            let tan1 = rotate_vec(vc.u_in, angle);
+            cmds.push(PathCmd::Cubic {
+                c1: add(p0, scale(tan0, handle)),
+                c2: add(p1, scale(tan1, -handle)),
+                to: p1,
+            });
+            p0 = p1;
+        }
+        cursor = Some(b);
     }
     if closed {
-        filleted_polyline_closed(pts, radius)
-    } else {
-        filleted_polyline(pts, radius)
+        if let Some(c) = cursor {
+            if len(sub(start, c)) >= VERTEX_EPS {
+                cmds.push(PathCmd::Line(start));
+            }
+        }
     }
+    cmds
 }
 
 /// Nearest point on an orthogonal polyline (osnap Near / Perp).

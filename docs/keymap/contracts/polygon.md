@@ -22,19 +22,19 @@ D01–D17 are every tool-scoped dimension. D18–D35 are portal-only and do not 
 | D06 | Constraints & snapping | P1.node.osnap: one resolved point feeds preview and commit; Alt suspends, ortho/direction constraints retain priority. | pattern | 85 |
 | D07 | Direction / value locks | Percentage corner intent persists through resize; absolute values retain the authored distance and clamp only their effective value. Mode conversion is per host and preserves the visible amount. | stated | 100 |
 | D08 | Numeric / manual entry | Local width and height stringers on the bounding box; **Sides** (3–12) in the Corners panel when a regular polygon is selected. No dimensions in the toolbar. | stated | 100 |
-| D09 | Preview & readouts | P1.shape.properties: preview resolved creation geometry and show the shared geometry-appropriate selection strip. | pattern | 85 |
+| D09 | Preview & readouts | Armed: a small polygon GhostFollow glyph beside the pointer (P2.GhostFollow.glyph). Drag: the preview is the regular polygon itself (first vertex top center), not its bounding box. Then the shared P1.shape.properties selection strip. | stated | 100 |
 | D10 | Cursor | Retain existing armed-tool cursor; controls use shell hover and focus feedback. | pattern | 85 |
 | D11 | Commit | P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history. | pattern | 85 |
 | D12 | Cancel | P1.shape.properties: Esc cancels the pending property edit and preserves selection. Existing creation cancellation remains unchanged. | pattern | 85 |
-| D13 | Selected presentation | P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers. | pattern | 85 |
-| D14 | Post-edit | Fill, Stroke, Corners (fillet/chamfer like rectangles). Corners panel also exposes **Sides** for regular polygons only. | stated | 100 |
+| D13 | Selected presentation | P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers. **P1.node.corner-grip** on a single selected polygon: the grip rides the side from the top vertex toward the next vertex clockwise, at the treatment's tangent point; drag along that side, click to type. | stated | 100 |
+| D14 | Post-edit | Fill, Stroke, Corners (fillet/chamfer like rectangles). Corners panel also exposes **Sides** for regular polygons only. A fillet amount is the arc radius at every vertex and a chamfer is a straight cut, both clamped per vertex so the outline stays inside the drag box with no spikes on the board or in the export. | stated | 100 |
 | D15 | Non-goals | P1.shape.properties: no independent per-vertex editing in the strip; no star/irregular polygon in this tool. | stated | 100 |
 | D16 | Create-style inheritance | **Closed-form** create-style memory (P1.shape.style): inherit last closed-shape stroke/fill; open curves do not overwrite polygon defaults. | stated | 100 |
 | D17 | Hit-testing & pick | Fill uses the filleted polygon outline; stroke uses shared path pick where applicable. Controls consume input before canvas gestures. | pattern | 85 |
 
 ## Geometry capabilities
 
-Fill, Stroke, Corners (fillet/chamfer), and Sides (3–12). Board painter and HTML artifact both derive outline from `regular_polygon_vertices` + shared fillet path (`slate-doc::geom`).
+Fill, Stroke, Corners (fillet/chamfer), and Sides (3–12). Board painter and HTML artifact both derive outline from `regular_polygon_vertices` + shared vertex-corner path (`slate-doc::geom`, `slate_doc::wire::filleted_vertex_path`). A fillet is a true circular arc of the authored radius, tangent at `radius × tan(turn / 2)` from each vertex; a chamfer cuts the authored distance along each edge. Both clamp to half the shorter adjacent side, and the outline never revisits a point, so a stroke cannot miter-spike.
 
 ## Feel constants
 
@@ -47,6 +47,9 @@ Fill, Stroke, Corners (fillet/chamfer), and Sides (3–12). Board painter and HT
 - **GP1:** Y → drag a box → hexagon inscribed; Shift → equal aspect box.
 - **GP2:** Select polygon → Corners → fillet 12 → board and export match.
 - **GP3:** Select polygon → Corners → Sides 8 → geometry updates; undo restores.
+- **GP4:** Arm Y → a small polygon follows the pointer → drag → the preview is the polygon, not its box.
+- **GP5:** Select polygon → drag the corner grip along the upper-right side → every vertex rounds live; release is one undo step. Click the grip → type 20 → Enter.
+- **GP6:** Triangle → fillet or chamfer 10 000 → the outline stays inside the box with no spikes, on the board and in the export.
 
 ## Implementation notes
 

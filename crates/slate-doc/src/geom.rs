@@ -137,22 +137,26 @@ pub fn path_data_to_world_bez_with_fillet(
     corner: Corner,
 ) -> BezPath {
     if path_is_line_polyline(path) {
-        let (_, radius) = corner.effective(rect.w, rect.h);
-        if radius > 0.0 {
-            let world: Vec<[f32; 2]> = polyline_norm_points(path)
-                .into_iter()
-                .map(|p| {
-                    let pt = world_point(p, rect, rotation_deg);
-                    [pt.x as f32, pt.y as f32]
-                })
-                .collect();
+        let (chamfer, amount) = corner.effective(rect.w, rect.h);
+        if amount > 0.0 {
+            let world = polyline_world_points(path, rect, rotation_deg);
             if world.len() >= 3 || (world.len() >= 2 && !path.closed) {
-                let cmds = filleted_vertex_path(&world, radius, path.closed);
+                let cmds = filleted_vertex_path(&world, amount, chamfer, path.closed);
                 return path_cmds_to_bez_world(&cmds);
             }
         }
     }
     path_data_to_world_bez(path, rect, rotation_deg)
+}
+
+fn polyline_world_points(path: &PathData, rect: WorldRect, rotation_deg: f32) -> Vec<[f32; 2]> {
+    polyline_norm_points(path)
+        .into_iter()
+        .map(|p| {
+            let pt = world_point(p, rect, rotation_deg);
+            [pt.x as f32, pt.y as f32]
+        })
+        .collect()
 }
 
 pub fn regular_polygon_world_outline(
@@ -164,21 +168,147 @@ pub fn regular_polygon_world_outline(
 ) -> Vec<[f32; 2]> {
     let sides = clamp_regular_sides(sides);
     let verts = regular_polygon_vertices(rect, sides);
-    let (_, radius) = corner.effective(rect.w, rect.h);
-    let outline = if radius <= 0.0 {
+    let (chamfer, amount) = corner.effective(rect.w, rect.h);
+    let mut outline = if amount <= 0.0 {
         verts
     } else {
-        let cmds = filleted_vertex_path(&verts, radius, true);
+        let cmds = filleted_vertex_path(&verts, amount, chamfer, true);
         let bez = path_cmds_to_bez_world(&cmds);
         flatten_contours(&bez, tolerance as f64)
             .into_iter()
             .next()
             .unwrap_or(verts)
     };
+    // A stroked loop that revisits a point reverses 180° there, which the
+    // stroke tessellator turns into a spike.
+    let same = |a: &[f32; 2], b: &[f32; 2]| (a[0] - b[0]).hypot(a[1] - b[1]) < 1e-3;
+    outline.dedup_by(|a, b| same(a, b));
+    while outline.len() > 1 && same(&outline[0], &outline[outline.len() - 1]) {
+        outline.pop();
+    }
     outline
         .into_iter()
         .map(|p| rect.rotate_point(p, rotation_deg))
         .collect()
+}
+
+/// The edge a corner grip rides (P1.node.corner-grip): the grip sits
+/// `travel` along `dir` from `vertex`, where `travel` is the treatment's
+/// tangent distance — the fillet's tangent point, or the chamfer's cut.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CornerGripEdge {
+    /// The sharp corner the grip measures from (world).
+    pub vertex: [f32; 2],
+    /// Unit direction along the edge, away from `vertex` (world).
+    pub dir: [f32; 2],
+    /// Unit normal of the edge toward the inside of the corner.
+    pub inward: [f32; 2],
+    /// Travel per unit of corner amount.
+    pub per_amount: f32,
+    /// Largest travel the host allows.
+    pub max_travel: f32,
+}
+
+impl CornerGripEdge {
+    pub fn point(&self, travel: f32) -> [f32; 2] {
+        [
+            self.vertex[0] + self.dir[0] * travel,
+            self.vertex[1] + self.dir[1] * travel,
+        ]
+    }
+
+    /// Signed distance of `p` along the edge from the vertex.
+    pub fn project(&self, p: [f32; 2]) -> f32 {
+        (p[0] - self.vertex[0]) * self.dir[0] + (p[1] - self.vertex[1]) * self.dir[1]
+    }
+
+    pub fn travel_for_amount(&self, amount: f32) -> f32 {
+        (amount.max(0.0) * self.per_amount).min(self.max_travel)
+    }
+
+    pub fn amount_for_travel(&self, travel: f32) -> f32 {
+        travel.clamp(0.0, self.max_travel) / self.per_amount.max(1e-6)
+    }
+
+    /// Largest amount that still changes the outline.
+    pub fn max_amount(&self) -> f32 {
+        self.amount_for_travel(self.max_travel)
+    }
+}
+
+/// The grip edge for a corner-capable node: the top edge from the top-left
+/// corner for box hosts, the side from the top vertex toward the next one
+/// (clockwise) for regular polygons, and the leaving side of the first
+/// turning vertex for line polylines.
+pub fn corner_grip_edge(node: &Node, chamfer: bool) -> Option<CornerGripEdge> {
+    let rect = node.rect;
+    let rot = node.rotation_deg;
+    let from_vertex = |prev: [f32; 2], cur: [f32; 2], next: [f32; 2]| {
+        let vc = crate::wire::vertex_corner(prev, cur, next, chamfer)?;
+        let side = (vc.u_in[0] * vc.u_out[1] - vc.u_in[1] * vc.u_out[0]).signum();
+        Some(CornerGripEdge {
+            vertex: cur,
+            dir: vc.u_out,
+            inward: [-vc.u_out[1] * side, vc.u_out[0] * side],
+            per_amount: vc.per_amount,
+            max_travel: vc.max_tangent,
+        })
+    };
+    match &node.kind {
+        NodeKind::Shape(s) if s.shape == ShapeKind::RegularPolygon => {
+            let sides = clamp_regular_sides(s.sides) as usize;
+            let verts: Vec<[f32; 2]> = regular_polygon_vertices(rect, sides as u8)
+                .into_iter()
+                .map(|p| rect.rotate_point(p, rot))
+                .collect();
+            let mut edge = from_vertex(verts[sides - 1], verts[0], verts[1])?;
+            // Corner amounts clamp to half the short side of the box.
+            let limit = rect.w.min(rect.h) * 0.5 * edge.per_amount;
+            edge.max_travel = edge.max_travel.min(limit);
+            Some(edge)
+        }
+        NodeKind::Shape(s) if s.shape == ShapeKind::Rect => Some(box_grip_edge(rect, rot)),
+        NodeKind::Shape(s) => {
+            let path = s.path.as_ref().filter(|p| path_is_line_polyline(p))?;
+            let mut pts = polyline_world_points(path, rect, rot);
+            pts.dedup_by(|a, b| (a[0] - b[0]).hypot(a[1] - b[1]) < 1e-3);
+            if path.closed
+                && pts.len() > 1
+                && (pts[0][0] - pts[pts.len() - 1][0]).hypot(pts[0][1] - pts[pts.len() - 1][1])
+                    < 1e-3
+            {
+                pts.pop();
+            }
+            let n = pts.len();
+            if n < 3 {
+                return None;
+            }
+            let interior: Box<dyn Iterator<Item = usize>> = if path.closed {
+                Box::new(0..n)
+            } else {
+                Box::new(1..n - 1)
+            };
+            interior
+                .filter_map(|i| from_vertex(pts[(i + n - 1) % n], pts[i], pts[(i + 1) % n]))
+                .next()
+        }
+        NodeKind::Image(_) | NodeKind::Frame(_) | NodeKind::Portal(_) => {
+            Some(box_grip_edge(rect, rot))
+        }
+        _ => None,
+    }
+}
+
+fn box_grip_edge(rect: WorldRect, rotation_deg: f32) -> CornerGripEdge {
+    let vertex = rect.rotate_point([rect.x, rect.y], rotation_deg);
+    let (s, c) = rotation_deg.to_radians().sin_cos();
+    CornerGripEdge {
+        vertex,
+        dir: [c, s],
+        inward: [-s, c],
+        per_amount: 1.0,
+        max_travel: rect.w.min(rect.h).max(0.0) * 0.5,
+    }
 }
 
 /// A normalized path point placed in `rect` and rotated about its center.
@@ -328,6 +458,162 @@ mod tests {
         let flat = flatten_contours(&bez, 0.25);
         assert_eq!(flat.len(), 1);
         assert!(flat[0].len() >= 3);
+    }
+
+    /// Finite, inside `bounds`, no zero-length edge, never doubling back, and
+    /// turning one way only. A doubled-back vertex is what a mitered stroke
+    /// join extends toward infinity.
+    fn assert_clean_convex_outline(outline: &[[f32; 2]], bounds: Option<WorldRect>, label: &str) {
+        assert!(outline.len() >= 3, "{label}: {} points", outline.len());
+        for p in outline {
+            assert!(
+                p[0].is_finite() && p[1].is_finite(),
+                "{label}: non-finite {p:?}"
+            );
+            if let Some(r) = bounds {
+                let eps = 1e-3 * r.w.max(r.h).max(1.0);
+                assert!(
+                    p[0] >= r.x - eps
+                        && p[0] <= r.x + r.w + eps
+                        && p[1] >= r.y - eps
+                        && p[1] <= r.y + r.h + eps,
+                    "{label}: {p:?} escapes {r:?}"
+                );
+            }
+        }
+        let n = outline.len();
+        let mut turn = 0.0f32;
+        for i in 0..n {
+            let a = outline[i];
+            let b = outline[(i + 1) % n];
+            let c = outline[(i + 2) % n];
+            let e0 = [b[0] - a[0], b[1] - a[1]];
+            let e1 = [c[0] - b[0], c[1] - b[1]];
+            let l0 = e0[0].hypot(e0[1]);
+            let l1 = e1[0].hypot(e1[1]);
+            assert!(l0 > 1e-4, "{label}: zero-length edge after {a:?}");
+            let dot = (e0[0] * e1[0] + e0[1] * e1[1]) / (l0 * l1);
+            assert!(dot > -0.999, "{label}: outline doubles back at {b:?}");
+            let cross = (e0[0] * e1[1] - e0[1] * e1[0]) / (l0 * l1);
+            if cross.abs() > 1e-3 {
+                if turn == 0.0 {
+                    turn = cross.signum();
+                }
+                assert_eq!(cross.signum(), turn, "{label}: concave turn at {b:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn regular_polygon_corner_outline_stays_bounded_for_every_side_count_and_radius() {
+        let rects = [
+            WorldRect::new(0.0, 0.0, 100.0, 100.0),
+            WorldRect::new(10.0, -20.0, 240.0, 90.0),
+            WorldRect::new(-50.0, 5.0, 60.0, 200.0),
+        ];
+        let amounts = [
+            0.0,
+            0.3,
+            1.0,
+            7.5,
+            20.0,
+            33.0,
+            50.0,
+            120.0,
+            1.0e4,
+            1.0e30,
+            f32::MAX,
+        ];
+        for rect in rects {
+            for sides in 3..=12u8 {
+                for amount in amounts {
+                    for corner in [
+                        Corner::Rounded { radius: amount },
+                        Corner::Chamfer { cut: amount },
+                    ] {
+                        for rot in [0.0, 33.0] {
+                            let outline =
+                                regular_polygon_world_outline(rect, rot, sides, corner, 0.05);
+                            let label = format!("{rect:?} sides={sides} {corner:?} rot={rot}");
+                            let bounds = (rot == 0.0).then_some(rect);
+                            assert_clean_convex_outline(&outline, bounds, &label);
+                        }
+                    }
+                }
+                for corner in [
+                    Corner::RoundedPercent { percent: 100.0 },
+                    Corner::ChamferPercent { percent: 100.0 },
+                ] {
+                    let outline = regular_polygon_world_outline(rect, 0.0, sides, corner, 0.05);
+                    let label = format!("{rect:?} sides={sides} {corner:?}");
+                    assert_clean_convex_outline(&outline, Some(rect), &label);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn polygon_fillet_radius_is_the_arc_radius() {
+        // A true regular hexagon (square box): 120 degree interior angles.
+        let rect = WorldRect::new(0.0, 0.0, 100.0, 100.0);
+        let radius = 10.0f32;
+        let outline = regular_polygon_world_outline(rect, 0.0, 6, Corner::Rounded { radius }, 0.01);
+        let v0 = [50.0f32, 0.0];
+        let half_interior = 60.0f32.to_radians();
+        let tangent = radius / half_interior.tan();
+        let center = [v0[0], v0[1] + radius / half_interior.sin()];
+        let arc: Vec<_> = outline
+            .iter()
+            .filter(|p| (p[0] - v0[0]).hypot(p[1] - v0[1]) < tangent * 1.02)
+            .collect();
+        assert!(arc.len() >= 3, "arc samples near the top vertex: {arc:?}");
+        for p in arc {
+            let d = (p[0] - center[0]).hypot(p[1] - center[1]);
+            assert!(
+                (d - radius).abs() < 0.05,
+                "{p:?} is {d} from the fillet center, not {radius}"
+            );
+        }
+        let edge = [43.30127f32 / 50.0, 25.0 / 50.0];
+        let b0 = [v0[0] + edge[0] * tangent, v0[1] + edge[1] * tangent];
+        assert!(
+            outline
+                .iter()
+                .any(|p| (p[0] - b0[0]).hypot(p[1] - b0[1]) < 0.02),
+            "the arc must end at the tangent point {b0:?}"
+        );
+    }
+
+    #[test]
+    fn polyline_chamfer_cuts_straight_corners() {
+        let path = PathData {
+            start: [0.0, 0.0],
+            segs: vec![
+                PathSeg::Line { to: [1.0, 0.0] },
+                PathSeg::Line { to: [1.0, 1.0] },
+            ],
+            closed: false,
+            ..Default::default()
+        };
+        let rect = WorldRect::new(0.0, 0.0, 100.0, 100.0);
+        let bez =
+            path_data_to_world_bez_with_fillet(&path, rect, 0.0, Corner::Chamfer { cut: 10.0 });
+        assert!(
+            bez.elements().iter().all(|e| !matches!(
+                e,
+                vector_ink::kurbo::PathEl::CurveTo(..) | vector_ink::kurbo::PathEl::QuadTo(..)
+            )),
+            "a chamfer is straight: {:?}",
+            bez.elements()
+        );
+        let flat = flatten_contours(&bez, 0.05);
+        let near = |q: [f32; 2]| {
+            flat[0]
+                .iter()
+                .any(|p| (p[0] - q[0]).hypot(p[1] - q[1]) < 1e-3)
+        };
+        assert!(near([90.0, 0.0]) && near([100.0, 10.0]), "{:?}", flat[0]);
+        assert!(!near([100.0, 0.0]), "the corner itself is cut away");
     }
 
     #[test]

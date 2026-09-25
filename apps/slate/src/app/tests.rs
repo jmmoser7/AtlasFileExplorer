@@ -414,6 +414,14 @@ impl Harness {
     /// One frame with real input, which is the only way to test what the board
     /// and a focused page each do with the same wheel notch or keystroke.
     pub(super) fn frame_with(&mut self, prepare: impl FnOnce(&mut egui::RawInput)) {
+        let _ = self.frame_output(prepare);
+    }
+
+    /// [`Self::frame_with`], returning what the frame painted.
+    pub(super) fn frame_output(
+        &mut self,
+        prepare: impl FnOnce(&mut egui::RawInput),
+    ) -> egui::FullOutput {
         let mut input = egui::RawInput {
             screen_rect: Some(ERect::from_min_size(Pos2::ZERO, EVec2::new(1440.0, 900.0))),
             ..Default::default()
@@ -421,8 +429,9 @@ impl Harness {
         prepare(&mut input);
         let ctx = self.ctx.clone();
         let app = &mut self.app;
-        let _ = ctx.run(input, |c| app.update_app(c));
+        let out = ctx.run(input, |c| app.update_app(c));
         assert_invariants(&self.app);
+        out
     }
 
     /// A workbook with two facet groups, three tags, and three linked files
@@ -3371,6 +3380,112 @@ fn a_right_drag_inside_a_focused_atlas_lens_does_not_start_a_shell_drag() {
 
 fn arming_board(tag: &str, tool: board::BoardTool) -> Harness {
     kit_board(tag, tool)
+}
+
+/// Closed paths a frame painted (convex fills and closed strokes).
+fn painted_closed_paths(out: &egui::FullOutput) -> Vec<Vec<Pos2>> {
+    fn walk(shape: &egui::Shape, acc: &mut Vec<Vec<Pos2>>) {
+        match shape {
+            egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, acc)),
+            egui::Shape::Path(p) if p.closed => acc.push(p.points.clone()),
+            _ => {}
+        }
+    }
+    let mut acc = Vec::new();
+    for clipped in &out.shapes {
+        walk(&clipped.shape, &mut acc);
+    }
+    acc
+}
+
+fn screen_bounds(pts: &[Pos2]) -> ERect {
+    ERect::from_points(pts)
+}
+
+#[test]
+fn armed_polygon_ghost_is_a_small_polygon_beside_the_pointer() {
+    let mut h = arming_board("polygon_ghost", board::BoardTool::Polygon);
+    h.frame();
+    let p = h.app.canvas_rect.center();
+    let out = h.frame_output(|i| i.events.push(egui::Event::PointerMoved(p)));
+    let sides = usize::from(slate_doc::scene::default_regular_sides());
+    let size = board_place::place_tokens::GHOST_SIZE;
+    let ghost = painted_closed_paths(&out).into_iter().find(|pts| {
+        let b = screen_bounds(pts);
+        pts.len() == sides && (b.height() - size).abs() < 1.0 && b.center().distance(p) < size * 3.0
+    });
+    assert!(
+        ghost.is_some(),
+        "armed Polygon must paint a {sides}-gon GhostFollow glyph at the pointer"
+    );
+}
+
+#[test]
+fn polygon_drag_preview_is_the_polygon_not_its_bounding_box() {
+    let mut h = arming_board("polygon_preview", board::BoardTool::Polygon);
+    h.frame();
+    let a = h.app.canvas_rect.center();
+    let b = a + EVec2::new(120.0, 90.0);
+    h.frame_with(|i| {
+        i.events.push(egui::Event::PointerMoved(a));
+        i.events.push(egui::Event::PointerButton {
+            pos: a,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        });
+    });
+    let out = h.frame_output(|i| i.events.push(egui::Event::PointerMoved(b)));
+    let sides = usize::from(slate_doc::scene::default_regular_sides());
+    let preview = painted_closed_paths(&out).into_iter().find(|pts| {
+        let bb = screen_bounds(pts);
+        pts.len() == sides && bb.height() > 60.0
+    });
+    let preview = preview.expect("the live preview is the polygon with its current sides");
+    let bb = screen_bounds(&preview);
+    let top = preview
+        .iter()
+        .min_by(|p, q| p.y.total_cmp(&q.y))
+        .copied()
+        .unwrap();
+    assert!(
+        (top.x - bb.center().x).abs() < 0.5,
+        "first vertex at top center like the committed polygon: {preview:?}"
+    );
+}
+
+#[test]
+fn filleted_polygon_stroke_never_spikes() {
+    use egui::epaint::{tessellator::Path, Mesh, PathStroke};
+    let rect = slate_doc::scene::WorldRect::new(0.0, 0.0, 160.0, 160.0);
+    let limit = ERect::from_min_size(Pos2::ZERO, EVec2::splat(160.0)).expand(24.0);
+    for sides in 3..=12u8 {
+        for radius in [4.0, 20.0, 45.0, 80.0, 1.0e4] {
+            let outline = slate_doc::geom::regular_polygon_world_outline(
+                rect,
+                0.0,
+                sides,
+                slate_doc::scene::Corner::Rounded { radius },
+                0.25,
+            );
+            let pts: Vec<Pos2> = outline.iter().map(|p| Pos2::new(p[0], p[1])).collect();
+            let mut path = Path::default();
+            path.add_line_loop(&pts);
+            let mut mesh = Mesh::default();
+            path.stroke_closed(
+                1.0,
+                &PathStroke::new(4.0_f32, egui::Color32::WHITE),
+                &mut mesh,
+            );
+            for v in &mesh.vertices {
+                assert!(
+                    v.pos.x.is_finite() && v.pos.y.is_finite() && limit.contains(v.pos),
+                    "sides={sides} radius={radius}: stroke vertex {:?} spikes out",
+                    v.pos
+                );
+            }
+        }
+    }
 }
 
 /// GP1 — arming Frame starts GhostFollow: silhouette kind is live, no node.
@@ -8993,7 +9108,10 @@ fn fillet_grip_drag_from_square_starts_at_zero_radius() {
         .end_gesture_for_test(moved, Some(xf.w2s(moved)), egui::Modifiers::NONE);
     let after = h.app.doc().scene.node(id).unwrap();
     let radius = slate_doc::scene::resolved_corner_effective(after, None).1;
-    assert!((radius - 3.0).abs() < 0.05, "radius={radius}");
+    // The square grip rests at the inset along the top edge and stays under
+    // the pointer's projection onto that edge (P1.node.corner-grip).
+    let expected = board_handles::FILLET_GRIP_MIN_INSET_WORLD + 3.0;
+    assert!((radius - expected).abs() < 0.05, "radius={radius}");
 }
 
 #[test]

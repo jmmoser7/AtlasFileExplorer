@@ -4802,7 +4802,7 @@ pub fn supports_corners(node: &Node) -> bool {
 /// Authored corner after kind defaults (text cards, portal [`Square`] → designed fillet).
 pub fn resolved_corner(node: &Node, path: Option<&std::path::Path>) -> Corner {
     match &node.kind {
-        NodeKind::Shape(s) if s.shape == ShapeKind::Rect => s.corner,
+        NodeKind::Shape(s) if supports_corners(node) => s.corner,
         NodeKind::Image(i) => path
             .map(|p| crate::media::text_card_corner(p, i.corner))
             .unwrap_or(i.corner),
@@ -5077,6 +5077,49 @@ mod corner_percentage_tests {
         };
         assert_eq!(f.fill, Rgba([9, 8, 7, 255]));
         assert!(!f.fill_follows_theme());
+    }
+
+    #[test]
+    fn resolved_corner_reads_polygon_and_polyline_corners() {
+        let shape = |shape: ShapeKind, path: Option<PathData>, corner: Corner| Node {
+            id: NodeId(4),
+            rect: WorldRect::new(0.0, 0.0, 100.0, 100.0),
+            rotation_deg: 0.0,
+            opacity: 1.0,
+            locked: false,
+            hidden: false,
+            group: None,
+            clip: None,
+            bumper: None,
+            kind: NodeKind::Shape(ShapeNode {
+                shape,
+                fill: None,
+                stroke: Stroke::default(),
+                corner,
+                sides: default_regular_sides(),
+                flip: false,
+                path: path.map(Arc::new),
+                text: None,
+            }),
+        };
+        let polyline = PathData {
+            start: [0.0, 0.0],
+            segs: vec![
+                PathSeg::Line { to: [1.0, 0.0] },
+                PathSeg::Line { to: [1.0, 1.0] },
+            ],
+            closed: false,
+            ..Default::default()
+        };
+        for corner in [
+            Corner::Rounded { radius: 12.0 },
+            Corner::Chamfer { cut: 7.0 },
+        ] {
+            let polygon = shape(ShapeKind::RegularPolygon, None, corner);
+            assert_eq!(resolved_corner(&polygon, None), corner);
+            let line = shape(ShapeKind::Path, Some(polyline.clone()), corner);
+            assert_eq!(resolved_corner(&line, None), corner);
+        }
     }
 
     #[test]
