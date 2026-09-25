@@ -271,8 +271,7 @@ pub fn node_stroke_polylines(n: &Node, tolerance: f32) -> Vec<Vec<[f32; 2]>> {
 
 /// Whether world point `p` lies inside the host's visible outline (trim clip when set).
 pub fn point_in_node_outline(host: &Node, px: f32, py: f32, tolerance: f32) -> bool {
-    node_closed_poly(host, tolerance)
-        .is_some_and(|poly| point_in_polygon(&poly, [px, py]))
+    node_closed_poly(host, tolerance).is_some_and(|poly| point_in_polygon(&poly, [px, py]))
 }
 
 /// Whether any part of `stroke` intersects the host's visible outline.
@@ -288,9 +287,7 @@ pub fn stroke_intersects_node_outline(stroke: &Node, host: &Node, tolerance: f32
 #[cfg(test)]
 mod paint_window_tests {
     use super::*;
-    use crate::scene::{
-        Corner, ImageNode, NodeKind, ShapeKind, ShapeNode, Stroke, WorldRect,
-    };
+    use crate::scene::{Corner, ImageNode, NodeKind, ShapeKind, ShapeNode, Stroke, WorldRect};
 
     #[test]
     fn stroke_hits_host_outline_not_far_away() {

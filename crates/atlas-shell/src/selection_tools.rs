@@ -1839,9 +1839,9 @@ pub struct FilterEdit {
 }
 
 /// One paint-layer chip after the filter radios (`+` or index label).
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct LayerChip {
-    pub label: &'static str,
+    pub label: std::borrow::Cow<'static, str>,
     pub thumb: Option<egui::TextureId>,
     pub is_add: bool,
 }
@@ -1869,10 +1869,11 @@ pub fn filter_editor(
     let inner_h = rect.height() * (13.0 / CAPSULE_HEIGHT);
     let filter_count = radios.len().max(1) as f32;
     let layer_count = layer_chips.len() as f32;
+    const LAYER_CHIP_GAP: f32 = 8.0;
     let layer_gap = if layer_chips.is_empty() {
         0.0
     } else {
-        8.0 * zoom
+        canvas_scale::px(LAYER_CHIP_GAP, zoom)
     };
     // 80% of the doubled-capsule dot. The intensity track uses this same
     // radius as its thickness so the slider stays a thin capsule.
@@ -1920,7 +1921,7 @@ pub fn filter_editor(
             .on_hover_text(if chip.is_add {
                 "Add paint layer"
             } else {
-                chip.label
+                chip.label.as_ref()
             });
         if response.hovered() {
             layer_out.hovered = Some(i);
@@ -1929,8 +1930,8 @@ pub fn filter_editor(
             layer_out.clicked = Some(i);
         }
         let radio = FilterRadio {
-            label: chip.label,
-            fill: [48, 48, 52],
+            label: "",
+            fill: [theme.panel.r(), theme.panel.g(), theme.panel.b()],
             fill_b: None,
             thumb: chip.thumb,
         };
@@ -1944,23 +1945,20 @@ pub fn filter_editor(
             zoom,
             theme,
         );
-        let label_px = canvas_scale::px(radius * 1.1, zoom);
-        if chip.is_add && canvas_text::legible(label_px) {
-            canvas_text::text(
-                ui.painter(),
+        if chip.is_add {
+            ui.painter().text(
                 center,
                 Align2::CENTER_CENTER,
                 "+",
-                canvas_scale::font(radius * 1.1, zoom),
+                egui::FontId::proportional(radius * 1.1),
                 theme.ink,
             );
-        } else if !chip.is_add && chip.thumb.is_none() {
-            canvas_text::text(
-                ui.painter(),
+        } else if chip.thumb.is_none() {
+            ui.painter().text(
                 center,
                 Align2::CENTER_CENTER,
-                chip.label,
-                canvas_scale::font(radius * 0.95, zoom),
+                chip.label.as_ref(),
+                egui::FontId::proportional(radius * 0.95),
                 theme.ink,
             );
         }
