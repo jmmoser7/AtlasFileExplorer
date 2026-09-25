@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use eframe::egui::{self, Id, Pos2, Rect, Vec2};
 use model_preview::view_meta::{self, ViewMetaInput};
-use slate_doc::scene::{ImageNode, ModelCamera, NodeId, NodeKind, WorldRect};
+use slate_doc::scene::{ImageAdjust, ImageNode, ModelCamera, NodeId, NodeKind, WorldRect};
 
 use super::model3d::{self, capture_size, ModelNodeInfo};
 use super::SlateApp;
@@ -202,11 +202,22 @@ impl SlateApp {
             self.model3d.request_model(&info.cache_key, &info.path);
             return Ok(None);
         };
+        let adjust = self
+            .doc()
+            .scene
+            .node(node)
+            .and_then(slate_doc::scene::adjust_of)
+            .unwrap_or_default();
+        let img = if adjust.is_identity() {
+            img
+        } else {
+            super::imagefx::adjusted(&img, &adjust)
+        };
         let mut rgba = Vec::with_capacity(img.pixels.len() * 4);
         for p in &img.pixels {
             rgba.extend_from_slice(&p.to_srgba_unmultiplied());
         }
-        let meta = self.view_meta_input(node, &info, cam, w, h)?;
+        let meta = self.view_meta_input(node, &info, cam, w, h, &adjust)?;
         Ok(Some((rgba, w, h, meta)))
     }
 
@@ -217,6 +228,7 @@ impl SlateApp {
         cam: ModelCamera,
         w: u32,
         h: u32,
+        adjust: &ImageAdjust,
     ) -> Result<ViewMetaInput, String> {
         let aspect = info.rect.w / info.rect.h.max(1.0);
         let model_path = self.relative_locator(&info.path);
@@ -248,6 +260,7 @@ impl SlateApp {
                 .duration_since(UNIX_EPOCH)
                 .map(|d| d.as_secs() as i64)
                 .unwrap_or(0),
+            image_adjust_hash: (!adjust.is_identity()).then(|| adjust.cache_hash()),
         })
     }
 

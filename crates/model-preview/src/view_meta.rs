@@ -26,6 +26,8 @@ pub struct ViewMetaInput {
     pub model_size: u64,
     pub node_id: u64,
     pub created_unix: i64,
+    /// Optional `ImageAdjust::cache_hash()` baked into the export pixels (D39).
+    pub image_adjust_hash: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -80,6 +82,10 @@ pub fn build_xmp_packet(input: &ViewMetaInput) -> Result<String, ViewMetaError> 
     let eye = fmt3(input.eye);
     let up = fmt3(input.up);
     let created = format_xmp_date(input.created_unix);
+    let adjust_hash = input
+        .image_adjust_hash
+        .map(|h| format!(r#" slateview:imageAdjustHash="{h}""#))
+        .unwrap_or_default();
     Ok(format!(
         r#"<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
 <x:xmpmeta xmlns:x="adobe:ns:meta/">
@@ -107,7 +113,7 @@ pub fn build_xmp_packet(input: &ViewMetaInput) -> Result<String, ViewMetaError> 
     xmp:CreatorTool="{CREATOR}"
     xmp:CreateDate="{created}"
     tiff:ImageWidth="{w}"
-    tiff:ImageLength="{h}"/>
+    tiff:ImageLength="{h}"{adjust_hash}/>
  </rdf:RDF>
 </x:xmpmeta>
 <?xpacket end="w"?>"#,
@@ -629,6 +635,7 @@ mod tests {
             model_size: 4096,
             node_id: 42,
             created_unix: 1_700_000_000,
+            image_adjust_hash: None,
         }
     }
 

@@ -396,17 +396,16 @@ fn live_property_strip_items(app: &SlateApp, nodes: &[Node]) -> Vec<StripItem> {
         return items;
     }
     let mut items = property_strip_items(nodes);
-    if nodes
-        .iter()
-        .any(|n| image_is_model(app, n) || image_is_text(app, n))
-    {
+    if nodes.iter().any(|n| image_is_text(app, n)) {
         items.retain(|item| *item != StripItem::Panel(Panel::Filter));
     }
     if nodes.len() == 1 && app.model_has_viewport(nodes[0].id) {
+        items.retain(|item| *item != StripItem::Panel(Panel::Filter));
         items.extend([
             StripItem::Panel(Panel::ModelDisplay),
             StripItem::ModelMeasure,
             StripItem::ModelScreenshot,
+            StripItem::Panel(Panel::Filter),
         ]);
     }
     if nodes.len() == 1 && image_has_pages(app, &nodes[0]) {
@@ -2728,16 +2727,14 @@ mod tests {
             .app
             .doc_mut()
             .add_item(std::path::PathBuf::from(name), name, 1, 0, name);
-        let node = h
-            .app
-            .doc_mut()
-            .scene
-            .build_node(rect, NodeKind::Image(scene::ImageNode::new(item)));
+        let mut img = scene::ImageNode::new(item);
+        img.model_viewport = true;
+        let node = h.app.doc_mut().scene.build_node(rect, NodeKind::Image(img));
         h.app.add_nodes(vec![node])[0]
     }
 
     #[test]
-    fn model_viewports_offer_display_and_measure_instead_of_filters() {
+    fn model_viewports_offer_display_measure_screenshot_then_filters() {
         let mut h = board();
         let rect = WorldRect::new(0.0, 0.0, 240.0, 180.0);
         let tower = model_node(&mut h, "tower.3dm", rect);
@@ -2751,6 +2748,7 @@ mod tests {
                 "display",
                 "measure",
                 "screenshot",
+                "filter",
                 "agent"
             ]
         );
@@ -2789,6 +2787,26 @@ mod tests {
             .app
             .dispatch(&h.ctx, CommandId("board.model_display"), None));
         assert_eq!(display(&h), scene::ModelDisplay::Arctic);
+    }
+
+    #[test]
+    fn model_viewport_filter_commits_and_undoes() {
+        let mut h = board();
+        let rect = WorldRect::new(0.0, 0.0, 240.0, 180.0);
+        let tower = model_node(&mut h, "tower.3dm", rect);
+        h.app.board_sel = [tower].into_iter().collect();
+        h.app.sync_shape_properties();
+        let before = scene::adjust_of(h.app.doc().scene.node(tower).unwrap()).unwrap();
+        h.app
+            .preview_shape_property(Property::ImageAdjust(PhotoFilter::Juno.at(0.75)));
+        h.app.apply_shape_preview(&h.ctx, true);
+        let after = scene::adjust_of(h.app.doc().scene.node(tower).unwrap()).unwrap();
+        assert_ne!(after, before);
+        h.app.board_undo();
+        assert_eq!(
+            scene::adjust_of(h.app.doc().scene.node(tower).unwrap()).unwrap(),
+            before
+        );
     }
 
     #[test]
