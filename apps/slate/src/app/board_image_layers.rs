@@ -257,9 +257,8 @@ impl SlateApp {
         let NodeKind::Image(img) = &node.kind else {
             return false;
         };
-        let (u, v) = world_to_host_norm(node, world.x, world.y);
-        let c = img.crop.clamped();
-        (c.x..=c.x + c.w).contains(&u) && (c.y..=c.y + c.h).contains(&v)
+        let (u, v) = world_to_host_norm(node, img, world.x, world.y);
+        (0.0..=1.0).contains(&u) && (0.0..=1.0).contains(&v)
     }
 
     /// When hosting, route scene Adds into the active paint layer instead.
@@ -276,15 +275,18 @@ impl SlateApp {
         let Some(host) = self.doc().scene.node(session.image).cloned() else {
             return false;
         };
+        let NodeKind::Image(ref host_img) = host.kind else {
+            return false;
+        };
         if !nodes
             .iter()
-            .all(|n| self.stroke_intersects_image_window(&host, n))
+            .all(|n| self.stroke_intersects_image_window(&host, host_img, n))
         {
             return false;
         }
         let locals: Vec<Node> = nodes
             .iter()
-            .map(|n| layer_node_from_world(&host, n))
+            .map(|n| layer_node_from_world(&host, host_img, n))
             .collect();
         let Some(before) = self.doc().scene.node(session.image).cloned() else {
             return false;
@@ -306,11 +308,7 @@ impl SlateApp {
         true
     }
 
-    fn stroke_intersects_image_window(&self, host: &Node, node: &Node) -> bool {
-        let NodeKind::Image(img) = &host.kind else {
-            return false;
-        };
-        let c = img.crop.clamped();
+    fn stroke_intersects_image_window(&self, host: &Node, img: &ImageNode, node: &Node) -> bool {
         let corners = [
             (node.rect.x, node.rect.y),
             (node.rect.x + node.rect.w, node.rect.y),
@@ -318,8 +316,8 @@ impl SlateApp {
             (node.rect.x, node.rect.y + node.rect.h),
         ];
         corners.iter().any(|(x, y)| {
-            let (u, v) = world_to_host_norm(host, *x, *y);
-            (c.x..=c.x + c.w).contains(&u) && (c.y..=c.y + c.h).contains(&v)
+            let (u, v) = world_to_host_norm(host, img, *x, *y);
+            (0.0..=1.0).contains(&u) && (0.0..=1.0).contains(&v)
         })
     }
 
@@ -346,7 +344,7 @@ impl SlateApp {
                 continue;
             }
             for local in &layer.nodes {
-                let mut world = layer_node_to_world(host, local);
+                let mut world = layer_node_to_world(host, img, local);
                 world.opacity = (world.opacity * layer.opacity * host_alpha).clamp(0.0, 1.0);
                 self.paint_board_node(ui, &sub, xf, &world, false);
             }
@@ -383,7 +381,7 @@ impl SlateApp {
         let slop = (self.eraser_width * 0.5).max(1.0);
         let mut hits = Vec::new();
         for local in &layer.nodes {
-            let n = layer_node_to_world(host, local);
+            let n = layer_node_to_world(host, img, local);
             if n.hidden || n.locked {
                 continue;
             }
@@ -468,7 +466,7 @@ impl SlateApp {
             if spot.contains(&local.id) {
                 continue;
             }
-            let n = layer_node_to_world(host, local);
+            let n = layer_node_to_world(host, img, local);
             let NodeKind::Shape(s) = &n.kind else {
                 continue;
             };
@@ -524,6 +522,9 @@ impl SlateApp {
                 .entry(loc.image)
                 .or_insert_with(|| self.doc().scene.node(loc.image).unwrap().clone());
             let host_snapshot = host.clone();
+            let NodeKind::Image(ref snap_img) = host_snapshot.kind else {
+                continue;
+            };
             let NodeKind::Image(ref mut img) = host.kind else {
                 continue;
             };
@@ -533,7 +534,7 @@ impl SlateApp {
             let Some(local) = layer.nodes.get_mut(loc.node_index) else {
                 continue;
             };
-            let mut world = layer_node_to_world(&host_snapshot, local);
+            let mut world = layer_node_to_world(&host_snapshot, snap_img, local);
             let NodeKind::Shape(shape) = &mut world.kind else {
                 continue;
             };
@@ -563,7 +564,7 @@ impl SlateApp {
             if gone {
                 removes.push(loc);
             } else {
-                *local = layer_node_from_world(&host_snapshot, &world);
+                *local = layer_node_from_world(&host_snapshot, snap_img, &world);
             }
         }
         removes.sort_by(|a, b| {
@@ -696,11 +697,14 @@ impl SlateApp {
         let Some(host) = self.doc().scene.node(target).cloned() else {
             return false;
         };
+        let NodeKind::Image(ref host_img) = host.kind else {
+            return false;
+        };
         let child = self.doc_mut().scene.build_node(
             WorldRect::new(host.rect.x, host.rect.y, host.rect.w, host.rect.h),
             NodeKind::Image(ImageNode::new(item)),
         );
-        let locals = vec![layer_node_from_world(&host, &child)];
+        let locals = vec![layer_node_from_world(&host, host_img, &child)];
         let Some(before) = self.doc().scene.node(target).cloned() else {
             return false;
         };

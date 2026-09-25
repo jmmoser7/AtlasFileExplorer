@@ -830,7 +830,7 @@ fn render_image_paint_layers(
         html.push_str(&format!("{}-{}", node.id.0, i));
         html.push_str("\">");
         for local in &layer.nodes {
-            let world = slate_doc::image_paint::layer_node_to_world(node, local);
+            let world = slate_doc::image_paint::layer_node_to_world(node, img, local);
             let child_rel = world.rect.translated(-rel.x, -rel.y);
             match &world.kind {
                 NodeKind::Shape(shape) => render_shape(html, &world, shape, child_rel),

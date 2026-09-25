@@ -1,9 +1,11 @@
 //! Paint layers ("trace paper") owned by [`crate::scene::ImageNode`].
 //!
 //! Child nodes store geometry in normalized coordinates relative to the host
-//! image rect (0..1 on each axis), so move/scale/rotate of the host carries ink.
+//! **content** rect (see [`crate::geom::image_content_rect`]), so move,
+//! scale, rotate, and re-crop of the host carries ink.
 
-use crate::scene::{Node, NodeId, NodeKind, WorldRect};
+use crate::geom::{child_norm_rect_to_world, child_world_rect_to_norm};
+use crate::scene::{ImageNode, Node, NodeId, NodeKind, WorldRect};
 use serde::{Deserialize, Serialize};
 
 /// Stable id for a paint layer on one image.
@@ -45,54 +47,48 @@ impl PaintLayer {
     }
 }
 
-/// World point → normalized coords in the host's unrotated rect.
-pub fn world_to_host_norm(host: &Node, wx: f32, wy: f32) -> (f32, f32) {
-    let r = host.rect;
-    let (cx, cy) = r.center();
-    let (lx, ly) = to_local(wx, wy, cx, cy, host.rotation_deg);
-    let u = ((lx - r.x) / r.w.max(1e-6)).clamp(-0.5, 1.5);
-    let v = ((ly - r.y) / r.h.max(1e-6)).clamp(-0.5, 1.5);
-    (u, v)
+/// The world rect the full uncropped image occupies (crop window + UV crop).
+pub fn image_content_rect(host: &Node, img: &ImageNode) -> WorldRect {
+    crate::geom::image_content_rect(host.rect, img.crop)
 }
 
-/// Normalized host rect → axis-aligned world rect (pre-rotation AABB).
-pub fn host_norm_rect_to_world(host: &Node, norm: WorldRect) -> WorldRect {
-    let r = host.rect;
-    WorldRect::new(
-        r.x + norm.x * r.w,
-        r.y + norm.y * r.h,
-        norm.w * r.w,
-        norm.h * r.h,
+fn layer_basis(host: &Node, img: &ImageNode) -> (WorldRect, f32, (f32, f32)) {
+    let basis = image_content_rect(host, img);
+    let pivot = host.rect.center();
+    (basis, host.rotation_deg, pivot)
+}
+
+/// World point → normalized coords in the host content rect.
+pub fn world_to_host_norm(host: &Node, img: &ImageNode, wx: f32, wy: f32) -> (f32, f32) {
+    let basis = image_content_rect(host, img);
+    let pivot = host.rect.center();
+    let (lx, ly) = crate::geom::world_to_local_about(wx, wy, pivot.0, pivot.1, host.rotation_deg);
+    (
+        (lx - basis.x) / basis.w.max(1e-6),
+        (ly - basis.y) / basis.h.max(1e-6),
     )
 }
 
 /// Map a layer-local node into world space for painting and hit-testing.
-pub fn layer_node_to_world(host: &Node, local: &Node) -> Node {
+pub fn layer_node_to_world(host: &Node, img: &ImageNode, local: &Node) -> Node {
+    let (basis, rot, pivot) = layer_basis(host, img);
     let mut out = local.clone();
-    out.rect = host_norm_rect_to_world(host, local.rect);
-    out.rotation_deg += host.rotation_deg;
+    let (rect, rotation_deg) =
+        child_norm_rect_to_world(basis, rot, pivot, local.rect, local.rotation_deg);
+    out.rect = rect;
+    out.rotation_deg = rotation_deg;
     out
 }
 
 /// Map a world-space authored node into host-normalized storage.
-pub fn layer_node_from_world(host: &Node, world: &Node) -> Node {
+pub fn layer_node_from_world(host: &Node, img: &ImageNode, world: &Node) -> Node {
+    let (basis, rot, pivot) = layer_basis(host, img);
     let mut local = world.clone();
-    let r = host.rect;
-    let nw = world.rect;
-    local.rect = WorldRect::new(
-        (nw.x - r.x) / r.w.max(1e-6),
-        (nw.y - r.y) / r.h.max(1e-6),
-        nw.w / r.w.max(1e-6),
-        nw.h / r.h.max(1e-6),
-    );
-    local.rotation_deg = world.rotation_deg - host.rotation_deg;
+    let (rect, rotation_deg) =
+        child_world_rect_to_norm(basis, rot, pivot, world.rect, world.rotation_deg);
+    local.rect = rect;
+    local.rotation_deg = rotation_deg;
     local
-}
-
-/// True when `norm` center lies inside the unit host square (visible window test
-/// is applied separately via crop in the app).
-pub fn norm_point_inside_host(u: f32, v: f32) -> bool {
-    (0.0..=1.0).contains(&u) && (0.0..=1.0).contains(&v)
 }
 
 /// Child kinds allowed on a paint layer (drawing tools + dropped images).
@@ -132,21 +128,10 @@ pub fn find_layer_node(scene: &crate::scene::Scene, id: NodeId) -> Option<LayerN
     None
 }
 
-fn to_local(px: f32, py: f32, cx: f32, cy: f32, rotation_deg: f32) -> (f32, f32) {
-    if rotation_deg.abs() < f32::EPSILON {
-        return (px, py);
-    }
-    let rad = (-rotation_deg).to_radians();
-    let (sin, cos) = rad.sin_cos();
-    let dx = px - cx;
-    let dy = py - cy;
-    (cx + dx * cos - dy * sin, cy + dx * sin + dy * cos)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scene::{Corner, NodeId, NodeKind, ShapeKind, ShapeNode, Stroke};
+    use crate::scene::{Corner, NodeKind, ShapeKind, ShapeNode, Stroke};
 
     fn path_shape() -> ShapeNode {
         ShapeNode {
@@ -160,45 +145,95 @@ mod tests {
         }
     }
 
-    fn host_node() -> Node {
+    fn host_with_crop(crop: Crop) -> Node {
         let mut scene = crate::scene::Scene::default();
         scene.build_node(
             WorldRect::new(10.0, 20.0, 100.0, 50.0),
-            NodeKind::Image(crate::scene::ImageNode::new(crate::ItemId(1))),
+            NodeKind::Image(ImageNode {
+                item: crate::ItemId(1),
+                crop,
+                ..ImageNode::new(crate::ItemId(1))
+            }),
+        )
+    }
+
+    fn stroke_local(u: f32, v: f32) -> Node {
+        let mut scene = crate::scene::Scene::default();
+        scene.build_node(
+            WorldRect::new(u, v, 0.2, 0.1),
+            NodeKind::Shape(ShapeNode {
+                shape: ShapeKind::Rect,
+                fill: None,
+                stroke: Stroke::default(),
+                corner: Corner::Square,
+                flip: false,
+                path: None,
+                text: None,
+            }),
         )
     }
 
     #[test]
     fn layer_coords_round_trip_unrotated() {
-        let host = host_node();
-        let mut world = host.clone();
-        world.id = NodeId(99);
-        world.rect = WorldRect::new(30.0, 30.0, 40.0, 10.0);
-        world.kind = NodeKind::Shape(ShapeNode {
-            shape: ShapeKind::Rect,
-            fill: None,
-            stroke: Stroke::default(),
-            corner: Corner::Square,
-            flip: false,
-            path: None,
-            text: None,
-        });
-        let local = layer_node_from_world(&host, &world);
-        assert!((local.rect.x - 0.2).abs() < 1e-4);
-        let back = layer_node_to_world(&host, &local);
-        assert!((back.rect.x - 30.0).abs() < 1e-3);
+        let host = host_with_crop(Crop::full());
+        let img = match &host.kind {
+            NodeKind::Image(i) => i,
+            _ => unreachable!(),
+        };
+        let local = stroke_local(0.2, 0.2);
+        let back = layer_node_to_world(&host, img, &local);
+        let again = layer_node_from_world(&host, img, &back);
+        assert!((again.rect.x - local.rect.x).abs() < 1e-4);
+        assert!((again.rect.y - local.rect.y).abs() < 1e-4);
+    }
+
+    #[test]
+    fn layer_coords_survive_host_rotation() {
+        for deg in [37.0, 90.0, 180.0] {
+            let mut host = host_with_crop(Crop::full());
+            host.rotation_deg = deg;
+            let img = match &host.kind {
+                NodeKind::Image(i) => i.clone(),
+                _ => unreachable!(),
+            };
+            let local = stroke_local(0.3, 0.4);
+            let world = layer_node_to_world(&host, &img, &local);
+            let back = layer_node_from_world(&host, &img, &world);
+            assert!((back.rect.x - local.rect.x).abs() < 1e-3, "deg={deg} x");
+            assert!((back.rect.y - local.rect.y).abs() < 1e-3, "deg={deg} y");
+            assert!(
+                (back.rotation_deg - local.rotation_deg).abs() < 1e-3,
+                "deg={deg} rot"
+            );
+        }
+    }
+
+    #[test]
+    fn rotate_after_draw_round_trip() {
+        let mut host = host_with_crop(Crop::full());
+        let img = match &host.kind {
+            NodeKind::Image(i) => i.clone(),
+            _ => unreachable!(),
+        };
+        let local = stroke_local(0.25, 0.35);
+        let world_before = layer_node_to_world(&host, &img, &local);
+        host.rotation_deg = 45.0;
+        let world_after = layer_node_to_world(&host, &img, &local);
+        assert!(world_before.rect.x != world_after.rect.x);
+        let back = layer_node_from_world(&host, &img, &world_after);
+        assert!((back.rect.x - local.rect.x).abs() < 1e-3);
     }
 
     #[test]
     fn old_image_without_layers_field_defaults_empty() {
         let json = r#"{"item":1,"crop":{"x":0,"y":0,"w":1,"h":1}}"#;
-        let img: crate::scene::ImageNode = serde_json::from_str(json).unwrap();
+        let img: ImageNode = serde_json::from_str(json).unwrap();
         assert!(img.paint_layers.is_empty());
     }
 
     #[test]
     fn layer_node_kind_allows_drawing_tools_and_layer_images() {
-        use crate::scene::{FrameNode, ImageNode, Rgba, TextNode};
+        use crate::scene::{FrameNode, Rgba, TextNode};
         assert!(layer_node_kind_allowed(&NodeKind::Text(TextNode {
             text: String::new(),
             family: Default::default(),
@@ -237,7 +272,7 @@ mod tests {
         let mut scene = crate::scene::Scene::default();
         let host = scene.build_node(
             WorldRect::new(10.0, 20.0, 100.0, 50.0),
-            NodeKind::Image(crate::scene::ImageNode::new(crate::ItemId(1))),
+            NodeKind::Image(ImageNode::new(crate::ItemId(1))),
         );
         let host_id = host.id;
         scene.apply(&crate::scene::SceneCmd::Add {

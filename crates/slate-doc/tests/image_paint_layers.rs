@@ -57,7 +57,10 @@ fn layer_stroke_follows_image_move() {
             text: None,
         }),
     );
-    let local = layer_node_from_world(&host, &stroke);
+    let NodeKind::Image(ref host_img) = host.kind else {
+        panic!();
+    };
+    let local = layer_node_from_world(&host, host_img, &stroke);
     let mut patched = host.clone();
     let NodeKind::Image(ref mut img) = patched.kind else {
         panic!();
@@ -82,7 +85,7 @@ fn layer_stroke_follows_image_move() {
     let NodeKind::Image(img) = &host.kind else {
         panic!();
     };
-    let world = layer_node_to_world(host, &img.paint_layers[0].nodes[0]);
+    let world = layer_node_to_world(host, img, &img.paint_layers[0].nodes[0]);
     assert!((world.rect.x - 60.0).abs() < 1e-3);
 }
 

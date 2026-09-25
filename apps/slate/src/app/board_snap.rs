@@ -1066,14 +1066,7 @@ pub fn resize_from_handle(
 /// Rotate `p` about `center` by `delta_deg` (clockwise in y-down world
 /// space — same convention as `WorldRect::corners_rotated`).
 pub fn orbit_point(center: (f32, f32), p: (f32, f32), delta_deg: f32) -> (f32, f32) {
-    let rad = delta_deg.to_radians();
-    let (sin, cos) = rad.sin_cos();
-    let dx = p.0 - center.0;
-    let dy = p.1 - center.1;
-    (
-        center.0 + dx * cos - dy * sin,
-        center.1 + dx * sin + dy * cos,
-    )
+    slate_doc::geom::orbit_point(center, p, delta_deg)
 }
 
 pub(crate) fn segments_intersect(

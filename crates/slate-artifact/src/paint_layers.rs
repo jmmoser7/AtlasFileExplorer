@@ -39,7 +39,7 @@ pub fn paint_layers_svg(host: &Node, img: &ImageNode, w: u32, h: u32) -> String 
         html.push_str(&format!("{}-{}", host.id.0, i));
         html.push_str("\">");
         for local in &layer.nodes {
-            let world = layer_node_to_world(host, local);
+            let world = layer_node_to_world(host, img, local);
             let scale_x = w as f32 / host.rect.w.max(1e-6);
             let scale_y = h as f32 / host.rect.h.max(1e-6);
             let mut mapped = world.clone();

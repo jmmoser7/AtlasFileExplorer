@@ -560,7 +560,10 @@ mod tests {
                 text: None,
             }),
         );
-        let local = layer_node_from_world(&host, &stroke);
+        let NodeKind::Image(ref host_img) = host.kind else {
+            panic!();
+        };
+        let local = layer_node_from_world(&host, host_img, &stroke);
         let mut img_node = host.clone();
         let NodeKind::Image(ref mut img) = img_node.kind else {
             panic!();
