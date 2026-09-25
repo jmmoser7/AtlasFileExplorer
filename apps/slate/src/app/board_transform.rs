@@ -227,7 +227,9 @@ impl SlateApp {
             if let NodeKind::Shape(s) = &n.kind {
                 if super::board_path::shape_uses_stroke_pick(n, s) {
                     if let Some(path) = s.path.as_ref() {
-                        super::board_path::paint_path_stroke_outline(painter, xf, n, path, stroke);
+                        super::board_path::paint_path_stroke_outline(
+                            painter, xf, n, s, path, stroke,
+                        );
                         continue;
                     }
                 }

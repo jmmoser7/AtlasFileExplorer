@@ -490,6 +490,7 @@ mod tests {
                     ..Stroke::default()
                 },
                 corner: Corner::default(),
+                sides: crate::scene::default_regular_sides(),
                 flip: false,
                 path: None,
                 text: None,

@@ -87,6 +87,7 @@ fn smoke_full_feature_export() {
                 ..Default::default()
             },
             corner: Corner::Chamfer { cut: 20.0 },
+            sides: slate_doc::scene::default_regular_sides(),
             flip: false,
             path: None,
 

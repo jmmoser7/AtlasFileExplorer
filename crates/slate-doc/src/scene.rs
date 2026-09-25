@@ -2034,8 +2034,36 @@ impl PathData {
 pub enum ShapeKind {
     Rect,
     Ellipse,
+    /// Regular n-gon inscribed in the node rect (see [`ShapeNode::sides`]).
+    RegularPolygon,
     Line,
     Path,
+}
+
+pub fn default_regular_sides() -> u8 {
+    6
+}
+
+pub const REGULAR_POLYGON_SIDES_MIN: u8 = 3;
+pub const REGULAR_POLYGON_SIDES_MAX: u8 = 12;
+
+pub fn clamp_regular_sides(sides: u8) -> u8 {
+    sides.clamp(REGULAR_POLYGON_SIDES_MIN, REGULAR_POLYGON_SIDES_MAX)
+}
+
+/// Vertices of a regular n-gon inscribed in `rect` (first vertex at top center).
+pub fn regular_polygon_vertices(rect: WorldRect, sides: u8) -> Vec<[f32; 2]> {
+    let n = clamp_regular_sides(sides) as f32;
+    let (cx, cy) = rect.center();
+    let rx = rect.w * 0.5;
+    let ry = rect.h * 0.5;
+    let start = -std::f32::consts::FRAC_PI_2;
+    (0..clamp_regular_sides(sides) as usize)
+        .map(|i| {
+            let a = start + i as f32 * (std::f32::consts::TAU / n);
+            [cx + rx * a.cos(), cy + ry * a.sin()]
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2046,6 +2074,9 @@ pub struct ShapeNode {
     pub stroke: Stroke,
     #[serde(default)]
     pub corner: Corner,
+    /// [`ShapeKind::RegularPolygon`] only; ignored for other kinds.
+    #[serde(default = "default_regular_sides")]
+    pub sides: u8,
     /// Lines only: false = ↘ diagonal (min→max), true = ↗ diagonal.
     #[serde(default)]
     pub flip: bool,
@@ -2095,7 +2126,7 @@ impl ShapeText {
 pub fn shape_hosts_text(shape: &ShapeNode) -> bool {
     match shape.shape {
         ShapeKind::Line => false,
-        ShapeKind::Rect | ShapeKind::Ellipse => true,
+        ShapeKind::Rect | ShapeKind::Ellipse | ShapeKind::RegularPolygon => true,
         ShapeKind::Path => shape.path.as_ref().is_some_and(|p| p.closed),
     }
 }
@@ -3872,6 +3903,7 @@ mod tests {
                 tween_from: None,
             },
             corner: Corner::Square,
+            sides: default_regular_sides(),
             flip: false,
             path: Some(Arc::new(PathData {
                 start: [0.1, 0.2],
@@ -3897,7 +3929,7 @@ mod tests {
         // string is the pre-Arc encoding of the same node.
         assert_eq!(
             json,
-            r#"{"shape":"path","fill":[10,20,30,255],"stroke":{"width":2.0,"color":[0,0,0,255],"dash":"solid","cap":"Round","join":"Bevel","profile":{"Taper":{"start":1.0,"end":0.25}}},"corner":"square","flip":false,"path":{"start":[0.1,0.2],"segs":[{"Line":{"to":[0.5,0.5]}},{"Quad":{"ctrl":[0.7,0.2],"to":[0.9,0.8]}},{"Cubic":{"c1":[0.3,0.9],"c2":[0.1,0.7],"to":[0.0,0.4]}}],"closed":true}}"#
+            r#"{"shape":"path","fill":[10,20,30,255],"stroke":{"width":2.0,"color":[0,0,0,255],"dash":"solid","cap":"Round","join":"Bevel","profile":{"Taper":{"start":1.0,"end":0.25}}},"corner":"square","sides":6,"flip":false,"path":{"start":[0.1,0.2],"segs":[{"Line":{"to":[0.5,0.5]}},{"Quad":{"ctrl":[0.7,0.2],"to":[0.9,0.8]}},{"Cubic":{"c1":[0.3,0.9],"c2":[0.1,0.7],"to":[0.0,0.4]}}],"closed":true}}"#
         );
         let back: ShapeNode = serde_json::from_str(&json).unwrap();
         assert_eq!(shape, back);
@@ -3942,6 +3974,7 @@ mod tests {
                     fill: None,
                     stroke,
                     corner: Corner::Square,
+                    sides: default_regular_sides(),
                     flip,
                     path: None,
                     text: None,
@@ -4401,6 +4434,7 @@ mod tests {
                     ..Stroke::default()
                 },
                 corner: Corner::Square,
+                sides: default_regular_sides(),
                 flip: false,
                 path: Some(Arc::new(PathData {
                     start: [0.0, 0.5],
@@ -4549,7 +4583,13 @@ pub fn set_corner(node: &mut Node, corner: Corner) {
 /// shapes store a corner field that is not a user-facing treatment.
 pub fn supports_corners(node: &Node) -> bool {
     match &node.kind {
-        NodeKind::Shape(s) => s.shape == ShapeKind::Rect,
+        NodeKind::Shape(s) => {
+            matches!(s.shape, ShapeKind::Rect | ShapeKind::RegularPolygon)
+                || (s.shape == ShapeKind::Path
+                    && s.path
+                        .as_ref()
+                        .is_some_and(|p| crate::geom::path_is_line_polyline(p)))
+        }
         NodeKind::Image(_) | NodeKind::Frame(_) => true,
         _ => false,
     }
@@ -4712,6 +4752,7 @@ mod corner_percentage_tests {
             fill: Some(Rgba::WHITE),
             stroke: Stroke::default(),
             corner: Corner::Square,
+            sides: default_regular_sides(),
             flip: false,
             path: None,
             text: None,
@@ -4721,6 +4762,7 @@ mod corner_percentage_tests {
             fill: None,
             stroke: Stroke::default(),
             corner: Corner::Square,
+            sides: default_regular_sides(),
             flip: false,
             path: None,
             text: None,

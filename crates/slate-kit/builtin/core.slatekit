@@ -65,6 +65,20 @@ icon = "ellipse"
   default_size = [160.0, 160.0]
 
 [[tool]]
+id = "polygon"
+name = "Polygon"
+grammar = "drag_rect"
+icon = "polygon"
+doc = "Regular polygon (default hexagon). Shift constrains aspect like square/circle."
+
+  [tool.recipe]
+  kind = "shape"
+  node = "regular_polygon"
+  fill = "accent@60"
+  stroke = { width = 2.0, color = "accent" }
+  default_size = [160.0, 160.0]
+
+[[tool]]
 id = "portal-file-atlas"
 name = "File Atlas"
 grammar = "drag_rect"

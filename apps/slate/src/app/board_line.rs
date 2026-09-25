@@ -279,7 +279,7 @@ impl SlateApp {
             return None;
         }
         let stroke = self.stroke_for_new_curve();
-        let opacity = self.opacity_for_new_node();
+        let opacity = self.opacity_for_new_node(false);
         let node = self.doc_mut().scene.build_node(
             rect,
             NodeKind::Shape(ShapeNode {
@@ -287,6 +287,7 @@ impl SlateApp {
                 fill: None,
                 stroke,
                 corner: slate_doc::scene::Corner::Square,
+                sides: slate_doc::scene::default_regular_sides(),
                 flip: false,
                 path: Some(data.into()),
 

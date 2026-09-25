@@ -49,6 +49,7 @@ pub enum NodeTarget {
     Frame,
     Rect,
     Ellipse,
+    RegularPolygon,
     Text,
     Path,
 }
@@ -212,6 +213,20 @@ impl Recipe {
         }
     }
 
+    /// Closed drag-rect shapes use [`StyleMemoryKind::Closed`]; paths use open.
+    pub fn inherits_closed_shape_style(&self) -> bool {
+        match self {
+            Recipe::Shape(s) => matches!(
+                s.node,
+                NodeTarget::Rect
+                    | NodeTarget::Ellipse
+                    | NodeTarget::RegularPolygon
+                    | NodeTarget::Frame
+            ),
+            Recipe::Portal(_) => false,
+        }
+    }
+
     /// The stroke a curve-producing grammar should draw with, if this recipe
     /// pins one. `None` means "inherit whatever the board would have used".
     #[must_use]
@@ -289,19 +304,24 @@ impl Recipe {
                     corner: s.corner,
                 })
             }
-            NodeTarget::Rect | NodeTarget::Ellipse => NodeKind::Shape(ShapeNode {
-                shape: if s.node == NodeTarget::Rect {
-                    ShapeKind::Rect
-                } else {
-                    ShapeKind::Ellipse
-                },
-                fill,
-                stroke,
-                corner: s.corner,
-                flip: false,
-                path: None,
-                text: None,
-            }),
+            NodeTarget::Rect | NodeTarget::Ellipse | NodeTarget::RegularPolygon => {
+                let shape = match s.node {
+                    NodeTarget::Rect => ShapeKind::Rect,
+                    NodeTarget::Ellipse => ShapeKind::Ellipse,
+                    NodeTarget::RegularPolygon => ShapeKind::RegularPolygon,
+                    _ => unreachable!(),
+                };
+                NodeKind::Shape(ShapeNode {
+                    shape,
+                    fill,
+                    stroke,
+                    corner: s.corner,
+                    sides: slate_doc::scene::default_regular_sides(),
+                    flip: false,
+                    path: None,
+                    text: None,
+                })
+            }
             NodeTarget::Text => NodeKind::Text(TextNode {
                 text: s.text.text.clone(),
                 family: s.text.family.into(),

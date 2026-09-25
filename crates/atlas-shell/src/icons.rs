@@ -18,7 +18,7 @@ macro_rules! catalog {
         }
     };
 }
-catalog! { Media, Image, Model, Video, TextDoc, Pages, Select, DirectSelect, Pan, Frame, Deck, FrameLetter, FrameTabloid, FrameWide, FrameCustom, Rect, Ellipse, Line, Arc, Polyline, Bezier, Pen, Text, Ruler, Trim, Join, Split, Portals, Agent, WebPortal, Tags, Filters, Grid, Snap, AtlasLens, Fit, Shapes, Actions, ObjectProperties, DocumentSettings, Selection, Display, Mode, Workflow, Ai, ChevronRight, ChevronLeft, Align, Brush, Eraser, Eyedropper, Sticky, Colors, View, Lens, SnapGrid, SnapEnd, SnapMid, SnapCenter, SnapNear, SnapInt, SnapQuad, SnapPerp, SnapTan, Swap, Reset, Dark, Ghost, Hide, ModeEdit, Fill, Corners, Crop, Bumper, ChatBundle, ChatUnbundle, ChatTrain, ChatWindow, ChatPairs, Stop, Clock, ProviderCursor, ProviderCodex, ProviderOllama }
+catalog! { Media, Image, Model, Video, TextDoc, Pages, Select, DirectSelect, Pan, Frame, Deck, FrameLetter, FrameTabloid, FrameWide, FrameCustom, Rect, Ellipse, Polygon, Line, Arc, Polyline, Bezier, Pen, Text, Ruler, Trim, Join, Split, Portals, Agent, WebPortal, Tags, Filters, Grid, Snap, AtlasLens, Fit, Shapes, Actions, ObjectProperties, DocumentSettings, Selection, Display, Mode, Workflow, Ai, ChevronRight, ChevronLeft, Align, Brush, Eraser, Eyedropper, Sticky, Colors, View, Lens, SnapGrid, SnapEnd, SnapMid, SnapCenter, SnapNear, SnapInt, SnapQuad, SnapPerp, SnapTan, Swap, Reset, Dark, Ghost, Hide, ModeEdit, Fill, Corners, Crop, Bumper, ChatBundle, ChatUnbundle, ChatTrain, ChatWindow, ChatPairs, Stop, Clock, ProviderCursor, ProviderCodex, ProviderOllama }
 
 #[derive(serde::Deserialize)]
 struct Definition {

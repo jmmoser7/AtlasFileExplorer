@@ -419,7 +419,7 @@ pub fn node_facets(node: &Node) -> SnapFacet {
 
 fn shape_facets(shape: ShapeKind, path: Option<&PathData>) -> SnapFacet {
     match shape {
-        ShapeKind::Rect => RECT_LIKE,
+        ShapeKind::Rect | ShapeKind::RegularPolygon => RECT_LIKE,
         ShapeKind::Ellipse => SnapFacet::CENTER
             .union(SnapFacet::BOUNDARY)
             .union(SnapFacet::SMOOTH)
@@ -832,6 +832,7 @@ mod tests {
                 fill: None,
                 stroke: crate::scene::Stroke::default(),
                 corner: Corner::Square,
+                sides: crate::scene::default_regular_sides(),
                 flip: false,
                 path: None,
                 text: None,

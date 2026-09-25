@@ -654,6 +654,7 @@ mod tests {
                 fill: None,
                 stroke: Stroke::default(),
                 corner: Corner::Square,
+                sides: slate_doc::scene::default_regular_sides(),
                 flip: false,
                 path: None,
 
@@ -721,6 +722,7 @@ mod tests {
                 fill: None,
                 stroke: Stroke::default(),
                 corner: Corner::Square,
+                sides: slate_doc::scene::default_regular_sides(),
                 flip: false,
                 path: None,
 
