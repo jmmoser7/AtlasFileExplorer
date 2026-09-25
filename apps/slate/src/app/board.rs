@@ -1,4 +1,4 @@
-﻿//! The Board view — Slate's open-world authored canvas.
+//! The Board view — Slate's open-world authored canvas.
 //!
 //! Frames, shapes, text, and placed images live in `slate_doc::scene`; this
 //! module paints the scene with egui and turns pointer input into invertible
@@ -4552,7 +4552,7 @@ impl SlateApp {
                     ));
                 }
             } else if let Some(p) = pointer {
-                if let Some((handle, geom)) = self.crop_blister_cursor(p) {
+                if let Some((_, handle, geom)) = self.crop_handle_under(p) {
                     ui.ctx()
                         .set_cursor_icon(board_handles::cursor_for_resize(handle, &geom));
                 }
@@ -5500,50 +5500,19 @@ impl SlateApp {
         })
     }
 
-    /// Side blister under the pointer. Hit wins over wires and resize.
-    /// Handles are N E S W (1, 3, 5, 7), centered on the edge midpoints.
-    fn begin_crop_blister(&self, screen: Pos2) -> Option<BoardDrag> {
-        let xf = self.board_xf();
-        let mut best: Option<(f32, Node, u8)> = None;
-        for id in &self.board_sel {
-            if !self.croppable_image(*id) {
-                continue;
-            }
-            let Some(n) = self.doc().scene.node(*id).cloned() else {
-                continue;
-            };
-            let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
-            for (handle, hit) in board_handles::crop_handle_hits(&geom) {
-                if !hit.contains(screen) {
-                    continue;
-                }
-                let dist = hit.center().distance(screen);
-                if best.as_ref().is_some_and(|(d, _, _)| *d <= dist) {
-                    continue;
-                }
-                best = Some((dist, n.clone(), handle as u8));
-            }
-        }
-        let (_, before, handle) = best?;
-        let peers = self
-            .board_sel
-            .iter()
-            .filter(|id| **id != before.id && self.croppable_image(**id))
-            .filter_map(|id| self.doc().scene.node(*id).cloned())
-            .collect();
-        Some(BoardDrag::CropEdge {
-            id: before.id,
-            before,
-            handle,
-            peers,
-        })
-    }
-
-    fn crop_blister_cursor(
+    /// The crop handle under the pointer across every selected croppable
+    /// image. Corners beat edges, then the nearest wins, so press, cursor,
+    /// and hover paint always agree.
+    fn crop_handle_under(
         &self,
         screen: Pos2,
-    ) -> Option<(board_handles::ResizeHandle, board_handles::SelectionGeom)> {
+    ) -> Option<(
+        NodeId,
+        board_handles::ResizeHandle,
+        board_handles::SelectionGeom,
+    )> {
         let xf = self.board_xf();
+        let mut best: Option<((u8, f32), NodeId, board_handles::ResizeHandle, _)> = None;
         for id in &self.board_sel {
             if !self.croppable_image(*id) {
                 continue;
@@ -5552,11 +5521,45 @@ impl SlateApp {
                 continue;
             };
             let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
-            if let Some(handle) = board_handles::crop_handle_at(screen, &geom) {
-                return Some((handle, geom));
+            let Some((handle, dist)) = board_handles::crop_handle_pick(screen, &geom) else {
+                continue;
+            };
+            let rank = ((handle as u8) % 2, dist);
+            if best
+                .as_ref()
+                .is_some_and(|(r, ..)| r.0 < rank.0 || (r.0 == rank.0 && r.1 <= rank.1))
+            {
+                continue;
             }
+            best = Some((rank, *id, handle, geom));
         }
-        None
+        best.map(|(_, id, handle, geom)| (id, handle, geom))
+    }
+
+    /// Crop is on and the pointer is on one of its handles or on a selected
+    /// croppable image: the press belongs to crop mode, not to a click-away.
+    pub(crate) fn crop_owns_pointer(&self, screen: Pos2) -> bool {
+        self.board_crop.is_some()
+            && (self.crop_handle_under(screen).is_some()
+                || self.press_on_selected_crop(self.board_xf().s2w(screen)))
+    }
+
+    /// Crop handle under the pointer. Hit wins over wires and resize.
+    fn begin_crop_blister(&self, screen: Pos2) -> Option<BoardDrag> {
+        let (id, handle, _) = self.crop_handle_under(screen)?;
+        let before = self.doc().scene.node(id)?.clone();
+        let peers = self
+            .board_sel
+            .iter()
+            .filter(|peer| **peer != id && self.croppable_image(**peer))
+            .filter_map(|peer| self.doc().scene.node(*peer).cloned())
+            .collect();
+        Some(BoardDrag::CropEdge {
+            id,
+            before,
+            handle: handle as u8,
+            peers,
+        })
     }
 
     /// Per-frame crop-mode validity: exits when the node vanished, stopped
@@ -5685,7 +5688,10 @@ impl SlateApp {
             }
         }
 
-        let pointer = ui.ctx().pointer_latest_pos();
+        let hot_pick = ui
+            .ctx()
+            .pointer_latest_pos()
+            .and_then(|p| self.crop_handle_under(p));
         let mut hint_at = None;
         for id in self.board_sel.clone() {
             if !self.croppable_image(id) {
@@ -5699,7 +5705,10 @@ impl SlateApp {
                 geom.corners.to_vec(),
                 EStroke::new(canvas_scale::px(1.0, geom.zoom), Color32::WHITE),
             ));
-            let hot = pointer.and_then(|p| board_handles::crop_handle_at(p, &geom));
+            let hot = hot_pick
+                .as_ref()
+                .filter(|(hot_id, ..)| *hot_id == id)
+                .map(|(_, handle, _)| *handle);
             board_handles::paint_crop_handles(painter, &geom, hot);
             hint_at = Some((geom.edges[2], geom.zoom));
         }
@@ -7410,14 +7419,12 @@ impl SlateApp {
         if self.dock_embed_node_at(world.x, world.y).is_some() {
             return;
         }
-        // Crop mode: clicking outside the node finishes the crop and the
-        // click passes through to normal selection; clicks inside are the
-        // pan gesture's territory and change nothing.
-        if let Some(crop_id) = self.board_crop {
-            if let Some(n) = self.doc().scene.node(crop_id) {
-                if n.rect.contains_rotated(world.x, world.y, n.rotation_deg) {
-                    return;
-                }
+        // Crop mode: a click on any selected croppable image or on a crop
+        // handle's slop changes nothing. A click anywhere else finishes the
+        // crop and passes through to normal selection.
+        if self.board_crop.is_some() {
+            if self.crop_owns_pointer(self.board_xf().w2s(world)) {
+                return;
             }
             self.board_crop = None;
         }

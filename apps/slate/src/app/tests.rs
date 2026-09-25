@@ -9034,6 +9034,143 @@ fn fillet_drag_percent_mode_roundtrip() {
     assert!((r - 30.0).abs() < 0.01);
 }
 
+// ----- image crop: handle hits, first grab, multi-crop, repeat -------------------
+
+/// `n` croppable 200×150 images in a row 60 world units apart, all selected,
+/// the camera at 1:1 and centered on the row so screen px equal world units.
+fn crop_board(tag: &str, n: usize) -> (Harness, Vec<NodeId>) {
+    let mut h = kit_board(tag, board::BoardTool::Select);
+    let paths: Vec<PathBuf> = (0..n)
+        .map(|i| {
+            let p = h.base.join(format!("crop{i}.png"));
+            image::RgbaImage::from_pixel(8, 6, image::Rgba([90, 140, 200, 255]))
+                .save(&p)
+                .unwrap();
+            p
+        })
+        .collect();
+    let items = h.app.add_paths(&paths);
+    let nodes: Vec<_> = items
+        .iter()
+        .enumerate()
+        .map(|(i, item)| {
+            h.app.doc_mut().scene.build_node(
+                WorldRect::new(i as f32 * 260.0, 0.0, 200.0, 150.0),
+                NodeKind::Image(slate_doc::scene::ImageNode::new(*item)),
+            )
+        })
+        .collect();
+    let ids = h.app.add_nodes(nodes);
+    h.app.board_sel = ids.iter().copied().collect();
+    let row_w = n as f32 * 260.0 - 60.0;
+    h.app.tab_mut().cam.z = 1.0;
+    h.app.tab_mut().cam.offset = EVec2::new(row_w * 0.5, 75.0);
+    h.frame();
+    h.frame();
+    for id in &ids {
+        assert!(h.app.croppable_image(*id), "fixture images must crop");
+    }
+    (h, ids)
+}
+
+/// Turn crop on through the registry command (C) with no panel open.
+fn crop_via_command(h: &mut Harness) {
+    assert!(h
+        .app
+        .dispatch(&h.ctx, atlas_commands::CommandId("board.crop"), None));
+    assert!(h.app.board_crop.is_some());
+}
+
+fn crop_pointer(h: &mut Harness, p: Pos2, button: Option<bool>) {
+    h.frame_with(|i| {
+        i.events.push(egui::Event::PointerMoved(p));
+        if let Some(pressed) = button {
+            i.events.push(egui::Event::PointerButton {
+                pos: p,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+    });
+}
+
+fn crop_drag_handle(h: &Harness) -> Option<(NodeId, u8, usize)> {
+    match &h.app.board_drag {
+        Some(board::BoardDrag::CropEdge {
+            id, handle, peers, ..
+        }) => Some((*id, *handle, peers.len())),
+        _ => None,
+    }
+}
+
+/// The W handle is hit along the whole left edge, a few px outside the box,
+/// not only on the 18 px bar at the midpoint.
+#[test]
+fn crop_edge_hits_along_its_full_length_and_just_outside() {
+    let (mut h, ids) = crop_board("crop_edge_full_length", 1);
+    crop_via_command(&mut h);
+    let xf = h.app.board_xf();
+    // 40 px below the NW corner: past the corner zone, far from the bar,
+    // and 6 px outside the box.
+    let p = xf.w2s(Pos2::new(-6.0, 40.0));
+    crop_pointer(&mut h, p, Some(true));
+    crop_pointer(&mut h, p + EVec2::new(30.0, 0.0), None);
+    assert_eq!(
+        crop_drag_handle(&h).map(|(id, handle, _)| (id, handle)),
+        Some((ids[0], board_handles::ResizeHandle::W as u8))
+    );
+    crop_pointer(&mut h, p + EVec2::new(30.0, 0.0), Some(false));
+    assert!(h.app.board_crop.is_some());
+}
+
+/// Hovering a handle's slop shows its resize cursor.
+#[test]
+fn crop_handle_hover_shows_the_resize_cursor() {
+    let (mut h, _) = crop_board("crop_hover_cursor", 1);
+    crop_via_command(&mut h);
+    let xf = h.app.board_xf();
+    let cursor_at = |h: &mut Harness, p: Pos2| {
+        let input = egui::RawInput {
+            screen_rect: Some(ERect::from_min_size(Pos2::ZERO, EVec2::new(1440.0, 900.0))),
+            events: vec![egui::Event::PointerMoved(p)],
+            ..Default::default()
+        };
+        let ctx = h.ctx.clone();
+        let app = &mut h.app;
+        ctx.run(input, |c| app.update_app(c))
+            .platform_output
+            .cursor_icon
+    };
+    cursor_at(&mut h, xf.w2s(Pos2::new(100.0, 75.0)));
+    assert_eq!(
+        cursor_at(&mut h, xf.w2s(Pos2::new(-6.0, 40.0))),
+        egui::CursorIcon::ResizeWest
+    );
+    assert_eq!(
+        cursor_at(&mut h, xf.w2s(Pos2::new(205.0, 155.0))),
+        egui::CursorIcon::ResizeSouthEast
+    );
+    assert_eq!(
+        cursor_at(&mut h, xf.w2s(Pos2::new(120.0, -6.0))),
+        egui::CursorIcon::ResizeNorth
+    );
+}
+
+/// A click that stays in a handle's outside slop is not a click on empty
+/// canvas: crop mode and the selection stay.
+#[test]
+fn crop_click_in_outside_slop_keeps_crop_mode() {
+    let (mut h, ids) = crop_board("crop_click_slop", 1);
+    crop_via_command(&mut h);
+    let xf = h.app.board_xf();
+    let p = xf.w2s(Pos2::new(-5.0, 75.0));
+    crop_pointer(&mut h, p, Some(true));
+    crop_pointer(&mut h, p, Some(false));
+    assert_eq!(h.app.board_crop, Some(ids[0]));
+    assert!(h.app.board_sel.contains(&ids[0]));
+}
+
 /// Machine-local: time until `SlateApp::with_ctx` returns (headless `new`).
 /// Not a CI assertion — fonts and the data dir dominate, and they vary by machine.
 #[test]

@@ -94,61 +94,47 @@ pub const CROP_BAR_THICK_PX: f32 = 5.0;
 /// Extra hit outside the painted bracket or bar.
 pub const CROP_HIT_PAD_PX: f32 = 4.0;
 
-fn union_points(points: &[Pos2]) -> Rect {
-    let mut rect = Rect::from_center_size(points[0], Vec2::ZERO);
-    for p in &points[1..] {
-        rect = rect.union(Rect::from_center_size(*p, Vec2::ZERO));
-    }
-    rect
-}
-
-/// Screen hit for one Photoshop crop handle: the painted graphic plus
-/// [`CROP_HIT_PAD_PX`].
-pub fn crop_handle_hits(geom: &SelectionGeom) -> [(ResizeHandle, Rect); 8] {
+/// Crop handle under `screen` and the pointer's distance to that corner or
+/// edge. A corner zone is a disc of the bracket arm plus pad; an edge zone
+/// is a band along the whole side, half the bar thickness plus pad on each
+/// side. Both reach outside the box, and a corner beats any edge it
+/// overlaps. [`canvas_scale::hit_px`] carries the zoom and never lets a
+/// zone shrink below the screen slop.
+pub fn crop_handle_pick(screen: Pos2, geom: &SelectionGeom) -> Option<(ResizeHandle, f32)> {
     let z = geom.zoom;
-    let arm = canvas_scale::px(CROP_ARM_PX, z);
-    let half_len = canvas_scale::px(CROP_BAR_LEN_PX, z) * 0.5;
-    let half_thick = canvas_scale::px(CROP_BAR_THICK_PX, z) * 0.5;
-    let pad = canvas_scale::px(CROP_HIT_PAD_PX, z);
-    let corner_handles = [
-        ResizeHandle::Nw,
-        ResizeHandle::Ne,
-        ResizeHandle::Se,
-        ResizeHandle::Sw,
-    ];
-    let edge_handles = [
-        ResizeHandle::N,
-        ResizeHandle::E,
-        ResizeHandle::S,
-        ResizeHandle::W,
-    ];
-    let mut out = [(ResizeHandle::Nw, Rect::NOTHING); 8];
-    for i in 0..4 {
-        let corner = geom.corners[i];
-        let prev = geom.corners[(i + 3) % 4];
-        let next = geom.corners[(i + 1) % 4];
-        let a = corner + unit(prev - corner) * arm;
-        let b = corner + unit(next - corner) * arm;
-        out[i * 2] = (corner_handles[i], union_points(&[corner, a, b]).expand(pad));
-        let mid = geom.edges[i];
-        let along = unit(next - corner);
-        let normal = Vec2::new(-along.y, along.x);
-        let bar = [
-            mid + along * half_len + normal * half_thick,
-            mid - along * half_len + normal * half_thick,
-            mid - along * half_len - normal * half_thick,
-            mid + along * half_len - normal * half_thick,
-        ];
-        out[i * 2 + 1] = (edge_handles[i], union_points(&bar).expand(pad));
-    }
-    out
+    let corner_hit = canvas_scale::hit_px(CROP_ARM_PX + CROP_HIT_PAD_PX, z);
+    let edge_hit = canvas_scale::hit_px(CROP_BAR_THICK_PX * 0.5 + CROP_HIT_PAD_PX, z);
+    let nearest = |hits: [(ResizeHandle, f32); 4], reach: f32| {
+        hits.into_iter()
+            .filter(|(_, d)| *d <= reach)
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+    };
+    let c = geom.corners;
+    nearest(
+        [
+            (ResizeHandle::Nw, screen.distance(c[0])),
+            (ResizeHandle::Ne, screen.distance(c[1])),
+            (ResizeHandle::Se, screen.distance(c[2])),
+            (ResizeHandle::Sw, screen.distance(c[3])),
+        ],
+        corner_hit,
+    )
+    .or_else(|| {
+        nearest(
+            [
+                (ResizeHandle::N, dist_to_segment(screen, c[0], c[1])),
+                (ResizeHandle::E, dist_to_segment(screen, c[1], c[2])),
+                (ResizeHandle::S, dist_to_segment(screen, c[2], c[3])),
+                (ResizeHandle::W, dist_to_segment(screen, c[3], c[0])),
+            ],
+            edge_hit,
+        )
+    })
 }
 
+#[cfg(test)]
 pub fn crop_handle_at(screen: Pos2, geom: &SelectionGeom) -> Option<ResizeHandle> {
-    crop_handle_hits(geom)
-        .into_iter()
-        .find(|(_, rect)| rect.contains(screen))
-        .map(|(handle, _)| handle)
+    crop_handle_pick(screen, geom).map(|(handle, _)| handle)
 }
 
 /// White corner brackets and edge bars, with a dark edge so they read on the picture.
@@ -618,17 +604,109 @@ mod tests {
         let on_edge = Pos2::new(25.0, 0.0);
         assert_eq!(hit_test_resize_bands(on_edge, &geom), Some(ResizeHandle::N));
         assert_eq!(hit_test_resize_handles(on_edge, &geom), None);
-        let hits = crop_handle_hits(&geom);
-        let north = hits.iter().find(|(h, _)| *h == ResizeHandle::N).unwrap().1;
-        assert!(north.contains(geom.edges[0]));
-        assert!(!north
-            .expand(1.0)
-            .contains(geom.edges[0] + Vec2::new(0.0, -40.0)));
-        let corner = hits.iter().find(|(h, _)| *h == ResizeHandle::Nw).unwrap().1;
-        assert!(corner.contains(geom.corners[0]));
+        assert_eq!(crop_handle_at(geom.edges[0], &geom), Some(ResizeHandle::N));
+        assert_eq!(
+            crop_handle_at(geom.edges[0] + Vec2::new(0.0, -40.0), &geom),
+            None
+        );
+        assert_eq!(
+            crop_handle_at(geom.corners[0], &geom),
+            Some(ResizeHandle::Nw)
+        );
         assert_eq!(
             hit_test_chrome(on_edge, &geom, true),
             Some(BoardHitTarget::Resize(ResizeHandle::N))
+        );
+    }
+
+    #[test]
+    fn crop_hit_zones_center_slop_boundary_and_outside() {
+        let at = |z: f32| {
+            let xf = BoardXf {
+                center: Pos2::ZERO,
+                offset: Vec2::ZERO,
+                z,
+            };
+            selection_geom(&xf, WorldRect::new(0.0, 0.0, 200.0, 150.0), 0.0)
+        };
+        let geom = at(1.0);
+        let corner_reach = canvas_scale::hit_px(CROP_ARM_PX + CROP_HIT_PAD_PX, 1.0);
+        let edge_reach = canvas_scale::hit_px(CROP_BAR_THICK_PX * 0.5 + CROP_HIT_PAD_PX, 1.0);
+        assert!(edge_reach >= canvas_scale::HIT_SLOP_PX);
+
+        // Handle centers.
+        let edges = [
+            ResizeHandle::N,
+            ResizeHandle::E,
+            ResizeHandle::S,
+            ResizeHandle::W,
+        ];
+        let corners = [
+            ResizeHandle::Nw,
+            ResizeHandle::Ne,
+            ResizeHandle::Se,
+            ResizeHandle::Sw,
+        ];
+        for i in 0..4 {
+            assert_eq!(crop_handle_at(geom.edges[i], &geom), Some(edges[i]));
+            assert_eq!(crop_handle_at(geom.corners[i], &geom), Some(corners[i]));
+        }
+
+        // Slop boundary, outside the box: just inside hits, just past misses.
+        let w = Pos2::new(0.0, 75.0);
+        assert_eq!(
+            crop_handle_at(w + Vec2::new(-(edge_reach - 0.25), 0.0), &geom),
+            Some(ResizeHandle::W)
+        );
+        assert_eq!(
+            crop_handle_at(w + Vec2::new(-(edge_reach + 0.25), 0.0), &geom),
+            None
+        );
+        let se = geom.corners[2];
+        let diag = Vec2::splat(std::f32::consts::FRAC_1_SQRT_2);
+        assert_eq!(
+            crop_handle_at(se + diag * (corner_reach - 0.25), &geom),
+            Some(ResizeHandle::Se)
+        );
+        assert_eq!(
+            crop_handle_at(se + diag * (corner_reach + 0.25), &geom),
+            None
+        );
+
+        // Full edge length, far from the painted bar, inside and outside.
+        for y in [corner_reach + 1.0, 40.0, 110.0, 150.0 - corner_reach - 1.0] {
+            assert_eq!(
+                crop_handle_at(Pos2::new(-4.0, y), &geom),
+                Some(ResizeHandle::W)
+            );
+            assert_eq!(
+                crop_handle_at(Pos2::new(4.0, y), &geom),
+                Some(ResizeHandle::W)
+            );
+        }
+
+        // Corners win where a corner and an edge zone overlap.
+        assert_eq!(
+            crop_handle_at(Pos2::new(-3.0, 5.0), &geom),
+            Some(ResizeHandle::Nw)
+        );
+
+        // Zoomed out, the zones keep the screen slop; zoomed in they cover
+        // the bigger painted bar.
+        let small = at(0.25);
+        let w_small = Pos2::new(0.0, 150.0 * 0.25 * 0.5);
+        assert_eq!(
+            crop_handle_at(
+                w_small + Vec2::new(-(canvas_scale::HIT_SLOP_PX - 0.5), 0.0),
+                &small
+            ),
+            Some(ResizeHandle::W)
+        );
+        let big = at(3.0);
+        let bar_edge = canvas_scale::px(CROP_BAR_THICK_PX, 3.0) * 0.5;
+        assert_eq!(
+            crop_handle_at(big.edges[3] + Vec2::new(-bar_edge, 0.0), &big),
+            Some(ResizeHandle::W)
         );
     }
 
