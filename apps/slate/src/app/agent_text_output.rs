@@ -79,6 +79,9 @@ impl AgentTextOutputWriter {
         let (done_tx, done_rx) = crossbeam_channel::bounded(QUEUE_DEPTH);
         thread::spawn(move || {
             while let Ok(job) = job_rx.recv() {
+                if let Some(parent) = job.path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
                 let ok = std::fs::write(&job.path, &job.text).is_ok();
                 if done_tx
                     .send(WriteDone {

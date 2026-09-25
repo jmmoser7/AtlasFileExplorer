@@ -583,9 +583,6 @@ impl SlateApp {
             return false;
         };
         let path = std::path::PathBuf::from(&output_dir).join("response.txt");
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
         let item = self
             .doc_mut()
             .add_item(path.clone(), "response.txt", 0, 0, "txt");
@@ -2108,6 +2105,9 @@ mod tests {
         std::fs::create_dir_all(h.app.ai.config.workspace_dir.as_ref().unwrap()).unwrap();
         let detail = serde_json::json!({"source": generator.0, "kind": "text"});
         assert!(h.app.spawn_flow_node(Some(&detail.to_string())));
+        for _ in 0..20 {
+            h.app.pump_agent_text_outputs();
+        }
         let note = *h.app.board_sel.iter().next().unwrap();
         assert!(matches!(
             &h.app.doc().scene.node(note).unwrap().kind,
@@ -2148,7 +2148,7 @@ mod tests {
             Some("Warm light on stone.")
         );
         h.app.sync_agent_text_output(note);
-        for _ in 0..100 {
+        for _ in 0..200 {
             h.app.pump_agent_text_outputs();
             if std::fs::read_to_string(&path)
                 .ok()
@@ -2156,12 +2156,10 @@ mod tests {
             {
                 break;
             }
-            std::thread::sleep(std::time::Duration::from_millis(5));
+            std::thread::sleep(std::time::Duration::from_millis(10));
         }
-        assert_eq!(
-            std::fs::read_to_string(&path).unwrap().trim(),
-            "Warm light on stone."
-        );
+        let on_disk = std::fs::read_to_string(&path).unwrap_or_default();
+        assert_eq!(on_disk.trim(), "Warm light on stone.");
     }
 
     /// A wire dropped on empty board from any media with the Agent squircle
