@@ -67,7 +67,7 @@ The references establish quiet cards, a shared top datum, restrained controls, p
 
 **Chat:** a single messenger-style portal with the selected branch's transcript and composer. A branch selector appears only when branches exist.
 
-**Train:** each human message and each assistant response is a separate card, running left to right. Tool calls, intermediate progress, and tool results remain expandable events inside the assistant card. A response card is reserved once on submission and fills as output arrives; tokens never spawn additional cards. The next composer appears at the active branch tip. Sending from an older checkpoint explicitly creates a fork.
+**Train:** each human message and each assistant response is a separate card, running left to right. Tool calls, intermediate progress, and tool results remain expandable events inside the assistant card. A response card is reserved once on submission and fills as output arrives; tokens never spawn additional cards. The next composer appears at the active branch tip. Submission leaves every earlier card's text, detail and frame as it was, in pair and message-per-card trains alike; the old tip changes only by handing its composer to the new one. Sending from an older checkpoint explicitly creates a fork.
 
 **Bundle:** select a contiguous run and collapse it into one card with a name, message count, summary, and preserved boundary connections. Expanding restores the same identities and positions. This is presentation grouping; it never summarizes away model context or deletes history. For v1, bundling across a fork is refused with an explanation; branches can be bundled independently. Arbitrary multi-branch bundles are a later extension.
 

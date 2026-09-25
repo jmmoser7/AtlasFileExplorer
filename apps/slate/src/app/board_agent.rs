@@ -5838,13 +5838,30 @@ impl SlateApp {
                     text: req.prompt.clone(),
                     at: req.at,
                 };
-                let turns = self.agents.local_turns.entry(portal).or_insert_with(|| {
-                    self.agents
+                if !self.agents.local_turns.contains_key(&portal) {
+                    // A linear provider's request carries no history, and a new
+                    // tail has no session yet: the stream the composer shows is
+                    // what the whole train keeps displaying.
+                    let same_stream = self
+                        .doc()
+                        .scene
+                        .node(composer)
+                        .and_then(slate_doc::agent_chat::agent)
+                        .is_some_and(|a| a.session == session);
+                    let seed = self
+                        .agents
                         .sessions
                         .get(&portal)
                         .map(|s| s.turns.clone())
-                        .unwrap_or_else(|| req.history.clone())
-                });
+                        .or_else(|| {
+                            same_stream
+                                .then(|| self.agent_all_turns(composer))
+                                .filter(|t| !t.is_empty())
+                        })
+                        .unwrap_or_else(|| req.history.clone());
+                    self.agents.local_turns.insert(portal, seed);
+                }
+                let turns = self.agents.local_turns.get_mut(&portal).unwrap();
                 if turns
                     .last()
                     .is_none_or(|t| t.role != "user" || t.text != turn.text)

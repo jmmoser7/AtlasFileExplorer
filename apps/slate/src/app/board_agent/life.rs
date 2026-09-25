@@ -749,6 +749,157 @@ mod tests {
         assert!(h.app.agents.life.sidecar_dirs.contains_key(&session));
     }
 
+    /// A saved two-exchange Cursor conversation laid out as a train: two
+    /// exchange cards in pair mode, four message cards otherwise.
+    fn saved_train(
+        h: &mut Harness,
+        ws: &std::path::Path,
+        conversation: &str,
+        pair: bool,
+    ) -> Vec<NodeId> {
+        use slate_doc::agent_chat::Detail;
+        let first = cursor_chat(h, conversation);
+        let dir = h.app.agent_link_dir(first, ws).unwrap();
+        write_session(&dir, &history(conversation, 2));
+        let (detail, windows): (_, &[(usize, Option<usize>)]) = if pair {
+            (Detail::Pair, &[(0, Some(2)), (2, None)])
+        } else {
+            (
+                Detail::Summary,
+                &[(0, Some(1)), (1, Some(2)), (2, Some(3)), (3, None)],
+            )
+        };
+        let view = |n: &mut Node, parent, (start, end): (usize, Option<usize>)| {
+            if let NodeKind::Portal(p) = &mut n.kind {
+                let chat = &mut p.agent.as_mut().unwrap().chat;
+                chat.train = true;
+                chat.linear = true;
+                chat.parent = parent;
+                chat.start = start;
+                chat.end = end;
+                chat.detail = detail;
+            }
+        };
+        h.app.patch_nodes(&[first], |n| view(n, None, windows[0]));
+        let mut ids = vec![first];
+        for window in &windows[1..] {
+            let prev = *ids.last().unwrap();
+            let original = h.app.doc().scene.node(prev).unwrap().clone();
+            let mut next = h.app.doc_mut().scene.build_duplicate(&original, 420.0, 0.0);
+            view(&mut next, Some(prev), *window);
+            ids.push(h.app.add_nodes(vec![next])[0]);
+        }
+        ids
+    }
+
+    type CardView = (NodeId, String, [f32; 4], bool, bool, Vec<String>);
+
+    /// What a person sees of each card: detail, frame, and text.
+    fn card_views(h: &Harness) -> Vec<CardView> {
+        h.app
+            .doc()
+            .scene
+            .nodes
+            .iter()
+            .filter_map(|n| {
+                let a = slate_doc::agent_chat::agent(n)?;
+                let text = h.app.visible_agent_turns(n.id);
+                Some((
+                    n.id,
+                    format!("{:?}", a.chat.detail),
+                    [n.rect.x, n.rect.y, n.rect.w, n.rect.h],
+                    n.hidden,
+                    a.chat.collapsed,
+                    text.into_iter()
+                        .map(|t| format!("{}: {}", t.role, t.text))
+                        .collect(),
+                ))
+            })
+            .collect()
+    }
+
+    /// Earlier cards are unchanged. The old tail hands its composer to the
+    /// new card (only a tail hosts one), so its height alone may differ.
+    fn assert_cards_kept(h: &Harness, before: &[CardView], old_tail: NodeId, when: &str) {
+        let now = card_views(h);
+        for card in before {
+            let mut kept = now.iter().find(|c| c.0 == card.0).cloned();
+            if let Some(k) = kept.as_mut().filter(|k| k.0 == old_tail) {
+                k.2[3] = card.2[3];
+            }
+            assert_eq!(kept.as_ref(), Some(card), "an earlier card changed {when}");
+        }
+    }
+
+    fn submit_keeps_earlier_cards(tag: &str, pair: bool) {
+        let (mut h, ws) = linked_board(tag);
+        let ids = saved_train(&mut h, &ws, tag, pair);
+        let dir = h.app.agent_link_dir(ids[0], &ws).unwrap();
+        let last = *ids.last().unwrap();
+        frames_until(&mut h, "the saved history", |h| shows(h, last, "answer 1"));
+        for _ in 0..10 {
+            h.frame();
+        }
+        let before = card_views(&h);
+        assert!(before.iter().all(|c| !c.5.is_empty()), "{before:#?}");
+
+        *h.app.agents.prompt_mut(last) = "question 2".into();
+        h.app.send_agent_prompt(last);
+        assert_cards_kept(&h, &before, last, "at submit");
+        let waiting = tail(&h);
+        assert_ne!(waiting, last, "the exchange lands on a new card");
+        let old_tail = |h: &Harness| card_views(h).into_iter().find(|c| c.0 == last);
+        // Losing the composer re-fits the old tail: an estimate, then paint's
+        // measurement on the next frame.
+        for _ in 0..3 {
+            h.frame();
+            assert_cards_kept(&h, &before, last, "while the old tail re-fits");
+        }
+        let handed_off = old_tail(&h);
+        let steady = |h: &Harness, when: &str| {
+            assert_cards_kept(h, &before, last, when);
+            assert_eq!(old_tail(h), handed_off, "the old tail changed {when}");
+        };
+        for i in 0..5 {
+            h.frame();
+            steady(&h, &format!("on frame {i} after submit"));
+        }
+        let new_cards: Vec<_> = card_views(&h)
+            .into_iter()
+            .filter(|c| before.iter().all(|b| b.0 != c.0))
+            .collect();
+        assert!(
+            new_cards
+                .iter()
+                .any(|c| c.5.contains(&"user: question 2".into())),
+            "{new_cards:#?}"
+        );
+
+        frames_until(&mut h, "the request", |_| request_id(&dir).is_some());
+        let mut answered = history(tag, 3);
+        answered.request = request_id(&dir).unwrap();
+        write_session(&dir, &answered);
+        frames_until(&mut h, "the reply", |h| {
+            steady(h, "while the reply arrives");
+            !h.app.agent_is_awaiting(waiting)
+        });
+        for i in 0..5 {
+            h.frame();
+            steady(&h, &format!("on frame {i} after the reply"));
+        }
+        assert!(shows(&h, waiting, "answer 2"));
+    }
+
+    #[test]
+    fn agent_life_submitting_in_pair_mode_keeps_earlier_cards() {
+        submit_keeps_earlier_cards("agent_life_submit_pair", true);
+    }
+
+    #[test]
+    fn agent_life_submitting_in_train_mode_keeps_earlier_cards() {
+        submit_keeps_earlier_cards("agent_life_submit_train", false);
+    }
+
     #[test]
     fn agent_life_relaunch_rejoins_and_sends_what_waited_for_the_connection() {
         let (mut h, ws) = linked_board("agent_life_relaunch");
