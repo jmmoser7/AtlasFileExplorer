@@ -1,4 +1,4 @@
-//! The semantic layer of existing board wires. Geometry remains in `wire_host`.
+﻿//! The semantic layer of existing board wires. Geometry remains in `wire_host`.
 //! Resolves one immutable run input; adapters never interpret a scene.
 use crate::{scene::*, SlateDoc};
 use atlas_agent::{ContextItem, ImageOutput, InputSlot, InputSnapshot};

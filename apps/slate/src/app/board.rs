@@ -2588,10 +2588,20 @@ pub(crate) fn paint_node_texture(
     vertices: &[(Pos2, Pos2)],
     tint: Color32,
 ) {
+    paint_node_texture_id(painter, tex.id(), vertices, tint);
+}
+
+/// [`paint_node_texture`] for a texture egui does not own (a live 3D slot).
+pub(crate) fn paint_node_texture_id(
+    painter: &egui::Painter,
+    tex: egui::TextureId,
+    vertices: &[(Pos2, Pos2)],
+    tint: Color32,
+) {
     if vertices.len() < 3 {
         return;
     }
-    let mut mesh = egui::Mesh::with_texture(tex.id());
+    let mut mesh = egui::Mesh::with_texture(tex);
     for (pos, uv) in vertices {
         mesh.vertices.push(egui::epaint::Vertex {
             pos: *pos,
