@@ -101,10 +101,8 @@ impl SlateApp {
             return None;
         }
         let edge = self.node_corner_grip_edge(node)?;
-        let travel = match &self.board_drag {
-            Some(BoardDrag::FilletRadius { id, travel, .. }) if *id == node.id => *travel,
-            _ => board_handles::corner_grip_rest_travel(&edge, self.node_fillet_radius_world(node)),
-        };
+        let travel =
+            board_handles::corner_grip_rest_travel(&edge, self.node_fillet_radius_world(node));
         Some(board_handles::corner_grip_screen(xf, &edge, travel))
     }
 
@@ -132,29 +130,29 @@ impl SlateApp {
         let id = self.fillet_grip_hit_at(screen)?;
         let before = self.doc().scene.node(id)?.clone();
         let edge = self.node_corner_grip_edge(&before)?;
-        let travel =
-            board_handles::corner_grip_rest_travel(&edge, self.node_fillet_radius_world(&before));
-        let grab = travel - edge.project([world.x, world.y]);
+        let start_amount = self.node_fillet_radius_world(&before);
+        let press_travel = edge.project([world.x, world.y]);
         Some(BoardDrag::FilletRadius {
             id,
             before,
-            grab,
-            travel,
+            start_amount,
+            press_travel,
             press: screen,
             max_px: 0.0,
         })
     }
 
-    /// Follow the pointer along the grip's edge: the grip stays under the
-    /// pointer's projection and the corner amount is read from its travel.
+    /// The corner amount follows the pointer's travel along the grip edge
+    /// from its press-time value, so a grab never jumps. The grip paints at
+    /// the resting travel: under the pointer once past the inset.
     pub(crate) fn update_fillet_drag(&mut self, world: Pos2, shift: bool) {
         let Some(BoardDrag::FilletRadius {
             id,
             before,
-            grab,
+            start_amount,
+            press_travel,
             press,
             max_px,
-            ..
         }) = &self.board_drag
         else {
             return;
@@ -164,16 +162,15 @@ impl SlateApp {
         if *max_px <= 0.0 && moved < 1e-3 {
             return;
         }
-        let (id, grab) = (*id, *grab);
+        let (id, start_amount, press_travel) = (*id, *start_amount, *press_travel);
         let before = before.clone();
         let Some(edge) = self.node_corner_grip_edge(&before) else {
             return;
         };
-        let mut travel = (edge.project([world.x, world.y]) + grab).clamp(0.0, edge.max_travel);
-        let mut radius = edge.amount_for_travel(travel);
+        let delta = edge.project([world.x, world.y]) - press_travel;
+        let mut radius = edge.amount_for_travel(edge.travel_for_amount(start_amount) + delta);
         if shift {
             radius = radius.round().min(edge.max_amount().floor());
-            travel = edge.travel_for_amount(radius);
         }
         let path = self
             .node_item_path(&before)
@@ -181,11 +178,7 @@ impl SlateApp {
         if let Some(n) = self.doc_mut().scene.node_mut(id) {
             Self::apply_fillet_radius_to_node(n, &before, radius, false, path.as_deref());
         }
-        if let Some(BoardDrag::FilletRadius {
-            travel: t, max_px, ..
-        }) = &mut self.board_drag
-        {
-            *t = travel;
+        if let Some(BoardDrag::FilletRadius { max_px, .. }) = &mut self.board_drag {
             *max_px = max_px.max(moved);
         }
     }

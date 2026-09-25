@@ -180,10 +180,15 @@ is searchable.
   is the cut along each edge. At amount 0 (and below it) the grip rests at
   the small fixed inset `FILLET_GRIP_MIN_INSET_WORLD` along that edge.
   **Drag (stated):** away from the corner increases the amount, toward it
-  decreases; the grip stays exactly under the pointer's projection onto the
-  edge for the whole drag, from the first pixel — the gesture starts on
-  press, not on egui's drag threshold, and the resting inset never offsets
-  the live grip. Chamfer and percent modes are kept (`edit_corner`).
+  decreases. The amount changes continuously from its press-time value —
+  never a jump on grab: travel along the edge is `clamp(start_travel +
+  (projected − press_projection), 0, max)`, so the first 1 px move changes a
+  box's amount by about 1 unit. The gesture starts on press, not on egui's
+  drag threshold. The grip is drawn at `max(travel, inset)`: while the amount
+  is below the inset the grip holds the inset (not exactly under the
+  pointer), and at or above it the grip sits on the tangent point under the
+  pointer's projection. Dragging back past the corner clamps to square.
+  Chamfer and percent modes are kept (`edit_corner`).
   **Click (stated):** a press and release within
   `place_tokens::DRAG_THRESHOLD` opens an inline numeric field beside the
   grip, inside the edge, using the stringers' `selection_tools::inline_number`;

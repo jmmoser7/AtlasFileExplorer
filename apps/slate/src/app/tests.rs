@@ -9108,10 +9108,7 @@ fn fillet_grip_drag_from_square_starts_at_zero_radius() {
         .end_gesture_for_test(moved, Some(xf.w2s(moved)), egui::Modifiers::NONE);
     let after = h.app.doc().scene.node(id).unwrap();
     let radius = slate_doc::scene::resolved_corner_effective(after, None).1;
-    // The square grip rests at the inset along the top edge and stays under
-    // the pointer's projection onto that edge (P1.node.corner-grip).
-    let expected = board_handles::FILLET_GRIP_MIN_INSET_WORLD + 3.0;
-    assert!((radius - expected).abs() < 0.05, "radius={radius}");
+    assert!((radius - 3.0).abs() < 0.05, "radius={radius}");
 }
 
 #[test]

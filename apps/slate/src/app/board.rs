@@ -688,10 +688,10 @@ pub enum BoardDrag {
     FilletRadius {
         id: NodeId,
         before: Node,
-        /// Press-time offset along the grip edge from the pointer to the grip.
-        grab: f32,
-        /// World travel of the grip along its edge; the grip paints here.
-        travel: f32,
+        /// Corner amount at press; the drag changes it continuously from here.
+        start_amount: f32,
+        /// The pointer's press-time projection onto the grip edge (world).
+        press_travel: f32,
         /// Press position (screen) and the farthest the pointer has moved from
         /// it; a release under the drag threshold is a click.
         press: Pos2,

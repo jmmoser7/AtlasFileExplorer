@@ -109,7 +109,9 @@ drag the address-bar URL or a page link instead.
   regular polygon, line polyline, frame, portal, or placed-media node, the
   square grip sits on the border at the corner's tangent point (the top edge
   from the top-left corner on boxes). Drag it along that edge: away from the
-  corner rounds more, toward it less, and the grip stays under the pointer.
+  corner rounds more, toward it less, changing smoothly from the current
+  amount (no jump on grab); above the small resting inset the grip stays
+  under the pointer.
   Shift snaps to whole world units; Esc cancels the active drag; release
   records one undo step. Click the grip to type the amount: Enter applies it
   as one undo step, Esc cancels.

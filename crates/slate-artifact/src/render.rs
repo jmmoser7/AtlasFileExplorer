@@ -1178,12 +1178,20 @@ pub(crate) fn render_shape_svg(
             );
         }
         ShapeKind::Rect => {
-            let (_, radius) = shape.corner.effective(rel.w, rel.h);
-            let _ = write!(
-                svg,
-                "<rect x=\"{:.3}\" y=\"{:.3}\" width=\"{:.3}\" height=\"{:.3}\" rx=\"{:.3}\" fill=\"{}\"{stroke_attrs}/>",
-                rel.x, rel.y, rel.w, rel.h, radius, fill
-            );
+            let (chamfer, radius) = shape.corner.effective(rel.w, rel.h);
+            if chamfer && radius > 0.0 {
+                let mut d = String::new();
+                for (i, [x, y]) in shape.corner.outline(rel, 0.25).into_iter().enumerate() {
+                    let _ = write!(d, "{}{x:.3} {y:.3}", if i == 0 { "M " } else { " L " });
+                }
+                let _ = write!(svg, "<path d=\"{d} Z\" fill=\"{}\"{stroke_attrs}/>", fill);
+            } else {
+                let _ = write!(
+                    svg,
+                    "<rect x=\"{:.3}\" y=\"{:.3}\" width=\"{:.3}\" height=\"{:.3}\" rx=\"{:.3}\" fill=\"{}\"{stroke_attrs}/>",
+                    rel.x, rel.y, rel.w, rel.h, radius, fill
+                );
+            }
         }
         ShapeKind::Ellipse => {
             let _ = write!(
@@ -2431,6 +2439,66 @@ pub(crate) fn escape_attr(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chamfered_rect_svg_exports_the_boards_straight_cuts() {
+        let rel = WorldRect::new(12.0, 7.0, 100.0, 60.0);
+        let svg_for = |corner: Corner| {
+            let shape = slate_doc::scene::ShapeNode {
+                shape: ShapeKind::Rect,
+                fill: Some(slate_doc::scene::Rgba([10, 20, 30, 255])),
+                stroke: Default::default(),
+                corner,
+                sides: slate_doc::scene::default_regular_sides(),
+                flip: false,
+                path: None,
+                text: None,
+            };
+            let node = slate_doc::scene::Scene::default()
+                .build_node(rel, slate_doc::scene::NodeKind::Shape(shape.clone()));
+            let mut svg = String::new();
+            render_shape_svg(&mut svg, &node, &shape, rel, 1.0);
+            svg
+        };
+        let corner = Corner::Chamfer { cut: 10.0 };
+        let svg = svg_for(corner);
+        assert!(
+            !svg.contains("<rect"),
+            "a chamfered rectangle is not a rounded rect: {svg}"
+        );
+        let attr = |name: &str| {
+            svg.split(&format!("{name}=\""))
+                .nth(1)
+                .and_then(|s| s.split('"').next())
+                .unwrap_or_else(|| panic!("no {name}: {svg}"))
+                .to_owned()
+        };
+        let numbers = |s: &str| -> Vec<f32> {
+            s.split(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-'))
+                .filter(|t| !t.is_empty())
+                .map(|t| t.parse().unwrap())
+                .collect()
+        };
+        let points: Vec<[f32; 2]> = numbers(&attr("d"))
+            .chunks(2)
+            .map(|c| [c[0], c[1]])
+            .collect();
+        // The board paints the same `Corner::outline`.
+        let board = corner.outline(rel, 0.25);
+        assert_eq!(points.len(), board.len(), "{points:?} vs {board:?}");
+        for p in &board {
+            assert!(
+                points
+                    .iter()
+                    .any(|q| (q[0] - p[0]).abs() < 0.06 && (q[1] - p[1]).abs() < 0.06),
+                "export misses the board's cut point {p:?}: {points:?}"
+            );
+        }
+        assert!(
+            svg_for(Corner::Rounded { radius: 10.0 }).contains("rx=\"10.000\""),
+            "a fillet stays an SVG rounded rect"
+        );
+    }
 
     #[test]
     fn web_portal_export_emits_document_corner_radius() {
