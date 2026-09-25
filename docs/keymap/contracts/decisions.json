@@ -3190,7 +3190,7 @@
       }
     },
     "polygon": {
-      "status": "draft",
+      "status": "agreed",
       "family": "tool",
       "reference": "Regular polygon tool authorized 2026-09-25; Y shortcut; default hexagon.",
       "inherits": [
