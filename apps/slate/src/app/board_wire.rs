@@ -907,6 +907,7 @@ impl SlateApp {
         };
         if let Some(binding) = &mut conn.binding {
             if binding.kind == slate_doc::agent_inputs::InputKind::Images {
+                // TWIN: slate_doc::agent_inputs::WireBinding::source 2026-09-25
                 let source = if binding.input_b { &conn.a } else { &conn.b };
                 binding.output = slate_doc::agent_inputs::endpoint_node(source)
                     .and_then(|id| self.agent_active_output(id));
@@ -915,6 +916,7 @@ impl SlateApp {
         // Wires into a chat train start in the train's calm gray instead of the
         // drawing color. It is only the default: a color picked later is kept.
         if let Some(binding) = &conn.binding {
+            // TWIN: slate_doc::agent_inputs::WireBinding::target 2026-09-25
             let input = if binding.input_b { &conn.b } else { &conn.a };
             if slate_doc::agent_inputs::endpoint_node(input)
                 .is_some_and(|id| slate_doc::agent_inputs::is_chat_card(&self.doc().scene, id))

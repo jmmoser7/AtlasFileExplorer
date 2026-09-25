@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
 use std::time::Instant;
 
+use atlas_agent::InputSlot;
 use eframe::egui::{self, Id, Rect, Ui};
 use model_preview::view_meta;
 use slate_doc::agent_inputs;
@@ -43,7 +44,7 @@ impl SlateApp {
             let Some(binding) = &conn.binding else {
                 continue;
             };
-            if binding.slot.as_deref() != Some("view") {
+            if binding.slot.as_deref() != Some(InputSlot::View.id()) {
                 continue;
             }
             if conn.cached_slate_view.is_some() {
@@ -56,11 +57,7 @@ impl SlateApp {
             {
                 continue;
             }
-            let (source_end, _target) = if binding.input_b {
-                (&conn.b, &conn.a)
-            } else {
-                (&conn.a, &conn.b)
-            };
+            let source_end = binding.source_end(conn);
             let Some(source) = agent_inputs::endpoint_node(source_end) else {
                 continue;
             };
@@ -116,14 +113,11 @@ impl SlateApp {
             let Some(binding) = &conn.binding else {
                 continue;
             };
-            if binding.slot.as_deref() != Some("view") {
+            if binding.slot.as_deref() != Some(InputSlot::View.id()) {
                 continue;
             }
-            let (source_end, target_end) = if binding.input_b {
-                (&conn.a, &conn.b)
-            } else {
-                (&conn.b, &conn.a)
-            };
+            let source_end = binding.source_end(conn);
+            let target_end = binding.target_end(conn);
             let target = agent_inputs::endpoint_node(target_end);
             let source = agent_inputs::endpoint_node(source_end);
             if target != Some(model) {

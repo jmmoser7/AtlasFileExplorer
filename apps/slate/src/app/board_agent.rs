@@ -2484,6 +2484,7 @@ impl SlateApp {
             let Some(binding) = &conn.binding else {
                 continue;
             };
+            // TWIN: slate_doc::agent_inputs::WireBinding::source 2026-09-25
             let (source, target) = if binding.input_b {
                 (&conn.a, &conn.b)
             } else {
@@ -2906,6 +2907,7 @@ impl SlateApp {
             let Some(binding) = &conn.binding else {
                 continue;
             };
+            // TWIN: slate_doc::agent_inputs::WireBinding::source 2026-09-25
             let (source, target) = if binding.input_b {
                 (&conn.a, &conn.b)
             } else {
@@ -3809,6 +3811,7 @@ impl SlateApp {
         };
         let binding = c.binding.as_ref().unwrap();
         let all = !binding.all_images;
+        // TWIN: slate_doc::agent_inputs::WireBinding::source 2026-09-25
         let source = if binding.input_b { &c.a } else { &c.b };
         let pin = if all {
             None
@@ -5609,6 +5612,7 @@ impl SlateApp {
                 if binding.consumed {
                     return None;
                 }
+                // TWIN: slate_doc::agent_inputs::WireBinding::target 2026-09-25
                 let target = if binding.input_b { &c.b } else { &c.a };
                 slate_doc::agent_inputs::endpoint_node(target)
                     .filter(|id| *id == portal)

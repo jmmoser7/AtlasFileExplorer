@@ -37,6 +37,42 @@ pub struct WireBinding {
     pub slot: Option<String>,
 }
 
+impl WireBinding {
+    /// The connector end that supplies data along this wire.
+    pub fn source_end<'a>(&self, conn: &'a ConnectorNode) -> &'a ConnectorEnd {
+        if self.input_b {
+            &conn.a
+        } else {
+            &conn.b
+        }
+    }
+
+    /// The connector end that receives data along this wire.
+    pub fn target_end<'a>(&self, conn: &'a ConnectorNode) -> &'a ConnectorEnd {
+        if self.input_b {
+            &conn.b
+        } else {
+            &conn.a
+        }
+    }
+
+    pub fn source_end_mut<'a>(&self, conn: &'a mut ConnectorNode) -> &'a mut ConnectorEnd {
+        if self.input_b {
+            &mut conn.a
+        } else {
+            &mut conn.b
+        }
+    }
+
+    pub fn target_end_mut<'a>(&self, conn: &'a mut ConnectorNode) -> &'a mut ConnectorEnd {
+        if self.input_b {
+            &mut conn.b
+        } else {
+            &mut conn.a
+        }
+    }
+}
+
 pub fn endpoint_node(end: &ConnectorEnd) -> Option<NodeId> {
     match end {
         ConnectorEnd::Anchored { node, .. } => Some(*node),
@@ -151,7 +187,7 @@ fn model_view_binding<'a>(
         order: vec![],
         all_images: false,
         consumed: false,
-        slot: Some("view".into()),
+        slot: Some(InputSlot::View.id().into()),
     })
 }
 
@@ -189,7 +225,7 @@ const GENERATOR_PORTS: [InputPort; 3] = [
 pub const MODEL_VIEW_PORT_T: f32 = 0.72;
 
 const MODEL_VIEW_PORTS: [InputPort; 1] = [InputPort {
-    slot: InputSlot::Media,
+    slot: InputSlot::View,
     t: MODEL_VIEW_PORT_T,
     label: "View",
 }];
@@ -319,12 +355,10 @@ fn sent_context(scene: &Scene) -> impl Iterator<Item = (NodeId, NodeId, NodeId)>
             return None;
         };
         let binding = c.binding.as_ref().filter(|b| b.consumed)?;
-        let (from, to) = if binding.input_b {
-            (&c.a, &c.b)
-        } else {
-            (&c.b, &c.a)
-        };
-        let (source, card) = (endpoint_node(from)?, endpoint_node(to)?);
+        let (source, card) = (
+            endpoint_node(binding.source_end(c))?,
+            endpoint_node(binding.target_end(c))?,
+        );
         (is_chat_card(scene, card) && !is_chat_card(scene, source)).then_some((n.id, source, card))
     })
 }
@@ -365,7 +399,7 @@ pub fn bound_slots(scene: &Scene, target: NodeId) -> Vec<InputSlot> {
         .filter_map(|n| match &n.kind {
             NodeKind::Connector(c) => {
                 let binding = c.binding.as_ref()?;
-                let end = if binding.input_b { &c.b } else { &c.a };
+                let end = binding.target_end(c);
                 (endpoint_node(end) == Some(target))
                     .then(|| binding.slot.as_deref().and_then(InputSlot::from_id))
                     .flatten()
@@ -690,11 +724,8 @@ pub fn snapshot(
         let Some(binding) = owned.as_ref() else {
             continue;
         };
-        let (source, target) = if binding.input_b {
-            (&c.a, &c.b)
-        } else {
-            (&c.b, &c.a)
-        };
+        let source = binding.source_end(c);
+        let target = binding.target_end(c);
         if endpoint_node(target) != Some(portal) {
             continue;
         }
@@ -825,7 +856,7 @@ pub fn unbundle(
                     continue;
                 };
                 let Some(binding) = &c.binding else { continue };
-                let end = if binding.input_b { &c.b } else { &c.a };
+                let end = binding.target_end(c);
                 if endpoint_node(end) != Some(id) {
                     continue;
                 }
@@ -839,7 +870,7 @@ pub fn unbundle(
                         b.order = vec![wire.id.0];
                     }
                 }
-                let end = if binding.input_b { &mut c.b } else { &mut c.a };
+                let end = binding.target_end_mut(c);
                 if let ConnectorEnd::Anchored { node, .. } = end {
                     *node = child_id;
                 }
@@ -858,7 +889,7 @@ pub fn unbundle(
             continue;
         };
         let Some(binding) = &c.binding else { continue };
-        let source = if binding.input_b { &c.a } else { &c.b };
+        let source = binding.source_end(c);
         if endpoint_node(source) != Some(id) {
             continue;
         }
@@ -883,7 +914,7 @@ pub fn unbundle(
             let NodeKind::Connector(ref mut c) = copy.kind else {
                 unreachable!()
             };
-            let source = if binding.input_b { &mut c.a } else { &mut c.b };
+            let source = binding.source_end_mut(c);
             if let ConnectorEnd::Anchored { node, .. } = source {
                 *node = ids[image_index];
             }
@@ -966,7 +997,104 @@ mod tests {
             },
         )
         .expect("view wire");
-        assert_eq!(binding.slot.as_deref(), Some("view"));
+        assert_eq!(binding.slot.as_deref(), Some(InputSlot::View.id()));
+    }
+
+    #[test]
+    fn bound_slots_includes_view_when_wired() {
+        let mut doc = SlateDoc::new("bound-view");
+        let mut model = ImageNode::new(ItemId(1));
+        model.model_viewport = true;
+        let model_id = add(&mut doc, NodeKind::Image(model), 0.0);
+        let shot = add(&mut doc, NodeKind::Image(ImageNode::new(ItemId(2))), 200.0);
+        let binding = infer_binding_with(
+            &doc.scene,
+            &ConnectorEnd::Anchored {
+                node: shot,
+                side: Side::Right,
+                t: 0.5,
+            },
+            &ConnectorEnd::Anchored {
+                node: model_id,
+                side: Side::Left,
+                t: MODEL_VIEW_PORT_T,
+            },
+            &|id| {
+                if id.0 == 2 {
+                    Some(std::path::Path::new("view.png"))
+                } else {
+                    None
+                }
+            },
+        )
+        .unwrap();
+        add(
+            &mut doc,
+            NodeKind::Connector(ConnectorNode {
+                a: ConnectorEnd::Anchored {
+                    node: shot,
+                    side: Side::Right,
+                    t: 0.5,
+                },
+                b: ConnectorEnd::Anchored {
+                    node: model_id,
+                    side: Side::Left,
+                    t: MODEL_VIEW_PORT_T,
+                },
+                stroke: Stroke::default(),
+                routing: None,
+                arrow_a: false,
+                arrow_b: false,
+                label: None,
+                display: WireDisplay::Default,
+                binding: Some(binding),
+                cached_slate_view: None,
+            }),
+            400.0,
+        );
+        assert!(bound_slots(&doc.scene, model_id).contains(&InputSlot::View));
+    }
+
+    #[test]
+    fn view_wire_binding_source_is_screenshot_image() {
+        let mut doc = SlateDoc::new("wire-dir");
+        let mut model = ImageNode::new(ItemId(1));
+        model.model_viewport = true;
+        let model_id = add(&mut doc, NodeKind::Image(model), 0.0);
+        let shot = add(&mut doc, NodeKind::Image(ImageNode::new(ItemId(2))), 200.0);
+        let shot_end = ConnectorEnd::Anchored {
+            node: shot,
+            side: Side::Right,
+            t: 0.5,
+        };
+        let model_port = ConnectorEnd::Anchored {
+            node: model_id,
+            side: Side::Left,
+            t: MODEL_VIEW_PORT_T,
+        };
+        let binding = infer_binding_with(&doc.scene, &shot_end, &model_port, &|id| {
+            if id.0 == 2 {
+                Some(std::path::Path::new("screenshot.png"))
+            } else {
+                Some(std::path::Path::new("model.obj"))
+            }
+        })
+        .expect("view wire");
+        let conn = ConnectorNode {
+            a: shot_end,
+            b: model_port,
+            stroke: Stroke::default(),
+            routing: None,
+            arrow_a: false,
+            arrow_b: false,
+            label: None,
+            display: WireDisplay::Default,
+            binding: Some(binding),
+            cached_slate_view: None,
+        };
+        let b = conn.binding.as_ref().unwrap();
+        assert_eq!(endpoint_node(b.source_end(&conn)), Some(shot));
+        assert_eq!(endpoint_node(b.target_end(&conn)), Some(model_id));
     }
 
     #[test]

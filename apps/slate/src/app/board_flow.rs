@@ -577,6 +577,7 @@ impl SlateApp {
             .filter_map(|n| match &n.kind {
                 NodeKind::Connector(c) => {
                     let binding = c.binding.as_ref()?;
+                    // TWIN: slate_doc::agent_inputs::WireBinding::source 2026-09-25
                     let (from, to) = if binding.input_b {
                         (&c.a, &c.b)
                     } else {
@@ -1687,6 +1688,7 @@ mod tests {
         h.app.doc().scene.nodes.iter().find_map(|n| match &n.kind {
             NodeKind::Connector(c) => {
                 let binding = c.binding.as_ref()?;
+                // TWIN: slate_doc::agent_inputs::WireBinding::target 2026-09-25
                 let end = if binding.input_b { &c.b } else { &c.a };
                 (agent_inputs::endpoint_node(end) == Some(target))
                     .then(|| (n.id, binding.slot.clone().unwrap_or_default()))
