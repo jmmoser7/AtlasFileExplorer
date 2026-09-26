@@ -2247,10 +2247,7 @@ impl SlateApp {
             z,
             theme,
         );
-        for popup in edit.popups {
-            self.agents.note_menu_popup(ui.ctx(), popup);
-            self.shape_properties.chrome_hits.push(popup);
-        }
+        self.shape_properties.chrome_hits.extend(edit.popups);
         if let Some(index) = edit.family {
             if let Some(family) = scene::Typeface::ALL.get(index).copied() {
                 self.preview_shape_property(Property::TextFamily(family));
