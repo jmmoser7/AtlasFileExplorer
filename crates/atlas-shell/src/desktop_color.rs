@@ -41,6 +41,78 @@ impl Drop for DesktopColorPicker {
     }
 }
 
+#[cfg_attr(not(windows), allow(unused_imports))]
+use layout::*;
+
+/// Sampler geometry, pure so it is tested on every platform.
+#[cfg_attr(not(windows), allow(dead_code))]
+mod layout {
+    /// Captured pixels on each side of the magnifier: an odd count, so one
+    /// cell is the pixel under the hotspot.
+    pub(super) const LOUPE_PATCH: i32 = 11;
+    /// Physical screen pixels per magnified pixel.
+    pub(super) const LOUPE_CELL: i32 = 10;
+    pub(super) const LOUPE_LABEL: [i32; 2] = [150, 16];
+
+    /// The sampler's magnifier, in physical pixels of the capture.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub(super) struct Loupe {
+        /// Top-left of the captured patch it magnifies.
+        pub patch: [i32; 2],
+        /// Top-left of the magnified patch on screen.
+        pub at: [i32; 2],
+        /// The framed cell: the pixel a release samples.
+        pub marked: [i32; 2],
+        /// Top-left of the RGB readout.
+        pub label: [i32; 2],
+    }
+
+    impl Loupe {
+        pub fn side() -> i32 {
+            LOUPE_PATCH * LOUPE_CELL
+        }
+    }
+
+    /// The framed cell is centered on the hotspot, so what the magnifier marks
+    /// is what the cursor points at. Near a desktop edge the patch stops at the
+    /// capture and the magnifier slides past the edge rather than off the
+    /// hotspot.
+    pub(super) fn loupe(cursor: [i32; 2], size: [i32; 2]) -> Loupe {
+        let side = Loupe::side();
+        let axis = |i: usize| {
+            let patch = (cursor[i] - LOUPE_PATCH / 2).clamp(0, (size[i] - LOUPE_PATCH).max(0));
+            let marked = cursor[i] - LOUPE_CELL / 2;
+            (patch, marked - (cursor[i] - patch) * LOUPE_CELL, marked)
+        };
+        let (x, y) = (axis(0), axis(1));
+        let below = y.1 + side;
+        let label_y = if below + LOUPE_LABEL[1] <= size[1] {
+            below
+        } else {
+            y.1 - LOUPE_LABEL[1]
+        };
+        Loupe {
+            patch: [x.0, y.0],
+            at: [x.1, y.1],
+            marked: [x.2, y.2],
+            label: [
+                x.1.min(size[0] - LOUPE_LABEL[0]).max(0),
+                label_y.clamp(0, (size[1] - LOUPE_LABEL[1]).max(0)),
+            ],
+        }
+    }
+
+    /// The capture pixel under a physical screen point. The capture starts at
+    /// the virtual desktop's `origin`, which is negative when a monitor sits
+    /// left of or above the primary.
+    pub(super) fn capture_pixel(screen: [i32; 2], origin: [i32; 2], size: [i32; 2]) -> [i32; 2] {
+        [
+            (screen[0] - origin[0]).clamp(0, size[0] - 1),
+            (screen[1] - origin[1]).clamp(0, size[1] - 1),
+        ]
+    }
+}
+
 /// One screen pixel under the cursor. `None` off Windows and in tests, so a
 /// headless alt-click falls through to the modal sampler.
 pub fn sample_cursor() -> Option<[u8; 3]> {
@@ -102,10 +174,12 @@ mod platform {
         unsafe fn position(&mut self) {
             let mut p = POINT::default();
             if GetCursorPos(&mut p).is_ok() {
-                self.cursor = POINT {
-                    x: (p.x - self.origin.x).clamp(0, self.width - 1),
-                    y: (p.y - self.origin.y).clamp(0, self.height - 1),
-                };
+                let [x, y] = capture_pixel(
+                    [p.x, p.y],
+                    [self.origin.x, self.origin.y],
+                    [self.width, self.height],
+                );
+                self.cursor = POINT { x, y };
             }
         }
         unsafe fn candidate(&self) -> Option<[u8; 3]> {
@@ -194,29 +268,32 @@ mod platform {
                     0,
                     SRCCOPY,
                 );
-                let x = (state.cursor.x + 24).min(state.width - 150).max(0);
-                let y = (state.cursor.y + 24).min(state.height - 126).max(0);
-                let patch_x = (state.cursor.x - 5).clamp(0, (state.width - 11).max(0));
-                let patch_y = (state.cursor.y - 5).clamp(0, (state.height - 11).max(0));
+                let loupe = loupe(
+                    [state.cursor.x, state.cursor.y],
+                    [state.width, state.height],
+                );
+                let [x, y] = loupe.at;
+                let side = Loupe::side();
                 let _ = StretchBlt(
                     dc,
                     x,
                     y,
-                    110,
-                    110,
+                    side,
+                    side,
                     Some(state.dc),
-                    patch_x,
-                    patch_y,
-                    11,
-                    11,
+                    loupe.patch[0],
+                    loupe.patch[1],
+                    LOUPE_PATCH,
+                    LOUPE_PATCH,
                     SRCCOPY,
                 );
                 let black = GetStockObject(BLACK_BRUSH);
+                let [label_x, label_y] = loupe.label;
                 let panel = RECT {
-                    left: x,
-                    top: y + 110,
-                    right: x + 150,
-                    bottom: y + 126,
+                    left: label_x,
+                    top: label_y,
+                    right: label_x + LOUPE_LABEL[0],
+                    bottom: label_y + LOUPE_LABEL[1],
                 };
                 FillRect(dc, &panel, HBRUSH(black.0));
                 SetTextColor(dc, COLORREF(0xffffff));
@@ -226,14 +303,13 @@ mod platform {
                     None => "Unavailable · Esc".into(),
                 };
                 let text: Vec<u16> = label.encode_utf16().collect();
-                let _ = TextOutW(dc, x + 3, y + 110, &text);
-                let cross_x = x + (state.cursor.x - patch_x) * 10;
-                let cross_y = y + (state.cursor.y - patch_y) * 10;
+                let _ = TextOutW(dc, label_x + 3, label_y, &text);
+                let [cross_x, cross_y] = loupe.marked;
                 let pixel = RECT {
                     left: cross_x,
                     top: cross_y,
-                    right: cross_x + 10,
-                    bottom: cross_y + 10,
+                    right: cross_x + LOUPE_CELL,
+                    bottom: cross_y + LOUPE_CELL,
                 };
                 FrameRect(dc, &pixel, HBRUSH(black.0));
                 let _ = EndPaint(hwnd, &paint);
@@ -376,5 +452,68 @@ mod platform {
             let _ = SetForegroundWindow(previous_window);
         }
         Ok(state.result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A virtual desktop with a monitor left of and above the primary.
+    const ORIGIN: [i32; 2] = [-1920, -300];
+    const SIZE: [i32; 2] = [5360, 1740];
+
+    #[test]
+    fn the_sampled_pixel_is_the_hotspot_at_every_display_scale() {
+        let window = [-1500, 120];
+        for ppp in [1.0_f32, 1.25, 1.5, 2.0] {
+            for points in [[0.0, 0.0], [37.2, 18.4], [611.0, 403.6], [1719.5, 611.0]] {
+                // Windows reports a per-monitor-aware process's cursor in
+                // physical pixels: the window origin plus points × scale.
+                let hotspot = [
+                    window[0] + (points[0] * ppp).round() as i32,
+                    window[1] + (points[1] * ppp).round() as i32,
+                ];
+                let pixel = capture_pixel(hotspot, ORIGIN, SIZE);
+                assert_eq!(
+                    [pixel[0] + ORIGIN[0], pixel[1] + ORIGIN[1]],
+                    hotspot,
+                    "ppp {ppp}: the sample reads the pixel under the pointer"
+                );
+                let l = loupe(pixel, SIZE);
+                for axis in 0..2 {
+                    let marked = l.marked[axis];
+                    assert!(
+                        (marked..marked + LOUPE_CELL).contains(&pixel[axis]),
+                        "ppp {ppp}: the framed cell {:?} sits under the hotspot {pixel:?}",
+                        l.marked
+                    );
+                    assert_eq!(
+                        l.patch[axis] + (marked - l.at[axis]) / LOUPE_CELL,
+                        pixel[axis],
+                        "ppp {ppp}: the framed cell magnifies the sampled pixel"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_framed_cell_stays_on_the_hotspot_at_the_desktop_edges() {
+        for pixel in [
+            [0, 0],
+            [SIZE[0] - 1, SIZE[1] - 1],
+            [2, SIZE[1] - 3],
+            [SIZE[0] - 4, 1],
+        ] {
+            let l = loupe(pixel, SIZE);
+            for axis in 0..2 {
+                assert!((l.marked[axis]..l.marked[axis] + LOUPE_CELL).contains(&pixel[axis]));
+                assert_eq!(
+                    l.patch[axis] + (l.marked[axis] - l.at[axis]) / LOUPE_CELL,
+                    pixel[axis]
+                );
+            }
+        }
     }
 }
