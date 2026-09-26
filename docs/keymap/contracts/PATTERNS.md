@@ -203,17 +203,26 @@ is searchable.
   grip, inside the edge, using the stringers' `selection_tools::inline_number`;
   Enter dispatches **one** journaled `board.shape.fillet` patch (clamped to
   the host's largest amount), Esc cancels without touching the selection.
+  **Multi-selection (stated 26 September 2026):** every selected
+  corner-capable host shows its grip; grabbing any one and dragging sets
+  every selected host from the dragged amount, each clamped to its own
+  largest amount, live, as **one** journal group on release; Esc restores
+  them all; the click-to-type field sends every selected host (one
+  `board.shape.fillet`, clamped per host). Proposals: locked hosts and hosts
+  whose portal chrome hides the cast are skipped; the topmost grip wins
+  where two overlap; a quick second click on a grip is not a canvas
+  double-click, so it neither collapses the selection nor opens text.
   **Proposals** (implementation detail, not re-litigated per contract):
-  **single-select only**; painted half-size `FILLET_GRIP_PX` via
+  painted half-size `FILLET_GRIP_PX` via
   `canvas_scale` (P0.9) — 1.6, **stated** 26 September 2026 as 40% of the
   former 4; the hit box keeps the former half-size `FILLET_GRIP_HIT_PX` plus
   slop and never falls under `HIT_SLOP_PX` on screen, and the grip drops
   only when that hit size is illegible (proposal: the shrink does not change
-  the zoom at which the grip hides); hidden in image crop mode, multi-select, and when portal chrome
+  the zoom at which the grip hides); hidden in image crop mode and when portal chrome
   suppresses the ordinary selection cast; cursor is the two-headed resize
   arrow along the edge; clamp `[0, host maximum]` (half the short side for
   boxes, half the shorter adjacent side for vertices); live preview,
-  **one** journaled `SceneCmd::Patch` on release (`board.shape.fillet`);
+  **one** journal group on release (`board.shape.fillet`);
   Esc mid-drag restores press-time radius (ActiveOperation); Shift →
   integer world units; radius readout at the pointer during drag
   (`canvas_text`, **P2.GhostFollow** — screen-constant offset, not

@@ -2633,7 +2633,7 @@
           "decided": "2026-09-17"
         },
         "D13": {
-          "behavior": "P1.shape.properties: capability-gated squircle controls above the selection; dimensions use separate exterior stringers. Fill and Stroke share one compact panel: a saturation/value color field at the current hue, then opacity, saturation and hue rails (saturation replaced the neutral value rail, user decision 25 September 2026); Stroke adds only a width rail. The fillet capsule is 30% taller than the 17-unit wire capsule; the photo-filter capsule is twice that fillet height. Wires expose Bezier/Square, stroke weight, Solid/Dashed and None/Arrows; routing moves out of Document Settings. Images expose a None radio and low-resolution filtered thumbnails of the selected image, plus an intensity slider as thick as the radio radius. A File Atlas portal adds a Formatting squircle (search, type radios, Ghost/Hide, Zoom to matches, Zoom to fit). Frame-only actions reuse the same strip. P1.node.corner-grip appears on single-select corner-capable hosts; the Corners squircle and grip share one Corner field. Shared light/dark theme tokens apply throughout.",
+          "behavior": "P1.shape.properties: capability-gated squircle controls above the selection; dimensions use separate exterior stringers. Fill and Stroke share one compact panel: a saturation/value color field at the current hue, then opacity, saturation and hue rails (saturation replaced the neutral value rail, user decision 25 September 2026); Stroke adds only a width rail. The fillet capsule is 30% taller than the 17-unit wire capsule; the photo-filter capsule is twice that fillet height. Wires expose Bezier/Square, stroke weight, Solid/Dashed and None/Arrows; routing moves out of Document Settings. Images expose a None radio and low-resolution filtered thumbnails of the selected image, plus an intensity slider as thick as the radio radius. A File Atlas portal adds a Formatting squircle (search, type radios, Ghost/Hide, Zoom to matches, Zoom to fit). Frame-only actions reuse the same strip. P1.node.corner-grip appears on every selected corner-capable host, and in a multi-selection one grip's drag or typed amount sets them all, clamped per host (stated 26 September 2026); the Corners squircle and grip share one Corner field. Shared light/dark theme tokens apply throughout.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -2763,7 +2763,7 @@
           "decided": "2026-09-17"
         },
         "D13": {
-          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers. P1.node.corner-grip on single-select rectangles: a square grip on the top edge at the fillet tangent point (the chamfer cut), at a small inset when square; dragging changes the amount continuously from its press-time value (no jump on grab) while the held grip stays under the pointer, clamped to the edge; idle, the grip rests at the larger of the amount and the inset; a click types the amount.",
+          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers. P1.node.corner-grip on every selected rectangle (a multi-selection shows each grip; one drag or typed amount sets every selected host, clamped per host — stated 26 September 2026): a square grip on the top edge at the fillet tangent point (the chamfer cut), at a small inset when square; dragging changes the amount continuously from its press-time value (no jump on grab) while the held grip stays under the pointer, clamped to the edge; idle, the grip rests at the larger of the amount and the inset; a click types the amount.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -3283,7 +3283,7 @@
           "decided": "2026-09-25"
         },
         "D13": {
-          "behavior": "Fill / Stroke / Corners squircles when geometry allows. P1.node.corner-grip on a single selected polygon: the grip rides the side from the top vertex toward the next vertex clockwise, at the treatment's tangent point; drag along that side, click to type.",
+          "behavior": "Fill / Stroke / Corners squircles when geometry allows. P1.node.corner-grip on every selected polygon (multi-selection: one drag or typed amount sets every selected host, clamped per host — stated 26 September 2026): the grip rides the side from the top vertex toward the next vertex clockwise, at the treatment's tangent point; drag along that side, click to type.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",

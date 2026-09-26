@@ -714,6 +714,9 @@ pub enum BoardDrag {
     FilletRadius {
         id: NodeId,
         before: Node,
+        /// The other selected corner hosts, at press. Each takes the dragged
+        /// amount, clamped to what it can show.
+        peers: Vec<Node>,
         /// Corner amount at press; the drag changes it continuously from here.
         start_amount: f32,
         /// The pointer's press-time projection onto the grip edge (world).
@@ -2044,6 +2047,7 @@ impl SlateApp {
                         path,
                         EStroke::new(outline_w, select_tint),
                     );
+                    self.paint_node_fillet_grip(painter, xf, n, select_tint);
                     return;
                 }
             }
@@ -2066,19 +2070,33 @@ impl SlateApp {
                 self.board_hover_hit,
                 outline_w,
             );
-            if let Some(grip) = self.fillet_grip_at(n, xf) {
-                let hot = matches!(
-                    self.board_hover_hit,
-                    Some(board_handles::BoardHitTarget::FilletRadius)
-                ) || matches!(self.board_drag, Some(BoardDrag::FilletRadius { id, .. }) if id == n.id);
-                board_handles::paint_fillet_grip(painter, grip, xf.z, select_tint, hot);
-            }
+            self.paint_node_fillet_grip(painter, xf, n, select_tint);
         } else {
             painter.add(egui::Shape::closed_line(
                 outline,
                 EStroke::new(outline_w, select_tint),
             ));
+            self.paint_node_fillet_grip(painter, xf, n, select_tint);
         }
+    }
+
+    fn paint_node_fillet_grip(
+        &self,
+        painter: &egui::Painter,
+        xf: &BoardXf,
+        n: &Node,
+        select_tint: Color32,
+    ) {
+        let Some(grip) = self.fillet_grip_at(n, xf) else {
+            return;
+        };
+        let hot = (self.board_hover_node == Some(n.id)
+            && matches!(
+                self.board_hover_hit,
+                Some(board_handles::BoardHitTarget::FilletRadius)
+            ))
+            || matches!(self.board_drag, Some(BoardDrag::FilletRadius { id, .. }) if id == n.id);
+        board_handles::paint_fillet_grip(painter, grip, xf.z, select_tint, hot);
     }
 
     /// Screen-space silhouette of a node — the same outline the painter uses,
@@ -4459,6 +4477,9 @@ impl SlateApp {
                 }
             }
         }
+        // A second click on a grip is not a canvas double-click: that would
+        // collapse a multi-selection and open text editing.
+        let mut grip_released = false;
         if matches!(self.board_drag, Some(BoardDrag::FilletRadius { .. })) {
             let mods = ui.input(|i| i.modifiers);
             if ui.input(|i| i.pointer.button_down(egui::PointerButton::Primary)) {
@@ -4467,6 +4488,7 @@ impl SlateApp {
                 }
             }
             if ui.input(|i| i.pointer.button_released(egui::PointerButton::Primary)) {
+                grip_released = true;
                 let w = wp.unwrap_or(Pos2::ZERO);
                 self.end_gesture(w, pointer, mods);
             }
@@ -4642,7 +4664,7 @@ impl SlateApp {
                 self.finish_sheet_resize();
             }
         }
-        if resp.double_clicked() && !zoom_tool && !web_capture {
+        if resp.double_clicked() && !zoom_tool && !web_capture && !grip_released {
             let on_context = pointer.is_some_and(|p| self.context_auto_under(p, &xf).is_some());
             if !on_context {
                 if let Some(w) = wp {
@@ -6923,22 +6945,33 @@ impl SlateApp {
                 }
             }
             Some(BoardDrag::FilletRadius {
-                id, before, max_px, ..
+                id,
+                before,
+                peers,
+                max_px,
+                ..
             }) if max_px <= board_place::place_tokens::DRAG_THRESHOLD => {
-                if let Some(n) = self.doc_mut().scene.node_mut(id) {
-                    *n = before;
+                for before in std::iter::once(before).chain(peers) {
+                    if let Some(n) = self.doc_mut().scene.node_mut(before.id) {
+                        *n = before;
+                    }
                 }
                 self.open_corner_entry(id);
             }
-            Some(BoardDrag::FilletRadius { id, before, .. }) => {
-                if let Some(after) = self.doc().scene.node(id).cloned() {
-                    if after != before {
-                        self.tab_mut().journal.record(vec![SceneCmd::Patch {
+            Some(BoardDrag::FilletRadius { before, peers, .. }) => {
+                let cmds: Vec<SceneCmd> = std::iter::once(before)
+                    .chain(peers)
+                    .filter_map(|before| {
+                        let after = self.doc().scene.node(before.id)?.clone();
+                        (after != before).then(|| SceneCmd::Patch {
                             before: Box::new(before),
                             after: Box::new(after),
-                        }]);
-                        self.tab_mut().dirty = true;
-                    }
+                        })
+                    })
+                    .collect();
+                if !cmds.is_empty() {
+                    self.tab_mut().journal.record(cmds);
+                    self.tab_mut().dirty = true;
                 }
             }
             // Crop gestures: one Patch for the whole drag — both the rect

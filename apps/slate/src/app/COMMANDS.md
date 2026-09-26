@@ -128,7 +128,9 @@ drag the address-bar URL or a page link instead.
   corner.
   Shift snaps to whole world units; Esc cancels the active drag; release
   records one undo step. Click the grip to type the amount: Enter applies it
-  as one undo step, Esc cancels.
+  as one undo step, Esc cancels. With several such nodes selected, each shows
+  its grip; dragging or typing on any one sets them all, each clamped to what
+  it can show, still as one undo step.
 - **Align widget** (Grasshopper): with the Select tool and 2+ nodes selected,
   two icon clusters sit outside the group box (bottom and left). Bottom:
   align left / center / right / distribute horizontally; the row sits past

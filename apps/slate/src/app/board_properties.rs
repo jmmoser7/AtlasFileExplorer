@@ -1185,10 +1185,9 @@ impl SlateApp {
         );
         let captures = result.response.contains_pointer() || ctx.wants_keyboard_input();
         if let Some(radius) = result.value {
-            let request = board_transform::FilletRequest {
-                ids: vec![entry.id],
-                radius,
-            };
+            let mut ids = vec![entry.id];
+            ids.extend(self.corner_grip_peers(entry.id).iter().map(|n| n.id));
+            let request = board_transform::FilletRequest { ids, radius };
             self.dispatch(
                 &ctx,
                 CommandId("board.shape.fillet"),
@@ -3582,6 +3581,115 @@ mod tests {
         h.frame_with(|i| i.events.push(egui::Event::Text("500".into())));
         key(&mut h, egui::Key::Enter);
         assert!((corner_amount(&h, id) - 60.0).abs() < 1e-4);
+    }
+
+    fn three_corner_hosts(h: &mut Harness) -> [NodeId; 3] {
+        let big = rectangle(h, WorldRect::new(-200.0, -60.0, 180.0, 120.0), 0.0);
+        let small = rectangle(h, WorldRect::new(40.0, -20.0, 40.0, 30.0), 0.0);
+        let hex = polygon(
+            h,
+            WorldRect::new(120.0, -50.0, 100.0, 100.0),
+            Corner::Square,
+        );
+        h.frame();
+        assert_eq!(h.app.board_sel.len(), 3);
+        [big, small, hex]
+    }
+
+    #[test]
+    fn corner_grip_shows_on_every_selected_host_and_one_drag_sets_them_all() {
+        let mut h = board();
+        let [big, small, hex] = three_corner_hosts(&mut h);
+        let xf = h.app.board_xf();
+        for id in [big, small, hex] {
+            let node = h.app.doc().scene.node(id).unwrap();
+            assert!(
+                h.app.fillet_grip_at(node, &xf).is_some(),
+                "every selected host shows its grip"
+            );
+        }
+        let g0 = corner_grip(&h, big);
+        pointer(&mut h, g0, None);
+        pointer(&mut h, g0, Some(true));
+        let g10 = g0 + Vec2::new(10.0, 0.0);
+        pointer(&mut h, g10, None);
+        for id in [big, small, hex] {
+            assert!(
+                (corner_amount(&h, id) - 10.0).abs() < 0.01,
+                "the drag is live on every host, got {}",
+                corner_amount(&h, id)
+            );
+        }
+        let g30 = g0 + Vec2::new(30.0, 0.0);
+        pointer(&mut h, g30, None);
+        pointer(&mut h, g30, Some(false));
+        assert!((corner_amount(&h, big) - 30.0).abs() < 0.01);
+        assert!(
+            (corner_amount(&h, small) - 15.0).abs() < 0.01,
+            "a smaller host clamps to half its short side, got {}",
+            corner_amount(&h, small)
+        );
+        assert!((corner_amount(&h, hex) - 30.0).abs() < 0.01);
+        assert_eq!(
+            h.app.board_sel,
+            [big, small, hex].into_iter().collect(),
+            "the selection is kept"
+        );
+        h.app.board_undo();
+        for id in [big, small, hex] {
+            assert!(
+                corner_amount(&h, id).abs() < 1e-4,
+                "one undo step restores every host"
+            );
+        }
+    }
+
+    #[test]
+    fn corner_grip_multi_esc_restores_all_and_typed_amount_applies_to_all() {
+        let mut h = board();
+        let [big, small, hex] = three_corner_hosts(&mut h);
+        let g0 = corner_grip(&h, small);
+        pointer(&mut h, g0, None);
+        pointer(&mut h, g0, Some(true));
+        pointer(&mut h, g0 + Vec2::new(5.0, 0.0), None);
+        assert!((corner_amount(&h, big) - 5.0).abs() < 0.01);
+        key(&mut h, egui::Key::Escape);
+        pointer(&mut h, g0 + Vec2::new(5.0, 0.0), Some(false));
+        for id in [big, small, hex] {
+            assert!(
+                corner_amount(&h, id).abs() < 1e-4,
+                "Esc restores every host"
+            );
+        }
+        assert_eq!(h.app.board_sel.len(), 3);
+
+        h.frame();
+        assert_eq!(
+            h.app.board_sel.len(),
+            3,
+            "releasing after Esc keeps the selection"
+        );
+        let g = corner_grip(&h, small);
+        pointer(&mut h, g, None);
+        pointer(&mut h, g, Some(true));
+        pointer(&mut h, g, Some(false));
+        assert_eq!(
+            h.app.board_sel.len(),
+            3,
+            "a second quick click on the grip keeps the selection"
+        );
+        h.frame_with(|i| i.events.push(egui::Event::Text("20".into())));
+        key(&mut h, egui::Key::Enter);
+        assert!((corner_amount(&h, big) - 20.0).abs() < 1e-4);
+        assert!((corner_amount(&h, small) - 15.0).abs() < 1e-4);
+        assert!((corner_amount(&h, hex) - 20.0).abs() < 1e-4);
+        h.app.board_undo();
+        for id in [big, small, hex] {
+            assert!(
+                corner_amount(&h, id).abs() < 1e-4,
+                "the typed amount is one undo step"
+            );
+        }
     }
 
     #[test]

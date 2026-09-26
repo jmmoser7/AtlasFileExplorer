@@ -1128,9 +1128,11 @@ impl SlateApp {
                         self.smooth_preview.clear();
                         self.smooth_polylines.clear();
                     }
-                    Some(board::BoardDrag::FilletRadius { id, before, .. }) => {
-                        if let Some(n) = self.doc_mut().scene.node_mut(id) {
-                            *n = before;
+                    Some(board::BoardDrag::FilletRadius { before, peers, .. }) => {
+                        for before in std::iter::once(before).chain(peers) {
+                            if let Some(n) = self.doc_mut().scene.node_mut(before.id) {
+                                *n = before;
+                            }
                         }
                     }
                     // Bézier draft: drop the anchor being placed, or put an
