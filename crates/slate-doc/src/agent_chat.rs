@@ -422,6 +422,92 @@ fn is_subdivision(before: &Node, after: &Node, commands: &[crate::scene::SceneCm
     end == old.chat.start
 }
 
+/// A presentation switch re-chunks a whole path: a card may take over the
+/// range of ancestors this same batch removes, and cards added in the batch
+/// may stand in for them when they replay a transcript already on that path.
+/// The new chain must stay contiguous and land on a surviving ancestor (or
+/// the old root's start), so no turn is skipped, repeated, or rewired.
+fn is_rechunk(
+    scene: &Scene,
+    before: &Node,
+    after: &Node,
+    commands: &[crate::scene::SceneCmd],
+) -> bool {
+    use crate::scene::SceneCmd;
+    let (Some(old), Some(new)) = (agent(before), agent(after)) else {
+        return false;
+    };
+    if old.chat.end != new.chat.end {
+        return false;
+    }
+    let mut removed = HashSet::new();
+    let mut now = std::collections::HashMap::new();
+    for c in commands {
+        match c {
+            SceneCmd::Add { node, .. } => {
+                now.insert(node.id, (node, true));
+            }
+            SceneCmd::Patch { after, .. } => {
+                now.entry(after.id).or_insert((after, false));
+            }
+            SceneCmd::Remove { node, .. } => {
+                removed.insert(node.id);
+            }
+            _ => {}
+        }
+    }
+    let mut ancestry = Vec::new();
+    let mut at = old.chat.parent;
+    while let Some(id) = at {
+        if ancestry.contains(&id) {
+            return false;
+        }
+        ancestry.push(id);
+        at = scene.node(id).and_then(agent).and_then(|a| a.chat.parent);
+    }
+    let path: Vec<_> = std::iter::once(before)
+        .chain(ancestry.iter().filter_map(|id| scene.node(*id)))
+        .filter_map(agent)
+        .collect();
+    let root_start = path.last().map_or(old.chat.start, |a| a.chat.start);
+    let mut start = new.chat.start;
+    let mut parent = new.chat.parent;
+    let mut seen = HashSet::new();
+    loop {
+        let Some(id) = parent else {
+            return start == root_start && ancestry.iter().all(|id| removed.contains(id));
+        };
+        if !seen.insert(id) || removed.contains(&id) {
+            return false;
+        }
+        let (node, added) = match now.get(&id) {
+            Some(&(node, added)) => (node, added),
+            None => match scene.node(id) {
+                Some(node) => (node, false),
+                None => return false,
+            },
+        };
+        let Some(a) = agent(node) else {
+            return false;
+        };
+        if a.chat.end != Some(start) || a.chat.start >= start {
+            return false;
+        }
+        if let Some(k) = ancestry.iter().position(|o| *o == id) {
+            return ancestry[..k].iter().all(|o| removed.contains(o));
+        }
+        if !added
+            || !path
+                .iter()
+                .any(|p| p.session == a.session && p.bundle == a.bundle)
+        {
+            return false;
+        }
+        start = a.chat.start;
+        parent = a.chat.parent;
+    }
+}
+
 /// Enforce history integrity at the shared journal boundary, including staged
 /// agent commands. Geometry and detail patches do not rebuild this graph.
 pub fn valid_commands(scene: &Scene, commands: &[crate::scene::SceneCmd]) -> bool {
@@ -457,7 +543,9 @@ pub fn valid_commands(scene: &Scene, commands: &[crate::scene::SceneCmd]) -> boo
                 if agent(before).and_then(|a| a.chat.parent)
                     != agent(after).and_then(|a| a.chat.parent)
                 {
-                    if !is_subdivision(before, after, commands) {
+                    if !is_subdivision(before, after, commands)
+                        && !is_rechunk(scene, before, after, commands)
+                    {
                         return false;
                     }
                     parents.insert(after.id, agent(after).and_then(|a| a.chat.parent));
@@ -629,5 +717,63 @@ mod tests {
         };
         assert!(!journal.commit(&mut s, vec![remove]));
         assert_eq!(s.nodes.len(), 2);
+    }
+
+    fn reparent(s: &Scene, id: NodeId, parent: Option<NodeId>, start: usize) -> SceneCmd {
+        let before = s.node(id).unwrap().clone();
+        let mut after = before.clone();
+        if let NodeKind::Portal(p) = &mut after.kind {
+            let chat = &mut p.agent.as_mut().unwrap().chat;
+            chat.parent = parent;
+            chat.start = start;
+        }
+        SceneCmd::Patch {
+            before: Box::new(before),
+            after: Box::new(after),
+        }
+    }
+
+    fn remove(s: &Scene, id: NodeId) -> SceneCmd {
+        SceneCmd::Remove {
+            index: s.nodes.iter().position(|n| n.id == id).unwrap(),
+            node: s.node(id).unwrap().clone(),
+        }
+    }
+
+    #[test]
+    fn a_presentation_switch_may_merge_a_run_but_never_skip_or_rewire() {
+        let mut s = Scene::default();
+        let a = card(&mut s, None, 0);
+        let b = card(&mut s, Some(a), 1);
+        let c = card(&mut s, Some(b), 2);
+        let fork = card(&mut s, Some(b), 2);
+        // c takes over b's turn and hangs from a; the fork must follow.
+        let merge = vec![
+            reparent(&s, c, Some(a), 1),
+            reparent(&s, fork, Some(a), 1),
+            remove(&s, b),
+        ];
+        let mut journal = crate::scene::SceneJournal::default();
+        let before = s.clone();
+        assert!(journal.commit(&mut s, merge));
+        assert!(s.node(b).is_none());
+        assert!(journal.undo(&mut s));
+        assert_eq!(s, before);
+        // Skipping a surviving ancestor loses its turn from this path.
+        let skip = vec![reparent(&s, c, Some(a), 1)];
+        assert!(!journal.commit(&mut s, skip));
+        // Hanging from the root without its turn drops history.
+        let orphan = vec![
+            reparent(&s, c, None, 2),
+            reparent(&s, fork, None, 2),
+            remove(&s, b),
+            remove(&s, a),
+        ];
+        assert!(!journal.commit(&mut s, orphan));
+        // Rewiring onto a sibling branch is not a merge.
+        let tail = card(&mut s, Some(fork), 3);
+        let rewire = vec![reparent(&s, tail, Some(c), 3)];
+        assert!(!journal.commit(&mut s, rewire));
+        assert_eq!(s.nodes.len(), before.nodes.len() + 1);
     }
 }

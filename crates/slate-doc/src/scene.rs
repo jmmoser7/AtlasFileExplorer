@@ -3519,6 +3519,31 @@ impl SceneJournal {
         false
     }
 
+    /// Folds a node's settled state into the newest group when that group
+    /// already adds or patches the node (layout settling after a structural
+    /// command), so one Undo still returns the whole gesture. Returns `false`
+    /// when the group does not touch the node (caller should `record`).
+    pub fn fold_into_last(&mut self, after: &Node) -> bool {
+        let Some(group) = self.done.last_mut() else {
+            return false;
+        };
+        for cmd in group.cmds.iter_mut().rev() {
+            match cmd {
+                SceneCmd::Patch { after: a, .. } if a.id == after.id => {
+                    **a = after.clone();
+                    return true;
+                }
+                SceneCmd::Add { node, .. } if node.id == after.id => {
+                    *node = after.clone();
+                    return true;
+                }
+                SceneCmd::Remove { node, .. } if node.id == after.id => return false,
+                _ => {}
+            }
+        }
+        false
+    }
+
     pub fn undo(&mut self, scene: &mut Scene) -> bool {
         let Some(group) = self.done.pop() else {
             return false;

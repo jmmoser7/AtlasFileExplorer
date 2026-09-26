@@ -810,11 +810,11 @@
           "decided": "2026-09-26"
         },
         "D14": {
-          "behavior": "Switch presentation only through the contextual menu. Single chat window converts each maximal linear segment, keeps the current viewport height as its ceiling and shrinks shorter content. Chat train restores message views and forks. Single windows only show full conversation, and never offer Unbundle.",
+          "behavior": "Switch presentation only through the contextual menu. Single chat window converts each maximal linear segment, keeps the current viewport height as its ceiling and shrinks shorter content. Chat train restores message views and forks. Single windows only show full conversation, and never offer Unbundle. Each presentation offers the other two, at any point in the conversation. A switch re-chunks every linear path of the whole conversation from its first turn to its last (message pairs split at each user message; one message per card splits at every turn), keeps each fork at its branch point, and lays it out again. A card left with nothing to show leaves, and its wires move to the card that now shows its first turn. An unsent draft stays on its card. No provider runs, and one Undo returns the previous presentation, including the fit that settles after the switch.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-18"
+          "decided": "2026-09-26"
         },
         "D15": {
           "behavior": "Codex and Cursor expose only conversations supported by their installed interfaces. Legacy Cursor desktop chats are not claimed as SDK agents. No hidden provider-history deletion. Ollama is local chat and the one-shot text block; it reads wired pictures only with an installed vision model. ComfyUI runs installed Stable Diffusion 1.5, 2, and XL checkpoints with core nodes only; the Style port runs the Stable Diffusion 1.5 T2I style adapter with CLIP ViT-L. IP-Adapter and other custom nodes, transformer checkpoints (FLUX, SD3, Qwen-Image), masked edit, upscale, and weight download remain later. Image agents may also use ChatGPT through the installed Codex's ChatGPT sign-in (no API key) or GPT Image through the person's own OpenAI API key; ComfyUI stays the default, so no image agent requires an account (Art. I.4). Video generation remains later; a video contributes the frame it shows. Direct OpenAI chat and local tool execution remain later increments.",
