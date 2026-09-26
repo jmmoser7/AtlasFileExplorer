@@ -476,6 +476,23 @@ fn quantize_px(v: f32) -> u32 {
     (((v / 32.0).ceil() * 32.0) as u32).clamp(64, MAX_RENDER_PX)
 }
 
+/// Live frame size for a node on screen, and the aspect its projection uses.
+/// The frame is stretched onto the node, so it projects at the node's aspect.
+pub(crate) fn live_frame_size(screen_w: f32, screen_h: f32, ppp: f32) -> (u32, u32, f32) {
+    let w = quantize_px(screen_w * ppp);
+    let h = quantize_px(screen_h * ppp);
+    (w, h, screen_w / screen_h.max(1.0))
+}
+
+/// Pixel size of a viewport screenshot for a node of `w` x `h`: about 512²
+/// at the node's own aspect.
+pub(crate) fn screenshot_size(w: f32, h: f32) -> (u32, u32) {
+    let aspect = (w / h.max(1.0)).clamp(1.0 / 16.0, 16.0);
+    let sw = (512.0 * 512.0 * aspect).sqrt();
+    let px = |v: f32| (v.round() as u32).clamp(16, 4096);
+    (px(sw), px(sw / aspect))
+}
+
 // ---------- parse progress ----------
 
 /// Coarse stage of an off-thread model parse, for the in-viewport load bar.
@@ -614,7 +631,9 @@ pub struct LiveViewport {
     tex: Option<TextureHandle>,
     /// The live slot holds a drawn frame.
     shown: bool,
-    pub(crate) rendered: Option<(u64, u32, u32, u64)>,
+    /// Camera hash, frame size, filter hash, and projection aspect bits of
+    /// the drawn frame.
+    pub(crate) rendered: Option<(u64, u32, u32, u64, u32)>,
     /// Bounds radius once known (zoom clamps, pan scale).
     pub radius: f32,
     pub tool: ModelViewportTool,
@@ -702,6 +721,11 @@ pub struct ModelSpace {
     /// Live viewport GPU frames, claimed by node; never more than
     /// [`MAX_LIVE`].
     live_slots: Vec<LiveSlot>,
+    /// Screenshot frame, created on the first screenshot and parked between.
+    capture_target: Option<LiveTarget>,
+    /// Headless tests enter viewports without GL (nothing renders).
+    #[cfg(test)]
+    pub(crate) headless_live: bool,
 }
 
 struct LiveSlot {
@@ -770,6 +794,9 @@ impl Default for ModelSpace {
             view_wire_meta: HashMap::new(),
             poster_pixels: HashMap::new(),
             live_slots: Vec::new(),
+            capture_target: None,
+            #[cfg(test)]
+            headless_live: false,
         }
     }
 }
@@ -784,8 +811,7 @@ impl ModelSpace {
         id: NodeId,
         cache_key: &str,
         cam: &ModelCamera,
-        w: u32,
-        h: u32,
+        frame: (u32, u32, f32),
         adjust: Option<&ImageAdjust>,
     ) -> bool {
         if !self.ensure_gpu(gl, cache_key) {
@@ -813,7 +839,37 @@ impl ModelSpace {
         };
         let slot = &mut self.live_slots[slot];
         slot.node = Some(id);
-        engine.render_live(&mut slot.target, &gpu.model, cam, w, h, adjust)
+        engine.render_live(&mut slot.target, &gpu.model, cam, frame, adjust)
+    }
+
+    /// A viewport screenshot: the live pass (display mode, filter, MSAA,
+    /// background, projection at `aspect`) drawn into the pooled capture
+    /// target and read back, top row first.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn render_view_screenshot(
+        &mut self,
+        gl: &Arc<glow::Context>,
+        cache_key: &str,
+        cam: &ModelCamera,
+        frame: (u32, u32, f32),
+        adjust: Option<&ImageAdjust>,
+    ) -> Option<egui::ColorImage> {
+        if !self.ensure_gpu(gl, cache_key) {
+            return None;
+        }
+        let (EngineSlot::Ready(engine), Some(gpu)) = (&self.engine, self.gpu.get(cache_key)) else {
+            return None;
+        };
+        if self.capture_target.is_none() {
+            self.capture_target = engine.new_live_target();
+        }
+        let target = self.capture_target.as_mut()?;
+        let image = engine
+            .render_live(target, &gpu.model, cam, frame, adjust)
+            .then(|| engine.read_target(target))
+            .flatten();
+        engine.park_live_target(target);
+        image
     }
 
     /// The egui texture a live viewport paints, once its slot is drawn and
@@ -1084,6 +1140,17 @@ impl ModelSpace {
         engine.render_capture(&gpu.model, cam, w, h, depth, adjust)
     }
 
+    /// The frame a live viewport's slot currently shows, top row first
+    /// (`bench_model3d`).
+    #[cfg(test)]
+    pub(crate) fn live_frame_pixels(&self, id: NodeId) -> Option<egui::ColorImage> {
+        let EngineSlot::Ready(engine) = &self.engine else {
+            return None;
+        };
+        let slot = self.live_slots.iter().find(|s| s.node == Some(id))?;
+        engine.read_target(&slot.target)
+    }
+
     /// Render passes, pixel readbacks, and GL objects created so far.
     #[cfg(test)]
     pub(crate) fn gl_counts(&self) -> (u64, u64, u64) {
@@ -1201,7 +1268,11 @@ impl SlateApp {
             self.model3d.request_model(&info.cache_key, &info.path);
             return;
         }
-        if self.gl.is_none() {
+        #[cfg(test)]
+        let headless = self.model3d.headless_live;
+        #[cfg(not(test))]
+        let headless = false;
+        if self.gl.is_none() && !headless {
             self.toast("3D viewports need GPU rendering (unavailable here)");
             return;
         }
@@ -1618,10 +1689,14 @@ impl SlateApp {
             }
         }
 
-        let ppp = ctx.pixels_per_point();
-        let w = quantize_px(screen_w * ppp);
-        let h = quantize_px(screen_h * ppp);
-        let stamp = (cam.cache_hash(), w, h, adjust.cache_hash());
+        let (w, h, aspect) = live_frame_size(screen_w, screen_h, ctx.pixels_per_point());
+        let stamp = (
+            cam.cache_hash(),
+            w,
+            h,
+            adjust.cache_hash(),
+            aspect.to_bits(),
+        );
         let up_to_date = self
             .model3d
             .live
@@ -1631,7 +1706,7 @@ impl SlateApp {
             let adjust = (!adjust.is_identity()).then_some(adjust);
             if !self
                 .model3d
-                .render_live(&gl, id, &cache_key, &cam, w, h, adjust)
+                .render_live(&gl, id, &cache_key, &cam, (w, h, aspect), adjust)
             {
                 return None;
             }
@@ -3212,7 +3287,7 @@ impl ModelEngine {
 
             let mut pixels = None;
             if complete {
-                self.draw_scene(model, ground, cam, w, h, mode);
+                self.draw_scene(model, ground, cam, (w, h, w as f32 / h as f32), mode);
 
                 // Resolve MSAA into a readable texture.
                 self.gl_creates.fetch_add(2, Ordering::Relaxed);
@@ -3278,14 +3353,14 @@ impl ModelEngine {
         }
     }
 
-    /// Clear and draw one pose into the bound framebuffer (`w` x `h`).
+    /// Clear and draw one pose into the bound framebuffer (`w` x `h`),
+    /// projected at `aspect`.
     fn draw_scene(
         &self,
         model: &GpuModel,
         ground: Option<&GpuModel>,
         cam: &ModelCamera,
-        w: i32,
-        h: i32,
+        (w, h, aspect): (i32, i32, f32),
         mode: slate_doc::scene::ModelDisplay,
     ) {
         let gl = &self.gl;
@@ -3303,7 +3378,7 @@ impl ModelEngine {
                 } else {
                     4.0
                 };
-        let proj = perspective(w as f32 / h as f32, near, far);
+        let proj = perspective(aspect, near, far);
         let mvp = mat_mul(&proj, &view);
         let (depth_near, depth_far) = view_depth_range(&view, model.bounds_min, model.bounds_max);
         // With a ground, the fade runs from the nearest visible ground at the
@@ -3496,8 +3571,7 @@ impl ModelEngine {
         target: &mut LiveTarget,
         model: &GpuModel,
         cam: &ModelCamera,
-        w: u32,
-        h: u32,
+        (w, h, aspect): (u32, u32, f32),
         adjust: Option<&ImageAdjust>,
     ) -> bool {
         self.render_passes.fetch_add(1, Ordering::Relaxed);
@@ -3517,7 +3591,7 @@ impl ModelEngine {
                 // Store the shader's values as they are; egui decodes.
                 gl.disable(glow::FRAMEBUFFER_SRGB);
             }
-            self.draw_scene(model, None, cam, w, h, cam.display);
+            self.draw_scene(model, None, cam, (w, h, aspect), cam.display);
             gl.bind_framebuffer(glow::READ_FRAMEBUFFER, Some(target.msaa_fbo));
             gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, Some(target.resolve_fbo));
             gl.blit_framebuffer(
@@ -3550,6 +3624,18 @@ impl ModelEngine {
             gl.bind_framebuffer(glow::FRAMEBUFFER, None);
         }
         true
+    }
+
+    /// Read a slot's display rows back. They are already top row first.
+    fn read_target(&self, target: &LiveTarget) -> Option<egui::ColorImage> {
+        let (w, h) = target.size;
+        unsafe {
+            self.gl
+                .bind_framebuffer(glow::READ_FRAMEBUFFER, Some(target.out_fbo));
+            let img = self.read_rgba(w, h, false);
+            self.gl.bind_framebuffer(glow::READ_FRAMEBUFFER, None);
+            img
+        }
     }
 
     /// Shrink a released slot; its names and egui registration are kept.
@@ -3654,7 +3740,7 @@ mod tests {
                     Default::default(),
                 )),
                 shown: false,
-                rendered: Some((cam.cache_hash(), 2, 2, 0)),
+                rendered: Some((cam.cache_hash(), 2, 2, 0, 1.0f32.to_bits())),
                 radius: bounds_sphere(model.bounds_min, model.bounds_max).1,
                 tool: ModelViewportTool::Navigate,
                 measure_first: None,
@@ -4195,6 +4281,41 @@ mod tests {
         assert!(((w * h) as f32 - 262_144.0).abs() / 262_144.0 < 0.05);
         let (w, h) = capture_size(100.0, 1000.0);
         assert!(w >= 256 && h <= 1024, "extreme aspects are clamped");
+    }
+
+    /// A live frame is rendered at a quantized size and stretched onto the
+    /// node, so its projection must use the node's aspect, not the frame's.
+    #[test]
+    fn live_frames_project_at_the_node_aspect() {
+        for (w, h, ppp) in [
+            (320.0, 200.0, 1.0),
+            (333.0, 217.0, 1.25),
+            (900.0, 300.0, 1.0),
+        ] {
+            let (_, _, aspect) = live_frame_size(w, h, ppp);
+            let node = w / h;
+            assert!(
+                (aspect - node).abs() / node < 0.002,
+                "{w}x{h}@{ppp}: projection aspect {aspect} vs node {node}"
+            );
+        }
+    }
+
+    #[test]
+    fn screenshots_keep_the_node_aspect() {
+        for (w, h) in [
+            (320.0, 200.0),
+            (900.0, 300.0),
+            (200.0, 640.0),
+            (1000.0, 250.0),
+        ] {
+            let (sw, sh) = screenshot_size(w, h);
+            let (shot, node) = (sw as f32 / sh as f32, w / h);
+            assert!(
+                (shot - node).abs() / node < 0.01,
+                "{w}x{h}: screenshot {sw}x{sh} ({shot}) vs node {node}"
+            );
+        }
     }
 
     #[test]

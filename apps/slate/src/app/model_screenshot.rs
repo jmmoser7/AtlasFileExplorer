@@ -9,7 +9,7 @@ use eframe::egui::{self, Id, Pos2, Rect, Vec2};
 use model_preview::view_meta::{self, ViewMetaInput};
 use slate_doc::scene::{ImageAdjust, ImageNode, ModelCamera, NodeId, NodeKind, WorldRect};
 
-use super::model3d::{self, capture_size, ModelNodeInfo};
+use super::model3d::{self, screenshot_size, ModelNodeInfo};
 use super::{PickerMsg, SlateApp};
 
 const POPUP_ITEM_H: f32 = 28.0;
@@ -231,6 +231,49 @@ impl SlateApp {
         let info = self
             .model_node_info(node)
             .ok_or("That node is not a 3D model.")?;
+        let (w, h) = screenshot_size(info.rect.w, info.rect.h);
+        let aspect = info.rect.w / info.rect.h.max(1.0);
+        let Some(img) = self.model_screenshot_pixels(node, w, h, aspect)? else {
+            return Ok(None);
+        };
+        let mut rgba = Vec::with_capacity(img.pixels.len() * 4);
+        for p in &img.pixels {
+            rgba.extend_from_slice(&p.to_srgba_unmultiplied());
+        }
+        let cam = self.model_screenshot_camera(node, &info);
+        let adjust = self.model_screenshot_adjust(node);
+        let meta = self.view_meta_input(node, &info, cam, w, h, &adjust)?;
+        Ok(Some(ModelShot { rgba, w, h, meta }))
+    }
+
+    fn model_screenshot_camera(&self, node: NodeId, info: &ModelNodeInfo) -> ModelCamera {
+        self.model3d
+            .live
+            .get(&node)
+            .map(|vp| vp.cam)
+            .unwrap_or(info.cam)
+    }
+
+    fn model_screenshot_adjust(&self, node: NodeId) -> ImageAdjust {
+        self.doc()
+            .scene
+            .node(node)
+            .and_then(slate_doc::scene::adjust_of)
+            .unwrap_or_default()
+    }
+
+    /// The screenshot's pixels at `w` x `h`, projected at `aspect`.
+    /// `Ok(None)` while the mesh is still parsing.
+    pub(crate) fn model_screenshot_pixels(
+        &mut self,
+        node: NodeId,
+        w: u32,
+        h: u32,
+        aspect: f32,
+    ) -> Result<Option<egui::ColorImage>, String> {
+        let info = self
+            .model_node_info(node)
+            .ok_or("That node is not a 3D model.")?;
         if self.model3d.external.contains(&info.cache_key) {
             return Err("Enscape standalones cannot export a mesh screenshot yet.".into());
         }
@@ -238,37 +281,19 @@ impl SlateApp {
             .gl
             .clone()
             .ok_or("3D viewports need GPU rendering (unavailable here).")?;
-        let cam = self
-            .model3d
-            .live
-            .get(&node)
-            .map(|vp| vp.cam)
-            .unwrap_or(info.cam);
-        let (w, h) = capture_size(info.rect.w, info.rect.h);
-        let adjust = self
-            .doc()
-            .scene
-            .node(node)
-            .and_then(slate_doc::scene::adjust_of)
-            .unwrap_or_default();
-        let Some(img) = self.model3d.render_capture_image(
+        let cam = self.model_screenshot_camera(node, &info);
+        let adjust = self.model_screenshot_adjust(node);
+        let img = self.model3d.render_view_screenshot(
             &gl,
             &info.cache_key,
             &cam,
-            w,
-            h,
-            false,
+            (w, h, aspect),
             (!adjust.is_identity()).then_some(&adjust),
-        ) else {
+        );
+        if img.is_none() {
             self.model3d.request_model(&info.cache_key, &info.path);
-            return Ok(None);
-        };
-        let mut rgba = Vec::with_capacity(img.pixels.len() * 4);
-        for p in &img.pixels {
-            rgba.extend_from_slice(&p.to_srgba_unmultiplied());
         }
-        let meta = self.view_meta_input(node, &info, cam, w, h, &adjust)?;
-        Ok(Some(ModelShot { rgba, w, h, meta }))
+        Ok(img)
     }
 
     fn view_meta_input(
