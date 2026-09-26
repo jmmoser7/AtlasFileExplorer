@@ -1262,59 +1262,10 @@ pub fn default_curve_stroke(color: Rgba) -> Stroke {
     }
 }
 
-/// Center and radius of the circle through three points; `None` when they
-/// are collinear or coincide.
-fn circle_through(a: Point, b: Point, c: Point) -> Option<(Point, f64)> {
-    let d = 2.0_f64 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
-    if d.abs() < 1e-4 {
-        return None;
-    }
-    let a2 = a.x * a.x + a.y * a.y;
-    let b2 = b.x * b.x + b.y * b.y;
-    let c2 = c.x * c.x + c.y * c.y;
-    let ux = (a2 * (b.y - c.y) + b2 * (c.y - a.y) + c2 * (a.y - b.y)) / d;
-    let uy = (a2 * (c.x - b.x) + b2 * (a.x - c.x) + c2 * (b.x - a.x)) / d;
-    let r = ((a.x - ux).powi(2) + (a.y - uy).powi(2)).sqrt();
-    (r >= 1e-6).then_some((Point::new(ux, uy), r))
-}
-
-/// How far a committed curve may stray from one circle and still read as an
-/// arc: the Arc tool's own cubic fitting tolerance (0.25) plus float slack.
-const ARC_FIT_TOLERANCE: f64 = 0.3;
-
 /// Start, through point and end of `bez` when it is one open circular arc
-/// made of cubic spans, as the Arc tool writes it. The through point is the
-/// middle of the sweep. Geometry, not tool provenance, decides.
+/// (`slate_doc::geom::arc_grip_points`).
 pub fn arc_grip_points(bez: &BezPath) -> Option<[Pos2; 3]> {
-    let els = bez.elements();
-    let moves = els
-        .iter()
-        .filter(|el| matches!(el, PathEl::MoveTo(_)))
-        .count();
-    if moves != 1 || els.iter().any(|el| matches!(el, PathEl::ClosePath)) {
-        return None;
-    }
-    let spans: Vec<kurbo::CubicBez> = bez
-        .segments()
-        .map(|seg| match seg {
-            kurbo::PathSeg::Cubic(c) => Some(c),
-            _ => None,
-        })
-        .collect::<Option<_>>()?;
-    let n = spans.len();
-    let (start, end) = (spans.first()?.p0, spans.last()?.p3);
-    let mid = if n.is_multiple_of(2) {
-        spans[n / 2].p0
-    } else {
-        kurbo::ParamCurve::eval(&spans[n / 2], 0.5)
-    };
-    let (center, r) = circle_through(start, mid, end)?;
-    let on_circle = spans.iter().all(|span| {
-        [0.25, 0.5, 0.75, 1.0].iter().all(|t| {
-            ((kurbo::ParamCurve::eval(span, *t) - center).hypot() - r).abs() <= ARC_FIT_TOLERANCE
-        })
-    });
-    on_circle.then(|| [from_k(start), from_k(mid), from_k(end)])
+    slate_doc::geom::arc_grip_points(bez).map(|pts| pts.map(from_k))
 }
 
 pub fn arc_through_three_points(p0: Pos2, p1: Pos2, p2: Pos2) -> BezPath {
@@ -1322,7 +1273,7 @@ pub fn arc_through_three_points(p0: Pos2, p1: Pos2, p2: Pos2) -> BezPath {
     let a = to_k(p0);
     let b = to_k(p1);
     let c = to_k(p2);
-    let Some((center, r)) = circle_through(a, b, c) else {
+    let Some((center, r)) = slate_doc::geom::circle_through(a, b, c) else {
         path.move_to(a);
         path.line_to(c);
         return path;
@@ -1521,7 +1472,7 @@ pub fn paint_path_shape(
     );
     let cached = app.path_mesh_cache.get_or_tessellate(node.id, key, || {
         let bez = bez.get_or_insert_with(|| shape_path_world_bez(node, shape, path));
-        vector_stroke_ink_for(bez, shape, path, xf.z)
+        vector_stroke_ink_for(node, bez, shape, path, xf.z)
     });
     let base = fade(rgba32(shape.stroke.color));
     let mesh = ink_mesh_to_epaint(&cached, xf, base, fade);
@@ -1537,10 +1488,22 @@ pub(crate) fn vector_stroke_ink(
     path: &PathData,
     zoom: f32,
 ) -> InkMesh {
-    vector_stroke_ink_for(&shape_path_world_bez(node, shape, path), shape, path, zoom)
+    vector_stroke_ink_for(
+        node,
+        &shape_path_world_bez(node, shape, path),
+        shape,
+        path,
+        zoom,
+    )
 }
 
-fn vector_stroke_ink_for(bez: &BezPath, shape: &ShapeNode, path: &PathData, zoom: f32) -> InkMesh {
+fn vector_stroke_ink_for(
+    node: &Node,
+    bez: &BezPath,
+    shape: &ShapeNode,
+    path: &PathData,
+    zoom: f32,
+) -> InkMesh {
     let mut style = stroke_style_world(&shape.stroke, zoom);
     let (ink_width, soft) = shape.stroke.paint_profile();
     style.width = ink_width;
@@ -1551,11 +1514,22 @@ fn vector_stroke_ink_for(bez: &BezPath, shape: &ShapeNode, path: &PathData, zoom
             0.0
         };
     let tolerance = curve_tolerance(zoom);
-    match path.vector_widths(&shape.stroke) {
-        Some(widths) if soft <= 0.0 => {
-            vector_ink::stroke_mesh_tipped(bez, &style, &widths, feather, tolerance)
+    let tipped = (soft <= 0.0)
+        .then(|| {
+            slate_doc::geom::tipped_stroke(
+                path,
+                &shape.stroke,
+                node.rect,
+                node.rotation_deg,
+                shape.corner,
+            )
+        })
+        .flatten();
+    match tipped {
+        Some(t) => {
+            vector_ink::stroke_mesh_tipped(&t.bez, &style, &t.widths, t.ease, feather, tolerance)
         }
-        _ => stroke_mesh(bez, &style, feather, tolerance),
+        None => stroke_mesh(bez, &style, feather, tolerance),
     }
 }
 

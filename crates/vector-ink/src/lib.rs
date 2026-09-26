@@ -55,6 +55,29 @@ pub struct StrokeStyle {
     pub dash: Option<(Vec<f32>, f32)>,
 }
 
+/// How a tipped stroke blends between its vertex tips along each segment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TipEase {
+    /// Straight by arc length (polylines, lines, arcs).
+    #[default]
+    Linear,
+    /// Smoothstep by arc length: zero slope at every vertex, so a curve's
+    /// width has no chines where segments meet.
+    Smooth,
+}
+
+impl TipEase {
+    /// Blend weight at arc-length fraction `s` (0 at the segment's start
+    /// tip, 1 at its end tip).
+    pub fn weight(self, s: f32) -> f32 {
+        let s = s.clamp(0.0, 1.0);
+        match self {
+            TipEase::Linear => s,
+            TipEase::Smooth => s * s * (3.0 - 2.0 * s),
+        }
+    }
+}
+
 /// Renderer-agnostic AA mesh. Positions match input path space.
 /// `alpha`: `1.0` = solid core, `0.0` = outer feather edge.
 #[derive(Debug, Clone, Default)]

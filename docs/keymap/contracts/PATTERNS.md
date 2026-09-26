@@ -314,6 +314,33 @@ is searchable.
   Implementation: `board_direct::curve_grip_target`,
   `board_path::arc_grip_points`, `path_edit_overlay::path_edit_hit`,
   `slate_doc::scene::Corner::vertex_effective`.
+- **P1.curve.vertex-style** per-vertex stroke style (user, 26 September
+  2026: "if a user selects a vertex of a polyline and then opens the stroke
+  width stringer and adjusts the stroke width, adjust just that vertex's
+  stroke width, creating a taper between that vertex and its adjacent
+  neighbors"). With grips picked (P1.curve.grips) on a line, arc, polyline,
+  Bézier span or pen stroke, the Stroke stringer's width edits only those
+  vertices, and the stringer reads the first picked vertex. With no grip
+  picked, the edit applies to the whole curve as before: a width edit scales
+  every vertex, keeping the taper. A click off the grips clears the pick.
+  Each edit is one journaled Patch through `board.shape.edit`, whose request
+  carries the picked grips (`PropertyRequest::points`), so agents drive the
+  same edit. Between vertices the width blends straight for polylines and
+  lines, straight along the sweep for arcs, and with a smoothstep for
+  Bézier spans (zero slope at every vertex, so the stroke has no chines).
+  **Proposals:** the widths are the existing `PathData::tips`, one per
+  vertex, not a second per-vertex list. The blend is read from the geometry
+  (`slate_doc::geom::tip_ease`: any curve that is not a circular arc is
+  smooth), like the grips. An arc stores a tip at every span joint, derived
+  from its three grip values; an arc with an odd span count gains a joint
+  at its through point. A filleted polyline keeps its vertex widths, and
+  each fillet's middle takes its corner's width. Grip drags keep the tips
+  when the grips still fit. Trim, split and Direct Selection edits that
+  change the vertex count drop them. Both interpreters paint through
+  `slate_doc::geom::tipped_stroke` and `vector_ink::stroke_mesh_tipped` /
+  `stroke_outline_tipped`; the artifact writes the variable-width outline as
+  a filled path. Implementation: `slate_doc::vertex_style`,
+  `board_properties::Property::apply_at`.
 - **P1.curve.pick** click and marquee selection hit the **stroke** (via
   `vector_ink::hit_stroke` + `pick.slop` ≈ 4 screen px), never the node's
   axis-aligned rect alone. Closed unfilled paths included — each contour

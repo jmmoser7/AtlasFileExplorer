@@ -167,12 +167,20 @@ impl SlateApp {
     }
 
     fn write_back_world_bez(&mut self, id: NodeId, bez: &BezPath, closed: bool) {
-        let (rect, data) = board_path::bezpath_to_path_data(bez, closed);
+        let (rect, mut data) = board_path::bezpath_to_path_data(bez, closed);
         let rect = WorldRect::new(rect.x, rect.y, rect.w.max(0.01), rect.h.max(0.01));
         if let Some(n) = self.doc_mut().scene.node_mut(id) {
+            let (old_rect, old_rot) = (n.rect, n.rotation_deg);
             n.rect = rect;
             n.rotation_deg = 0.0;
             if let NodeKind::Shape(s) = &mut n.kind {
+                if let Some(old) = s.path.clone() {
+                    slate_doc::vertex_style::keep_tips(
+                        (&old, old_rect, old_rot),
+                        (&mut data, rect, 0.0),
+                        &mut s.stroke,
+                    );
+                }
                 s.shape = ShapeKind::Path;
                 s.flip = false;
                 s.path = Some(data.into());
@@ -334,6 +342,8 @@ impl SlateApp {
             None
         };
         let Some((id, idx)) = hit else {
+            // A click off the grips targets whole nodes again.
+            self.direct.grip_points = GripPoints::default();
             return false;
         };
         self.direct.grip_points.pick(id, idx, shift);

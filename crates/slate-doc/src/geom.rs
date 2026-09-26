@@ -4,9 +4,9 @@
 
 use crate::scene::{
     clamp_regular_sides, regular_polygon_vertices, Corner, Crop, Node, NodeKind, PathData, PathSeg,
-    ShapeKind, WorldRect,
+    ShapeKind, Stroke, WorldRect,
 };
-use crate::wire::{filleted_vertex_path, PathCmd};
+use crate::wire::{filleted_vertex_path, filleted_vertex_path_params, PathCmd};
 use vector_ink::kurbo::{BezPath, Point};
 use vector_ink::{flatten_contours, point_in_polygon, Polygon};
 
@@ -147,6 +147,164 @@ pub fn path_data_to_world_bez_with_fillet(
         }
     }
     path_data_to_world_bez(path, rect, rotation_deg)
+}
+
+/// The world path a per-vertex (tipped) stroke follows, and for each of its
+/// on-curve vertices the vertex parameter of `path` it sits at: vertex `i` is
+/// `i`, a point on the segment leaving vertex `i` is `i` plus its fraction of
+/// that segment. Without fillets the two paths are one. A filleted line
+/// polyline gains vertices along its edges and fillets; each fillet's middle
+/// sits at its corner's own parameter (`filleted_vertex_path_params`).
+pub fn tipped_stroke_world_path(
+    path: &PathData,
+    rect: WorldRect,
+    rotation_deg: f32,
+    corner: Corner,
+) -> (BezPath, Vec<f32>) {
+    if path_is_line_polyline(path) {
+        let (chamfer, amount) = corner.vertex_effective(rect.w, rect.h);
+        if amount > 0.0 {
+            let world = polyline_world_points(path, rect, rotation_deg);
+            if world.len() >= 3 || (world.len() >= 2 && !path.closed) {
+                let tracked =
+                    filleted_vertex_path_params(&world, amount, chamfer, path.closed, true);
+                let cmds: Vec<PathCmd> = tracked.iter().map(|(cmd, _)| *cmd).collect();
+                let params = tracked.iter().map(|(_, at)| *at).collect();
+                return (path_cmds_to_bez_world(&cmds), params);
+            }
+        }
+    }
+    let bez = path_data_to_world_bez(path, rect, rotation_deg);
+    let vertices = bez
+        .elements()
+        .iter()
+        .filter(|el| !matches!(el, vector_ink::kurbo::PathEl::ClosePath))
+        .count();
+    (bez, (0..vertices).map(|i| i as f32).collect())
+}
+
+/// A hard vector stroke with per-vertex widths, as both interpreters paint
+/// it: the path it follows, one full width per on-curve vertex of that path,
+/// and how widths blend between vertices.
+pub struct TippedStroke {
+    pub bez: BezPath,
+    pub widths: Vec<f32>,
+    pub ease: vector_ink::TipEase,
+}
+
+/// The per-vertex stroke of `path` placed in `rect`, or `None` when it
+/// paints uniform (`PathData::vector_widths`). `corner` fillets a line
+/// polyline, as for its plain stroke.
+pub fn tipped_stroke(
+    path: &PathData,
+    stroke: &Stroke,
+    rect: WorldRect,
+    rotation_deg: f32,
+    corner: Corner,
+) -> Option<TippedStroke> {
+    let widths = path.vector_widths(stroke)?;
+    let ease = tip_ease(&path_data_to_world_bez(path, rect, rotation_deg));
+    let (bez, params) = tipped_stroke_world_path(path, rect, rotation_deg, corner);
+    Some(TippedStroke {
+        bez,
+        widths: params
+            .iter()
+            .map(|at| value_at_param(&widths, *at))
+            .collect(),
+        ease,
+    })
+}
+
+/// `values` (one per path vertex) at vertex parameter `at`, straight between
+/// vertices. Parameter `values.len()` is the first vertex again, the far end
+/// of a closed path's closing segment.
+pub fn value_at_param(values: &[f32], at: f32) -> f32 {
+    let Some(&first) = values.first() else {
+        return 0.0;
+    };
+    let n = values.len();
+    let at = at.clamp(0.0, n as f32);
+    let i = (at.floor() as usize).min(n);
+    let f = at - i as f32;
+    let get = |k: usize| if k >= n { first } else { values[k] };
+    if f <= 0.0 {
+        return get(i);
+    }
+    get(i) + (get(i + 1) - get(i)) * f
+}
+
+/// How a path blends per-vertex tips (P1.curve.vertex-style): polylines,
+/// lines and circular arcs straight by arc length; any other curve (a Bézier
+/// span, a Pen curve) smoothly, so its width has no chines. Geometry, not
+/// tool provenance, decides, as for the curve's grips.
+pub fn tip_ease(bez: &BezPath) -> vector_ink::TipEase {
+    let curved = bez.elements().iter().any(|el| {
+        matches!(
+            el,
+            vector_ink::kurbo::PathEl::QuadTo(..) | vector_ink::kurbo::PathEl::CurveTo(..)
+        )
+    });
+    if curved && arc_grip_points(bez).is_none() {
+        vector_ink::TipEase::Smooth
+    } else {
+        vector_ink::TipEase::Linear
+    }
+}
+
+/// Center and radius of the circle through three points; `None` when they
+/// are collinear or coincide.
+pub fn circle_through(a: Point, b: Point, c: Point) -> Option<(Point, f64)> {
+    let d = 2.0 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
+    if d.abs() < 1e-4 {
+        return None;
+    }
+    let a2 = a.x * a.x + a.y * a.y;
+    let b2 = b.x * b.x + b.y * b.y;
+    let c2 = c.x * c.x + c.y * c.y;
+    let ux = (a2 * (b.y - c.y) + b2 * (c.y - a.y) + c2 * (a.y - b.y)) / d;
+    let uy = (a2 * (c.x - b.x) + b2 * (a.x - c.x) + c2 * (b.x - a.x)) / d;
+    let r = ((a.x - ux).powi(2) + (a.y - uy).powi(2)).sqrt();
+    (r >= 1e-6).then_some((Point::new(ux, uy), r))
+}
+
+/// How far a committed curve may stray from one circle and still read as an
+/// arc: the Arc tool's own cubic fitting tolerance (0.25) plus float slack.
+const ARC_FIT_TOLERANCE: f64 = 0.3;
+
+/// Start, through point and end of `bez` when it is one open circular arc
+/// made of cubic spans, as the Arc tool writes it. The through point is the
+/// middle of the sweep. Geometry, not tool provenance, decides.
+pub fn arc_grip_points(bez: &BezPath) -> Option<[Point; 3]> {
+    use vector_ink::kurbo::{CubicBez, ParamCurve, PathEl, PathSeg as KSeg};
+    let els = bez.elements();
+    let moves = els
+        .iter()
+        .filter(|el| matches!(el, PathEl::MoveTo(_)))
+        .count();
+    if moves != 1 || els.iter().any(|el| matches!(el, PathEl::ClosePath)) {
+        return None;
+    }
+    let spans: Vec<CubicBez> = bez
+        .segments()
+        .map(|seg| match seg {
+            KSeg::Cubic(c) => Some(c),
+            _ => None,
+        })
+        .collect::<Option<_>>()?;
+    let n = spans.len();
+    let (start, end) = (spans.first()?.p0, spans.last()?.p3);
+    let mid = if n.is_multiple_of(2) {
+        spans[n / 2].p0
+    } else {
+        spans[n / 2].eval(0.5)
+    };
+    let (center, r) = circle_through(start, mid, end)?;
+    let on_circle = spans.iter().all(|span| {
+        [0.25, 0.5, 0.75, 1.0]
+            .iter()
+            .all(|t| ((span.eval(*t) - center).hypot() - r).abs() <= ARC_FIT_TOLERANCE)
+    });
+    on_circle.then_some([start, mid, end])
 }
 
 fn polyline_world_points(path: &PathData, rect: WorldRect, rotation_deg: f32) -> Vec<[f32; 2]> {

@@ -22,6 +22,7 @@ pub mod scene;
 mod spatial;
 pub mod stage;
 mod tags;
+pub mod vertex_style;
 mod view;
 pub mod wire;
 pub mod wire_host;

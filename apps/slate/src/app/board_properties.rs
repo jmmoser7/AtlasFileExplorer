@@ -253,12 +253,86 @@ impl Property {
             }
         }
     }
+
+    /// [`Self::apply`] scoped to the picked grips of a curve
+    /// (P1.curve.vertex-style): a stroke width edits those vertices only.
+    /// With no grip picked, or on a node without grips, the whole node.
+    pub(crate) fn apply_at(
+        &self,
+        node: &mut Node,
+        item_path: Option<&std::path::Path>,
+        points: &[usize],
+    ) {
+        if !points.is_empty() {
+            if let Self::StrokeWidth(v) = *self {
+                if v.is_finite() && edit_vertex_tips(node, points, |t| t.width = v.max(0.0)) {
+                    return;
+                }
+            }
+        }
+        self.apply(node, item_path);
+    }
+}
+
+/// The painted tip at the first of `points` (grip indices) of a path node.
+fn picked_tip(node: &Node, points: &[usize]) -> Option<scene::StrokeSpan> {
+    let first = *points.first()?;
+    let NodeKind::Shape(s) = &node.kind else {
+        return None;
+    };
+    if s.shape != ShapeKind::Path || s.stroke.paints_as_stamp() {
+        return None;
+    }
+    let tips = slate_doc::vertex_style::grip_tips(
+        s.path.as_ref()?,
+        &s.stroke,
+        node.rect,
+        node.rotation_deg,
+    )?;
+    tips.get(first).copied()
+}
+
+/// Edit the stroke tips at `points` (grip indices) of a path node.
+fn edit_vertex_tips(
+    node: &mut Node,
+    points: &[usize],
+    edit: impl Fn(&mut scene::StrokeSpan),
+) -> bool {
+    let (rect, rotation) = (node.rect, node.rotation_deg);
+    let NodeKind::Shape(s) = &mut node.kind else {
+        return false;
+    };
+    if s.shape != ShapeKind::Path || s.stroke.paints_as_stamp() {
+        return false;
+    }
+    let Some(path) = s.path.as_ref() else {
+        return false;
+    };
+    let mut path = (**path).clone();
+    let mut stroke = s.stroke;
+    if !slate_doc::vertex_style::edit_grip_tips(
+        &mut path,
+        &mut stroke,
+        rect,
+        rotation,
+        points,
+        edit,
+    ) {
+        return false;
+    }
+    s.path = Some(path.into());
+    s.stroke = stroke;
+    true
 }
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct PropertyRequest {
     pub ids: Vec<NodeId>,
     pub edits: Vec<Property>,
+    /// Picked grips of the one target curve; the edits apply to those
+    /// vertices (`Property::apply_at`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub points: Vec<usize>,
 }
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 pub(crate) enum DimensionKind {
@@ -881,9 +955,10 @@ impl SlateApp {
                     .map(|path| (*id, path.to_path_buf()))
             })
             .collect();
+        let points: &[usize] = if req.ids.len() == 1 { &req.points } else { &[] };
         self.patch_nodes(&req.ids, |n| {
             for edit in &req.edits {
-                edit.apply(n, item_paths.get(&n.id).map(|path| path.as_path()));
+                edit.apply_at(n, item_paths.get(&n.id).map(|path| path.as_path()), points);
             }
         });
         // Choosing a recent color already on the target is still a deliberate
@@ -1041,6 +1116,17 @@ impl SlateApp {
         out
     }
 
+    /// Grips picked on the strip's one target curve (P1.curve.vertex-style);
+    /// empty when the whole selection is the target.
+    pub(crate) fn shape_property_points(&self) -> Vec<usize> {
+        match self.shape_properties.ids.as_slice() {
+            [id] if self.direct.grip_points.node == Some(*id) => {
+                self.direct.grip_points.picked.iter().copied().collect()
+            }
+            _ => Vec::new(),
+        }
+    }
+
     fn committed_shape_nodes(&self) -> Vec<Node> {
         let mut nodes = self.shape_properties.nodes.clone();
         let item_paths: std::collections::BTreeMap<_, _> = nodes
@@ -1050,9 +1136,10 @@ impl SlateApp {
                     .map(|path| (node.id, path.to_path_buf()))
             })
             .collect();
+        let points = self.shape_property_points();
         for edit in &self.shape_properties.edits {
             for n in &mut nodes {
-                edit.apply(n, item_paths.get(&n.id).map(|path| path.as_path()));
+                edit.apply_at(n, item_paths.get(&n.id).map(|path| path.as_path()), &points);
             }
         }
         nodes
@@ -1071,14 +1158,10 @@ impl SlateApp {
                     .map(|path| (node.id, path.to_path_buf()))
             })
             .collect();
-        for edit in &self.shape_properties.edits {
+        let points = self.shape_property_points();
+        for edit in self.shape_properties.edits.iter().chain(peek.as_ref()) {
             for n in &mut nodes {
-                edit.apply(n, item_paths.get(&n.id).map(|path| path.as_path()));
-            }
-        }
-        if let Some(edit) = peek {
-            for n in &mut nodes {
-                edit.apply(n, item_paths.get(&n.id).map(|path| path.as_path()));
+                edit.apply_at(n, item_paths.get(&n.id).map(|path| path.as_path()), &points);
             }
         }
         self.shape_properties.preview = nodes;
@@ -1090,6 +1173,7 @@ impl SlateApp {
             let req = PropertyRequest {
                 ids: self.shape_properties.ids.clone(),
                 edits,
+                points: self.shape_property_points(),
             };
             self.dispatch(
                 ctx,
@@ -2129,8 +2213,11 @@ impl SlateApp {
         };
         let color = get_color(first);
         let mixed = nodes.iter().any(|n| get_color(n) != color);
+        let points = self.shape_property_points();
         let width = (panel == Panel::Stroke).then(|| {
-            let width = scene::stroke_of(first).unwrap().width;
+            let width = picked_tip(first, &points)
+                .map(|tip| tip.width)
+                .unwrap_or_else(|| scene::stroke_of(first).unwrap().width);
             if matches!(&first.kind, NodeKind::Portal(p) if p.stroke_follows_theme()) {
                 width.max(1.0)
             } else {
@@ -2519,7 +2606,14 @@ mod tests {
         assert!(h.app.dispatch(
             &h.ctx,
             CommandId("board.shape.edit"),
-            Some(serde_json::to_string(&PropertyRequest { ids, edits }).unwrap())
+            Some(
+                serde_json::to_string(&PropertyRequest {
+                    ids,
+                    edits,
+                    points: Vec::new(),
+                })
+                .unwrap(),
+            )
         ));
     }
     fn size(h: &mut Harness, ids: Vec<NodeId>, kind: DimensionKind, value: f32) {
@@ -2656,6 +2750,7 @@ mod tests {
         let request = serde_json::to_string(&PropertyRequest {
             ids: vec![id],
             edits: vec![Property::FillAlpha(0)],
+            points: Vec::new(),
         })
         .unwrap();
         assert!(!h.app.shape_property_command(Some(&request)));

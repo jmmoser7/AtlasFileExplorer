@@ -370,12 +370,20 @@ impl SlateApp {
         } else {
             (fixed, moved)
         };
-        let (rect, data) = board_path::points_to_path_data(&[na, nb], false);
+        let (rect, mut data) = board_path::points_to_path_data(&[na, nb], false);
         let rect = WorldRect::new(rect.x, rect.y, rect.w.max(0.01), rect.h.max(0.01));
         if let Some(n) = self.doc_mut().scene.node_mut(id) {
+            let (old_rect, old_rot) = (n.rect, n.rotation_deg);
             n.rect = rect;
             n.rotation_deg = 0.0;
             if let NodeKind::Shape(s) = &mut n.kind {
+                if let Some(old) = s.path.clone() {
+                    slate_doc::vertex_style::keep_tips(
+                        (&old, old_rect, old_rot),
+                        (&mut data, rect, 0.0),
+                        &mut s.stroke,
+                    );
+                }
                 s.path = Some(data.into());
             }
         }

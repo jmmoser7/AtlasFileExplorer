@@ -1658,8 +1658,16 @@ fn render_vector_path_d(
         WidthProfile::Uniform => None,
         WidthProfile::Taper { start, end } => Some((start, end)),
     };
-    let widths = path.and_then(|p| p.vector_widths(&shape.stroke));
-    match (taper, widths) {
+    let tipped = path.and_then(|p| {
+        slate_doc::geom::tipped_stroke(
+            p,
+            &shape.stroke,
+            WorldRect::new(0.0, 0.0, w, h),
+            0.0,
+            shape.corner,
+        )
+    });
+    match (taper, tipped) {
         (None, None) => {
             push_path_open(html, d, &fill_css, fill_rule);
             if shape.stroke.is_none() {
@@ -1690,7 +1698,7 @@ fn render_vector_path_d(
             }
             html.push_str("></path>");
         }
-        (taper, widths) => {
+        (taper, tipped) => {
             if shape.fill.is_some() && closed_for_taper {
                 push_path_open(html, d, &fill_css, fill_rule);
                 html.push_str(" stroke=\"none\"></path>");
@@ -1700,7 +1708,6 @@ fn render_vector_path_d(
                     html.push_str("</svg></div>\n");
                     return;
                 };
-                let bez = path_data_to_bez(path, w, h);
                 let style = StrokeStyle {
                     width: ink_width,
                     cap: ink_cap(shape.stroke.cap),
@@ -1708,9 +1715,11 @@ fn render_vector_path_d(
                     taper,
                     dash: stroke_dash_ink(&shape.stroke),
                 };
-                let outline = match &widths {
-                    Some(widths) => vector_ink::stroke_outline_tipped(&bez, &style, widths, 0.25),
-                    None => vector_ink::stroke_outline(&bez, &style, 0.25),
+                let outline = match &tipped {
+                    Some(t) => {
+                        vector_ink::stroke_outline_tipped(&t.bez, &style, &t.widths, t.ease, 0.25)
+                    }
+                    None => vector_ink::stroke_outline(&path_data_to_bez(path, w, h), &style, 0.25),
                 };
                 let outline_d = bezpath_to_d(&outline);
                 if !outline_d.is_empty() {

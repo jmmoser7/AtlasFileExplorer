@@ -366,6 +366,7 @@ impl SlateApp {
                     let request = PropertyRequest {
                         ids,
                         edits: vec![edit],
+                        points: Vec::new(),
                     };
                     self.dispatch(
                         ctx,
