@@ -11552,7 +11552,11 @@ fn the_eraser_preview_keeps_its_own_color() {
         }
         h.frame_with(primary_button(c + EVec2::new(60.0, 0.0), false, false));
     };
-    let world = |h: &Harness, dx: f32| h.app.board_xf().s2w(h.app.canvas_rect.center() + EVec2::new(dx, 0.0));
+    let world = |h: &Harness, dx: f32| {
+        h.app
+            .board_xf()
+            .s2w(h.app.canvas_rect.center() + EVec2::new(dx, 0.0))
+    };
     h.app.board_colors.fg = Rgba([20, 40, 230, 255]);
     h.app.set_board_tool(board::BoardTool::Brush);
     let (a, b) = (world(&h, -80.0), world(&h, 80.0));
@@ -11581,7 +11585,10 @@ fn the_eraser_preview_keeps_its_own_color() {
     h.app.board_colors.fg = Rgba([230, 20, 20, 255]);
     h.app.set_board_tool(board::BoardTool::Eraser);
     h.app.sync_image_paint_for_tool();
-    assert!(h.app.image_paint_session().is_some(), "fixture: image paint");
+    assert!(
+        h.app.image_paint_session().is_some(),
+        "fixture: image paint"
+    );
     h.frame();
     erase_across(&mut h, "image paint layer");
 
