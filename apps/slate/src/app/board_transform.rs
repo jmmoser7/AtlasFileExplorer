@@ -6,8 +6,9 @@
 
 use super::board::{BoardDrag, BoardXf};
 use super::{board_handles, SlateApp};
+use atlas_shell::canvas_scale;
 use eframe::egui::{self, Pos2, Vec2};
-use slate_doc::scene::{Corner, Node, NodeKind};
+use slate_doc::scene::{self, Corner, Node, NodeKind, ShapeKind};
 use slate_doc::NodeId;
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -19,7 +20,171 @@ pub(crate) struct FilletRequest {
     pub vertex: Option<usize>,
 }
 
+/// A + or − at a hovered polygon vertex (P1.shape.polygon-sides).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct SidesGlyph {
+    pub id: NodeId,
+    pub vertex: usize,
+    pub add: bool,
+    /// Screen center and radius.
+    pub center: Pos2,
+    pub radius: f32,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub(crate) struct SidesRequest {
+    pub id: NodeId,
+    pub vertex: usize,
+    pub add: bool,
+}
+
 impl SlateApp {
+    /// Screen vertices of a selected, editable regular polygon and every
+    /// +/− it can offer. `None` when it offers none, or they are too small
+    /// to read.
+    fn polygon_sides_layout(
+        &self,
+        node: &Node,
+        xf: &BoardXf,
+    ) -> Option<(Vec<Pos2>, Vec<SidesGlyph>)> {
+        let NodeKind::Shape(s) = &node.kind else {
+            return None;
+        };
+        if s.shape != ShapeKind::RegularPolygon
+            || node.locked
+            || self.tab().read_only
+            || self.board_crop.is_some()
+            || !self.board_sel.contains(&node.id)
+            || self.frame_chrome_suppressed(node.id)
+        {
+            return None;
+        }
+        let radius = canvas_scale::px(board_handles::SIDES_GLYPH_RADIUS, xf.z);
+        if canvas_scale::too_small(radius) {
+            return None;
+        }
+        let offset = canvas_scale::px(board_handles::SIDES_GLYPH_OFFSET, xf.z);
+        let sides = scene::clamp_regular_sides(s.sides);
+        let pts: Vec<Pos2> = scene::regular_polygon_vertices(node.rect, sides, s.phase_deg)
+            .into_iter()
+            .map(|p| {
+                let [x, y] = node.rect.rotate_point(p, node.rotation_deg);
+                xf.w2s(Pos2::new(x, y))
+            })
+            .collect();
+        let n = pts.len();
+        let mut glyphs = Vec::new();
+        for (k, &v) in pts.iter().enumerate() {
+            // Outward bisector: the sum of the unit edges arriving at `v`.
+            let out = (v - pts[(k + n - 1) % n]).normalized() + (v - pts[(k + 1) % n]).normalized();
+            let len = out.length();
+            if len.is_nan() || len <= 1e-4 {
+                continue;
+            }
+            let out = out.normalized();
+            for (add, center) in [(true, v + out * offset), (false, v - out * offset)] {
+                if scene::regular_polygon_resided(sides, s.phase_deg, k, add).is_some() {
+                    glyphs.push(SidesGlyph {
+                        id: node.id,
+                        vertex: k,
+                        add,
+                        center,
+                        radius,
+                    });
+                }
+            }
+        }
+        Some((pts, glyphs))
+    }
+
+    fn selected_polygon_layouts(&self, xf: &BoardXf) -> Vec<(Vec<Pos2>, Vec<SidesGlyph>)> {
+        self.doc()
+            .scene
+            .nodes
+            .iter()
+            .rev()
+            .filter(|n| self.board_sel.contains(&n.id))
+            .filter_map(|n| self.polygon_sides_layout(n, xf))
+            .collect()
+    }
+
+    /// The +/− under `screen`, shown or not: pointing at one reveals it.
+    pub(crate) fn polygon_sides_glyph_at(&self, screen: Pos2, xf: &BoardXf) -> Option<SidesGlyph> {
+        let hit = canvas_scale::hit_px(board_handles::SIDES_GLYPH_RADIUS, xf.z);
+        self.selected_polygon_layouts(xf)
+            .into_iter()
+            .flat_map(|(_, glyphs)| glyphs)
+            .find(|g| g.center.distance(screen) <= hit)
+    }
+
+    /// The polygon vertex whose glyphs `screen` reveals: near the vertex or
+    /// on one of its glyphs.
+    fn polygon_sides_hover_at(&self, screen: Pos2, xf: &BoardXf) -> Option<(NodeId, usize)> {
+        let near = canvas_scale::hit_px(board_handles::SIDES_VERTEX_HIT, xf.z);
+        let hit = canvas_scale::hit_px(board_handles::SIDES_GLYPH_RADIUS, xf.z);
+        self.selected_polygon_layouts(xf)
+            .into_iter()
+            .find_map(|(pts, glyphs)| {
+                let id = glyphs.first()?.id;
+                pts.iter()
+                    .position(|v| v.distance(screen) <= near)
+                    .or_else(|| {
+                        glyphs
+                            .iter()
+                            .find(|g| g.center.distance(screen) <= hit)
+                            .map(|g| g.vertex)
+                    })
+                    .map(|k| (id, k))
+            })
+    }
+
+    /// The glyphs to paint: the hovered vertex's + and −, if any.
+    pub(crate) fn polygon_sides_glyphs(&self, xf: &BoardXf) -> Vec<SidesGlyph> {
+        let Some((id, vertex)) = self.board_sides_hover.filter(|_| self.board_drag.is_none())
+        else {
+            return Vec::new();
+        };
+        let Some(node) = self.doc().scene.node(id) else {
+            return Vec::new();
+        };
+        self.polygon_sides_layout(node, xf)
+            .map(|(_, glyphs)| glyphs.into_iter().filter(|g| g.vertex == vertex).collect())
+            .unwrap_or_default()
+    }
+
+    /// One side more or fewer about a vertex: one journaled patch.
+    pub(crate) fn shape_sides_command(&mut self, detail: Option<&str>) -> bool {
+        let Some(req) = detail.and_then(|s| serde_json::from_str::<SidesRequest>(s).ok()) else {
+            return false;
+        };
+        if self.refuse_read_only_edit() {
+            return false;
+        }
+        let Some(before) = self.doc().scene.node(req.id).cloned() else {
+            return false;
+        };
+        let NodeKind::Shape(s) = &before.kind else {
+            return false;
+        };
+        if before.locked || s.shape != ShapeKind::RegularPolygon {
+            return false;
+        }
+        let Some((sides, phase)) =
+            scene::regular_polygon_resided(s.sides, s.phase_deg, req.vertex, req.add)
+        else {
+            return false;
+        };
+        let mut after = before.clone();
+        if let NodeKind::Shape(s) = &mut after.kind {
+            s.sides = sides;
+            s.phase_deg = phase;
+        }
+        self.commit_scene(vec![scene::SceneCmd::Patch {
+            before: Box::new(before),
+            after: Box::new(after),
+        }])
+    }
+
     /// Portals stay axis-aligned; connectors and simple lines have no bbox
     /// rotate. Everything else with a rectangular frame can rotate.
     pub(crate) fn node_allows_rotation(node: &Node) -> bool {
@@ -129,6 +294,7 @@ impl SlateApp {
     }
 
     /// Screen position of the first visible corner grip on `node`.
+    #[cfg(test)]
     pub(crate) fn fillet_grip_at(&self, node: &Node, xf: &BoardXf) -> Option<Pos2> {
         self.corner_grips(node, xf).first().map(|g| g.1)
     }
@@ -446,6 +612,7 @@ impl SlateApp {
     ) {
         self.board_hover_hit = None;
         self.board_hover_node = None;
+        self.board_sides_hover = None;
         let Some(p) = pointer else { return };
         if self.pointer_on_portal_maximize(p, xf) {
             return;
@@ -462,6 +629,11 @@ impl SlateApp {
             {
                 ctx.set_cursor_icon(board_handles::cursor_along(Vec2::from(edge.dir)));
             }
+            return;
+        }
+        self.board_sides_hover = self.polygon_sides_hover_at(p, xf);
+        if self.polygon_sides_glyph_at(p, xf).is_some() {
+            ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
             return;
         }
         let Some((node, hit)) = self.transform_hit_at(p) else {

@@ -1732,6 +1732,7 @@ mod tests {
                 stroke: Stroke::default(),
                 corner: Default::default(),
                 sides: crate::scene::default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: None,
                 text: Some(ShapeText {

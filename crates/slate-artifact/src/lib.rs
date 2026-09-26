@@ -642,6 +642,7 @@ mod tests {
             NodeKind::Shape(ShapeNode {
                 shape: ShapeKind::Rect,
                 sides: 6,
+                phase_deg: 0.0,
                 fill: None,
                 stroke: Stroke::none(),
                 corner: Corner::Square,
@@ -768,6 +769,7 @@ mod tests {
                 stroke: Stroke::none(),
                 corner: Corner::Square,
                 sides: slate_doc::scene::default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: None,
 
@@ -1129,6 +1131,7 @@ mod tests {
                 },
                 corner: Corner::Square,
                 sides: slate_doc::scene::default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: Some(std::sync::Arc::new(PathData {
                     start: [0.0, 0.0],
@@ -1171,6 +1174,7 @@ mod tests {
                     },
                     corner,
                     sides: slate_doc::scene::default_regular_sides(),
+                    phase_deg: 0.0,
                     flip: false,
                     path: Some(std::sync::Arc::new(PathData {
                         start: [0.0, 0.0],
@@ -1222,6 +1226,7 @@ mod tests {
                     },
                     corner,
                     sides: slate_doc::scene::default_regular_sides(),
+                    phase_deg: 0.0,
                     flip: false,
                     path: Some(std::sync::Arc::new(PathData {
                         start: [0.0, 0.0],
@@ -1260,6 +1265,55 @@ mod tests {
     }
 
     #[test]
+    fn turned_polygon_exports_the_vertices_the_board_draws() {
+        let rect = WorldRect::new(0.0, 0.0, 100.0, 100.0);
+        let points_of = |phase_deg: f32| {
+            let mut doc = SlateDoc::new("TurnedPolygon");
+            add_frame(&mut doc.scene, 0, WorldRect::new(0.0, 0.0, 200.0, 200.0));
+            let node = doc.scene.build_node(
+                rect,
+                NodeKind::Shape(ShapeNode {
+                    shape: ShapeKind::RegularPolygon,
+                    fill: Some(Rgba::opaque(10, 20, 30)),
+                    stroke: Stroke::default(),
+                    corner: Corner::Square,
+                    sides: 7,
+                    phase_deg,
+                    flip: false,
+                    path: None,
+                    text: None,
+                }),
+            );
+            let index = doc.scene.nodes.len();
+            doc.scene.apply(&SceneCmd::Add { index, node });
+            let html = render_html(&doc, &AssetMap::default());
+            let start = html.find("d=\"M").expect("polygon d") + 3;
+            let end = start + html[start..].find('"').unwrap();
+            let nums: Vec<f32> = html[start..end]
+                .split_whitespace()
+                .filter_map(|t| t.parse().ok())
+                .collect();
+            nums.chunks(2).map(|c| [c[0], c[1]]).collect::<Vec<_>>()
+        };
+        for phase in [0.0, 90.0 / 7.0, 200.0] {
+            let exported = points_of(phase);
+            for v in slate_doc::scene::regular_polygon_vertices(rect, 7, phase) {
+                assert!(
+                    exported
+                        .iter()
+                        .any(|p| (p[0] - v[0]).abs() < 0.05 && (p[1] - v[1]).abs() < 0.05),
+                    "phase {phase}: vertex {v:?} missing from {exported:?}"
+                );
+            }
+        }
+        assert_ne!(
+            points_of(0.0),
+            points_of(20.0),
+            "the turn reaches the export"
+        );
+    }
+
+    #[test]
     fn path_shape_closed_fill_and_stroke() {
         let fill = Rgba::opaque(200, 100, 50);
         let mut doc = SlateDoc::new("PathClosed");
@@ -1277,6 +1331,7 @@ mod tests {
                 },
                 corner: Corner::Square,
                 sides: slate_doc::scene::default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: Some(std::sync::Arc::new(PathData {
                     start: [0.0, 0.0],
@@ -1323,6 +1378,7 @@ mod tests {
                 },
                 corner: Corner::Square,
                 sides: slate_doc::scene::default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: Some(std::sync::Arc::new(PathData {
                     start: [0.0, 0.5],
@@ -1371,6 +1427,7 @@ mod tests {
                 },
                 corner: Corner::Square,
                 sides: slate_doc::scene::default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: Some(std::sync::Arc::new(PathData {
                     start: [0.0, 0.5],
@@ -1421,6 +1478,7 @@ mod tests {
                 },
                 corner: Corner::Square,
                 sides: slate_doc::scene::default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: Some(std::sync::Arc::new(PathData {
                     start: [0.0, 0.5],
@@ -1453,6 +1511,7 @@ mod tests {
                 stroke: Stroke::none(),
                 corner: Corner::Square,
                 sides: slate_doc::scene::default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: Some(std::sync::Arc::new(PathData {
                     start: [0.0, 0.0],

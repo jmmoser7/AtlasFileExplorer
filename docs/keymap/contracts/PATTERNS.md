@@ -180,7 +180,8 @@ is searchable.
   edge from the top-left corner**, moving right (Miro's documented surface
   is a slider / number field; a community report shows the rounded-rectangle
   handle but does not name the edge, so the edge is our choice). Regular
-  polygons use the side from the top vertex toward the next vertex
+  polygons use the side from the first vertex (the top one until a vertex
+  +/− turns the polygon, `polygon` D14) toward the next vertex
   clockwise; line polylines use the leaving side of the first turning
   vertex. A fillet amount is the arc **radius**, so on a polygon or
   polyline the grip's travel is `radius × tan(turn / 2)`; a chamfer amount

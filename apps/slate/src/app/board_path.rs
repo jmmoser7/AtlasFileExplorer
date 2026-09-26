@@ -848,6 +848,7 @@ fn hit_closed_text(node: &Node, shape: &ShapeNode, wx: f32, wy: f32) -> bool {
                 node.rect,
                 node.rotation_deg,
                 shape.sides,
+                shape.phase_deg,
                 shape.corner,
                 0.25,
             );
@@ -2392,6 +2393,7 @@ impl SlateApp {
                 stroke,
                 corner: slate_doc::scene::Corner::Square,
                 sides: slate_doc::scene::default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: Some(path_data.into()),
 
@@ -2795,6 +2797,7 @@ mod tests {
             },
             corner: slate_doc::scene::Corner::Square,
             sides: slate_doc::scene::default_regular_sides(),
+            phase_deg: 0.0,
             flip: false,
             path: Some(std::sync::Arc::new(path.clone())),
             text: None,
@@ -2978,6 +2981,7 @@ mod tests {
                 stroke: default_draw_stroke(Rgba::BLACK),
                 corner: slate_doc::scene::Corner::Square,
                 sides: slate_doc::scene::default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: Some(data.into()),
 
@@ -3012,6 +3016,7 @@ mod tests {
                 stroke: default_curve_stroke(Rgba::BLACK),
                 corner: slate_doc::scene::Corner::Square,
                 sides: slate_doc::scene::default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: Some(data.into()),
 
@@ -3069,6 +3074,7 @@ mod tests {
                 stroke: default_curve_stroke(Rgba::BLACK),
                 corner: slate_doc::scene::Corner::Square,
                 sides: slate_doc::scene::default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: Some(data.into()),
                 text: None,
@@ -3119,6 +3125,7 @@ mod tests {
                 stroke,
                 corner: slate_doc::scene::Corner::Square,
                 sides: slate_doc::scene::default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: Some(data.into()),
                 text: None,
@@ -3204,6 +3211,7 @@ mod tests {
                 stroke: default_curve_stroke(Rgba::BLACK),
                 corner: slate_doc::scene::Corner::Square,
                 sides: slate_doc::scene::default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: Some(data.into()),
 
@@ -3282,6 +3290,7 @@ mod tests {
                 stroke: default_curve_stroke(Rgba::BLACK),
                 corner: slate_doc::scene::Corner::Square,
                 sides: slate_doc::scene::default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: Some(data.into()),
 
@@ -3330,6 +3339,7 @@ mod tests {
                 stroke: default_curve_stroke(Rgba::BLACK),
                 corner: slate_doc::scene::Corner::Square,
                 sides: slate_doc::scene::default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: None,
 

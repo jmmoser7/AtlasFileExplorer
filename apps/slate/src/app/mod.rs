@@ -492,6 +492,11 @@ pub struct SlateApp {
     /// Polyline corner whose grip is hovered when `board_hover_hit` is the
     /// corner grip (`None`: the shared grip).
     pub board_hover_grip_vertex: Option<usize>,
+    /// Selected polygon vertex whose + / − are showing (derived per frame).
+    pub board_sides_hover: Option<(NodeId, usize)>,
+    /// The primary press landed on a polygon + / −; its release is not
+    /// half of a canvas double-click.
+    pub board_sides_pressed: bool,
     /// Body-hover highlight progress per node (0..1, derived, never journaled).
     pub board_hover_glow: HashMap<NodeId, f32>,
     /// Hovered Grasshopper-style align-widget action (multi-selection chrome).
@@ -865,6 +870,8 @@ impl SlateApp {
             board_hover_hit: None,
             board_hover_node: None,
             board_hover_grip_vertex: None,
+            board_sides_hover: None,
+            board_sides_pressed: false,
             board_hover_glow: HashMap::new(),
             board_align_hover: None,
             board_align_eat_press: false,

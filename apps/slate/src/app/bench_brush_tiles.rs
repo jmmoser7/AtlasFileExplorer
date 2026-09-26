@@ -109,6 +109,7 @@ fn stroke_node(scene: &mut slate_doc::scene::Scene, seed: u64) -> Node {
             stroke,
             corner: Corner::Square,
             sides: slate_doc::scene::default_regular_sides(),
+            phase_deg: 0.0,
             flip: false,
             path: Some(std::sync::Arc::new(PathData {
                 start: [0.06, 0.5],

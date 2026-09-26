@@ -1114,6 +1114,7 @@ fn render_regular_polygon(
         node.rect,
         node.rotation_deg,
         shape.sides,
+        shape.phase_deg,
         shape.corner,
         0.25,
     );
@@ -1225,6 +1226,7 @@ pub(crate) fn render_shape_svg(
                 local,
                 0.0,
                 shape.sides,
+                shape.phase_deg,
                 shape.corner,
                 0.25,
             );
@@ -2475,6 +2477,7 @@ mod tests {
                 stroke: Default::default(),
                 corner,
                 sides: slate_doc::scene::default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: None,
                 text: None,
@@ -2639,6 +2642,7 @@ mod tests {
             },
             corner: Corner::Square,
             sides: slate_doc::scene::default_regular_sides(),
+            phase_deg: 0.0,
             flip: false,
             path: Some(path.clone().into()),
             text: None,

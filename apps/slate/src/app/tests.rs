@@ -1216,6 +1216,7 @@ fn path_node_add_undo_via_journal() {
             stroke: board_path::default_draw_stroke(slate_doc::scene::Rgba::BLACK),
             corner: slate_doc::scene::Corner::Square,
             sides: slate_doc::scene::default_regular_sides(),
+            phase_deg: 0.0,
             flip: false,
             path: Some(std::sync::Arc::new(PathData {
                 start: [0.0, 0.5],
@@ -1249,6 +1250,7 @@ fn add_stroke(app: &mut SlateApp, x: f32, y: f32) -> NodeId {
             stroke: board_path::default_draw_stroke(slate_doc::scene::Rgba::BLACK),
             corner: slate_doc::scene::Corner::Square,
             sides: slate_doc::scene::default_regular_sides(),
+            phase_deg: 0.0,
             flip: false,
             path: Some(std::sync::Arc::new(PathData {
                 start: [0.0, 0.5],
@@ -1275,6 +1277,7 @@ fn add_rect(app: &mut SlateApp, x: f32, y: f32) -> NodeId {
             stroke: slate_doc::scene::Stroke::none(),
             corner: slate_doc::scene::Corner::Square,
             sides: slate_doc::scene::default_regular_sides(),
+            phase_deg: 0.0,
             flip: false,
             path: None,
 
@@ -1868,6 +1871,7 @@ fn double_click_closed_shape_opens_text_editor() {
             stroke: board_path::default_draw_stroke(slate_doc::scene::Rgba::BLACK),
             corner: slate_doc::scene::Corner::Square,
             sides: slate_doc::scene::default_regular_sides(),
+            phase_deg: 0.0,
             flip: false,
             path: None,
             text: None,
@@ -1909,6 +1913,7 @@ fn double_click_closed_shape_opens_text_editor() {
             stroke: board_path::default_draw_stroke(slate_doc::scene::Rgba::BLACK),
             corner: slate_doc::scene::Corner::Square,
             sides: slate_doc::scene::default_regular_sides(),
+            phase_deg: 0.0,
             flip: false,
             path: None,
             text: None,
@@ -2403,6 +2408,7 @@ fn closed_polyline_pick_and_near_ignore_empty_bbox() {
             stroke: board_path::default_curve_stroke(slate_doc::scene::Rgba::BLACK),
             corner: slate_doc::scene::Corner::Square,
             sides: slate_doc::scene::default_regular_sides(),
+            phase_deg: 0.0,
             flip: false,
             path: Some(data.into()),
 
@@ -2463,6 +2469,7 @@ fn closed_polyline_pick_and_near_ignore_points_outside_the_bbox() {
             stroke: board_path::default_curve_stroke(slate_doc::scene::Rgba::BLACK),
             corner: slate_doc::scene::Corner::Square,
             sides: slate_doc::scene::default_regular_sides(),
+            phase_deg: 0.0,
             flip: false,
             path: Some(data.into()),
 
@@ -2541,6 +2548,7 @@ fn add_ellipse(app: &mut SlateApp, x: f32, y: f32, w: f32, h: f32) -> NodeId {
             stroke: slate_doc::scene::Stroke::default(),
             corner: slate_doc::scene::Corner::Square,
             sides: slate_doc::scene::default_regular_sides(),
+            phase_deg: 0.0,
             flip: false,
             path: None,
 
@@ -3708,6 +3716,7 @@ fn filleted_polygon_stroke_never_spikes() {
                 rect,
                 0.0,
                 sides,
+                0.0,
                 slate_doc::scene::Corner::Rounded { radius },
                 0.25,
             );
@@ -6127,6 +6136,7 @@ fn selection_outline_follows_silhouette() {
                 stroke: slate_doc::scene::Stroke::none(),
                 corner: slate_doc::scene::Corner::Rounded { radius: 12.0 },
                 sides: slate_doc::scene::default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: None,
 
@@ -6146,6 +6156,7 @@ fn selection_outline_follows_silhouette() {
                 stroke: slate_doc::scene::Stroke::none(),
                 corner: slate_doc::scene::Corner::Square,
                 sides: slate_doc::scene::default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: None,
 
@@ -6943,6 +6954,7 @@ fn add_seg(app: &mut SlateApp, a: Pos2, b: Pos2) -> NodeId {
             stroke: board_path::default_draw_stroke(slate_doc::scene::Rgba::BLACK),
             corner: slate_doc::scene::Corner::Square,
             sides: slate_doc::scene::default_regular_sides(),
+            phase_deg: 0.0,
             flip: false,
             path: Some(path.into()),
 
@@ -6963,6 +6975,7 @@ fn add_filled_rect(app: &mut SlateApp, x: f32, y: f32, w: f32, h: f32) -> NodeId
             stroke: slate_doc::scene::Stroke::none(),
             corner: slate_doc::scene::Corner::Square,
             sides: slate_doc::scene::default_regular_sides(),
+            phase_deg: 0.0,
             flip: false,
             path: None,
 
@@ -6983,6 +6996,7 @@ fn add_filled_ellipse(app: &mut SlateApp, x: f32, y: f32, w: f32, h: f32) -> Nod
             stroke: slate_doc::scene::Stroke::none(),
             corner: slate_doc::scene::Corner::Square,
             sides: slate_doc::scene::default_regular_sides(),
+            phase_deg: 0.0,
             flip: false,
             path: None,
 
@@ -7965,6 +7979,7 @@ fn entered_media_suppresses_the_selection_cast() {
             stroke: board_path::default_draw_stroke(slate_doc::scene::Rgba::BLACK),
             corner: slate_doc::scene::Corner::Square,
             sides: slate_doc::scene::default_regular_sides(),
+            phase_deg: 0.0,
             flip: false,
             path: None,
             text: None,
@@ -9373,6 +9388,7 @@ fn image_paint_session_clears_before_drawing_off_another_selection() {
         slate_doc::scene::NodeKind::Shape(slate_doc::scene::ShapeNode {
             shape: slate_doc::scene::ShapeKind::Rect,
             sides: 6,
+            phase_deg: 0.0,
             fill: Some(slate_doc::scene::Rgba::opaque(0, 0, 0)),
             stroke: slate_doc::scene::Stroke::none(),
             corner: Default::default(),
@@ -9769,6 +9785,7 @@ fn fillet_drag_outward_grows_authored_radius() {
         kind: slate_doc::scene::NodeKind::Shape(slate_doc::scene::ShapeNode {
             shape: slate_doc::scene::ShapeKind::Rect,
             sides: 6,
+            phase_deg: 0.0,
             fill: None,
             stroke: slate_doc::scene::Stroke::default(),
             corner: slate_doc::scene::Corner::Rounded { radius: 10.0 },
@@ -9869,6 +9886,7 @@ fn fillet_grip_drag_from_square_starts_at_zero_radius() {
         slate_doc::scene::NodeKind::Shape(slate_doc::scene::ShapeNode {
             shape: slate_doc::scene::ShapeKind::Rect,
             sides: 6,
+            phase_deg: 0.0,
             fill: None,
             stroke: slate_doc::scene::Stroke::default(),
             corner: slate_doc::scene::Corner::Square,
@@ -9912,6 +9930,7 @@ fn fillet_drag_percent_mode_roundtrip() {
         kind: slate_doc::scene::NodeKind::Shape(slate_doc::scene::ShapeNode {
             shape: slate_doc::scene::ShapeKind::Rect,
             sides: 6,
+            phase_deg: 0.0,
             fill: None,
             stroke: slate_doc::scene::Stroke::default(),
             corner: slate_doc::scene::Corner::RoundedPercent { percent: 50.0 },
@@ -10066,6 +10085,7 @@ fn crossing_line(app: &mut SlateApp, x: f32) -> NodeId {
             stroke: board_path::default_curve_stroke(Rgba::BLACK),
             corner: slate_doc::scene::Corner::Square,
             sides: slate_doc::scene::default_regular_sides(),
+            phase_deg: 0.0,
             flip: false,
             path: Some(data.into()),
             text: None,
@@ -11076,6 +11096,7 @@ fn mirror_commands_toggle_pictures_and_paths_and_undo() {
             stroke: slate_doc::scene::Stroke::default(),
             corner: slate_doc::scene::Corner::Square,
             sides: slate_doc::scene::default_regular_sides(),
+            phase_deg: 0.0,
             flip: false,
             path: Some(std::sync::Arc::new(PathData {
                 start: [0.1, 0.2],
@@ -11249,6 +11270,7 @@ fn a_copied_bitmap_carries_rotation_crop_mirror_filters_and_ink() {
             stroke: slate_doc::scene::Stroke::none(),
             corner: slate_doc::scene::Corner::Square,
             sides: slate_doc::scene::default_regular_sides(),
+            phase_deg: 0.0,
             flip: false,
             path: None,
             text: None,

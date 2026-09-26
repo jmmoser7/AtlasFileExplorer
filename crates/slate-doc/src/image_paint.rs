@@ -176,6 +176,7 @@ mod tests {
         ShapeNode {
             shape: ShapeKind::Path,
             sides: 6,
+            phase_deg: 0.0,
             fill: None,
             stroke: Stroke::default(),
             corner: Corner::Square,
@@ -204,6 +205,7 @@ mod tests {
             NodeKind::Shape(ShapeNode {
                 shape: ShapeKind::Rect,
                 sides: 6,
+                phase_deg: 0.0,
                 fill: None,
                 stroke: Stroke::default(),
                 corner: Corner::Square,

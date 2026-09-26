@@ -2080,6 +2080,35 @@ impl SlateApp {
             ));
             self.paint_node_fillet_grip(painter, xf, n, select_tint);
         }
+        self.paint_node_sides_glyphs(painter, xf, n, select_tint);
+    }
+
+    fn paint_node_sides_glyphs(
+        &self,
+        painter: &egui::Painter,
+        xf: &BoardXf,
+        n: &Node,
+        select_tint: Color32,
+    ) {
+        if self.board_sides_hover.is_none_or(|(id, _)| id != n.id) {
+            return;
+        }
+        let pointer = painter.ctx().pointer_hover_pos();
+        for g in self.polygon_sides_glyphs(xf) {
+            let hot = pointer.is_some_and(|p| {
+                p.distance(g.center)
+                    <= canvas_scale::hit_px(board_handles::SIDES_GLYPH_RADIUS, xf.z)
+            });
+            board_handles::paint_sides_glyph(
+                painter,
+                g.center,
+                g.radius,
+                xf.z,
+                g.add,
+                select_tint,
+                hot,
+            );
+        }
     }
 
     fn paint_node_fillet_grip(
@@ -2132,6 +2161,7 @@ impl SlateApp {
                         node.rect,
                         node.rotation_deg,
                         s.sides,
+                        s.phase_deg,
                         s.corner,
                         0.25 / z,
                     );
@@ -3839,6 +3869,7 @@ impl SlateApp {
                             node.rect,
                             node.rotation_deg,
                             s.sides,
+                            s.phase_deg,
                             s.corner,
                             0.25 / z,
                         );
@@ -4480,12 +4511,32 @@ impl SlateApp {
                 if let Some(drag) = self.begin_fillet_drag(p, xf.s2w(p)) {
                     self.board_drag = Some(drag);
                     self.board_align_eat_press = true;
+                } else if let Some(g) = self.polygon_sides_glyph_at(p, &xf) {
+                    let request = super::board_transform::SidesRequest {
+                        id: g.id,
+                        vertex: g.vertex,
+                        add: g.add,
+                    };
+                    let ctx = ui.ctx().clone();
+                    self.dispatch(
+                        &ctx,
+                        atlas_commands::CommandId("board.shape.sides"),
+                        serde_json::to_string(&request).ok(),
+                    );
+                    self.board_align_eat_press = true;
+                    self.board_sides_pressed = true;
                 }
             }
         }
         // A second click on a grip is not a canvas double-click: that would
         // collapse a multi-selection and open text editing.
         let mut grip_released = false;
+        if self.board_sides_pressed
+            && ui.input(|i| i.pointer.button_released(egui::PointerButton::Primary))
+        {
+            self.board_sides_pressed = false;
+            grip_released = true;
+        }
         if matches!(self.board_drag, Some(BoardDrag::FilletRadius { .. })) {
             let mods = ui.input(|i| i.modifiers);
             if ui.input(|i| i.pointer.button_down(egui::PointerButton::Primary)) {
@@ -4817,6 +4868,7 @@ impl SlateApp {
         // Hover cursors / rotate zones. Selection is not required.
         self.board_hover_hit = None;
         self.board_hover_node = None;
+        self.board_sides_hover = None;
         let hover_live = resp.hovered()
             && !panning
             && !zoom_tool

@@ -11,8 +11,8 @@ use eframe::egui::{self, Id, Pos2, Rect, Vec2};
 use serde::{Deserialize, Serialize};
 use slate_doc::{
     scene::{
-        self, clamp_regular_sides, Corner, Dash, ImageAdjust, Node, NodeKind, PhotoFilter, Rgba,
-        ShapeKind, StrokeCap, StrokeJoin, WorldRect,
+        self, Corner, Dash, ImageAdjust, Node, NodeKind, PhotoFilter, Rgba, ShapeKind, StrokeCap,
+        StrokeJoin, WorldRect,
     },
     NodeId,
 };
@@ -2024,48 +2024,6 @@ impl SlateApp {
             if let Some(amount) = edit.amount {
                 self.preview_shape_property(Property::CornerAmount(amount));
             }
-            let all_regular = nodes.iter().all(|n| {
-                matches!(
-                    &n.kind,
-                    NodeKind::Shape(s) if s.shape == ShapeKind::RegularPolygon
-                )
-            });
-            if all_regular {
-                let sides = nodes
-                    .iter()
-                    .filter_map(|n| match &n.kind {
-                        NodeKind::Shape(s) if s.shape == ShapeKind::RegularPolygon => Some(s.sides),
-                        _ => None,
-                    })
-                    .next()
-                    .unwrap_or(scene::default_regular_sides());
-                let mut sides_y = fillet_rect.max.y + 6.0 * z;
-                if self.corners_include_crop() {
-                    sides_y += (chrome::CORNER_HEIGHT + 6.0) * z;
-                }
-                let row = Rect::from_min_size(
-                    Pos2::new(rect.min.x, sides_y),
-                    Vec2::new(rect.width(), chrome::CORNER_HEIGHT * z),
-                );
-                ui.scope_builder(egui::UiBuilder::new().max_rect(row), |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label(
-                            egui::RichText::new("Sides")
-                                .size(canvas_scale::px(12.0, z))
-                                .color(theme.sub),
-                        );
-                        let mut v = sides as i32;
-                        if ui
-                            .add(egui::DragValue::new(&mut v).range(3..=12).speed(0.1))
-                            .changed()
-                        {
-                            self.preview_shape_property(Property::RegularSides(
-                                clamp_regular_sides(v as u8),
-                            ));
-                        }
-                    });
-                });
-            }
             return false;
         }
         if panel == Panel::Text {
@@ -2499,6 +2457,7 @@ mod tests {
                 },
                 corner: Corner::Square,
                 sides: slate_doc::scene::default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: None,
 
@@ -3302,6 +3261,7 @@ mod tests {
                 stroke: scene::Stroke::default(),
                 corner,
                 sides: 6,
+                phase_deg: 0.0,
                 flip: false,
                 path: None,
                 text: None,
@@ -3330,6 +3290,7 @@ mod tests {
                 stroke: scene::Stroke::default(),
                 corner: Corner::Square,
                 sides: scene::default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: Some(std::sync::Arc::new(path)),
                 text: None,
@@ -3818,6 +3779,7 @@ mod tests {
                 stroke: scene::Stroke::default(),
                 corner: Corner::Rounded { radius: 20.0 },
                 sides: scene::default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: Some(std::sync::Arc::new(path)),
                 text: None,
@@ -3930,6 +3892,218 @@ mod tests {
             "in a multi-selection the polyline shows its shared grip"
         );
         let _ = other;
+    }
+
+    fn polygon_vertices_world(h: &Harness, id: NodeId) -> Vec<Pos2> {
+        let node = h.app.doc().scene.node(id).unwrap();
+        let NodeKind::Shape(s) = &node.kind else {
+            panic!("shape");
+        };
+        scene::regular_polygon_vertices(node.rect, s.sides, s.phase_deg)
+            .into_iter()
+            .map(|p| {
+                let [x, y] = node.rect.rotate_point(p, node.rotation_deg);
+                Pos2::new(x, y)
+            })
+            .collect()
+    }
+
+    fn sides_of(h: &Harness, id: NodeId) -> (u8, f32) {
+        match &h.app.doc().scene.node(id).unwrap().kind {
+            NodeKind::Shape(s) => (s.sides, s.phase_deg),
+            _ => panic!("shape"),
+        }
+    }
+
+    /// Rest the pointer on `p`. egui reports the board hovered only from the
+    /// second frame the pointer sits over it.
+    fn hover(h: &mut Harness, p: Pos2) {
+        pointer(h, p, None);
+        pointer(h, p, None);
+    }
+
+    /// Hover `vertex` and return where its + (or −) shows.
+    fn sides_glyph(h: &mut Harness, id: NodeId, vertex: usize, add: bool) -> Pos2 {
+        let v = h.app.board_xf().w2s(polygon_vertices_world(h, id)[vertex]);
+        hover(h, v);
+        let xf = h.app.board_xf();
+        h.app
+            .polygon_sides_glyphs(&xf)
+            .into_iter()
+            .find(|g| g.id == id && g.vertex == vertex && g.add == add)
+            .map(|g| g.center)
+            .expect("the hovered vertex shows its glyph")
+    }
+
+    fn click_at(h: &mut Harness, p: Pos2) {
+        pointer(h, p, None);
+        pointer(h, p, Some(true));
+        pointer(h, p, Some(false));
+    }
+
+    #[test]
+    fn polygon_vertex_hover_shows_plus_outside_and_minus_inside_only_there() {
+        let mut h = board();
+        let id = polygon(
+            &mut h,
+            WorldRect::new(-50.0, -50.0, 100.0, 100.0),
+            Corner::Square,
+        );
+        h.frame();
+        let xf = h.app.board_xf();
+        assert!(
+            h.app.polygon_sides_glyphs(&xf).is_empty(),
+            "nothing before a hover"
+        );
+        let center = xf.w2s(Pos2::ZERO);
+        let v2 = xf.w2s(polygon_vertices_world(&h, id)[2]);
+        hover(&mut h, v2);
+        let glyphs = h.app.polygon_sides_glyphs(&xf);
+        assert_eq!(glyphs.len(), 2, "{glyphs:?}");
+        assert!(
+            glyphs.iter().all(|g| g.id == id && g.vertex == 2),
+            "only the hovered vertex shows its glyphs: {glyphs:?}"
+        );
+        let plus = glyphs.iter().find(|g| g.add).unwrap();
+        let minus = glyphs.iter().find(|g| !g.add).unwrap();
+        let out = (v2 - center).normalized();
+        assert!(
+            (plus.center - v2).normalized().dot(out) > 0.999,
+            "+ sits outside, on the vertex's bisector"
+        );
+        assert!(
+            (minus.center - v2).normalized().dot(out) < -0.999,
+            "− sits inside, on the vertex's bisector"
+        );
+        let offset = plus.center.distance(v2);
+
+        h.app.tab_mut().cam.z *= 2.0;
+        let xf = h.app.board_xf();
+        let v2 = xf.w2s(polygon_vertices_world(&h, id)[2]);
+        hover(&mut h, v2);
+        let glyphs = h.app.polygon_sides_glyphs(&xf);
+        let plus2 = glyphs.iter().find(|g| g.add).expect("+ at 2x");
+        assert!(
+            (plus2.center.distance(v2) - 2.0 * offset).abs() < 0.01
+                && (plus2.radius - 2.0 * plus.radius).abs() < 0.01,
+            "the glyphs scale with the canvas (P0.9)"
+        );
+
+        hover(&mut h, v2 + Vec2::new(400.0, 400.0));
+        let xf = h.app.board_xf();
+        assert!(
+            h.app.polygon_sides_glyphs(&xf).is_empty(),
+            "gone off the vertex"
+        );
+
+        h.app.tab_mut().cam.z = 0.1;
+        let xf = h.app.board_xf();
+        let v = xf.w2s(polygon_vertices_world(&h, id)[2]);
+        hover(&mut h, v);
+        assert!(
+            h.app.polygon_sides_glyphs(&xf).is_empty(),
+            "too small to read, the glyphs drop (LOD)"
+        );
+    }
+
+    #[test]
+    fn polygon_plus_centers_a_new_side_on_the_vertex_and_minus_keeps_one_there() {
+        let mut h = board();
+        let rect = WorldRect::new(-80.0, -50.0, 160.0, 100.0);
+        let id = polygon(&mut h, rect, Corner::Square);
+        h.frame();
+        let before = polygon_vertices_world(&h, id);
+        let plus = sides_glyph(&mut h, id, 2, true);
+        click_at(&mut h, plus);
+        assert_eq!(sides_of(&h, id).0, 7, "+ adds a side");
+        let after = polygon_vertices_world(&h, id);
+        let mid = Pos2::new(
+            (after[0].x + after[1].x) * 0.5,
+            (after[0].y + after[1].y) * 0.5,
+        );
+        let d = (180.0f32 / 7.0).to_radians().cos();
+        assert!(
+            mid.distance(Pos2::ZERO + before[2].to_vec2() * d) < 1e-3,
+            "the new side is centered on vertex 2: {mid:?}"
+        );
+        assert_eq!(h.app.board_sel, [id].into_iter().collect());
+        h.app.board_undo();
+        assert_eq!(sides_of(&h, id), (6, 0.0), "+ is one undo step");
+
+        for _ in 0..30 {
+            h.frame();
+        }
+        let minus = sides_glyph(&mut h, id, 4, false);
+        click_at(&mut h, minus);
+        assert_eq!(sides_of(&h, id).0, 5, "− removes a side");
+        let after = polygon_vertices_world(&h, id);
+        assert!(
+            after[0].distance(before[4]) < 1e-3,
+            "a vertex stays exactly where vertex 4 was: {:?} vs {:?}",
+            after[0],
+            before[4]
+        );
+        h.app.board_undo();
+        assert_eq!(sides_of(&h, id), (6, 0.0), "− is one undo step");
+    }
+
+    #[test]
+    fn polygon_sides_stop_at_3_and_12_and_a_quick_second_click_is_not_a_double_click() {
+        let mut h = board();
+        let id = polygon(
+            &mut h,
+            WorldRect::new(-50.0, -50.0, 100.0, 100.0),
+            Corner::Square,
+        );
+        let set_sides = |h: &mut Harness, n: u8| {
+            h.app.patch_nodes(&[id], |node| {
+                if let NodeKind::Shape(s) = &mut node.kind {
+                    s.sides = n;
+                }
+            });
+            h.frame();
+        };
+        let shown = |h: &mut Harness| {
+            let v = h.app.board_xf().w2s(polygon_vertices_world(h, id)[1]);
+            pointer(h, v, None);
+            let xf = h.app.board_xf();
+            let mut adds: Vec<bool> = h
+                .app
+                .polygon_sides_glyphs(&xf)
+                .iter()
+                .map(|g| g.add)
+                .collect();
+            adds.sort();
+            adds
+        };
+        set_sides(&mut h, 12);
+        assert_eq!(shown(&mut h), vec![false], "12 sides: only −");
+        set_sides(&mut h, 3);
+        assert_eq!(shown(&mut h), vec![true], "3 sides: only +");
+
+        set_sides(&mut h, 6);
+        for _ in 0..30 {
+            h.frame();
+        }
+        let minus = sides_glyph(&mut h, id, 2, false);
+        click_at(&mut h, minus);
+        assert_eq!(sides_of(&h, id).0, 5);
+        pointer(&mut h, minus, Some(true));
+        pointer(&mut h, minus, Some(false));
+        assert_eq!(
+            sides_of(&h, id).0,
+            4,
+            "the − under the pointer again removes another side"
+        );
+        assert_eq!(
+            h.app.board_sel,
+            [id].into_iter().collect(),
+            "a quick second click keeps the selection"
+        );
+        assert!(
+            !h.app.text_compose_active(),
+            "a quick second click does not open text editing"
+        );
     }
 
     fn item_kinds(items: &[StripItem]) -> Vec<&'static str> {

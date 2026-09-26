@@ -344,6 +344,38 @@ pub fn paint_fillet_grip(painter: &egui::Painter, grip: Pos2, zoom: f32, ink: Co
     );
 }
 
+/// Designed radius of a polygon vertex's + / − (P1.shape.polygon-sides).
+pub const SIDES_GLYPH_RADIUS: f32 = 6.0;
+/// Designed distance from the vertex to each glyph's center, along the
+/// vertex's bisector: + outside, − inside.
+pub const SIDES_GLYPH_OFFSET: f32 = 14.0;
+/// Designed radius around a vertex that reveals its glyphs.
+pub const SIDES_VERTEX_HIT: f32 = 10.0;
+
+pub fn paint_sides_glyph(
+    painter: &egui::Painter,
+    center: Pos2,
+    radius: f32,
+    zoom: f32,
+    add: bool,
+    ink: Color32,
+    hot: bool,
+) {
+    let fill = if hot { GRIP_HANDLE_HOT } else { Color32::WHITE };
+    painter.circle(
+        center,
+        radius,
+        fill,
+        EStroke::new(canvas_scale::px(1.0, zoom), ink),
+    );
+    let arm = radius * 0.55;
+    let bar = EStroke::new(canvas_scale::px(1.5, zoom), ink);
+    painter.line_segment([center - Vec2::X * arm, center + Vec2::X * arm], bar);
+    if add {
+        painter.line_segment([center - Vec2::Y * arm, center + Vec2::Y * arm], bar);
+    }
+}
+
 #[cfg(test)]
 pub fn hit_test_selection(screen: Pos2, geom: &SelectionGeom) -> Option<BoardHitTarget> {
     hit_test_chrome(screen, geom, true)
@@ -529,6 +561,7 @@ mod tests {
             stroke: slate_doc::scene::Stroke::default(),
             corner: slate_doc::scene::Corner::Square,
             sides: slate_doc::scene::default_regular_sides(),
+            phase_deg: 0.0,
             flip: false,
             path: None,
             text: None,

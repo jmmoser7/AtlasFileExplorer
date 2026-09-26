@@ -166,11 +166,12 @@ pub fn regular_polygon_world_outline(
     rect: WorldRect,
     rotation_deg: f32,
     sides: u8,
+    phase_deg: f32,
     corner: Corner,
     tolerance: f32,
 ) -> Vec<[f32; 2]> {
     let sides = clamp_regular_sides(sides);
-    let verts = regular_polygon_vertices(rect, sides);
+    let verts = regular_polygon_vertices(rect, sides, phase_deg);
     let (chamfer, amount) = corner.effective(rect.w, rect.h);
     let mut outline = if amount <= 0.0 {
         verts
@@ -260,7 +261,7 @@ pub fn corner_grip_edge(node: &Node, chamfer: bool) -> Option<CornerGripEdge> {
     match &node.kind {
         NodeKind::Shape(s) if s.shape == ShapeKind::RegularPolygon => {
             let sides = clamp_regular_sides(s.sides) as usize;
-            let verts: Vec<[f32; 2]> = regular_polygon_vertices(rect, sides as u8)
+            let verts: Vec<[f32; 2]> = regular_polygon_vertices(rect, sides as u8, s.phase_deg)
                 .into_iter()
                 .map(|p| rect.rotate_point(p, rot))
                 .collect();
@@ -461,6 +462,7 @@ pub fn node_closed_poly(n: &Node, tolerance: f32) -> Option<Polygon> {
                         n.rect,
                         n.rotation_deg,
                         s.sides,
+                        s.phase_deg,
                         s.corner,
                         tolerance,
                     ),
@@ -585,7 +587,7 @@ mod tests {
                     ] {
                         for rot in [0.0, 33.0] {
                             let outline =
-                                regular_polygon_world_outline(rect, rot, sides, corner, 0.05);
+                                regular_polygon_world_outline(rect, rot, sides, 0.0, corner, 0.05);
                             let label = format!("{rect:?} sides={sides} {corner:?} rot={rot}");
                             let bounds = (rot == 0.0).then_some(rect);
                             assert_clean_convex_outline(&outline, bounds, &label);
@@ -596,7 +598,8 @@ mod tests {
                     Corner::RoundedPercent { percent: 100.0 },
                     Corner::ChamferPercent { percent: 100.0 },
                 ] {
-                    let outline = regular_polygon_world_outline(rect, 0.0, sides, corner, 0.05);
+                    let outline =
+                        regular_polygon_world_outline(rect, 0.0, sides, 0.0, corner, 0.05);
                     let label = format!("{rect:?} sides={sides} {corner:?}");
                     assert_clean_convex_outline(&outline, Some(rect), &label);
                 }
@@ -609,7 +612,8 @@ mod tests {
         // A true regular hexagon (square box): 120 degree interior angles.
         let rect = WorldRect::new(0.0, 0.0, 100.0, 100.0);
         let radius = 10.0f32;
-        let outline = regular_polygon_world_outline(rect, 0.0, 6, Corner::Rounded { radius }, 0.01);
+        let outline =
+            regular_polygon_world_outline(rect, 0.0, 6, 0.0, Corner::Rounded { radius }, 0.01);
         let v0 = [50.0f32, 0.0];
         let half_interior = 60.0f32.to_radians();
         let tangent = radius / half_interior.tan();
@@ -755,6 +759,7 @@ mod tests {
             NodeKind::Shape(crate::scene::ShapeNode {
                 shape: ShapeKind::Line,
                 sides: 6,
+                phase_deg: 0.0,
                 fill: None,
                 stroke: crate::scene::Stroke::default(),
                 corner,
@@ -830,7 +835,7 @@ mod tests {
     #[test]
     fn regular_polygon_default_is_six_sides() {
         let rect = WorldRect::new(0.0, 0.0, 100.0, 100.0);
-        let v = crate::scene::regular_polygon_vertices(rect, 6);
+        let v = crate::scene::regular_polygon_vertices(rect, 6, 0.0);
         assert_eq!(v.len(), 6);
     }
 
@@ -947,6 +952,7 @@ mod paint_window_tests {
             NodeKind::Shape(ShapeNode {
                 shape: ShapeKind::Line,
                 sides: 6,
+                phase_deg: 0.0,
                 fill: None,
                 stroke: Stroke::default(),
                 corner: Corner::Square,
@@ -961,6 +967,7 @@ mod paint_window_tests {
             NodeKind::Shape(ShapeNode {
                 shape: ShapeKind::Line,
                 sides: 6,
+                phase_deg: 0.0,
                 fill: None,
                 stroke: Stroke::default(),
                 corner: Corner::Square,

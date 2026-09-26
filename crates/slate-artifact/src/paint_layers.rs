@@ -163,6 +163,7 @@ mod tests {
             NodeKind::Shape(ShapeNode {
                 shape: ShapeKind::Rect,
                 sides: 6,
+                phase_deg: 0.0,
                 fill: Some(Rgba::opaque(255, 0, 0)),
                 stroke: Stroke::none(),
                 corner: Default::default(),
