@@ -1412,6 +1412,18 @@ fn paint_plan(app: &mut SlateApp, pass: &Pass, plan: RunPlan, coords: &mut [Coor
             bits,
             span: pass.span,
         });
+        // A tile where none of the run's strokes reach any more is left from
+        // before a split. The fast path paints every tile in view, so it
+        // would draw strokes another run now owns.
+        if !plan.fast && !plan.missing {
+            let (x0, y0, x1, y1) = pass.span;
+            run.tiles.retain(|&(b, tx, ty), _| {
+                b != bits
+                    || !(x0..=x1).contains(&tx)
+                    || !(y0..=y1).contains(&ty)
+                    || plan.cells.iter().any(|c| c.tx == tx && c.ty == ty)
+            });
+        }
         if id_subsequence(&plan.ids, &run.ids) {
             run.ids = plan.ids;
             run.keys = plan.keys;

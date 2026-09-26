@@ -504,6 +504,50 @@ fn erasing_paints_every_stroke_exactly_once_each_frame() {
     assert!(b.app.brush_tiles.last.settled, "tiles did not settle");
 }
 
+/// A stroke that leaves the tiles (selected, or under the eraser) splits
+/// its run in two. The run that keeps the old cache never paints a tile at
+/// a coordinate its own strokes no longer reach: once the other half's new
+/// tile lands there, each stroke still paints exactly once.
+#[test]
+fn a_split_run_never_paints_its_old_tiles_over_the_other_half() {
+    let mut b = Bench::logged(0);
+    let scene = &mut b.app.doc_mut().scene;
+    let p = dab_node(scene, [100.0, 100.0], 24.0, 0.0, 0.0);
+    let x = dab_node(scene, [700.0, 100.0], 24.0, 0.0, 0.0);
+    let q = dab_node(scene, [760.0, 100.0], 24.0, 0.0, 0.0);
+    let ids = [p.id, x.id, q.id];
+    b.app.add_nodes(vec![p, x, q]);
+    assert!(settle(&mut b), "fixture tiles did not settle");
+    assert!(
+        ids.iter()
+            .all(|id| !b.app.brush_tiles.tiles_with(*id).is_empty()),
+        "fixture strokes not tiled"
+    );
+
+    b.app.board_sel.insert(ids[1]);
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut frame = 0;
+    loop {
+        b.frame();
+        let faults = coverage_faults(&b, ids);
+        assert!(
+            faults.is_empty(),
+            "frame {frame} after the split: {faults:?}"
+        );
+        if b.app.brush_tiles.last.settled || Instant::now() > deadline {
+            break;
+        }
+        frame += 1;
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert!(b.app.brush_tiles.last.settled, "tiles did not settle");
+    for f in 0..3 {
+        b.frame();
+        let faults = coverage_faults(&b, ids);
+        assert!(faults.is_empty(), "settled frame {f}: {faults:?}");
+    }
+}
+
 /// A horizontal brush bar `length` long, centered at `at`.
 fn bar_node(
     scene: &mut slate_doc::scene::Scene,
