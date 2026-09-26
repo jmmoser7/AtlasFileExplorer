@@ -419,8 +419,12 @@ fn live_property_strip_items(app: &SlateApp, nodes: &[Node]) -> Vec<StripItem> {
             items.push(StripItem::Agent(true));
             return items;
         }
-        // A generated picture or text is media too.
+        // A generated picture or text is media too; a picture takes photo
+        // filters like any placed image.
         if nodes.len() == 1 && app.is_agent_media(nodes[0].id) {
+            if SlateApp::supports_image_paint(nodes[0].id, app) {
+                items.push(StripItem::Panel(Panel::Filter));
+            }
             items.push(StripItem::Panel(Panel::Agent));
         }
         return items;
@@ -3046,6 +3050,27 @@ mod tests {
         };
         assert_eq!(img.paint_layers.len(), 1, "+ appends a paint layer");
         assert_eq!(h.app.board_sel, std::iter::once(image).collect());
+    }
+
+    #[test]
+    fn an_agent_picture_offers_photo_filters_picked_or_not() {
+        let (mut h, generator) =
+            super::super::board_flow::tests::generator_with_output("agent_picture_filters");
+        for picked in [false, true] {
+            if picked {
+                h.app.pick_agent_result(generator, 0);
+            }
+            let nodes = vec![h.app.doc().scene.node(generator).unwrap().clone()];
+            let items = live_property_strip_items(&h.app, &nodes);
+            assert!(
+                items.contains(&StripItem::Panel(Panel::Filter)),
+                "picked {picked}: {items:?}"
+            );
+            assert!(
+                items.contains(&StripItem::Panel(Panel::Agent)),
+                "the Agent squircle stays: {items:?}"
+            );
+        }
     }
 
     fn click(h: &mut Harness, p: Pos2) {

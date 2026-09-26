@@ -116,6 +116,11 @@ impl SlateApp {
         let NodeKind::Image(img) = &node.kind else {
             return false;
         };
+        // A generated picture shows its newest result until one is picked.
+        if let Some(agent) = img.agent.as_ref().filter(|_| img.item.is_none()) {
+            return agent.view != atlas_ai::agent::PortalView::Text
+                && app.agent_shown_path(id).is_some();
+        }
         let Some(item) = app.doc().item(img.item) else {
             return false;
         };

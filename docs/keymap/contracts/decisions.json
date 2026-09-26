@@ -4771,11 +4771,11 @@
       "canvas": "image-paint-layers-tool-contract",
       "decisions": {
         "D01": {
-          "behavior": "On a selected raster image, a small circled + sits just outside the right end of the photo-filter capsule. Click + to append a paint layer, select it, and arm the current drawing tool. With an image selected, activating any drawing tool (including Eraser) assumes drawing on the active layer (create one if empty). Agent pictures with a picked raster result are eligible.",
+          "behavior": "On a selected raster image, a small circled + sits just outside the right end of the photo-filter capsule. Click + to append a paint layer, select it, and arm the current drawing tool. With an image selected, activating any drawing tool (including Eraser) assumes drawing on the active layer (create one if empty). Agent and generator pictures are eligible whenever they show a raster result, picked or not (until one is picked, the newest), and their selection strip offers the photo-filter squircle before the Agent squircle.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-09-26"
         },
         "D02": {
           "behavior": "Drawing tools keep their stickiness. Image hosting ends on empty-canvas click or Esc after HUD peel.",

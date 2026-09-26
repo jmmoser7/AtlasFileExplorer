@@ -486,7 +486,9 @@ downstream, and existing Ollama and ComfyUI cards keep working.
 
 The Agent squircle sits in the selection strip of a single picture, video, 3D
 model, text document, note or generated frame; PDFs and design files are not
-offered. Its editor (`selection_tools::agent_editor`) submits through
+offered. A generated picture that shows a result, picked or not, also offers
+the photo-filter squircle before it and hosts paint layers like a placed
+image (`image-paint-layers` D01; user finding, 26 September 2026). Its editor (`selection_tools::agent_editor`) submits through
 `portal.agent.spawn`, the same command as the output-port menu, with the
 prompt and settings. The new generator or text block is wired from the source
 by `build_connector` at the matching port, journals `instruction` and
