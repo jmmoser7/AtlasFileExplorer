@@ -33,6 +33,11 @@ rails was rejected the same day and walked back. Every Fill/Stroke image here
 (revision-3 and native) shows the old value rail until recaptured; the guide
 lists which to refresh.
 
+User refinement (26 September 2026): the saturation rail keeps its color
+whatever value is selected. It paints gray to full hue at value 1, the
+field's top edge, rather than darkening with the selection. What the rail
+sets is unchanged.
+
 ### Native refinements
 
 Curve-quality follow-up: [light](native/curve-quality-light.png), [dark](native/curve-quality-dark.png).

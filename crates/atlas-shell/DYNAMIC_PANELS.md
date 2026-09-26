@@ -77,7 +77,8 @@ One shared color editor has this vertical order:
    to bottom, with a round marker. Dragging in it sets saturation and value.
 2. Full-width opacity/checkerboard, saturation, and hue rails, in that order.
    The saturation rail runs from gray to full color at the current hue and
-   value; the hue rail is the full spectrum.
+   value 1 (the field's top edge), so it keeps its color however dark the
+   selection is; the hue rail is the full spectrum.
 3. For Stroke only, one additional matching rail for stroke width.
 4. A single footer: desktop eyedropper, recent-color dots, a subtle divider,
    and inline R/G/B percentage values.
@@ -88,7 +89,7 @@ opacity rail, and the hue rail are unchanged from the approved original
 saturation, so a color arriving at saturation 0 keeps the previous hue, and
 one at value 0 keeps the previous hue and saturation. The field and rails are
 small cached textures in `ColorState`, rebuilt only when their inputs change
-(the field when hue changes, the saturation rail when hue or value changes),
+(the field and the saturation rail when hue changes),
 never tessellated per frame.
 
 **Rails have no permanent metrics, captions, unit labels, or metric gutter.**
@@ -113,6 +114,8 @@ a fixed rainbow palette or global history. Previews and cancellation do not
 add colors; persistence and commit rules remain in P1.shape.properties.
 Every eyedropper uses the shared desktop-wide sampler, including outside
 Slate; see [desktop sampling](../../docs/keymap/specs/desktop-color-sampling.md).
+The footer eyedropper takes a click (then click the color) or a press and
+drag (release over the color commits; Escape cancels).
 
 ## Capsule default
 

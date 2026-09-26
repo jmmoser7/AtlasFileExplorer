@@ -87,7 +87,7 @@ pub static SPECS: &[CommandSpec] = &[
     spec("board.sheet.column", "Board", "Add spreadsheet column", "With a CSV or Excel card open, hover and click + beside the header to add a column, then type its name", None, Repeat::Never, BOARD, &["excel column", "add column"]),
     spec("board.wire.edit", "Board", "Edit wire properties", "Wire selection palette: color, weight, Square / Bezier, Solid / Dashed, None / Arrows", None, Repeat::Never, BOARD, &["wire properties", "wire weight", "wire arrows", "wire dash"]),
     spec("board.shape.dimension", "Board", "Edit shape dimension", "Click an external dimension stringer; Enter applies around the center, Escape cancels", None, Repeat::Never, BOARD, &["dimension", "length", "width", "height"]),
-    spec("board.color.desktop", "Board", "Sample desktop color", "Eyedropper in any color editor; click any desktop pixel, Escape cancels", None, Repeat::Never, BOARD, &["desktop color", "sample color"]),
+    spec("board.color.desktop", "Board", "Sample desktop color", "Eyedropper in any color editor: click it, then click any desktop pixel; or press it, drag to any desktop pixel and release. Escape cancels", None, Repeat::Never, BOARD, &["desktop color", "sample color"]),
     spec("board.tool.polyline", "Board", "Polyline tool", "Shapes: click vertices; Enter finishes; snap to the start to close", None, Repeat::Repeatable, BOARD, &["polyline", "polygon"]),
     spec("board.tool.arc", "Board", "Arc tool", "Shapes: pick three points for an arc", None, Repeat::Repeatable, BOARD, &["arc", "curve"]),
     spec("board.tool.bezier", "Board", "Bezier span tool", "Shapes: place anchors and drag tangent handles", None, Repeat::Repeatable, BOARD, &["bezier", "handles"]),
