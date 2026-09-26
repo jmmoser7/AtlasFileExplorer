@@ -2295,14 +2295,27 @@ impl SlateApp {
         );
     }
 
-    /// Screen rect of the selection strip's screenshot button, last frame.
-    #[cfg(test)]
+    /// Screen rect of the selection strip's screenshot button, last painted.
     pub(crate) fn model_screenshot_button(&self) -> Option<Rect> {
         let items = &self.shape_properties.last_chrome.as_ref()?.items;
         let index = items
             .iter()
             .position(|item| matches!(item, StripItem::ModelScreenshot))?;
         self.shape_properties.chrome_hits.get(index).copied()
+    }
+
+    /// The screenshot button and what its menu must not cover: the selection
+    /// and the whole strip.
+    pub(crate) fn model_screenshot_anchor(&self, xf: &BoardXf) -> Option<(Rect, Rect)> {
+        let chrome = self.shape_properties.last_chrome.as_ref()?;
+        let button = self.model_screenshot_button()?;
+        let strip = self
+            .shape_properties
+            .chrome_hits
+            .iter()
+            .take(chrome.items.len())
+            .fold(button, |strip, r| strip.union(*r));
+        Some((button, xf.rect_w2s(chrome.bounds).union(strip)))
     }
 }
 
