@@ -257,6 +257,7 @@ mod tests {
                 color: Rgba::BLACK,
                 align: Default::default(),
                 fill: None,
+                stroke: Default::default(),
                 agent: None,
             }),
         );
@@ -492,6 +493,7 @@ mod tests {
                 color: Rgba::BLACK,
                 align: Default::default(),
                 fill: None,
+                stroke: Default::default(),
                 agent: None,
             }),
         );
@@ -724,6 +726,7 @@ mod tests {
                 color: Rgba::BLACK,
                 align: Default::default(),
                 fill: Some(Rgba::opaque(255, 235, 130)),
+                stroke: Default::default(),
                 agent: None,
             }),
         );
@@ -906,6 +909,7 @@ mod tests {
                 color: Rgba::BLACK,
                 align: Default::default(),
                 fill: None,
+                stroke: Default::default(),
                 agent: None,
             }),
         );
@@ -1445,6 +1449,7 @@ mod tests {
                 color: Rgba::BLACK,
                 align: Default::default(),
                 fill: None,
+                stroke: Default::default(),
                 agent: None,
             }),
         );

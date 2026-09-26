@@ -274,6 +274,7 @@ fn text_node(app: &mut SlateApp, rect: WorldRect, text: String) -> Node {
             color: slate_doc::scene::Rgba::opaque(96, 104, 118),
             align: slate_doc::scene::TextAlign::Left,
             fill: None,
+            stroke: Default::default(),
             agent: None,
         }),
     )

@@ -3891,6 +3891,7 @@ impl SlateApp {
                         ));
                     }
                 }
+                stroke_outline(painter, &outline_s, &t.stroke, z);
                 if self
                     .text_edit
                     .as_ref()
@@ -7570,6 +7571,7 @@ impl SlateApp {
                 color: draft.color,
                 align: draft.align,
                 fill: None,
+                stroke: Default::default(),
                 agent: None,
             }),
         );

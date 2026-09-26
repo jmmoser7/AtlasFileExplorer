@@ -3191,6 +3191,7 @@ mod tests {
                 color: Rgba([0, 0, 0, 255]),
                 align: Default::default(),
                 fill: None,
+                stroke: Default::default(),
                 agent: None,
             }),
         );
@@ -3354,6 +3355,58 @@ mod tests {
             Some(Corner::ChamferPercent { .. })
         ));
         assert!((scene::resolved_corner_effective(node, None).1 - expected).abs() < 1e-4);
+    }
+
+    /// A text box takes the shared Stroke editor like other geometry. The
+    /// border is authored (one undo) and painted around the box.
+    #[test]
+    fn text_box_takes_the_shared_stroke_editor_and_paints_its_border() {
+        let mut h = board();
+        let id = text_node(&mut h, WorldRect::new(-120.0, -30.0, 240.0, 60.0));
+        let node = h.app.doc().scene.node(id).unwrap().clone();
+        assert!(
+            live_property_strip_items(&h.app, &[node]).contains(&StripItem::Panel(Panel::Stroke))
+        );
+        let before = h.app.tab().journal.undo_depth();
+        apply(
+            &mut h,
+            vec![id],
+            vec![
+                Property::StrokeRgb([200, 30, 30]),
+                Property::StrokeAlpha(255),
+                Property::StrokeWidth(3.0),
+            ],
+        );
+        assert_eq!(h.app.tab().journal.undo_depth(), before + 1);
+        let stroke =
+            scene::stroke_of(h.app.doc().scene.node(id).unwrap()).expect("a text box has a stroke");
+        assert_eq!(stroke.color, Rgba([200, 30, 30, 255]));
+        assert_eq!(stroke.width, 3.0);
+        h.app.board_sel.clear();
+        h.frame();
+        let screen = h
+            .app
+            .board_xf()
+            .rect_w2s(WorldRect::new(-120.0, -30.0, 240.0, 60.0));
+        let red = egui::epaint::ColorMode::Solid(egui::Color32::from_rgb(200, 30, 30));
+        let border = |out: &egui::FullOutput| {
+            out.shapes.iter().any(|s| match &s.shape {
+                egui::Shape::Path(p) => {
+                    p.closed
+                        && p.stroke.color == red
+                        && p.points.iter().all(|q| screen.expand(1.0).contains(*q))
+                        && p.points.iter().any(|q| (q.x - screen.left()).abs() < 1.0)
+                }
+                _ => false,
+            })
+        };
+        assert!(
+            border(&h.frame_output(|_| {})),
+            "the board paints the border"
+        );
+        h.app.board_undo();
+        assert!(scene::stroke_of(h.app.doc().scene.node(id).unwrap()).is_none_or(|s| s.is_none()));
+        assert!(!border(&h.frame_output(|_| {})));
     }
 
     fn pointer(h: &mut Harness, p: Pos2, pressed: Option<bool>) {
@@ -3897,7 +3950,10 @@ mod tests {
             item_kinds(&property_strip_items(&[node(image)])),
             ["stroke", "corners", "filter"]
         );
-        assert_eq!(item_kinds(&property_strip_items(&[node(text)])), ["fill"]);
+        assert_eq!(
+            item_kinds(&property_strip_items(&[node(text)])),
+            ["fill", "stroke"]
+        );
         assert_eq!(
             item_kinds(&property_strip_items(&[node(portal)])),
             ["fill", "stroke", "corners"]

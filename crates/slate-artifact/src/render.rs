@@ -1285,6 +1285,22 @@ pub(crate) fn render_text_svg(
             fill.css()
         );
     }
+    if !text.stroke.is_none() {
+        let _ = write!(
+            svg,
+            "<rect x=\"{:.3}\" y=\"{:.3}\" width=\"{:.3}\" height=\"{:.3}\" fill=\"none\" stroke=\"{}\" stroke-width=\"{:.3}\"",
+            rel.x,
+            rel.y,
+            rel.w,
+            rel.h,
+            text.stroke.color.css(),
+            text.stroke.width * scale
+        );
+        if let Some(dash) = line_dash_attrs(&text.stroke) {
+            let _ = write!(svg, " stroke-dasharray=\"{dash}\"");
+        }
+        svg.push_str("/>");
+    }
     let x = match text.align {
         TextAlign::Left => rel.x,
         TextAlign::Center => rel.x + rel.w * 0.5,
@@ -2304,6 +2320,7 @@ pub(crate) fn render_text(
             alpha = slate_doc::scene::STICKY_SHADOW_ALPHA,
         );
     }
+    append_stroke(&mut style, &text.stroke);
     style.push_str("font-family:");
     style.push_str(text.family.css_stack());
     style.push_str(";font-size:");
@@ -2575,6 +2592,62 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// A text box border is authored style: the export draws the same
+    /// stroke the board does (Art. IV), and a borderless box draws none.
+    #[test]
+    fn text_box_border_exports_as_the_node_stroke() {
+        let mut node = Node {
+            id: slate_doc::NodeId(7),
+            rect: WorldRect::new(0.0, 0.0, 240.0, 60.0),
+            rotation_deg: 0.0,
+            opacity: 1.0,
+            locked: false,
+            hidden: false,
+            group: None,
+            clip: None,
+            bumper: None,
+            kind: NodeKind::Text(slate_doc::scene::TextNode {
+                text: "Boxed".into(),
+                family: Default::default(),
+                size: 24.0,
+                color: slate_doc::scene::Rgba::BLACK,
+                align: TextAlign::Left,
+                fill: None,
+                stroke: Default::default(),
+                agent: None,
+            }),
+        };
+        let rel = node.rect;
+        let text_of = |node: &Node| match &node.kind {
+            NodeKind::Text(t) => t.clone(),
+            _ => unreachable!(),
+        };
+        let mut plain = String::new();
+        render_text(&mut plain, &node, &text_of(&node), "Boxed", rel);
+        assert!(!plain.contains("border:"), "{plain}");
+        slate_doc::scene::set_stroke(
+            &mut node,
+            slate_doc::scene::Stroke {
+                width: 3.0,
+                color: slate_doc::scene::Rgba([200, 30, 30, 255]),
+                dash: Dash::Dashed,
+                ..Default::default()
+            },
+        );
+        let mut boxed = String::new();
+        render_text(&mut boxed, &node, &text_of(&node), "Boxed", rel);
+        assert!(
+            boxed.contains("border:3.0px dashed rgba(200,30,30,1.000)"),
+            "{boxed}"
+        );
+        let mut svg = String::new();
+        render_text_svg(&mut svg, &node, &text_of(&node), "Boxed", rel, 1.0);
+        assert!(
+            svg.contains("stroke=\"rgba(200,30,30,1.000)\"") && svg.contains("stroke-width=\"3"),
+            "{svg}"
+        );
     }
 
     #[test]

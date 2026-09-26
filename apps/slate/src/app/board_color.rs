@@ -1476,6 +1476,7 @@ impl SlateApp {
                 color: STICKY_INK,
                 align: TextAlign::Center,
                 fill: Some(STICKY_FILL),
+                stroke: Default::default(),
                 agent: None,
             }),
         );
@@ -1505,6 +1506,7 @@ impl SlateApp {
                 color,
                 align,
                 fill,
+                stroke: Default::default(),
                 agent: None,
             }),
         );

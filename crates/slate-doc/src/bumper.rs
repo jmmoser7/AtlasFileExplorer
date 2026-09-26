@@ -573,6 +573,7 @@ mod tests {
                 color: Rgba([0, 0, 0, 255]),
                 align: Default::default(),
                 fill,
+                stroke: Default::default(),
                 agent: None,
             })
         };

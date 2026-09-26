@@ -9857,6 +9857,7 @@ mod agent_await_tests {
                 color: slate_doc::scene::Rgba::opaque(20, 20, 20),
                 align: slate_doc::scene::TextAlign::Left,
                 fill: Some(super::super::board_color::STICKY_FILL),
+                stroke: Default::default(),
                 agent: None,
             }),
         );
@@ -11025,6 +11026,7 @@ mod agent_await_tests {
                 color: slate_doc::scene::Rgba::opaque(20, 20, 20),
                 align: slate_doc::scene::TextAlign::Left,
                 fill: None,
+                stroke: Default::default(),
                 agent: None,
             }),
         );

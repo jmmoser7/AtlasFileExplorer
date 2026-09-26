@@ -329,6 +329,7 @@ impl Recipe {
                 color: s.text.color.resolve(ctx.accent),
                 align: s.text.align,
                 fill: s.text.fill.map(|c| c.resolve(ctx.accent)),
+                stroke: Default::default(),
                 agent: None,
             }),
             // The gesture owns path geometry; the recipe only styles it.

@@ -541,6 +541,7 @@ fn v2_document() -> SlateDoc {
             color: Rgba::opaque(20, 20, 40),
             align: TextAlign::Center,
             fill: Some(Rgba([255, 244, 200, 255])),
+            stroke: Default::default(),
             agent: None,
         }),
     );

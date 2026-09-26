@@ -874,6 +874,7 @@ fn an_occupied_board_can_insert_a_dropped_workbook() {
             color: slate_doc::scene::Rgba::opaque(20, 20, 20),
             align: slate_doc::scene::TextAlign::Left,
             fill: None,
+            stroke: Default::default(),
             agent: None,
         }),
     );
@@ -889,6 +890,7 @@ fn an_occupied_board_can_insert_a_dropped_workbook() {
             color: slate_doc::scene::Rgba::opaque(20, 20, 20),
             align: slate_doc::scene::TextAlign::Left,
             fill: None,
+            stroke: Default::default(),
             agent: None,
         }),
     );
@@ -7514,6 +7516,7 @@ fn trim_text_clip_punches_a_hole() {
                 color: slate_doc::scene::Rgba::BLACK,
                 align: TextAlign::Left,
                 fill: None,
+                stroke: Default::default(),
                 agent: None,
             }),
         );
@@ -7743,6 +7746,7 @@ fn join_skips_text() {
                 color: slate_doc::scene::Rgba::BLACK,
                 align: TextAlign::Left,
                 fill: None,
+                stroke: Default::default(),
                 agent: None,
             }),
         );
@@ -8145,6 +8149,7 @@ fn entered_media_suppresses_the_selection_cast() {
             color: slate_doc::scene::Rgba::opaque(20, 20, 20),
             align: TextAlign::Left,
             fill: Some(slate_doc::scene::Rgba::WHITE),
+            stroke: Default::default(),
             agent: None,
         }),
     );
@@ -11498,6 +11503,7 @@ fn a_mixed_copy_offers_plain_text_and_still_pastes_nodes() {
             color: slate_doc::scene::Rgba::BLACK,
             align: Default::default(),
             fill: None,
+            stroke: Default::default(),
             agent: None,
         }),
     );
