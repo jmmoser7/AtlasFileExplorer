@@ -11,7 +11,8 @@ use slate_doc::{
     NodeId, PaintLayer, ViewState,
 };
 
-/// Which chip owns the shared intensity slider in the Filters capsule.
+/// The layer the palette slider and Delete address; `Filter` means the image
+/// has no layer yet.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ImageStripFocus {
     Filter,
@@ -28,6 +29,12 @@ pub struct ImagePaintSession {
 #[derive(Clone)]
 pub(crate) struct PaintLayerTextureCache {
     key: u128,
+    texture: egui::TextureHandle,
+}
+
+/// One layer-palette preview circle and the scene generation it shows.
+pub(crate) struct PaintLayerThumb {
+    gen: u64,
     texture: egui::TextureHandle,
 }
 
@@ -183,12 +190,7 @@ impl SlateApp {
         let Some(session) = self.image_paint.as_ref() else {
             return;
         };
-        // A layer chip picked on the Filters strip in Select keeps its focus
-        // so the strip's one slider drives that layer's opacity.
-        let strip_layer = self.board_tool == BoardTool::Select
-            && self.shape_properties.panel == Some(super::board_properties::Panel::Filter)
-            && matches!(session.focus, ImageStripFocus::Layer(_));
-        if !(tool_hosts_on_image(self.board_tool) || strip_layer)
+        if !tool_hosts_on_image(self.board_tool)
             || self.board_sel.len() != 1
             || !self.board_sel.contains(&session.image)
         {
@@ -677,48 +679,154 @@ impl SlateApp {
         (cmds, touched)
     }
 
-    pub(crate) fn paint_image_paint_recent_colors(
-        &mut self,
-        ui: &egui::Ui,
-        painter: &egui::Painter,
-        xf: &BoardXf,
-        host: &Node,
-        srect: egui::Rect,
-    ) {
-        let Some(session) = self.image_paint.as_ref() else {
-            return;
+    /// The layer palette below the image being painted: one preview circle
+    /// per layer (the active one ringed), the document's recent colors as
+    /// small dots, the active layer's opacity slider, and the circled `+`.
+    /// Runs before board input so a press on it never paints. Returns
+    /// whether it holds the pointer.
+    pub(crate) fn image_paint_palette_ui(&mut self, ui: &mut egui::Ui, xf: &BoardXf) -> bool {
+        let Some(session) = self.image_paint.clone() else {
+            self.layer_opacity_drag = None;
+            return false;
         };
-        if session.image != host.id {
-            return;
+        let image = session.image;
+        if !self.agent_picture_draw_mode(image) || atlas_shell::canvas_scale::too_small(12.0 * xf.z)
+        {
+            return false;
         }
+        let Some(host) = self.doc().scene.node(image).cloned() else {
+            return false;
+        };
+        let NodeKind::Image(img) = &host.kind else {
+            return false;
+        };
         let z = xf.z;
-        let recents = self.doc().view.recent_colors.clone().unwrap_or_default();
-        let n = recents.len().min(ViewState::RECENT_COLOR_LIMIT);
-        if n == 0 {
-            return;
+        let bounds = xf.rect_w2s(host.rect.rotated_bounds(host.rotation_deg));
+        let recents: Vec<[u8; 3]> = self
+            .doc()
+            .view
+            .recent_colors
+            .iter()
+            .flatten()
+            .take(ViewState::RECENT_COLOR_LIMIT)
+            .copied()
+            .collect();
+        let layout = atlas_shell::selection_tools::layer_palette_layout(
+            Pos2::new(bounds.center().x, bounds.bottom()),
+            img.paint_layers.len(),
+            recents.len(),
+            z,
+        );
+        let active = match session.focus {
+            ImageStripFocus::Layer(i) if i < img.paint_layers.len() => Some(i),
+            _ => None,
+        };
+        let opacity = match self.layer_opacity_drag {
+            Some((drag_image, layer, value)) if drag_image == image && Some(layer) == active => {
+                value
+            }
+            _ => active.map_or(1.0, |i| img.paint_layers[i].opacity),
+        };
+        let thumbs = self.paint_layer_thumbs(ui.ctx(), &host, img);
+        let theme = self.palette();
+        let canvas = self.canvas_rect;
+        let mut edit = atlas_shell::selection_tools::LayerPaletteEdit::default();
+        egui::Area::new(egui::Id::new(("image_paint_palette", image.0)))
+            .order(egui::Order::Foreground)
+            .fixed_pos(layout.capsule.min)
+            .constrain(false)
+            .movable(false)
+            .fade_in(false)
+            .show(ui.ctx(), |ui| {
+                ui.set_clip_rect(canvas);
+                edit = atlas_shell::selection_tools::layer_palette(
+                    ui, &layout, &thumbs, active, opacity, &recents, z, theme,
+                );
+            });
+        self.shape_properties
+            .chrome_hits
+            .extend([layout.capsule, layout.add]);
+        if edit.add {
+            self.on_image_paint_add_clicked(image);
+        } else if let Some(i) = edit.layer {
+            self.image_paint = Some(ImagePaintSession {
+                image,
+                layer_index: i,
+                focus: ImageStripFocus::Layer(i),
+            });
         }
-        let gap = atlas_shell::canvas_scale::px(6.0, z);
-        let radius = atlas_shell::canvas_scale::px(8.0, z);
-        let ring = self.palette().border_strong;
-        let row_w = n as f32 * (radius * 2.0 + gap) - gap;
-        let center = egui::pos2(srect.center().x, srect.bottom() + gap + radius);
-        let x = center.x - row_w * 0.5 + radius;
-        let pointer = ui.ctx().pointer_latest_pos();
-        for (i, rgb) in recents.iter().take(n).enumerate() {
-            let at = egui::pos2(x + i as f32 * (radius * 2.0 + gap), center.y);
-            let color = egui::Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
-            painter.circle_filled(at, radius, color);
-            painter.circle_stroke(
-                at,
-                radius,
-                egui::Stroke::new(atlas_shell::canvas_scale::px(1.0, z), ring),
-            );
-            if pointer.is_some_and(|p| (p - at).length() <= radius * 1.2)
-                && ui.input(|i| i.pointer.primary_clicked())
-            {
-                self.adopt_board_color_rgb(*rgb);
+        if let Some(rgb) = edit.color.and_then(|i| recents.get(i)) {
+            self.adopt_board_color_rgb(*rgb);
+        }
+        if let (Some(value), Some(layer)) = (edit.opacity, active) {
+            self.layer_opacity_drag = Some((image, layer, value));
+        }
+        if !ui.input(|i| i.pointer.primary_down()) {
+            if let Some((drag_image, layer, value)) = self.layer_opacity_drag.take() {
+                self.set_paint_layer_opacity(drag_image, layer, value);
             }
         }
+        let captures = ui.ctx().pointer_latest_pos().is_some_and(|p| {
+            canvas.contains(p) && (layout.capsule.contains(p) || layout.add.contains(p))
+        }) || self.layer_opacity_drag.is_some();
+        if captures && ui.input(|i| i.pointer.any_pressed()) {
+            self.board_align_eat_press = true;
+        }
+        captures
+    }
+
+    /// One preview texture per layer of `host`: that layer's ink alone,
+    /// center-cropped square. Rebuilt only when the scene generation moves.
+    fn paint_layer_thumbs(
+        &mut self,
+        ctx: &egui::Context,
+        host: &Node,
+        img: &ImageNode,
+    ) -> Vec<Option<egui::TextureId>> {
+        const THUMB_PX: u32 = 48;
+        let gen = self.scene_gen;
+        let aspect = host.rect.w.max(1e-6) / host.rect.h.max(1e-6);
+        let (w, h) = if aspect >= 1.0 {
+            ((THUMB_PX as f32 * aspect).ceil() as u32, THUMB_PX)
+        } else {
+            (THUMB_PX, (THUMB_PX as f32 / aspect).ceil() as u32)
+        };
+        img.paint_layers
+            .iter()
+            .map(|layer| {
+                let key = (host.id, layer.id);
+                if self
+                    .paint_layer_thumbs
+                    .get(&key)
+                    .is_none_or(|t| t.gen != gen)
+                {
+                    let mut alone = img.clone();
+                    alone.paint_layers = vec![PaintLayer {
+                        opacity: 1.0,
+                        visible: true,
+                        ..layer.clone()
+                    }];
+                    let svg =
+                        slate_artifact::paint_layers_svg_with_doc(host, &alone, w, h, self.doc());
+                    let rgba = slate_artifact::rasterize_paint_layers_svg(&svg, w, h)?;
+                    let (x0, y0) = ((w - THUMB_PX) / 2, (h - THUMB_PX) / 2);
+                    let side = THUMB_PX as usize;
+                    let mut square = Vec::with_capacity(side * side * 4);
+                    for row in 0..side {
+                        let start = ((y0 as usize + row) * w as usize + x0 as usize) * 4;
+                        square.extend_from_slice(&rgba[start..start + side * 4]);
+                    }
+                    let texture = ctx.load_texture(
+                        format!("paint-layer-thumb-{}-{}", host.id.0, layer.id.0),
+                        egui::ColorImage::from_rgba_unmultiplied([side, side], &square),
+                        egui::TextureOptions::LINEAR,
+                    );
+                    self.paint_layer_thumbs
+                        .insert(key, PaintLayerThumb { gen, texture });
+                }
+                self.paint_layer_thumbs.get(&key).map(|t| t.texture.id())
+            })
+            .collect()
     }
 
     pub fn adopt_board_color_rgb(&mut self, rgb: [u8; 3]) {

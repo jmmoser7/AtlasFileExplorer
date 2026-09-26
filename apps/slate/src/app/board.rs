@@ -3720,7 +3720,6 @@ impl SlateApp {
                             self.paint_image_paint_layers(
                                 ui, painter, xf, node, img, &outline, srect, alpha, z,
                             );
-                            self.paint_image_paint_recent_colors(ui, painter, xf, node, srect);
                         }
                         None => {
                             let palette = self.palette();
@@ -4009,8 +4008,9 @@ impl SlateApp {
 
         // Object chrome runs before gestures so it can capture clicks.
         let agent_controls_capture = self.agent_spawn_input(ui, &xf);
-        let other_toolbar_captures =
-            self.shape_properties_ui(ui, &xf) | self.corner_entry_ui(ui, &xf);
+        let other_toolbar_captures = self.shape_properties_ui(ui, &xf)
+            | self.corner_entry_ui(ui, &xf)
+            | self.image_paint_palette_ui(ui, &xf);
         let shot_captures = self.paint_model_screenshot_popup(ui.ctx());
         let model_toolbar_captures =
             agent_controls_capture || other_toolbar_captures || shot_captures;
@@ -5386,7 +5386,8 @@ impl SlateApp {
         if let Some(p) = pointer {
             if self.brush_hud.is_some() {
                 self.paint_brush_hud(&painter, p, palette.accent);
-            } else if rect.contains(p) && !panning && !zoom_tool {
+            } else if rect.contains(p) && !panning && !zoom_tool && !self.pointer_on_shape_chrome(p)
+            {
                 if let Some(w) = wp {
                     if self.eyedropper_active() {
                         self.paint_eyedropper_cursor(&painter, p, w);

@@ -171,8 +171,6 @@ impl eframe::App for Preview {
                     ],
                     Some(2),
                     0.72,
-                    &[],
-                    None,
                     z,
                     theme,
                 );

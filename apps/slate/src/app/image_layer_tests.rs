@@ -163,6 +163,248 @@ fn rings_in(h: &mut Harness, capsule: Rect) -> Vec<(Pos2, f32, bool)> {
     rings
 }
 
+// --- 1. Layers are not filters ---------------------------------------------
+
+#[test]
+fn the_first_stroke_on_a_selected_image_makes_a_layer_in_one_undo_step() {
+    let (mut h, id) = photo_board("layer_auto_create");
+    arm(&mut h, BoardTool::Brush);
+    assert!(layers(&h, id).is_empty());
+    h.app
+        .finish_freehand_brush(vec![Pos2::new(-50.0, 0.0), Pos2::new(50.0, 0.0)]);
+    let made = layers(&h, id);
+    assert_eq!(made.len(), 1, "the first stroke creates the layer");
+    assert_eq!(made[0].nodes.len(), 1);
+    h.app.board_undo();
+    assert!(
+        layers(&h, id).is_empty(),
+        "one undo removes the stroke and the layer it created"
+    );
+}
+
+#[test]
+fn painting_a_selected_image_shows_the_layer_palette_below_it() {
+    let (mut h, id) = photo_board("layer_palette_below");
+    arm(&mut h, BoardTool::Brush);
+    h.frame();
+    let image = screen_rect(&h, id);
+    let (capsule, plus) =
+        palette_hits(&h, image).expect("the layer palette is live before the first stroke");
+    assert!(
+        (capsule.center().x - image.center().x).abs() < 1.0,
+        "centered under the image"
+    );
+    assert!(
+        plus.left() >= capsule.right(),
+        "the + sits at the capsule's end"
+    );
+
+    h.app
+        .finish_freehand_brush(vec![Pos2::new(-50.0, 0.0), Pos2::new(50.0, 0.0)]);
+    for _ in 0..3 {
+        h.frame();
+    }
+    let (capsule, _) = palette_hits(&h, image).expect("the palette stays up while painting");
+    let rings = rings_in(&mut h, capsule);
+    assert_eq!(rings.len(), 1, "one preview circle per layer: {rings:?}");
+    assert!(rings[0].2, "the active layer carries the accent ring");
+}
+
+#[test]
+fn the_palette_plus_adds_a_layer_and_a_circle_click_makes_it_active() {
+    let (mut h, id) = photo_board("layer_palette_plus");
+    arm(&mut h, BoardTool::Brush);
+    h.app
+        .finish_freehand_brush(vec![Pos2::new(-50.0, 0.0), Pos2::new(50.0, 0.0)]);
+    for _ in 0..2 {
+        h.frame();
+    }
+    let image = screen_rect(&h, id);
+    let (_, plus) = palette_hits(&h, image).expect("palette");
+    click(&mut h, plus.center());
+    assert_eq!(layers(&h, id).len(), 2, "+ appends a layer");
+    assert_eq!(h.app.doc().scene.nodes.len(), 1, "no board node is drawn");
+    assert_eq!(h.app.image_paint_session().unwrap().layer_index, 1);
+    assert_eq!(h.app.board_tool, BoardTool::Brush, "the brush stays armed");
+
+    h.frame();
+    let (capsule, _) = palette_hits(&h, image).expect("palette");
+    let rings = rings_in(&mut h, capsule);
+    assert_eq!(
+        rings.len(),
+        2,
+        "no brush cursor over the palette: {rings:?}"
+    );
+    assert!(
+        rings[1].2 && !rings[0].2,
+        "the new layer is active: {rings:?}"
+    );
+    click(&mut h, rings[0].0);
+    assert_eq!(h.app.image_paint_session().unwrap().layer_index, 0);
+    let rings = rings_in(&mut h, capsule);
+    assert!(
+        rings[0].2 && !rings[1].2,
+        "the clicked circle is active: {rings:?}"
+    );
+    assert_eq!(
+        layers(&h, id)[0].nodes.len(),
+        1,
+        "a circle click draws nothing"
+    );
+}
+
+#[test]
+fn the_palette_slider_sets_the_active_layer_opacity_in_one_undo_step() {
+    let (mut h, id) = photo_board("layer_palette_opacity");
+    arm(&mut h, BoardTool::Brush);
+    h.app
+        .finish_freehand_brush(vec![Pos2::new(-50.0, 0.0), Pos2::new(50.0, 0.0)]);
+    for _ in 0..2 {
+        h.frame();
+    }
+    let image = screen_rect(&h, id);
+    let (capsule, _) = palette_hits(&h, image).expect("palette");
+    let adjust = slate_doc::scene::adjust_of(h.app.doc().scene.node(id).unwrap());
+    let z = h.app.tab().cam.z;
+    let track = Pos2::new(capsule.right() - 100.0 * z, capsule.center().y);
+    click(&mut h, track);
+    let after = layers(&h, id);
+    assert!(after[0].opacity < 0.5, "opacity {}", after[0].opacity);
+    assert_eq!(after[0].nodes.len(), 1, "the slider draws nothing");
+    assert_eq!(
+        slate_doc::scene::adjust_of(h.app.doc().scene.node(id).unwrap()),
+        adjust,
+        "not a filter"
+    );
+    h.app.board_undo();
+    assert!(
+        (layers(&h, id)[0].opacity - 1.0).abs() < 1e-4,
+        "one undo restores it"
+    );
+}
+
+#[test]
+fn the_filter_capsule_holds_filters_only() {
+    let (mut h, id) = photo_board("filter_filters_only");
+    arm(&mut h, BoardTool::Brush);
+    h.app
+        .finish_freehand_brush(vec![Pos2::new(-50.0, 0.0), Pos2::new(50.0, 0.0)]);
+    arm(&mut h, BoardTool::Select);
+    h.app.board_sel = std::iter::once(id).collect();
+    h.frame();
+    h.app.sync_shape_properties();
+    h.app.shape_properties.panel = Some(Panel::Filter);
+    h.frame();
+    h.frame();
+    let z = h.app.tab().cam.z;
+    let capsule = h
+        .app
+        .shape_properties
+        .chrome_hits
+        .iter()
+        .copied()
+        .find(|r| (r.height() - atlas_shell::selection_tools::FILTER_HEIGHT * z).abs() < 0.01)
+        .expect("filter capsule is live");
+    let rings = rings_in(&mut h, capsule);
+    assert_eq!(
+        rings.len(),
+        6,
+        "None plus five filters, no layer chips: {rings:?}"
+    );
+    let old_plus = Pos2::new(capsule.right() + 10.5 * z, capsule.center().y);
+    assert!(
+        !h.app
+            .shape_properties
+            .chrome_hits
+            .iter()
+            .any(|r| r.contains(old_plus)),
+        "no + beside the filter capsule"
+    );
+}
+
+#[test]
+fn painting_suppresses_the_selection_cast_and_the_dimension_stringers() {
+    let (mut h, id) = photo_board("layer_suppress_selection");
+    let theme = h.app.palette();
+    let tint = theme
+        .select
+        .gamma_multiply(atlas_shell::tokens::current().board_preview.select_opacity)
+        .gamma_multiply(0.16);
+    let cast = |out: &egui::FullOutput| {
+        shapes(out)
+            .into_iter()
+            .filter(|s| matches!(s, egui::Shape::Path(p) if p.fill == tint))
+            .count()
+    };
+    let stringers = |out: &egui::FullOutput| text_rect(out, "240").is_some();
+    for _ in 0..12 {
+        h.frame();
+    }
+    let rest = render(&mut h);
+    assert!(cast(&rest) > 0, "a selected image shows the cast at rest");
+    assert!(stringers(&rest), "and its width stringer");
+
+    arm(&mut h, BoardTool::Brush);
+    assert!(h.app.image_paint_session().is_some_and(|s| s.image == id));
+    for _ in 0..12 {
+        h.frame();
+    }
+    let painting = render(&mut h);
+    assert_eq!(cast(&painting), 0, "no blue cast while painting");
+    assert!(
+        !stringers(&painting),
+        "no dimension stringers while painting"
+    );
+    assert!(h.app.board_sel.contains(&id), "the image stays selected");
+}
+
+// --- 2. Recent colors ride in the layer palette -----------------------------
+
+#[test]
+fn recent_colors_are_small_dots_inside_the_layer_palette() {
+    let (mut h, id) = photo_board("layer_palette_recents");
+    let recents = [[250, 10, 10], [10, 250, 10], [10, 10, 250]];
+    h.app.doc_mut().view.recent_colors = Some(recents.to_vec());
+    arm(&mut h, BoardTool::Brush);
+    h.app
+        .finish_freehand_brush(vec![Pos2::new(-50.0, 0.0), Pos2::new(50.0, 0.0)]);
+    for _ in 0..2 {
+        h.frame();
+    }
+    let image = screen_rect(&h, id);
+    let (capsule, _) = palette_hits(&h, image).expect("palette");
+    let out = render(&mut h);
+    let layer_radius = rings_in(&mut h, capsule)[0].1;
+    let dots: Vec<_> = circles(&out)
+        .into_iter()
+        .filter(|c| {
+            recents
+                .iter()
+                .any(|rgb| c.fill == Color32::from_rgb(rgb[0], rgb[1], rgb[2]))
+        })
+        .collect();
+    assert_eq!(dots.len(), 3, "one dot per recent color");
+    for dot in &dots {
+        assert!(capsule.contains(dot.center), "dot {dot:?} in {capsule:?}");
+        assert!(
+            dot.radius < layer_radius * 0.6,
+            "dots are smaller than layer circles"
+        );
+    }
+    let green = dots
+        .iter()
+        .find(|c| c.fill == Color32::from_rgb(10, 250, 10))
+        .unwrap()
+        .center;
+    click(&mut h, green);
+    assert_eq!(&h.app.board_colors.fg.0[..3], &[10, 250, 10]);
+    assert_eq!(
+        layers(&h, id)[0].nodes.len(),
+        1,
+        "a dot click draws nothing"
+    );
+}
+
 // --- 4. Replace / Add as layer ----------------------------------------------
 
 /// Target on the left, source on the right; source selected.

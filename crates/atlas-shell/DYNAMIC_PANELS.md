@@ -178,13 +178,18 @@ radius and stays vertically centered in the row.
 Hovering a radio previews that recipe at the current intensity;
 click or slider records a pending `ImageAdjust`. Intensity 0% is identity.
 
-On a raster image the capsule also hosts paint layers. A small circled `+`
-(`filter_add_rect`: 9 units across, 6 units past the capsule's right end, on
-its vertical center, canvas-scaled) sits just outside the capsule and adds a
-layer. Each layer is one more circle chip in the same row, after the filter
-radios. Only the active chip carries the accent ring, and the one slider
-drives that chip: filter intensity for a filter radio, opacity for a layer.
-The `+` is editor chrome, so a click on it is not a click-away.
+The filter capsule holds filters only. Paint layers have their own
+**layer palette** (`layer_palette_layout` / `layer_palette`), which hangs
+centered 10 units below an image while it is being painted. It is a named
+height exception: it uses the filter height (`FILTER_HEIGHT`), so its circles
+match the filter radios. Read left to right: one preview circle per layer
+(that layer's ink alone, center-cropped; the active one carries the accent
+ring), the document's recent colors as small dots (45% of a circle's
+radius), then the active layer's opacity slider. The slider's track is as
+thick as a circle's radius. A small circled `+` sits 6 units past the right
+end on its vertical center and adds a layer. The whole palette is editor
+chrome and canvas-scaled, so a press on it never paints and is not a
+click-away.
 
 A **chips-only** variant (`FILTER_CHIPS_HEIGHT`, `FilterCapsuleStyle::ChipsOnly`)
 reuses the same circle chips and selection ring but omits the intensity track;
