@@ -11,6 +11,8 @@
 - `pen` D05: the live preview draws each sample at its own width.
 - `smooth` D14: smoothing resamples per-vertex widths and colors onto the
   refit vertices, so a tapered pen stroke stays tapered.
+- Direct Selection arrow-key nudges keep every vertex's width, color and
+  corner override.
 
 ## 2026-09-25 — Sign-in pop-ups in web portals
 

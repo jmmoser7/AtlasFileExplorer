@@ -39,7 +39,7 @@ focal tool, Average dialog (P2 — auto-average lands inside Join).
 |--------|----------|
 | Drag selected anchor(s) | Move; connected segments reshape live |
 | Shift+drag anchor | Constrain to 45° increments |
-| Arrow keys | Nudge selected anchors (Shift ×10), journaled coalesced |
+| Arrow keys | Nudge selected anchors (Shift ×10), journaled coalesced; every vertex keeps its width, color and corner override (P1.curve.vertex-style) |
 | Drag straight segment | Translate both endpoints together |
 | Drag curved segment | Reshape with **handle angles preserved** (Illustrator "constrain path dragging" default ON) |
 | Drag handle dot | Adjust curvature that side; smooth anchors keep the opposite handle collinear |

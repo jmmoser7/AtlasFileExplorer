@@ -13887,3 +13887,29 @@ fn direct_seam_vertex_takes_the_start_style() {
         vec![Some(5.0), Some(10.0), Some(15.0), Some(20.0), None]
     );
 }
+
+/// User request (2026-09-26): an arrow-key nudge of picked anchors keeps
+/// every vertex's width, color and corner override.
+#[test]
+fn direct_nudge_keeps_vertex_style() {
+    let mut h = grip_board("direct_nudge_vertex_style");
+    let id = styled_cut_polyline(&mut h);
+    h.app.set_board_tool(board::BoardTool::DirectSelect);
+    h.app.direct_set_target(Some(id));
+    h.app.direct.anchors = [1].into_iter().collect();
+    assert!(h.app.direct_nudge(0.0, 10.0));
+    h.frame();
+    assert_eq!(world_vertices(&h, id)[1], Pos2::new(100.0, 10.0));
+    let tips = painted_vertex_tips(&h, id);
+    assert_eq!(tips.len(), 4);
+    for (k, (w, r)) in [(2.0, 0.0), (20.0, 200.0), (6.0, 100.0), (12.0, 50.0)]
+        .into_iter()
+        .enumerate()
+    {
+        assert_vertex(tips[k], w, r, &format!("vertex {k}"));
+    }
+    assert_eq!(
+        corner_overrides(&h, id),
+        vec![None, Some(8.0), Some(4.0), None]
+    );
+}
