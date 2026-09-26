@@ -99,7 +99,7 @@ Implemented defaults: persistent percentage intent; circle diameter; midpoint li
 - `cargo check -p slate --tests` succeeds, including the new headless input tests. Regression coverage includes rotated in-place dimension typing across camera changes, exterior lanes, committed-color history, inline RGB entry, transient scrub metrics and host-transform covariance.
 - The native `atlas-shell` shape_palettes fixture rendered both shared themes successfully. Production-widget captures: [light](../../../design/shape-palettes-2026-09-17/native/palette-light.png), [dark](../../../design/shape-palettes-2026-09-17/native/palette-dark.png). These verify widget appearance, not a full Slate interaction session.
 - Windows denied launching the compiled Slate and atlas-shell regression executables and the contracts checker (`os error 5`). The tests are not reported as passed. An independent consistency check verifies all 153 approved behavior rows, sources, confidence scores and D01–D17 coverage across the nine shape contracts.
-- No screen-coordinate cache or viewport-clamping fallback remains in shape property placement. Shared `Palette` slots style the panel, rail handles, text, borders and selected states for both themes.
+- No screen-coordinate cache or viewport clamp remains in shape property placement. Since 26 September 2026 a viewport-clipped editor changes side through `selection_tools::place_popup` (see DYNAMIC_PANELS.md). Shared `Palette` slots style the panel, rail handles, text, borders and selected states for both themes.
 
 ### Selection-preview refinement — 2026-09-18
 

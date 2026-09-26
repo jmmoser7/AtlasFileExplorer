@@ -39,10 +39,19 @@ stringers follow the object's measured local axes.
 Layout is in board units. The host, strip, panel, text, spacing, borders,
 handles, and hit regions share the camera transform. Pan and zoom move and
 scale the assembly together. Do not cache screen anchors, hold a minimum
-screen size, clamp a panel independently into the viewport, or relocate it
-below the host at a viewport edge. It clips with the canvas; panning reveals it.
+screen size, or slide a panel partly into the viewport.
 Pointer-following readouts are transient chrome, not a reason to detach the
 editor itself from the host. Follow the named P0.9 exceptions only.
+
+Zoomed in on geometry, the upward editor would open off screen, so it changes
+side instead (user decision, 26 September 2026). `place_popup` owns this
+collision check against two things: the screen edge and the edited selection.
+It tries above the strip (the default), then below, right, and left of the
+selection, then below, right, and left of the strip. It picks the first that
+fits the canvas without covering the selection or strip. Failing that, it
+picks the first that fits without covering the strip. Failing that, it keeps
+the default. The size never changes. Other popups opened from the strip, such
+as the 3D Screenshot menu, use the same owner.
 
 Keep the composition shallow and restrained: thin outlines, quiet surfaces,
 and minimal chrome. Use **squircles for property icon buttons**, matching the

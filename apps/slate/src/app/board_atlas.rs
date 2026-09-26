@@ -901,7 +901,8 @@ impl SlateApp {
                 i.modifiers.shift,
             )
         });
-        if let Some(view) = self.atlas_lenses.views.get_mut(&id) {
+        let menu_wheel = atlas_shell::menu_wheel::wheel_owned(ui.ctx());
+        if let Some(view) = self.atlas_lenses.views.get_mut(&id).filter(|_| !menu_wheel) {
             if shift && (scroll_y.abs() > 0.0 || scroll_x.abs() > 0.0) {
                 view.cam.pan(Vec2::new(-(scroll_y + scroll_x), 0.0) / xf.z);
             } else if scroll_y.abs() > 0.0 {

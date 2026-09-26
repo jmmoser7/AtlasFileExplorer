@@ -75,6 +75,13 @@ is searchable.
   `Painter::text` / `galley` at a projected midpoint. Hit slop may stay
   screen-constant so a tiny object remains clickable; the painted
   graphic still tracks the camera.
+- **P0.10 Navigable menus own the wheel.** Any open list, dropdown,
+  scrolling popup, or menu consumes wheel and pinch input while hovered.
+  The canvas under it never zooms or pans (user decision 26 September
+  2026). The owner is `atlas_shell::menu_wheel`: a menu calls `claim` with
+  its screen rect every pass it is open; egui's own popups count without
+  one. A canvas camera checks `wheel_owned` before zooming. A per-menu flag
+  read by one canvas is the defect this replaces.
 
 ## L1 — Object-class
 

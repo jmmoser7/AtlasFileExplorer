@@ -63,7 +63,9 @@ impl SlateApp {
         });
     }
 
-    /// Pointer-attached menu (P2): screen-space placement under the cursor.
+    /// Screen-space menu (P2). With the strip up it opens clear of the
+    /// screenshot button, the strip, and the model, placed by the shared
+    /// popup owner; otherwise under the cursor. It paints above the strip.
     pub(crate) fn paint_model_screenshot_popup(&mut self, ctx: &egui::Context) -> bool {
         if self
             .model_shot_popup
@@ -88,12 +90,20 @@ impl SlateApp {
         let item_h = POPUP_ITEM_H;
         let w = POPUP_W;
         let h = item_h * 2.0 + 6.0;
-        let top = anchor.y + 6.0;
-        let rect = Rect::from_min_size(Pos2::new(anchor.x - w * 0.5, top), Vec2::new(w, h));
+        let menu_id = Id::new(("model_shot_menu", menu_tab, menu_node.0));
+        let size = ctx
+            .memory(|m| m.area_rect(menu_id))
+            .map_or(Vec2::new(w, h), |r| r.size());
+        let rect = match self.model_screenshot_anchor(&self.board_xf()) {
+            Some((button, host)) => {
+                atlas_shell::selection_tools::place_popup(size, button, host, 6.0, self.canvas_rect)
+            }
+            None => Rect::from_min_size(Pos2::new(anchor.x - w * 0.5, anchor.y + 6.0), size),
+        };
 
-        let resp = egui::Area::new(Id::new(("model_shot_menu", menu_tab, menu_node.0)))
+        let resp = egui::Area::new(menu_id)
             .fixed_pos(rect.min)
-            .order(egui::Order::Foreground)
+            .order(egui::Order::Tooltip)
             .interactable(true)
             .show(ctx, |ui| {
                 egui::Frame::popup(ui.style())
@@ -700,6 +710,27 @@ mod tests {
         assert_eq!(popup.node, id);
         h.frame();
         assert!(h.app.model_shot_popup.is_some(), "and stays open");
+    }
+
+    #[test]
+    fn the_screenshot_menu_opens_clear_of_its_icon_on_a_higher_layer() {
+        let (mut h, id) = selected_model("shot_menu_clear");
+        click_screenshot_button(&mut h);
+        h.frame();
+        let button = h.app.model_screenshot_button().expect("the strip is up");
+        let menu_id = Id::new(("model_shot_menu", h.app.tab().id, id.0));
+        let menu = h
+            .ctx
+            .memory(|m| m.area_rect(menu_id))
+            .expect("the menu was laid out");
+        assert!(!menu.intersects(button), "{menu:?} covers {button:?}");
+        assert!(h.app.canvas_rect.contains_rect(menu), "{menu:?}");
+        let layer = h.ctx.layer_id_at(menu.center()).expect("hit-testable");
+        assert_eq!(layer.id, menu_id);
+        assert!(
+            layer.order > egui::Order::Foreground,
+            "strip icons paint on a Foreground layer above every Foreground area: {layer:?}"
+        );
     }
 
     #[test]

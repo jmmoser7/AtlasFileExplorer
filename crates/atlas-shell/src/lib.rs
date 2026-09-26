@@ -57,6 +57,7 @@ pub mod history_ui;
 pub mod home;
 pub mod icons;
 pub mod menu;
+pub mod menu_wheel;
 pub mod menubar;
 pub mod minimap;
 pub mod palette;

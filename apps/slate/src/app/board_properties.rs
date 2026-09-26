@@ -1595,9 +1595,9 @@ impl SlateApp {
                         self.shape_properties.text_family_open = false;
                         self.shape_properties.text_size_open = false;
                     }
-                    let rect = chrome::editor_rect(strip, height, z);
-                    let mut sample = false;
                     let canvas = self.canvas_rect;
+                    let rect = chrome::editor_placement(strip, bounds, height, z, canvas);
+                    let mut sample = false;
                     egui::Area::new(Id::new("shape_property_editor"))
                         .order(egui::Order::Foreground)
                         .fixed_pos(rect.min)
@@ -1744,9 +1744,6 @@ impl SlateApp {
                 return false;
             };
             let popups = self.agent_editor_body(ui, rect, id, z, theme);
-            for popup in &popups {
-                self.agents.note_menu_popup(ui.ctx(), *popup);
-            }
             self.shape_properties.chrome_hits.extend(popups);
             return false;
         }
@@ -2295,14 +2292,27 @@ impl SlateApp {
         );
     }
 
-    /// Screen rect of the selection strip's screenshot button, last frame.
-    #[cfg(test)]
+    /// Screen rect of the selection strip's screenshot button, last painted.
     pub(crate) fn model_screenshot_button(&self) -> Option<Rect> {
         let items = &self.shape_properties.last_chrome.as_ref()?.items;
         let index = items
             .iter()
             .position(|item| matches!(item, StripItem::ModelScreenshot))?;
         self.shape_properties.chrome_hits.get(index).copied()
+    }
+
+    /// The screenshot button and what its menu must not cover: the selection
+    /// and the whole strip.
+    pub(crate) fn model_screenshot_anchor(&self, xf: &BoardXf) -> Option<(Rect, Rect)> {
+        let chrome = self.shape_properties.last_chrome.as_ref()?;
+        let button = self.model_screenshot_button()?;
+        let strip = self
+            .shape_properties
+            .chrome_hits
+            .iter()
+            .take(chrome.items.len())
+            .fold(button, |strip, r| strip.union(*r));
+        Some((button, xf.rect_w2s(chrome.bounds).union(strip)))
     }
 }
 
@@ -3238,6 +3248,89 @@ mod tests {
             Some(Corner::ChamferPercent { .. })
         ));
         assert!((scene::resolved_corner_effective(node, None).1 - expected).abs() < 1e-4);
+    }
+
+    #[test]
+    fn a_property_editor_clipped_by_the_canvas_top_opens_below_the_selection() {
+        let mut h = board();
+        let id = rectangle(&mut h, WorldRect::new(-100.0, -60.0, 200.0, 120.0), 0.0);
+        h.frame();
+        let canvas = h.app.canvas_rect;
+        h.app.tab_mut().cam.offset.y = -60.0 - (canvas.top() + 70.0 - canvas.center().y);
+        h.app.shape_properties.panel = Some(Panel::Fill);
+        for _ in 0..3 {
+            h.frame();
+        }
+        let selection = h
+            .app
+            .board_xf()
+            .rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
+        let editor = h
+            .ctx
+            .memory(|m| m.area_rect(Id::new("shape_property_editor")))
+            .expect("the Fill editor is open");
+        assert!(canvas.contains_rect(editor), "{editor:?} in {canvas:?}");
+        assert!(
+            !editor.intersects(selection),
+            "{editor:?} over {selection:?}"
+        );
+        assert!(editor.top() > selection.bottom());
+    }
+
+    /// Painted text and where it sits, so a list's scroll can be measured.
+    fn painted_at(out: &egui::FullOutput, label: &str) -> Option<Pos2> {
+        fn walk(shape: &egui::Shape, label: &str) -> Option<Pos2> {
+            match shape {
+                egui::Shape::Text(t) if t.galley.text() == label => Some(t.pos),
+                egui::Shape::Vec(v) => v.iter().find_map(|s| walk(s, label)),
+                _ => None,
+            }
+        }
+        out.shapes.iter().find_map(|c| walk(&c.shape, label))
+    }
+
+    fn wheel(h: &mut Harness, at: Pos2) -> egui::FullOutput {
+        h.frame_with(|i| {
+            i.events.push(egui::Event::PointerMoved(at));
+            i.events.push(egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: Vec2::new(0.0, -80.0),
+                modifiers: egui::Modifiers::NONE,
+            });
+        });
+        for _ in 0..8 {
+            h.frame();
+        }
+        h.frame_output(|_| {})
+    }
+
+    #[test]
+    fn the_wheel_over_an_open_typeface_list_scrolls_it_and_leaves_the_camera() {
+        let mut h = board();
+        text_node(&mut h, WorldRect::new(-100.0, 40.0, 200.0, 60.0));
+        h.frame();
+        h.app.shape_properties.panel = Some(Panel::Text);
+        h.app.shape_properties.text_family_open = true;
+        h.frame();
+        h.frame();
+        let open = h.frame_output(|_| {});
+        let row = painted_at(&open, "Serif").expect("the typeface list is open");
+        let z = h.app.tab().cam.z;
+        let after = wheel(&mut h, row);
+        assert_eq!(
+            h.app.tab().cam.z,
+            z,
+            "the board did not zoom under the list"
+        );
+        let moved = painted_at(&after, "Serif").expect("the list is still open");
+        assert!(
+            moved.y < row.y - 1.0,
+            "the list scrolled: {row:?} -> {moved:?}"
+        );
+
+        let empty = Pos2::new(1300.0, 700.0);
+        wheel(&mut h, empty);
+        assert_ne!(h.app.tab().cam.z, z, "the empty board still zooms");
     }
 
     fn pointer(h: &mut Harness, p: Pos2, pressed: Option<bool>) {
