@@ -1627,27 +1627,6 @@ fn vector_stroke_ink_for(
     }
 }
 
-/// Draft preview at `width` world units (at least one screen pixel): the
-/// width the committed stroke will have.
-pub fn paint_path_preview(
-    painter: &egui::Painter,
-    xf: &BoardXf,
-    color: Color32,
-    width: f32,
-    bez: &BezPath,
-) {
-    let style = StrokeStyle {
-        width: width.max(1.0 / xf.z.max(0.05_f32)),
-        cap: Cap::Round,
-        join: Join::Round,
-        taper: None,
-        dash: None,
-    };
-    let feather = FEATHER_PX / xf.z.max(0.05);
-    let ink = stroke_mesh(bez, &style, feather, curve_tolerance(xf.z));
-    paint_preview_ink(painter, xf, color, ink);
-}
-
 pub(crate) fn paint_preview_ink(
     painter: &egui::Painter,
     xf: &BoardXf,
@@ -1667,28 +1646,29 @@ pub(crate) fn paint_preview_ink(
     painter.add(Shape::mesh(mesh));
 }
 
-pub fn paint_polyline_preview(
-    painter: &egui::Painter,
-    xf: &BoardXf,
+/// The Pen's live stroke: its samples, each at the width it was drawn with
+/// (`widths`), then the pointer at `width`, the Pen's width now. It tapers
+/// between them like any stroke tool's draft (`draft_stroke_ink`).
+pub(crate) fn pen_preview_ink(
     pts: &[Pos2],
+    widths: &[f32],
     cursor: Pos2,
-    color: Color32,
     width: f32,
-) {
+    zoom: f32,
+) -> InkMesh {
     if pts.is_empty() {
-        return;
-    }
-    let mut all = pts.to_vec();
-    all.push(cursor);
-    if all.len() < 2 {
-        return;
+        return InkMesh::default();
     }
     let mut bez = BezPath::new();
-    bez.move_to(to_k(all[0]));
-    for p in &all[1..] {
+    bez.move_to(to_k(pts[0]));
+    for p in pts[1..].iter().chain(std::iter::once(&cursor)) {
         bez.line_to(to_k(*p));
     }
-    paint_path_preview(painter, xf, color, width, &bez);
+    let widths: Vec<f32> = (0..pts.len())
+        .map(|i| widths.get(i).copied().unwrap_or(width))
+        .chain(std::iter::once(width))
+        .collect();
+    draft_stroke_ink(&bez, false, &widths, zoom)
 }
 
 /// World units per stamp pixel at `zoom`: one physical screen pixel, snapped

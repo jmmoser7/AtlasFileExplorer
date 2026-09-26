@@ -258,6 +258,25 @@ fn variable_width_pen_tips_map_onto_the_fitted_vertices() {
     assert_eq!(*w.last().unwrap(), 9.0);
 }
 
+/// User request (2026-09-26): the Pen's live preview shows the width each
+/// point was drawn with, the taper the committed stroke will have, like
+/// the other stroke tools' drafts.
+#[test]
+fn pen_preview_shows_each_points_width() {
+    let pts: Vec<Pos2> = (0..=100).map(|i| Pos2::new(i as f32 * 2.0, 0.0)).collect();
+    let widths: Vec<f32> = pts
+        .iter()
+        .map(|p| if p.x < 100.0 { 2.0 } else { 10.0 })
+        .collect();
+    let ink = board_path::pen_preview_ink(&pts, &widths, Pos2::new(202.0, 0.0), 10.0, 1.0);
+    let verts: Vec<[f32; 2]> = ink.vertices.iter().map(|v| v.pos).collect();
+    let inside = |x: f32, y: f32| vector_ink::point_in_mesh(&verts, &ink.indices, [x, y]);
+    assert!(inside(50.0, 0.5), "the preview covers the stroke");
+    assert!(!inside(50.0, 2.5), "narrow before the width change");
+    assert!(inside(150.0, 4.5), "wide after it");
+    assert!(inside(201.0, 4.5), "the pointer takes the width now");
+}
+
 // ---------- Smoothing a sparse Bézier (user finding 2026-09-26) ----------
 
 /// Two humps meeting at a cusp at (300, 300).

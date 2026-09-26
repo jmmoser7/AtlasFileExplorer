@@ -5474,17 +5474,13 @@ impl SlateApp {
                 }
             }
         }
-        if let (Some(BoardDrag::FreehandPen { points, .. }), Some(w)) = (&self.board_drag, wp) {
+        if let (Some(BoardDrag::FreehandPen { points, widths, .. }), Some(w)) =
+            (&self.board_drag, wp)
+        {
             if !points.is_empty() {
                 let width = self.stroke_for_tool(slate_doc::StrokeTool::Pen).width;
-                board_path::paint_polyline_preview(
-                    &draft_painter,
-                    &xf,
-                    points,
-                    w,
-                    palette.accent,
-                    width,
-                );
+                let ink = board_path::pen_preview_ink(points, widths, w, width, xf.z);
+                board_path::paint_preview_ink(&draft_painter, &xf, palette.accent, ink);
             }
         }
         // Brush drag preview: the screen-aligned canvas holds the same radial

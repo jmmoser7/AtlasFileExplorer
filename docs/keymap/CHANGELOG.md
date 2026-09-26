@@ -8,6 +8,7 @@
   (P1.curve.vertex-style). No new command.
 - Direct Selection Join keeps each vertex's style; a merge drops only the
   merged end's entry.
+- `pen` D05: the live preview draws each sample at its own width.
 
 ## 2026-09-25 — Sign-in pop-ups in web portals
 

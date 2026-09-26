@@ -3617,11 +3617,11 @@
           "decided": "2026-09-25"
         },
         "D05": {
-          "behavior": "Retain tool-specific creation modifiers and P1.node.transform for selected objects. Alt+right-drag scrubs the Pen's own width through the Brush size HUD (board.stroke.width_hud, P1.curve.width-chord), horizontally only: no softness. Mid-stroke the scrub draws nothing and the rest of the stroke takes the new width, stored as one tip per vertex.",
+          "behavior": "Retain tool-specific creation modifiers and P1.node.transform for selected objects. Alt+right-drag scrubs the Pen's own width through the Brush size HUD (board.stroke.width_hud, P1.curve.width-chord), horizontally only: no softness. Mid-stroke the scrub draws nothing and the rest of the stroke takes the new width, stored as one tip per vertex. The live preview draws each sample at its own width, like the other stroke drafts (user, 26 September 2026).",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-09-26"
         },
         "D06": {
           "behavior": "No point snapping along the freehand stroke; it would quantize the sketch. Existing point snapping remains available when editing committed anchors.",
