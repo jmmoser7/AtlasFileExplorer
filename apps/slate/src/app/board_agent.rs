@@ -4594,6 +4594,44 @@ impl SlateApp {
         (!waiting).then_some(Ok(inputs))
     }
 
+    /// One link folder's context: every card of a chat train shares the
+    /// folder, so each card's inputs are published, in card order. `None`
+    /// while any card's picture is still being clipped.
+    fn published_train_inputs(
+        &self,
+        cards: &[NodeId],
+    ) -> Option<Result<atlas_ai::agent::InputSnapshot, String>> {
+        let parts: Vec<_> = cards
+            .iter()
+            .map(|&id| self.published_agent_inputs(id))
+            .collect();
+        let mut merged: Option<atlas_ai::agent::InputSnapshot> = None;
+        let mut error = None;
+        for part in parts {
+            match part? {
+                Ok(inputs) => match &mut merged {
+                    None => merged = Some(inputs),
+                    Some(all) => {
+                        for (into, items) in [
+                            (&mut all.context, inputs.context),
+                            (&mut all.wired, inputs.wired),
+                        ] {
+                            for item in items {
+                                if !into.contains(&item) {
+                                    into.push(item);
+                                }
+                            }
+                        }
+                    }
+                },
+                Err(e) => {
+                    error.get_or_insert(e);
+                }
+            }
+        }
+        merged.map(Ok).or(error.map(Err))
+    }
+
     /// Wired and context inputs as board references, before any picture is
     /// clipped.
     fn agent_input_refs(&self, id: NodeId) -> Result<atlas_ai::agent::InputSnapshot, String> {
@@ -5634,6 +5672,17 @@ impl SlateApp {
         }
         let mut published = HashSet::new();
         let mut live_dirs = HashSet::new();
+        let mut trains: HashMap<PathBuf, Vec<NodeId>> = HashMap::new();
+        if publish {
+            for (id, agent) in &portals {
+                if let Some(agent) = agent.as_ref().filter(|a| !a.provider.is_empty()) {
+                    let dir = self
+                        .agent_link_dir(*id, &ws)
+                        .unwrap_or_else(|| atlas_ai::agent::agent_dir(&ws, &agent.session));
+                    trains.entry(dir).or_default().push(*id);
+                }
+            }
+        }
         for (id, agent) in portals {
             let Some(agent) = agent else {
                 continue;
@@ -5664,7 +5713,9 @@ impl SlateApp {
             {
                 let mut context =
                     self.agent_context_for(&agent.session, &agent.provider, agent.context);
-                match self.published_agent_inputs(id) {
+                let single = [id];
+                let cards = trains.get(&dir).map_or(&single[..], Vec::as_slice);
+                match self.published_train_inputs(cards) {
                     Some(Ok(inputs)) => {
                         context.selection = inputs
                             .context
