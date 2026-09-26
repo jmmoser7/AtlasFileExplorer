@@ -708,6 +708,7 @@ impl SlateApp {
                         color: slate_doc::scene::Rgba::opaque(0, 0, 0),
                         align: Default::default(),
                         fill: None,
+                        stroke: Default::default(),
                         agent: None,
                     }),
                 );
@@ -1312,6 +1313,7 @@ mod tests {
                 color: slate_doc::scene::Rgba::opaque(0, 0, 0),
                 align: Default::default(),
                 fill: None,
+                stroke: Default::default(),
                 agent: None,
             }),
         )

@@ -75,6 +75,7 @@ fn smoke_full_feature_export() {
             color: Rgba::opaque(10, 10, 40),
             align: TextAlign::Center,
             fill: None,
+            stroke: Default::default(),
             agent: None,
         }),
     );

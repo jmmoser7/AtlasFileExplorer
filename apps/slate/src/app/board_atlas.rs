@@ -1640,6 +1640,7 @@ impl SlateApp {
                 color: slate_doc::scene::Rgba::opaque(198, 208, 224),
                 align: slate_doc::scene::TextAlign::Left,
                 fill: None,
+                stroke: Default::default(),
                 agent: None,
             }),
         );

@@ -751,6 +751,7 @@ mod tests {
                 color: crate::scene::Rgba::BLACK,
                 align: TextAlign::Left,
                 fill: None,
+                stroke: Default::default(),
                 agent: None,
             }),
         };

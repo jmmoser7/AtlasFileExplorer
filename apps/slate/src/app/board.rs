@@ -3891,6 +3891,7 @@ impl SlateApp {
                         ));
                     }
                 }
+                stroke_outline(painter, &outline_s, &t.stroke, z);
                 if self
                     .text_edit
                     .as_ref()
@@ -4830,7 +4831,7 @@ impl SlateApp {
         let selection_painter = atlas_shell::selection_tools::selection_painter(
             &painter,
             egui::Id::new(("property_selection_fade", self.tab().id)),
-            self.shape_properties.panel.is_some(),
+            self.property_panel_fades_selection(),
         );
 
         if self.board_show_grid {
@@ -7536,7 +7537,7 @@ impl SlateApp {
                 self.commit_text_box_draft();
             }
         }
-        let color = to_rgba(self.palette().ink);
+        let color = self.color_for_new_text();
         self.text_box_draft = Some(TextBoxDraft {
             rect,
             buffer: String::new(),
@@ -7570,14 +7571,12 @@ impl SlateApp {
                 color: draft.color,
                 align: draft.align,
                 fill: None,
+                stroke: Default::default(),
                 agent: None,
             }),
         );
-        let id = node.id;
         let ids = self.commit_created_nodes(vec![node]);
-        let hosted = self.image_paint.is_some();
         self.select_created_nodes(ids);
-        self.text_edit = (!hosted).then(|| (id, "Text".into()));
         self.board_tool = BoardTool::Select;
         self.push_history(
             atlas_commands::CommandId("board.tool.text"),

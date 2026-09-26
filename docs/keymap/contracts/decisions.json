@@ -393,18 +393,18 @@
           "decided": "2026-09-25"
         },
         "D11": {
-          "behavior": "Text box: TextNode fill=None, empty start, size 24 world, ink=palette.ink; journaled only when compose finishes with non-empty text (one board.tool.text undo step). ClickPlace auto-grows width on commit; while typing its width is the measured unwrapped text width plus padding, always finite, and no inline-editor rect handed to egui may be non-finite. DragScale keeps drawn rect (fixed wrap width). A quote-entry text document (D01) is one board.media.text_new undo step; its typed words are written to the linked file off-thread, not journaled. Sticky: unchanged (journaled on place, centered black caret, strip hidden while editing). Subsequent bbox resize = frame-only reflow.",
+          "behavior": "Text box: TextNode fill=None, empty start, size 24 world, ink=the D16 color, else palette.ink; journaled only when compose finishes with non-empty text (one board.tool.text undo step). ClickPlace auto-grows width on commit; while typing its width is the measured unwrapped text width plus padding, always finite, and no inline-editor rect handed to egui may be non-finite. DragScale keeps drawn rect (fixed wrap width). A quote-entry text document (D01) is one board.media.text_new undo step; its typed words are written to the linked file off-thread, not journaled. Sticky: unchanged (journaled on place, centered black caret, strip hidden while editing). Subsequent bbox resize = frame-only reflow.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
           "decided": "2026-09-25"
         },
         "D12": {
-          "behavior": "Esc while GhostFollow / mid-DragScale → disarm, no node. Esc on empty text-box draft → discard, no journal. Esc or click-away on non-empty compose → commit; text box returns to Select (D02). Empty click-away or tool switch on draft → discard, no journal.",
+          "behavior": "Esc while GhostFollow / mid-DragScale → disarm, no node. Esc on empty text-box draft → discard, no journal. Esc or click-away on non-empty compose → commit as one journaled board.tool.text add; text box returns to Select (D02) with the new node selected. The commit opens nothing: no inline editor on the new node, no Text/color editor, no board menu, no canvas search (user request 26 September 2026). Empty click-away or tool switch on draft → discard, no journal.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-09-26"
         },
         "D13": {
           "behavior": "Standard node resize bbox + rotation (P1.node). Multi-select uses the shared group bbox; group uniform scale also scales TextNode.size.",
@@ -414,11 +414,11 @@
           "decided": null
         },
         "D14": {
-          "behavior": "Double-click enters inline edit. A sticky double-click puts the same black blinking caret back in the middle and hides the fill/text strip until editing ends. The Text capsules remain the fillet text editor (typeface, justification, height, color) when the user opens them from the strip; they update the caret immediately and selection follows the aligned glyphs. Fill stays on the Fill control. Single-node bbox resize = frame-only reflow. A sticky's painted size shrinks from the authored size until the centered block fits, and grows back when text is removed. The authored size stays the ceiling.",
+          "behavior": "Double-click enters inline edit. A sticky double-click puts the same black blinking caret back in the middle and hides the fill/text strip until editing ends. The Text capsules remain the fillet text editor (typeface, justification, height, color) when the user opens them from the strip; they update the caret immediately and selection follows the aligned glyphs. The selected text's outline stays visible while the pointer is over the strip or the Text editor (user request 26 September 2026; the named exception to the P1.shape.properties fade). Each justification segment shows the catalog JustifyLeft / JustifyCenter / JustifyRight glyph beside its label (user request 26 September 2026). The wheel over an open typeface or height list scrolls the list and never zooms the board (user request 26 September 2026). Fill stays on the Fill control. A text box or sticky takes the shared Stroke editor (color, width, dash) as its box border (TextNode.stroke, width 0 = none); the board paints it on the node outline and the HTML export writes the same stroke as a CSS border (SVG rect in paint layers), one undo step per edit (user request 26 September 2026, Art. IV). Single-node bbox resize = frame-only reflow. A sticky's painted size shrinks from the authored size until the centered block fits, and grows back when text is removed. The authored size stays the ceiling.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-23"
+          "decided": "2026-09-26"
         },
         "D15": {
           "behavior": "Cut (Art. III): sticky bulk-mode / spreadsheet paste; sticky stack; emoji reactions; S/M/L size picker chrome; screen-constant text / LOD that changes relative glyph size vs geometry.",
@@ -428,11 +428,11 @@
           "decided": null
         },
         "D16": {
-          "behavior": "Next Text box / sticky consumes the last single-node Text edit when present: family, size, color, align; sticky also inherits fill (else STICKY_FILL). Defaults when none: Text box fill=None size 24; sticky white fill size 24.",
-          "source": "guess",
-          "confidence": 55,
-          "verdict": "proposed",
-          "decided": null
+          "behavior": "The Text tool remembers its own color (user request 26 September 2026): the next text box starts in the last color given to a plain text box by a single-node edit, kept in the workbook's create-style memory (text_color). A sticky's ink never feeds it. Contrast guard: when that color's WCAG 2 contrast ratio against the canvas background (palette.bg, translucent colors composited first) is below 2:1 (TEXT_MIN_CONTRAST), new text starts in the theme's ink instead. Existing text is never recolored. Family, size, and align still start at Sans / 24 world / Left; sticky keeps STICKY_FILL + STICKY_INK.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-26"
         },
         "D17": {
           "behavior": "AABB of the text/sticky rect (area pick), including the fill for stickies. Marquee intersects the rect. Not stroke-precise.",
@@ -2605,7 +2605,7 @@
           "decided": "2026-09-17"
         },
         "D09": {
-          "behavior": "P1.shape.properties: live property preview; opening an adjustment icon fades selection decoration out, keeps it hidden across editor switches, and restores it on close/cancel. Selection and property controls/stringers remain intact. Buffer metrics appear beside the active cursor only while adjusting and vanish on release. Recent-color dots are document-local, deduplicated and most-recent-first.",
+          "behavior": "P1.shape.properties: live property preview; opening an adjustment icon fades selection decoration out, keeps it hidden across editor switches, and restores it on close/cancel. Named exception: the Text editor on text nodes keeps the outline (text D14). Selection and property controls/stringers remain intact. Buffer metrics appear beside the active cursor only while adjusting and vanish on release. Recent-color dots are document-local, deduplicated and most-recent-first.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",

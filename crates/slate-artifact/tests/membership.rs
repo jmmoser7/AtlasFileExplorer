@@ -47,6 +47,7 @@ fn overlapping_frames_do_not_duplicate_a_slide_member() {
             color: Rgba::opaque(10, 10, 10),
             align: TextAlign::Center,
             fill: None,
+            stroke: Default::default(),
             agent: None,
         }),
     );

@@ -68,6 +68,12 @@ editors keeps the highlights hidden. Closing or cancelling restores them.
 Use the shared `selection_painter` transition (`SELECTION_FADE_SECONDS`,
 currently 120 ms), without changing document opacity or creating an undo step.
 
+Named exception: the Text editor (typeface, justification, height, color)
+on a selection of text nodes keeps the outline. It changes the glyphs, not
+the box, so the person keeps seeing which box they are editing while the
+pointer is on the strip or the editor. Fill, Stroke, and the other editors
+on the same text still fade it.
+
 ## Fill and Stroke
 
 One shared color editor has this vertical order:

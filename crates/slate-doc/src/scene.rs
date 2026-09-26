@@ -2304,6 +2304,9 @@ pub struct TextNode {
     /// with a fill). `None` = transparent, the classic text node.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fill: Option<Rgba>,
+    /// Authored box outline. Width 0 paints no border.
+    #[serde(default, skip_serializing_if = "Stroke::is_none")]
+    pub stroke: Stroke,
     /// The agent writing this note. While `text` is empty the note shows the
     /// agent's newest reply; editing it makes the words the person's own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2334,6 +2337,7 @@ impl TextNode {
             color: STICKY_INK,
             align: TextAlign::Left,
             fill: Some(STICKY_FILL),
+            stroke: Stroke::none(),
             agent: Some(Box::new(agent)),
         }
     }
@@ -4473,6 +4477,7 @@ mod tests {
                 color: Rgba::BLACK,
                 align: Default::default(),
                 fill: None,
+                stroke: Default::default(),
                 agent: None,
             }),
         );
@@ -4850,6 +4855,7 @@ pub fn stroke_of(node: &Node) -> Option<Stroke> {
         NodeKind::Image(i) => Some(i.stroke),
         NodeKind::Connector(c) => Some(c.stroke),
         NodeKind::Frame(f) => Some(f.stroke),
+        NodeKind::Text(t) => Some(t.stroke),
         // TWIN: docs/audit/deviations.md DV-21 — an agent portal keeps its
         // outline in `agent.chat.stroke`; every other portal uses
         // `PortalNode::stroke`. Collapse onto the field.
@@ -4864,7 +4870,8 @@ pub fn stroke_of(node: &Node) -> Option<Stroke> {
     }
 }
 
-/// Stroke editor applies to shapes, images, wires, slide frames, and portal frames.
+/// Stroke editor applies to shapes, images, wires, text boxes, slide frames,
+/// and portal frames.
 pub fn supports_stroke(node: &Node) -> bool {
     stroke_of(node).is_some()
 }
@@ -4875,6 +4882,7 @@ pub fn set_stroke(node: &mut Node, stroke: Stroke) {
         NodeKind::Image(i) => i.stroke = stroke,
         NodeKind::Connector(c) => c.stroke = stroke,
         NodeKind::Frame(f) => f.stroke = stroke,
+        NodeKind::Text(t) => t.stroke = stroke,
         // TWIN: see `stroke_of` above (DV-21).
         NodeKind::Portal(p) => match p.agent.as_mut() {
             Some(a) => a.chat.stroke = Some(stroke),
@@ -5104,6 +5112,7 @@ mod corner_percentage_tests {
             color: Rgba([0, 0, 0, 255]),
             align: TextAlign::default(),
             fill: None,
+            stroke: Default::default(),
             agent: None,
         }));
         let portal = node(NodeKind::Portal(PortalNode::unbound_web("Page")));
@@ -5136,7 +5145,7 @@ mod corner_percentage_tests {
         );
         assert!(
             supports_fill(&text)
-                && !supports_stroke(&text)
+                && supports_stroke(&text)
                 && !supports_corners(&text)
                 && !supports_image_adjust(&text)
         );

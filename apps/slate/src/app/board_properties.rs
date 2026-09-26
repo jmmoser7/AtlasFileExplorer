@@ -785,6 +785,22 @@ fn stringer_lane(home: [Pos2; 2], outward: Vec2, opposite: [Pos2; 2]) -> ([Pos2;
 }
 
 impl SlateApp {
+    /// An open adjustment previews authored color without the selection
+    /// tint. The Text editor on text nodes is the exception: it changes the
+    /// glyphs, not the box, so the outline stays (DYNAMIC_PANELS.md).
+    pub(crate) fn property_panel_fades_selection(&self) -> bool {
+        match self.shape_properties.panel {
+            None => false,
+            Some(Panel::Text) => !self.board_sel.iter().all(|id| {
+                self.doc()
+                    .scene
+                    .node(*id)
+                    .is_some_and(|n| matches!(n.kind, NodeKind::Text(_)))
+            }),
+            Some(_) => true,
+        }
+    }
+
     pub(crate) fn sync_shape_properties(&mut self) {
         // Sorted, so the strip resets on membership only: `board_sel` is a
         // HashSet whose iteration order can change without its contents
@@ -2232,6 +2248,7 @@ impl SlateApp {
             theme,
         );
         for popup in edit.popups {
+            self.agents.note_menu_popup(ui.ctx(), popup);
             self.shape_properties.chrome_hits.push(popup);
         }
         if let Some(index) = edit.family {
@@ -3232,12 +3249,112 @@ mod tests {
                 color: Rgba([0, 0, 0, 255]),
                 align: Default::default(),
                 fill: None,
+                stroke: Default::default(),
                 agent: None,
             }),
         );
         let id = h.app.add_nodes(vec![node])[0];
         h.app.board_sel.insert(id);
         id
+    }
+
+    /// Screen rect of a strip squircle, as the last frame laid it out.
+    fn strip_button(h: &Harness, panel: Panel) -> Rect {
+        let items = &h.app.shape_properties.last_chrome.as_ref().unwrap().items;
+        let index = items
+            .iter()
+            .position(|item| *item == StripItem::Panel(panel))
+            .unwrap_or_else(|| panel_missing(panel, items));
+        h.app.shape_properties.chrome_hits[index]
+    }
+
+    fn panel_missing(panel: Panel, items: &[StripItem]) -> usize {
+        panic!("{panel:?} is not on the strip: {items:?}")
+    }
+
+    /// One frame at an explicit clock, so selection fades run at 60 Hz.
+    fn timed_frame(h: &mut Harness, time: &mut f64, events: Vec<egui::Event>) -> egui::FullOutput {
+        *time += 1.0 / 60.0;
+        h.ctx.clone().run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))),
+                time: Some(*time),
+                events,
+                ..Default::default()
+            },
+            |ctx| h.app.update_app(ctx),
+        )
+    }
+
+    fn primary(p: Pos2, pressed: bool) -> egui::Event {
+        egui::Event::PointerButton {
+            pos: p,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        }
+    }
+
+    /// Open the selected node's Text editor with a real click on its squircle.
+    fn open_text_editor(h: &mut Harness, time: &mut f64) -> Rect {
+        for _ in 0..3 {
+            timed_frame(h, time, vec![]);
+        }
+        let button = strip_button(h, Panel::Text);
+        let p = button.center();
+        timed_frame(h, time, vec![egui::Event::PointerMoved(p)]);
+        timed_frame(h, time, vec![primary(p, true)]);
+        timed_frame(h, time, vec![primary(p, false)]);
+        assert_eq!(h.app.shape_properties.panel, Some(Panel::Text));
+        button
+    }
+
+    /// User, 26 September 2026: the blue outline around selected text stays
+    /// while the person works in the strip and its Text editor. Fill still
+    /// fades it, so an authored fill previews without the tint.
+    #[test]
+    fn text_selection_outline_stays_while_navigating_the_text_editor() {
+        for dark in [false, true] {
+            let mut h = board();
+            h.app.dark_mode = dark;
+            let id = text_node(&mut h, WorldRect::new(-120.0, -30.0, 240.0, 60.0));
+            let mut time = h.ctx.input(|i| i.time);
+            let theme = h.app.palette();
+            let tint = theme
+                .select
+                .gamma_multiply(atlas_shell::tokens::current().board_preview.select_opacity * 0.16);
+            let silhouettes = |out: &egui::FullOutput| {
+                out.shapes
+                    .iter()
+                    .filter(|s| matches!(&s.shape, egui::Shape::Path(p) if p.fill == tint))
+                    .count()
+            };
+            for _ in 0..3 {
+                timed_frame(&mut h, &mut time, vec![]);
+            }
+            let rest = silhouettes(&timed_frame(&mut h, &mut time, vec![]));
+            assert!(rest > 0, "selected text shows its outline");
+            let button = open_text_editor(&mut h, &mut time);
+            let editor = *h.app.shape_properties.chrome_hits.last().unwrap();
+            for hover in [button.center(), editor.center(), button.center()] {
+                for _ in 0..12 {
+                    timed_frame(&mut h, &mut time, vec![egui::Event::PointerMoved(hover)]);
+                }
+                let out = timed_frame(&mut h, &mut time, vec![egui::Event::PointerMoved(hover)]);
+                assert_eq!(silhouettes(&out), rest, "dark={dark} hover={hover:?}");
+                assert_eq!(h.app.shape_properties.panel, Some(Panel::Text));
+            }
+            assert!(h.app.board_sel.contains(&id));
+            h.app.shape_properties.panel = Some(Panel::Fill);
+            for _ in 0..12 {
+                timed_frame(&mut h, &mut time, vec![]);
+            }
+            assert_eq!(
+                silhouettes(&timed_frame(&mut h, &mut time, vec![])),
+                0,
+                "Fill still fades the selection"
+            );
+        }
     }
 
     fn image_node(h: &mut Harness, rect: WorldRect) -> NodeId {
@@ -3381,6 +3498,58 @@ mod tests {
         assert_ne!(h.app.tab().cam.z, z, "the empty board still zooms");
     }
 
+    /// A text box takes the shared Stroke editor like other geometry. The
+    /// border is authored (one undo) and painted around the box.
+    #[test]
+    fn text_box_takes_the_shared_stroke_editor_and_paints_its_border() {
+        let mut h = board();
+        let id = text_node(&mut h, WorldRect::new(-120.0, -30.0, 240.0, 60.0));
+        let node = h.app.doc().scene.node(id).unwrap().clone();
+        assert!(
+            live_property_strip_items(&h.app, &[node]).contains(&StripItem::Panel(Panel::Stroke))
+        );
+        let before = h.app.tab().journal.undo_depth();
+        apply(
+            &mut h,
+            vec![id],
+            vec![
+                Property::StrokeRgb([200, 30, 30]),
+                Property::StrokeAlpha(255),
+                Property::StrokeWidth(3.0),
+            ],
+        );
+        assert_eq!(h.app.tab().journal.undo_depth(), before + 1);
+        let stroke =
+            scene::stroke_of(h.app.doc().scene.node(id).unwrap()).expect("a text box has a stroke");
+        assert_eq!(stroke.color, Rgba([200, 30, 30, 255]));
+        assert_eq!(stroke.width, 3.0);
+        h.app.board_sel.clear();
+        h.frame();
+        let screen = h
+            .app
+            .board_xf()
+            .rect_w2s(WorldRect::new(-120.0, -30.0, 240.0, 60.0));
+        let red = egui::epaint::ColorMode::Solid(egui::Color32::from_rgb(200, 30, 30));
+        let border = |out: &egui::FullOutput| {
+            out.shapes.iter().any(|s| match &s.shape {
+                egui::Shape::Path(p) => {
+                    p.closed
+                        && p.stroke.color == red
+                        && p.points.iter().all(|q| screen.expand(1.0).contains(*q))
+                        && p.points.iter().any(|q| (q.x - screen.left()).abs() < 1.0)
+                }
+                _ => false,
+            })
+        };
+        assert!(
+            border(&h.frame_output(|_| {})),
+            "the board paints the border"
+        );
+        h.app.board_undo();
+        assert!(scene::stroke_of(h.app.doc().scene.node(id).unwrap()).is_none_or(|s| s.is_none()));
+        assert!(!border(&h.frame_output(|_| {})));
+    }
+
     fn pointer(h: &mut Harness, p: Pos2, pressed: Option<bool>) {
         h.frame_with(|i| {
             i.events.push(egui::Event::PointerMoved(p));
@@ -3405,6 +3574,55 @@ mod tests {
                 modifiers: egui::Modifiers::NONE,
             })
         });
+    }
+
+    /// The typeface list scrolls under the wheel instead of zooming the board.
+    #[test]
+    fn wheel_over_the_typeface_list_does_not_zoom_the_board() {
+        let mut h = board();
+        text_node(&mut h, WorldRect::new(-120.0, -30.0, 240.0, 60.0));
+        let mut time = h.ctx.input(|i| i.time);
+        open_text_editor(&mut h, &mut time);
+        timed_frame(&mut h, &mut time, vec![]);
+        let editor = *h.app.shape_properties.chrome_hits.last().unwrap();
+        let z = h.app.board_xf().z;
+        let family = editor.min + Vec2::new(24.0, chrome::TEXT_ROW_HEIGHT * 0.5) * z;
+        timed_frame(&mut h, &mut time, vec![egui::Event::PointerMoved(family)]);
+        timed_frame(&mut h, &mut time, vec![primary(family, true)]);
+        timed_frame(&mut h, &mut time, vec![primary(family, false)]);
+        assert!(
+            h.app.shape_properties.text_family_open,
+            "typeface list open"
+        );
+        timed_frame(&mut h, &mut time, vec![]);
+        let strip_len = h
+            .app
+            .shape_properties
+            .last_chrome
+            .as_ref()
+            .unwrap()
+            .items
+            .len();
+        let list = h.app.shape_properties.chrome_hits[strip_len];
+        assert!(list.top() > editor.top() && list.height() > 100.0 * z);
+        let before = h.app.tab().cam.z;
+        let over = list.center();
+        for _ in 0..6 {
+            timed_frame(
+                &mut h,
+                &mut time,
+                vec![
+                    egui::Event::PointerMoved(over),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        delta: Vec2::new(0.0, -80.0),
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+            );
+        }
+        assert_eq!(h.app.tab().cam.z, before, "the board must not zoom");
+        assert!(h.app.shape_properties.text_family_open, "list stays open");
     }
 
     fn corner_grip(h: &Harness, id: NodeId) -> Pos2 {
@@ -3873,7 +4091,10 @@ mod tests {
             item_kinds(&property_strip_items(&[node(image)])),
             ["stroke", "corners", "filter"]
         );
-        assert_eq!(item_kinds(&property_strip_items(&[node(text)])), ["fill"]);
+        assert_eq!(
+            item_kinds(&property_strip_items(&[node(text)])),
+            ["fill", "stroke"]
+        );
         assert_eq!(
             item_kinds(&property_strip_items(&[node(portal)])),
             ["fill", "stroke", "corners"]

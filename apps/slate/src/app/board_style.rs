@@ -5,11 +5,11 @@
 
 use std::collections::HashMap;
 
-use slate_doc::create_style::{CreateStyleMemory, StrokeTool, StyleMemorySlot};
+use slate_doc::create_style::{legible_text_color, CreateStyleMemory, StrokeTool, StyleMemorySlot};
 use slate_doc::scene::{Node, NodeKind, Rgba, ShapeKind, ShapeNode, Stroke};
 use slate_doc::NodeId;
 
-use super::board::BoardTool;
+use super::board::{to_rgba, BoardTool};
 use super::board_color::BoardColors;
 use super::board_line;
 use super::board_path;
@@ -153,6 +153,11 @@ impl SlateApp {
         if Self::node_records_fill(node) {
             slot.fill = next.fill;
         }
+        if let NodeKind::Text(t) = &node.kind {
+            if t.fill.is_none() {
+                self.board_last_style.memory.text_color = Some(t.color);
+            }
+        }
         self.flush_create_style_to_doc();
     }
 
@@ -223,6 +228,17 @@ impl SlateApp {
             .tool(tool)
             .opacity
             .unwrap_or(1.0)
+    }
+
+    /// Color for a new text box (Text D16): the last text box color, unless
+    /// it would vanish on the canvas; then the theme's ink.
+    pub(crate) fn color_for_new_text(&self) -> Rgba {
+        let palette = self.palette();
+        legible_text_color(
+            self.board_last_style.memory.text_color,
+            to_rgba(palette.bg),
+            to_rgba(palette.ink),
+        )
     }
 
     /// Fill for a new closed shape. `None` leaves the kit recipe fill.

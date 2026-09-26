@@ -215,6 +215,7 @@ mod tests {
                 color: Rgba::opaque(0, 0, 0),
                 align: TextAlign::Center,
                 fill: None,
+                stroke: Default::default(),
                 agent: None,
             }),
         );

@@ -877,6 +877,7 @@ fn an_occupied_board_can_insert_a_dropped_workbook() {
             color: slate_doc::scene::Rgba::opaque(20, 20, 20),
             align: slate_doc::scene::TextAlign::Left,
             fill: None,
+            stroke: Default::default(),
             agent: None,
         }),
     );
@@ -892,6 +893,7 @@ fn an_occupied_board_can_insert_a_dropped_workbook() {
             color: slate_doc::scene::Rgba::opaque(20, 20, 20),
             align: slate_doc::scene::TextAlign::Left,
             fill: None,
+            stroke: Default::default(),
             agent: None,
         }),
     );
@@ -1611,6 +1613,90 @@ fn text_box_draft_uses_theme_ink_in_dark_mode() {
     h.frame();
 }
 
+fn recolor_text(h: &mut Harness, id: NodeId, color: Rgba) {
+    h.app.patch_nodes(&[id], |n| {
+        if let NodeKind::Text(t) = &mut n.kind {
+            t.color = color;
+        }
+    });
+}
+
+fn draft_color_at(h: &mut Harness, world: Pos2) -> Rgba {
+    h.app.place_text_at(world);
+    let color = h.app.text_box_draft.as_ref().unwrap().color;
+    h.app.cancel_text_box_draft();
+    color
+}
+
+/// Text D16: a new text box takes the last text color the person gave a
+/// text box, unless that color would vanish on the canvas; then it takes
+/// the theme's ink. Existing text keeps its color.
+#[test]
+fn new_text_takes_the_last_text_color_unless_it_vanishes_on_the_canvas() {
+    for dark in [true, false] {
+        let mut h = text_draft_board("text-color-memory");
+        h.app.dark_mode = dark;
+        let palette = h.app.palette();
+        let ink = board::to_rgba(palette.ink);
+        let canvas = board::to_rgba(palette.bg);
+        let center = h.app.canvas_rect.center();
+        compose_text(&mut h, center, "first");
+        press_key(&mut h, egui::Key::Escape);
+        let id = h.app.doc().scene.nodes[0].id;
+        let world = h.app.board_xf().s2w(center + EVec2::new(0.0, 200.0));
+
+        let red = Rgba::opaque(214, 48, 49);
+        recolor_text(&mut h, id, red);
+        assert_eq!(draft_color_at(&mut h, world), red, "dark={dark}");
+
+        // The canvas color itself, and a near miss of it, fall back to ink.
+        recolor_text(&mut h, id, canvas);
+        assert_eq!(draft_color_at(&mut h, world), ink, "dark={dark}");
+        let near = Rgba::opaque(
+            canvas.0[0].saturating_add(6),
+            canvas.0[1].saturating_add(6),
+            canvas.0[2].saturating_sub(6),
+        );
+        recolor_text(&mut h, id, near);
+        assert_eq!(draft_color_at(&mut h, world), ink, "dark={dark}");
+        let existing = match &h.app.doc().scene.node(id).unwrap().kind {
+            NodeKind::Text(t) => t.color,
+            _ => unreachable!(),
+        };
+        assert_eq!(existing, near, "only new text is guarded");
+
+        // White on a light canvas, black on a dark one.
+        let invisible = if dark { Rgba::BLACK } else { Rgba::WHITE };
+        recolor_text(&mut h, id, invisible);
+        assert_eq!(draft_color_at(&mut h, world), ink, "dark={dark}");
+        let legible = if dark { Rgba::WHITE } else { Rgba::BLACK };
+        recolor_text(&mut h, id, legible);
+        assert_eq!(draft_color_at(&mut h, world), legible, "dark={dark}");
+    }
+}
+
+/// A sticky's ink is its own: editing it leaves the text box's color alone.
+#[test]
+fn sticky_ink_edits_do_not_become_the_text_box_color() {
+    let mut h = text_draft_board("text-color-sticky");
+    h.app.dark_mode = true;
+    let center = h.app.canvas_rect.center();
+    compose_text(&mut h, center, "first");
+    press_key(&mut h, egui::Key::Escape);
+    let text = h.app.doc().scene.nodes[0].id;
+    let orange = Rgba::opaque(240, 140, 20);
+    recolor_text(&mut h, text, orange);
+    let world = h.app.board_xf().s2w(center + EVec2::new(0.0, 200.0));
+    h.app.place_sticky_at(world);
+    let sticky = h.app.doc().scene.nodes.last().unwrap().id;
+    h.app.commit_text_edit();
+    recolor_text(&mut h, sticky, Rgba::opaque(20, 90, 200));
+    assert_eq!(
+        draft_color_at(&mut h, world + EVec2::new(0.0, 200.0)),
+        orange
+    );
+}
+
 fn text_draft_board(tag: &str) -> Harness {
     let mut h = Harness::new(tag);
     h.app.leave_home();
@@ -1851,6 +1937,115 @@ fn text_box_drag_draft_keeps_its_wrap_width() {
     h.app.commit_text_box_draft();
     let node = h.app.doc().scene.nodes.last().expect("committed");
     assert_eq!(node.rect.w, 120.0);
+}
+
+/// Press and release the primary button at `screen`, one frame each.
+fn click_board(h: &mut Harness, screen: Pos2) {
+    for pressed in [true, false] {
+        h.frame_with(|input| {
+            input.events.push(egui::Event::PointerMoved(screen));
+            input.events.push(egui::Event::PointerButton {
+                pos: screen,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        });
+    }
+}
+
+/// Let a second pass, as it does while a person types. Harness frames are
+/// 1/60 s apart, so two clicks a dozen frames apart would read as a
+/// double-click (the canvas palette on empty board).
+fn pause(h: &mut Harness) {
+    let t = h.ctx.input(|i| i.time);
+    h.frame_with(|i| i.time = Some(t + 1.0));
+}
+
+/// Arm Text, click the board at `screen` and type `text` into the draft.
+fn compose_text(h: &mut Harness, screen: Pos2, text: &str) {
+    h.app.set_board_tool(board::BoardTool::Text);
+    h.frame();
+    click_board(h, screen);
+    assert!(h.app.text_box_draft.is_some(), "the click opens a draft");
+    h.frame();
+    let typed = text.to_string();
+    h.frame_with(|input| {
+        input.events.push(egui::Event::PointerMoved(screen));
+        input.events.push(egui::Event::Text(typed));
+    });
+    pause(h);
+    assert_eq!(h.app.text_box_draft.as_ref().unwrap().buffer, text);
+}
+
+/// The typed words are on the board as one text node, nothing is still
+/// being edited, no editor popup is open, and it cost exactly one undo step.
+fn assert_text_committed_once(h: &Harness, undo_before: usize, text: &str) {
+    let nodes = &h.app.doc().scene.nodes;
+    assert_eq!(nodes.len(), 1, "exactly one text node");
+    match &nodes[0].kind {
+        NodeKind::Text(t) => assert_eq!(t.text, text, "the typed words survive"),
+        other => panic!("expected a text node, got {other:?}"),
+    }
+    assert!(h.app.text_box_draft.is_none(), "the draft is finished");
+    assert!(
+        h.app.text_edit.is_none(),
+        "no editor reopens on the new node"
+    );
+    assert_eq!(
+        h.app.shape_properties.panel, None,
+        "no text/color editor pops up"
+    );
+    assert!(h.app.board_menu.is_none());
+    assert!(!h.app.palette_state.open);
+    assert_eq!(h.app.tab().journal.undo_depth(), undo_before + 1);
+    assert_eq!(h.app.board_tool, board::BoardTool::Select);
+}
+
+/// Text D12: clicking empty canvas after typing commits the words as one
+/// journaled add. A later click-away must not rewrite them either.
+#[test]
+fn text_box_click_away_after_typing_commits_the_words() {
+    let mut h = text_draft_board("text-click-away-commit");
+    let before = h.app.tab().journal.undo_depth();
+    let center = h.app.canvas_rect.center();
+    compose_text(&mut h, center, "hello");
+    click_board(&mut h, center + EVec2::new(260.0, 180.0));
+    for _ in 0..4 {
+        h.frame();
+    }
+    assert_text_committed_once(&h, before, "hello");
+    pause(&mut h);
+    click_board(&mut h, center + EVec2::new(-280.0, 200.0));
+    for _ in 0..4 {
+        h.frame();
+    }
+    assert_text_committed_once(&h, before, "hello");
+    h.app.board_undo();
+    assert!(h.app.doc().scene.nodes.is_empty(), "one undo removes it");
+}
+
+/// Text D12: Esc after typing commits exactly like a click-away and opens
+/// no popup (no color editor, no menu, no search).
+#[test]
+fn text_box_escape_after_typing_commits_without_a_popup() {
+    let mut h = text_draft_board("text-escape-commit");
+    let before = h.app.tab().journal.undo_depth();
+    let center = h.app.canvas_rect.center();
+    compose_text(&mut h, center, "hello");
+    press_key(&mut h, egui::Key::Escape);
+    for _ in 0..4 {
+        h.frame();
+    }
+    assert_text_committed_once(&h, before, "hello");
+    pause(&mut h);
+    click_board(&mut h, center + EVec2::new(-280.0, 200.0));
+    for _ in 0..4 {
+        h.frame();
+    }
+    assert_text_committed_once(&h, before, "hello");
+    h.app.board_undo();
+    assert!(h.app.doc().scene.nodes.is_empty(), "one undo removes it");
 }
 
 /// Double-click anywhere on a closed shape opens center-justified text editing
@@ -7333,6 +7528,7 @@ fn trim_text_clip_punches_a_hole() {
                 color: slate_doc::scene::Rgba::BLACK,
                 align: TextAlign::Left,
                 fill: None,
+                stroke: Default::default(),
                 agent: None,
             }),
         );
@@ -7562,6 +7758,7 @@ fn join_skips_text() {
                 color: slate_doc::scene::Rgba::BLACK,
                 align: TextAlign::Left,
                 fill: None,
+                stroke: Default::default(),
                 agent: None,
             }),
         );
@@ -7964,6 +8161,7 @@ fn entered_media_suppresses_the_selection_cast() {
             color: slate_doc::scene::Rgba::opaque(20, 20, 20),
             align: TextAlign::Left,
             fill: Some(slate_doc::scene::Rgba::WHITE),
+            stroke: Default::default(),
             agent: None,
         }),
     );
@@ -11317,6 +11515,7 @@ fn a_mixed_copy_offers_plain_text_and_still_pastes_nodes() {
             color: slate_doc::scene::Rgba::BLACK,
             align: Default::default(),
             fill: None,
+            stroke: Default::default(),
             agent: None,
         }),
     );

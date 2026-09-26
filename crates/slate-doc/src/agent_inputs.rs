@@ -1326,6 +1326,7 @@ mod tests {
             color: Rgba::BLACK,
             align: Default::default(),
             fill: None,
+            stroke: Default::default(),
             agent: None,
         })
     }

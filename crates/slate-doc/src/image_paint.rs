@@ -328,6 +328,7 @@ mod tests {
             color: Rgba([0, 0, 0, 255]),
             align: Default::default(),
             fill: None,
+            stroke: Default::default(),
             agent: None,
         })));
         for shape in [

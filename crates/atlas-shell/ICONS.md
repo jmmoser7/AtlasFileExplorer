@@ -80,6 +80,16 @@ changes require actual-size visual review, not just enlarged artwork.
 
 The shape-selection strip uses the catalog Fill bucket, Ellipse stroke ring, Corners outline, Filters funnel, Pages grid, and Display for File Atlas Formatting. These share the same path stroke and squircle chrome as the primary dock; applications do not paint private substitute glyphs. [DYNAMIC_PANELS.md](DYNAMIC_PANELS.md) owns the surrounding panel composition and distinguishes squircle icon buttons from circular color swatches, filter radios, and rail handles.
 
+## Justification
+
+`JustifyLeft`, `JustifyCenter`, and `JustifyRight` are the standard four-line
+paragraph marks: full-width lines alternate with short lines held to the left
+edge, centered, or held to the right edge. Each short line is 10 units wide, or
+12 when centered, and the rows sit 4 units apart. They sit beside the Left /
+Center / Right labels in the Text editor's justification segments
+(`selection_tools::text_format_editor`, text contract D14; user request 26
+September 2026). They are not `Align`, the align tool's bar-and-boxes glyph.
+
 ## Bumper
 
 `Bumper` is two pucks touching at one point, with three short impact marks above
