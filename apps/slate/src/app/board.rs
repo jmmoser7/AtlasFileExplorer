@@ -7573,11 +7573,8 @@ impl SlateApp {
                 agent: None,
             }),
         );
-        let id = node.id;
         let ids = self.commit_created_nodes(vec![node]);
-        let hosted = self.image_paint.is_some();
         self.select_created_nodes(ids);
-        self.text_edit = (!hosted).then(|| (id, "Text".into()));
         self.board_tool = BoardTool::Select;
         self.push_history(
             atlas_commands::CommandId("board.tool.text"),

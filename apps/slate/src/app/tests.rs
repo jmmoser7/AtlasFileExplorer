@@ -1850,6 +1850,115 @@ fn text_box_drag_draft_keeps_its_wrap_width() {
     assert_eq!(node.rect.w, 120.0);
 }
 
+/// Press and release the primary button at `screen`, one frame each.
+fn click_board(h: &mut Harness, screen: Pos2) {
+    for pressed in [true, false] {
+        h.frame_with(|input| {
+            input.events.push(egui::Event::PointerMoved(screen));
+            input.events.push(egui::Event::PointerButton {
+                pos: screen,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        });
+    }
+}
+
+/// Let a second pass, as it does while a person types. Harness frames are
+/// 1/60 s apart, so two clicks a dozen frames apart would read as a
+/// double-click (the canvas palette on empty board).
+fn pause(h: &mut Harness) {
+    let t = h.ctx.input(|i| i.time);
+    h.frame_with(|i| i.time = Some(t + 1.0));
+}
+
+/// Arm Text, click the board at `screen` and type `text` into the draft.
+fn compose_text(h: &mut Harness, screen: Pos2, text: &str) {
+    h.app.set_board_tool(board::BoardTool::Text);
+    h.frame();
+    click_board(h, screen);
+    assert!(h.app.text_box_draft.is_some(), "the click opens a draft");
+    h.frame();
+    let typed = text.to_string();
+    h.frame_with(|input| {
+        input.events.push(egui::Event::PointerMoved(screen));
+        input.events.push(egui::Event::Text(typed));
+    });
+    pause(h);
+    assert_eq!(h.app.text_box_draft.as_ref().unwrap().buffer, text);
+}
+
+/// The typed words are on the board as one text node, nothing is still
+/// being edited, no editor popup is open, and it cost exactly one undo step.
+fn assert_text_committed_once(h: &Harness, undo_before: usize, text: &str) {
+    let nodes = &h.app.doc().scene.nodes;
+    assert_eq!(nodes.len(), 1, "exactly one text node");
+    match &nodes[0].kind {
+        NodeKind::Text(t) => assert_eq!(t.text, text, "the typed words survive"),
+        other => panic!("expected a text node, got {other:?}"),
+    }
+    assert!(h.app.text_box_draft.is_none(), "the draft is finished");
+    assert!(
+        h.app.text_edit.is_none(),
+        "no editor reopens on the new node"
+    );
+    assert_eq!(
+        h.app.shape_properties.panel, None,
+        "no text/color editor pops up"
+    );
+    assert!(h.app.board_menu.is_none());
+    assert!(!h.app.palette_state.open);
+    assert_eq!(h.app.tab().journal.undo_depth(), undo_before + 1);
+    assert_eq!(h.app.board_tool, board::BoardTool::Select);
+}
+
+/// Text D12: clicking empty canvas after typing commits the words as one
+/// journaled add. A later click-away must not rewrite them either.
+#[test]
+fn text_box_click_away_after_typing_commits_the_words() {
+    let mut h = text_draft_board("text-click-away-commit");
+    let before = h.app.tab().journal.undo_depth();
+    let center = h.app.canvas_rect.center();
+    compose_text(&mut h, center, "hello");
+    click_board(&mut h, center + EVec2::new(260.0, 180.0));
+    for _ in 0..4 {
+        h.frame();
+    }
+    assert_text_committed_once(&h, before, "hello");
+    pause(&mut h);
+    click_board(&mut h, center + EVec2::new(-280.0, 200.0));
+    for _ in 0..4 {
+        h.frame();
+    }
+    assert_text_committed_once(&h, before, "hello");
+    h.app.board_undo();
+    assert!(h.app.doc().scene.nodes.is_empty(), "one undo removes it");
+}
+
+/// Text D12: Esc after typing commits exactly like a click-away and opens
+/// no popup (no color editor, no menu, no search).
+#[test]
+fn text_box_escape_after_typing_commits_without_a_popup() {
+    let mut h = text_draft_board("text-escape-commit");
+    let before = h.app.tab().journal.undo_depth();
+    let center = h.app.canvas_rect.center();
+    compose_text(&mut h, center, "hello");
+    press_key(&mut h, egui::Key::Escape);
+    for _ in 0..4 {
+        h.frame();
+    }
+    assert_text_committed_once(&h, before, "hello");
+    pause(&mut h);
+    click_board(&mut h, center + EVec2::new(-280.0, 200.0));
+    for _ in 0..4 {
+        h.frame();
+    }
+    assert_text_committed_once(&h, before, "hello");
+    h.app.board_undo();
+    assert!(h.app.doc().scene.nodes.is_empty(), "one undo removes it");
+}
+
 /// Double-click anywhere on a closed shape opens center-justified text editing
 /// and the text configuration. A line does not.
 #[test]

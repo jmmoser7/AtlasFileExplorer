@@ -400,11 +400,11 @@
           "decided": "2026-09-25"
         },
         "D12": {
-          "behavior": "Esc while GhostFollow / mid-DragScale → disarm, no node. Esc on empty text-box draft → discard, no journal. Esc or click-away on non-empty compose → commit; text box returns to Select (D02). Empty click-away or tool switch on draft → discard, no journal.",
+          "behavior": "Esc while GhostFollow / mid-DragScale → disarm, no node. Esc on empty text-box draft → discard, no journal. Esc or click-away on non-empty compose → commit as one journaled board.tool.text add; text box returns to Select (D02) with the new node selected. The commit opens nothing: no inline editor on the new node, no Text/color editor, no board menu, no canvas search (user request 26 September 2026). Empty click-away or tool switch on draft → discard, no journal.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-09-26"
         },
         "D13": {
           "behavior": "Standard node resize bbox + rotation (P1.node). Multi-select uses the shared group bbox; group uniform scale also scales TextNode.size.",
