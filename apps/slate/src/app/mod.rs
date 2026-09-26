@@ -624,7 +624,7 @@ pub struct SlateApp {
     pub smooth_strength: f32,
     pub(crate) smooth_anchor: Option<egui::Pos2>,
     pub(crate) smooth_preview: HashMap<NodeId, slate_doc::scene::Node>,
-    pub(crate) smooth_polylines: HashMap<NodeId, board_smooth::SmoothPolyline>,
+    pub(crate) smooth_polylines: HashMap<NodeId, board_smooth::SmoothCurve>,
     /// End of the last eraser pass, where a Shift pass starts.
     pub(crate) eraser_anchor: Option<egui::Pos2>,
     /// Painted strokes under the eraser this drag, shown with the pass applied.

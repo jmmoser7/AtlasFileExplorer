@@ -12,7 +12,7 @@
 //! the exact cubic Bézier segments by knot insertion, so storage, painting,
 //! and SVG export stay cubic Bézier paths (Constitution Art. IV).
 
-use kurbo::BezPath;
+use kurbo::{BezPath, ParamCurve, ParamCurveArclen};
 
 /// Default bending weight for [`SplineFit`]: light enough to leave the
 /// stroke's shape to the data term, heavy enough to keep a nearly
@@ -104,6 +104,62 @@ impl CubicBSpline {
             }
             spans = (spans * 3 / 2).max(spans + 1).min(max_spans);
         }
+    }
+
+    /// Refit an existing single-contour path, for editing. Each run of
+    /// tangent-continuous segments is resampled every `spacing` of arc
+    /// length and fitted on its own; runs meet with C0 joints at the path's
+    /// corners, so a corner is kept until something smooths it. A closing
+    /// segment is part of the contour. `None` for multi-contour or empty
+    /// paths.
+    pub fn fit_path(path: &BezPath, opts: &SplineFit, spacing: f32) -> Option<Self> {
+        let spacing = f64::from(spacing).max(1e-3);
+        if path
+            .elements()
+            .iter()
+            .filter(|e| matches!(e, kurbo::PathEl::MoveTo(_)))
+            .count()
+            > 1
+        {
+            return None;
+        }
+        let segs: Vec<kurbo::PathSeg> = path.segments().filter(|s| s.arclen(1e-3) > 1e-9).collect();
+        let mut runs: Vec<Vec<kurbo::PathSeg>> = Vec::new();
+        for seg in segs {
+            let smooth = runs
+                .last()
+                .and_then(|r| r.last())
+                .is_some_and(|prev| tangents_agree(end_tangent(prev), start_tangent(&seg)));
+            match runs.last_mut() {
+                Some(run) if smooth => run.push(seg),
+                _ => runs.push(vec![seg]),
+            }
+        }
+        let mut out: Option<CubicBSpline> = None;
+        for run in runs {
+            let mut pts: Vec<[f32; 2]> = Vec::new();
+            for seg in &run {
+                let len = seg.arclen(1e-3);
+                let steps = (len / spacing).ceil().max(1.0) as usize;
+                let from = usize::from(!pts.is_empty());
+                for i in from..=steps {
+                    let s = len * i as f64 / steps as f64;
+                    let t = if i == steps {
+                        1.0
+                    } else {
+                        seg.inv_arclen(s, 1e-4)
+                    };
+                    let p = seg.eval(t);
+                    pts.push([p.x as f32, p.y as f32]);
+                }
+            }
+            let piece = CubicBSpline::fit(&pts, opts)?;
+            match out.as_mut() {
+                Some(s) => s.join(&piece),
+                None => out = Some(piece),
+            }
+        }
+        out
     }
 
     /// Parameter domain `(start, end)`.
@@ -241,6 +297,31 @@ impl CubicBSpline {
             }
         }
     }
+}
+
+/// Joints whose tangents differ by less than this are smooth.
+const SMOOTH_JOINT_COS: f64 = 0.9994; // ~2°
+
+fn tangents_agree(a: kurbo::Vec2, b: kurbo::Vec2) -> bool {
+    let (la, lb) = (a.hypot(), b.hypot());
+    la > 1e-12 && lb > 1e-12 && a.dot(b) / (la * lb) >= SMOOTH_JOINT_COS
+}
+
+fn start_tangent(seg: &kurbo::PathSeg) -> kurbo::Vec2 {
+    let pts: Vec<kurbo::Point> = match *seg {
+        kurbo::PathSeg::Line(l) => vec![l.p0, l.p1],
+        kurbo::PathSeg::Quad(q) => vec![q.p0, q.p1, q.p2],
+        kurbo::PathSeg::Cubic(c) => vec![c.p0, c.p1, c.p2, c.p3],
+    };
+    pts[1..]
+        .iter()
+        .map(|p| *p - pts[0])
+        .find(|v| v.hypot() > 1e-9)
+        .unwrap_or_default()
+}
+
+fn end_tangent(seg: &kurbo::PathSeg) -> kurbo::Vec2 {
+    start_tangent(&seg.reverse()) * -1.0
 }
 
 /// Uniform clamped knots for `spans` knot spans on `[0, 1]`.
@@ -578,6 +659,51 @@ mod tests {
         assert_eq!(segs.len(), 1);
         assert!((segs[0].p1.x - 10.0).abs() < 1e-6 && segs[0].p1.y.abs() < 1e-9);
         assert!((segs[0].p2.x - 20.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn fit_path_reproduces_a_sparse_bezier_and_keeps_its_corner() {
+        let mut bez = BezPath::new();
+        bez.move_to((0.0, 0.0));
+        bez.curve_to((50.0, -150.0), (150.0, -150.0), (200.0, 0.0));
+        bez.curve_to((250.0, -150.0), (350.0, -150.0), (400.0, 0.0));
+        let mut opts = SplineFit::new(0.1);
+        opts.max_span = 20.0;
+        let s = CubicBSpline::fit_path(&bez, &opts, 1.0).unwrap();
+        assert!(s.ctrl.len() > 20, "enough control points for a brush");
+        let out = s.to_bezpath();
+        let flat = crate::flatten(&out, 0.005);
+        for seg in bez.segments() {
+            for i in 0..=40 {
+                let p = seg.eval(i as f64 / 40.0);
+                let p = [p.x as f32, p.y as f32];
+                let d = flat
+                    .windows(2)
+                    .map(|w| crate::geom::dist_to_segment(p, w[0], w[1]))
+                    .fold(f32::INFINITY, f32::min);
+                assert!(d <= 0.12, "refit moved the path by {d}");
+            }
+        }
+        let segs = cubics(&out);
+        let corner = segs
+            .iter()
+            .position(|c| (c.p3 - kurbo::Point::new(200.0, 0.0)).hypot() < 1e-6)
+            .expect("the corner is a vertex");
+        let tin = (segs[corner].p3 - segs[corner].p2).normalize();
+        let tout = (segs[corner + 1].p1 - segs[corner + 1].p0).normalize();
+        assert!(tin.dot(tout) < 0.0, "the cusp stays a cusp until smoothed");
+    }
+
+    #[test]
+    fn fit_path_follows_a_closed_contour_back_to_its_start() {
+        let mut bez = BezPath::new();
+        bez.move_to((0.0, 0.0));
+        bez.line_to((100.0, 0.0));
+        bez.line_to((100.0, 100.0));
+        bez.close_path();
+        let s = CubicBSpline::fit_path(&bez, &SplineFit::new(0.1), 1.0).unwrap();
+        assert_eq!(s.ctrl.first(), s.ctrl.last());
+        assert!(CubicBSpline::fit_path(&BezPath::new(), &SplineFit::new(0.1), 1.0).is_none());
     }
 
     #[test]

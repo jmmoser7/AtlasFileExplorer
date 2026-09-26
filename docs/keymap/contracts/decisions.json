@@ -4706,11 +4706,11 @@
           "decided": "2026-09-25"
         },
         "D11": {
-          "behavior": "Release journals one invertible group of SceneCmd::Patch for every touched node (vectors: refit path; stamps: Stroke::gaussian_blur). Undo restores exact before snapshots.",
+          "behavior": "Release journals one invertible group of SceneCmd::Patch for every touched node (vectors: refit path, see Modes; stamps: Stroke::gaussian_blur). Undo restores exact before snapshots. A sparse Bezier is smoothed as a NURBS-style cubic B-spline: Laplacian on its control polygon under the brush, endpoints pinned, converted back to cubic Beziers (stated 2026-09-26).",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
-          "decided": "2026-09-25"
+          "verdict": "approved",
+          "decided": "2026-09-26"
         },
         "D12": {
           "behavior": "Esc drops the drag and live preview; no journal.",

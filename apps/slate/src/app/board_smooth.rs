@@ -10,10 +10,24 @@ use slate_doc::NodeId;
 const SMOOTH_BLUR_STEP: f32 = 0.35;
 const SMOOTH_BLUR_MAX: f32 = 48.0;
 const SMOOTH_POLY_SPACING: f32 = 0.75;
+/// Screen-px deviation allowed when a sparse path becomes a B-spline, so
+/// spans the brush never reaches stay where they were.
+const SMOOTH_SPLINE_FIT_PX: f32 = 0.25;
 
-pub(crate) struct SmoothPolyline {
-    pub points: Vec<[f32; 2]>,
-    pub pinned: Vec<bool>,
+/// A vector stroke being smoothed during one drag.
+pub(crate) struct SmoothCurve {
+    pub target: SmoothTarget,
+}
+
+pub(crate) enum SmoothTarget {
+    /// Dense flattened centerline (many short segments or several contours).
+    Points {
+        points: Vec<[f32; 2]>,
+        pinned: Vec<bool>,
+    },
+    /// Sparse path refit as a cubic B-spline whose control polygon is spaced
+    /// to the brush, so a pass relaxes it at the brush's scale.
+    Spline(vector_ink::CubicBSpline),
 }
 
 impl SlateApp {
@@ -122,14 +136,14 @@ impl SlateApp {
                     self.smooth_polylines.insert(id, entry);
                 }
             }
-            if let Some(poly) = self.smooth_polylines.get_mut(&id) {
-                vector_ink::laplacian_smooth_pass(
-                    &mut poly.points,
-                    &poly.pinned,
-                    center,
-                    radius,
-                    strength,
-                );
+            match self.smooth_polylines.get_mut(&id).map(|c| &mut c.target) {
+                Some(SmoothTarget::Points { points, pinned }) => {
+                    vector_ink::laplacian_smooth_pass(points, pinned, center, radius, strength);
+                }
+                Some(SmoothTarget::Spline(spline)) => {
+                    vector_ink::laplacian_smooth_spline(spline, center, radius, strength);
+                }
+                None => {}
             }
             if let Some(node) = self.rebuild_smooth_vector_node(id) {
                 self.smooth_preview.insert(id, node);
@@ -154,26 +168,36 @@ impl SlateApp {
         }
     }
 
-    fn init_smooth_polyline(&self, id: NodeId) -> Option<SmoothPolyline> {
+    fn init_smooth_polyline(&self, id: NodeId) -> Option<SmoothCurve> {
         let n = self.doc().scene.node(id)?;
         let NodeKind::Shape(s) = &n.kind else {
             return None;
         };
-        let points = match s.shape {
+        let (bez, segments) = match s.shape {
             ShapeKind::Path => {
                 let path = s.path.as_ref()?;
                 if path.is_empty() || s.stroke.paints_as_stamp() {
                     return None;
                 }
                 let bez = board_path::path_data_to_world_bez(path, n.rect, n.rotation_deg);
-                vector_ink::flatten(&bez, f64::from(SMOOTH_POLY_SPACING))
+                (bez, path.segs.len())
             }
             ShapeKind::Line => {
                 let (a, b) = board_line::line_endpoints(n)?;
-                sample_line(a, b, 16)
+                let mut bez = vector_ink::kurbo::BezPath::new();
+                bez.move_to((f64::from(a.x), f64::from(a.y)));
+                bez.line_to((f64::from(b.x), f64::from(b.y)));
+                (bez, 1)
             }
             _ => return None,
         };
+        let radius = self.smooth_width * 0.5;
+        if let Some(spline) = self.sparse_smooth_spline(&bez, segments, radius) {
+            return Some(SmoothCurve {
+                target: SmoothTarget::Spline(spline),
+            });
+        }
+        let points = vector_ink::flatten(&bez, f64::from(SMOOTH_POLY_SPACING));
         if points.len() < 2 {
             return None;
         }
@@ -182,16 +206,45 @@ impl SlateApp {
         if let Some(last) = pinned.last_mut() {
             *last = true;
         }
-        Some(SmoothPolyline { points, pinned })
+        Some(SmoothCurve {
+            target: SmoothTarget::Points { points, pinned },
+        })
+    }
+
+    /// A single-contour path whose segments average longer than half the
+    /// brush radius, refit as a B-spline with a control point every half
+    /// radius. Dense paths keep the flattened route.
+    fn sparse_smooth_spline(
+        &self,
+        bez: &vector_ink::kurbo::BezPath,
+        segments: usize,
+        radius: f32,
+    ) -> Option<vector_ink::CubicBSpline> {
+        use vector_ink::kurbo::ParamCurveArclen;
+        let length: f64 = bez.segments().map(|s| s.arclen(1e-3)).sum();
+        let span = f64::from(radius) * 0.5;
+        if radius <= 0.0 || segments == 0 || length <= span * segments as f64 {
+            return None;
+        }
+        let zoom = self.tab().cam.z.max(f32::EPSILON);
+        let mut opts = vector_ink::SplineFit::new(SMOOTH_SPLINE_FIT_PX / zoom);
+        opts.max_span = radius * 0.5;
+        let spacing = (radius / 8.0).min(1.0 / zoom);
+        vector_ink::CubicBSpline::fit_path(bez, &opts, spacing)
     }
 
     fn rebuild_smooth_vector_node(&self, id: NodeId) -> Option<Node> {
-        let poly = self.smooth_polylines.get(&id)?;
+        let curve = self.smooth_polylines.get(&id)?;
         let before = self.doc().scene.node(id)?.clone();
-        let zoom = self.tab().cam.z.max(f32::EPSILON);
-        let tol = board_path::FREEHAND_FIT_ERROR_PX / zoom;
-        let spacing = board_path::FREEHAND_SAMPLE_SPACING_PX / zoom;
-        let bez = vector_ink::fit_polyline_spaced(&poly.points, tol, spacing);
+        let bez = match &curve.target {
+            SmoothTarget::Spline(spline) => spline.to_bezpath(),
+            SmoothTarget::Points { points, .. } => {
+                let zoom = self.tab().cam.z.max(f32::EPSILON);
+                let tol = board_path::FREEHAND_FIT_ERROR_PX / zoom;
+                let spacing = board_path::FREEHAND_SAMPLE_SPACING_PX / zoom;
+                vector_ink::fit_polyline_spaced(points, tol, spacing)
+            }
+        };
         let (rect, path_data) = board_path::bezpath_to_path_data(&bez, false);
         let mut node = before;
         let NodeKind::Shape(ref mut shape) = node.kind else {
@@ -248,14 +301,4 @@ impl SlateApp {
             self.brush_stamps.clear();
         }
     }
-}
-
-fn sample_line(a: Pos2, b: Pos2, segments: usize) -> Vec<[f32; 2]> {
-    let n = segments.max(2);
-    (0..=n)
-        .map(|i| {
-            let t = i as f32 / n as f32;
-            [a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t]
-        })
-        .collect()
 }
