@@ -425,38 +425,38 @@ pub fn cursor_for_rotate() -> CursorIcon {
     CursorIcon::None
 }
 
-/// Windows-style 90° corner rotate cursor: a quarter-arc with an arrowhead,
-/// painted at the pointer (pair with `CursorIcon::None`).
-pub fn paint_rotate_cursor(painter: &egui::Painter, pos: Pos2, color: Color32) {
-    let r = 8.0;
-    let n = 12;
-    let start = 200.0f32.to_radians();
-    let sweep = 90.0f32.to_radians();
+/// Rotate pointer in the Windows cursor scheme (white, rimmed in black, OS
+/// cursor size): a circular arrow painted at the pointer. Pointer-attached
+/// chrome (`P2.GhostFollow`), so it stays screen-sized; pair with
+/// `CursorIcon::None`.
+pub fn paint_rotate_cursor(painter: &egui::Painter, pos: Pos2) {
+    let r = 7.0;
+    let n = 40;
+    let start = -30.0f32.to_radians();
+    let sweep = 300.0f32.to_radians();
     let pts: Vec<Pos2> = (0..=n)
         .map(|i| {
             let a = start + sweep * i as f32 / n as f32;
             pos + Vec2::angled(a) * r
         })
         .collect();
-    // Halo first, for contrast over arbitrary board content.
     painter.add(egui::Shape::line(
         pts.clone(),
-        EStroke::new(3.5_f32, Color32::from_black_alpha(120)),
+        EStroke::new(4.5_f32, Color32::BLACK),
     ));
-    painter.add(egui::Shape::line(pts.clone(), EStroke::new(1.8_f32, color)));
+    painter.add(egui::Shape::line(
+        pts.clone(),
+        EStroke::new(2.0_f32, Color32::WHITE),
+    ));
     let end = *pts.last().unwrap();
     let end_angle = start + sweep;
     let tangent = Vec2::angled(end_angle + std::f32::consts::FRAC_PI_2);
     let outward = Vec2::angled(end_angle);
-    let s = 4.0;
+    let s = 4.5;
     painter.add(egui::Shape::convex_polygon(
-        vec![
-            end + tangent * s,
-            end + outward * s * 0.9,
-            end - outward * s * 0.9,
-        ],
-        color,
-        EStroke::NONE,
+        vec![end + tangent * s, end + outward * s, end - outward * s],
+        Color32::WHITE,
+        EStroke::new(1.0_f32, Color32::BLACK),
     ));
 }
 

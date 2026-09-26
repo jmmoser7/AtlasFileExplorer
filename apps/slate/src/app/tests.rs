@@ -11391,3 +11391,115 @@ fn actions_flyout_offers_mirror() {
     );
     assert_eq!(picture_flips(&h, pic), (false, true));
 }
+
+/// The pointer during rotation: the OS arrow hides and a circular arrow in
+/// the Windows cursor scheme (white glyph, black outline) takes its place.
+fn assert_rotate_pointer(out: &egui::FullOutput, at: Pos2, phase: &str) {
+    assert_eq!(
+        out.platform_output.cursor_icon,
+        egui::CursorIcon::None,
+        "{phase}: the OS arrow gives way to the rotate pointer"
+    );
+    fn walk<'a>(shape: &'a egui::Shape, out: &mut Vec<&'a egui::epaint::PathShape>) {
+        match shape {
+            egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+            egui::Shape::Path(p) => out.push(p),
+            _ => {}
+        }
+    }
+    let mut paths = Vec::new();
+    for clipped in &out.shapes {
+        walk(&clipped.shape, &mut paths);
+    }
+    let near: Vec<&egui::epaint::PathShape> = paths
+        .into_iter()
+        .filter(|p| {
+            !p.closed && !p.points.is_empty() && p.points.iter().all(|q| q.distance(at) < 24.0)
+        })
+        .collect();
+    let solid = |p: &egui::epaint::PathShape| match p.stroke.color {
+        egui::epaint::ColorMode::Solid(c) => Some(c),
+        _ => None,
+    };
+    let glyph = near
+        .iter()
+        .copied()
+        .find(|p| solid(p) == Some(egui::Color32::WHITE))
+        .unwrap_or_else(|| panic!("{phase}: a white rotate glyph at the pointer"));
+    let outline = near
+        .iter()
+        .copied()
+        .find(|p| solid(p) == Some(egui::Color32::BLACK))
+        .unwrap_or_else(|| panic!("{phase}: a black outline under the glyph"));
+    assert!(
+        outline.stroke.width > glyph.stroke.width,
+        "{phase}: outline rims the glyph"
+    );
+    let n = glyph.points.len() as f32;
+    let c = glyph
+        .points
+        .iter()
+        .fold(EVec2::ZERO, |a, p| a + p.to_vec2())
+        / n;
+    let mut angles: Vec<f32> = glyph
+        .points
+        .iter()
+        .map(|p| (p.to_vec2() - c).angle().to_degrees())
+        .collect();
+    angles.sort_by(f32::total_cmp);
+    let mut gap: f32 = 360.0 - (angles[angles.len() - 1] - angles[0]);
+    for w in angles.windows(2) {
+        gap = gap.max(w[1] - w[0]);
+    }
+    assert!(
+        360.0 - gap >= 250.0,
+        "{phase}: a circular arrow, not a quarter arc (sweep {})",
+        360.0 - gap
+    );
+}
+
+#[test]
+fn rotate_hover_and_drag_show_a_circular_arrow_in_the_windows_cursor_scheme() {
+    let mut h = Harness::new("rotate_pointer");
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    h.app.set_board_tool(board::BoardTool::Select);
+    add_rect(&mut h.app, 0.0, 0.0);
+    let id = h.app.doc().scene.nodes[0].id;
+    h.app.board_sel = std::iter::once(id).collect();
+    // Far enough in that the corner rotate zone is clear of the side wire grips.
+    h.app.tab_mut().cam.z = 3.0;
+    h.frame();
+    let xf = h.app.board_xf();
+    let n = h.app.doc().scene.node(id).unwrap().clone();
+    let p = board_handles::selection_geom(&xf, n.rect, n.rotation_deg).rotate_points[1];
+    h.frame_with(|i| i.events.push(egui::Event::PointerMoved(p)));
+    let hover = h.frame_output(|i| i.events.push(egui::Event::PointerMoved(p)));
+    assert_rotate_pointer(&hover, p, "hover");
+
+    let press = |pressed: bool, at: Pos2| {
+        move |i: &mut egui::RawInput| {
+            i.events.push(egui::Event::PointerMoved(at));
+            i.events.push(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+    };
+    h.frame_with(press(true, p));
+    let q = p + EVec2::new(0.0, 60.0);
+    for step in 1..=4 {
+        let at = p.lerp(q, step as f32 / 4.0);
+        h.frame_with(|i| i.events.push(egui::Event::PointerMoved(at)));
+    }
+    assert!(
+        matches!(h.app.board_drag, Some(board::BoardDrag::Rotate { .. })),
+        "the press on the rotate zone rotates"
+    );
+    let drag = h.frame_output(|i| i.events.push(egui::Event::PointerMoved(q)));
+    assert_rotate_pointer(&drag, q, "drag");
+    h.frame_with(press(false, q));
+}

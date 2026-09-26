@@ -5034,7 +5034,7 @@ impl SlateApp {
         if rotate_cursor {
             if let Some(p) = pointer {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::None);
-                board_handles::paint_rotate_cursor(&painter, p, palette.select);
+                board_handles::paint_rotate_cursor(&painter, p);
             }
         }
 
