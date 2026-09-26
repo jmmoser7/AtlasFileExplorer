@@ -891,6 +891,7 @@ pub(crate) fn pieces_to_path_data(pieces: &[Polygon]) -> Option<(WorldRect, Path
             fill_rule,
             tips: Vec::new(),
             erase: Vec::new(),
+            corner_amounts: Vec::new(),
         },
     ))
 }
@@ -922,6 +923,7 @@ fn polygon_to_path_data(poly: &Polygon) -> (WorldRect, PathData) {
             fill_rule,
             tips: Vec::new(),
             erase: Vec::new(),
+            corner_amounts: Vec::new(),
         },
     )
 }
@@ -960,6 +962,7 @@ fn polygons_to_clip(pieces: &[Polygon], host: WorldRect) -> PathData {
         fill_rule,
         tips: Vec::new(),
         erase: Vec::new(),
+        corner_amounts: Vec::new(),
     }
 }
 

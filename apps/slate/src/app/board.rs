@@ -713,6 +713,8 @@ pub enum BoardDrag {
     /// Live fillet radius on a selected frame, portal, image, or rectangle.
     FilletRadius {
         id: NodeId,
+        /// The polyline corner this grip sets; `None` is the shared amount.
+        vertex: Option<usize>,
         before: Node,
         /// The other selected corner hosts, at press. Each takes the dragged
         /// amount, clamped to what it can show.
@@ -2087,16 +2089,20 @@ impl SlateApp {
         n: &Node,
         select_tint: Color32,
     ) {
-        let Some(grip) = self.fillet_grip_at(n, xf) else {
-            return;
-        };
-        let hot = (self.board_hover_node == Some(n.id)
-            && matches!(
-                self.board_hover_hit,
-                Some(board_handles::BoardHitTarget::FilletRadius)
-            ))
-            || matches!(self.board_drag, Some(BoardDrag::FilletRadius { id, .. }) if id == n.id);
-        board_handles::paint_fillet_grip(painter, grip, xf.z, select_tint, hot);
+        for (vertex, grip) in self.corner_grips(n, xf) {
+            let hot = (self.board_hover_node == Some(n.id)
+                && self.board_hover_grip_vertex == vertex
+                && matches!(
+                    self.board_hover_hit,
+                    Some(board_handles::BoardHitTarget::FilletRadius)
+                ))
+                || matches!(
+                    self.board_drag,
+                    Some(BoardDrag::FilletRadius { id, vertex: held, .. })
+                        if id == n.id && held == vertex
+                );
+            board_handles::paint_fillet_grip(painter, grip, xf.z, select_tint, hot);
+        }
     }
 
     /// Screen-space silhouette of a node — the same outline the painter uses,
@@ -5021,14 +5027,14 @@ impl SlateApp {
                     ));
                 }
             }
-            Some(BoardDrag::FilletRadius { id, .. }) => {
+            Some(BoardDrag::FilletRadius { id, vertex, .. }) => {
                 if let Some(n) = self.doc().scene.node(*id) {
-                    if let Some(edge) = self.node_corner_grip_edge(n) {
+                    if let Some(edge) = self.node_grip_edge(n, *vertex) {
                         ui.ctx()
                             .set_cursor_icon(board_handles::cursor_along(Vec2::from(edge.dir)));
                     }
                     if let Some(p) = pointer {
-                        let r = self.node_fillet_radius_world(n);
+                        let r = self.node_grip_amount(n, *vertex);
                         let label = format!("{} u", atlas_shell::selection_tools::number(r));
                         canvas_text::text(
                             &painter,
@@ -6946,6 +6952,7 @@ impl SlateApp {
             }
             Some(BoardDrag::FilletRadius {
                 id,
+                vertex,
                 before,
                 peers,
                 max_px,
@@ -6956,7 +6963,7 @@ impl SlateApp {
                         *n = before;
                     }
                 }
-                self.open_corner_entry(id);
+                self.open_corner_entry(id, vertex);
             }
             Some(BoardDrag::FilletRadius { before, peers, .. }) => {
                 let cmds: Vec<SceneCmd> = std::iter::once(before)

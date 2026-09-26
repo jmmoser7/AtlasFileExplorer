@@ -2079,6 +2079,13 @@ pub struct PathData {
     /// as a mask and scale the ink's alpha by `1 - mask`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub erase: Vec<EraseMark>,
+    /// Line polylines: a corner amount per vertex in path order (start,
+    /// then the end of each segment), in the shape corner's treatment
+    /// (fillet radius or chamfer cut, world units). `None` follows the
+    /// shape's corner. A list whose length does not match the vertices is
+    /// ignored.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub corner_amounts: Vec<Option<f32>>,
 }
 
 /// One eraser pass over a stamped brush path. `tips` holds one tip per
@@ -2100,6 +2107,7 @@ impl Default for PathData {
             fill_rule: PathFillRule::NonZero,
             tips: Vec::new(),
             erase: Vec::new(),
+            corner_amounts: Vec::new(),
         }
     }
 }
@@ -2107,6 +2115,17 @@ impl Default for PathData {
 impl PathData {
     pub fn is_empty(&self) -> bool {
         self.segs.is_empty()
+    }
+
+    /// Corner amount at vertex `i`: its override, else `shared`.
+    pub fn vertex_corner_amount(&self, i: usize, shared: f32) -> f32 {
+        if self.corner_amounts.len() != self.segs.len() + 1 {
+            return shared;
+        }
+        match self.corner_amounts.get(i).copied().flatten() {
+            Some(a) if a.is_finite() => a.max(0.0),
+            _ => shared,
+        }
     }
 
     /// Per-vertex brush tips for painting: the stored list, the legacy
@@ -4943,6 +4962,34 @@ pub fn edit_corner(
 ) {
     let corner = edit(resolved_corner(node, path));
     set_corner(node, corner);
+}
+
+/// Override one line-polyline vertex's corner amount (P1.node.corner-grip).
+pub fn set_vertex_corner_amount(node: &mut Node, vertex: usize, amount: f32) {
+    let NodeKind::Shape(s) = &mut node.kind else {
+        return;
+    };
+    let Some(path) = s.path.as_mut() else {
+        return;
+    };
+    let n = path.segs.len() + 1;
+    if vertex >= n || !amount.is_finite() {
+        return;
+    }
+    let path = Arc::make_mut(path);
+    if path.corner_amounts.len() != n {
+        path.corner_amounts = vec![None; n];
+    }
+    path.corner_amounts[vertex] = Some(amount.max(0.0));
+}
+
+/// Drop per-vertex corner overrides, so the shape's corner sets every vertex.
+pub fn clear_vertex_corner_amounts(node: &mut Node) {
+    if let NodeKind::Shape(s) = &mut node.kind {
+        if let Some(path) = s.path.as_mut().filter(|p| !p.corner_amounts.is_empty()) {
+            Arc::make_mut(path).corner_amounts.clear();
+        }
+    }
 }
 
 /// Effective chamfer flag and world radius for layout, export, and grips.

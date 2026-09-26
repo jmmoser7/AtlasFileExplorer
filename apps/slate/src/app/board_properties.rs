@@ -196,6 +196,9 @@ impl Property {
                     }
                     Corner::from_parameters(chamfer, percent, amount)
                 });
+                if matches!(self, Self::CornerAmount(_)) {
+                    scene::clear_vertex_corner_amounts(node);
+                }
             }
             Self::ImageAdjust(adjust) => scene::set_adjust(node, adjust),
             Self::PaintLayerOpacity {
@@ -287,6 +290,7 @@ struct NumberEdit {
 }
 struct CornerEntry {
     id: NodeId,
+    vertex: Option<usize>,
     input: Option<chrome::NumberEdit>,
 }
 
@@ -1123,17 +1127,18 @@ impl SlateApp {
     }
 
     /// Click on the corner grip: type the corner amount (P1.node.corner-grip).
-    pub(crate) fn open_corner_entry(&mut self, id: NodeId) {
+    pub(crate) fn open_corner_entry(&mut self, id: NodeId, vertex: Option<usize>) {
         let Some(node) = self.doc().scene.node(id) else {
             return;
         };
         if node.locked || self.tab().read_only {
             return;
         }
-        let amount = self.node_fillet_radius_world(node);
+        let amount = self.node_grip_amount(node, vertex);
         self.shape_properties.number = None;
         self.shape_properties.corner_entry = Some(CornerEntry {
             id,
+            vertex,
             input: Some(chrome::NumberEdit::new(amount)),
         });
     }
@@ -1150,10 +1155,11 @@ impl SlateApp {
         if node.locked || self.board_drag.is_some() {
             return false;
         }
-        let (Some(edge), Some(grip)) = (
-            self.node_corner_grip_edge(&node),
-            self.fillet_grip_at(&node, xf),
-        ) else {
+        let grip = self
+            .corner_grips(&node, xf)
+            .into_iter()
+            .find_map(|(v, p)| (v == entry.vertex).then_some(p));
+        let (Some(edge), Some(grip)) = (self.node_grip_edge(&node, entry.vertex), grip) else {
             return false;
         };
         let ctx = ui.ctx().clone();
@@ -1167,10 +1173,10 @@ impl SlateApp {
             angle += std::f32::consts::PI;
         }
         let center = grip + Vec2::from(edge.inward) * canvas_scale::px(16.0, z);
-        let amount = self.node_fillet_radius_world(&node);
+        let amount = self.node_grip_amount(&node, entry.vertex);
         let result = chrome::inline_number(
             ui,
-            Id::new(("corner_entry", entry.id)),
+            Id::new(("corner_entry", entry.id, entry.vertex)),
             center,
             angle,
             "",
@@ -1186,8 +1192,14 @@ impl SlateApp {
         let captures = result.response.contains_pointer() || ctx.wants_keyboard_input();
         if let Some(radius) = result.value {
             let mut ids = vec![entry.id];
-            ids.extend(self.corner_grip_peers(entry.id).iter().map(|n| n.id));
-            let request = board_transform::FilletRequest { ids, radius };
+            if entry.vertex.is_none() {
+                ids.extend(self.corner_grip_peers(entry.id).iter().map(|n| n.id));
+            }
+            let request = board_transform::FilletRequest {
+                ids,
+                radius,
+                vertex: entry.vertex,
+            };
             self.dispatch(
                 &ctx,
                 CommandId("board.shape.fillet"),
@@ -3784,6 +3796,140 @@ mod tests {
             4,
             "move, line to the cut, the cut, the far end"
         );
+    }
+
+    /// An open U: (0,0) → (1,0) → (1,1) → (0,1) in `rect`, corner radius 20.
+    fn u_polyline(h: &mut Harness, rect: WorldRect) -> NodeId {
+        let path = scene::PathData {
+            start: [0.0, 0.0],
+            segs: vec![
+                scene::PathSeg::Line { to: [1.0, 0.0] },
+                scene::PathSeg::Line { to: [1.0, 1.0] },
+                scene::PathSeg::Line { to: [0.0, 1.0] },
+            ],
+            closed: false,
+            ..Default::default()
+        };
+        let node = h.app.doc_mut().scene.build_node(
+            rect,
+            NodeKind::Shape(scene::ShapeNode {
+                shape: ShapeKind::Path,
+                fill: None,
+                stroke: scene::Stroke::default(),
+                corner: Corner::Rounded { radius: 20.0 },
+                sides: scene::default_regular_sides(),
+                flip: false,
+                path: Some(std::sync::Arc::new(path)),
+                text: None,
+            }),
+        );
+        let id = h.app.add_nodes(vec![node])[0];
+        h.app.board_sel.insert(id);
+        id
+    }
+
+    fn vertex_grips(h: &Harness, id: NodeId) -> Vec<(Option<usize>, Pos2)> {
+        let xf = h.app.board_xf();
+        let node = h.app.doc().scene.node(id).unwrap();
+        h.app.corner_grips(node, &xf)
+    }
+
+    fn vertex_amount(h: &Harness, id: NodeId, vertex: usize) -> f32 {
+        let node = h.app.doc().scene.node(id).unwrap();
+        let NodeKind::Shape(shape) = &node.kind else {
+            panic!("shape");
+        };
+        shape
+            .path
+            .as_ref()
+            .unwrap()
+            .vertex_corner_amount(vertex, corner_amount(h, id))
+    }
+
+    #[test]
+    fn polyline_shows_a_grip_per_corner_and_each_drags_its_own_vertex() {
+        let mut h = board();
+        let id = u_polyline(&mut h, WorldRect::new(-60.0, -60.0, 120.0, 120.0));
+        h.frame();
+        let xf = h.app.board_xf();
+        let grips = vertex_grips(&h, id);
+        let at: Vec<_> = grips.iter().map(|(v, _)| *v).collect();
+        assert_eq!(at, vec![Some(1), Some(2)], "one grip per turning vertex");
+        assert!(
+            grips[0].1.distance(xf.w2s(Pos2::new(40.0, -60.0))) < 0.01,
+            "vertex 1's grip rides its incoming segment at the tangent point: {:?}",
+            grips[0].1
+        );
+        let g2 = grips[1].1;
+        assert!(
+            g2.distance(xf.w2s(Pos2::new(60.0, 40.0))) < 0.01,
+            "vertex 2's grip rides its incoming segment: {g2:?}"
+        );
+        pointer(&mut h, g2, None);
+        pointer(&mut h, g2, Some(true));
+        let g = g2 + Vec2::new(0.0, -10.0);
+        pointer(&mut h, g, None);
+        assert!(
+            (vertex_amount(&h, id, 2) - 30.0).abs() < 0.01,
+            "the dragged corner follows the pointer, got {}",
+            vertex_amount(&h, id, 2)
+        );
+        assert!(
+            (vertex_amount(&h, id, 1) - 20.0).abs() < 0.01,
+            "the other corner is untouched"
+        );
+        assert!(vertex_grips(&h, id)[1].1.distance(g) < 0.01);
+        pointer(&mut h, g, Some(false));
+        assert!((vertex_amount(&h, id, 2) - 30.0).abs() < 0.01);
+        assert!(
+            (corner_amount(&h, id) - 20.0).abs() < 0.01,
+            "the shape corner stays"
+        );
+        assert_eq!(h.app.board_sel, [id].into_iter().collect());
+        h.app.board_undo();
+        assert!(
+            (vertex_amount(&h, id, 2) - 20.0).abs() < 1e-4,
+            "the drag is one undo step"
+        );
+    }
+
+    #[test]
+    fn polyline_vertex_grip_click_types_that_corner_and_the_panel_sets_all() {
+        let mut h = board();
+        let id = u_polyline(&mut h, WorldRect::new(-60.0, -60.0, 120.0, 120.0));
+        h.frame();
+        let g1 = vertex_grips(&h, id)[0].1;
+        pointer(&mut h, g1, None);
+        pointer(&mut h, g1, Some(true));
+        pointer(&mut h, g1, Some(false));
+        h.frame_with(|i| i.events.push(egui::Event::Text("5".into())));
+        key(&mut h, egui::Key::Enter);
+        assert!(
+            (vertex_amount(&h, id, 1) - 5.0).abs() < 1e-4,
+            "the typed amount sets the clicked corner, got {}",
+            vertex_amount(&h, id, 1)
+        );
+        assert!((vertex_amount(&h, id, 2) - 20.0).abs() < 1e-4);
+        assert!((corner_amount(&h, id) - 20.0).abs() < 1e-4);
+
+        apply(&mut h, vec![id], vec![Property::CornerAmount(12.0)]);
+        for v in [1, 2] {
+            assert!(
+                (vertex_amount(&h, id, v) - 12.0).abs() < 1e-4,
+                "the Corners value sets every corner"
+            );
+        }
+
+        let other = rectangle(&mut h, WorldRect::new(100.0, -60.0, 80.0, 80.0), 0.0);
+        h.frame();
+        assert_eq!(h.app.board_sel.len(), 2);
+        let at: Vec<_> = vertex_grips(&h, id).iter().map(|(v, _)| *v).collect();
+        assert_eq!(
+            at,
+            vec![None],
+            "in a multi-selection the polyline shows its shared grip"
+        );
+        let _ = other;
     }
 
     fn item_kinds(items: &[StripItem]) -> Vec<&'static str> {

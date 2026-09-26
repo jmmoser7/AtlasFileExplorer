@@ -496,6 +496,10 @@ fn hash_path_data(h: &mut impl Hasher, path: &PathData) {
             }
         }
     }
+    path.corner_amounts.len().hash(h);
+    for amount in &path.corner_amounts {
+        hash_f32(h, amount.unwrap_or(-1.0));
+    }
     path.extra.len().hash(h);
     for extra in &path.extra {
         hash_xy(h, extra.start);
@@ -3383,6 +3387,34 @@ mod tests {
         assert_ne!(
             path_fill_hash(&path, rect, 0.0, fillet, 8),
             path_fill_hash(&path, rect, 0.0, chamfer, 8)
+        );
+    }
+
+    #[test]
+    fn polyline_mesh_keys_tell_vertex_corner_overrides_apart() {
+        use slate_doc::scene::Corner;
+        let plain = PathData {
+            start: [0.0, 0.0],
+            segs: vec![
+                PathSeg::Line { to: [1.0, 0.0] },
+                PathSeg::Line { to: [1.0, 1.0] },
+            ],
+            closed: false,
+            ..Default::default()
+        };
+        let mut overridden = plain.clone();
+        overridden.corner_amounts = vec![None, Some(20.0), None];
+        let stroke = default_curve_stroke(Rgba::BLACK);
+        let rect = WorldRect::new(0.0, 0.0, 100.0, 100.0);
+        let corner = Corner::Rounded { radius: 10.0 };
+        assert_ne!(
+            path_content_hash(&plain, &stroke, rect, 0.0, corner, 8),
+            path_content_hash(&overridden, &stroke, rect, 0.0, corner, 8),
+            "a vertex override must not reuse the uniform stroke mesh"
+        );
+        assert_ne!(
+            path_fill_hash(&plain, rect, 0.0, corner, 8),
+            path_fill_hash(&overridden, rect, 0.0, corner, 8)
         );
     }
 

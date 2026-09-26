@@ -130,7 +130,10 @@ drag the address-bar URL or a page link instead.
   records one undo step. Click the grip to type the amount: Enter applies it
   as one undo step, Esc cancels. With several such nodes selected, each shows
   its grip; dragging or typing on any one sets them all, each clamped to what
-  it can show, still as one undo step.
+  it can show, still as one undo step. A single selected line polyline shows
+  a grip near each corner instead, on the segment arriving at it; dragging or
+  typing on one rounds or cuts that corner alone. The Corners panel value
+  still sets every corner.
 - **Align widget** (Grasshopper): with the Select tool and 2+ nodes selected,
   two icon clusters sit outside the group box (bottom and left). Bottom:
   align left / center / right / distribute horizontally; the row sits past

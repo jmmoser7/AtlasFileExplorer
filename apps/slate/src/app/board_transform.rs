@@ -14,6 +14,9 @@ use slate_doc::NodeId;
 pub(crate) struct FilletRequest {
     pub ids: Vec<NodeId>,
     pub radius: f32,
+    /// One polyline corner of the first id instead of the shared amount.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vertex: Option<usize>,
 }
 
 impl SlateApp {
@@ -86,27 +89,120 @@ impl SlateApp {
         });
     }
 
-    /// Screen grip for the live fillet control, if it should be shown.
+    /// Per-vertex overrides follow a shared edit; a vertex edit sets only its
+    /// own corner.
+    pub(crate) fn apply_corner_amount(
+        node: &mut Node,
+        before: &Node,
+        vertex: Option<usize>,
+        amount: f32,
+        path: Option<&std::path::Path>,
+    ) {
+        let Some(v) = vertex else {
+            Self::apply_fillet_radius_to_node(node, before, amount, false, path);
+            slate_doc::scene::clear_vertex_corner_amounts(node);
+            return;
+        };
+        *node = before.clone();
+        let shared = slate_doc::scene::resolved_corner(before, path)
+            .effective(before.rect.w, before.rect.h)
+            .1;
+        if (amount - Self::vertex_amount(before, v, shared)).abs() >= 1e-4 {
+            slate_doc::scene::set_vertex_corner_amount(node, v, amount);
+        }
+    }
+
+    fn vertex_amount(node: &Node, vertex: usize, shared: f32) -> f32 {
+        match &node.kind {
+            NodeKind::Shape(s) => s
+                .path
+                .as_ref()
+                .map_or(shared, |p| p.vertex_corner_amount(vertex, shared)),
+            _ => shared,
+        }
+    }
+
+    /// The corner amount a grip shows: its vertex's, or the shared one.
+    pub(crate) fn node_grip_amount(&self, node: &Node, vertex: Option<usize>) -> f32 {
+        let shared = self.node_fillet_radius_world(node);
+        vertex.map_or(shared, |v| Self::vertex_amount(node, v, shared))
+    }
+
+    /// Screen position of the first visible corner grip on `node`.
     pub(crate) fn fillet_grip_at(&self, node: &Node, xf: &BoardXf) -> Option<Pos2> {
+        self.corner_grips(node, xf).first().map(|g| g.1)
+    }
+
+    /// Every visible corner grip on `node`, keyed by polyline vertex
+    /// (`None` is the shared grip).
+    pub(crate) fn corner_grips(&self, node: &Node, xf: &BoardXf) -> Vec<(Option<usize>, Pos2)> {
         if !self.board_sel.contains(&node.id)
             || self.board_crop.is_some()
             || !self.node_supports_fillet_grip(node)
         {
-            return None;
+            return Vec::new();
         }
         let geom = board_handles::selection_geom(xf, node.rect, node.rotation_deg);
         let grip_px = atlas_shell::canvas_scale::px(board_handles::FILLET_GRIP_HIT_PX, geom.zoom);
         if atlas_shell::canvas_scale::too_small(grip_px) {
-            return None;
+            return Vec::new();
         }
-        let edge = self.node_corner_grip_edge(node)?;
-        let travel = match &self.board_drag {
-            Some(BoardDrag::FilletRadius {
-                id, pointer_travel, ..
-            }) if *id == node.id => *pointer_travel,
-            _ => board_handles::corner_grip_rest_travel(&edge, self.node_fillet_radius_world(node)),
+        self.node_grip_edges(node)
+            .into_iter()
+            .map(|(vertex, edge)| {
+                let travel = match &self.board_drag {
+                    Some(BoardDrag::FilletRadius {
+                        id,
+                        vertex: held,
+                        pointer_travel,
+                        ..
+                    }) if *id == node.id && *held == vertex => *pointer_travel,
+                    _ => board_handles::corner_grip_rest_travel(
+                        &edge,
+                        self.node_grip_amount(node, vertex),
+                    ),
+                };
+                (vertex, board_handles::corner_grip_screen(xf, &edge, travel))
+            })
+            .collect()
+    }
+
+    /// The grips `node` offers: one per polyline corner when it is the only
+    /// selection, otherwise the shared grip.
+    fn node_grip_edges(
+        &self,
+        node: &Node,
+    ) -> Vec<(Option<usize>, slate_doc::geom::CornerGripEdge)> {
+        if self.board_sel.len() == 1 {
+            let (chamfer, _) = self
+                .node_resolved_corner(node)
+                .effective(node.rect.w, node.rect.h);
+            let each = slate_doc::geom::polyline_vertex_grip_edges(node, chamfer);
+            if !each.is_empty() {
+                return each.into_iter().map(|(v, e)| (Some(v), e)).collect();
+            }
+        }
+        self.node_corner_grip_edge(node)
+            .map(|e| (None, e))
+            .into_iter()
+            .collect()
+    }
+
+    /// The edge the grip for `vertex` rides (`None`: the shared grip).
+    pub(crate) fn node_grip_edge(
+        &self,
+        node: &Node,
+        vertex: Option<usize>,
+    ) -> Option<slate_doc::geom::CornerGripEdge> {
+        let Some(v) = vertex else {
+            return self.node_corner_grip_edge(node);
         };
-        Some(board_handles::corner_grip_screen(xf, &edge, travel))
+        let (chamfer, _) = self
+            .node_resolved_corner(node)
+            .effective(node.rect.w, node.rect.h);
+        slate_doc::geom::polyline_vertex_grip_edges(node, chamfer)
+            .into_iter()
+            .find_map(|(i, e)| (i == v).then_some(e))
     }
 
     /// The edge the corner grip rides on `node` (P1.node.corner-grip).
@@ -120,8 +216,9 @@ impl SlateApp {
         slate_doc::geom::corner_grip_edge(node, chamfer)
     }
 
-    /// The topmost selected host whose corner grip is under `screen`.
-    pub(crate) fn fillet_grip_hit_at(&self, screen: Pos2) -> Option<NodeId> {
+    /// The topmost selected host whose corner grip is under `screen`, with
+    /// the polyline vertex that grip sets.
+    pub(crate) fn fillet_grip_hit_at(&self, screen: Pos2) -> Option<(NodeId, Option<usize>)> {
         let xf = self.board_xf();
         self.doc()
             .scene
@@ -130,9 +227,11 @@ impl SlateApp {
             .rev()
             .filter(|n| self.board_sel.contains(&n.id))
             .find_map(|n| {
-                let grip = self.fillet_grip_at(n, &xf)?;
                 let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
-                board_handles::hit_test_fillet_grip(screen, &geom, grip).then_some(n.id)
+                self.corner_grips(n, &xf)
+                    .into_iter()
+                    .find(|(_, grip)| board_handles::hit_test_fillet_grip(screen, &geom, *grip))
+                    .map(|(vertex, _)| (n.id, vertex))
             })
     }
 
@@ -148,15 +247,20 @@ impl SlateApp {
     }
 
     pub(crate) fn begin_fillet_drag(&mut self, screen: Pos2, world: Pos2) -> Option<BoardDrag> {
-        let id = self.fillet_grip_hit_at(screen)?;
+        let (id, vertex) = self.fillet_grip_hit_at(screen)?;
         let before = self.doc().scene.node(id)?.clone();
-        let edge = self.node_corner_grip_edge(&before)?;
-        let start_amount = self.node_fillet_radius_world(&before);
+        let edge = self.node_grip_edge(&before, vertex)?;
+        let start_amount = self.node_grip_amount(&before, vertex);
         let press_travel = edge.project([world.x, world.y]);
         Some(BoardDrag::FilletRadius {
             id,
+            vertex,
             before,
-            peers: self.corner_grip_peers(id),
+            peers: if vertex.is_none() {
+                self.corner_grip_peers(id)
+            } else {
+                Vec::new()
+            },
             start_amount,
             press_travel,
             pointer_travel: press_travel.clamp(0.0, edge.max_travel),
@@ -171,6 +275,7 @@ impl SlateApp {
     pub(crate) fn update_fillet_drag(&mut self, world: Pos2, shift: bool) {
         let Some(BoardDrag::FilletRadius {
             id,
+            vertex,
             before,
             peers,
             start_amount,
@@ -187,10 +292,10 @@ impl SlateApp {
         if *max_px <= 0.0 && moved < 1e-3 {
             return;
         }
-        let (id, start_amount, press_travel) = (*id, *start_amount, *press_travel);
+        let (id, vertex, start_amount, press_travel) = (*id, *vertex, *start_amount, *press_travel);
         let before = before.clone();
         let peers = peers.clone();
-        let Some(edge) = self.node_corner_grip_edge(&before) else {
+        let Some(edge) = self.node_grip_edge(&before, vertex) else {
             return;
         };
         let projected = edge.project([world.x, world.y]);
@@ -203,7 +308,7 @@ impl SlateApp {
             .node_item_path(&before)
             .map(std::path::Path::to_path_buf);
         if let Some(n) = self.doc_mut().scene.node_mut(id) {
-            Self::apply_fillet_radius_to_node(n, &before, radius, false, path.as_deref());
+            Self::apply_corner_amount(n, &before, vertex, radius, path.as_deref());
         }
         for peer in &peers {
             let Some(max) = self.node_corner_grip_edge(peer).map(|e| e.max_amount()) else {
@@ -211,7 +316,7 @@ impl SlateApp {
             };
             let path = self.node_item_path(peer).map(std::path::Path::to_path_buf);
             if let Some(n) = self.doc_mut().scene.node_mut(peer.id) {
-                Self::apply_fillet_radius_to_node(n, peer, radius.min(max), false, path.as_deref());
+                Self::apply_corner_amount(n, peer, None, radius.min(max), path.as_deref());
             }
         }
         if let Some(BoardDrag::FilletRadius {
@@ -226,7 +331,8 @@ impl SlateApp {
     }
 
     /// Typed corner amount from the grip's inline field: one journaled patch,
-    /// clamped to what the host can show.
+    /// clamped to what the host can show. With a `vertex`, only that corner
+    /// of the first id.
     pub(crate) fn shape_fillet_command(&mut self, detail: Option<&str>) -> bool {
         let Some(req) = detail.and_then(|s| serde_json::from_str::<FilletRequest>(s).ok()) else {
             return false;
@@ -234,21 +340,25 @@ impl SlateApp {
         if !req.radius.is_finite() || req.radius < 0.0 || self.refuse_read_only_edit() {
             return false;
         }
+        let ids = match req.vertex {
+            Some(_) => &req.ids[..req.ids.len().min(1)],
+            None => &req.ids[..],
+        };
         let mut cmds = Vec::new();
-        for id in req.ids {
+        for &id in ids {
             let Some(before) = self.doc().scene.node(id).cloned() else {
                 continue;
             };
             if before.locked || !slate_doc::scene::supports_corners(&before) {
                 continue;
             }
-            let Some(edge) = self.node_corner_grip_edge(&before) else {
+            let Some(edge) = self.node_grip_edge(&before, req.vertex) else {
                 continue;
             };
             let radius = req.radius.min(edge.max_amount());
             let mut after = before.clone();
             let path = self.node_item_path(&before);
-            Self::apply_fillet_radius_to_node(&mut after, &before, radius, false, path);
+            Self::apply_corner_amount(&mut after, &before, req.vertex, radius, path);
             if after != before {
                 cmds.push(slate_doc::scene::SceneCmd::Patch {
                     before: Box::new(before),
@@ -340,14 +450,15 @@ impl SlateApp {
         if self.pointer_on_portal_maximize(p, xf) {
             return;
         }
-        if let Some(id) = self.fillet_grip_hit_at(p) {
+        if let Some((id, vertex)) = self.fillet_grip_hit_at(p) {
             self.board_hover_hit = Some(board_handles::BoardHitTarget::FilletRadius);
             self.board_hover_node = Some(id);
+            self.board_hover_grip_vertex = vertex;
             if let Some(edge) = self
                 .doc()
                 .scene
                 .node(id)
-                .and_then(|n| self.node_corner_grip_edge(n))
+                .and_then(|n| self.node_grip_edge(n, vertex))
             {
                 ctx.set_cursor_icon(board_handles::cursor_along(Vec2::from(edge.dir)));
             }

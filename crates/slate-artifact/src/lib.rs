@@ -1206,6 +1206,60 @@ mod tests {
     }
 
     #[test]
+    fn polyline_vertex_corner_override_exports_in_the_path() {
+        let d_of = |corner: Corner, corner_amounts: Vec<Option<f32>>| {
+            let mut doc = SlateDoc::new("PolylineVertexCorner");
+            add_frame(&mut doc.scene, 0, WorldRect::new(0.0, 0.0, 200.0, 200.0));
+            let node = doc.scene.build_node(
+                WorldRect::new(0.0, 0.0, 100.0, 100.0),
+                NodeKind::Shape(ShapeNode {
+                    shape: ShapeKind::Path,
+                    fill: None,
+                    stroke: Stroke {
+                        width: 3.0,
+                        color: Rgba::opaque(10, 20, 30),
+                        ..Default::default()
+                    },
+                    corner,
+                    sides: slate_doc::scene::default_regular_sides(),
+                    flip: false,
+                    path: Some(std::sync::Arc::new(PathData {
+                        start: [0.0, 0.0],
+                        segs: vec![
+                            PathSeg::Line { to: [1.0, 0.0] },
+                            PathSeg::Line { to: [1.0, 1.0] },
+                            PathSeg::Line { to: [0.0, 1.0] },
+                        ],
+                        closed: false,
+                        corner_amounts,
+                        ..Default::default()
+                    })),
+                    text: None,
+                }),
+            );
+            let index = doc.scene.nodes.len();
+            doc.scene.apply(&SceneCmd::Add { index, node });
+            let html = render_html(&doc, &AssetMap::default());
+            let start = html.find("d=\"M").expect("path d") + 3;
+            let end = start + html[start..].find('"').unwrap();
+            html[start..end].to_owned()
+        };
+        let one = d_of(Corner::Square, vec![None, Some(15.0), None, None]);
+        let two = d_of(Corner::Square, vec![None, Some(15.0), Some(15.0), None]);
+        assert!(one.contains('C'), "the overridden vertex rounds: {one}");
+        assert!(
+            two.matches('C').count() > one.matches('C').count(),
+            "only the overridden vertex rounds: {one} vs {two}"
+        );
+        let uniform = d_of(Corner::Chamfer { cut: 10.0 }, Vec::new());
+        let overridden = d_of(
+            Corner::Chamfer { cut: 10.0 },
+            vec![None, Some(25.0), None, None],
+        );
+        assert_ne!(uniform, overridden, "the override reaches the export");
+    }
+
+    #[test]
     fn path_shape_closed_fill_and_stroke() {
         let fill = Rgba::opaque(200, 100, 50);
         let mut doc = SlateDoc::new("PathClosed");
@@ -1420,6 +1474,7 @@ mod tests {
                     fill_rule: PathFillRule::EvenOdd,
                     tips: Vec::new(),
                     erase: Vec::new(),
+                    corner_amounts: Vec::new(),
                 })),
 
                 text: None,
@@ -1468,6 +1523,7 @@ mod tests {
             fill_rule: PathFillRule::EvenOdd,
             tips: Vec::new(),
             erase: Vec::new(),
+            corner_amounts: Vec::new(),
         });
         let index = doc.scene.nodes.len();
         doc.scene.apply(&SceneCmd::Add { index, node });

@@ -602,19 +602,34 @@ pub fn filleted_vertex_path(
     chamfer: bool,
     closed: bool,
 ) -> Vec<PathCmd> {
-    let mut pts = pts.to_vec();
-    pts.dedup_by(|a, b| len(sub(*a, *b)) < VERTEX_EPS);
-    if closed && pts.len() > 1 && len(sub(pts[0], pts[pts.len() - 1])) < VERTEX_EPS {
+    filleted_vertex_path_each(pts, &vec![amount; pts.len()], chamfer, closed)
+}
+
+/// [`filleted_vertex_path`] with its own amount per vertex (`amounts[i]`
+/// for `pts[i]`; a missing entry is sharp). Coincident points keep the
+/// first one's amount.
+pub fn filleted_vertex_path_each(
+    pts: &[[f32; 2]],
+    amounts: &[f32],
+    chamfer: bool,
+    closed: bool,
+) -> Vec<PathCmd> {
+    let mut pts: Vec<([f32; 2], f32)> = pts
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            let a = amounts.get(i).copied().unwrap_or(0.0);
+            (*p, if a.is_finite() { a.max(0.0) } else { 0.0 })
+        })
+        .collect();
+    pts.dedup_by(|a, b| len(sub(a.0, b.0)) < VERTEX_EPS);
+    if closed && pts.len() > 1 && len(sub(pts[0].0, pts[pts.len() - 1].0)) < VERTEX_EPS {
         pts.pop();
     }
+    let (pts, amounts): (Vec<[f32; 2]>, Vec<f32>) = pts.into_iter().unzip();
     let n = pts.len();
     let Some(&first) = pts.first() else {
         return Vec::new();
-    };
-    let amount = if amount.is_finite() {
-        amount.max(0.0)
-    } else {
-        0.0
     };
     let mut cmds = Vec::new();
     let mut cursor: Option<[f32; 2]> = None;
@@ -636,6 +651,7 @@ pub fn filleted_vertex_path(
         let corner = interior
             .then(|| vertex_corner(pts[(i + n - 1) % n], cur, pts[(i + 1) % n], chamfer))
             .flatten();
+        let amount = amounts[i];
         let Some(vc) = corner.filter(|_| amount > 0.0) else {
             line_to(&mut cmds, &mut cursor, cur);
             continue;

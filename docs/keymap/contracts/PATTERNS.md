@@ -212,6 +212,17 @@ is searchable.
   whose portal chrome hides the cast are skipped; the topmost grip wins
   where two overlap; a quick second click on a grip is not a canvas
   double-click, so it neither collapses the selection nor opens text.
+  **Polyline corners (stated 26 September 2026):** a single selected line
+  polyline shows a grip near **each** turning vertex instead of the one
+  shared grip. Each rides its vertex's **incoming** segment, back from the
+  vertex, at that corner's tangent distance (same edge-riding rule), and
+  its drag or typed amount sets that corner alone, stored as a per-vertex
+  override (`PathData.corner_amounts`, SVG-expressible, one geometry owner
+  for board and export). The Corners value still sets every corner and
+  clears the overrides. Proposals: only a single selection offers
+  per-vertex grips (a multi-selection shows the shared grip, which also
+  clears overrides); only the hovered or held grip lights; per-vertex
+  edits never reach peers.
   **Proposals** (implementation detail, not re-litigated per contract):
   painted half-size `FILLET_GRIP_PX` via
   `canvas_scale` (P0.9) — 1.6, **stated** 26 September 2026 as 40% of the
@@ -233,8 +244,9 @@ is searchable.
   `Corner::Square`:** resolves through
   `slate_doc::media::portal_frame_corner` to the same model-owned default on
   board and export; a grip drag journals an explicit radius. Owner: edge
-  geometry `slate_doc::geom::corner_grip_edge`; vertex construction
-  `slate_doc::wire::filleted_vertex_path` (board and export); app side
+  geometry `slate_doc::geom::corner_grip_edge` and
+  `polyline_vertex_grip_edges`; vertex construction
+  `slate_doc::wire::filleted_vertex_path_each` (board and export); app side
   `board_handles` + `board_transform`.
   Where its hit box overlaps a resize edge band, the visible grip wins both
   hover and press; the NW corner point itself remains the NW resize target.
