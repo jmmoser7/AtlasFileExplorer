@@ -1775,6 +1775,50 @@ impl SlateApp {
         vp.measure_preview = None;
     }
 
+    /// The measuring viewport a primary press at `screen` picks in. Plain
+    /// press only (Shift orbits, Alt grabs the node), and never on a grip
+    /// or handle, which win the press.
+    pub(crate) fn model_measure_press_at(
+        &self,
+        screen: egui::Pos2,
+        world: egui::Pos2,
+    ) -> Option<NodeId> {
+        if self.shift_down || self.alt_down {
+            return None;
+        }
+        let id = self.live_model_at(world.x, world.y)?;
+        let measuring = self
+            .model3d
+            .live
+            .get(&id)
+            .is_some_and(|vp| vp.tool == ModelViewportTool::MeasureDistance);
+        let xf = self.board_xf();
+        let on_handle = self.fillet_grip_hit_at(screen).is_some()
+            || self.wire_grip_at(screen, &xf).is_some()
+            || self
+                .transform_hit_at(screen)
+                .is_some_and(|(_, hit)| !matches!(hit, super::board_handles::BoardHitTarget::Body));
+        (measuring && !on_handle).then_some(id)
+    }
+
+    /// After the first pick, the rubber band follows the hovering pointer.
+    pub(crate) fn model_measure_hover(&mut self, screen: egui::Pos2) {
+        let xf = self.board_xf();
+        let target = self.model3d.live.iter().find_map(|(id, vp)| {
+            (vp.tool == ModelViewportTool::MeasureDistance && vp.measure_first.is_some())
+                .then_some(*id)
+        });
+        let Some(id) = target else {
+            return;
+        };
+        let Some(srect) = self.doc().scene.node(id).map(|n| xf.rect_w2s(n.rect)) else {
+            return;
+        };
+        if srect.contains(screen) {
+            self.model_measure_preview(id, screen, srect);
+        }
+    }
+
     /// A mesh viewport the selection strip can drive: a placed model with a
     /// preview reader. Enscape standalones and recognized gaps are not.
     pub fn model_has_viewport(&self, id: NodeId) -> bool {
@@ -3986,6 +4030,123 @@ mod tests {
         let vp = &h.app.model3d.live[&id];
         assert_eq!(vp.measures.len(), 1);
         assert_eq!(vp.tool, ModelViewportTool::Navigate);
+    }
+
+    /// Screen points on the first and last triangle centroids of the mesh.
+    fn measure_targets(h: &mut Harness, id: NodeId) -> (egui::Pos2, egui::Pos2) {
+        let srect = h
+            .app
+            .board_xf()
+            .rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
+        let key = h.app.model3d.live[&id].cache_key.clone();
+        let mesh = h.app.model3d.mesh_for_key(&key).unwrap();
+        let bounds = h.app.model3d.bounds[&key];
+        let cam = h.app.model3d.live[&id].cam;
+        let aspect = srect.width() / srect.height();
+        let part = &mesh.meshes[0];
+        let aim = |tri: usize| {
+            let c = part.indices[tri * 3..tri * 3 + 3]
+                .iter()
+                .map(|i| part.positions[*i as usize])
+                .fold([0.0f32; 3], |s, p| {
+                    [s[0] + p[0] / 3.0, s[1] + p[1] / 3.0, s[2] + p[2] / 3.0]
+                });
+            let (u, v) = project_model_point(c, aspect, &cam, bounds).unwrap();
+            srect.min + egui::vec2(u * srect.width(), v * srect.height())
+        };
+        (aim(0), aim(part.indices.len() / 3 - 1))
+    }
+
+    /// Frames with no input, long enough that the next click is not a
+    /// double-click with the last one.
+    fn pause(h: &mut Harness) {
+        for _ in 0..30 {
+            h.frame();
+        }
+    }
+
+    fn press_escape(h: &mut Harness) {
+        for pressed in [true, false] {
+            h.frame_with(|input| {
+                input.events.push(egui::Event::Key {
+                    key: egui::Key::Escape,
+                    physical_key: None,
+                    pressed,
+                    repeat: false,
+                    modifiers: Default::default(),
+                });
+            });
+        }
+    }
+
+    fn painted_texts(out: &egui::FullOutput) -> Vec<String> {
+        fn walk(shape: &egui::Shape, out: &mut Vec<String>) {
+            match shape {
+                egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| walk(s, out)),
+                egui::Shape::Text(t) => out.push(t.galley.text().to_string()),
+                _ => {}
+            }
+        }
+        let mut texts = Vec::new();
+        for clipped in &out.shapes {
+            walk(&clipped.shape, &mut texts);
+        }
+        texts
+    }
+
+    /// GP3 through real input: the strip's Measure squircle, two plain
+    /// clicks on the model with the rubber band between them, the length
+    /// label, Navigate again, then the Esc ladder.
+    #[test]
+    fn measure_golden_path_runs_on_plain_clicks_from_the_strip() {
+        let (mut h, id) = live_model("model_measure_golden");
+        with_mesh(&mut h, id);
+        h.app.board_sel = [id].into_iter().collect();
+        pause(&mut h);
+        let button = h
+            .app
+            .model_measure_button()
+            .expect("a selected model offers Measure on the strip");
+        click_at(&mut h, button.center());
+        assert!(
+            h.app.model3d.live.contains_key(&id),
+            "the strip click keeps the viewport entered"
+        );
+        assert!(h.app.model_measuring(id), "the strip click arms Measure");
+        pause(&mut h);
+
+        let (a, b) = measure_targets(&mut h, id);
+        click_at(&mut h, a);
+        assert!(
+            h.app.model3d.live[&id].measure_first.is_some(),
+            "a plain click picks the first point"
+        );
+        pause(&mut h);
+        h.frame_with(|input| input.events.push(egui::Event::PointerMoved(b)));
+        h.frame();
+        assert!(
+            h.app.model3d.live[&id].measure_preview.is_some(),
+            "hovering the model draws the rubber band to the second point"
+        );
+        click_at(&mut h, b);
+        let vp = &h.app.model3d.live[&id];
+        assert_eq!(vp.measures.len(), 1, "the second click completes it");
+        assert_eq!(vp.tool, ModelViewportTool::Navigate, "back to Navigate");
+        let label = format!("{:.3}", vp.measures[0].length());
+        let out = h.frame_output(|_| {});
+        assert!(
+            painted_texts(&out).contains(&label),
+            "the length label {label} is drawn"
+        );
+        assert!(h.app.model3d.live.contains_key(&id));
+
+        press_escape(&mut h);
+        assert!(h.app.model3d.live[&id].measures.is_empty(), "Esc clears it");
+        press_escape(&mut h);
+        assert!(!h.app.model3d.live.contains_key(&id), "Esc again freezes");
+        assert!(h.app.board_sel.contains(&id));
+        press_escape(&mut h);
+        assert!(h.app.board_sel.is_empty(), "then Esc deselects");
     }
 
     #[test]

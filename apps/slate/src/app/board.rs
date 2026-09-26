@@ -4472,6 +4472,45 @@ impl SlateApp {
             }
         }
 
+        // Measure picks: press / release, not drag_started. Each pick is a
+        // plain click, which never becomes an egui drag (media D14).
+        if self.board_tool == BoardTool::Select
+            && !space
+            && !panning
+            && !zoom_tool
+            && !model_toolbar_captures
+            && !web_capture
+            && !self.board_align_eat_press
+            && self.board_drag.is_none()
+            && ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary))
+        {
+            if let Some(p) = pointer {
+                if let Some(id) = self.model_measure_press_at(p, xf.s2w(p)) {
+                    if !self.board_sel.contains(&id) {
+                        self.board_sel.clear();
+                        self.board_sel.insert(id);
+                    }
+                    self.board_drag = Some(BoardDrag::ModelMeasure {
+                        id,
+                        start_screen: p,
+                    });
+                    self.board_align_eat_press = true;
+                }
+            }
+        }
+        if matches!(self.board_drag, Some(BoardDrag::ModelMeasure { .. }))
+            && ui.input(|i| i.pointer.button_released(egui::PointerButton::Primary))
+        {
+            let w = wp.unwrap_or(Pos2::ZERO);
+            let mods = ui.input(|i| i.modifiers);
+            self.end_gesture(w, pointer, mods);
+        }
+        if self.board_drag.is_none() && ui.input(|i| i.pointer.delta() != egui::Vec2::ZERO) {
+            if let Some(p) = pointer {
+                self.model_measure_hover(p);
+            }
+        }
+
         // --- gesture start ---
         // Hit-test at the pointer *press origin*: by the time egui's drag
         // threshold fires, a fast drag has often already left the tiny
