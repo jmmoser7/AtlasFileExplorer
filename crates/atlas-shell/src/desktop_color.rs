@@ -657,11 +657,11 @@ mod tests {
             [SIZE[0] - 4, 1],
         ] {
             let l = loupe(pixel, SIZE);
-            for axis in 0..2 {
-                assert!((l.marked[axis]..l.marked[axis] + LOUPE_CELL).contains(&pixel[axis]));
+            for (axis, p) in pixel.into_iter().enumerate() {
+                assert!((l.marked[axis]..l.marked[axis] + LOUPE_CELL).contains(&p));
                 assert_eq!(
                     l.patch[axis] + (l.marked[axis] - l.at[axis]) / LOUPE_CELL,
-                    pixel[axis]
+                    p
                 );
             }
         }

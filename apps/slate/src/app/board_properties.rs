@@ -1746,9 +1746,7 @@ impl SlateApp {
         let nodes = nodes_owned.as_slice();
         let first = &nodes[0];
         if panel == Panel::Agent {
-            let Some(id) = self.shape_properties.ids.first().copied() else {
-                return None;
-            };
+            let id = self.shape_properties.ids.first().copied()?;
             let popups = self.agent_editor_body(ui, rect, id, z, theme);
             for popup in &popups {
                 self.agents.note_menu_popup(ui.ctx(), *popup);
@@ -1757,19 +1755,13 @@ impl SlateApp {
             return None;
         }
         if panel == Panel::AtlasFormat {
-            let Some(id) = self.shape_properties.ids.first().copied() else {
-                return None;
-            };
+            let id = self.shape_properties.ids.first().copied()?;
             self.atlas_format_body(ui, rect, id, z, theme);
             return None;
         }
         if panel == Panel::ModelDisplay {
-            let Some(id) = self.shape_properties.ids.first().copied() else {
-                return None;
-            };
-            let Some(display) = self.model_display_of(id) else {
-                return None;
-            };
+            let id = self.shape_properties.ids.first().copied()?;
+            let display = self.model_display_of(id)?;
             let current = MODEL_DISPLAYS
                 .iter()
                 .position(|(mode, _)| *mode == display)
@@ -1807,9 +1799,7 @@ impl SlateApp {
         }
         if panel == Panel::Filter {
             let committed = self.committed_shape_nodes();
-            let Some(current) = committed.first().and_then(scene::adjust_of) else {
-                return None;
-            };
+            let current = committed.first().and_then(scene::adjust_of)?;
             let common = committed
                 .iter()
                 .all(|n| scene::adjust_of(n) == Some(current));
@@ -2196,9 +2186,7 @@ impl SlateApp {
             } else {
                 &self.shape_properties.preview
             };
-            let Some(first) = nodes.first() else {
-                return None;
-            };
+            let first = nodes.first()?;
             match &first.kind {
                 NodeKind::Shape(shape) if scene::shape_hosts_text(shape) => shape
                     .text
