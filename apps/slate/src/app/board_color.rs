@@ -900,6 +900,29 @@ impl SlateApp {
         Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3])
     }
 
+    /// The eraser's rim color: the theme's eraser neutral, whatever the
+    /// foreground is.
+    fn eraser_rim_color(&self) -> Color32 {
+        atlas_shell::tokens::current()
+            .board_eraser
+            .preview(self.dark_mode)
+    }
+
+    /// The eraser's tip and size-HUD fill: its rim color at the erase strength.
+    pub(crate) fn eraser_preview_color(&self) -> Color32 {
+        self.eraser_rim_color()
+            .gamma_multiply(self.eraser_opacity.clamp(0.1, 1.0))
+    }
+
+    /// Rim of the tip disc: the eraser neutral for the Eraser, white otherwise.
+    fn tip_rim_color(&self) -> Color32 {
+        if self.board_tool == BoardTool::Eraser {
+            self.eraser_rim_color()
+        } else {
+            Color32::WHITE.gamma_multiply(0.9)
+        }
+    }
+
     /// Commit a brush path node (freehand fit or straight chain segment).
     /// One stroke = one journaled Add; the Brush tool stays armed and the
     /// chain end updates for Shift+click straight segments.
@@ -1535,9 +1558,7 @@ impl SlateApp {
         let (w, softness, strength) = self.chord_tip();
         let ink = match self.board_tool {
             BoardTool::Brush => self.brush_preview_color(),
-            BoardTool::Eraser => {
-                Color32::from_gray(180).gamma_multiply(self.eraser_opacity.clamp(0.1, 1.0))
-            }
+            BoardTool::Eraser => self.eraser_preview_color(),
             BoardTool::Smooth => Color32::from_gray(160).gamma_multiply(strength.clamp(0.1, 1.0)),
             BoardTool::Pen => {
                 super::board::rgba32(self.stroke_for_tool(slate_doc::StrokeTool::Pen).color)
@@ -1554,7 +1575,7 @@ impl SlateApp {
         let Some((r, softness, ink)) = self.width_cursor_disc() else {
             return;
         };
-        paint_soft_disc(painter, pointer, r, softness, ink);
+        paint_soft_disc(painter, pointer, r, softness, ink, self.tip_rim_color());
         if self.shift_down {
             if let Some(label) = self.brush_status_line() {
                 painter.text(
@@ -1838,13 +1859,13 @@ impl SlateApp {
         let (width, softness, _) = self.chord_tip();
         let r = (width * 0.5 * z).max(1.5);
         let ink = if eraser {
-            Color32::from_gray(180).gamma_multiply(self.eraser_opacity.clamp(0.1, 1.0))
+            self.eraser_preview_color()
         } else if let Some(tool) = self.armed_stroke_tool() {
             super::board::rgba32(self.stroke_for_tool(tool).color)
         } else {
             self.brush_preview_color()
         };
-        paint_soft_disc(painter, pointer, r, softness, ink);
+        paint_soft_disc(painter, pointer, r, softness, ink, self.tip_rim_color());
         let label = self.size_hud_label().unwrap_or_default();
         painter.text(
             pointer + egui::vec2(0.0, -r - 14.0),
@@ -2008,13 +2029,15 @@ pub(crate) fn dist_point_segment(p: Pos2, a: Pos2, b: Pos2) -> f32 {
     (p - (a + ab * t)).length()
 }
 
-/// Filled brush tip. The core is opaque and the rim fades to clear.
+/// Filled brush tip. The core is opaque and the rim fades to clear; a thin
+/// `rim` ring marks the diameter.
 pub(crate) fn paint_soft_disc(
     painter: &egui::Painter,
     center: Pos2,
     radius: f32,
     softness: f32,
     color: Color32,
+    rim: Color32,
 ) {
     let radius = radius.max(1.5);
     let n = 48u32;
@@ -2049,11 +2072,7 @@ pub(crate) fn paint_soft_disc(
         }
     }
     painter.add(egui::Shape::mesh(mesh));
-    painter.circle_stroke(
-        center,
-        radius,
-        EStroke::new(1.0_f32, Color32::WHITE.gamma_multiply(0.9)),
-    );
+    painter.circle_stroke(center, radius, EStroke::new(1.0_f32, rim));
 }
 
 #[cfg(test)]

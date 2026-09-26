@@ -718,6 +718,10 @@ dash_on = 6.0
 dash_off = 4.0
 fill_alpha = 0.12
 
+[board_eraser]
+preview_light = [96, 96, 96, 255]
+preview_dark = [200, 200, 200, 255]
+
 [board_forcefield]
 expand_secs = 0.800000011920929
 fade_secs = 0.5299999713897705
