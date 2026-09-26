@@ -1061,6 +1061,58 @@ pub struct CornerEdit {
     pub chamfer: bool,
     pub percent: bool,
     pub amount: Option<f32>,
+    /// The image Off / Crop toggle, when it was offered and clicked.
+    pub crop: Option<bool>,
+}
+
+const CORNER_TREATMENT_W: f32 = 126.0;
+const CORNER_CROP_W: f32 = 140.0;
+const CORNER_TRACK_X: f32 = 134.0;
+const CORNER_TRACK_W: f32 = 210.0;
+const CORNER_UNITS_X: f32 = 350.0;
+const CORNER_UNITS_W: f32 = 68.0;
+const CORNER_GAP: f32 = 6.0;
+
+/// Where the parts of the Corners capsule sit on screen.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CornerLayout {
+    pub treatment: Rect,
+    pub crop: Option<Rect>,
+    pub track: Rect,
+    pub units: Rect,
+}
+
+/// The Corners capsule layout. The amount track keeps its size either way.
+/// With the image Off / Crop toggle, the three toggle capsules scale by one
+/// factor so all of them pack into the same capsule:
+/// `[Off|Crop] [Fillet|Chamfer] track [%|u]`.
+pub fn corner_layout(rect: Rect, crop: bool, zoom: f32) -> CornerLayout {
+    let pad = rect.height() * (2.0 / CAPSULE_HEIGHT);
+    let inner_h = rect.height() * (13.0 / CAPSULE_HEIGHT);
+    let at =
+        |x: f32, w: f32| Rect::from_min_size(Pos2::new(x, rect.top() + pad), Vec2::new(w, inner_h));
+    let track_w = CORNER_TRACK_W * zoom;
+    if !crop {
+        return CornerLayout {
+            treatment: at(rect.left() + pad, CORNER_TREATMENT_W * zoom),
+            crop: None,
+            track: at(rect.left() + CORNER_TRACK_X * zoom, track_w),
+            units: at(rect.left() + CORNER_UNITS_X * zoom, CORNER_UNITS_W * zoom),
+        };
+    }
+    let gap = CORNER_GAP * zoom;
+    let room = rect.width() - 2.0 * pad - track_w - 3.0 * gap;
+    let scale = room / ((CORNER_CROP_W + CORNER_TREATMENT_W + CORNER_UNITS_W) * zoom);
+    let crop = at(rect.left() + pad, CORNER_CROP_W * zoom * scale);
+    let treatment = at(crop.right() + gap, CORNER_TREATMENT_W * zoom * scale);
+    let track = at(treatment.right() + gap, track_w);
+    let units = at(track.right() + gap, CORNER_UNITS_W * zoom * scale);
+    CornerLayout {
+        treatment,
+        crop: Some(crop),
+        track,
+        units,
+    }
 }
 
 fn width_fraction(width: f32) -> f32 {
@@ -1575,13 +1627,23 @@ pub fn segments<'l>(
         if i == selected {
             ui.painter().rect_filled(r, r.height() * 0.5, theme.accent);
         }
+        let color = if i == selected { theme.bg } else { theme.sub };
+        let mut font = canvas_scale::font(9.0, zoom);
+        // A packed segment narrower than its label shrinks the label to fit.
+        let room = share - 4.0 * zoom;
+        let laid =
+            canvas_text::layout_no_wrap(ui.painter(), label.to_string(), font.clone(), color);
+        let wide = laid.galley().size().x * laid.scale();
+        if wide > room && room > 0.0 {
+            font.size *= room / wide;
+        }
         canvas_text::text(
             ui.painter(),
             r.center(),
             Align2::CENTER_CENTER,
             label,
-            canvas_scale::font(9.0, zoom),
-            if i == selected { theme.bg } else { theme.sub },
+            font,
+            color,
         );
         if response.clicked() {
             result = i;
@@ -1590,6 +1652,8 @@ pub fn segments<'l>(
     result
 }
 
+/// `crop` offers the image Off / Crop toggle (`Some(on)`), packed into the
+/// same capsule by [`corner_layout`].
 #[allow(clippy::too_many_arguments)]
 pub fn corner_editor(
     ui: &mut egui::Ui,
@@ -1598,23 +1662,27 @@ pub fn corner_editor(
     percent: bool,
     amount: f32,
     maximum: f32,
+    crop: Option<bool>,
     zoom: f32,
     theme: Palette,
 ) -> CornerEdit {
     paint_capsule(ui, rect, zoom, theme);
-    let pad = rect.height() * (2.0 / CAPSULE_HEIGHT);
-    let inner_h = rect.height() * (13.0 / CAPSULE_HEIGHT);
-    let left = Rect::from_min_size(
-        rect.min + Vec2::splat(pad),
-        Vec2::new(126.0 * zoom, inner_h),
-    );
-    let right = Rect::from_min_size(
-        rect.min + Vec2::new(350.0 * zoom, pad),
-        Vec2::new(68.0 * zoom, inner_h),
-    );
+    let layout = corner_layout(rect, crop.is_some(), zoom);
+    let crop = crop.zip(layout.crop).and_then(|(on, r)| {
+        let picked = segments(
+            ui,
+            r,
+            ui.id().with("image-crop"),
+            ["Off", "Crop"],
+            on as usize,
+            zoom,
+            theme,
+        ) == 1;
+        (picked != on).then_some(picked)
+    });
     let chamfer = segments(
         ui,
-        left,
+        layout.treatment,
         ui.id().with("treatment"),
         ["Fillet", "Chamfer"],
         chamfer as usize,
@@ -1623,17 +1691,14 @@ pub fn corner_editor(
     ) == 1;
     let new_percent = segments(
         ui,
-        right,
+        layout.units,
         ui.id().with("units"),
         ["%", "u"],
         (!percent) as usize,
         zoom,
         theme,
     ) == 0;
-    let track = Rect::from_min_size(
-        rect.min + Vec2::new(134.0 * zoom, pad),
-        Vec2::new(210.0 * zoom, inner_h),
-    );
+    let track = layout.track;
     let mut fraction = if maximum > 0.0 {
         (amount / maximum).clamp(0.0, 1.0)
     } else {
@@ -1669,6 +1734,7 @@ pub fn corner_editor(
         chamfer,
         percent: new_percent,
         amount: changed.then_some(fraction * maximum),
+        crop,
     }
 }
 
@@ -2050,38 +2116,6 @@ fn filter_chip_metrics(height: f32, zoom: f32) -> (f32, f32, f32) {
     (pad, inner_h, pitch)
 }
 
-/// Board-unit diameter of the circled `+` that adds a paint layer.
-const FILTER_ADD_DIAMETER: f32 = 9.0;
-/// Board-unit gap between the filter capsule's right end and the `+`.
-const FILTER_ADD_GAP: f32 = 6.0;
-
-/// The circled `+` that adds a paint layer: just outside the right end of
-/// the filter `capsule`, on its vertical center. Callers that route clicks
-/// by the editor rect must count this rect as editor chrome.
-pub fn filter_add_rect(capsule: Rect, zoom: f32) -> Rect {
-    let d = canvas_scale::px(FILTER_ADD_DIAMETER, zoom);
-    let gap = canvas_scale::px(FILTER_ADD_GAP, zoom);
-    Rect::from_center_size(
-        Pos2::new(capsule.right() + gap + d * 0.5, capsule.center().y),
-        Vec2::splat(d),
-    )
-}
-
-/// One paint-layer chip after the filter radios: an index label in the chip
-/// row, or (`is_add`) the circled `+` at [`filter_add_rect`].
-#[derive(Clone)]
-pub struct LayerChip {
-    pub label: std::borrow::Cow<'static, str>,
-    pub thumb: Option<egui::TextureId>,
-    pub is_add: bool,
-}
-
-#[derive(Clone, Copy, Default)]
-pub struct LayerStripEdit {
-    pub hovered: Option<usize>,
-    pub clicked: Option<usize>,
-}
-
 /// Fillet-style capsule: filter thumbnails + intensity slider.
 pub fn filter_editor(
     ui: &mut egui::Ui,
@@ -2089,19 +2123,15 @@ pub fn filter_editor(
     radios: &[FilterRadio],
     selected: Option<usize>,
     amount: f32,
-    layer_chips: &[LayerChip],
-    layer_selected: Option<usize>,
     zoom: f32,
     theme: Palette,
-) -> (FilterEdit, LayerStripEdit) {
-    filter_capsule_with_layers(
+) -> FilterEdit {
+    filter_capsule(
         ui,
         rect,
         radios,
         selected,
         Some(amount),
-        layer_chips,
-        layer_selected,
         zoom,
         theme,
         FilterCapsuleStyle::WithIntensity,
@@ -2120,49 +2150,12 @@ pub fn filter_capsule(
     theme: Palette,
     style: FilterCapsuleStyle,
 ) -> FilterEdit {
-    filter_capsule_with_layers(
-        ui,
-        rect,
-        radios,
-        selected,
-        amount,
-        &[],
-        None,
-        zoom,
-        theme,
-        style,
-    )
-    .0
-}
-
-#[allow(clippy::too_many_arguments)]
-fn filter_capsule_with_layers(
-    ui: &mut egui::Ui,
-    rect: Rect,
-    radios: &[FilterRadio],
-    selected: Option<usize>,
-    amount: Option<f32>,
-    layer_chips: &[LayerChip],
-    layer_selected: Option<usize>,
-    zoom: f32,
-    theme: Palette,
-    style: FilterCapsuleStyle,
-) -> (FilterEdit, LayerStripEdit) {
     paint_capsule(ui, rect, zoom, theme);
     let (pad, inner_h, radio_pitch) = filter_chip_metrics(rect.height(), zoom);
-    let filter_count = radios.len().max(1) as f32;
-    let layer_count = layer_chips.iter().filter(|c| !c.is_add).count() as f32;
-    const LAYER_CHIP_GAP: f32 = 8.0;
-    let layer_gap = if layer_count == 0.0 {
-        0.0
-    } else {
-        canvas_scale::px(LAYER_CHIP_GAP, zoom)
-    };
     let radius = inner_h * 0.36 * 0.8;
-    let row_w = filter_count * radio_pitch + layer_gap + layer_count * radio_pitch;
+    let row_w = radios.len().max(1) as f32 * radio_pitch;
     let radio_row = Rect::from_min_size(rect.min + Vec2::splat(pad), Vec2::new(row_w, inner_h));
     let mut out = FilterEdit::default();
-    let mut layer_out = LayerStripEdit::default();
     for (i, radio) in radios.iter().enumerate() {
         let center = Pos2::new(
             radio_row.left() + (i as f32 + 0.5) * radio_pitch,
@@ -2188,64 +2181,6 @@ fn filter_capsule_with_layers(
             zoom,
             theme,
         );
-    }
-    let layer_base_x = radio_row.left() + filter_count * radio_pitch + layer_gap;
-    let mut slot = 0.0;
-    for (i, chip) in layer_chips.iter().enumerate() {
-        if chip.is_add {
-            let add = filter_add_rect(rect, zoom);
-            let response = ui
-                .interact(add, ui.id().with(("layer_chip", i)), Sense::click())
-                .on_hover_text("Add paint layer");
-            if response.hovered() {
-                layer_out.hovered = Some(i);
-            }
-            if response.clicked() {
-                layer_out.clicked = Some(i);
-            }
-            paint_filter_add(ui.painter(), add, response.hovered(), zoom, theme);
-            continue;
-        }
-        let center = Pos2::new(
-            layer_base_x + (slot + 0.5) * radio_pitch,
-            radio_row.center().y,
-        );
-        slot += 1.0;
-        let hit = Rect::from_center_size(center, Vec2::splat(radius * 2.0));
-        let response = ui
-            .interact(hit, ui.id().with(("layer_chip", i)), Sense::click())
-            .on_hover_text(chip.label.as_ref());
-        if response.hovered() {
-            layer_out.hovered = Some(i);
-        }
-        if response.clicked() {
-            layer_out.clicked = Some(i);
-        }
-        let radio = FilterRadio {
-            label: "",
-            fill: [theme.panel.r(), theme.panel.g(), theme.panel.b()],
-            fill_b: None,
-            thumb: chip.thumb,
-        };
-        paint_filter_radio(
-            ui.painter(),
-            center,
-            radius,
-            &radio,
-            layer_selected == Some(i),
-            response.hovered(),
-            zoom,
-            theme,
-        );
-        if chip.thumb.is_none() {
-            ui.painter().text(
-                center,
-                Align2::CENTER_CENTER,
-                chip.label.as_ref(),
-                egui::FontId::proportional(radius * 0.95),
-                theme.ink,
-            );
-        }
     }
     if style == FilterCapsuleStyle::WithIntensity {
         if let Some(amount) = amount {
@@ -2281,7 +2216,210 @@ fn filter_capsule_with_layers(
             }
         }
     }
-    (out, layer_out)
+    out
+}
+
+/// Board-unit gap between a painted image's lowest point and its palette.
+const LAYER_PALETTE_GAP: f32 = 10.0;
+/// Board-unit length of the layer-opacity slider at the palette's right end.
+const LAYER_OPACITY_TRACK: f32 = 120.0;
+/// Board-unit gap between the palette's groups: layers, colors, slider.
+const LAYER_GROUP_GAP: f32 = 8.0;
+/// A recent-color dot's radius as a fraction of a layer circle's.
+const LAYER_COLOR_DOT: f32 = 0.45;
+/// Board-unit gap between recent-color dots.
+const LAYER_COLOR_GAP: f32 = 4.0;
+/// Board-unit diameter of the circled `+` that adds a paint layer.
+const LAYER_ADD_DIAMETER: f32 = 9.0;
+/// Board-unit gap between the palette's right end and the `+`.
+const LAYER_ADD_GAP: f32 = 6.0;
+
+/// Where the parts of a paint-layer palette sit on screen.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LayerPaletteLayout {
+    pub capsule: Rect,
+    /// Layer preview circle centers, left to right, all of `radius`.
+    pub layers: Vec<Pos2>,
+    pub radius: f32,
+    /// Recent-color dot centers, all of `color_radius`.
+    pub colors: Vec<Pos2>,
+    pub color_radius: f32,
+    pub track: Rect,
+    /// The circled `+`, just outside the capsule's right end.
+    pub add: Rect,
+}
+
+/// The paint-layer palette below an image being painted. `anchor` is the
+/// image's lowest on-screen point, at its horizontal center. The capsule is
+/// photo-filter height so layer circles match the filter radios; recent
+/// colors follow as smaller dots, the opacity slider takes the right end,
+/// and the circled `+` sits just past it.
+pub fn layer_palette_layout(
+    anchor: Pos2,
+    layers: usize,
+    colors: usize,
+    zoom: f32,
+) -> LayerPaletteLayout {
+    let height = FILTER_HEIGHT * zoom;
+    let (pad, inner_h, pitch) = filter_chip_metrics(height, zoom);
+    let radius = inner_h * 0.36 * 0.8;
+    let color_radius = radius * LAYER_COLOR_DOT;
+    let color_pitch = color_radius * 2.0 + LAYER_COLOR_GAP * zoom;
+    let gap = LAYER_GROUP_GAP * zoom;
+    let groups = [
+        layers as f32 * pitch,
+        colors as f32 * color_pitch,
+        LAYER_OPACITY_TRACK * zoom,
+    ];
+    let present = groups.iter().filter(|w| **w > 0.0).count();
+    let width = pad * 3.0 + groups.iter().sum::<f32>() + gap * present.saturating_sub(1) as f32;
+    let capsule = Rect::from_min_size(
+        Pos2::new(anchor.x - width * 0.5, anchor.y + LAYER_PALETTE_GAP * zoom),
+        Vec2::new(width, height),
+    );
+    let y = capsule.center().y;
+    let mut x = capsule.left() + pad;
+    let layer_centers = (0..layers)
+        .map(|i| Pos2::new(x + (i as f32 + 0.5) * pitch, y))
+        .collect();
+    if layers > 0 {
+        x += groups[0] + gap;
+    }
+    let color_centers = (0..colors)
+        .map(|i| Pos2::new(x + (i as f32 + 0.5) * color_pitch, y))
+        .collect();
+    if colors > 0 {
+        x += groups[1] + gap;
+    }
+    let track = Rect::from_min_size(Pos2::new(x, y - radius * 0.5), Vec2::new(groups[2], radius));
+    let d = canvas_scale::px(LAYER_ADD_DIAMETER, zoom);
+    let add = Rect::from_center_size(
+        Pos2::new(
+            capsule.right() + canvas_scale::px(LAYER_ADD_GAP, zoom) + d * 0.5,
+            y,
+        ),
+        Vec2::splat(d),
+    );
+    LayerPaletteLayout {
+        capsule,
+        layers: layer_centers,
+        radius,
+        colors: color_centers,
+        color_radius,
+        track,
+        add,
+    }
+}
+
+/// What the layer palette did this frame.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct LayerPaletteEdit {
+    /// A layer circle was clicked.
+    pub layer: Option<usize>,
+    /// The `+` was clicked.
+    pub add: bool,
+    /// A recent-color dot was clicked.
+    pub color: Option<usize>,
+    /// The slider moved to this opacity.
+    pub opacity: Option<f32>,
+}
+
+/// Paints a [`layer_palette_layout`] and reports what was clicked. `thumbs`
+/// has one preview per layer (`None` shows its number); `opacity` is the
+/// active layer's.
+#[allow(clippy::too_many_arguments)]
+pub fn layer_palette(
+    ui: &mut egui::Ui,
+    layout: &LayerPaletteLayout,
+    thumbs: &[Option<egui::TextureId>],
+    active: Option<usize>,
+    opacity: f32,
+    colors: &[[u8; 3]],
+    zoom: f32,
+    theme: Palette,
+) -> LayerPaletteEdit {
+    paint_capsule(ui, layout.capsule, zoom, theme);
+    let mut out = LayerPaletteEdit::default();
+    for (i, center) in layout.layers.iter().enumerate() {
+        let hit = Rect::from_center_size(*center, Vec2::splat(layout.radius * 2.0));
+        let response = ui
+            .interact(hit, ui.id().with(("paint_layer", i)), Sense::click())
+            .on_hover_ui(|ui| {
+                ui.label(format!("Layer {}", i + 1));
+            });
+        if response.clicked() {
+            out.layer = Some(i);
+        }
+        let thumb = thumbs.get(i).copied().flatten();
+        let radio = FilterRadio {
+            label: "",
+            fill: [theme.panel.r(), theme.panel.g(), theme.panel.b()],
+            fill_b: None,
+            thumb,
+        };
+        paint_filter_radio(
+            ui.painter(),
+            *center,
+            layout.radius,
+            &radio,
+            active == Some(i),
+            response.hovered(),
+            zoom,
+            theme,
+        );
+        let font = egui::FontId::proportional(layout.radius * 0.95);
+        if thumb.is_none() && canvas_text::legible(font.size) {
+            canvas_text::text(
+                ui.painter(),
+                *center,
+                Align2::CENTER_CENTER,
+                i + 1,
+                font,
+                theme.ink,
+            );
+        }
+    }
+    for (i, (center, rgb)) in layout.colors.iter().zip(colors).enumerate() {
+        let hit = Rect::from_center_size(*center, Vec2::splat(layout.color_radius * 2.4));
+        let response = ui.interact(hit, ui.id().with(("paint_color", i)), Sense::click());
+        let ring = if response.hovered() {
+            theme.ink
+        } else {
+            theme.border_strong
+        };
+        ui.painter().circle(
+            *center,
+            layout.color_radius,
+            Color32::from_rgb(rgb[0], rgb[1], rgb[2]),
+            Stroke::new(canvas_scale::px(0.6, zoom), ring),
+        );
+        if response.clicked() {
+            out.color = Some(i);
+        }
+    }
+    let mut fraction = opacity.clamp(0.0, 1.0);
+    let display = (fraction * 100.0).round();
+    if capsule_buffer(
+        ui,
+        ui.id().with("layer_opacity"),
+        layout.track,
+        &mut fraction,
+        display,
+        0.0..=100.0,
+        "%",
+        |v| v / 100.0,
+        |v| format!("{}%", number((v * 100.0).round())),
+        zoom,
+        theme,
+    ) {
+        out.opacity = Some(fraction);
+    }
+    let response = ui
+        .interact(layout.add, ui.id().with("paint_layer_add"), Sense::click())
+        .on_hover_text("Add paint layer");
+    paint_filter_add(ui.painter(), layout.add, response.hovered(), zoom, theme);
+    out.add = response.clicked();
+    out
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2806,6 +2944,37 @@ mod tests {
     use super::*;
 
     #[test]
+    fn crop_toggles_leave_the_capsule_and_slider_sizes_alone() {
+        for z in [0.5, 1.0, 2.5] {
+            let capsule = Rect::from_min_size(
+                Pos2::new(30.0, 40.0),
+                Vec2::new(EDITOR_WIDTH, CORNER_HEIGHT) * z,
+            );
+            let plain = corner_layout(capsule, false, z);
+            let packed = corner_layout(capsule, true, z);
+            assert!(plain.crop.is_none());
+            assert_eq!(
+                packed.track.size(),
+                plain.track.size(),
+                "slider size at {z}"
+            );
+            let crop = packed.crop.expect("the crop toggle is packed in");
+            let parts = [crop, packed.treatment, packed.track, packed.units];
+            for part in parts {
+                assert!(capsule.contains_rect(part), "{part:?} inside {capsule:?}");
+            }
+            for pair in parts.windows(2) {
+                assert!(pair[0].right() < pair[1].left(), "no overlap: {pair:?}");
+            }
+            let scale = |a: Rect, b: Rect| a.width() / b.width();
+            let s = scale(packed.treatment, plain.treatment);
+            assert!(s < 1.0);
+            assert!((scale(packed.units, plain.units) - s).abs() < 1e-4);
+            assert!((crop.width() - CORNER_CROP_W * z * s).abs() < 1e-3);
+        }
+    }
+
+    #[test]
     fn fillet_capsule_is_thirty_percent_taller_than_the_shared_baseline() {
         assert!((CORNER_HEIGHT - CAPSULE_HEIGHT * 1.3).abs() < f32::EPSILON);
         assert_eq!(TEXT_ROW_HEIGHT, CORNER_HEIGHT);
@@ -2920,19 +3089,8 @@ mod tests {
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE)
                     .show(ctx, |ui| {
-                        hovered = filter_editor(
-                            ui,
-                            rect,
-                            &radios,
-                            None,
-                            1.0,
-                            &[],
-                            None,
-                            1.0,
-                            Palette::dark(),
-                        )
-                        .0
-                        .hovered;
+                        hovered = filter_editor(ui, rect, &radios, None, 1.0, 1.0, Palette::dark())
+                            .hovered;
                     });
             });
         }
@@ -3082,40 +3240,14 @@ mod tests {
         ]
     }
 
-    fn paint_layer_chips() -> Vec<LayerChip> {
-        vec![
-            LayerChip {
-                label: "1".into(),
-                thumb: None,
-                is_add: false,
-            },
-            LayerChip {
-                label: "2".into(),
-                thumb: None,
-                is_add: false,
-            },
-            LayerChip {
-                label: "+".into(),
-                thumb: None,
-                is_add: true,
-            },
-        ]
-    }
-
-    /// Runs the photo-filter editor with two filters and two paint layers,
-    /// clicking at `p`, and returns the painted shapes and edits.
-    fn filter_click(
+    /// Runs `paint` for an empty frame, then (with `p`) a move, press and
+    /// release at `p`. Returns the last frame's shapes and the edits `paint`
+    /// reported, each kept from the first frame that set it.
+    fn click_through<E: Default + PartialEq + Copy>(
         p: Option<Pos2>,
-        selected: Option<usize>,
-        layer_selected: Option<usize>,
-    ) -> (Vec<egui::epaint::ClippedShape>, FilterEdit, LayerStripEdit) {
+        mut paint: impl FnMut(&mut egui::Ui) -> E,
+    ) -> (Vec<egui::epaint::ClippedShape>, E) {
         let ctx = egui::Context::default();
-        let rect = Rect::from_min_size(
-            Pos2::new(40.0, 40.0),
-            Vec2::new(EDITOR_WIDTH, FILTER_HEIGHT),
-        );
-        let radios = two_filter_radios();
-        let chips = paint_layer_chips();
         let mut events = vec![vec![]];
         if let Some(p) = p {
             let button = |pressed| egui::Event::PointerButton {
@@ -3130,11 +3262,12 @@ mod tests {
                 vec![button(false)],
             ]);
         }
-        let mut result = (Vec::new(), FilterEdit::default(), LayerStripEdit::default());
+        let mut shapes = Vec::new();
+        let mut edit = E::default();
         for events in events {
             let output = ctx.run(
                 egui::RawInput {
-                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 200.0))),
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 300.0))),
                     events,
                     ..Default::default()
                 },
@@ -3142,29 +3275,28 @@ mod tests {
                     egui::CentralPanel::default()
                         .frame(egui::Frame::NONE)
                         .show(ctx, |ui| {
-                            let (edit, layers) = filter_editor(
-                                ui,
-                                rect,
-                                &radios,
-                                selected,
-                                0.5,
-                                &chips,
-                                layer_selected,
-                                1.0,
-                                Palette::dark(),
-                            );
-                            if layers.clicked.is_some() || result.2.clicked.is_none() {
-                                result.2 = layers;
-                            }
-                            if edit.clicked.is_some() || result.1.clicked.is_none() {
-                                result.1 = edit;
+                            let now = paint(ui);
+                            if edit == E::default() {
+                                edit = now;
                             }
                         });
                 },
             );
-            result.0 = output.shapes;
+            shapes = output.shapes;
         }
-        result
+        (shapes, edit)
+    }
+
+    /// Runs the photo-filter editor with two filters, clicking at `p`.
+    fn filter_click(
+        p: Option<Pos2>,
+        selected: Option<usize>,
+    ) -> (Vec<egui::epaint::ClippedShape>, Option<usize>) {
+        let (rect, _) = filter_chip_centers();
+        let radios = two_filter_radios();
+        click_through(p, |ui| {
+            filter_editor(ui, rect, &radios, selected, 0.5, 1.0, Palette::dark()).clicked
+        })
     }
 
     fn filter_chip_centers() -> (Rect, Vec<Pos2>) {
@@ -3178,59 +3310,111 @@ mod tests {
         let pitch = radius * 2.0 + 6.0;
         let y = rect.top() + pad + inner_h * 0.5;
         let filters = (0..2).map(|i| Pos2::new(rect.left() + pad + (i as f32 + 0.5) * pitch, y));
-        let layers = (0..2).map(|i| {
-            Pos2::new(
-                rect.left() + pad + 2.0 * pitch + 8.0 + (i as f32 + 0.5) * pitch,
-                y,
+        (rect, filters.collect())
+    }
+
+    const PALETTE_ANCHOR: Pos2 = Pos2::new(300.0, 60.0);
+    const PALETTE_COLORS: [[u8; 3]; 3] = [[250, 10, 10], [10, 250, 10], [10, 10, 250]];
+
+    /// Runs a two-layer palette with three recent colors, clicking at `p`.
+    fn palette_click(
+        p: Option<Pos2>,
+        active: Option<usize>,
+    ) -> (Vec<egui::epaint::ClippedShape>, LayerPaletteEdit) {
+        let layout = layer_palette_layout(PALETTE_ANCHOR, 2, 3, 1.0);
+        click_through(p, |ui| {
+            layer_palette(
+                ui,
+                &layout,
+                &[None, None],
+                active,
+                1.0,
+                &PALETTE_COLORS,
+                1.0,
+                Palette::dark(),
             )
-        });
-        (rect, filters.chain(layers).collect())
+        })
     }
 
     #[test]
-    fn paint_layer_add_sits_just_outside_the_capsule_right_end() {
-        let (rect, _) = filter_chip_centers();
-        let plus = Pos2::new(rect.right() + 10.5, rect.center().y);
-        let (_, edit, layers) = filter_click(Some(plus), Some(0), None);
-        assert_eq!(layers.clicked, Some(2), "the + chip is outside the capsule");
-        assert_eq!(edit.clicked, None);
-        let inside = Pos2::new(rect.right() - 4.0, rect.center().y);
-        let (_, _, layers) = filter_click(Some(inside), Some(0), None);
-        assert_ne!(layers.clicked, Some(2), "no + inside the capsule");
-    }
-
-    #[test]
-    fn filter_add_rect_is_outside_right_of_the_capsule_and_vertically_centered() {
-        let capsule = Rect::from_min_size(
-            Pos2::new(40.0, 40.0),
-            Vec2::new(EDITOR_WIDTH, FILTER_HEIGHT),
-        );
+    fn the_layer_palette_hangs_centered_below_its_image_and_scales_with_the_board() {
+        let unit = layer_palette_layout(PALETTE_ANCHOR, 2, 3, 1.0);
         for z in [0.25, 1.0, 3.0] {
-            let scaled = Rect::from_min_size(capsule.min * z, capsule.size() * z);
-            let add = filter_add_rect(scaled, z);
-            assert!(add.left() > scaled.right(), "outside the right end");
-            assert!(!scaled.intersects(add));
-            assert!((add.center().y - scaled.center().y).abs() < 1e-4);
-            assert!((add.width() - add.height()).abs() < 1e-4, "circle");
-            assert!(add.height() < scaled.height() * 0.5, "small");
-            let unit = filter_add_rect(capsule, 1.0);
-            assert!((add.width() - unit.width() * z).abs() < 1e-4, "P0.9");
+            let at = layer_palette_layout(PALETTE_ANCHOR, 2, 3, z);
+            let capsule = at.capsule;
             assert!(
-                (add.left() - scaled.right() - (unit.left() - capsule.right()) * z).abs() < 1e-4
+                (capsule.center().x - PALETTE_ANCHOR.x).abs() < 1e-3,
+                "centered"
             );
+            assert!(capsule.top() > PALETTE_ANCHOR.y, "below the image");
+            assert!((capsule.height() - FILTER_HEIGHT * z).abs() < 1e-4);
+            assert!(
+                (capsule.width() - unit.capsule.width() * z).abs() < 1e-3,
+                "P0.9"
+            );
+            let filter_radius = FILTER_HEIGHT * z * (13.0 / CAPSULE_HEIGHT) * 0.36 * 0.8;
+            assert!(
+                (at.radius - filter_radius).abs() < 1e-4,
+                "layer circles match the filter radios"
+            );
+            assert!(at.color_radius < at.radius * 0.6, "color dots are smaller");
+            let mut parts: Vec<Rect> = at
+                .layers
+                .iter()
+                .map(|c| Rect::from_center_size(*c, Vec2::splat(at.radius * 2.0)))
+                .chain(
+                    at.colors
+                        .iter()
+                        .map(|c| Rect::from_center_size(*c, Vec2::splat(at.color_radius * 2.0))),
+                )
+                .collect();
+            parts.push(at.track);
+            for pair in parts.windows(2) {
+                assert!(pair[0].right() <= pair[1].left() + 1e-3, "left to right");
+            }
+            for part in &parts {
+                assert!(capsule.contains_rect(*part), "{part:?} in {capsule:?}");
+            }
+            assert!((at.track.width() - LAYER_OPACITY_TRACK * z).abs() < 1e-3);
+            assert!(
+                capsule.right() - at.track.right() < at.radius * 2.0,
+                "slider at the end"
+            );
+            let add = at.add;
+            assert!(add.left() > capsule.right(), "+ outside the right end");
+            assert!((add.center().y - capsule.center().y).abs() < 1e-4);
+            assert!(add.height() < capsule.height() * 0.5, "small");
+            assert!((add.width() - unit.add.width() * z).abs() < 1e-4, "P0.9");
         }
     }
 
     #[test]
-    fn paint_layers_join_the_filter_chip_row() {
-        let (rect, centers) = filter_chip_centers();
-        for (i, center) in centers[2..].iter().enumerate() {
-            assert!(rect.contains(*center));
-            assert_eq!(center.y, centers[0].y, "same row as the filter chips");
-            let (_, edit, layers) = filter_click(Some(*center), Some(0), None);
-            assert_eq!(layers.clicked, Some(i));
-            assert_eq!(edit.clicked, None);
+    fn palette_add_sits_just_outside_the_capsule_right_end() {
+        let layout = layer_palette_layout(PALETTE_ANCHOR, 2, 3, 1.0);
+        let (_, edit) = palette_click(Some(layout.add.center()), Some(0));
+        assert!(edit.add, "the + is outside the capsule");
+        assert_eq!(edit.layer, None);
+        let inside = Pos2::new(layout.capsule.right() - 2.0, layout.capsule.center().y);
+        let (_, edit) = palette_click(Some(inside), Some(0));
+        assert!(!edit.add, "no + inside the capsule");
+    }
+
+    #[test]
+    fn palette_circles_and_color_dots_report_their_clicks() {
+        let layout = layer_palette_layout(PALETTE_ANCHOR, 2, 3, 1.0);
+        for (i, center) in layout.layers.iter().enumerate() {
+            let (_, edit) = palette_click(Some(*center), Some(0));
+            assert_eq!(edit.layer, Some(i));
+            assert!(!edit.add);
         }
+        for (i, center) in layout.colors.iter().enumerate() {
+            let (_, edit) = palette_click(Some(*center), Some(0));
+            assert_eq!(edit.color, Some(i));
+            assert_eq!(edit.layer, None);
+        }
+        let near_empty = layout.track.left_center() + Vec2::new(14.0, 0.0);
+        let (_, edit) = palette_click(Some(near_empty), Some(0));
+        assert!(edit.opacity.is_some_and(|o| o < 0.1), "{edit:?}");
     }
 
     #[test]
@@ -3251,10 +3435,11 @@ mod tests {
                 })
                 .collect()
         };
-        let (shapes, _, _) = filter_click(None, Some(1), None);
+        let (shapes, _) = filter_click(None, Some(1));
         assert_eq!(accent_rings(&shapes), vec![centers[1]]);
-        let (shapes, _, _) = filter_click(None, None, Some(1));
-        assert_eq!(accent_rings(&shapes), vec![centers[3]]);
+        let layout = layer_palette_layout(PALETTE_ANCHOR, 2, 3, 1.0);
+        let (shapes, _) = palette_click(None, Some(1));
+        assert_eq!(accent_rings(&shapes), vec![layout.layers[1]]);
     }
 
     #[test]

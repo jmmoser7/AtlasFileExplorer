@@ -1756,7 +1756,7 @@ impl SlateApp {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use slate_doc::agent_inputs::InputKind;
 
@@ -1774,7 +1774,7 @@ mod tests {
     }
 
     /// A ComfyUI generator with one finished picture in its album.
-    fn generator_with_output(tag: &str) -> (super::super::tests::Harness, NodeId) {
+    pub(crate) fn generator_with_output(tag: &str) -> (super::super::tests::Harness, NodeId) {
         let mut h = super::super::tests::Harness::new(tag);
         h.app.leave_home();
         h.app.ensure_work_tab();
@@ -2019,6 +2019,53 @@ mod tests {
             &h.app.doc().scene.node(generator).unwrap().kind,
             NodeKind::Image(i) if i.item.is_none()
         ));
+    }
+
+    /// An agent's picture is a raster like any other: a Brush on the selected
+    /// picture draws into a paint layer, and drawing hides its overlays.
+    #[test]
+    fn a_brush_on_an_agent_picture_paints_a_layer_and_hides_its_overlays() {
+        for picked in [false, true] {
+            let (mut h, generator) = generator_with_output("agent_picture_paint");
+            if picked {
+                h.app.pick_agent_result(generator, 0);
+            }
+            h.app.board_sel = std::iter::once(generator).collect();
+            h.frame();
+            let rect = h.app.doc().scene.node(generator).unwrap().rect;
+            let at = h.app.board_xf().rect_w2s(rect).center();
+            let resting = painted(&mut h, at);
+            h.app.set_board_tool(super::super::board::BoardTool::Brush);
+            h.app.sync_image_paint_for_tool();
+            assert!(
+                h.app
+                    .image_paint_session()
+                    .is_some_and(|s| s.image == generator),
+                "picked {picked}: an agent picture hosts paint layers"
+            );
+            assert!(h.app.agent_picture_draw_mode(generator));
+            let drawing = painted(&mut h, at);
+            assert!(
+                resting.iter().any(|t| !drawing.contains(t)),
+                "picked {picked}: overlays hide while drawing: {resting:?} vs {drawing:?}"
+            );
+            let nodes = h.app.doc().scene.nodes.len();
+            let (cx, cy) = rect.center();
+            h.app.finish_freehand_brush(vec![
+                Pos2::new(cx - rect.w * 0.25, cy),
+                Pos2::new(cx + rect.w * 0.25, cy),
+            ]);
+            assert_eq!(
+                h.app.doc().scene.nodes.len(),
+                nodes,
+                "the stroke is not a node"
+            );
+            let NodeKind::Image(img) = &h.app.doc().scene.node(generator).unwrap().kind else {
+                panic!("picture");
+            };
+            assert_eq!(img.paint_layers.len(), 1, "picked {picked}");
+            assert_eq!(img.paint_layers[0].nodes.len(), 1, "picked {picked}");
+        }
     }
 
     /// Cover flow belongs to a selected picture with several results; hover

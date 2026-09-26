@@ -116,7 +116,7 @@ impl eframe::App for Preview {
                     Pos2::new(30.0, 662.0),
                     Vec2::new(chrome::EDITOR_WIDTH, chrome::CORNER_HEIGHT) * z,
                 );
-                chrome::corner_editor(ui, corner, false, true, 50.0, 100.0, z, theme);
+                chrome::corner_editor(ui, corner, false, true, 50.0, 100.0, None, z, theme);
                 chrome::wire_editor(
                     ui,
                     Rect::from_min_size(
@@ -171,8 +171,6 @@ impl eframe::App for Preview {
                     ],
                     Some(2),
                     0.72,
-                    &[],
-                    None,
                     z,
                     theme,
                 );

@@ -4506,11 +4506,11 @@
       "canvas": "image-crop-tool-contract",
       "decisions": {
         "D01": {
-          "behavior": "Crop lives in the Corners squircle, with the fillet. The panel shows Fillet/Chamfer and an Off/Crop control. Crop turns the mode on for every selected croppable image. C and double-click still enter that same mode. 3D, text cards, and workbooks stay ineligible.",
+          "behavior": "Crop lives in the Corners squircle, with the fillet. The panel shows Fillet/Chamfer and an Off/Crop control. Off/Crop is packed into the one Corners capsule, leading Fillet/Chamfer, the slider and %/u: the capsule and slider keep their sizes and the three toggle capsules scale by one factor to fit. Crop turns the mode on for every selected croppable image. C and double-click still enter that same mode. 3D, text cards, and workbooks stay ineligible.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-24"
+          "decided": "2026-09-26"
         },
         "D02": {
           "behavior": "Crop stays on until Off is chosen in the Corners panel, Enter, Esc, or a tool other than Select. It is not a sticky drawing tool. A finished crop gesture joins repeat-last (P0.4): afterwards, a Space tap or Enter while idle re-enters crop mode on whatever image is selected then, however crop was first entered.",
@@ -4771,11 +4771,11 @@
       "canvas": "image-paint-layers-tool-contract",
       "decisions": {
         "D01": {
-          "behavior": "On a selected raster image, a small circled + sits just outside the right end of the photo-filter capsule. Click + to append a paint layer, select it, and arm the current drawing tool. With an image selected, activating any drawing tool (including Eraser) assumes drawing on the active layer (create one if empty). Agent pictures with a picked raster result are eligible.",
+          "behavior": "Layers are not filters. With an image selected, activating a hosting drawing tool (including Eraser) starts painting on it; the first stroke creates a layer when the image has none, in the same undo step. While painting, the layer palette hangs centered below the image for the whole session; its small circled + just outside the right end appends a layer, makes it active, and keeps the tool armed. A click on a layer circle makes that layer active. The photo-filter capsule holds filters only. Agent and generator pictures are eligible whenever they show a raster result, picked or not (until one is picked, the newest), and their selection strip offers the photo-filter squircle before the Agent squircle.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-09-26"
         },
         "D02": {
           "behavior": "Drawing tools keep their stickiness. Image hosting ends on empty-canvas click or Esc after HUD peel.",
@@ -4792,11 +4792,11 @@
           "decided": null
         },
         "D04": {
-          "behavior": "Existing per-tool click vs drag thresholds; filter and layer circles are click-only.",
+          "behavior": "Existing per-tool click vs drag thresholds; layer circles, color dots, and + are click-only. A press anywhere on the layer palette never starts a stroke.",
           "source": "pattern",
           "confidence": 90,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-09-26"
         },
         "D05": {
           "behavior": "Hosted tools keep their modifier maps; no layer-specific modifiers.",
@@ -4820,18 +4820,18 @@
           "decided": null
         },
         "D08": {
-          "behavior": "Layer opacity on the intensity track when a layer chip is selected; filter intensity when a filter radio is selected.",
+          "behavior": "The layer palette's slider sets the active layer's opacity (0-100%); a click on its thumb types a value. The thumb follows the drag and release commits one journaled board.image.layer.opacity step (one undo); the image re-composites on release, not per frame, because the composite is a rasterized SVG (Art. II). Filter intensity stays on the filter capsule's own track.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-09-26"
         },
         "D09": {
-          "behavior": "Layer chips show index glyphs; ink previews clip to crop, rotation, and fillet. During ImagePaintSession, up to six document recent colors render as canvas-scaled circles below the image; click sets brush/tool color via ViewState.recent_colors. On agent/generator pictures, suppress prompt readout, chips, verb pill, and album strip while hosting; they return when the session ends.",
+          "behavior": "Each layer circle previews that layer's ink alone, center-cropped, rebuilt once per scene generation; a layer without a preview shows its index. Painting suppresses the selection's blue cast, dimension stringers, and fillet grip. Ink previews clip to crop, rotation, and fillet. Up to six document recent colors sit inside the layer palette as small dots between the layer circles and the slider; click sets brush/tool color via ViewState.recent_colors. On agent/generator pictures, suppress prompt readout, chips, verb pill, and album strip while hosting; they return when the session ends.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-09-26"
         },
         "D10": {
           "behavior": "Hosted tool cursors unchanged by clipping.",
@@ -4855,21 +4855,21 @@
           "decided": null
         },
         "D13": {
-          "behavior": "Filter capsule gains layer circles after the filter radios, same dot sizing and track thickness; the circled + sits just outside the capsule's right end on its vertical center. Only the active chip carries the accent ring.",
+          "behavior": "Layer palette: a dark rounded capsule at the filter height, centered 10 units below the image's rotated bounds, canvas-scaled. Left to right: layer circles (filter-radio size; only the active one carries the accent ring), recent-color dots, and the opacity slider (120-unit track as thick as a circle's radius); the circled + sits 6 units past the right end on its vertical center. Shown only while a hosting tool paints the sole selected image; the whole palette is editor chrome. The filter capsule holds filters only.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-09-26"
         },
         "D14": {
-          "behavior": "Image transform carries layer geometry; replace-base-image keeps adjust, crop, and paint_layers. Image-on-image move offers pointer-attached Replace and Add as layer capsules; release on a capsule commits; release elsewhere on the target does nothing.",
+          "behavior": "Image transform carries layer geometry; replace-base-image keeps adjust, crop, and paint_layers. Image-on-image move and an external raster file drop onto an image show fixed Replace and Add as layer capsules beside the target. The dragged image is never its own target: the target is the topmost image under the pointer other than the one being dragged. The offer holds while the pointer crosses from the target to the capsule row. A file-drop offer ends only on Esc or real pointer movement away from both target and row; the pointer position egui kept from before the OS drag does not dismiss it. The capsules are a foreground widget: a press on one is that choice even if it drifts, and never drags the image beneath. Release on a capsule (move) or click on it (file drop) commits one command group; release elsewhere does nothing.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-09-26"
         },
         "D15": {
-          "behavior": "Video/3D/text-card paint layers, layer reorder UI, and external-file drop onto image (without move capsules) remain out of scope.",
+          "behavior": "Video/3D/text-card paint layers and layer reorder UI remain out of scope.",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",
@@ -4883,11 +4883,11 @@
           "decided": null
         },
         "D17": {
-          "behavior": "Pick layer ink only inside clipped outline; Eraser affects the active layer only; Delete with layer chip selected removes layer via board.image.layer.delete.",
+          "behavior": "Pick layer ink only inside clipped outline; Eraser affects the active layer only; Delete while painting removes the active layer via board.image.layer.delete.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-09-26"
         }
       }
     }

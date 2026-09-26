@@ -160,8 +160,12 @@ is searchable.
   alone translates the stack). Se happened to look right because the
   remapped origins' min is the group origin. Implementation:
   `board_snap::apply_group_box_scale` remaps then `pin_group_union`.
-  Rotate is a 90° arc cursor just *outside* a corner, only for
-  kinds that rotate (shapes, frames, text, images). Portals, connectors,
+  Rotate is a zone just *outside* a corner. Over it and through the
+  whole rotate drag, the OS cursor hides under a circular-arrow pointer
+  in the Windows cursor scheme: white, rimmed in black, OS cursor size,
+  no tooltip (stated 2026-09-26). Windows ships no rotate cursor and
+  egui has no `CursorIcon` for one, so this is pointer-attached chrome
+  (`board_handles::paint_rotate_cursor`). Only for kinds that rotate (shapes, frames, text, images). Portals, connectors,
   dock strips, and simple lines stay axis-aligned. Rotation is rigid:
   textured content maps onto the node's unrotated local rect and the
   whole quad turns (`board::node_texture_vertices`), never re-fit into
@@ -609,7 +613,7 @@ P2.DragShape, P2.PortalPlace, or P2.PlaceOnce.
 
 - **P2.GhostFollow.cursor** while armed and the pointer is over the board,
   hide the OS cursor and paint a pointer in `place.cursor_tint`
-  (`palette.accent`). Same paint path as the rotate cursor
+  (`palette.accent`). Same mechanism as the rotate cursor
   (`CursorIcon::None` + glyph). Every armed drawing tool shows a crosshair
   or a tip circle instead (stated 2026-09-25): Line, Arc, Polyline, Bézier,
   Polygon, Rectangle, and Ellipse show the OS crosshair (Rectangle and

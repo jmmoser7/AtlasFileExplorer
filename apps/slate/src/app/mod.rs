@@ -73,6 +73,8 @@ mod dispatch;
 mod enscape_host;
 mod external_drop;
 mod image_composite;
+#[cfg(test)]
+mod image_layer_tests;
 pub mod imagefx;
 pub mod kits;
 pub mod model3d;
@@ -394,6 +396,11 @@ pub struct SlateApp {
         HashMap<NodeId, board_image_layers::PaintLayerTextureCache>,
     /// Paint-layer brush bitmaps, kept across the texture rebuilds above.
     pub(crate) paint_layer_stamps: slate_artifact::LayerStamps,
+    /// Layer-palette preview circles, rebuilt once per scene generation.
+    pub(crate) paint_layer_thumbs:
+        HashMap<(NodeId, slate_doc::PaintLayerId), board_image_layers::PaintLayerThumb>,
+    /// Layer-palette opacity slider mid-drag: (image, layer, opacity).
+    pub(crate) layer_opacity_drag: Option<(NodeId, usize, f32)>,
     pub(crate) image_drop: Option<board_image_layers::ImageDropOffer>,
     /// Screen anchor for external-file drop capsules (Replace / Add as layer).
     pub(crate) image_drop_screen: Option<egui::Pos2>,
@@ -826,6 +833,8 @@ impl SlateApp {
             image_paint: None,
             paint_layer_texture_cache: HashMap::new(),
             paint_layer_stamps: Default::default(),
+            paint_layer_thumbs: HashMap::new(),
+            layer_opacity_drag: None,
             image_drop: None,
             image_drop_screen: None,
             text_edit: None,

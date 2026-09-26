@@ -152,6 +152,7 @@ impl SlateApp {
             || self.board_crop == Some(id)
             || self.model3d.live.contains_key(&id)
             || self.enscape_shown_node() == Some(id)
+            || self.agent_picture_draw_mode(id)
     }
 
     /// Dimension stringers belong to the frame selection. They stay hidden

@@ -3774,7 +3774,6 @@ impl SlateApp {
                             self.paint_image_paint_layers(
                                 ui, painter, xf, node, img, &outline, srect, alpha, z,
                             );
-                            self.paint_image_paint_recent_colors(ui, painter, xf, node, srect);
                         }
                         None => {
                             let palette = self.palette();
@@ -4065,8 +4064,9 @@ impl SlateApp {
 
         // Object chrome runs before gestures so it can capture clicks.
         let agent_controls_capture = self.agent_spawn_input(ui, &xf);
-        let other_toolbar_captures =
-            self.shape_properties_ui(ui, &xf) | self.corner_entry_ui(ui, &xf);
+        let other_toolbar_captures = self.shape_properties_ui(ui, &xf)
+            | self.corner_entry_ui(ui, &xf)
+            | self.image_paint_palette_ui(ui, &xf);
         let shot_captures = self.paint_model_screenshot_popup(ui.ctx());
         let model_toolbar_captures =
             agent_controls_capture || other_toolbar_captures || shot_captures;
@@ -4649,8 +4649,7 @@ impl SlateApp {
         // --- clicks (the armed zoom tool owns the primary button) ---
         if resp.clicked() && !ate_plus && !zoom_tool && !web_capture && !self.board_align_eat_press
         {
-            if self.try_commit_image_drop_click() {
-            } else if self.sheet_open.is_some() && self.sheet_prompt {
+            if self.sheet_open.is_some() && self.sheet_prompt {
                 // The save reminder owns the pointer until it is answered.
             } else if let Some(p) = pointer {
                 if self.sheet_save_hit.is_some_and(|r| r.contains(p)) {
@@ -5116,7 +5115,7 @@ impl SlateApp {
         if rotate_cursor {
             if let Some(p) = pointer {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::None);
-                board_handles::paint_rotate_cursor(&painter, p, palette.select);
+                board_handles::paint_rotate_cursor(&painter, p);
             }
         }
 
@@ -5468,7 +5467,8 @@ impl SlateApp {
         if let Some(p) = pointer {
             if self.brush_hud.is_some() {
                 self.paint_brush_hud(&painter, p, palette.accent);
-            } else if rect.contains(p) && !panning && !zoom_tool {
+            } else if rect.contains(p) && !panning && !zoom_tool && !self.pointer_on_shape_chrome(p)
+            {
                 if let Some(w) = wp {
                     if self.eyedropper_active() {
                         self.paint_eyedropper_cursor(&painter, p, w);
