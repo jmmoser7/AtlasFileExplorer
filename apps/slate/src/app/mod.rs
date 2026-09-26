@@ -87,6 +87,8 @@ pub mod session;
 pub mod settings;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_ink_fit;
 mod ui;
 
 pub use chrome::ChromeConfig;
