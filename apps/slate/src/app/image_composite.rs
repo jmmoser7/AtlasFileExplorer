@@ -88,8 +88,10 @@ pub fn composite_rgba(
         .iter()
         .any(|l| l.visible && !l.nodes.is_empty())
     {
-        let svg = slate_artifact::paint_layers_svg_with_doc(node, img, cw, ch, doc);
-        if let Some(overlay) = slate_artifact::rasterize_paint_layers_svg(&svg, cw, ch) {
+        let mut stamps = slate_artifact::LayerStamps::default();
+        if let Some(overlay) =
+            slate_artifact::rasterize_paint_layers(node, img, cw, ch, Some(doc), &mut stamps)
+        {
             blend_rgba(&mut rgba, &overlay, cw, ch);
         }
     }

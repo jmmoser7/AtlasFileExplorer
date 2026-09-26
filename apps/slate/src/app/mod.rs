@@ -390,6 +390,8 @@ pub struct SlateApp {
     pub(crate) image_paint: Option<board_image_layers::ImagePaintSession>,
     pub(crate) paint_layer_texture_cache:
         HashMap<NodeId, board_image_layers::PaintLayerTextureCache>,
+    /// Paint-layer brush bitmaps, kept across the texture rebuilds above.
+    pub(crate) paint_layer_stamps: slate_artifact::LayerStamps,
     pub(crate) image_drop: Option<board_image_layers::ImageDropOffer>,
     /// Screen anchor for external-file drop capsules (Replace / Add as layer).
     pub(crate) image_drop_screen: Option<egui::Pos2>,
@@ -810,6 +812,7 @@ impl SlateApp {
             board_crop: None,
             image_paint: None,
             paint_layer_texture_cache: HashMap::new(),
+            paint_layer_stamps: Default::default(),
             image_drop: None,
             image_drop_screen: None,
             text_edit: None,

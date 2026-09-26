@@ -84,7 +84,7 @@ pub fn stamp_tipped(contours: &[Vec<TipPoint>], pixel: f32) -> Option<StampImage
 /// Heaviest blur, in pixels, a stamp is blurred at. A heavier blur coarsens
 /// the pixel instead: the result is smooth, so fewer pixels lose nothing and
 /// the kernel stays small.
-const MAX_BLUR_PX: f32 = 8.0;
+const MAX_BLUR_PX: f32 = 4.0;
 
 /// A committed stroke's bitmap: stamp `contours`, subtract `erase` passes,
 /// then blur by `blur`, a standard deviation in the contours' units (SVG

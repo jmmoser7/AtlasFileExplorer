@@ -1235,6 +1235,23 @@ pub(crate) fn render_shape_svg(
                 rel.x, rel.y, d, fill
             );
         }
+        ShapeKind::Path if stroke.paints_as_stamp() && !stroke.is_none() => {
+            let stamp = shape
+                .path
+                .as_ref()
+                .and_then(|path| brush_stamp(shape, path, rel.w, rel.h, stroke_scale));
+            if let Some((stamp, png)) = stamp.and_then(|s| encode_png(&s).map(|png| (s, png))) {
+                let _ = write!(
+                    svg,
+                    "<image x=\"{:.3}\" y=\"{:.3}\" width=\"{:.3}\" height=\"{:.3}\" preserveAspectRatio=\"none\" href=\"data:image/png;base64,{}\"/>",
+                    rel.x + stamp.origin[0],
+                    rel.y + stamp.origin[1],
+                    stamp.width as f32 * stamp.pixel,
+                    stamp.height as f32 * stamp.pixel,
+                    crate::assets::base64_encode(&png)
+                );
+            }
+        }
         ShapeKind::Path => {
             if let Some(path) = shape.path.as_ref() {
                 let local_d = path_data_d(path, rel.w, rel.h);
@@ -1427,18 +1444,58 @@ fn render_brush_stamp(
     path: &PathData,
     rel: WorldRect,
 ) -> bool {
-    let w = rel.w.max(1.0e-3);
-    let h = rel.h.max(1.0e-3);
+    let Some(stamp) = brush_stamp(shape, path, rel.w, rel.h, 1.0) else {
+        return false;
+    };
+    let Some(png) = encode_png(&stamp) else {
+        return false;
+    };
+    let mut wrap = geometry_style(rel, node.rotation_deg);
+    append_opacity(&mut wrap, node.opacity);
+    wrap.push_str("overflow:visible;background:transparent;");
+    html.push_str("<div class=\"node\" style=\"");
+    html.push_str(&wrap);
+    html.push_str("\"><img alt=\"\" style=\"position:absolute;left:");
+    html.push_str(&fmt_px(stamp.origin[0]));
+    html.push_str("px;top:");
+    html.push_str(&fmt_px(stamp.origin[1]));
+    html.push_str("px;width:");
+    html.push_str(&fmt_px(stamp.width as f32 * stamp.pixel));
+    html.push_str("px;height:");
+    html.push_str(&fmt_px(stamp.height as f32 * stamp.pixel));
+    html.push_str("px;pointer-events:none\" src=\"data:image/png;base64,");
+    html.push_str(&crate::assets::base64_encode(&png));
+    html.push_str("\"></div>\n");
+    true
+}
+
+/// A brush path's bitmap in a `w`×`h` box whose origin is the path's
+/// top-left. `scale` is output units per world unit: tip widths and blur
+/// are world lengths.
+pub(crate) fn brush_stamp(
+    shape: &slate_doc::scene::ShapeNode,
+    path: &PathData,
+    w: f32,
+    h: f32,
+    scale: f32,
+) -> Option<vector_ink::StampImage> {
+    let w = w.max(1.0e-3);
+    let h = h.max(1.0e-3);
     let mut bez = BezPath::new();
     append_contour(&mut bez, path.start, &path.segs, path.closed, w, h);
     for extra in &path.extra {
         append_contour(&mut bez, extra.start, &extra.segs, extra.closed, w, h);
     }
-    let base = stamp_style(slate_doc::scene::StrokeSpan::of(&shape.stroke));
+    let tip_of = |span: slate_doc::scene::StrokeSpan| {
+        let mut style = stamp_style(span);
+        style.diameter *= scale;
+        style
+    };
+    let base = tip_of(slate_doc::scene::StrokeSpan::of(&shape.stroke));
     let tips: Vec<vector_ink::StampStyle> = path
         .paint_tips(&shape.stroke)
         .into_iter()
-        .map(stamp_style)
+        .map(tip_of)
         .collect();
     let mut contours = vector_ink::tipped_contours(&bez, &tips, base, 0.25);
     contours.retain(|c| !c.is_empty());
@@ -1465,40 +1522,18 @@ fn render_brush_stamp(
                     let tip = mark.tips.get(i).or(mark.tips.first()).copied();
                     vector_ink::TipPoint {
                         pos: [x, y],
-                        tip: tip.map(stamp_style).unwrap_or(base),
+                        tip: tip.map(&tip_of).unwrap_or(base),
                     }
                 })
                 .collect()
         })
         .collect();
-    let Some(stamp) = vector_ink::stamp_blurred(
+    vector_ink::stamp_blurred(
         &contours,
         &marks,
         vector_ink::default_pixel(widest),
-        shape.stroke.gaussian_blur,
-    ) else {
-        return false;
-    };
-    let Some(png) = encode_png(&stamp) else {
-        return false;
-    };
-    let mut wrap = geometry_style(rel, node.rotation_deg);
-    append_opacity(&mut wrap, node.opacity);
-    wrap.push_str("overflow:visible;background:transparent;");
-    html.push_str("<div class=\"node\" style=\"");
-    html.push_str(&wrap);
-    html.push_str("\"><img alt=\"\" style=\"position:absolute;left:");
-    html.push_str(&fmt_px(stamp.origin[0]));
-    html.push_str("px;top:");
-    html.push_str(&fmt_px(stamp.origin[1]));
-    html.push_str("px;width:");
-    html.push_str(&fmt_px(stamp.width as f32 * stamp.pixel));
-    html.push_str("px;height:");
-    html.push_str(&fmt_px(stamp.height as f32 * stamp.pixel));
-    html.push_str("px;pointer-events:none\" src=\"data:image/png;base64,");
-    html.push_str(&crate::assets::base64_encode(&png));
-    html.push_str("\"></div>\n");
-    true
+        shape.stroke.gaussian_blur * scale,
+    )
 }
 
 fn stamp_style(tip: slate_doc::scene::StrokeSpan) -> vector_ink::StampStyle {
