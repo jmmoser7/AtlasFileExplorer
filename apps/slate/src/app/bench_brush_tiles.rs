@@ -500,6 +500,86 @@ fn erasing_paints_every_stroke_exactly_once_each_frame() {
     assert!(b.app.brush_tiles.last.settled, "tiles did not settle");
 }
 
+/// A heavily blurred dab keeps its dot: the blur spreads the ink inside a
+/// bitmap wide enough for the falloff (no clipped square), keeps its mass,
+/// peaks at the center, and has the same world-space spread at every zoom.
+#[test]
+fn a_heavily_blurred_dab_keeps_its_dot() {
+    let mut b = Bench::new(0);
+    let scene = &mut b.app.doc_mut().scene;
+    let sharp = dab_node(scene, [100.0, 100.0], 24.0, 0.5, 0.0);
+    let blurred = dab_node(scene, [100.0, 100.0], 24.0, 0.5, 24.0);
+    let stamp = |node: &Node, pixel: f32| {
+        let NodeKind::Shape(shape) = &node.kind else {
+            unreachable!()
+        };
+        super::board_path::stroke_stamp(node, shape, shape.path.as_ref().unwrap(), pixel)
+            .expect("a dab stamp")
+    };
+    // (mass in world units², peak alpha at the center, max alpha, max on the
+    // bitmap's outer ring, x spread in world units)
+    let measure = |s: &vector_ink::StampImage| {
+        let (w, h) = (s.width as usize, s.height as usize);
+        let a = |x: usize, y: usize| s.rgba[(y * w + x) * 4 + 3] as f32;
+        let mut mass = 0.0;
+        let mut mx = 0.0;
+        let mut ring: f32 = 0.0;
+        let mut most: f32 = 0.0;
+        for y in 0..h {
+            for x in 0..w {
+                let v = a(x, y);
+                mass += v;
+                mx += v * (s.origin[0] + (x as f32 + 0.5) * s.pixel);
+                most = most.max(v);
+                if x == 0 || y == 0 || x + 1 == w || y + 1 == h {
+                    ring = ring.max(v);
+                }
+            }
+        }
+        let cx = mx / mass.max(1.0);
+        let mut var = 0.0;
+        for y in 0..h {
+            for x in 0..w {
+                let dx = s.origin[0] + (x as f32 + 0.5) * s.pixel - cx;
+                var += a(x, y) * dx * dx;
+            }
+        }
+        let center_x = ((100.0 - s.origin[0]) / s.pixel) as usize;
+        let center_y = ((100.0 - s.origin[1]) / s.pixel) as usize;
+        let peak = a(center_x.min(w - 1), center_y.min(h - 1));
+        (
+            mass * s.pixel * s.pixel,
+            peak,
+            most,
+            ring,
+            (var / mass.max(1.0)).sqrt(),
+        )
+    };
+    let (sharp_mass, _, _, _, sharp_spread) = measure(&stamp(&sharp, 1.0));
+    for pixel in [0.5_f32, 1.0, 2.0] {
+        let (mass, peak, most, ring, spread) = measure(&stamp(&blurred, pixel));
+        assert!(
+            ring <= 3.0,
+            "pixel {pixel}: the blur is cut off by the bitmap edge (edge alpha {ring})"
+        );
+        assert!(
+            (mass - sharp_mass).abs() <= sharp_mass * 0.1,
+            "pixel {pixel}: blur changed the dab's ink from {sharp_mass:.0} to {mass:.0}"
+        );
+        assert!(
+            peak >= most * 0.9,
+            "pixel {pixel}: the dot is gone (center {peak} vs max {most})"
+        );
+        let added = (spread * spread - sharp_spread * sharp_spread)
+            .max(0.0)
+            .sqrt();
+        assert!(
+            (added - 24.0).abs() <= 24.0 * 0.15,
+            "pixel {pixel}: blur spread {added:.1} world units, want 24"
+        );
+    }
+}
+
 /// A blurred dab painted on its own keeps painting once, with the same
 /// pixels, while the user keeps drawing: from the moment it is blurred, no
 /// frame shows it twice (an old tile plus its own raster) or not at all, and

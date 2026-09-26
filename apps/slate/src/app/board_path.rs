@@ -1698,16 +1698,10 @@ fn paint_stamped_stroke(
             if same_shape {
                 app.brush_stamp_rebuilds += 1;
             }
-            let contours = stamped_contours(node, shape, path, (want as f64 * 0.5).max(0.05));
-            let Some(mut stamp) = stamp_tipped(&contours, want) else {
+            let Some(stamp) = stroke_stamp(node, shape, path, want) else {
                 app.brush_stamps.remove(&node.id);
                 return;
             };
-            vector_ink::apply_erase(&mut stamp, &stamped_erase_marks(node, shape, path));
-            if shape.stroke.gaussian_blur > 0.0 {
-                let sigma = shape.stroke.gaussian_blur * want;
-                vector_ink::gaussian_blur_rgba(&mut stamp.rgba, stamp.width, stamp.height, sigma);
-            }
             let gpu = upload_stamp(painter, &format!("brush-stamp-{}", node.id.0), stamp, want);
             app.brush_stamps.insert(node.id, (key, gpu));
             evict_brush_stamps(&mut app.brush_stamps, app.frame_no);
@@ -1719,6 +1713,23 @@ fn paint_stamped_stroke(
         gpu.used = app.frame_no;
         paint_stamp_quad(painter, xf, gpu, fade(Color32::WHITE));
     }
+}
+
+/// One committed stroke's stamp bitmap at `pixel` world units per pixel:
+/// tipped dabs, erase marks, then the stroke's blur.
+pub(crate) fn stroke_stamp(
+    node: &Node,
+    shape: &ShapeNode,
+    path: &PathData,
+    pixel: f32,
+) -> Option<vector_ink::StampImage> {
+    let contours = stamped_contours(node, shape, path, (pixel as f64 * 0.5).max(0.05));
+    vector_ink::stamp_blurred(
+        &contours,
+        &stamped_erase_marks(node, shape, path),
+        pixel,
+        shape.stroke.gaussian_blur,
+    )
 }
 
 fn evict_brush_stamps(cache: &mut HashMap<NodeId, (u64, BrushStampGpu)>, frame: u64) {

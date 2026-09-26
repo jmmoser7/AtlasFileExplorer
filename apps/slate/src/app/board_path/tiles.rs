@@ -843,7 +843,7 @@ fn stamp_stroke(node: &Node) -> Option<&ShapeNode> {
 }
 
 fn ink_rect(node: &Node, shape: &ShapeNode) -> [f32; 4] {
-    let pad = shape.stroke.width.max(1.0) * 0.5 + 4.0;
+    let pad = shape.stroke.width.max(1.0) * 0.5 + 4.0 + 3.0 * shape.stroke.gaussian_blur.max(0.0);
     if node.rotation_deg.abs() < 0.01 {
         let r = node.rect.normalized();
         return [r.x - pad, r.y - pad, r.x + r.w + pad, r.y + r.h + pad];

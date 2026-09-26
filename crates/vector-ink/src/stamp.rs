@@ -78,6 +78,40 @@ pub fn stamp_pixel(bounds_w: f32, bounds_h: f32, pixel: f32) -> f32 {
 /// (coarsened if the bitmap would be too large). A one-point contour is a
 /// single dab.
 pub fn stamp_tipped(contours: &[Vec<TipPoint>], pixel: f32) -> Option<StampImage> {
+    stamp_tipped_padded(contours, pixel, 0.0)
+}
+
+/// Heaviest blur, in pixels, a stamp is blurred at. A heavier blur coarsens
+/// the pixel instead: the result is smooth, so fewer pixels lose nothing and
+/// the kernel stays small.
+const MAX_BLUR_PX: f32 = 8.0;
+
+/// A committed stroke's bitmap: stamp `contours`, subtract `erase` passes,
+/// then blur by `blur`, a standard deviation in the contours' units (SVG
+/// `stdDeviation`). The bitmap is padded to hold the whole falloff, so a
+/// heavy blur never clips to a square.
+pub fn stamp_blurred(
+    contours: &[Vec<TipPoint>],
+    erase: &[Vec<TipPoint>],
+    pixel: f32,
+    blur: f32,
+) -> Option<StampImage> {
+    let blur = if blur.is_finite() { blur.max(0.0) } else { 0.0 };
+    let pixel = if blur > 0.0 {
+        pixel.max(blur / MAX_BLUR_PX)
+    } else {
+        pixel
+    };
+    let mut img = stamp_tipped_padded(contours, pixel, 3.0 * blur)?;
+    apply_erase(&mut img, erase);
+    if blur > 0.0 {
+        crate::blur::gaussian_blur_rgba(&mut img.rgba, img.width, img.height, blur / img.pixel);
+    }
+    Some(img)
+}
+
+/// [`stamp_tipped`] with `margin` more room on every side, in world units.
+fn stamp_tipped_padded(contours: &[Vec<TipPoint>], pixel: f32, margin: f32) -> Option<StampImage> {
     let mut min_x = f32::INFINITY;
     let mut min_y = f32::INFINITY;
     let mut max_x = f32::NEG_INFINITY;
@@ -99,11 +133,13 @@ pub fn stamp_tipped(contours: &[Vec<TipPoint>], pixel: f32) -> Option<StampImage
     }
     let world_w = max_x - min_x;
     let world_h = max_y - min_y;
-    let pixel = stamp_pixel(world_w + 2.0 * pixel, world_h + 2.0 * pixel, pixel);
-    let x0 = min_x - pixel;
-    let y0 = min_y - pixel;
-    let w = ((world_w / pixel).ceil() as u32 + 2).max(1);
-    let h = ((world_h / pixel).ceil() as u32 + 2).max(1);
+    let room = margin + pixel;
+    let pixel = stamp_pixel(world_w + 2.0 * room, world_h + 2.0 * room, pixel);
+    let pad = (margin / pixel).ceil() as u32 + 1;
+    let x0 = min_x - pad as f32 * pixel;
+    let y0 = min_y - pad as f32 * pixel;
+    let w = ((world_w / pixel).ceil() as u32 + 2 * pad).max(1);
+    let h = ((world_h / pixel).ceil() as u32 + 2 * pad).max(1);
     if (w as u64) * (h as u64) > (MAX_PIXELS as u64) * 2 {
         return None;
     }

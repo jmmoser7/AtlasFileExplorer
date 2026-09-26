@@ -1453,10 +1453,6 @@ fn render_brush_stamp(
         .flatten()
         .map(|p| p.tip.diameter)
         .fold(0.0_f32, f32::max);
-    let Some(mut stamp) = vector_ink::stamp_tipped(&contours, vector_ink::default_pixel(widest))
-    else {
-        return false;
-    };
     let marks: Vec<Vec<vector_ink::TipPoint>> = path
         .erase
         .iter()
@@ -1475,11 +1471,14 @@ fn render_brush_stamp(
                 .collect()
         })
         .collect();
-    vector_ink::apply_erase(&mut stamp, &marks);
-    if shape.stroke.gaussian_blur > 0.0 {
-        let sigma = shape.stroke.gaussian_blur * stamp.pixel;
-        vector_ink::gaussian_blur_rgba(&mut stamp.rgba, stamp.width, stamp.height, sigma);
-    }
+    let Some(stamp) = vector_ink::stamp_blurred(
+        &contours,
+        &marks,
+        vector_ink::default_pixel(widest),
+        shape.stroke.gaussian_blur,
+    ) else {
+        return false;
+    };
     let Some(png) = encode_png(&stamp) else {
         return false;
     };
