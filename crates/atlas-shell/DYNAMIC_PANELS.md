@@ -52,6 +52,10 @@ fits the canvas without covering the selection or strip. Failing that, it
 picks the first that fits without covering the strip. Failing that, it keeps
 the default. The size never changes. Other popups opened from the strip, such
 as the 3D Screenshot menu, use the same owner.
+Popups draw above all canvas chrome: every editor, menu, dropdown, and
+readout opened from the strip paints and takes the pointer on `POPUP_ORDER`
+through `popup_area`, above stringers, the strip, grips, and nodes
+(`CANVAS_CHROME_ORDER`).
 
 Keep the composition shallow and restrained: thin outlines, quiet surfaces,
 and minimal chrome. Use **squircles for property icon buttons**, matching the

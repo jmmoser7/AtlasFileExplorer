@@ -82,10 +82,33 @@ pub fn selection_painter(painter: &egui::Painter, id: Id, editor_open: bool) -> 
     selection
 }
 
+/// Canvas-attached chrome paints at or below this order: dimension stringers,
+/// grips, the selection strip, portal chrome, wires, the paint-layer palette.
+pub const CANVAS_CHROME_ORDER: egui::Order = egui::Order::Foreground;
+/// Every popup opened from canvas chrome (property editors, capsule menus,
+/// dropdowns, transient readouts, the 3D Screenshot menu) paints and takes
+/// the pointer on this order, above all canvas chrome.
+pub const POPUP_ORDER: egui::Order = egui::Order::Tooltip;
+const _: () = assert!((CANVAS_CHROME_ORDER as u8) < (POPUP_ORDER as u8));
+
+/// The one area for a popup opened from canvas chrome. `opener` is the layer
+/// of the control that opened it; a popup opened from inside another popup
+/// stays directly above it even after the opener is raised.
+pub fn popup_area(ctx: &egui::Context, id: Id, opener: egui::LayerId) -> egui::Area {
+    let layer = egui::LayerId::new(POPUP_ORDER, id);
+    if opener.order == POPUP_ORDER && opener != layer {
+        ctx.set_sublayer(opener, layer);
+    }
+    egui::Area::new(id).order(POPUP_ORDER)
+}
+
 fn object_painter(ui: &egui::Ui) -> egui::Painter {
+    if ui.layer_id().order >= POPUP_ORDER {
+        return ui.painter().clone();
+    }
     ui.ctx()
         .layer_painter(egui::LayerId::new(
-            egui::Order::Foreground,
+            CANVAS_CHROME_ORDER,
             Id::new("selection_property_chrome"),
         ))
         .with_clip_rect(ui.clip_rect())
@@ -793,7 +816,7 @@ fn buffer(
             );
             let p = ui
                 .ctx()
-                .layer_painter(egui::LayerId::new(egui::Order::Tooltip, id.with("metric")));
+                .layer_painter(egui::LayerId::new(POPUP_ORDER, id.with("metric")));
             p.rect(
                 r,
                 3.0 * zoom,
@@ -2827,8 +2850,7 @@ fn capsule_menu(
         }
     }
     crate::menu_wheel::claim(ui.ctx(), popup);
-    egui::Area::new(id.with("pop"))
-        .order(egui::Order::Tooltip)
+    popup_area(ui.ctx(), id.with("pop"), ui.layer_id())
         .fixed_pos(popup.min)
         .constrain(false)
         .show(ui.ctx(), |ui| {
@@ -3696,6 +3718,75 @@ mod tests {
         let strip = strip_over(selection);
         let placed = editor_placement(strip, selection, FILL_HEIGHT, 1.0, viewport);
         assert!(same(placed, editor_rect(strip, FILL_HEIGHT, 1.0)));
+    }
+
+    #[test]
+    fn a_popup_opened_from_a_popup_stays_above_it_after_the_opener_is_raised() {
+        let ctx = egui::Context::default();
+        let editor = egui::LayerId::new(POPUP_ORDER, Id::new("editor"));
+        let menu = egui::LayerId::new(POPUP_ORDER, Id::new("menu"));
+        for raise in [false, true, false] {
+            let _ = ctx.run(egui::RawInput::default(), |ctx| {
+                if raise {
+                    ctx.move_to_top(editor);
+                }
+                popup_area(ctx, editor.id, egui::LayerId::background())
+                    .fixed_pos(Pos2::ZERO)
+                    .show(ctx, |ui| {
+                        ui.allocate_exact_size(Vec2::splat(200.0), Sense::click());
+                        popup_area(ctx, menu.id, ui.layer_id())
+                            .fixed_pos(Pos2::new(50.0, 50.0))
+                            .show(ctx, |ui| {
+                                ui.allocate_exact_size(Vec2::splat(50.0), Sense::click());
+                            });
+                    });
+            });
+            assert_eq!(ctx.layer_id_at(Pos2::new(75.0, 75.0)), Some(menu));
+            assert_eq!(ctx.layer_id_at(Pos2::new(10.0, 10.0)), Some(editor));
+        }
+    }
+
+    #[test]
+    fn a_strip_button_inside_a_popup_paints_over_the_popup_surface() {
+        let ctx = egui::Context::default();
+        let theme = Palette::light();
+        let surface = Color32::from_rgb(1, 2, 3);
+        let frame = || {
+            ctx.run(egui::RawInput::default(), |ctx| {
+                popup_area(ctx, Id::new("album"), egui::LayerId::background())
+                    .fixed_pos(Pos2::ZERO)
+                    .fade_in(false)
+                    .show(ctx, |ui| {
+                        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::splat(100.0));
+                        ui.painter().rect_filled(rect, 0.0, surface);
+                        let r =
+                            Rect::from_min_size(Pos2::new(10.0, 10.0), Vec2::splat(BUTTON_SIZE));
+                        button(
+                            ui,
+                            r,
+                            Id::new("unbundle"),
+                            "Unbundle",
+                            Icon::Pages,
+                            false,
+                            1.0,
+                            theme,
+                            1.0,
+                            true,
+                        );
+                    });
+            })
+        };
+        let _sizing = frame();
+        let out = frame();
+        let at = out
+            .shapes
+            .iter()
+            .position(|c| matches!(&c.shape, egui::Shape::Rect(r) if r.fill == surface))
+            .expect("the popup surface painted");
+        assert!(
+            at + 1 < out.shapes.len(),
+            "the button paints below its popup's surface"
+        );
     }
 
     #[test]

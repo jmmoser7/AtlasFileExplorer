@@ -1679,8 +1679,7 @@ impl SlateApp {
                     let canvas = self.canvas_rect;
                     let rect = chrome::editor_placement(strip, bounds, height, z, canvas);
                     let mut sample = None;
-                    egui::Area::new(Id::new("shape_property_editor"))
-                        .order(egui::Order::Foreground)
+                    chrome::popup_area(&ctx, Id::new("shape_property_editor"), ui.layer_id())
                         .fixed_pos(rect.min)
                         .constrain(false)
                         .movable(false)
@@ -2818,6 +2817,77 @@ mod tests {
             h.app.desktop_sample_requests,
             vec![PickMode::Click, PickMode::Drag],
             "press-drag opens one drag session; its release is not a second click"
+        );
+    }
+
+    /// User finding (2026-09-26): the editor avoided the shape but painted
+    /// behind its dimension stringer. Popups draw above all canvas chrome and
+    /// take the pointer first where the two overlap.
+    #[test]
+    fn a_property_editor_over_a_stringer_paints_and_hits_above_it() {
+        let mut h = board();
+        h.frame();
+        // The rectangle's top sits just under the canvas top, so the editor has
+        // no room above the strip and opens below, over the width stringer.
+        let canvas = h.app.canvas_rect;
+        let top = h
+            .app
+            .board_xf()
+            .s2w(Pos2::new(canvas.center().x, canvas.top() + 70.0));
+        rectangle(
+            &mut h,
+            WorldRect::new(top.x - 150.0, top.y, 300.0, 120.0),
+            0.0,
+        );
+        h.frame();
+        h.app.shape_properties.panel = Some(Panel::Fill);
+        h.frame();
+        h.frame();
+        let out = h.frame_output(|_| {});
+        let editor = *h.app.shape_properties.chrome_hits.last().unwrap();
+        let xf = h.app.board_xf();
+        let width = h
+            .app
+            .shape_properties
+            .dimensions
+            .iter()
+            .find(|d| d.kind == DimensionKind::Width)
+            .expect("a rectangle has a width stringer");
+        let [a, b] = width.ends.map(|p| xf.w2s(p) + width.offset * xf.z);
+        let label = a.lerp(b, 0.5);
+        assert!(
+            editor.contains(label),
+            "precondition: {editor:?} covers the width stringer at {label:?}"
+        );
+
+        let layer = h.ctx.layer_id_at(label).expect("hit-testable");
+        assert_eq!(
+            layer.id,
+            Id::new("shape_property_editor"),
+            "the editor takes the pointer first: {layer:?}"
+        );
+
+        let baseline = egui::Stroke::new(0.7 * xf.z, h.app.palette().select);
+        let last_stringer = out
+            .shapes
+            .iter()
+            .rposition(|c| {
+                matches!(&c.shape, egui::Shape::LineSegment { points, stroke }
+                    if *stroke == baseline && points.iter().all(|p| (p.y - a.y).abs() < 0.5))
+            })
+            .expect("the width stringer painted");
+        let panel = out
+            .shapes
+            .iter()
+            .position(|c| matches!(&c.shape, egui::Shape::Rect(r) if r.rect == editor))
+            .expect("the editor panel painted");
+        assert!(
+            last_stringer < panel,
+            "the stringer (shape {last_stringer}) paints over the editor (shape {panel})"
+        );
+        assert!(
+            layer.order > egui::Order::Foreground,
+            "canvas chrome paints on Foreground, so a popup sits above it: {layer:?}"
         );
     }
 

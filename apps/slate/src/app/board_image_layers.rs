@@ -741,7 +741,7 @@ impl SlateApp {
         let canvas = self.canvas_rect;
         let mut edit = atlas_shell::selection_tools::LayerPaletteEdit::default();
         egui::Area::new(egui::Id::new(("image_paint_palette", image.0)))
-            .order(egui::Order::Foreground)
+            .order(atlas_shell::selection_tools::CANVAS_CHROME_ORDER)
             .fixed_pos(layout.capsule.min)
             .constrain(false)
             .movable(false)

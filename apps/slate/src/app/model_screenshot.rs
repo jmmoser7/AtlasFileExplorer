@@ -5,6 +5,7 @@ use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use atlas_shell::file_picker::{first, PickRequest};
+use atlas_shell::selection_tools::popup_area;
 use eframe::egui::{self, Color32, Id, Pos2, Rect, Vec2};
 use model_preview::view_meta::{self, ViewMetaInput};
 use slate_doc::scene::{ImageAdjust, ImageNode, ModelCamera, Node, NodeId, NodeKind, WorldRect};
@@ -158,9 +159,8 @@ impl SlateApp {
             None => Rect::from_min_size(Pos2::new(anchor.x - w * 0.5, anchor.y + 6.0), size),
         };
 
-        let resp = egui::Area::new(menu_id)
+        let resp = popup_area(ctx, menu_id, egui::LayerId::background())
             .fixed_pos(rect.min)
-            .order(egui::Order::Tooltip)
             .interactable(true)
             .show(ctx, |ui| {
                 egui::Frame::popup(ui.style())

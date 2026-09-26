@@ -350,8 +350,12 @@ impl SlateApp {
         let mut next = focus;
         let mut unbundle = false;
         let mut hover = false;
-        egui::Area::new(egui::Id::new(("pages_album", node_id.0)))
-            .order(egui::Order::Foreground)
+        let album = atlas_shell::selection_tools::popup_area(
+            ui.ctx(),
+            egui::Id::new(("pages_album", node_id.0)),
+            ui.layer_id(),
+        );
+        album
             .fixed_pos(layout.pallet.min)
             .constrain(false)
             .movable(false)
