@@ -2121,7 +2121,6 @@ impl SlateApp {
         self.strip_button(|item| matches!(item, StripItem::ModelMeasure))
     }
 
-    #[cfg(test)]
     fn strip_button(&self, want: fn(&StripItem) -> bool) -> Option<Rect> {
         let items = &self.shape_properties.last_chrome.as_ref()?.items;
         let index = items.iter().position(want)?;

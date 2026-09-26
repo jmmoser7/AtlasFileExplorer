@@ -1170,7 +1170,8 @@ impl SlateApp {
             d.row = Some(row);
         }
         if chosen.is_some() {
-            self.try_commit_image_drop(&[], &[]);
+            let item = self.image_drop_item();
+            self.commit_image_drop(item, false);
         }
     }
 

@@ -760,13 +760,13 @@ impl BoardDrag {
             }
             BoardDrag::Resize { before, dup, .. } => (vec![before], dup),
             BoardDrag::GroupRotate { before, .. } => (before, false),
-            BoardDrag::CropEdge { before, peers, .. } => {
+            BoardDrag::CropEdge { before, peers, .. }
+            | BoardDrag::FilletRadius { before, peers, .. } => {
                 (std::iter::once(before).chain(peers).collect(), false)
             }
             BoardDrag::Rotate { before, .. }
             | BoardDrag::CropPan { before, .. }
-            | BoardDrag::LineGrip { before, .. }
-            | BoardDrag::FilletRadius { before, .. } => (vec![before], false),
+            | BoardDrag::LineGrip { before, .. } => (vec![before], false),
             _ => return None,
         })
     }

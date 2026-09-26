@@ -12268,6 +12268,7 @@ fn alt_copy_dropped_on_a_picture_leaves_no_unjournaled_copy() {
         target: dst,
         source: ImageDropSource::Node(copy),
         highlight: Some(ImageDropChoice::Replace),
+        row: None,
     });
     h.app.end_gesture_for_test(over, Some(xf.w2s(over)), alt);
     assert!(h.app.board_drag.is_none());
