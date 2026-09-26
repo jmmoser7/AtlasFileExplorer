@@ -479,6 +479,7 @@ mod tests {
             NodeKind::Shape(ShapeNode {
                 shape: ShapeKind::Path,
                 sides: 6,
+                phase_deg: 0.0,
                 fill: None,
                 stroke: Stroke {
                     width,
@@ -605,6 +606,7 @@ mod tests {
                         NodeKind::Shape(ShapeNode {
                             shape: ShapeKind::Path,
                             sides: 6,
+                            phase_deg: 0.0,
                             fill: None,
                             stroke: Stroke {
                                 width: 30.0,

@@ -383,6 +383,7 @@ fn dab_node(
             stroke,
             corner: Corner::Square,
             sides: slate_doc::scene::default_regular_sides(),
+            phase_deg: 0.0,
             flip: false,
             path: Some(std::sync::Arc::new(PathData {
                 start: [0.5, 0.5],
