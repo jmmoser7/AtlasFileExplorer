@@ -15,7 +15,7 @@ use super::path_edit_overlay::{
     PathEditAnchorColors, PathEditAnchorPaint, PathEditHit,
 };
 use super::{board_line, board_path, SlateApp};
-use eframe::egui::{self, Pos2, Rect, Stroke as EStroke, Vec2};
+use eframe::egui::{self, Pos2, Rect};
 use slate_doc::scene::{Node, NodeKind, SceneCmd, ShapeKind, WorldRect};
 use slate_doc::NodeId;
 use std::collections::{BTreeSet, HashSet};
