@@ -769,7 +769,7 @@ pub static SPECS: &[CommandSpec] = &[
     ),
     spec("portal.agent.wire_output", "Board", "Image wire: toggle whole bundle", "Toggle between all images and a pinned current image on the selected wire", None, Repeat::Never, BOARD, &["all images", "pin current image", "image wire output"]),
     spec("portal.agent.unbundle", "Board", "Agent portal: unbundle images", "Split completed images into independent generator portals, in one undo step", None, Repeat::Never, BOARD, &["unbundle", "split image bundle"]),
-    spec("portal.agent.stop", "Board", "Agent portal: stop response", "Interrupt this portal's Codex, Cursor, or ComfyUI run", None, Repeat::Never, BOARD, &["stop agent", "cancel generation"]),
+    spec("portal.agent.stop", "Board", "Agent portal: stop response", "Interrupt this portal's Codex, Cursor, or ComfyUI run; on a streaming chat card, click Stop on its top output circle", None, Repeat::Never, BOARD, &["stop agent", "cancel generation"]),
     spec("portal.agent.train", "Board", "Agent: show chat train", "Present linked messages as top-aligned cards", None, Repeat::Never, BOARD, &["chat train"]),
     spec("portal.agent.pairs", "Board", "Agent: message pairs", "One user message and its reply on each card", None, Repeat::Never, BOARD, &["message pairs"]),
     spec("portal.agent.model", "Board", "Agent: choose model", "Click the model name to choose the next Codex or Ollama model, or a ComfyUI checkpoint (Auto picks one for the wired inputs)", None, Repeat::Never, BOARD, &["agent model", "checkpoint"]),

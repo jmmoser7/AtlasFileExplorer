@@ -578,6 +578,7 @@ impl SlateApp {
     ) -> Option<(Option<NodeId>, board_handles::BoardHitTarget)> {
         let xf = self.board_xf();
         if self.agent_output_at(screen, &xf).is_some()
+            || self.agent_stop_at(screen, &xf).is_some()
             || self.agent_artifact_at(screen, &xf).is_some()
         {
             return None;

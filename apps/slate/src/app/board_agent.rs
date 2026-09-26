@@ -205,6 +205,8 @@ pub struct AgentRuntime {
     /// False until the press that opened the model list is released.
     model_menu_armed: bool,
     model_menu_rect: Option<Rect>,
+    /// Streaming card whose Stop took the press; it stops on release there.
+    stop_press: Option<NodeId>,
     /// HTML (and the rest of the preview catalog) waiting for text vs graphic.
     preview_ask: Option<(NodeId, String, Option<Pos2>)>,
     /// False until the pointer that opened the menu has been released.
@@ -560,6 +562,18 @@ const SUMMARY_TEXT_TOP: f32 = 28.0;
 const COLLAPSED_ROWS: usize = 3;
 /// Card text size, in world units.
 const CARD_TEXT_PX: f32 = 13.0;
+/// Stop's disc and press reach on a streaming card's output circle, in world units.
+const STOP_RADIUS: f32 = 6.0;
+const STOP_REACH: f32 = 8.0;
+
+/// On-screen center of a chat card's top output circle.
+fn output_circle_center(card: Rect, z: f32) -> Pos2 {
+    card.right_top()
+        + egui::vec2(
+            -slate_doc::agent_chat::PORT_INSET,
+            slate_doc::agent_chat::RAIL_INSET,
+        ) * z
+}
 
 /// A person's resize of a chat card is authored size, recorded in the same
 /// patch as the rect. It also opens a collapsed card. Drafts and bundles still fit.
@@ -1193,6 +1207,7 @@ impl SlateApp {
                         !a.chat.draft && !a.provider.is_empty() && a.chat.parent.is_some()
                     })
                     && !self.agent_in_choose_phase(n.id)
+                    && !self.agent_is_running(n.id)
                     && screen.distance(
                         xf.rect_w2s(n.rect).right_top()
                             + egui::vec2(
@@ -1200,6 +1215,32 @@ impl SlateApp {
                                 slate_doc::agent_chat::RAIL_INSET,
                             ) * xf.z,
                     ) <= 7.0 * xf.z
+            })
+            .map(|n| n.id)
+    }
+
+    /// A chat card streaming a reply shows Stop on its top output circle.
+    fn agent_stop_shown(&self, n: &Node) -> bool {
+        !n.hidden
+            && slate_doc::agent_chat::agent(n).is_some_and(|a| {
+                a.view == atlas_ai::agent::PortalView::Chat
+                    && !a.chat.draft
+                    && !a.provider.is_empty()
+            })
+            && self.agent_is_running(n.id)
+    }
+
+    /// The streaming chat card whose Stop is under `screen`.
+    pub(crate) fn agent_stop_at(&self, screen: Pos2, xf: &BoardXf) -> Option<NodeId> {
+        self.doc()
+            .scene
+            .nodes
+            .iter()
+            .rev()
+            .find(|n| {
+                self.agent_stop_shown(n)
+                    && screen.distance(output_circle_center(xf.rect_w2s(n.rect), xf.z))
+                        <= canvas_scale::px(STOP_REACH, xf.z)
             })
             .map(|n| n.id)
     }
@@ -1363,8 +1404,31 @@ impl SlateApp {
             self.board_align_eat_press = true;
             return true;
         }
+        if let Some(id) = self.agents.stop_press {
+            if ui.input(|i| i.pointer.any_released()) {
+                self.agents.stop_press = None;
+                if pointer.is_some_and(|p| self.agent_stop_at(p, xf) == Some(id)) {
+                    self.board_sel = std::iter::once(id).collect();
+                    self.dispatch(
+                        ui.ctx(),
+                        atlas_commands::CommandId("portal.agent.stop"),
+                        None,
+                    );
+                }
+            }
+            self.board_align_eat_press = true;
+            return true;
+        }
         if self.board_drag.is_some() || self.board_tool != super::board::BoardTool::Select {
             return false;
+        }
+        if let Some(id) = pointer.and_then(|p| self.agent_stop_at(p, xf)) {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            if ui.input(|i| i.pointer.primary_pressed()) {
+                self.agents.stop_press = Some(id);
+                self.board_align_eat_press = true;
+                return true;
+            }
         }
         let ids: Vec<_> = self
             .doc()
@@ -1402,6 +1466,9 @@ impl SlateApp {
                     return true;
                 }
             }
+            if self.agent_is_running(id) {
+                continue;
+            }
             let hit = Rect::from_center_size(handle, egui::vec2(8.0, 8.0) * xf.z);
             if pointer.is_some_and(|p| p.distance(handle) <= 7.0 * xf.z) {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::Default);
@@ -1438,6 +1505,10 @@ impl SlateApp {
             let Some(a) = slate_doc::agent_chat::agent(n) else {
                 continue;
             };
+            if self.agent_stop_shown(n) {
+                self.paint_agent_stop(painter, xf, n, pointer);
+                continue;
+            }
             if n.hidden
                 || n.locked
                 || a.chat.draft
@@ -8544,7 +8615,9 @@ impl SlateApp {
             self.palette(),
         );
         if !editing {
-            self.paint_agent_stop(ui, id, field, z);
+            if self.agent_connecting(id) {
+                self.paint_agent_connecting(ui, field, z);
+            }
             return;
         }
         if take_focus && field_out.focused {
@@ -8563,45 +8636,35 @@ impl SlateApp {
         if field_out.submit {
             self.send_agent_prompt(id);
         }
-        self.paint_agent_stop(ui, id, field, z);
-    }
-
-    fn paint_agent_stop(&mut self, ui: &egui::Ui, id: NodeId, field: Rect, z: f32) {
         if self.agent_connecting(id) {
             self.paint_agent_connecting(ui, field, z);
-            return;
         }
-        if !self.agent_is_running(id) {
-            return;
-        }
-        ui.ctx().request_repaint();
-        let side = canvas_scale::px(11.0, z);
-        let stop = Rect::from_min_size(
-            Pos2::new(field.right() - side, field.bottom() - side),
-            egui::vec2(side, side),
+    }
+
+    /// Stop takes the output circle's place while a reply streams: the card
+    /// grows downward, so it stays under the pointer.
+    fn paint_agent_stop(
+        &self,
+        painter: &egui::Painter,
+        xf: &BoardXf,
+        n: &Node,
+        pointer: Option<Pos2>,
+    ) {
+        let z = xf.z;
+        let at = output_circle_center(xf.rect_w2s(n.rect), z);
+        let palette = self.palette();
+        let hot = pointer.is_some_and(|p| p.distance(at) <= canvas_scale::px(STOP_REACH, z));
+        painter.circle_filled(
+            at,
+            canvas_scale::px(STOP_RADIUS, z),
+            palette.sub.gamma_multiply(if hot { 0.95 } else { 0.7 }),
         );
-        let resp = ui.interact(stop, Id::new(("agent-stop", id.0)), Sense::click());
-        ui.painter().rect_filled(
-            stop,
-            canvas_scale::px(2.0, z),
-            if resp.hovered() {
-                Color32::from_rgb(176, 176, 176)
-            } else {
-                Color32::from_rgb(128, 128, 128)
-            },
+        let side = canvas_scale::px(STOP_RADIUS * 0.8, z);
+        painter.rect_filled(
+            Rect::from_center_size(at, egui::vec2(side, side)),
+            canvas_scale::px(1.0, z),
+            palette.card,
         );
-        paint_agent_spinner(
-            ui.painter(),
-            Pos2::new(stop.left() - side * 0.9, stop.center().y),
-            side * 0.42,
-            ui.input(|i| i.time) as f32,
-            self.palette().sub,
-        );
-        if resp.clicked() {
-            self.board_sel.clear();
-            self.board_sel.insert(id);
-            self.stop_selected_agent();
-        }
     }
 
     fn visible_agent_turns(&self, id: NodeId) -> Vec<AgentTurn> {
@@ -11915,5 +11978,189 @@ To install them by hand, run in PowerShell:\n  cd \"C:\\workspace\\Slate\\docs\\
                 "the project list vanished at step {step}, zoom {z}"
             );
         });
+    }
+
+    /// A Cursor train whose tail is streaming a reply to request `req-stop`.
+    /// Returns (harness, tail, the file a Stop writes).
+    fn streaming_tail(tag: &str) -> (super::super::tests::Harness, NodeId, PathBuf) {
+        let mut h = board(tag);
+        let ws = h.base.join("ai-ws");
+        std::fs::create_dir_all(&ws).unwrap();
+        h.app.ai.config.workspace_dir = Some(ws.clone());
+        let root = train(&mut h, Pos2::ZERO, "cursor");
+        let tail = next_card(&mut h, root);
+        // Binding a card to its session starts it with no transcript.
+        h.frame();
+        let turn = |role: &str, text: &str, at| AgentTurn {
+            role: role.into(),
+            text: text.into(),
+            at,
+        };
+        h.app.agents.local_turns.insert(
+            root,
+            vec![turn("user", "first", 0), turn("assistant", "one", 1)],
+        );
+        h.app.agents.local_turns.insert(
+            tail,
+            vec![
+                turn("user", "first", 0),
+                turn("assistant", "one", 1),
+                turn("user", "second", 2),
+                // Past one full line, so the card is at its width.
+                turn("assistant", &"Streaming a reply ".repeat(4), 3),
+            ],
+        );
+        h.app.agents.requests.insert(tail, "req-stop".into());
+        h.app
+            .agents
+            .awaiting
+            .insert(tail, AgentAwait::Responding { req_at: 2 });
+        h.app.agents.output_epoch += 1;
+        h.frame();
+        center_on(&mut h, tail);
+        h.frame();
+        let session = slate_doc::agent_chat::agent(h.app.doc().scene.node(tail).unwrap())
+            .unwrap()
+            .session
+            .clone();
+        let cancel = atlas_ai::agent::agent_dir(&ws, &session).join("cancel.json");
+        (h, tail, cancel)
+    }
+
+    /// Where the card's top output circle sits on screen.
+    fn output_circle(h: &super::super::tests::Harness, id: NodeId) -> Pos2 {
+        let xf = h.app.board_xf();
+        xf.rect_w2s(h.app.doc().scene.node(id).unwrap().rect)
+            .right_top()
+            + egui::vec2(
+                -slate_doc::agent_chat::PORT_INSET,
+                slate_doc::agent_chat::RAIL_INSET,
+            ) * xf.z
+    }
+
+    /// The Stop square painted at `at`, if any.
+    fn stop_square_at(output: &egui::FullOutput, at: Pos2) -> Option<Rect> {
+        fn walk(shape: &egui::Shape, at: Pos2, found: &mut Option<Rect>) {
+            match shape {
+                egui::Shape::Rect(r) if r.rect.center().distance(at) < 1.5 => *found = Some(r.rect),
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, at, found)),
+                _ => {}
+            }
+        }
+        let mut found = None;
+        for clipped in &output.shapes {
+            walk(&clipped.shape, at, &mut found);
+        }
+        found
+    }
+
+    /// The cancel request lands on a worker thread.
+    fn stop_requested(cancel: &std::path::Path) -> bool {
+        (0..40).any(|_| {
+            if cancel.is_file() {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+            false
+        })
+    }
+
+    #[test]
+    fn a_streaming_card_turns_its_output_circle_into_the_one_stop() {
+        let (mut h, tail, cancel) = streaming_tail("stop_on_output");
+        let out = h.frame_output(|_| {});
+        let at = output_circle(&h, tail);
+        assert!(
+            stop_square_at(&out, at).is_some(),
+            "Stop is drawn on the output circle while the reply streams"
+        );
+        let field = h.app.agents.composer_rects[&tail];
+        let old = field.right_bottom() - egui::vec2(5.5, 5.5);
+        press(&mut h, old);
+        assert!(
+            !stop_requested(&cancel),
+            "nothing at the bottom of the card stops the reply"
+        );
+        press(&mut h, at);
+        assert!(
+            stop_requested(&cancel),
+            "a click on the output circle stops"
+        );
+        assert_eq!(
+            h.app.board_sel.iter().copied().collect::<Vec<_>>(),
+            vec![tail],
+            "Stop acts on its own card"
+        );
+        assert!(
+            !h.app
+                .doc()
+                .scene
+                .nodes
+                .iter()
+                .any(|n| slate_doc::agent_chat::agent(n).is_some_and(|a| a.chat.draft)),
+            "Stop does not continue the train"
+        );
+    }
+
+    #[test]
+    fn stop_holds_its_place_while_the_streaming_card_grows() {
+        let (mut h, tail, cancel) = streaming_tail("stop_holds");
+        let at = output_circle(&h, tail);
+        let before = h.app.doc().scene.node(tail).unwrap().rect.h;
+        let mut turns = h.app.agents.local_turns[&tail].clone();
+        for step in 0..6 {
+            turns.last_mut().unwrap().text +=
+                &" more words arrive and wrap onto new lines".repeat(4);
+            h.app.agents.local_turns.insert(tail, turns.clone());
+            h.app.agents.output_epoch += 1;
+            let out = h.frame_output(|_| {});
+            assert_eq!(output_circle(&h, tail), at, "the card grows downward");
+            let square = stop_square_at(&out, at);
+            assert!(
+                square.is_some(),
+                "Stop stays on the output circle at step {step}"
+            );
+        }
+        assert!(
+            h.app.doc().scene.node(tail).unwrap().rect.h > before,
+            "the card grew while streaming"
+        );
+        press(&mut h, at);
+        assert!(stop_requested(&cancel), "the unmoved Stop still stops");
+    }
+
+    #[test]
+    fn after_the_reply_the_output_circle_continues_the_train_again() {
+        let (mut h, tail, cancel) = streaming_tail("stop_then_output");
+        h.app.agents.awaiting.remove(&tail);
+        h.frame();
+        let at = output_circle(&h, tail);
+        let out = h.frame_output(|_| {});
+        assert!(
+            stop_square_at(&out, at).is_none(),
+            "idle cards show no Stop"
+        );
+        assert_eq!(h.app.agent_output_at(at, &h.app.board_xf()), Some(tail));
+        press(&mut h, at);
+        assert!(!cancel.exists(), "an idle output circle never stops");
+        let draft = h
+            .app
+            .doc()
+            .scene
+            .nodes
+            .iter()
+            .find(|n| {
+                slate_doc::agent_chat::agent(n)
+                    .is_some_and(|a| a.chat.draft && a.chat.parent == Some(tail))
+            })
+            .map(|n| n.id);
+        assert!(draft.is_some(), "the output circle placed the next draft");
+    }
+
+    #[test]
+    fn a_streaming_output_circle_is_not_a_continuation_grip() {
+        let (h, tail, _) = streaming_tail("stop_not_grip");
+        let at = output_circle(&h, tail);
+        assert_eq!(h.app.agent_output_at(at, &h.app.board_xf()), None);
     }
 }
