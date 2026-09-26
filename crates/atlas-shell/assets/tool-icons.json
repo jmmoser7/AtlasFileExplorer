@@ -200,6 +200,18 @@
     "path": "M4 3V21M8 5H20V10H8ZM8 14H16V19H8Z",
     "filled": false
   },
+  "JustifyLeft": {
+    "path": "M4 6H20M4 10H14M4 14H20M4 18H14",
+    "filled": false
+  },
+  "JustifyCenter": {
+    "path": "M4 6H20M7 10H17M4 14H20M7 18H17",
+    "filled": false
+  },
+  "JustifyRight": {
+    "path": "M4 6H20M10 10H20M4 14H20M10 18H20",
+    "filled": false
+  },
   "Brush": {
     "path": "M9 14 17 3 21 7 12 16M9 14Q4 13 4 20Q10 21 12 16Z",
     "filled": false

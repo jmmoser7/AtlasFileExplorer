@@ -2654,7 +2654,14 @@ fn align_segments(
         egui::StrokeKind::Inside,
     );
     let mut result = selected;
-    for (i, label) in ["Left", "Center", "Right"].iter().enumerate() {
+    let segments = [
+        (Icon::JustifyLeft, "Left"),
+        (Icon::JustifyCenter, "Center"),
+        (Icon::JustifyRight, "Right"),
+    ];
+    let glyph = canvas_scale::px(11.0, zoom);
+    let gap = canvas_scale::px(2.0, zoom);
+    for (i, (icon, label)) in segments.into_iter().enumerate() {
         let r = Rect::from_min_size(
             rect.min + Vec2::new(i as f32 * rect.width() / 3.0, 0.0),
             Vec2::new(rect.width() / 3.0, rect.height()),
@@ -2663,13 +2670,28 @@ fn align_segments(
         if i == selected {
             ui.painter().rect_filled(r, r.height() * 0.5, theme.accent);
         }
-        canvas_text::text(
+        let ink = if i == selected { theme.bg } else { theme.sub };
+        let text = canvas_text::layout_no_wrap(
             ui.painter(),
-            r.center(),
-            Align2::CENTER_CENTER,
-            label,
+            label.to_string(),
             canvas_scale::font(9.0, zoom),
-            if i == selected { theme.bg } else { theme.sub },
+            ink,
+        );
+        let left = r.center().x - (glyph + gap + text.size().x) * 0.5;
+        icons::paint(
+            ui.painter(),
+            Rect::from_center_size(
+                Pos2::new(left + glyph * 0.5, r.center().y),
+                Vec2::splat(glyph),
+            ),
+            icon,
+            ink,
+        );
+        text.paint_anchored(
+            ui.painter(),
+            Pos2::new(left + glyph + gap, r.center().y),
+            Align2::LEFT_CENTER,
+            ink,
         );
         if response.clicked() {
             result = i;
@@ -2693,6 +2715,76 @@ mod tests {
         assert!((strip.height() - BUTTON_SIZE).abs() < 0.001);
         let collapsed = strip_rect(Pos2::new(100.0, 80.0), 3, 1.0, 0.0);
         assert!(collapsed.height() < strip.height());
+    }
+
+    /// Each justification segment carries the standard left / center /
+    /// right glyph from the shared catalog, beside its name.
+    #[test]
+    fn justification_segments_show_the_catalog_glyphs() {
+        for zoom in [1.0_f32, 2.5] {
+            let ctx = egui::Context::default();
+            let rect = Rect::from_min_size(
+                Pos2::new(20.0, 20.0),
+                Vec2::new(EDITOR_WIDTH, TEXT_HEIGHT) * zoom,
+            );
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1400.0, 900.0))),
+                ..Default::default()
+            };
+            let out = ctx.run(input, |ctx| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show(ctx, |ui| {
+                        let (mut family_open, mut size_open) = (false, false);
+                        text_format_editor(
+                            ui,
+                            rect,
+                            &["Sans"],
+                            0,
+                            &mut family_open,
+                            1,
+                            "24",
+                            2,
+                            &mut size_open,
+                            zoom,
+                            Palette::light(),
+                        );
+                    });
+            });
+            let align_w = 132.0 * zoom;
+            let row_h = TEXT_ROW_HEIGHT * zoom;
+            let capsule = Rect::from_min_size(
+                Pos2::new(rect.right() - align_w, rect.top()),
+                Vec2::new(align_w, row_h),
+            );
+            let meshes: Vec<Rect> = out
+                .shapes
+                .iter()
+                .filter_map(|s| match &s.shape {
+                    egui::Shape::Mesh(m) if !m.vertices.is_empty() => Some(Rect::from_points(
+                        &m.vertices.iter().map(|v| v.pos).collect::<Vec<_>>(),
+                    )),
+                    _ => None,
+                })
+                .filter(|r| capsule.contains_rect(*r))
+                .collect();
+            for i in 0..3 {
+                let segment = Rect::from_min_size(
+                    capsule.min + Vec2::new(i as f32 * align_w / 3.0, 0.0),
+                    Vec2::new(align_w / 3.0, row_h),
+                );
+                let glyphs: Vec<_> = meshes
+                    .iter()
+                    .filter(|r| segment.contains_rect(**r))
+                    .collect();
+                assert_eq!(glyphs.len(), 1, "segment {i} at zoom {zoom}: {glyphs:?}");
+                let g = glyphs[0];
+                assert!(
+                    g.height() < row_h * 0.6 && g.height() > row_h * 0.2,
+                    "small glyph that scales with zoom: {g:?}"
+                );
+            }
+        }
     }
 
     #[test]
