@@ -275,6 +275,7 @@ impl SlateApp {
             let shown = atlas_shell::menu::anchored(
                 ui.ctx(),
                 Id::new(("flow-spawn", menu.source.0)),
+                ui.layer_id(),
                 xf.w2s(menu.at) + egui::vec2(10.0, -12.0),
                 dark,
                 240.0,

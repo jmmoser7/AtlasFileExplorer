@@ -218,23 +218,26 @@ pub fn frame(dark: bool) -> Frame {
         .inner_margin(Margin::same(tokens.panel_padding.clamp(0.0, 127.0) as i8))
 }
 
-/// A menu panel anchored at a screen point, over everything else.
+/// A menu panel anchored at a screen point, over everything else: it is a
+/// popup (`selection_tools::popup_area`), above all canvas chrome. `opener`
+/// is the layer of the control that opened it.
 ///
 /// With `armed`, the menu dismisses itself: the flag turns true once the press
 /// that opened it is released, and a later press outside the panel sets
 /// `dismissed`. Callers without it close the menu themselves.
+#[allow(clippy::too_many_arguments)]
 pub fn anchored<R>(
     ctx: &egui::Context,
     id: egui::Id,
+    opener: egui::LayerId,
     at: Pos2,
     dark: bool,
     max_width: f32,
     armed: Option<&mut bool>,
     add_contents: impl FnOnce(&mut Ui) -> R,
 ) -> Anchored<R> {
-    let shown = egui::Area::new(id)
+    let shown = crate::selection_tools::popup_area(ctx, id, opener)
         .fixed_pos(at)
-        .order(egui::Order::Foreground)
         .show(ctx, |ui| {
             frame(dark)
                 .show(ui, |ui| {

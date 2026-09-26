@@ -3184,6 +3184,7 @@ impl SlateApp {
                 let shown = atlas_shell::menu::anchored(
                     ui.ctx(),
                     Id::new(("agent-artifact-list", node.id.0, output)),
+                    ui.layer_id(),
                     anchor + egui::vec2(0.0, 14.0 * z),
                     dark,
                     360.0,
@@ -3260,6 +3261,7 @@ impl SlateApp {
         let shown = atlas_shell::menu::anchored(
             ui.ctx(),
             Id::new(("agent-preview-ask", node.id.0)),
+            ui.layer_id(),
             dot + egui::vec2(8.0, 12.0),
             dark,
             260.0,
@@ -8157,6 +8159,7 @@ impl SlateApp {
                 let shown = atlas_shell::menu::anchored(
                     ui.ctx(),
                     Id::new(("agent-model-menu", node.id.0)),
+                    ui.layer_id(),
                     anchor.left_bottom() + egui::vec2(0.0, canvas_scale::px(2.0, z)),
                     palette.dark_mode,
                     ui.ctx().screen_rect().width(),
@@ -12166,6 +12169,28 @@ To install them by hand, run in PowerShell:\n  cd \"C:\\workspace\\Slate\\docs\\
             assert!(menu_items_painted(out), "vanished at step {step}");
             assert_eq!(z, z0, "a navigable menu owns the wheel (P0.10)");
         });
+    }
+
+    #[test]
+    fn the_model_list_is_a_popup_above_canvas_chrome() {
+        let mut h = board("model_menu_layer");
+        let card = codex_card_with_models(&mut h);
+        open_model_menu(&mut h, card, 1.0);
+        let out = h.frame_output(|_| {});
+        let terra = painted_at(&out)
+            .into_iter()
+            .find(|(t, _)| t == "Terra")
+            .map(|(_, r)| r.center())
+            .unwrap();
+        let layer = h.ctx.layer_id_at(terra).expect("hit-testable");
+        assert_eq!(
+            layer,
+            egui::LayerId::new(
+                atlas_shell::selection_tools::POPUP_ORDER,
+                Id::new(("agent-model-menu", card.0)),
+            ),
+            "the model list paints and takes the pointer above canvas chrome"
+        );
     }
 
     /// A Codex card choosing among `n` saved conversations.
