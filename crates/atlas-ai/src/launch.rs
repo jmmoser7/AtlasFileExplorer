@@ -25,7 +25,7 @@ pub enum CursorIdeStatus {
 pub fn cursor_available() -> bool {
     #[cfg(windows)]
     {
-        if fallback_exe().is_some() {
+        if cursor_exe().is_some() {
             return true;
         }
         use std::os::windows::process::CommandExt;
@@ -47,14 +47,26 @@ pub fn cursor_available() -> bool {
     }
 }
 
+/// The installed `Cursor.exe`: the per-user install first, then a machine-wide
+/// one. Checks the disk: call from a worker.
 #[cfg(windows)]
-fn fallback_exe() -> Option<std::path::PathBuf> {
-    let local = std::env::var_os("LOCALAPPDATA")?;
-    let exe = std::path::Path::new(&local)
-        .join("Programs")
-        .join("Cursor")
-        .join("Cursor.exe");
-    exe.is_file().then_some(exe)
+pub fn cursor_exe() -> Option<std::path::PathBuf> {
+    let per_user = std::env::var_os("LOCALAPPDATA")
+        .map(|local| std::path::Path::new(&local).join("Programs").join("Cursor"));
+    let machine = ["ProgramW6432", "ProgramFiles"]
+        .into_iter()
+        .filter_map(std::env::var_os)
+        .map(|root| std::path::Path::new(&root).join("Cursor"));
+    per_user
+        .into_iter()
+        .chain(machine)
+        .map(|dir| dir.join("Cursor.exe"))
+        .find(|exe| exe.is_file())
+}
+
+#[cfg(not(windows))]
+pub fn cursor_exe() -> Option<std::path::PathBuf> {
+    None
 }
 
 /// Open the folder in the OS file manager.
@@ -84,7 +96,7 @@ pub fn launch_cursor(workspace: &Path) -> Result<(), String> {
             return Ok(());
         }
         // Fallback: the default per-user install location.
-        if let Some(exe) = fallback_exe() {
+        if let Some(exe) = cursor_exe() {
             return std::process::Command::new(exe)
                 .arg(workspace)
                 .current_dir(workspace)

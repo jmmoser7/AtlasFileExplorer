@@ -9349,7 +9349,10 @@ fn classify_agent_failure(reason: String) -> (String, Vec<AgentRecover>) {
         label: "Setup steps",
         path,
     });
-    if lower.contains("codex") {
+    if lower.starts_with("could not install the cursor sidecar packages") {
+        // The failed download and the manual steps are the next step.
+        (raw, setup.into_iter().collect())
+    } else if lower.contains("codex") {
         (
             raw,
             vec![AgentRecover::OpenUrl {
@@ -10849,6 +10852,22 @@ mod agent_await_tests {
         assert!(
             !reason.contains("Send again"),
             "must not hide a spawn error behind the PATH sermon: {reason}"
+        );
+    }
+
+    #[test]
+    fn a_package_install_failure_keeps_the_steps_to_finish_by_hand() {
+        let raw = "Could not install the Cursor sidecar packages: could not download \
+https://registry.npmjs.org/@cursor/sdk/-/sdk-1.0.28.tgz: ENOTFOUND\n\
+To install them by hand, run in PowerShell:\n  cd \"C:\\workspace\\Slate\\docs\\agent\\cursor-sidecar\"\n  \
+& \"C:\\cursor\\node.exe\" install.mjs\nthen send again.";
+        let (reason, actions) = classify_agent_failure(raw.into());
+        assert_eq!(reason, raw, "the download that failed and the manual steps");
+        assert!(
+            !actions
+                .iter()
+                .any(|a| matches!(a, AgentRecover::PickWorkspace)),
+            "a folder named workspace is not a missing AI workspace"
         );
     }
 

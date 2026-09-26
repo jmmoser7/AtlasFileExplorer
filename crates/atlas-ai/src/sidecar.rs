@@ -3,8 +3,8 @@
 //! Slate never embeds the Cursor runtime. This starts the Node watcher that
 //! reads `request.json` and writes `session.json`.
 //!
-//! Discovery, `npm install`, and the spawn itself are I/O — call them from a
-//! worker thread, never the frame loop (Art. II).
+//! Discovery, the package install, and the spawn itself are I/O — call them
+//! from a worker thread, never the frame loop (Art. II).
 
 use std::fs::File;
 use std::io::Read;
@@ -39,11 +39,10 @@ pub fn spawn_cursor_sidecar_in(
             .to_string()
     })?;
     let script = sidecar_script().ok_or_else(|| {
-        "Cursor sidecar script not found. From the repo: npm install in docs/agent/cursor-sidecar, \
-or set ATLAS_CURSOR_SIDECAR to index.mjs."
+        "Cursor sidecar script not found. Set ATLAS_CURSOR_SIDECAR to docs/agent/cursor-sidecar/index.mjs."
             .to_string()
     })?;
-    let node = resolve_node()?;
+    let node = resolve_runtime()?;
     let dir = script.parent().unwrap_or(ai_workspace);
     ensure_sidecar_deps(&node, dir)?;
 
@@ -69,18 +68,20 @@ or set ATLAS_CURSOR_SIDECAR to index.mjs."
     )
 }
 
-/// Stop the sidecar recorded in `<link_dir>/sidecar.pid` (the newest watcher
-/// for that link folder writes its pid there). Only a live `node` process is
-/// killed, so a stale file whose pid the OS has reused is left alone. Returns
-/// whether a process was stopped. Spawns system tools: call from a worker.
 /// Whether a live sidecar already watches this link folder.
 pub fn alive(link_dir: &Path) -> bool {
     std::fs::read_to_string(link_dir.join("sidecar.pid"))
         .ok()
         .and_then(|t| t.trim().parse::<u32>().ok())
-        .is_some_and(|pid| pid != std::process::id() && node_is_alive(pid))
+        .is_some_and(|pid| pid != std::process::id() && watcher_process(pid).is_some())
 }
 
+/// Stop the sidecar recorded in `<link_dir>/sidecar.pid` (the newest watcher
+/// for that link folder writes its pid there). Only a live `node` process is
+/// killed, so a stale file whose pid the OS has reused is left alone. A
+/// watcher running inside `Cursor.exe` is never killed — that pid may be
+/// the editor itself — it exits when its record is removed. Returns whether
+/// a watcher was stopped. Spawns system tools: call from a worker.
 pub fn stop(link_dir: &Path) -> Result<bool, String> {
     let record = link_dir.join("sidecar.pid");
     let Ok(text) = std::fs::read_to_string(&record) else {
@@ -90,37 +91,57 @@ pub fn stop(link_dir: &Path) -> Result<bool, String> {
         let _ = std::fs::remove_file(&record);
         return Ok(false);
     };
-    if pid == std::process::id() || !node_is_alive(pid) {
-        let _ = std::fs::remove_file(&record);
-        return Ok(false);
+    let watcher = (pid != std::process::id())
+        .then(|| watcher_process(pid))
+        .flatten();
+    if watcher == Some(Watcher::Node) {
+        kill(pid)?;
     }
-    kill(pid)?;
     let _ = std::fs::remove_file(&record);
-    Ok(true)
+    Ok(watcher.is_some())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Watcher {
+    Node,
+    /// `Cursor.exe` running as Node.
+    Electron,
+}
+
+fn watcher_image(image: &str) -> Option<Watcher> {
+    let image = image.trim().trim_matches('"').to_ascii_lowercase();
+    if image.starts_with("node") {
+        Some(Watcher::Node)
+    } else if image.starts_with("cursor") {
+        Some(Watcher::Electron)
+    } else {
+        None
+    }
 }
 
 #[cfg(windows)]
-fn node_is_alive(pid: u32) -> bool {
+fn watcher_process(pid: u32) -> Option<Watcher> {
     use std::os::windows::process::CommandExt;
-    let Ok(out) = Command::new("tasklist")
+    let out = Command::new("tasklist")
         .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
         .creation_flags(0x0800_0000)
         .output()
-    else {
-        return false;
-    };
-    let text = String::from_utf8_lossy(&out.stdout).to_ascii_lowercase();
+        .ok()?;
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
     text.lines()
-        .any(|l| l.starts_with("\"node") && l.contains(&format!("\"{pid}\"")))
+        .filter(|l| l.contains(&format!("\"{pid}\"")))
+        .find_map(|l| watcher_image(l.split(',').next()?))
 }
 
 #[cfg(not(windows))]
-fn node_is_alive(pid: u32) -> bool {
-    Command::new("ps")
+fn watcher_process(pid: u32) -> Option<Watcher> {
+    let out = Command::new("ps")
         .args(["-p", &pid.to_string(), "-o", "comm="])
         .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().contains("node"))
-        .unwrap_or(false)
+        .ok()?;
+    let comm = String::from_utf8_lossy(&out.stdout).into_owned();
+    let name = Path::new(comm.trim()).file_name()?.to_str()?.to_string();
+    watcher_image(&name)
 }
 
 fn kill(pid: u32) -> Result<(), String> {
@@ -182,9 +203,9 @@ pub fn query_cursor_models() -> Result<serde_json::Value, String> {
 
 fn run_sidecar_query(args: &[String]) -> Result<serde_json::Value, String> {
     let script = sidecar_script().ok_or("Cursor sidecar is unavailable")?;
-    let node = resolve_node()?;
+    let node = resolve_runtime()?;
     ensure_sidecar_deps(&node, script.parent().unwrap())?;
-    let mut cmd = Command::new(&node);
+    let mut cmd = node.command();
     cmd.arg(&script);
     for arg in args {
         cmd.arg(arg);
@@ -264,14 +285,65 @@ pub fn resolve_node() -> Result<PathBuf, String> {
     }
     Err(format!(
         "Slate could not see node.exe. Looked in:\n{}\n\
-Install Node.js LTS from nodejs.org, or set ATLAS_NODE to that node.exe.",
+Install Cursor (it brings its own Node) or Node.js LTS from nodejs.org, or set ATLAS_NODE to that node.exe.",
         tried.join("\n")
     ))
 }
 
+/// What runs the sidecar: a `node` executable, or `Cursor.exe` as Node.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NodeRuntime {
+    pub exe: PathBuf,
+    /// `exe` is Cursor's Electron binary, run with `ELECTRON_RUN_AS_NODE=1`.
+    pub electron: bool,
+}
+
+impl NodeRuntime {
+    fn command(&self) -> Command {
+        let mut cmd = Command::new(&self.exe);
+        if self.electron {
+            cmd.env("ELECTRON_RUN_AS_NODE", "1");
+        }
+        cmd
+    }
+
+    /// The PowerShell line a person can paste to run `args` the same way.
+    fn shell_line(&self, args: &str) -> String {
+        let env = if self.electron {
+            "$env:ELECTRON_RUN_AS_NODE=1; "
+        } else {
+            ""
+        };
+        format!("{env}& \"{}\" {args}", self.exe.display())
+    }
+}
+
+/// [`resolve_node`], else the installed `Cursor.exe` run as Node, so a
+/// machine with Cursor needs no separate Node install.
+pub fn resolve_runtime() -> Result<NodeRuntime, String> {
+    runtime_from(resolve_node(), crate::launch::cursor_exe())
+}
+
+fn runtime_from(
+    node: Result<PathBuf, String>,
+    cursor: Option<PathBuf>,
+) -> Result<NodeRuntime, String> {
+    match (node, cursor) {
+        (Ok(exe), _) => Ok(NodeRuntime {
+            exe,
+            electron: false,
+        }),
+        (Err(_), Some(exe)) => Ok(NodeRuntime {
+            exe,
+            electron: true,
+        }),
+        (Err(e), None) => Err(e),
+    }
+}
+
 #[allow(clippy::too_many_arguments)] // Process inputs and redirected streams are explicit.
 fn spawn_node(
-    node: &Path,
+    node: &NodeRuntime,
     script: &Path,
     ai_workspace: &Path,
     session: &str,
@@ -281,7 +353,7 @@ fn spawn_node(
     log_file: File,
     err_file: File,
 ) -> Result<Child, String> {
-    let mut cmd = Command::new(node);
+    let mut cmd = node.command();
     cmd.arg(script)
         .current_dir(script.parent().unwrap_or(ai_workspace))
         .env("ATLAS_AI_WORKSPACE", ai_workspace)
@@ -300,7 +372,7 @@ fn spawn_node(
         .env("CURSOR_API_KEY", api_key)
         .stdout(log_file)
         .stderr(err_file);
-    if let Some(path) = path_with_node_dir(node) {
+    if let Some(path) = path_with_node_dir(&node.exe).filter(|_| !node.electron) {
         cmd.env("PATH", path);
     }
     #[cfg(windows)]
@@ -312,7 +384,7 @@ fn spawn_node(
     cmd.spawn().map_err(|e| {
         format!(
             "Could not start Cursor sidecar with {}: {e}",
-            node.display()
+            node.exe.display()
         )
     })
 }
@@ -460,25 +532,17 @@ fn is_windows_store_alias(path: &Path) -> bool {
         .any(|c| c.as_os_str().eq_ignore_ascii_case("WindowsApps"))
 }
 
-/// `npm install` in the sidecar folder when `@cursor/sdk` is missing.
-/// Uses `node` + npm's CLI script so a GUI process never has to run `npm.ps1`.
-fn ensure_sidecar_deps(node: &Path, dir: &Path) -> Result<(), String> {
+/// Installs the sidecar's locked packages when `@cursor/sdk` is missing.
+/// `install.mjs` downloads and checks them itself, so neither npm nor a
+/// system-wide Node install is needed. Proxy variables are honoured.
+fn ensure_sidecar_deps(node: &NodeRuntime, dir: &Path) -> Result<(), String> {
     if sidecar_sdk_dir(dir).is_dir() {
         return Ok(());
     }
-    let npm_js = npm_cli_js(node).ok_or_else(|| {
-        format!(
-            "npm was not found next to {}. Reinstall Node.js LTS, then send again.",
-            node.display()
-        )
-    })?;
-    let mut cmd = Command::new(node);
-    cmd.arg(&npm_js)
-        .arg("install")
-        .arg("--omit=dev")
-        .arg("--no-fund")
-        .arg("--no-audit")
+    let mut cmd = node.command();
+    cmd.arg("install.mjs")
         .current_dir(dir)
+        .env("NODE_USE_ENV_PROXY", "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     #[cfg(windows)]
@@ -487,42 +551,35 @@ fn ensure_sidecar_deps(node: &Path, dir: &Path) -> Result<(), String> {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
-    let out = cmd.output().map_err(|e| {
+    let failed = |detail: &str| {
         format!(
-            "Could not run npm install for the Cursor sidecar with {}: {e}",
-            node.display()
+            "Could not install the Cursor sidecar packages: {detail}\n\
+To install them by hand, run in PowerShell:\n  cd \"{}\"\n  {}\nthen send again.",
+            dir.display(),
+            node.shell_line("install.mjs")
         )
-    })?;
+    };
+    let out = cmd.output().map_err(|e| failed(&e.to_string()))?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
         let stdout = String::from_utf8_lossy(&out.stdout);
         let detail = [stderr.trim(), stdout.trim()]
             .into_iter()
             .find(|s| !s.is_empty())
-            .unwrap_or("npm install failed");
-        return Err(format!("npm install failed in {}: {detail}", dir.display()));
+            .unwrap_or("the installer stopped without a message");
+        let detail = detail
+            .strip_prefix("Could not install the Cursor sidecar packages: ")
+            .unwrap_or(detail);
+        return Err(failed(detail));
     }
     if !sidecar_sdk_dir(dir).is_dir() {
-        return Err(format!(
-            "npm install finished but @cursor/sdk is still missing in {}.",
-            dir.display()
-        ));
+        return Err(failed("@cursor/sdk is still missing after the install"));
     }
     Ok(())
 }
 
 fn sidecar_sdk_dir(dir: &Path) -> PathBuf {
     dir.join("node_modules").join("@cursor").join("sdk")
-}
-
-fn npm_cli_js(node: &Path) -> Option<PathBuf> {
-    let dir = node.parent()?;
-    let js = dir
-        .join("node_modules")
-        .join("npm")
-        .join("bin")
-        .join("npm-cli.js");
-    js.is_file().then_some(js)
 }
 
 fn sidecar_script() -> Option<PathBuf> {
@@ -619,15 +676,95 @@ mod tests {
     }
 
     #[test]
-    fn npm_cli_resolves_from_the_distributed_runtime_layout() {
-        let root = std::env::temp_dir().join(format!("atlas-npm-layout-{}", std::process::id()));
-        let node = root.join("node.exe");
-        let script = root.join("node_modules/npm/bin/npm-cli.js");
-        std::fs::create_dir_all(script.parent().unwrap()).unwrap();
-        std::fs::write(&script, "// fixture").unwrap();
-        assert_eq!(npm_cli_js(&node), Some(script.clone()));
-        std::fs::remove_file(script).unwrap();
-        assert_eq!(npm_cli_js(&node), None);
+    fn without_node_cursor_runs_the_sidecar_as_node() {
+        let cursor = PathBuf::from("Cursor/Cursor.exe");
+        let node = PathBuf::from("nodejs/node.exe");
+        let found = runtime_from(Ok(node.clone()), Some(cursor.clone())).unwrap();
+        assert_eq!(
+            found,
+            NodeRuntime {
+                exe: node,
+                electron: false
+            }
+        );
+        let fallback = runtime_from(Err("no node".into()), Some(cursor.clone())).unwrap();
+        assert_eq!(
+            fallback,
+            NodeRuntime {
+                exe: cursor,
+                electron: true
+            }
+        );
+        let cmd = fallback.command();
+        assert!(cmd
+            .get_envs()
+            .any(|(k, v)| k == "ELECTRON_RUN_AS_NODE" && v == Some("1".as_ref())));
+        assert!(fallback
+            .shell_line("install.mjs")
+            .starts_with("$env:ELECTRON_RUN_AS_NODE=1; & \""));
+        assert_eq!(
+            runtime_from(Err("Looked in: x".into()), None),
+            Err("Looked in: x".into())
+        );
+    }
+
+    #[test]
+    fn this_machine_cursor_runs_scripts_as_a_new_enough_node() {
+        let Some(exe) = crate::launch::cursor_exe() else {
+            return;
+        };
+        let out = NodeRuntime {
+            exe,
+            electron: true,
+        }
+        .command()
+        .args(["-e", "process.stdout.write(process.versions.node)"])
+        .output()
+        .unwrap();
+        let version = String::from_utf8_lossy(&out.stdout).into_owned();
+        let parts: Vec<u32> = version.split('.').filter_map(|p| p.parse().ok()).collect();
+        assert!(
+            parts.len() == 3 && (parts[0], parts[1]) >= (22, 13),
+            "@cursor/sdk needs Node 22.13 or newer, Cursor runs {version:?}"
+        );
+    }
+
+    #[test]
+    fn sidecar_js_tests_pass() {
+        let Ok(node) = resolve_runtime() else {
+            return;
+        };
+        let script = sidecar_script().expect("docs/agent/cursor-sidecar/index.mjs must ship");
+        let dir = script.parent().unwrap();
+        let mut tests: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .filter_map(|e| e.file_name().into_string().ok())
+            .filter(|name| name.ends_with(".test.mjs"))
+            .collect();
+        tests.sort();
+        assert!(tests.iter().any(|t| t == "install.test.mjs"), "{tests:?}");
+        let out = node
+            .command()
+            .arg("--test")
+            .args(&tests)
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    #[test]
+    fn watchers_are_node_or_cursor_processes() {
+        assert_eq!(watcher_image("\"node.exe\""), Some(Watcher::Node));
+        assert_eq!(watcher_image("node"), Some(Watcher::Node));
+        assert_eq!(watcher_image("\"Cursor.exe\""), Some(Watcher::Electron));
+        assert_eq!(watcher_image("\"explorer.exe\""), None);
     }
 
     #[test]
@@ -644,10 +781,47 @@ mod tests {
         );
         // `node_modules` can outlive the Node that installed it — it is checked
         // in on one machine and cloned onto another.
-        let Ok(node) = resolve_node() else {
+        let Ok(node) = resolve_runtime() else {
             return;
         };
         ensure_sidecar_deps(&node, dir).expect("second prepare is a no-op");
+    }
+
+    #[test]
+    fn a_missing_sdk_installs_without_npm() {
+        let Ok(node) = resolve_runtime() else {
+            return;
+        };
+        let script = sidecar_script().expect("docs/agent/cursor-sidecar/index.mjs must ship");
+        let dir =
+            std::env::temp_dir().join(format!("atlas-sidecar-install-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::copy(
+            script.with_file_name("install.mjs"),
+            dir.join("install.mjs"),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("package-lock.json"),
+            r#"{"lockfileVersion":3,"packages":{"":{},"node_modules/@cursor/sdk":{
+                "version":"1.0.28",
+                "resolved":"http://127.0.0.1:1/@cursor/sdk/-/sdk-1.0.28.tgz",
+                "integrity":"sha512-AAAA"}}}"#,
+        )
+        .unwrap();
+        let err = ensure_sidecar_deps(&node, &dir).unwrap_err();
+        assert!(
+            err.contains("Could not install the Cursor sidecar packages"),
+            "{err}"
+        );
+        assert!(err.contains("127.0.0.1:1"), "names the download: {err}");
+        assert!(
+            err.contains("install.mjs") && !err.contains("npm"),
+            "manual steps need no npm: {err}"
+        );
+        assert!(!dir.join("node_modules").exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
