@@ -395,7 +395,9 @@ is searchable.
   Trim and Split pieces keep the tips and corner overrides of the source
   vertices they keep, and a cut vertex takes the stroke's width and color
   at the cut by this blend, with no corner override
-  (`slate_doc::vertex_style::split_tips_at`, the one owner). A Direct
+  (`slate_doc::vertex_style::split_tips_at`, the one owner); a tipped open
+  curve is cut in curve parameter space and keeps its curves
+  (`vertex_style::cut_curve`). A Direct
   Selection edit that drops a vertex drops its entry; an added closing
   copy of the start takes the start's tip; a nudge keeps every vertex's
   style. An object-level Join concatenates its sources' vertex styles in

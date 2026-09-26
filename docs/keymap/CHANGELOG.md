@@ -16,6 +16,10 @@
 - `join` D16: joining open paths carries each source's per-vertex widths,
   colors and corner overrides in joined order, reversed with a reversed
   source.
+- `trim` / `split` D16: an open curve with per-vertex tips is cut in curve
+  parameter space and keeps its curves, so pieces paint the widths and
+  colors their source painted between vertices (new token
+  `trim.tip_tolerance`).
 
 ## 2026-09-25 — Sign-in pop-ups in web portals
 

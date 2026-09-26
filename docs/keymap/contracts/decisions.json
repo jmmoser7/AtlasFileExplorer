@@ -1738,7 +1738,7 @@
           "decided": "2026-08-16"
         },
         "D16": {
-          "behavior": "Preserve the source fill and complete stroke style on every remaining piece. Uniform strokes retain their width along existing edges, new cut boundaries and holes. Per-vertex widths, colors and corner overrides stay on the vertices each piece keeps; a cut vertex takes the stroke's width and color at the cut (P1.curve.vertex-style blend) and no corner override (user, 26 September 2026).",
+          "behavior": "Preserve the source fill and complete stroke style on every remaining piece. Uniform strokes retain their width along existing edges, new cut boundaries and holes. Per-vertex widths, colors and corner overrides stay on the vertices each piece keeps; a cut vertex takes the stroke's width and color at the cut (P1.curve.vertex-style blend) and no corner override (user, 26 September 2026). An open curve with per-vertex tips is cut in curve parameter space: each piece keeps the source's curves and paints what the source painted between vertices within trim.tip_tolerance; a span next to a cut, where a smoothstep blend cannot follow the source's, gains vertices until it does (user, 26 September 2026).",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -2003,7 +2003,7 @@
           "decided": "2026-08-16"
         },
         "D16": {
-          "behavior": "n/a — pieces copy source stroke/fill. Per-vertex widths, colors and corner overrides carry as for Trim D16, through the same owner (user, 26 September 2026).",
+          "behavior": "n/a — pieces copy source stroke/fill. Per-vertex widths, colors and corner overrides carry as for Trim D16, through the same owner, and a tipped open curve is cut in curve parameter space as there (user, 26 September 2026).",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",

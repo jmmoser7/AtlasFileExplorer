@@ -539,6 +539,120 @@ pub fn locate_vertex_params(
         .collect()
 }
 
+/// Deepest bisection of one span in [`cut_curve`].
+const CUT_MAX_DEPTH: u32 = 6;
+
+/// How far a piece's tips may paint from its source's between vertices:
+/// width in world units, color in channel steps.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TipTolerance {
+    pub width: f32,
+    pub color: f32,
+}
+
+/// The piece of the open one-contour `path` between vertex parameters
+/// `span` ([`split_tips_at`]), cut in curve parameter space: world geometry
+/// with an on-curve vertex at each returned parameter, and those
+/// parameters, for [`carry_vertex_style`]. The piece keeps the source's
+/// curves and the vertices between the cuts. Blends have zero slope at
+/// every vertex and a cut lands where the source's blend is still moving,
+/// so a span whose blend between its end tips strays from what the source
+/// paints there by more than `tolerance` is bisected. `None` for a closed
+/// or compound path or an empty span.
+pub fn cut_curve(
+    path: &PathData,
+    stroke: &Stroke,
+    rect: WorldRect,
+    rotation_deg: f32,
+    span: std::ops::Range<f32>,
+    tolerance: TipTolerance,
+) -> Option<(BezPath, Vec<f32>)> {
+    if path.closed || !path.extra.is_empty() {
+        return None;
+    }
+    let segs = world_segments(path, rect, rotation_deg);
+    let end = segs.len() as f32;
+    let (from, to) = (span.start.clamp(0.0, end), span.end.clamp(0.0, end));
+    if segs.is_empty() || from.partial_cmp(&to) != Some(std::cmp::Ordering::Less) {
+        return None;
+    }
+    let mut params = vec![from];
+    params.extend(
+        (from.floor() as usize + 1..segs.len())
+            .map(|v| v as f32)
+            .filter(|v| *v < to),
+    );
+    params.push(to);
+    let ease = if stroke.paints_as_stamp() {
+        vector_ink::TipEase::Linear
+    } else {
+        tip_ease(&subpath_through(&segs, &params))
+    };
+    let strays = |a: f32, b: f32| {
+        const SAMPLES: [f32; 7] = [0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875];
+        let mut at = vec![a, b];
+        at.extend(SAMPLES.iter().map(|g| a + (b - a) * g));
+        let Some(tips) = split_tips_at(path, stroke, rect, rotation_deg, &at) else {
+            return false;
+        };
+        SAMPLES.iter().zip(&tips[2..]).any(|(g, source)| {
+            let piece = lerp_span(tips[0], tips[1], ease.weight(*g));
+            (piece.width - source.width).abs() > tolerance.width
+                || (0..4).any(|c| {
+                    (f32::from(piece.color.0[c]) - f32::from(source.color.0[c])).abs()
+                        > tolerance.color
+                })
+        })
+    };
+    let mut refined = vec![from];
+    for w in params.windows(2) {
+        bisect(w[0], w[1], 0, &strays, &mut refined);
+    }
+    Some((subpath_through(&segs, &refined), refined))
+}
+
+fn bisect(a: f32, b: f32, depth: u32, strays: &dyn Fn(f32, f32) -> bool, out: &mut Vec<f32>) {
+    if depth < CUT_MAX_DEPTH && strays(a, b) {
+        let mid = (a + b) / 2.0;
+        bisect(a, mid, depth + 1, strays, out);
+        bisect(mid, b, depth + 1, strays, out);
+    } else {
+        out.push(b);
+    }
+}
+
+/// World path through increasing vertex parameters `params` of the open
+/// path whose segments are `segs`, with a vertex at each: consecutive
+/// parameters lie on one segment, and the part between them is that
+/// segment cut at their arc-length fractions.
+fn subpath_through(segs: &[(KSeg, usize, usize)], params: &[f32]) -> BezPath {
+    let on = |p: f32, k: usize| {
+        let seg = segs[k].0;
+        let frac = f64::from((p - k as f32).clamp(0.0, 1.0));
+        let len = seg.arclen(1e-6);
+        let t = if frac <= 0.0 || frac >= 1.0 || len <= 1e-9 {
+            frac
+        } else {
+            seg.inv_arclen(frac * len, 1e-6)
+        };
+        (seg, t)
+    };
+    let mut bez = BezPath::new();
+    let Some(&first) = params.first() else {
+        return bez;
+    };
+    let last = segs.len() - 1;
+    let (seg, t) = on(first, (first.floor() as usize).min(last));
+    bez.move_to(seg.eval(t));
+    for w in params.windows(2) {
+        let k = (w[0].floor() as usize).min(last);
+        let (seg, t0) = on(w[0], k);
+        let (_, t1) = on(w[1], k);
+        bez.push(seg.subsegment(t0..t1).as_path_el());
+    }
+    bez
+}
+
 /// Arc length at each on-curve vertex of the one-contour `bez`, then its
 /// total, a closed contour's implicit closing edge included.
 fn vertex_lengths(bez: &BezPath, closed: bool) -> (Vec<f64>, f64) {
@@ -897,6 +1011,57 @@ mod tests {
             arc_length_params(&old, false, &old, false),
             vec![0.0, 1.0, 2.0]
         );
+    }
+
+    #[test]
+    fn cut_curve_keeps_polyline_vertices_and_splits_only_where_blends_stray() {
+        let tight = TipTolerance {
+            width: 0.05,
+            color: 1.0,
+        };
+        let (bez, params) = cut_curve(&ell(), &hard(10.0), UNIT, 0.0, 0.5..2.0, tight).unwrap();
+        assert_eq!(
+            params,
+            vec![0.5, 1.0, 2.0],
+            "straight blends restrict exactly"
+        );
+        let ends: Vec<Point> = bez
+            .elements()
+            .iter()
+            .filter_map(|e| e.end_point())
+            .collect();
+        assert_eq!(
+            ends,
+            vec![
+                Point::new(50.0, 0.0),
+                Point::new(100.0, 0.0),
+                Point::new(100.0, 100.0)
+            ]
+        );
+
+        let curve = straight_cubic();
+        let stroke = hard(10.0);
+        let (bez, params) = cut_curve(&curve, &stroke, UNIT, 0.0, 0.25..1.0, tight).unwrap();
+        assert_eq!((params[0], *params.last().unwrap()), (0.25, 1.0));
+        assert!(params.len() > 2, "a smoothstep cut is bisected: {params:?}");
+        assert!(params.windows(2).all(|w| w[0] < w[1]));
+        assert!(bez
+            .elements()
+            .iter()
+            .skip(1)
+            .all(|e| matches!(e, PathEl::CurveTo(..))));
+        let start = bez.elements()[0].end_point().unwrap();
+        assert!((start - Point::new(25.0, 0.0)).hypot() < 1e-3, "{start:?}");
+        let tips = split_tips_at(&curve, &stroke, UNIT, 0.0, &params).unwrap();
+        for (w, t) in params.windows(2).zip(tips.windows(2)) {
+            for g in [0.25_f32, 0.5, 0.75] {
+                let want = split_tips_at(&curve, &stroke, UNIT, 0.0, &[w[0] + (w[1] - w[0]) * g])
+                    .unwrap()[0];
+                let got = lerp_span(t[0], t[1], vector_ink::TipEase::Smooth.weight(g));
+                assert!((got.width - want.width).abs() <= 0.05, "{w:?} at {g}");
+            }
+        }
+        assert!(cut_curve(&curve, &stroke, UNIT, 0.0, 1.0..0.5, tight).is_none());
     }
 
     #[test]

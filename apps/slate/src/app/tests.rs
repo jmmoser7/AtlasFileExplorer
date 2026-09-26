@@ -14045,3 +14045,59 @@ fn object_join_reverses_the_first_source_and_merges_the_seam() {
         vec![None, Some(5.0), None, Some(9.0), None]
     );
 }
+
+/// User request (2026-09-26): a trimmed Bézier keeps painting the widths
+/// and colors its source painted between vertices, not just at them: the
+/// piece is cut in curve parameter space instead of on the flattened
+/// polyline.
+#[test]
+fn trim_keeps_the_curve_profile_between_vertices() {
+    let mut h = bezier_board("trim_curve_profile");
+    for x in [0.0, 100.0, 200.0] {
+        bezier_place(&mut h, Pos2::new(x, 0.0), Pos2::new(x + 30.0, 0.0));
+    }
+    assert!(h.app.finish_path_draft());
+    let id = h.app.doc().scene.nodes.last().unwrap().id;
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.frame();
+    style_vertices(&mut h, id, &[2.0, 20.0, 2.0], &[0, 255, 0], &[]);
+    let xs = [
+        35.0, 50.0, 62.5, 80.0, 95.0, 110.0, 125.0, 150.0, 175.0, 190.0,
+    ];
+    let before: Vec<_> = xs
+        .iter()
+        .map(|x| ink_sample(&h, id, Pos2::new(*x, 0.0)))
+        .collect();
+    let cutter = add_seg(&mut h.app, Pos2::new(25.0, -10.0), Pos2::new(25.0, 10.0));
+    select_trim(&mut h.app, &[id, cutter]);
+    h.app.set_board_tool(board::BoardTool::Trim);
+    assert!(h.app.trim_click(Pos2::new(10.0, 0.0), false));
+    h.frame();
+
+    for (x, was) in xs.iter().zip(&before) {
+        let now = ink_sample(&h, id, Pos2::new(*x, 0.0));
+        let what = format!("x={x}");
+        assert_close(
+            now.0,
+            was.0,
+            0.3,
+            &format!("{what}: width as the source painted"),
+        );
+        assert_color_close(
+            now.1,
+            was.1,
+            2.0,
+            &format!("{what}: color as the source painted"),
+        );
+    }
+    let (_, s) = curve_shape(&h, id);
+    assert!(
+        s.path
+            .as_ref()
+            .unwrap()
+            .segs
+            .iter()
+            .any(|seg| matches!(seg, slate_doc::scene::PathSeg::Cubic { .. })),
+        "the piece stays a curve"
+    );
+}

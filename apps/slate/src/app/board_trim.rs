@@ -26,6 +26,14 @@ pub mod trim_tokens {
     pub const PREVIEW_ALPHA: f32 = 0.38;
     /// Board-unit chord error for boolean inputs; never depends on camera zoom.
     pub const GEOMETRY_TOLERANCE: f32 = 0.05;
+    /// How far a piece cut from a tipped curve may paint from its source
+    /// between vertices: board-unit width, color channel steps. Tighter
+    /// buys fidelity with more vertices on the cut span.
+    pub const TIP_TOLERANCE: slate_doc::vertex_style::TipTolerance =
+        slate_doc::vertex_style::TipTolerance {
+            width: 0.25,
+            color: 2.0,
+        };
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -559,47 +567,24 @@ impl SlateApp {
                 node: before.clone(),
             });
         } else {
-            let (rect0, path0) = points_to_path_data(
-                &spans[0]
-                    .iter()
-                    .map(|p| Pos2::new(p[0], p[1]))
-                    .collect::<Vec<_>>(),
-                false,
-            );
+            let (rect0, piece0) = open_piece(before, &style, &spans[0]);
             let mut after = before.clone();
             after.rect = rect0;
             // The result is already in world space; retaining the old transform
             // rotates it a second time about a different bounding-box center.
             after.rotation_deg = 0.0;
             after.clip = None;
-            after.kind = NodeKind::Shape(cut_piece(
-                before,
-                &style,
-                ShapeNode {
-                    shape: ShapeKind::Path,
-                    path: Some(path0.into()),
-                    fill: None,
-                    ..style.clone()
-                },
-                &spans[0],
-            ));
+            after.kind = NodeKind::Shape(piece0);
             cmds.push(SceneCmd::Patch {
                 before: Box::new(before.clone()),
                 after: Box::new(after),
             });
             for span in spans.into_iter().skip(1) {
-                let pts: Vec<Pos2> = span.iter().map(|p| Pos2::new(p[0], p[1])).collect();
-                let (rect, path) = points_to_path_data(&pts, false);
-                let piece = ShapeNode {
-                    shape: ShapeKind::Path,
-                    path: Some(path.into()),
-                    fill: None,
-                    ..style.clone()
-                };
-                let node = self.doc_mut().scene.build_node(
-                    rect,
-                    NodeKind::Shape(cut_piece(before, &style, piece, &span)),
-                );
+                let (rect, piece) = open_piece(before, &style, &span);
+                let node = self
+                    .doc_mut()
+                    .scene
+                    .build_node(rect, NodeKind::Shape(piece));
                 let idx = self.doc().scene.nodes.len();
                 cmds.push(SceneCmd::Add { index: idx, node });
             }
@@ -845,6 +830,74 @@ impl SlateApp {
             }
         }
     }
+}
+
+/// The open `span` (world points along the flattened source) of `before`
+/// as a piece. A curve with per-vertex tips is cut in curve parameter space
+/// (`vertex_style::cut_curve`), so the piece keeps its curves and paints the
+/// widths and colors its source painted between vertices, not only at
+/// them. Anything else becomes the flattened span.
+fn open_piece(before: &Node, source: &ShapeNode, span: &[[f32; 2]]) -> (WorldRect, ShapeNode) {
+    let piece = ShapeNode {
+        shape: ShapeKind::Path,
+        fill: None,
+        ..source.clone()
+    };
+    if let Some(cut) = curve_piece(before, source, span) {
+        return cut;
+    }
+    let pts: Vec<Pos2> = span.iter().map(|p| Pos2::new(p[0], p[1])).collect();
+    let (rect, path) = points_to_path_data(&pts, false);
+    let piece = ShapeNode {
+        path: Some(path.into()),
+        ..piece
+    };
+    (rect, cut_piece(before, source, piece, span))
+}
+
+fn curve_piece(
+    before: &Node,
+    source: &ShapeNode,
+    span: &[[f32; 2]],
+) -> Option<(WorldRect, ShapeNode)> {
+    use slate_doc::vertex_style::{carry_vertex_style, cut_curve, locate_vertex_params};
+    let old = source.path.as_deref().filter(|p| {
+        !p.tips.is_empty() && p.segs.iter().any(|s| !matches!(s, PathSeg::Line { .. }))
+    })?;
+    let (rect, rot) = (before.rect, before.rotation_deg);
+    let reach = f64::from(trim_tokens::GEOMETRY_TOLERANCE) * 2.0;
+    let at = locate_vertex_params(old, rect, rot, span, reach);
+    let (from, to) = (*at.first()?, *at.last()?);
+    let (bez, params) = cut_curve(
+        old,
+        &source.stroke,
+        rect,
+        rot,
+        from..to,
+        trim_tokens::TIP_TOLERANCE,
+    )?;
+    // An extended end runs past the source; only a span on it is a cut.
+    let mut ends = bez.elements().iter().filter_map(|el| el.end_point());
+    let near = |p: Option<vector_ink::kurbo::Point>, q: Option<&[f32; 2]>| match (p, q) {
+        (Some(p), Some(q)) => p.distance((f64::from(q[0]), f64::from(q[1])).into()) <= reach,
+        _ => false,
+    };
+    if !near(ends.next(), span.first()) || !near(ends.next_back(), span.last()) {
+        return None;
+    }
+    let (piece_rect, mut path) = super::board_path::bezpath_to_path_data(&bez, false);
+    let mut stroke = source.stroke;
+    carry_vertex_style((old, rect, rot), &mut path, &mut stroke, &params);
+    Some((
+        piece_rect,
+        ShapeNode {
+            shape: ShapeKind::Path,
+            path: Some(path.into()),
+            fill: None,
+            stroke,
+            ..source.clone()
+        },
+    ))
 }
 
 /// `piece`, cut from `source` (node `before`), with the per-vertex widths,

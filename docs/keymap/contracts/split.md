@@ -34,7 +34,7 @@ deviations flagged below.
 | D13 | Selected presentation | Result paths use path grips. | pattern | 80 |
 | D14 | Post-edit | Direct Selection on the new paths. No Unsplit — rewrite, like Trim. | precedent | 90 |
 | D15 | Non-goals | Unsplit; splitting text/images/frames/portals; ApparentIntersections; temporary Line cutter; 3D; JoinCopy-style keep-inputs. | guess | 60 |
-| D16 | Create-style inheritance | n/a — does not consume fg/bg. Pieces copy the source node's stroke/fill. Per-vertex widths, colors and corner overrides carry as for Trim D16, through the same owner (user, 26 September 2026). | pattern | 85 |
+| D16 | Create-style inheritance | n/a — does not consume fg/bg. Pieces copy the source node's stroke/fill. Per-vertex widths, colors and corner overrides carry as for Trim D16, through the same owner, and a tipped open curve is cut in curve parameter space as there (user, 26 September 2026). | pattern | 85 |
 | D17 | Hit-testing & pick | Open: closest span within `trim.span_slop` if the path actually divides. Closed: point-in-polygon if `split_closed` yields ≥2 pieces. Topmost wins. Frames/portals/text/images never pick as targets. | research | 75 |
 
 ## Feel constants
