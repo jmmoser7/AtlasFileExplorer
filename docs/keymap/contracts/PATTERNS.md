@@ -397,7 +397,9 @@ is searchable.
   at the cut by this blend, with no corner override
   (`slate_doc::vertex_style::split_tips_at`, the one owner). A Direct
   Selection edit that drops a vertex drops its entry; an added closing
-  copy of the start takes the start's tip. Both interpreters paint through
+  copy of the start takes the start's tip. A smoothing pass resamples the
+  tips onto its refit vertices at the same fraction of each contour's
+  length (`vertex_style::arc_length_params`). Both interpreters paint through
   `slate_doc::geom::tipped_stroke` and `vector_ink::stroke_mesh_tipped` /
   `stroke_outline_tipped`; the artifact writes the variable-width outline as
   a filled path. Colors are the tips' `color`, and a uniform stroke keeps

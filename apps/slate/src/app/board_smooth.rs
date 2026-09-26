@@ -322,11 +322,21 @@ impl SlateApp {
             _ => board_path::contours_to_path_data(&contours),
         };
         let mut node = before;
+        let (old_rect, old_rot) = (node.rect, node.rotation_deg);
         let NodeKind::Shape(ref mut shape) = node.kind else {
             return None;
         };
-        if let Some(old) = shape.path.as_ref() {
+        if let Some(old) = shape.path.as_deref() {
             path_data.fill_rule = old.fill_rule;
+            if slate_doc::vertex_style::has_vertex_style(old) {
+                let params = refit_params(old, curve, &contours);
+                slate_doc::vertex_style::carry_vertex_style(
+                    (old, old_rect, old_rot),
+                    &mut path_data,
+                    &mut shape.stroke,
+                    &params,
+                );
+            }
         }
         shape.shape = ShapeKind::Path;
         shape.path = Some(std::sync::Arc::new(path_data));
@@ -379,6 +389,30 @@ impl SlateApp {
             self.brush_stamps.clear();
         }
     }
+}
+
+/// For each vertex of the refit contours, the vertex parameter of `old`
+/// at the same fraction of its contour's length, so the tips resample onto
+/// the new vertices.
+fn refit_params(old: &PathData, curve: &SmoothCurve, refit: &[(BezPath, bool)]) -> Vec<f32> {
+    let firsts = std::iter::once(&old.segs)
+        .chain(old.extra.iter().map(|c| &c.segs))
+        .scan(0, |first, segs| {
+            let at = *first;
+            *first += 1 + segs.len();
+            Some(at as f32)
+        });
+    curve
+        .contours
+        .iter()
+        .zip(refit)
+        .zip(firsts)
+        .flat_map(|((c, (bez, closed)), first)| {
+            slate_doc::vertex_style::arc_length_params(&c.original, c.closed, bez, *closed)
+                .into_iter()
+                .map(move |p| first + p)
+        })
+        .collect()
 }
 
 /// A contour whose segments average longer than half the brush radius

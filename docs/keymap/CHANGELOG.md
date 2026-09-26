@@ -9,6 +9,8 @@
 - Direct Selection Join keeps each vertex's style; a merge drops only the
   merged end's entry.
 - `pen` D05: the live preview draws each sample at its own width.
+- `smooth` D14: smoothing resamples per-vertex widths and colors onto the
+  refit vertices, so a tapered pen stroke stays tapered.
 
 ## 2026-09-25 — Sign-in pop-ups in web portals
 

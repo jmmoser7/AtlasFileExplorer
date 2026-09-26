@@ -663,3 +663,135 @@ fn smoothing_a_compound_path_keeps_its_contours_apart() {
         assert!(d < 0.01, "far contour corner {corner:?} moved by {d}");
     }
 }
+
+// ---------- per-vertex tips survive smoothing (user request 2026-09-26) ----------
+
+/// Give curve `id` one tip per vertex: `widths`, and red channel `reds`.
+fn set_tips(h: &mut Harness, id: NodeId, widths: &[f32], reds: &[u8]) {
+    let n = h.app.doc_mut().scene.node_mut(id).unwrap();
+    let NodeKind::Shape(s) = &mut n.kind else {
+        panic!("a shape")
+    };
+    let mut path = s.path.as_deref().cloned().unwrap();
+    assert_eq!(widths.len(), path.segs.len() + 1, "one tip per vertex");
+    let base = s.stroke.color.0;
+    path.tips = widths
+        .iter()
+        .zip(reds)
+        .map(|(&width, &r)| slate_doc::scene::StrokeSpan {
+            width,
+            softness: 0.0,
+            color: slate_doc::scene::Rgba([r, base[1], base[2], 255]),
+        })
+        .collect();
+    s.stroke.width = widths.iter().copied().fold(0.0, f32::max);
+    s.path = Some(path.into());
+}
+
+/// Painted width and red channel at each vertex of `n`.
+fn painted_tips(n: &slate_doc::scene::Node) -> (Vec<f32>, Vec<u8>) {
+    let NodeKind::Shape(s) = &n.kind else {
+        panic!("a shape");
+    };
+    let path = s.path.as_ref().unwrap();
+    let count = path.segs.len() + 1;
+    let widths = path
+        .vector_widths(&s.stroke)
+        .unwrap_or_else(|| vec![s.stroke.width; count]);
+    let reds = path
+        .vector_colors()
+        .map(|c| c.iter().map(|c| c.0[0]).collect())
+        .unwrap_or_else(|| vec![s.stroke.color.0[0]; count]);
+    (widths, reds)
+}
+
+/// Arc-length fraction of each on-curve vertex along the open `bez`.
+fn vertex_fractions(bez: &BezPath) -> Vec<f32> {
+    use vector_ink::kurbo::ParamCurveArclen;
+    let mut along = vec![0.0_f64];
+    for seg in bez.segments() {
+        along.push(along.last().unwrap() + seg.arclen(1e-6));
+    }
+    let total = *along.last().unwrap();
+    along.iter().map(|l| (l / total) as f32).collect()
+}
+
+/// A smoothed polyline's refit vertices take the width and color the old
+/// stroke painted at the same fraction of its length: interpolated, never
+/// reset. The zigzag's equal spans make that `2 + 8 f` wide and `240 f` red.
+#[test]
+fn smoothing_resamples_vertex_tips_by_arc_length() {
+    let mut h = board("smooth_vertex_tips");
+    let id = add_path(&mut h, &zigzag(), false);
+    set_tips(
+        &mut h,
+        id,
+        &[2.0, 4.0, 6.0, 8.0, 10.0],
+        &[0, 60, 120, 180, 240],
+    );
+    h.app.smooth_width = 60.0;
+    h.app.smooth_strength = 1.0;
+    let before = node(&h, id);
+    drag(
+        &mut h,
+        &[
+            Pos2::new(200.0, 300.0),
+            Pos2::new(201.0, 299.0),
+            Pos2::new(202.0, 298.0),
+        ],
+        egui::Modifiers::NONE,
+    );
+    let after = node(&h, id);
+    assert_ne!(after, before, "the pass changed the polyline");
+    let (_, path) = path_of(&after);
+    assert_eq!(path.tips.len(), path.segs.len() + 1, "one tip per vertex");
+    let (widths, reds) = painted_tips(&after);
+    let fractions = vertex_fractions(&world_bez(&after));
+    for ((w, r), f) in widths.iter().zip(&reds).zip(&fractions) {
+        let want = 2.0 + 8.0 * f;
+        assert!((w - want).abs() <= 0.05, "width {w} != {want} at f={f}");
+        let want = 240.0 * f;
+        assert!(
+            (*r as f32 - want).abs() <= 1.5,
+            "red {r} != {want} at f={f}"
+        );
+    }
+    assert!((widths[0] - 2.0).abs() <= 1e-3 && (widths.last().unwrap() - 10.0).abs() <= 1e-3);
+}
+
+/// Carried over from r5/nurbs: smoothing a width-chord pen stroke kept its
+/// shape but dropped its tips, so the whole stroke went to one width.
+#[test]
+fn smoothing_keeps_a_variable_width_pen_stroke_tapered() {
+    let mut h = board("smooth_pen_tips");
+    h.app.set_board_tool(BoardTool::Pen);
+    let wave = jittery_wave();
+    let widths: Vec<f32> = (0..wave.len())
+        .map(|i| if i < 150 { 2.0 } else { 9.0 })
+        .collect();
+    h.app.finish_freehand_pen_widths(wave, &widths);
+    let id = h.app.doc().scene.nodes.last().unwrap().id;
+    let before = node(&h, id);
+    h.app.set_board_tool(BoardTool::Smooth);
+    h.app.smooth_width = 40.0;
+    h.app.smooth_strength = 1.0;
+    let hump = Pos2::new(150.0, 260.0);
+    let mut pts = vec![hump];
+    pts.extend(wiggle_around(hump, 12));
+    drag(&mut h, &pts, egui::Modifiers::NONE);
+    let after = node(&h, id);
+    assert_ne!(after, before, "the pass changed the stroke");
+    let (_, path) = path_of(&after);
+    assert_eq!(path.tips.len(), path.segs.len() + 1, "one tip per vertex");
+    let (widths, _) = painted_tips(&after);
+    assert!((widths[0] - 2.0).abs() <= 1e-3, "narrow start: {widths:?}");
+    assert!((widths.last().unwrap() - 9.0).abs() <= 1e-3, "wide end");
+    let fractions = vertex_fractions(&world_bez(&after));
+    for (w, f) in widths.iter().zip(&fractions) {
+        if *f < 0.4 {
+            assert!((w - 2.0).abs() <= 1e-3, "narrow run stays 2 at f={f}: {w}");
+        } else if *f > 0.6 {
+            assert!((w - 9.0).abs() <= 1e-3, "wide run stays 9 at f={f}: {w}");
+        }
+    }
+}

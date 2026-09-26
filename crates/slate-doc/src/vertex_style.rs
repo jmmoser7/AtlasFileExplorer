@@ -494,6 +494,78 @@ pub fn locate_vertex_params(
         .collect()
 }
 
+/// Arc length at each on-curve vertex of the one-contour `bez`, then its
+/// total, a closed contour's implicit closing edge included.
+fn vertex_lengths(bez: &BezPath, closed: bool) -> (Vec<f64>, f64) {
+    let mut along = Vec::new();
+    let (mut last, mut start) = (Point::ZERO, Point::ZERO);
+    for el in bez.elements() {
+        let len = match *el {
+            PathEl::MoveTo(p) => {
+                if !along.is_empty() {
+                    break;
+                }
+                (last, start) = (p, p);
+                along.push(0.0);
+                continue;
+            }
+            PathEl::ClosePath => break,
+            PathEl::LineTo(p) => Line::new(last, p).arclen(1e-6),
+            PathEl::QuadTo(c, p) => vector_ink::kurbo::QuadBez::new(last, c, p).arclen(1e-6),
+            PathEl::CurveTo(c1, c2, p) => CubicBez::new(last, c1, c2, p).arclen(1e-6),
+        };
+        last = el.end_point().unwrap_or(last);
+        along.push(along.last().copied().unwrap_or(0.0) + len);
+    }
+    let end = along.last().copied().unwrap_or(0.0);
+    let total = if closed {
+        end + (start - last).hypot()
+    } else {
+        end
+    };
+    (along, total)
+}
+
+/// For each vertex of the refit contour `new`, the vertex parameter
+/// ([`split_tips_at`], local to the contour) of the spot on `old` at the
+/// same fraction of its length: how a smoothing pass carries tips onto the
+/// vertices it refits.
+pub fn arc_length_params(
+    old: &BezPath,
+    old_closed: bool,
+    new: &BezPath,
+    new_closed: bool,
+) -> Vec<f32> {
+    let (old_along, old_total) = vertex_lengths(old, old_closed);
+    let (new_along, new_total) = vertex_lengths(new, new_closed);
+    let n = old_along.len();
+    if n == 0 {
+        return vec![0.0; new_along.len()];
+    }
+    new_along
+        .iter()
+        .map(|l| {
+            let f = if new_total > 1e-9 { l / new_total } else { 0.0 };
+            let at = f * old_total;
+            let k = old_along.partition_point(|x| *x <= at).saturating_sub(1);
+            let (to, end) = if k + 1 < n {
+                (k + 1, old_along[k + 1])
+            } else if old_closed {
+                (0, old_total)
+            } else {
+                return (n - 1) as f32;
+            };
+            let span = end - old_along[k];
+            let frac = if span > 1e-9 {
+                (at - old_along[k]) / span
+            } else {
+                1.0
+            };
+            param_at(k, to, frac.clamp(0.0, 1.0))
+        })
+        .collect()
+}
+
 fn closes_on_start(path: &PathData) -> bool {
     path.closed
         && path.segs.last().is_some_and(|s| {
@@ -762,5 +834,23 @@ mod tests {
         let painted = narrow.vector_widths(&stroke).unwrap();
         assert_eq!(painted, vec![2.0, 6.0], "and keeps the widths it painted");
         assert!(narrow.corner_amounts.is_empty(), "no override survives");
+    }
+
+    #[test]
+    fn arc_length_params_map_refit_vertices_by_fraction_of_length() {
+        let old = path_data_to_world_bez(&ell(), UNIT, 0.0);
+        let mut new = BezPath::new();
+        new.move_to((0.0, 0.0));
+        new.line_to((50.0, 0.0));
+        new.line_to((100.0, 100.0));
+        let got = arc_length_params(&old, false, &new, false);
+        assert_eq!(got[0], 0.0);
+        assert_eq!(got[2], 2.0);
+        let f = 50.0 / (50.0 + 50.0_f64.hypot(100.0));
+        assert!((got[1] as f64 - f * 2.0).abs() < 1e-4, "{got:?}");
+        assert_eq!(
+            arc_length_params(&old, false, &old, false),
+            vec![0.0, 1.0, 2.0]
+        );
     }
 }
