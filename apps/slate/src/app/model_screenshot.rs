@@ -71,6 +71,13 @@ pub(crate) enum ViewDropSource {
     File(PathBuf),
 }
 
+/// A board picture released over a model, resolved before the move rewinds.
+pub(crate) struct NodeViewDrop {
+    model: NodeId,
+    image: NodeId,
+    item: slate_doc::ItemId,
+}
+
 /// A saved view held over a model: the viewport orients to it and the
 /// picture sinks in. Derived state, never journaled (media D38); release
 /// commits one camera patch, leaving puts everything back.
@@ -578,22 +585,26 @@ impl SlateApp {
         true
     }
 
-    pub(crate) fn maybe_intercept_node_drop_on_model(
-        &mut self,
+    /// A moved picture released at `world` over a model: the model, the
+    /// picture, and the item its saved view is read from.
+    pub(crate) fn node_view_drop_target(
+        &self,
         moved: &[NodeId],
         world: Pos2,
-    ) -> bool {
-        let Some(model) = self.model_node_at_world(world) else {
-            return false;
-        };
-        let Some((image, item)) = self.dragged_view_image(moved) else {
-            return false;
-        };
+    ) -> Option<NodeViewDrop> {
+        let model = self.model_node_at_world(world)?;
+        let (image, item) = self.dragged_view_image(moved)?;
+        Some(NodeViewDrop { model, image, item })
+    }
+
+    /// Commit a picture's saved view onto the model as one camera patch.
+    /// The move itself has already been rewound.
+    pub(crate) fn commit_node_view_drop(&mut self, drop: NodeViewDrop) {
+        let NodeViewDrop { model, image, item } = drop;
         match self.take_view_drop_preview(model, &ViewDropSource::Node(image)) {
             Some((parsed, entered)) => self.finish_view_drop(model, parsed, entered),
             None => self.queue_view_drop_from_item(model, item),
         }
-        true
     }
 
     /// The dragged picture a saved view can come from: a placed raster image

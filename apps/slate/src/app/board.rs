@@ -59,7 +59,7 @@ use slate_doc::scene::{
     PORTAL_DEFAULT_W,
 };
 use slate_doc::{ItemId, NodeId};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -1744,9 +1744,32 @@ impl SlateApp {
         let Some((before, dup)) = drag.into_press_nodes() else {
             return false;
         };
+        let bumped = is_move && self.bumper.dragging();
         let sources_sel = self.staged_dup_sel.take();
-        let restore = if dup {
-            let copies: std::collections::HashSet<NodeId> = before.iter().map(|n| n.id).collect();
+        self.restore_press_nodes(before, dup, sources_sel);
+        if bumped {
+            // The bodies the move pushed go back too.
+            self.cancel_bumper_drag(Vec::new());
+        }
+        if is_move {
+            self.image_drop = None;
+        }
+        true
+    }
+
+    /// Undo a node drag's live edits without journaling: staged Alt copies
+    /// leave the scene and the selection returns to their sources
+    /// (`sources_sel`); any other node takes its press-time state. Release
+    /// paths that commit something else (a saved view, an image drop) call
+    /// this first, so only their own command reaches the journal.
+    pub(crate) fn restore_press_nodes(
+        &mut self,
+        before: Vec<Node>,
+        dup: bool,
+        sources_sel: Option<HashSet<NodeId>>,
+    ) {
+        if dup {
+            let copies: HashSet<NodeId> = before.iter().map(|n| n.id).collect();
             self.doc_mut()
                 .scene
                 .nodes
@@ -1754,25 +1777,15 @@ impl SlateApp {
             if let Some(sel) = sources_sel {
                 self.board_sel = sel;
             }
-            Vec::new()
-        } else {
-            before
-        };
-        if is_move && self.bumper.dragging() {
-            self.cancel_bumper_drag(restore);
         } else {
             let scene = &mut self.doc_mut().scene;
-            for node in restore {
+            for node in before {
                 if let Some(live) = scene.node_mut(node.id) {
                     *live = node;
                 }
             }
         }
-        if is_move {
-            self.image_drop = None;
-        }
         self.note_scene_change();
-        true
     }
 
     fn journal_alt_copies(&mut self, ids: &[NodeId], note: String) {
@@ -4669,12 +4682,6 @@ impl SlateApp {
         }
 
         // --- gesture end ---
-        // egui aborts its drag on Esc, so no `drag_stopped` will come. The
-        // cancel stack normally took the drag already; an Esc it never saw
-        // (palette or text field focused) must not leave nodes displaced.
-        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-            self.cancel_node_drag();
-        }
         if resp.drag_stopped_by(egui::PointerButton::Primary)
             && !ordered_drawing
             && self.board_tool != BoardTool::Line
@@ -4685,6 +4692,13 @@ impl SlateApp {
                 let mods = ui.input(|i| i.modifiers);
                 self.end_gesture(w, pointer, mods);
             }
+        }
+        // egui can end its drag with nothing above to commit it: Esc aborts
+        // the drag (an Esc the cancel stack never saw, with the palette or a
+        // text field focused), and a release outside the window leaves no
+        // pointer position. A node drag still live now goes back (P0.1).
+        if resp.drag_stopped() {
+            self.cancel_node_drag();
         }
 
         // A small movement turns egui's click into a drag. The + lives on
@@ -6986,33 +7000,39 @@ impl SlateApp {
         // Any gesture may have journaled; one generation bump per gesture
         // end keeps the minimap/search caches fresh without per-frame cost.
         self.note_scene_change();
-        self.staged_dup_sel = None;
+        let sources_sel = self.staged_dup_sel.take();
         let drag = self.board_drag.take();
+        // A saved-view picture released over a model commits a camera patch
+        // instead of the move.
+        let view_drop = match (&drag, pointer) {
+            (Some(BoardDrag::Move { ids, .. }), Some(p)) if !self.bumper.dragging() => {
+                self.node_view_drop_target(ids, self.board_xf().s2w(p))
+            }
+            _ => None,
+        };
         match drag {
             Some(BoardDrag::Move {
                 ids, before, dup, ..
             }) if self.bumper.dragging() => {
                 self.bumper_release(&ids, &before, dup);
             }
-            Some(BoardDrag::Move {
-                ids, before, dup, ..
-            }) if pointer.is_some_and(|p| {
-                let world = self.board_xf().s2w(p);
-                self.maybe_intercept_node_drop_on_model(&ids, world)
-            }) =>
-            {
-                for (id, b) in ids.iter().zip(before.iter()) {
-                    if let Some(live) = self.doc_mut().scene.node_mut(*id) {
-                        *live = b.clone();
-                    }
+            Some(BoardDrag::Move { before, dup, .. }) if view_drop.is_some() => {
+                self.restore_press_nodes(before, dup, sources_sel);
+                if let Some(target) = view_drop {
+                    self.commit_node_view_drop(target);
                 }
+            }
+            Some(BoardDrag::Move { before, dup, .. }) if self.image_drop_armed() => {
+                // Read the picture while a staged copy still holds it.
+                let item = self.image_drop_item();
+                self.restore_press_nodes(before, dup, sources_sel);
+                // An Alt copy drops its picture and keeps the original.
+                self.commit_image_drop(item, dup);
             }
             Some(BoardDrag::Move {
                 ids, before, dup, ..
             }) => {
-                if self.try_commit_image_drop(&ids, &before) {
-                    return;
-                }
+                self.image_drop = None;
                 // Whole-node compare: a connector move also translates its
                 // Free endpoints (kind change), not just the rect.
                 let moved = ids

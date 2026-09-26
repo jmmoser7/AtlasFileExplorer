@@ -33,6 +33,10 @@ is searchable.
   state, drops staged Alt copies, keeps the selection, and journals
   nothing. egui aborts its own drag on Esc, so no release follows; the drag
   owner (`SlateApp::cancel_node_drag`) restores instead of waiting for one.
+  A release that commits something other than the drag (a saved view onto
+  a model, a picture into an image) rewinds the same way first
+  (`restore_press_nodes`), so its own command is the only journal entry;
+  a release with no pointer position (outside the window) rewinds too.
 - **P0.2 One gesture = one undo.** Everything a single user gesture produced
   reverts with a single Ctrl+Z (journal command grouping).
 - **P0.3 Journal-only mutation.** Commits go through the journal with an

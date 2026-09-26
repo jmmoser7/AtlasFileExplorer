@@ -1006,41 +1006,44 @@ impl SlateApp {
         }
     }
 
-    pub(crate) fn try_commit_image_drop(&mut self, ids: &[NodeId], before: &[Node]) -> bool {
+    /// A drop target is highlighted: releasing now commits a drop.
+    pub(crate) fn image_drop_armed(&self) -> bool {
+        self.image_drop
+            .as_ref()
+            .is_some_and(|offer| offer.highlight.is_some())
+    }
+
+    /// The picture the armed drop places. A dragged node's picture must be
+    /// read before the drag rewinds, while a staged copy still exists.
+    pub(crate) fn image_drop_item(&self) -> Option<slate_doc::ItemId> {
+        let offer = self.image_drop.as_ref()?;
+        let item = match offer.source {
+            ImageDropSource::Node(id) => match &self.doc().scene.node(id)?.kind {
+                NodeKind::Image(img) => img.item,
+                _ => return None,
+            },
+            ImageDropSource::Item(item) => item,
+        };
+        (!item.is_none()).then_some(item)
+    }
+
+    /// Commit the armed drop of `item` as one journal group (P0.2). The
+    /// caller has already rewound any live drag. A dragged source node is
+    /// consumed unless `keep_source` (an Alt copy leaves its original).
+    pub(crate) fn commit_image_drop(
+        &mut self,
+        item: Option<slate_doc::ItemId>,
+        keep_source: bool,
+    ) -> bool {
         let Some(offer) = self.image_drop.take() else {
             return false;
         };
-        let Some(choice) = offer.highlight else {
+        let (Some(choice), Some(item)) = (offer.highlight, item) else {
             return false;
         };
-        if !ids.is_empty() {
-            // Rewind the live drag preview before building the one journal
-            // group that owns both target and source mutations (P0.2).
-            let scene = &mut self.doc_mut().scene;
-            for (id, baseline) in ids.iter().zip(before.iter()) {
-                if let Some(node) = scene.node_mut(*id) {
-                    *node = baseline.clone();
-                }
-            }
-        }
-        let item = match offer.source {
-            ImageDropSource::Node(id) => {
-                let Some(node) = self.doc().scene.node(id) else {
-                    return false;
-                };
-                let NodeKind::Image(img) = &node.kind else {
-                    return false;
-                };
-                img.item
-            }
-            ImageDropSource::Item(item) => item,
-        };
-        if item.is_none() {
-            return false;
-        }
         let source_node = match offer.source {
-            ImageDropSource::Node(id) => Some(id),
-            ImageDropSource::Item(_) => None,
+            ImageDropSource::Node(id) if !keep_source => Some(id),
+            _ => None,
         };
         let ok = match choice {
             ImageDropChoice::Replace => {
@@ -1063,7 +1066,8 @@ impl SlateApp {
             .as_ref()
             .is_some_and(|o| matches!(o.source, ImageDropSource::Item(_)) && o.highlight.is_some());
         if ready {
-            return self.try_commit_image_drop(&[], &[]);
+            let item = self.image_drop_item();
+            return self.commit_image_drop(item, false);
         }
         false
     }

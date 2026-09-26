@@ -4396,6 +4396,80 @@ mod tests {
         egui::pos2(r.x + r.w * 0.5, r.y + r.h * 0.5)
     }
 
+    /// Alt-drag (duplicate) a saved-view picture onto a model: the staged
+    /// copy leaves, the original stays put, and the release journals only
+    /// the camera patch.
+    #[test]
+    fn an_alt_dragged_saved_view_commits_only_the_camera_patch() {
+        let (mut h, id, original, saved) = frozen_model_and_saved_view("view_drop_alt");
+        let (png, saved) = saved_view_png(&h, "alt.png", id, saved);
+        let pic = place_picture(&mut h, id, png);
+        let before = h.app.doc().scene.nodes.clone();
+        let depth = h.app.tab().journal.undo_depth();
+        let (from, over) = (screen_center(&h, pic), screen_center(&h, id));
+        let alt = egui::Modifiers {
+            alt: true,
+            ..Default::default()
+        };
+        let alt_frame = |h: &mut Harness, events: Vec<egui::Event>| {
+            h.frame_with(|input| {
+                input.modifiers = alt;
+                input.events.extend(events);
+            })
+        };
+        let button = |pos, pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: alt,
+        };
+
+        alt_frame(
+            &mut h,
+            vec![egui::Event::PointerMoved(from), button(from, true)],
+        );
+        for i in 1..=8 {
+            let p = from.lerp(over, i as f32 / 8.0);
+            alt_frame(&mut h, vec![egui::Event::PointerMoved(p)]);
+        }
+        assert!(
+            matches!(
+                h.app.board_drag,
+                Some(super::super::board::BoardDrag::Move { dup: true, .. })
+            ),
+            "Alt stages a duplicate move"
+        );
+        assert_eq!(h.app.doc().scene.nodes.len(), before.len() + 1);
+        frames_until(&mut h, "the viewport orients to the saved view", |app| {
+            live_camera(app, id) == Some(saved)
+        });
+
+        alt_frame(&mut h, vec![button(over, false)]);
+        assert!(h.app.board_drag.is_none());
+        assert_eq!(doc_camera(&h, id), saved);
+        assert_eq!(
+            h.app.tab().journal.undo_depth(),
+            depth + 1,
+            "release commits one patch"
+        );
+        assert_eq!(
+            h.app.doc().scene.nodes.len(),
+            before.len(),
+            "no copy is left"
+        );
+        for node in before.iter().filter(|n| n.id != id) {
+            assert_eq!(h.app.doc().scene.node(node.id), Some(node), "unmoved");
+        }
+        for _ in 0..3 {
+            h.frame();
+        }
+        h.app.lock_all_models();
+        assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "and only one");
+        h.app.board_undo();
+        assert_eq!(doc_camera(&h, id), original, "that patch was the camera");
+        assert_eq!(h.app.doc().scene.nodes.len(), before.len());
+    }
+
     #[test]
     fn a_held_saved_view_sinks_its_picture_into_the_viewport_and_leaving_restores_it() {
         let (mut h, id, _, saved) = frozen_model_and_saved_view("view_drop_sink");

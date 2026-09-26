@@ -11587,3 +11587,112 @@ fn esc_mid_group_rotate_restores_every_node() {
     assert_eq!(h.app.tab().journal.undo_depth(), depth);
     assert_eq!(h.app.board_sel, ids.into_iter().collect());
 }
+
+/// A release the board sees with no pointer position (let go outside the
+/// window, the pointer gone by frame end) restores the nodes rather than
+/// leaving them displaced and unjournaled.
+#[test]
+fn release_outside_the_window_restores_the_moved_nodes() {
+    let (mut h, ids) = esc_drag_board("release_outside");
+    select_ids(&mut h.app, &ids);
+    let before = scene_nodes(&h);
+    let depth = h.app.tab().journal.undo_depth();
+    hold_drag(
+        &mut h,
+        Pos2::new(40.0, 30.0),
+        Pos2::new(140.0, 110.0),
+        egui::Modifiers::NONE,
+    );
+    assert!(matches!(
+        h.app.board_drag,
+        Some(board::BoardDrag::Move { .. })
+    ));
+    assert_ne!(scene_nodes(&h), before, "the nodes moved mid-drag");
+    h.frame_with(|i| {
+        i.events.push(egui::Event::PointerButton {
+            pos: Pos2::new(-40.0, -40.0),
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        i.events.push(egui::Event::PointerGone);
+    });
+    h.frame();
+    assert!(h.app.board_drag.is_none());
+    assert_eq!(scene_nodes(&h), before);
+    assert_eq!(h.app.tab().journal.undo_depth(), depth);
+}
+
+fn picture_from(h: &mut Harness, name: &str, x: f32) -> NodeId {
+    let path = h.base.join(name);
+    image::RgbaImage::from_pixel(8, 8, image::Rgba([90, 140, 200, 255]))
+        .save(&path)
+        .unwrap();
+    let item = h.app.add_paths(&[path])[0];
+    let node = h.app.doc_mut().scene.build_node(
+        slate_doc::scene::WorldRect::new(x, 0.0, 160.0, 120.0),
+        slate_doc::scene::NodeKind::Image(slate_doc::scene::ImageNode::new(item)),
+    );
+    h.app.add_nodes(vec![node])[0]
+}
+
+fn picture_item(h: &Harness, id: NodeId) -> slate_doc::ItemId {
+    match &h.app.doc().scene.node(id).unwrap().kind {
+        slate_doc::scene::NodeKind::Image(img) => img.item,
+        _ => panic!("image"),
+    }
+}
+
+/// An Alt copy dropped on a picture: the staged copy leaves unjournaled,
+/// the original stays where it was, and the drop is the one journal entry.
+#[test]
+fn alt_copy_dropped_on_a_picture_leaves_no_unjournaled_copy() {
+    use super::board_image_layers::{ImageDropChoice, ImageDropOffer, ImageDropSource};
+    let mut h = align_board("alt_image_drop");
+    h.app.tab_mut().cam.z = 1.0;
+    h.app.tab_mut().cam.offset = egui::vec2(0.0, 0.0);
+    let src = picture_from(&mut h, "source.png", -300.0);
+    let dst = picture_from(&mut h, "target.png", 0.0);
+    h.frame();
+    let before = scene_nodes(&h);
+    let depth = h.app.tab().journal.undo_depth();
+    let alt = egui::Modifiers {
+        alt: true,
+        ..Default::default()
+    };
+    h.app.alt_down = true;
+    select_ids(&mut h.app, &[src]);
+    let (press, over) = (Pos2::new(-220.0, 60.0), Pos2::new(80.0, 60.0));
+    let xf = h.app.board_xf();
+    h.app.board_drag = h.app.begin_gesture_for_test(xf.w2s(press), press, alt);
+    let copy = match &h.app.board_drag {
+        Some(board::BoardDrag::Move { ids, dup: true, .. }) => ids[0],
+        _ => panic!("Alt stages a copy"),
+    };
+    h.app.update_gesture_for_test(over, alt);
+    h.app.image_drop = Some(ImageDropOffer {
+        target: dst,
+        source: ImageDropSource::Node(copy),
+        highlight: Some(ImageDropChoice::Replace),
+    });
+    h.app.end_gesture_for_test(over, Some(xf.w2s(over)), alt);
+    assert!(h.app.board_drag.is_none());
+    assert_eq!(picture_item(&h, dst), picture_item(&h, src));
+    assert_eq!(
+        h.app.doc().scene.nodes.len(),
+        before.len(),
+        "no copy is left"
+    );
+    assert_eq!(
+        h.app.doc().scene.node(src),
+        before.iter().find(|n| n.id == src),
+        "the original stays put"
+    );
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
+    h.app.board_undo();
+    assert_eq!(
+        scene_nodes(&h),
+        before,
+        "one undo restores the board exactly"
+    );
+}
