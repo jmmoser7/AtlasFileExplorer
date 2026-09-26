@@ -73,6 +73,8 @@ mod dispatch;
 mod enscape_host;
 mod external_drop;
 mod image_composite;
+#[cfg(test)]
+mod image_layer_tests;
 pub mod imagefx;
 pub mod kits;
 pub mod model3d;

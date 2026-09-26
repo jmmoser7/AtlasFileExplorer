@@ -1,6 +1,6 @@
 {
   "_about": "Approved-decision database for interaction contracts (canvas tools and portal subtypes). One entry per contract x dimension. Agents seed future volatile matrices from here: an approved decision that maps onto a new contract (same archetype / object class / portal class) is re-proposed with high confidence. Only verdict:'approved' rows count as precedent; 'proposed' rows are awaiting user confirmation in the volatile canvas. Schema: tools.<name>.family = tool|portal, and tools.<name>.decisions.<D##> = { behavior, source: stated|research|pattern|guess|precedent, confidence: 0-100, verdict: proposed|approved|rejected, decided: date|null }. Each contract answers exactly the dimensions DIMENSIONS.md scopes to its family; `cargo xtask contracts` enforces the parity between this file, the registry, and the contract markdown. Append-only in spirit: superseded decisions are overwritten only by a newer user approval.",
-  "updated": "2026-09-25",
+  "updated": "2026-09-26",
   "tools": {
     "bumper-cars": {
       "status": "shipped",
@@ -4862,14 +4862,14 @@
           "decided": null
         },
         "D14": {
-          "behavior": "Image transform carries layer geometry; replace-base-image keeps adjust, crop, and paint_layers. Image-on-image move offers pointer-attached Replace and Add as layer capsules; release on a capsule commits; release elsewhere on the target does nothing.",
+          "behavior": "Image transform carries layer geometry; replace-base-image keeps adjust, crop, and paint_layers. Image-on-image move and an external raster file drop onto an image show fixed Replace and Add as layer capsules beside the target. The dragged image is never its own target: the target is the topmost image under the pointer other than the one being dragged. The offer holds while the pointer crosses from the target to the capsule row. A file-drop offer ends only on Esc or real pointer movement away from both target and row; the pointer position egui kept from before the OS drag does not dismiss it. The capsules are a foreground widget: a press on one is that choice even if it drifts, and never drags the image beneath. Release on a capsule (move) or click on it (file drop) commits one command group; release elsewhere does nothing.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-09-26"
         },
         "D15": {
-          "behavior": "Video/3D/text-card paint layers, layer reorder UI, and external-file drop onto image (without move capsules) remain out of scope.",
+          "behavior": "Video/3D/text-card paint layers and layer reorder UI remain out of scope.",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",

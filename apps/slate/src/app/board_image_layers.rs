@@ -91,6 +91,9 @@ pub struct ImageDropOffer {
     pub target: NodeId,
     pub source: ImageDropSource,
     pub highlight: Option<ImageDropChoice>,
+    /// Screen strip from the anchor through the last capsule, as last
+    /// painted. A pointer crossing it on the way to a choice keeps the offer.
+    pub row: Option<egui::Rect>,
 }
 
 impl SlateApp {
@@ -840,6 +843,14 @@ impl SlateApp {
     }
 
     pub(crate) fn update_image_drop_offer(&mut self, world: Pos2, ids: &[NodeId]) {
+        let screen = self.board_xf().w2s(world);
+        let keep = self.image_drop.as_ref().is_some_and(|offer| {
+            matches!(offer.source, ImageDropSource::Node(id) if ids == [id])
+                && offer.row.is_some_and(|row| row.contains(screen))
+        });
+        if keep {
+            return;
+        }
         self.image_drop = None;
         if ids.len() != 1 || self.board_tool != BoardTool::Select {
             return;
@@ -854,7 +865,7 @@ impl SlateApp {
         if src_img.item.is_none() {
             return;
         };
-        let target = self.image_under_point(world, source_id);
+        let target = self.image_under_point(world, ids);
         let Some(target) = target else {
             return;
         };
@@ -862,11 +873,12 @@ impl SlateApp {
             target,
             source: ImageDropSource::Node(source_id),
             highlight: None,
+            row: None,
         });
     }
 
     pub(crate) fn image_drop_target_at(&self, world: Pos2) -> Option<NodeId> {
-        self.image_under_point(world, NodeId(u64::MAX))
+        self.image_under_point(world, &[])
     }
 
     pub(crate) fn offer_image_file_drop(
@@ -879,23 +891,23 @@ impl SlateApp {
             target,
             source: ImageDropSource::Item(item),
             highlight: None,
+            row: None,
         });
         self.image_drop_screen = Some(screen);
     }
 
-    fn image_under_point(&self, world: Pos2, skip: NodeId) -> Option<NodeId> {
-        let pick = super::board_path::board_pick_node_routed(
-            &self.doc().scene,
-            world.x,
-            world.y,
-            self.tab().cam.z,
-            false,
-            self.board_wire_routing,
-        )?;
-        if pick == skip {
-            return None;
-        }
-        let node = self.doc().scene.node(pick)?;
+    /// The topmost node under `world` other than `skip`, when it is a raster
+    /// image. A dragged image sits under the pointer itself, so it is skipped.
+    fn image_under_point(&self, world: Pos2, skip: &[NodeId]) -> Option<NodeId> {
+        let node = self.doc().scene.nodes.iter().rev().find(|n| {
+            !n.hidden
+                && !n.locked
+                && !n.is_frame()
+                && !skip.contains(&n.id)
+                && !matches!(n.kind, NodeKind::Connector(_))
+                && n.rect.contains_rotated(world.x, world.y, n.rotation_deg)
+        })?;
+        let pick = node.id;
         let NodeKind::Image(img) = &node.kind else {
             return None;
         };
@@ -964,8 +976,15 @@ impl SlateApp {
             rects.push((rect, label, choice));
             x += w + gap;
         }
-        if self.image_drop_screen.is_some() {
-            let over_capsule = rects.iter().any(|(rect, _, _)| rect.contains(pointer));
+        let row = rects.iter().fold(
+            egui::Rect::from_min_size(egui::pos2(anchor.x, y), egui::vec2(0.0, h)),
+            |row, (rect, _, _)| row.union(*rect),
+        );
+        let file_drop = self.image_drop_screen.is_some();
+        // egui keeps the pointer's last position from before an OS drag, so
+        // only real movement away from the target and row dismisses a drop.
+        let moved = ui.input(|i| i.pointer.delta() != egui::Vec2::ZERO);
+        if file_drop && moved && !row.contains(pointer) {
             let over_target = target.is_some_and(|target| {
                 let local = slate_doc::geom::world_to_local(
                     self.board_xf().s2w(pointer).x,
@@ -975,34 +994,61 @@ impl SlateApp {
                 );
                 (0.0..=1.0).contains(&local.0) && (0.0..=1.0).contains(&local.1)
             });
-            if !over_capsule && !over_target {
+            if !over_target {
                 self.image_drop = None;
                 self.image_drop_screen = None;
                 return;
             }
         }
+        // The capsules are their own foreground area: a press on one is that
+        // choice and never starts a board gesture on the image beneath.
+        let mut chosen = None;
+        let canvas = self.canvas_rect;
+        egui::Area::new(egui::Id::new("image_drop_capsules"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(row.min)
+            .constrain(false)
+            .movable(false)
+            .fade_in(false)
+            .show(ui.ctx(), |ui| {
+                ui.set_clip_rect(canvas);
+                ui.set_min_size(row.size());
+                let sense = if file_drop {
+                    egui::Sense::click_and_drag()
+                } else {
+                    egui::Sense::hover()
+                };
+                for (rect, label, choice) in &rects {
+                    let response = ui.interact(*rect, ui.id().with(label), sense);
+                    let hot = highlight == Some(*choice);
+                    if file_drop && (response.clicked() || (response.drag_stopped() && hot)) {
+                        chosen = Some(*choice);
+                    }
+                    atlas_shell::selection_tools::paint_capsule_row(
+                        ui.painter(),
+                        *rect,
+                        &atlas_shell::selection_tools::Capsule {
+                            label,
+                            chip: None,
+                            badge: None,
+                            selected: hot,
+                            spawned: false,
+                            disabled: false,
+                            dim: false,
+                        },
+                        hot,
+                        false,
+                        z,
+                        palette,
+                    );
+                }
+            });
         if let Some(d) = &mut self.image_drop {
-            d.highlight = highlight;
+            d.highlight = chosen.or(highlight);
+            d.row = Some(row);
         }
-        for (rect, label, choice) in rects {
-            let hot = highlight == Some(choice);
-            atlas_shell::selection_tools::paint_capsule_row(
-                painter,
-                rect,
-                &atlas_shell::selection_tools::Capsule {
-                    label,
-                    chip: None,
-                    badge: None,
-                    selected: hot,
-                    spawned: false,
-                    disabled: false,
-                    dim: false,
-                },
-                hot,
-                false,
-                z,
-                palette,
-            );
+        if chosen.is_some() {
+            self.try_commit_image_drop(&[], &[]);
         }
     }
 
@@ -1053,17 +1099,6 @@ impl SlateApp {
         if ok {
             self.image_drop_screen = None;
             return true;
-        }
-        false
-    }
-
-    pub(crate) fn try_commit_image_drop_click(&mut self) -> bool {
-        let ready = self
-            .image_drop
-            .as_ref()
-            .is_some_and(|o| matches!(o.source, ImageDropSource::Item(_)) && o.highlight.is_some());
-        if ready {
-            return self.try_commit_image_drop(&[], &[]);
         }
         false
     }

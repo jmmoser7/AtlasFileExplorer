@@ -4569,8 +4569,7 @@ impl SlateApp {
         // --- clicks (the armed zoom tool owns the primary button) ---
         if resp.clicked() && !ate_plus && !zoom_tool && !web_capture && !self.board_align_eat_press
         {
-            if self.try_commit_image_drop_click() {
-            } else if self.sheet_open.is_some() && self.sheet_prompt {
+            if self.sheet_open.is_some() && self.sheet_prompt {
                 // The save reminder owns the pointer until it is answered.
             } else if let Some(p) = pointer {
                 if self.sheet_save_hit.is_some_and(|r| r.contains(p)) {
