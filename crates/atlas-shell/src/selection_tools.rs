@@ -180,15 +180,78 @@ pub fn button(
     response
 }
 
-/// No screen-space relocation: the panel and host share one camera transform.
+/// Default editor placement: centered above the strip, in the host's camera.
 pub fn editor_rect(strip: Rect, height: f32, zoom: f32) -> Rect {
+    popup_above(Vec2::new(EDITOR_WIDTH, height) * zoom, strip, 8.0 * zoom)
+}
+
+/// The active editor's rect: [`editor_rect`] unless [`place_popup`] finds
+/// that the viewport clips it.
+pub fn editor_placement(
+    strip: Rect,
+    selection: Rect,
+    height: f32,
+    zoom: f32,
+    viewport: Rect,
+) -> Rect {
+    place_popup(
+        Vec2::new(EDITOR_WIDTH, height) * zoom,
+        strip,
+        selection,
+        8.0 * zoom,
+        viewport,
+    )
+}
+
+/// Screen margin a popup keeps from the viewport edge when it is placed.
+pub const POPUP_MARGIN: f32 = 8.0;
+
+fn popup_above(size: Vec2, anchor: Rect, gap: f32) -> Rect {
     Rect::from_min_size(
         Pos2::new(
-            strip.center().x - EDITOR_WIDTH * zoom * 0.5,
-            strip.top() - (height + 8.0) * zoom,
+            anchor.center().x - size.x * 0.5,
+            anchor.top() - (size.y + gap),
         ),
-        Vec2::new(EDITOR_WIDTH, height) * zoom,
+        size,
     )
+}
+
+/// Where a popup attached to `anchor` (the strip or its button) opens over
+/// `host` (the edited selection). Size never changes; only the side does.
+///
+/// Candidates, in order: above `anchor` (the default); below, right of, and
+/// left of `host`; below, right of, and left of `anchor`. The first that
+/// fits `viewport` (less [`POPUP_MARGIN`]) clear of both `anchor` and `host`
+/// wins. Otherwise the first that fits and leaves `anchor` clear. Otherwise
+/// the default.
+pub fn place_popup(size: Vec2, anchor: Rect, host: Rect, gap: f32, viewport: Rect) -> Rect {
+    let seen = host.intersect(viewport);
+    let mid = if seen.is_positive() {
+        seen.center()
+    } else {
+        host.center()
+    };
+    let at = |x: f32, y: f32| Rect::from_min_size(Pos2::new(x, y), size);
+    let below_x = anchor.center().x - size.x * 0.5;
+    let beside_y = mid.y - size.y * 0.5;
+    let candidates = [
+        popup_above(size, anchor, gap),
+        at(mid.x - size.x * 0.5, host.bottom() + gap),
+        at(host.right() + gap, beside_y),
+        at(host.left() - gap - size.x, beside_y),
+        at(below_x, anchor.bottom() + gap),
+        at(anchor.right() + gap, anchor.top()),
+        at(anchor.left() - gap - size.x, anchor.top()),
+    ];
+    let room = viewport.shrink(POPUP_MARGIN);
+    let open = |r: &&Rect| room.contains_rect(**r) && !r.intersects(anchor);
+    candidates
+        .iter()
+        .filter(open)
+        .find(|r| !r.intersects(host))
+        .or_else(|| candidates.iter().find(open))
+        .copied()
+        .unwrap_or(candidates[0])
 }
 
 pub fn panel(ui: &egui::Ui, rect: Rect, zoom: f32, theme: Palette) {
@@ -3251,6 +3314,73 @@ mod tests {
             assert!((scaled.min - wanted.min).length() < 0.001);
             assert!((scaled.size() - wanted.size()).length() < 0.001);
         }
+    }
+
+    fn same(a: Rect, b: Rect) -> bool {
+        (a.min - b.min).length() < 0.01 && (a.max - b.max).length() < 0.01
+    }
+
+    fn strip_over(selection: Rect) -> Rect {
+        strip_rect(selection.center_top(), 4, 1.0, 1.0)
+    }
+
+    fn fits(rect: Rect, viewport: Rect) -> bool {
+        viewport.shrink(POPUP_MARGIN).contains_rect(rect)
+    }
+
+    #[test]
+    fn a_popup_with_room_above_opens_at_the_default() {
+        let viewport = Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0));
+        let selection = Rect::from_min_size(Pos2::new(500.0, 400.0), Vec2::new(300.0, 200.0));
+        let strip = strip_over(selection);
+        let placed = editor_placement(strip, selection, FILL_HEIGHT, 1.0, viewport);
+        assert!(same(placed, editor_rect(strip, FILL_HEIGHT, 1.0)));
+    }
+
+    #[test]
+    fn a_popup_clipped_by_the_top_edge_flips_below_the_selection() {
+        let viewport = Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0));
+        let selection = Rect::from_min_size(Pos2::new(500.0, 80.0), Vec2::new(300.0, 200.0));
+        let strip = strip_over(selection);
+        assert!(!fits(editor_rect(strip, FILL_HEIGHT, 1.0), viewport));
+        let placed = editor_placement(strip, selection, FILL_HEIGHT, 1.0, viewport);
+        assert!(fits(placed, viewport), "{placed:?}");
+        assert!(!placed.intersects(selection) && !placed.intersects(strip));
+        assert!(placed.top() > selection.bottom(), "below: {placed:?}");
+        assert!((placed.center().x - selection.center().x).abs() < 0.01);
+        assert_eq!(placed.size(), Vec2::new(EDITOR_WIDTH, FILL_HEIGHT));
+    }
+
+    #[test]
+    fn a_popup_blocked_above_and_below_moves_beside_the_selection() {
+        let viewport = Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0));
+        let selection = Rect::from_min_size(Pos2::new(300.0, 80.0), Vec2::new(300.0, 760.0));
+        let strip = strip_over(selection);
+        let placed = editor_placement(strip, selection, FILL_HEIGHT, 1.0, viewport);
+        assert!(fits(placed, viewport), "{placed:?}");
+        assert!(!placed.intersects(selection) && !placed.intersects(strip));
+        assert!(placed.left() > selection.right(), "right side: {placed:?}");
+        assert!((placed.center().y - selection.center().y).abs() < 0.01);
+    }
+
+    #[test]
+    fn a_selection_filling_the_view_keeps_the_popup_on_screen_below_the_strip() {
+        let viewport = Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0));
+        let selection = Rect::from_min_size(Pos2::new(-400.0, 60.0), Vec2::new(2400.0, 1600.0));
+        let strip = strip_over(selection);
+        let placed = editor_placement(strip, selection, FILL_HEIGHT, 1.0, viewport);
+        assert!(fits(placed, viewport), "{placed:?}");
+        assert!(!placed.intersects(strip));
+        assert!(placed.top() > strip.bottom());
+    }
+
+    #[test]
+    fn a_popup_with_no_room_anywhere_keeps_the_default() {
+        let viewport = Rect::from_min_size(Pos2::ZERO, Vec2::new(300.0, 120.0));
+        let selection = Rect::from_min_size(Pos2::new(40.0, 50.0), Vec2::new(200.0, 60.0));
+        let strip = strip_over(selection);
+        let placed = editor_placement(strip, selection, FILL_HEIGHT, 1.0, viewport);
+        assert!(same(placed, editor_rect(strip, FILL_HEIGHT, 1.0)));
     }
 
     #[test]

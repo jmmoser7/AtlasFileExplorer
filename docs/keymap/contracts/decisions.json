@@ -2584,11 +2584,11 @@
           "decided": "2026-09-17"
         },
         "D06": {
-          "behavior": "The strip, upward editor, stringers, text and hit regions share the host camera transform. No screen-position cache, viewport relocation or size clamp. Width goes below and height beside the local rectangle axes. On a rotated object each stringer keeps its axis but takes whichever of that axis's two exterior edges lies below (a mostly horizontal span) or to the right (a mostly vertical span), so a frame turned to landscape never puts a dimension in the upper lane the strip owns; W and H never swap. See shape-property-editing.md.",
+          "behavior": "The strip, editor, stringers, text and hit regions share the host camera transform. No screen-position cache or size clamp. The editor opens upward by default. When the viewport clips that, it opens on the first side that fits clear of the screen edge and the selection (`selection_tools::place_popup`: below, right, then left of the selection, then below, right, then left of the strip). Failing that, the first side that fits without covering the strip; failing that, the default (user decision 26 September 2026). Width goes below and height beside the local rectangle axes. On a rotated object each stringer keeps its axis but takes whichever of that axis's two exterior edges lies below (a mostly horizontal span) or to the right (a mostly vertical span), so a frame turned to landscape never puts a dimension in the upper lane the strip owns; W and H never swap. See shape-property-editing.md.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-09-26"
         },
         "D07": {
           "behavior": "Common applicable controls for mixed shapes and wires. Shapes-only groups use world-XY union dimensions and uniform centroid scaling. Selections containing anchored wires expose stroke controls without box-dimension resizing.",

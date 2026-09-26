@@ -1595,9 +1595,9 @@ impl SlateApp {
                         self.shape_properties.text_family_open = false;
                         self.shape_properties.text_size_open = false;
                     }
-                    let rect = chrome::editor_rect(strip, height, z);
-                    let mut sample = false;
                     let canvas = self.canvas_rect;
+                    let rect = chrome::editor_placement(strip, bounds, height, z, canvas);
+                    let mut sample = false;
                     egui::Area::new(Id::new("shape_property_editor"))
                         .order(egui::Order::Foreground)
                         .fixed_pos(rect.min)
@@ -3238,6 +3238,33 @@ mod tests {
             Some(Corner::ChamferPercent { .. })
         ));
         assert!((scene::resolved_corner_effective(node, None).1 - expected).abs() < 1e-4);
+    }
+
+    #[test]
+    fn a_property_editor_clipped_by_the_canvas_top_opens_below_the_selection() {
+        let mut h = board();
+        let id = rectangle(&mut h, WorldRect::new(-100.0, -60.0, 200.0, 120.0), 0.0);
+        h.frame();
+        let canvas = h.app.canvas_rect;
+        h.app.tab_mut().cam.offset.y = -60.0 - (canvas.top() + 70.0 - canvas.center().y);
+        h.app.shape_properties.panel = Some(Panel::Fill);
+        for _ in 0..3 {
+            h.frame();
+        }
+        let selection = h
+            .app
+            .board_xf()
+            .rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
+        let editor = h
+            .ctx
+            .memory(|m| m.area_rect(Id::new("shape_property_editor")))
+            .expect("the Fill editor is open");
+        assert!(canvas.contains_rect(editor), "{editor:?} in {canvas:?}");
+        assert!(
+            !editor.intersects(selection),
+            "{editor:?} over {selection:?}"
+        );
+        assert!(editor.top() > selection.bottom());
     }
 
     fn pointer(h: &mut Harness, p: Pos2, pressed: Option<bool>) {
