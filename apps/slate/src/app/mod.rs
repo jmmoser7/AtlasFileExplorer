@@ -375,6 +375,9 @@ pub struct SlateApp {
     // ----- board (authored canvas) state -----
     /// Selected scene nodes (board view). Disjoint from `selection` (pool items).
     pub board_sel: HashSet<NodeId>,
+    /// The selection an Alt copy replaced, restored when Esc drops the
+    /// staged copies. Lives only while that drag does.
+    pub(crate) staged_dup_sel: Option<HashSet<NodeId>>,
     pub board_tool: board::BoardTool,
     /// Frames explicitly ordered by the Deck tool, oldest arming included.
     pub deck: board_deck::DeckState,
@@ -803,6 +806,7 @@ impl SlateApp {
             kits: kits::KitState::load(),
             armed_kit_id: None,
             board_sel: HashSet::new(),
+            staged_dup_sel: None,
             board_tool: board::BoardTool::default(),
             deck: board_deck::DeckState::default(),
             board_nav_tool: board::BoardTool::Select,

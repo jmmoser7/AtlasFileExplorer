@@ -728,6 +728,45 @@ pub enum BoardDrag {
     },
 }
 
+impl BoardDrag {
+    /// Drags that edit scene nodes in place before release. Each carries
+    /// its press-time nodes, so Esc can put them back (P0.1).
+    pub(crate) fn edits_nodes_live(&self) -> bool {
+        matches!(
+            self,
+            BoardDrag::Move { .. }
+                | BoardDrag::Resize { .. }
+                | BoardDrag::Rotate { .. }
+                | BoardDrag::CropEdge { .. }
+                | BoardDrag::CropPan { .. }
+                | BoardDrag::GroupResize { .. }
+                | BoardDrag::GroupRotate { .. }
+                | BoardDrag::LineGrip { .. }
+                | BoardDrag::FilletRadius { .. }
+        )
+    }
+
+    /// The press-time nodes, and whether they are unjournaled Alt copies.
+    /// `None` exactly when [`Self::edits_nodes_live`] is false.
+    fn into_press_nodes(self) -> Option<(Vec<Node>, bool)> {
+        Some(match self {
+            BoardDrag::Move { before, dup, .. } | BoardDrag::GroupResize { before, dup, .. } => {
+                (before, dup)
+            }
+            BoardDrag::Resize { before, dup, .. } => (vec![before], dup),
+            BoardDrag::GroupRotate { before, .. } => (before, false),
+            BoardDrag::CropEdge { before, peers, .. } => {
+                (std::iter::once(before).chain(peers).collect(), false)
+            }
+            BoardDrag::Rotate { before, .. }
+            | BoardDrag::CropPan { before, .. }
+            | BoardDrag::LineGrip { before, .. }
+            | BoardDrag::FilletRadius { before, .. } => (vec![before], false),
+            _ => return None,
+        })
+    }
+}
+
 /// World→screen transform. The board uses the tab camera; presentation mode
 /// builds its own transform per slide — both feed the same painters.
 #[derive(Clone, Copy)]
@@ -1680,8 +1719,60 @@ impl SlateApp {
             before.push(d.clone());
             scene.nodes.push(d);
         }
-        self.board_sel = ids.iter().copied().collect();
+        let sources_sel = std::mem::replace(&mut self.board_sel, ids.iter().copied().collect());
+        self.staged_dup_sel = Some(sources_sel);
         (ids, before)
+    }
+
+    /// Esc during a drag that edits nodes live. egui drops its drag on Esc,
+    /// so no release follows: every node returns to its press-time state,
+    /// staged Alt copies leave the scene with the selection going back to
+    /// their sources, and nothing is journaled (P0.1). False when the drag
+    /// edits no nodes.
+    pub(crate) fn cancel_node_drag(&mut self) -> bool {
+        if !self
+            .board_drag
+            .as_ref()
+            .is_some_and(BoardDrag::edits_nodes_live)
+        {
+            return false;
+        }
+        let Some(drag) = self.board_drag.take() else {
+            return false;
+        };
+        let is_move = matches!(drag, BoardDrag::Move { .. });
+        let Some((before, dup)) = drag.into_press_nodes() else {
+            return false;
+        };
+        let sources_sel = self.staged_dup_sel.take();
+        let restore = if dup {
+            let copies: std::collections::HashSet<NodeId> = before.iter().map(|n| n.id).collect();
+            self.doc_mut()
+                .scene
+                .nodes
+                .retain(|n| !copies.contains(&n.id));
+            if let Some(sel) = sources_sel {
+                self.board_sel = sel;
+            }
+            Vec::new()
+        } else {
+            before
+        };
+        if is_move && self.bumper.dragging() {
+            self.cancel_bumper_drag(restore);
+        } else {
+            let scene = &mut self.doc_mut().scene;
+            for node in restore {
+                if let Some(live) = scene.node_mut(node.id) {
+                    *live = node;
+                }
+            }
+        }
+        if is_move {
+            self.image_drop = None;
+        }
+        self.note_scene_change();
+        true
     }
 
     fn journal_alt_copies(&mut self, ids: &[NodeId], note: String) {
@@ -4578,6 +4669,12 @@ impl SlateApp {
         }
 
         // --- gesture end ---
+        // egui aborts its drag on Esc, so no `drag_stopped` will come. The
+        // cancel stack normally took the drag already; an Esc it never saw
+        // (palette or text field focused) must not leave nodes displaced.
+        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.cancel_node_drag();
+        }
         if resp.drag_stopped_by(egui::PointerButton::Primary)
             && !ordered_drawing
             && self.board_tool != BoardTool::Line
@@ -6889,6 +6986,7 @@ impl SlateApp {
         // Any gesture may have journaled; one generation bump per gesture
         // end keeps the minimap/search caches fresh without per-frame cost.
         self.note_scene_change();
+        self.staged_dup_sel = None;
         let drag = self.board_drag.take();
         match drag {
             Some(BoardDrag::Move {

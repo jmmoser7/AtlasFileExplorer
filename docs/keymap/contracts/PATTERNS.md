@@ -27,7 +27,12 @@ is searchable.
 
 - **P0.1 Cancel stack.** Esc peels exactly one layer per press:
   ActiveOperation → Draft → Mode (armed tool → Select) → Selection → Chrome.
-  (`atlas-commands::CancelLayer`.)
+  (`atlas-commands::CancelLayer`.) A drag that edits nodes live — move
+  (single, multi, group, Alt copy), resize, rotate, crop, endpoint grip,
+  fillet — is an ActiveOperation: Esc returns every node to its press-time
+  state, drops staged Alt copies, keeps the selection, and journals
+  nothing. egui aborts its own drag on Esc, so no release follows; the drag
+  owner (`SlateApp::cancel_node_drag`) restores instead of waiting for one.
 - **P0.2 One gesture = one undo.** Everything a single user gesture produced
   reverts with a single Ctrl+Z (journal command grouping).
 - **P0.3 Journal-only mutation.** Commits go through the journal with an

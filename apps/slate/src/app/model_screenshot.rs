@@ -824,16 +824,7 @@ impl SlateApp {
         if !held || !matches!(self.board_drag, Some(BoardDrag::Move { .. })) {
             return false;
         }
-        let Some(BoardDrag::Move { ids, before, .. }) = self.board_drag.take() else {
-            return false;
-        };
-        for (id, b) in ids.iter().zip(before) {
-            if let Some(live) = self.doc_mut().scene.node_mut(*id) {
-                *live = b;
-            }
-        }
-        self.note_scene_change();
-        true
+        self.cancel_node_drag()
     }
 
     /// End the preview at once, putting the viewport back as it was.
