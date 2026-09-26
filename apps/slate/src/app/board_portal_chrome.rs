@@ -135,9 +135,30 @@ fn maximize_in_bar(bar: Rect, zoom: f32, radius: f32) -> Rect {
     )
 }
 
-fn maximize_floating(frame: Rect, zoom: f32, radius: f32) -> Rect {
+/// Thinnest frame outline the board paints, in board units.
+const FRAME_OUTLINE_MIN: f32 = 1.0;
+
+/// How far a square's outer corner must sit from both frame edges to stay
+/// inside the corner outline's inner edge. `half_stroke` is half the
+/// outline width, which is painted centered on the frame edge.
+fn corner_clearance(radius: f32, chamfer: bool, half_stroke: f32) -> f32 {
+    let corner = if radius <= half_stroke {
+        0.0
+    } else if chamfer {
+        (radius + half_stroke * std::f32::consts::SQRT_2) * 0.5
+    } else {
+        radius - (radius - half_stroke) * std::f32::consts::FRAC_1_SQRT_2
+    };
+    corner.max(half_stroke)
+}
+
+fn maximize_floating(frame: Rect, zoom: f32, radius: f32, chamfer: bool) -> Rect {
     let size = portal_frame_tokens().chrome_button_px * zoom;
-    let inset = radius.max(6.0 * zoom);
+    let inset = corner_clearance(
+        radius,
+        chamfer,
+        canvas_scale::px(FRAME_OUTLINE_MIN, zoom) * 0.5,
+    );
     if frame.width() < size + inset * 2.0 || frame.height() < size + inset * 2.0 {
         return Rect::from_min_max(frame.right_top(), frame.right_top());
     }
@@ -229,7 +250,7 @@ pub fn layout_portal_frame(
         radius,
         bar: None,
         reveal: None,
-        maximize: maximize_floating(frame, z, radius),
+        maximize: maximize_floating(frame, z, radius, corner.parameters().0),
         body: frame,
         page,
     }
@@ -281,7 +302,7 @@ pub fn layout_portal_chrome(
             radius,
             bar: None,
             reveal: Some(reveal),
-            maximize: maximize_floating(frame, z, radius),
+            maximize: maximize_floating(frame, z, radius, corner.parameters().0),
             body,
             page,
         };
@@ -731,7 +752,7 @@ impl SlateApp {
             }
         };
         if portal.kind == PortalKind::FileAtlas {
-            let width = canvas_scale::px(portal.stroke.width.max(1.0), z);
+            let width = canvas_scale::px(portal.stroke.width.max(FRAME_OUTLINE_MIN), z);
             let color = if portal.stroke_follows_theme() {
                 self.palette().border_strong
             } else {
@@ -757,7 +778,7 @@ impl SlateApp {
         if !edge_hover || !self.settings.hover_highlight("portal") {
             return;
         }
-        let width = canvas_scale::px(1.0, z);
+        let width = canvas_scale::px(FRAME_OUTLINE_MIN, z);
         stroke_rect(painter, width, border);
     }
 
@@ -1068,6 +1089,45 @@ mod tests {
         assert!(layout.maximize.top() >= frame.top() - 0.01);
         assert!(layout.maximize.center().x > frame.center().x);
         assert!(layout.maximize.center().y < frame.center().y);
+    }
+
+    #[test]
+    fn floating_maximize_insets_only_as_far_as_the_corner_outline_needs() {
+        let frame = Rect::from_min_max(pos2(0.0, 0.0), pos2(400.0, 300.0));
+        let cases = [
+            (design_portal_corner(), 1.0),
+            (design_portal_corner(), 2.5),
+            (Corner::Rounded { radius: 40.0 }, 1.0),
+            (Corner::Chamfer { cut: 20.0 }, 1.0),
+            (Corner::Square, 1.0),
+        ];
+        for (corner, z) in cases {
+            let layout = layout_for_portal(PortalKind::FileAtlas, frame, false, false, corner, z);
+            let r = layout.radius;
+            let half = canvas_scale::px(0.5, z);
+            let tip = layout.maximize.right_top();
+            let (inset_x, inset_y) = (frame.right() - tip.x, tip.y - frame.top());
+            assert!((inset_x - inset_y).abs() < 0.01, "{corner:?}");
+            assert!(
+                inset_x >= half - 0.01,
+                "clears the straight edges: {corner:?}"
+            );
+            let gap = match corner {
+                Corner::Rounded { .. } => {
+                    let center = pos2(frame.right() - r, frame.top() + r);
+                    (r - half) - tip.distance(center)
+                }
+                Corner::Chamfer { .. } => (inset_x + inset_y - r) / std::f32::consts::SQRT_2 - half,
+                _ => inset_x - half,
+            };
+            assert!(
+                gap.abs() < 0.01,
+                "{corner:?} at {z}: the square should touch the outline, off by {gap}"
+            );
+            if r > 0.0 {
+                assert!(inset_x < r, "less than the radius: {corner:?}");
+            }
+        }
     }
 
     #[test]
