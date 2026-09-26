@@ -43,6 +43,14 @@ impl Bench {
         Self { ctx, app }
     }
 
+    /// A bench whose board paints are logged for coverage checks.
+    fn logged(n: usize) -> Self {
+        super::board_path::tiles::log_paints();
+        let mut b = Self::new(n);
+        b.app.brush_tiles_enabled = true;
+        b
+    }
+
     fn frame(&mut self) -> Duration {
         self.frame_with(Vec::new())
     }
@@ -248,8 +256,7 @@ fn drag_brush_stroke(b: &mut Bench) -> slate_doc::NodeId {
 /// and tiles the new stroke does not touch keep their textures.
 #[test]
 fn committing_a_stroke_keeps_earlier_strokes_on_screen() {
-    let mut b = Bench::new(40);
-    b.app.brush_tiles_enabled = true;
+    let mut b = Bench::logged(40);
     assert!(settle(&mut b), "fixture tiles did not settle");
     let before = b.app.brush_tiles.drawn_ids();
     assert!(before.len() >= 10, "fixture drew {} strokes", before.len());
@@ -293,8 +300,7 @@ fn committing_a_stroke_keeps_earlier_strokes_on_screen() {
 /// reached: every frame of the pass and after the release draws each of them.
 #[test]
 fn erasing_keeps_untouched_strokes_on_screen() {
-    let mut b = Bench::new(40);
-    b.app.brush_tiles_enabled = true;
+    let mut b = Bench::logged(40);
     assert!(settle(&mut b), "fixture tiles did not settle");
     let before = b.app.brush_tiles.drawn_ids();
     let target = b.app.doc().scene.nodes[20].clone();
@@ -341,6 +347,219 @@ fn erasing_keeps_untouched_strokes_on_screen() {
         frame += 1;
         std::thread::sleep(Duration::from_millis(5));
         b.frame();
+    }
+}
+
+/// A single-dab brush stroke (a path with no segments) centered at `at`.
+fn dab_node(
+    scene: &mut slate_doc::scene::Scene,
+    at: [f32; 2],
+    width: f32,
+    softness: f32,
+    blur: f32,
+) -> Node {
+    let stroke = Stroke {
+        width,
+        color: Rgba([30, 90, 200, 255]),
+        dash: Dash::Solid,
+        cap: StrokeCap::Round,
+        join: StrokeJoin::Round,
+        profile: WidthProfile::Uniform,
+        softness,
+        stamp: true,
+        tween_from: None,
+        gaussian_blur: blur,
+    };
+    scene.build_node(
+        WorldRect::new(at[0] - width * 0.5, at[1] - width * 0.5, width, width),
+        NodeKind::Shape(ShapeNode {
+            shape: ShapeKind::Path,
+            fill: None,
+            stroke,
+            corner: Corner::Square,
+            sides: slate_doc::scene::default_regular_sides(),
+            flip: false,
+            path: Some(std::sync::Arc::new(PathData {
+                start: [0.5, 0.5],
+                segs: Vec::new(),
+                ..PathData::default()
+            })),
+            text: None,
+        }),
+    )
+}
+
+fn view_world(b: &Bench) -> [f32; 4] {
+    let xf = b.app.board_xf();
+    let a = xf.s2w(b.app.canvas_rect.min);
+    let c = xf.s2w(b.app.canvas_rect.max);
+    [a.x, a.y, c.x, c.y]
+}
+
+/// Samples of each stroke that the last paint left bare or drew twice.
+fn coverage_faults(b: &Bench, ids: impl IntoIterator<Item = slate_doc::NodeId>) -> Vec<String> {
+    use super::board_path::tiles::{coverage, stroke_ink_rect};
+    let view = view_world(b);
+    let mut out = Vec::new();
+    for id in ids {
+        let Some(ink) = b.app.doc().scene.node(id).and_then(stroke_ink_rect) else {
+            continue;
+        };
+        let region = [
+            ink[0].max(view[0]),
+            ink[1].max(view[1]),
+            ink[2].min(view[2]),
+            ink[3].min(view[3]),
+        ];
+        if region[0] >= region[2] || region[1] >= region[3] {
+            continue;
+        }
+        let (n, bare, doubled) = coverage(id, region, 12);
+        if bare > 0 || doubled > 0 {
+            out.push(format!("{id:?}: {bare} bare, {doubled} doubled of {n}"));
+        }
+    }
+    out
+}
+
+/// The hand-off from the live brush preview to tiles never skips a frame:
+/// from the release until the tiles land, the new stroke is painted exactly
+/// once everywhere it reaches. The view is empty board centered on a tile
+/// corner, so the stroke needs four new tiles that land over several frames.
+#[test]
+fn a_committed_stroke_paints_every_frame_until_its_tiles_land() {
+    let mut b = Bench::logged(40);
+    assert!(settle(&mut b), "fixture tiles did not settle");
+    b.app.tab_mut().cam.offset = EVec2::new(5120.0, 512.0);
+    assert!(settle(&mut b), "empty view did not settle");
+
+    let added = drag_brush_stroke(&mut b);
+    let mut frame = 0;
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let faults = coverage_faults(&b, [added]);
+        assert!(
+            faults.is_empty(),
+            "frame {frame} after the release: {faults:?}"
+        );
+        if b.app.brush_tiles.last.settled || Instant::now() > deadline {
+            break;
+        }
+        frame += 1;
+        std::thread::sleep(Duration::from_millis(2));
+        b.frame();
+    }
+    assert!(b.app.brush_tiles.last.settled, "tiles did not settle");
+    assert!(
+        !b.app.brush_tiles.tiles_with(added).is_empty(),
+        "the new stroke never reached a tile"
+    );
+}
+
+/// During an erase drag and after its release, every stroke on screen is
+/// painted exactly once each frame: from its old tile, its new tile, or its
+/// live eraser preview, never none and never two of them.
+#[test]
+fn erasing_paints_every_stroke_exactly_once_each_frame() {
+    let mut b = Bench::logged(40);
+    assert!(settle(&mut b), "fixture tiles did not settle");
+    let target = b.app.doc().scene.nodes[20].clone();
+    let at = Pos2::new(
+        target.rect.x + 0.06 * target.rect.w,
+        target.rect.y + 0.5 * target.rect.h,
+    );
+    b.app.set_board_tool(super::board::BoardTool::Eraser);
+    b.app.eraser_width = 16.0;
+    b.frame();
+    let start = b.app.board_xf().w2s(at);
+    b.frame_with(vec![egui::Event::PointerMoved(start)]);
+    b.frame_with(primary(start, true));
+    let check = |b: &Bench, when: &str| {
+        let ids: Vec<_> = b.app.doc().scene.nodes.iter().map(|n| n.id).collect();
+        let faults = coverage_faults(b, ids);
+        assert!(faults.is_empty(), "{when}: {faults:?}");
+    };
+    check(&b, "press");
+    for i in 1..=24 {
+        let p = start + EVec2::new(i as f32 * 6.0, (i as f32 * 0.5).sin() * 20.0);
+        b.frame_with(vec![egui::Event::PointerMoved(p)]);
+        check(&b, &format!("move {i}"));
+    }
+    b.frame_with(primary(start + EVec2::new(144.0, 0.0), false));
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut frame = 0;
+    loop {
+        check(&b, &format!("frame {frame} after release"));
+        if b.app.brush_tiles.last.settled || Instant::now() > deadline {
+            break;
+        }
+        frame += 1;
+        std::thread::sleep(Duration::from_millis(2));
+        b.frame();
+    }
+    assert!(b.app.brush_tiles.last.settled, "tiles did not settle");
+}
+
+/// A blurred dab painted on its own keeps painting once, with the same
+/// pixels, while the user keeps drawing: from the moment it is blurred, no
+/// frame shows it twice (an old tile plus its own raster) or not at all, and
+/// once it settles each new stroke leaves its raster untouched.
+#[test]
+fn a_blurred_dab_stays_put_while_strokes_follow() {
+    let mut b = Bench::logged(40);
+    let dab = dab_node(&mut b.app.doc_mut().scene, [800.0, 450.0], 24.0, 0.5, 0.0);
+    let id = dab.id;
+    b.app.add_nodes(vec![dab]);
+    assert!(settle(&mut b), "fixture tiles did not settle");
+    assert!(
+        !b.app.brush_tiles.tiles_with(id).is_empty(),
+        "dab not tiled"
+    );
+
+    let index = b
+        .app
+        .doc()
+        .scene
+        .nodes
+        .iter()
+        .position(|n| n.id == id)
+        .unwrap();
+    if let NodeKind::Shape(shape) = &mut b.app.doc_mut().scene.nodes[index].kind {
+        shape.stroke.gaussian_blur = 24.0;
+    }
+    b.app.note_scene_change();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut frame = 0;
+    loop {
+        b.frame();
+        let faults = coverage_faults(&b, [id]);
+        assert!(
+            faults.is_empty(),
+            "frame {frame} after the blur: {faults:?}"
+        );
+        if b.app.brush_tiles.last.settled || Instant::now() > deadline {
+            break;
+        }
+        frame += 1;
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert!(b.app.brush_tiles.last.settled, "tiles did not settle");
+    let tex = b.app.brush_stamps.get(&id).map(|(_, g)| g.tex.id());
+    assert!(tex.is_some(), "the blurred dab has no raster of its own");
+
+    for i in 0..12 {
+        let extra = stroke_node(&mut b.app.doc_mut().scene, 7_000 + i);
+        b.app.add_nodes(vec![extra]);
+        for f in 0..3 {
+            b.frame();
+            let faults = coverage_faults(&b, [id]);
+            assert!(faults.is_empty(), "stroke {i} frame {f}: {faults:?}");
+            assert_eq!(
+                b.app.brush_stamps.get(&id).map(|(_, g)| g.tex.id()),
+                tex,
+                "stroke {i} frame {f}: the dab's pixels changed"
+            );
+        }
     }
 }
 

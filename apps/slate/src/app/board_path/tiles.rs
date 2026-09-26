@@ -48,9 +48,8 @@ pub(crate) struct BrushPaintStats {
     pub drew_fallback: bool,
     pub individuals: usize,
     pub settled: bool,
-    /// Frame of the last paint, and the strokes it drew on their own.
+    /// Frame of the last paint.
     pub frame: u64,
-    pub fresh: Vec<NodeId>,
 }
 
 struct StrokeSrc {
@@ -63,6 +62,8 @@ struct GpuTile {
     /// Straight RGBA. Incremental commits stamp onto this, not a re-render.
     cpu: Vec<u8>,
     baked: Vec<(NodeId, u64)>,
+    /// The job that rasterized it. Jobs are numbered in the order queued.
+    job: u64,
     used: u64,
     pixel: f32,
     tx: i32,
@@ -144,6 +145,83 @@ struct Prepared {
     src: Arc<StrokeSrc>,
 }
 
+/// What one tile coordinate showed the last frame every run there had its
+/// exact tile. While any run there waits for a raster, the coordinate paints
+/// this instead, so a commit, split, or merge swaps in all at once.
+struct Shown {
+    seen: u64,
+    layers: Vec<ShownLayer>,
+    /// Every stroke the layers show, sorted.
+    ids: Vec<NodeId>,
+}
+
+enum ShownLayer {
+    Tile {
+        token: u64,
+        tex: egui::TextureHandle,
+        ids: Vec<NodeId>,
+    },
+    /// A stroke painted on its own, clipped to the coordinate on replay.
+    Node(NodeId),
+}
+
+impl ShownLayer {
+    fn key(&self) -> LayerKey {
+        match self {
+            ShownLayer::Tile { token, tex, .. } => LayerKey::Tile {
+                token: *token,
+                tex: tex.id(),
+            },
+            ShownLayer::Node(id) => LayerKey::Node(*id),
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LayerKey {
+    Tile { token: u64, tex: egui::TextureId },
+    Node(NodeId),
+}
+
+/// One visible tile coordinate during a paint.
+#[derive(Default)]
+struct CoordFrame {
+    /// Every run here has its exact tile this frame.
+    settled: bool,
+    /// The stand-in (`Shown`) was painted this frame.
+    replayed: bool,
+    /// What painted here, in order, while settled.
+    layers: Vec<LayerKey>,
+}
+
+/// A stretch of paint order: a run of plain stamps, or one node on its own.
+enum Segment {
+    Run(RunPlan),
+    Single(usize),
+}
+
+struct RunPlan {
+    token: u64,
+    start: usize,
+    end: usize,
+    /// Every tile in view was exact last time; only textures paint.
+    fast: bool,
+    prep: Vec<Prepared>,
+    cells: Vec<Cell>,
+    sig: u64,
+    ids: Vec<NodeId>,
+    keys: Vec<u64>,
+    missing: bool,
+}
+
+struct Cell {
+    slot: usize,
+    tx: i32,
+    ty: i32,
+    fit: TileFit,
+    desired: Vec<(NodeId, u64)>,
+}
+
 pub(crate) struct BrushTiles {
     keys: HashMap<NodeId, u64>,
     keyed_gen: u64,
@@ -154,12 +232,11 @@ pub(crate) struct BrushTiles {
     /// Runs a paint already matched this frame. A split run's later pieces
     /// get their own caches instead of fighting over one tile set.
     claimed: Vec<u64>,
-    /// Tiles another run's piece painted in place of its own missing tile,
-    /// this frame and the last. A replacement for one of last frame's waits
-    /// in `held`, so the strokes it stood in for never go undrawn.
-    lent: HashSet<(u64, TileCoord)>,
-    lent_last: HashSet<(u64, TileCoord)>,
-    held: Vec<Finished>,
+    /// What each visible tile coordinate painted when it last settled, for
+    /// document `shown_doc`. It stands in while the coordinate rebuilds.
+    shown: HashMap<TileCoord, Shown>,
+    shown_doc: u64,
+    coords: Vec<CoordFrame>,
     next_token: u64,
     next_job: u64,
     live_jobs: HashSet<u64>,
@@ -168,7 +245,6 @@ pub(crate) struct BrushTiles {
     inflight: Inflight,
     stash: Vec<Finished>,
     srcs: HashMap<NodeId, Arc<StrokeSrc>>,
-    scratch_desired: Vec<(NodeId, u64)>,
     incoming: VecDeque<Finished>,
     job_tx: Option<Sender<Job>>,
     done_rx: Option<Receiver<Finished>>,
@@ -187,9 +263,9 @@ impl Default for BrushTiles {
             specified: false,
             runs: Vec::new(),
             claimed: Vec::new(),
-            lent: HashSet::new(),
-            lent_last: HashSet::new(),
-            held: Vec::new(),
+            shown: HashMap::new(),
+            shown_doc: u64::MAX,
+            coords: Vec::new(),
             next_token: 1,
             next_job: 1,
             live_jobs: HashSet::new(),
@@ -197,7 +273,6 @@ impl Default for BrushTiles {
             inflight: HashMap::new(),
             stash: Vec::new(),
             srcs: HashMap::new(),
-            scratch_desired: Vec::new(),
             incoming: VecDeque::new(),
             job_tx: None,
             done_rx: None,
@@ -211,7 +286,6 @@ impl Default for BrushTiles {
                 individuals: 0,
                 settled: false,
                 frame: 0,
-                fresh: Vec::new(),
             },
         }
     }
@@ -248,6 +322,7 @@ impl BrushTiles {
         self.keyed_gen = u64::MAX;
         self.dirty_all = true;
         self.runs.clear();
+        self.shown.clear();
         self.live_jobs.clear();
         self.queued.clear();
         self.inflight.clear();
@@ -278,13 +353,9 @@ impl BrushTiles {
                 self.srcs.remove(id);
             }
         }
-        // In-flight rasters still show the previous strokes. Drop them.
-        self.live_jobs.clear();
-        self.queued.clear();
-        self.inflight.clear();
-        self.stash.clear();
-        self.incoming.clear();
-        self.held.clear();
+        // In-flight rasters stay. Each one names the strokes it baked and is
+        // judged against the new keys when it lands, so a stream of commits
+        // never keeps an older tile from ever landing.
         self.dirty_ids.clear();
         self.dirty_all = false;
         self.keyed_gen = scene_gen;
@@ -353,16 +424,6 @@ impl BrushTiles {
 
     fn upload_some(&mut self, ctx: &egui::Context) {
         let mut uploaded = 0;
-        for fin in std::mem::take(&mut self.held) {
-            if uploaded < UPLOADS_PER_FRAME && !self.on_loan(&fin) {
-                self.queued
-                    .remove(&(fin.token, fin.pixel.to_bits(), fin.tx, fin.ty));
-                self.install(ctx, fin);
-                uploaded += 1;
-            } else {
-                self.held.push(fin);
-            }
-        }
         while uploaded < UPLOADS_PER_FRAME {
             let Some(fin) = self.incoming.pop_front() else {
                 break;
@@ -379,21 +440,10 @@ impl BrushTiles {
                 self.flush_stash(ctx);
                 continue;
             }
-            if self.on_loan(&fin) {
-                self.held.push(fin);
-                continue;
-            }
-            self.queued
-                .remove(&(fin.token, fin.pixel.to_bits(), fin.tx, fin.ty));
+            self.unqueue(&fin);
             self.install(ctx, fin);
             uploaded += 1;
         }
-    }
-
-    /// Another run's piece painted the tile this would replace last frame.
-    fn on_loan(&self, fin: &Finished) -> bool {
-        self.lent_last
-            .contains(&(fin.token, (fin.pixel.to_bits(), fin.tx, fin.ty)))
     }
 
     fn enqueue(&mut self, job: Job) {
@@ -442,17 +492,32 @@ impl BrushTiles {
                 keep.push(fin);
                 continue;
             }
-            self.queued
-                .remove(&(fin.token, fin.pixel.to_bits(), fin.tx, fin.ty));
+            self.unqueue(&fin);
             self.install(ctx, fin);
         }
         self.stash = keep;
+    }
+
+    /// A newer job queued for the same tile stays queued.
+    fn unqueue(&mut self, fin: &Finished) {
+        let tile = (fin.token, fin.pixel.to_bits(), fin.tx, fin.ty);
+        if self.queued.get(&tile).is_some_and(|q| *q == fin.baked) {
+            self.queued.remove(&tile);
+        }
     }
 
     fn install(&mut self, ctx: &egui::Context, fin: Finished) {
         let Some(run) = self.runs.iter_mut().find(|r| r.token == fin.token) else {
             return;
         };
+        // A raster queued before the one already here must not undo it.
+        if run
+            .tiles
+            .get(&(fin.pixel.to_bits(), fin.tx, fin.ty))
+            .is_some_and(|t| t.job > fin.id)
+        {
+            return;
+        }
         run.validated = None;
         let tex = ctx.load_texture(
             format!("brush-tile-{}-{}-{}", fin.token, fin.tx, fin.ty),
@@ -465,6 +530,7 @@ impl BrushTiles {
                 tex,
                 cpu: fin.rgba,
                 baked: fin.baked,
+                job: fin.id,
                 used: 0,
                 pixel: fin.pixel,
                 tx: fin.tx,
@@ -514,18 +580,104 @@ impl BrushTiles {
     }
 }
 
+/// One draw the last board paint made: a tile or a stroke on its own, the
+/// world box it covered, and the strokes it showed there.
+#[cfg(test)]
+#[derive(Clone, Debug)]
+pub(crate) struct PaintRec {
+    pub rect: [f32; 4],
+    pub ids: Vec<NodeId>,
+}
+
+#[cfg(test)]
+thread_local! {
+    static PAINTED: std::cell::RefCell<Vec<PaintRec>> = const { std::cell::RefCell::new(Vec::new()) };
+    static LOGGING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Record every draw board paints make on this thread (benches leave it off).
+#[cfg(test)]
+pub(crate) fn log_paints() {
+    LOGGING.with(|l| l.set(true));
+}
+
+#[cfg(test)]
+fn note_paint(rect: [f32; 4], ids: impl Iterator<Item = NodeId>) {
+    if !LOGGING.with(|l| l.get()) {
+        return;
+    }
+    PAINTED.with(|p| {
+        p.borrow_mut().push(PaintRec {
+            rect,
+            ids: ids.collect(),
+        })
+    });
+}
+
+#[cfg(not(test))]
+#[inline(always)]
+fn note_paint(_rect: [f32; 4], _ids: impl Iterator<Item = NodeId>) {}
+
+#[cfg(test)]
+fn clear_paint_log() {
+    PAINTED.with(|p| p.borrow_mut().clear());
+}
+
+#[cfg(not(test))]
+#[inline(always)]
+fn clear_paint_log() {}
+
+/// Every draw the last board paint on this thread made.
+#[cfg(test)]
+pub(crate) fn painted_last_frame() -> Vec<PaintRec> {
+    PAINTED.with(|p| p.borrow().clone())
+}
+
+/// The world box a stroke's ink can reach, as the tiles judge it.
+#[cfg(test)]
+pub(crate) fn stroke_ink_rect(node: &Node) -> Option<[f32; 4]> {
+    let NodeKind::Shape(shape) = &node.kind else {
+        return None;
+    };
+    Some(ink_rect(node, shape))
+}
+
+/// How often the last paint drew stroke `id` over samples of `region`:
+/// `(samples, gaps, doubles)`, where a gap is a sample no draw covered and a
+/// double is one two draws covered.
+#[cfg(test)]
+pub(crate) fn coverage(id: NodeId, region: [f32; 4], steps: u32) -> (u32, u32, u32) {
+    let log = painted_last_frame();
+    let mut out = (0, 0, 0);
+    let steps = steps.max(1);
+    for j in 0..steps {
+        for i in 0..steps {
+            let x = region[0] + (region[2] - region[0]) * (i as f32 + 0.5) / steps as f32;
+            let y = region[1] + (region[3] - region[1]) * (j as f32 + 0.5) / steps as f32;
+            let hits = log
+                .iter()
+                .filter(|r| x >= r.rect[0] && x < r.rect[2] && y >= r.rect[1] && y < r.rect[3])
+                .filter(|r| r.ids.contains(&id))
+                .count();
+            out.0 += 1;
+            if hits == 0 {
+                out.1 += 1;
+            } else if hits > 1 {
+                out.2 += 1;
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 impl BrushTiles {
     /// Strokes the last paint drew, from any tile it painted or on their own.
     pub(crate) fn drawn_ids(&self) -> HashSet<NodeId> {
-        let frame = self.last.frame;
-        let mut out: HashSet<NodeId> = self.last.fresh.iter().copied().collect();
-        for run in &self.runs {
-            for tile in run.tiles.values().filter(|t| t.used == frame) {
-                out.extend(tile.baked.iter().map(|(id, _)| *id));
-            }
-        }
-        out
+        painted_last_frame()
+            .into_iter()
+            .flat_map(|r| r.ids.into_iter())
+            .collect()
     }
 
     /// Every cached tile's texture, keyed by run token and tile.
@@ -677,6 +829,19 @@ fn plain_stamp<'a>(
     Some((shape, path))
 }
 
+/// A stamped stroke of any kind, tiled or painted on its own.
+fn stamp_stroke(node: &Node) -> Option<&ShapeNode> {
+    let NodeKind::Shape(shape) = &node.kind else {
+        return None;
+    };
+    (shape.shape == ShapeKind::Path
+        && shape.path.is_some()
+        && !slate_doc::scene::shape_hosts_text(shape)
+        && shape.stroke.paints_as_stamp()
+        && !shape.stroke.is_none())
+    .then_some(shape)
+}
+
 fn ink_rect(node: &Node, shape: &ShapeNode) -> [f32; 4] {
     let pad = shape.stroke.width.max(1.0) * 0.5 + 4.0;
     if node.rotation_deg.abs() < 0.01 {
@@ -749,13 +914,11 @@ pub(crate) fn paint_rest(
     }
 
     super::ensure_erase_live(app, painter, xf);
+    clear_paint_log();
     let scene_gen = app.scene_gen;
     app.brush_tiles.last.drew_fallback = false;
     app.brush_tiles.last.individuals = 0;
-    app.brush_tiles.last.fresh.clear();
     app.brush_tiles.claimed.clear();
-    let lent = std::mem::take(&mut app.brush_tiles.lent);
-    app.brush_tiles.lent_last = lent;
     app.brush_tiles.sync_keys(scene_gen);
     app.brush_tiles.drain_finished();
     crate::app::board::brush_prof::lap("tiles.keys");
@@ -765,7 +928,24 @@ pub(crate) fn paint_rest(
     let want = super::stamp_pixel_for_zoom(xf.z, painter.ctx().pixels_per_point());
     let view = view_bounds(screen, xf);
     let frame = app.frame_no;
+    let span = tile_span(view, want);
+    let doc = app.tab().id;
+    if app.brush_tiles.shown_doc != doc {
+        app.brush_tiles.shown.clear();
+        app.brush_tiles.shown_doc = doc;
+    }
+    let mut coords = std::mem::take(&mut app.brush_tiles.coords);
+    let cells = ((span.2 - span.0 + 1) * (span.3 - span.1 + 1)).max(0) as usize;
+    coords.resize_with(cells, CoordFrame::default);
+    for c in &mut coords {
+        c.settled = true;
+        c.replayed = false;
+        c.layers.clear();
+    }
 
+    // Plan every run first: a coordinate is settled only when every run
+    // that reaches it has its exact tile.
+    let mut segments = Vec::new();
     let mut index = 0;
     while index < nodes.len() {
         let node = &nodes[index];
@@ -774,7 +954,7 @@ pub(crate) fn paint_rest(
             continue;
         }
         if plain_stamp(app, node).is_none() {
-            app.paint_board_node(ui, painter, xf, node, true);
+            segments.push(Segment::Single(index));
             index += 1;
             continue;
         }
@@ -791,27 +971,42 @@ pub(crate) fn paint_rest(
                 break;
             }
         }
-        paint_run(
+        segments.push(Segment::Run(plan_run(
             app,
-            ui,
-            painter,
-            xf,
-            view,
             want,
-            frame,
-            &nodes[start..index],
-        );
+            span,
+            nodes,
+            start,
+            index,
+            &mut coords,
+        )));
     }
 
+    let pass = Pass {
+        ui,
+        painter,
+        xf,
+        view,
+        pixel: want,
+        frame,
+        span,
+        nodes,
+    };
+    for segment in segments {
+        match segment {
+            Segment::Run(plan) => paint_plan(app, &pass, plan, &mut coords),
+            Segment::Single(i) => paint_single(app, &pass, i, &mut coords),
+        }
+    }
+    record_shown(&mut app.brush_tiles, &pass, &coords);
+    app.brush_tiles.coords = coords;
+
     app.brush_tiles.evict(frame);
-    let pending = app.brush_tiles.live_jobs.len()
-        + app.brush_tiles.incoming.len()
-        + app.brush_tiles.held.len();
+    let pending = app.brush_tiles.live_jobs.len() + app.brush_tiles.incoming.len();
     let ready = app.brush_tiles.runs.iter().map(|r| r.tiles.len()).sum();
     let gpu_bytes = app.brush_tiles.gpu_bytes();
     let drew_fallback = app.brush_tiles.last.drew_fallback;
     let individuals = app.brush_tiles.last.individuals;
-    let fresh = std::mem::take(&mut app.brush_tiles.last.fresh);
     app.brush_tiles.last = BrushPaintStats {
         gpu_bytes,
         pending_jobs: pending,
@@ -820,26 +1015,73 @@ pub(crate) fn paint_rest(
         individuals,
         settled: pending == 0 && !drew_fallback && individuals == 0,
         frame,
-        fresh,
     };
     if pending > 0 {
         painter.ctx().request_repaint();
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn paint_run(
-    app: &mut SlateApp,
-    _ui: &egui::Ui,
-    painter: &egui::Painter,
-    xf: &BoardXf,
+/// Borrowed state for one board paint.
+struct Pass<'a> {
+    ui: &'a egui::Ui,
+    painter: &'a egui::Painter,
+    xf: &'a BoardXf,
     view: [f32; 4],
     pixel: f32,
     frame: u64,
+    span: (i32, i32, i32, i32),
+    nodes: &'a [Node],
+}
+
+impl Pass<'_> {
+    fn bits(&self) -> u32 {
+        self.pixel.to_bits()
+    }
+
+    fn screen_rect(&self, rect: [f32; 4]) -> egui::Rect {
+        egui::Rect::from_min_max(
+            self.xf.w2s(Pos2::new(rect[0], rect[1])),
+            self.xf.w2s(Pos2::new(rect[2], rect[3])),
+        )
+    }
+
+    /// The board painter, clipped to one tile.
+    fn clipped(&self, rect: [f32; 4]) -> egui::Painter {
+        self.painter
+            .with_clip_rect(self.painter.clip_rect().intersect(self.screen_rect(rect)))
+    }
+}
+
+/// Visible tile coordinates a world box reaches, inclusive (empty when
+/// `x0 > x1`). A hair wider than the box, so `overlaps` stays the judge.
+fn reach(span: (i32, i32, i32, i32), pixel: f32, rect: [f32; 4]) -> (i32, i32, i32, i32) {
+    let eps = pixel * 0.5;
+    (
+        tile_index(rect[0] - eps, pixel, TILE_PX).max(span.0),
+        tile_index(rect[1] - eps, pixel, TILE_PX).max(span.1),
+        tile_index(rect[2] + eps, pixel, TILE_PX).min(span.2),
+        tile_index(rect[3] + eps, pixel, TILE_PX).min(span.3),
+    )
+}
+
+fn slot_coord(span: (i32, i32, i32, i32), slot: usize) -> (i32, i32) {
+    let cols = (span.2 - span.0 + 1) as usize;
+    (span.0 + (slot % cols) as i32, span.1 + (slot / cols) as i32)
+}
+
+/// Match a run of plain stamps to its cache and judge each visible tile.
+/// Tiles that are not exact are queued here and unsettle their coordinate.
+fn plan_run(
+    app: &mut SlateApp,
+    pixel: f32,
+    span: (i32, i32, i32, i32),
     nodes: &[Node],
-) {
-    let mut prep = Vec::with_capacity(nodes.len());
-    for node in nodes {
+    start: usize,
+    end: usize,
+    coords: &mut [CoordFrame],
+) -> RunPlan {
+    let mut prep = Vec::with_capacity(end - start);
+    for node in &nodes[start..end] {
         if node.is_frame() || matches!(node.kind, NodeKind::Connector(_)) {
             continue;
         }
@@ -863,49 +1105,45 @@ fn paint_run(
     let doc = app.tab().id;
     let token = match_run(&mut app.brush_tiles, doc, &ids, &keys);
     crate::app::board::brush_prof::lap("tiles.match");
-    let mut drew_fallback = false;
-    let mut individuals = 0usize;
-
-    let (tx0, ty0, tx1, ty1) = tile_span(view, pixel);
-    let span = (tx0, ty0, tx1, ty1);
     let bits = pixel.to_bits();
     let sig = run_signature(&ids, &keys);
-    if let Some(run) = app.brush_tiles.runs.iter_mut().find(|r| r.token == token) {
-        if run.validated.is_some_and(|v| v.covers(sig, bits, span)) {
-            for ty in ty0..=ty1 {
-                for tx in tx0..=tx1 {
-                    if let Some(tile) = run.tiles.get_mut(&(bits, tx, ty)) {
-                        tile.used = frame;
-                        paint_tile(painter, xf, tile);
-                    }
-                }
-            }
-            run.used = frame;
-            crate::app::board::brush_prof::lap("tiles.fast");
-            return;
-        }
+    let fast = app
+        .brush_tiles
+        .runs
+        .iter()
+        .find(|r| r.token == token)
+        .is_some_and(|r| r.validated.is_some_and(|v| v.covers(sig, bits, span)));
+    let mut plan = RunPlan {
+        token,
+        start,
+        end,
+        fast,
+        prep: Vec::new(),
+        cells: Vec::new(),
+        sig,
+        ids,
+        keys,
+        missing: false,
+    };
+    if fast {
+        return plan;
     }
     let bins = bin_by_tile(&prep, pixel, span);
-    let mut missing = false;
-    let mut absent = false;
-    let mut covered: HashSet<NodeId> = HashSet::new();
-    for ty in ty0..=ty1 {
-        for tx in tx0..=tx1 {
+    for ty in span.1..=span.3 {
+        for tx in span.0..=span.2 {
             let bounds = tile_bounds(tx, ty, pixel);
-            let bin = &bins[bin_slot(span, tx, ty)];
-            let mut desired = std::mem::take(&mut app.brush_tiles.scratch_desired);
-            desired.clear();
-            for &i in bin {
-                let p = &prep[i];
-                if overlaps(p.bounds, bounds) {
-                    desired.push((p.id, p.key));
-                }
-            }
+            let slot = bin_slot(span, tx, ty);
+            let bin = &bins[slot];
+            let desired: Vec<(NodeId, u64)> = bin
+                .iter()
+                .map(|&i| &prep[i])
+                .filter(|p| overlaps(p.bounds, bounds))
+                .map(|p| (p.id, p.key))
+                .collect();
             if desired.is_empty() {
-                app.brush_tiles.scratch_desired = desired;
                 continue;
             }
-            let kind = app
+            let fit = app
                 .brush_tiles
                 .runs
                 .iter()
@@ -921,167 +1159,438 @@ fn paint_run(
                     }
                 })
                 .unwrap_or(TileFit::Missing);
-            if kind == TileFit::Exact {
-                for (id, _) in &desired {
-                    covered.insert(*id);
-                }
-                if let Some(run) = app.brush_tiles.runs.iter_mut().find(|r| r.token == token) {
-                    if let Some(tile) = run.tiles.get_mut(&(bits, tx, ty)) {
-                        tile.used = frame;
-                        paint_tile(painter, xf, tile);
-                    }
-                }
-                app.brush_tiles.scratch_desired = desired;
-                continue;
-            }
-            missing = true;
-            let mut need: Vec<(NodeId, u64)> = Vec::new();
-            if kind == TileFit::Missing {
-                need.extend_from_slice(&desired);
-            } else if let Some(run) = app.brush_tiles.runs.iter_mut().find(|r| r.token == token) {
-                // The old raster keeps painting until its replacement lands.
-                // Strokes it already shows unchanged are covered by it.
-                if let Some(tile) = run.tiles.get_mut(&(bits, tx, ty)) {
-                    tile.used = frame;
-                    paint_tile(painter, xf, tile);
-                    if let TileFit::Prefix(n) = kind {
-                        covered.extend(desired[..n].iter().map(|(id, _)| *id));
-                        need.extend_from_slice(&desired[n..]);
+            if fit != TileFit::Exact {
+                plan.missing = true;
+                coords[slot].settled = false;
+                let queued = app
+                    .brush_tiles
+                    .queued
+                    .get(&(token, bits, tx, ty))
+                    .is_some_and(|q| q == &desired);
+                if !queued {
+                    let skip = match fit {
+                        TileFit::Prefix(n) => n,
+                        _ => 0,
+                    };
+                    let base = if skip > 0 {
+                        app.brush_tiles
+                            .runs
+                            .iter()
+                            .find(|r| r.token == token)
+                            .and_then(|r| r.tiles.get(&(bits, tx, ty)))
+                            .map(|t| t.cpu.clone())
                     } else {
-                        let shown: HashSet<(NodeId, u64)> = tile.baked.iter().copied().collect();
-                        for pair in desired.iter() {
-                            if shown.contains(pair) {
-                                covered.insert(pair.0);
-                            } else {
-                                need.push(*pair);
-                            }
-                        }
+                        None
+                    };
+                    let incremental = base.is_some();
+                    let strokes = bin
+                        .iter()
+                        .map(|&i| &prep[i])
+                        .filter(|p| overlaps(p.bounds, bounds))
+                        .skip(skip)
+                        .map(|p| Arc::clone(&p.src))
+                        .collect();
+                    let id = app.brush_tiles.next_job;
+                    app.brush_tiles.next_job = app.brush_tiles.next_job.wrapping_add(1);
+                    let ink = Arc::clone(&app.brush_tiles.ink);
+                    app.brush_tiles.enqueue(Job {
+                        id,
+                        token,
+                        pixel,
+                        tx,
+                        ty,
+                        base,
+                        strokes,
+                        baked: desired.clone(),
+                        incremental,
+                        ink,
+                    });
+                }
+            }
+            plan.cells.push(Cell {
+                slot,
+                tx,
+                ty,
+                fit,
+                desired,
+            });
+        }
+    }
+    plan.prep = prep;
+    plan
+}
+
+/// Paint a run's own tile at `key`, recording it when the coordinate is
+/// settled. Returns false when the run has no tile there.
+fn paint_run_tile(
+    app: &mut SlateApp,
+    pass: &Pass,
+    token: u64,
+    key: TileCoord,
+    slot: usize,
+    coords: &mut [CoordFrame],
+) -> bool {
+    let Some(run) = app.brush_tiles.runs.iter_mut().find(|r| r.token == token) else {
+        return false;
+    };
+    let Some(tile) = run.tiles.get_mut(&key) else {
+        return false;
+    };
+    tile.used = pass.frame;
+    paint_tile(pass.painter, pass.xf, tile);
+    if coords[slot].settled {
+        coords[slot].layers.push(LayerKey::Tile {
+            token,
+            tex: tile.tex.id(),
+        });
+    }
+    true
+}
+
+/// Paint what `key` showed when it last settled, once per frame, at the
+/// first thing painted there.
+fn replay(app: &mut SlateApp, pass: &Pass, key: TileCoord, slot: usize, coords: &mut [CoordFrame]) {
+    if coords[slot].replayed {
+        return;
+    }
+    coords[slot].replayed = true;
+    let Some(shown) = app.brush_tiles.shown.remove(&key) else {
+        return;
+    };
+    let rect = tile_bounds(key.1, key.2, pass.pixel);
+    for layer in &shown.layers {
+        match layer {
+            ShownLayer::Tile { tex, ids, .. } => {
+                note_paint(rect, ids.iter().copied());
+                pass.painter.image(
+                    tex.id(),
+                    pass.screen_rect(rect),
+                    egui::Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                    Color32::WHITE,
+                );
+            }
+            ShownLayer::Node(id) => {
+                if let Some(node) = pass.nodes.iter().find(|n| n.id == *id) {
+                    note_paint(rect, std::iter::once(*id));
+                    app.paint_board_node(pass.ui, &pass.clipped(rect), pass.xf, node, true);
+                }
+            }
+        }
+    }
+    app.brush_tiles.shown.insert(key, shown);
+}
+
+/// The stand-in at `key` is live this frame and already shows `id`.
+fn stand_in_shows(
+    app: &SlateApp,
+    coords: &[CoordFrame],
+    slot: usize,
+    key: TileCoord,
+    id: NodeId,
+) -> bool {
+    !coords[slot].settled
+        && app
+            .brush_tiles
+            .shown
+            .get(&key)
+            .is_some_and(|s| s.ids.binary_search(&id).is_ok())
+}
+
+/// Paint one planned run in place. A settled coordinate paints the run's
+/// exact tile. An unsettled one paints its stand-in once, then only the
+/// strokes the stand-in does not show yet, clipped to that coordinate.
+fn paint_plan(app: &mut SlateApp, pass: &Pass, plan: RunPlan, coords: &mut [CoordFrame]) {
+    let bits = pass.bits();
+    let token = plan.token;
+    let mut fresh: Vec<(NodeId, usize)> = Vec::new();
+    let mut absent: Vec<usize> = Vec::new();
+    if plan.fast {
+        for ty in pass.span.1..=pass.span.3 {
+            for tx in pass.span.0..=pass.span.2 {
+                let key = (bits, tx, ty);
+                let slot = bin_slot(pass.span, tx, ty);
+                if coords[slot].settled || !app.brush_tiles.shown.contains_key(&key) {
+                    paint_run_tile(app, pass, token, key, slot, coords);
+                    continue;
+                }
+                let Some(baked) = app
+                    .brush_tiles
+                    .runs
+                    .iter()
+                    .find(|r| r.token == token)
+                    .and_then(|r| r.tiles.get(&key))
+                    .map(|t| t.baked.iter().map(|(id, _)| *id).collect::<Vec<_>>())
+                else {
+                    continue;
+                };
+                replay(app, pass, key, slot, coords);
+                for id in baked {
+                    if !stand_in_shows(app, coords, slot, key, id) {
+                        fresh.push((id, slot));
                     }
                 }
             }
-            if !need.is_empty() {
-                let at = (bits, tx, ty);
-                borrow_tiles(
-                    app,
-                    doc,
-                    token,
-                    at,
-                    &mut need,
-                    frame,
-                    painter,
-                    xf,
-                    &mut covered,
-                );
-                if kind == TileFit::Missing && !need.is_empty() {
-                    absent = true;
+        }
+        crate::app::board::brush_prof::lap("tiles.fast");
+    } else {
+        for (ci, cell) in plan.cells.iter().enumerate() {
+            let key = (bits, cell.tx, cell.ty);
+            if coords[cell.slot].settled {
+                paint_run_tile(app, pass, token, key, cell.slot, coords);
+            } else if app.brush_tiles.shown.contains_key(&key) {
+                replay(app, pass, key, cell.slot, coords);
+                for (id, _) in &cell.desired {
+                    if !stand_in_shows(app, coords, cell.slot, key, *id) {
+                        fresh.push((*id, cell.slot));
+                    }
                 }
-            }
-            let queued = app
-                .brush_tiles
-                .queued
-                .get(&(token, bits, tx, ty))
-                .is_some_and(|q| q == &desired);
-            if queued {
-                app.brush_tiles.scratch_desired = desired;
-                continue;
-            }
-            {
-                let skip = match kind {
-                    TileFit::Prefix(n) => n,
-                    _ => 0,
-                };
-                let base = if skip > 0 {
-                    app.brush_tiles
-                        .runs
-                        .iter()
-                        .find(|r| r.token == token)
-                        .and_then(|r| r.tiles.get(&(bits, tx, ty)))
-                        .map(|t| t.cpu.clone())
-                } else {
-                    None
-                };
-                let incremental = base.is_some();
-                let strokes = bin
+            } else if cell.fit == TileFit::Missing {
+                absent.push(ci);
+            } else {
+                // First sight of this coordinate at this zoom: the run's own
+                // older tile, plus the strokes it does not show.
+                paint_run_tile(app, pass, token, key, cell.slot, coords);
+                let shown: Vec<(NodeId, u64)> = app
+                    .brush_tiles
+                    .runs
                     .iter()
-                    .map(|&i| &prep[i])
-                    .filter(|p| overlaps(p.bounds, bounds))
-                    .skip(skip)
-                    .map(|p| Arc::clone(&p.src))
-                    .collect();
-                let id = app.brush_tiles.next_job;
-                app.brush_tiles.next_job = app.brush_tiles.next_job.wrapping_add(1);
-                let ink = Arc::clone(&app.brush_tiles.ink);
-                app.brush_tiles.enqueue(Job {
-                    id,
-                    token,
-                    pixel,
-                    tx,
-                    ty,
-                    base,
-                    strokes,
-                    baked: desired,
-                    incremental,
-                    ink,
-                });
+                    .find(|r| r.token == token)
+                    .and_then(|r| r.tiles.get(&key))
+                    .map(|t| t.baked.clone())
+                    .unwrap_or_default();
+                for pair in &cell.desired {
+                    if !shown.contains(pair) {
+                        fresh.push((pair.0, cell.slot));
+                    }
+                }
             }
         }
     }
 
-    // Another level stands in only for tiles that have nothing to show.
-    // Tiles still painting an old raster do not need one.
-    if absent {
-        for fallback in fallback_pixels(app, token, pixel) {
-            if draw_level(app, painter, xf, view, fallback, frame, &prep, token, true) {
+    // Another zoom level stands in only for coordinates with nothing to show.
+    let mut drew_fallback = false;
+    if !absent.is_empty() {
+        for fallback in fallback_pixels(app, token, pass.pixel) {
+            if draw_level(
+                app,
+                pass.painter,
+                pass.xf,
+                pass.view,
+                fallback,
+                pass.frame,
+                &plan.prep,
+                token,
+                true,
+            ) {
                 drew_fallback = true;
                 break;
             }
         }
-        if let Some(coarse) = coarser(pixel) {
-            ensure_level(app, view, coarse, token, &prep);
+        if let Some(coarse) = coarser(pass.pixel) {
+            ensure_level(app, pass.view, coarse, token, &plan.prep);
         }
-    }
-
-    let fresh: Vec<NodeId> = if missing && !drew_fallback {
-        prep.iter()
-            .rev()
-            .filter(|p| !covered.contains(&p.id))
-            .take(IMMEDIATE_STROKES)
-            .map(|p| p.id)
-            .collect()
-    } else {
-        Vec::new()
-    };
-    if !fresh.is_empty() && fresh.len() <= IMMEDIATE_STROKES {
-        individuals = fresh.len();
-        app.brush_tiles.last.fresh.extend_from_slice(&fresh);
-        for node in nodes {
-            if fresh.contains(&node.id) {
-                let fade = fade_of(node);
-                if let NodeKind::Shape(shape) = &node.kind {
-                    if let Some(path) = shape.path.as_ref() {
-                        paint_path_shape(app, painter, xf, node, shape, path, &fade);
-                    }
-                }
+        if !drew_fallback {
+            for &ci in &absent {
+                let cell = &plan.cells[ci];
+                fresh.extend(cell.desired.iter().map(|(id, _)| (*id, cell.slot)));
             }
         }
     }
-
-    if drew_fallback {
-        individuals = 0;
-    }
+    let individuals = if fresh.is_empty() {
+        0
+    } else {
+        paint_fresh(app, pass, &plan, &fresh)
+    };
     app.brush_tiles.last.drew_fallback |= drew_fallback;
     app.brush_tiles.last.individuals += individuals;
     if let Some(run) = app.brush_tiles.runs.iter_mut().find(|r| r.token == token) {
         // Grow the cached stroke list when new strokes appear. A cull is the
         // other way around and must not throw the list away. A restyle keeps
         // the strokes and takes their new keys.
-        run.validated = (!missing).then_some(Validated { sig, bits, span });
-        if id_subsequence(&ids, &run.ids) {
-            run.ids = ids;
-            run.keys = keys;
+        run.validated = (!plan.missing).then_some(Validated {
+            sig: plan.sig,
+            bits,
+            span: pass.span,
+        });
+        if id_subsequence(&plan.ids, &run.ids) {
+            run.ids = plan.ids;
+            run.keys = plan.keys;
         }
-        run.used = frame;
+        run.used = pass.frame;
     }
+}
+
+/// Paint strokes no tile here shows yet, each clipped to the coordinates
+/// that need it, newest first. A stroke whose stamp bitmap is current always
+/// paints; at most `IMMEDIATE_STROKES` new bitmaps build per run and frame,
+/// so a full board never rasterizes on the frame loop. Returns how many
+/// strokes painted.
+fn paint_fresh(
+    app: &mut SlateApp,
+    pass: &Pass,
+    plan: &RunPlan,
+    fresh: &[(NodeId, usize)],
+) -> usize {
+    let mut slots: HashMap<NodeId, Vec<usize>> = HashMap::new();
+    for (id, slot) in fresh {
+        let at = slots.entry(*id).or_default();
+        if !at.contains(slot) {
+            at.push(*slot);
+        }
+    }
+    let mut built = 0;
+    let mut painted = 0;
+    for node in pass.nodes[plan.start..plan.end].iter().rev() {
+        let Some(at) = slots.get(&node.id) else {
+            continue;
+        };
+        let NodeKind::Shape(shape) = &node.kind else {
+            continue;
+        };
+        let Some(path) = shape.path.as_ref() else {
+            continue;
+        };
+        let key = app.brush_tiles.keys.get(&node.id).copied();
+        let current = key.is_some_and(|k| {
+            app.brush_stamps
+                .get(&node.id)
+                .is_some_and(|(cached, gpu)| *cached == k && gpu.wanted_pixel == pass.pixel)
+        });
+        if !current {
+            if built >= IMMEDIATE_STROKES {
+                continue;
+            }
+            built += 1;
+        }
+        painted += 1;
+        let fade = fade_of(node);
+        for &slot in at {
+            let (tx, ty) = slot_coord(pass.span, slot);
+            let rect = tile_bounds(tx, ty, pass.pixel);
+            note_paint(rect, std::iter::once(node.id));
+            paint_path_shape(app, &pass.clipped(rect), pass.xf, node, shape, path, &fade);
+        }
+    }
+    painted
+}
+
+/// A node outside the tiles. A stamped stroke skips coordinates whose
+/// stand-in already shows it, so it is never drawn twice or dropped.
+fn paint_single(app: &mut SlateApp, pass: &Pass, index: usize, coords: &mut [CoordFrame]) {
+    let node = &pass.nodes[index];
+    let Some(shape) = stamp_stroke(node) else {
+        app.paint_board_node(pass.ui, pass.painter, pass.xf, node, true);
+        return;
+    };
+    let ink = ink_rect(node, shape);
+    let bits = pass.bits();
+    let (x0, y0, x1, y1) = reach(pass.span, pass.pixel, ink);
+    let mut blocked = false;
+    for ty in y0..=y1 {
+        for tx in x0..=x1 {
+            let slot = bin_slot(pass.span, tx, ty);
+            let key = (bits, tx, ty);
+            if coords[slot].settled
+                || !overlaps(ink, tile_bounds(tx, ty, pass.pixel))
+                || !app.brush_tiles.shown.contains_key(&key)
+            {
+                continue;
+            }
+            replay(app, pass, key, slot, coords);
+            blocked |= stand_in_shows(app, coords, slot, key, node.id);
+        }
+    }
+    if blocked {
+        for ty in y0..=y1 {
+            for tx in x0..=x1 {
+                let slot = bin_slot(pass.span, tx, ty);
+                let bounds = tile_bounds(tx, ty, pass.pixel);
+                if !overlaps(ink, bounds)
+                    || stand_in_shows(app, coords, slot, (bits, tx, ty), node.id)
+                {
+                    continue;
+                }
+                note_paint(bounds, std::iter::once(node.id));
+                app.paint_board_node(pass.ui, &pass.clipped(bounds), pass.xf, node, true);
+            }
+        }
+    } else {
+        note_paint(ink, std::iter::once(node.id));
+        app.paint_board_node(pass.ui, pass.painter, pass.xf, node, true);
+    }
+    for ty in y0..=y1 {
+        for tx in x0..=x1 {
+            let slot = bin_slot(pass.span, tx, ty);
+            if coords[slot].settled && overlaps(ink, tile_bounds(tx, ty, pass.pixel)) {
+                coords[slot].layers.push(LayerKey::Node(node.id));
+            }
+        }
+    }
+}
+
+/// Remember what each settled coordinate painted, for the frames after the
+/// next change there. Coordinates that left the view are forgotten.
+fn record_shown(cache: &mut BrushTiles, pass: &Pass, coords: &[CoordFrame]) {
+    let bits = pass.bits();
+    for ty in pass.span.1..=pass.span.3 {
+        for tx in pass.span.0..=pass.span.2 {
+            let slot = bin_slot(pass.span, tx, ty);
+            let key = (bits, tx, ty);
+            let now = &coords[slot];
+            if let Some(shown) = cache.shown.get_mut(&key) {
+                let same = shown.layers.len() == now.layers.len()
+                    && shown
+                        .layers
+                        .iter()
+                        .zip(&now.layers)
+                        .all(|(a, b)| a.key() == *b);
+                if !now.settled || same {
+                    shown.seen = pass.frame;
+                    continue;
+                }
+            } else if !now.settled {
+                continue;
+            }
+            let mut layers = Vec::with_capacity(now.layers.len());
+            let mut ids = Vec::new();
+            for layer in &now.layers {
+                match *layer {
+                    LayerKey::Tile { token, .. } => {
+                        let Some(tile) = cache
+                            .runs
+                            .iter()
+                            .find(|r| r.token == token)
+                            .and_then(|r| r.tiles.get(&key))
+                        else {
+                            continue;
+                        };
+                        let tile_ids: Vec<NodeId> = tile.baked.iter().map(|(id, _)| *id).collect();
+                        ids.extend_from_slice(&tile_ids);
+                        layers.push(ShownLayer::Tile {
+                            token,
+                            tex: tile.tex.clone(),
+                            ids: tile_ids,
+                        });
+                    }
+                    LayerKey::Node(id) => {
+                        ids.push(id);
+                        layers.push(ShownLayer::Node(id));
+                    }
+                }
+            }
+            ids.sort_unstable();
+            ids.dedup();
+            cache.shown.insert(
+                key,
+                Shown {
+                    seen: pass.frame,
+                    layers,
+                    ids,
+                },
+            );
+        }
+    }
+    cache.shown.retain(|_, s| s.seen == pass.frame);
 }
 
 fn run_signature(ids: &[NodeId], keys: &[u64]) -> u64 {
@@ -1170,68 +1679,6 @@ fn covers(baked: &[(NodeId, u64)], desired: &[(NodeId, u64)]) -> bool {
         }
     }
     i == desired.len()
-}
-
-/// Donor tiles one tile may borrow in a frame.
-const LENDERS_PER_TILE: usize = 3;
-
-/// A run that just split or merged (a stroke left or rejoined the tiles)
-/// has strokes here that its own tile does not show yet. Recent runs of the
-/// same document whose tile here already shows some of them unchanged (the
-/// run before the split, the pieces before the merge) stand in, the most
-/// helpful first: each painted once per frame, its own replacement waiting
-/// (`lent`) until this run's tile lands. `need` keeps what none of them shows.
-#[allow(clippy::too_many_arguments)]
-fn borrow_tiles(
-    app: &mut SlateApp,
-    doc: u64,
-    token: u64,
-    at: TileCoord,
-    need: &mut Vec<(NodeId, u64)>,
-    frame: u64,
-    painter: &egui::Painter,
-    xf: &BoardXf,
-    covered: &mut HashSet<NodeId>,
-) {
-    let cache = &mut app.brush_tiles;
-    for _ in 0..LENDERS_PER_TILE {
-        let shows = |r: &RunCache| {
-            r.tiles
-                .get(&at)
-                .map_or(0, |t| need.iter().filter(|p| t.baked.contains(p)).count())
-        };
-        let best = cache
-            .runs
-            .iter()
-            .enumerate()
-            .filter(|(_, r)| r.doc == doc && r.token != token && r.used + 2 >= frame)
-            .map(|(i, r)| (i, shows(r)))
-            .filter(|&(_, n)| n > 0)
-            .max_by_key(|&(_, n)| n);
-        let Some((index, _)) = best else {
-            return;
-        };
-        let run = &mut cache.runs[index];
-        run.used = frame;
-        let lender = run.token;
-        if let Some(tile) = run.tiles.get_mut(&at) {
-            if tile.used != frame {
-                tile.used = frame;
-                paint_tile(painter, xf, tile);
-            }
-            need.retain(|p| {
-                let shown = tile.baked.contains(p);
-                if shown {
-                    covered.insert(p.0);
-                }
-                !shown
-            });
-        }
-        cache.lent.insert((lender, at));
-        if need.is_empty() {
-            return;
-        }
-    }
 }
 
 /// `needle` appears inside `hay` in order, whatever the content keys.
@@ -1394,6 +1841,10 @@ fn ensure_level(app: &mut SlateApp, view: [f32; 4], pixel: f32, token: u64, prep
 }
 
 fn paint_tile(painter: &egui::Painter, xf: &BoardXf, tile: &GpuTile) {
+    note_paint(
+        tile_bounds(tile.tx, tile.ty, tile.pixel),
+        tile.baked.iter().map(|(id, _)| *id),
+    );
     let origin = tile_origin(tile.tx, tile.ty, tile.pixel, TILE_PX);
     let span = TILE_PX as f32 * tile.pixel;
     let min = xf.w2s(Pos2::new(origin[0], origin[1]));
