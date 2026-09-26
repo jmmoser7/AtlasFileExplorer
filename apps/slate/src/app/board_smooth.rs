@@ -9,7 +9,7 @@ use slate_doc::NodeId;
 use vector_ink::kurbo::{BezPath, Shape};
 
 const SMOOTH_BLUR_STEP: f32 = 0.35;
-const SMOOTH_BLUR_MAX: f32 = 48.0;
+pub(crate) const SMOOTH_BLUR_MAX: f32 = 48.0;
 const SMOOTH_POLY_SPACING: f32 = 0.75;
 /// Screen-px deviation allowed when a sparse path becomes a B-spline, so
 /// spans the brush never reaches stay where they were.

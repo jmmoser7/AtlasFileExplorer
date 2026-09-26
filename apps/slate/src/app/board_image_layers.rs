@@ -457,8 +457,17 @@ impl SlateApp {
             } else {
                 ((zoom_bucket as f32 * aspect).ceil() as u32, zoom_bucket)
             };
-            let svg = slate_artifact::paint_layers_svg_with_doc(host, img, w, h, self.doc());
-            if let Some(rgba) = slate_artifact::rasterize_paint_layers_svg(&svg, w, h) {
+            let mut stamps = std::mem::take(&mut self.paint_layer_stamps);
+            let raster = slate_artifact::rasterize_paint_layers(
+                host,
+                img,
+                w,
+                h,
+                Some(self.doc()),
+                &mut stamps,
+            );
+            self.paint_layer_stamps = stamps;
+            if let Some(rgba) = raster {
                 let image =
                     egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba);
                 let texture = ui.ctx().load_texture(

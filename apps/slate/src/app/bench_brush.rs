@@ -228,12 +228,14 @@ fn bench_brush_drag() {
 }
 
 /// Fifty committed brush strokes in a 10 x 5 grid around the view center,
-/// rastered into settled tiles.
-fn erase_board(tag: &str) -> Harness {
+/// blurred by `blur`, settled (tiles for sharp strokes, their own rasters
+/// for blurred ones).
+fn erase_board(tag: &str, blur: f32) -> Harness {
     let mut h = board(tag);
     let origin = h.app.board_xf().s2w(center(&h));
     for i in 0..50 {
-        let (mut rect, shape) = stamp_stroke(i);
+        let (mut rect, mut shape) = stamp_stroke(i);
+        shape.stroke.gaussian_blur = blur;
         rect.x = origin.x - 250.0 + (i % 10) as f32 * 50.0;
         rect.y = origin.y - 125.0 + (i / 10) as f32 * 50.0;
         let node = h
@@ -247,7 +249,12 @@ fn erase_board(tag: &str) -> Harness {
     let deadline = Instant::now() + std::time::Duration::from_secs(20);
     loop {
         h.frame();
-        if h.app.brush_tiles.last.settled && h.app.brush_tiles.last.ready_tiles > 0 {
+        let ready = if blur > 0.0 {
+            h.app.brush_stamps.len() == 50
+        } else {
+            h.app.brush_tiles.last.ready_tiles > 0
+        };
+        if h.app.brush_tiles.last.settled && ready {
             break;
         }
         assert!(Instant::now() < deadline, "fixture tiles did not settle");
@@ -277,7 +284,18 @@ fn erase_path(h: &Harness) -> Vec<Pos2> {
 #[test]
 #[ignore]
 fn bench_eraser_across_strokes() {
-    let mut h = erase_board("eraser_bench_50");
+    erase_across(erase_board("eraser_bench_50", 0.0), "strokes");
+}
+
+/// The same drag across fifty blurred strokes, each previewed from its
+/// blurred bitmap with the pass masked out.
+#[test]
+#[ignore]
+fn bench_eraser_across_blurred_strokes() {
+    erase_across(erase_board("eraser_bench_50_blur", 6.0), "blurred strokes");
+}
+
+fn erase_across(mut h: Harness, label: &str) {
     h.app.set_board_tool(BoardTool::Eraser);
     h.app.eraser_width = 24.0;
     let path = erase_path(&h);
@@ -307,7 +325,7 @@ fn bench_eraser_across_strokes() {
     }
     let left = h.app.doc().scene.nodes.len();
     println!(
-        "eraser across 50 strokes: press {press:.2} ms, move median {:.2} max {:.2} ms over {} moves, release {release:.2} ms, next 10 median {:.2} max {:.2} ms, {} of 50 left",
+        "eraser across 50 {label}: press {press:.2} ms, move median {:.2} max {:.2} ms over {} moves, release {release:.2} ms, next 10 median {:.2} max {:.2} ms, {} of 50 left",
         median_ms(moves.clone()),
         moves.iter().cloned().fold(0.0, f32::max),
         moves.len(),

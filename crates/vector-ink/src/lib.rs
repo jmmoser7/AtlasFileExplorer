@@ -84,7 +84,7 @@ pub use smooth::{
     curvature_variance, laplacian_smooth_pass, laplacian_smooth_spline, radial_weight,
 };
 pub use stamp::{
-    apply_erase, default_pixel, erase_coverage_at, multiply_by_mask, stamp_contours,
+    apply_erase, default_pixel, erase_coverage_at, multiply_by_mask, stamp_blurred, stamp_contours,
     stamp_contours_at, stamp_line, stamp_polyline, stamp_segment, stamp_tipped, tip_coverage,
     tipped_contours, StampImage, StampStyle, TipPoint,
 };

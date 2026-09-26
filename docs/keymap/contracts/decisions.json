@@ -3733,11 +3733,11 @@
           "decided": "2026-09-22"
         },
         "D03": {
-          "behavior": "Left-drag paints the existing freehand stroke at the brush width. Shift+click steps opacity. Shift+right-drag scrubs opacity. Alt+left-click samples with the eyedropper. Alt+right-drag enters SizeHud, centered on the press point, and paints nothing. Ctrl+right-drag enters ColorWheel and paints nothing. Releasing the right button commits that HUD.",
-          "source": "research",
-          "confidence": 80,
+          "behavior": "Left-drag paints the existing freehand stroke at the brush width. Shift+click steps opacity. Shift+right-drag scrubs opacity. Alt+left-click samples with the eyedropper. Alt+right-drag enters SizeHud, centered on the pointer like the brush tip, and paints nothing. Ctrl+right-drag enters ColorWheel and paints nothing. Releasing the right button commits that HUD.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-22"
+          "decided": "2026-09-26"
         },
         "D04": {
           "behavior": "Left-button travel past the existing 4 px draft threshold starts a stroke. An Alt+left press that stays under that threshold samples. Alt+right-drag is SizeHud from the first pixel and never starts a stroke. Shift+click under the threshold still seeds or extends the straight chain.",
@@ -3747,11 +3747,11 @@
           "decided": "2026-09-22"
         },
         "D05": {
-          "behavior": "While Brush is armed and no text field has focus, brush chords run before the global command map. [ and ] step size. Shift+[ steps softness up and Shift+] steps it down, by 25 points. Shift+click steps opacity down by 10 percent, wrapping from 10 percent to 100. Shift+right-drag scrubs opacity vertically (up = more opaque, 100 screen px across the range) with the circle fixed on the press point. Alt+right-drag scrubs size horizontally (right = larger, 1 screen px per pixel) and softness vertically (up = softer), with the circle fixed on the press point. Ctrl+right-drag opens the color wheel and does not turbo-pan. Ctrl wins over Shift, and Alt wins over Shift. Those right-button chords take the button away from right-drag pan and the node context menu. Alt+left stays the eyedropper. Tool letters, D, X, Space pan, scroll zoom, and Ctrl+Z keep their current commands. Esc closes an open HUD before it disarms the brush. Eraser shares [ ] and SizeHud. Softness and the color wheel belong to Brush.",
+          "behavior": "While Brush is armed and no text field has focus, brush chords run before the global command map. [ and ] step size. Shift+[ steps softness up and Shift+] steps it down, by 25 points. Shift+click steps opacity down by 10 percent, wrapping from 10 percent to 100. Shift+right-drag scrubs opacity vertically (up = more opaque, 100 screen px across the range) with the circle fixed on the press point. Alt+right-drag scrubs size horizontally (right = larger, 1 screen px per pixel of travel from the press) and softness vertically (up = softer), with the circle centered on the pointer the way the brush tip is. Ctrl+right-drag opens the color wheel and does not turbo-pan. Ctrl wins over Shift, and Alt wins over Shift. Those right-button chords take the button away from right-drag pan and the node context menu. Alt+left stays the eyedropper. Tool letters, D, X, Space pan, scroll zoom, and Ctrl+Z keep their current commands. Esc closes an open HUD before it disarms the brush. Eraser shares [ ] and SizeHud. Softness and the color wheel belong to Brush.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-22"
+          "decided": "2026-09-26"
         },
         "D06": {
           "behavior": "A freehand stroke still does not point-snap. SizeHud and the color wheel ignore grid and object snap. Grips on a committed stroke still use P1.node.osnap.",

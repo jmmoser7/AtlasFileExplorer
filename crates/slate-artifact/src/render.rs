@@ -1237,6 +1237,23 @@ pub(crate) fn render_shape_svg(
                 rel.x, rel.y, d, fill
             );
         }
+        ShapeKind::Path if stroke.paints_as_stamp() && !stroke.is_none() => {
+            let stamp = shape
+                .path
+                .as_ref()
+                .and_then(|path| brush_stamp(shape, path, rel.w, rel.h, stroke_scale));
+            if let Some((stamp, png)) = stamp.and_then(|s| encode_png(&s).map(|png| (s, png))) {
+                let _ = write!(
+                    svg,
+                    "<image x=\"{:.3}\" y=\"{:.3}\" width=\"{:.3}\" height=\"{:.3}\" preserveAspectRatio=\"none\" href=\"data:image/png;base64,{}\"/>",
+                    rel.x + stamp.origin[0],
+                    rel.y + stamp.origin[1],
+                    stamp.width as f32 * stamp.pixel,
+                    stamp.height as f32 * stamp.pixel,
+                    crate::assets::base64_encode(&png)
+                );
+            }
+        }
         ShapeKind::Path => {
             if let Some(path) = shape.path.as_ref() {
                 let local_d = path_data_d(path, rel.w, rel.h);
@@ -1445,59 +1462,9 @@ fn render_brush_stamp(
     path: &PathData,
     rel: WorldRect,
 ) -> bool {
-    let w = rel.w.max(1.0e-3);
-    let h = rel.h.max(1.0e-3);
-    let mut bez = BezPath::new();
-    append_contour(&mut bez, path.start, &path.segs, path.closed, w, h);
-    for extra in &path.extra {
-        append_contour(&mut bez, extra.start, &extra.segs, extra.closed, w, h);
-    }
-    let base = stamp_style(slate_doc::scene::StrokeSpan::of(&shape.stroke));
-    let tips: Vec<vector_ink::StampStyle> = path
-        .paint_tips(&shape.stroke)
-        .into_iter()
-        .map(stamp_style)
-        .collect();
-    let mut contours = vector_ink::tipped_contours(&bez, &tips, base, 0.25);
-    contours.retain(|c| !c.is_empty());
-    if contours.is_empty() {
-        contours.push(vec![vector_ink::TipPoint {
-            pos: [w * 0.5, h * 0.5],
-            tip: tips.first().copied().unwrap_or(base),
-        }]);
-    }
-    let widest = contours
-        .iter()
-        .flatten()
-        .map(|p| p.tip.diameter)
-        .fold(0.0_f32, f32::max);
-    let Some(mut stamp) = vector_ink::stamp_tipped(&contours, vector_ink::default_pixel(widest))
-    else {
+    let Some(stamp) = brush_stamp(shape, path, rel.w, rel.h, 1.0) else {
         return false;
     };
-    let marks: Vec<Vec<vector_ink::TipPoint>> = path
-        .erase
-        .iter()
-        .map(|mark| {
-            mark.points
-                .iter()
-                .enumerate()
-                .map(|(i, p)| {
-                    let (x, y) = denorm_pt(*p, w, h);
-                    let tip = mark.tips.get(i).or(mark.tips.first()).copied();
-                    vector_ink::TipPoint {
-                        pos: [x, y],
-                        tip: tip.map(stamp_style).unwrap_or(base),
-                    }
-                })
-                .collect()
-        })
-        .collect();
-    vector_ink::apply_erase(&mut stamp, &marks);
-    if shape.stroke.gaussian_blur > 0.0 {
-        let sigma = shape.stroke.gaussian_blur * stamp.pixel;
-        vector_ink::gaussian_blur_rgba(&mut stamp.rgba, stamp.width, stamp.height, sigma);
-    }
     let Some(png) = encode_png(&stamp) else {
         return false;
     };
@@ -1518,6 +1485,73 @@ fn render_brush_stamp(
     html.push_str(&crate::assets::base64_encode(&png));
     html.push_str("\"></div>\n");
     true
+}
+
+/// A brush path's bitmap in a `w`×`h` box whose origin is the path's
+/// top-left. `scale` is output units per world unit: tip widths and blur
+/// are world lengths.
+pub(crate) fn brush_stamp(
+    shape: &slate_doc::scene::ShapeNode,
+    path: &PathData,
+    w: f32,
+    h: f32,
+    scale: f32,
+) -> Option<vector_ink::StampImage> {
+    let w = w.max(1.0e-3);
+    let h = h.max(1.0e-3);
+    let mut bez = BezPath::new();
+    append_contour(&mut bez, path.start, &path.segs, path.closed, w, h);
+    for extra in &path.extra {
+        append_contour(&mut bez, extra.start, &extra.segs, extra.closed, w, h);
+    }
+    let tip_of = |span: slate_doc::scene::StrokeSpan| {
+        let mut style = stamp_style(span);
+        style.diameter *= scale;
+        style
+    };
+    let base = tip_of(slate_doc::scene::StrokeSpan::of(&shape.stroke));
+    let tips: Vec<vector_ink::StampStyle> = path
+        .paint_tips(&shape.stroke)
+        .into_iter()
+        .map(tip_of)
+        .collect();
+    let mut contours = vector_ink::tipped_contours(&bez, &tips, base, 0.25);
+    contours.retain(|c| !c.is_empty());
+    if contours.is_empty() {
+        contours.push(vec![vector_ink::TipPoint {
+            pos: [w * 0.5, h * 0.5],
+            tip: tips.first().copied().unwrap_or(base),
+        }]);
+    }
+    let widest = contours
+        .iter()
+        .flatten()
+        .map(|p| p.tip.diameter)
+        .fold(0.0_f32, f32::max);
+    let marks: Vec<Vec<vector_ink::TipPoint>> = path
+        .erase
+        .iter()
+        .map(|mark| {
+            mark.points
+                .iter()
+                .enumerate()
+                .map(|(i, p)| {
+                    let (x, y) = denorm_pt(*p, w, h);
+                    let tip = mark.tips.get(i).or(mark.tips.first()).copied();
+                    vector_ink::TipPoint {
+                        pos: [x, y],
+                        tip: tip.map(&tip_of).unwrap_or(base),
+                    }
+                })
+                .collect()
+        })
+        .collect();
+    vector_ink::stamp_blurred(
+        &contours,
+        &marks,
+        vector_ink::default_pixel(widest),
+        shape.stroke.gaussian_blur * scale,
+    )
 }
 
 fn stamp_style(tip: slate_doc::scene::StrokeSpan) -> vector_ink::StampStyle {

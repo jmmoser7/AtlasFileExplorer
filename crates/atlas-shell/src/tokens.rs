@@ -26,6 +26,7 @@ pub struct UiTokens {
     pub portal_frame: PortalFrameTokens,
     pub board_preview: BoardPreviewTokens,
     pub board_marquee: BoardMarqueeTokens,
+    pub board_eraser: BoardEraserTokens,
     pub board_forcefield: BoardForcefieldTokens,
     pub board_overlay: BoardOverlayTokens,
     pub menu: MenuTokens,
@@ -47,6 +48,7 @@ impl Default for UiTokens {
             portal_frame: PortalFrameTokens::default(),
             board_preview: BoardPreviewTokens::default(),
             board_marquee: BoardMarqueeTokens::default(),
+            board_eraser: BoardEraserTokens::default(),
             board_forcefield: BoardForcefieldTokens::default(),
             board_overlay: BoardOverlayTokens::default(),
             menu: MenuTokens::default(),
@@ -266,6 +268,34 @@ impl BoardMarqueeTokens {
             self.crossing_dark
         } else {
             self.crossing_light
+        })
+    }
+}
+
+/// Eraser tip and size-circle color: one neutral per theme, never the brush
+/// foreground, so the eraser reads the same over any ink.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BoardEraserTokens {
+    pub preview_light: [u8; 4],
+    pub preview_dark: [u8; 4],
+}
+
+impl Default for BoardEraserTokens {
+    fn default() -> Self {
+        Self {
+            preview_light: [96, 96, 96, 255],
+            preview_dark: [200, 200, 200, 255],
+        }
+    }
+}
+
+impl BoardEraserTokens {
+    pub fn preview(&self, dark_mode: bool) -> Color32 {
+        rgba(if dark_mode {
+            self.preview_dark
+        } else {
+            self.preview_light
         })
     }
 }

@@ -16,8 +16,8 @@ use std::sync::Arc as Shared;
 use vector_ink::kurbo::{self, Arc, BezPath, PathEl, Point};
 use vector_ink::{
     bezpath_from_anchors, classify_kind, flatten, flatten_contours, hit_stroke, move_handle,
-    stamp_segment, stamp_tipped, stroke_mesh, tipped_contours, Anchor, AnchorKind, Cap, InkMesh,
-    Join, StampStyle, StrokeStyle, TipPoint,
+    stamp_segment, stroke_mesh, tipped_contours, Anchor, AnchorKind, Cap, InkMesh, Join,
+    StampStyle, StrokeStyle, TipPoint,
 };
 
 use super::board::{rgba32, BoardXf};
@@ -1763,16 +1763,10 @@ fn paint_stamped_stroke(
             if same_shape {
                 app.brush_stamp_rebuilds += 1;
             }
-            let contours = stamped_contours(node, shape, path, (want as f64 * 0.5).max(0.05));
-            let Some(mut stamp) = stamp_tipped(&contours, want) else {
+            let Some(stamp) = stroke_stamp(node, shape, path, want) else {
                 app.brush_stamps.remove(&node.id);
                 return;
             };
-            vector_ink::apply_erase(&mut stamp, &stamped_erase_marks(node, shape, path));
-            if shape.stroke.gaussian_blur > 0.0 {
-                let sigma = shape.stroke.gaussian_blur * want;
-                vector_ink::gaussian_blur_rgba(&mut stamp.rgba, stamp.width, stamp.height, sigma);
-            }
             let gpu = upload_stamp(painter, &format!("brush-stamp-{}", node.id.0), stamp, want);
             app.brush_stamps.insert(node.id, (key, gpu));
             evict_brush_stamps(&mut app.brush_stamps, app.frame_no);
@@ -1784,6 +1778,23 @@ fn paint_stamped_stroke(
         gpu.used = app.frame_no;
         paint_stamp_quad(painter, xf, gpu, fade(Color32::WHITE));
     }
+}
+
+/// One committed stroke's stamp bitmap at `pixel` world units per pixel:
+/// tipped dabs, the stroke's blur, then erase marks.
+pub(crate) fn stroke_stamp(
+    node: &Node,
+    shape: &ShapeNode,
+    path: &PathData,
+    pixel: f32,
+) -> Option<vector_ink::StampImage> {
+    let contours = stamped_contours(node, shape, path, (pixel as f64 * 0.5).max(0.05));
+    vector_ink::stamp_blurred(
+        &contours,
+        &stamped_erase_marks(node, shape, path),
+        pixel,
+        shape.stroke.gaussian_blur,
+    )
 }
 
 fn evict_brush_stamps(cache: &mut HashMap<NodeId, (u64, BrushStampGpu)>, frame: u64) {
@@ -2160,7 +2171,8 @@ fn upload_region(tex: &mut egui::TextureHandle, rgba: &[u8], width: u32, dirty: 
 }
 
 /// Live spot erase on one stamped stroke during an eraser drag. `ink` is the
-/// stroke as committed (earlier passes applied); `mask` holds this pass with
+/// stroke's committed bitmap ([`stroke_stamp`]: blur and earlier passes
+/// applied), built once; `mask` holds this pass with
 /// max coverage; the texture shows `ink * (1 - mask)`, uploading only the
 /// region the eraser touched.
 pub struct EraseLive {
@@ -2182,9 +2194,7 @@ impl EraseLive {
         path: &PathData,
         pixel: f32,
     ) -> Option<EraseLive> {
-        let contours = stamped_contours(node, shape, path, (pixel as f64 * 0.5).max(0.05));
-        let mut img = stamp_tipped(&contours, pixel)?;
-        vector_ink::apply_erase(&mut img, &stamped_erase_marks(node, shape, path));
+        let img = stroke_stamp(node, shape, path, pixel)?;
         let tex = painter.ctx().load_texture(
             format!("erase-live-{}", node.id.0),
             egui::ColorImage::from_rgba_premultiplied(
@@ -2285,6 +2295,21 @@ impl EraseLive {
             egui::Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
             tint,
         );
+    }
+
+    #[cfg(test)]
+    pub(crate) fn texture(&self) -> egui::TextureId {
+        self.tex.id()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn mask(&self) -> &vector_ink::StampImage {
+        &self.mask
+    }
+
+    #[cfg(test)]
+    pub(crate) fn shown(&self) -> &[u8] {
+        &self.shown
     }
 }
 

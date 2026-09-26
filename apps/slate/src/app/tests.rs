@@ -10185,6 +10185,74 @@ fn pointer_to(pos: Pos2, alt: bool) -> impl FnOnce(&mut egui::RawInput) {
     }
 }
 
+fn right_button(pos: Pos2, pressed: bool, alt: bool) -> impl FnOnce(&mut egui::RawInput) {
+    move |input: &mut egui::RawInput| {
+        let modifiers = egui::Modifiers {
+            alt,
+            ..Default::default()
+        };
+        input.modifiers = modifiers;
+        input.events.push(egui::Event::PointerMoved(pos));
+        input.events.push(egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers,
+        });
+    }
+}
+
+/// Stated 2026-09-26: the Alt+right-drag size circle is centered on the
+/// mouse cursor, the way the brush tip is. Its diameter still scrubs from
+/// the press point.
+#[test]
+fn the_size_hud_circle_is_centered_on_the_pointer() {
+    let mut h = line_board("size_hud_center");
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.tab_mut().cam.z = 1.0;
+    h.app.brush_width = 20.0;
+    h.frame();
+    let c = h.app.canvas_rect.center();
+    h.frame_with(pointer_to(c, true));
+    h.frame_with(right_button(c, true, true));
+    let to = c + EVec2::new(40.0, -30.0);
+    let out = h.frame_output(|input| {
+        input.modifiers.alt = true;
+        input.events.push(egui::Event::PointerMoved(to));
+    });
+    assert!(matches!(
+        h.app.brush_hud,
+        Some(board_color::BrushHud::Size { .. })
+    ));
+    assert!(
+        (h.app.brush_width - 60.0).abs() < 0.5,
+        "40 px right from a 20 px tip scrubs to 60, got {}",
+        h.app.brush_width
+    );
+    let r = h.app.brush_width * 0.5;
+    let mut rings = Vec::new();
+    fn walk(shape: &egui::Shape, r: f32, acc: &mut Vec<Pos2>) {
+        match shape {
+            egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, r, acc)),
+            egui::Shape::Circle(c) if (c.radius - r).abs() < 0.5 && c.stroke.width > 0.0 => {
+                acc.push(c.center)
+            }
+            _ => {}
+        }
+    }
+    for clipped in &out.shapes {
+        walk(&clipped.shape, r, &mut rings);
+    }
+    assert!(!rings.is_empty(), "the size HUD painted its width ring");
+    for center in rings {
+        assert!(
+            center.distance(to) < 0.5,
+            "the size ring sits at {center:?}, the pointer is at {to:?} (press was {c:?})"
+        );
+    }
+    h.frame_with(right_button(to, false, false));
+}
+
 /// Alt+left-click with the Brush samples instead of painting; releasing Alt
 /// paints again.
 #[test]
@@ -11623,4 +11691,185 @@ fn actions_flyout_offers_mirror() {
         "board.mirror.vertical"
     );
     assert_eq!(picture_flips(&h, pic), (false, true));
+}
+
+/// Every color a frame painted: mesh vertices and shape fills and strokes.
+fn painted_colors(out: &egui::FullOutput) -> Vec<egui::Color32> {
+    fn walk(shape: &egui::Shape, acc: &mut Vec<egui::Color32>) {
+        match shape {
+            egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, acc)),
+            egui::Shape::Mesh(m) => acc.extend(m.vertices.iter().map(|v| v.color)),
+            egui::Shape::Circle(c) => acc.extend([c.fill, c.stroke.color]),
+            egui::Shape::Path(p) => {
+                acc.push(p.fill);
+                if let egui::epaint::PathStroke {
+                    color: egui::epaint::ColorMode::Solid(c),
+                    ..
+                } = p.stroke
+                {
+                    acc.push(c);
+                }
+            }
+            egui::Shape::Rect(r) => acc.extend([r.fill, r.stroke.color]),
+            _ => {}
+        }
+    }
+    let mut acc = Vec::new();
+    for clipped in &out.shapes {
+        walk(&clipped.shape, &mut acc);
+    }
+    acc
+}
+
+/// Painted strongly in the test's brush red (230, 20, 20).
+fn brush_red(c: egui::Color32) -> bool {
+    let [r, g, b, a] = c.to_srgba_unmultiplied();
+    a > 8 && r > 150 && g < 90 && b < 90
+}
+
+/// Stated 2026-09-26: the eraser preview never takes the brush color. Its
+/// tip, its size HUD, and a drag across ink all paint in the eraser's own
+/// neutral, whatever the foreground is.
+#[test]
+fn the_eraser_preview_keeps_its_own_color() {
+    let mut h = line_board("eraser_preview_color");
+    h.app.board_colors.fg = Rgba([230, 20, 20, 255]);
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.frame();
+    let c = h.app.canvas_rect.center();
+    let brush = h.frame_output(pointer_to(c, false));
+    assert!(
+        painted_colors(&brush).into_iter().any(brush_red),
+        "fixture: the brush tip paints in the foreground"
+    );
+
+    h.app.set_board_tool(board::BoardTool::Eraser);
+    h.frame_with(pointer_to(c, false));
+    let hover = h.frame_output(pointer_to(c + EVec2::new(3.0, 0.0), false));
+    assert!(
+        !painted_colors(&hover).into_iter().any(brush_red),
+        "the eraser tip took the brush color"
+    );
+    let expected = h.app.eraser_preview_color();
+    let (_, _, ink) = h.app.width_cursor_disc().expect("the eraser shows a disc");
+    assert_eq!(ink, expected, "the eraser tip is the eraser preview color");
+
+    h.frame_with(right_button(c, true, true));
+    let hud = h.frame_output(|input| {
+        input.modifiers.alt = true;
+        input
+            .events
+            .push(egui::Event::PointerMoved(c + EVec2::new(30.0, -10.0)));
+    });
+    assert!(
+        matches!(h.app.brush_hud, Some(board_color::BrushHud::Size { .. })),
+        "Alt+right-drag opened the size HUD"
+    );
+    assert!(
+        !painted_colors(&hud).into_iter().any(brush_red),
+        "the eraser size HUD took the brush color"
+    );
+    h.frame_with(right_button(c + EVec2::new(30.0, -10.0), false, false));
+
+    // A drag across blue ink, on the board and on an image's paint layer.
+    let erase_across = |h: &mut Harness, what: &str| {
+        let c = h.app.canvas_rect.center();
+        h.frame_with(primary_button(c - EVec2::new(60.0, 0.0), true, false));
+        for i in 0..12 {
+            let at = c + EVec2::new(-60.0 + i as f32 * 10.0, (i % 3) as f32);
+            let out = h.frame_output(pointer_to(at, false));
+            assert!(
+                !painted_colors(&out).into_iter().any(brush_red),
+                "{what}: frame {i} of the erase drag painted the brush color"
+            );
+        }
+        h.frame_with(primary_button(c + EVec2::new(60.0, 0.0), false, false));
+    };
+    let world = |h: &Harness, dx: f32| {
+        h.app
+            .board_xf()
+            .s2w(h.app.canvas_rect.center() + EVec2::new(dx, 0.0))
+    };
+    h.app.board_colors.fg = Rgba([20, 40, 230, 255]);
+    h.app.set_board_tool(board::BoardTool::Brush);
+    let (a, b) = (world(&h, -80.0), world(&h, 80.0));
+    h.app.finish_freehand_brush(vec![a, b]);
+    h.app.board_colors.fg = Rgba([230, 20, 20, 255]);
+    h.app.set_board_tool(board::BoardTool::Eraser);
+    h.frame();
+    erase_across(&mut h, "board");
+
+    let p = h.base.join("photo.png");
+    std::fs::write(&p, b"png").unwrap();
+    let item = h.app.add_paths(&[p])[0];
+    let (a, b) = (world(&h, -120.0), world(&h, 120.0));
+    let image = h.app.doc_mut().scene.build_node(
+        slate_doc::scene::WorldRect::new(a.x, a.y - 60.0, b.x - a.x, 120.0),
+        slate_doc::scene::NodeKind::Image(slate_doc::scene::ImageNode::new(item)),
+    );
+    let image_id = image.id;
+    h.app.add_nodes(vec![image]);
+    h.app.board_sel = std::iter::once(image_id).collect();
+    h.app.board_colors.fg = Rgba([20, 40, 230, 255]);
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.sync_image_paint_for_tool();
+    let (a, b) = (world(&h, -80.0), world(&h, 80.0));
+    h.app.finish_freehand_brush(vec![a, b]);
+    h.app.board_colors.fg = Rgba([230, 20, 20, 255]);
+    h.app.set_board_tool(board::BoardTool::Eraser);
+    h.app.sync_image_paint_for_tool();
+    assert!(
+        h.app.image_paint_session().is_some(),
+        "fixture: image paint"
+    );
+    h.frame();
+    erase_across(&mut h, "image paint layer");
+
+    // One neutral per theme, readable on that theme's board, for the fill and
+    // the rim alike.
+    fn luminance(c: egui::Color32) -> f32 {
+        let lin = |v: u8| {
+            let v = v as f32 / 255.0;
+            if v <= 0.04045 {
+                v / 12.92
+            } else {
+                ((v + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * lin(c.r()) + 0.7152 * lin(c.g()) + 0.0722 * lin(c.b())
+    }
+    h.app.set_board_tool(board::BoardTool::Eraser);
+    h.app.eraser_opacity = 1.0;
+    for dark in [false, true] {
+        h.app.dark_mode = dark;
+        let ink = h.app.eraser_preview_color();
+        let [r, g, b, a] = ink.to_srgba_unmultiplied();
+        assert!(
+            r == g && g == b && a == 255,
+            "dark {dark}: the eraser preview is an opaque neutral gray, got {ink:?}"
+        );
+        let bg = atlas_shell::theme::Palette::for_mode(dark).bg;
+        let (l1, l2) = (luminance(ink), luminance(bg));
+        let contrast = (l1.max(l2) + 0.05) / (l1.min(l2) + 0.05);
+        assert!(
+            contrast >= 3.0,
+            "dark {dark}: eraser preview {ink:?} on board {bg:?} has contrast {contrast:.2}"
+        );
+        let out = h.frame_output(pointer_to(c + EVec2::new(dark as u8 as f32, 1.0), false));
+        let mut rims = Vec::new();
+        fn walk(shape: &egui::Shape, acc: &mut Vec<egui::Color32>) {
+            match shape {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, acc)),
+                egui::Shape::Circle(c) if c.stroke.width > 0.0 => acc.push(c.stroke.color),
+                _ => {}
+            }
+        }
+        for clipped in &out.shapes {
+            walk(&clipped.shape, &mut rims);
+        }
+        assert!(
+            rims.contains(&ink),
+            "dark {dark}: the eraser tip rim is not the preview color: {rims:?}"
+        );
+    }
 }
