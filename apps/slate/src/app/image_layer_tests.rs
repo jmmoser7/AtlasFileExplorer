@@ -352,3 +352,41 @@ fn a_sloppy_click_on_a_file_drop_capsule_still_chooses() {
         "the drifting click chose Add as layer"
     );
 }
+
+// --- 6. Crop toggles pack inside the Corners capsule ------------------------
+
+#[test]
+fn crop_toggles_pack_inside_the_primary_corners_capsule() {
+    let (mut h, _id) = photo_board("crop_toggles_packed");
+    h.app.sync_shape_properties();
+    h.app.shape_properties.panel = Some(Panel::Corners);
+    h.frame();
+    h.frame();
+    let z = h.app.tab().cam.z;
+    let editor = h
+        .app
+        .shape_properties
+        .chrome_hits
+        .iter()
+        .copied()
+        .find(|r| (r.width() - atlas_shell::selection_tools::EDITOR_WIDTH * z).abs() < 0.01)
+        .expect("corner editor is live");
+    assert!(
+        (editor.height() - atlas_shell::selection_tools::CORNER_HEIGHT * z).abs() < 0.01,
+        "the primary capsule keeps its fillet height: {editor:?}"
+    );
+    let out = render(&mut h);
+    for label in ["Fillet", "Chamfer", "Off", "Crop", "%", "u"] {
+        let r = text_rect(&out, label).unwrap_or_else(|| panic!("{label} is painted"));
+        assert!(
+            editor.contains(r.center()),
+            "{label} at {r:?} sits inside the primary capsule {editor:?}"
+        );
+    }
+    let crop = text_rect(&out, "Crop").unwrap().center();
+    click(&mut h, crop);
+    assert!(
+        h.app.board_crop.is_some(),
+        "the packed Crop toggle still enters crop mode"
+    );
+}

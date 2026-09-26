@@ -961,6 +961,58 @@ pub struct CornerEdit {
     pub chamfer: bool,
     pub percent: bool,
     pub amount: Option<f32>,
+    /// The image Off / Crop toggle, when it was offered and clicked.
+    pub crop: Option<bool>,
+}
+
+const CORNER_TREATMENT_W: f32 = 126.0;
+const CORNER_CROP_W: f32 = 140.0;
+const CORNER_TRACK_X: f32 = 134.0;
+const CORNER_TRACK_W: f32 = 210.0;
+const CORNER_UNITS_X: f32 = 350.0;
+const CORNER_UNITS_W: f32 = 68.0;
+const CORNER_GAP: f32 = 6.0;
+
+/// Where the parts of the Corners capsule sit on screen.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CornerLayout {
+    pub treatment: Rect,
+    pub crop: Option<Rect>,
+    pub track: Rect,
+    pub units: Rect,
+}
+
+/// The Corners capsule layout. The amount track keeps its size either way.
+/// With the image Off / Crop toggle, the three toggle capsules scale by one
+/// factor so all of them pack into the same capsule:
+/// `[Off|Crop] [Fillet|Chamfer] track [%|u]`.
+pub fn corner_layout(rect: Rect, crop: bool, zoom: f32) -> CornerLayout {
+    let pad = rect.height() * (2.0 / CAPSULE_HEIGHT);
+    let inner_h = rect.height() * (13.0 / CAPSULE_HEIGHT);
+    let at =
+        |x: f32, w: f32| Rect::from_min_size(Pos2::new(x, rect.top() + pad), Vec2::new(w, inner_h));
+    let track_w = CORNER_TRACK_W * zoom;
+    if !crop {
+        return CornerLayout {
+            treatment: at(rect.left() + pad, CORNER_TREATMENT_W * zoom),
+            crop: None,
+            track: at(rect.left() + CORNER_TRACK_X * zoom, track_w),
+            units: at(rect.left() + CORNER_UNITS_X * zoom, CORNER_UNITS_W * zoom),
+        };
+    }
+    let gap = CORNER_GAP * zoom;
+    let room = rect.width() - 2.0 * pad - track_w - 3.0 * gap;
+    let scale = room / ((CORNER_CROP_W + CORNER_TREATMENT_W + CORNER_UNITS_W) * zoom);
+    let crop = at(rect.left() + pad, CORNER_CROP_W * zoom * scale);
+    let treatment = at(crop.right() + gap, CORNER_TREATMENT_W * zoom * scale);
+    let track = at(treatment.right() + gap, track_w);
+    let units = at(track.right() + gap, CORNER_UNITS_W * zoom * scale);
+    CornerLayout {
+        treatment,
+        crop: Some(crop),
+        track,
+        units,
+    }
 }
 
 fn width_fraction(width: f32) -> f32 {
@@ -1475,13 +1527,23 @@ pub fn segments<'l>(
         if i == selected {
             ui.painter().rect_filled(r, r.height() * 0.5, theme.accent);
         }
+        let color = if i == selected { theme.bg } else { theme.sub };
+        let mut font = canvas_scale::font(9.0, zoom);
+        // A packed segment narrower than its label shrinks the label to fit.
+        let room = share - 4.0 * zoom;
+        let laid =
+            canvas_text::layout_no_wrap(ui.painter(), label.to_string(), font.clone(), color);
+        let wide = laid.galley().size().x * laid.scale();
+        if wide > room && room > 0.0 {
+            font.size *= room / wide;
+        }
         canvas_text::text(
             ui.painter(),
             r.center(),
             Align2::CENTER_CENTER,
             label,
-            canvas_scale::font(9.0, zoom),
-            if i == selected { theme.bg } else { theme.sub },
+            font,
+            color,
         );
         if response.clicked() {
             result = i;
@@ -1490,6 +1552,8 @@ pub fn segments<'l>(
     result
 }
 
+/// `crop` offers the image Off / Crop toggle (`Some(on)`), packed into the
+/// same capsule by [`corner_layout`].
 #[allow(clippy::too_many_arguments)]
 pub fn corner_editor(
     ui: &mut egui::Ui,
@@ -1498,23 +1562,27 @@ pub fn corner_editor(
     percent: bool,
     amount: f32,
     maximum: f32,
+    crop: Option<bool>,
     zoom: f32,
     theme: Palette,
 ) -> CornerEdit {
     paint_capsule(ui, rect, zoom, theme);
-    let pad = rect.height() * (2.0 / CAPSULE_HEIGHT);
-    let inner_h = rect.height() * (13.0 / CAPSULE_HEIGHT);
-    let left = Rect::from_min_size(
-        rect.min + Vec2::splat(pad),
-        Vec2::new(126.0 * zoom, inner_h),
-    );
-    let right = Rect::from_min_size(
-        rect.min + Vec2::new(350.0 * zoom, pad),
-        Vec2::new(68.0 * zoom, inner_h),
-    );
+    let layout = corner_layout(rect, crop.is_some(), zoom);
+    let crop = crop.zip(layout.crop).and_then(|(on, r)| {
+        let picked = segments(
+            ui,
+            r,
+            ui.id().with("image-crop"),
+            ["Off", "Crop"],
+            on as usize,
+            zoom,
+            theme,
+        ) == 1;
+        (picked != on).then_some(picked)
+    });
     let chamfer = segments(
         ui,
-        left,
+        layout.treatment,
         ui.id().with("treatment"),
         ["Fillet", "Chamfer"],
         chamfer as usize,
@@ -1523,17 +1591,14 @@ pub fn corner_editor(
     ) == 1;
     let new_percent = segments(
         ui,
-        right,
+        layout.units,
         ui.id().with("units"),
         ["%", "u"],
         (!percent) as usize,
         zoom,
         theme,
     ) == 0;
-    let track = Rect::from_min_size(
-        rect.min + Vec2::new(134.0 * zoom, pad),
-        Vec2::new(210.0 * zoom, inner_h),
-    );
+    let track = layout.track;
     let mut fraction = if maximum > 0.0 {
         (amount / maximum).clamp(0.0, 1.0)
     } else {
@@ -1569,6 +1634,7 @@ pub fn corner_editor(
         chamfer,
         percent: new_percent,
         amount: changed.then_some(fraction * maximum),
+        crop,
     }
 }
 
@@ -2681,6 +2747,37 @@ fn align_segments(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn crop_toggles_leave_the_capsule_and_slider_sizes_alone() {
+        for z in [0.5, 1.0, 2.5] {
+            let capsule = Rect::from_min_size(
+                Pos2::new(30.0, 40.0),
+                Vec2::new(EDITOR_WIDTH, CORNER_HEIGHT) * z,
+            );
+            let plain = corner_layout(capsule, false, z);
+            let packed = corner_layout(capsule, true, z);
+            assert!(plain.crop.is_none());
+            assert_eq!(
+                packed.track.size(),
+                plain.track.size(),
+                "slider size at {z}"
+            );
+            let crop = packed.crop.expect("the crop toggle is packed in");
+            let parts = [crop, packed.treatment, packed.track, packed.units];
+            for part in parts {
+                assert!(capsule.contains_rect(part), "{part:?} inside {capsule:?}");
+            }
+            for pair in parts.windows(2) {
+                assert!(pair[0].right() < pair[1].left(), "no overlap: {pair:?}");
+            }
+            let scale = |a: Rect, b: Rect| a.width() / b.width();
+            let s = scale(packed.treatment, plain.treatment);
+            assert!(s < 1.0);
+            assert!((scale(packed.units, plain.units) - s).abs() < 1e-4);
+            assert!((crop.width() - CORNER_CROP_W * z * s).abs() < 1e-3);
+        }
+    }
 
     #[test]
     fn fillet_capsule_is_thirty_percent_taller_than_the_shared_baseline() {

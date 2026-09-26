@@ -4506,11 +4506,11 @@
       "canvas": "image-crop-tool-contract",
       "decisions": {
         "D01": {
-          "behavior": "Crop lives in the Corners squircle, with the fillet. The panel shows Fillet/Chamfer and an Off/Crop control. Crop turns the mode on for every selected croppable image. C and double-click still enter that same mode. 3D, text cards, and workbooks stay ineligible.",
+          "behavior": "Crop lives in the Corners squircle, with the fillet. The panel shows Fillet/Chamfer and an Off/Crop control. Off/Crop is packed into the one Corners capsule, leading Fillet/Chamfer, the slider and %/u: the capsule and slider keep their sizes and the three toggle capsules scale by one factor to fit. Crop turns the mode on for every selected croppable image. C and double-click still enter that same mode. 3D, text cards, and workbooks stay ineligible.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-24"
+          "decided": "2026-09-26"
         },
         "D02": {
           "behavior": "Crop stays on until Off is chosen in the Corners panel, Enter, Esc, or a tool other than Select. It is not a sticky drawing tool. A finished crop gesture joins repeat-last (P0.4): afterwards, a Space tap or Enter while idle re-enters crop mode on whatever image is selected then, however crop was first entered.",

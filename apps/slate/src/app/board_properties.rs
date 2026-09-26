@@ -1579,13 +1579,7 @@ impl SlateApp {
                     let height = match panel {
                         Panel::Fill => chrome::FILL_HEIGHT,
                         Panel::Stroke => chrome::STROKE_HEIGHT,
-                        Panel::Corners => {
-                            if self.corners_include_crop() {
-                                chrome::CORNER_HEIGHT * 2.0 + 6.0
-                            } else {
-                                chrome::CORNER_HEIGHT
-                            }
-                        }
+                        Panel::Corners => chrome::CORNER_HEIGHT,
                         Panel::Wire => chrome::WIRE_HEIGHT,
                         Panel::Filter => chrome::FILTER_HEIGHT,
                         Panel::Pages => 0.0,
@@ -1972,40 +1966,22 @@ impl SlateApp {
             } else {
                 first.rect.w.min(first.rect.h) * 0.5
             };
-            let fillet_rect = if self.corners_include_crop() {
-                Rect::from_min_size(rect.min, Vec2::new(rect.width(), chrome::CORNER_HEIGHT * z))
-            } else {
-                rect
-            };
+            let crop = self
+                .corners_include_crop()
+                .then(|| self.board_crop.is_some());
             let edit =
-                chrome::corner_editor(ui, fillet_rect, chamfer, percent, amount, maximum, z, theme);
-            if self.corners_include_crop() {
-                let row = Rect::from_min_size(
-                    Pos2::new(rect.min.x, fillet_rect.max.y + 6.0 * z),
-                    Vec2::new(140.0 * z, chrome::CORNER_HEIGHT * z),
-                );
-                let on = self.board_crop.is_some();
-                let picked = chrome::segments(
-                    ui,
-                    row,
-                    ui.id().with("image-crop"),
-                    ["Off", "Crop"],
-                    on as usize,
-                    z,
-                    theme,
-                );
-                if (picked == 1) != on {
-                    if on {
-                        self.board_crop = None;
-                    } else if let Some(id) = self
-                        .shape_properties
-                        .ids
-                        .iter()
-                        .copied()
-                        .find(|id| self.croppable_image(*id))
-                    {
-                        self.enter_crop_mode(id);
-                    }
+                chrome::corner_editor(ui, rect, chamfer, percent, amount, maximum, crop, z, theme);
+            if let Some(on) = edit.crop {
+                if !on {
+                    self.board_crop = None;
+                } else if let Some(id) = self
+                    .shape_properties
+                    .ids
+                    .iter()
+                    .copied()
+                    .find(|id| self.croppable_image(*id))
+                {
+                    self.enter_crop_mode(id);
                 }
             }
             if edit.chamfer != chamfer {
@@ -2032,10 +2008,7 @@ impl SlateApp {
                     })
                     .next()
                     .unwrap_or(scene::default_regular_sides());
-                let mut sides_y = fillet_rect.max.y + 6.0 * z;
-                if self.corners_include_crop() {
-                    sides_y += (chrome::CORNER_HEIGHT + 6.0) * z;
-                }
+                let sides_y = rect.max.y + 6.0 * z;
                 let row = Rect::from_min_size(
                     Pos2::new(rect.min.x, sides_y),
                     Vec2::new(rect.width(), chrome::CORNER_HEIGHT * z),

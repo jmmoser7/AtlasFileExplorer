@@ -155,7 +155,11 @@ thickness from the earlier concept image.
 Read left to right: Fillet/Chamfer segmented toggle; a **separately outlined
 slider capsule** containing a thin rail and outlined pill thumb; percent/`u`
 segmented toggle. Preserve this nested silhouette. A bare rail in the outer
-container, oversized knob, or tall form row is a regression. The amount
+container, oversized knob, or tall form row is a regression. When a
+croppable image offers Off/Crop, it leads the same capsule instead of adding
+a row: `corner_layout` keeps the capsule and slider sizes and scales the three
+toggle capsules by one factor to pack them around the slider. A label that
+overflows its narrowed segment shrinks to fit. The amount
 readout appears by the cursor only during a drag. A click on the pill thumb
 types that amount in place.
 
