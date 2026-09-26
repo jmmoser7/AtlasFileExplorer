@@ -16,6 +16,7 @@
 use super::board_properties::Panel;
 use super::SlateApp;
 use eframe::egui;
+use slate_doc::scene::{ImageAdjust, ModelDisplay};
 use slate_doc::NodeId;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -41,9 +42,12 @@ enum Scenario {
     /// Screenshot the live frame, freeze, screenshot the poster: the live
     /// GPU texture must match the poster (orientation and color space).
     LiveMatchesPoster,
+    /// Per display pass (and one filtered pass): the viewport screenshot's
+    /// pixels against the live slot's frame at the same size.
+    CaptureMatchesLive,
 }
 
-const SCENARIOS: [Scenario; 9] = [
+const SCENARIOS: [Scenario; 10] = [
     Scenario::FrozenIdle,
     Scenario::FrozenSelected,
     Scenario::StripOpen,
@@ -53,7 +57,20 @@ const SCENARIOS: [Scenario; 9] = [
     Scenario::LiveOrbit,
     Scenario::ClickOff,
     Scenario::LiveMatchesPoster,
+    Scenario::CaptureMatchesLive,
 ];
+
+/// Display passes the screenshot must match live; `true` adds a photo filter.
+const CAPTURE_CASES: [(ModelDisplay, bool); 5] = [
+    (ModelDisplay::Shaded, false),
+    (ModelDisplay::Arctic, false),
+    (ModelDisplay::Material, false),
+    (ModelDisplay::Depth, false),
+    (ModelDisplay::Shaded, true),
+];
+
+/// Mean absolute difference allowed between screenshot and live, per channel.
+const CAPTURE_MAX_MEAN_DIFF: f32 = 1.0;
 
 impl Scenario {
     fn label(self) -> &'static str {
@@ -67,6 +84,7 @@ impl Scenario {
             Scenario::LiveOrbit => "live, orbiting",
             Scenario::ClickOff => "live + selected, one click off",
             Scenario::LiveMatchesPoster => "live frame vs frozen poster",
+            Scenario::CaptureMatchesLive => "screenshot vs live frame",
         }
     }
 
@@ -96,6 +114,32 @@ struct Bench {
     dialog: Option<crossbeam_channel::Sender<super::PickerMsg>>,
     report: Arc<Mutex<Vec<String>>>,
     shot: ShotCheck,
+    capture: CaptureCheck,
+}
+
+#[derive(Default)]
+struct CaptureCheck {
+    started: bool,
+    case: usize,
+    frames: usize,
+    results: Vec<String>,
+    failed: bool,
+}
+
+/// Mean absolute RGB difference of two same-size images, 0..255 per channel.
+fn mean_abs_diff(a: &egui::ColorImage, b: &egui::ColorImage) -> f32 {
+    assert_eq!(a.size, b.size, "compared at the same size");
+    let sum: f64 = a
+        .pixels
+        .iter()
+        .zip(&b.pixels)
+        .map(|(p, q)| {
+            (0..3)
+                .map(|c| (p[c] as f64 - q[c] as f64).abs())
+                .sum::<f64>()
+        })
+        .sum();
+    (sum / (a.pixels.len() as f64 * 3.0)) as f32
 }
 
 /// Frames to let a state settle (live slot drawn and registered, or the
@@ -252,7 +296,95 @@ impl Bench {
             dialog: None,
             report,
             shot: ShotCheck::default(),
+            capture: CaptureCheck::default(),
         }
+    }
+
+    fn apply_capture_case(&mut self, case: usize) {
+        let (mode, filtered) = CAPTURE_CASES[case];
+        self.app.set_model_display(self.model, mode);
+        let adjust = if filtered {
+            ImageAdjust {
+                brightness: 1.15,
+                contrast: 0.9,
+                sepia: 0.4,
+                hue_deg: 25.0,
+                ..ImageAdjust::default()
+            }
+        } else {
+            ImageAdjust::default()
+        };
+        self.app.patch_nodes(&[self.model], |n| {
+            slate_doc::scene::set_adjust(n, adjust);
+        });
+    }
+
+    /// Live, then per case: settle, read the live slot back, render the
+    /// screenshot at the slot's size and the node's aspect, compare.
+    fn capture_step(&mut self, scenario: Scenario) {
+        if !self.capture.started {
+            self.capture.started = true;
+            self.app.unlock_model(self.model);
+            self.apply_capture_case(0);
+            return;
+        }
+        self.capture.frames += 1;
+        if self.capture.frames < SETTLE {
+            return;
+        }
+        let live = self
+            .app
+            .model3d
+            .live_frame_pixels(self.model)
+            .expect("the live slot is drawn");
+        let rect = self.app.doc().scene.node(self.model).unwrap().rect;
+        let shot = self
+            .app
+            .model_screenshot_pixels(
+                self.model,
+                live.size[0] as u32,
+                live.size[1] as u32,
+                rect.w / rect.h,
+            )
+            .expect("the screenshot renders")
+            .expect("the mesh is loaded");
+        let diff = mean_abs_diff(&live, &shot);
+        let (mode, filtered) = CAPTURE_CASES[self.capture.case];
+        let case = format!(
+            "{}{} {:.2}",
+            mode.key(),
+            if filtered { "+filter" } else { "" },
+            diff
+        );
+        println!(
+            "  screenshot vs live {:>16}: mean diff {:6.2} / 255 at {}x{}",
+            format!("{}{}", mode.key(), if filtered { "+filter" } else { "" }),
+            diff,
+            live.size[0],
+            live.size[1]
+        );
+        self.capture.failed |= diff > CAPTURE_MAX_MEAN_DIFF;
+        self.capture.results.push(case);
+        self.capture.case += 1;
+        self.capture.frames = 0;
+        if self.capture.case < CAPTURE_CASES.len() {
+            self.apply_capture_case(self.capture.case);
+            return;
+        }
+        let line = format!(
+            "{:30} {} mean diff per pass (limit {:.1} / 255): {}",
+            scenario.label(),
+            if self.capture.failed {
+                "CAPTURE-MISMATCH"
+            } else {
+                "match"
+            },
+            CAPTURE_MAX_MEAN_DIFF,
+            self.capture.results.join(" | ")
+        );
+        println!("{line}");
+        self.report.lock().unwrap().push(line);
+        self.scenario += 1;
     }
 
     /// Settle live, screenshot, freeze, settle, screenshot, compare.
@@ -360,7 +492,7 @@ impl Bench {
                 assert!(self.app.model3d.live.contains_key(&self.model));
             }
             Scenario::LiveOrbit => self.orbit_frame = 0,
-            Scenario::ClickOff | Scenario::LiveMatchesPoster => {}
+            Scenario::ClickOff | Scenario::LiveMatchesPoster | Scenario::CaptureMatchesLive => {}
         }
     }
 
@@ -552,6 +684,11 @@ impl eframe::App for Bench {
             ctx.request_repaint();
             return;
         }
+        if scenario == Scenario::CaptureMatchesLive {
+            self.capture_step(scenario);
+            ctx.request_repaint();
+            return;
+        }
 
         if matches!(self.stage, Stage::Warm(0)) {
             self.enter(scenario);
@@ -650,7 +787,11 @@ fn bench_model3d() {
         Box::new(move |cc| Ok(Box::new(Bench::new(cc, model, sink)))),
     )
     .unwrap();
-    let lines = report.lock().unwrap().len();
-    assert_eq!(lines, SCENARIOS.len(), "every scenario reported");
+    let lines = report.lock().unwrap().clone();
+    assert_eq!(lines.len(), SCENARIOS.len(), "every scenario reported");
+    assert!(
+        !lines.iter().any(|l| l.contains("CAPTURE-MISMATCH")),
+        "every viewport screenshot matches its live frame"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

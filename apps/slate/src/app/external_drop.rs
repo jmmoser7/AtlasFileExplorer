@@ -21,6 +21,8 @@ pub(super) struct DropEvent {
 struct State {
     pending: VecDeque<DropEvent>,
     url_area: Option<Rect>,
+    /// Files an OS drag is holding over the window, and where.
+    hover: Option<(Vec<PathBuf>, Pos2)>,
 }
 #[derive(Clone, Default)]
 pub(super) struct Inbox(Arc<Mutex<State>>);
@@ -31,9 +33,20 @@ impl Inbox {
     pub fn set_url_area(&self, area: Option<Rect>) {
         self.0.lock().unwrap().url_area = area;
     }
+    /// The one file an OS drag is holding over the window, and where.
+    pub fn hover_file(&self) -> Option<(PathBuf, Pos2)> {
+        match &self.0.lock().unwrap().hover {
+            Some((paths, at)) if paths.len() == 1 => Some((paths[0].clone(), *at)),
+            _ => None,
+        }
+    }
     #[cfg(test)]
     pub fn push_test(&self, event: DropEvent) {
         self.0.lock().unwrap().pending.push_back(event);
+    }
+    #[cfg(test)]
+    pub fn set_hover_test(&self, hover: Option<(Vec<PathBuf>, Pos2)>) {
+        self.0.lock().unwrap().hover = hover;
     }
 }
 
@@ -147,6 +160,18 @@ pub(super) mod win {
             }
             DROPEFFECT_NONE
         }
+        /// Tell the frame loop which files are held where (`None` = gone).
+        fn publish_hover(&self, pt: Option<&POINTL>) {
+            let hover = pt.and_then(|pt| {
+                let at = self.position(pt)?;
+                match self.hover.borrow().as_ref()? {
+                    Payload::Files(paths) => Some((paths.clone(), at)),
+                    Payload::Url(_) => None,
+                }
+            });
+            self.inbox.0.lock().unwrap().hover = hover;
+            self.ctx.request_repaint();
+        }
     }
     #[allow(non_snake_case)]
     impl IDropTarget_Impl for Target_Impl {
@@ -158,6 +183,7 @@ pub(super) mod win {
             effect: *mut DROPEFFECT,
         ) -> windows::core::Result<()> {
             *self.hover.borrow_mut() = data.as_ref().and_then(read_payload);
+            self.publish_hover(Some(pt));
             unsafe {
                 *effect = self.effect(pt, *effect);
             }
@@ -169,6 +195,7 @@ pub(super) mod win {
             pt: &POINTL,
             effect: *mut DROPEFFECT,
         ) -> windows::core::Result<()> {
+            self.publish_hover(Some(pt));
             unsafe {
                 *effect = self.effect(pt, *effect);
             }
@@ -176,6 +203,7 @@ pub(super) mod win {
         }
         fn DragLeave(&self) -> windows::core::Result<()> {
             self.hover.borrow_mut().take();
+            self.publish_hover(None);
             Ok(())
         }
         fn Drop(
@@ -192,6 +220,7 @@ pub(super) mod win {
                 *effect = accepted;
             }
             let payload = self.hover.borrow_mut().take();
+            self.publish_hover(None);
             if accepted != DROPEFFECT_NONE {
                 if let (Some(payload), Some(at)) = (payload, self.position(pt)) {
                     // OLE's MK_ALT bit; egui does not receive keys during the drag.

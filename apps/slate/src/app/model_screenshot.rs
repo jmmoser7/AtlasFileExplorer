@@ -1,15 +1,16 @@
 //! Viewport screenshot export and drop-back camera restore.
 
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::Receiver;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::mpsc::{Receiver, TryRecvError};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use atlas_shell::file_picker::{first, PickRequest};
-use eframe::egui::{self, Id, Pos2, Rect, Vec2};
+use eframe::egui::{self, Color32, Id, Pos2, Rect, Vec2};
 use model_preview::view_meta::{self, ViewMetaInput};
-use slate_doc::scene::{ImageAdjust, ImageNode, ModelCamera, NodeId, NodeKind, WorldRect};
+use slate_doc::scene::{ImageAdjust, ImageNode, ModelCamera, Node, NodeId, NodeKind, WorldRect};
 
-use super::model3d::{self, capture_size, ModelNodeInfo};
+use super::board::{BoardDrag, BoardXf};
+use super::model3d::{self, screenshot_size, ModelNodeInfo, ViewTween};
 use super::{PickerMsg, SlateApp};
 
 const POPUP_ITEM_H: f32 = 28.0;
@@ -51,6 +52,62 @@ pub struct PendingViewDrop {
     pub tab_id: u64,
     pub model: NodeId,
     rx: Receiver<ViewDropMsg>,
+}
+
+/// How long a picture takes to sink into the viewport (and to come back).
+const VIEW_SINK: Duration = Duration::from_millis(220);
+/// A sunk picture's size, as a fraction of its own.
+const SINK_MIN_SCALE: f32 = 0.1;
+/// Longest side of a dragged file's picture at the pointer (screen px,
+/// pointer-attached like P2.GhostFollow).
+const SINK_FILE_PX: f32 = 120.0;
+
+type PreviewMsg = Option<(view_meta::ViewMetaParsed, Option<egui::ColorImage>)>;
+
+/// What carries the saved view being dragged over a model.
+#[derive(Clone, PartialEq)]
+pub(crate) enum ViewDropSource {
+    Node(NodeId),
+    File(PathBuf),
+}
+
+/// A board picture released over a model, resolved before the move rewinds.
+pub(crate) struct NodeViewDrop {
+    model: NodeId,
+    image: NodeId,
+    item: slate_doc::ItemId,
+}
+
+/// A saved view held over a model: the viewport orients to it and the
+/// picture sinks in. Derived state, never journaled (media D38); release
+/// commits one camera patch, leaving puts everything back.
+pub struct ViewDropPreview {
+    tab_id: u64,
+    model: NodeId,
+    source: ViewDropSource,
+    rx: Option<Receiver<PreviewMsg>>,
+    parsed: Option<view_meta::ViewMetaParsed>,
+    thumb: Option<egui::TextureHandle>,
+    /// The live pose the preview took over from.
+    original: Option<ModelCamera>,
+    /// The preview opened a frozen viewport and closes it again.
+    entered: bool,
+    returning: bool,
+    sink: f32,
+    tick: Instant,
+    pointer: Pos2,
+}
+
+/// Where a picture sinking into `into` paints at `t` (0 = its own place,
+/// 1 = gone in), and the opacity it keeps.
+pub(crate) fn sink_rect(from: Rect, into: Pos2, t: f32) -> (Rect, f32) {
+    let t = t.clamp(0.0, 1.0);
+    let e = t * t * (3.0 - 2.0 * t);
+    let size = from.size() * (1.0 - (1.0 - SINK_MIN_SCALE) * e);
+    (
+        Rect::from_center_size(from.center().lerp(into, e), size),
+        1.0 - e,
+    )
 }
 
 impl SlateApp {
@@ -241,6 +298,49 @@ impl SlateApp {
         let info = self
             .model_node_info(node)
             .ok_or("That node is not a 3D model.")?;
+        let (w, h) = screenshot_size(info.rect.w, info.rect.h);
+        let aspect = info.rect.w / info.rect.h.max(1.0);
+        let Some(img) = self.model_screenshot_pixels(node, w, h, aspect)? else {
+            return Ok(None);
+        };
+        let mut rgba = Vec::with_capacity(img.pixels.len() * 4);
+        for p in &img.pixels {
+            rgba.extend_from_slice(&p.to_srgba_unmultiplied());
+        }
+        let cam = self.model_screenshot_camera(node, &info);
+        let adjust = self.model_screenshot_adjust(node);
+        let meta = self.view_meta_input(node, &info, cam, w, h, &adjust)?;
+        Ok(Some(ModelShot { rgba, w, h, meta }))
+    }
+
+    fn model_screenshot_camera(&self, node: NodeId, info: &ModelNodeInfo) -> ModelCamera {
+        self.model3d
+            .live
+            .get(&node)
+            .map(|vp| vp.cam)
+            .unwrap_or(info.cam)
+    }
+
+    fn model_screenshot_adjust(&self, node: NodeId) -> ImageAdjust {
+        self.doc()
+            .scene
+            .node(node)
+            .and_then(slate_doc::scene::adjust_of)
+            .unwrap_or_default()
+    }
+
+    /// The screenshot's pixels at `w` x `h`, projected at `aspect`.
+    /// `Ok(None)` while the mesh is still parsing.
+    pub(crate) fn model_screenshot_pixels(
+        &mut self,
+        node: NodeId,
+        w: u32,
+        h: u32,
+        aspect: f32,
+    ) -> Result<Option<egui::ColorImage>, String> {
+        let info = self
+            .model_node_info(node)
+            .ok_or("That node is not a 3D model.")?;
         if self.model3d.external.contains(&info.cache_key) {
             return Err("Enscape standalones cannot export a mesh screenshot yet.".into());
         }
@@ -248,37 +348,19 @@ impl SlateApp {
             .gl
             .clone()
             .ok_or("3D viewports need GPU rendering (unavailable here).")?;
-        let cam = self
-            .model3d
-            .live
-            .get(&node)
-            .map(|vp| vp.cam)
-            .unwrap_or(info.cam);
-        let (w, h) = capture_size(info.rect.w, info.rect.h);
-        let adjust = self
-            .doc()
-            .scene
-            .node(node)
-            .and_then(slate_doc::scene::adjust_of)
-            .unwrap_or_default();
-        let Some(img) = self.model3d.render_capture_image(
+        let cam = self.model_screenshot_camera(node, &info);
+        let adjust = self.model_screenshot_adjust(node);
+        let img = self.model3d.render_view_screenshot(
             &gl,
             &info.cache_key,
             &cam,
-            w,
-            h,
-            false,
+            (w, h, aspect),
             (!adjust.is_identity()).then_some(&adjust),
-        ) else {
+        );
+        if img.is_none() {
             self.model3d.request_model(&info.cache_key, &info.path);
-            return Ok(None);
-        };
-        let mut rgba = Vec::with_capacity(img.pixels.len() * 4);
-        for p in &img.pixels {
-            rgba.extend_from_slice(&p.to_srgba_unmultiplied());
         }
-        let meta = self.view_meta_input(node, &info, cam, w, h, &adjust)?;
-        Ok(Some(ModelShot { rgba, w, h, meta }))
+        Ok(img)
     }
 
     fn view_meta_input(
@@ -475,7 +557,10 @@ impl SlateApp {
         });
         self.last_board_edit = None;
         if let Some(vp) = self.model3d.live.get_mut(&model) {
+            // The document now holds this pose; locking must not patch again.
             vp.cam = parsed.camera;
+            vp.before = parsed.camera;
+            vp.view_tween = None;
         }
         if mismatch {
             self.toast("Model changed since capture — view applied anyway");
@@ -502,39 +587,379 @@ impl SlateApp {
         let Some(model) = self.model_node_at_world(at) else {
             return false;
         };
-        self.queue_view_drop_from_path(model, path.clone());
+        let source = ViewDropSource::File(path.clone());
+        match self.take_view_drop_preview(model, &source) {
+            Some((parsed, entered)) => self.finish_view_drop(model, parsed, entered),
+            None => self.queue_view_drop_from_path(model, path.clone()),
+        }
         true
     }
 
-    pub(crate) fn maybe_intercept_node_drop_on_model(
-        &mut self,
+    /// A moved picture released at `world` over a model: the model, the
+    /// picture, and the item its saved view is read from.
+    pub(crate) fn node_view_drop_target(
+        &self,
         moved: &[NodeId],
         world: Pos2,
-    ) -> bool {
-        let Some(model) = self.model_node_at_world(world) else {
-            return false;
-        };
-        let Some(image) = moved.iter().find(|id| {
-            self.doc().scene.node(**id).is_some_and(|n| {
-                matches!(&n.kind, NodeKind::Image(img) if {
-                    self.doc()
-                        .item(img.item)
-                        .is_some_and(|it| slate_doc::media_kind(&it.path) == slate_doc::MediaKind::Image)
-                        && !self.model_has_viewport(**id)
-                })
-            })
-        }) else {
-            return false;
-        };
-        let Some(n) = self.doc().scene.node(*image) else {
-            return false;
-        };
-        let NodeKind::Image(img) = &n.kind else {
-            return false;
-        };
-        self.queue_view_drop_from_item(model, img.item);
-        true
+    ) -> Option<NodeViewDrop> {
+        let model = self.model_node_at_world(world)?;
+        let (image, item) = self.dragged_view_image(moved)?;
+        Some(NodeViewDrop { model, image, item })
     }
+
+    /// Commit a picture's saved view onto the model as one camera patch.
+    /// The move itself has already been rewound.
+    pub(crate) fn commit_node_view_drop(&mut self, drop: NodeViewDrop) {
+        let NodeViewDrop { model, image, item } = drop;
+        match self.take_view_drop_preview(model, &ViewDropSource::Node(image)) {
+            Some((parsed, entered)) => self.finish_view_drop(model, parsed, entered),
+            None => self.queue_view_drop_from_item(model, item),
+        }
+    }
+
+    /// The dragged picture a saved view can come from: a placed raster image
+    /// that is not itself a model.
+    fn dragged_view_image(&self, moved: &[NodeId]) -> Option<(NodeId, slate_doc::ItemId)> {
+        moved.iter().find_map(|id| {
+            let NodeKind::Image(img) = &self.doc().scene.node(*id)?.kind else {
+                return None;
+            };
+            let raster = self
+                .doc()
+                .item(img.item)
+                .is_some_and(|it| slate_doc::media_kind(&it.path) == slate_doc::MediaKind::Image);
+            (raster && !self.model_has_viewport(*id)).then_some((*id, img.item))
+        })
+    }
+
+    /// Release over the model: the previewed view becomes one camera patch,
+    /// and a viewport the preview opened freezes again.
+    fn finish_view_drop(
+        &mut self,
+        model: NodeId,
+        parsed: view_meta::ViewMetaParsed,
+        entered: bool,
+    ) {
+        self.apply_view_drop(model, parsed);
+        if entered {
+            self.lock_model(model);
+        }
+    }
+
+    /// The saved view held over a model this frame, if any: a dragged board
+    /// picture or a single image file an OS drag is holding.
+    fn view_drop_hover(&self, ctx: &egui::Context) -> Option<(ViewDropSource, NodeId, Pos2)> {
+        if self.doc().view.active_view != slate_doc::ViewKind::Board || self.tab().read_only {
+            return None;
+        }
+        let (source, pointer) = if let Some(BoardDrag::Move { ids, .. }) = &self.board_drag {
+            if self.bumper.dragging() {
+                return None;
+            }
+            let (image, _) = self.dragged_view_image(ids)?;
+            (
+                ViewDropSource::Node(image),
+                ctx.input(|i| i.pointer.hover_pos())?,
+            )
+        } else {
+            let (path, at) = self.external_drop.hover_file()?;
+            if slate_doc::media_kind(&path) != slate_doc::MediaKind::Image {
+                return None;
+            }
+            (ViewDropSource::File(path), at)
+        };
+        let model = self.model_node_at_world(self.board_xf().s2w(pointer))?;
+        if self.doc().scene.node(model).is_none_or(|n| n.locked) {
+            return None;
+        }
+        Some((source, model, pointer))
+    }
+
+    fn start_view_drop_preview(
+        &self,
+        source: ViewDropSource,
+        model: NodeId,
+        pointer: Pos2,
+    ) -> ViewDropPreview {
+        let path = match &source {
+            ViewDropSource::File(path) => Some(path.clone()),
+            ViewDropSource::Node(id) => self
+                .dragged_view_image(&[*id])
+                .and_then(|(_, item)| self.doc().item(item).map(|it| it.path.clone())),
+        };
+        let thumbnail = matches!(source, ViewDropSource::File(_));
+        let (tx, rx) = std::sync::mpsc::channel();
+        if let Some(path) = path {
+            std::thread::spawn(move || {
+                let msg = if atlas_core::cloud::is_dehydrated(&path) {
+                    None
+                } else {
+                    view_meta::read_view_meta(&path)
+                        .ok()
+                        .flatten()
+                        .map(|parsed| (parsed, thumbnail.then(|| file_thumbnail(&path)).flatten()))
+                };
+                let _ = tx.send(msg);
+            });
+        }
+        ViewDropPreview {
+            tab_id: self.tab().id,
+            model,
+            source,
+            rx: Some(rx),
+            parsed: None,
+            thumb: None,
+            original: None,
+            entered: false,
+            returning: false,
+            sink: 0.0,
+            tick: Instant::now(),
+            pointer,
+        }
+    }
+
+    /// Per frame: follow the drag, orient the viewport to the held view,
+    /// and put everything back once it leaves.
+    pub(crate) fn maintain_view_drop_preview(&mut self, ctx: &egui::Context) {
+        let hover = self.view_drop_hover(ctx);
+        let tab_id = self.tab().id;
+        let stale = self.view_drop_preview.as_ref().is_some_and(|p| {
+            p.tab_id != tab_id
+                || hover
+                    .as_ref()
+                    .is_some_and(|(source, model, _)| *model != p.model || *source != p.source)
+        });
+        if stale {
+            self.cancel_view_drop_preview();
+        }
+        let Some(mut p) = self.view_drop_preview.take().or_else(|| {
+            let (source, model, pointer) = hover.clone()?;
+            Some(self.start_view_drop_preview(source, model, pointer))
+        }) else {
+            return;
+        };
+        if let Some(rx) = &p.rx {
+            match rx.try_recv() {
+                Ok(msg) => {
+                    p.rx = None;
+                    if let Some((parsed, thumb)) = msg {
+                        p.parsed = Some(parsed);
+                        p.thumb = thumb.map(|img| {
+                            ctx.load_texture("view-drop-picture", img, egui::TextureOptions::LINEAR)
+                        });
+                    }
+                }
+                Err(TryRecvError::Empty) => {}
+                Err(TryRecvError::Disconnected) => p.rx = None,
+            }
+        }
+        let over = hover.is_some();
+        if let Some((_, _, pointer)) = hover {
+            p.pointer = pointer;
+        }
+        let now = Instant::now();
+        let dt = now.duration_since(p.tick).as_secs_f32();
+        p.tick = now;
+
+        let saved = p.parsed.as_ref().filter(|_| over).map(|v| v.camera);
+        if let Some(to) = saved {
+            if p.original.is_none() {
+                if !self.model3d.live.contains_key(&p.model) {
+                    self.unlock_model(p.model);
+                    p.entered = self.model3d.live.contains_key(&p.model);
+                }
+                if let Some(vp) = self.model3d.live.get_mut(&p.model) {
+                    if p.entered {
+                        vp.before = vp.cam;
+                    }
+                    p.original = Some(vp.cam);
+                    vp.view_tween = Some(ViewTween {
+                        from: vp.cam,
+                        to,
+                        started: now,
+                    });
+                }
+            } else if p.returning {
+                p.returning = false;
+                if let Some(vp) = self.model3d.live.get_mut(&p.model) {
+                    vp.view_tween = Some(ViewTween {
+                        from: vp.cam,
+                        to,
+                        started: now,
+                    });
+                }
+            }
+        } else if !over && !p.returning {
+            p.returning = true;
+            if let (Some(original), Some(vp)) = (p.original, self.model3d.live.get_mut(&p.model)) {
+                vp.view_tween = Some(ViewTween {
+                    from: vp.cam,
+                    to: original,
+                    started: now,
+                });
+            }
+        }
+        if let Some(vp) = self.model3d.live.get_mut(&p.model) {
+            if p.original.is_some() {
+                vp.last_interact = now;
+            }
+        }
+
+        let step = dt / VIEW_SINK.as_secs_f32();
+        p.sink = if over && p.parsed.is_some() {
+            (p.sink + step).min(1.0)
+        } else {
+            (p.sink - step).max(0.0)
+        };
+        let settled = self
+            .model3d
+            .live
+            .get(&p.model)
+            .is_none_or(|vp| vp.view_tween.is_none());
+        if !over && p.sink <= 0.0 && settled {
+            // The return tween ended exactly on the original pose.
+            if p.entered {
+                self.model3d.live.remove(&p.model);
+            }
+            return;
+        }
+        let sinking = if over && p.parsed.is_some() {
+            p.sink < 1.0
+        } else {
+            p.sink > 0.0
+        };
+        if p.rx.is_some() || !settled || sinking {
+            ctx.request_repaint();
+        }
+        self.view_drop_preview = Some(p);
+    }
+
+    /// Esc while a board picture holds a saved view over a model: the drag
+    /// is cancelled (egui aborts drags on Esc, so no release will come), the
+    /// picture goes back unjournaled, and the viewport tweens home.
+    pub(crate) fn dismiss_view_drop_preview(&mut self) -> bool {
+        let tab_id = self.tab().id;
+        let held = self.view_drop_preview.as_ref().is_some_and(|p| {
+            p.tab_id == tab_id && p.parsed.is_some() && matches!(p.source, ViewDropSource::Node(_))
+        });
+        if !held || !matches!(self.board_drag, Some(BoardDrag::Move { .. })) {
+            return false;
+        }
+        self.cancel_node_drag()
+    }
+
+    /// End the preview at once, putting the viewport back as it was.
+    fn cancel_view_drop_preview(&mut self) {
+        let Some(p) = self.view_drop_preview.take() else {
+            return;
+        };
+        if p.tab_id != self.tab().id {
+            return;
+        }
+        self.restore_view_drop_camera(&p);
+        if p.entered {
+            self.model3d.live.remove(&p.model);
+        }
+    }
+
+    /// A viewport under preview is being frozen: it freezes at its own pose.
+    pub(crate) fn release_view_drop_preview_for(&mut self, model: NodeId) {
+        if self
+            .view_drop_preview
+            .as_ref()
+            .is_some_and(|p| p.model == model && p.tab_id == self.tab().id)
+        {
+            if let Some(p) = self.view_drop_preview.take() {
+                self.restore_view_drop_camera(&p);
+            }
+        }
+    }
+
+    fn restore_view_drop_camera(&mut self, p: &ViewDropPreview) {
+        if let (Some(original), Some(vp)) = (p.original, self.model3d.live.get_mut(&p.model)) {
+            vp.cam = original;
+            vp.view_tween = None;
+        }
+    }
+
+    /// The held view, when the release lands on the model it previews.
+    fn take_view_drop_preview(
+        &mut self,
+        model: NodeId,
+        source: &ViewDropSource,
+    ) -> Option<(view_meta::ViewMetaParsed, bool)> {
+        let p = self.view_drop_preview.as_ref()?;
+        if p.model != model || p.source != *source || p.tab_id != self.tab().id {
+            return None;
+        }
+        p.parsed.as_ref()?;
+        let p = self.view_drop_preview.take()?;
+        self.restore_view_drop_camera(&p);
+        Some((p.parsed?, p.entered))
+    }
+
+    /// Paint-clone hook: the dragged picture sinks into the viewport.
+    pub(crate) fn sink_view_drop_picture(&self, nodes: &mut [Node]) {
+        let Some(p) = self
+            .view_drop_preview
+            .as_ref()
+            .filter(|p| p.sink > 0.0 && p.tab_id == self.tab().id)
+        else {
+            return;
+        };
+        let ViewDropSource::Node(picture) = p.source else {
+            return;
+        };
+        let Some(m) = self.doc().scene.node(p.model).map(|m| m.rect) else {
+            return;
+        };
+        let into = Pos2::new(m.x + m.w * 0.5, m.y + m.h * 0.5);
+        if let Some(n) = nodes.iter_mut().find(|n| n.id == picture) {
+            let from =
+                Rect::from_min_size(Pos2::new(n.rect.x, n.rect.y), Vec2::new(n.rect.w, n.rect.h));
+            let (r, alpha) = sink_rect(from, into, p.sink);
+            n.rect = WorldRect::new(r.min.x, r.min.y, r.width(), r.height());
+            n.opacity *= alpha;
+        }
+    }
+
+    /// A dragged file's picture leaves the pointer and sinks into the
+    /// viewport.
+    pub(crate) fn paint_view_drop_file(&self, painter: &egui::Painter, xf: &BoardXf) {
+        let Some(p) = self
+            .view_drop_preview
+            .as_ref()
+            .filter(|p| p.sink > 0.0 && p.tab_id == self.tab().id)
+        else {
+            return;
+        };
+        let (ViewDropSource::File(_), Some(tex)) = (&p.source, &p.thumb) else {
+            return;
+        };
+        let Some(m) = self.doc().scene.node(p.model) else {
+            return;
+        };
+        let size = tex.size_vec2();
+        let from =
+            Rect::from_center_size(p.pointer, size * (SINK_FILE_PX / size.max_elem().max(1.0)));
+        let (r, alpha) = sink_rect(from, xf.rect_w2s(m.rect).center(), p.sink);
+        let alpha = alpha * (p.sink * 4.0).min(1.0);
+        painter.image(
+            tex.id(),
+            r,
+            Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+            Color32::WHITE.gamma_multiply(alpha),
+        );
+    }
+}
+
+/// A small picture of a dragged image file (worker thread only).
+fn file_thumbnail(path: &Path) -> Option<egui::ColorImage> {
+    let img = image::open(path).ok()?.thumbnail(256, 256).to_rgba8();
+    Some(egui::ColorImage::from_rgba_unmultiplied(
+        [img.width() as usize, img.height() as usize],
+        img.as_raw(),
+    ))
 }
 
 /// Encode by extension with the view packet embedded (PNG, JPEG, WebP).
@@ -812,6 +1237,20 @@ mod tests {
             h.app.board_sel.iter().copied().collect::<Vec<_>>(),
             vec![placed.id]
         );
+    }
+
+    #[test]
+    fn a_sinking_picture_starts_in_place_and_ends_small_and_clear_inside() {
+        let from = Rect::from_min_size(Pos2::new(10.0, 20.0), Vec2::new(100.0, 60.0));
+        let into = Pos2::new(300.0, 200.0);
+        assert_eq!(sink_rect(from, into, 0.0), (from, 1.0));
+        let (end, alpha) = sink_rect(from, into, 1.0);
+        assert_eq!(end.center(), into);
+        assert!((end.width() - 10.0).abs() < 1e-3 && (end.height() - 6.0).abs() < 1e-3);
+        assert_eq!(alpha, 0.0);
+        let (mid, alpha) = sink_rect(from, into, 0.5);
+        assert!(mid.width() < from.width() && mid.width() > end.width());
+        assert!(alpha > 0.0 && alpha < 1.0);
     }
 
     fn parsed(camera: ModelCamera) -> view_meta::ViewMetaParsed {

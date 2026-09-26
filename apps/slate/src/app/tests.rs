@@ -11985,3 +11985,308 @@ fn rotate_hover_and_drag_show_a_circular_arrow_in_the_windows_cursor_scheme() {
     assert_rotate_pointer(&drag, q, "drag");
     h.frame_with(press(false, q));
 }
+
+/// Three 160×120 rects in a row, the camera at 1:1 on the world origin.
+/// At that size the rotate zones sit clear of the mid-edge wire grips.
+fn esc_drag_board(tag: &str) -> (Harness, [NodeId; 3]) {
+    let mut h = align_board(tag);
+    h.app.tab_mut().cam.z = 1.0;
+    h.app.tab_mut().cam.offset = egui::vec2(0.0, 0.0);
+    let ids = [-300.0, 0.0, 300.0].map(|x| {
+        let id = add_rect(&mut h.app, x, 0.0);
+        h.app.doc_mut().scene.node_mut(id).unwrap().rect =
+            slate_doc::scene::WorldRect::new(x, 0.0, 160.0, 120.0);
+        id
+    });
+    h.frame();
+    (h, ids)
+}
+
+/// Real frames: press at `from`, then move to `to` with the button held.
+/// The drag is still live when this returns.
+fn hold_drag(h: &mut Harness, from: Pos2, to: Pos2, modifiers: egui::Modifiers) {
+    let xf = h.app.board_xf();
+    let (a, b) = (xf.w2s(from), xf.w2s(to));
+    h.frame_with(|i| {
+        i.modifiers = modifiers;
+        i.events.push(egui::Event::PointerMoved(a));
+    });
+    h.frame_with(|i| {
+        i.modifiers = modifiers;
+        i.events.push(egui::Event::PointerButton {
+            pos: a,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers,
+        });
+    });
+    for t in [0.25, 0.5, 0.75, 1.0] {
+        let p = a + (b - a) * t;
+        h.frame_with(|i| {
+            i.modifiers = modifiers;
+            i.events.push(egui::Event::PointerMoved(p));
+        });
+    }
+}
+
+/// Esc with the button still down (egui aborts its drag here, so no
+/// `drag_stopped` follows), then the release.
+fn escape_then_release(h: &mut Harness, at: Pos2, modifiers: egui::Modifiers) {
+    let p = h.app.board_xf().w2s(at);
+    h.frame_with(|i| {
+        i.modifiers = modifiers;
+        i.events.push(key_event(egui::Key::Escape, modifiers));
+    });
+    h.frame_with(|i| {
+        i.modifiers = modifiers;
+        i.events.push(egui::Event::PointerButton {
+            pos: p,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers,
+        });
+    });
+    h.frame();
+}
+
+fn scene_nodes(h: &Harness) -> Vec<slate_doc::scene::Node> {
+    h.app.doc().scene.nodes.clone()
+}
+
+/// P0.1 — Esc mid-move puts all three nodes back, journals nothing, and
+/// keeps the selection.
+#[test]
+fn esc_mid_move_restores_three_nodes_and_keeps_the_selection() {
+    let (mut h, ids) = esc_drag_board("esc_move3");
+    select_ids(&mut h.app, &ids);
+    let before = scene_nodes(&h);
+    let depth = h.app.tab().journal.undo_depth();
+    let (from, to) = (Pos2::new(40.0, 30.0), Pos2::new(140.0, 110.0));
+    hold_drag(&mut h, from, to, egui::Modifiers::NONE);
+    assert!(
+        matches!(h.app.board_drag, Some(board::BoardDrag::Move { .. })),
+        "the move is live before Esc"
+    );
+    assert_ne!(scene_nodes(&h), before, "the nodes moved mid-drag");
+    escape_then_release(&mut h, to, egui::Modifiers::NONE);
+    assert!(h.app.board_drag.is_none());
+    assert_eq!(scene_nodes(&h), before, "every node is back exactly");
+    assert_eq!(h.app.tab().journal.undo_depth(), depth, "nothing journaled");
+    assert_eq!(h.app.board_sel, ids.into_iter().collect());
+}
+
+/// P0.1 — Esc mid Alt-duplicate move removes the staged copies and gives
+/// the selection back to the originals.
+#[test]
+fn esc_mid_alt_duplicate_move_leaves_no_copies() {
+    let (mut h, ids) = esc_drag_board("esc_alt_dup");
+    select_ids(&mut h.app, &ids[..2]);
+    let before = scene_nodes(&h);
+    let depth = h.app.tab().journal.undo_depth();
+    let alt = egui::Modifiers {
+        alt: true,
+        ..Default::default()
+    };
+    let (from, to) = (Pos2::new(40.0, 30.0), Pos2::new(140.0, 110.0));
+    hold_drag(&mut h, from, to, alt);
+    assert!(
+        matches!(
+            h.app.board_drag,
+            Some(board::BoardDrag::Move { dup: true, .. })
+        ),
+        "Alt stages a duplicate move"
+    );
+    assert_eq!(h.app.doc().scene.nodes.len(), 5, "two copies are staged");
+    escape_then_release(&mut h, to, alt);
+    assert!(h.app.board_drag.is_none());
+    assert_eq!(scene_nodes(&h), before, "no copies are left");
+    assert_eq!(h.app.tab().journal.undo_depth(), depth, "nothing journaled");
+    assert_eq!(h.app.board_sel, ids[..2].iter().copied().collect());
+}
+
+/// P0.1 — Esc mid-resize restores the node.
+#[test]
+fn esc_mid_resize_restores_the_node() {
+    let (mut h, ids) = esc_drag_board("esc_resize");
+    select_ids(&mut h.app, &ids[1..2]);
+    h.frame();
+    let before = scene_nodes(&h);
+    let depth = h.app.tab().journal.undo_depth();
+    let rect = h.app.doc().scene.node(ids[1]).unwrap().rect;
+    let xf = h.app.board_xf();
+    let corner = board_handles::selection_geom(&xf, rect, 0.0).corners[2];
+    let from = xf.s2w(corner);
+    let to = from + egui::vec2(60.0, 40.0);
+    hold_drag(&mut h, from, to, egui::Modifiers::NONE);
+    assert!(
+        matches!(h.app.board_drag, Some(board::BoardDrag::Resize { .. })),
+        "the corner starts a resize"
+    );
+    assert_ne!(scene_nodes(&h), before, "the node resized mid-drag");
+    escape_then_release(&mut h, to, egui::Modifiers::NONE);
+    assert!(h.app.board_drag.is_none());
+    assert_eq!(scene_nodes(&h), before);
+    assert_eq!(h.app.tab().journal.undo_depth(), depth);
+    assert_eq!(h.app.board_sel, ids[1..2].iter().copied().collect());
+}
+
+/// P0.1 — Esc mid-rotate restores the node.
+#[test]
+fn esc_mid_rotate_restores_the_node() {
+    let (mut h, ids) = esc_drag_board("esc_rotate");
+    select_ids(&mut h.app, &ids[1..2]);
+    h.frame();
+    let before = scene_nodes(&h);
+    let depth = h.app.tab().journal.undo_depth();
+    let rect = h.app.doc().scene.node(ids[1]).unwrap().rect;
+    let xf = h.app.board_xf();
+    let zone = board_handles::selection_geom(&xf, rect, 0.0).rotate_points[2];
+    let from = xf.s2w(zone);
+    let to = Pos2::new(rect.x - 30.0, rect.y + rect.h + 60.0);
+    hold_drag(&mut h, from, to, egui::Modifiers::NONE);
+    assert!(
+        matches!(h.app.board_drag, Some(board::BoardDrag::Rotate { .. })),
+        "the outside-corner zone starts a rotate"
+    );
+    assert_ne!(scene_nodes(&h), before, "the node turned mid-drag");
+    escape_then_release(&mut h, to, egui::Modifiers::NONE);
+    assert!(h.app.board_drag.is_none());
+    assert_eq!(scene_nodes(&h), before);
+    assert_eq!(h.app.tab().journal.undo_depth(), depth);
+    assert_eq!(h.app.board_sel, ids[1..2].iter().copied().collect());
+}
+
+/// P0.1 — Esc mid group-rotate restores every member.
+#[test]
+fn esc_mid_group_rotate_restores_every_node() {
+    let (mut h, ids) = esc_drag_board("esc_group_rotate");
+    select_ids(&mut h.app, &ids);
+    h.frame();
+    let before = scene_nodes(&h);
+    let depth = h.app.tab().journal.undo_depth();
+    let gb = h.app.board_group_bounds().unwrap();
+    let xf = h.app.board_xf();
+    let zone = board_handles::selection_geom(&xf, gb, 0.0).rotate_points[2];
+    let from = xf.s2w(zone);
+    let to = Pos2::new(gb.x + gb.w * 0.5, gb.y + gb.h + 200.0);
+    hold_drag(&mut h, from, to, egui::Modifiers::NONE);
+    assert!(
+        matches!(h.app.board_drag, Some(board::BoardDrag::GroupRotate { .. })),
+        "the group's outside-corner zone starts a group rotate"
+    );
+    assert_ne!(scene_nodes(&h), before, "the group turned mid-drag");
+    escape_then_release(&mut h, to, egui::Modifiers::NONE);
+    assert!(h.app.board_drag.is_none());
+    assert_eq!(scene_nodes(&h), before);
+    assert_eq!(h.app.tab().journal.undo_depth(), depth);
+    assert_eq!(h.app.board_sel, ids.into_iter().collect());
+}
+
+/// A release the board sees with no pointer position (let go outside the
+/// window, the pointer gone by frame end) restores the nodes rather than
+/// leaving them displaced and unjournaled.
+#[test]
+fn release_outside_the_window_restores_the_moved_nodes() {
+    let (mut h, ids) = esc_drag_board("release_outside");
+    select_ids(&mut h.app, &ids);
+    let before = scene_nodes(&h);
+    let depth = h.app.tab().journal.undo_depth();
+    hold_drag(
+        &mut h,
+        Pos2::new(40.0, 30.0),
+        Pos2::new(140.0, 110.0),
+        egui::Modifiers::NONE,
+    );
+    assert!(matches!(
+        h.app.board_drag,
+        Some(board::BoardDrag::Move { .. })
+    ));
+    assert_ne!(scene_nodes(&h), before, "the nodes moved mid-drag");
+    h.frame_with(|i| {
+        i.events.push(egui::Event::PointerButton {
+            pos: Pos2::new(-40.0, -40.0),
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        i.events.push(egui::Event::PointerGone);
+    });
+    h.frame();
+    assert!(h.app.board_drag.is_none());
+    assert_eq!(scene_nodes(&h), before);
+    assert_eq!(h.app.tab().journal.undo_depth(), depth);
+}
+
+fn picture_from(h: &mut Harness, name: &str, x: f32) -> NodeId {
+    let path = h.base.join(name);
+    image::RgbaImage::from_pixel(8, 8, image::Rgba([90, 140, 200, 255]))
+        .save(&path)
+        .unwrap();
+    let item = h.app.add_paths(&[path])[0];
+    let node = h.app.doc_mut().scene.build_node(
+        slate_doc::scene::WorldRect::new(x, 0.0, 160.0, 120.0),
+        slate_doc::scene::NodeKind::Image(slate_doc::scene::ImageNode::new(item)),
+    );
+    h.app.add_nodes(vec![node])[0]
+}
+
+fn picture_item(h: &Harness, id: NodeId) -> slate_doc::ItemId {
+    match &h.app.doc().scene.node(id).unwrap().kind {
+        slate_doc::scene::NodeKind::Image(img) => img.item,
+        _ => panic!("image"),
+    }
+}
+
+/// An Alt copy dropped on a picture: the staged copy leaves unjournaled,
+/// the original stays where it was, and the drop is the one journal entry.
+#[test]
+fn alt_copy_dropped_on_a_picture_leaves_no_unjournaled_copy() {
+    use super::board_image_layers::{ImageDropChoice, ImageDropOffer, ImageDropSource};
+    let mut h = align_board("alt_image_drop");
+    h.app.tab_mut().cam.z = 1.0;
+    h.app.tab_mut().cam.offset = egui::vec2(0.0, 0.0);
+    let src = picture_from(&mut h, "source.png", -300.0);
+    let dst = picture_from(&mut h, "target.png", 0.0);
+    h.frame();
+    let before = scene_nodes(&h);
+    let depth = h.app.tab().journal.undo_depth();
+    let alt = egui::Modifiers {
+        alt: true,
+        ..Default::default()
+    };
+    h.app.alt_down = true;
+    select_ids(&mut h.app, &[src]);
+    let (press, over) = (Pos2::new(-220.0, 60.0), Pos2::new(80.0, 60.0));
+    let xf = h.app.board_xf();
+    h.app.board_drag = h.app.begin_gesture_for_test(xf.w2s(press), press, alt);
+    let copy = match &h.app.board_drag {
+        Some(board::BoardDrag::Move { ids, dup: true, .. }) => ids[0],
+        _ => panic!("Alt stages a copy"),
+    };
+    h.app.update_gesture_for_test(over, alt);
+    h.app.image_drop = Some(ImageDropOffer {
+        target: dst,
+        source: ImageDropSource::Node(copy),
+        highlight: Some(ImageDropChoice::Replace),
+    });
+    h.app.end_gesture_for_test(over, Some(xf.w2s(over)), alt);
+    assert!(h.app.board_drag.is_none());
+    assert_eq!(picture_item(&h, dst), picture_item(&h, src));
+    assert_eq!(
+        h.app.doc().scene.nodes.len(),
+        before.len(),
+        "no copy is left"
+    );
+    assert_eq!(
+        h.app.doc().scene.node(src),
+        before.iter().find(|n| n.id == src),
+        "the original stays put"
+    );
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
+    h.app.board_undo();
+    assert_eq!(
+        scene_nodes(&h),
+        before,
+        "one undo restores the board exactly"
+    );
+}

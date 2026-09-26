@@ -2112,10 +2112,19 @@ impl SlateApp {
 
     /// Screen rect of the selection strip's screenshot button, last painted.
     pub(crate) fn model_screenshot_button(&self) -> Option<Rect> {
+        self.strip_button(|item| matches!(item, StripItem::ModelScreenshot))
+    }
+
+    /// Screen rect of the selection strip's Measure button, last frame.
+    #[cfg(test)]
+    pub(crate) fn model_measure_button(&self) -> Option<Rect> {
+        self.strip_button(|item| matches!(item, StripItem::ModelMeasure))
+    }
+
+    #[cfg(test)]
+    fn strip_button(&self, want: fn(&StripItem) -> bool) -> Option<Rect> {
         let items = &self.shape_properties.last_chrome.as_ref()?.items;
-        let index = items
-            .iter()
-            .position(|item| matches!(item, StripItem::ModelScreenshot))?;
+        let index = items.iter().position(want)?;
         self.shape_properties.chrome_hits.get(index).copied()
     }
 

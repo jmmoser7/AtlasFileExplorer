@@ -59,7 +59,7 @@ use slate_doc::scene::{
     PORTAL_DEFAULT_W,
 };
 use slate_doc::{ItemId, NodeId};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -731,6 +731,45 @@ pub enum BoardDrag {
         press: Pos2,
         max_px: f32,
     },
+}
+
+impl BoardDrag {
+    /// Drags that edit scene nodes in place before release. Each carries
+    /// its press-time nodes, so Esc can put them back (P0.1).
+    pub(crate) fn edits_nodes_live(&self) -> bool {
+        matches!(
+            self,
+            BoardDrag::Move { .. }
+                | BoardDrag::Resize { .. }
+                | BoardDrag::Rotate { .. }
+                | BoardDrag::CropEdge { .. }
+                | BoardDrag::CropPan { .. }
+                | BoardDrag::GroupResize { .. }
+                | BoardDrag::GroupRotate { .. }
+                | BoardDrag::LineGrip { .. }
+                | BoardDrag::FilletRadius { .. }
+        )
+    }
+
+    /// The press-time nodes, and whether they are unjournaled Alt copies.
+    /// `None` exactly when [`Self::edits_nodes_live`] is false.
+    fn into_press_nodes(self) -> Option<(Vec<Node>, bool)> {
+        Some(match self {
+            BoardDrag::Move { before, dup, .. } | BoardDrag::GroupResize { before, dup, .. } => {
+                (before, dup)
+            }
+            BoardDrag::Resize { before, dup, .. } => (vec![before], dup),
+            BoardDrag::GroupRotate { before, .. } => (before, false),
+            BoardDrag::CropEdge { before, peers, .. } => {
+                (std::iter::once(before).chain(peers).collect(), false)
+            }
+            BoardDrag::Rotate { before, .. }
+            | BoardDrag::CropPan { before, .. }
+            | BoardDrag::LineGrip { before, .. }
+            | BoardDrag::FilletRadius { before, .. } => (vec![before], false),
+            _ => return None,
+        })
+    }
 }
 
 /// World→screen transform. The board uses the tab camera; presentation mode
@@ -1685,8 +1724,73 @@ impl SlateApp {
             before.push(d.clone());
             scene.nodes.push(d);
         }
-        self.board_sel = ids.iter().copied().collect();
+        let sources_sel = std::mem::replace(&mut self.board_sel, ids.iter().copied().collect());
+        self.staged_dup_sel = Some(sources_sel);
         (ids, before)
+    }
+
+    /// Esc during a drag that edits nodes live. egui drops its drag on Esc,
+    /// so no release follows: every node returns to its press-time state,
+    /// staged Alt copies leave the scene with the selection going back to
+    /// their sources, and nothing is journaled (P0.1). False when the drag
+    /// edits no nodes.
+    pub(crate) fn cancel_node_drag(&mut self) -> bool {
+        if !self
+            .board_drag
+            .as_ref()
+            .is_some_and(BoardDrag::edits_nodes_live)
+        {
+            return false;
+        }
+        let Some(drag) = self.board_drag.take() else {
+            return false;
+        };
+        let is_move = matches!(drag, BoardDrag::Move { .. });
+        let Some((before, dup)) = drag.into_press_nodes() else {
+            return false;
+        };
+        let bumped = is_move && self.bumper.dragging();
+        let sources_sel = self.staged_dup_sel.take();
+        self.restore_press_nodes(before, dup, sources_sel);
+        if bumped {
+            // The bodies the move pushed go back too.
+            self.cancel_bumper_drag(Vec::new());
+        }
+        if is_move {
+            self.image_drop = None;
+        }
+        true
+    }
+
+    /// Undo a node drag's live edits without journaling: staged Alt copies
+    /// leave the scene and the selection returns to their sources
+    /// (`sources_sel`); any other node takes its press-time state. Release
+    /// paths that commit something else (a saved view, an image drop) call
+    /// this first, so only their own command reaches the journal.
+    pub(crate) fn restore_press_nodes(
+        &mut self,
+        before: Vec<Node>,
+        dup: bool,
+        sources_sel: Option<HashSet<NodeId>>,
+    ) {
+        if dup {
+            let copies: HashSet<NodeId> = before.iter().map(|n| n.id).collect();
+            self.doc_mut()
+                .scene
+                .nodes
+                .retain(|n| !copies.contains(&n.id));
+            if let Some(sel) = sources_sel {
+                self.board_sel = sel;
+            }
+        } else {
+            let scene = &mut self.doc_mut().scene;
+            for node in before {
+                if let Some(live) = scene.node_mut(node.id) {
+                    *live = node;
+                }
+            }
+        }
+        self.note_scene_change();
     }
 
     fn journal_alt_copies(&mut self, ids: &[NodeId], note: String) {
@@ -4552,6 +4656,45 @@ impl SlateApp {
             }
         }
 
+        // Measure picks: press / release, not drag_started. Each pick is a
+        // plain click, which never becomes an egui drag (media D14).
+        if self.board_tool == BoardTool::Select
+            && !space
+            && !panning
+            && !zoom_tool
+            && !model_toolbar_captures
+            && !web_capture
+            && !self.board_align_eat_press
+            && self.board_drag.is_none()
+            && ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary))
+        {
+            if let Some(p) = pointer {
+                if let Some(id) = self.model_measure_press_at(p, xf.s2w(p)) {
+                    if !self.board_sel.contains(&id) {
+                        self.board_sel.clear();
+                        self.board_sel.insert(id);
+                    }
+                    self.board_drag = Some(BoardDrag::ModelMeasure {
+                        id,
+                        start_screen: p,
+                    });
+                    self.board_align_eat_press = true;
+                }
+            }
+        }
+        if matches!(self.board_drag, Some(BoardDrag::ModelMeasure { .. }))
+            && ui.input(|i| i.pointer.button_released(egui::PointerButton::Primary))
+        {
+            let w = wp.unwrap_or(Pos2::ZERO);
+            let mods = ui.input(|i| i.modifiers);
+            self.end_gesture(w, pointer, mods);
+        }
+        if self.board_drag.is_none() && ui.input(|i| i.pointer.delta() != egui::Vec2::ZERO) {
+            if let Some(p) = pointer {
+                self.model_measure_hover(p);
+            }
+        }
+
         // --- gesture start ---
         // Hit-test at the pointer *press origin*: by the time egui's drag
         // threshold fires, a fast drag has often already left the tiny
@@ -4629,6 +4772,13 @@ impl SlateApp {
                 let mods = ui.input(|i| i.modifiers);
                 self.end_gesture(w, pointer, mods);
             }
+        }
+        // egui can end its drag with nothing above to commit it: Esc aborts
+        // the drag (an Esc the cancel stack never saw, with the palette or a
+        // text field focused), and a release outside the window leaves no
+        // pointer position. A node drag still live now goes back (P0.1).
+        if resp.drag_stopped() {
+            self.cancel_node_drag();
         }
 
         // A small movement turns egui's click into a drag. The + lives on
@@ -4958,6 +5108,8 @@ impl SlateApp {
                 }
             }
         }
+        // A saved view held over a model: its picture sinks in (media D38).
+        self.sink_view_drop_picture(&mut nodes);
         for n in nodes.iter().filter(|n| n.is_frame()) {
             self.paint_board_node(ui, &painter, &xf, n, true);
         }
@@ -5491,6 +5643,7 @@ impl SlateApp {
 
         // In-viewport measurement overlays (live only).
         self.paint_model_measurements(&painter, &xf);
+        self.paint_view_drop_file(&painter, &xf);
 
         // Empty-board hint.
         if self.doc().scene.is_empty() {
@@ -6928,32 +7081,39 @@ impl SlateApp {
         // Any gesture may have journaled; one generation bump per gesture
         // end keeps the minimap/search caches fresh without per-frame cost.
         self.note_scene_change();
+        let sources_sel = self.staged_dup_sel.take();
         let drag = self.board_drag.take();
+        // A saved-view picture released over a model commits a camera patch
+        // instead of the move.
+        let view_drop = match (&drag, pointer) {
+            (Some(BoardDrag::Move { ids, .. }), Some(p)) if !self.bumper.dragging() => {
+                self.node_view_drop_target(ids, self.board_xf().s2w(p))
+            }
+            _ => None,
+        };
         match drag {
             Some(BoardDrag::Move {
                 ids, before, dup, ..
             }) if self.bumper.dragging() => {
                 self.bumper_release(&ids, &before, dup);
             }
-            Some(BoardDrag::Move {
-                ids, before, dup, ..
-            }) if pointer.is_some_and(|p| {
-                let world = self.board_xf().s2w(p);
-                self.maybe_intercept_node_drop_on_model(&ids, world)
-            }) =>
-            {
-                for (id, b) in ids.iter().zip(before.iter()) {
-                    if let Some(live) = self.doc_mut().scene.node_mut(*id) {
-                        *live = b.clone();
-                    }
+            Some(BoardDrag::Move { before, dup, .. }) if view_drop.is_some() => {
+                self.restore_press_nodes(before, dup, sources_sel);
+                if let Some(target) = view_drop {
+                    self.commit_node_view_drop(target);
                 }
+            }
+            Some(BoardDrag::Move { before, dup, .. }) if self.image_drop_armed() => {
+                // Read the picture while a staged copy still holds it.
+                let item = self.image_drop_item();
+                self.restore_press_nodes(before, dup, sources_sel);
+                // An Alt copy drops its picture and keeps the original.
+                self.commit_image_drop(item, dup);
             }
             Some(BoardDrag::Move {
                 ids, before, dup, ..
             }) => {
-                if self.try_commit_image_drop(&ids, &before) {
-                    return;
-                }
+                self.image_drop = None;
                 // Whole-node compare: a connector move also translates its
                 // Free endpoints (kind change), not just the rect.
                 let moved = ids
