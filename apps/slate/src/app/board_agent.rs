@@ -199,6 +199,17 @@ pub struct AgentRuntime {
     models_error: HashMap<String, String>,
     artifact_popup: Option<(NodeId, bool)>,
     artifact_popup_rect: Option<Rect>,
+    /// Chat title whose model list is open. The list is re-anchored under the
+    /// title every frame, so zoom never detaches, resizes late, or closes it.
+    model_menu: Option<NodeId>,
+    /// False until the press that opened the model list is released.
+    model_menu_armed: bool,
+    model_menu_rect: Option<Rect>,
+    /// Streaming card whose Stop took the press; it stops on release there.
+    stop_press: Option<NodeId>,
+    /// A presentation switch still settling: a card of the conversation, the
+    /// journal depth after the switch, and the scene generation since.
+    projection_settle: Option<(NodeId, usize, u64)>,
     /// HTML (and the rest of the preview catalog) waiting for text vs graphic.
     preview_ask: Option<(NodeId, String, Option<Pos2>)>,
     /// False until the pointer that opened the menu has been released.
@@ -554,6 +565,18 @@ const SUMMARY_TEXT_TOP: f32 = 28.0;
 const COLLAPSED_ROWS: usize = 3;
 /// Card text size, in world units.
 const CARD_TEXT_PX: f32 = 13.0;
+/// Stop's disc and press reach on a streaming card's output circle, in world units.
+const STOP_RADIUS: f32 = 6.0;
+const STOP_REACH: f32 = 8.0;
+
+/// On-screen center of a chat card's top output circle.
+fn output_circle_center(card: Rect, z: f32) -> Pos2 {
+    card.right_top()
+        + egui::vec2(
+            -slate_doc::agent_chat::PORT_INSET,
+            slate_doc::agent_chat::RAIL_INSET,
+        ) * z
+}
 
 /// A person's resize of a chat card is authored size, recorded in the same
 /// patch as the rect. It also opens a collapsed card. Drafts and bundles still fit.
@@ -575,6 +598,27 @@ pub(crate) fn record_agent_resize(node: &mut Node) -> bool {
     a.chat.size = Some(size);
     a.chat.collapsed = false;
     true
+}
+
+/// The presentation rows of a chat card's ellipsis menu: command, and
+/// whether it is offered.
+pub(crate) fn agent_presentations(
+    chat: &slate_doc::agent_chat::ChatView,
+    running: bool,
+) -> [(&'static str, bool); 3] {
+    use slate_doc::agent_chat::Detail;
+    let train = chat.train;
+    [
+        ("portal.agent.chat", train && !chat.draft && !running),
+        (
+            "portal.agent.train",
+            (!train || chat.detail == Detail::Pair) && !running,
+        ),
+        (
+            "portal.agent.pairs",
+            (!train || chat.detail != Detail::Pair) && !running,
+        ),
+    ]
 }
 
 /// Bundling a run keeps it on the terminal card, one level deeper; the rest
@@ -823,7 +867,7 @@ impl SlateApp {
                 updates.push(after);
             }
         }
-        for after in updates {
+        for after in self.settle_agent_projection(updates) {
             self.patch_nodes(&[after.id], |n| {
                 *n = after.clone();
             });
@@ -1187,6 +1231,7 @@ impl SlateApp {
                         !a.chat.draft && !a.provider.is_empty() && a.chat.parent.is_some()
                     })
                     && !self.agent_in_choose_phase(n.id)
+                    && !self.agent_is_running(n.id)
                     && screen.distance(
                         xf.rect_w2s(n.rect).right_top()
                             + egui::vec2(
@@ -1194,6 +1239,32 @@ impl SlateApp {
                                 slate_doc::agent_chat::RAIL_INSET,
                             ) * xf.z,
                     ) <= 7.0 * xf.z
+            })
+            .map(|n| n.id)
+    }
+
+    /// A chat card streaming a reply shows Stop on its top output circle.
+    fn agent_stop_shown(&self, n: &Node) -> bool {
+        !n.hidden
+            && slate_doc::agent_chat::agent(n).is_some_and(|a| {
+                a.view == atlas_ai::agent::PortalView::Chat
+                    && !a.chat.draft
+                    && !a.provider.is_empty()
+            })
+            && self.agent_is_running(n.id)
+    }
+
+    /// The streaming chat card whose Stop is under `screen`.
+    pub(crate) fn agent_stop_at(&self, screen: Pos2, xf: &BoardXf) -> Option<NodeId> {
+        self.doc()
+            .scene
+            .nodes
+            .iter()
+            .rev()
+            .find(|n| {
+                self.agent_stop_shown(n)
+                    && screen.distance(output_circle_center(xf.rect_w2s(n.rect), xf.z))
+                        <= canvas_scale::px(STOP_REACH, xf.z)
             })
             .map(|n| n.id)
     }
@@ -1239,10 +1310,10 @@ impl SlateApp {
                     return true;
                 }
             }
-            if self
-                .agents
-                .artifact_popup_rect
-                .is_some_and(|r| r.contains(pointer))
+            if [self.agents.artifact_popup_rect, self.agents.model_menu_rect]
+                .into_iter()
+                .flatten()
+                .any(|r| r.contains(pointer))
             {
                 self.board_align_eat_press = true;
                 return true;
@@ -1357,8 +1428,31 @@ impl SlateApp {
             self.board_align_eat_press = true;
             return true;
         }
+        if let Some(id) = self.agents.stop_press {
+            if ui.input(|i| i.pointer.any_released()) {
+                self.agents.stop_press = None;
+                if pointer.is_some_and(|p| self.agent_stop_at(p, xf) == Some(id)) {
+                    self.board_sel = std::iter::once(id).collect();
+                    self.dispatch(
+                        ui.ctx(),
+                        atlas_commands::CommandId("portal.agent.stop"),
+                        None,
+                    );
+                }
+            }
+            self.board_align_eat_press = true;
+            return true;
+        }
         if self.board_drag.is_some() || self.board_tool != super::board::BoardTool::Select {
             return false;
+        }
+        if let Some(id) = pointer.and_then(|p| self.agent_stop_at(p, xf)) {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            if ui.input(|i| i.pointer.primary_pressed()) {
+                self.agents.stop_press = Some(id);
+                self.board_align_eat_press = true;
+                return true;
+            }
         }
         let ids: Vec<_> = self
             .doc()
@@ -1396,6 +1490,9 @@ impl SlateApp {
                     return true;
                 }
             }
+            if self.agent_is_running(id) {
+                continue;
+            }
             let hit = Rect::from_center_size(handle, egui::vec2(8.0, 8.0) * xf.z);
             if pointer.is_some_and(|p| p.distance(handle) <= 7.0 * xf.z) {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::Default);
@@ -1432,6 +1529,10 @@ impl SlateApp {
             let Some(a) = slate_doc::agent_chat::agent(n) else {
                 continue;
             };
+            if self.agent_stop_shown(n) {
+                self.paint_agent_stop(painter, xf, n, pointer);
+                continue;
+            }
             if n.hidden
                 || n.locked
                 || a.chat.draft
@@ -1705,7 +1806,10 @@ impl SlateApp {
         self.agent_project_cards(2)
     }
 
-    /// `stride` 1 is one turn per card. `stride` 2 keeps a user line with its reply.
+    /// `stride` 1 is one turn per card. `stride` 2 keeps a user line with its
+    /// reply. Every linear path of the conversation is re-chunked from its
+    /// first turn to its last, so a switch mid-conversation reconfigures all
+    /// cards and branches, and one Undo returns the previous presentation.
     fn agent_project_cards(&mut self, stride: usize) -> bool {
         let Some(id) = self.selected_agent_portal() else {
             return false;
@@ -1717,20 +1821,171 @@ impl SlateApp {
         }
         let mut commands = Vec::new();
         let mut add_index = self.doc().scene.nodes.len();
-        for member in ids {
-            let original = self.doc().scene.node(member).unwrap().clone();
-            let binding = slate_doc::agent_chat::agent(&original).unwrap();
-            let turns = self.agent_all_turns(member);
-            let end = binding
-                .chat
-                .end
-                .unwrap_or(turns.len())
-                .max(binding.chat.start + 1);
-            self.agent_projection_views(&original, stride, end, &mut add_index, &mut commands);
+        let mut moved = HashMap::new();
+        let mut anchor = None;
+        for path in slate_doc::agent_chat::segments(&self.doc().scene, id) {
+            let Some(cards) = self.agent_path_cards(&path) else {
+                continue;
+            };
+            anchor = anchor.or(cards.last().copied());
+            self.agent_rechunk_path(&cards, stride, &mut add_index, &mut commands, &mut moved);
         }
-        self.arrange_agent_projection(id, &mut commands);
-        self.commit_scene(commands);
+        let Some(anchor) = anchor else {
+            return true;
+        };
+        self.retarget_agent_wires(&moved, &mut commands);
+        let mut removed: Vec<_> = moved
+            .keys()
+            .filter_map(|id| {
+                let index = self.doc().scene.index_of(*id)?;
+                Some((index, self.doc().scene.node(*id)?.clone()))
+            })
+            .collect();
+        removed.sort_by_key(|(index, _)| std::cmp::Reverse(*index));
+        commands.extend(
+            removed
+                .into_iter()
+                .map(|(index, node)| slate_doc::SceneCmd::Remove { index, node }),
+        );
+        self.arrange_agent_projection(anchor, &mut commands);
+        if self.commit_scene(commands) {
+            let gone: Vec<_> = moved.keys().copied().collect();
+            self.forget_deleted_agent_cards(&gone);
+            let selected = moved.get(&id).copied().unwrap_or(id);
+            self.board_sel.clear();
+            self.board_sel.insert(selected);
+            self.agents.projection_settle =
+                Some((anchor, self.tab().journal.undo_depth(), self.scene_gen));
+        }
         true
+    }
+
+    /// The chat cards of one linear path. A draft (or anything else that is
+    /// not a card) may only trail it; it keeps hanging from the last card.
+    fn agent_path_cards(&self, path: &[NodeId]) -> Option<Vec<NodeId>> {
+        let scene = &self.doc().scene;
+        let is_card = |id: &NodeId| {
+            scene.node(*id).is_some_and(|n| {
+                matches!(n.kind, NodeKind::Portal(_))
+                    && slate_doc::agent_chat::agent(n).is_some_and(|a| !a.chat.draft)
+            })
+        };
+        let n = path.iter().take_while(|id| is_card(id)).count();
+        (n > 0 && !path[n..].iter().any(is_card)).then(|| path[..n].to_vec())
+    }
+
+    /// Re-chunks one linear path's turns, `stride` 1 per turn or a user line
+    /// with its reply. A card whose range ends where a chunk ends shows that
+    /// chunk; a chunk ending inside a card gets a new view of that card's
+    /// transcript. Cards that show nothing leave, recorded in `moved` with
+    /// the card that now shows their first turn.
+    fn agent_rechunk_path(
+        &mut self,
+        path: &[NodeId],
+        stride: usize,
+        add_index: &mut usize,
+        commands: &mut Vec<slate_doc::SceneCmd>,
+        moved: &mut HashMap<NodeId, NodeId>,
+    ) {
+        use slate_doc::agent_chat::{agent, agent_mut, Detail};
+        let members: Vec<Node> = path
+            .iter()
+            .filter_map(|id| self.doc().scene.node(*id).cloned())
+            .collect();
+        let turns: Vec<_> = path.iter().map(|id| self.agent_all_turns(*id)).collect();
+        let ranges: Vec<(usize, usize)> = members
+            .iter()
+            .zip(&turns)
+            .map(|(m, turns)| {
+                let chat = &agent(m).unwrap().chat;
+                (
+                    chat.start,
+                    chat.end.unwrap_or(turns.len()).max(chat.start + 1),
+                )
+            })
+            .collect();
+        let last = members.len() - 1;
+        let owner = |i: usize| {
+            ranges
+                .iter()
+                .position(|(s, e)| *s <= i && i < *e)
+                .unwrap_or(last)
+        };
+        let (start, end) = (ranges[0].0, ranges[last].1);
+        let mut cuts = vec![start];
+        for i in start + 1..end {
+            let cut = stride == 1
+                || match turns[owner(i)].get(i) {
+                    Some(turn) => turn.role == "user",
+                    None => (i - start) % 2 == 0,
+                };
+            if cut {
+                cuts.push(i);
+            }
+        }
+        cuts.push(end);
+        let mut parent = agent(&members[0]).unwrap().chat.parent;
+        let mut hosts = Vec::new();
+        let mut kept = HashSet::new();
+        for chunk in cuts.windows(2) {
+            let (a, b) = (chunk[0], chunk[1]);
+            let k = owner(b - 1);
+            let reuse = ranges[k].1 == b && kept.insert(k);
+            let mut node = if reuse {
+                members[k].clone()
+            } else {
+                self.doc_mut().scene.build_duplicate(&members[k], 0.0, 0.0)
+            };
+            node.hidden = false;
+            node.rect.w = slate_doc::agent_chat::CARD_WIDTH;
+            node.rect.h = if stride > 1 {
+                slate_doc::agent_chat::PAIR_HEIGHT
+            } else {
+                slate_doc::agent_chat::CARD_HEIGHT
+            };
+            if let Some(binding) = agent_mut(&mut node) {
+                let chat = &mut binding.chat;
+                chat.train = true;
+                chat.bundled.clear();
+                chat.bundle_layers.clear();
+                chat.detail = if stride > 1 {
+                    Detail::Pair
+                } else {
+                    Detail::Summary
+                };
+                chat.parent = parent;
+                chat.start = a;
+                if !reuse {
+                    chat.end = Some(b);
+                }
+            }
+            parent = Some(node.id);
+            hosts.push((a, node.id));
+            if reuse {
+                commands.push(slate_doc::SceneCmd::Patch {
+                    before: Box::new(members[k].clone()),
+                    after: Box::new(node),
+                });
+            } else {
+                commands.push(slate_doc::SceneCmd::Add {
+                    index: *add_index,
+                    node,
+                });
+                *add_index += 1;
+            }
+        }
+        for (k, member) in members.iter().enumerate() {
+            if kept.contains(&k) {
+                continue;
+            }
+            let host = hosts
+                .iter()
+                .rev()
+                .find(|(a, _)| *a <= ranges[k].0)
+                .unwrap_or(&hosts[0])
+                .1;
+            moved.insert(member.id, host);
+        }
     }
 
     /// Views of `original`'s turns from its start to `end`, `stride` turns
@@ -1793,6 +2048,94 @@ impl SlateApp {
                 *add_index += 1;
             }
         }
+    }
+
+    /// Wires anchored to a card that leaves follow the card that now shows
+    /// its first turn, in the same step.
+    fn retarget_agent_wires(
+        &self,
+        moved: &HashMap<NodeId, NodeId>,
+        commands: &mut Vec<slate_doc::SceneCmd>,
+    ) {
+        if moved.is_empty() {
+            return;
+        }
+        for n in &self.doc().scene.nodes {
+            let NodeKind::Connector(_) = &n.kind else {
+                continue;
+            };
+            let mut after = n.clone();
+            let NodeKind::Connector(c) = &mut after.kind else {
+                continue;
+            };
+            let mut changed = false;
+            for end in [&mut c.a, &mut c.b] {
+                if let slate_doc::scene::ConnectorEnd::Anchored { node, .. } = end {
+                    if let Some(host) = moved.get(node) {
+                        *node = *host;
+                        changed = true;
+                    }
+                }
+            }
+            if changed {
+                commands.push(slate_doc::SceneCmd::Patch {
+                    before: Box::new(n.clone()),
+                    after: Box::new(after),
+                });
+            }
+        }
+    }
+
+    /// Cards a presentation switch just laid out fit their text over the next
+    /// frames. Until anything else edits the board, that settling and the
+    /// relayout it needs fold into the switch's journal step, so one Undo
+    /// still returns the previous presentation.
+    fn settle_agent_projection(&mut self, updates: Vec<Node>) -> Vec<Node> {
+        let Some((anchor, depth, generation)) = self.agents.projection_settle else {
+            return updates;
+        };
+        let journal = &self.tab().journal;
+        if depth != journal.undo_depth() || generation != self.scene_gen || journal.can_redo() {
+            self.agents.projection_settle = None;
+            return updates;
+        }
+        let mut rest = Vec::new();
+        let mut folded = Vec::new();
+        for after in updates {
+            if self.tab_mut().journal.fold_into_last(&after) {
+                folded.push(after);
+            } else {
+                rest.push(after);
+            }
+        }
+        if !folded.is_empty() {
+            for after in &folded {
+                if let Some(n) = self.doc_mut().scene.node_mut(after.id) {
+                    *n = after.clone();
+                }
+            }
+            let positions = slate_doc::agent_chat::projection_positions(&self.doc().scene, anchor);
+            for (id, p) in positions {
+                let Some(mut after) = self.doc().scene.node(id).cloned() else {
+                    continue;
+                };
+                if after.rect.x == p[0] && after.rect.y == p[1] {
+                    continue;
+                }
+                after.rect.x = p[0];
+                after.rect.y = p[1];
+                if self.tab_mut().journal.fold_into_last(&after) {
+                    if let Some(n) = self.doc_mut().scene.node_mut(id) {
+                        *n = after.clone();
+                    }
+                    folded.push(after);
+                }
+            }
+            self.brush_tiles.note_ids(folded.iter().map(|n| n.id));
+            self.note_scene_change();
+        }
+        self.agents.projection_settle = rest.is_empty().then_some((anchor, depth, self.scene_gen));
+        rest
     }
 
     fn arrange_agent_projection(&self, id: NodeId, commands: &mut Vec<slate_doc::SceneCmd>) {
@@ -1921,10 +2264,13 @@ impl SlateApp {
         }
         let mut commands = Vec::new();
         let mut selected = None;
+        let mut anchor = None;
         for path in segments {
-            let Some(last) = path.last().copied() else {
+            let Some(path) = self.agent_path_cards(&path) else {
                 continue;
             };
+            let last = *path.last().unwrap();
+            anchor = anchor.or(Some(last));
             if path.contains(&id) {
                 selected = Some(last);
             }
@@ -1949,8 +2295,14 @@ impl SlateApp {
                 });
             }
         }
-        self.arrange_agent_projection(id, &mut commands);
-        self.commit_scene(commands);
+        let Some(anchor) = anchor else {
+            return true;
+        };
+        self.arrange_agent_projection(anchor, &mut commands);
+        if self.commit_scene(commands) {
+            self.agents.projection_settle =
+                Some((anchor, self.tab().journal.undo_depth(), self.scene_gen));
+        }
         if let Some(id) = selected {
             self.board_sel.clear();
             self.board_sel.insert(id);
@@ -5062,6 +5414,9 @@ impl SlateApp {
         // menu is shoved upward until its top (Grok 4.7, Opus 5, …) sits above
         // the screen, so only the older tail looks available.
         let max_h = (ui.ctx().screen_rect().height() - 48.0).max(160.0);
+        // A popup lays out inside last frame's size. Its rows grow with the
+        // zoom, so without room of its own the list clips and scrolls away.
+        ui.set_max_height(max_h);
         egui::ScrollArea::vertical()
             .max_height(max_h)
             .show(ui, |ui| {
@@ -7759,6 +8114,8 @@ impl SlateApp {
             }
             let mut chosen = None;
             let mut rename = false;
+            let open = self.agents.model_menu == Some(node.id);
+            let mut model_rect = None;
             header.horizontal(|header| {
                 if header
                     .add(egui::Button::new(&title).frame(false))
@@ -7775,17 +8132,50 @@ impl SlateApp {
                 } else {
                     egui::RichText::new(model_name)
                 };
-                let model = header.menu_button(model_text, |ui| {
-                    chosen = self.model_menu_items(ui, node.id, agent, z);
-                });
+                let mut button = egui::Button::new(model_text);
+                if open {
+                    let open_look = &header.visuals().widgets.open;
+                    button = button.fill(open_look.weak_bg_fill).stroke(open_look.bg_stroke);
+                }
+                let model = header.add(button);
+                if model.clicked() {
+                    self.agents.model_menu = (!open).then_some(node.id);
+                    self.agents.model_menu_armed = false;
+                }
+                model_rect = Some(model.rect);
                 if full {
-                    model.response.on_hover_text(
+                    model.on_hover_text(
                         "Full access: this conversation runs commands and edits files without asking",
                     );
                 }
             });
             if rename {
                 self.agents.title_edit = Some((node.id, title));
+            }
+            if let Some(anchor) = model_rect.filter(|_| self.agents.model_menu == Some(node.id)) {
+                let mut armed = self.agents.model_menu_armed;
+                let shown = atlas_shell::menu::anchored(
+                    ui.ctx(),
+                    Id::new(("agent-model-menu", node.id.0)),
+                    anchor.left_bottom() + egui::vec2(0.0, canvas_scale::px(2.0, z)),
+                    palette.dark_mode,
+                    ui.ctx().screen_rect().width(),
+                    Some(&mut armed),
+                    |ui| self.model_menu_items(ui, node.id, agent, z),
+                );
+                chosen = shown.inner;
+                self.agents.model_menu_armed = armed;
+                let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
+                let pressed_title = ui.input(|i| {
+                    i.pointer.any_pressed()
+                        && i.pointer.interact_pos().is_some_and(|p| anchor.contains(p))
+                });
+                if chosen.is_some() || escape || (shown.dismissed && !pressed_title) {
+                    self.agents.model_menu = None;
+                    self.agents.model_menu_rect = None;
+                } else {
+                    self.agents.model_menu_rect = Some(shown.rect);
+                }
             }
             if let Some(model) = chosen {
                 self.board_sel = std::iter::once(node.id).collect();
@@ -7796,6 +8186,10 @@ impl SlateApp {
                 );
             }
         } else {
+            if self.agents.model_menu == Some(node.id) {
+                self.agents.model_menu = None;
+                self.agents.model_menu_rect = None;
+            }
             // Sent cards name the model that answered; only the tail chooses the next one.
             let font = FontId::proportional(canvas_text::authored_px(13.0, z));
             let clip = painter.with_clip_rect(title_rect);
@@ -7909,24 +8303,25 @@ impl SlateApp {
                     Row::new(MenuIcon::Lock, "Full access")
                 };
                 // Presentation, then the conversation, then this card.
+                let [window, chat_train, pairs] = agent_presentations(&agent.chat, running);
                 let rows = [
                     (
                         0,
                         Row::glyph(Icon::ChatWindow, "Single chat window"),
-                        "portal.agent.chat",
-                        train && !agent.chat.draft && !running,
+                        window.0,
+                        window.1,
                     ),
                     (
                         0,
                         Row::glyph(Icon::ChatTrain, "Chat train"),
-                        "portal.agent.train",
-                        (!train || agent.chat.detail == Detail::Pair) && !running,
+                        chat_train.0,
+                        chat_train.1,
                     ),
                     (
                         0,
                         Row::glyph(Icon::ChatPairs, "Message pairs"),
-                        "portal.agent.pairs",
-                        train && agent.chat.detail != Detail::Pair && !running,
+                        pairs.0,
+                        pairs.1,
                     ),
                     (
                         0,
@@ -8496,7 +8891,9 @@ impl SlateApp {
             self.palette(),
         );
         if !editing {
-            self.paint_agent_stop(ui, id, field, z);
+            if self.agent_connecting(id) {
+                self.paint_agent_connecting(ui, field, z);
+            }
             return;
         }
         if take_focus && field_out.focused {
@@ -8515,45 +8912,35 @@ impl SlateApp {
         if field_out.submit {
             self.send_agent_prompt(id);
         }
-        self.paint_agent_stop(ui, id, field, z);
-    }
-
-    fn paint_agent_stop(&mut self, ui: &egui::Ui, id: NodeId, field: Rect, z: f32) {
         if self.agent_connecting(id) {
             self.paint_agent_connecting(ui, field, z);
-            return;
         }
-        if !self.agent_is_running(id) {
-            return;
-        }
-        ui.ctx().request_repaint();
-        let side = canvas_scale::px(11.0, z);
-        let stop = Rect::from_min_size(
-            Pos2::new(field.right() - side, field.bottom() - side),
-            egui::vec2(side, side),
+    }
+
+    /// Stop takes the output circle's place while a reply streams: the card
+    /// grows downward, so it stays under the pointer.
+    fn paint_agent_stop(
+        &self,
+        painter: &egui::Painter,
+        xf: &BoardXf,
+        n: &Node,
+        pointer: Option<Pos2>,
+    ) {
+        let z = xf.z;
+        let at = output_circle_center(xf.rect_w2s(n.rect), z);
+        let palette = self.palette();
+        let hot = pointer.is_some_and(|p| p.distance(at) <= canvas_scale::px(STOP_REACH, z));
+        painter.circle_filled(
+            at,
+            canvas_scale::px(STOP_RADIUS, z),
+            palette.sub.gamma_multiply(if hot { 0.95 } else { 0.7 }),
         );
-        let resp = ui.interact(stop, Id::new(("agent-stop", id.0)), Sense::click());
-        ui.painter().rect_filled(
-            stop,
-            canvas_scale::px(2.0, z),
-            if resp.hovered() {
-                Color32::from_rgb(176, 176, 176)
-            } else {
-                Color32::from_rgb(128, 128, 128)
-            },
+        let side = canvas_scale::px(STOP_RADIUS * 0.8, z);
+        painter.rect_filled(
+            Rect::from_center_size(at, egui::vec2(side, side)),
+            canvas_scale::px(1.0, z),
+            palette.card,
         );
-        paint_agent_spinner(
-            ui.painter(),
-            Pos2::new(stop.left() - side * 0.9, stop.center().y),
-            side * 0.42,
-            ui.input(|i| i.time) as f32,
-            self.palette().sub,
-        );
-        if resp.clicked() {
-            self.board_sel.clear();
-            self.board_sel.insert(id);
-            self.stop_selected_agent();
-        }
     }
 
     fn visible_agent_turns(&self, id: NodeId) -> Vec<AgentTurn> {
@@ -11569,5 +11956,908 @@ To install them by hand, run in PowerShell:\n  cd \"C:\\workspace\\Slate\\docs\\
         assert!(h.app.doc().scene.node(card).is_some());
         assert!(h.app.doc().scene.node(lone).is_some_and(|n| n.hidden));
         assert!(h.app.doc().scene.node(lone_wire).is_some());
+    }
+
+    /// Every string one frame painted, with where it was painted.
+    fn painted_at(output: &egui::FullOutput) -> Vec<(String, Rect)> {
+        painted_clipped(output)
+            .into_iter()
+            .map(|(t, r, _)| (t, r))
+            .collect()
+    }
+
+    /// [`painted_at`] with each string's clip rect.
+    fn painted_clipped(output: &egui::FullOutput) -> Vec<(String, Rect, Rect)> {
+        fn walk(shape: &egui::Shape, clip: Rect, out: &mut Vec<(String, Rect, Rect)>) {
+            match shape {
+                egui::Shape::Text(t) => {
+                    out.push((t.galley.text().to_string(), t.visual_bounding_rect(), clip))
+                }
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, clip, out)),
+                _ => {}
+            }
+        }
+        let mut texts = Vec::new();
+        for clipped in &output.shapes {
+            walk(&clipped.shape, clipped.clip_rect, &mut texts);
+        }
+        texts
+    }
+
+    /// A Codex train card whose model list holds three installed models.
+    fn codex_card_with_models(h: &mut super::super::tests::Harness) -> NodeId {
+        let card = train(h, Pos2::ZERO, "codex");
+        let catalog = atlas_ai::agent::model_catalog("codex").to_string();
+        h.app.agents.models_started.insert(catalog.clone());
+        h.app.agents.models.insert(
+            catalog,
+            ["gpt-6-astra", "gpt-6-terra", "gpt-6-luna"]
+                .into_iter()
+                .map(|id| atlas_ai::agent::AgentModel {
+                    id: id.into(),
+                    name: id.into(),
+                })
+                .collect(),
+        );
+        h.app.patch_nodes(&[card], |n| {
+            if let NodeKind::Portal(p) = &mut n.kind {
+                p.title = "Review".into();
+                p.agent.as_mut().unwrap().model = Some("gpt-6-astra".into());
+            }
+        });
+        card
+    }
+
+    /// Open the card's model dropdown with a real click on its name.
+    fn open_model_menu(h: &mut super::super::tests::Harness, card: NodeId, z: f32) {
+        // A fresh draft sizes itself on its first frame; center on that size.
+        h.frame();
+        center_on(h, card);
+        h.app.tab_mut().cam.z = z;
+        h.frame();
+        let out = h.frame_output(|_| {});
+        let label = h.app.model_menu_label(
+            slate_doc::agent_chat::agent(h.app.doc().scene.node(card).unwrap()).unwrap(),
+        );
+        let texts = painted_at(&out);
+        let at = texts
+            .iter()
+            .find(|(t, _)| *t == label)
+            .map(|(_, r)| r.center())
+            .unwrap_or_else(|| panic!("the tail shows its model name: {texts:?}"));
+        press(h, at);
+        assert!(
+            menu_items_painted(&h.frame_output(|_| {})),
+            "the click opened the model list"
+        );
+    }
+
+    /// Every row of the open model list is painted whole: none clipped away
+    /// or scrolled out. The title reads "Astra", so the list's rows are
+    /// Default, Astra, Terra and, last, Luna.
+    fn menu_items_painted(output: &egui::FullOutput) -> bool {
+        let texts = painted_clipped(output);
+        ["Default", "Terra", "Luna"].iter().all(|item| {
+            texts
+                .iter()
+                .any(|(t, r, clip)| t == item && clip.expand(0.5).contains_rect(*r))
+        })
+    }
+
+    /// The list hangs under the title's model name; it never drifts off it.
+    fn menu_under_title(output: &egui::FullOutput) -> bool {
+        let texts = painted_at(output);
+        let (Some(title), Some(first)) = (
+            texts.iter().find(|(t, _)| t == "Astra").map(|(_, r)| *r),
+            texts.iter().find(|(t, _)| t == "Default").map(|(_, r)| *r),
+        ) else {
+            return false;
+        };
+        // Slack for the menu frame's and row's padding.
+        let gap = first.top() - title.bottom();
+        gap >= 0.0
+            && gap < title.height() * 3.0 + 16.0
+            && (first.left() - title.left()).abs() < title.height() + 16.0
+    }
+
+    /// Wheel notches at `at`: `steps` in, then as many out.
+    fn wheel_sweep(
+        h: &mut super::super::tests::Harness,
+        at: Pos2,
+        steps: usize,
+        mut check: impl FnMut(&mut super::super::tests::Harness, &egui::FullOutput, usize, f32),
+    ) {
+        for step in 0..steps * 2 {
+            let delta = if step < steps { 40.0 } else { -40.0 };
+            let out = h.frame_output(|i| {
+                i.events.push(egui::Event::PointerMoved(at));
+                i.events.push(egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(0.0, delta),
+                    modifiers: Default::default(),
+                });
+            });
+            let z = h.app.tab().cam.z;
+            check(h, &out, step, z);
+        }
+    }
+
+    #[test]
+    fn the_model_list_stays_open_while_the_wheel_zooms_the_board() {
+        let mut h = board("model_menu_wheel");
+        let card = codex_card_with_models(&mut h);
+        open_model_menu(&mut h, card, 1.0);
+        let r = h
+            .app
+            .board_xf()
+            .rect_w2s(h.app.doc().scene.node(card).unwrap().rect);
+        // Left of the card on empty board, clear of the list below the
+        // title: the wheel zooms about the card and keeps it in view.
+        let beside = Pos2::new(r.left() - 24.0, r.center().y);
+        let mut zooms = Vec::new();
+        wheel_sweep(&mut h, beside, 24, |_, out, step, z| {
+            zooms.push(z);
+            assert!(
+                menu_items_painted(out),
+                "the model list vanished at step {step}, zoom {z}: {:?}",
+                painted_at(out)
+            );
+            assert!(
+                menu_under_title(out),
+                "the model list left its title at step {step}, zoom {z}: {:?}",
+                painted_at(out)
+            );
+        });
+        assert!(
+            zooms.iter().cloned().fold(0.0, f32::max) > 2.0,
+            "the board zoomed in: {zooms:?}"
+        );
+    }
+
+    #[test]
+    fn the_model_list_opened_zoomed_in_stays_whole_while_zooming_out_and_back() {
+        let mut h = board("model_menu_zoomed");
+        let card = codex_card_with_models(&mut h);
+        open_model_menu(&mut h, card, 2.5);
+        let r = h
+            .app
+            .board_xf()
+            .rect_w2s(h.app.doc().scene.node(card).unwrap().rect);
+        let beside = Pos2::new(r.left() - 24.0, r.center().y);
+        let mut zooms = Vec::new();
+        for delta in [-40.0, 40.0] {
+            for step in 0..12 {
+                let out = h.frame_output(|i| {
+                    i.events.push(egui::Event::PointerMoved(beside));
+                    i.events.push(egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        delta: egui::vec2(0.0, delta),
+                        modifiers: Default::default(),
+                    });
+                });
+                let z = h.app.tab().cam.z;
+                zooms.push(z);
+                assert!(
+                    menu_items_painted(&out) && menu_under_title(&out),
+                    "the model list broke at step {step} ({delta}), zoom {z}: {:?}",
+                    painted_at(&out)
+                );
+            }
+        }
+        assert!(
+            zooms.iter().cloned().fold(f32::MAX, f32::min) < 1.5,
+            "the board zoomed out: {zooms:?}"
+        );
+    }
+
+    #[test]
+    fn the_model_list_owns_the_wheel_and_stays_open_over_itself() {
+        let mut h = board("model_menu_over");
+        let card = codex_card_with_models(&mut h);
+        open_model_menu(&mut h, card, 1.0);
+        let out = h.frame_output(|_| {});
+        let over = painted_at(&out)
+            .into_iter()
+            .find(|(t, _)| t == "Terra")
+            .map(|(_, r)| r.center())
+            .unwrap();
+        let z0 = h.app.tab().cam.z;
+        wheel_sweep(&mut h, over, 12, |_, out, step, z| {
+            assert!(menu_items_painted(out), "vanished at step {step}");
+            assert_eq!(z, z0, "a navigable menu owns the wheel (P0.10)");
+        });
+    }
+
+    /// A Codex card choosing among `n` saved conversations.
+    fn codex_chat_picker(h: &mut super::super::tests::Harness, n: usize) -> NodeId {
+        let card = codex_card_with_models(h);
+        let chats = (0..n)
+            .map(|i| CursorChat {
+                id: format!("thread-{i}"),
+                title: format!("Conversation {i}"),
+                updated_at: i as u64,
+            })
+            .collect();
+        h.app.present_agent_picker(card, chats);
+        center_on(h, card);
+        h.frame();
+        h.frame();
+        card
+    }
+
+    #[test]
+    fn the_conversation_picker_stays_painted_while_the_wheel_zooms_over_it() {
+        for n in [2, 5, 12] {
+            let mut h = board("chat_picker_wheel");
+            let card = codex_chat_picker(&mut h, n);
+            let out = h.frame_output(|_| {});
+            let at = painted_at(&out)
+                .into_iter()
+                .find(|(t, _)| t == "Conversation 0")
+                .map(|(_, r)| r.center())
+                .expect("the picker lists conversations");
+            let mut zooms = Vec::new();
+            // In and back out again: below ~25% the rows are too small to
+            // draw and drop by LOD (P0.9), which is not a flicker.
+            wheel_sweep(&mut h, at, 10, |h, out, step, z| {
+                zooms.push(z);
+                assert!(
+                    h.app
+                        .agents
+                        .chat_picker
+                        .as_ref()
+                        .is_some_and(|p| p.portal == card),
+                    "the picker closed at step {step} ({n} chats)"
+                );
+                assert!(
+                    painted_at(out)
+                        .iter()
+                        .any(|(t, _)| t.starts_with("Conversation ")),
+                    "the picker vanished at step {step}, zoom {z} ({n} chats): {zooms:?}"
+                );
+            });
+        }
+    }
+
+    #[test]
+    fn the_project_picker_stays_painted_while_the_wheel_moves_over_it() {
+        let mut h = board("project_picker_wheel");
+        let card = codex_card_with_models(&mut h);
+        h.app.agents.provider_recents.insert(
+            "codex".into(),
+            (0..4)
+                .map(|i| RecentEntry {
+                    path: PathBuf::from(format!("C:/projects/p{i}")),
+                    title: format!("Project {i}"),
+                    opened_at: i,
+                    cover: None,
+                })
+                .collect(),
+        );
+        h.app.agents.recents_started = true;
+        h.app.agents.recents_rx = None;
+        h.app.agents.project_picker = Some(card);
+        center_on(&mut h, card);
+        h.frame();
+        let out = h.frame_output(|_| {});
+        let at = painted_at(&out)
+            .into_iter()
+            .find(|(t, _)| t == "Project 0")
+            .map(|(_, r)| r.center())
+            .expect("the picker lists projects");
+        wheel_sweep(&mut h, at, 12, |h, out, step, z| {
+            assert_eq!(h.app.agents.project_picker, Some(card));
+            assert!(
+                painted_at(out)
+                    .iter()
+                    .any(|(t, _)| t.starts_with("Project ")),
+                "the project list vanished at step {step}, zoom {z}"
+            );
+        });
+    }
+
+    /// A Cursor train whose tail is streaming a reply to request `req-stop`.
+    /// Returns (harness, tail, the file a Stop writes).
+    fn streaming_tail(tag: &str) -> (super::super::tests::Harness, NodeId, PathBuf) {
+        let mut h = board(tag);
+        let ws = h.base.join("ai-ws");
+        std::fs::create_dir_all(&ws).unwrap();
+        h.app.ai.config.workspace_dir = Some(ws.clone());
+        let root = train(&mut h, Pos2::ZERO, "cursor");
+        let tail = next_card(&mut h, root);
+        // Binding a card to its session starts it with no transcript.
+        h.frame();
+        let turn = |role: &str, text: &str, at| AgentTurn {
+            role: role.into(),
+            text: text.into(),
+            at,
+        };
+        h.app.agents.local_turns.insert(
+            root,
+            vec![turn("user", "first", 0), turn("assistant", "one", 1)],
+        );
+        h.app.agents.local_turns.insert(
+            tail,
+            vec![
+                turn("user", "first", 0),
+                turn("assistant", "one", 1),
+                turn("user", "second", 2),
+                // Past one full line, so the card is at its width.
+                turn("assistant", &"Streaming a reply ".repeat(4), 3),
+            ],
+        );
+        h.app.agents.requests.insert(tail, "req-stop".into());
+        h.app
+            .agents
+            .awaiting
+            .insert(tail, AgentAwait::Responding { req_at: 2 });
+        h.app.agents.output_epoch += 1;
+        h.frame();
+        center_on(&mut h, tail);
+        h.frame();
+        let session = slate_doc::agent_chat::agent(h.app.doc().scene.node(tail).unwrap())
+            .unwrap()
+            .session
+            .clone();
+        let cancel = atlas_ai::agent::agent_dir(&ws, &session).join("cancel.json");
+        (h, tail, cancel)
+    }
+
+    /// Where the card's top output circle sits on screen.
+    fn output_circle(h: &super::super::tests::Harness, id: NodeId) -> Pos2 {
+        let xf = h.app.board_xf();
+        xf.rect_w2s(h.app.doc().scene.node(id).unwrap().rect)
+            .right_top()
+            + egui::vec2(
+                -slate_doc::agent_chat::PORT_INSET,
+                slate_doc::agent_chat::RAIL_INSET,
+            ) * xf.z
+    }
+
+    /// The Stop square painted at `at`, if any.
+    fn stop_square_at(output: &egui::FullOutput, at: Pos2) -> Option<Rect> {
+        fn walk(shape: &egui::Shape, at: Pos2, found: &mut Option<Rect>) {
+            match shape {
+                egui::Shape::Rect(r) if r.rect.center().distance(at) < 1.5 => *found = Some(r.rect),
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, at, found)),
+                _ => {}
+            }
+        }
+        let mut found = None;
+        for clipped in &output.shapes {
+            walk(&clipped.shape, at, &mut found);
+        }
+        found
+    }
+
+    /// The cancel request lands on a worker thread.
+    fn stop_requested(cancel: &std::path::Path) -> bool {
+        (0..40).any(|_| {
+            if cancel.is_file() {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+            false
+        })
+    }
+
+    #[test]
+    fn a_streaming_card_turns_its_output_circle_into_the_one_stop() {
+        let (mut h, tail, cancel) = streaming_tail("stop_on_output");
+        let out = h.frame_output(|_| {});
+        let at = output_circle(&h, tail);
+        assert!(
+            stop_square_at(&out, at).is_some(),
+            "Stop is drawn on the output circle while the reply streams"
+        );
+        let field = h.app.agents.composer_rects[&tail];
+        let old = field.right_bottom() - egui::vec2(5.5, 5.5);
+        press(&mut h, old);
+        assert!(
+            !stop_requested(&cancel),
+            "nothing at the bottom of the card stops the reply"
+        );
+        press(&mut h, at);
+        assert!(
+            stop_requested(&cancel),
+            "a click on the output circle stops"
+        );
+        assert_eq!(
+            h.app.board_sel.iter().copied().collect::<Vec<_>>(),
+            vec![tail],
+            "Stop acts on its own card"
+        );
+        assert!(
+            !h.app
+                .doc()
+                .scene
+                .nodes
+                .iter()
+                .any(|n| slate_doc::agent_chat::agent(n).is_some_and(|a| a.chat.draft)),
+            "Stop does not continue the train"
+        );
+    }
+
+    #[test]
+    fn stop_holds_its_place_while_the_streaming_card_grows() {
+        let (mut h, tail, cancel) = streaming_tail("stop_holds");
+        let at = output_circle(&h, tail);
+        let before = h.app.doc().scene.node(tail).unwrap().rect.h;
+        let mut turns = h.app.agents.local_turns[&tail].clone();
+        for step in 0..6 {
+            turns.last_mut().unwrap().text +=
+                &" more words arrive and wrap onto new lines".repeat(4);
+            h.app.agents.local_turns.insert(tail, turns.clone());
+            h.app.agents.output_epoch += 1;
+            let out = h.frame_output(|_| {});
+            assert_eq!(output_circle(&h, tail), at, "the card grows downward");
+            let square = stop_square_at(&out, at);
+            assert!(
+                square.is_some(),
+                "Stop stays on the output circle at step {step}"
+            );
+        }
+        assert!(
+            h.app.doc().scene.node(tail).unwrap().rect.h > before,
+            "the card grew while streaming"
+        );
+        press(&mut h, at);
+        assert!(stop_requested(&cancel), "the unmoved Stop still stops");
+    }
+
+    #[test]
+    fn after_the_reply_the_output_circle_continues_the_train_again() {
+        let (mut h, tail, cancel) = streaming_tail("stop_then_output");
+        h.app.agents.awaiting.remove(&tail);
+        h.frame();
+        let at = output_circle(&h, tail);
+        let out = h.frame_output(|_| {});
+        assert!(
+            stop_square_at(&out, at).is_none(),
+            "idle cards show no Stop"
+        );
+        assert_eq!(h.app.agent_output_at(at, &h.app.board_xf()), Some(tail));
+        press(&mut h, at);
+        assert!(!cancel.exists(), "an idle output circle never stops");
+        let draft = h
+            .app
+            .doc()
+            .scene
+            .nodes
+            .iter()
+            .find(|n| {
+                slate_doc::agent_chat::agent(n)
+                    .is_some_and(|a| a.chat.draft && a.chat.parent == Some(tail))
+            })
+            .map(|n| n.id);
+        assert!(draft.is_some(), "the output circle placed the next draft");
+    }
+
+    #[test]
+    fn a_streaming_output_circle_is_not_a_continuation_grip() {
+        let (h, tail, _) = streaming_tail("stop_not_grip");
+        let at = output_circle(&h, tail);
+        assert_eq!(h.app.agent_output_at(at, &h.app.board_xf()), None);
+    }
+
+    /// The main line of the branched conversation, as a person reads it.
+    const MAIN: [&str; 6] = [
+        "Plan the courtyard?",
+        "Start with the trees.",
+        "Which trees?",
+        "Two plane trees.",
+        "Where?",
+        "By the north wall.",
+    ];
+    /// The fork after the first exchange.
+    const FORK: [&str; 6] = [
+        "Plan the courtyard?",
+        "Start with the trees.",
+        "Pave it instead?",
+        "Granite setts.",
+        "In what pattern?",
+        "A fan pattern.",
+    ];
+
+    fn turns_of(texts: &[&str]) -> Vec<AgentTurn> {
+        texts
+            .iter()
+            .enumerate()
+            .map(|(i, text)| AgentTurn {
+                role: if i % 2 == 0 { "user" } else { "assistant" }.into(),
+                text: (*text).into(),
+                at: i as u64,
+            })
+            .collect()
+    }
+
+    /// A local conversation in message pairs, as sending builds it: three
+    /// exchanges on the main line and a fork after the first. Every sent card
+    /// has its own session file holding the history it replayed. Returns
+    /// the cards: main line first, then the fork.
+    fn branched_pairs(tag: &str) -> (super::super::tests::Harness, Vec<NodeId>) {
+        use slate_doc::agent_chat::{ChatView, Detail};
+        let mut h = board(tag);
+        let ws = h.base.join("ai-ws");
+        std::fs::create_dir_all(&ws).unwrap();
+        h.app.ai.config.workspace_dir = Some(ws.clone());
+        let root = train(&mut h, Pos2::ZERO, "local");
+        let template = h.app.doc().scene.node(root).unwrap().clone();
+        /// Parent index, start, end, and the history its session replayed.
+        type Card<'a> = (Option<usize>, usize, Option<usize>, &'a [&'a str]);
+        let cards: [Card; 5] = [
+            (None, 0, Some(2), &MAIN[..2]),
+            (Some(0), 2, Some(4), &MAIN[..4]),
+            (Some(1), 4, None, &MAIN[..]),
+            (Some(0), 2, Some(4), &FORK[..4]),
+            (Some(3), 4, None, &FORK[..]),
+        ];
+        let mut ids: Vec<NodeId> = Vec::new();
+        for (i, (parent, start, end, texts)) in cards.into_iter().enumerate() {
+            let session = slate_doc::scene::new_agent_session_id();
+            let dir = atlas_ai::agent::agent_dir(&ws, &session);
+            std::fs::create_dir_all(&dir).unwrap();
+            let state = atlas_ai::agent::AgentSession {
+                approval: None,
+                conversation: String::new(),
+                artifacts: vec![],
+                status: atlas_ai::agent::AgentStatus::Idle,
+                provider: "local".into(),
+                turns: turns_of(texts),
+                updated_at: 1,
+                bundle: Default::default(),
+                request: String::new(),
+            };
+            atlas_ai::agent::atomic_write_json(&dir.join("session.json"), &state).unwrap();
+            let mut node = if i == 0 {
+                template.clone()
+            } else {
+                h.app.doc_mut().scene.build_duplicate(&template, 0.0, 0.0)
+            };
+            node.rect = slate_doc::WorldRect::new(
+                i as f32 * 416.0,
+                if i >= 3 { 400.0 } else { 0.0 },
+                slate_doc::agent_chat::CARD_WIDTH,
+                slate_doc::agent_chat::PAIR_HEIGHT,
+            );
+            if let NodeKind::Portal(p) = &mut node.kind {
+                p.title = "Courtyard".into();
+                let a = p.agent.as_mut().unwrap();
+                a.session = session;
+                a.bundle = Some(slate_doc::SourceUri {
+                    locator: super::super::board_portal::source_locator(
+                        None,
+                        &dir.join("session.json"),
+                    ),
+                });
+                a.chat = ChatView {
+                    train: true,
+                    parent: parent.map(|j| ids[j]),
+                    start,
+                    end,
+                    detail: Detail::Pair,
+                    ..Default::default()
+                };
+            }
+            if i == 0 {
+                let before = h.app.doc().scene.node(root).unwrap().clone();
+                h.app.commit_scene(vec![slate_doc::SceneCmd::Patch {
+                    before: Box::new(before),
+                    after: Box::new(node),
+                }]);
+                ids.push(root);
+            } else {
+                ids.extend(h.app.add_nodes(vec![node]));
+            }
+        }
+        settle(&mut h);
+        for (id, want) in ids.iter().zip([2, 2, 2, 2, 2]) {
+            assert_eq!(
+                shown(&h, *id).len(),
+                want,
+                "the fixture loaded its sessions"
+            );
+        }
+        (h, ids)
+    }
+
+    /// Frames until every card's session file has loaded (a worker reads
+    /// it) and cards fit their text.
+    fn settle(h: &mut super::super::tests::Harness) {
+        for _ in 0..300 {
+            h.frame();
+            let loaded = h.app.doc().scene.nodes.iter().all(|n| {
+                slate_doc::agent_chat::agent(n)
+                    .is_none_or(|a| a.bundle.is_none() || h.app.agents.sessions.contains_key(&n.id))
+            });
+            if loaded {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        for _ in 0..12 {
+            h.frame();
+        }
+    }
+
+    fn shown(h: &super::super::tests::Harness, id: NodeId) -> Vec<String> {
+        h.app
+            .visible_agent_turns(id)
+            .into_iter()
+            .map(|t| t.text)
+            .collect()
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    enum Shape {
+        Pairs,
+        Train,
+        Window,
+    }
+
+    fn switch(h: &mut super::super::tests::Harness, card: NodeId, to: Shape) {
+        h.app.board_sel = std::iter::once(card).collect();
+        let command = match to {
+            Shape::Pairs => "portal.agent.pairs",
+            Shape::Train => "portal.agent.train",
+            Shape::Window => "portal.agent.chat",
+        };
+        let ctx = h.ctx.clone();
+        assert!(
+            h.app
+                .dispatch(&ctx, atlas_commands::CommandId(command), None),
+            "{command} ran"
+        );
+        settle(h);
+    }
+
+    /// The whole conversation is in `shape`: both branches read whole and
+    /// once, every visible card has the shape's form, cards read left to
+    /// right without overlapping, and no provider ran.
+    fn assert_projected(h: &super::super::tests::Harness, root: NodeId, shape: Shape) {
+        use slate_doc::agent_chat::{conversation, visible_parent, Detail};
+        let scene = &h.app.doc().scene;
+        let visible: Vec<&Node> = conversation(scene, root)
+            .into_iter()
+            .filter_map(|id| scene.node(id))
+            .filter(|n| !n.hidden)
+            .collect();
+        let leaves: Vec<&Node> = visible
+            .iter()
+            .copied()
+            .filter(|n| {
+                !visible
+                    .iter()
+                    .any(|m| visible_parent(scene, m) == Some(n.id))
+            })
+            .collect();
+        let mut read: Vec<Vec<String>> = leaves
+            .iter()
+            .map(|leaf| {
+                let mut path = vec![leaf.id];
+                let mut at = *leaf;
+                while let Some(parent) = visible_parent(scene, at) {
+                    path.push(parent);
+                    at = scene.node(parent).unwrap();
+                }
+                path.iter().rev().flat_map(|id| shown(h, *id)).collect()
+            })
+            .collect();
+        read.sort();
+        let mut want: Vec<Vec<String>> = [MAIN, FORK]
+            .iter()
+            .map(|b| b.iter().map(|t| t.to_string()).collect())
+            .collect();
+        want.sort();
+        assert_eq!(read, want, "{shape:?}: each branch reads whole, once");
+        for n in &visible {
+            let a = slate_doc::agent_chat::agent(n).unwrap();
+            let turns = h.app.visible_agent_turns(n.id);
+            assert!(!a.chat.draft, "{shape:?}: no stray draft card");
+            match shape {
+                Shape::Pairs => {
+                    assert!(a.chat.train && a.chat.detail == Detail::Pair, "{shape:?}");
+                    let roles: Vec<_> = turns.iter().map(|t| t.role.as_str()).collect();
+                    assert_eq!(
+                        roles,
+                        ["user", "assistant"],
+                        "{shape:?}: one exchange per card"
+                    );
+                }
+                Shape::Train => {
+                    assert!(
+                        a.chat.train && a.chat.detail == Detail::Summary,
+                        "{shape:?}"
+                    );
+                    assert_eq!(turns.len(), 1, "{shape:?}: one message per card");
+                }
+                Shape::Window => {
+                    assert!(!a.chat.train && a.chat.detail == Detail::Full, "{shape:?}");
+                }
+            }
+        }
+        if shape == Shape::Window {
+            assert_eq!(
+                visible.len(),
+                slate_doc::agent_chat::segments(scene, root).len(),
+                "one window per unbranched run"
+            );
+        }
+        for n in &visible {
+            if let Some(parent) = visible_parent(scene, n).and_then(|p| scene.node(p)) {
+                assert!(
+                    n.rect.x >= parent.rect.x + parent.rect.w,
+                    "{shape:?}: {:?} reads left to right after {:?}",
+                    n.id,
+                    parent.id
+                );
+            }
+        }
+        for (i, a) in visible.iter().enumerate() {
+            for b in &visible[i + 1..] {
+                let apart = a.rect.x + a.rect.w <= b.rect.x
+                    || b.rect.x + b.rect.w <= a.rect.x
+                    || a.rect.y + a.rect.h <= b.rect.y
+                    || b.rect.y + b.rect.h <= a.rect.y;
+                assert!(apart, "{shape:?}: {:?} overlaps {:?}", a.id, b.id);
+            }
+        }
+        assert!(
+            h.app.agents.dispatched.is_empty(),
+            "{shape:?}: no provider call"
+        );
+    }
+
+    /// Switch from the conversation's current shape (reached through `path`)
+    /// to `to`, check it, then check that one Undo restores the scene.
+    fn check_transition(tag: &str, path: &[Shape], to: Shape) {
+        let (mut h, ids) = branched_pairs(tag);
+        let root = ids[0];
+        assert_projected(&h, root, Shape::Pairs);
+        let tail = |h: &super::super::tests::Harness| {
+            slate_doc::agent_chat::conversation(&h.app.doc().scene, root)
+                .into_iter()
+                .rev()
+                .find(|id| !h.app.doc().scene.node(*id).unwrap().hidden)
+                .unwrap()
+        };
+        for step in path {
+            let card = tail(&h);
+            switch(&mut h, card, *step);
+            assert_projected(&h, root, *step);
+        }
+        let before = h.app.doc().scene.nodes.clone();
+        let card = tail(&h);
+        switch(&mut h, card, to);
+        assert_projected(&h, root, to);
+        h.app.board_undo();
+        assert_eq!(
+            h.app.doc().scene.nodes,
+            before,
+            "one Undo restores the previous presentation"
+        );
+    }
+
+    #[test]
+    fn pairs_become_one_message_per_card_mid_conversation() {
+        check_transition("mode_pairs_train", &[], Shape::Train);
+    }
+
+    #[test]
+    fn one_message_per_card_becomes_pairs_mid_conversation() {
+        check_transition("mode_train_pairs", &[Shape::Train], Shape::Pairs);
+    }
+
+    #[test]
+    fn pairs_become_single_chat_windows_mid_conversation() {
+        check_transition("mode_pairs_window", &[], Shape::Window);
+    }
+
+    #[test]
+    fn single_chat_windows_become_pairs_mid_conversation() {
+        check_transition("mode_window_pairs", &[Shape::Window], Shape::Pairs);
+    }
+
+    #[test]
+    fn single_chat_windows_become_one_message_per_card_mid_conversation() {
+        check_transition("mode_window_train", &[Shape::Window], Shape::Train);
+    }
+
+    #[test]
+    fn one_message_per_card_becomes_single_chat_windows_mid_conversation() {
+        check_transition("mode_train_window", &[Shape::Train], Shape::Window);
+    }
+
+    #[test]
+    fn a_long_round_trip_through_every_mode_keeps_the_whole_conversation() {
+        check_transition(
+            "mode_round_trip",
+            &[
+                Shape::Train,
+                Shape::Window,
+                Shape::Pairs,
+                Shape::Window,
+                Shape::Train,
+            ],
+            Shape::Pairs,
+        );
+    }
+
+    #[test]
+    fn a_wire_on_a_merged_message_follows_the_card_that_shows_it() {
+        use slate_doc::scene::ConnectorEnd;
+        let (mut h, ids) = branched_pairs("mode_wire_follows");
+        let root = ids[0];
+        switch(&mut h, ids[2], Shape::Train);
+        let asks = slate_doc::agent_chat::conversation(&h.app.doc().scene, root)
+            .into_iter()
+            .find(|id| shown(&h, *id) == ["Which trees?"])
+            .unwrap();
+        let noted = note(&mut h, Pos2::new(0.0, 900.0), "Trees");
+        let noted = h.app.doc().scene.node(noted).unwrap().clone();
+        let wire = h.app.provenance_wire(asks, &noted, true);
+        let wire = h.app.add_nodes(vec![wire])[0];
+        settle(&mut h);
+        let anchored = |h: &super::super::tests::Harness| {
+            let NodeKind::Connector(c) = &h.app.doc().scene.node(wire).unwrap().kind else {
+                panic!("the wire stays a wire");
+            };
+            match c.a {
+                ConnectorEnd::Anchored { node, .. } => node,
+                ConnectorEnd::Free { .. } => panic!("the wire stays anchored"),
+            }
+        };
+        switch(&mut h, ids[2], Shape::Pairs);
+        assert_projected(&h, root, Shape::Pairs);
+        assert!(
+            h.app.doc().scene.node(asks).is_none(),
+            "the one-message card merged"
+        );
+        assert_eq!(
+            shown(&h, anchored(&h)),
+            ["Which trees?", "Two plane trees."],
+            "the wire follows the card that shows its message"
+        );
+        h.app.board_undo();
+        assert_eq!(anchored(&h), asks, "one Undo restores the wire's card");
+    }
+
+    #[test]
+    fn the_menu_offers_every_other_presentation_from_each_one() {
+        use slate_doc::agent_chat::{ChatView, Detail};
+        let pairs = ChatView {
+            train: true,
+            detail: Detail::Pair,
+            ..Default::default()
+        };
+        let train = ChatView {
+            train: true,
+            detail: Detail::Summary,
+            ..Default::default()
+        };
+        let window = ChatView {
+            train: false,
+            detail: Detail::Full,
+            ..Default::default()
+        };
+        let offered = |chat: &ChatView| -> Vec<&'static str> {
+            agent_presentations(chat, false)
+                .into_iter()
+                .filter(|(_, shown)| *shown)
+                .map(|(command, _)| command)
+                .collect()
+        };
+        assert_eq!(offered(&pairs), ["portal.agent.chat", "portal.agent.train"]);
+        assert_eq!(offered(&train), ["portal.agent.chat", "portal.agent.pairs"]);
+        assert_eq!(
+            offered(&window),
+            ["portal.agent.train", "portal.agent.pairs"]
+        );
+        assert!(
+            agent_presentations(&pairs, true)
+                .iter()
+                .all(|(_, shown)| !shown),
+            "never while a reply streams"
+        );
     }
 }
