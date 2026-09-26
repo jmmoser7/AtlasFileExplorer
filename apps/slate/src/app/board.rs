@@ -4830,7 +4830,7 @@ impl SlateApp {
         let selection_painter = atlas_shell::selection_tools::selection_painter(
             &painter,
             egui::Id::new(("property_selection_fade", self.tab().id)),
-            self.shape_properties.panel.is_some(),
+            self.property_panel_fades_selection(),
         );
 
         if self.board_show_grid {
