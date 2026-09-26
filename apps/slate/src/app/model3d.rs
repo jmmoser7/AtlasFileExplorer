@@ -1333,6 +1333,7 @@ impl SlateApp {
     /// Lock a live viewport: freeze the current pose as the poster, commit
     /// the camera to the document (one undo step), release GPU work.
     pub fn lock_model(&mut self, id: NodeId) {
+        self.release_view_drop_preview_for(id);
         let doc = self.tab().id;
         let Some(vp) = self.model3d.live.remove(&id) else {
             return;
@@ -1447,6 +1448,7 @@ impl SlateApp {
         self.queue_executable_sniffs();
         self.maintain_enscape();
         self.maintain_view_drop();
+        self.maintain_view_drop_preview(ctx);
         self.maintain_model_shot_pending();
         self.maintain_view_wire_cache();
         if self.tick_model_view_tweens() {
@@ -4147,6 +4149,327 @@ mod tests {
         assert!(h.app.board_sel.contains(&id));
         press_escape(&mut h);
         assert!(h.app.board_sel.is_empty(), "then Esc deselects");
+    }
+
+    /// A PNG carrying a `slateview` packet for `cam`, and the camera as it
+    /// reads back.
+    fn saved_view_png(
+        h: &Harness,
+        name: &str,
+        model: NodeId,
+        cam: ModelCamera,
+    ) -> (PathBuf, ModelCamera) {
+        use model_preview::view_meta;
+        let png = h.base.join(name);
+        let meta = view_meta::ViewMetaInput {
+            camera: cam,
+            eye: eye_of(&cam),
+            up: [0.0, 0.0, 1.0],
+            aspect: 1.6,
+            width: 8,
+            height: 5,
+            model_name: "model.3dm".into(),
+            model_path: "model.3dm".into(),
+            model_hash: String::new(),
+            model_size: 1,
+            node_id: model.0,
+            created_unix: 0,
+            image_adjust_hash: None,
+        };
+        let xmp = view_meta::build_xmp_packet(&meta).unwrap();
+        view_meta::write_png_with_xmp(&png, &[128u8; 8 * 5 * 4], 8, 5, &xmp).unwrap();
+        let read = view_meta::read_view_meta(&png).unwrap().unwrap().camera;
+        (png, read)
+    }
+
+    /// A frozen model (entering needs no GL here) with its mesh, and a
+    /// saved camera that differs from the node's.
+    fn frozen_model_and_saved_view(tag: &str) -> (Harness, NodeId, ModelCamera, ModelCamera) {
+        let (mut h, id) = live_model(tag);
+        with_mesh(&mut h, id);
+        let resolved = h.app.model3d.live[&id].cam;
+        h.app.lock_model(id);
+        h.app.model3d.headless_live = true;
+        let original = h.app.model_node_info(id).unwrap().cam;
+        let saved = ModelCamera {
+            yaw: resolved.yaw + 1.2,
+            pitch: 0.45,
+            distance: resolved.distance * 1.3,
+            ..resolved
+        };
+        (h, id, original, saved)
+    }
+
+    /// Place the picture left of the model and frame both on screen.
+    fn place_picture(h: &mut Harness, model: NodeId, png: PathBuf) -> NodeId {
+        use slate_doc::scene::{ImageNode, WorldRect};
+        let item = h
+            .app
+            .doc_mut()
+            .add_item(png, "saved-view.png", 1, 0, "saved-view-cache");
+        let rect = h.app.doc().scene.node(model).unwrap().rect;
+        let node = h.app.doc_mut().scene.build_node(
+            WorldRect::new(rect.x - rect.w * 0.9, rect.y, rect.w * 0.4, rect.h * 0.4),
+            NodeKind::Image(ImageNode::new(item)),
+        );
+        let pic = h.app.add_nodes(vec![node])[0];
+        h.app.board_sel.clear();
+        h.app.zoom_to_rect(WorldRect::new(
+            rect.x - rect.w * 1.2,
+            rect.y - rect.h * 0.4,
+            rect.w * 2.6,
+            rect.h * 1.8,
+        ));
+        for _ in 0..3 {
+            h.frame();
+        }
+        pic
+    }
+
+    fn screen_center(h: &Harness, id: NodeId) -> egui::Pos2 {
+        let rect = h.app.doc().scene.node(id).unwrap().rect;
+        h.app.board_xf().rect_w2s(rect).center()
+    }
+
+    fn press(h: &mut Harness, p: egui::Pos2, pressed: bool) {
+        h.frame_with(|input| {
+            input.events.push(egui::Event::PointerMoved(p));
+            input.events.push(egui::Event::PointerButton {
+                pos: p,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: Default::default(),
+            });
+        });
+    }
+
+    fn move_to(h: &mut Harness, from: egui::Pos2, to: egui::Pos2) {
+        for i in 1..=8 {
+            let p = from.lerp(to, i as f32 / 8.0);
+            h.frame_with(|input| input.events.push(egui::Event::PointerMoved(p)));
+        }
+    }
+
+    /// Frames at real time (packet reads and tweens run on the clock) until
+    /// `done`, or panic after three seconds.
+    fn frames_until(h: &mut Harness, what: &str, done: impl Fn(&SlateApp) -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while !done(&h.app) {
+            assert!(Instant::now() < deadline, "timed out waiting: {what}");
+            std::thread::sleep(Duration::from_millis(8));
+            h.frame();
+        }
+    }
+
+    fn doc_camera(h: &Harness, id: NodeId) -> ModelCamera {
+        h.app.model_node_info(id).unwrap().cam
+    }
+
+    fn live_camera(app: &SlateApp, id: NodeId) -> Option<ModelCamera> {
+        app.model3d.live.get(&id).map(|vp| vp.cam)
+    }
+
+    #[test]
+    fn a_saved_view_dragged_over_a_model_previews_then_release_commits_one_patch() {
+        let (mut h, id, original, saved) = frozen_model_and_saved_view("view_drop_release");
+        let (png, saved) = saved_view_png(&h, "release.png", id, saved);
+        let pic = place_picture(&mut h, id, png);
+        let pic_rect = h.app.doc().scene.node(pic).unwrap().rect;
+        let depth = h.app.tab().journal.undo_depth();
+        let (from, over) = (screen_center(&h, pic), screen_center(&h, id));
+
+        press(&mut h, from, true);
+        move_to(&mut h, from, over);
+        frames_until(&mut h, "the viewport orients to the saved view", |app| {
+            live_camera(app, id) == Some(saved)
+        });
+        assert_eq!(
+            h.app.tab().journal.undo_depth(),
+            depth,
+            "the preview journals nothing"
+        );
+        assert_eq!(doc_camera(&h, id), original, "the document keeps its pose");
+
+        press(&mut h, over, false);
+        assert_eq!(
+            h.app.tab().journal.undo_depth(),
+            depth + 1,
+            "release commits one patch"
+        );
+        assert_eq!(doc_camera(&h, id), saved);
+        assert_eq!(
+            h.app.doc().scene.node(pic).unwrap().rect,
+            pic_rect,
+            "the picture goes back where it was"
+        );
+        for _ in 0..3 {
+            h.frame();
+        }
+        h.app.lock_all_models();
+        assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "and only one");
+        assert_eq!(doc_camera(&h, id), saved);
+    }
+
+    #[test]
+    fn leaving_the_model_mid_drag_restores_the_original_camera_exactly() {
+        let (mut h, id, original, saved) = frozen_model_and_saved_view("view_drop_leave");
+        let (png, saved) = saved_view_png(&h, "leave.png", id, saved);
+        let pic = place_picture(&mut h, id, png);
+        let depth = h.app.tab().journal.undo_depth();
+        let (from, over) = (screen_center(&h, pic), screen_center(&h, id));
+
+        press(&mut h, from, true);
+        move_to(&mut h, from, over);
+        frames_until(&mut h, "the preview reaches the saved view", |app| {
+            live_camera(app, id) == Some(saved)
+        });
+        move_to(&mut h, over, from);
+        frames_until(&mut h, "the viewport returns to its pose", |app| {
+            live_camera(app, id).is_none()
+        });
+        assert_eq!(doc_camera(&h, id), original, "exactly the original pose");
+        assert_eq!(h.app.tab().journal.undo_depth(), depth, "nothing journaled");
+        press(&mut h, from, false);
+        assert_eq!(doc_camera(&h, id), original);
+    }
+
+    #[test]
+    fn an_os_file_drag_previews_the_saved_view_and_the_drop_commits_one_patch() {
+        let (mut h, id) = live_model("view_drop_os_file");
+        with_mesh(&mut h, id);
+        let original = h.app.model3d.live[&id].cam;
+        let saved = ModelCamera {
+            yaw: original.yaw - 0.9,
+            pitch: 0.3,
+            ..original
+        };
+        let (png, saved) = saved_view_png(&h, "os-drag.png", id, saved);
+        let items = h.app.doc().items.len();
+        let depth = h.app.tab().journal.undo_depth();
+        let over = screen_center(&h, id);
+
+        h.app
+            .external_drop
+            .set_hover_test(Some((vec![png.clone()], over)));
+        frames_until(&mut h, "the OS drag previews the saved view", |app| {
+            live_camera(app, id) == Some(saved)
+        });
+        assert_eq!(h.app.tab().journal.undo_depth(), depth);
+        h.app.external_drop.set_hover_test(None);
+        frames_until(&mut h, "leaving restores the live pose", |app| {
+            live_camera(app, id) == Some(original)
+        });
+        assert!(h.app.model3d.live.contains_key(&id), "it was live before");
+        assert_eq!(h.app.tab().journal.undo_depth(), depth);
+
+        h.app
+            .external_drop
+            .set_hover_test(Some((vec![png.clone()], over)));
+        frames_until(&mut h, "the preview returns", |app| {
+            live_camera(app, id) == Some(saved)
+        });
+        h.app.external_drop.set_hover_test(None);
+        h.app
+            .external_drop
+            .push_test(super::super::external_drop::DropEvent {
+                payload: super::super::external_drop::Payload::Files(vec![png]),
+                at: over,
+                alt: false,
+            });
+        h.frame();
+        assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "one patch");
+        assert_eq!(doc_camera(&h, id), saved);
+        assert_eq!(live_camera(&h.app, id), Some(saved));
+        assert_eq!(h.app.doc().items.len(), items, "the file is not placed");
+        h.app.lock_all_models();
+        assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "and only one");
+    }
+
+    /// The picture as the board paints it this frame.
+    fn painted_picture(app: &SlateApp, pic: NodeId) -> slate_doc::scene::Node {
+        let mut nodes = vec![app.doc().scene.node(pic).unwrap().clone()];
+        app.sink_view_drop_picture(&mut nodes);
+        nodes.remove(0)
+    }
+
+    fn world_center(r: slate_doc::scene::WorldRect) -> egui::Pos2 {
+        egui::pos2(r.x + r.w * 0.5, r.y + r.h * 0.5)
+    }
+
+    #[test]
+    fn a_held_saved_view_sinks_its_picture_into_the_viewport_and_leaving_restores_it() {
+        let (mut h, id, _, saved) = frozen_model_and_saved_view("view_drop_sink");
+        let (png, _) = saved_view_png(&h, "sink.png", id, saved);
+        let pic = place_picture(&mut h, id, png);
+        let model_rect = h.app.doc().scene.node(id).unwrap().rect;
+        let screen = h.app.board_xf().rect_w2s(model_rect);
+        let from = screen_center(&h, pic);
+        let over = screen.min.lerp(screen.center(), 0.5);
+
+        press(&mut h, from, true);
+        move_to(&mut h, from, over);
+        frames_until(&mut h, "the picture sinks in", |app| {
+            painted_picture(app, pic).opacity < 0.02
+        });
+        let placed = h.app.doc().scene.node(pic).unwrap().clone();
+        let sunk = painted_picture(&h.app, pic);
+        assert!(
+            sunk.rect.w < placed.rect.w * 0.2 && sunk.rect.h < placed.rect.h * 0.2,
+            "it shrinks: {:?} from {:?}",
+            sunk.rect,
+            placed.rect
+        );
+        let target = world_center(model_rect);
+        assert!(
+            world_center(sunk.rect).distance(target)
+                < world_center(placed.rect).distance(target) * 0.1,
+            "into the viewport"
+        );
+        assert_eq!(placed.opacity, 1.0, "the scene is untouched");
+
+        move_to(&mut h, over, from);
+        frames_until(&mut h, "the picture comes back", |app| {
+            painted_picture(app, pic) == *app.doc().scene.node(pic).unwrap()
+        });
+        press(&mut h, from, false);
+    }
+
+    #[test]
+    fn escape_mid_drag_cancels_the_held_view() {
+        let (mut h, id, original, saved) = frozen_model_and_saved_view("view_drop_escape");
+        let (png, saved) = saved_view_png(&h, "escape.png", id, saved);
+        let pic = place_picture(&mut h, id, png);
+        let pic_rect = h.app.doc().scene.node(pic).unwrap().rect;
+        let depth = h.app.tab().journal.undo_depth();
+        let (from, over) = (screen_center(&h, pic), screen_center(&h, id));
+
+        press(&mut h, from, true);
+        move_to(&mut h, from, over);
+        frames_until(&mut h, "the preview reaches the saved view", |app| {
+            live_camera(app, id) == Some(saved)
+        });
+        press_escape(&mut h);
+        assert_eq!(
+            h.app.doc().scene.node(pic).unwrap().rect,
+            pic_rect,
+            "the picture goes back at once"
+        );
+        frames_until(&mut h, "the viewport goes back and freezes", |app| {
+            live_camera(app, id).is_none()
+        });
+        assert!(painted_picture(&h.app, pic) == *h.app.doc().scene.node(pic).unwrap());
+        press(&mut h, over, false);
+        assert_eq!(h.app.tab().journal.undo_depth(), depth, "nothing journaled");
+        assert_eq!(doc_camera(&h, id), original);
+        assert_eq!(h.app.doc().scene.node(pic).unwrap().rect, pic_rect);
+        for _ in 0..3 {
+            h.frame();
+        }
+        assert!(
+            !h.app.model3d.live.contains_key(&id),
+            "the drop did not reopen it"
+        );
+        assert_eq!(doc_camera(&h, id), original);
     }
 
     #[test]

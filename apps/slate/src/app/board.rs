@@ -4917,6 +4917,8 @@ impl SlateApp {
                 }
             }
         }
+        // A saved view held over a model: its picture sinks in (media D38).
+        self.sink_view_drop_picture(&mut nodes);
         for n in nodes.iter().filter(|n| n.is_frame()) {
             self.paint_board_node(ui, &painter, &xf, n, true);
         }
@@ -5449,6 +5451,7 @@ impl SlateApp {
 
         // In-viewport measurement overlays (live only).
         self.paint_model_measurements(&painter, &xf);
+        self.paint_view_drop_file(&painter, &xf);
 
         // Empty-board hint.
         if self.doc().scene.is_empty() {

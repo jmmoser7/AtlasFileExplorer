@@ -1033,6 +1033,11 @@ impl SlateApp {
         if self.doc().view.active_view == ViewKind::Board && self.atlas_lenses.focused.is_some() {
             return self.atlas_blur();
         }
+        // A saved view held over a model cancels before the viewport it
+        // opened (media D38).
+        if self.doc().view.active_view == ViewKind::Board && self.dismiss_view_drop_preview() {
+            return true;
+        }
         // A live 3D viewport is entered contents: its measure state, then
         // the viewport itself, peel before the board's own layers.
         if self.doc().view.active_view == ViewKind::Board && self.model_cancel_step() {

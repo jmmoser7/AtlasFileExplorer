@@ -458,6 +458,8 @@ pub struct SlateApp {
     pub(crate) model_shot_popup: Option<model_screenshot::ModelScreenshotPopup>,
     model_shot_pending: Option<model_screenshot::PendingModelShot>,
     pending_view_drop: Option<model_screenshot::PendingViewDrop>,
+    /// A saved view held over a model mid-drag. Derived; not journaled.
+    view_drop_preview: Option<model_screenshot::ViewDropPreview>,
     pending_view_wire_cache: Vec<model_wired_views::PendingViewWireCache>,
     /// Canvas video scrub and playback. Derived; not journaled.
     video: board_video::VideoBoard,
@@ -846,6 +848,7 @@ impl SlateApp {
             model_shot_popup: None,
             model_shot_pending: None,
             pending_view_drop: None,
+            view_drop_preview: None,
             pending_view_wire_cache: Vec::new(),
             video: board_video::VideoBoard::default(),
             board_snap_guides: Vec::new(),
