@@ -36,22 +36,28 @@ const MIN_PATH_BOUNDS: f32 = 8.0;
 const CACHE_BYTES: usize = 64 * 1024 * 1024;
 const CACHE_ENTRIES: usize = 32_768;
 
-/// In-progress multi-click / freehand path gestures.
+/// In-progress multi-click / freehand path gestures. `widths` holds the
+/// tool width each placed point was placed with, one per point, so the
+/// width chord mid-draw tapers from the placed points to the next
+/// (P1.curve.vertex-style).
 #[derive(Clone, Debug)]
 pub enum BoardPathDraft {
     Polyline {
         points: Vec<Pos2>,
+        widths: Vec<f32>,
     },
     Arc {
         points: Vec<Pos2>,
+        widths: Vec<f32>,
     },
     Bezier {
         anchors: Vec<(Pos2, BezierHandles)>,
+        widths: Vec<f32>,
         /// Active click-drag placing an anchor + handles.
         placing: Option<(Pos2, BezierHandles)>,
-        /// Anchors taken back by Ctrl+Z while drawing, newest last. Placing a
-        /// new anchor clears it. Never journaled.
-        redo: Vec<(Pos2, BezierHandles)>,
+        /// Anchors taken back by Ctrl+Z while drawing, with their widths,
+        /// newest last. Placing a new anchor clears it. Never journaled.
+        redo: Vec<((Pos2, BezierHandles), f32)>,
         /// The latest press placed an anchor (rather than editing one). A
         /// double-click whose second press placed an anchor is two anchors,
         /// not a finish.
@@ -1574,6 +1580,15 @@ pub fn paint_path_preview(
     };
     let feather = FEATHER_PX / xf.z.max(0.05);
     let ink = stroke_mesh(bez, &style, feather, curve_tolerance(xf.z));
+    paint_preview_ink(painter, xf, color, ink);
+}
+
+pub(crate) fn paint_preview_ink(
+    painter: &egui::Painter,
+    xf: &BoardXf,
+    color: Color32,
+    ink: InkMesh,
+) {
     use egui::epaint::{Vertex, WHITE_UV};
     let mut mesh = egui::Mesh::default();
     for v in &ink.vertices {
@@ -2296,6 +2311,123 @@ pub struct PathDraftPaintStyle {
     pub close_first_anchor: bool,
 }
 
+/// The draft's preview: the path it would commit with the pointer at
+/// `cursor`, whether that path closes, and the width at each of its grips.
+/// Placed points keep the width they were placed with; the point being
+/// placed takes `width`, the tool's width now.
+pub fn path_draft_preview(
+    draft: &BoardPathDraft,
+    cursor: Option<Pos2>,
+    width: f32,
+) -> Option<(BezPath, bool, Vec<f32>)> {
+    let polyline = |pts: &[Pos2]| {
+        let mut bez = BezPath::new();
+        bez.move_to(to_k(pts[0]));
+        for p in &pts[1..] {
+            bez.line_to(to_k(*p));
+        }
+        bez
+    };
+    let with_cursor = |points: &[Pos2], widths: &[f32]| {
+        let (mut pts, mut ws) = (points.to_vec(), widths.to_vec());
+        if let Some(c) = cursor {
+            pts.push(c);
+            ws.push(width);
+        }
+        (pts, ws)
+    };
+    match draft {
+        BoardPathDraft::Polyline { points, widths } => {
+            let (pts, ws) = with_cursor(points, widths);
+            (pts.len() >= 2).then(|| (polyline(&pts), false, ws))
+        }
+        BoardPathDraft::Arc { points, widths } => {
+            // Click order is start → end → middle. The through-point is the
+            // last pick so dragging it changes bulge only (endpoints stay).
+            let (pts, ws) = with_cursor(points, widths);
+            match (pts.as_slice(), ws.as_slice()) {
+                ([start, end], [w0, w1]) => {
+                    Some((polyline(&[*start, *end]), false, vec![*w0, *w1]))
+                }
+                ([start, end, mid, ..], [w0, w1, w2, ..]) => Some((
+                    arc_through_three_points(*start, *mid, *end),
+                    false,
+                    vec![*w0, *w2, *w1],
+                )),
+                _ => None,
+            }
+        }
+        BoardPathDraft::Bezier {
+            anchors,
+            widths,
+            placing,
+            close_hover,
+            ..
+        } => {
+            if close_hover.ready {
+                return Some((
+                    bezier_anchors_to_closed_bezpath(anchors),
+                    true,
+                    widths.clone(),
+                ));
+            }
+            let (mut span, mut ws) = (anchors.clone(), widths.clone());
+            if let Some(p) = placing {
+                span.push(*p);
+                ws.push(width);
+            }
+            if span.len() >= 2 {
+                return Some((bezier_anchors_to_bezpath(&span), false, ws));
+            }
+            let c = cursor?;
+            let ((a, h), from) = match placing {
+                Some(p) => (*p, width),
+                None => (*anchors.last()?, *widths.last()?),
+            };
+            let mut bez = BezPath::new();
+            bez.move_to(to_k(a));
+            bez.curve_to(to_k(a + h.handle_out), to_k(c), to_k(c));
+            Some((bez, false, vec![from, width]))
+        }
+    }
+}
+
+/// A draft stroke's mesh: tapered between its grip widths the way the
+/// committed curve will paint (`vertex_style::set_grip_widths`,
+/// `geom::tipped_stroke`), else one width.
+pub(crate) fn draft_stroke_ink(bez: &BezPath, closed: bool, widths: &[f32], zoom: f32) -> InkMesh {
+    let floor = 1.0 / zoom.max(0.05);
+    let widths: Vec<f32> = widths.iter().map(|w| w.max(floor)).collect();
+    let style = StrokeStyle {
+        width: widths.iter().copied().fold(floor, f32::max),
+        cap: Cap::Round,
+        join: Join::Round,
+        taper: None,
+        dash: None,
+    };
+    let feather = FEATHER_PX / zoom.max(0.05);
+    let tolerance = curve_tolerance(zoom);
+    let tipped = (widths.iter().any(|w| *w != widths[0])).then(|| {
+        let (rect, mut data) = bezpath_to_path_data(bez, closed);
+        let mut stroke = Stroke {
+            width: style.width,
+            ..default_curve_stroke(Rgba([0, 0, 0, 255]))
+        };
+        slate_doc::vertex_style::set_grip_widths(&mut data, &mut stroke, rect, 0.0, &widths)
+            .then(|| {
+                let square = slate_doc::scene::Corner::Square;
+                slate_doc::geom::tipped_stroke(&data, &stroke, rect, 0.0, square)
+            })
+            .flatten()
+    });
+    match tipped.flatten() {
+        Some(t) => {
+            vector_ink::stroke_mesh_tipped(&t.bez, &style, &t.widths, t.ease, feather, tolerance)
+        }
+        None => stroke_mesh(bez, &style, feather, tolerance),
+    }
+}
+
 pub fn paint_path_draft(
     painter: &egui::Painter,
     xf: &BoardXf,
@@ -2303,75 +2435,16 @@ pub fn paint_path_draft(
     cursor: Option<Pos2>,
     style: PathDraftPaintStyle,
 ) {
-    let color = style.stroke;
-    match draft {
-        BoardPathDraft::Polyline { points } => {
-            if let Some(c) = cursor {
-                paint_polyline_preview(painter, xf, points, c, color, style.width);
-            } else if points.len() >= 2 {
-                let (r, _) = points_to_path_data(points, false);
-                let mut bez = BezPath::new();
-                bez.move_to(to_k(points[0]));
-                for p in &points[1..] {
-                    bez.line_to(to_k(*p));
-                }
-                let _ = r;
-                paint_path_preview(painter, xf, color, style.width, &bez);
-            }
-        }
-        BoardPathDraft::Arc { points } => {
-            let mut pts = points.clone();
-            if let Some(c) = cursor {
-                pts.push(c);
-            }
-            // Click order is start → end → middle. The through-point is the
-            // last pick so dragging it changes bulge only (endpoints stay).
-            match pts.as_slice() {
-                [start, end] => {
-                    let mut bez = BezPath::new();
-                    bez.move_to(to_k(*start));
-                    bez.line_to(to_k(*end));
-                    paint_path_preview(painter, xf, color, style.width, &bez);
-                }
-                [start, end, mid, ..] => {
-                    let bez = arc_through_three_points(*start, *mid, *end);
-                    paint_path_preview(painter, xf, color, style.width, &bez);
-                }
-                _ => {}
-            }
-        }
-        BoardPathDraft::Bezier {
-            anchors,
-            placing,
-            close_hover,
-            ..
-        } => {
-            let mut span = anchors.clone();
-            if let Some((a, h)) = placing {
-                span.push((*a, *h));
-            }
-            if close_hover.ready {
-                let bez = bezier_anchors_to_closed_bezpath(anchors);
-                paint_path_preview(painter, xf, color, style.width, &bez);
-            } else if span.len() >= 2 {
-                let bez = bezier_anchors_to_bezpath(&span);
-                paint_path_preview(painter, xf, color, style.width, &bez);
-            } else if let Some(c) = cursor {
-                if let Some((a, h)) = placing {
-                    let mut bez = BezPath::new();
-                    bez.move_to(to_k(*a));
-                    bez.curve_to(to_k(*a + h.handle_out), to_k(c), to_k(c));
-                    paint_path_preview(painter, xf, color, style.width, &bez);
-                } else if let Some((last, lh)) = anchors.last() {
-                    let mut bez = BezPath::new();
-                    bez.move_to(to_k(*last));
-                    bez.curve_to(to_k(*last + lh.handle_out), to_k(c), to_k(c));
-                    paint_path_preview(painter, xf, color, style.width, &bez);
-                }
-            }
-            let overlay = bezier_draft_overlay(xf, anchors, *placing, style.close_first_anchor);
-            paint_path_edit_anchors(painter, None, &overlay, style.overlay);
-        }
+    if let Some((bez, closed, widths)) = path_draft_preview(draft, cursor, style.width) {
+        let ink = draft_stroke_ink(&bez, closed, &widths, xf.z);
+        paint_preview_ink(painter, xf, style.stroke, ink);
+    }
+    if let BoardPathDraft::Bezier {
+        anchors, placing, ..
+    } = draft
+    {
+        let overlay = bezier_draft_overlay(xf, anchors, *placing, style.close_first_anchor);
+        paint_path_edit_anchors(painter, None, &overlay, style.overlay);
     }
 }
 
@@ -2400,32 +2473,38 @@ impl SlateApp {
         let Some(draft) = self.board_path_draft.take() else {
             return false;
         };
-        let (tool, rect, path_data, closed) = match draft {
-            BoardPathDraft::Polyline { mut points } => {
+        let (tool, rect, path_data, closed, widths) = match draft {
+            BoardPathDraft::Polyline {
+                mut points,
+                mut widths,
+            } => {
                 if points.len() < 2 {
                     return false;
                 }
                 let closed = points.len() >= 4 && points.first() == points.last();
                 if closed {
                     points.pop();
+                    widths.truncate(points.len());
                 }
                 let (r, d) = points_to_path_data(&points, closed);
-                (StrokeTool::Polyline, r, d, closed)
+                (StrokeTool::Polyline, r, d, closed, widths)
             }
-            BoardPathDraft::Bezier { anchors, .. } => {
+            BoardPathDraft::Bezier {
+                anchors, widths, ..
+            } => {
                 if anchors.len() < 2 {
                     return false;
                 }
                 let bez = bezier_anchors_to_bezpath(&anchors);
                 let (r, d) = bezpath_to_path_data(&bez, false);
-                (StrokeTool::Bezier, r, d, false)
+                (StrokeTool::Bezier, r, d, false, widths)
             }
             BoardPathDraft::Arc { .. } => return false,
         };
         if path_data.is_empty() {
             return false;
         }
-        self.commit_path_node(tool, rect, path_data, closed);
+        self.commit_drawn_path(tool, rect, path_data, closed, &widths);
         true
     }
 
@@ -2436,12 +2515,35 @@ impl SlateApp {
         path_data: PathData,
         closed: bool,
     ) {
+        self.commit_drawn_path(tool, rect, path_data, closed, &[]);
+    }
+
+    /// Commit a drawn curve. `grip_widths`, when given, is the width each of
+    /// its grips was placed with (P1.curve.vertex-style); the tool keeps its
+    /// current width for the next curve.
+    pub(crate) fn commit_drawn_path(
+        &mut self,
+        tool: StrokeTool,
+        rect: WorldRect,
+        path_data: PathData,
+        closed: bool,
+        grip_widths: &[f32],
+    ) {
         let mut path_data = path_data;
         path_data.closed = closed;
         let mut stroke = self.stroke_for_tool(tool);
         let remembered = stroke.width;
         if let Some(widest) = path_data.tips.iter().map(|t| t.width).reduce(f32::max) {
             stroke.width = widest;
+        }
+        if !grip_widths.is_empty() {
+            slate_doc::vertex_style::set_grip_widths(
+                &mut path_data,
+                &mut stroke,
+                rect,
+                0.0,
+                grip_widths,
+            );
         }
         let fill = if closed {
             self.fill_for_new_shape()
@@ -2479,17 +2581,21 @@ impl SlateApp {
         // Ortho (F8, Shift inverts): draft segments snap to 45Â° from the
         // last anchor (constraints spec Â§1).
         let from = match &self.board_path_draft {
-            Some(BoardPathDraft::Polyline { points }) => points.last().copied(),
-            Some(BoardPathDraft::Arc { points }) => points.last().copied(),
+            Some(BoardPathDraft::Polyline { points, .. }) => points.last().copied(),
+            Some(BoardPathDraft::Arc { points, .. }) => points.last().copied(),
             Some(BoardPathDraft::Bezier { anchors, .. }) => anchors.last().map(|(p, _)| *p),
             None => None,
         };
         let world = self.resolve_point_snap(world, &[], from, self.shift_down, from.is_some());
         match self.board_tool {
             super::board::BoardTool::Polyline => {
-                if let Some(BoardPathDraft::Polyline { points }) = &mut self.board_path_draft {
+                let width = self.stroke_for_tool(StrokeTool::Polyline).width;
+                if let Some(BoardPathDraft::Polyline { points, widths }) =
+                    &mut self.board_path_draft
+                {
                     if points.last().copied() != Some(world) {
                         points.push(world);
+                        widths.push(width);
                     }
                     if points.len() >= 4 && points.first() == points.last() {
                         self.finish_path_draft();
@@ -2497,23 +2603,29 @@ impl SlateApp {
                 } else {
                     self.board_path_draft = Some(BoardPathDraft::Polyline {
                         points: vec![world],
+                        widths: vec![width],
                     });
                 }
             }
             super::board::BoardTool::Arc => {
-                let mut pts = match self.board_path_draft.take() {
-                    Some(BoardPathDraft::Arc { points }) => points,
-                    _ => Vec::new(),
+                let (mut pts, mut widths) = match self.board_path_draft.take() {
+                    Some(BoardPathDraft::Arc { points, widths }) => (points, widths),
+                    _ => (Vec::new(), Vec::new()),
                 };
                 pts.push(world);
+                widths.push(self.stroke_for_tool(StrokeTool::Arc).width);
                 if pts.len() >= 3 {
                     // start, end, middle → through-point is the last pick
                     let bez = arc_through_three_points(pts[0], pts[2], pts[1]);
                     let (rect, data) = bezpath_to_path_data(&bez, false);
-                    self.commit_path_node(StrokeTool::Arc, rect, data, false);
+                    let grips = [widths[0], widths[2], widths[1]];
+                    self.commit_drawn_path(StrokeTool::Arc, rect, data, false, &grips);
                     return;
                 }
-                self.board_path_draft = Some(BoardPathDraft::Arc { points: pts });
+                self.board_path_draft = Some(BoardPathDraft::Arc {
+                    points: pts,
+                    widths,
+                });
             }
             _ => {}
         }
@@ -2527,6 +2639,7 @@ impl SlateApp {
             _ => {
                 self.board_path_draft = Some(BoardPathDraft::Bezier {
                     anchors: vec![],
+                    widths: vec![],
                     placing: Some((press, BezierHandles::default())),
                     redo: vec![],
                     last_press_placed: true,
@@ -2571,7 +2684,10 @@ impl SlateApp {
     /// Commit the draft as a closed path (a click on the start anchor while
     /// the closed preview shows). One journaled add, like any finish.
     pub(crate) fn close_bezier_draft(&mut self) -> bool {
-        let Some(BoardPathDraft::Bezier { anchors, .. }) = self.board_path_draft.take() else {
+        let Some(BoardPathDraft::Bezier {
+            anchors, widths, ..
+        }) = self.board_path_draft.take()
+        else {
             return false;
         };
         if anchors.len() < 2 {
@@ -2582,7 +2698,7 @@ impl SlateApp {
         if data.is_empty() {
             return false;
         }
-        self.commit_path_node(StrokeTool::Bezier, rect, data, true);
+        self.commit_drawn_path(StrokeTool::Bezier, rect, data, true, &widths);
         true
     }
 
@@ -2640,6 +2756,7 @@ impl SlateApp {
         }
         let Some(BoardPathDraft::Bezier {
             anchors,
+            widths,
             placing,
             redo,
             ..
@@ -2651,7 +2768,7 @@ impl SlateApp {
             return true;
         }
         match anchors.pop() {
-            Some(last) => redo.push(last),
+            Some(last) => redo.push((last, widths.pop().unwrap_or_default())),
             None => {
                 self.board_path_draft = None;
                 self.set_board_tool(super::board::BoardTool::Select);
@@ -2667,6 +2784,7 @@ impl SlateApp {
         }
         let Some(BoardPathDraft::Bezier {
             anchors,
+            widths,
             placing,
             redo,
             ..
@@ -2675,8 +2793,9 @@ impl SlateApp {
             return false;
         };
         if placing.is_none() {
-            if let Some(next) = redo.pop() {
+            if let Some((next, width)) = redo.pop() {
                 anchors.push(next);
+                widths.push(width);
             }
         }
         true
@@ -2736,15 +2855,18 @@ impl SlateApp {
         } else {
             BezierHandles::default()
         };
+        let width = self.stroke_for_tool(StrokeTool::Bezier).width;
         match &mut self.board_path_draft {
             Some(BoardPathDraft::Bezier {
                 anchors,
+                widths,
                 placing,
                 redo,
                 last_press_placed,
                 ..
             }) => {
                 anchors.push((press, handles));
+                widths.push(width);
                 *placing = None;
                 redo.clear();
                 *last_press_placed = true;
@@ -2752,6 +2874,7 @@ impl SlateApp {
             _ => {
                 self.board_path_draft = Some(BoardPathDraft::Bezier {
                     anchors: vec![(press, handles)],
+                    widths: vec![width],
                     placing: None,
                     redo: vec![],
                     last_press_placed: true,
@@ -2785,6 +2908,7 @@ impl SlateApp {
             _ => {
                 self.board_path_draft = Some(BoardPathDraft::Bezier {
                     anchors: vec![],
+                    widths: vec![],
                     placing: Some((press, handles)),
                     redo: vec![],
                     last_press_placed: true,

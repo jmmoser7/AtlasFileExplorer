@@ -52,16 +52,20 @@ pub struct LineDraft {
     pub dir_lock: Option<Vec2>,
     /// Typed length entry ("100", "12.5") — digits set length (D08).
     pub entry: String,
+    /// The tool width the first point was placed with; the end takes the
+    /// width at commit (P1.curve.vertex-style).
+    pub start_width: f32,
 }
 
 impl LineDraft {
-    fn new(start: Pos2) -> Self {
+    fn new(start: Pos2, start_width: f32) -> Self {
         LineDraft {
             start,
             raw_start: start,
             cursor: None,
             dir_lock: None,
             entry: String::new(),
+            start_width,
         }
     }
 }
@@ -142,7 +146,8 @@ impl SlateApp {
             return false;
         }
         let p = self.line_resolve_first(world);
-        let mut draft = LineDraft::new(p);
+        let width = self.stroke_for_tool(StrokeTool::Line).width;
+        let mut draft = LineDraft::new(p, width);
         draft.raw_start = world;
         self.line_draft = Some(draft);
         true
@@ -269,19 +274,36 @@ impl SlateApp {
         if (end - d.start).length() < 0.01 {
             return false;
         }
-        self.commit_line(d.start, end);
+        self.commit_line_from(d.start, end, Some(d.start_width));
         true
+    }
+
+    #[cfg(test)]
+    pub(crate) fn commit_line(&mut self, a: Pos2, b: Pos2) -> Option<NodeId> {
+        self.commit_line_from(a, b, None)
     }
 
     /// Build and journal the parametric 2-point line node: stroke from the
     /// Line tool's own memory (P1.curve.create-style) or Square-cap draft
-    /// defaults; one-shot tool returns to Select (D02/D11).
-    pub(crate) fn commit_line(&mut self, a: Pos2, b: Pos2) -> Option<NodeId> {
-        let (rect, data) = board_path::points_to_path_data(&[a, b], false);
+    /// defaults; one-shot tool returns to Select (D02/D11). `start_width`
+    /// is the width `a` was placed with; `b` takes the tool's width now, and
+    /// the tool keeps that width for the next line.
+    fn commit_line_from(&mut self, a: Pos2, b: Pos2, start_width: Option<f32>) -> Option<NodeId> {
+        let (rect, mut data) = board_path::points_to_path_data(&[a, b], false);
         if data.is_empty() {
             return None;
         }
-        let stroke = self.stroke_for_tool(StrokeTool::Line);
+        let mut stroke = self.stroke_for_tool(StrokeTool::Line);
+        let remembered = stroke.width;
+        if let Some(start) = start_width {
+            slate_doc::vertex_style::set_grip_widths(
+                &mut data,
+                &mut stroke,
+                rect,
+                0.0,
+                &[start, remembered],
+            );
+        }
         let opacity = self.opacity_for_tool(StrokeTool::Line);
         let node = self.doc_mut().scene.build_node(
             rect,
@@ -306,6 +328,10 @@ impl SlateApp {
         self.set_board_tool(BoardTool::Select);
         if let Some(n) = self.doc().scene.node(node.id).cloned() {
             self.note_tool_style(StrokeTool::Line, &n);
+        }
+        if stroke.width != remembered {
+            self.set_tool_width(StrokeTool::Line, remembered);
+            self.flush_create_style_to_doc();
         }
         self.push_history(
             atlas_commands::CommandId("board.tool.line"),
@@ -434,7 +460,8 @@ impl SlateApp {
         bez.line_to(vector_ink::kurbo::Point::new(c.x as f64, c.y as f64));
         let stroke = self.stroke_for_tool(StrokeTool::Line);
         let ink = super::board::rgba32(stroke.color);
-        board_path::paint_path_preview(painter, xf, ink, stroke.width, &bez);
+        let mesh = board_path::draft_stroke_ink(&bez, false, &[d.start_width, stroke.width], xf.z);
+        board_path::paint_preview_ink(painter, xf, ink, mesh);
     }
 
     /// Endpoint grips on the selected simple line — no resize bbox (D13) —

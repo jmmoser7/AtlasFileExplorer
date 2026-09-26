@@ -141,6 +141,34 @@ pub fn set_grip_tips(
     true
 }
 
+/// Give each grip of a just-drawn curve the width its point was placed
+/// with, in grip order, keeping the stroke's other style. Equal widths set
+/// the stroke width alone. `false` when `widths` does not fit the curve.
+pub fn set_grip_widths(
+    path: &mut PathData,
+    stroke: &mut Stroke,
+    rect: WorldRect,
+    rotation_deg: f32,
+    widths: &[f32],
+) -> bool {
+    let Some(&first) = widths.first() else {
+        return false;
+    };
+    if widths.iter().all(|w| *w == first) {
+        path.tips.clear();
+        stroke.width = first;
+        return true;
+    }
+    let grips: Vec<StrokeSpan> = widths
+        .iter()
+        .map(|&width| StrokeSpan {
+            width,
+            ..StrokeSpan::of(stroke)
+        })
+        .collect();
+    set_grip_tips(path, stroke, rect, rotation_deg, &grips)
+}
+
 /// Apply `edit` to the tips at the `picked` grips. `false` when the curve
 /// has no grips or none of `picked` is one of them.
 pub fn edit_grip_tips(

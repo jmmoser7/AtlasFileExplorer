@@ -4696,8 +4696,10 @@ impl SlateApp {
         {
             if let Some(w) = wp {
                 let from = match &self.board_path_draft {
-                    Some(board_path::BoardPathDraft::Polyline { points }) => points.last().copied(),
-                    Some(board_path::BoardPathDraft::Arc { points }) => points.last().copied(),
+                    Some(board_path::BoardPathDraft::Polyline { points, .. }) => {
+                        points.last().copied()
+                    }
+                    Some(board_path::BoardPathDraft::Arc { points, .. }) => points.last().copied(),
                     Some(board_path::BoardPathDraft::Bezier { anchors, .. }) => {
                         anchors.last().map(|(p, _)| *p)
                     }
@@ -5173,7 +5175,9 @@ impl SlateApp {
             let cursor = self.board_osnap_hit.map(|h| h.point).or_else(|| {
                 if board_snap::effective_ortho(self.board_ortho, self.shift_down) {
                     let from = match draft {
-                        board_path::BoardPathDraft::Polyline { points } => points.last().copied(),
+                        board_path::BoardPathDraft::Polyline { points, .. } => {
+                            points.last().copied()
+                        }
                         board_path::BoardPathDraft::Bezier {
                             anchors, placing, ..
                         } => anchors

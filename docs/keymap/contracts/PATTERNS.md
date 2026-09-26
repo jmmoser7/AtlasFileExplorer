@@ -273,8 +273,11 @@ is searchable.
   (`board_color::drive_brush_hud`, no copy) on that tool's own width:
   horizontal scrub, no softness, Esc restores, release saves to the tool's
   memory. It takes the right button from pan and the context menu like the
-  brush chords. Mid-draw it changes the shape being drawn and the draft
-  previews the committed width. Mid-stroke the Pen stops sampling while the
+  brush chords. Mid-draw on a line, arc, polyline or Bézier it sets the
+  width of the point being placed and of the points after it; points
+  already placed keep theirs, so the curve tapers between them by the
+  P1.curve.vertex-style blend (user, 26 September 2026), and the draft
+  previews that taper. Mid-stroke the Pen stops sampling while the
   HUD is up and the rest of the stroke takes the new width: each
   constant-width run is fitted on its own and `PathData::tips` stores one
   tip per vertex. Tips on a hard vector stroke are relative
@@ -354,7 +357,12 @@ is searchable.
   interpolation. Short filled segments of one color each were the
   alternative, but they would step the blend. An opaque stroke fills its
   whole outline in the mean color under the pieces, so browser
-  antialiasing seams between quads do not show the background.
+  antialiasing seams between quads do not show the background. While
+  drawing, the width chord sets the point being placed (P1.curve.width-chord).
+  Drafts record the tool width per placed point (`BoardPathDraft` widths,
+  `LineDraft::start_width`) and commit them as grip widths
+  (`vertex_style::set_grip_widths`). The draft preview paints through the
+  same call (`board_path::draft_stroke_ink`).
   Implementation: `slate_doc::vertex_style`,
   `board_properties::Property::apply_at`.
 - **P1.curve.pick** click and marquee selection hit the **stroke** (via

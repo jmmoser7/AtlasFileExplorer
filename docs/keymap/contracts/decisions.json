@@ -485,11 +485,11 @@
           "decided": "2026-09-17"
         },
         "D05": {
-          "behavior": "Held Shift inverts the F8 ortho state for the pending segment, 45-degree steps (P2.RhinoDraft.ortho). Alt+right-drag scrubs the Line's own width through the Brush size HUD (board.stroke.width_hud, P1.curve.width-chord), horizontally only: no softness. Mid-draw it changes the width of the line being drawn, and the rubber band previews that width.",
+          "behavior": "Held Shift inverts the F8 ortho state for the pending segment, 45-degree steps (P2.RhinoDraft.ortho). Alt+right-drag scrubs the Line's own width through the Brush size HUD (board.stroke.width_hud, P1.curve.width-chord), horizontally only: no softness. Mid-draw it sets the width of the end being placed; the first point keeps the width it was placed with, so the line tapers straight between them (P1.curve.vertex-style; user, 26 September 2026), and the rubber band previews that taper.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-09-26"
         },
         "D06": {
           "behavior": "F8 ortho + F9 grid snap apply to both endpoints. Object snaps follow P1.node.osnap (ObjectSnapSet, draft.osnap_radius / osnap.radius). Defaults End+Mid+Center match the previous hardcoded edge/anchor snap.",
@@ -3097,11 +3097,11 @@
           "decided": "2026-09-17"
         },
         "D05": {
-          "behavior": "Retain tool-specific creation modifiers and P1.node.transform for selected objects. Alt+right-drag scrubs the Polyline's own width through the Brush size HUD (board.stroke.width_hud, P1.curve.width-chord), horizontally only: no softness. Mid-draw it changes the width of the polyline being drawn, and the draft previews that width.",
+          "behavior": "Retain tool-specific creation modifiers and P1.node.transform for selected objects. Alt+right-drag scrubs the Polyline's own width through the Brush size HUD (board.stroke.width_hud, P1.curve.width-chord), horizontally only: no softness. Mid-draw it sets the width of the point being placed and of the points after it; points already placed keep theirs, so the polyline tapers straight between them (P1.curve.vertex-style; user, 26 September 2026), and the draft previews that taper.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-09-26"
         },
         "D06": {
           "behavior": "The shared object-snap resolver includes draft endpoints and completed segments for enabled End, Mid, Near and Perpendicular snaps. The rubber-band is excluded; existing scene intersections remain available.",
@@ -3357,11 +3357,11 @@
           "decided": "2026-09-17"
         },
         "D05": {
-          "behavior": "Retain tool-specific creation modifiers and P1.node.transform for selected objects. Alt+right-drag scrubs the Arc's own width through the Brush size HUD (board.stroke.width_hud, P1.curve.width-chord), horizontally only: no softness. Mid-draw it changes the width of the arc being drawn, and the draft previews that width.",
+          "behavior": "Retain tool-specific creation modifiers and P1.node.transform for selected objects. Alt+right-drag scrubs the Arc's own width through the Brush size HUD (board.stroke.width_hud, P1.curve.width-chord), horizontally only: no softness. Mid-draw it sets the width of the point being placed; points already placed keep theirs, and the arc blends straight along the sweep between its start, through and end widths (P1.curve.vertex-style; user, 26 September 2026). The draft previews that blend.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-09-26"
         },
         "D06": {
           "behavior": "P1.node.osnap: one resolved point feeds preview and commit; Alt suspends, ortho/direction constraints retain priority.",
@@ -3487,11 +3487,11 @@
           "decided": "2026-09-26"
         },
         "D05": {
-          "behavior": "Alt while dragging an outgoing handle breaks symmetry (corner anchor with independent out handle). Alt on an existing handle, while drawing or on a selected span, also breaks symmetry; without Alt a smooth anchor keeps its opposite handle collinear at its own length. Other creation modifiers unchanged. Alt+right-drag scrubs the Bezier tool's own width through the Brush size HUD (board.stroke.width_hud, P1.curve.width-chord), horizontally only: no softness. Mid-draw it changes the width of the span being drawn, and the draft previews that width.",
+          "behavior": "Alt while dragging an outgoing handle breaks symmetry (corner anchor with independent out handle). Alt on an existing handle, while drawing or on a selected span, also breaks symmetry; without Alt a smooth anchor keeps its opposite handle collinear at its own length. Other creation modifiers unchanged. Alt+right-drag scrubs the Bezier tool's own width through the Brush size HUD (board.stroke.width_hud, P1.curve.width-chord), horizontally only: no softness. Mid-draw it sets the width of the anchor being placed and of the anchors after it; placed anchors keep theirs, and the span blends smoothly between them (P1.curve.vertex-style; user, 26 September 2026). The draft previews that blend. Proposal: an anchor taken back with Ctrl+Z and put back while drawing keeps its width.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-09-26"
         },
         "D06": {
           "behavior": "P1.node.osnap: one resolved point feeds preview and commit; Alt suspends object snap while dragging handles; F8/Shift ortho constrains draft segments including Bézier outgoing handles.",
