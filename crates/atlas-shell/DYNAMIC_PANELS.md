@@ -210,9 +210,10 @@ location, with a visible caret/selection. Enter commits and Escape restores;
 valid outside-click edits follow the selection contract. No secondary
 dialog or detached value editor. Width belongs below and height beside the
 rectangle, reserving the upper lane for property controls. Use readable
-local-axis text on rotated objects. Lines measure endpoint length, not their
-bounding box; other geometry uses the contract's measurements. Stringers
-are ephemeral selection UI, not exported annotations.
+local-axis text on rotated objects. Open curves (line, arc, polyline,
+Bézier, pen) and brush strokes carry no stringers; closed geometry uses the
+contract's measurements. Stringers are ephemeral selection UI, not exported
+annotations.
 
 ## Light and dark themes
 

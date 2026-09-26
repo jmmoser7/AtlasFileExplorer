@@ -657,7 +657,23 @@ pub(crate) fn measured_bounds(n: &Node) -> WorldRect {
     n.rect
 }
 
+/// Open curves and brush strokes carry no dimension stringers; closed shapes
+/// keep theirs.
+fn takes_stringers(n: &Node) -> bool {
+    !slate_doc::is_open_shape(n)
+        && !matches!(&n.kind, NodeKind::Shape(s) if s.stroke.paints_as_stamp())
+}
+
 fn dimensions(nodes: &[Node]) -> (Option<WorldRect>, Vec<Dimension>) {
+    let (bounds, dims) = measured_dimensions(nodes);
+    if nodes.iter().any(takes_stringers) {
+        (bounds, dims)
+    } else {
+        (bounds, vec![])
+    }
+}
+
+fn measured_dimensions(nodes: &[Node]) -> (Option<WorldRect>, Vec<Dimension>) {
     if nodes.is_empty() {
         return (None, vec![]);
     }
@@ -2587,16 +2603,21 @@ mod tests {
         );
     }
     #[test]
-    fn shape_property_line_length_scales_about_midpoint_and_circle_keeps_diameter() {
+    fn shape_property_line_length_is_not_offered_and_circle_keeps_diameter() {
         let mut h = board();
         let id = h
             .app
             .commit_line(Pos2::new(0.0, 0.0), Pos2::new(3.0, 4.0))
             .unwrap();
-        size(&mut h, vec![id], DimensionKind::Length, 10.0);
-        let (a, b) = board_line::line_endpoints(h.app.doc().scene.node(id).unwrap()).unwrap();
-        assert!(((b - a).length() - 10.0).abs() < 1e-4);
-        assert!((a.lerp(b, 0.5) - Pos2::new(1.5, 2.0)).length() < 1e-4);
+        let before = h.app.doc().scene.node(id).unwrap().clone();
+        let request = serde_json::to_string(&DimensionRequest {
+            ids: vec![id],
+            kind: DimensionKind::Length,
+            value: 10.0,
+        })
+        .unwrap();
+        assert!(!h.app.shape_dimension_command(Some(&request)));
+        assert_eq!(h.app.doc().scene.node(id).unwrap(), &before);
         let circle = rectangle(&mut h, WorldRect::new(50.0, 50.0, 10.0, 10.0), 30.0);
         h.app.patch_nodes(&[circle], |n| {
             if let NodeKind::Shape(s) = &mut n.kind {
@@ -2701,6 +2722,89 @@ mod tests {
         assert_eq!(h.app.shape_properties.panel, Some(Panel::Fill));
         assert_eq!(h.app.doc().scene.node(id).unwrap().rect, before);
         assert!(h.app.board_sel.contains(&id));
+    }
+
+    /// User finding (2026-09-26): open curves and brush strokes carry no
+    /// dimension stringers, alone or together; closed shapes keep theirs.
+    #[test]
+    fn open_curves_and_brush_strokes_have_no_dimension_stringers() {
+        let mut h = board();
+        let last = |h: &Harness| h.app.doc().scene.nodes.last().unwrap().id;
+        let line = h
+            .app
+            .commit_line(Pos2::new(0.0, 0.0), Pos2::new(80.0, 40.0))
+            .unwrap();
+        let polyline = |h: &mut Harness, pts: &[Pos2], closed: bool| {
+            let (r, d) = board_path::points_to_path_data(pts, closed);
+            h.app
+                .commit_path_node(slate_doc::StrokeTool::Polyline, r, d, closed);
+            last(h)
+        };
+        let open = polyline(
+            &mut h,
+            &[
+                Pos2::new(0.0, 100.0),
+                Pos2::new(80.0, 100.0),
+                Pos2::new(80.0, 160.0),
+            ],
+            false,
+        );
+        h.app.set_board_tool(BoardTool::Arc);
+        for p in [
+            Pos2::new(200.0, 0.0),
+            Pos2::new(300.0, 0.0),
+            Pos2::new(250.0, 40.0),
+        ] {
+            h.app.path_tool_click(p);
+        }
+        let arc = last(&h);
+        h.app.set_board_tool(BoardTool::BezierSpan);
+        let (a, b) = (Pos2::new(200.0, 100.0), Pos2::new(300.0, 140.0));
+        h.app.bezier_anchor_press(a);
+        h.app
+            .bezier_anchor_release(a, a + Vec2::new(40.0, 0.0), false);
+        h.app.bezier_anchor_press(b);
+        h.app.bezier_anchor_release(b, b, false);
+        assert!(h.app.path_tool_try_finish());
+        let bezier = last(&h);
+        h.app.finish_freehand_pen(
+            (0..20)
+                .map(|i| Pos2::new(400.0 + i as f32 * 6.0, (i as f32 * 0.5).sin() * 20.0))
+                .collect(),
+        );
+        let pen = last(&h);
+        h.app.set_board_tool(BoardTool::Brush);
+        h.app.finish_freehand_brush(
+            (0..20)
+                .map(|i| Pos2::new(400.0 + i as f32 * 6.0, 100.0 + i as f32 * 2.0))
+                .collect(),
+        );
+        let brush = last(&h);
+        assert!(matches!(
+            &h.app.doc().scene.node(brush).unwrap().kind,
+            NodeKind::Shape(s) if s.stroke.paints_as_stamp()
+        ));
+        let closed = polyline(
+            &mut h,
+            &[
+                Pos2::new(0.0, 300.0),
+                Pos2::new(120.0, 300.0),
+                Pos2::new(0.0, 390.0),
+            ],
+            true,
+        );
+        let rect = rectangle(&mut h, WorldRect::new(300.0, 300.0, 80.0, 60.0), 0.0);
+        let node = |id: NodeId| h.app.doc().scene.node(id).unwrap().clone();
+        let open_ids = [line, open, arc, bezier, pen, brush];
+        for id in open_ids {
+            let (_, dims) = dimensions(&[node(id)]);
+            assert!(dims.is_empty(), "{id:?} has {} stringers", dims.len());
+        }
+        let together: Vec<Node> = open_ids.iter().map(|id| node(*id)).collect();
+        assert!(dimensions(&together).1.is_empty(), "together, still none");
+        for id in [closed, rect] {
+            assert_eq!(dimensions(&[node(id)]).1.len(), 2, "closed shapes keep W/H");
+        }
     }
 
     #[test]

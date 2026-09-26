@@ -21,7 +21,7 @@ D01–D17 are every tool-scoped dimension. D18–D35 are portal-only and do not 
 | D05 | Modifiers | Retain tool-specific creation modifiers and P1.node.transform for selected objects. Alt+right-drag scrubs the Pen's own width through the Brush size HUD (`board.stroke.width_hud`, P1.curve.width-chord; stated 2026-09-25), horizontally only: no softness. Mid-stroke the scrub draws nothing and the rest of the stroke takes the new width, stored as one tip per vertex. | stated | 100 |
 | D06 | Constraints & snapping | No point snapping along the freehand stroke; it would quantize the sketch. Existing point snapping remains available when editing committed anchors. | guess | 55 |
 | D07 | Direction / value locks | n/a: no direction/value lock while sketching. | pattern | 85 |
-| D08 | Numeric / manual entry | tight local W/H stringers; change dimensions by scaling the committed path around bounds center without re-fitting the stroke. Alternative: one curve-length L stringer for uniform scaling. No dimensions in the toolbar. | guess | 55 |
+| D08 | Numeric / manual entry | An open pen path shows no dimension stringers (user, 26 September 2026: "remove the dimension stringers from open curves right now"). An explicitly closed pen path keeps tight local W/H stringers, scaling the committed path around bounds center without re-fitting the stroke. No dimensions in the toolbar. | stated | 100 |
 | D09 | Preview & readouts | Keep press/release endpoints and all intermediate events separated by at least 0.5 screen px. Fitter simplification tolerance is 0.5 screen px at capture zoom; this is a tuning parameter, not a proof of a global error bound. | pattern | 85 |
 | D10 | Cursor | A hard circle of the pen's own width and color, the same disc the Brush shows for its tip; the OS cursor hides under it over the board. The user offered circle or crosshair (stated 2026-09-25); the circle was chosen because it previews the width the width chord scrubs. The size HUD replaces it while open. Controls use shell hover and focus feedback. | stated | 100 |
 | D11 | Commit | P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history. | pattern | 85 |
@@ -34,7 +34,7 @@ D01–D17 are every tool-scoped dimension. D18–D35 are portal-only and do not 
 
 ## Geometry capabilities
 
-Circular Stroke and, if explicitly closed, Fill. Stroke exposes ink width/color/alpha/taper as supported. No rectangle Corners or unbacked smoothing control; desktop sampling is shared. Stringers: Propose tight local W/H stringers; change dimensions by scaling the committed path around bounds center without re-fitting the stroke. Alternative: one curve-length L stringer for uniform scaling. No dimensions in the toolbar.
+Circular Stroke and, if explicitly closed, Fill. Stroke exposes ink width/color/alpha/taper as supported. No rectangle Corners or unbacked smoothing control; desktop sampling is shared. Stringers: none on an open pen path (user, 26 September 2026). An explicitly closed path keeps tight local W/H stringers and scales around bounds center without re-fitting the stroke. No dimensions in the toolbar.
 
 See [shape property editing](../specs/shape-property-editing.md) for the approved rectangle baseline, corner formula, per-geometry recommendations and alternatives, and proposed acceptance scripts. [Desktop color sampling](../specs/desktop-color-sampling.md) owns the project-wide eyedropper scope. These replace the earlier toolbar size/opacity/Geometry/More proposal.
 

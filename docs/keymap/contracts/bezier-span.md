@@ -21,7 +21,7 @@ D01–D17 are every tool-scoped dimension. D18–D35 are portal-only and do not 
 | D05 | Modifiers | Alt while pulling a new handle, or on an existing handle (drawing or selected), breaks symmetry. Without Alt a smooth anchor keeps its opposite handle collinear at its own length. P1.node.transform for selected objects. Alt+right-drag scrubs the Bézier tool's own width through the Brush size HUD (`board.stroke.width_hud`, P1.curve.width-chord; stated 2026-09-25), horizontally only: no softness. Mid-draw it changes the width of the span being drawn, and the draft previews that width. | stated | 100 |
 | D06 | Constraints & snapping | P1.node.osnap: one resolved point feeds preview and commit; Alt suspends, ortho/direction constraints retain priority. | pattern | 85 |
 | D07 | Direction / value locks | No new lock binding. Preserve existing locks; numeric property editing is separate from drawing. | pattern | 85 |
-| D08 | Numeric / manual entry | tight local W/H stringers from actual curve extrema, excluding off-curve handle bounds. Scale anchors and handles together about bounds center. Alternative: actual curve length L with uniform scaling, not endpoint chord length. | guess | 55 |
+| D08 | Numeric / manual entry | An open Bézier shows no dimension stringers (user, 26 September 2026: "remove the dimension stringers from open curves right now"). A closed Bézier keeps tight local W/H stringers from actual curve extrema, excluding off-curve handle bounds, scaling anchors and handles together about bounds center. | stated | 100 |
 | D09 | Preview & readouts | P1.shape.properties: preview resolved creation geometry and show the shared geometry-appropriate selection strip. | pattern | 85 |
 | D10 | Cursor | Crosshair while armed over the board, before and during the draft (stated 2026-09-25). Controls use shell hover and focus feedback. | stated | 100 |
 | D11 | Commit | Enter, a double-click on a placed anchor, or Esc commits a span of two or more anchors as exactly one journaled add, then returns to Select. P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history. | stated | 100 |
@@ -34,7 +34,7 @@ D01–D17 are every tool-scoped dimension. D18–D35 are portal-only and do not 
 
 ## Geometry capabilities
 
-Circular Stroke and, only for a closed path, Fill. Handle editing is on-canvas (D13). No rectangle Corners or dimensional toolbar fields. Color editors use the shared desktop sampler. Stringers: Propose tight local W/H stringers from actual curve extrema, excluding off-curve handle bounds. Scale anchors and handles together about bounds center. Alternative: actual curve length L with uniform scaling, not endpoint chord length.
+Circular Stroke and, only for a closed path, Fill. Handle editing is on-canvas (D13). No rectangle Corners or dimensional toolbar fields. Color editors use the shared desktop sampler. Stringers: none on an open Bézier (user, 26 September 2026). A closed Bézier keeps tight local W/H stringers from actual curve extrema, excluding off-curve handle bounds, and scales anchors and handles together about bounds center.
 
 See [shape property editing](../specs/shape-property-editing.md) for the approved rectangle baseline, corner formula, per-geometry recommendations and alternatives, and proposed acceptance scripts. [Desktop color sampling](../specs/desktop-color-sampling.md) owns the project-wide eyedropper scope. These replace the earlier toolbar size/opacity/Geometry/More proposal.
 

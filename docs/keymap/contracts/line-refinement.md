@@ -23,20 +23,20 @@ D01–D17 are every tool-scoped dimension. D18–D35 are portal-only and do not 
 | D05 | Modifiers | Retain tool-specific creation modifiers and P1.node.transform for selected objects. | pattern | 85 |
 | D06 | Constraints & snapping | P1.node.osnap: one resolved point feeds preview and commit; Alt suspends, ortho/direction constraints retain priority. | pattern | 85 |
 | D07 | Direction / value locks | Inherit shipped line.md D07: Tab direction lock. | precedent | 95 |
-| D08 | Numeric / manual entry | One actual endpoint-to-endpoint length L stringer. Editing scales uniformly about the midpoint, preserving direction. | guess | 55 |
+| D08 | Numeric / manual entry | No dimension stringer on a selected line (user, 26 September 2026: "remove the dimension stringers from open curves right now"). | stated | 100 |
 | D09 | Preview & readouts | P1.shape.properties: preview resolved creation geometry and show the shared geometry-appropriate selection strip. | pattern | 85 |
 | D10 | Cursor | Retain existing armed-tool cursor; controls use shell hover and focus feedback. | pattern | 85 |
 | D11 | Commit | P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history. | pattern | 85 |
 | D12 | Cancel | P1.shape.properties: Esc cancels the pending property edit and preserves selection. Existing creation cancellation remains unchanged. | pattern | 85 |
 | D13 | Selected presentation | P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers. | pattern | 85 |
-| D14 | Post-edit | Circular Stroke button, with RGB/alpha/width and caps/dash/taper in its outward editor. Desktop eyedropper uses the shared sampler. Numeric length belongs on the stringer; no fill or rectangle corner button. | guess | 55 |
+| D14 | Post-edit | Circular Stroke button, with RGB/alpha/width and caps/dash/taper in its outward editor. Desktop eyedropper uses the shared sampler. No length stringer (D08); no fill or rectangle corner button. | guess | 55 |
 | D15 | Non-goals | P1.shape.properties: no dimensions, independent opacity, or unsupported geometry controls in the strip. | pattern | 85 |
 | D16 | Create-style inheritance | **Per-tool** create-style memory (P1.curve.create-style; stated 2026-09-25): the Line keeps its own stroke color, width, and opacity and never inherits from another tool (line.md D16); remembered width is never 0; always a hard vector stroke | stated | 100 |
 | D17 | Hit-testing & pick | P1.shape.properties: controls consume their input before canvas gestures; locked/read-only targets cannot be changed. | pattern | 85 |
 
 ## Geometry capabilities
 
-Circular Stroke button, with RGB/alpha/width and caps/dash/taper in its outward editor. Desktop eyedropper uses the shared sampler. Numeric length belongs on the stringer; no fill or rectangle corner button. Stringers: Actual endpoint-to-endpoint length appears as an editable stringer parallel to the line, never bounding-box W/H. Proposed edit anchor: the midpoint, keeping direction fixed.
+Circular Stroke button, with RGB/alpha/width and caps/dash/taper in its outward editor. Desktop eyedropper uses the shared sampler. No fill or rectangle corner button. Stringers: none. A selected line shows neither a length stringer nor bounding-box W/H (user, 26 September 2026).
 
 See [shape property editing](../specs/shape-property-editing.md) for the approved rectangle baseline, corner formula, per-geometry recommendations and alternatives, and proposed acceptance scripts. [Desktop color sampling](../specs/desktop-color-sampling.md) owns the project-wide eyedropper scope. These replace the earlier toolbar size/opacity/Geometry/More proposal.
 
@@ -55,7 +55,7 @@ These are interaction acceptance scripts; automated coverage is listed below. Na
 - **GP2:** Stationary first click within snap radius but >4px from snap target -> stays in second-point mode; no premature short line.
 - **GP3:** Press at A -> deliberate first-press drag -> release B -> line A-B once; existing click/drag tests still pass.
 - **GP4:** Several pointer move/button events in one frame -> use event coordinates, preserve ordering and release/cancel capture.
-- **GP5:** Length stringer 5 -> enter 9 -> same direction/midpoint; endpoints each move by 2; no W/H sizing fields.
+- **GP5:** Select a line -> no length stringer and no W/H sizing fields; the Stroke control remains.
 
 ## Implementation notes
 
