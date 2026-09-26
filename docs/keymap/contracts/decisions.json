@@ -1870,11 +1870,11 @@
           "decided": "2026-08-16"
         },
         "D16": {
-          "behavior": "n/a — copies first operand style, does not consume fg/bg.",
+          "behavior": "n/a — copies first operand style, does not consume fg/bg. An all-open join carries each source's per-vertex widths, colors and corner overrides in joined order, reversed with a reversed source; a merged seam keeps the first source's vertex. A source without per-vertex style paints its own stroke at its vertices; when no source has any, the first style wins as before (P1.curve.vertex-style; user, 26 September 2026).",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
-          "decided": "2026-08-16"
+          "decided": "2026-09-26"
         },
         "D17": {
           "behavior": "Current selection. Skip locked/hidden. Open: Path+Line. Closed: Rect/Ellipse/closed Path (or clip).",

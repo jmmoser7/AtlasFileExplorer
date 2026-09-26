@@ -13,6 +13,9 @@
   refit vertices, so a tapered pen stroke stays tapered.
 - Direct Selection arrow-key nudges keep every vertex's width, color and
   corner override.
+- `join` D16: joining open paths carries each source's per-vertex widths,
+  colors and corner overrides in joined order, reversed with a reversed
+  source.
 
 ## 2026-09-25 — Sign-in pop-ups in web portals
 

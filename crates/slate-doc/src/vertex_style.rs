@@ -245,6 +245,51 @@ pub fn has_vertex_style(path: &PathData) -> bool {
     !path.tips.is_empty() || path.corner_amounts.iter().any(Option::is_some)
 }
 
+/// One vertex's style as it paints: its tip at painted width and color
+/// (a stamped stroke's tip as stored), and its corner override.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VertexStyle {
+    pub tip: StrokeSpan,
+    pub corner: Option<f32>,
+}
+
+/// The style of each of `count` vertices of a curve stroked with `stroke`,
+/// for carrying vertices onto another path (an object-level Join). A curve
+/// with no path (a Line) or whose tips do not fit paints the stroke itself
+/// at every vertex.
+pub fn vertex_styles(path: Option<&PathData>, stroke: &Stroke, count: usize) -> Vec<VertexStyle> {
+    let path = path.filter(|p| vertex_count(p) == count);
+    let tips = path.and_then(|p| vertex_tips(p, stroke));
+    let corners = path.map(|p| p.corner_amounts.as_slice()).unwrap_or(&[]);
+    (0..count)
+        .map(|i| VertexStyle {
+            tip: tips.as_ref().map_or(StrokeSpan::of(stroke), |t| t[i]),
+            corner: corners.get(i).copied().flatten(),
+        })
+        .collect()
+}
+
+/// Write `styles`, one per vertex, onto `path` stroked with `stroke`: a hard
+/// stroke's width becomes its widest tip and equal tips set the stroke
+/// itself ([`set_grip_tips`]). Corner overrides are kept only where they
+/// apply, on a straight-segment polyline. Nothing changes when `styles`
+/// does not fit the path.
+pub fn apply_vertex_styles(path: &mut PathData, stroke: &mut Stroke, styles: &[VertexStyle]) {
+    if styles.is_empty() || styles.len() != vertex_count(path) {
+        return;
+    }
+    let tips: Vec<StrokeSpan> = styles.iter().map(|s| s.tip).collect();
+    if stroke.paints_as_stamp() {
+        path.tips = tips;
+    } else {
+        write_tips(path, stroke, tips);
+    }
+    path.corner_amounts.clear();
+    if crate::geom::path_is_line_polyline(path) && styles.iter().any(|s| s.corner.is_some()) {
+        path.corner_amounts = styles.iter().map(|s| s.corner).collect();
+    }
+}
+
 /// First vertex, vertex count and closed flag of each contour of `path`, in
 /// vertex order (the primary contour, then `extra`).
 fn contours(path: &PathData) -> Vec<(usize, usize, bool)> {
@@ -852,5 +897,34 @@ mod tests {
             arc_length_params(&old, false, &old, false),
             vec![0.0, 1.0, 2.0]
         );
+    }
+
+    #[test]
+    fn vertex_styles_round_trip_and_fall_back_to_the_stroke() {
+        let mut old = ell();
+        old.corner_amounts = vec![None, Some(6.0), None];
+        let styles = vertex_styles(Some(&old), &hard(10.0), 3);
+        let widths: Vec<f32> = styles.iter().map(|s| s.tip.width).collect();
+        assert_eq!(widths, vec![2.0, 10.0, 4.0]);
+        assert_eq!(styles[1].corner, Some(6.0));
+        let plain = vertex_styles(None, &hard(3.0), 2);
+        assert_eq!(plain[0].tip, StrokeSpan::of(&hard(3.0)));
+        assert_eq!(plain[1].corner, None);
+
+        let mut joined = ell();
+        joined.tips.clear();
+        let mut stroke = hard(1.0);
+        let reversed: Vec<VertexStyle> = styles.iter().rev().copied().collect();
+        apply_vertex_styles(&mut joined, &mut stroke, &reversed);
+        assert_eq!(joined.vector_widths(&stroke).unwrap(), vec![4.0, 10.0, 2.0]);
+        assert_eq!(stroke.width, 10.0);
+        assert_eq!(joined.corner_amounts, vec![None, Some(6.0), None]);
+
+        let mut curve = straight_cubic();
+        curve.tips.clear();
+        apply_vertex_styles(&mut curve, &mut stroke, &styles[..2]);
+        assert!(curve.corner_amounts.is_empty(), "no corners on a curve");
+        apply_vertex_styles(&mut curve, &mut stroke, &styles);
+        assert_eq!(curve.tips.len(), 2, "a list that does not fit is refused");
     }
 }

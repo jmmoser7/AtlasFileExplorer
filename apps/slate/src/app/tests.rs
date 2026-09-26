@@ -13913,3 +13913,135 @@ fn direct_nudge_keeps_vertex_style() {
         vec![None, Some(8.0), Some(4.0), None]
     );
 }
+
+/// User request (2026-09-26): the object-level Join concatenates both
+/// sources' per-vertex widths, colors and corner overrides in joined order;
+/// a source the join reverses has its style reversed with it.
+#[test]
+fn object_join_concatenates_vertex_style_in_joined_order() {
+    let mut h = grip_board("object_join_vertex_style");
+    let a = commit_polyline(
+        &mut h,
+        &[
+            Pos2::new(0.0, 0.0),
+            Pos2::new(100.0, 0.0),
+            Pos2::new(100.0, 100.0),
+        ],
+        false,
+    );
+    style_vertices(
+        &mut h,
+        a,
+        &[2.0, 4.0, 6.0],
+        &[0, 40, 80],
+        &[None, Some(5.0), None],
+    );
+    // Drawn away from `a`, so the join reverses it.
+    let b = commit_polyline(
+        &mut h,
+        &[
+            Pos2::new(300.0, 200.0),
+            Pos2::new(300.0, 100.0),
+            Pos2::new(150.0, 100.0),
+        ],
+        false,
+    );
+    style_vertices(
+        &mut h,
+        b,
+        &[12.0, 10.0, 8.0],
+        &[200, 160, 120],
+        &[None, Some(9.0), None],
+    );
+    h.app.board_sel = [a, b].into_iter().collect();
+    assert!(h.app.cmd_join());
+    h.frame();
+    let id = h.app.doc().scene.nodes.last().unwrap().id;
+    assert_eq!(
+        world_vertices(&h, id),
+        vec![
+            Pos2::new(0.0, 0.0),
+            Pos2::new(100.0, 0.0),
+            Pos2::new(100.0, 100.0),
+            Pos2::new(150.0, 100.0),
+            Pos2::new(300.0, 100.0),
+            Pos2::new(300.0, 200.0),
+        ]
+    );
+    let tips = painted_vertex_tips(&h, id);
+    let want = [
+        (2.0, 0.0),
+        (4.0, 40.0),
+        (6.0, 80.0),
+        (8.0, 120.0),
+        (10.0, 160.0),
+        (12.0, 200.0),
+    ];
+    assert_eq!(tips.len(), want.len());
+    for (k, (w, r)) in want.into_iter().enumerate() {
+        assert_vertex(tips[k], w, r, &format!("vertex {k}"));
+    }
+    assert_eq!(
+        corner_overrides(&h, id),
+        vec![None, Some(5.0), None, None, Some(9.0), None]
+    );
+}
+
+/// An object-level Join that reverses the first source and merges a
+/// coincident seam keeps the first source's style at the seam.
+#[test]
+fn object_join_reverses_the_first_source_and_merges_the_seam() {
+    let mut h = grip_board("object_join_vertex_style_merge");
+    let a = commit_polyline(
+        &mut h,
+        &[
+            Pos2::new(100.0, 100.0),
+            Pos2::new(100.0, 0.0),
+            Pos2::new(0.0, 0.0),
+        ],
+        false,
+    );
+    style_vertices(
+        &mut h,
+        a,
+        &[6.0, 4.0, 2.0],
+        &[80, 40, 0],
+        &[None, Some(5.0), None],
+    );
+    let b = commit_polyline(
+        &mut h,
+        &[
+            Pos2::new(100.0, 101.0),
+            Pos2::new(200.0, 101.0),
+            Pos2::new(200.0, 200.0),
+        ],
+        false,
+    );
+    style_vertices(
+        &mut h,
+        b,
+        &[20.0, 10.0, 12.0],
+        &[250, 160, 200],
+        &[None, Some(9.0), None],
+    );
+    h.app.board_sel = [a, b].into_iter().collect();
+    assert!(h.app.cmd_join());
+    h.frame();
+    let id = h.app.doc().scene.nodes.last().unwrap().id;
+    let tips = painted_vertex_tips(&h, id);
+    let want = [
+        (2.0, 0.0),
+        (4.0, 40.0),
+        (6.0, 80.0),
+        (10.0, 160.0),
+        (12.0, 200.0),
+    ];
+    assert_eq!(tips.len(), want.len(), "the seam merged into one vertex");
+    for (k, (w, r)) in want.into_iter().enumerate() {
+        assert_vertex(tips[k], w, r, &format!("vertex {k}"));
+    }
+    assert_eq!(
+        corner_overrides(&h, id),
+        vec![None, Some(5.0), None, Some(9.0), None]
+    );
+}

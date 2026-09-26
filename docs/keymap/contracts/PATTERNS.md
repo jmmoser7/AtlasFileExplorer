@@ -398,7 +398,9 @@ is searchable.
   (`slate_doc::vertex_style::split_tips_at`, the one owner). A Direct
   Selection edit that drops a vertex drops its entry; an added closing
   copy of the start takes the start's tip; a nudge keeps every vertex's
-  style. A smoothing pass resamples the
+  style. An object-level Join concatenates its sources' vertex styles in
+  joined order (`vector_ink::join_endpoints_traced`,
+  `vertex_style::vertex_styles`). A smoothing pass resamples the
   tips onto its refit vertices at the same fraction of each contour's
   length (`vertex_style::arc_length_params`). Both interpreters paint through
   `slate_doc::geom::tipped_stroke` and `vector_ink::stroke_mesh_tipped` /

@@ -37,7 +37,7 @@ Inherits: P0.* (all), P1.node, **P2.RhinoJoin** — deviations flagged below.
 | D13 | Selected presentation | The result is selected; path grips / Direct Selection apply. | pattern | 80 |
 | D14 | Post-edit | Direct Selection on the rewritten path. No Unjoin — rewrite, like Trim. | precedent | 90 |
 | D15 | Non-goals | JoinCopy; JoinEdge / MatchSrf; 3D / polysurface; joining frames, portals, text, images, connectors; a typed tolerance field; keeping inputs. | guess | 60 |
-| D16 | Create-style inheritance | n/a — does not consume fg/bg. Result copies the first operand's style (D11). | pattern | 85 |
+| D16 | Create-style inheritance | n/a — does not consume fg/bg. Result copies the first operand's style (D11). An all-open join carries each source's per-vertex widths, colors and corner overrides in joined order, reversed with a reversed source; a merged seam keeps the first source's vertex. A source without per-vertex style paints its own stroke at its vertices; when no source has any, the first style wins as before (P1.curve.vertex-style; user, 26 September 2026). | pattern | 85 |
 | D17 | Hit-testing & pick | Operands are the current selection. Locked/hidden skipped. Open includes Path (open) and Line. Closed includes Rect, Ellipse, closed Path (and clip, if present). | stated | 100 |
 
 ## Inferred edge cases (D11)

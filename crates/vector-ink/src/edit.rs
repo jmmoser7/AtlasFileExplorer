@@ -360,16 +360,36 @@ pub fn join_endpoints(
     second: Option<&[Anchor]>,
     radius: f64,
 ) -> Option<(Vec<Anchor>, bool)> {
+    join_endpoints_traced(first, second, radius).map(|(joined, closed, _)| (joined, closed))
+}
+
+/// The input anchor a joined anchor came from ([`join_endpoints_traced`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JoinSource {
+    First(usize),
+    Second(usize),
+}
+
+/// [`join_endpoints`], plus the input anchor each joined anchor came from,
+/// so per-anchor data can follow the join (reversed with a reversed input).
+/// A merged seam anchor reports the anchor of `first` it replaced.
+pub fn join_endpoints_traced(
+    first: &[Anchor],
+    second: Option<&[Anchor]>,
+    radius: f64,
+) -> Option<(Vec<Anchor>, bool, Vec<JoinSource>)> {
     match second {
         None => {
             if first.len() < 2 {
                 return None;
             }
             let mut a = first.to_vec();
+            let mut trace: Vec<JoinSource> = (0..a.len()).map(JoinSource::First).collect();
             let last_idx = a.len() - 1;
             let gap = (a[last_idx].point - a[0].point).hypot();
             if gap <= radius && a.len() >= 3 {
                 let last = a.pop().expect("len >= 3");
+                trace.pop();
                 let merged = merge_pair(&last, &a[0]);
                 a[0] = merged;
             } else {
@@ -379,7 +399,7 @@ pub fn join_endpoints(
                 a[0].handle_in = None;
                 a[0].kind = AnchorKind::Corner;
             }
-            Some((a, true))
+            Some((a, true, trace))
         }
         Some(second) => {
             if first.is_empty() || second.is_empty() {
@@ -387,6 +407,8 @@ pub fn join_endpoints(
             }
             let mut a = first.to_vec();
             let mut b = second.to_vec();
+            let mut trace_a: Vec<JoinSource> = (0..a.len()).map(JoinSource::First).collect();
+            let mut trace_b: Vec<JoinSource> = (0..b.len()).map(JoinSource::Second).collect();
             // Nearest of the four endpoint pairings; orient so the seam is
             // a.last -> b.first.
             let d = |p: &[Anchor], q: &[Anchor], pi: usize, qi: usize| {
@@ -406,13 +428,16 @@ pub fn join_endpoints(
                 .expect("non-empty");
             if rev_a {
                 reverse_anchors(&mut a);
+                trace_a.reverse();
             }
             if rev_b {
                 reverse_anchors(&mut b);
+                trace_b.reverse();
             }
             if gap <= radius && (a.len() > 1 || b.len() > 1) {
                 let seam_a = a.pop().expect("non-empty");
                 let seam_b = b.remove(0);
+                trace_b.remove(0);
                 a.push(merge_pair(&seam_a, &seam_b));
             } else {
                 let al = a.len() - 1;
@@ -422,7 +447,8 @@ pub fn join_endpoints(
                 b[0].kind = AnchorKind::Corner;
             }
             a.append(&mut b);
-            Some((a, false))
+            trace_a.append(&mut trace_b);
+            Some((a, false, trace_a))
         }
     }
 }
@@ -744,6 +770,46 @@ mod tests {
         assert_pt_eq(joined[2].point, pt(10.0, 10.0));
         assert_pt_eq(joined[3].point, pt(0.0, 20.0));
         assert_pt_eq(joined[5].point, pt(10.0, 30.0));
+    }
+
+    #[test]
+    fn join_trace_follows_reversal_and_merge() {
+        use JoinSource::{First, Second};
+        let a = open_l(Vec2::ZERO); // (0,0), (10,0), (10,10)
+        let mut b = open_l(Vec2::new(0.0, 20.0));
+        b.reverse(); // (10,30), (10,20), (0,20): reversed by the join
+        let (_, _, trace) = join_endpoints_traced(&a, Some(&b), 2.0).unwrap();
+        assert_eq!(
+            trace,
+            vec![
+                First(0),
+                First(1),
+                First(2),
+                Second(2),
+                Second(1),
+                Second(0)
+            ]
+        );
+        // a's start meets b's start within the radius: a reverses, the seam
+        // merges and keeps a's anchor.
+        let b = vec![
+            Anchor::corner(pt(0.5, 0.0)),
+            Anchor::corner(pt(-10.0, 0.0)),
+            Anchor::corner(pt(-10.0, -10.0)),
+        ];
+        let (joined, _, trace) = join_endpoints_traced(&a, Some(&b), 2.0).unwrap();
+        assert_eq!(joined.len(), 5);
+        assert_eq!(
+            trace,
+            vec![First(2), First(1), First(0), Second(1), Second(2)]
+        );
+        let (_, closed, trace) = join_endpoints_traced(&open_l(Vec2::ZERO), None, 20.0).unwrap();
+        assert!(closed);
+        assert_eq!(
+            trace,
+            vec![First(0), First(1)],
+            "the last merged into the first"
+        );
     }
 
     #[test]

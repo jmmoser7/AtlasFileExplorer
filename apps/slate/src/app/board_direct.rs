@@ -17,12 +17,14 @@ use super::path_edit_overlay::{
 use super::{board_line, board_path, SlateApp};
 use eframe::egui::{self, Pos2, Rect};
 use slate_doc::scene::{Node, NodeKind, SceneCmd, ShapeKind, WorldRect};
+use slate_doc::vertex_style::{self, VertexStyle};
 use slate_doc::NodeId;
 use std::collections::{BTreeSet, HashSet};
 use vector_ink::kurbo::{BezPath, Point, Vec2 as KVec2};
 use vector_ink::{
-    anchors_from_bezpath, bezpath_from_anchors, join_endpoints, move_anchor, move_handle,
-    segment_hit, toggle_anchor_kind, translate_segment, Anchor, AnchorKind, HandleEnd,
+    anchors_from_bezpath, bezpath_from_anchors, join_endpoints, join_endpoints_traced, move_anchor,
+    move_handle, segment_hit, toggle_anchor_kind, translate_segment, Anchor, AnchorKind, HandleEnd,
+    JoinSource,
 };
 
 /// Segment pick radius (screen px).
@@ -819,7 +821,8 @@ impl SlateApp {
                 self.join_close_node(id, &anchors, 24.0)
             }
             // Case 3: object-level join — fold nearest endpoint pairs,
-            // first node's style wins, one Remove+Add group.
+            // first node's style wins, per-vertex style follows its vertex,
+            // one Remove+Add group.
             _ => self.join_nodes(&opens),
         }
     }
@@ -852,7 +855,8 @@ impl SlateApp {
 
     fn join_nodes(&mut self, ids: &[NodeId]) -> bool {
         let radius = self.board_snap_threshold_pub() as f64;
-        let mut acc: Option<(Vec<Anchor>, NodeId)> = None;
+        let mut acc: Option<(Vec<Anchor>, NodeId, Vec<VertexStyle>)> = None;
+        let mut styled = false;
         for id in ids {
             let Some((anchors, closed)) = self.direct_anchors_of(*id) else {
                 continue;
@@ -860,24 +864,41 @@ impl SlateApp {
             if closed {
                 continue;
             }
+            let Some(NodeKind::Shape(s)) = self.doc().scene.node(*id).map(|n| &n.kind) else {
+                continue;
+            };
+            styled |= s
+                .path
+                .as_deref()
+                .is_some_and(vertex_style::has_vertex_style);
+            let styles = vertex_style::vertex_styles(s.path.as_deref(), &s.stroke, anchors.len());
             acc = Some(match acc {
-                None => (anchors, *id),
-                Some((first, style_id)) => {
-                    let Some((joined, _)) = join_endpoints(&first, Some(&anchors), radius) else {
+                None => (anchors, *id, styles),
+                Some((first, style_id, first_styles)) => {
+                    let Some((joined, _, trace)) =
+                        join_endpoints_traced(&first, Some(&anchors), radius)
+                    else {
                         return false;
                     };
-                    (joined, style_id)
+                    let styles = trace
+                        .iter()
+                        .map(|from| match *from {
+                            JoinSource::First(i) => first_styles[i],
+                            JoinSource::Second(i) => styles[i],
+                        })
+                        .collect();
+                    (joined, style_id, styles)
                 }
             });
         }
-        let Some((joined, style_id)) = acc else {
+        let Some((joined, style_id, styles)) = acc else {
             return false;
         };
         let Some(style_node) = self.doc().scene.node(style_id).cloned() else {
             return false;
         };
         let bez = bezpath_from_anchors(&joined, false);
-        let (rect, data) = board_path::bezpath_to_path_data(&bez, false);
+        let (rect, mut data) = board_path::bezpath_to_path_data(&bez, false);
         let rect = WorldRect::new(
             rect.x,
             rect.y,
@@ -892,6 +913,10 @@ impl SlateApp {
             n
         };
         if let NodeKind::Shape(s) = &mut new_node.kind {
+            // Unstyled sources keep the first node's style everywhere.
+            if styled {
+                vertex_style::apply_vertex_styles(&mut data, &mut s.stroke, &styles);
+            }
             s.shape = ShapeKind::Path;
             s.flip = false;
             s.path = Some(data.into());
