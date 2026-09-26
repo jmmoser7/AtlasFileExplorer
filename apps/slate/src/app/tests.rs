@@ -9956,6 +9956,74 @@ fn pointer_to(pos: Pos2, alt: bool) -> impl FnOnce(&mut egui::RawInput) {
     }
 }
 
+fn right_button(pos: Pos2, pressed: bool, alt: bool) -> impl FnOnce(&mut egui::RawInput) {
+    move |input: &mut egui::RawInput| {
+        let modifiers = egui::Modifiers {
+            alt,
+            ..Default::default()
+        };
+        input.modifiers = modifiers;
+        input.events.push(egui::Event::PointerMoved(pos));
+        input.events.push(egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers,
+        });
+    }
+}
+
+/// Stated 2026-09-26: the Alt+right-drag size circle is centered on the
+/// mouse cursor, the way the brush tip is. Its diameter still scrubs from
+/// the press point.
+#[test]
+fn the_size_hud_circle_is_centered_on_the_pointer() {
+    let mut h = line_board("size_hud_center");
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.tab_mut().cam.z = 1.0;
+    h.app.brush_width = 20.0;
+    h.frame();
+    let c = h.app.canvas_rect.center();
+    h.frame_with(pointer_to(c, true));
+    h.frame_with(right_button(c, true, true));
+    let to = c + EVec2::new(40.0, -30.0);
+    let out = h.frame_output(|input| {
+        input.modifiers.alt = true;
+        input.events.push(egui::Event::PointerMoved(to));
+    });
+    assert!(matches!(
+        h.app.brush_hud,
+        Some(board_color::BrushHud::Size { .. })
+    ));
+    assert!(
+        (h.app.brush_width - 60.0).abs() < 0.5,
+        "40 px right from a 20 px tip scrubs to 60, got {}",
+        h.app.brush_width
+    );
+    let r = h.app.brush_width * 0.5;
+    let mut rings = Vec::new();
+    fn walk(shape: &egui::Shape, r: f32, acc: &mut Vec<Pos2>) {
+        match shape {
+            egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, r, acc)),
+            egui::Shape::Circle(c) if (c.radius - r).abs() < 0.5 && c.stroke.width > 0.0 => {
+                acc.push(c.center)
+            }
+            _ => {}
+        }
+    }
+    for clipped in &out.shapes {
+        walk(&clipped.shape, r, &mut rings);
+    }
+    assert!(!rings.is_empty(), "the size HUD painted its width ring");
+    for center in rings {
+        assert!(
+            center.distance(to) < 0.5,
+            "the size ring sits at {center:?}, the pointer is at {to:?} (press was {c:?})"
+        );
+    }
+    h.frame_with(right_button(to, false, false));
+}
+
 /// Alt+left-click with the Brush samples instead of painting; releasing Alt
 /// paints again.
 #[test]

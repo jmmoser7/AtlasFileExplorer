@@ -1809,11 +1809,12 @@ impl SlateApp {
     }
 
     /// Pointer-attached HUD. Numbers stay in screen px (P2.GhostFollow).
-    pub(crate) fn paint_brush_hud(&self, painter: &egui::Painter, _pointer: Pos2, accent: Color32) {
+    /// The size circle sits on the pointer like the brush tip; the opacity
+    /// circle stays on the press point.
+    pub(crate) fn paint_brush_hud(&self, painter: &egui::Painter, pointer: Pos2, accent: Color32) {
         match self.brush_hud {
-            Some(BrushHud::Size { origin, .. } | BrushHud::Opacity { origin, .. }) => {
-                self.paint_size_hud(painter, origin, accent)
-            }
+            Some(BrushHud::Size { .. }) => self.paint_size_hud(painter, pointer, accent),
+            Some(BrushHud::Opacity { origin, .. }) => self.paint_size_hud(painter, origin, accent),
             Some(BrushHud::Wheel {
                 center,
                 hsv,
@@ -1822,7 +1823,7 @@ impl SlateApp {
             }) => {
                 if sampling {
                     self.paint_color_wheel(painter, center, hsv);
-                    self.paint_eyedropper_cursor(painter, _pointer, _pointer);
+                    self.paint_eyedropper_cursor(painter, pointer, pointer);
                 } else {
                     self.paint_color_wheel(painter, center, hsv)
                 }

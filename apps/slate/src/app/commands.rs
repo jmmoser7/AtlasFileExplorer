@@ -1854,9 +1854,9 @@ pub static SPECS: &[CommandSpec] = &[
         "board.brush.size_hud",
         "Board",
         "Scrub brush size",
-        "Alt+right-drag while Brush or Eraser is armed. The circle stays on \
-         the press point and grows about that center. Horizontal changes \
-         diameter by one screen pixel per pixel of travel. Vertical changes \
+        "Alt+right-drag while Brush or Eraser is armed. The circle is \
+         centered on the pointer, like the brush tip. Horizontal travel from \
+         the press changes diameter by one screen pixel per pixel. Vertical changes \
          Brush softness (up softer). Esc restores the values from the press.",
         None,
         Repeat::Never,
