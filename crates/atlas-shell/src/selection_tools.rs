@@ -581,11 +581,12 @@ fn hue_texels() -> Vec<Color32> {
         .collect()
 }
 
-/// The saturation rail at the current hue and value: gray to full color.
+/// The saturation rail at the current hue: gray to full color at value 1, the
+/// field's top edge, so the rail stays legible however dark the color is.
 fn saturation_texels(hsv: egui::ecolor::Hsva) -> Vec<Color32> {
     vec![
-        egui::ecolor::Hsva::new(hsv.h, 0.0, hsv.v, 1.0).into(),
-        egui::ecolor::Hsva::new(hsv.h, 1.0, hsv.v, 1.0).into(),
+        egui::ecolor::Hsva::new(hsv.h, 0.0, 1.0, 1.0).into(),
+        egui::ecolor::Hsva::new(hsv.h, 1.0, 1.0, 1.0).into(),
     ]
 }
 
@@ -824,7 +825,7 @@ pub fn color_editor(
         ui,
         "shape-saturation",
         [2, 1],
-        texture_key(hsv.h.to_bits(), hsv.v.to_bits()),
+        u64::from(hsv.h.to_bits()),
         || saturation_texels(hsv),
     );
     texture_rect(ui, rail(1), tex, [2, 1], 3.5 * zoom);
@@ -3326,16 +3327,46 @@ mod tests {
     }
 
     #[test]
-    fn saturation_rail_runs_from_gray_to_full_color_at_the_current_hue_and_value() {
+    fn saturation_rail_runs_from_gray_to_full_color_at_the_current_hue() {
         let hsv = Hsva::new(0.6, 0.3, 0.7, 1.0);
         let texels = saturation_texels(hsv);
         let [gray, full] = texels[..] else {
             panic!("two texels")
         };
         assert!(gray.r() == gray.g() && gray.g() == gray.b());
-        assert_eq!(gray, Color32::from(Hsva::new(0.0, 0.0, 0.7, 1.0)));
-        assert_eq!(full, Color32::from(Hsva::new(0.6, 1.0, 0.7, 1.0)));
+        assert_eq!(gray, Color32::from(Hsva::new(0.0, 0.0, 1.0, 1.0)));
+        assert_eq!(full, Color32::from(Hsva::new(0.6, 1.0, 1.0, 1.0)));
         assert_eq!(saturation_texels(Hsva { s: 0.9, ..hsv }), texels);
+    }
+
+    #[test]
+    fn saturation_rail_keeps_the_top_edge_color_at_any_value() {
+        for h in [0.0, 0.33, 0.6] {
+            let dark = saturation_texels(Hsva::new(h, 0.8, 0.2, 1.0));
+            let top = saturation_texels(Hsva::new(h, 0.8, 1.0, 1.0));
+            assert_eq!(dark, top, "value 0.2 paints the same rail as value 1");
+            assert_eq!(dark[1], Color32::from(Hsva::new(h, 1.0, 1.0, 1.0)));
+        }
+    }
+
+    #[test]
+    fn darkening_in_the_field_does_not_rebuild_the_saturation_rail() {
+        let mut host = Host::new([45, 212, 191, 255]);
+        let field = color_field(color_editor_rect(), 1.0);
+        let p = field.min + Vec2::new(0.5, 0.8) * field.size();
+        host.run(vec![egui::Event::PointerMoved(p)]);
+        let (output, edit) = host.run(vec![egui::Event::PointerButton {
+            pos: p,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        }]);
+        assert!((host.state.hsv.v - 0.2).abs() < 1e-3, "the press darkened");
+        assert!(edit.rgb.is_some());
+        assert!(
+            color_images(&output).iter().all(|c| c.size != [2, 1]),
+            "the saturation rail is keyed on hue alone"
+        );
     }
 
     #[test]
