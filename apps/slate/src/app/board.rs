@@ -7536,7 +7536,7 @@ impl SlateApp {
                 self.commit_text_box_draft();
             }
         }
-        let color = to_rgba(self.palette().ink);
+        let color = self.color_for_new_text();
         self.text_box_draft = Some(TextBoxDraft {
             rect,
             buffer: String::new(),

@@ -59,6 +59,54 @@ pub struct CreateStyleMemory {
     pub polyline: StyleMemorySlot,
     #[serde(default, skip_serializing_if = "StyleMemorySlot::is_empty")]
     pub bezier: StyleMemorySlot,
+    /// The last color given to a plain text box (never a sticky's ink).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_color: Option<Rgba>,
+}
+
+/// The least contrast a remembered text color must keep against the canvas
+/// to seed new text: WCAG 2 contrast ratio `(L1 + 0.05) / (L2 + 0.05)` over
+/// relative luminance. Below 2:1 the words all but vanish (WCAG's floor for
+/// legible body text is 4.5:1, so 2:1 only rejects colors that sit on the
+/// canvas itself, not deliberate low-key ones).
+pub const TEXT_MIN_CONTRAST: f32 = 2.0;
+
+/// WCAG 2 relative luminance of an sRGB color, 0 (black) to 1 (white).
+/// Alpha is ignored; composite first.
+pub fn relative_luminance(c: Rgba) -> f32 {
+    fn linear(v: u8) -> f32 {
+        let v = v as f32 / 255.0;
+        if v <= 0.040_45 {
+            v / 12.92
+        } else {
+            ((v + 0.055) / 1.055).powf(2.4)
+        }
+    }
+    let [r, g, b, _] = c.0;
+    0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
+}
+
+/// WCAG 2 contrast ratio of `fg` drawn over an opaque `bg`, 1 to 21.
+/// A translucent `fg` is composited over `bg` first.
+pub fn contrast_ratio(fg: Rgba, bg: Rgba) -> f32 {
+    let a = fg.0[3] as f32 / 255.0;
+    let mix = |f: u8, b: u8| (f as f32 * a + b as f32 * (1.0 - a)).round() as u8;
+    let seen = Rgba([
+        mix(fg.0[0], bg.0[0]),
+        mix(fg.0[1], bg.0[1]),
+        mix(fg.0[2], bg.0[2]),
+        255,
+    ]);
+    let (l1, l2) = (relative_luminance(seen), relative_luminance(bg));
+    (l1.max(l2) + 0.05) / (l1.min(l2) + 0.05)
+}
+
+/// The color new text starts with: `remembered` when it keeps at least
+/// [`TEXT_MIN_CONTRAST`] against `canvas`, else `fallback` (the theme ink).
+pub fn legible_text_color(remembered: Option<Rgba>, canvas: Rgba, fallback: Rgba) -> Rgba {
+    remembered
+        .filter(|c| contrast_ratio(*c, canvas) >= TEXT_MIN_CONTRAST)
+        .unwrap_or(fallback)
 }
 
 impl StyleMemorySlot {
@@ -201,6 +249,43 @@ mod tests {
         );
         let reread: CreateStyleMemory = serde_json::from_value(saved).unwrap();
         assert_eq!(reread, mem);
+    }
+
+    /// The contrast guard: remembered text survives unless it would sit on
+    /// the canvas; translucency counts against it.
+    #[test]
+    fn legible_text_color_rejects_colors_that_vanish_on_the_canvas() {
+        let (paper, night) = (Rgba::opaque(246, 246, 243), Rgba::opaque(24, 26, 30));
+        let (dark_ink, light_ink) = (Rgba::opaque(30, 30, 30), Rgba::opaque(221, 226, 232));
+        assert!((contrast_ratio(Rgba::BLACK, Rgba::WHITE) - 21.0).abs() < 0.01);
+        assert!((contrast_ratio(paper, paper) - 1.0).abs() < 1e-6);
+        let red = Rgba::opaque(214, 48, 49);
+        assert_eq!(legible_text_color(Some(red), paper, dark_ink), red);
+        assert_eq!(legible_text_color(Some(red), night, light_ink), red);
+        assert_eq!(legible_text_color(Some(paper), paper, dark_ink), dark_ink);
+        assert_eq!(
+            legible_text_color(Some(Rgba::opaque(235, 238, 230)), paper, dark_ink),
+            dark_ink
+        );
+        assert_eq!(
+            legible_text_color(Some(Rgba::WHITE), paper, dark_ink),
+            dark_ink
+        );
+        assert_eq!(
+            legible_text_color(Some(Rgba::BLACK), night, light_ink),
+            light_ink
+        );
+        assert_eq!(
+            legible_text_color(Some(Rgba([0, 0, 0, 20])), paper, dark_ink),
+            dark_ink
+        );
+        assert_eq!(legible_text_color(None, paper, dark_ink), dark_ink);
+        let mid_grey = Rgba::opaque(150, 150, 150);
+        assert!(contrast_ratio(mid_grey, paper) > TEXT_MIN_CONTRAST);
+        assert_eq!(
+            legible_text_color(Some(mid_grey), paper, dark_ink),
+            mid_grey
+        );
     }
 
     /// Once seeded, a tool keeps its own memory; the old slot never

@@ -1608,6 +1608,90 @@ fn text_box_draft_uses_theme_ink_in_dark_mode() {
     h.frame();
 }
 
+fn recolor_text(h: &mut Harness, id: NodeId, color: Rgba) {
+    h.app.patch_nodes(&[id], |n| {
+        if let NodeKind::Text(t) = &mut n.kind {
+            t.color = color;
+        }
+    });
+}
+
+fn draft_color_at(h: &mut Harness, world: Pos2) -> Rgba {
+    h.app.place_text_at(world);
+    let color = h.app.text_box_draft.as_ref().unwrap().color;
+    h.app.cancel_text_box_draft();
+    color
+}
+
+/// Text D16: a new text box takes the last text color the person gave a
+/// text box, unless that color would vanish on the canvas; then it takes
+/// the theme's ink. Existing text keeps its color.
+#[test]
+fn new_text_takes_the_last_text_color_unless_it_vanishes_on_the_canvas() {
+    for dark in [true, false] {
+        let mut h = text_draft_board("text-color-memory");
+        h.app.dark_mode = dark;
+        let palette = h.app.palette();
+        let ink = board::to_rgba(palette.ink);
+        let canvas = board::to_rgba(palette.bg);
+        let center = h.app.canvas_rect.center();
+        compose_text(&mut h, center, "first");
+        press_key(&mut h, egui::Key::Escape);
+        let id = h.app.doc().scene.nodes[0].id;
+        let world = h.app.board_xf().s2w(center + EVec2::new(0.0, 200.0));
+
+        let red = Rgba::opaque(214, 48, 49);
+        recolor_text(&mut h, id, red);
+        assert_eq!(draft_color_at(&mut h, world), red, "dark={dark}");
+
+        // The canvas color itself, and a near miss of it, fall back to ink.
+        recolor_text(&mut h, id, canvas);
+        assert_eq!(draft_color_at(&mut h, world), ink, "dark={dark}");
+        let near = Rgba::opaque(
+            canvas.0[0].saturating_add(6),
+            canvas.0[1].saturating_add(6),
+            canvas.0[2].saturating_sub(6),
+        );
+        recolor_text(&mut h, id, near);
+        assert_eq!(draft_color_at(&mut h, world), ink, "dark={dark}");
+        let existing = match &h.app.doc().scene.node(id).unwrap().kind {
+            NodeKind::Text(t) => t.color,
+            _ => unreachable!(),
+        };
+        assert_eq!(existing, near, "only new text is guarded");
+
+        // White on a light canvas, black on a dark one.
+        let invisible = if dark { Rgba::BLACK } else { Rgba::WHITE };
+        recolor_text(&mut h, id, invisible);
+        assert_eq!(draft_color_at(&mut h, world), ink, "dark={dark}");
+        let legible = if dark { Rgba::WHITE } else { Rgba::BLACK };
+        recolor_text(&mut h, id, legible);
+        assert_eq!(draft_color_at(&mut h, world), legible, "dark={dark}");
+    }
+}
+
+/// A sticky's ink is its own: editing it leaves the text box's color alone.
+#[test]
+fn sticky_ink_edits_do_not_become_the_text_box_color() {
+    let mut h = text_draft_board("text-color-sticky");
+    h.app.dark_mode = true;
+    let center = h.app.canvas_rect.center();
+    compose_text(&mut h, center, "first");
+    press_key(&mut h, egui::Key::Escape);
+    let text = h.app.doc().scene.nodes[0].id;
+    let orange = Rgba::opaque(240, 140, 20);
+    recolor_text(&mut h, text, orange);
+    let world = h.app.board_xf().s2w(center + EVec2::new(0.0, 200.0));
+    h.app.place_sticky_at(world);
+    let sticky = h.app.doc().scene.nodes.last().unwrap().id;
+    h.app.commit_text_edit();
+    recolor_text(&mut h, sticky, Rgba::opaque(20, 90, 200));
+    assert_eq!(
+        draft_color_at(&mut h, world + EVec2::new(0.0, 200.0)),
+        orange
+    );
+}
+
 fn text_draft_board(tag: &str) -> Harness {
     let mut h = Harness::new(tag);
     h.app.leave_home();
