@@ -331,7 +331,7 @@ pub fn slider_value_field(
         };
     };
     let painter = ui.ctx().layer_painter(egui::LayerId::new(
-        egui::Order::Tooltip,
+        crate::selection_tools::POPUP_ORDER,
         id.with("slider_field"),
     ));
     let font = crate::canvas_scale::font(12.0, zoom);
