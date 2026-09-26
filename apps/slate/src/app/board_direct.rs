@@ -14,12 +14,12 @@ use super::path_edit_overlay::{
     hit_anchor, paint_path_edit_anchors, path_edit_hit, PathEditAnchorColors, PathEditAnchorPaint,
     PathEditHit,
 };
-use super::{board_path, SlateApp};
+use super::{board_line, board_path, SlateApp};
 use eframe::egui::{self, Pos2, Rect, Stroke as EStroke, Vec2};
-use slate_doc::scene::{Node, NodeKind, PathSeg, SceneCmd, ShapeKind, WorldRect};
+use slate_doc::scene::{Node, NodeKind, SceneCmd, ShapeKind, WorldRect};
 use slate_doc::NodeId;
-use std::collections::HashSet;
-use vector_ink::kurbo::{Point, Vec2 as KVec2};
+use std::collections::{BTreeSet, HashSet};
+use vector_ink::kurbo::{BezPath, Point, Vec2 as KVec2};
 use vector_ink::{
     anchors_from_bezpath, bezpath_from_anchors, join_endpoints, move_anchor, move_handle,
     segment_hit, toggle_anchor_kind, translate_segment, Anchor, AnchorKind, HandleEnd,
@@ -35,6 +35,45 @@ const HANDLE_EPS: f64 = 1e-3;
 pub struct DirectState {
     pub node: Option<NodeId>,
     pub anchors: HashSet<usize>,
+    /// Points picked on the Select tool's curve grips.
+    pub grip_points: GripPoints,
+}
+
+/// Grip points picked on one curve with the Select tool (P1.curve.grips),
+/// in grip order: path vertex order for polylines, Bézier curves and lines;
+/// start, through, end for an arc. Presentation state, never journaled.
+#[derive(Default)]
+pub struct GripPoints {
+    pub node: Option<NodeId>,
+    pub picked: BTreeSet<usize>,
+}
+
+impl GripPoints {
+    pub fn is_picked(&self, id: NodeId, idx: usize) -> bool {
+        self.node == Some(id) && self.picked.contains(&idx)
+    }
+
+    /// Plain pick replaces the set; `toggle` (Shift) adds or removes one.
+    pub fn pick(&mut self, id: NodeId, idx: usize, toggle: bool) {
+        if self.node != Some(id) {
+            self.node = Some(id);
+            self.picked.clear();
+        }
+        if !toggle {
+            self.picked.clear();
+            self.picked.insert(idx);
+        } else if !self.picked.remove(&idx) {
+            self.picked.insert(idx);
+        }
+    }
+}
+
+/// What the Select tool edits on its single selected curve.
+pub(crate) enum CurveGrips {
+    /// Every vertex in path order; non-zero Bézier handles show too.
+    Anchors { anchors: Vec<Anchor>, closed: bool },
+    /// Start, through point (mid-sweep) and end of a circular arc.
+    Arc([Pos2; 3]),
 }
 
 /// A live direct-selection drag (one journaled Patch on release).
@@ -66,6 +105,13 @@ pub enum DirectDrag {
         closed: bool,
         idx: usize,
         end: HandleEnd,
+    },
+    /// Drag one arc grip; the arc is rebuilt through start, through, end.
+    Arc {
+        node: NodeId,
+        before: Node,
+        points: [Pos2; 3],
+        idx: usize,
     },
     /// Rubber-band over anchors of the target path (Shift = add).
     Marquee { start_screen: Pos2, add: bool },
@@ -117,13 +163,24 @@ impl SlateApp {
     /// PathData recomputed, Line promoted to Path, rotation baked to 0
     /// (world shape is unchanged — the anchors were lifted rotated).
     fn direct_write_back(&mut self, id: NodeId, anchors: &[Anchor], closed: bool) {
-        let bez = bezpath_from_anchors(anchors, closed);
-        let (rect, data) = board_path::bezpath_to_path_data(&bez, closed);
+        self.write_back_world_bez(id, &bezpath_from_anchors(anchors, closed), closed);
+    }
+
+    fn write_back_world_bez(&mut self, id: NodeId, bez: &BezPath, closed: bool) {
+        let (rect, mut data) = board_path::bezpath_to_path_data(bez, closed);
         let rect = WorldRect::new(rect.x, rect.y, rect.w.max(0.01), rect.h.max(0.01));
         if let Some(n) = self.doc_mut().scene.node_mut(id) {
+            let (old_rect, old_rot) = (n.rect, n.rotation_deg);
             n.rect = rect;
             n.rotation_deg = 0.0;
             if let NodeKind::Shape(s) = &mut n.kind {
+                if let Some(old) = s.path.clone() {
+                    slate_doc::vertex_style::keep_tips(
+                        (&old, old_rect, old_rot),
+                        (&mut data, rect, 0.0),
+                        &mut s.stroke,
+                    );
+                }
                 s.shape = ShapeKind::Path;
                 s.flip = false;
                 s.path = Some(data.into());
@@ -162,16 +219,18 @@ impl SlateApp {
         hit_anchor(&self.direct_overlay(xf)?, screen)
     }
 
-    /// Single-selected open curve with at least one cubic segment: the Select
-    /// tool shows every anchor and handle on it (P1.curve.grips). Geometry,
-    /// not tool provenance, qualifies a path.
-    pub(crate) fn bezier_grip_target(&self) -> Option<NodeId> {
+    /// Single-selected single-contour path: the Select tool shows its grips
+    /// (P1.curve.grips). A circular arc shows start, through and end; any
+    /// other path shows every vertex and non-zero handle. Simple lines keep
+    /// their own endpoint drag (`board_line`). Geometry, not tool
+    /// provenance, qualifies a path.
+    pub(crate) fn curve_grip_target(&self) -> Option<(NodeId, CurveGrips)> {
         if self.board_sel.len() != 1 {
             return None;
         }
         let id = *self.board_sel.iter().next()?;
         let n = self.doc().scene.node(id)?;
-        if n.locked || n.hidden {
+        if n.locked || n.hidden || board_line::line_endpoints(n).is_some() {
             return None;
         }
         let NodeKind::Shape(s) = &n.kind else {
@@ -181,60 +240,151 @@ impl SlateApp {
             return None;
         }
         let path = s.path.as_ref()?;
-        let cubic = path
-            .segs
-            .iter()
-            .any(|seg| matches!(seg, PathSeg::Cubic { .. }));
-        (!path.closed && path.extra.is_empty() && cubic).then_some(id)
+        if !path.extra.is_empty() || path.is_empty() {
+            return None;
+        }
+        let bez = board_path::path_data_to_world_bez(path, n.rect, n.rotation_deg);
+        if !path.closed {
+            if let Some(points) = board_path::arc_grip_points(&bez) {
+                return Some((id, CurveGrips::Arc(points)));
+            }
+        }
+        let (anchors, closed) = anchors_from_bezpath(&bez);
+        Some((id, CurveGrips::Anchors { anchors, closed }))
     }
 
-    /// Press on a grip of the selected Bézier curve: one anchor or one handle
-    /// drag, journaled as one Patch on release like any direct edit.
-    pub(crate) fn begin_bezier_grip_drag(&self, screen: Pos2, world: Pos2) -> Option<DirectDrag> {
-        let id = self.bezier_grip_target()?;
-        let (anchors, closed) = self.direct_anchors_of(id)?;
+    /// Screen adornment for the grip target, picked points filled.
+    fn curve_grip_overlay(
+        &self,
+        id: NodeId,
+        grips: &CurveGrips,
+        xf: &BoardXf,
+    ) -> Vec<PathEditAnchorPaint> {
+        let picked = |i| self.direct.grip_points.is_picked(id, i);
+        match grips {
+            CurveGrips::Anchors { anchors, .. } => anchor_overlay(anchors, xf, picked, true),
+            CurveGrips::Arc(points) => point_overlay(points, xf, picked, |i| i == 1),
+        }
+    }
+
+    /// A grip of the selected curve sits under `screen`, so a press edits it
+    /// rather than resizing.
+    pub(crate) fn curve_grip_under(&self, screen: Pos2) -> bool {
+        let Some((id, grips)) = self.curve_grip_target() else {
+            return false;
+        };
+        path_edit_hit(
+            &self.curve_grip_overlay(id, &grips, &self.board_xf()),
+            screen,
+        )
+        .is_some()
+    }
+
+    /// Press on a grip of the selected curve: one point or one handle drag,
+    /// journaled as one Patch on release like any direct edit. The pressed
+    /// point becomes the picked point (Shift adds it).
+    pub(crate) fn begin_curve_grip_drag(
+        &mut self,
+        screen: Pos2,
+        mods: egui::Modifiers,
+    ) -> Option<DirectDrag> {
+        let (id, grips) = self.curve_grip_target()?;
         let xf = self.board_xf();
-        let hit = path_edit_hit(&anchor_overlay(&anchors, &xf, |_| false, true), screen)?;
+        let hit = path_edit_hit(&self.curve_grip_overlay(id, &grips, &xf), screen)?;
         let before = self.doc().scene.node(id)?.clone();
-        Some(match hit {
-            PathEditHit::Handle(idx, end) => DirectDrag::Handle {
+        if let PathEditHit::Anchor(idx) = hit {
+            if !self.direct.grip_points.is_picked(id, idx) {
+                self.direct.grip_points.pick(id, idx, mods.shift);
+            }
+        }
+        Some(match (grips, hit) {
+            (CurveGrips::Arc(points), PathEditHit::Anchor(idx)) => DirectDrag::Arc {
                 node: id,
                 before,
-                anchors0: anchors,
-                closed,
+                points,
                 idx,
-                end,
             },
-            PathEditHit::Anchor(idx) => DirectDrag::Anchors {
-                node: id,
-                before,
-                anchors0: anchors,
-                closed,
-                indices: vec![idx],
-                start: world,
-            },
+            (CurveGrips::Arc(_), PathEditHit::Handle(..)) => return None,
+            (CurveGrips::Anchors { anchors, closed }, PathEditHit::Handle(idx, end)) => {
+                DirectDrag::Handle {
+                    node: id,
+                    before,
+                    anchors0: anchors,
+                    closed,
+                    idx,
+                    end,
+                }
+            }
+            (CurveGrips::Anchors { anchors, closed }, PathEditHit::Anchor(idx)) => {
+                let start = from_point(anchors[idx].point);
+                DirectDrag::Anchors {
+                    node: id,
+                    before,
+                    anchors0: anchors,
+                    closed,
+                    indices: vec![idx],
+                    start,
+                }
+            }
         })
     }
 
-    pub(crate) fn paint_bezier_grips(&self, painter: &egui::Painter, xf: &BoardXf) {
-        let Some(id) = self.bezier_grip_target() else {
+    /// Click on a grip of the selected curve or line: pick that point
+    /// (Shift toggles it). Returns whether the click landed on a grip.
+    pub(crate) fn pick_curve_grip_point(&mut self, screen: Pos2, shift: bool) -> bool {
+        let xf = self.board_xf();
+        let hit = if let Some((id, grips)) = self.curve_grip_target() {
+            hit_anchor(&self.curve_grip_overlay(id, &grips, &xf), screen).map(|i| (id, i))
+        } else if self.board_sel.len() == 1 {
+            let id = *self.board_sel.iter().next().unwrap();
+            self.line_grip_at(id, screen, &xf).map(|i| (id, i as usize))
+        } else {
+            None
+        };
+        let Some((id, idx)) = hit else {
+            // A click off the grips targets whole nodes again.
+            self.direct.grip_points = GripPoints::default();
+            return false;
+        };
+        self.direct.grip_points.pick(id, idx, shift);
+        true
+    }
+
+    pub(crate) fn paint_curve_grips(&self, painter: &egui::Painter, xf: &BoardXf) {
+        let Some((id, grips)) = self.curve_grip_target() else {
             return;
         };
-        let Some((anchors, _)) = self.direct_anchors_of(id) else {
-            return;
-        };
-        let palette = self.palette();
         paint_path_edit_anchors(
             painter,
             None,
-            &anchor_overlay(&anchors, xf, |_| false, true),
-            PathEditAnchorColors {
-                select: palette.select,
-                bg: palette.bg,
-                accent: palette.accent,
-                sub: palette.sub,
-            },
+            &self.curve_grip_overlay(id, &grips, xf),
+            self.path_edit_colors(),
         );
+    }
+
+    pub(crate) fn path_edit_colors(&self) -> PathEditAnchorColors {
+        let palette = self.palette();
+        PathEditAnchorColors {
+            select: palette.select,
+            bg: palette.bg,
+            accent: palette.accent,
+            sub: palette.sub,
+        }
+    }
+
+    /// Screen adornment for a simple line's two endpoints (P1.curve.grips).
+    pub(crate) fn line_grip_overlay(
+        &self,
+        id: NodeId,
+        ends: [Pos2; 2],
+        xf: &BoardXf,
+    ) -> Vec<PathEditAnchorPaint> {
+        point_overlay(
+            &ends,
+            xf,
+            |i| self.direct.grip_points.is_picked(id, i),
+            |_| false,
+        )
     }
 
     // ---------- input routing ----------
@@ -391,6 +541,14 @@ impl SlateApp {
                 move_handle(&mut anchors, idx, end, to_point(world), mods.alt);
                 self.direct_write_back(node, &anchors, closed);
             }
+            DirectDrag::Arc {
+                node, points, idx, ..
+            } => {
+                let (node, mut points, idx) = (*node, *points, *idx);
+                points[idx] = self.resolve_point_snap(world, &[node], None, false, false);
+                let bez = board_path::arc_through_three_points(points[0], points[1], points[2]);
+                self.write_back_world_bez(node, &bez, false);
+            }
             DirectDrag::Marquee { .. } => {}
             DirectDrag::Anchors { .. } => {}
         }
@@ -401,7 +559,8 @@ impl SlateApp {
         match drag {
             DirectDrag::Anchors { node, before, .. }
             | DirectDrag::Segment { node, before, .. }
-            | DirectDrag::Handle { node, before, .. } => {
+            | DirectDrag::Handle { node, before, .. }
+            | DirectDrag::Arc { node, before, .. } => {
                 if let Some(after) = self.doc().scene.node(node).cloned() {
                     if after != before {
                         self.tab_mut().journal.record(vec![SceneCmd::Patch {
@@ -439,7 +598,8 @@ impl SlateApp {
         match drag {
             DirectDrag::Anchors { node, before, .. }
             | DirectDrag::Segment { node, before, .. }
-            | DirectDrag::Handle { node, before, .. } => {
+            | DirectDrag::Handle { node, before, .. }
+            | DirectDrag::Arc { node, before, .. } => {
                 let tab = self.tab_mut();
                 if let Some(n) = tab.doc.scene.node_mut(node) {
                     *n = before;
@@ -738,7 +898,6 @@ impl SlateApp {
         let Some((anchors, closed)) = self.direct_anchors_of(id) else {
             return;
         };
-        let palette = self.palette();
         let bez = bezpath_from_anchors(&anchors, closed);
         let flat = vector_ink::flatten(&bez, 0.5);
         let path_line: Option<Vec<Pos2>> = if flat.len() >= 2 {
@@ -755,14 +914,30 @@ impl SlateApp {
             painter,
             path_line.as_deref(),
             &overlay,
-            PathEditAnchorColors {
-                select: palette.select,
-                bg: palette.bg,
-                accent: palette.accent,
-                sub: palette.sub,
-            },
+            self.path_edit_colors(),
         );
     }
+}
+
+/// Screen adornment for bare grip points: squares with no handles.
+fn point_overlay(
+    points: &[Pos2],
+    xf: &BoardXf,
+    selected: impl Fn(usize) -> bool,
+    smooth: impl Fn(usize) -> bool,
+) -> Vec<PathEditAnchorPaint> {
+    points
+        .iter()
+        .enumerate()
+        .map(|(i, p)| PathEditAnchorPaint {
+            point: xf.w2s(*p),
+            handle_in: None,
+            handle_out: None,
+            selected: selected(i),
+            smooth_hint: smooth(i),
+            close_hint: false,
+        })
+        .collect()
 }
 
 /// Screen adornment for world anchors. Handles show on selected anchors, or

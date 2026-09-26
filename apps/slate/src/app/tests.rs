@@ -2188,7 +2188,7 @@ fn shape_drawing_moving_polyline_presses_are_placed_once_at_event_positions() {
             ]
         });
     }
-    let Some(board_path::BoardPathDraft::Polyline { points }) = &h.app.board_path_draft else {
+    let Some(board_path::BoardPathDraft::Polyline { points, .. }) = &h.app.board_path_draft else {
         panic!("polyline draft survives moving clicks")
     };
     assert_eq!(points.len(), 3);
@@ -9066,7 +9066,8 @@ fn alt_right_drag_sizes_every_stroke_tool() {
     );
 }
 
-/// Stated: the chord during a line draw changes the line being drawn.
+/// Stated: the chord during a line draw sets the width of the end being
+/// placed, which is the line's widest point here.
 #[test]
 fn the_width_chord_mid_draw_sets_the_line_being_drawn() {
     let mut h = line_board("line_chord_mid");
@@ -9083,7 +9084,8 @@ fn the_width_chord_mid_draw_sets_the_line_being_drawn() {
     assert_eq!(stroke.width, wide);
 }
 
-/// Stated: the chord mid-draw sets the arc, polyline, or Bézier being drawn.
+/// Stated: the chord mid-draw sets the width of the arc, polyline, or Bézier
+/// point being placed, which is the path's widest point here.
 #[test]
 fn the_width_chord_mid_draw_sets_the_path_being_drawn() {
     let mut h = line_board("path_chord_mid");
@@ -9101,6 +9103,132 @@ fn the_width_chord_mid_draw_sets_the_path_being_drawn() {
     h.app.path_tool_click(Pos2::new(120.0, 0.0));
     assert!(h.app.finish_path_draft());
     assert_eq!(last_stroke(&h).1.width, wide);
+}
+
+fn taper_board(tag: &str, tool: board::BoardTool) -> Harness {
+    let mut h = grip_board(tag);
+    h.app.set_board_tool(tool);
+    h.frame();
+    h
+}
+
+/// User request (2026-09-26): while drawing, the width chord sets the width
+/// of the point being placed and of the points after it. Points already
+/// placed keep theirs, so a polyline tapers straight between them, in the
+/// preview and once committed.
+#[test]
+fn the_width_chord_tapers_a_polyline_between_points() {
+    let mut h = taper_board("draw_taper_polyline", board::BoardTool::Polyline);
+    let tool = slate_doc::StrokeTool::Polyline;
+    let narrow = h.app.stroke_for_tool(tool).width;
+    h.app.path_tool_click(Pos2::new(0.0, 0.0));
+    h.app.path_tool_click(Pos2::new(100.0, 0.0));
+    width_chord(&mut h, 40.0);
+    release_chord(&mut h);
+    let wide = h.app.stroke_for_tool(tool).width;
+    assert!(wide > narrow + 30.0);
+    let draft = h.app.board_path_draft.as_ref().expect("still drawing");
+    let (_, _, preview) =
+        board_path::path_draft_preview(draft, Some(Pos2::new(200.0, 0.0)), wide).unwrap();
+    assert_eq!(
+        preview,
+        vec![narrow, narrow, wide],
+        "the preview tapers to the point being placed"
+    );
+
+    h.app.path_tool_click(Pos2::new(200.0, 0.0));
+    assert!(h.app.finish_path_draft());
+    let id = h.app.doc().scene.nodes.last().unwrap().id;
+    assert_eq!(tip_widths(&h, id), vec![narrow, narrow, wide]);
+    let up = EVec2::new(0.0, 1.0);
+    let half = |h: &Harness, x: f32| ink_half_width(h, id, Pos2::new(x, 0.0), up);
+    assert_close(
+        half(&h, 50.0),
+        narrow / 2.0,
+        0.1,
+        "a placed span keeps its width",
+    );
+    assert_close(
+        half(&h, 150.0),
+        (narrow + wide) / 4.0,
+        0.1,
+        "a straight taper",
+    );
+    assert_eq!(
+        h.app.stroke_for_tool(tool).width,
+        wide,
+        "the next point starts at the chosen width"
+    );
+}
+
+/// User request (2026-09-26): the Line tool's first point keeps the width it
+/// was placed with; the chord sets the end being placed.
+#[test]
+fn the_width_chord_tapers_a_line_from_its_first_point() {
+    let mut h = taper_board("draw_taper_line", board::BoardTool::Line);
+    let narrow = h.app.stroke_for_tool(slate_doc::StrokeTool::Line).width;
+    assert!(h.app.line_begin(Pos2::new(0.0, 0.0), false));
+    h.app.line_hover(Pos2::new(80.0, 0.0), false);
+    width_chord(&mut h, 40.0);
+    release_chord(&mut h);
+    let wide = h.app.stroke_for_tool(slate_doc::StrokeTool::Line).width;
+    h.app.line_release(Pos2::new(100.0, 0.0), false, false);
+    let (id, stroke) = last_stroke(&h);
+    assert_eq!(tip_widths(&h, id), vec![narrow, wide]);
+    assert_eq!(stroke.width, wide);
+    let up = EVec2::new(0.0, 1.0);
+    let mid = ink_half_width(&h, id, Pos2::new(50.0, 0.0), up);
+    assert_close(mid, (narrow + wide) / 4.0, 0.1, "a straight taper");
+}
+
+/// User request (2026-09-26): an arc's through point, placed after the
+/// chord, takes the new width; its start and end keep theirs.
+#[test]
+fn the_width_chord_sets_the_arc_point_being_placed() {
+    let mut h = taper_board("draw_taper_arc", board::BoardTool::Arc);
+    let narrow = h.app.stroke_for_tool(slate_doc::StrokeTool::Arc).width;
+    h.app.path_tool_click(Pos2::new(0.0, 0.0));
+    h.app.path_tool_click(Pos2::new(200.0, 0.0));
+    width_chord(&mut h, 40.0);
+    release_chord(&mut h);
+    let wide = h.app.stroke_for_tool(slate_doc::StrokeTool::Arc).width;
+    h.app.path_tool_click(Pos2::new(100.0, -100.0));
+    let (n, s) = curve_shape(&h, h.app.doc().scene.nodes.last().unwrap().id);
+    let grips = slate_doc::vertex_style::grip_tips(
+        s.path.as_ref().unwrap(),
+        &s.stroke,
+        n.rect,
+        n.rotation_deg,
+    )
+    .expect("arc grips");
+    let widths: Vec<f32> = grips.iter().map(|t| t.width).collect();
+    assert_eq!(widths, vec![narrow, wide, narrow]);
+    let through = ink_half_width(&h, n.id, Pos2::new(100.0, -100.0), EVec2::new(0.0, 1.0));
+    assert_close(through, wide / 2.0, 0.1, "the through point is wide");
+}
+
+/// User request (2026-09-26): a Bézier span placed across a chord blends
+/// smoothly between its anchors' widths, and taking an anchor back and
+/// putting it back while drawing keeps its width.
+#[test]
+fn the_width_chord_tapers_a_bezier_span_smoothly() {
+    let mut h = bezier_board("draw_taper_bezier");
+    let narrow = h.app.stroke_for_tool(slate_doc::StrokeTool::Bezier).width;
+    bezier_place(&mut h, Pos2::new(0.0, 0.0), Pos2::new(30.0, 0.0));
+    bezier_place(&mut h, Pos2::new(100.0, 0.0), Pos2::new(130.0, 0.0));
+    width_chord(&mut h, 40.0);
+    release_chord(&mut h);
+    let wide = h.app.stroke_for_tool(slate_doc::StrokeTool::Bezier).width;
+    bezier_place(&mut h, Pos2::new(200.0, 0.0), Pos2::new(230.0, 0.0));
+    assert!(h.app.bezier_draft_undo());
+    assert!(h.app.bezier_draft_redo());
+    assert!(h.app.finish_path_draft());
+    let id = h.app.doc().scene.nodes.last().unwrap().id;
+    assert_eq!(tip_widths(&h, id), vec![narrow, narrow, wide]);
+    let up = EVec2::new(0.0, 1.0);
+    let got = ink_half_width(&h, id, Pos2::new(125.0, 0.0), up);
+    let want = (narrow + (wide - narrow) * smoothstep(0.25)) * 0.5;
+    assert_close(got, want, 0.4, "a smooth blend, not a straight one");
 }
 
 fn pen_point_count(h: &Harness) -> usize {
@@ -10902,6 +11030,448 @@ fn open_shapes_offer_no_wire_ports_while_a_closed_polyline_keeps_them() {
     );
 }
 
+// ---------- parametric grips on committed curves (P1.curve.grips) ----------
+
+fn grip_board(tag: &str) -> Harness {
+    let mut h = line_board(tag);
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.app.tab_mut().cam.z = 1.0;
+    h.app.board_osnap.enabled = false;
+    h.app.board_smart_guides = false;
+    h.app.board_snap_grid = false;
+    h.frame();
+    h
+}
+
+fn commit_polyline(h: &mut Harness, pts: &[Pos2], closed: bool) -> NodeId {
+    let (r, d) = board_path::points_to_path_data(pts, closed);
+    h.app
+        .commit_path_node(slate_doc::StrokeTool::Polyline, r, d, closed);
+    let id = h.app.doc().scene.nodes.last().unwrap().id;
+    assert!(
+        h.app.board_sel.contains(&id),
+        "a committed curve is selected"
+    );
+    h.frame();
+    id
+}
+
+fn world_anchor_points(h: &Harness, id: NodeId) -> Vec<Pos2> {
+    let (anchors, _) = h.app.direct_anchors_of(id).unwrap();
+    anchors.iter().map(|a| kpt(a.point)).collect()
+}
+
+fn cmds_bez(cmds: &[slate_doc::wire::PathCmd]) -> vector_ink::kurbo::BezPath {
+    use slate_doc::wire::PathCmd;
+    use vector_ink::kurbo::Point;
+    let pt = |p: [f32; 2]| Point::new(p[0] as f64, p[1] as f64);
+    let mut bez = vector_ink::kurbo::BezPath::new();
+    for cmd in cmds {
+        match *cmd {
+            PathCmd::Move(p) => bez.move_to(pt(p)),
+            PathCmd::Line(p) => bez.line_to(pt(p)),
+            PathCmd::Cubic { c1, c2, to } => bez.curve_to(pt(c1), pt(c2), pt(to)),
+        }
+    }
+    bez
+}
+
+fn assert_bez_near(got: &vector_ink::kurbo::BezPath, want: &vector_ink::kurbo::BezPath) {
+    use vector_ink::kurbo::PathEl;
+    let points = |el: &PathEl| -> Vec<vector_ink::kurbo::Point> {
+        match *el {
+            PathEl::MoveTo(p) | PathEl::LineTo(p) => vec![p],
+            PathEl::QuadTo(a, b) => vec![a, b],
+            PathEl::CurveTo(a, b, c) => vec![a, b, c],
+            PathEl::ClosePath => vec![],
+        }
+    };
+    let (g, w) = (got.elements(), want.elements());
+    assert_eq!(g.len(), w.len(), "{got:?} != {want:?}");
+    for (a, b) in g.iter().zip(w) {
+        for (p, q) in points(a).into_iter().zip(points(b)) {
+            assert!((p - q).hypot() < 1e-2, "{got:?} != {want:?}");
+        }
+    }
+}
+
+/// The committed path of `id` is one circular arc from `s` to `e` passing
+/// through `m`, within the arc tool's own fitting tolerance.
+fn assert_circular_arc_through(h: &Harness, id: NodeId, s: Pos2, m: Pos2, e: Pos2) {
+    use vector_ink::kurbo::{ParamCurve, PathSeg as KSeg, Point};
+    let n = h.app.doc().scene.node(id).unwrap();
+    let NodeKind::Shape(shape) = &n.kind else {
+        panic!("a shape")
+    };
+    let bez = board_path::path_data_to_world_bez(shape.path.as_ref().unwrap(), n.rect, 0.0);
+    let (sx, sy, mx, my, ex, ey) = (
+        s.x as f64, s.y as f64, m.x as f64, m.y as f64, e.x as f64, e.y as f64,
+    );
+    let d = 2.0 * (sx * (my - ey) + mx * (ey - sy) + ex * (sy - my));
+    let (s2, m2, e2) = (sx * sx + sy * sy, mx * mx + my * my, ex * ex + ey * ey);
+    let c = Point::new(
+        (s2 * (my - ey) + m2 * (ey - sy) + e2 * (sy - my)) / d,
+        (s2 * (ex - mx) + m2 * (sx - ex) + e2 * (mx - sx)) / d,
+    );
+    let r = (Point::new(sx, sy) - c).hypot();
+    let mut samples = Vec::new();
+    for seg in bez.segments() {
+        for i in 0..=256 {
+            samples.push(match seg {
+                KSeg::Line(l) => l.eval(i as f64 / 256.0),
+                KSeg::Quad(q) => q.eval(i as f64 / 256.0),
+                KSeg::Cubic(k) => k.eval(i as f64 / 256.0),
+            });
+        }
+    }
+    let first = *samples.first().unwrap();
+    let last = *samples.last().unwrap();
+    assert!(
+        (first - Point::new(sx, sy)).hypot() < 0.05,
+        "starts at {s:?}: {first:?}"
+    );
+    assert!(
+        (last - Point::new(ex, ey)).hypot() < 0.05,
+        "ends at {e:?}: {last:?}"
+    );
+    for p in &samples {
+        assert!(
+            ((*p - c).hypot() - r).abs() < 0.3,
+            "{p:?} is off the circle"
+        );
+    }
+    let through = samples
+        .iter()
+        .map(|p| (*p - Point::new(mx, my)).hypot())
+        .fold(f64::INFINITY, f64::min);
+    assert!(through < 0.5, "passes through {m:?} (closest {through})");
+}
+
+/// User finding (2026-09-26), P1.curve.grips: reselecting a polyline exposes
+/// its corner vertices and end points. Each drag moves that one point as one
+/// journaled patch, and the path stays a line polyline.
+#[test]
+fn polyline_single_selection_grips_move_one_vertex_per_patch() {
+    let mut h = grip_board("polyline_grips");
+    let pts = [
+        Pos2::new(0.0, 0.0),
+        Pos2::new(120.0, 0.0),
+        Pos2::new(120.0, 90.0),
+    ];
+    let id = commit_polyline(&mut h, &pts, false);
+    let depth = h.app.tab().journal.undo_depth();
+
+    let corner = Pos2::new(160.0, -30.0);
+    select_drag(&mut h, pts[1], corner, egui::Modifiers::NONE);
+    let got = world_anchor_points(&h, id);
+    assert_eq!(got.len(), 3);
+    assert!(near(got[0], pts[0]), "the other points stay: {got:?}");
+    assert!(near(got[1], corner), "the corner vertex moved: {got:?}");
+    assert!(near(got[2], pts[2]), "the other points stay: {got:?}");
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
+
+    let end = Pos2::new(-20.0, 10.0);
+    select_drag(&mut h, pts[0], end, egui::Modifiers::NONE);
+    let got = world_anchor_points(&h, id);
+    assert!(near(got[0], end), "an end point moves: {got:?}");
+    assert!(near(got[1], corner), "{got:?}");
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 2);
+    let NodeKind::Shape(s) = &h.app.doc().scene.node(id).unwrap().kind else {
+        panic!("a shape")
+    };
+    assert!(
+        slate_doc::geom::path_is_line_polyline(s.path.as_ref().unwrap()),
+        "still a line polyline, so Corners still applies"
+    );
+    assert!(h.app.board_sel.contains(&id));
+
+    h.app.board_undo();
+    let got = world_anchor_points(&h, id);
+    assert!(near(got[0], pts[0]), "undo restores one drag: {got:?}");
+    assert!(near(got[1], corner));
+}
+
+/// A filled closed polyline shows its vertices too; a vertex that sits on
+/// the bounding-box corner moves as a vertex, not as a resize.
+#[test]
+fn closed_polyline_grips_move_a_vertex_where_the_resize_corner_sits() {
+    let mut h = grip_board("closed_polyline_grips");
+    let tri = [
+        Pos2::new(0.0, 0.0),
+        Pos2::new(120.0, 0.0),
+        Pos2::new(0.0, 90.0),
+    ];
+    let id = commit_polyline(&mut h, &tri, true);
+    h.app.patch_nodes(&[id], |n| {
+        if let NodeKind::Shape(s) = &mut n.kind {
+            s.fill = Some(Rgba([200, 30, 30, 255]));
+        }
+    });
+    h.frame();
+    let depth = h.app.tab().journal.undo_depth();
+
+    let moved = Pos2::new(-30.0, -20.0);
+    select_drag(&mut h, tri[0], moved, egui::Modifiers::NONE);
+    let got = world_anchor_points(&h, id);
+    assert_eq!(got.len(), 3, "no duplicated seam vertex: {got:?}");
+    assert!(near(got[0], moved), "{got:?}");
+    assert!(near(got[1], tri[1]), "{got:?}");
+    assert!(near(got[2], tri[2]), "{got:?}");
+    let NodeKind::Shape(s) = &h.app.doc().scene.node(id).unwrap().kind else {
+        panic!("a shape")
+    };
+    assert!(s.path.as_ref().unwrap().closed);
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
+}
+
+/// User finding (2026-09-26): editing a filleted polyline re-applies the
+/// authored radius to the new geometry, clamped per corner only.
+#[test]
+fn polyline_vertex_drag_keeps_the_authored_fillet_radius() {
+    let mut h = grip_board("polyline_fillet_grips");
+    let pts = [
+        Pos2::new(0.0, 0.0),
+        Pos2::new(200.0, 0.0),
+        Pos2::new(200.0, 200.0),
+    ];
+    let id = commit_polyline(&mut h, &pts, false);
+    let corner = slate_doc::scene::Corner::Rounded { radius: 30.0 };
+    h.app.patch_nodes(&[id], |n| {
+        if let NodeKind::Shape(s) = &mut n.kind {
+            s.corner = corner;
+        }
+    });
+    h.frame();
+
+    let moved = Pos2::new(400.0, 40.0);
+    select_drag(&mut h, pts[2], moved, egui::Modifiers::NONE);
+    let n = h.app.doc().scene.node(id).unwrap().clone();
+    let NodeKind::Shape(s) = &n.kind else {
+        panic!("a shape")
+    };
+    assert_eq!(s.corner, corner, "the authored radius is stored unchanged");
+    let drawn = slate_doc::geom::path_data_to_world_bez_with_fillet(
+        s.path.as_ref().unwrap(),
+        n.rect,
+        n.rotation_deg,
+        s.corner,
+    );
+    let want = cmds_bez(&slate_doc::filleted_vertex_path(
+        &[[0.0, 0.0], [200.0, 0.0], [400.0, 40.0]],
+        30.0,
+        false,
+        false,
+    ));
+    assert_bez_near(&drawn, &want);
+}
+
+/// User finding (2026-09-26): a reselected arc exposes its start, end and
+/// through point; dragging one rebuilds the circular arc through the three.
+#[test]
+fn arc_single_selection_grips_edit_start_end_and_through_point() {
+    let mut h = grip_board("arc_grips");
+    h.app.set_board_tool(board::BoardTool::Arc);
+    let (s, e, m) = (
+        Pos2::new(0.0, 0.0),
+        Pos2::new(200.0, 0.0),
+        Pos2::new(100.0, 60.0),
+    );
+    for p in [s, e, m] {
+        h.app.path_tool_click(p);
+    }
+    let id = h.app.doc().scene.nodes.last().unwrap().id;
+    assert_eq!(h.app.board_tool, board::BoardTool::Select);
+    assert!(h.app.board_sel.contains(&id));
+    h.frame();
+    let depth = h.app.tab().journal.undo_depth();
+
+    let m2 = Pos2::new(100.0, 100.0);
+    select_drag(&mut h, m, m2, egui::Modifiers::NONE);
+    assert_circular_arc_through(&h, id, s, m2, e);
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
+
+    let s2 = Pos2::new(-40.0, 20.0);
+    select_drag(&mut h, s, s2, egui::Modifiers::NONE);
+    assert_circular_arc_through(&h, id, s2, m2, e);
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 2);
+
+    let e2 = Pos2::new(220.0, -30.0);
+    select_drag(&mut h, e, e2, egui::Modifiers::NONE);
+    let n = h.app.doc().scene.node(id).unwrap();
+    let NodeKind::Shape(shape) = &n.kind else {
+        panic!("a shape")
+    };
+    let bez = board_path::path_data_to_world_bez(shape.path.as_ref().unwrap(), n.rect, 0.0);
+    let (anchors, _) = vector_ink::anchors_from_bezpath(&bez);
+    assert!(near(kpt(anchors[0].point), s2), "the start stays put");
+    assert!(
+        near(kpt(anchors.last().unwrap().point), e2),
+        "the end moved"
+    );
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 3);
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
+}
+
+/// Line endpoints are painted and picked by the shared path-edit overlay:
+/// the one 7 screen px pick radius, not a line-only radius.
+#[test]
+fn line_endpoint_grips_follow_the_shared_path_edit_hit_rule() {
+    let mut h = grip_board("line_grip_hit");
+    let id = h
+        .app
+        .commit_line(Pos2::new(0.0, 0.0), Pos2::new(200.0, 0.0))
+        .unwrap();
+    h.frame();
+    let xf = h.app.board_xf();
+    let end = xf.w2s(Pos2::new(200.0, 0.0));
+    let r = super::path_edit_overlay::HIT_PX;
+    assert_eq!(
+        h.app.line_grip_at(id, end + EVec2::new(r - 0.5, 0.0), &xf),
+        Some(1)
+    );
+    assert_eq!(
+        h.app.line_grip_at(id, end + EVec2::new(r + 0.5, 0.0), &xf),
+        None,
+        "the shared pick radius"
+    );
+}
+
+// ---------- closing a Bézier span on its start anchor (bezier-span.md) ----------
+
+/// Hover `at` from `t0` for `dwell` seconds (two frames, no movement between).
+fn bezier_hover(h: &mut Harness, at: Pos2, t0: f64, dwell: f64) {
+    let s = h.app.board_xf().w2s(at);
+    h.frame_with(|i| {
+        i.time = Some(t0);
+        i.events.push(egui::Event::PointerMoved(s));
+    });
+    h.frame_with(|i| i.time = Some(t0 + dwell));
+}
+
+/// Three anchors: the start (weighted when `start_out` is non-zero), a
+/// corner, and a corner that loops back toward the start.
+fn bezier_loop(h: &mut Harness, start_out: EVec2) {
+    bezier_place(h, Pos2::ZERO, Pos2::ZERO + start_out);
+    bezier_place(h, Pos2::new(200.0, 0.0), Pos2::new(200.0, 0.0));
+    bezier_place(h, Pos2::new(100.0, 150.0), Pos2::new(100.0, 150.0));
+    assert_eq!(bezier_draft(h).len(), 3);
+}
+
+fn only_shape(h: &Harness) -> (NodeId, slate_doc::scene::ShapeNode) {
+    assert_eq!(h.app.doc().scene.nodes.len(), 1, "exactly one node");
+    let n = &h.app.doc().scene.nodes[0];
+    let NodeKind::Shape(s) = &n.kind else {
+        panic!("a shape")
+    };
+    (n.id, s.clone())
+}
+
+/// User finding (2026-09-26): a click on the start anchor before the close
+/// preview appears keeps the default action — it edits that control point.
+#[test]
+fn bezier_click_on_the_start_before_the_close_delay_edits_it() {
+    let mut h = bezier_board("bezier_close_early");
+    bezier_loop(&mut h, EVec2::new(0.0, -40.0));
+    let depth = h.app.tab().journal.undo_depth();
+    let t = h.ctx.input(|i| i.time);
+    bezier_hover(&mut h, Pos2::ZERO, t + 0.1, 0.1);
+    press_drag_release(
+        &mut h,
+        &[Pos2::ZERO, Pos2::new(-15.0, 0.0), Pos2::new(-30.0, 0.0)],
+        egui::Modifiers::NONE,
+    );
+    let a = bezier_draft(&h);
+    assert_eq!(a.len(), 3, "still drafting, no anchor added");
+    assert!(
+        near(a[0].0, Pos2::new(-30.0, 0.0)),
+        "the start moved: {a:?}"
+    );
+    assert!(h.app.doc().scene.nodes.is_empty(), "nothing committed");
+    assert_eq!(h.app.tab().journal.undo_depth(), depth);
+}
+
+/// User finding (2026-09-26): hovering the start anchor past the delay shows
+/// the closed preview; a click then commits one closed path and finishes.
+/// A weighted start makes a smooth join: the closing vertex takes the start's
+/// weights.
+#[test]
+fn bezier_hovering_the_start_past_the_delay_then_clicking_commits_a_closed_path() {
+    let mut h = bezier_board("bezier_close_commit");
+    bezier_loop(&mut h, EVec2::new(0.0, -40.0));
+    let depth = h.app.tab().journal.undo_depth();
+    let t = h.ctx.input(|i| i.time);
+    bezier_hover(&mut h, Pos2::ZERO, t + 0.1, 0.4);
+    bezier_click(&mut h, Pos2::ZERO);
+    assert!(
+        h.app.board_path_draft.is_none(),
+        "the click finished drawing"
+    );
+    assert_eq!(h.app.board_tool, board::BoardTool::Select);
+    assert_eq!(
+        h.app.tab().journal.undo_depth(),
+        depth + 1,
+        "one journaled add"
+    );
+    let (id, s) = only_shape(&h);
+    assert!(s.path.as_ref().unwrap().closed, "a closed path");
+    let (anchors, closed) = h.app.direct_anchors_of(id).unwrap();
+    assert!(closed);
+    assert_eq!(anchors.len(), 3, "no duplicated start anchor");
+    let start = anchors[0];
+    assert!(near(kpt(start.point), Pos2::ZERO));
+    assert!(
+        near(kpt(start.handle_in.unwrap()), Pos2::new(0.0, 40.0)),
+        "the closing vertex inherits the start's weight: {start:?}"
+    );
+    assert!(near(kpt(start.handle_out.unwrap()), Pos2::new(0.0, -40.0)));
+    assert_eq!(start.kind, vector_ink::AnchorKind::Smooth, "a smooth join");
+    h.app.board_undo();
+    assert!(h.app.doc().scene.nodes.is_empty());
+}
+
+/// A start placed by a plain click has no weights, so the closed curve can
+/// kink there.
+#[test]
+fn bezier_closing_on_an_unweighted_start_leaves_a_kink() {
+    let mut h = bezier_board("bezier_close_kink");
+    bezier_loop(&mut h, EVec2::ZERO);
+    let t = h.ctx.input(|i| i.time);
+    bezier_hover(&mut h, Pos2::ZERO, t + 0.1, 0.4);
+    bezier_click(&mut h, Pos2::ZERO);
+    let (id, s) = only_shape(&h);
+    assert!(s.path.as_ref().unwrap().closed);
+    let (anchors, _) = h.app.direct_anchors_of(id).unwrap();
+    assert_eq!(anchors.len(), 3);
+    assert!(anchors[0].handle_in.is_none() && anchors[0].handle_out.is_none());
+    assert_eq!(anchors[0].kind, vector_ink::AnchorKind::Corner, "a kink");
+}
+
+/// A closed span is a closed form: closed-shape fill memory, wire ports, and
+/// the same closed contour on the board and in the export.
+#[test]
+fn a_closed_bezier_gets_the_closed_form_treatment() {
+    let mut h = bezier_board("bezier_close_form");
+    let fill = Rgba([10, 200, 30, 255]);
+    h.app.board_last_style.memory.closed.fill = Some(fill);
+    bezier_loop(&mut h, EVec2::new(0.0, -40.0));
+    let t = h.ctx.input(|i| i.time);
+    bezier_hover(&mut h, Pos2::ZERO, t + 0.1, 0.4);
+    bezier_click(&mut h, Pos2::ZERO);
+    let (id, s) = only_shape(&h);
+    assert_eq!(s.fill, Some(fill), "closed-shape style memory");
+    let node = h.app.doc().scene.node(id).unwrap().clone();
+    assert!(!slate_doc::is_open_shape(&node));
+    assert_eq!(h.app.wire_host(&node).ports().len(), 3, "wire ports");
+    let board = board_path::path_data_to_world_bez(s.path.as_ref().unwrap(), node.rect, 0.0);
+    assert!(matches!(
+        board.elements().last(),
+        Some(vector_ink::kurbo::PathEl::ClosePath)
+    ));
+    let html = slate_artifact::render_html(h.app.doc(), &slate_artifact::AssetMap::default());
+    assert!(html.contains(" Z\""), "the export closes the contour");
+    assert!(html.contains(&fill.css()), "the export fills it");
+}
+
 // ----- image crop: handle hits, first grab, multi-crop, repeat -------------------
 
 /// `n` croppable 200×150 images in a row 60 world units apart, all selected,
@@ -12290,4 +12860,517 @@ fn alt_copy_dropped_on_a_picture_leaves_no_unjournaled_copy() {
         before,
         "one undo restores the board exactly"
     );
+}
+
+// ---------- per-vertex stroke width (P1.curve.vertex-style) ----------
+
+/// Pick `points` on the selected curve (point selection), then set the Stroke
+/// stringer's width through the property strip.
+fn vertex_stringer_width(h: &mut Harness, id: NodeId, points: &[usize], width: f32) {
+    h.app.board_sel = [id].into_iter().collect();
+    h.app.direct.grip_points = Default::default();
+    for (k, i) in points.iter().enumerate() {
+        h.app.direct.grip_points.pick(id, *i, k > 0);
+    }
+    h.app.sync_shape_properties();
+    h.app
+        .preview_shape_property(board_properties::Property::StrokeWidth(width));
+    h.app.apply_shape_preview(&h.ctx, true);
+    h.frame();
+}
+
+fn curve_shape(h: &Harness, id: NodeId) -> (slate_doc::Node, slate_doc::scene::ShapeNode) {
+    let n = h.app.doc().scene.node(id).unwrap().clone();
+    let NodeKind::Shape(s) = &n.kind else {
+        panic!("a shape")
+    };
+    let s = s.clone();
+    (n, s)
+}
+
+fn tip_widths(h: &Harness, id: NodeId) -> Vec<f32> {
+    let (_, s) = curve_shape(h, id);
+    s.path
+        .as_ref()
+        .unwrap()
+        .tips
+        .iter()
+        .map(|t| t.width)
+        .collect()
+}
+
+/// Painted half-width of `id`'s board stroke at `p` along unit `normal`
+/// (camera at 1:1), less the anti-aliasing fringe.
+fn ink_half_width(h: &Harness, id: NodeId, p: Pos2, normal: EVec2) -> f32 {
+    let (n, s) = curve_shape(h, id);
+    let mesh = board_path::vector_stroke_ink(&n, &s, s.path.as_ref().unwrap(), 1.0);
+    let verts: Vec<[f32; 2]> = mesh.vertices.iter().map(|v| v.pos).collect();
+    let inside = |d: f32| {
+        let q = p + normal * d;
+        vector_ink::point_in_mesh(&verts, &mesh.indices, [q.x, q.y])
+    };
+    assert!(inside(0.0), "{p:?} is on the stroke");
+    let (mut lo, mut hi) = (0.0_f32, 64.0_f32);
+    for _ in 0..40 {
+        let mid = (lo + hi) * 0.5;
+        if inside(mid) {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    lo - board_path::FEATHER_PX * 0.5
+}
+
+fn assert_close(got: f32, want: f32, tol: f32, what: &str) {
+    assert!(
+        (got - want).abs() <= tol,
+        "{what}: {got} != {want} (±{tol})"
+    );
+}
+
+fn smoothstep(s: f32) -> f32 {
+    s * s * (3.0 - 2.0 * s)
+}
+
+/// User request (2026-09-26): with a polyline vertex picked, the Stroke
+/// stringer's width edits only that vertex, as one journaled patch; the whole
+/// curve (no point picked) still scales as a whole, as before.
+#[test]
+fn a_vertex_width_edit_changes_only_that_vertex() {
+    let mut h = grip_board("vertex_width_only");
+    let pts = [
+        Pos2::new(0.0, 0.0),
+        Pos2::new(100.0, 0.0),
+        Pos2::new(200.0, 0.0),
+    ];
+    let id = commit_polyline(&mut h, &pts, false);
+    let w0 = curve_shape(&h, id).1.stroke.width;
+    let depth = h.app.tab().journal.undo_depth();
+    vertex_stringer_width(&mut h, id, &[1], 20.0);
+    assert_eq!(tip_widths(&h, id), vec![w0, 20.0, w0]);
+    assert_eq!(curve_shape(&h, id).1.stroke.width, 20.0, "widest vertex");
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "one patch");
+    h.app.board_undo();
+    assert!(
+        tip_widths(&h, id).is_empty(),
+        "undo restores the uniform stroke"
+    );
+    h.app.board_redo();
+    assert_eq!(tip_widths(&h, id), vec![w0, 20.0, w0]);
+
+    vertex_stringer_width(&mut h, id, &[], 40.0);
+    let widths = tip_widths(&h, id);
+    let (_, s) = curve_shape(&h, id);
+    let painted = s.path.as_ref().unwrap().vector_widths(&s.stroke).unwrap();
+    assert_eq!(s.stroke.width, 40.0, "the whole curve scales, as before");
+    assert_close(painted[1], 40.0, 1e-3, "the widest vertex paints at 40");
+    assert_close(painted[0], 40.0 * w0 / 20.0, 1e-3, "the taper is kept");
+    assert_eq!(widths.len(), 3);
+}
+
+/// A polyline, a line and an arc interpolate vertex widths linearly between
+/// their vertices (an arc by its sweep).
+#[test]
+fn polyline_line_and_arc_vertex_widths_taper_linearly() {
+    let mut h = grip_board("vertex_width_linear");
+    let pts = [
+        Pos2::new(0.0, 0.0),
+        Pos2::new(100.0, 0.0),
+        Pos2::new(200.0, 0.0),
+    ];
+    let id = commit_polyline(&mut h, &pts, false);
+    let w0 = curve_shape(&h, id).1.stroke.width;
+    vertex_stringer_width(&mut h, id, &[1], 20.0);
+    let up = EVec2::new(0.0, 1.0);
+    for x in [25.0, 50.0, 75.0, 125.0, 150.0] {
+        let s = 1.0 - (x - 100.0_f32).abs() / 100.0;
+        let want = (w0 + (20.0 - w0) * s) * 0.5;
+        let got = ink_half_width(&h, id, Pos2::new(x, 0.0), up);
+        assert_close(got, want, 0.15, &format!("polyline half-width at x={x}"));
+    }
+
+    let line = h
+        .app
+        .commit_line(Pos2::new(0.0, 200.0), Pos2::new(200.0, 200.0))
+        .unwrap();
+    let w1 = curve_shape(&h, line).1.stroke.width;
+    vertex_stringer_width(&mut h, line, &[1], 20.0);
+    assert_eq!(tip_widths(&h, line), vec![w1, 20.0]);
+    let got = ink_half_width(&h, line, Pos2::new(50.0, 200.0), up);
+    assert_close(got, (w1 + (20.0 - w1) * 0.25) * 0.5, 0.15, "line quarter");
+
+    h.app.set_board_tool(board::BoardTool::Arc);
+    let (s, e, m) = (
+        Pos2::new(0.0, 400.0),
+        Pos2::new(200.0, 400.0),
+        Pos2::new(100.0, 460.0),
+    );
+    for p in [s, e, m] {
+        h.app.path_tool_click(p);
+    }
+    let arc = h.app.doc().scene.nodes.last().unwrap().id;
+    h.frame();
+    let wa = curve_shape(&h, arc).1.stroke.width;
+    vertex_stringer_width(&mut h, arc, &[1], 20.0);
+    let widths = tip_widths(&h, arc);
+    assert_eq!(widths[0], wa);
+    assert_eq!(*widths.last().unwrap(), wa);
+    assert!(
+        widths.contains(&20.0),
+        "the through point carries 20: {widths:?}"
+    );
+    // The circle through s, m, e has its center below the chord.
+    let center = Pos2::new(100.0, 400.0 - 160.0 / 3.0);
+    let r = (s - center).length();
+    let a0 = (s.y - center.y).atan2(s.x - center.x);
+    let am = (m.y - center.y).atan2(m.x - center.x);
+    for f in [0.5_f32, 1.0, 1.5] {
+        let a = a0 + (am - a0) * f;
+        let normal = EVec2::new(a.cos(), a.sin());
+        let p = center + normal * r;
+        let s = if f <= 1.0 { f } else { 2.0 - f };
+        let want = (wa + (20.0 - wa) * s) * 0.5;
+        let got = ink_half_width(&h, arc, p, normal);
+        assert_close(got, want, 0.2, &format!("arc half-width at sweep {f}/2"));
+    }
+}
+
+/// A Bézier span blends vertex widths with a smooth (sigmoidal) falloff:
+/// the width's slope is zero at each vertex, so the stroke has no chines.
+#[test]
+fn bezier_vertex_widths_blend_smoothly_with_zero_slope_at_vertices() {
+    let mut h = bezier_board("vertex_width_smooth");
+    for x in [0.0, 100.0, 200.0] {
+        bezier_place(&mut h, Pos2::new(x, 0.0), Pos2::new(x + 30.0, 0.0));
+    }
+    assert!(h.app.finish_path_draft());
+    let id = h.app.doc().scene.nodes.last().unwrap().id;
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.frame();
+    let w0 = curve_shape(&h, id).1.stroke.width;
+    vertex_stringer_width(&mut h, id, &[1], 20.0);
+    assert_eq!(tip_widths(&h, id), vec![w0, 20.0, w0]);
+    let up = EVec2::new(0.0, 1.0);
+    let half = |h: &Harness, x: f32| ink_half_width(h, id, Pos2::new(x, 0.0), up);
+    for x in [25.0_f32, 50.0, 90.0] {
+        let want = (w0 + (20.0 - w0) * smoothstep(x / 100.0)) * 0.5;
+        assert_close(half(&h, x), want, 0.1, &format!("smooth at x={x}"));
+    }
+    let at = half(&h, 100.0);
+    for x in [93.75_f32, 106.25] {
+        let slope = (at - half(&h, x)).abs() / 6.25;
+        assert!(slope < 0.03, "slope {slope} at the vertex (x={x})");
+    }
+}
+
+/// A filleted polyline keeps its vertex widths: the taper follows the
+/// original polyline and each fillet's middle keeps its corner's width.
+#[test]
+fn a_filleted_polyline_keeps_its_vertex_widths() {
+    let mut h = grip_board("vertex_width_fillet");
+    let pts = [
+        Pos2::new(0.0, 0.0),
+        Pos2::new(100.0, 0.0),
+        Pos2::new(100.0, 100.0),
+    ];
+    let id = commit_polyline(&mut h, &pts, false);
+    let w0 = curve_shape(&h, id).1.stroke.width;
+    vertex_stringer_width(&mut h, id, &[1], 20.0);
+    if let Some(n) = h.app.doc_mut().scene.node_mut(id) {
+        if let NodeKind::Shape(s) = &mut n.kind {
+            s.corner = slate_doc::scene::Corner::from_parameters(false, false, 20.0);
+        }
+    }
+    let got = ink_half_width(&h, id, Pos2::new(10.0, 0.0), EVec2::new(0.0, 1.0));
+    assert_close(got, (w0 + (20.0 - w0) * 0.1) * 0.5, 0.15, "near the start");
+    let d = std::f32::consts::FRAC_1_SQRT_2;
+    let mid = Pos2::new(80.0 + 20.0 * d, 20.0 - 20.0 * d);
+    let got = ink_half_width(&h, id, mid, EVec2::new(d, -d));
+    assert_close(got, 10.0, 0.2, "the fillet's middle keeps the corner width");
+}
+
+/// Grip drags keep vertex widths; an arc keeps its three grip widths while
+/// the sweep is rebuilt.
+#[test]
+fn grip_drags_keep_vertex_widths() {
+    let mut h = grip_board("vertex_width_drag");
+    let pts = [
+        Pos2::new(0.0, 0.0),
+        Pos2::new(100.0, 0.0),
+        Pos2::new(200.0, 0.0),
+    ];
+    let id = commit_polyline(&mut h, &pts, false);
+    let w0 = curve_shape(&h, id).1.stroke.width;
+    vertex_stringer_width(&mut h, id, &[1], 20.0);
+    select_drag(
+        &mut h,
+        Pos2::new(200.0, 0.0),
+        Pos2::new(200.0, 50.0),
+        egui::Modifiers::NONE,
+    );
+    assert_eq!(world_anchor_points(&h, id)[2], Pos2::new(200.0, 50.0));
+    assert_eq!(tip_widths(&h, id), vec![w0, 20.0, w0]);
+
+    h.app.set_board_tool(board::BoardTool::Arc);
+    let (s, e, m) = (
+        Pos2::new(0.0, 400.0),
+        Pos2::new(200.0, 400.0),
+        Pos2::new(100.0, 460.0),
+    );
+    for p in [s, e, m] {
+        h.app.path_tool_click(p);
+    }
+    let arc = h.app.doc().scene.nodes.last().unwrap().id;
+    h.frame();
+    let wa = curve_shape(&h, arc).1.stroke.width;
+    vertex_stringer_width(&mut h, arc, &[1], 20.0);
+    let m2 = Pos2::new(100.0, 500.0);
+    select_drag(&mut h, m, m2, egui::Modifiers::NONE);
+    assert_circular_arc_through(&h, arc, s, m2, e);
+    let widths = tip_widths(&h, arc);
+    assert_eq!(widths[0], wa);
+    assert_eq!(*widths.last().unwrap(), wa);
+    let got = ink_half_width(&h, arc, m2, EVec2::new(0.0, 1.0));
+    assert_close(got, 10.0, 0.2, "the through point keeps its width");
+}
+
+/// The export writes the same variable-width outline the board paints.
+#[test]
+fn vertex_widths_export_as_the_board_paints_them() {
+    let mut h = bezier_board("vertex_width_export");
+    for x in [0.0, 100.0, 200.0] {
+        bezier_place(&mut h, Pos2::new(x, 0.0), Pos2::new(x + 30.0, 0.0));
+    }
+    assert!(h.app.finish_path_draft());
+    let id = h.app.doc().scene.nodes.last().unwrap().id;
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.frame();
+    vertex_stringer_width(&mut h, id, &[1], 20.0);
+    let (n, _) = curve_shape(&h, id);
+    let html = slate_artifact::render_html(h.app.doc(), &slate_artifact::AssetMap::default());
+    let local = |x: f32, y: f32| [x - n.rect.x, y - n.rect.y];
+    let outline = html
+        .split("d=\"")
+        .skip(1)
+        .filter_map(|rest| rest.split('"').next())
+        .filter_map(|d| vector_ink::kurbo::BezPath::from_svg(d).ok())
+        .map(|bez| vector_ink::flatten_contours(&bez, 0.05))
+        .find(|c| vector_ink::point_in_polygon(c, local(100.0, 9.0)))
+        .expect("the exported stroke outline");
+    let up = EVec2::new(0.0, 1.0);
+    for x in [25.0_f32, 50.0, 90.0] {
+        let board = ink_half_width(&h, id, Pos2::new(x, 0.0), up);
+        assert!(
+            vector_ink::point_in_polygon(&outline, local(x, board - 0.2)),
+            "export is as wide as the board at x={x}"
+        );
+        assert!(
+            !vector_ink::point_in_polygon(&outline, local(x, board + 0.2)),
+            "export is no wider than the board at x={x}"
+        );
+    }
+}
+
+// ---------- per-vertex stroke color (P1.curve.vertex-style) ----------
+
+/// Pick `points` on the selected curve, then choose `rgb` in the Stroke
+/// color editor through the property strip.
+fn vertex_stringer_color(h: &mut Harness, id: NodeId, points: &[usize], rgb: [u8; 3]) {
+    h.app.board_sel = [id].into_iter().collect();
+    h.app.direct.grip_points = Default::default();
+    for (k, i) in points.iter().enumerate() {
+        h.app.direct.grip_points.pick(id, *i, k > 0);
+    }
+    h.app.sync_shape_properties();
+    h.app
+        .preview_shape_property(board_properties::Property::StrokeRgb(rgb));
+    h.app.apply_shape_preview(&h.ctx, true);
+    h.frame();
+}
+
+fn tip_colors(h: &Harness, id: NodeId) -> Vec<[u8; 4]> {
+    let (_, s) = curve_shape(h, id);
+    s.path
+        .as_ref()
+        .unwrap()
+        .tips
+        .iter()
+        .map(|t| t.color.0)
+        .collect()
+}
+
+/// Board stroke color (0..255 per channel) at world `p`, interpolated inside
+/// the painted mesh triangle that holds it.
+fn ink_color_at(h: &Harness, id: NodeId, p: Pos2) -> [f32; 4] {
+    let (n, s) = curve_shape(h, id);
+    let mesh = board_path::vector_stroke_ink(&n, &s, s.path.as_ref().unwrap(), 1.0);
+    assert_eq!(mesh.colors.len(), mesh.vertices.len(), "a tinted mesh");
+    for tri in mesh.indices.chunks(3) {
+        let [a, b, c] = [0, 1, 2].map(|k| tri[k] as usize);
+        let [pa, pb, pc] = [a, b, c].map(|k| mesh.vertices[k].pos);
+        let det = (pb[1] - pc[1]) * (pa[0] - pc[0]) + (pc[0] - pb[0]) * (pa[1] - pc[1]);
+        if det.abs() < 1e-9 {
+            continue;
+        }
+        let l1 = ((pb[1] - pc[1]) * (p.x - pc[0]) + (pc[0] - pb[0]) * (p.y - pc[1])) / det;
+        let l2 = ((pc[1] - pa[1]) * (p.x - pc[0]) + (pa[0] - pc[0]) * (p.y - pc[1])) / det;
+        let l3 = 1.0 - l1 - l2;
+        if l1 < -1e-4 || l2 < -1e-4 || l3 < -1e-4 {
+            continue;
+        }
+        let [ca, cb, cc] = [a, b, c].map(|k| mesh.colors[k]);
+        return std::array::from_fn(|i| (ca[i] * l1 + cb[i] * l2 + cc[i] * l3) * 255.0);
+    }
+    panic!("{p:?} is not on the painted stroke");
+}
+
+fn assert_color_close(got: [f32; 4], want: [f32; 4], tol: f32, what: &str) {
+    for i in 0..4 {
+        assert!(
+            (got[i] - want[i]).abs() <= tol,
+            "{what}: {got:?} != {want:?} (±{tol})"
+        );
+    }
+}
+
+fn mix_rgba(a: [u8; 4], b: [u8; 4], t: f32) -> [f32; 4] {
+    std::array::from_fn(|i| a[i] as f32 + (b[i] as f32 - a[i] as f32) * t)
+}
+
+/// User request (2026-09-26): with a vertex picked, the Stroke color edits
+/// only that vertex and a polyline blends straight to its neighbors; with
+/// no vertex picked, the color edit sets every vertex.
+#[test]
+fn a_vertex_color_edit_blends_straight_to_its_neighbors() {
+    let mut h = grip_board("vertex_color_linear");
+    let pts = [
+        Pos2::new(0.0, 0.0),
+        Pos2::new(100.0, 0.0),
+        Pos2::new(200.0, 0.0),
+    ];
+    let id = commit_polyline(&mut h, &pts, false);
+    let c0 = curve_shape(&h, id).1.stroke.color.0;
+    let red = [255, 0, 0, c0[3]];
+    let depth = h.app.tab().journal.undo_depth();
+    vertex_stringer_color(&mut h, id, &[1], [255, 0, 0]);
+    assert_eq!(tip_colors(&h, id), vec![c0, red, c0]);
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "one patch");
+    for (x, t) in [(50.0, 0.5), (25.0, 0.75), (150.0, 0.5)] {
+        let got = ink_color_at(&h, id, Pos2::new(x, 0.0));
+        assert_color_close(got, mix_rgba(red, c0, t), 1.5, &format!("x={x}"));
+    }
+
+    vertex_stringer_width(&mut h, id, &[0], 12.0);
+    vertex_stringer_color(&mut h, id, &[], [0, 0, 255]);
+    let blue = [0, 0, 255, c0[3]];
+    assert_eq!(tip_colors(&h, id), vec![blue; 3], "whole curve sets all");
+    assert_eq!(curve_shape(&h, id).1.stroke.color.0, blue);
+    assert_eq!(tip_widths(&h, id)[0], 12.0, "widths are kept");
+}
+
+/// A Bézier span blends vertex colors by the same smoothstep as widths.
+#[test]
+fn bezier_vertex_colors_blend_smoothly() {
+    let mut h = bezier_board("vertex_color_smooth");
+    for x in [0.0, 100.0, 200.0] {
+        bezier_place(&mut h, Pos2::new(x, 0.0), Pos2::new(x + 30.0, 0.0));
+    }
+    assert!(h.app.finish_path_draft());
+    let id = h.app.doc().scene.nodes.last().unwrap().id;
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.frame();
+    let c0 = curve_shape(&h, id).1.stroke.color.0;
+    let red = [255, 0, 0, c0[3]];
+    vertex_stringer_color(&mut h, id, &[1], [255, 0, 0]);
+    for x in [25.0_f32, 50.0, 90.0] {
+        let got = ink_color_at(&h, id, Pos2::new(x, 0.0));
+        let want = mix_rgba(c0, red, smoothstep(x / 100.0));
+        assert_color_close(got, want, 2.0, &format!("smooth at x={x}"));
+    }
+}
+
+/// Exported color at local point `p` of the stroke's SVG: the fill of the
+/// topmost piece holding it, a solid color or a two-stop linear gradient.
+fn export_color_at(svg: &str, p: [f32; 2]) -> Option<[f32; 4]> {
+    svg.split("<path")
+        .skip(1)
+        .filter_map(|tag| export_piece_color(svg, tag, p))
+        .last()
+}
+
+fn export_piece_color(svg: &str, tag: &str, p: [f32; 2]) -> Option<[f32; 4]> {
+    let attr = |tag: &str, name: &str| -> Option<String> {
+        let key = format!(" {name}=\"");
+        let rest = &tag[tag.find(&key)? + key.len()..];
+        Some(rest[..rest.find('"')?].to_string())
+    };
+    let parse_rgb = |css: &str, opacity: f32| -> [f32; 4] {
+        let inner = css.trim_start_matches("rgba(").trim_start_matches("rgb(");
+        let v: Vec<f32> = inner
+            .trim_end_matches(')')
+            .split(',')
+            .map(|s| s.trim().parse().unwrap())
+            .collect();
+        let a = v.get(3).copied().unwrap_or(1.0) * opacity;
+        [v[0], v[1], v[2], a * 255.0]
+    };
+    let tag = &tag[..tag.find('>')?];
+    let bez = vector_ink::kurbo::BezPath::from_svg(&attr(tag, "d")?).ok()?;
+    if !vector_ink::point_in_polygon(&vector_ink::flatten_contours(&bez, 0.05), p) {
+        return None;
+    }
+    let fill = attr(tag, "fill")?;
+    let Some(id) = fill.strip_prefix("url(#").and_then(|s| s.strip_suffix(')')) else {
+        return Some(parse_rgb(&fill, 1.0));
+    };
+    let start = svg.find(&format!("<linearGradient id=\"{id}\""))?;
+    let grad = &svg[start..start + svg[start..].find("</linearGradient>")?];
+    let num = |name: &str| attr(grad, name).unwrap().parse::<f32>().unwrap();
+    let (x1, y1, x2, y2) = (num("x1"), num("y1"), num("x2"), num("y2"));
+    let stops: Vec<[f32; 4]> = grad
+        .split("<stop")
+        .skip(1)
+        .map(|s| {
+            let op = attr(s, "stop-opacity").map_or(1.0, |o| o.parse().unwrap());
+            parse_rgb(&attr(s, "stop-color").unwrap(), op)
+        })
+        .collect();
+    let (dx, dy) = (x2 - x1, y2 - y1);
+    let t = (((p[0] - x1) * dx + (p[1] - y1) * dy) / (dx * dx + dy * dy)).clamp(0.0, 1.0);
+    Some(std::array::from_fn(|i| {
+        stops[0][i] + (stops[1][i] - stops[0][i]) * t
+    }))
+}
+
+/// The export paints the same color blend the board paints, with SVG
+/// linear gradients (Art. IV: SVG-expressible).
+#[test]
+fn vertex_colors_export_as_gradients_matching_the_board() {
+    let mut h = bezier_board("vertex_color_export");
+    for x in [0.0, 100.0, 200.0] {
+        bezier_place(&mut h, Pos2::new(x, 0.0), Pos2::new(x + 30.0, 0.0));
+    }
+    assert!(h.app.finish_path_draft());
+    let id = h.app.doc().scene.nodes.last().unwrap().id;
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.frame();
+    vertex_stringer_width(&mut h, id, &[1], 16.0);
+    vertex_stringer_color(&mut h, id, &[1], [255, 0, 0]);
+    vertex_stringer_color(&mut h, id, &[2], [0, 0, 255]);
+    let (n, _) = curve_shape(&h, id);
+    let html = slate_artifact::render_html(h.app.doc(), &slate_artifact::AssetMap::default());
+    assert!(
+        html.contains("<linearGradient"),
+        "the blend exports as gradients"
+    );
+    let local = |x: f32, y: f32| [x - n.rect.x, y - n.rect.y];
+    for x in [12.0_f32, 50.0, 88.0, 130.0, 170.0] {
+        for y in [0.0_f32, 0.5] {
+            let board = ink_color_at(&h, id, Pos2::new(x, y));
+            let export = export_color_at(&html, local(x, y))
+                .unwrap_or_else(|| panic!("the export paints ({x}, {y})"));
+            assert_color_close(export, board, 3.0, &format!("export at ({x}, {y})"));
+        }
+    }
 }

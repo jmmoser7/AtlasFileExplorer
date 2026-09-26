@@ -83,7 +83,7 @@ impl SlateApp {
         let set = self.board_osnap;
         let radius = self.osnap_radius_world();
         let draft = match &self.board_path_draft {
-            Some(board_path::BoardPathDraft::Polyline { points }) => points.as_slice(),
+            Some(board_path::BoardPathDraft::Polyline { points, .. }) => points.as_slice(),
             _ => &[],
         };
         if let Some(hit) = pick_with_draft(

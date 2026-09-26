@@ -2139,7 +2139,7 @@ impl SlateApp {
             return;
         }
         if Self::node_uses_curve_grips(n) {
-            self.paint_line_grips(painter, xf, n, select_tint);
+            self.paint_line_grips(painter, xf, n);
             return;
         }
         if let NodeKind::Shape(s) = &n.kind {
@@ -4925,8 +4925,10 @@ impl SlateApp {
         {
             if let Some(w) = wp {
                 let from = match &self.board_path_draft {
-                    Some(board_path::BoardPathDraft::Polyline { points }) => points.last().copied(),
-                    Some(board_path::BoardPathDraft::Arc { points }) => points.last().copied(),
+                    Some(board_path::BoardPathDraft::Polyline { points, .. }) => {
+                        points.last().copied()
+                    }
+                    Some(board_path::BoardPathDraft::Arc { points, .. }) => points.last().copied(),
                     Some(board_path::BoardPathDraft::Bezier { anchors, .. }) => {
                         anchors.last().map(|(p, _)| *p)
                     }
@@ -5393,12 +5395,21 @@ impl SlateApp {
         }
 
         let draft_painter = self.image_paint_draft_painter(ui.ctx(), &painter, &xf);
+        if self.board_tool == BoardTool::BezierSpan {
+            let now = ui.input(|i| i.time);
+            if let Some(left) = self.bezier_close_hover(pointer.filter(|_| resp.hovered()), now) {
+                ui.ctx()
+                    .request_repaint_after(std::time::Duration::from_secs_f64(left.max(0.0)));
+            }
+        }
         if let Some(draft) = &self.board_path_draft {
             let zoom = self.tab().cam.z.max(f32::EPSILON);
             let cursor = self.board_osnap_hit.map(|h| h.point).or_else(|| {
                 if board_snap::effective_ortho(self.board_ortho, self.shift_down) {
                     let from = match draft {
-                        board_path::BoardPathDraft::Polyline { points } => points.last().copied(),
+                        board_path::BoardPathDraft::Polyline { points, .. } => {
+                            points.last().copied()
+                        }
                         board_path::BoardPathDraft::Bezier {
                             anchors, placing, ..
                         } => anchors
@@ -5543,7 +5554,7 @@ impl SlateApp {
             self.paint_direct_overlay(&painter, &xf);
         }
         if self.board_tool == BoardTool::Select {
-            self.paint_bezier_grips(&painter, &xf);
+            self.paint_curve_grips(&painter, &xf);
         }
 
         // Ortho feedback: subtle hash ticks through the drag origin along
@@ -6242,6 +6253,11 @@ impl SlateApp {
                         self.board_crop = None;
                     }
                 }
+                // Match hover priority: the visible fillet grip wins any
+                // overlap with curve grips and wire/resize bands.
+                if let Some(drag) = self.begin_fillet_drag(screen, world) {
+                    return Some(drag);
+                }
                 // Endpoint grips on a selected simple line — these replace
                 // the resize bbox entirely (P1.curve.grips, contract D13).
                 if self.board_sel.len() == 1 {
@@ -6250,19 +6266,17 @@ impl SlateApp {
                         if Self::node_uses_curve_grips(&n) {
                             let xf = self.board_xf();
                             if let Some(end) = self.line_grip_at(id, screen, &xf) {
+                                if !self.direct.grip_points.is_picked(id, end as usize) {
+                                    self.direct.grip_points.pick(id, end as usize, mods.shift);
+                                }
                                 return Some(BoardDrag::LineGrip { id, before: n, end });
                             }
                         }
                     }
                 }
-                // Anchor / handle grips on a selected open Bézier curve.
-                if let Some(drag) = self.begin_bezier_grip_drag(screen, world) {
+                // Vertex / handle / arc grips on a selected curve.
+                if let Some(drag) = self.begin_curve_grip_drag(screen, mods) {
                     return Some(BoardDrag::Direct(drag));
-                }
-                // Match hover priority: the visible fillet grip wins any
-                // overlap with wire/resize bands.
-                if let Some(drag) = self.begin_fillet_drag(screen, world) {
-                    return Some(drag);
                 }
                 // Wire grip at the press origin beats edge resize. The rest
                 // of the edge is Windows-style resize (no selection needed).
@@ -6403,6 +6417,14 @@ impl SlateApp {
                 .map(BoardDrag::Direct),
             BoardTool::BezierSpan => {
                 if let Some(hit) = self.bezier_draft_hit(screen) {
+                    // Past the close delay the start anchor closes the span;
+                    // before it, the press edits the anchor as usual.
+                    if hit == super::path_edit_overlay::PathEditHit::Anchor(0)
+                        && self.bezier_close_ready()
+                    {
+                        self.close_bezier_draft();
+                        return None;
+                    }
                     self.bezier_note_edit_press();
                     if let Some(board_path::BoardPathDraft::Bezier { anchors, .. }) =
                         &self.board_path_draft
@@ -8153,6 +8175,12 @@ impl SlateApp {
             BoardTool::Trim | BoardTool::Split => {
                 self.trim_click(world, mods.shift);
                 return;
+            }
+            BoardTool::Select => {
+                let screen = self.board_xf().w2s(world);
+                if self.pick_curve_grip_point(screen, mods.shift) {
+                    return;
+                }
             }
             _ => {}
         }

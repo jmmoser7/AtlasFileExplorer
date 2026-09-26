@@ -485,11 +485,11 @@
           "decided": "2026-09-17"
         },
         "D05": {
-          "behavior": "Held Shift inverts the F8 ortho state for the pending segment, 45-degree steps (P2.RhinoDraft.ortho). Alt+right-drag scrubs the Line's own width through the Brush size HUD (board.stroke.width_hud, P1.curve.width-chord), horizontally only: no softness. Mid-draw it changes the width of the line being drawn, and the rubber band previews that width.",
+          "behavior": "Held Shift inverts the F8 ortho state for the pending segment, 45-degree steps (P2.RhinoDraft.ortho). Alt+right-drag scrubs the Line's own width through the Brush size HUD (board.stroke.width_hud, P1.curve.width-chord), horizontally only: no softness. Mid-draw it sets the width of the end being placed; the first point keeps the width it was placed with, so the line tapers straight between them (P1.curve.vertex-style; user, 26 September 2026), and the rubber band previews that taper.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-09-26"
         },
         "D06": {
           "behavior": "F8 ortho + F9 grid snap apply to both endpoints. Object snaps follow P1.node.osnap (ObjectSnapSet, draft.osnap_radius / osnap.radius). Defaults End+Mid+Center match the previous hardcoded edge/anchor snap.",
@@ -506,11 +506,11 @@
           "decided": "2026-07-23"
         },
         "D08": {
-          "behavior": "Actual endpoint length L uses an external editable stringer, scales about the midpoint, and preserves direction. Existing numeric entry during drafting remains available.",
-          "source": "precedent",
-          "confidence": 90,
+          "behavior": "No dimension stringer on a selected line (user, 26 September 2026: \"remove the dimension stringers from open curves right now\"). Existing numeric entry during drafting remains available.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-26"
         },
         "D09": {
           "behavior": "Rubber band from first point (constraint-resolved); dock readout shows live length + angle; numeric entry echoes next to the readout.",
@@ -541,18 +541,18 @@
           "decided": "2026-07-23"
         },
         "D13": {
-          "behavior": "Endpoint grips only, no resize bbox (P1.curve.grips), single or multi-select. Homogeneous multi-line: grips on every line, no per-line outline, no group bbox handles. Grip drag moves that endpoint; ortho/snap apply.",
+          "behavior": "Endpoint grips only, no resize bbox (P1.curve.grips), single or multi-select. Homogeneous multi-line: grips on every line, no per-line outline, no group bbox handles. Grip drag moves that endpoint; ortho/snap apply. Endpoint grips are painted and picked by the shared path-edit overlay (square grips, 7 screen px pick; user, 26 September 2026).",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-07-24"
+          "decided": "2026-09-26"
         },
         "D14": {
-          "behavior": "Grip drag re-journals as a point edit; Direct Selection (A) sees the same two anchors; Ctrl+J joins endpoints with other curves (P1.curve.style).",
-          "source": "pattern",
-          "confidence": 80,
+          "behavior": "Grip drag re-journals as a point edit; Direct Selection (A) sees the same two anchors; Ctrl+J joins endpoints with other curves (P1.curve.style). Per-vertex width (P1.curve.vertex-style; user, 26 September 2026): with an endpoint grip picked, the Stroke stringer's width edits only that end, tapering straight along the line; with none picked it scales the whole line. Per-vertex color (user, 26 September 2026): a picked endpoint takes the Stroke color, blending straight along the line; with none picked the color sets both ends.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-07-23"
+          "decided": "2026-09-26"
         },
         "D15": {
           "behavior": "Cut (Art. III): Rhino BothSides/Normal/Angled command options; length<angle typed syntax; chaining (that's the Polyline tool).",
@@ -2598,7 +2598,7 @@
           "decided": "2026-09-17"
         },
         "D08": {
-          "behavior": "Edit numeric values directly where displayed, without separate windows. Rectangle stringers follow local axes and scale about the centroid; lines measure actual length; paths use tight bounds. If a label does not fit between the stringer ticks, keep the baseline and extend the editable label beyond its end. RGB percentages use restrained underlined values.",
+          "behavior": "Edit numeric values directly where displayed, without separate windows. Rectangle stringers follow local axes and scale about the centroid; closed paths use tight bounds. Open curves (line, arc, polyline, Bézier, pen) and brush strokes show no stringers (user, 26 September 2026). If a label does not fit between the stringer ticks, keep the baseline and extend the editable label beyond its end. RGB percentages use restrained underlined values.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -2633,11 +2633,11 @@
           "decided": "2026-09-17"
         },
         "D13": {
-          "behavior": "P1.shape.properties: capability-gated squircle controls above the selection; dimensions use separate exterior stringers. Fill and Stroke share one compact panel: a saturation/value color field at the current hue, then opacity, saturation and hue rails (saturation replaced the neutral value rail, user decision 25 September 2026); Stroke adds only a width rail. The fillet capsule is 30% taller than the 17-unit wire capsule; the photo-filter capsule is twice that fillet height. Wires expose Bezier/Square, stroke weight, Solid/Dashed and None/Arrows; routing moves out of Document Settings. Images expose a None radio and low-resolution filtered thumbnails of the selected image, plus an intensity slider as thick as the radio radius. A File Atlas portal adds a Formatting squircle (search, type radios, Ghost/Hide, Zoom to matches, Zoom to fit). Frame-only actions reuse the same strip. P1.node.corner-grip appears on every selected corner-capable host, and in a multi-selection one grip's drag or typed amount sets them all, clamped per host (stated 26 September 2026); the Corners squircle and grip share one Corner field. Shared light/dark theme tokens apply throughout.",
+          "behavior": "P1.shape.properties: capability-gated squircle controls above the selection; dimensions use separate exterior stringers. Fill and Stroke share one compact panel: a saturation/value color field at the current hue, then opacity, saturation and hue rails (saturation replaced the neutral value rail, user decision 25 September 2026); Stroke adds only a width rail. With grips picked on a single curve, that rail and the Stroke color field and opacity rail read and edit the picked vertices only (P1.curve.vertex-style; user, 26 September 2026). The fillet capsule is 30% taller than the 17-unit wire capsule; the photo-filter capsule is twice that fillet height. Wires expose Bezier/Square, stroke weight, Solid/Dashed and None/Arrows; routing moves out of Document Settings. Images expose a None radio and low-resolution filtered thumbnails of the selected image, plus an intensity slider as thick as the radio radius. A File Atlas portal adds a Formatting squircle (search, type radios, Ghost/Hide, Zoom to matches, Zoom to fit). Frame-only actions reuse the same strip. P1.node.corner-grip appears on every selected corner-capable host, and in a multi-selection one grip's drag or typed amount sets them all, clamped per host (stated 26 September 2026); the Corners squircle and grip share one Corner field. Shared light/dark theme tokens apply throughout.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-09-26"
         },
         "D14": {
           "behavior": "Every eyedropper in the project must sample anywhere on the desktop, including outside Slate. The existing standalone and temporary Brush paths and new property editors share the desktop-color-sampling.md requirement.",
@@ -2988,11 +2988,11 @@
           "decided": "2026-09-17"
         },
         "D08": {
-          "behavior": "One actual endpoint-to-endpoint length L stringer. Editing scales uniformly about the midpoint, preserving direction.",
-          "source": "guess",
-          "confidence": 55,
+          "behavior": "No dimension stringer on a selected line (user, 26 September 2026: \"remove the dimension stringers from open curves right now\").",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-26"
         },
         "D09": {
           "behavior": "P1.shape.properties: preview resolved creation geometry and show the shared geometry-appropriate selection strip.",
@@ -3030,7 +3030,7 @@
           "decided": "2026-09-17"
         },
         "D14": {
-          "behavior": "Circular Stroke button, with RGB/alpha/width and caps/dash/taper in its outward editor. Desktop eyedropper uses the shared sampler. Numeric length belongs on the stringer; no fill or rectangle corner button.",
+          "behavior": "Circular Stroke button, with RGB/alpha/width and caps/dash/taper in its outward editor. Desktop eyedropper uses the shared sampler. No length stringer (D08); no fill or rectangle corner button.",
           "source": "guess",
           "confidence": 55,
           "verdict": "approved",
@@ -3097,11 +3097,11 @@
           "decided": "2026-09-17"
         },
         "D05": {
-          "behavior": "Retain tool-specific creation modifiers and P1.node.transform for selected objects. Alt+right-drag scrubs the Polyline's own width through the Brush size HUD (board.stroke.width_hud, P1.curve.width-chord), horizontally only: no softness. Mid-draw it changes the width of the polyline being drawn, and the draft previews that width.",
+          "behavior": "Retain tool-specific creation modifiers and P1.node.transform for selected objects. Alt+right-drag scrubs the Polyline's own width through the Brush size HUD (board.stroke.width_hud, P1.curve.width-chord), horizontally only: no softness. Mid-draw it sets the width of the point being placed and of the points after it; points already placed keep theirs, so the polyline tapers straight between them (P1.curve.vertex-style; user, 26 September 2026), and the draft previews that taper.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-09-26"
         },
         "D06": {
           "behavior": "The shared object-snap resolver includes draft endpoints and completed segments for enabled End, Mid, Near and Perpendicular snaps. The rubber-band is excluded; existing scene intersections remain available.",
@@ -3118,11 +3118,11 @@
           "decided": "2026-09-17"
         },
         "D08": {
-          "behavior": "Bounding-box W/H stringers in a stable local frame (initially XY); no dimension fields in the palette. scaling vertices about the box center. Alternative: per-segment lengths in Direct Selection, or total L with uniform scaling.",
-          "source": "guess",
-          "confidence": 55,
+          "behavior": "An open polyline shows no dimension stringers (user, 26 September 2026: \"remove the dimension stringers from open curves right now\"). A closed polyline is a closed shape and keeps bounding-box W/H stringers in a stable local frame, scaling vertices about the box center. No dimension fields in the palette.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-26"
         },
         "D09": {
           "behavior": "Preview and commit consume the same snap result and existing snap marker. Snapping to another earlier segment places a vertex without inferring trimming or loop extraction.",
@@ -3153,18 +3153,18 @@
           "decided": "2026-09-17"
         },
         "D13": {
-          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers. P1.node.corner-grip on a single selected line-only polyline: one grip near each turning vertex, riding that vertex's incoming segment at the treatment's tangent distance; dragging it or typing after a click fillets or chamfers that corner alone (stated 26 September 2026). In a multi-selection the polyline shows one shared grip on the leaving side of the first turning vertex, which sets every corner together with the other hosts (proposal).",
+          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers. P1.node.corner-grip on a single selected line-only polyline: one grip near each turning vertex, riding that vertex's incoming segment at the treatment's tangent distance; dragging it or typing after a click fillets or chamfers that corner alone (stated 26 September 2026). In a multi-selection the polyline shows one shared grip on the leaving side of the first turning vertex, which sets every corner together with the other hosts (proposal). P1.curve.grips (user, 26 September 2026): a single selected polyline, open or closed, shows its corner vertices and end points through the shared path-edit overlay; dragging one moves only that point as one journaled Patch, snapped through resolve_point_snap. The two grips never share a spot: a press on a vertex takes the vertex grip, and a press on the segment grip at tangent distance takes that corner's fillet (proposal).",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-09-26"
         },
         "D14": {
-          "behavior": "Open line-only polyline: Stroke button plus Corners (one fillet radius or chamfer cut at every interior vertex, clamped per vertex; 0 = sharp). Closed line-only polyline: Fill and Stroke plus Corners. The Corners slider reads the stored amount after commit, and Fillet / Chamfer are both selectable. Board and artifact share path_data_to_world_bez_with_fillet, which draws chamfers as straight cuts. Per-vertex corners (stated 26 September 2026): the path stores an optional amount per vertex (PathData.corner_amounts, in path order); a vertex grip overrides its own corner, and the Corners value sets every corner again, clearing the overrides. Overrides use the shape's treatment, so Fillet / Chamfer switches them too, and a shared-grip edit also clears them (proposals). The same function reads the overrides for board and artifact.",
+          "behavior": "Open line-only polyline: Stroke button plus Corners (one fillet radius or chamfer cut at every interior vertex, clamped per vertex; 0 = sharp). Closed line-only polyline: Fill and Stroke plus Corners. The Corners slider reads the stored amount after commit, and Fillet / Chamfer are both selectable. Board and artifact share path_data_to_world_bez_with_fillet, which draws chamfers as straight cuts. Per-vertex corners (stated 26 September 2026): the path stores an optional amount per vertex (PathData.corner_amounts, in path order); a vertex grip overrides its own corner, and the Corners value sets every corner again, clearing the overrides. Overrides use the shape's treatment, so Fillet / Chamfer switches them too, and a shared-grip edit also clears them (proposals). The same function reads the overrides for board and artifact. A vertex edit keeps the authored radius or cut, overrides included, and re-applies it to the new corners, clamped per corner by the adjacent edges and never by the bounding box (user, 26 September 2026; Corner::vertex_effective). Per-vertex width (P1.curve.vertex-style; user, 26 September 2026): with vertices picked, the Stroke stringer's width edits only those vertices, tapering straight to their neighbors; with none picked it scales the whole curve. Proposal: a fillet's middle keeps its corner's width. Per-vertex color (user, 26 September 2026): picked vertices take the Stroke color and blend straight to their neighbors; with none picked the color sets every vertex. Proposal: the export fills each stroke section with a two-stop linear gradient (P1.curve.vertex-style).",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-09-26"
         },
         "D15": {
           "behavior": "P1.shape.properties: no dimensions, independent opacity, or unsupported geometry controls in the strip.",
@@ -3357,11 +3357,11 @@
           "decided": "2026-09-17"
         },
         "D05": {
-          "behavior": "Retain tool-specific creation modifiers and P1.node.transform for selected objects. Alt+right-drag scrubs the Arc's own width through the Brush size HUD (board.stroke.width_hud, P1.curve.width-chord), horizontally only: no softness. Mid-draw it changes the width of the arc being drawn, and the draft previews that width.",
+          "behavior": "Retain tool-specific creation modifiers and P1.node.transform for selected objects. Alt+right-drag scrubs the Arc's own width through the Brush size HUD (board.stroke.width_hud, P1.curve.width-chord), horizontally only: no softness. Mid-draw it sets the width of the point being placed; points already placed keep theirs, and the arc blends straight along the sweep between its start, through and end widths (P1.curve.vertex-style; user, 26 September 2026). The draft previews that blend.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-09-26"
         },
         "D06": {
           "behavior": "P1.node.osnap: one resolved point feeds preview and commit; Alt suspends, ortho/direction constraints retain priority.",
@@ -3378,11 +3378,11 @@
           "decided": "2026-09-17"
         },
         "D08": {
-          "behavior": "Current arcs are cubic PathData and expose tight local W/H stringers. Exact R/sweep editing is reserved for a future durable circular-arc model; never infer exact radius from arbitrary cubics.",
-          "source": "guess",
-          "confidence": 55,
+          "behavior": "A selected arc shows no dimension stringers (user, 26 September 2026: \"remove the dimension stringers from open curves right now\"). Exact R/sweep editing is reserved for a future durable circular-arc model; never infer exact radius from arbitrary cubics.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-26"
         },
         "D09": {
           "behavior": "Preview the resolved three-point arc while dragging the through-point; bulge follows the cursor on either side of the start–end chord (same snap point as commit).",
@@ -3413,18 +3413,18 @@
           "decided": "2026-09-17"
         },
         "D13": {
-          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry. P1.curve.grips (user, 26 September 2026): a single selected arc shows start, end and through point through the shared path-edit overlay; dragging one rebuilds the circular arc through the three points as one journaled Patch, snapped through resolve_point_snap. Proposal: the through grip sits at the middle of the sweep, so it re-centers after a drag.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-26"
         },
         "D14": {
-          "behavior": "Circular Stroke button with applicable stroke details; shared desktop sampling. Dimensional fields remain on stringers. Exact R/sweep requires durable arc parameters; current generic paths use honest path measurements.",
-          "source": "guess",
-          "confidence": 55,
+          "behavior": "Circular Stroke button with applicable stroke details; shared desktop sampling. No dimension stringers (D08). Exact R/sweep requires durable arc parameters; current generic paths use honest path measurements. Per-vertex width (P1.curve.vertex-style; user, 26 September 2026): with start, through or end picked, the Stroke stringer's width edits only that grip; widths blend straight along the sweep. Proposal: the arc stores a width at every span joint, derived from its three grip widths, and gains a joint at its through point. Per-vertex color (user, 26 September 2026): a picked grip takes the Stroke color, blending straight along the sweep; with none picked the color sets the whole arc.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-26"
         },
         "D15": {
           "behavior": "P1.shape.properties: no dimensions, independent opacity, or unsupported geometry controls in the strip.",
@@ -3480,18 +3480,18 @@
           "decided": "2026-09-25"
         },
         "D04": {
-          "behavior": "Handle drag uses draft.drag_threshold = 4 screen px (world travel = px/zoom); a stationary click (shorter travel) places a corner anchor with zero handles. The tool reads ordered pointer press/release like Polyline, so a click reaches it. Two quick clicks in different places are two anchors; a double-click finishes only when its second press lands on a placed anchor.",
+          "behavior": "Handle drag uses draft.drag_threshold = 4 screen px (world travel = px/zoom); a stationary click (shorter travel) places a corner anchor with zero handles. The tool reads ordered pointer press/release like Polyline, so a click reaches it. Two quick clicks in different places are two anchors; a double-click finishes only when its second press lands on a placed anchor. Closing (user, 26 September 2026): with two or more anchors, hovering the start anchor for bezier.close_hover (0.35 s) shows a preview of the closed curve; a click while that preview is visible commits the closed curve and finishes. A click on the start anchor before the preview appears keeps the default action and edits that control point.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-09-26"
         },
         "D05": {
-          "behavior": "Alt while dragging an outgoing handle breaks symmetry (corner anchor with independent out handle). Alt on an existing handle, while drawing or on a selected span, also breaks symmetry; without Alt a smooth anchor keeps its opposite handle collinear at its own length. Other creation modifiers unchanged. Alt+right-drag scrubs the Bezier tool's own width through the Brush size HUD (board.stroke.width_hud, P1.curve.width-chord), horizontally only: no softness. Mid-draw it changes the width of the span being drawn, and the draft previews that width.",
+          "behavior": "Alt while dragging an outgoing handle breaks symmetry (corner anchor with independent out handle). Alt on an existing handle, while drawing or on a selected span, also breaks symmetry; without Alt a smooth anchor keeps its opposite handle collinear at its own length. Other creation modifiers unchanged. Alt+right-drag scrubs the Bezier tool's own width through the Brush size HUD (board.stroke.width_hud, P1.curve.width-chord), horizontally only: no softness. Mid-draw it sets the width of the anchor being placed and of the anchors after it; placed anchors keep theirs, and the span blends smoothly between them (P1.curve.vertex-style; user, 26 September 2026). The draft previews that blend. Proposal: an anchor taken back with Ctrl+Z and put back while drawing keeps its width.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-09-26"
         },
         "D06": {
           "behavior": "P1.node.osnap: one resolved point feeds preview and commit; Alt suspends object snap while dragging handles; F8/Shift ortho constrains draft segments including Bézier outgoing handles.",
@@ -3508,11 +3508,11 @@
           "decided": "2026-09-17"
         },
         "D08": {
-          "behavior": "tight local W/H stringers from actual curve extrema, excluding off-curve handle bounds. Scale anchors and handles together about bounds center. Alternative: actual curve length L with uniform scaling, not endpoint chord length.",
-          "source": "guess",
-          "confidence": 55,
+          "behavior": "An open Bézier shows no dimension stringers (user, 26 September 2026: \"remove the dimension stringers from open curves right now\"). A closed Bézier keeps tight local W/H stringers from actual curve extrema, excluding off-curve handle bounds, scaling anchors and handles together about bounds center.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-26"
         },
         "D09": {
           "behavior": "Draft preview paints committed anchors through the shared path-edit overlay and rubber-bands to the same snapped cursor used on commit.",
@@ -3529,11 +3529,11 @@
           "decided": "2026-09-25"
         },
         "D11": {
-          "behavior": "Enter, a double-click on a placed anchor, or Esc commits a span of two or more anchors as exactly one journaled add, then returns to Select. P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history.",
+          "behavior": "Enter, a double-click on a placed anchor, or Esc commits a span of two or more anchors as exactly one journaled add, then returns to Select. A click on the start anchor while the closed preview shows (D04) commits a closed path as exactly one journaled add, then returns to Select (user, 26 September 2026). The closing vertex takes the start anchor's weights: a start with handles joins smoothly; a start with no handles may kink. The closed path gets the treatment of any closed form: closed-shape fill memory, wire ports, and the same closed contour in the board and the export. P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-09-26"
         },
         "D12": {
           "behavior": "Esc while drawing commits the open curve with two or more anchors and cancels with fewer (deviates from P2.RhinoDraft.esc). Ctrl+Z while drawing removes the last placed anchor and Ctrl+Y / Ctrl+Shift+Z re-adds it; neither touches the document journal. Ctrl+Z with zero anchors exits drawing; document undo resumes once drawing ends. Esc during a live press drops the anchor being placed or restores the anchor being edited. P1.shape.properties: Esc cancels the pending property edit and preserves selection.",
@@ -3543,18 +3543,18 @@
           "decided": "2026-09-25"
         },
         "D13": {
-          "behavior": "Decision: automatic edit affordance, not Direct Select only. A single selected open curve with a cubic segment shows every anchor and every non-zero handle with the Select tool (extends P1.curve.grips). Each anchor or handle drag is one journaled Patch. P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers.",
+          "behavior": "Decision: automatic edit affordance, not Direct Select only. A single selected Bézier curve, open or closed, shows every anchor and every non-zero handle with the Select tool (extends P1.curve.grips; an arc shows its start, end and through point instead). Each anchor or handle drag is one journaled Patch. P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-09-26"
         },
         "D14": {
-          "behavior": "Circular Stroke and, only for a closed path, Fill. Handle editing is on-canvas through the selected-span grips (D13) and Direct Selection. No rectangle Corners or dimensional toolbar fields. Color editors use the shared desktop sampler.",
+          "behavior": "Circular Stroke and, only for a closed path, Fill. Handle editing is on-canvas through the selected-span grips (D13) and Direct Selection. No rectangle Corners or dimensional toolbar fields. Color editors use the shared desktop sampler. Per-vertex width (P1.curve.vertex-style; user, 26 September 2026): with anchors picked, the Stroke stringer's width edits only those anchors; widths blend between anchors with a smoothstep, zero slope at each anchor, so the stroke has no chines. Proposal: geometry decides the blend, so any curve that is not a circular arc, including a Pen stroke, blends smoothly. Per-vertex color (user, 26 September 2026): picked anchors take the Stroke color, blending by the same smoothstep as widths; with none picked the color sets every anchor.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-09-26"
         },
         "D15": {
           "behavior": "P1.shape.properties: no dimensions, independent opacity, or unsupported geometry controls in the strip.",
@@ -3571,11 +3571,11 @@
           "decided": "2026-09-25"
         },
         "D17": {
-          "behavior": "While drawing, a press on a placed anchor or handle knob drags it instead of placing an anchor (draft state, never journaled). Draft, selected-span, and Direct Selection grips share one hit rule (path_edit_overlay::path_edit_hit): only painted grips, nearest within 7 screen px, an anchor wins a tie. An open span offers no wire ports and takes no new wire ends (P1.wire.ports). P1.shape.properties: controls consume their input before canvas gestures; locked/read-only targets cannot be changed.",
+          "behavior": "While drawing, a press on a placed anchor or handle knob drags it instead of placing an anchor (draft state, never journaled). The one exception is the start anchor while the closed preview shows, where the press closes the span (D04). The dwell counts only while no drag is live and the pointer is on the start anchor by this same hit rule. Draft, selected-span, and Direct Selection grips share one hit rule (path_edit_overlay::path_edit_hit): only painted grips, nearest within 7 screen px, an anchor wins a tie. An open span offers no wire ports and takes no new wire ends (P1.wire.ports). P1.shape.properties: controls consume their input before canvas gestures; locked/read-only targets cannot be changed.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-09-26"
         }
       }
     },
@@ -3638,11 +3638,11 @@
           "decided": "2026-09-17"
         },
         "D08": {
-          "behavior": "tight local W/H stringers; change dimensions by scaling the committed path around bounds center without re-fitting the stroke. Alternative: one curve-length L stringer for uniform scaling. No dimensions in the toolbar.",
-          "source": "guess",
-          "confidence": 55,
+          "behavior": "An open pen path shows no dimension stringers (user, 26 September 2026: \"remove the dimension stringers from open curves right now\"). An explicitly closed pen path keeps tight local W/H stringers, scaling the committed path around bounds center without re-fitting the stroke. No dimensions in the toolbar.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-26"
         },
         "D09": {
           "behavior": "NURBS-style fit (stated 2026-09-26; reference Rhino Sketch + Rebuild): decimate at ~1.75 screen px, split only at true cusps (one per corner cluster), and fit each cusp-free run with one least-squares cubic B-spline (uniform knots on arc length, light fairing, knot count grown from stroke length / tolerance until every sample is within ~2 screen px). Stored, painted, and exported as the spline's exact C2 cubic Bezier segments; never straight polyline spans.",
@@ -3768,11 +3768,11 @@
           "decided": "2026-09-22"
         },
         "D08": {
-          "behavior": "Selected strokes keep their centerline W/H stringers. While Brush is armed, [ ] keep the screen-px tiers already shipped (under 10: 1, 10-50: 5, 50-100: 10, over 100: 25) and convert through zoom. Shift+[ ] steps softness through 0, 25, 50, 75, 100. SizeHud horizontal travel changes diameter by 1 screen px per pixel. Typing digits does not enter a width.",
+          "behavior": "Selected strokes show no dimension stringers (user, 26 September 2026: \"same with brush strokes\"). While Brush is armed, [ ] keep the screen-px tiers already shipped (under 10: 1, 10-50: 5, 50-100: 10, over 100: 25) and convert through zoom. Shift+[ ] steps softness through 0, 25, 50, 75, 100. SizeHud horizontal travel changes diameter by 1 screen px per pixel. Typing digits does not enter a width.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-22"
+          "decided": "2026-09-26"
         },
         "D09": {
           "behavior": "The brush dock tooltip reads: Brush — [ ] size, Shift+[ ] softness, Shift+click steps opacity, Shift+right-drag scrubs opacity, Alt+right-drag scrubs size and softness from the press point, Ctrl+right-drag opens the color wheel. While Brush is armed, the bottom readout shows diameter in screen px and softness as Hard or a percent. During SizeHud the width circle and those two numbers update live. The color wheel is pointer-attached chrome: a thin hue ring, a circular saturation/value disk, and outer dots on 24 equal angles. Slot 0 is 6 o'clock; slot numbers increase clockwise. The document stores that many recent colors. Fill, Stroke, and text editors keep showing the first 6 only. A color seen for the first time fills the next empty slot. At 24, the oldest color is dropped, survivors pack back against 6 o'clock, and the new color takes the next slot. Using a color already on the ring moves it to 6 o'clock and refreshes its age. The wheel opens translated so the current foreground sits under the pointer. Dragging inside the disk changes saturation and value. Dragging in the hue ring changes hue. Landing within 8 px of a dot adopts that color and moves the pointer to that color on the saturation/value disc. The wheel stays where it opened. The ring reshuffles on release. Readout type is window chrome. The wheel and HUD numbers stay in screen px. The width circle stays world times zoom.",
@@ -3803,7 +3803,7 @@
           "decided": "2026-09-22"
         },
         "D13": {
-          "behavior": "P1.shape.properties: a selected stroke keeps the shared Fill / Stroke / Corners strip and its exterior stringers.",
+          "behavior": "P1.shape.properties: a selected stroke keeps the shared Fill / Stroke / Corners strip; it shows no dimension stringers (D08).",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",

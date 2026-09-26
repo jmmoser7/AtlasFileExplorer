@@ -319,8 +319,11 @@ is searchable.
   (`board_color::drive_brush_hud`, no copy) on that tool's own width:
   horizontal scrub, no softness, Esc restores, release saves to the tool's
   memory. It takes the right button from pan and the context menu like the
-  brush chords. Mid-draw it changes the shape being drawn and the draft
-  previews the committed width. Mid-stroke the Pen stops sampling while the
+  brush chords. Mid-draw on a line, arc, polyline or Bézier it sets the
+  width of the point being placed and of the points after it; points
+  already placed keep theirs, so the curve tapers between them by the
+  P1.curve.vertex-style blend (user, 26 September 2026), and the draft
+  previews that taper. Mid-stroke the Pen stops sampling while the
   HUD is up and the rest of the stroke takes the new width: each
   constant-width run is fitted on its own and `PathData::tips` stores one
   tip per vertex. Tips on a hard vector stroke are relative
@@ -333,13 +336,81 @@ is searchable.
   Applies to **every** selected simple line in the selection, not only when
   one line is selected; homogeneous multi-line selections skip group bbox
   handles. Direct Selection (A) additionally exposes tangent handles and
-  segments. A **single** selected open curve with a cubic segment (a
-  Bézier span, and by geometry an arc or fitted pen stroke) shows every
-  anchor and every non-zero tangent handle with the Select tool. One drag
-  is one journaled Patch; Alt on a handle breaks symmetry. Picking follows
-  the shared path-edit hit rule: only painted grips, nearest within 7
-  screen px, an anchor wins a tie. Implementation:
-  `board_direct::bezier_grip_target`, `path_edit_overlay::path_edit_hit`.
+  segments. **Parametric editing** (user, 26 September 2026: "reselecting
+  the element after creation should expose its control handles"): a
+  **single** selected single-contour path shows its grips with the Select
+  tool. A polyline, open or closed, shows every corner vertex and end
+  point; a circular arc shows start, end and through point; a Bézier span
+  or fitted pen stroke shows every anchor and every non-zero tangent
+  handle. Lines keep their endpoint grips. Every grip is painted and picked
+  by the shared path-edit overlay: only painted grips, nearest within 7
+  screen px, an anchor wins a tie. One drag moves one point and is one
+  journaled Patch; Alt on a handle breaks symmetry. The dragged point goes
+  through `resolve_point_snap` (P1.node.osnap). An arc is rebuilt through
+  its three points. A filleted or chamfered polyline keeps its authored
+  radius and re-applies it to the new corners, clamped per corner by the
+  adjacent edges, never by the bounding box (user, 26 September 2026).
+  Arcs are recognized by geometry, not tool provenance: an open path of
+  cubic spans that stays on one circle within the Arc tool's fitting
+  tolerance. **Proposals:** the through grip is the middle of the sweep,
+  so it re-centers after a drag (the AutoCAD arc midpoint grip). A dragged
+  vertex lands on the snapped cursor rather than keeping its press offset.
+  Grips win over resize at a bounding-box corner; the visible fillet grip
+  wins over a vertex grip. A click or press on a grip picks that point
+  (Shift toggles) into a per-curve picked-point set, painted filled and
+  never journaled, which later per-vertex properties will read. Index
+  order: path vertex order; start, through, end for an arc.
+  Implementation: `board_direct::curve_grip_target`,
+  `board_path::arc_grip_points`, `path_edit_overlay::path_edit_hit`,
+  `slate_doc::scene::Corner::vertex_effective`.
+- **P1.curve.vertex-style** per-vertex stroke style (user, 26 September
+  2026: "if a user selects a vertex of a polyline and then opens the stroke
+  width stringer and adjusts the stroke width, adjust just that vertex's
+  stroke width, creating a taper between that vertex and its adjacent
+  neighbors"). With grips picked (P1.curve.grips) on a line, arc, polyline,
+  Bézier span or pen stroke, the Stroke stringer's width edits only those
+  vertices, and the stringer reads the first picked vertex. With no grip
+  picked, the edit applies to the whole curve as before: a width edit scales
+  every vertex, keeping the taper. A click off the grips clears the pick.
+  Each edit is one journaled Patch through `board.shape.edit`, whose request
+  carries the picked grips (`PropertyRequest::points`), so agents drive the
+  same edit. Between vertices the width blends straight for polylines and
+  lines, straight along the sweep for arcs, and with a smoothstep for
+  Bézier spans (zero slope at every vertex, so the stroke has no chines).
+  Color follows the same model (user, 26 September 2026: "sub-select
+  individual vertices to create a blended color between that vertex and its
+  neighbors"): the Stroke color field and opacity rail edit the picked
+  vertices and read the first of them, colors blend between vertices by the
+  same rule as widths, and a color edit with no grip picked sets every
+  vertex.
+  **Proposals:** the widths are the existing `PathData::tips`, one per
+  vertex, not a second per-vertex list. The blend is read from the geometry
+  (`slate_doc::geom::tip_ease`: any curve that is not a circular arc is
+  smooth), like the grips. An arc stores a tip at every span joint, derived
+  from its three grip values; an arc with an odd span count gains a joint
+  at its through point. A filleted polyline keeps its vertex widths, and
+  each fillet's middle takes its corner's width. Grip drags keep the tips
+  when the grips still fit. Trim, split and Direct Selection edits that
+  change the vertex count drop them. Both interpreters paint through
+  `slate_doc::geom::tipped_stroke` and `vector_ink::stroke_mesh_tipped` /
+  `stroke_outline_tipped`; the artifact writes the variable-width outline as
+  a filled path. Colors are the tips' `color`, and a uniform stroke keeps
+  one `<path>`. A stroke whose vertex colors differ exports as the
+  quads between its stroke sections (`vector_ink::stroke_pieces_tinted`,
+  the triangles the board mesh paints). A quad with two different end
+  colors fills with a two-stop `userSpaceOnUse` `linearGradient` from one
+  section center to the next, which is the board's own per-vertex color
+  interpolation. Short filled segments of one color each were the
+  alternative, but they would step the blend. An opaque stroke fills its
+  whole outline in the mean color under the pieces, so browser
+  antialiasing seams between quads do not show the background. While
+  drawing, the width chord sets the point being placed (P1.curve.width-chord).
+  Drafts record the tool width per placed point (`BoardPathDraft` widths,
+  `LineDraft::start_width`) and commit them as grip widths
+  (`vertex_style::set_grip_widths`). The draft preview paints through the
+  same call (`board_path::draft_stroke_ink`).
+  Implementation: `slate_doc::vertex_style`,
+  `board_properties::Property::apply_at`.
 - **P1.curve.pick** click and marquee selection hit the **stroke** (via
   `vector_ink::hit_stroke` + `pick.slop` ≈ 4 screen px), never the node's
   axis-aligned rect alone. Closed unfilled paths included — each contour
@@ -773,7 +844,7 @@ a second contract — stop and promote it.
 
 ### P1.shape.properties — selection properties and dimensions
 
-Scene capabilities select one shared squircle strip above the selection: Stroke for shapes, images, wires, text boxes and sticky notes, slide frames, and portals; Fill for closed shapes, text sticky-note backgrounds, frames and portals; Corners for rectangles, images, and slide frames; photo filters for images (not 3D model viewports); Viewport display and Measure for a single 3D model viewport (media D13); routing/weight/dash/arrows for wire-only selections. A File Atlas portal adds a Formatting squircle (search, type radios, Ghost/Hide, Zoom to matches, Zoom to fit) owned by `selection_tools::atlas_format_editor`. Frame-only actions (deck order, present) join that same strip. Images nest by drag and drop. Mixed selections expose common controls. Width/height/length belong to separate exterior dimension stringers. Rectangle axes follow rotation; straight lines measure endpoint length; circles use diameter; general paths use tight local bounds. Groups without wires use union XY dimensions and uniform centroid scaling. Wire-containing selections omit box-dimension edits because attached endpoints follow their hosts. Portal source UI stays on the portal.
+Scene capabilities select one shared squircle strip above the selection: Stroke for shapes, images, wires, text boxes and sticky notes, slide frames, and portals; Fill for closed shapes, text sticky-note backgrounds, frames and portals; Corners for rectangles, images, and slide frames; photo filters for images (not 3D model viewports); Viewport display and Measure for a single 3D model viewport (media D13); routing/weight/dash/arrows for wire-only selections. A File Atlas portal adds a Formatting squircle (search, type radios, Ghost/Hide, Zoom to matches, Zoom to fit) owned by `selection_tools::atlas_format_editor`. Frame-only actions (deck order, present) join that same strip. Images nest by drag and drop. Mixed selections expose common controls. Width/height/length belong to separate exterior dimension stringers. Rectangle axes follow rotation; circles use diameter; closed paths use tight local bounds. Open curves (line, arc, polyline, Bézier, pen) and brush strokes show no dimension stringers (user, 26 September 2026), so a selection made only of them shows none. Proposal: a mixed selection that includes a closed shape keeps its union W/H. Groups without wires use union XY dimensions and uniform centroid scaling. Wire-containing selections omit box-dimension edits because attached endpoints follow their hosts. Portal source UI stays on the portal.
 
 The strip icons expand on selection and collapse when it clears. Palette edits are transient previews until icon change or outside click commits one journal group. A press on empty canvas also deselects. Esc, tool changes, and target changes discard pending previews. Numeric dimensions commit on Enter/focus loss, scale about the measured center, preserve stroke width, and reject invalid values. Locked/read-only selections cannot be mutated. Chrome takes precedence over canvas gestures and follows P0.9. The fillet capsule is 30% taller than the 17-unit wire capsule; the photo-filter capsule is twice that fillet height. None clears the adjustment; the other radios are low-resolution filtered thumbnails, and the intensity track is as thick as the radio radius. A chips-only variant (`FilterCapsuleStyle::ChipsOnly`) keeps the same circle chips without the intensity track; width follows the chip count. Heights live in `selection_tools`.
 

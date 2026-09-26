@@ -5,9 +5,13 @@ use kurbo::{BezPath, PathEl};
 use crate::dash::dash_runs;
 use crate::flatten::{flatten, flatten_contours};
 use crate::geom::{cumulative_arclength, dist, from_kurbo, is_finite_pt, lerp, to_kurbo, EPS};
-use crate::mesh::{run_outline, tessellate_run};
+use crate::mesh::{run_outline, run_pieces, tessellate_run};
 use crate::trim::Polygon;
-use crate::{InkMesh, StrokeStyle};
+use crate::{InkMesh, StrokeStyle, TintPiece, TipEase};
+
+/// Samples per segment, at least, where a smooth blend changes the tip: the
+/// piecewise-linear strip stays within 0.3% of the tip change of the curve.
+const SMOOTH_TIP_STEPS: usize = 16;
 
 pub(crate) fn valid_style(style: &StrokeStyle) -> bool {
     style.width.is_finite() && style.width > 0.0
@@ -19,24 +23,78 @@ pub fn stroke_mesh(path: &BezPath, style: &StrokeStyle, feather: f32, tolerance:
 }
 
 /// [`stroke_mesh`] with a full width at every on-curve vertex: each `MoveTo`,
-/// then the end of each segment, in path order. A segment interpolates
-/// between its end widths by arc length; `ClosePath` returns to the
+/// then the end of each segment, in path order. A segment blends between its
+/// end widths by arc length, as `ease` says; `ClosePath` returns to the
 /// contour's first width. A count that does not match the path's vertices
 /// strokes at `style.width`. The taper, if any, still scales the widths.
 pub fn stroke_mesh_tipped(
     path: &BezPath,
     style: &StrokeStyle,
     widths: &[f32],
+    ease: TipEase,
     feather: f32,
     tolerance: f64,
 ) -> InkMesh {
-    stroke_mesh_with(path, style, Some(widths), feather, tolerance)
+    let tips = Tipping::new(widths, None, ease);
+    stroke_mesh_with(path, style, Some(tips), feather, tolerance)
+}
+
+/// [`stroke_mesh_tipped`] with a straight RGBA color (`0..=1`) at every
+/// vertex as well, blended between vertices exactly like the widths. The
+/// mesh then carries one color per vertex ([`InkMesh::colors`]). Colors
+/// whose count does not match `widths` are ignored.
+pub fn stroke_mesh_tinted(
+    path: &BezPath,
+    style: &StrokeStyle,
+    widths: &[f32],
+    colors: &[[f32; 4]],
+    ease: TipEase,
+    feather: f32,
+    tolerance: f64,
+) -> InkMesh {
+    let tips = Tipping::new(widths, Some(colors), ease);
+    stroke_mesh_with(path, style, Some(tips), feather, tolerance)
+}
+
+/// Per-vertex tips: a full width and optionally a straight RGBA color at
+/// every on-curve vertex, blended between vertices as `ease` says.
+#[derive(Clone, Copy)]
+struct Tipping<'a> {
+    widths: &'a [f32],
+    colors: Option<&'a [[f32; 4]]>,
+    ease: TipEase,
+}
+
+impl<'a> Tipping<'a> {
+    fn new(widths: &'a [f32], colors: Option<&'a [[f32; 4]]>, ease: TipEase) -> Self {
+        Tipping {
+            widths,
+            colors: colors.filter(|c| c.len() == widths.len()),
+            ease,
+        }
+    }
+
+    fn tip(&self, i: usize) -> Tip {
+        let c = self.colors.map_or([1.0; 4], |c| c[i]);
+        [self.widths[i], c[0], c[1], c[2], c[3]]
+    }
+}
+
+/// Width, then straight RGBA, at one point of a tipped stroke.
+type Tip = [f32; 5];
+
+fn lerp_tip(a: Tip, b: Tip, t: f32) -> Tip {
+    std::array::from_fn(|i| lerp(a[i], b[i], t))
+}
+
+fn lerp_color(a: [f32; 4], b: [f32; 4], t: f32) -> [f32; 4] {
+    std::array::from_fn(|i| lerp(a[i], b[i], t))
 }
 
 fn stroke_mesh_with(
     path: &BezPath,
     style: &StrokeStyle,
-    widths: Option<&[f32]>,
+    tips: Option<Tipping>,
     feather: f32,
     tolerance: f64,
 ) -> InkMesh {
@@ -51,12 +109,13 @@ fn stroke_mesh_with(
     mesh.vertices.reserve(256);
     mesh.indices.reserve(512);
 
-    for sub in stroke_subpaths(path, widths, tolerance) {
+    for sub in stroke_subpaths(path, tips, tolerance) {
         for run in stroke_runs(sub, style) {
             tessellate_run(
                 &mut mesh,
                 &run.points,
                 run.widths.as_deref(),
+                run.colors.as_deref(),
                 style,
                 feather,
                 run.closed,
@@ -73,17 +132,19 @@ struct SubPath {
     closed: bool,
     /// Full width per point, for a tipped stroke.
     widths: Option<Vec<f32>>,
+    /// Straight RGBA per point, for a tinted stroke.
+    colors: Option<Vec<[f32; 4]>>,
 }
 
 struct Run {
     points: Vec<[f32; 2]>,
     widths: Option<Vec<f32>>,
+    colors: Option<Vec<[f32; 4]>>,
     closed: bool,
 }
 
-fn stroke_subpaths(path: &BezPath, widths: Option<&[f32]>, tolerance: f64) -> Vec<SubPath> {
-    widths
-        .and_then(|w| tipped_subpaths(path, w, tolerance))
+fn stroke_subpaths(path: &BezPath, tips: Option<Tipping>, tolerance: f64) -> Vec<SubPath> {
+    tips.and_then(|t| tipped_subpaths(path, t, tolerance))
         .unwrap_or_else(|| subpaths(path, tolerance))
 }
 
@@ -95,6 +156,7 @@ fn stroke_runs(mut sub: SubPath, style: &StrokeStyle) -> Vec<Run> {
         return vec![Run {
             points: sub.points,
             widths: sub.widths,
+            colors: sub.colors,
             closed: sub.closed,
         }];
     };
@@ -103,11 +165,12 @@ fn stroke_runs(mut sub: SubPath, style: &StrokeStyle) -> Vec<Run> {
         if let Some(w) = &mut sub.widths {
             w.push(w[0]);
         }
+        if let Some(c) = &mut sub.colors {
+            c.push(c[0]);
+        }
     }
-    let lengths = sub
-        .widths
-        .as_ref()
-        .map(|_| cumulative_arclength(&sub.points));
+    let lengths =
+        (sub.widths.is_some() || sub.colors.is_some()).then(|| cumulative_arclength(&sub.points));
     dash_runs(&sub.points, pattern, *phase)
         .into_iter()
         .map(|(start, mut points)| {
@@ -121,19 +184,32 @@ fn stroke_runs(mut sub: SubPath, style: &StrokeStyle) -> Vec<Run> {
                 .widths
                 .as_deref()
                 .zip(lengths.as_deref())
-                .map(|(w, l)| widths_along(&points, start, l, w));
+                .map(|(w, l)| values_along(&points, start, l, w, lerp));
+            let colors = sub
+                .colors
+                .as_deref()
+                .zip(lengths.as_deref())
+                .map(|(c, l)| values_along(&points, start, l, c, lerp_color));
             Run {
                 points,
                 widths,
+                colors,
                 closed,
             }
         })
         .collect()
 }
 
-/// Widths for a dash run that starts `start` along a contour whose points
-/// sit at `lengths` with `widths`. A run past the closed seam wraps.
-fn widths_along(points: &[[f32; 2]], start: f32, lengths: &[f32], widths: &[f32]) -> Vec<f32> {
+/// Per-point values for a dash run that starts `start` along a contour
+/// whose points sit at `lengths` with `values`. A run past the closed seam
+/// wraps.
+fn values_along<T: Copy>(
+    points: &[[f32; 2]],
+    start: f32,
+    lengths: &[f32],
+    values: &[T],
+    mix: fn(T, T, f32) -> T,
+) -> Vec<T> {
     let total = lengths.last().copied().unwrap_or(0.0);
     let mut at = start;
     let mut out = Vec::with_capacity(points.len());
@@ -146,18 +222,18 @@ fn widths_along(points: &[[f32; 2]], start: f32, lengths: &[f32], widths: &[f32]
         } else {
             at
         };
-        out.push(width_at(lengths, widths, s));
+        out.push(value_at(lengths, values, s, mix));
     }
     out
 }
 
-fn width_at(lengths: &[f32], widths: &[f32], at: f32) -> f32 {
+fn value_at<T: Copy>(lengths: &[f32], values: &[T], at: f32, mix: fn(T, T, f32) -> T) -> T {
     let i = lengths.partition_point(|&l| l < at);
     if i == 0 {
-        return widths[0];
+        return values[0];
     }
     if i >= lengths.len() {
-        return widths[widths.len() - 1];
+        return values[values.len() - 1];
     }
     let span = lengths[i] - lengths[i - 1];
     let t = if span > EPS {
@@ -165,82 +241,155 @@ fn width_at(lengths: &[f32], widths: &[f32], at: f32) -> f32 {
     } else {
         1.0
     };
-    lerp(widths[i - 1], widths[i], t)
+    mix(values[i - 1], values[i], t)
 }
 
-/// Flatten segment by segment so every point knows its width. `None` when
-/// the widths do not match the path's on-curve vertices.
-fn tipped_subpaths(path: &BezPath, widths: &[f32], tolerance: f64) -> Option<Vec<SubPath>> {
+/// Flatten segment by segment so every point knows its tip. `None` when the
+/// tips do not match the path's on-curve vertices.
+fn tipped_subpaths(path: &BezPath, tips: Tipping, tolerance: f64) -> Option<Vec<SubPath>> {
     let vertices = path
         .elements()
         .iter()
         .filter(|el| !matches!(el, PathEl::ClosePath))
         .count();
-    if vertices != widths.len() || widths.iter().any(|w| !w.is_finite() || *w < 0.0) {
+    if vertices != tips.widths.len() || tips.widths.iter().any(|w| !w.is_finite() || *w < 0.0) {
         return None;
     }
+    let tinted = tips.colors.is_some();
+    let ease = tips.ease;
     let mut out = Vec::new();
     let mut points: Vec<[f32; 2]> = Vec::new();
-    let mut ws: Vec<f32> = Vec::new();
-    let mut next = widths.iter().copied();
+    let mut ts: Vec<Tip> = Vec::new();
+    let mut next = (0..vertices).map(|i| tips.tip(i));
     let mut last = kurbo::Point::ZERO;
-    let mut last_w = 0.0;
-    let mut contour_start = (kurbo::Point::ZERO, 0.0);
-    let flush = |out: &mut Vec<SubPath>, points: &mut Vec<_>, ws: &mut Vec<_>, closed| {
+    let mut last_t: Tip = [0.0; 5];
+    let mut contour_start = (kurbo::Point::ZERO, last_t);
+    let flush = |out: &mut Vec<SubPath>, points: &mut Vec<_>, ts: &mut Vec<Tip>, closed| {
         if !points.is_empty() {
+            let ts = std::mem::take(ts);
             out.push(SubPath {
                 points: std::mem::take(points),
                 closed,
-                widths: Some(std::mem::take(ws)),
+                widths: Some(ts.iter().map(|t| t[0]).collect()),
+                colors: tinted.then(|| ts.iter().map(|t| [t[1], t[2], t[3], t[4]]).collect()),
             });
         }
     };
     for el in path.elements() {
-        let end = match *el {
+        let (seg, end_t) = match *el {
             PathEl::MoveTo(p) => {
-                flush(&mut out, &mut points, &mut ws, false);
+                flush(&mut out, &mut points, &mut ts, false);
                 last = p;
-                last_w = next.next()?;
-                contour_start = (p, last_w);
+                last_t = next.next()?;
+                contour_start = (p, last_t);
                 points.push(from_kurbo(p));
-                ws.push(last_w);
+                ts.push(last_t);
                 continue;
             }
             PathEl::ClosePath => {
+                // The implicit closing edge blends back to the first tip.
+                let (start, start_t) = contour_start;
+                if !points.is_empty() && (start - last).hypot() > EPS as f64 {
+                    push_tipped_segment(
+                        &mut points,
+                        &mut ts,
+                        (last, last_t),
+                        PathEl::LineTo(start),
+                        start_t,
+                        ease,
+                        tolerance,
+                    );
+                }
                 if points.len() >= 2 && dist2(points[0], *points.last().unwrap()) < EPS * EPS {
                     points.pop();
-                    ws.pop();
+                    ts.pop();
                 }
-                flush(&mut out, &mut points, &mut ws, true);
-                (last, last_w) = contour_start;
+                flush(&mut out, &mut points, &mut ts, true);
+                (last, last_t) = contour_start;
                 continue;
             }
-            PathEl::LineTo(p) | PathEl::QuadTo(_, p) | PathEl::CurveTo(_, _, p) => p,
+            PathEl::LineTo(_) | PathEl::QuadTo(..) | PathEl::CurveTo(..) => (*el, next.next()?),
         };
-        let end_w = next.next()?;
         if points.is_empty() {
             points.push(from_kurbo(last));
-            ws.push(last_w);
+            ts.push(last_t);
         }
-        let mut piece = BezPath::new();
-        piece.move_to(last);
-        piece.push(*el);
-        let flat = flatten(&piece, tolerance);
-        let lengths = cumulative_arclength(&flat);
-        let total = lengths.last().copied().unwrap_or(0.0);
-        for (p, l) in flat.iter().zip(&lengths).skip(1) {
-            points.push(*p);
-            ws.push(if total > EPS {
-                lerp(last_w, end_w, l / total)
-            } else {
-                end_w
-            });
-        }
-        last = end;
-        last_w = end_w;
+        push_tipped_segment(
+            &mut points,
+            &mut ts,
+            (last, last_t),
+            seg,
+            end_t,
+            ease,
+            tolerance,
+        );
+        last = match seg {
+            PathEl::LineTo(p) | PathEl::QuadTo(_, p) | PathEl::CurveTo(_, _, p) => p,
+            _ => last,
+        };
+        last_t = end_t;
     }
-    flush(&mut out, &mut points, &mut ws, false);
+    flush(&mut out, &mut points, &mut ts, false);
     Some(out)
+}
+
+/// Flatten one segment from `from` onto `points`, blending its tips from
+/// the start tip to `end` by arc length. A smooth blend that changes the
+/// tip is sampled at least [`SMOOTH_TIP_STEPS`] times, and densely enough
+/// that the sampled width strays from the smoothstep by at most `tolerance`
+/// (its second derivative peaks at `6 * dw`, so the chord error is at most
+/// `6 * dw / (8 * steps^2)`).
+fn push_tipped_segment(
+    points: &mut Vec<[f32; 2]>,
+    ts: &mut Vec<Tip>,
+    from: (kurbo::Point, Tip),
+    seg: PathEl,
+    end: Tip,
+    ease: TipEase,
+    tolerance: f64,
+) {
+    let (start, start_t) = from;
+    let mut piece = BezPath::new();
+    piece.move_to(start);
+    piece.push(seg);
+    let mut flat = flatten(&piece, tolerance);
+    let dw = (end[0] - start_t[0]).abs() as f64;
+    let recolors = (1..5).any(|i| (end[i] - start_t[i]).abs() > 1e-3);
+    if ease == TipEase::Smooth && (dw > tolerance || recolors) {
+        let steps = (0.75 * dw / tolerance.max(1e-3)).sqrt().ceil() as usize;
+        flat = densify(&flat, steps.clamp(SMOOTH_TIP_STEPS, 256));
+    }
+    let lengths = cumulative_arclength(&flat);
+    let total = lengths.last().copied().unwrap_or(0.0);
+    for (p, l) in flat.iter().zip(&lengths).skip(1) {
+        points.push(*p);
+        ts.push(if total > EPS {
+            lerp_tip(start_t, end, ease.weight(l / total))
+        } else {
+            end
+        });
+    }
+}
+
+/// `flat` resampled so no chord is longer than `1 / steps` of its length.
+fn densify(flat: &[[f32; 2]], steps: usize) -> Vec<[f32; 2]> {
+    let total = cumulative_arclength(flat).last().copied().unwrap_or(0.0);
+    if flat.len() < 2 || total <= EPS {
+        return flat.to_vec();
+    }
+    let max = total / steps as f32;
+    let mut out = vec![flat[0]];
+    for pair in flat.windows(2) {
+        let n = (dist(pair[0], pair[1]) / max).ceil().max(1.0) as usize;
+        for i in 1..=n {
+            let t = i as f32 / n as f32;
+            out.push([
+                lerp(pair[0][0], pair[1][0], t),
+                lerp(pair[0][1], pair[1][1], t),
+            ]);
+        }
+    }
+    out
 }
 
 fn subpaths(path: &BezPath, tolerance: f64) -> Vec<SubPath> {
@@ -288,6 +437,7 @@ fn finish_chunk(chunk: &BezPath, tolerance: f64) -> SubPath {
         points,
         closed,
         widths: None,
+        colors: None,
     }
 }
 
@@ -308,22 +458,67 @@ pub fn stroke_outline_tipped(
     path: &BezPath,
     style: &StrokeStyle,
     widths: &[f32],
+    ease: TipEase,
     tolerance: f64,
 ) -> BezPath {
-    stroke_outline_with(path, style, Some(widths), tolerance)
+    let tips = Tipping::new(widths, None, ease);
+    stroke_outline_with(path, style, Some(tips), tolerance)
+}
+
+/// The stroked region of [`stroke_mesh_tinted`] cut into the quads between
+/// its consecutive sections, each with its two end colors, for an SVG export
+/// that fills every piece with a two-stop linear gradient. Together the
+/// pieces tile [`stroke_outline_tipped`]'s region; the gradient runs from
+/// `from` to `to`, the centers of the piece's two sections, which is how the
+/// mesh interpolates across the same quad. Empty when the colors or widths
+/// do not match the path's vertices.
+pub fn stroke_pieces_tinted(
+    path: &BezPath,
+    style: &StrokeStyle,
+    widths: &[f32],
+    colors: &[[f32; 4]],
+    ease: TipEase,
+    tolerance: f64,
+) -> Vec<TintPiece> {
+    if !valid_style(style) || (tolerance <= 0.0 || !tolerance.is_finite()) {
+        return Vec::new();
+    }
+    let tips = Tipping::new(widths, Some(colors), ease);
+    if tips.colors.is_none() {
+        return Vec::new();
+    }
+    let Some(subs) = tipped_subpaths(path, tips, tolerance) else {
+        return Vec::new();
+    };
+    let mut pieces = Vec::new();
+    for sub in subs {
+        for run in stroke_runs(sub, style) {
+            if let Some(colors) = &run.colors {
+                pieces.extend(run_pieces(
+                    &run.points,
+                    run.widths.as_deref(),
+                    colors,
+                    style,
+                    run.closed,
+                    tolerance,
+                ));
+            }
+        }
+    }
+    pieces
 }
 
 fn stroke_outline_with(
     path: &BezPath,
     style: &StrokeStyle,
-    widths: Option<&[f32]>,
+    tips: Option<Tipping>,
     tolerance: f64,
 ) -> BezPath {
     if !valid_style(style) || (tolerance <= 0.0 || !tolerance.is_finite()) {
         return BezPath::new();
     }
     let mut outline = BezPath::new();
-    for sub in stroke_subpaths(path, widths, tolerance) {
+    for sub in stroke_subpaths(path, tips, tolerance) {
         for run in stroke_runs(sub, style) {
             for ring in run_outline(
                 &run.points,
@@ -517,17 +712,111 @@ mod tests {
             dash: None,
         };
         let widths = [2.0, 2.0, 10.0];
-        let mesh = stroke_mesh_tipped(&path, &style, &widths, 0.0, 0.05);
+        let mesh = stroke_mesh_tipped(&path, &style, &widths, TipEase::Linear, 0.0, 0.05);
         assert!(inside(&mesh, [25.0, 0.8]), "narrow first span has ink");
         assert!(!inside(&mesh, [25.0, 3.0]), "first span stays 2 wide");
         assert!(inside(&mesh, [98.0, 4.5]), "second span widens to 10");
-        let outline = stroke_outline_tipped(&path, &style, &widths, 0.05);
+        let outline = stroke_outline_tipped(&path, &style, &widths, TipEase::Linear, 0.05);
         let bounds = kurbo::Shape::bounding_box(&outline);
         assert!((bounds.y1 - 5.0).abs() < 0.01, "outline peaks at 10 wide");
         assert!(bounds.y0 > -5.01);
 
-        let mismatched = stroke_mesh_tipped(&path, &style, &[2.0], 0.0, 0.05);
+        let mismatched = stroke_mesh_tipped(&path, &style, &[2.0], TipEase::Linear, 0.0, 0.05);
         assert!(inside(&mismatched, [25.0, 4.5]), "wrong count is uniform");
+    }
+
+    /// Half-width of an outline over a horizontal stroke at `x`.
+    fn outline_half(outline: &BezPath, x: f32) -> f32 {
+        let contours = flatten_contours(outline, 0.01);
+        let (mut lo, mut hi) = (0.0_f32, 20.0_f32);
+        for _ in 0..40 {
+            let mid = (lo + hi) * 0.5;
+            if crate::point_in_polygon(&contours, [x, mid]) {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        lo
+    }
+
+    #[test]
+    fn smooth_tips_blend_by_smoothstep_with_zero_slope_at_vertices() {
+        let mut path = line_path(0.0, 0.0, 100.0, 0.0);
+        path.line_to((200.0, 0.0));
+        let style = StrokeStyle {
+            width: 20.0,
+            cap: Cap::Butt,
+            join: Join::Miter,
+            taper: None,
+            dash: None,
+        };
+        let widths = [2.0, 20.0, 2.0];
+        let smooth = stroke_outline_tipped(&path, &style, &widths, TipEase::Smooth, 0.01);
+        let linear = stroke_outline_tipped(&path, &style, &widths, TipEase::Linear, 0.01);
+        for x in [25.0_f32, 50.0, 90.0, 150.0] {
+            let s = 1.0 - (x - 100.0).abs() / 100.0;
+            let want = (2.0 + 18.0 * TipEase::Smooth.weight(s)) * 0.5;
+            assert!((outline_half(&smooth, x) - want).abs() < 0.05, "x={x}");
+            let want = (2.0 + 18.0 * s) * 0.5;
+            assert!((outline_half(&linear, x) - want).abs() < 0.05, "x={x}");
+        }
+        let at = outline_half(&smooth, 100.0);
+        for x in [99.0_f32, 101.0] {
+            assert!(
+                (at - outline_half(&smooth, x)).abs() < 0.01,
+                "flat at the vertex"
+            );
+        }
+
+        let mut closed = line_path(0.0, 0.0, 100.0, 0.0);
+        closed.line_to((100.0, 100.0));
+        closed.close_path();
+        let ring = stroke_outline_tipped(&closed, &style, &[2.0, 20.0, 2.0], TipEase::Smooth, 0.01);
+        assert!(
+            !ring.elements().is_empty(),
+            "closed tipped strokes still stroke"
+        );
+    }
+
+    #[test]
+    fn tinted_pieces_blend_colors_like_widths() {
+        let mut path = line_path(0.0, 0.0, 100.0, 0.0);
+        path.line_to((200.0, 0.0));
+        let style = StrokeStyle {
+            width: 10.0,
+            cap: Cap::Butt,
+            join: Join::Miter,
+            taper: None,
+            dash: None,
+        };
+        let widths = [10.0; 3];
+        let colors = [
+            [0.0, 0.0, 0.0, 1.0],
+            [1.0, 0.0, 0.0, 1.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ];
+        let mesh = stroke_mesh_tinted(&path, &style, &widths, &colors, TipEase::Linear, 1.0, 0.05);
+        assert_eq!(mesh.colors.len(), mesh.vertices.len());
+        let untinted = stroke_mesh_tipped(&path, &style, &widths, TipEase::Linear, 1.0, 0.05);
+        assert!(untinted.colors.is_empty());
+        let red_at = |ease: TipEase, x: f32| {
+            let pieces = stroke_pieces_tinted(&path, &style, &widths, &colors, ease, 0.05);
+            let piece = pieces
+                .iter()
+                .find(|p| crate::point_in_polygon(&vec![p.quad.to_vec()], [x, 1.0]))
+                .expect("a piece covers the point");
+            let d = [piece.to[0] - piece.from[0], piece.to[1] - piece.from[1]];
+            let q = [x - piece.from[0], 1.0 - piece.from[1]];
+            let t = ((q[0] * d[0] + q[1] * d[1]) / (d[0] * d[0] + d[1] * d[1])).clamp(0.0, 1.0);
+            lerp(piece.colors[0][0], piece.colors[1][0], t)
+        };
+        assert!((red_at(TipEase::Linear, 50.0) - 0.5).abs() < 1e-3);
+        assert!((red_at(TipEase::Linear, 150.0) - 0.5).abs() < 1e-3);
+        assert!((red_at(TipEase::Smooth, 25.0) - TipEase::Smooth.weight(0.25)).abs() < 3e-3);
+        let mismatched =
+            stroke_pieces_tinted(&path, &style, &widths, &colors[..2], TipEase::Linear, 0.05);
+        assert!(mismatched.is_empty());
     }
 
     #[test]

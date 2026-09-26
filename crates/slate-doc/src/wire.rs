@@ -614,37 +614,79 @@ pub fn filleted_vertex_path_each(
     chamfer: bool,
     closed: bool,
 ) -> Vec<PathCmd> {
-    let mut pts: Vec<([f32; 2], f32)> = pts
-        .iter()
-        .enumerate()
-        .map(|(i, p)| {
+    filleted_vertex_path_params_each(pts, amounts, chamfer, closed, false)
+        .into_iter()
+        .map(|(cmd, _)| cmd)
+        .collect()
+}
+
+/// [`filleted_vertex_path_params_each`] with one amount at every vertex.
+pub fn filleted_vertex_path_params(
+    pts: &[[f32; 2]],
+    amount: f32,
+    chamfer: bool,
+    closed: bool,
+    split_arcs: bool,
+) -> Vec<(PathCmd, f32)> {
+    filleted_vertex_path_params_each(pts, &vec![amount; pts.len()], chamfer, closed, split_arcs)
+}
+
+/// [`filleted_vertex_path_each`] with the polyline parameter of each command's end
+/// point: vertex `i` of `pts` is `i`; a point on the edge leaving vertex `i`
+/// is `i` plus its fraction of that edge (a closed polyline's closing edge
+/// runs from `n - 1` to `n`). With `split_arcs`, every fillet arc has an even
+/// number of cubic pieces, so the middle of the arc is a joint at its
+/// corner's own parameter: a per-vertex value keeps its value there.
+pub fn filleted_vertex_path_params_each(
+    pts: &[[f32; 2]],
+    amounts: &[f32],
+    chamfer: bool,
+    closed: bool,
+    split_arcs: bool,
+) -> Vec<(PathCmd, f32)> {
+    let total = pts.len();
+    let mut kept: Vec<([f32; 2], f32, f32)> = Vec::with_capacity(total);
+    for (i, p) in pts.iter().enumerate() {
+        if kept
+            .last()
+            .is_none_or(|(q, _, _)| len(sub(*p, *q)) >= VERTEX_EPS)
+        {
             let a = amounts.get(i).copied().unwrap_or(0.0);
-            (*p, if a.is_finite() { a.max(0.0) } else { 0.0 })
-        })
-        .collect();
-    pts.dedup_by(|a, b| len(sub(a.0, b.0)) < VERTEX_EPS);
-    if closed && pts.len() > 1 && len(sub(pts[0].0, pts[pts.len() - 1].0)) < VERTEX_EPS {
-        pts.pop();
+            kept.push((*p, i as f32, if a.is_finite() { a.max(0.0) } else { 0.0 }));
+        }
     }
-    let (pts, amounts): (Vec<[f32; 2]>, Vec<f32>) = pts.into_iter().unzip();
-    let n = pts.len();
-    let Some(&first) = pts.first() else {
+    if closed && kept.len() > 1 && len(sub(kept[0].0, kept[kept.len() - 1].0)) < VERTEX_EPS {
+        kept.pop();
+    }
+    let n = kept.len();
+    let Some(&(first, first_param, _)) = kept.first() else {
         return Vec::new();
+    };
+    let pts: Vec<[f32; 2]> = kept.iter().map(|(p, _, _)| *p).collect();
+    let amounts: Vec<f32> = kept.iter().map(|(_, _, a)| *a).collect();
+    // Parameter of vertex `i`; `n` is the closing vertex (the first again).
+    let param = |i: usize| {
+        if i >= n {
+            total as f32
+        } else {
+            kept[i].1
+        }
     };
     let mut cmds = Vec::new();
     let mut cursor: Option<[f32; 2]> = None;
-    let mut start = first;
-    let mut line_to = |cmds: &mut Vec<PathCmd>, cursor: &mut Option<[f32; 2]>, p: [f32; 2]| {
-        match *cursor {
-            None => {
-                cmds.push(PathCmd::Move(p));
-                start = p;
+    let mut start = (first, first_param);
+    let mut line_to =
+        |cmds: &mut Vec<(PathCmd, f32)>, cursor: &mut Option<[f32; 2]>, p: [f32; 2], at: f32| {
+            match *cursor {
+                None => {
+                    cmds.push((PathCmd::Move(p), at));
+                    start = (p, at);
+                }
+                Some(c) if len(sub(p, c)) < VERTEX_EPS => return,
+                Some(_) => cmds.push((PathCmd::Line(p), at)),
             }
-            Some(c) if len(sub(p, c)) < VERTEX_EPS => return,
-            Some(_) => cmds.push(PathCmd::Line(p)),
-        }
-        *cursor = Some(p);
-    };
+            *cursor = Some(p);
+        };
     for i in 0..n {
         let cur = pts[i];
         let interior = n >= 3 && (closed || (i > 0 && i + 1 < n));
@@ -653,30 +695,46 @@ pub fn filleted_vertex_path_each(
             .flatten();
         let amount = amounts[i];
         let Some(vc) = corner.filter(|_| amount > 0.0) else {
-            line_to(&mut cmds, &mut cursor, cur);
+            line_to(&mut cmds, &mut cursor, cur, param(i));
             continue;
         };
         let t = (amount * vc.per_amount).min(vc.max_tangent);
         if t.is_nan() || t <= VERTEX_EPS {
-            line_to(&mut cmds, &mut cursor, cur);
+            line_to(&mut cmds, &mut cursor, cur, param(i));
             continue;
         }
         let a = add(cur, scale(vc.u_in, -t));
         let b = add(cur, scale(vc.u_out, t));
-        line_to(&mut cmds, &mut cursor, a);
+        // `a` sits on the edge arriving at `i`, `b` on the edge leaving it.
+        let prev = (i + n - 1) % n;
+        let (arrive_from, arrive_to) = if i == 0 {
+            (param(n - 1), param(n))
+        } else {
+            (param(prev), param(i))
+        };
+        let in_len = len(sub(cur, pts[prev])).max(VERTEX_EPS);
+        let out_len = len(sub(pts[(i + 1) % n], cur)).max(VERTEX_EPS);
+        let leave_to = param(i + 1);
+        let at_a = arrive_to - (arrive_to - arrive_from) * (t / in_len);
+        let at_b = param(i) + (leave_to - param(i)) * (t / out_len);
+        line_to(&mut cmds, &mut cursor, a, at_a);
         if chamfer {
-            line_to(&mut cmds, &mut cursor, b);
+            line_to(&mut cmds, &mut cursor, b, at_b);
             continue;
         }
         // Circular arc from `a` to `b`, one cubic per quarter turn at most.
         let radius = t / vc.per_amount;
         let side = (vc.u_in[0] * vc.u_out[1] - vc.u_in[1] * vc.u_out[0]).signum();
         let center = add(a, scale([-vc.u_in[1] * side, vc.u_in[0] * side], radius));
-        let pieces = (vc.turn / std::f32::consts::FRAC_PI_2).ceil().max(1.0);
+        let mut pieces = (vc.turn / std::f32::consts::FRAC_PI_2).ceil().max(1.0);
+        if split_arcs && pieces as usize % 2 == 1 {
+            pieces += 1.0;
+        }
         let sweep = vc.turn / pieces;
         let handle = 4.0 / 3.0 * (sweep * 0.25).tan() * radius;
         let from = sub(a, center);
         let mut p0 = a;
+        let half = pieces * 0.5;
         for k in 1..=pieces as usize {
             let angle = side * sweep * k as f32;
             let p1 = if k == pieces as usize {
@@ -686,19 +744,33 @@ pub fn filleted_vertex_path_each(
             };
             let tan0 = rotate_vec(vc.u_in, side * sweep * (k - 1) as f32);
             let tan1 = rotate_vec(vc.u_in, angle);
-            cmds.push(PathCmd::Cubic {
-                c1: add(p0, scale(tan0, handle)),
-                c2: add(p1, scale(tan1, -handle)),
-                to: p1,
-            });
+            let f = k as f32;
+            let at = if f <= half {
+                at_a + (param(i) - at_a) * (f / half)
+            } else {
+                param(i) + (at_b - param(i)) * ((f - half) / half)
+            };
+            cmds.push((
+                PathCmd::Cubic {
+                    c1: add(p0, scale(tan0, handle)),
+                    c2: add(p1, scale(tan1, -handle)),
+                    to: p1,
+                },
+                at,
+            ));
             p0 = p1;
         }
         cursor = Some(b);
     }
     if closed {
         if let Some(c) = cursor {
-            if len(sub(start, c)) >= VERTEX_EPS {
-                cmds.push(PathCmd::Line(start));
+            if len(sub(start.0, c)) >= VERTEX_EPS {
+                let at = if start.1 == first_param {
+                    total as f32
+                } else {
+                    start.1
+                };
+                cmds.push((PathCmd::Line(start.0), at));
             }
         }
     }

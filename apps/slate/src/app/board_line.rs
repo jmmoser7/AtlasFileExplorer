@@ -11,12 +11,13 @@
 //! Ctrl+J joins endpoints, hit-testing is stroke-precise. Selected simple
 //! lines expose endpoint grips instead of a resize bbox (P1.curve.grips).
 
-use eframe::egui::{self, Color32, Pos2, Vec2};
+use eframe::egui::{self, Pos2, Vec2};
 use slate_doc::scene::{NodeKind, PathSeg, ShapeKind, ShapeNode, WorldRect};
 use slate_doc::{Node, NodeId, StrokeTool};
 use vector_ink::kurbo::PathEl;
 
 use super::board::{BoardTool, BoardXf};
+use super::path_edit_overlay::{hit_anchor, paint_path_edit_anchors};
 use super::{board_path, SlateApp};
 
 /// Feel constants pinned by the contract's Feel-constants table (P0.6:
@@ -25,8 +26,10 @@ pub mod draft_tokens {
     /// `draft.drag_threshold` — screen px of pointer travel before release
     /// that flips the click grammar to the drag grammar (D04).
     pub const DRAG_THRESHOLD: f32 = 4.0;
-    /// `draft.grip_radius` — endpoint grip hit radius in screen px (D13).
-    pub const GRIP_RADIUS: f32 = 6.0;
+    /// `draft.grip_radius` — endpoint grip hit radius in screen px (D13):
+    /// the shared path-edit pick radius.
+    #[allow(dead_code)]
+    pub const GRIP_RADIUS: f32 = super::super::path_edit_overlay::HIT_PX;
     /// `draft.readout_alpha` — opacity of the dock length/angle readout (D09).
     pub const READOUT_ALPHA: f32 = 0.85;
     /// `draft.osnap_radius` — object-snap radius in screen px (D06).
@@ -49,16 +52,20 @@ pub struct LineDraft {
     pub dir_lock: Option<Vec2>,
     /// Typed length entry ("100", "12.5") — digits set length (D08).
     pub entry: String,
+    /// The tool width the first point was placed with; the end takes the
+    /// width at commit (P1.curve.vertex-style).
+    pub start_width: f32,
 }
 
 impl LineDraft {
-    fn new(start: Pos2) -> Self {
+    fn new(start: Pos2, start_width: f32) -> Self {
         LineDraft {
             start,
             raw_start: start,
             cursor: None,
             dir_lock: None,
             entry: String::new(),
+            start_width,
         }
     }
 }
@@ -139,7 +146,8 @@ impl SlateApp {
             return false;
         }
         let p = self.line_resolve_first(world);
-        let mut draft = LineDraft::new(p);
+        let width = self.stroke_for_tool(StrokeTool::Line).width;
+        let mut draft = LineDraft::new(p, width);
         draft.raw_start = world;
         self.line_draft = Some(draft);
         true
@@ -266,19 +274,36 @@ impl SlateApp {
         if (end - d.start).length() < 0.01 {
             return false;
         }
-        self.commit_line(d.start, end);
+        self.commit_line_from(d.start, end, Some(d.start_width));
         true
+    }
+
+    #[cfg(test)]
+    pub(crate) fn commit_line(&mut self, a: Pos2, b: Pos2) -> Option<NodeId> {
+        self.commit_line_from(a, b, None)
     }
 
     /// Build and journal the parametric 2-point line node: stroke from the
     /// Line tool's own memory (P1.curve.create-style) or Square-cap draft
-    /// defaults; one-shot tool returns to Select (D02/D11).
-    pub(crate) fn commit_line(&mut self, a: Pos2, b: Pos2) -> Option<NodeId> {
-        let (rect, data) = board_path::points_to_path_data(&[a, b], false);
+    /// defaults; one-shot tool returns to Select (D02/D11). `start_width`
+    /// is the width `a` was placed with; `b` takes the tool's width now, and
+    /// the tool keeps that width for the next line.
+    fn commit_line_from(&mut self, a: Pos2, b: Pos2, start_width: Option<f32>) -> Option<NodeId> {
+        let (rect, mut data) = board_path::points_to_path_data(&[a, b], false);
         if data.is_empty() {
             return None;
         }
-        let stroke = self.stroke_for_tool(StrokeTool::Line);
+        let mut stroke = self.stroke_for_tool(StrokeTool::Line);
+        let remembered = stroke.width;
+        if let Some(start) = start_width {
+            slate_doc::vertex_style::set_grip_widths(
+                &mut data,
+                &mut stroke,
+                rect,
+                0.0,
+                &[start, remembered],
+            );
+        }
         let opacity = self.opacity_for_tool(StrokeTool::Line);
         let node = self.doc_mut().scene.build_node(
             rect,
@@ -304,6 +329,10 @@ impl SlateApp {
         self.set_board_tool(BoardTool::Select);
         if let Some(n) = self.doc().scene.node(node.id).cloned() {
             self.note_tool_style(StrokeTool::Line, &n);
+        }
+        if stroke.width != remembered {
+            self.set_tool_width(StrokeTool::Line, remembered);
+            self.flush_create_style_to_doc();
         }
         self.push_history(
             atlas_commands::CommandId("board.tool.line"),
@@ -344,16 +373,11 @@ impl SlateApp {
     // ----- endpoint grips on committed lines (D13/D14) ----------------------------
 
     /// Which endpoint grip (0 = start, 1 = end) of the selected simple line
-    /// sits under `screen`, within `draft.grip_radius`.
+    /// sits under `screen`, by the shared path-edit pick rule.
     pub(crate) fn line_grip_at(&self, id: NodeId, screen: Pos2, xf: &BoardXf) -> Option<u8> {
         let node = self.doc().scene.node(id)?;
         let (a, b) = line_endpoints(node)?;
-        for (i, p) in [a, b].into_iter().enumerate() {
-            if (xf.w2s(p) - screen).length() <= draft_tokens::GRIP_RADIUS + 2.0 {
-                return Some(i as u8);
-            }
-        }
-        None
+        hit_anchor(&self.line_grip_overlay(id, [a, b], xf), screen).map(|i| i as u8)
     }
 
     /// Live grip drag: move one endpoint (ortho relative to the fixed
@@ -373,12 +397,20 @@ impl SlateApp {
         } else {
             (fixed, moved)
         };
-        let (rect, data) = board_path::points_to_path_data(&[na, nb], false);
+        let (rect, mut data) = board_path::points_to_path_data(&[na, nb], false);
         let rect = WorldRect::new(rect.x, rect.y, rect.w.max(0.01), rect.h.max(0.01));
         if let Some(n) = self.doc_mut().scene.node_mut(id) {
+            let (old_rect, old_rot) = (n.rect, n.rotation_deg);
             n.rect = rect;
             n.rotation_deg = 0.0;
             if let NodeKind::Shape(s) = &mut n.kind {
+                if let Some(old) = s.path.clone() {
+                    slate_doc::vertex_style::keep_tips(
+                        (&old, old_rect, old_rot),
+                        (&mut data, rect, 0.0),
+                        &mut s.stroke,
+                    );
+                }
                 s.path = Some(data.into());
             }
         }
@@ -429,29 +461,22 @@ impl SlateApp {
         bez.line_to(vector_ink::kurbo::Point::new(c.x as f64, c.y as f64));
         let stroke = self.stroke_for_tool(StrokeTool::Line);
         let ink = super::board::rgba32(stroke.color);
-        board_path::paint_path_preview(painter, xf, ink, stroke.width, &bez);
+        let mesh = board_path::draft_stroke_ink(&bez, false, &[d.start_width, stroke.width], xf.z);
+        board_path::paint_preview_ink(painter, xf, ink, mesh);
     }
 
-    /// Endpoint grips on the selected simple line — no resize bbox (D13).
-    pub(crate) fn paint_line_grips(
-        &self,
-        painter: &egui::Painter,
-        xf: &BoardXf,
-        node: &Node,
-        tint: Color32,
-    ) {
+    /// Endpoint grips on the selected simple line — no resize bbox (D13) —
+    /// painted by the shared path-edit overlay.
+    pub(crate) fn paint_line_grips(&self, painter: &egui::Painter, xf: &BoardXf, node: &Node) {
         let Some((a, b)) = line_endpoints(node) else {
             return;
         };
-        for p in [a, b] {
-            let s = xf.w2s(p);
-            painter.circle_filled(s, draft_tokens::GRIP_RADIUS - 1.5, Color32::WHITE);
-            painter.circle_stroke(
-                s,
-                draft_tokens::GRIP_RADIUS - 1.5,
-                egui::Stroke::new(1.5_f32, tint),
-            );
-        }
+        paint_path_edit_anchors(
+            painter,
+            None,
+            &self.line_grip_overlay(node.id, [a, b], xf),
+            self.path_edit_colors(),
+        );
     }
 
     /// Small padlock glyph beside the pointer while Tab-locked (D10).

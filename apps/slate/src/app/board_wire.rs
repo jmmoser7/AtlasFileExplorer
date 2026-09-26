@@ -300,6 +300,7 @@ impl SlateApp {
             serde_json::to_string(&super::board_properties::PropertyRequest {
                 ids,
                 edits: vec![super::board_properties::Property::WireRouting(routing)],
+                points: Vec::new(),
             })
             .ok()
             .as_deref(),

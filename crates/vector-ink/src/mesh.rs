@@ -5,7 +5,7 @@ use crate::geom::{
     add, cumulative_arclength, dot, half_width_at, normalize, perp_left, scale, sub, EPS,
     MITER_LIMIT,
 };
-use crate::{Cap, InkMesh, InkVertex, Join, StrokeStyle};
+use crate::{Cap, InkMesh, InkVertex, Join, StrokeStyle, TintPiece};
 
 #[derive(Clone, Copy)]
 struct Edge {
@@ -18,6 +18,8 @@ struct Edge {
 struct Station {
     edges: [Edge; 2],
     half: f32,
+    /// Index of the input point this section belongs to (its color).
+    at: usize,
 }
 
 fn section(pos: [f32; 2], normal: [f32; 2], half: f32) -> Station {
@@ -27,6 +29,14 @@ fn section(pos: [f32; 2], normal: [f32; 2], half: f32) -> Station {
             normal: scale(normal, sign),
         }),
         half,
+        at: 0,
+    }
+}
+
+/// Tag the sections pushed since `from` with input point `at`.
+fn tag(out: &mut [Station], from: usize, at: usize) {
+    for station in &mut out[from..] {
+        station.at = at;
     }
 }
 
@@ -72,6 +82,7 @@ fn stations(
         for i in 0..n {
             let incoming = normalize(sub(points[i], points[(i + n - 1) % n])).unwrap_or([1.0, 0.0]);
             let outgoing = normalize(sub(points[(i + 1) % n], points[i])).unwrap_or(incoming);
+            let from = out.len();
             push_join(
                 &mut out,
                 points[i],
@@ -82,6 +93,7 @@ fn stations(
                 tolerance,
                 feather,
             );
+            tag(&mut out, from, i);
         }
     } else {
         let first = normalize(sub(points[1], points[0])).unwrap_or([1.0, 0.0]);
@@ -100,6 +112,7 @@ fn stations(
         for i in 1..n - 1 {
             let incoming = normalize(sub(points[i], points[i - 1])).unwrap_or(first);
             let outgoing = normalize(sub(points[i + 1], points[i])).unwrap_or(incoming);
+            let from = out.len();
             push_join(
                 &mut out,
                 points[i],
@@ -110,8 +123,10 @@ fn stations(
                 tolerance,
                 feather,
             );
+            tag(&mut out, from, i);
         }
         let last = normalize(sub(points[n - 1], points[n - 2])).unwrap_or(first);
+        let from = out.len();
         push_cap(
             &mut out,
             points[n - 1],
@@ -122,14 +137,17 @@ fn stations(
             tolerance,
             feather,
         );
+        tag(&mut out, from, n - 1);
     }
     out
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn tessellate_run(
     mesh: &mut InkMesh,
     points: &[[f32; 2]],
     widths: Option<&[f32]>,
+    colors: Option<&[[f32; 4]]>,
     style: &StrokeStyle,
     feather: f32,
     closed: bool,
@@ -138,7 +156,9 @@ pub(crate) fn tessellate_run(
     if style.width <= 0.0 || !feather.is_finite() || feather < 0.0 {
         return;
     }
-    let (points, widths) = limit_chords(points, widths, chord_limit(tolerance, feather));
+    let colors = colors.filter(|c| c.len() == points.len());
+    let (points, widths, colors) =
+        limit_chords(points, widths, colors, chord_limit(tolerance, feather));
     let mut sections = stations(
         &points,
         widths.as_deref(),
@@ -153,7 +173,47 @@ pub(crate) fn tessellate_run(
     if closed {
         sections.push(sections[0]);
     }
-    emit_strip(mesh, &sections, feather);
+    emit_strip(mesh, &sections, feather, colors.as_deref());
+}
+
+/// The quads between consecutive sections of one run, with the colors of
+/// their two sections (`stroke_pieces_tinted`).
+pub(crate) fn run_pieces(
+    points: &[[f32; 2]],
+    widths: Option<&[f32]>,
+    colors: &[[f32; 4]],
+    style: &StrokeStyle,
+    closed: bool,
+    tolerance: f64,
+) -> Vec<TintPiece> {
+    if colors.len() != points.len() {
+        return Vec::new();
+    }
+    let mut sections = stations(points, widths, style, closed, tolerance, 0.0);
+    if sections.len() < 2 {
+        return Vec::new();
+    }
+    if closed {
+        sections.push(sections[0]);
+    }
+    let center = |s: &Station| scale(add(s.edges[0].pos, s.edges[1].pos), 0.5);
+    sections
+        .windows(2)
+        .map(|pair| {
+            let (a, b) = (&pair[0], &pair[1]);
+            TintPiece {
+                quad: [
+                    a.edges[0].pos,
+                    b.edges[0].pos,
+                    b.edges[1].pos,
+                    a.edges[1].pos,
+                ],
+                from: center(a),
+                to: center(b),
+                colors: [colors[a.at], colors[b.at]],
+            }
+        })
+        .collect()
 }
 
 /// Export consumes the same boundary rails as the mesh, including caps/joins.
@@ -232,7 +292,7 @@ fn push_cap(
                         normal: outward,
                     }
                 });
-                out.push(Station { edges, half });
+                out.push(Station { edges, half, at: 0 });
             }
         }
     }
@@ -290,22 +350,28 @@ fn chord_limit(tolerance: f64, feather: f32) -> f32 {
     (tolerance as f32 * 8.0).max(0.75)
 }
 
-/// Split long chords; per-point widths are interpolated onto the new points.
+type Chords = (Vec<[f32; 2]>, Option<Vec<f32>>, Option<Vec<[f32; 4]>>);
+
+/// Split long chords; per-point widths and colors are interpolated onto the
+/// new points.
 fn limit_chords(
     points: &[[f32; 2]],
     widths: Option<&[f32]>,
+    colors: Option<&[[f32; 4]]>,
     max_len: f32,
-) -> (Vec<[f32; 2]>, Option<Vec<f32>>) {
+) -> Chords {
     let widths = widths.filter(|w| w.len() == points.len());
+    let colors = colors.filter(|c| c.len() == points.len());
     if points.len() < 2 || !max_len.is_finite() {
-        return (points.to_vec(), widths.map(<[f32]>::to_vec));
+        return (
+            points.to_vec(),
+            widths.map(<[f32]>::to_vec),
+            colors.map(<[[f32; 4]]>::to_vec),
+        );
     }
     let mut out = Vec::with_capacity(points.len());
-    let mut out_widths = widths.map(|w| {
-        let mut v = Vec::with_capacity(w.len());
-        v.push(w[0]);
-        v
-    });
+    let mut out_widths = widths.map(|w| vec![w[0]]);
+    let mut out_colors = colors.map(|c| vec![c[0]]);
     out.push(points[0]);
     for (k, pair) in points.windows(2).enumerate() {
         let (a, b) = (pair[0], pair[1]);
@@ -319,17 +385,25 @@ fn limit_chords(
                 if let (Some(ow), Some(w)) = (out_widths.as_mut(), widths) {
                     ow.push(w[k] + (w[k + 1] - w[k]) * t);
                 }
+                if let (Some(oc), Some(c)) = (out_colors.as_mut(), colors) {
+                    oc.push(std::array::from_fn(|j| {
+                        c[k][j] + (c[k + 1][j] - c[k][j]) * t
+                    }));
+                }
             }
         }
         out.push(b);
         if let (Some(ow), Some(w)) = (out_widths.as_mut(), widths) {
             ow.push(w[k + 1]);
         }
+        if let (Some(oc), Some(c)) = (out_colors.as_mut(), colors) {
+            oc.push(c[k + 1]);
+        }
     }
-    (out, out_widths)
+    (out, out_widths, out_colors)
 }
 
-fn emit_strip(mesh: &mut InkMesh, stations: &[Station], feather: f32) {
+fn emit_strip(mesh: &mut InkMesh, stations: &[Station], feather: f32, colors: Option<&[[f32; 4]]>) {
     // One fringe quad per station. Extra alpha rings overlap along the stroke
     // and stack into bright seams.
     for (i, station) in stations.iter().enumerate() {
@@ -346,6 +420,9 @@ fn emit_strip(mesh: &mut InkMesh, stations: &[Station], feather: f32) {
                 pos: add(edge.pos, scale(edge.normal, amount)),
                 alpha,
             });
+            if let Some(colors) = colors {
+                mesh.colors.push(colors[station.at]);
+            }
         }
         if i > 0 {
             let prev = base - 4;

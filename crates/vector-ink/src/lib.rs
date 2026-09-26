@@ -56,18 +56,56 @@ pub struct StrokeStyle {
     pub dash: Option<(Vec<f32>, f32)>,
 }
 
+/// How a tipped stroke blends between its vertex tips along each segment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TipEase {
+    /// Straight by arc length (polylines, lines, arcs).
+    #[default]
+    Linear,
+    /// Smoothstep by arc length: zero slope at every vertex, so a curve's
+    /// width has no chines where segments meet.
+    Smooth,
+}
+
+impl TipEase {
+    /// Blend weight at arc-length fraction `s` (0 at the segment's start
+    /// tip, 1 at its end tip).
+    pub fn weight(self, s: f32) -> f32 {
+        let s = s.clamp(0.0, 1.0);
+        match self {
+            TipEase::Linear => s,
+            TipEase::Smooth => s * s * (3.0 - 2.0 * s),
+        }
+    }
+}
+
 /// Renderer-agnostic AA mesh. Positions match input path space.
 /// `alpha`: `1.0` = solid core, `0.0` = outer feather edge.
 #[derive(Debug, Clone, Default)]
 pub struct InkMesh {
     pub vertices: Vec<InkVertex>,
     pub indices: Vec<u32>,
+    /// Straight (unpremultiplied) RGBA in `0..=1`, one per vertex, for a
+    /// stroke with per-vertex colors ([`stroke_mesh_tinted`]); empty when
+    /// the stroke has one color.
+    pub colors: Vec<[f32; 4]>,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct InkVertex {
     pub pos: [f32; 2],
     pub alpha: f32,
+}
+
+/// One quad of a tinted stroke ([`stroke_pieces_tinted`]): its corners in
+/// order, and the straight RGBA colors (`0..=1`) at `from` and `to`, between
+/// which the color blends linearly.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TintPiece {
+    pub quad: [[f32; 2]; 4],
+    pub from: [f32; 2],
+    pub to: [f32; 2],
+    pub colors: [[f32; 4]; 2],
 }
 
 pub use blur::gaussian_blur_rgba;
@@ -89,8 +127,8 @@ pub use stamp::{
     tipped_contours, StampImage, StampStyle, TipPoint,
 };
 pub use stroke::{
-    stroke_bounds, stroke_mesh, stroke_mesh_tipped, stroke_outline, stroke_outline_tipped,
-    stroke_ribbon,
+    stroke_bounds, stroke_mesh, stroke_mesh_tinted, stroke_mesh_tipped, stroke_outline,
+    stroke_outline_tipped, stroke_pieces_tinted, stroke_ribbon,
 };
 pub use tile::{
     composite_stroke, composite_strokes, composite_strokes_tiled, ink_bounds, source_over_region,

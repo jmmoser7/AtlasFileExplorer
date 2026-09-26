@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use slate_doc::media::{ext_badge, media_kind, web_safe_video, MediaKind};
 use slate_doc::scene::{
     connector_drawn_stroke, web_origin, ConnectorNode, Corner, Dash, DockStripNode, Node, NodeId,
@@ -1710,8 +1712,16 @@ fn render_vector_path_d(
         WidthProfile::Uniform => None,
         WidthProfile::Taper { start, end } => Some((start, end)),
     };
-    let widths = path.and_then(|p| p.vector_widths(&shape.stroke));
-    match (taper, widths) {
+    let tipped = path.and_then(|p| {
+        slate_doc::geom::tipped_stroke(
+            p,
+            &shape.stroke,
+            WorldRect::new(0.0, 0.0, w, h),
+            0.0,
+            shape.corner,
+        )
+    });
+    match (taper, tipped) {
         (None, None) => {
             push_path_open(html, d, &fill_css, fill_rule);
             if shape.stroke.is_none() {
@@ -1742,7 +1752,7 @@ fn render_vector_path_d(
             }
             html.push_str("></path>");
         }
-        (taper, widths) => {
+        (taper, tipped) => {
             if shape.fill.is_some() && closed_for_taper {
                 push_path_open(html, d, &fill_css, fill_rule);
                 html.push_str(" stroke=\"none\"></path>");
@@ -1752,7 +1762,6 @@ fn render_vector_path_d(
                     html.push_str("</svg></div>\n");
                     return;
                 };
-                let bez = path_data_to_bez(path, w, h);
                 let style = StrokeStyle {
                     width: ink_width,
                     cap: ink_cap(shape.stroke.cap),
@@ -1760,25 +1769,36 @@ fn render_vector_path_d(
                     taper,
                     dash: stroke_dash_ink(&shape.stroke),
                 };
-                let outline = match &widths {
-                    Some(widths) => vector_ink::stroke_outline_tipped(&bez, &style, widths, 0.25),
-                    None => vector_ink::stroke_outline(&bez, &style, 0.25),
-                };
-                let outline_d = bezpath_to_d(&outline);
-                if !outline_d.is_empty() {
-                    push_path_open(
-                        html,
-                        &outline_d,
-                        &shape.stroke.color.css(),
-                        PathFillRule::NonZero,
-                    );
-                    html.push_str(" stroke=\"none\"");
-                    if let Some(id) = &filter_id {
-                        html.push_str(" filter=\"url(#");
-                        html.push_str(id);
-                        html.push_str(")\"");
+                if let Some((t, colors)) = tipped
+                    .as_ref()
+                    .and_then(|t| t.colors.as_ref().map(|c| (t, c)))
+                {
+                    push_tinted_stroke(html, node.id.0, t, colors, &style, filter_id.as_deref());
+                } else {
+                    let outline = match &tipped {
+                        Some(t) => vector_ink::stroke_outline_tipped(
+                            &t.bez, &style, &t.widths, t.ease, 0.25,
+                        ),
+                        None => {
+                            vector_ink::stroke_outline(&path_data_to_bez(path, w, h), &style, 0.25)
+                        }
+                    };
+                    let outline_d = bezpath_to_d(&outline);
+                    if !outline_d.is_empty() {
+                        push_path_open(
+                            html,
+                            &outline_d,
+                            &shape.stroke.color.css(),
+                            PathFillRule::NonZero,
+                        );
+                        html.push_str(" stroke=\"none\"");
+                        if let Some(id) = &filter_id {
+                            html.push_str(" filter=\"url(#");
+                            html.push_str(id);
+                            html.push_str(")\"");
+                        }
+                        html.push_str("></path>");
                     }
-                    html.push_str("></path>");
                 }
             }
         }
@@ -1824,6 +1844,125 @@ fn push_shape_text_overlay(
     html.push_str(";white-space:pre-wrap;line-height:1.3;\">");
     html.push_str(&escape_html(&text.body));
     html.push_str("</div></div>\n");
+}
+
+/// A stroke with per-vertex colors (P1.curve.vertex-style), written as the
+/// quads between its sections (`vector_ink::stroke_pieces_tinted`): a
+/// piece whose two ends differ in color fills with a two-stop
+/// `linearGradient` between its section centers, which is the board mesh's
+/// own interpolation; equal ends share one solid path per color. Adjacent
+/// filled paths can leave hairline antialiasing seams in a browser, so an
+/// opaque stroke first fills its whole outline beneath the pieces.
+fn push_tinted_stroke(
+    html: &mut String,
+    node_id: u64,
+    tipped: &slate_doc::geom::TippedStroke,
+    colors: &[[f32; 4]],
+    style: &StrokeStyle,
+    filter_id: Option<&str>,
+) {
+    let pieces = vector_ink::stroke_pieces_tinted(
+        &tipped.bez,
+        style,
+        &tipped.widths,
+        colors,
+        tipped.ease,
+        0.25,
+    );
+    if pieces.is_empty() {
+        return;
+    }
+    let bytes = |c: [f32; 4]| Rgba(c.map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8));
+    let quad_path = |bez: &mut BezPath, quad: &[[f32; 2]; 4]| {
+        bez.move_to((quad[0][0] as f64, quad[0][1] as f64));
+        for p in &quad[1..] {
+            bez.line_to((p[0] as f64, p[1] as f64));
+        }
+        bez.close_path();
+    };
+    let fmt2 = |v: f32| format!("{v:.2}");
+    let mut solids: BTreeMap<[u8; 4], BezPath> = BTreeMap::new();
+    let mut defs = String::new();
+    let mut graded = String::new();
+    for (k, piece) in pieces.iter().enumerate() {
+        let [a, b] = piece.colors.map(bytes);
+        let (dx, dy) = (piece.to[0] - piece.from[0], piece.to[1] - piece.from[1]);
+        if a == b || dx * dx + dy * dy < 1e-4 {
+            let mean = bytes(std::array::from_fn(|i| {
+                (piece.colors[0][i] + piece.colors[1][i]) * 0.5
+            }));
+            quad_path(solids.entry(mean.0).or_default(), &piece.quad);
+            continue;
+        }
+        let id = format!("vc{node_id}-{k}");
+        defs.push_str(&format!(
+            "<linearGradient id=\"{id}\" gradientUnits=\"userSpaceOnUse\" x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\">",
+            fmt2(piece.from[0]),
+            fmt2(piece.from[1]),
+            fmt2(piece.to[0]),
+            fmt2(piece.to[1]),
+        ));
+        for (offset, c) in [(0, a), (1, b)] {
+            let [r, g, bl, al] = c.0;
+            defs.push_str(&format!(
+                "<stop offset=\"{offset}\" stop-color=\"rgb({r},{g},{bl})\" stop-opacity=\"{:.3}\"/>",
+                al as f32 / 255.0
+            ));
+        }
+        defs.push_str("</linearGradient>");
+        let mut bez = BezPath::new();
+        quad_path(&mut bez, &piece.quad);
+        push_path_open(
+            &mut graded,
+            &bezpath_to_d(&bez),
+            &format!("url(#{id})"),
+            PathFillRule::NonZero,
+        );
+        graded.push_str(" stroke=\"none\"></path>");
+    }
+    if !defs.is_empty() {
+        html.push_str("<defs>");
+        html.push_str(&defs);
+        html.push_str("</defs>");
+    }
+    html.push_str("<g");
+    if let Some(id) = filter_id {
+        html.push_str(" filter=\"url(#");
+        html.push_str(id);
+        html.push_str(")\"");
+    }
+    html.push('>');
+    if colors.iter().all(|c| c[3] >= 1.0) {
+        let outline = vector_ink::stroke_outline_tipped(
+            &tipped.bez,
+            style,
+            &tipped.widths,
+            tipped.ease,
+            0.25,
+        );
+        let n = colors.len() as f32;
+        let mean = bytes(std::array::from_fn(|i| {
+            colors.iter().map(|c| c[i]).sum::<f32>() / n
+        }));
+        push_path_open(
+            html,
+            &bezpath_to_d(&outline),
+            &mean.css(),
+            PathFillRule::NonZero,
+        );
+        html.push_str(" stroke=\"none\"></path>");
+    }
+    for (rgba, bez) in &solids {
+        push_path_open(
+            html,
+            &bezpath_to_d(bez),
+            &Rgba(*rgba).css(),
+            PathFillRule::NonZero,
+        );
+        html.push_str(" stroke=\"none\"></path>");
+    }
+    html.push_str(&graded);
+    html.push_str("</g>");
 }
 
 fn push_path_open(html: &mut String, d: &str, fill: &str, rule: PathFillRule) {
