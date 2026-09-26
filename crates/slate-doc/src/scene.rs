@@ -479,6 +479,23 @@ impl Corner {
             },
         )
     }
+    /// [`Self::effective`] for vertex corners (line polylines): a percentage
+    /// still resolves against the box, but an absolute amount is kept as
+    /// authored because each vertex clamps it to its own adjacent edges.
+    pub fn vertex_effective(self, width: f32, height: f32) -> (bool, f32) {
+        let (chamfer, percent, value) = self.parameters();
+        if percent {
+            return self.effective(width, height);
+        }
+        (
+            chamfer,
+            if value.is_finite() {
+                value.max(0.0)
+            } else {
+                0.0
+            },
+        )
+    }
     pub fn with_mode(self, percent: bool, width: f32, height: f32) -> Self {
         let (chamfer, amount) = self.effective(width, height);
         let limit = width.min(height).max(0.0) * 0.5;
@@ -4947,7 +4964,19 @@ pub fn edit_corner(
 
 /// Effective chamfer flag and world radius for layout, export, and grips.
 pub fn resolved_corner_effective(node: &Node, path: Option<&std::path::Path>) -> (bool, f32) {
-    resolved_corner(node, path).effective(node.rect.w, node.rect.h)
+    let corner = resolved_corner(node, path);
+    let (w, h) = (node.rect.w, node.rect.h);
+    match &node.kind {
+        NodeKind::Shape(s)
+            if s.shape == ShapeKind::Path
+                && s.path
+                    .as_ref()
+                    .is_some_and(|p| crate::geom::path_is_line_polyline(p)) =>
+        {
+            corner.vertex_effective(w, h)
+        }
+        _ => corner.effective(w, h),
+    }
 }
 
 /// World-unit radius after [`resolved_corner_effective`] (fillet amount only).

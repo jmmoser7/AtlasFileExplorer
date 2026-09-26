@@ -541,11 +541,11 @@
           "decided": "2026-07-23"
         },
         "D13": {
-          "behavior": "Endpoint grips only, no resize bbox (P1.curve.grips), single or multi-select. Homogeneous multi-line: grips on every line, no per-line outline, no group bbox handles. Grip drag moves that endpoint; ortho/snap apply.",
+          "behavior": "Endpoint grips only, no resize bbox (P1.curve.grips), single or multi-select. Homogeneous multi-line: grips on every line, no per-line outline, no group bbox handles. Grip drag moves that endpoint; ortho/snap apply. Endpoint grips are painted and picked by the shared path-edit overlay (square grips, 7 screen px pick; user, 26 September 2026).",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-07-24"
+          "decided": "2026-09-26"
         },
         "D14": {
           "behavior": "Grip drag re-journals as a point edit; Direct Selection (A) sees the same two anchors; Ctrl+J joins endpoints with other curves (P1.curve.style).",
@@ -3153,18 +3153,18 @@
           "decided": "2026-09-17"
         },
         "D13": {
-          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers. P1.node.corner-grip on a single selected line-only polyline rides the leaving side of the first turning vertex.",
+          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers. P1.node.corner-grip on a single selected line-only polyline rides the leaving side of the first turning vertex. P1.curve.grips (user, 26 September 2026): a single selected polyline, open or closed, shows its corner vertices and end points through the shared path-edit overlay; dragging one moves only that point as one journaled Patch, snapped through resolve_point_snap.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-09-26"
         },
         "D14": {
-          "behavior": "Open line-only polyline: Stroke button plus Corners (one fillet radius or chamfer cut at every interior vertex, clamped per vertex; 0 = sharp). Closed line-only polyline: Fill and Stroke plus Corners. The Corners slider reads the stored amount after commit, and Fillet / Chamfer are both selectable. Board and artifact share path_data_to_world_bez_with_fillet, which draws chamfers as straight cuts.",
+          "behavior": "Open line-only polyline: Stroke button plus Corners (one fillet radius or chamfer cut at every interior vertex, clamped per vertex; 0 = sharp). Closed line-only polyline: Fill and Stroke plus Corners. The Corners slider reads the stored amount after commit, and Fillet / Chamfer are both selectable. Board and artifact share path_data_to_world_bez_with_fillet, which draws chamfers as straight cuts. A vertex edit keeps the authored radius or cut and re-applies it to the new corners, clamped per corner by the adjacent edges and never by the bounding box (user, 26 September 2026; Corner::vertex_effective).",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-09-26"
         },
         "D15": {
           "behavior": "P1.shape.properties: no dimensions, independent opacity, or unsupported geometry controls in the strip.",
@@ -3413,11 +3413,11 @@
           "decided": "2026-09-17"
         },
         "D13": {
-          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry. P1.curve.grips (user, 26 September 2026): a single selected arc shows start, end and through point through the shared path-edit overlay; dragging one rebuilds the circular arc through the three points as one journaled Patch, snapped through resolve_point_snap. Proposal: the through grip sits at the middle of the sweep, so it re-centers after a drag.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-26"
         },
         "D14": {
           "behavior": "Circular Stroke button with applicable stroke details; shared desktop sampling. No dimension stringers (D08). Exact R/sweep requires durable arc parameters; current generic paths use honest path measurements.",
@@ -3543,11 +3543,11 @@
           "decided": "2026-09-25"
         },
         "D13": {
-          "behavior": "Decision: automatic edit affordance, not Direct Select only. A single selected open curve with a cubic segment shows every anchor and every non-zero handle with the Select tool (extends P1.curve.grips). Each anchor or handle drag is one journaled Patch. P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers.",
+          "behavior": "Decision: automatic edit affordance, not Direct Select only. A single selected Bézier curve, open or closed, shows every anchor and every non-zero handle with the Select tool (extends P1.curve.grips; an arc shows its start, end and through point instead). Each anchor or handle drag is one journaled Patch. P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-09-26"
         },
         "D14": {
           "behavior": "Circular Stroke and, only for a closed path, Fill. Handle editing is on-canvas through the selected-span grips (D13) and Direct Selection. No rectangle Corners or dimensional toolbar fields. Color editors use the shared desktop sampler.",

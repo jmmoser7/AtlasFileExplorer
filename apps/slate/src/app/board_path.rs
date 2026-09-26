@@ -567,7 +567,7 @@ fn path_content_hash(
     hash_f32(&mut h, rect.h);
     hash_f32(&mut h, rotation_deg);
     if slate_doc::geom::path_is_line_polyline(path) {
-        let (chamfer, amount) = corner.effective(rect.w, rect.h);
+        let (chamfer, amount) = corner.vertex_effective(rect.w, rect.h);
         chamfer.hash(&mut h);
         hash_f32(&mut h, amount);
     }
@@ -590,7 +590,7 @@ fn path_fill_hash(
     hash_f32(&mut h, rect.h);
     hash_f32(&mut h, rotation_deg);
     if slate_doc::geom::path_is_line_polyline(path) {
-        let (chamfer, amount) = corner.effective(rect.w, rect.h);
+        let (chamfer, amount) = corner.vertex_effective(rect.w, rect.h);
         chamfer.hash(&mut h);
         hash_f32(&mut h, amount);
     }
@@ -1246,29 +1246,72 @@ pub fn default_curve_stroke(color: Rgba) -> Stroke {
     }
 }
 
-pub fn arc_through_three_points(p0: Pos2, p1: Pos2, p2: Pos2) -> BezPath {
-    let mut path = BezPath::new();
-    let a = to_k(p0);
-    let b = to_k(p1);
-    let c = to_k(p2);
+/// Center and radius of the circle through three points; `None` when they
+/// are collinear or coincide.
+fn circle_through(a: Point, b: Point, c: Point) -> Option<(Point, f64)> {
     let d = 2.0_f64 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
     if d.abs() < 1e-4 {
-        path.move_to(a);
-        path.line_to(c);
-        return path;
+        return None;
     }
     let a2 = a.x * a.x + a.y * a.y;
     let b2 = b.x * b.x + b.y * b.y;
     let c2 = c.x * c.x + c.y * c.y;
     let ux = (a2 * (b.y - c.y) + b2 * (c.y - a.y) + c2 * (a.y - b.y)) / d;
     let uy = (a2 * (c.x - b.x) + b2 * (a.x - c.x) + c2 * (b.x - a.x)) / d;
-    let center = Point::new(ux, uy);
     let r = ((a.x - ux).powi(2) + (a.y - uy).powi(2)).sqrt();
-    if r < 1e-6 {
+    (r >= 1e-6).then_some((Point::new(ux, uy), r))
+}
+
+/// How far a committed curve may stray from one circle and still read as an
+/// arc: the Arc tool's own cubic fitting tolerance (0.25) plus float slack.
+const ARC_FIT_TOLERANCE: f64 = 0.3;
+
+/// Start, through point and end of `bez` when it is one open circular arc
+/// made of cubic spans, as the Arc tool writes it. The through point is the
+/// middle of the sweep. Geometry, not tool provenance, decides.
+pub fn arc_grip_points(bez: &BezPath) -> Option<[Pos2; 3]> {
+    let els = bez.elements();
+    let moves = els
+        .iter()
+        .filter(|el| matches!(el, PathEl::MoveTo(_)))
+        .count();
+    if moves != 1 || els.iter().any(|el| matches!(el, PathEl::ClosePath)) {
+        return None;
+    }
+    let spans: Vec<kurbo::CubicBez> = bez
+        .segments()
+        .map(|seg| match seg {
+            kurbo::PathSeg::Cubic(c) => Some(c),
+            _ => None,
+        })
+        .collect::<Option<_>>()?;
+    let n = spans.len();
+    let (start, end) = (spans.first()?.p0, spans.last()?.p3);
+    let mid = if n.is_multiple_of(2) {
+        spans[n / 2].p0
+    } else {
+        kurbo::ParamCurve::eval(&spans[n / 2], 0.5)
+    };
+    let (center, r) = circle_through(start, mid, end)?;
+    let on_circle = spans.iter().all(|span| {
+        [0.25, 0.5, 0.75, 1.0].iter().all(|t| {
+            ((kurbo::ParamCurve::eval(span, *t) - center).hypot() - r).abs() <= ARC_FIT_TOLERANCE
+        })
+    });
+    on_circle.then(|| [from_k(start), from_k(mid), from_k(end)])
+}
+
+pub fn arc_through_three_points(p0: Pos2, p1: Pos2, p2: Pos2) -> BezPath {
+    let mut path = BezPath::new();
+    let a = to_k(p0);
+    let b = to_k(p1);
+    let c = to_k(p2);
+    let Some((center, r)) = circle_through(a, b, c) else {
         path.move_to(a);
         path.line_to(c);
         return path;
-    }
+    };
+    let (ux, uy) = (center.x, center.y);
     let ang = |p: Point| (p.y - uy).atan2(p.x - ux);
     let a0 = ang(a);
     let a1 = ang(b);

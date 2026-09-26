@@ -11,12 +11,13 @@
 //! Ctrl+J joins endpoints, hit-testing is stroke-precise. Selected simple
 //! lines expose endpoint grips instead of a resize bbox (P1.curve.grips).
 
-use eframe::egui::{self, Color32, Pos2, Vec2};
+use eframe::egui::{self, Pos2, Vec2};
 use slate_doc::scene::{NodeKind, PathSeg, ShapeKind, ShapeNode, WorldRect};
 use slate_doc::{Node, NodeId, StrokeTool};
 use vector_ink::kurbo::PathEl;
 
 use super::board::{BoardTool, BoardXf};
+use super::path_edit_overlay::{hit_anchor, paint_path_edit_anchors};
 use super::{board_path, SlateApp};
 
 /// Feel constants pinned by the contract's Feel-constants table (P0.6:
@@ -25,8 +26,10 @@ pub mod draft_tokens {
     /// `draft.drag_threshold` — screen px of pointer travel before release
     /// that flips the click grammar to the drag grammar (D04).
     pub const DRAG_THRESHOLD: f32 = 4.0;
-    /// `draft.grip_radius` — endpoint grip hit radius in screen px (D13).
-    pub const GRIP_RADIUS: f32 = 6.0;
+    /// `draft.grip_radius` — endpoint grip hit radius in screen px (D13):
+    /// the shared path-edit pick radius.
+    #[allow(dead_code)]
+    pub const GRIP_RADIUS: f32 = super::super::path_edit_overlay::HIT_PX;
     /// `draft.readout_alpha` — opacity of the dock length/angle readout (D09).
     pub const READOUT_ALPHA: f32 = 0.85;
     /// `draft.osnap_radius` — object-snap radius in screen px (D06).
@@ -343,16 +346,11 @@ impl SlateApp {
     // ----- endpoint grips on committed lines (D13/D14) ----------------------------
 
     /// Which endpoint grip (0 = start, 1 = end) of the selected simple line
-    /// sits under `screen`, within `draft.grip_radius`.
+    /// sits under `screen`, by the shared path-edit pick rule.
     pub(crate) fn line_grip_at(&self, id: NodeId, screen: Pos2, xf: &BoardXf) -> Option<u8> {
         let node = self.doc().scene.node(id)?;
         let (a, b) = line_endpoints(node)?;
-        for (i, p) in [a, b].into_iter().enumerate() {
-            if (xf.w2s(p) - screen).length() <= draft_tokens::GRIP_RADIUS + 2.0 {
-                return Some(i as u8);
-            }
-        }
-        None
+        hit_anchor(&self.line_grip_overlay(id, [a, b], xf), screen).map(|i| i as u8)
     }
 
     /// Live grip drag: move one endpoint (ortho relative to the fixed
@@ -431,26 +429,18 @@ impl SlateApp {
         board_path::paint_path_preview(painter, xf, ink, stroke.width, &bez);
     }
 
-    /// Endpoint grips on the selected simple line — no resize bbox (D13).
-    pub(crate) fn paint_line_grips(
-        &self,
-        painter: &egui::Painter,
-        xf: &BoardXf,
-        node: &Node,
-        tint: Color32,
-    ) {
+    /// Endpoint grips on the selected simple line — no resize bbox (D13) —
+    /// painted by the shared path-edit overlay.
+    pub(crate) fn paint_line_grips(&self, painter: &egui::Painter, xf: &BoardXf, node: &Node) {
         let Some((a, b)) = line_endpoints(node) else {
             return;
         };
-        for p in [a, b] {
-            let s = xf.w2s(p);
-            painter.circle_filled(s, draft_tokens::GRIP_RADIUS - 1.5, Color32::WHITE);
-            painter.circle_stroke(
-                s,
-                draft_tokens::GRIP_RADIUS - 1.5,
-                egui::Stroke::new(1.5_f32, tint),
-            );
-        }
+        paint_path_edit_anchors(
+            painter,
+            None,
+            &self.line_grip_overlay(node.id, [a, b], xf),
+            self.path_edit_colors(),
+        );
     }
 
     /// Small padlock glyph beside the pointer while Tab-locked (D10).

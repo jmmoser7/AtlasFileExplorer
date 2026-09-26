@@ -42,9 +42,7 @@ impl SlateApp {
     }
 
     pub(crate) fn node_fillet_radius_world(&self, node: &Node) -> f32 {
-        self.node_resolved_corner(node)
-            .effective(node.rect.w, node.rect.h)
-            .1
+        slate_doc::scene::resolved_corner_effective(node, self.node_item_path(node)).1
     }
 
     #[cfg(test)]
@@ -69,9 +67,7 @@ impl SlateApp {
         if shift {
             radius = radius.round();
         }
-        let before_radius = slate_doc::scene::resolved_corner(before, path)
-            .effective(before.rect.w, before.rect.h)
-            .1;
+        let before_radius = slate_doc::scene::resolved_corner_effective(before, path).1;
         if (radius - before_radius).abs() < 1e-4 {
             *node = before.clone();
             return;
@@ -325,6 +321,9 @@ impl SlateApp {
                 }
                 return;
             }
+        }
+        if self.curve_grip_under(p) {
+            return;
         }
         let Some((node, hit)) = self.transform_hit_at(p) else {
             return;

@@ -321,6 +321,16 @@ Enter, then click.
   open curves become ribbons of their stroke weight (1 world-unit hairline
   if the stroke is none). Frames, portals, text, and images are skipped.
 
+### Curve grips with the Select tool (`board.curve.grips`)
+
+- One selected line, polyline (open or closed), arc, or Bézier curve shows
+  its grips through the same path-edit overlay: line end points, polyline
+  vertices, arc start / through / end, Bézier anchors and handles. Dragging
+  one moves only that point through object snaps; one drag = one journaled
+  Patch. A filleted polyline keeps its authored radius on the new corners.
+- Click a grip to pick that point; Shift+click adds or removes it. Picked
+  points paint filled and are never journaled.
+
 ### Scene flags (hidden / locked / groups)
 
 The semantics matrix in `docs/keymap/specs/scene-flags.md` is normative:

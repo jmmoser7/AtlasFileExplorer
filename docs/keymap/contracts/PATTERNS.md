@@ -287,13 +287,33 @@ is searchable.
   Applies to **every** selected simple line in the selection, not only when
   one line is selected; homogeneous multi-line selections skip group bbox
   handles. Direct Selection (A) additionally exposes tangent handles and
-  segments. A **single** selected open curve with a cubic segment (a
-  Bézier span, and by geometry an arc or fitted pen stroke) shows every
-  anchor and every non-zero tangent handle with the Select tool. One drag
-  is one journaled Patch; Alt on a handle breaks symmetry. Picking follows
-  the shared path-edit hit rule: only painted grips, nearest within 7
-  screen px, an anchor wins a tie. Implementation:
-  `board_direct::bezier_grip_target`, `path_edit_overlay::path_edit_hit`.
+  segments. **Parametric editing** (user, 26 September 2026: "reselecting
+  the element after creation should expose its control handles"): a
+  **single** selected single-contour path shows its grips with the Select
+  tool. A polyline, open or closed, shows every corner vertex and end
+  point; a circular arc shows start, end and through point; a Bézier span
+  or fitted pen stroke shows every anchor and every non-zero tangent
+  handle. Lines keep their endpoint grips. Every grip is painted and picked
+  by the shared path-edit overlay: only painted grips, nearest within 7
+  screen px, an anchor wins a tie. One drag moves one point and is one
+  journaled Patch; Alt on a handle breaks symmetry. The dragged point goes
+  through `resolve_point_snap` (P1.node.osnap). An arc is rebuilt through
+  its three points. A filleted or chamfered polyline keeps its authored
+  radius and re-applies it to the new corners, clamped per corner by the
+  adjacent edges, never by the bounding box (user, 26 September 2026).
+  Arcs are recognized by geometry, not tool provenance: an open path of
+  cubic spans that stays on one circle within the Arc tool's fitting
+  tolerance. **Proposals:** the through grip is the middle of the sweep,
+  so it re-centers after a drag (the AutoCAD arc midpoint grip). A dragged
+  vertex lands on the snapped cursor rather than keeping its press offset.
+  Grips win over resize at a bounding-box corner; the visible fillet grip
+  wins over a vertex grip. A click or press on a grip picks that point
+  (Shift toggles) into a per-curve picked-point set, painted filled and
+  never journaled, which later per-vertex properties will read. Index
+  order: path vertex order; start, through, end for an arc.
+  Implementation: `board_direct::curve_grip_target`,
+  `board_path::arc_grip_points`, `path_edit_overlay::path_edit_hit`,
+  `slate_doc::scene::Corner::vertex_effective`.
 - **P1.curve.pick** click and marquee selection hit the **stroke** (via
   `vector_ink::hit_stroke` + `pick.slop` ≈ 4 screen px), never the node's
   axis-aligned rect alone. Closed unfilled paths included — each contour

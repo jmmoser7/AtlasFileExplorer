@@ -137,7 +137,7 @@ pub fn path_data_to_world_bez_with_fillet(
     corner: Corner,
 ) -> BezPath {
     if path_is_line_polyline(path) {
-        let (chamfer, amount) = corner.effective(rect.w, rect.h);
+        let (chamfer, amount) = corner.vertex_effective(rect.w, rect.h);
         if amount > 0.0 {
             let world = polyline_world_points(path, rect, rotation_deg);
             if world.len() >= 3 || (world.len() >= 2 && !path.closed) {
@@ -458,6 +458,49 @@ mod tests {
         let flat = flatten_contours(&bez, 0.25);
         assert_eq!(flat.len(), 1);
         assert!(flat[0].len() >= 3);
+    }
+
+    /// A polyline fillet keeps its authored radius when its box gets thin:
+    /// only each corner's own edges clamp it, never half the short side.
+    #[test]
+    fn line_polyline_fillet_clamps_per_corner_not_to_the_box() {
+        let path = PathData {
+            start: [0.0, 0.0],
+            segs: vec![
+                PathSeg::Line { to: [0.5, 0.0] },
+                PathSeg::Line { to: [1.0, 1.0] },
+            ],
+            closed: false,
+            ..Default::default()
+        };
+        let rect = WorldRect::new(0.0, 0.0, 400.0, 40.0);
+        let world = [[0.0, 0.0], [200.0, 0.0], [400.0, 40.0]];
+        for (corner, chamfer) in [
+            (Corner::Rounded { radius: 30.0 }, false),
+            (Corner::Chamfer { cut: 30.0 }, true),
+        ] {
+            let drawn = path_data_to_world_bez_with_fillet(&path, rect, 0.0, corner);
+            let want = path_cmds_to_bez_world(&crate::wire::filleted_vertex_path(
+                &world, 30.0, chamfer, false,
+            ));
+            assert_eq!(drawn.elements().len(), want.elements().len(), "{corner:?}");
+            for (a, b) in drawn.elements().iter().zip(want.elements()) {
+                assert!(
+                    format!("{a:?}") == format!("{b:?}")
+                        || a.end_point()
+                            .zip(b.end_point())
+                            .is_some_and(|(p, q)| (p - q).hypot() < 1e-3),
+                    "{corner:?}: {a:?} != {b:?}"
+                );
+            }
+        }
+        // Percent amounts stay relative to the box, as before.
+        let percent = Corner::RoundedPercent { percent: 50.0 };
+        let drawn = path_data_to_world_bez_with_fillet(&path, rect, 0.0, percent);
+        let want = path_cmds_to_bez_world(&crate::wire::filleted_vertex_path(
+            &world, 10.0, false, false,
+        ));
+        assert_eq!(format!("{drawn:?}"), format!("{want:?}"));
     }
 
     /// Finite, inside `bounds`, no zero-length edge, never doubling back, and

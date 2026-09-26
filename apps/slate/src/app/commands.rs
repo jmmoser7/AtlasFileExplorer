@@ -1790,6 +1790,19 @@ pub static SPECS: &[CommandSpec] = &[
         &["anchors", "direct selection", "path edit"],
     ),
     spec(
+        "board.curve.grips",
+        "Board",
+        "Edit curve points",
+        "Select one line, polyline, arc, or Bézier curve (Select tool): drag \
+         a vertex, end point, arc through point, or handle to move only that \
+         point (object snaps apply; one undo step per drag). Click a point to \
+         pick it; Shift+click adds or removes it",
+        None,
+        Repeat::Never,
+        BOARD,
+        &["grips", "vertices", "control points", "edit points"],
+    ),
+    spec(
         "board.colors.default",
         "Board",
         "Default colors",

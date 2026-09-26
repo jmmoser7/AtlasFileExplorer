@@ -26,7 +26,7 @@ D01–D17 are every tool-scoped dimension. D18–D35 are portal-only and do not 
 | D10 | Cursor | Crosshair while armed over the board, before and during the draft (stated 2026-09-25). Controls use shell hover and focus feedback. | stated | 100 |
 | D11 | Commit | P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history. | pattern | 85 |
 | D12 | Cancel | P1.shape.properties: Esc cancels the pending property edit and preserves selection. Existing creation cancellation remains unchanged. | pattern | 85 |
-| D13 | Selected presentation | P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers. | pattern | 85 |
+| D13 | Selected presentation | P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry. **P1.curve.grips** (user, 26 September 2026): a single selected arc shows start, end and through point through the shared path-edit overlay; dragging one rebuilds the circular arc through the three points as one journaled Patch, snapped through `resolve_point_snap`. Proposal: the through grip sits at the middle of the sweep, so it re-centers after a drag. | stated | 100 |
 | D14 | Post-edit | Circular Stroke button with applicable stroke details; shared desktop sampling. No dimension stringers (D08). Exact R/sweep requires durable arc parameters; current generic paths use honest path measurements. | guess | 55 |
 | D15 | Non-goals | P1.shape.properties: no dimensions, independent opacity, or unsupported geometry controls in the strip. | pattern | 85 |
 | D16 | Create-style inheritance | **Per-tool** create-style memory (P1.curve.create-style; stated 2026-09-25, supersedes the shared open-form memory): the Arc remembers its own last stroke color, width, and opacity and never inherits from another tool (brush, pen, line, polyline, and Bézier each keep their own). Its memory changes when it draws, when its width chord runs, and on a single-node edit to a stroke it drew. Remembered width is never 0. An Arc that has not drawn yet starts from `default_curve_stroke` (Square cap, 2 px) in the theme ink, not the brush foreground. Always a hard vector stroke: edge softness, stamp, and Gaussian blur are never inherited (not even from an edited brush stroke), and no softness or blur control is offered for this tool | stated | 100 |
@@ -53,6 +53,7 @@ These are interaction acceptance scripts; automated coverage is listed below. Na
 - **GP2:** Select exported/reopened arc path -> supported path controls remain available; no misleading radius/sweep fields.
 - **GP3:** Near-collinear or coincident defining points -> deterministic existing fallback, no invalid geometry.
 - **GP4:** While dragging the through-point, the preview arc passes through the cursor on either side of the start–end chord (symmetric bulge toward the pointer).
+- **GP5:** Select a committed arc -> start, through and end grips show -> drag the through grip, then the start, then the end -> each result is one circular arc through the three points, one undo step per drag (`arc_single_selection_grips_edit_start_end_and_through_point`).
 
 ## Implementation notes
 

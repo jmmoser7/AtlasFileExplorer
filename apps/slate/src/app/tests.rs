@@ -10604,6 +10604,312 @@ fn open_shapes_offer_no_wire_ports_while_a_closed_polyline_keeps_them() {
     );
 }
 
+// ---------- parametric grips on committed curves (P1.curve.grips) ----------
+
+fn grip_board(tag: &str) -> Harness {
+    let mut h = line_board(tag);
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.app.tab_mut().cam.z = 1.0;
+    h.app.board_osnap.enabled = false;
+    h.app.board_smart_guides = false;
+    h.app.board_snap_grid = false;
+    h.frame();
+    h
+}
+
+fn commit_polyline(h: &mut Harness, pts: &[Pos2], closed: bool) -> NodeId {
+    let (r, d) = board_path::points_to_path_data(pts, closed);
+    h.app
+        .commit_path_node(slate_doc::StrokeTool::Polyline, r, d, closed);
+    let id = h.app.doc().scene.nodes.last().unwrap().id;
+    assert!(
+        h.app.board_sel.contains(&id),
+        "a committed curve is selected"
+    );
+    h.frame();
+    id
+}
+
+fn world_anchor_points(h: &Harness, id: NodeId) -> Vec<Pos2> {
+    let (anchors, _) = h.app.direct_anchors_of(id).unwrap();
+    anchors.iter().map(|a| kpt(a.point)).collect()
+}
+
+fn cmds_bez(cmds: &[slate_doc::wire::PathCmd]) -> vector_ink::kurbo::BezPath {
+    use slate_doc::wire::PathCmd;
+    use vector_ink::kurbo::Point;
+    let pt = |p: [f32; 2]| Point::new(p[0] as f64, p[1] as f64);
+    let mut bez = vector_ink::kurbo::BezPath::new();
+    for cmd in cmds {
+        match *cmd {
+            PathCmd::Move(p) => bez.move_to(pt(p)),
+            PathCmd::Line(p) => bez.line_to(pt(p)),
+            PathCmd::Cubic { c1, c2, to } => bez.curve_to(pt(c1), pt(c2), pt(to)),
+        }
+    }
+    bez
+}
+
+fn assert_bez_near(got: &vector_ink::kurbo::BezPath, want: &vector_ink::kurbo::BezPath) {
+    use vector_ink::kurbo::PathEl;
+    let points = |el: &PathEl| -> Vec<vector_ink::kurbo::Point> {
+        match *el {
+            PathEl::MoveTo(p) | PathEl::LineTo(p) => vec![p],
+            PathEl::QuadTo(a, b) => vec![a, b],
+            PathEl::CurveTo(a, b, c) => vec![a, b, c],
+            PathEl::ClosePath => vec![],
+        }
+    };
+    let (g, w) = (got.elements(), want.elements());
+    assert_eq!(g.len(), w.len(), "{got:?} != {want:?}");
+    for (a, b) in g.iter().zip(w) {
+        for (p, q) in points(a).into_iter().zip(points(b)) {
+            assert!((p - q).hypot() < 1e-2, "{got:?} != {want:?}");
+        }
+    }
+}
+
+/// The committed path of `id` is one circular arc from `s` to `e` passing
+/// through `m`, within the arc tool's own fitting tolerance.
+fn assert_circular_arc_through(h: &Harness, id: NodeId, s: Pos2, m: Pos2, e: Pos2) {
+    use vector_ink::kurbo::{ParamCurve, PathSeg as KSeg, Point};
+    let n = h.app.doc().scene.node(id).unwrap();
+    let NodeKind::Shape(shape) = &n.kind else {
+        panic!("a shape")
+    };
+    let bez = board_path::path_data_to_world_bez(shape.path.as_ref().unwrap(), n.rect, 0.0);
+    let (sx, sy, mx, my, ex, ey) = (
+        s.x as f64, s.y as f64, m.x as f64, m.y as f64, e.x as f64, e.y as f64,
+    );
+    let d = 2.0 * (sx * (my - ey) + mx * (ey - sy) + ex * (sy - my));
+    let (s2, m2, e2) = (sx * sx + sy * sy, mx * mx + my * my, ex * ex + ey * ey);
+    let c = Point::new(
+        (s2 * (my - ey) + m2 * (ey - sy) + e2 * (sy - my)) / d,
+        (s2 * (ex - mx) + m2 * (sx - ex) + e2 * (mx - sx)) / d,
+    );
+    let r = (Point::new(sx, sy) - c).hypot();
+    let mut samples = Vec::new();
+    for seg in bez.segments() {
+        for i in 0..=256 {
+            samples.push(match seg {
+                KSeg::Line(l) => l.eval(i as f64 / 256.0),
+                KSeg::Quad(q) => q.eval(i as f64 / 256.0),
+                KSeg::Cubic(k) => k.eval(i as f64 / 256.0),
+            });
+        }
+    }
+    let first = *samples.first().unwrap();
+    let last = *samples.last().unwrap();
+    assert!(
+        (first - Point::new(sx, sy)).hypot() < 0.05,
+        "starts at {s:?}: {first:?}"
+    );
+    assert!(
+        (last - Point::new(ex, ey)).hypot() < 0.05,
+        "ends at {e:?}: {last:?}"
+    );
+    for p in &samples {
+        assert!(
+            ((*p - c).hypot() - r).abs() < 0.3,
+            "{p:?} is off the circle"
+        );
+    }
+    let through = samples
+        .iter()
+        .map(|p| (*p - Point::new(mx, my)).hypot())
+        .fold(f64::INFINITY, f64::min);
+    assert!(through < 0.5, "passes through {m:?} (closest {through})");
+}
+
+/// User finding (2026-09-26), P1.curve.grips: reselecting a polyline exposes
+/// its corner vertices and end points. Each drag moves that one point as one
+/// journaled patch, and the path stays a line polyline.
+#[test]
+fn polyline_single_selection_grips_move_one_vertex_per_patch() {
+    let mut h = grip_board("polyline_grips");
+    let pts = [
+        Pos2::new(0.0, 0.0),
+        Pos2::new(120.0, 0.0),
+        Pos2::new(120.0, 90.0),
+    ];
+    let id = commit_polyline(&mut h, &pts, false);
+    let depth = h.app.tab().journal.undo_depth();
+
+    let corner = Pos2::new(160.0, -30.0);
+    select_drag(&mut h, pts[1], corner, egui::Modifiers::NONE);
+    let got = world_anchor_points(&h, id);
+    assert_eq!(got.len(), 3);
+    assert!(near(got[0], pts[0]), "the other points stay: {got:?}");
+    assert!(near(got[1], corner), "the corner vertex moved: {got:?}");
+    assert!(near(got[2], pts[2]), "the other points stay: {got:?}");
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
+
+    let end = Pos2::new(-20.0, 10.0);
+    select_drag(&mut h, pts[0], end, egui::Modifiers::NONE);
+    let got = world_anchor_points(&h, id);
+    assert!(near(got[0], end), "an end point moves: {got:?}");
+    assert!(near(got[1], corner), "{got:?}");
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 2);
+    let NodeKind::Shape(s) = &h.app.doc().scene.node(id).unwrap().kind else {
+        panic!("a shape")
+    };
+    assert!(
+        slate_doc::geom::path_is_line_polyline(s.path.as_ref().unwrap()),
+        "still a line polyline, so Corners still applies"
+    );
+    assert!(h.app.board_sel.contains(&id));
+
+    h.app.board_undo();
+    let got = world_anchor_points(&h, id);
+    assert!(near(got[0], pts[0]), "undo restores one drag: {got:?}");
+    assert!(near(got[1], corner));
+}
+
+/// A filled closed polyline shows its vertices too; a vertex that sits on
+/// the bounding-box corner moves as a vertex, not as a resize.
+#[test]
+fn closed_polyline_grips_move_a_vertex_where_the_resize_corner_sits() {
+    let mut h = grip_board("closed_polyline_grips");
+    let tri = [
+        Pos2::new(0.0, 0.0),
+        Pos2::new(120.0, 0.0),
+        Pos2::new(0.0, 90.0),
+    ];
+    let id = commit_polyline(&mut h, &tri, true);
+    h.app.patch_nodes(&[id], |n| {
+        if let NodeKind::Shape(s) = &mut n.kind {
+            s.fill = Some(Rgba([200, 30, 30, 255]));
+        }
+    });
+    h.frame();
+    let depth = h.app.tab().journal.undo_depth();
+
+    let moved = Pos2::new(-30.0, -20.0);
+    select_drag(&mut h, tri[0], moved, egui::Modifiers::NONE);
+    let got = world_anchor_points(&h, id);
+    assert_eq!(got.len(), 3, "no duplicated seam vertex: {got:?}");
+    assert!(near(got[0], moved), "{got:?}");
+    assert!(near(got[1], tri[1]), "{got:?}");
+    assert!(near(got[2], tri[2]), "{got:?}");
+    let NodeKind::Shape(s) = &h.app.doc().scene.node(id).unwrap().kind else {
+        panic!("a shape")
+    };
+    assert!(s.path.as_ref().unwrap().closed);
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
+}
+
+/// User finding (2026-09-26): editing a filleted polyline re-applies the
+/// authored radius to the new geometry, clamped per corner only.
+#[test]
+fn polyline_vertex_drag_keeps_the_authored_fillet_radius() {
+    let mut h = grip_board("polyline_fillet_grips");
+    let pts = [
+        Pos2::new(0.0, 0.0),
+        Pos2::new(200.0, 0.0),
+        Pos2::new(200.0, 200.0),
+    ];
+    let id = commit_polyline(&mut h, &pts, false);
+    let corner = slate_doc::scene::Corner::Rounded { radius: 30.0 };
+    h.app.patch_nodes(&[id], |n| {
+        if let NodeKind::Shape(s) = &mut n.kind {
+            s.corner = corner;
+        }
+    });
+    h.frame();
+
+    let moved = Pos2::new(400.0, 40.0);
+    select_drag(&mut h, pts[2], moved, egui::Modifiers::NONE);
+    let n = h.app.doc().scene.node(id).unwrap().clone();
+    let NodeKind::Shape(s) = &n.kind else {
+        panic!("a shape")
+    };
+    assert_eq!(s.corner, corner, "the authored radius is stored unchanged");
+    let drawn = slate_doc::geom::path_data_to_world_bez_with_fillet(
+        s.path.as_ref().unwrap(),
+        n.rect,
+        n.rotation_deg,
+        s.corner,
+    );
+    let want = cmds_bez(&slate_doc::filleted_vertex_path(
+        &[[0.0, 0.0], [200.0, 0.0], [400.0, 40.0]],
+        30.0,
+        false,
+        false,
+    ));
+    assert_bez_near(&drawn, &want);
+}
+
+/// User finding (2026-09-26): a reselected arc exposes its start, end and
+/// through point; dragging one rebuilds the circular arc through the three.
+#[test]
+fn arc_single_selection_grips_edit_start_end_and_through_point() {
+    let mut h = grip_board("arc_grips");
+    h.app.set_board_tool(board::BoardTool::Arc);
+    let (s, e, m) = (
+        Pos2::new(0.0, 0.0),
+        Pos2::new(200.0, 0.0),
+        Pos2::new(100.0, 60.0),
+    );
+    for p in [s, e, m] {
+        h.app.path_tool_click(p);
+    }
+    let id = h.app.doc().scene.nodes.last().unwrap().id;
+    assert_eq!(h.app.board_tool, board::BoardTool::Select);
+    assert!(h.app.board_sel.contains(&id));
+    h.frame();
+    let depth = h.app.tab().journal.undo_depth();
+
+    let m2 = Pos2::new(100.0, 100.0);
+    select_drag(&mut h, m, m2, egui::Modifiers::NONE);
+    assert_circular_arc_through(&h, id, s, m2, e);
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
+
+    let s2 = Pos2::new(-40.0, 20.0);
+    select_drag(&mut h, s, s2, egui::Modifiers::NONE);
+    assert_circular_arc_through(&h, id, s2, m2, e);
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 2);
+
+    let e2 = Pos2::new(220.0, -30.0);
+    select_drag(&mut h, e, e2, egui::Modifiers::NONE);
+    let n = h.app.doc().scene.node(id).unwrap();
+    let NodeKind::Shape(shape) = &n.kind else {
+        panic!("a shape")
+    };
+    let bez = board_path::path_data_to_world_bez(shape.path.as_ref().unwrap(), n.rect, 0.0);
+    let (anchors, _) = vector_ink::anchors_from_bezpath(&bez);
+    assert!(near(kpt(anchors[0].point), s2), "the start stays put");
+    assert!(
+        near(kpt(anchors.last().unwrap().point), e2),
+        "the end moved"
+    );
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 3);
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
+}
+
+/// Line endpoints are painted and picked by the shared path-edit overlay:
+/// the one 7 screen px pick radius, not a line-only radius.
+#[test]
+fn line_endpoint_grips_follow_the_shared_path_edit_hit_rule() {
+    let mut h = grip_board("line_grip_hit");
+    let id = h
+        .app
+        .commit_line(Pos2::new(0.0, 0.0), Pos2::new(200.0, 0.0))
+        .unwrap();
+    h.frame();
+    let xf = h.app.board_xf();
+    let end = xf.w2s(Pos2::new(200.0, 0.0));
+    let r = super::path_edit_overlay::HIT_PX;
+    assert_eq!(
+        h.app.line_grip_at(id, end + EVec2::new(r - 0.5, 0.0), &xf),
+        Some(1)
+    );
+    assert_eq!(
+        h.app.line_grip_at(id, end + EVec2::new(r + 0.5, 0.0), &xf),
+        None,
+        "the shared pick radius"
+    );
+}
+
 // ----- image crop: handle hits, first grab, multi-crop, repeat -------------------
 
 /// `n` croppable 200×150 images in a row 60 world units apart, all selected,
