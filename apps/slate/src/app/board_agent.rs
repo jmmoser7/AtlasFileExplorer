@@ -7112,6 +7112,8 @@ impl SlateApp {
             .to_string();
         if !cfg!(test) {
             let mut recents = RecentList::load(AGENT_RECENTS_KEY);
+            recents.entries =
+                atlas_ai::projects::without_temporary(std::mem::take(&mut recents.entries));
             recents.record(path.clone(), title.clone());
             recents.save(AGENT_RECENTS_KEY);
         }
@@ -7124,7 +7126,7 @@ impl SlateApp {
         for list in std::iter::once(&mut self.agents.recents)
             .chain(self.agents.provider_recents.values_mut())
         {
-            list.retain(|e| !paths_same(&e.path, &path));
+            list.retain(|e| !atlas_ai::projects::same_folder(&e.path, &path));
             list.insert(0, used.clone());
         }
         self.agents.pending_chat_pick = Some(portal);
@@ -7175,7 +7177,9 @@ impl SlateApp {
         std::thread::spawn(move || {
             let mut slate = used;
             if !cfg!(test) {
-                slate.extend(RecentList::load(AGENT_RECENTS_KEY).entries);
+                slate.extend(atlas_ai::projects::without_temporary(
+                    RecentList::load(AGENT_RECENTS_KEY).entries,
+                ));
             }
             if let Some(ws) = &workspace {
                 slate.extend(atlas_ai::projects::session_projects(ws));
@@ -9459,20 +9463,6 @@ fn collect_agent_project_recents(provider: &str) -> Vec<RecentEntry> {
         .collect()
 }
 
-fn paths_same(a: &std::path::Path, b: &std::path::Path) -> bool {
-    let ac = std::fs::canonicalize(a).unwrap_or_else(|_| a.to_path_buf());
-    let bc = std::fs::canonicalize(b).unwrap_or_else(|_| b.to_path_buf());
-    #[cfg(windows)]
-    {
-        ac.to_string_lossy()
-            .eq_ignore_ascii_case(&bc.to_string_lossy())
-    }
-    #[cfg(not(windows))]
-    {
-        ac == bc
-    }
-}
-
 fn fit_frame_height(width: f32, image_w: u32, image_h: u32) -> f32 {
     let aspect = image_h as f32 / image_w.max(1) as f32;
     (width * aspect).clamp(160.0, 1400.0)
@@ -9719,7 +9709,7 @@ mod agent_await_tests {
     }
 
     fn same_folder(a: &std::path::Path, b: &std::path::Path) -> bool {
-        paths_same(a, b)
+        atlas_ai::projects::same_folder(a, b)
     }
 
     #[test]
