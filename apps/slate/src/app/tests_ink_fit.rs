@@ -456,7 +456,6 @@ fn smooth_click_runs_one_pass() {
 /// D03: the brush sweeps; a drag that starts on empty canvas smooths every
 /// stroke it crosses, as one undo group (D11).
 #[test]
-#[ignore = "item 3: sweep hit-test"]
 fn smooth_drag_sweeps_every_stroke_it_crosses() {
     let mut h = board("smooth_sweep");
     let a = add_path(&mut h, &zigzag(), false);
@@ -487,6 +486,29 @@ fn smooth_drag_sweeps_every_stroke_it_crosses() {
     assert_eq!(node(&h, b), b0);
 }
 
+/// D03: a fast flick whose two pointer samples land on either side of a
+/// stroke still smooths it: passes fill the gap every half radius.
+#[test]
+fn smooth_fast_flick_across_a_stroke_smooths_it() {
+    let mut h = board("smooth_flick");
+    let id = add_path(&mut h, &zigzag(), false);
+    h.app.smooth_width = 60.0;
+    h.app.smooth_strength = 1.0;
+    let before = node(&h, id);
+    let brush = ([200.0, 300.0], 30.0);
+    let before_turn = max_turn_deg_near(&world_bez(&before), brush.0, brush.1);
+    drag(
+        &mut h,
+        &[Pos2::new(200.0, 150.0), Pos2::new(200.0, 450.0)],
+        egui::Modifiers::NONE,
+    );
+    let after_turn = max_turn_deg_near(&world_bez(&node(&h, id)), brush.0, brush.1);
+    assert!(
+        after_turn < before_turn * 0.9,
+        "the corner the flick crossed rounds: {before_turn:.1} -> {after_turn:.1} deg"
+    );
+}
+
 /// D03: no paint on empty canvas.
 #[test]
 fn smooth_on_empty_canvas_changes_nothing() {
@@ -507,7 +529,6 @@ fn smooth_on_empty_canvas_changes_nothing() {
 /// stroke under that segment is smoothed even though no pointer sample
 /// lands on it.
 #[test]
-#[ignore = "item 3: straight pass"]
 fn smooth_shift_drag_is_a_straight_pass_along_the_segment() {
     let mut h = board("smooth_straight");
     let id = add_path(&mut h, &zigzag(), false);
@@ -559,7 +580,6 @@ fn smoothed_line_becomes_a_cubic_path() {
 
 /// Smoothing a closed shape keeps it closed.
 #[test]
-#[ignore = "item 3: closed flag"]
 fn smoothing_a_closed_path_keeps_it_closed() {
     let mut h = board("smooth_closed");
     let mut square = polyline(&[
@@ -576,4 +596,51 @@ fn smoothing_a_closed_path_keeps_it_closed() {
     drag(&mut h, &[Pos2::new(200.0, 200.0)], egui::Modifiers::NONE);
     let (_, path) = path_of(&node(&h, id));
     assert!(path.closed, "still a closed shape after smoothing");
+}
+
+/// A compound path (Trim output) is never bridged into one contour: the
+/// contour the brush never reaches keeps its corners.
+#[test]
+fn smoothing_a_compound_path_keeps_its_contours_apart() {
+    use slate_doc::scene::{PathContour, PathData, WorldRect};
+    let mut h = board("smooth_compound");
+    let line = |x: f32, y: f32| PathSeg::Line { to: [x, y] };
+    let data = PathData {
+        start: [0.0, 0.0],
+        segs: vec![line(0.25, 0.0), line(0.25, 1.0), line(0.0, 1.0)],
+        closed: true,
+        extra: vec![PathContour {
+            start: [0.75, 0.0],
+            segs: vec![line(1.0, 0.0), line(1.0, 1.0), line(0.75, 1.0)],
+            closed: true,
+        }],
+        ..Default::default()
+    };
+    let rect = WorldRect::new(100.0, 100.0, 400.0, 100.0);
+    h.app
+        .commit_path_node(StrokeTool::Polyline, rect, data, true);
+    let id = h.app.doc().scene.nodes.last().unwrap().id;
+    h.app.set_board_tool(BoardTool::Smooth);
+    h.app.smooth_width = 60.0;
+    h.app.smooth_strength = 1.0;
+    drag(&mut h, &[Pos2::new(200.0, 200.0)], egui::Modifiers::NONE);
+
+    let (_, path) = path_of(&node(&h, id));
+    assert_eq!(path.extra.len(), 1, "still two contours: {path:?}");
+    let after = world_bez(&node(&h, id));
+    let moves = after
+        .elements()
+        .iter()
+        .filter(|e| matches!(e, vector_ink::kurbo::PathEl::MoveTo(_)))
+        .count();
+    assert_eq!(moves, 2, "no bridge between contours");
+    for corner in [
+        [400.0, 100.0],
+        [500.0, 100.0],
+        [500.0, 200.0],
+        [400.0, 200.0],
+    ] {
+        let d = dist_to_path(corner, &after);
+        assert!(d < 0.01, "far contour corner {corner:?} moved by {d}");
+    }
 }

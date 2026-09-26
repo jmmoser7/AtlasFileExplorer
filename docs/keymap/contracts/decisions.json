@@ -4650,7 +4650,7 @@
           "decided": "2026-09-25"
         },
         "D03": {
-          "behavior": "Left-drag sweeps a circular brush over existing marks. Shift+drag is a straight pass. No paint on empty canvas.",
+          "behavior": "Left-drag sweeps a circular brush over existing marks: every stroke the brush crosses along the drag is picked, and passes run every half radius so a fast drag leaves no gap. Shift+drag is a straight pass from the end of the last pass; the whole segment is recomputed from the scene as the pointer moves. No paint on empty canvas.",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",
@@ -4727,7 +4727,7 @@
           "decided": "2026-09-25"
         },
         "D14": {
-          "behavior": "Vector results stay editable paths. Smoothed lines/arcs become cubic paths. Stamp blur is authored on the stroke. The board and the HTML artifact share one blur: premultiplied f32 passes, dithered back to 8 bits, so a heavy blur fades smoothly instead of banding into rings. A blurred stroke paints from its own blurred raster, never from an unblurred tile.",
+          "behavior": "Vector results stay editable paths. Smoothed lines/arcs become cubic paths. A closed path stays closed; a compound path keeps each contour separate, and a contour the brush never reaches is written back unchanged. Stamp blur is authored on the stroke. The board and the HTML artifact share one blur: premultiplied f32 passes, dithered back to 8 bits, so a heavy blur fades smoothly instead of banding into rings. A blurred stroke paints from its own blurred raster, never from an unblurred tile.",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",

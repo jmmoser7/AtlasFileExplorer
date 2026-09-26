@@ -14,7 +14,7 @@ D01–D17 are every tool-scoped dimension. D18–D35 are portal-only and do not 
 |----|-----------|-----------------|--------|------|
 | D01 | Initiation & arming | **S** and `board.tool.smooth` arm Smoothing beside Brush and Eraser in the Shapes flyout ink group. | stated | 100 |
 | D02 | Stickiness & repeat | Sticky like Brush/Eraser: stays armed after each pass; each drag is one undo group. | stated | 100 |
-| D03 | Gesture grammar | Left-drag sweeps a circular brush over existing marks. Shift+drag is a straight pass (two-point segment). No paint on empty canvas. | stated | 100 |
+| D03 | Gesture grammar | Left-drag sweeps a circular brush over existing marks: every stroke the brush crosses along the drag is picked, and passes run every half radius so a fast drag leaves no gap. Shift+drag is a straight pass (two-point segment) from the end of the last pass; the whole segment is recomputed from the scene as the pointer moves. No paint on empty canvas. | stated | 100 |
 | D04 | Click vs drag | Any drag under the board sampling threshold still runs one smoothing pass at the press point. | guess | 55 |
 | D05 | Modifiers | Shares Brush/Eraser width chords: `[` / `]` size, Shift+[ / ] softness, Alt+right-drag size+softness, Shift+right-drag strength (Smooth/Eraser). Esc cancels an in-progress pass without journal. | stated | 100 |
 | D06 | Constraints & snapping | No object or grid snap on the brush center. | pattern | 85 |
@@ -25,17 +25,20 @@ D01–D17 are every tool-scoped dimension. D18–D35 are portal-only and do not 
 | D11 | Commit | Release journals one invertible group of `SceneCmd::Patch` for every touched node (vectors: refit path, see Modes; stamps: `Stroke::gaussian_blur`). Undo restores exact before snapshots. A sparse Bézier is smoothed as a NURBS-style cubic B-spline: Laplacian on its control polygon under the brush, endpoints pinned, converted back to cubic Béziers (stated 2026-09-26). | stated | 100 |
 | D12 | Cancel | Esc drops the drag and live preview; no journal. | pattern | 85 |
 | D13 | Selected presentation | Unchanged during drag. | pattern | 85 |
-| D14 | Post-edit | Vector results stay editable paths. Smoothed lines/arcs become cubic paths. Stamp blur is authored on the stroke. The board and the HTML artifact share one blur: premultiplied f32 passes, dithered back to 8 bits, so a heavy blur fades smoothly instead of banding into rings. A blurred stroke paints from its own blurred raster, never from an unblurred tile. | stated | 100 |
+| D14 | Post-edit | Vector results stay editable paths. Smoothed lines/arcs become cubic paths. A closed path stays closed; a compound path keeps each contour separate, and a contour the brush never reaches is written back unchanged. Stamp blur is authored on the stroke. The board and the HTML artifact share one blur: premultiplied f32 passes, dithered back to 8 bits, so a heavy blur fades smoothly instead of banding into rings. A blurred stroke paints from its own blurred raster, never from an unblurred tile. | stated | 100 |
 | D15 | Non-goals | Partial-length blur on stamps; image paint layers; corner pinning via fit pipeline (v2); full Rhino smooth modes. | stated | 100 |
 | D16 | Create-style inheritance | Does not create nodes; only mutates existing ink. | stated | 100 |
 | D17 | Hit-testing & pick | Vectors: stroke hit-test within pick radius (non-stamp Path + Line). Stamps: stroke hit-test on stamped paths. Hidden/locked skipped. | stated | 100 |
 
 ## Modes (v1)
 
+Vectors are smoothed per contour, and a contour gets a route the first
+time the brush reaches it.
+
 | Target | Behavior |
 |--------|----------|
-| **Sparse vectors** | Single-contour Path or Line whose segments average longer than half the brush radius. `CubicBSpline::fit_path` resamples it and fits a clamped cubic B-spline (same owner as the pen fit) with a control point every half radius, within `SMOOTH_SPLINE_FIT_PX`; tangent breaks stay sharp joints. Each pass runs `laplacian_smooth_spline`: control points and knot intervals weighted by falloff at their place on the curve × strength, endpoints pinned, so a sharp joint under the brush opens into a curvature-continuous one. `to_bezpath` converts back to cubic Béziers exactly. Spans the brush never reaches stay put. |
-| **Dense vectors** | Many short segments, or several contours: flatten centerline → incremental Laplacian smooth (endpoints pinned) under radial falloff × strength → `fit_polyline_spaced` → Patch path. |
+| **Sparse vectors** | A Path contour or Line whose segments average longer than half the brush radius. `CubicBSpline::fit_path` resamples it and fits a clamped cubic B-spline (same owner as the pen fit) with a control point every half radius, within `SMOOTH_SPLINE_FIT_PX`; tangent breaks stay sharp joints. Each pass runs `laplacian_smooth_spline`: control points and knot intervals weighted by falloff at their place on the curve × strength, endpoints pinned, so a sharp joint under the brush opens into a curvature-continuous one. `to_bezpath` converts back to cubic Béziers exactly. Spans the brush never reaches stay put. |
+| **Dense vectors** | A contour of many short segments: flatten centerline → incremental Laplacian smooth (endpoints pinned) under radial falloff × strength → `fit_polyline_spaced` → Patch path. |
 | **Painted brush strokes** | Whole-stroke `Stroke::gaussian_blur` increases while brushing; board caches blurred stamp bitmap; artifact embeds blurred PNG / `blur_sigma` filter. |
 
 At full strength and falloff a Laplacian step moves a point halfway to its
@@ -58,6 +61,14 @@ pass instead of flipping sides.
 - **GP1:** Drag Smooth across a polyline; release; undo restores the original path.
 - **GP2:** Drag across a stamped brush stroke; release increases blur; undo restores blur 0.
 - **GP3:** Esc mid-drag cancels; scene unchanged.
+- **GP4:** A drag from empty canvas across two strokes smooths both as one undo group; a fast flick with two samples still smooths what it crossed.
+- **GP5:** Shift+drag from the last pass smooths the stroke under the straight segment.
+- **GP6:** A sparse two-segment Bézier rounds under the brush without collapsing; endpoints and far spans stay put. Closed and compound paths keep their shape.
+
+Acceptance: `apps/slate/src/app/tests_ink_fit.rs` (GP1, GP3–GP6, D04, D14,
+D17) and `smooth_pass_increases_stamp_blur_and_undo_restores` in
+`apps/slate/src/app/tests.rs` (GP2). Geometry: `crates/vector-ink/src/smooth.rs`
+tests.
 
 ## Open questions
 
