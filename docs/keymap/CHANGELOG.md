@@ -1,5 +1,12 @@
 # Canvas command project — change log
 
+## 2026-09-26 — Per-vertex style survives editing
+
+- `trim` D16 and `split` D16: each piece keeps the per-vertex widths,
+  colors and corner overrides of the source vertices it keeps, and a cut
+  vertex takes the stroke's width and color at the cut
+  (P1.curve.vertex-style). No new command.
+
 ## 2026-09-25 — Sign-in pop-ups in web portals
 
 - `portal-web-embed` D15 / D22 (and the D32 deny list) amended, user-ratified:

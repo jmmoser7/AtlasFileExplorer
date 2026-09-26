@@ -572,12 +572,17 @@ impl SlateApp {
             // rotates it a second time about a different bounding-box center.
             after.rotation_deg = 0.0;
             after.clip = None;
-            after.kind = NodeKind::Shape(ShapeNode {
-                shape: ShapeKind::Path,
-                path: Some(path0.into()),
-                fill: None,
-                ..style.clone()
-            });
+            after.kind = NodeKind::Shape(cut_piece(
+                before,
+                &style,
+                ShapeNode {
+                    shape: ShapeKind::Path,
+                    path: Some(path0.into()),
+                    fill: None,
+                    ..style.clone()
+                },
+                &spans[0],
+            ));
             cmds.push(SceneCmd::Patch {
                 before: Box::new(before.clone()),
                 after: Box::new(after),
@@ -585,14 +590,15 @@ impl SlateApp {
             for span in spans.into_iter().skip(1) {
                 let pts: Vec<Pos2> = span.iter().map(|p| Pos2::new(p[0], p[1])).collect();
                 let (rect, path) = points_to_path_data(&pts, false);
+                let piece = ShapeNode {
+                    shape: ShapeKind::Path,
+                    path: Some(path.into()),
+                    fill: None,
+                    ..style.clone()
+                };
                 let node = self.doc_mut().scene.build_node(
                     rect,
-                    NodeKind::Shape(ShapeNode {
-                        shape: ShapeKind::Path,
-                        path: Some(path.into()),
-                        fill: None,
-                        ..style.clone()
-                    }),
+                    NodeKind::Shape(cut_piece(before, &style, piece, &span)),
                 );
                 let idx = self.doc().scene.nodes.len();
                 cmds.push(SceneCmd::Add { index: idx, node });
@@ -643,24 +649,31 @@ impl SlateApp {
             after.rect = rect0;
             after.rotation_deg = 0.0;
             after.clip = None;
-            after.kind = NodeKind::Shape(ShapeNode {
-                shape: ShapeKind::Path,
-                path: Some(path0.into()),
-                ..style.clone()
-            });
+            let ring_points = |piece: &Polygon| piece.concat();
+            after.kind = NodeKind::Shape(cut_piece(
+                before,
+                style,
+                ShapeNode {
+                    shape: ShapeKind::Path,
+                    path: Some(path0.into()),
+                    ..style.clone()
+                },
+                &ring_points(&pieces[0]),
+            ));
             cmds.push(SceneCmd::Patch {
                 before: Box::new(before.clone()),
                 after: Box::new(after),
             });
             for piece in pieces.into_iter().skip(1) {
                 let (rect, path) = polygon_to_path_data(&piece);
+                let shape = ShapeNode {
+                    shape: ShapeKind::Path,
+                    path: Some(path.into()),
+                    ..style.clone()
+                };
                 let node = self.doc_mut().scene.build_node(
                     rect,
-                    NodeKind::Shape(ShapeNode {
-                        shape: ShapeKind::Path,
-                        path: Some(path.into()),
-                        ..style.clone()
-                    }),
+                    NodeKind::Shape(cut_piece(before, style, shape, &ring_points(&piece))),
                 );
                 let idx = self.doc().scene.nodes.len();
                 cmds.push(SceneCmd::Add { index: idx, node });
@@ -832,6 +845,38 @@ impl SlateApp {
             }
         }
     }
+}
+
+/// `piece`, cut from `source` (node `before`), with the per-vertex widths,
+/// colors and corner overrides of the source vertices it keeps; each new
+/// vertex takes the source stroke's value where it lies. `points` are the
+/// piece's world vertices in path order.
+fn cut_piece(
+    before: &Node,
+    source: &ShapeNode,
+    mut piece: ShapeNode,
+    points: &[[f32; 2]],
+) -> ShapeNode {
+    let Some(old) = source
+        .path
+        .as_deref()
+        .filter(|p| slate_doc::vertex_style::has_vertex_style(p))
+    else {
+        return piece;
+    };
+    let Some(path) = piece.path.as_mut() else {
+        return piece;
+    };
+    let reach = f64::from(trim_tokens::GEOMETRY_TOLERANCE) * 2.0;
+    let old = (old, before.rect, before.rotation_deg);
+    let params = slate_doc::vertex_style::locate_vertex_params(old.0, old.1, old.2, points, reach);
+    slate_doc::vertex_style::carry_vertex_style(
+        old,
+        std::sync::Arc::make_mut(path),
+        &mut piece.stroke,
+        &params,
+    );
+    piece
 }
 
 fn dist(a: [f32; 2], b: [f32; 2]) -> f32 {

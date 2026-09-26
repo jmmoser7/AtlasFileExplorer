@@ -8,9 +8,12 @@
 //! sweep from those three; any other single-contour path has one grip per
 //! anchor, and the anchor that closes a path owns the duplicate end vertex.
 
-use vector_ink::kurbo::{BezPath, CubicBez, ParamCurve, ParamCurveArclen, Point};
+use vector_ink::kurbo::{
+    BezPath, CubicBez, Line, ParamCurve, ParamCurveArclen, ParamCurveNearest, PathEl,
+    PathSeg as KSeg, Point,
+};
 
-use crate::geom::{arc_grip_points, path_data_to_world_bez};
+use crate::geom::{arc_grip_points, path_data_to_world_bez, tip_ease};
 use crate::scene::{PathData, PathSeg, Rgba, Stroke, StrokeSpan, WorldRect};
 
 /// `a` blended toward `b` by `t` (0 = `a`, 1 = `b`).
@@ -236,6 +239,261 @@ pub fn keep_corner_amounts(old: &PathData, new: &mut PathData) {
     new.corner_amounts = amounts;
 }
 
+/// Whether `path` stores per-vertex style an edit that changes its vertices
+/// has to carry: tips, or a corner override.
+pub fn has_vertex_style(path: &PathData) -> bool {
+    !path.tips.is_empty() || path.corner_amounts.iter().any(Option::is_some)
+}
+
+/// First vertex, vertex count and closed flag of each contour of `path`, in
+/// vertex order (the primary contour, then `extra`).
+fn contours(path: &PathData) -> Vec<(usize, usize, bool)> {
+    let mut out = vec![(0, 1 + path.segs.len(), path.closed)];
+    let mut first = 1 + path.segs.len();
+    for c in &path.extra {
+        out.push((first, 1 + c.segs.len(), c.closed));
+        first += 1 + c.segs.len();
+    }
+    out
+}
+
+fn vertex_count(path: &PathData) -> usize {
+    contours(path).iter().map(|c| c.1).sum()
+}
+
+/// One tip per vertex as `path` paints it, when it paints per vertex: a hard
+/// stroke at its painted widths and colors (`PathData::vector_widths`,
+/// `PathData::vector_colors`, else the stroke's own), a stamped stroke's
+/// tips as stored.
+fn vertex_tips(path: &PathData, stroke: &Stroke) -> Option<Vec<StrokeSpan>> {
+    if path.tips.is_empty() || path.tips.len() != vertex_count(path) {
+        return None;
+    }
+    if stroke.paints_as_stamp() {
+        return Some(path.tips.clone());
+    }
+    let widths = path.vector_widths(stroke);
+    let colors = path.vector_colors();
+    Some(
+        path.tips
+            .iter()
+            .enumerate()
+            .map(|(i, t)| StrokeSpan {
+                width: widths.as_ref().map_or(stroke.width, |w| w[i]),
+                softness: t.softness,
+                color: colors.as_ref().map_or(stroke.color, |c| c[i]),
+            })
+            .collect(),
+    )
+}
+
+/// The tips `path` paints at vertex parameters `at`, for pieces cut from it
+/// or geometry refit over it. A vertex parameter is the vertex a segment
+/// leaves plus the arc-length fraction along that segment; a closed
+/// contour's implicit closing edge leaves its last vertex and ends on its
+/// first. Between vertices the tip blends as the painters do: a hard stroke
+/// by [`tip_ease`] (straight on polylines, lines and arcs, smoothstep on
+/// other curves), a stamped stroke straight. `None` when `path` paints one
+/// tip everywhere.
+pub fn split_tips_at(
+    path: &PathData,
+    stroke: &Stroke,
+    rect: WorldRect,
+    rotation_deg: f32,
+    at: &[f32],
+) -> Option<Vec<StrokeSpan>> {
+    let tips = vertex_tips(path, stroke)?;
+    let ease = if stroke.paints_as_stamp() {
+        vector_ink::TipEase::Linear
+    } else {
+        tip_ease(&path_data_to_world_bez(path, rect, rotation_deg))
+    };
+    let spans = contours(path);
+    Some(
+        at.iter()
+            .map(|&p| {
+                let p = if p.is_finite() { p.max(0.0) } else { 0.0 };
+                let i = (p.floor() as usize).min(tips.len() - 1);
+                let f = (p - i as f32).clamp(0.0, 1.0);
+                let (first, count, closed) = spans
+                    .iter()
+                    .copied()
+                    .find(|(first, count, _)| i < first + count)
+                    .unwrap_or((0, tips.len(), false));
+                let next = if i + 1 < first + count {
+                    i + 1
+                } else if closed {
+                    first
+                } else {
+                    i
+                };
+                lerp_span(tips[i], tips[next], ease.weight(f))
+            })
+            .collect(),
+    )
+}
+
+/// Write `old`'s per-vertex style onto `new`, whose vertex `i` sits at
+/// vertex parameter `params[i]` of `old` ([`split_tips_at`]). Tips are
+/// sampled there, so a kept vertex keeps its own and a new one takes the
+/// stroke's value at its spot. A corner override stays on a vertex that is
+/// an old vertex and nowhere else; a closing copy of the start follows the
+/// shape's corner, as in [`keep_corner_amounts`]. `stroke` is `old`'s stroke
+/// and becomes `new`'s: a hard stroke's width is its widest painted tip.
+pub fn carry_vertex_style(
+    old: (&PathData, WorldRect, f32),
+    new: &mut PathData,
+    stroke: &mut Stroke,
+    params: &[f32],
+) {
+    let (old_path, rect, rotation_deg) = old;
+    if params.len() != vertex_count(new) {
+        return;
+    }
+    if let Some(tips) = split_tips_at(old_path, stroke, rect, rotation_deg, params) {
+        if stroke.paints_as_stamp() {
+            new.tips = tips;
+        } else {
+            write_tips(new, stroke, tips);
+        }
+    }
+    new.corner_amounts.clear();
+    let old_vertices = 1 + old_path.segs.len();
+    if old_path.corner_amounts.len() != old_vertices || !new.extra.is_empty() {
+        return;
+    }
+    let mut amounts: Vec<Option<f32>> = params
+        .iter()
+        .map(|&p| {
+            let r = p.round();
+            if (p - r).abs() > VERTEX_SNAP || r < 0.0 {
+                return None;
+            }
+            let i = r as usize;
+            let i = if old_path.closed && i == old_vertices {
+                0
+            } else {
+                i
+            };
+            old_path.corner_amounts.get(i).copied().flatten()
+        })
+        .collect();
+    if closes_on_start(new) {
+        if let Some(last) = amounts.last_mut() {
+            *last = None;
+        }
+    }
+    if amounts.iter().any(Option::is_some) {
+        new.corner_amounts = amounts;
+    }
+}
+
+/// A point within this fraction of a segment of one of its ends is that
+/// vertex.
+const VERTEX_SNAP: f32 = 1e-4;
+
+/// World segments of `path` in vertex order, each with the vertex it leaves
+/// and the vertex it ends on (a closing edge ends on its contour's first).
+fn world_segments(
+    path: &PathData,
+    rect: WorldRect,
+    rotation_deg: f32,
+) -> Vec<(KSeg, usize, usize)> {
+    let bez = path_data_to_world_bez(path, rect, rotation_deg);
+    let mut out = Vec::new();
+    let (mut next, mut from, mut first) = (0usize, 0usize, 0usize);
+    let (mut last, mut start) = (Point::ZERO, Point::ZERO);
+    for el in bez.elements() {
+        let seg = match *el {
+            PathEl::MoveTo(p) => {
+                (first, from, last, start) = (next, next, p, p);
+                next += 1;
+                continue;
+            }
+            PathEl::ClosePath => {
+                if (last - start).hypot() > 1e-9 {
+                    out.push((KSeg::Line(Line::new(last, start)), from, first));
+                }
+                continue;
+            }
+            PathEl::LineTo(p) => KSeg::Line(Line::new(last, p)),
+            PathEl::QuadTo(c, p) => KSeg::Quad(vector_ink::kurbo::QuadBez::new(last, c, p)),
+            PathEl::CurveTo(c1, c2, p) => KSeg::Cubic(CubicBez::new(last, c1, c2, p)),
+        };
+        out.push((seg, from, next));
+        (from, last) = (next, seg.end());
+        next += 1;
+    }
+    out
+}
+
+/// Vertex parameter at arc-length fraction `frac` of a segment from vertex
+/// `from` to vertex `to`; an end within [`VERTEX_SNAP`] is that vertex.
+fn param_at(from: usize, to: usize, frac: f64) -> f32 {
+    let frac = frac as f32;
+    if frac <= VERTEX_SNAP {
+        from as f32
+    } else if frac >= 1.0 - VERTEX_SNAP {
+        to as f32
+    } else {
+        from as f32 + frac
+    }
+}
+
+/// The vertex parameter ([`split_tips_at`]) of each world point of a piece
+/// cut from `path`: points on it within `tolerance`, in order along the
+/// piece. Each is looked for first on the previous point's segment and its
+/// neighbors, so a piece that runs along the path never jumps to a span
+/// that crosses it; a point off the path takes its nearest spot.
+pub fn locate_vertex_params(
+    path: &PathData,
+    rect: WorldRect,
+    rotation_deg: f32,
+    points: &[[f32; 2]],
+    tolerance: f64,
+) -> Vec<f32> {
+    let segs = world_segments(path, rect, rotation_deg);
+    if segs.is_empty() {
+        return vec![0.0; points.len()];
+    }
+    let reach = tolerance * tolerance;
+    let mut last = 0usize;
+    points
+        .iter()
+        .map(|p| {
+            let q = Point::new(p[0] as f64, p[1] as f64);
+            let near = |k: usize| {
+                let hit = segs[k].0.nearest(q, 1e-9);
+                (hit.distance_sq, hit.t)
+            };
+            let window = [last, last + 1, last + 2, last.wrapping_sub(1)];
+            let (k, t) = window
+                .into_iter()
+                .filter(|k| *k < segs.len())
+                .find_map(|k| {
+                    let (d, t) = near(k);
+                    (d <= reach).then_some((k, t))
+                })
+                .unwrap_or_else(|| {
+                    (0..segs.len())
+                        .map(|k| (k, near(k)))
+                        .min_by(|a, b| a.1 .0.total_cmp(&b.1 .0))
+                        .map(|(k, (_, t))| (k, t))
+                        .unwrap_or((0, 0.0))
+                });
+            last = k;
+            let (seg, from, to) = segs[k];
+            let len = seg.arclen(1e-6);
+            let frac = if len > 1e-9 {
+                seg.subsegment(0.0..t).arclen(1e-6) / len
+            } else {
+                0.0
+            };
+            param_at(from, to, frac)
+        })
+        .collect()
+}
+
 fn closes_on_start(path: &PathData) -> bool {
     path.closed
         && path.segs.last().is_some_and(|s| {
@@ -361,5 +619,148 @@ mod tests {
             fewer.corner_amounts.is_empty(),
             "a changed vertex count drops them"
         );
+    }
+
+    fn tip(width: f32, red: u8) -> StrokeSpan {
+        StrokeSpan {
+            width,
+            softness: 0.0,
+            color: Rgba([red, 0, 0, 255]),
+        }
+    }
+
+    fn hard(width: f32) -> Stroke {
+        Stroke {
+            width,
+            ..Stroke::default()
+        }
+    }
+
+    const UNIT: WorldRect = WorldRect {
+        x: 0.0,
+        y: 0.0,
+        w: 100.0,
+        h: 100.0,
+    };
+
+    /// A straight polyline (0,0) → (100,0) → (100,100) in `UNIT`.
+    fn ell() -> PathData {
+        PathData {
+            start: [0.0, 0.0],
+            segs: vec![
+                PathSeg::Line { to: [1.0, 0.0] },
+                PathSeg::Line { to: [1.0, 1.0] },
+            ],
+            tips: vec![tip(2.0, 0), tip(10.0, 200), tip(4.0, 100)],
+            ..PathData::default()
+        }
+    }
+
+    /// A straight run drawn as one cubic, so it blends by smoothstep.
+    fn straight_cubic() -> PathData {
+        PathData {
+            start: [0.0, 0.0],
+            segs: vec![PathSeg::Cubic {
+                c1: [0.3, 0.0],
+                c2: [0.7, 0.0],
+                to: [1.0, 0.0],
+            }],
+            tips: vec![tip(2.0, 0), tip(10.0, 200)],
+            ..PathData::default()
+        }
+    }
+
+    #[test]
+    fn split_tips_follow_the_painters_blend() {
+        let at =
+            |path: &PathData, p: f32| split_tips_at(path, &hard(10.0), UNIT, 0.0, &[p]).unwrap()[0];
+        let line = ell();
+        assert_eq!(at(&line, 1.0), tip(10.0, 200), "a vertex keeps its own");
+        let quarter = at(&line, 0.25);
+        assert!((quarter.width - 4.0).abs() < 1e-5, "straight on a polyline");
+        assert_eq!(quarter.color.0[0], 50);
+        let ease = vector_ink::TipEase::Smooth.weight(0.25);
+        let curve = at(&straight_cubic(), 0.25);
+        assert!(
+            (curve.width - (2.0 + 8.0 * ease)).abs() < 1e-5,
+            "smoothstep on a curve"
+        );
+        assert_eq!(curve.color.0[0], (200.0 * ease).round() as u8);
+        assert!(split_tips_at(&PathData::default(), &hard(1.0), UNIT, 0.0, &[0.0]).is_none());
+    }
+
+    #[test]
+    fn split_tips_wrap_a_closed_contour_and_keep_contours_apart() {
+        let mut closed = ell();
+        closed.closed = true;
+        closed.extra.push(crate::scene::PathContour {
+            start: [0.0, 0.5],
+            segs: vec![PathSeg::Line { to: [0.5, 0.5] }],
+            closed: false,
+        });
+        closed.tips.extend([tip(6.0, 0), tip(8.0, 0)]);
+        let got = split_tips_at(&closed, &hard(10.0), UNIT, 0.0, &[2.5, 3.0, 3.5]).unwrap();
+        assert!(
+            (got[0].width - 3.0).abs() < 1e-5,
+            "closing edge blends to the start"
+        );
+        assert_eq!(got[1].width, 6.0, "vertex 3 starts the next contour");
+        assert!((got[2].width - 7.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn located_points_read_back_as_arc_length_parameters() {
+        let line = ell();
+        let params = locate_vertex_params(
+            &line,
+            UNIT,
+            0.0,
+            &[
+                [0.0, 0.0],
+                [25.0, 0.0],
+                [100.0, 0.0],
+                [100.0, 50.0],
+                [100.0, 100.0],
+            ],
+            0.1,
+        );
+        assert_eq!(params, vec![0.0, 0.25, 1.0, 1.5, 2.0]);
+        let curve = straight_cubic();
+        let params = locate_vertex_params(&curve, UNIT, 0.0, &[[25.0, 0.0]], 0.1);
+        assert!(
+            (params[0] - 0.25).abs() < 1e-4,
+            "arc length, not t: {params:?}"
+        );
+    }
+
+    #[test]
+    fn carried_style_samples_tips_and_keeps_corners_on_old_vertices() {
+        let mut old = ell();
+        old.corner_amounts = vec![None, Some(6.0), None];
+        let mut piece = PathData {
+            start: [0.0, 0.0],
+            segs: vec![
+                PathSeg::Line { to: [1.0, 0.0] },
+                PathSeg::Line { to: [1.0, 1.0] },
+            ],
+            ..PathData::default()
+        };
+        let mut stroke = hard(10.0);
+        carry_vertex_style((&old, UNIT, 0.0), &mut piece, &mut stroke, &[0.5, 1.0, 1.5]);
+        let widths: Vec<f32> = piece.tips.iter().map(|t| t.width).collect();
+        assert_eq!(widths, vec![6.0, 10.0, 7.0]);
+        assert_eq!(stroke.width, 10.0, "the widest painted tip");
+        assert_eq!(piece.corner_amounts, vec![None, Some(6.0), None]);
+
+        let mut narrow = PathData {
+            segs: vec![PathSeg::Line { to: [1.0, 0.0] }],
+            ..PathData::default()
+        };
+        let mut stroke = hard(10.0);
+        carry_vertex_style((&old, UNIT, 0.0), &mut narrow, &mut stroke, &[0.0, 0.5]);
+        assert_eq!(stroke.width, 6.0, "a piece paints at its own widest");
+        let painted = narrow.vector_widths(&stroke).unwrap();
+        assert_eq!(painted, vec![2.0, 6.0], "and keeps the widths it painted");
+        assert!(narrow.corner_amounts.is_empty(), "no override survives");
     }
 }

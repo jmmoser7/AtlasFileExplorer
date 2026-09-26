@@ -40,7 +40,7 @@ Inherits: P0.* (all), P1.node, **P2.RhinoTrim** — deviations flagged below.
 | D13 | Selected presentation | Unchanged: remaining shapes use path grips; clipped text/images keep their bbox. | pattern | 80 |
 | D14 | Post-edit | Direct Selection on rewritten paths. No Untrim command. | stated | 100 |
 | D15 | Non-goals | Untrim / UntrimAll / ReplaceEdge; ApparentIntersections; temporary Line cutter option; trimming portals or frames; 3D. Split is `board.tool.split`. | stated | 100 |
-| D16 | Create-style inheritance | Preserve the source fill and complete stroke style on every remaining piece. Uniform strokes retain their width along existing edges, new cut boundaries and holes. | stated | 100 |
+| D16 | Create-style inheritance | Preserve the source fill and complete stroke style on every remaining piece. Uniform strokes retain their width along existing edges, new cut boundaries and holes. Per-vertex widths, colors and corner overrides stay on the vertices each piece keeps; a cut vertex takes the stroke's width and color at the cut (P1.curve.vertex-style blend) and no corner override (user, 26 September 2026). | stated | 100 |
 | D17 | Hit-testing & pick | Open: closest remaining span within `trim.span_slop` (10 screen px). Closed/text/image: point-in-polygon on the filled region (or current clip). When several filled objects contain the click, pick the topmost whose remaining region after the cut is non-empty — a filled cutter over a hole does not swallow the punch. Frames/portals never pick as targets. | research | 75 |
 
 ## Feel constants

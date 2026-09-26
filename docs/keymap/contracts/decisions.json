@@ -1738,11 +1738,11 @@
           "decided": "2026-08-16"
         },
         "D16": {
-          "behavior": "Preserve the source fill and complete stroke style on every remaining piece. Uniform strokes retain their width along existing edges, new cut boundaries and holes.",
+          "behavior": "Preserve the source fill and complete stroke style on every remaining piece. Uniform strokes retain their width along existing edges, new cut boundaries and holes. Per-vertex widths, colors and corner overrides stay on the vertices each piece keeps; a cut vertex takes the stroke's width and color at the cut (P1.curve.vertex-style blend) and no corner override (user, 26 September 2026).",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-26"
         },
         "D17": {
           "behavior": "Open: closest span within trim.span_slop. Closed/text/image: point-in-polygon. Prefer the topmost filled target whose remaining region is non-empty so a filled cutter over a hole does not swallow the punch. Frames/portals never targets.",
@@ -2003,11 +2003,11 @@
           "decided": "2026-08-16"
         },
         "D16": {
-          "behavior": "n/a — pieces copy source stroke/fill.",
+          "behavior": "n/a — pieces copy source stroke/fill. Per-vertex widths, colors and corner overrides carry as for Trim D16, through the same owner (user, 26 September 2026).",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
-          "decided": "2026-08-16"
+          "decided": "2026-09-26"
         },
         "D17": {
           "behavior": "Open: closest span within trim.span_slop if the path divides. Closed: point-in-polygon if split_closed yields 2+ pieces. Shapes only.",

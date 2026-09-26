@@ -13536,3 +13536,267 @@ fn vertex_colors_export_as_gradients_matching_the_board() {
         }
     }
 }
+
+// ---------- per-vertex style survives trim, split and join ----------
+
+/// Give curve `id` one tip per vertex (`widths`, red channel `reds`) and
+/// per-vertex corner overrides, as a vertex edit would store them.
+fn style_vertices(
+    h: &mut Harness,
+    id: NodeId,
+    widths: &[f32],
+    reds: &[u8],
+    corners: &[Option<f32>],
+) {
+    let n = h.app.doc_mut().scene.node_mut(id).unwrap();
+    let NodeKind::Shape(s) = &mut n.kind else {
+        panic!("a shape")
+    };
+    let mut path = s.path.as_deref().cloned().unwrap();
+    assert_eq!(widths.len(), path.segs.len() + 1, "one tip per vertex");
+    let base = s.stroke.color.0;
+    path.tips = widths
+        .iter()
+        .zip(reds)
+        .map(|(&width, &r)| slate_doc::scene::StrokeSpan {
+            width,
+            softness: 0.0,
+            color: Rgba([r, base[1], base[2], 255]),
+        })
+        .collect();
+    path.corner_amounts = corners.to_vec();
+    s.stroke.width = widths.iter().copied().fold(0.0, f32::max);
+    s.path = Some(path.into());
+    h.frame();
+}
+
+/// Painted width and color at each vertex of curve `id`.
+fn painted_vertex_tips(h: &Harness, id: NodeId) -> Vec<(f32, [u8; 4])> {
+    let (_, s) = curve_shape(h, id);
+    let p = s.path.as_ref().unwrap();
+    let n = p.segs.len() + 1;
+    let widths = p
+        .vector_widths(&s.stroke)
+        .unwrap_or_else(|| vec![s.stroke.width; n]);
+    let colors = p.vector_colors().unwrap_or_else(|| vec![s.stroke.color; n]);
+    widths.into_iter().zip(colors.iter().map(|c| c.0)).collect()
+}
+
+fn corner_overrides(h: &Harness, id: NodeId) -> Vec<Option<f32>> {
+    let (_, s) = curve_shape(h, id);
+    let p = s.path.as_ref().unwrap();
+    if p.corner_amounts.is_empty() {
+        vec![None; p.segs.len() + 1]
+    } else {
+        p.corner_amounts.clone()
+    }
+}
+
+/// World position of each vertex of curve `id` (start, then segment ends).
+fn world_vertices(h: &Harness, id: NodeId) -> Vec<Pos2> {
+    let (n, s) = curve_shape(h, id);
+    let p = s.path.as_ref().unwrap();
+    let ends = p.segs.iter().map(|seg| match *seg {
+        slate_doc::scene::PathSeg::Line { to }
+        | slate_doc::scene::PathSeg::Quad { to, .. }
+        | slate_doc::scene::PathSeg::Cubic { to, .. } => to,
+    });
+    std::iter::once(p.start)
+        .chain(ends)
+        .map(|q| {
+            let w = n.rect.rotate_point(
+                [n.rect.x + q[0] * n.rect.w, n.rect.y + q[1] * n.rect.h],
+                n.rotation_deg,
+            );
+            Pos2::new(w[0], w[1])
+        })
+        .collect()
+}
+
+fn assert_vertex(got: (f32, [u8; 4]), width: f32, red: f32, what: &str) {
+    assert_close(got.0, width, 0.02, &format!("{what} width"));
+    assert_close(got.1[0] as f32, red, 1.0, &format!("{what} red"));
+}
+
+/// The four-vertex polyline the trim and split tests cut at x = 25.
+fn styled_cut_polyline(h: &mut Harness) -> NodeId {
+    let pts = [
+        Pos2::new(0.0, 0.0),
+        Pos2::new(100.0, 0.0),
+        Pos2::new(100.0, 100.0),
+        Pos2::new(200.0, 100.0),
+    ];
+    let id = commit_polyline(h, &pts, false);
+    style_vertices(
+        h,
+        id,
+        &[2.0, 20.0, 6.0, 12.0],
+        &[0, 200, 100, 50],
+        &[None, Some(8.0), Some(4.0), None],
+    );
+    id
+}
+
+/// Board stroke of `id` at `p` on a horizontal run: painted width and color.
+fn ink_sample(h: &Harness, id: NodeId, p: Pos2) -> (f32, [f32; 4]) {
+    let width = 2.0 * ink_half_width(h, id, p, EVec2::new(0.0, 1.0));
+    (width, ink_color_at(h, id, p))
+}
+
+fn assert_matches_ink(got: (f32, [u8; 4]), ink: (f32, [f32; 4]), what: &str) {
+    assert_close(got.0, ink.0, 0.3, &format!("{what}: width as painted"));
+    let color = got.1.map(|c| c as f32);
+    assert_color_close(color, ink.1, 1.5, &format!("{what}: color as painted"));
+}
+
+/// User request (2026-09-26): a trimmed polyline keeps each vertex's width,
+/// color and corner override; the cut vertex takes the stroke's value at
+/// the cut, straight between its neighbors as the board paints it.
+#[test]
+fn trim_keeps_per_vertex_style_and_interpolates_the_cut() {
+    let mut h = grip_board("trim_vertex_style");
+    let id = styled_cut_polyline(&mut h);
+    let at_cut = ink_sample(&h, id, Pos2::new(25.0, 0.0));
+    let cutter = add_seg(&mut h.app, Pos2::new(25.0, -10.0), Pos2::new(25.0, 10.0));
+    select_trim(&mut h.app, &[id, cutter]);
+    h.app.set_board_tool(board::BoardTool::Trim);
+    assert!(h.app.trim_click(Pos2::new(10.0, 0.0), false));
+    h.frame();
+
+    assert_eq!(world_vertices(&h, id)[0], Pos2::new(25.0, 0.0));
+    let tips = painted_vertex_tips(&h, id);
+    assert_eq!(tips.len(), 4, "cut vertex plus the three kept vertices");
+    assert_vertex(tips[0], 6.5, 50.0, "cut vertex");
+    assert_vertex(tips[1], 20.0, 200.0, "vertex 1");
+    assert_vertex(tips[2], 6.0, 100.0, "vertex 2");
+    assert_vertex(tips[3], 12.0, 50.0, "vertex 3");
+    assert_matches_ink(tips[0], at_cut, "cut vertex");
+    assert_eq!(
+        corner_overrides(&h, id),
+        vec![None, Some(8.0), Some(4.0), None]
+    );
+}
+
+/// A trimmed Bézier span's cut vertex takes the smoothstep blend the board
+/// paints on curves, and every vertex of the piece sits on that blend.
+#[test]
+fn trim_interpolates_a_bezier_cut_by_smoothstep() {
+    let mut h = bezier_board("trim_vertex_style_bezier");
+    for x in [0.0, 100.0, 200.0] {
+        bezier_place(&mut h, Pos2::new(x, 0.0), Pos2::new(x + 30.0, 0.0));
+    }
+    assert!(h.app.finish_path_draft());
+    let id = h.app.doc().scene.nodes.last().unwrap().id;
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.frame();
+    style_vertices(&mut h, id, &[2.0, 20.0, 2.0], &[0, 255, 0], &[]);
+    let at_cut = ink_sample(&h, id, Pos2::new(25.0, 0.0));
+    let cutter = add_seg(&mut h.app, Pos2::new(25.0, -10.0), Pos2::new(25.0, 10.0));
+    select_trim(&mut h.app, &[id, cutter]);
+    h.app.set_board_tool(board::BoardTool::Trim);
+    assert!(h.app.trim_click(Pos2::new(10.0, 0.0), false));
+    h.frame();
+
+    let tips = painted_vertex_tips(&h, id);
+    let at = world_vertices(&h, id);
+    assert_eq!(tips.len(), at.len());
+    assert_close(at[0].x, 25.0, 0.01, "the piece starts at the cut");
+    for (tip, p) in tips.iter().zip(&at) {
+        let s = if p.x <= 100.0 {
+            smoothstep(p.x / 100.0)
+        } else {
+            1.0 - smoothstep((p.x - 100.0) / 100.0)
+        };
+        let what = format!("vertex at x={}", p.x);
+        assert_vertex(*tip, 2.0 + 18.0 * s, 255.0 * s, &what);
+    }
+    assert_close(tips[0].0, 2.0 + 18.0 * smoothstep(0.25), 0.02, "cut width");
+    assert_matches_ink(tips[0], at_cut, "cut vertex");
+}
+
+/// User request (2026-09-26): both pieces of a split keep their source
+/// vertices' widths, colors and corner overrides and share the cut's
+/// interpolated value.
+#[test]
+fn split_keeps_per_vertex_style_on_every_piece() {
+    let mut h = grip_board("split_vertex_style");
+    let id = styled_cut_polyline(&mut h);
+    let at_cut = ink_sample(&h, id, Pos2::new(25.0, 0.0));
+    let cutter = add_seg(&mut h.app, Pos2::new(25.0, -10.0), Pos2::new(25.0, 10.0));
+    select_trim(&mut h.app, &[id, cutter]);
+    h.app.set_board_tool(board::BoardTool::Split);
+    let before = h.app.doc().scene.nodes.len();
+    assert!(h.app.trim_click(Pos2::new(10.0, 0.0), false));
+    h.frame();
+    assert_eq!(h.app.doc().scene.nodes.len(), before + 1, "two pieces");
+    let rest = h.app.doc().scene.nodes.last().unwrap().id;
+
+    let first = painted_vertex_tips(&h, id);
+    assert_eq!(world_vertices(&h, id)[1], Pos2::new(25.0, 0.0));
+    assert_eq!(first.len(), 2);
+    assert_vertex(first[0], 2.0, 0.0, "first piece start");
+    assert_vertex(first[1], 6.5, 50.0, "first piece cut");
+    assert!(corner_overrides(&h, id).iter().all(Option::is_none));
+
+    let second = painted_vertex_tips(&h, rest);
+    assert_eq!(world_vertices(&h, rest)[0], Pos2::new(25.0, 0.0));
+    assert_eq!(second.len(), 4);
+    assert_vertex(second[0], 6.5, 50.0, "second piece cut");
+    assert_vertex(second[1], 20.0, 200.0, "vertex 1");
+    assert_vertex(second[2], 6.0, 100.0, "vertex 2");
+    assert_vertex(second[3], 12.0, 50.0, "vertex 3");
+    assert_matches_ink(first[1], at_cut, "first piece cut");
+    assert_matches_ink(second[0], at_cut, "second piece cut");
+    assert_eq!(
+        corner_overrides(&h, rest),
+        vec![None, Some(8.0), Some(4.0), None]
+    );
+}
+
+/// A split closed polyline: every piece keeps the corners it inherits and
+/// the cut vertices take the edge's value at the cut.
+#[test]
+fn split_closed_polyline_keeps_corner_overrides_and_tips() {
+    let mut h = grip_board("split_vertex_style_closed");
+    let pts = [
+        Pos2::new(0.0, 0.0),
+        Pos2::new(100.0, 0.0),
+        Pos2::new(100.0, 100.0),
+        Pos2::new(0.0, 100.0),
+    ];
+    let id = commit_polyline(&mut h, &pts, true);
+    let widths = [2.0, 4.0, 6.0, 8.0];
+    let reds = [0u8, 40, 80, 120];
+    let corners = [Some(5.0), Some(10.0), Some(15.0), Some(20.0)];
+    style_vertices(&mut h, id, &widths, &reds, &corners);
+    let cutter = add_seg(&mut h.app, Pos2::new(50.0, -10.0), Pos2::new(50.0, 110.0));
+    select_trim(&mut h.app, &[id, cutter]);
+    h.app.set_board_tool(board::BoardTool::Split);
+    let before = h.app.doc().scene.nodes.len();
+    assert!(h.app.trim_click(Pos2::new(25.0, 50.0), false));
+    h.frame();
+    assert_eq!(h.app.doc().scene.nodes.len(), before + 1, "two pieces");
+    let rest = h.app.doc().scene.nodes.last().unwrap().id;
+    for piece in [id, rest] {
+        let tips = painted_vertex_tips(&h, piece);
+        let overrides = corner_overrides(&h, piece);
+        let at = world_vertices(&h, piece);
+        assert_eq!(tips.len(), at.len());
+        for (k, p) in at.iter().enumerate() {
+            let what = format!("vertex {p:?}");
+            let near = |q: Pos2| (*p - q).length() < 0.01;
+            if let Some(i) = pts.iter().position(|q| near(*q)) {
+                assert_vertex(tips[k], widths[i], reds[i] as f32, &what);
+                assert_eq!(overrides[k], corners[i], "{what} keeps its corner");
+            } else if near(Pos2::new(50.0, 0.0)) {
+                assert_vertex(tips[k], 3.0, 20.0, &what);
+                assert_eq!(overrides[k], None, "{what}: a cut has no override");
+            } else if near(Pos2::new(50.0, 100.0)) {
+                assert_vertex(tips[k], 7.0, 100.0, &what);
+                assert_eq!(overrides[k], None, "{what}: a cut has no override");
+            } else {
+                panic!("unexpected {what}");
+            }
+        }
+    }
+}

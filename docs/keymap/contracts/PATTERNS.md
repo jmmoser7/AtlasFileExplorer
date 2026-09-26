@@ -390,8 +390,12 @@ is searchable.
   from its three grip values; an arc with an odd span count gains a joint
   at its through point. A filleted polyline keeps its vertex widths, and
   each fillet's middle takes its corner's width. Grip drags keep the tips
-  when the grips still fit. Trim, split and Direct Selection edits that
-  change the vertex count drop them. Both interpreters paint through
+  when the grips still fit. Edits that change the vertex count carry them
+  (user, 26 September 2026: "per-vertex properties survive editing"):
+  Trim and Split pieces keep the tips and corner overrides of the source
+  vertices they keep, and a cut vertex takes the stroke's width and color
+  at the cut by this blend, with no corner override
+  (`slate_doc::vertex_style::split_tips_at`, the one owner). Both interpreters paint through
   `slate_doc::geom::tipped_stroke` and `vector_ink::stroke_mesh_tipped` /
   `stroke_outline_tipped`; the artifact writes the variable-width outline as
   a filled path. Colors are the tips' `color`, and a uniform stroke keeps
