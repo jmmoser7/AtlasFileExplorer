@@ -919,6 +919,7 @@ impl SlateApp {
                 stroke,
                 corner: slate_doc::scene::Corner::Square,
                 sides: slate_doc::scene::default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: Some(data.into()),
 
@@ -959,6 +960,7 @@ impl SlateApp {
                     stroke,
                     corner: slate_doc::scene::Corner::Square,
                     sides: slate_doc::scene::default_regular_sides(),
+                    phase_deg: 0.0,
                     flip: false,
                     path: Some(data.into()),
                     text: None,
@@ -1033,6 +1035,7 @@ impl SlateApp {
                 stroke,
                 corner: slate_doc::scene::Corner::Square,
                 sides: slate_doc::scene::default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: Some(data.into()),
                 text: None,

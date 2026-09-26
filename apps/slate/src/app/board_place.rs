@@ -193,10 +193,14 @@ pub fn ghost_kind(tool: BoardTool) -> Option<GhostKind> {
 /// polygon's vertices at its default side count.
 pub fn polygon_outline(rect: Rect) -> Vec<Pos2> {
     let world = WorldRect::new(rect.min.x, rect.min.y, rect.width(), rect.height());
-    slate_doc::scene::regular_polygon_vertices(world, slate_doc::scene::default_regular_sides())
-        .into_iter()
-        .map(|[x, y]| Pos2::new(x, y))
-        .collect()
+    slate_doc::scene::regular_polygon_vertices(
+        world,
+        slate_doc::scene::default_regular_sides(),
+        0.0,
+    )
+    .into_iter()
+    .map(|[x, y]| Pos2::new(x, y))
+    .collect()
 }
 
 /// What an armed tool shows under the pointer over the board.

@@ -8,8 +8,13 @@ use slate_doc::scene::WorldRect;
 
 /// Screen-px half-size of resize handles (matches board.rs).
 pub const HANDLE_PX: f32 = 5.0;
-/// Live-corner fillet grip (square, same family as resize handles).
-pub const FILLET_GRIP_PX: f32 = 4.0;
+/// Painted half-size of the live-corner fillet grip (square, same family as
+/// resize handles).
+pub const FILLET_GRIP_PX: f32 = 1.6;
+/// Half-size of the fillet grip's hit box before slop, and the size whose
+/// legibility decides whether the grip shows at all. Larger than the painted
+/// square so a small grip stays easy to grab.
+pub const FILLET_GRIP_HIT_PX: f32 = 4.0;
 /// World-unit inset of the corner grip along its edge while the corner is
 /// square (and the floor of its resting travel).
 pub const FILLET_GRIP_MIN_INSET_WORLD: f32 = 10.0;
@@ -322,10 +327,9 @@ pub fn cursor_along(dir: Vec2) -> CursorIcon {
 }
 
 pub fn hit_test_fillet_grip(screen: Pos2, geom: &SelectionGeom, grip: Pos2) -> bool {
-    let half = canvas_scale::px(FILLET_GRIP_PX, geom.zoom);
-    Rect::from_center_size(grip, Vec2::splat(half * 2.0))
-        .expand(canvas_scale::HIT_SLOP_PX * 0.5)
-        .contains(screen)
+    let half = (canvas_scale::px(FILLET_GRIP_HIT_PX, geom.zoom) + canvas_scale::HIT_SLOP_PX * 0.5)
+        .max(canvas_scale::HIT_SLOP_PX);
+    Rect::from_center_size(grip, Vec2::splat(half * 2.0)).contains(screen)
 }
 
 pub fn paint_fillet_grip(painter: &egui::Painter, grip: Pos2, zoom: f32, ink: Color32, hot: bool) {
@@ -338,6 +342,38 @@ pub fn paint_fillet_grip(painter: &egui::Painter, grip: Pos2, zoom: f32, ink: Co
         EStroke::new(canvas_scale::px(1.0, zoom), ink),
         egui::StrokeKind::Inside,
     );
+}
+
+/// Designed radius of a polygon vertex's + / − (P1.shape.polygon-sides).
+pub const SIDES_GLYPH_RADIUS: f32 = 6.0;
+/// Designed distance from the vertex to each glyph's center, along the
+/// vertex's bisector: + outside, − inside.
+pub const SIDES_GLYPH_OFFSET: f32 = 14.0;
+/// Designed radius around a vertex that reveals its glyphs.
+pub const SIDES_VERTEX_HIT: f32 = 10.0;
+
+pub fn paint_sides_glyph(
+    painter: &egui::Painter,
+    center: Pos2,
+    radius: f32,
+    zoom: f32,
+    add: bool,
+    ink: Color32,
+    hot: bool,
+) {
+    let fill = if hot { GRIP_HANDLE_HOT } else { Color32::WHITE };
+    painter.circle(
+        center,
+        radius,
+        fill,
+        EStroke::new(canvas_scale::px(1.0, zoom), ink),
+    );
+    let arm = radius * 0.55;
+    let bar = EStroke::new(canvas_scale::px(1.5, zoom), ink);
+    painter.line_segment([center - Vec2::X * arm, center + Vec2::X * arm], bar);
+    if add {
+        painter.line_segment([center - Vec2::Y * arm, center + Vec2::Y * arm], bar);
+    }
 }
 
 #[cfg(test)]
@@ -525,6 +561,7 @@ mod tests {
             stroke: slate_doc::scene::Stroke::default(),
             corner: slate_doc::scene::Corner::Square,
             sides: slate_doc::scene::default_regular_sides(),
+            phase_deg: 0.0,
             flip: false,
             path: None,
             text: None,
@@ -787,6 +824,50 @@ mod tests {
             (off2 - off1 * 2.0).abs() < 1e-3,
             "rotate offset froze: {off1} → {off2}"
         );
+    }
+
+    #[test]
+    fn fillet_grip_paints_at_40_percent_and_keeps_a_generous_hit() {
+        assert!(
+            (FILLET_GRIP_PX - 0.4 * 4.0).abs() < 1e-6,
+            "painted half-size is 40% of the former 4 units, got {FILLET_GRIP_PX}"
+        );
+        let at = |z: f32| {
+            let xf = BoardXf {
+                center: Pos2::ZERO,
+                offset: Vec2::ZERO,
+                z,
+            };
+            selection_geom(&xf, WorldRect::new(0.0, 0.0, 400.0, 300.0), 0.0)
+        };
+        let grip = Pos2::new(50.0, 0.0);
+        let geom = at(1.0);
+        for off in [
+            Vec2::new(7.5, 0.0),
+            Vec2::new(-7.5, 7.5),
+            Vec2::new(0.0, -7.5),
+        ] {
+            assert!(
+                hit_test_fillet_grip(grip + off, &geom, grip),
+                "the hit box still reaches 8 px at zoom 1 ({off:?})"
+            );
+        }
+        assert!(!hit_test_fillet_grip(
+            grip + Vec2::new(8.5, 0.0),
+            &geom,
+            grip
+        ));
+        let small = at(0.25);
+        assert!(
+            hit_test_fillet_grip(grip + Vec2::new(7.5, 0.0), &small, grip),
+            "zoomed out, the reach never falls under the screen slop"
+        );
+        let big = at(4.0);
+        assert!(hit_test_fillet_grip(
+            grip + Vec2::new(19.5, 0.0),
+            &big,
+            grip
+        ));
     }
 
     #[test]

@@ -6,7 +6,7 @@ use crate::scene::{
     clamp_regular_sides, regular_polygon_vertices, Corner, Crop, Node, NodeKind, PathData, PathSeg,
     ShapeKind, WorldRect,
 };
-use crate::wire::{filleted_vertex_path, PathCmd};
+use crate::wire::{filleted_vertex_path, filleted_vertex_path_each, PathCmd};
 use vector_ink::kurbo::{BezPath, Point};
 use vector_ink::{flatten_contours, point_in_polygon, Polygon};
 
@@ -138,10 +138,13 @@ pub fn path_data_to_world_bez_with_fillet(
 ) -> BezPath {
     if path_is_line_polyline(path) {
         let (chamfer, amount) = corner.effective(rect.w, rect.h);
-        if amount > 0.0 {
+        let amounts: Vec<f32> = (0..=path.segs.len())
+            .map(|i| path.vertex_corner_amount(i, amount))
+            .collect();
+        if amounts.iter().any(|a| *a > 0.0) {
             let world = polyline_world_points(path, rect, rotation_deg);
             if world.len() >= 3 || (world.len() >= 2 && !path.closed) {
-                let cmds = filleted_vertex_path(&world, amount, chamfer, path.closed);
+                let cmds = filleted_vertex_path_each(&world, &amounts, chamfer, path.closed);
                 return path_cmds_to_bez_world(&cmds);
             }
         }
@@ -163,11 +166,12 @@ pub fn regular_polygon_world_outline(
     rect: WorldRect,
     rotation_deg: f32,
     sides: u8,
+    phase_deg: f32,
     corner: Corner,
     tolerance: f32,
 ) -> Vec<[f32; 2]> {
     let sides = clamp_regular_sides(sides);
-    let verts = regular_polygon_vertices(rect, sides);
+    let verts = regular_polygon_vertices(rect, sides, phase_deg);
     let (chamfer, amount) = corner.effective(rect.w, rect.h);
     let mut outline = if amount <= 0.0 {
         verts
@@ -257,7 +261,7 @@ pub fn corner_grip_edge(node: &Node, chamfer: bool) -> Option<CornerGripEdge> {
     match &node.kind {
         NodeKind::Shape(s) if s.shape == ShapeKind::RegularPolygon => {
             let sides = clamp_regular_sides(s.sides) as usize;
-            let verts: Vec<[f32; 2]> = regular_polygon_vertices(rect, sides as u8)
+            let verts: Vec<[f32; 2]> = regular_polygon_vertices(rect, sides as u8, s.phase_deg)
                 .into_iter()
                 .map(|p| rect.rotate_point(p, rot))
                 .collect();
@@ -270,26 +274,10 @@ pub fn corner_grip_edge(node: &Node, chamfer: bool) -> Option<CornerGripEdge> {
         NodeKind::Shape(s) if s.shape == ShapeKind::Rect => Some(box_grip_edge(rect, rot)),
         NodeKind::Shape(s) => {
             let path = s.path.as_ref().filter(|p| path_is_line_polyline(p))?;
-            let mut pts = polyline_world_points(path, rect, rot);
-            pts.dedup_by(|a, b| (a[0] - b[0]).hypot(a[1] - b[1]) < 1e-3);
-            if path.closed
-                && pts.len() > 1
-                && (pts[0][0] - pts[pts.len() - 1][0]).hypot(pts[0][1] - pts[pts.len() - 1][1])
-                    < 1e-3
-            {
-                pts.pop();
-            }
+            let pts = polyline_distinct_vertices(path, rect, rot);
             let n = pts.len();
-            if n < 3 {
-                return None;
-            }
-            let interior: Box<dyn Iterator<Item = usize>> = if path.closed {
-                Box::new(0..n)
-            } else {
-                Box::new(1..n - 1)
-            };
-            interior
-                .filter_map(|i| from_vertex(pts[(i + n - 1) % n], pts[i], pts[(i + 1) % n]))
+            polyline_interior(path.closed, n)
+                .filter_map(|i| from_vertex(pts[(i + n - 1) % n].1, pts[i].1, pts[(i + 1) % n].1))
                 .next()
         }
         NodeKind::Image(_) | NodeKind::Frame(_) | NodeKind::Portal(_) => {
@@ -297,6 +285,71 @@ pub fn corner_grip_edge(node: &Node, chamfer: bool) -> Option<CornerGripEdge> {
         }
         _ => None,
     }
+}
+
+/// A line polyline's distinct world vertices, each with its index in path
+/// order. A closed path's repeated closing point is dropped.
+fn polyline_distinct_vertices(
+    path: &PathData,
+    rect: WorldRect,
+    rotation_deg: f32,
+) -> Vec<(usize, [f32; 2])> {
+    let same = |a: [f32; 2], b: [f32; 2]| (a[0] - b[0]).hypot(a[1] - b[1]) < 1e-3;
+    let mut pts: Vec<(usize, [f32; 2])> = polyline_world_points(path, rect, rotation_deg)
+        .into_iter()
+        .enumerate()
+        .collect();
+    pts.dedup_by(|a, b| same(a.1, b.1));
+    if path.closed && pts.len() > 1 && same(pts[0].1, pts[pts.len() - 1].1) {
+        pts.pop();
+    }
+    pts
+}
+
+/// Vertices that can carry a corner: all of a closed loop, the inner ones
+/// of an open path.
+fn polyline_interior(closed: bool, n: usize) -> std::ops::Range<usize> {
+    match (n < 3, closed) {
+        (true, _) => 0..0,
+        (false, true) => 0..n,
+        (false, false) => 1..n - 1,
+    }
+}
+
+/// Per-vertex grips for a line polyline (P1.node.corner-grip): one per
+/// turning vertex, keyed by its index in path order. Each rides its
+/// vertex's incoming segment, back from the vertex.
+pub fn polyline_vertex_grip_edges(node: &Node, chamfer: bool) -> Vec<(usize, CornerGripEdge)> {
+    let NodeKind::Shape(s) = &node.kind else {
+        return Vec::new();
+    };
+    let Some(path) = s.path.as_ref().filter(|p| path_is_line_polyline(p)) else {
+        return Vec::new();
+    };
+    let pts = polyline_distinct_vertices(path, node.rect, node.rotation_deg);
+    let n = pts.len();
+    polyline_interior(path.closed, n)
+        .filter_map(|i| {
+            let (at, cur) = pts[i];
+            let vc = crate::wire::vertex_corner(
+                pts[(i + n - 1) % n].1,
+                cur,
+                pts[(i + 1) % n].1,
+                chamfer,
+            )?;
+            let side = (vc.u_in[0] * vc.u_out[1] - vc.u_in[1] * vc.u_out[0]).signum();
+            Some((
+                at,
+                CornerGripEdge {
+                    vertex: cur,
+                    dir: [-vc.u_in[0], -vc.u_in[1]],
+                    inward: [-vc.u_in[1] * side, vc.u_in[0] * side],
+                    per_amount: vc.per_amount,
+                    max_travel: vc.max_tangent,
+                },
+            ))
+        })
+        .collect()
 }
 
 fn box_grip_edge(rect: WorldRect, rotation_deg: f32) -> CornerGripEdge {
@@ -409,6 +462,7 @@ pub fn node_closed_poly(n: &Node, tolerance: f32) -> Option<Polygon> {
                         n.rect,
                         n.rotation_deg,
                         s.sides,
+                        s.phase_deg,
                         s.corner,
                         tolerance,
                     ),
@@ -533,7 +587,7 @@ mod tests {
                     ] {
                         for rot in [0.0, 33.0] {
                             let outline =
-                                regular_polygon_world_outline(rect, rot, sides, corner, 0.05);
+                                regular_polygon_world_outline(rect, rot, sides, 0.0, corner, 0.05);
                             let label = format!("{rect:?} sides={sides} {corner:?} rot={rot}");
                             let bounds = (rot == 0.0).then_some(rect);
                             assert_clean_convex_outline(&outline, bounds, &label);
@@ -544,7 +598,8 @@ mod tests {
                     Corner::RoundedPercent { percent: 100.0 },
                     Corner::ChamferPercent { percent: 100.0 },
                 ] {
-                    let outline = regular_polygon_world_outline(rect, 0.0, sides, corner, 0.05);
+                    let outline =
+                        regular_polygon_world_outline(rect, 0.0, sides, 0.0, corner, 0.05);
                     let label = format!("{rect:?} sides={sides} {corner:?}");
                     assert_clean_convex_outline(&outline, Some(rect), &label);
                 }
@@ -557,7 +612,8 @@ mod tests {
         // A true regular hexagon (square box): 120 degree interior angles.
         let rect = WorldRect::new(0.0, 0.0, 100.0, 100.0);
         let radius = 10.0f32;
-        let outline = regular_polygon_world_outline(rect, 0.0, 6, Corner::Rounded { radius }, 0.01);
+        let outline =
+            regular_polygon_world_outline(rect, 0.0, 6, 0.0, Corner::Rounded { radius }, 0.01);
         let v0 = [50.0f32, 0.0];
         let half_interior = 60.0f32.to_radians();
         let tangent = radius / half_interior.tan();
@@ -616,10 +672,170 @@ mod tests {
         assert!(!near([100.0, 0.0]), "the corner itself is cut away");
     }
 
+    fn flat_near(bez: &BezPath, q: [f32; 2]) -> bool {
+        flatten_contours(bez, 0.05)
+            .iter()
+            .flatten()
+            .any(|p| (p[0] - q[0]).hypot(p[1] - q[1]) < 1e-2)
+    }
+
+    /// An open U: (0,0) → (1,0) → (1,1) → (0,1), vertices 0..=3.
+    fn open_u() -> PathData {
+        PathData {
+            start: [0.0, 0.0],
+            segs: vec![
+                PathSeg::Line { to: [1.0, 0.0] },
+                PathSeg::Line { to: [1.0, 1.0] },
+                PathSeg::Line { to: [0.0, 1.0] },
+            ],
+            closed: false,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn polyline_vertex_override_sets_one_corner_and_zero_stays_sharp() {
+        let rect = WorldRect::new(0.0, 0.0, 100.0, 100.0);
+        let mut path = open_u();
+        path.corner_amounts = vec![None, Some(20.0), Some(0.0), None];
+        let bez =
+            path_data_to_world_bez_with_fillet(&path, rect, 0.0, Corner::Chamfer { cut: 10.0 });
+        assert!(
+            flat_near(&bez, [80.0, 0.0]) && flat_near(&bez, [100.0, 20.0]),
+            "vertex 1 is cut at its override of 20"
+        );
+        assert!(!flat_near(&bez, [100.0, 0.0]), "vertex 1 is cut away");
+        assert!(
+            flat_near(&bez, [100.0, 100.0]),
+            "vertex 2's override of 0 keeps it sharp"
+        );
+
+        // A shared corner of zero still honors an override.
+        let mut path = open_u();
+        path.corner_amounts = vec![None, Some(15.0), None, None];
+        let bez = path_data_to_world_bez_with_fillet(&path, rect, 0.0, Corner::Square);
+        assert!(
+            flat_near(&bez, [85.0, 0.0]) && flat_near(&bez, [100.0, 15.0]),
+            "vertex 1 rounds to radius 15 at its tangent points"
+        );
+        assert!(
+            flat_near(&bez, [100.0, 100.0]),
+            "vertex 2 follows the shape"
+        );
+
+        // A closed square: vertex 0 is a corner too.
+        let square = PathData {
+            start: [0.0, 0.0],
+            segs: vec![
+                PathSeg::Line { to: [1.0, 0.0] },
+                PathSeg::Line { to: [1.0, 1.0] },
+                PathSeg::Line { to: [0.0, 1.0] },
+            ],
+            closed: true,
+            corner_amounts: vec![Some(10.0), None, None, None],
+            ..Default::default()
+        };
+        let bez = path_data_to_world_bez_with_fillet(
+            &square,
+            rect,
+            0.0,
+            Corner::ChamferPercent { percent: 0.0 },
+        );
+        assert!(flat_near(&bez, [10.0, 0.0]) && flat_near(&bez, [0.0, 10.0]));
+        assert!(flat_near(&bez, [100.0, 0.0]) && flat_near(&bez, [0.0, 100.0]));
+
+        // A list that does not match the vertices is ignored.
+        let mut path = open_u();
+        path.corner_amounts = vec![None, Some(20.0)];
+        let bez =
+            path_data_to_world_bez_with_fillet(&path, rect, 0.0, Corner::Chamfer { cut: 10.0 });
+        assert!(flat_near(&bez, [90.0, 0.0]) && flat_near(&bez, [100.0, 90.0]));
+    }
+
+    fn polyline_node(path: PathData, rect: WorldRect, corner: Corner) -> Node {
+        let mut scene = crate::scene::Scene::default();
+        scene.build_node(
+            rect,
+            NodeKind::Shape(crate::scene::ShapeNode {
+                shape: ShapeKind::Line,
+                sides: 6,
+                phase_deg: 0.0,
+                fill: None,
+                stroke: crate::scene::Stroke::default(),
+                corner,
+                flip: false,
+                path: Some(std::sync::Arc::new(path)),
+                text: None,
+            }),
+        )
+    }
+
+    #[test]
+    fn polyline_vertex_grips_ride_the_incoming_segment_at_the_tangent_distance() {
+        let rect = WorldRect::new(0.0, 0.0, 100.0, 100.0);
+        let node = polyline_node(open_u(), rect, Corner::Rounded { radius: 10.0 });
+        let grips = polyline_vertex_grip_edges(&node, false);
+        let at: Vec<usize> = grips.iter().map(|(i, _)| *i).collect();
+        assert_eq!(
+            at,
+            vec![1, 2],
+            "one grip per turning vertex; ends stay sharp"
+        );
+        let (_, e1) = grips[0];
+        assert_eq!(e1.vertex, [100.0, 0.0]);
+        assert_eq!(e1.dir, [-1.0, 0.0], "vertex 1 rides its incoming segment");
+        assert_eq!(e1.inward, [0.0, 1.0]);
+        let p = e1.point(e1.travel_for_amount(10.0));
+        assert!((p[0] - 90.0).abs() < 1e-4 && p[1].abs() < 1e-4, "{p:?}");
+        assert!((e1.max_travel - 50.0).abs() < 1e-4);
+        let (_, e2) = grips[1];
+        assert_eq!(e2.dir, [0.0, -1.0], "vertex 2 rides its incoming segment");
+        let p = e2.point(e2.travel_for_amount(10.0));
+        assert!(
+            (p[0] - 100.0).abs() < 1e-4 && (p[1] - 90.0).abs() < 1e-4,
+            "{p:?}"
+        );
+
+        // A 120 degree turn: the tangent distance is r·tan(turn / 2).
+        let wedge = PathData {
+            start: [0.0, 0.0],
+            segs: vec![
+                PathSeg::Line { to: [1.0, 0.0] },
+                PathSeg::Line {
+                    to: [0.5, 0.866_025_4],
+                },
+            ],
+            closed: false,
+            ..Default::default()
+        };
+        let node = polyline_node(wedge, rect, Corner::Rounded { radius: 10.0 });
+        let grips = polyline_vertex_grip_edges(&node, false);
+        assert_eq!(grips.len(), 1);
+        let (i, e) = grips[0];
+        assert_eq!(i, 1);
+        let t = e.travel_for_amount(5.0);
+        assert!((t - 5.0 * 60f32.to_radians().tan()).abs() < 1e-3, "{t}");
+        let p = e.point(t);
+        assert!(
+            (p[0] - (100.0 - t)).abs() < 1e-3 && p[1].abs() < 1e-3,
+            "{p:?}"
+        );
+
+        // Closed: every vertex turns, including the start.
+        let mut square = open_u();
+        square.closed = true;
+        let node = polyline_node(square, rect, Corner::Rounded { radius: 10.0 });
+        let at: Vec<usize> = polyline_vertex_grip_edges(&node, true)
+            .iter()
+            .map(|(i, _)| *i)
+            .collect();
+        assert_eq!(at, vec![0, 1, 2, 3]);
+    }
+
     #[test]
     fn regular_polygon_default_is_six_sides() {
         let rect = WorldRect::new(0.0, 0.0, 100.0, 100.0);
-        let v = crate::scene::regular_polygon_vertices(rect, 6);
+        let v = crate::scene::regular_polygon_vertices(rect, 6, 0.0);
         assert_eq!(v.len(), 6);
     }
 
@@ -736,6 +952,7 @@ mod paint_window_tests {
             NodeKind::Shape(ShapeNode {
                 shape: ShapeKind::Line,
                 sides: 6,
+                phase_deg: 0.0,
                 fill: None,
                 stroke: Stroke::default(),
                 corner: Corner::Square,
@@ -750,6 +967,7 @@ mod paint_window_tests {
             NodeKind::Shape(ShapeNode {
                 shape: ShapeKind::Line,
                 sides: 6,
+                phase_deg: 0.0,
                 fill: None,
                 stroke: Stroke::default(),
                 corner: Corner::Square,

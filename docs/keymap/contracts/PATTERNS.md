@@ -187,7 +187,8 @@ is searchable.
   edge from the top-left corner**, moving right (Miro's documented surface
   is a slider / number field; a community report shows the rounded-rectangle
   handle but does not name the edge, so the edge is our choice). Regular
-  polygons use the side from the top vertex toward the next vertex
+  polygons use the side from the first vertex (the top one until a vertex
+  +/− turns the polygon, `polygon` D14) toward the next vertex
   clockwise; line polylines use the leaving side of the first turning
   vertex. A fillet amount is the arc **radius**, so on a polygon or
   polyline the grip's travel is `radius × tan(turn / 2)`; a chamfer amount
@@ -210,13 +211,37 @@ is searchable.
   grip, inside the edge, using the stringers' `selection_tools::inline_number`;
   Enter dispatches **one** journaled `board.shape.fillet` patch (clamped to
   the host's largest amount), Esc cancels without touching the selection.
+  **Multi-selection (stated 26 September 2026):** every selected
+  corner-capable host shows its grip; grabbing any one and dragging sets
+  every selected host from the dragged amount, each clamped to its own
+  largest amount, live, as **one** journal group on release; Esc restores
+  them all; the click-to-type field sends every selected host (one
+  `board.shape.fillet`, clamped per host). Proposals: locked hosts and hosts
+  whose portal chrome hides the cast are skipped; the topmost grip wins
+  where two overlap; a quick second click on a grip is not a canvas
+  double-click, so it neither collapses the selection nor opens text.
+  **Polyline corners (stated 26 September 2026):** a single selected line
+  polyline shows a grip near **each** turning vertex instead of the one
+  shared grip. Each rides its vertex's **incoming** segment, back from the
+  vertex, at that corner's tangent distance (same edge-riding rule), and
+  its drag or typed amount sets that corner alone, stored as a per-vertex
+  override (`PathData.corner_amounts`, SVG-expressible, one geometry owner
+  for board and export). The Corners value still sets every corner and
+  clears the overrides. Proposals: only a single selection offers
+  per-vertex grips (a multi-selection shows the shared grip, which also
+  clears overrides); only the hovered or held grip lights; per-vertex
+  edits never reach peers.
   **Proposals** (implementation detail, not re-litigated per contract):
-  **single-select only**; painted size `FILLET_GRIP_PX` via `canvas_scale`
-  (P0.9); hidden in image crop mode, multi-select, and when portal chrome
+  painted half-size `FILLET_GRIP_PX` via
+  `canvas_scale` (P0.9) — 1.6, **stated** 26 September 2026 as 40% of the
+  former 4; the hit box keeps the former half-size `FILLET_GRIP_HIT_PX` plus
+  slop and never falls under `HIT_SLOP_PX` on screen, and the grip drops
+  only when that hit size is illegible (proposal: the shrink does not change
+  the zoom at which the grip hides); hidden in image crop mode and when portal chrome
   suppresses the ordinary selection cast; cursor is the two-headed resize
   arrow along the edge; clamp `[0, host maximum]` (half the short side for
   boxes, half the shorter adjacent side for vertices); live preview,
-  **one** journaled `SceneCmd::Patch` on release (`board.shape.fillet`);
+  **one** journal group on release (`board.shape.fillet`);
   Esc mid-drag restores press-time radius (ActiveOperation); Shift →
   integer world units; radius readout at the pointer during drag
   (`canvas_text`, **P2.GhostFollow** — screen-constant offset, not
@@ -227,8 +252,9 @@ is searchable.
   `Corner::Square`:** resolves through
   `slate_doc::media::portal_frame_corner` to the same model-owned default on
   board and export; a grip drag journals an explicit radius. Owner: edge
-  geometry `slate_doc::geom::corner_grip_edge`; vertex construction
-  `slate_doc::wire::filleted_vertex_path` (board and export); app side
+  geometry `slate_doc::geom::corner_grip_edge` and
+  `polyline_vertex_grip_edges`; vertex construction
+  `slate_doc::wire::filleted_vertex_path_each` (board and export); app side
   `board_handles` + `board_transform`.
   Where its hit box overlaps a resize edge band, the visible grip wins both
   hover and press; the NW corner point itself remains the NW resize target.

@@ -6,17 +6,185 @@
 
 use super::board::{BoardDrag, BoardXf};
 use super::{board_handles, SlateApp};
+use atlas_shell::canvas_scale;
 use eframe::egui::{self, Pos2, Vec2};
-use slate_doc::scene::{Corner, Node, NodeKind};
+use slate_doc::scene::{self, Corner, Node, NodeKind, ShapeKind};
 use slate_doc::NodeId;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub(crate) struct FilletRequest {
     pub ids: Vec<NodeId>,
     pub radius: f32,
+    /// One polyline corner of the first id instead of the shared amount.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vertex: Option<usize>,
+}
+
+/// A + or − at a hovered polygon vertex (P1.shape.polygon-sides).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct SidesGlyph {
+    pub id: NodeId,
+    pub vertex: usize,
+    pub add: bool,
+    /// Screen center and radius.
+    pub center: Pos2,
+    pub radius: f32,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub(crate) struct SidesRequest {
+    pub id: NodeId,
+    pub vertex: usize,
+    pub add: bool,
 }
 
 impl SlateApp {
+    /// Screen vertices of a selected, editable regular polygon and every
+    /// +/− it can offer. `None` when it offers none, or they are too small
+    /// to read.
+    fn polygon_sides_layout(
+        &self,
+        node: &Node,
+        xf: &BoardXf,
+    ) -> Option<(Vec<Pos2>, Vec<SidesGlyph>)> {
+        let NodeKind::Shape(s) = &node.kind else {
+            return None;
+        };
+        if s.shape != ShapeKind::RegularPolygon
+            || node.locked
+            || self.tab().read_only
+            || self.board_crop.is_some()
+            || !self.board_sel.contains(&node.id)
+            || self.frame_chrome_suppressed(node.id)
+        {
+            return None;
+        }
+        let radius = canvas_scale::px(board_handles::SIDES_GLYPH_RADIUS, xf.z);
+        if canvas_scale::too_small(radius) {
+            return None;
+        }
+        let offset = canvas_scale::px(board_handles::SIDES_GLYPH_OFFSET, xf.z);
+        let sides = scene::clamp_regular_sides(s.sides);
+        let pts: Vec<Pos2> = scene::regular_polygon_vertices(node.rect, sides, s.phase_deg)
+            .into_iter()
+            .map(|p| {
+                let [x, y] = node.rect.rotate_point(p, node.rotation_deg);
+                xf.w2s(Pos2::new(x, y))
+            })
+            .collect();
+        let n = pts.len();
+        let mut glyphs = Vec::new();
+        for (k, &v) in pts.iter().enumerate() {
+            // Outward bisector: the sum of the unit edges arriving at `v`.
+            let out = (v - pts[(k + n - 1) % n]).normalized() + (v - pts[(k + 1) % n]).normalized();
+            let len = out.length();
+            if len.is_nan() || len <= 1e-4 {
+                continue;
+            }
+            let out = out.normalized();
+            for (add, center) in [(true, v + out * offset), (false, v - out * offset)] {
+                if scene::regular_polygon_resided(sides, s.phase_deg, k, add).is_some() {
+                    glyphs.push(SidesGlyph {
+                        id: node.id,
+                        vertex: k,
+                        add,
+                        center,
+                        radius,
+                    });
+                }
+            }
+        }
+        Some((pts, glyphs))
+    }
+
+    fn selected_polygon_layouts(&self, xf: &BoardXf) -> Vec<(Vec<Pos2>, Vec<SidesGlyph>)> {
+        self.doc()
+            .scene
+            .nodes
+            .iter()
+            .rev()
+            .filter(|n| self.board_sel.contains(&n.id))
+            .filter_map(|n| self.polygon_sides_layout(n, xf))
+            .collect()
+    }
+
+    /// The +/− under `screen`, shown or not: pointing at one reveals it.
+    pub(crate) fn polygon_sides_glyph_at(&self, screen: Pos2, xf: &BoardXf) -> Option<SidesGlyph> {
+        let hit = canvas_scale::hit_px(board_handles::SIDES_GLYPH_RADIUS, xf.z);
+        self.selected_polygon_layouts(xf)
+            .into_iter()
+            .flat_map(|(_, glyphs)| glyphs)
+            .find(|g| g.center.distance(screen) <= hit)
+    }
+
+    /// The polygon vertex whose glyphs `screen` reveals: near the vertex or
+    /// on one of its glyphs.
+    fn polygon_sides_hover_at(&self, screen: Pos2, xf: &BoardXf) -> Option<(NodeId, usize)> {
+        let near = canvas_scale::hit_px(board_handles::SIDES_VERTEX_HIT, xf.z);
+        let hit = canvas_scale::hit_px(board_handles::SIDES_GLYPH_RADIUS, xf.z);
+        self.selected_polygon_layouts(xf)
+            .into_iter()
+            .find_map(|(pts, glyphs)| {
+                let id = glyphs.first()?.id;
+                pts.iter()
+                    .position(|v| v.distance(screen) <= near)
+                    .or_else(|| {
+                        glyphs
+                            .iter()
+                            .find(|g| g.center.distance(screen) <= hit)
+                            .map(|g| g.vertex)
+                    })
+                    .map(|k| (id, k))
+            })
+    }
+
+    /// The glyphs to paint: the hovered vertex's + and −, if any.
+    pub(crate) fn polygon_sides_glyphs(&self, xf: &BoardXf) -> Vec<SidesGlyph> {
+        let Some((id, vertex)) = self.board_sides_hover.filter(|_| self.board_drag.is_none())
+        else {
+            return Vec::new();
+        };
+        let Some(node) = self.doc().scene.node(id) else {
+            return Vec::new();
+        };
+        self.polygon_sides_layout(node, xf)
+            .map(|(_, glyphs)| glyphs.into_iter().filter(|g| g.vertex == vertex).collect())
+            .unwrap_or_default()
+    }
+
+    /// One side more or fewer about a vertex: one journaled patch.
+    pub(crate) fn shape_sides_command(&mut self, detail: Option<&str>) -> bool {
+        let Some(req) = detail.and_then(|s| serde_json::from_str::<SidesRequest>(s).ok()) else {
+            return false;
+        };
+        if self.refuse_read_only_edit() {
+            return false;
+        }
+        let Some(before) = self.doc().scene.node(req.id).cloned() else {
+            return false;
+        };
+        let NodeKind::Shape(s) = &before.kind else {
+            return false;
+        };
+        if before.locked || s.shape != ShapeKind::RegularPolygon {
+            return false;
+        }
+        let Some((sides, phase)) =
+            scene::regular_polygon_resided(s.sides, s.phase_deg, req.vertex, req.add)
+        else {
+            return false;
+        };
+        let mut after = before.clone();
+        if let NodeKind::Shape(s) = &mut after.kind {
+            s.sides = sides;
+            s.phase_deg = phase;
+        }
+        self.commit_scene(vec![scene::SceneCmd::Patch {
+            before: Box::new(before),
+            after: Box::new(after),
+        }])
+    }
+
     /// Portals stay axis-aligned; connectors and simple lines have no bbox
     /// rotate. Everything else with a rectangular frame can rotate.
     pub(crate) fn node_allows_rotation(node: &Node) -> bool {
@@ -86,28 +254,121 @@ impl SlateApp {
         });
     }
 
-    /// Screen grip for the live fillet control, if it should be shown.
+    /// Per-vertex overrides follow a shared edit; a vertex edit sets only its
+    /// own corner.
+    pub(crate) fn apply_corner_amount(
+        node: &mut Node,
+        before: &Node,
+        vertex: Option<usize>,
+        amount: f32,
+        path: Option<&std::path::Path>,
+    ) {
+        let Some(v) = vertex else {
+            Self::apply_fillet_radius_to_node(node, before, amount, false, path);
+            slate_doc::scene::clear_vertex_corner_amounts(node);
+            return;
+        };
+        *node = before.clone();
+        let shared = slate_doc::scene::resolved_corner(before, path)
+            .effective(before.rect.w, before.rect.h)
+            .1;
+        if (amount - Self::vertex_amount(before, v, shared)).abs() >= 1e-4 {
+            slate_doc::scene::set_vertex_corner_amount(node, v, amount);
+        }
+    }
+
+    fn vertex_amount(node: &Node, vertex: usize, shared: f32) -> f32 {
+        match &node.kind {
+            NodeKind::Shape(s) => s
+                .path
+                .as_ref()
+                .map_or(shared, |p| p.vertex_corner_amount(vertex, shared)),
+            _ => shared,
+        }
+    }
+
+    /// The corner amount a grip shows: its vertex's, or the shared one.
+    pub(crate) fn node_grip_amount(&self, node: &Node, vertex: Option<usize>) -> f32 {
+        let shared = self.node_fillet_radius_world(node);
+        vertex.map_or(shared, |v| Self::vertex_amount(node, v, shared))
+    }
+
+    /// Screen position of the first visible corner grip on `node`.
+    #[cfg(test)]
     pub(crate) fn fillet_grip_at(&self, node: &Node, xf: &BoardXf) -> Option<Pos2> {
-        if self.board_sel.len() != 1
-            || !self.board_sel.contains(&node.id)
+        self.corner_grips(node, xf).first().map(|g| g.1)
+    }
+
+    /// Every visible corner grip on `node`, keyed by polyline vertex
+    /// (`None` is the shared grip).
+    pub(crate) fn corner_grips(&self, node: &Node, xf: &BoardXf) -> Vec<(Option<usize>, Pos2)> {
+        if !self.board_sel.contains(&node.id)
             || self.board_crop.is_some()
             || !self.node_supports_fillet_grip(node)
         {
-            return None;
+            return Vec::new();
         }
         let geom = board_handles::selection_geom(xf, node.rect, node.rotation_deg);
-        let grip_px = atlas_shell::canvas_scale::px(board_handles::FILLET_GRIP_PX, geom.zoom);
+        let grip_px = atlas_shell::canvas_scale::px(board_handles::FILLET_GRIP_HIT_PX, geom.zoom);
         if atlas_shell::canvas_scale::too_small(grip_px) {
-            return None;
+            return Vec::new();
         }
-        let edge = self.node_corner_grip_edge(node)?;
-        let travel = match &self.board_drag {
-            Some(BoardDrag::FilletRadius {
-                id, pointer_travel, ..
-            }) if *id == node.id => *pointer_travel,
-            _ => board_handles::corner_grip_rest_travel(&edge, self.node_fillet_radius_world(node)),
+        self.node_grip_edges(node)
+            .into_iter()
+            .map(|(vertex, edge)| {
+                let travel = match &self.board_drag {
+                    Some(BoardDrag::FilletRadius {
+                        id,
+                        vertex: held,
+                        pointer_travel,
+                        ..
+                    }) if *id == node.id && *held == vertex => *pointer_travel,
+                    _ => board_handles::corner_grip_rest_travel(
+                        &edge,
+                        self.node_grip_amount(node, vertex),
+                    ),
+                };
+                (vertex, board_handles::corner_grip_screen(xf, &edge, travel))
+            })
+            .collect()
+    }
+
+    /// The grips `node` offers: one per polyline corner when it is the only
+    /// selection, otherwise the shared grip.
+    fn node_grip_edges(
+        &self,
+        node: &Node,
+    ) -> Vec<(Option<usize>, slate_doc::geom::CornerGripEdge)> {
+        if self.board_sel.len() == 1 {
+            let (chamfer, _) = self
+                .node_resolved_corner(node)
+                .effective(node.rect.w, node.rect.h);
+            let each = slate_doc::geom::polyline_vertex_grip_edges(node, chamfer);
+            if !each.is_empty() {
+                return each.into_iter().map(|(v, e)| (Some(v), e)).collect();
+            }
+        }
+        self.node_corner_grip_edge(node)
+            .map(|e| (None, e))
+            .into_iter()
+            .collect()
+    }
+
+    /// The edge the grip for `vertex` rides (`None`: the shared grip).
+    pub(crate) fn node_grip_edge(
+        &self,
+        node: &Node,
+        vertex: Option<usize>,
+    ) -> Option<slate_doc::geom::CornerGripEdge> {
+        let Some(v) = vertex else {
+            return self.node_corner_grip_edge(node);
         };
-        Some(board_handles::corner_grip_screen(xf, &edge, travel))
+        let (chamfer, _) = self
+            .node_resolved_corner(node)
+            .effective(node.rect.w, node.rect.h);
+        slate_doc::geom::polyline_vertex_grip_edges(node, chamfer)
+            .into_iter()
+            .find_map(|(i, e)| (i == v).then_some(e))
     }
 
     /// The edge the corner grip rides on `node` (P1.node.corner-grip).
@@ -121,24 +382,51 @@ impl SlateApp {
         slate_doc::geom::corner_grip_edge(node, chamfer)
     }
 
-    pub(crate) fn fillet_grip_hit_at(&self, screen: Pos2) -> Option<NodeId> {
-        let id = *self.board_sel.iter().next()?;
-        let n = self.doc().scene.node(id)?;
+    /// The topmost selected host whose corner grip is under `screen`, with
+    /// the polyline vertex that grip sets.
+    pub(crate) fn fillet_grip_hit_at(&self, screen: Pos2) -> Option<(NodeId, Option<usize>)> {
         let xf = self.board_xf();
-        let grip = self.fillet_grip_at(n, &xf)?;
-        let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
-        board_handles::hit_test_fillet_grip(screen, &geom, grip).then_some(id)
+        self.doc()
+            .scene
+            .nodes
+            .iter()
+            .rev()
+            .filter(|n| self.board_sel.contains(&n.id))
+            .find_map(|n| {
+                let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
+                self.corner_grips(n, &xf)
+                    .into_iter()
+                    .find(|(_, grip)| board_handles::hit_test_fillet_grip(screen, &geom, *grip))
+                    .map(|(vertex, _)| (n.id, vertex))
+            })
+    }
+
+    /// The other selected hosts one corner grip edits alongside `id`.
+    pub(crate) fn corner_grip_peers(&self, id: NodeId) -> Vec<Node> {
+        self.board_sel
+            .iter()
+            .filter(|p| **p != id)
+            .filter_map(|p| self.doc().scene.node(*p))
+            .filter(|n| !n.locked && self.node_supports_fillet_grip(n))
+            .cloned()
+            .collect()
     }
 
     pub(crate) fn begin_fillet_drag(&mut self, screen: Pos2, world: Pos2) -> Option<BoardDrag> {
-        let id = self.fillet_grip_hit_at(screen)?;
+        let (id, vertex) = self.fillet_grip_hit_at(screen)?;
         let before = self.doc().scene.node(id)?.clone();
-        let edge = self.node_corner_grip_edge(&before)?;
-        let start_amount = self.node_fillet_radius_world(&before);
+        let edge = self.node_grip_edge(&before, vertex)?;
+        let start_amount = self.node_grip_amount(&before, vertex);
         let press_travel = edge.project([world.x, world.y]);
         Some(BoardDrag::FilletRadius {
             id,
+            vertex,
             before,
+            peers: if vertex.is_none() {
+                self.corner_grip_peers(id)
+            } else {
+                Vec::new()
+            },
             start_amount,
             press_travel,
             pointer_travel: press_travel.clamp(0.0, edge.max_travel),
@@ -153,7 +441,9 @@ impl SlateApp {
     pub(crate) fn update_fillet_drag(&mut self, world: Pos2, shift: bool) {
         let Some(BoardDrag::FilletRadius {
             id,
+            vertex,
             before,
+            peers,
             start_amount,
             press_travel,
             press,
@@ -168,9 +458,10 @@ impl SlateApp {
         if *max_px <= 0.0 && moved < 1e-3 {
             return;
         }
-        let (id, start_amount, press_travel) = (*id, *start_amount, *press_travel);
+        let (id, vertex, start_amount, press_travel) = (*id, *vertex, *start_amount, *press_travel);
         let before = before.clone();
-        let Some(edge) = self.node_corner_grip_edge(&before) else {
+        let peers = peers.clone();
+        let Some(edge) = self.node_grip_edge(&before, vertex) else {
             return;
         };
         let projected = edge.project([world.x, world.y]);
@@ -183,7 +474,16 @@ impl SlateApp {
             .node_item_path(&before)
             .map(std::path::Path::to_path_buf);
         if let Some(n) = self.doc_mut().scene.node_mut(id) {
-            Self::apply_fillet_radius_to_node(n, &before, radius, false, path.as_deref());
+            Self::apply_corner_amount(n, &before, vertex, radius, path.as_deref());
+        }
+        for peer in &peers {
+            let Some(max) = self.node_corner_grip_edge(peer).map(|e| e.max_amount()) else {
+                continue;
+            };
+            let path = self.node_item_path(peer).map(std::path::Path::to_path_buf);
+            if let Some(n) = self.doc_mut().scene.node_mut(peer.id) {
+                Self::apply_corner_amount(n, peer, None, radius.min(max), path.as_deref());
+            }
         }
         if let Some(BoardDrag::FilletRadius {
             max_px,
@@ -197,7 +497,8 @@ impl SlateApp {
     }
 
     /// Typed corner amount from the grip's inline field: one journaled patch,
-    /// clamped to what the host can show.
+    /// clamped to what the host can show. With a `vertex`, only that corner
+    /// of the first id.
     pub(crate) fn shape_fillet_command(&mut self, detail: Option<&str>) -> bool {
         let Some(req) = detail.and_then(|s| serde_json::from_str::<FilletRequest>(s).ok()) else {
             return false;
@@ -205,21 +506,25 @@ impl SlateApp {
         if !req.radius.is_finite() || req.radius < 0.0 || self.refuse_read_only_edit() {
             return false;
         }
+        let ids = match req.vertex {
+            Some(_) => &req.ids[..req.ids.len().min(1)],
+            None => &req.ids[..],
+        };
         let mut cmds = Vec::new();
-        for id in req.ids {
+        for &id in ids {
             let Some(before) = self.doc().scene.node(id).cloned() else {
                 continue;
             };
             if before.locked || !slate_doc::scene::supports_corners(&before) {
                 continue;
             }
-            let Some(edge) = self.node_corner_grip_edge(&before) else {
+            let Some(edge) = self.node_grip_edge(&before, req.vertex) else {
                 continue;
             };
             let radius = req.radius.min(edge.max_amount());
             let mut after = before.clone();
             let path = self.node_item_path(&before);
-            Self::apply_fillet_radius_to_node(&mut after, &before, radius, false, path);
+            Self::apply_corner_amount(&mut after, &before, req.vertex, radius, path);
             if after != before {
                 cmds.push(slate_doc::scene::SceneCmd::Patch {
                     before: Box::new(before),
@@ -307,24 +612,29 @@ impl SlateApp {
     ) {
         self.board_hover_hit = None;
         self.board_hover_node = None;
+        self.board_sides_hover = None;
         let Some(p) = pointer else { return };
         if self.pointer_on_portal_maximize(p, xf) {
             return;
         }
-        if self.board_sel.len() == 1 {
-            if let Some(id) = self.fillet_grip_hit_at(p) {
-                self.board_hover_hit = Some(board_handles::BoardHitTarget::FilletRadius);
-                self.board_hover_node = Some(id);
-                if let Some(edge) = self
-                    .doc()
-                    .scene
-                    .node(id)
-                    .and_then(|n| self.node_corner_grip_edge(n))
-                {
-                    ctx.set_cursor_icon(board_handles::cursor_along(Vec2::from(edge.dir)));
-                }
-                return;
+        if let Some((id, vertex)) = self.fillet_grip_hit_at(p) {
+            self.board_hover_hit = Some(board_handles::BoardHitTarget::FilletRadius);
+            self.board_hover_node = Some(id);
+            self.board_hover_grip_vertex = vertex;
+            if let Some(edge) = self
+                .doc()
+                .scene
+                .node(id)
+                .and_then(|n| self.node_grip_edge(n, vertex))
+            {
+                ctx.set_cursor_icon(board_handles::cursor_along(Vec2::from(edge.dir)));
             }
+            return;
+        }
+        self.board_sides_hover = self.polygon_sides_hover_at(p, xf);
+        if self.polygon_sides_glyph_at(p, xf).is_some() {
+            ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
+            return;
         }
         let Some((node, hit)) = self.transform_hit_at(p) else {
             return;

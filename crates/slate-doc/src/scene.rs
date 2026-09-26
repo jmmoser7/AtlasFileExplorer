@@ -808,6 +808,10 @@ fn is_zero_invert(v: &f32) -> bool {
     *v == 0.0
 }
 
+fn is_zero_f32(v: &f32) -> bool {
+    *v == 0.0
+}
+
 fn deserialize_invert_amount<'de, D: serde::Deserializer<'de>>(d: D) -> Result<f32, D::Error> {
     struct InvertVisitor;
     impl<'de> serde::de::Visitor<'de> for InvertVisitor {
@@ -2079,6 +2083,13 @@ pub struct PathData {
     /// as a mask and scale the ink's alpha by `1 - mask`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub erase: Vec<EraseMark>,
+    /// Line polylines: a corner amount per vertex in path order (start,
+    /// then the end of each segment), in the shape corner's treatment
+    /// (fillet radius or chamfer cut, world units). `None` follows the
+    /// shape's corner. A list whose length does not match the vertices is
+    /// ignored.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub corner_amounts: Vec<Option<f32>>,
 }
 
 /// One eraser pass over a stamped brush path. `tips` holds one tip per
@@ -2100,6 +2111,7 @@ impl Default for PathData {
             fill_rule: PathFillRule::NonZero,
             tips: Vec::new(),
             erase: Vec::new(),
+            corner_amounts: Vec::new(),
         }
     }
 }
@@ -2107,6 +2119,17 @@ impl Default for PathData {
 impl PathData {
     pub fn is_empty(&self) -> bool {
         self.segs.is_empty()
+    }
+
+    /// Corner amount at vertex `i`: its override, else `shared`.
+    pub fn vertex_corner_amount(&self, i: usize, shared: f32) -> f32 {
+        if self.corner_amounts.len() != self.segs.len() + 1 {
+            return shared;
+        }
+        match self.corner_amounts.get(i).copied().flatten() {
+            Some(a) if a.is_finite() => a.max(0.0),
+            _ => shared,
+        }
     }
 
     /// Per-vertex brush tips for painting: the stored list, the legacy
@@ -2184,19 +2207,43 @@ pub fn clamp_regular_sides(sides: u8) -> u8 {
     sides.clamp(REGULAR_POLYGON_SIDES_MIN, REGULAR_POLYGON_SIDES_MAX)
 }
 
-/// Vertices of a regular n-gon inscribed in `rect` (first vertex at top center).
-pub fn regular_polygon_vertices(rect: WorldRect, sides: u8) -> Vec<[f32; 2]> {
+/// Vertices of a regular n-gon inscribed in `rect`. Vertex `i` sits at
+/// parameter angle `-90° + phase_deg + i·360°/n` on the inscribed ellipse,
+/// so phase 0 puts the first vertex at top center.
+pub fn regular_polygon_vertices(rect: WorldRect, sides: u8, phase_deg: f32) -> Vec<[f32; 2]> {
     let n = clamp_regular_sides(sides) as f32;
     let (cx, cy) = rect.center();
     let rx = rect.w * 0.5;
     let ry = rect.h * 0.5;
-    let start = -std::f32::consts::FRAC_PI_2;
+    let start = -std::f32::consts::FRAC_PI_2 + phase_deg.to_radians();
     (0..clamp_regular_sides(sides) as usize)
         .map(|i| {
             let a = start + i as f32 * (std::f32::consts::TAU / n);
             [cx + rx * a.cos(), cy + ry * a.sin()]
         })
         .collect()
+}
+
+/// Side count and phase after adding (`add`) or removing one side at
+/// vertex `k` (P1.shape.polygon-sides). Removing keeps a vertex exactly at
+/// vertex `k`: the new vertex 0 takes its angle. Adding centers the new
+/// side between vertices 0 and 1 on vertex `k`'s angle. `None` at the
+/// 3 / 12 limits.
+pub fn regular_polygon_resided(
+    sides: u8,
+    phase_deg: f32,
+    k: usize,
+    add: bool,
+) -> Option<(u8, f32)> {
+    let n = clamp_regular_sides(sides);
+    let next = if add { n + 1 } else { n - 1 };
+    if next != clamp_regular_sides(next) {
+        return None;
+    }
+    let at = phase_deg + (k % n as usize) as f32 * 360.0 / n as f32;
+    let phase = if add { at - 180.0 / next as f32 } else { at };
+    let phase = phase.rem_euclid(360.0);
+    Some((next, if phase >= 360.0 { 0.0 } else { phase }))
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2210,6 +2257,10 @@ pub struct ShapeNode {
     /// [`ShapeKind::RegularPolygon`] only; ignored for other kinds.
     #[serde(default = "default_regular_sides")]
     pub sides: u8,
+    /// [`ShapeKind::RegularPolygon`] only: degrees the vertices turn from
+    /// the first-vertex-at-top layout, within the node rect.
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub phase_deg: f32,
     /// Lines only: false = ↘ diagonal (min→max), true = ↗ diagonal.
     #[serde(default)]
     pub flip: bool,
@@ -3476,6 +3527,78 @@ mod tests {
     use super::*;
 
     #[test]
+    fn polygon_sides_step_about_a_vertex_and_stay_aligned_to_it() {
+        // A wide box: the vertices ride an ellipse, and the rule stays exact.
+        let rect = WorldRect::new(-80.0, -50.0, 160.0, 100.0);
+        let (cx, cy) = rect.center();
+        let near = |a: [f32; 2], b: [f32; 2]| (a[0] - b[0]).hypot(a[1] - b[1]) < 1e-3;
+        for n in 3..=12u8 {
+            for phase in [0.0f32, 17.5, 300.0] {
+                let old = regular_polygon_vertices(rect, n, phase);
+                for (k, &at) in old.iter().enumerate() {
+                    match regular_polygon_resided(n, phase, k, false) {
+                        Some((m, p)) => {
+                            assert_eq!(m, n - 1);
+                            assert!((0.0..360.0).contains(&p));
+                            let new = regular_polygon_vertices(rect, m, p);
+                            assert!(
+                                near(new[0], at),
+                                "n={n} phase={phase} k={k}: removing keeps a vertex at vertex k"
+                            );
+                        }
+                        None => {
+                            assert_eq!(n, REGULAR_POLYGON_SIDES_MIN, "only 3 cannot lose a side")
+                        }
+                    }
+                    match regular_polygon_resided(n, phase, k, true) {
+                        Some((m, p)) => {
+                            assert_eq!(m, n + 1);
+                            let new = regular_polygon_vertices(rect, m, p);
+                            let mid =
+                                [(new[0][0] + new[1][0]) * 0.5, (new[0][1] + new[1][1]) * 0.5];
+                            let d = (180.0f32 / m as f32).to_radians().cos();
+                            let on_ray = [cx + (at[0] - cx) * d, cy + (at[1] - cy) * d];
+                            assert!(
+                                near(mid, on_ray),
+                                "n={n} phase={phase} k={k}: the new side is centered on vertex k"
+                            );
+                        }
+                        None => {
+                            assert_eq!(n, REGULAR_POLYGON_SIDES_MAX, "only 12 cannot gain a side")
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(regular_polygon_resided(6, 0.0, 0, false), Some((5, 0.0)));
+        assert_eq!(regular_polygon_resided(6, 0.0, 2, false), Some((5, 120.0)));
+        let (m, p) = regular_polygon_resided(6, 0.0, 0, true).unwrap();
+        assert_eq!(m, 7);
+        assert!((p - (360.0 - 180.0 / 7.0)).abs() < 1e-3, "{p}");
+    }
+
+    #[test]
+    fn polygon_phase_serializes_only_when_turned() {
+        let mut shape = ShapeNode {
+            shape: ShapeKind::RegularPolygon,
+            fill: None,
+            stroke: Stroke::default(),
+            corner: Corner::Square,
+            sides: 6,
+            phase_deg: 0.0,
+            flip: false,
+            path: None,
+            text: None,
+        };
+        let json = serde_json::to_string(&shape).unwrap();
+        assert!(!json.contains("phase_deg"), "{json}");
+        shape.phase_deg = 120.0;
+        let json = serde_json::to_string(&shape).unwrap();
+        let back: ShapeNode = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.phase_deg, 120.0);
+    }
+
+    #[test]
     fn vector_widths_scale_tips_with_the_stroke_width() {
         let tip = |width| StrokeSpan {
             width,
@@ -4230,6 +4353,7 @@ mod tests {
             },
             corner: Corner::Square,
             sides: default_regular_sides(),
+            phase_deg: 0.0,
             flip: false,
             path: Some(Arc::new(PathData {
                 start: [0.1, 0.2],
@@ -4302,6 +4426,7 @@ mod tests {
                     stroke,
                     corner: Corner::Square,
                     sides: default_regular_sides(),
+                    phase_deg: 0.0,
                     flip,
                     path: None,
                     text: None,
@@ -4763,6 +4888,7 @@ mod tests {
                 },
                 corner: Corner::Square,
                 sides: default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: Some(Arc::new(PathData {
                     start: [0.0, 0.5],
@@ -4953,6 +5079,34 @@ pub fn edit_corner(
     set_corner(node, corner);
 }
 
+/// Override one line-polyline vertex's corner amount (P1.node.corner-grip).
+pub fn set_vertex_corner_amount(node: &mut Node, vertex: usize, amount: f32) {
+    let NodeKind::Shape(s) = &mut node.kind else {
+        return;
+    };
+    let Some(path) = s.path.as_mut() else {
+        return;
+    };
+    let n = path.segs.len() + 1;
+    if vertex >= n || !amount.is_finite() {
+        return;
+    }
+    let path = Arc::make_mut(path);
+    if path.corner_amounts.len() != n {
+        path.corner_amounts = vec![None; n];
+    }
+    path.corner_amounts[vertex] = Some(amount.max(0.0));
+}
+
+/// Drop per-vertex corner overrides, so the shape's corner sets every vertex.
+pub fn clear_vertex_corner_amounts(node: &mut Node) {
+    if let NodeKind::Shape(s) = &mut node.kind {
+        if let Some(path) = s.path.as_mut().filter(|p| !p.corner_amounts.is_empty()) {
+            Arc::make_mut(path).corner_amounts.clear();
+        }
+    }
+}
+
 /// Effective chamfer flag and world radius for layout, export, and grips.
 pub fn resolved_corner_effective(node: &Node, path: Option<&std::path::Path>) -> (bool, f32) {
     resolved_corner(node, path).effective(node.rect.w, node.rect.h)
@@ -5122,6 +5276,7 @@ mod corner_percentage_tests {
             stroke: Stroke::default(),
             corner: Corner::Square,
             sides: default_regular_sides(),
+            phase_deg: 0.0,
             flip: false,
             path: None,
             text: None,
@@ -5132,6 +5287,7 @@ mod corner_percentage_tests {
             stroke: Stroke::default(),
             corner: Corner::Square,
             sides: default_regular_sides(),
+            phase_deg: 0.0,
             flip: false,
             path: None,
             text: None,
@@ -5227,6 +5383,7 @@ mod corner_percentage_tests {
                 stroke: Stroke::default(),
                 corner,
                 sides: default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: path.map(Arc::new),
                 text: None,

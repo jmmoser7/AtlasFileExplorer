@@ -1592,6 +1592,7 @@ mod tests {
                 stroke: Stroke::none(),
                 corner: Default::default(),
                 sides: 6,
+                phase_deg: 0.0,
                 flip: false,
                 path: None,
                 text: None,

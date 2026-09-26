@@ -107,6 +107,7 @@ impl SlateApp {
             }
             "board.shape.dimension" => self.shape_dimension_command(detail.as_deref()),
             "board.shape.fillet" => self.shape_fillet_command(detail.as_deref()),
+            "board.shape.sides" => self.shape_sides_command(detail.as_deref()),
             "board.color.desktop" => {
                 self.start_tool_desktop_sample(detail.as_deref() == Some("background"), false);
                 true
@@ -1128,9 +1129,11 @@ impl SlateApp {
                         self.smooth_preview.clear();
                         self.smooth_polylines.clear();
                     }
-                    Some(board::BoardDrag::FilletRadius { id, before, .. }) => {
-                        if let Some(n) = self.doc_mut().scene.node_mut(id) {
-                            *n = before;
+                    Some(board::BoardDrag::FilletRadius { before, peers, .. }) => {
+                        for before in std::iter::once(before).chain(peers) {
+                            if let Some(n) = self.doc_mut().scene.node_mut(before.id) {
+                                *n = before;
+                            }
                         }
                     }
                     // Bézier draft: drop the anchor being placed, or put an

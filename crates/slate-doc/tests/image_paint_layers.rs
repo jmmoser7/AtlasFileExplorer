@@ -50,6 +50,7 @@ fn layer_stroke_follows_image_move() {
         NodeKind::Shape(ShapeNode {
             shape: ShapeKind::Rect,
             sides: 6,
+            phase_deg: 0.0,
             fill: None,
             stroke: Stroke::default(),
             corner: Default::default(),
@@ -110,6 +111,7 @@ fn layer_node_add_undo_round_trip() {
         NodeKind::Shape(ShapeNode {
             shape: ShapeKind::Rect,
             sides: 6,
+            phase_deg: 0.0,
             fill: None,
             stroke: Stroke::none(),
             corner: Corner::Square,

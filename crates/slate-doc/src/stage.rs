@@ -487,6 +487,7 @@ mod tests {
                 stroke: Stroke::none(),
                 corner: Corner::default(),
                 sides: crate::scene::default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: None,
                 text: None,

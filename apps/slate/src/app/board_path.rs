@@ -496,6 +496,10 @@ fn hash_path_data(h: &mut impl Hasher, path: &PathData) {
             }
         }
     }
+    path.corner_amounts.len().hash(h);
+    for amount in &path.corner_amounts {
+        hash_f32(h, amount.unwrap_or(-1.0));
+    }
     path.extra.len().hash(h);
     for extra in &path.extra {
         hash_xy(h, extra.start);
@@ -844,6 +848,7 @@ fn hit_closed_text(node: &Node, shape: &ShapeNode, wx: f32, wy: f32) -> bool {
                 node.rect,
                 node.rotation_deg,
                 shape.sides,
+                shape.phase_deg,
                 shape.corner,
                 0.25,
             );
@@ -2388,6 +2393,7 @@ impl SlateApp {
                 stroke,
                 corner: slate_doc::scene::Corner::Square,
                 sides: slate_doc::scene::default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: Some(path_data.into()),
 
@@ -2791,6 +2797,7 @@ mod tests {
             },
             corner: slate_doc::scene::Corner::Square,
             sides: slate_doc::scene::default_regular_sides(),
+            phase_deg: 0.0,
             flip: false,
             path: Some(std::sync::Arc::new(path.clone())),
             text: None,
@@ -2974,6 +2981,7 @@ mod tests {
                 stroke: default_draw_stroke(Rgba::BLACK),
                 corner: slate_doc::scene::Corner::Square,
                 sides: slate_doc::scene::default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: Some(data.into()),
 
@@ -3008,6 +3016,7 @@ mod tests {
                 stroke: default_curve_stroke(Rgba::BLACK),
                 corner: slate_doc::scene::Corner::Square,
                 sides: slate_doc::scene::default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: Some(data.into()),
 
@@ -3065,6 +3074,7 @@ mod tests {
                 stroke: default_curve_stroke(Rgba::BLACK),
                 corner: slate_doc::scene::Corner::Square,
                 sides: slate_doc::scene::default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: Some(data.into()),
                 text: None,
@@ -3115,6 +3125,7 @@ mod tests {
                 stroke,
                 corner: slate_doc::scene::Corner::Square,
                 sides: slate_doc::scene::default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: Some(data.into()),
                 text: None,
@@ -3200,6 +3211,7 @@ mod tests {
                 stroke: default_curve_stroke(Rgba::BLACK),
                 corner: slate_doc::scene::Corner::Square,
                 sides: slate_doc::scene::default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: Some(data.into()),
 
@@ -3278,6 +3290,7 @@ mod tests {
                 stroke: default_curve_stroke(Rgba::BLACK),
                 corner: slate_doc::scene::Corner::Square,
                 sides: slate_doc::scene::default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: Some(data.into()),
 
@@ -3326,6 +3339,7 @@ mod tests {
                 stroke: default_curve_stroke(Rgba::BLACK),
                 corner: slate_doc::scene::Corner::Square,
                 sides: slate_doc::scene::default_regular_sides(),
+                phase_deg: 0.0,
                 flip: false,
                 path: None,
 
@@ -3383,6 +3397,34 @@ mod tests {
         assert_ne!(
             path_fill_hash(&path, rect, 0.0, fillet, 8),
             path_fill_hash(&path, rect, 0.0, chamfer, 8)
+        );
+    }
+
+    #[test]
+    fn polyline_mesh_keys_tell_vertex_corner_overrides_apart() {
+        use slate_doc::scene::Corner;
+        let plain = PathData {
+            start: [0.0, 0.0],
+            segs: vec![
+                PathSeg::Line { to: [1.0, 0.0] },
+                PathSeg::Line { to: [1.0, 1.0] },
+            ],
+            closed: false,
+            ..Default::default()
+        };
+        let mut overridden = plain.clone();
+        overridden.corner_amounts = vec![None, Some(20.0), None];
+        let stroke = default_curve_stroke(Rgba::BLACK);
+        let rect = WorldRect::new(0.0, 0.0, 100.0, 100.0);
+        let corner = Corner::Rounded { radius: 10.0 };
+        assert_ne!(
+            path_content_hash(&plain, &stroke, rect, 0.0, corner, 8),
+            path_content_hash(&overridden, &stroke, rect, 0.0, corner, 8),
+            "a vertex override must not reuse the uniform stroke mesh"
+        );
+        assert_ne!(
+            path_fill_hash(&plain, rect, 0.0, corner, 8),
+            path_fill_hash(&overridden, rect, 0.0, corner, 8)
         );
     }
 
