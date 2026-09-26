@@ -2380,7 +2380,7 @@ mod tests {
         assert_ne!(h.app.tab().cam.z, before, "the empty board zooms");
         let before = h.app.tab().cam.z;
         let list = Rect::from_center_size(empty, egui::vec2(200.0, 240.0));
-        h.app.agents.note_menu_popup(&h.ctx, list);
+        atlas_shell::menu_wheel::claim(&h.ctx, list);
         wheel_at(&mut h, empty);
         assert_eq!(h.app.tab().cam.z, before, "an open list scrolls instead");
 

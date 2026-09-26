@@ -1744,9 +1744,6 @@ impl SlateApp {
                 return false;
             };
             let popups = self.agent_editor_body(ui, rect, id, z, theme);
-            for popup in &popups {
-                self.agents.note_menu_popup(ui.ctx(), *popup);
-            }
             self.shape_properties.chrome_hits.extend(popups);
             return false;
         }
@@ -3278,6 +3275,62 @@ mod tests {
             "{editor:?} over {selection:?}"
         );
         assert!(editor.top() > selection.bottom());
+    }
+
+    /// Painted text and where it sits, so a list's scroll can be measured.
+    fn painted_at(out: &egui::FullOutput, label: &str) -> Option<Pos2> {
+        fn walk(shape: &egui::Shape, label: &str) -> Option<Pos2> {
+            match shape {
+                egui::Shape::Text(t) if t.galley.text() == label => Some(t.pos),
+                egui::Shape::Vec(v) => v.iter().find_map(|s| walk(s, label)),
+                _ => None,
+            }
+        }
+        out.shapes.iter().find_map(|c| walk(&c.shape, label))
+    }
+
+    fn wheel(h: &mut Harness, at: Pos2) -> egui::FullOutput {
+        h.frame_with(|i| {
+            i.events.push(egui::Event::PointerMoved(at));
+            i.events.push(egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: Vec2::new(0.0, -80.0),
+                modifiers: egui::Modifiers::NONE,
+            });
+        });
+        for _ in 0..8 {
+            h.frame();
+        }
+        h.frame_output(|_| {})
+    }
+
+    #[test]
+    fn the_wheel_over_an_open_typeface_list_scrolls_it_and_leaves_the_camera() {
+        let mut h = board();
+        text_node(&mut h, WorldRect::new(-100.0, 40.0, 200.0, 60.0));
+        h.frame();
+        h.app.shape_properties.panel = Some(Panel::Text);
+        h.app.shape_properties.text_family_open = true;
+        h.frame();
+        h.frame();
+        let open = h.frame_output(|_| {});
+        let row = painted_at(&open, "Serif").expect("the typeface list is open");
+        let z = h.app.tab().cam.z;
+        let after = wheel(&mut h, row);
+        assert_eq!(
+            h.app.tab().cam.z,
+            z,
+            "the board did not zoom under the list"
+        );
+        let moved = painted_at(&after, "Serif").expect("the list is still open");
+        assert!(
+            moved.y < row.y - 1.0,
+            "the list scrolled: {row:?} -> {moved:?}"
+        );
+
+        let empty = Pos2::new(1300.0, 700.0);
+        wheel(&mut h, empty);
+        assert_ne!(h.app.tab().cam.z, z, "the empty board still zooms");
     }
 
     fn pointer(h: &mut Harness, p: Pos2, pressed: Option<bool>) {

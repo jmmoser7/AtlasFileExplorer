@@ -6150,7 +6150,10 @@ impl AtlasApp {
         let dock_nav = atlas_shell::dock::dock_pointer_nav(ui.ctx());
 
         // --- input: zoom (wheel & pinch) ---
-        if resp.hovered() || dock_nav.canvas_wheel() {
+        // An open navigable menu scrolls itself (P0.10).
+        if (resp.hovered() || dock_nav.canvas_wheel())
+            && !atlas_shell::menu_wheel::wheel_owned(ui.ctx())
+        {
             let (scroll, zoom_delta) = ui.input(|i| (i.raw_scroll_delta, i.zoom_delta()));
             if let Some(p) = pointer {
                 if scroll.y.abs() > 0.0 && !shift {

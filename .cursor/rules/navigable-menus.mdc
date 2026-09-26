@@ -1,0 +1,30 @@
+---
+description: Navigable menus consume the wheel while hovered; canvases ask before zooming
+alwaysApply: true
+---
+
+# Navigable menus own the wheel
+
+Law: **P0.10** in `docs/keymap/contracts/PATTERNS.md`. The owner is
+`atlas_shell::menu_wheel`.
+
+Any open list, dropdown, scrolling popup, or menu takes wheel and pinch input
+while the pointer is over it. The canvas underneath never zooms or pans.
+
+- A menu you paint yourself calls `menu_wheel::claim(ctx, rect)` every pass
+  it is open. `selection_tools::capsule_menu` already does this. egui combo
+  boxes are detected without a claim.
+- Every canvas camera (Slate board, File Atlas, portal cameras) checks
+  `menu_wheel::wheel_owned(ctx)` before wheel zoom, Shift+wheel pan, or pinch.
+- Do not add a per-menu "pointer over my popup" flag to one canvas. That was
+  the recurring bug.
+
+```rust
+// BAD - the typeface list scrolled and the board zoomed under it
+if resp.hovered() || palette_wheel { zoom(scroll) }
+
+// GOOD
+if (resp.hovered() || palette_wheel) && !atlas_shell::menu_wheel::wheel_owned(ctx) {
+    zoom(scroll)
+}
+```

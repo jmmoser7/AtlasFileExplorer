@@ -196,9 +196,6 @@ pub struct AgentRuntime {
     models_started: HashSet<String>,
     /// Catalogs an open agent editor lists before any card uses them.
     models_wanted: HashSet<String>,
-    /// An open model list and the pass it was painted in. The board camera
-    /// runs before popups paint, so it reads last pass's rect.
-    menu_popup: std::cell::Cell<Option<(Rect, u64)>>,
     models_error: HashMap<String, String>,
     artifact_popup: Option<(NodeId, bool)>,
     artifact_popup_rect: Option<Rect>,
@@ -444,24 +441,6 @@ impl AgentRuntime {
     /// Installed models of one catalog, once discovery has run.
     pub fn catalog(&self, key: &str) -> &[atlas_ai::agent::AgentModel] {
         self.models.get(key).map(Vec::as_slice).unwrap_or(&[])
-    }
-
-    /// A model list is open at `rect` this pass; the wheel over it scrolls it.
-    pub fn note_menu_popup(&self, ctx: &egui::Context, rect: Rect) {
-        let pass = ctx.cumulative_pass_nr();
-        let rect = match self.menu_popup.get() {
-            Some((old, at)) if at == pass => old.union(rect),
-            _ => rect,
-        };
-        self.menu_popup.set(Some((rect, pass)));
-    }
-
-    /// The pointer is over a model list that was open last pass or this one.
-    pub fn over_menu_popup(&self, ctx: &egui::Context, pointer: Option<Pos2>) -> bool {
-        let pass = ctx.cumulative_pass_nr();
-        self.menu_popup
-            .get()
-            .is_some_and(|(rect, at)| at + 1 >= pass && pointer.is_some_and(|p| rect.contains(p)))
     }
 
     /// Discover this catalog again (a key was just saved, for example).
@@ -5084,7 +5063,7 @@ impl SlateApp {
                     ui.label("Loading models…");
                 }
             });
-        self.agents.note_menu_popup(ui.ctx(), ui.min_rect());
+        atlas_shell::menu_wheel::claim(ui.ctx(), ui.min_rect());
         chosen
     }
 

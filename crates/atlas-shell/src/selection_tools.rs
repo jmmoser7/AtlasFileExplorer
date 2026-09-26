@@ -2651,6 +2651,7 @@ fn capsule_menu(
             return out;
         }
     }
+    crate::menu_wheel::claim(ui.ctx(), popup);
     egui::Area::new(id.with("pop"))
         .order(egui::Order::Tooltip)
         .fixed_pos(popup.min)

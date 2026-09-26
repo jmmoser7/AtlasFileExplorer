@@ -4048,10 +4048,10 @@ impl SlateApp {
         let over_image_album = self.pointer_over_image_album(&xf, pointer);
         // The project list and an overflowing card the person sized scroll.
         // Every other agent card still zooms the board.
-        // An open model list scrolls itself.
+        // An open navigable menu scrolls itself (P0.10).
         let card_scrolls = self.pointer_over_project_picker(&xf, pointer)
             || self.pointer_over_scrolling_agent_card(&xf, pointer)
-            || self.agents.over_menu_popup(ui.ctx(), pointer);
+            || atlas_shell::menu_wheel::wheel_owned(ui.ctx());
 
         // --- camera ---
         if !card_scrolls
