@@ -264,13 +264,45 @@ impl Property {
         points: &[usize],
     ) {
         if !points.is_empty() {
-            if let Self::StrokeWidth(v) = *self {
-                if v.is_finite() && edit_vertex_tips(node, points, |t| t.width = v.max(0.0)) {
-                    return;
+            let edited = match *self {
+                Self::StrokeWidth(v) if v.is_finite() => {
+                    edit_vertex_tips(node, points, |t| t.width = v.max(0.0))
                 }
+                Self::StrokeRgb(rgb) => {
+                    edit_vertex_tips(node, points, |t| t.color.0[..3].copy_from_slice(&rgb))
+                }
+                Self::StrokeAlpha(a) => edit_vertex_tips(node, points, |t| t.color.0[3] = a),
+                _ => false,
+            };
+            if edited {
+                return;
             }
         }
         self.apply(node, item_path);
+        match *self {
+            Self::StrokeRgb(rgb) => {
+                recolor_vertex_tips(node, |c| c.0[..3].copy_from_slice(&rgb));
+            }
+            Self::StrokeAlpha(a) => recolor_vertex_tips(node, |c| c.0[3] = a),
+            _ => {}
+        }
+    }
+}
+
+/// A whole-curve color edit sets every vertex's color too
+/// (P1.curve.vertex-style).
+fn recolor_vertex_tips(node: &mut Node, recolor: impl Fn(&mut Rgba)) {
+    let NodeKind::Shape(s) = &mut node.kind else {
+        return;
+    };
+    if s.shape != ShapeKind::Path || s.stroke.paints_as_stamp() {
+        return;
+    }
+    let Some(path) = s.path.as_mut().filter(|p| !p.tips.is_empty()) else {
+        return;
+    };
+    for tip in &mut std::sync::Arc::make_mut(path).tips {
+        recolor(&mut tip.color);
     }
 }
 
@@ -2211,11 +2243,14 @@ impl SlateApp {
                 scene::stroke_of(n).unwrap().color
             }
         };
-        let color = get_color(first);
-        let mixed = nodes.iter().any(|n| get_color(n) != color);
         let points = self.shape_property_points();
+        let tip = (panel == Panel::Stroke)
+            .then(|| picked_tip(first, &points))
+            .flatten();
+        let color = tip.map_or_else(|| get_color(first), |tip| tip.color);
+        let mixed = tip.is_none() && nodes.iter().any(|n| get_color(n) != color);
         let width = (panel == Panel::Stroke).then(|| {
-            let width = picked_tip(first, &points)
+            let width = tip
                 .map(|tip| tip.width)
                 .unwrap_or_else(|| scene::stroke_of(first).unwrap().width);
             if matches!(&first.kind, NodeKind::Portal(p) if p.stroke_follows_theme()) {

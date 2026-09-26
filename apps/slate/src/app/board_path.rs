@@ -90,6 +90,9 @@ pub(crate) struct CachedInkMesh {
     vertices: Vec<[f32; 2]>,
     alphas: Vec<f32>,
     indices: Vec<u32>,
+    /// Per-vertex stroke colors (`InkMesh::colors`); empty paints the
+    /// caller's one color.
+    colors: Vec<Color32>,
 }
 
 type FillTriangles = (Vec<[f32; 2]>, Vec<u32>);
@@ -107,6 +110,7 @@ impl CachedGeometry {
                 mesh.vertices.capacity() * std::mem::size_of::<[f32; 2]>()
                     + mesh.alphas.capacity() * std::mem::size_of::<f32>()
                     + mesh.indices.capacity() * std::mem::size_of::<u32>()
+                    + mesh.colors.capacity() * std::mem::size_of::<Color32>()
             }
             Self::Fill(tris) => {
                 tris.0.capacity() * std::mem::size_of::<[f32; 2]>()
@@ -207,6 +211,14 @@ impl PathMeshCache {
             vertices: ink.vertices.iter().map(|v| v.pos).collect(),
             alphas: ink.vertices.iter().map(|v| v.alpha).collect(),
             indices: ink.indices,
+            colors: ink
+                .colors
+                .iter()
+                .map(|c| {
+                    let [r, g, b, a] = c.map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8);
+                    Color32::from_rgba_unmultiplied(r, g, b, a)
+                })
+                .collect(),
         });
         self.insert(key, CachedGeometry::Stroke(cached.clone()));
         cached
@@ -623,9 +635,15 @@ pub(crate) fn ink_mesh_to_epaint(
     use egui::epaint::{Vertex, WHITE_UV};
     let mut mesh = egui::Mesh::default();
     mesh.vertices.reserve(cached.vertices.len());
-    for (pos, alpha) in cached.vertices.iter().zip(cached.alphas.iter()) {
+    let tinted = cached.colors.len() == cached.vertices.len();
+    for (i, (pos, alpha)) in cached.vertices.iter().zip(cached.alphas.iter()).enumerate() {
         let sp = xf.w2s(Pos2::new(pos[0], pos[1]));
-        let c = fade(base_color.gamma_multiply(*alpha));
+        let base = if tinted {
+            fade(cached.colors[i])
+        } else {
+            base_color
+        };
+        let c = fade(base.gamma_multiply(*alpha));
         mesh.vertices.push(Vertex {
             pos: sp,
             uv: WHITE_UV,
@@ -1526,9 +1544,14 @@ fn vector_stroke_ink_for(
         })
         .flatten();
     match tipped {
-        Some(t) => {
-            vector_ink::stroke_mesh_tipped(&t.bez, &style, &t.widths, t.ease, feather, tolerance)
-        }
+        Some(t) => match &t.colors {
+            Some(colors) => vector_ink::stroke_mesh_tinted(
+                &t.bez, &style, &t.widths, colors, t.ease, feather, tolerance,
+            ),
+            None => vector_ink::stroke_mesh_tipped(
+                &t.bez, &style, &t.widths, t.ease, feather, tolerance,
+            ),
+        },
         None => stroke_mesh(bez, &style, feather, tolerance),
     }
 }
@@ -3492,10 +3515,7 @@ mod tests {
             entry_limit: 256,
             ..Default::default()
         };
-        let empty = || InkMesh {
-            vertices: Vec::new(),
-            indices: Vec::new(),
-        };
+        let empty = InkMesh::default;
         for i in 0..300u64 {
             cache.get_or_tessellate(NodeId(i), i, empty);
         }
@@ -3515,6 +3535,7 @@ mod tests {
                 .map(|pos| vector_ink::InkVertex { pos, alpha: 1.0 })
                 .collect(),
             indices: vec![0, 1, 2],
+            colors: Vec::new(),
         }
     }
 
@@ -3591,6 +3612,7 @@ mod tests {
                 20
             ],
             indices: vec![],
+            colors: Vec::new(),
         });
         assert_eq!(large.vertices.len(), 20);
         assert_eq!(cache.resident_bytes, 48);

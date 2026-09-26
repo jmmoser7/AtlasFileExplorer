@@ -183,18 +183,21 @@ pub fn tipped_stroke_world_path(
     (bez, (0..vertices).map(|i| i as f32).collect())
 }
 
-/// A hard vector stroke with per-vertex widths, as both interpreters paint
-/// it: the path it follows, one full width per on-curve vertex of that path,
-/// and how widths blend between vertices.
+/// A hard vector stroke with per-vertex widths or colors, as both
+/// interpreters paint it: the path it follows, one full width per on-curve
+/// vertex of that path, straight RGBA (`0..=1`) per vertex when the colors
+/// vary, and how tips blend between vertices.
 pub struct TippedStroke {
     pub bez: BezPath,
     pub widths: Vec<f32>,
+    pub colors: Option<Vec<[f32; 4]>>,
     pub ease: vector_ink::TipEase,
 }
 
 /// The per-vertex stroke of `path` placed in `rect`, or `None` when it
-/// paints uniform (`PathData::vector_widths`). `corner` fillets a line
-/// polyline, as for its plain stroke.
+/// paints one width and one color (`PathData::vector_widths`,
+/// `PathData::vector_colors`). `corner` fillets a line polyline, as for its
+/// plain stroke.
 pub fn tipped_stroke(
     path: &PathData,
     stroke: &Stroke,
@@ -202,15 +205,29 @@ pub fn tipped_stroke(
     rotation_deg: f32,
     corner: Corner,
 ) -> Option<TippedStroke> {
-    let widths = path.vector_widths(stroke)?;
+    let widths = path.vector_widths(stroke);
+    let colors = path.vector_colors();
+    if widths.is_none() && colors.is_none() {
+        return None;
+    }
+    let widths = widths.unwrap_or_else(|| vec![stroke.width.max(0.0); path.tips.len()]);
     let ease = tip_ease(&path_data_to_world_bez(path, rect, rotation_deg));
     let (bez, params) = tipped_stroke_world_path(path, rect, rotation_deg, corner);
+    let colors = colors.map(|colors| {
+        let channels: [Vec<f32>; 4] =
+            std::array::from_fn(|i| colors.iter().map(|c| c.0[i] as f32 / 255.0).collect());
+        params
+            .iter()
+            .map(|at| std::array::from_fn(|i| value_at_param(&channels[i], *at)))
+            .collect()
+    });
     Some(TippedStroke {
         bez,
         widths: params
             .iter()
             .map(|at| value_at_param(&widths, *at))
             .collect(),
+        colors,
         ease,
     })
 }

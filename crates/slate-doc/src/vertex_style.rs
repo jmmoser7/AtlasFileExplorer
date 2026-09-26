@@ -197,6 +197,9 @@ fn write_tips(path: &mut PathData, stroke: &mut Stroke, tips: Vec<StrokeSpan>) {
         return;
     }
     stroke.width = tips.iter().map(|t| t.width).fold(0.0_f32, f32::max);
+    if tips.iter().all(|t| t.color == tips[0].color) {
+        stroke.color = tips[0].color;
+    }
     path.tips = tips;
 }
 

@@ -12143,3 +12143,206 @@ fn vertex_widths_export_as_the_board_paints_them() {
         );
     }
 }
+
+// ---------- per-vertex stroke color (P1.curve.vertex-style) ----------
+
+/// Pick `points` on the selected curve, then choose `rgb` in the Stroke
+/// color editor through the property strip.
+fn vertex_stringer_color(h: &mut Harness, id: NodeId, points: &[usize], rgb: [u8; 3]) {
+    h.app.board_sel = [id].into_iter().collect();
+    h.app.direct.grip_points = Default::default();
+    for (k, i) in points.iter().enumerate() {
+        h.app.direct.grip_points.pick(id, *i, k > 0);
+    }
+    h.app.sync_shape_properties();
+    h.app
+        .preview_shape_property(board_properties::Property::StrokeRgb(rgb));
+    h.app.apply_shape_preview(&h.ctx, true);
+    h.frame();
+}
+
+fn tip_colors(h: &Harness, id: NodeId) -> Vec<[u8; 4]> {
+    let (_, s) = curve_shape(h, id);
+    s.path
+        .as_ref()
+        .unwrap()
+        .tips
+        .iter()
+        .map(|t| t.color.0)
+        .collect()
+}
+
+/// Board stroke color (0..255 per channel) at world `p`, interpolated inside
+/// the painted mesh triangle that holds it.
+fn ink_color_at(h: &Harness, id: NodeId, p: Pos2) -> [f32; 4] {
+    let (n, s) = curve_shape(h, id);
+    let mesh = board_path::vector_stroke_ink(&n, &s, s.path.as_ref().unwrap(), 1.0);
+    assert_eq!(mesh.colors.len(), mesh.vertices.len(), "a tinted mesh");
+    for tri in mesh.indices.chunks(3) {
+        let [a, b, c] = [0, 1, 2].map(|k| tri[k] as usize);
+        let [pa, pb, pc] = [a, b, c].map(|k| mesh.vertices[k].pos);
+        let det = (pb[1] - pc[1]) * (pa[0] - pc[0]) + (pc[0] - pb[0]) * (pa[1] - pc[1]);
+        if det.abs() < 1e-9 {
+            continue;
+        }
+        let l1 = ((pb[1] - pc[1]) * (p.x - pc[0]) + (pc[0] - pb[0]) * (p.y - pc[1])) / det;
+        let l2 = ((pc[1] - pa[1]) * (p.x - pc[0]) + (pa[0] - pc[0]) * (p.y - pc[1])) / det;
+        let l3 = 1.0 - l1 - l2;
+        if l1 < -1e-4 || l2 < -1e-4 || l3 < -1e-4 {
+            continue;
+        }
+        let [ca, cb, cc] = [a, b, c].map(|k| mesh.colors[k]);
+        return std::array::from_fn(|i| (ca[i] * l1 + cb[i] * l2 + cc[i] * l3) * 255.0);
+    }
+    panic!("{p:?} is not on the painted stroke");
+}
+
+fn assert_color_close(got: [f32; 4], want: [f32; 4], tol: f32, what: &str) {
+    for i in 0..4 {
+        assert!(
+            (got[i] - want[i]).abs() <= tol,
+            "{what}: {got:?} != {want:?} (±{tol})"
+        );
+    }
+}
+
+fn mix_rgba(a: [u8; 4], b: [u8; 4], t: f32) -> [f32; 4] {
+    std::array::from_fn(|i| a[i] as f32 + (b[i] as f32 - a[i] as f32) * t)
+}
+
+/// User request (2026-09-26): with a vertex picked, the Stroke color edits
+/// only that vertex and a polyline blends straight to its neighbors; with
+/// no vertex picked, the color edit sets every vertex.
+#[test]
+fn a_vertex_color_edit_blends_straight_to_its_neighbors() {
+    let mut h = grip_board("vertex_color_linear");
+    let pts = [
+        Pos2::new(0.0, 0.0),
+        Pos2::new(100.0, 0.0),
+        Pos2::new(200.0, 0.0),
+    ];
+    let id = commit_polyline(&mut h, &pts, false);
+    let c0 = curve_shape(&h, id).1.stroke.color.0;
+    let red = [255, 0, 0, c0[3]];
+    let depth = h.app.tab().journal.undo_depth();
+    vertex_stringer_color(&mut h, id, &[1], [255, 0, 0]);
+    assert_eq!(tip_colors(&h, id), vec![c0, red, c0]);
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "one patch");
+    for (x, t) in [(50.0, 0.5), (25.0, 0.75), (150.0, 0.5)] {
+        let got = ink_color_at(&h, id, Pos2::new(x, 0.0));
+        assert_color_close(got, mix_rgba(red, c0, t), 1.5, &format!("x={x}"));
+    }
+
+    vertex_stringer_width(&mut h, id, &[0], 12.0);
+    vertex_stringer_color(&mut h, id, &[], [0, 0, 255]);
+    let blue = [0, 0, 255, c0[3]];
+    assert_eq!(tip_colors(&h, id), vec![blue; 3], "whole curve sets all");
+    assert_eq!(curve_shape(&h, id).1.stroke.color.0, blue);
+    assert_eq!(tip_widths(&h, id)[0], 12.0, "widths are kept");
+}
+
+/// A Bézier span blends vertex colors by the same smoothstep as widths.
+#[test]
+fn bezier_vertex_colors_blend_smoothly() {
+    let mut h = bezier_board("vertex_color_smooth");
+    for x in [0.0, 100.0, 200.0] {
+        bezier_place(&mut h, Pos2::new(x, 0.0), Pos2::new(x + 30.0, 0.0));
+    }
+    assert!(h.app.finish_path_draft());
+    let id = h.app.doc().scene.nodes.last().unwrap().id;
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.frame();
+    let c0 = curve_shape(&h, id).1.stroke.color.0;
+    let red = [255, 0, 0, c0[3]];
+    vertex_stringer_color(&mut h, id, &[1], [255, 0, 0]);
+    for x in [25.0_f32, 50.0, 90.0] {
+        let got = ink_color_at(&h, id, Pos2::new(x, 0.0));
+        let want = mix_rgba(c0, red, smoothstep(x / 100.0));
+        assert_color_close(got, want, 2.0, &format!("smooth at x={x}"));
+    }
+}
+
+/// Exported color at local point `p` of the stroke's SVG: the fill of the
+/// topmost piece holding it, a solid color or a two-stop linear gradient.
+fn export_color_at(svg: &str, p: [f32; 2]) -> Option<[f32; 4]> {
+    svg.split("<path")
+        .skip(1)
+        .filter_map(|tag| export_piece_color(svg, tag, p))
+        .last()
+}
+
+fn export_piece_color(svg: &str, tag: &str, p: [f32; 2]) -> Option<[f32; 4]> {
+    let attr = |tag: &str, name: &str| -> Option<String> {
+        let key = format!(" {name}=\"");
+        let rest = &tag[tag.find(&key)? + key.len()..];
+        Some(rest[..rest.find('"')?].to_string())
+    };
+    let parse_rgb = |css: &str, opacity: f32| -> [f32; 4] {
+        let inner = css.trim_start_matches("rgba(").trim_start_matches("rgb(");
+        let v: Vec<f32> = inner
+            .trim_end_matches(')')
+            .split(',')
+            .map(|s| s.trim().parse().unwrap())
+            .collect();
+        let a = v.get(3).copied().unwrap_or(1.0) * opacity;
+        [v[0], v[1], v[2], a * 255.0]
+    };
+    let tag = &tag[..tag.find('>')?];
+    let bez = vector_ink::kurbo::BezPath::from_svg(&attr(tag, "d")?).ok()?;
+    if !vector_ink::point_in_polygon(&vector_ink::flatten_contours(&bez, 0.05), p) {
+        return None;
+    }
+    let fill = attr(tag, "fill")?;
+    let Some(id) = fill.strip_prefix("url(#").and_then(|s| s.strip_suffix(')')) else {
+        return Some(parse_rgb(&fill, 1.0));
+    };
+    let start = svg.find(&format!("<linearGradient id=\"{id}\""))?;
+    let grad = &svg[start..start + svg[start..].find("</linearGradient>")?];
+    let num = |name: &str| attr(grad, name).unwrap().parse::<f32>().unwrap();
+    let (x1, y1, x2, y2) = (num("x1"), num("y1"), num("x2"), num("y2"));
+    let stops: Vec<[f32; 4]> = grad
+        .split("<stop")
+        .skip(1)
+        .map(|s| {
+            let op = attr(s, "stop-opacity").map_or(1.0, |o| o.parse().unwrap());
+            parse_rgb(&attr(s, "stop-color").unwrap(), op)
+        })
+        .collect();
+    let (dx, dy) = (x2 - x1, y2 - y1);
+    let t = (((p[0] - x1) * dx + (p[1] - y1) * dy) / (dx * dx + dy * dy)).clamp(0.0, 1.0);
+    Some(std::array::from_fn(|i| {
+        stops[0][i] + (stops[1][i] - stops[0][i]) * t
+    }))
+}
+
+/// The export paints the same color blend the board paints, with SVG
+/// linear gradients (Art. IV: SVG-expressible).
+#[test]
+fn vertex_colors_export_as_gradients_matching_the_board() {
+    let mut h = bezier_board("vertex_color_export");
+    for x in [0.0, 100.0, 200.0] {
+        bezier_place(&mut h, Pos2::new(x, 0.0), Pos2::new(x + 30.0, 0.0));
+    }
+    assert!(h.app.finish_path_draft());
+    let id = h.app.doc().scene.nodes.last().unwrap().id;
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.frame();
+    vertex_stringer_width(&mut h, id, &[1], 16.0);
+    vertex_stringer_color(&mut h, id, &[1], [255, 0, 0]);
+    vertex_stringer_color(&mut h, id, &[2], [0, 0, 255]);
+    let (n, _) = curve_shape(&h, id);
+    let html = slate_artifact::render_html(h.app.doc(), &slate_artifact::AssetMap::default());
+    assert!(
+        html.contains("<linearGradient"),
+        "the blend exports as gradients"
+    );
+    let local = |x: f32, y: f32| [x - n.rect.x, y - n.rect.y];
+    for x in [12.0_f32, 50.0, 88.0, 130.0, 170.0] {
+        for y in [0.0_f32, 0.5] {
+            let board = ink_color_at(&h, id, Pos2::new(x, y));
+            let export = export_color_at(&html, local(x, y))
+                .unwrap_or_else(|| panic!("the export paints ({x}, {y})"));
+            assert_color_close(export, board, 3.0, &format!("export at ({x}, {y})"));
+        }
+    }
+}

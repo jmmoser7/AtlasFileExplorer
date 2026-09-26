@@ -328,6 +328,12 @@ is searchable.
   same edit. Between vertices the width blends straight for polylines and
   lines, straight along the sweep for arcs, and with a smoothstep for
   Bézier spans (zero slope at every vertex, so the stroke has no chines).
+  Color follows the same model (user, 26 September 2026: "sub-select
+  individual vertices to create a blended color between that vertex and its
+  neighbors"): the Stroke color field and opacity rail edit the picked
+  vertices and read the first of them, colors blend between vertices by the
+  same rule as widths, and a color edit with no grip picked sets every
+  vertex.
   **Proposals:** the widths are the existing `PathData::tips`, one per
   vertex, not a second per-vertex list. The blend is read from the geometry
   (`slate_doc::geom::tip_ease`: any curve that is not a circular arc is
@@ -339,7 +345,17 @@ is searchable.
   change the vertex count drop them. Both interpreters paint through
   `slate_doc::geom::tipped_stroke` and `vector_ink::stroke_mesh_tipped` /
   `stroke_outline_tipped`; the artifact writes the variable-width outline as
-  a filled path. Implementation: `slate_doc::vertex_style`,
+  a filled path. Colors are the tips' `color`, and a uniform stroke keeps
+  one `<path>`. A stroke whose vertex colors differ exports as the
+  quads between its stroke sections (`vector_ink::stroke_pieces_tinted`,
+  the triangles the board mesh paints). A quad with two different end
+  colors fills with a two-stop `userSpaceOnUse` `linearGradient` from one
+  section center to the next, which is the board's own per-vertex color
+  interpolation. Short filled segments of one color each were the
+  alternative, but they would step the blend. An opaque stroke fills its
+  whole outline in the mean color under the pieces, so browser
+  antialiasing seams between quads do not show the background.
+  Implementation: `slate_doc::vertex_style`,
   `board_properties::Property::apply_at`.
 - **P1.curve.pick** click and marquee selection hit the **stroke** (via
   `vector_ink::hit_stroke` + `pick.slop` ≈ 4 screen px), never the node's

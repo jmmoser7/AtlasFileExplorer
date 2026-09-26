@@ -2166,6 +2166,19 @@ impl PathData {
         )
     }
 
+    /// Per-vertex colors for a hard vector stroke (P1.curve.vertex-style):
+    /// the tips' colors when they differ, one tip per vertex. `None` paints
+    /// `Stroke::color` everywhere.
+    pub fn vector_colors(&self) -> Option<Vec<Rgba>> {
+        let vertices =
+            1 + self.segs.len() + self.extra.iter().map(|c| 1 + c.segs.len()).sum::<usize>();
+        let first = self.tips.first()?.color;
+        if self.tips.len() != vertices || self.tips.iter().all(|t| t.color == first) {
+            return None;
+        }
+        Some(self.tips.iter().map(|t| t.color).collect())
+    }
+
     pub fn point_count(&self) -> usize {
         let mut n = 1;
         for seg in &self.segs {
