@@ -803,11 +803,11 @@
           "decided": "2026-09-15"
         },
         "D13": {
-          "behavior": "Double-click the title to edit the name across its maximal linear branch segment, including hidden members. Codex and Cursor titles combine the custom conversation name with a model dropdown populated by the installed provider; the menu also offers Rename. Only the tail card (or an unsent draft) offers the dropdown; a card that has a child shows \"Title · Model\" as canvas text and refuses a model change. Model choice is journaled per card and inherited by new continuations. Renaming a fork does not rename its siblings or upstream prefix. Outer PortalNode frame: P1.node.transform and P1.node.corner-grip (not on chat cards).",
+          "behavior": "Double-click the title to edit the name across its maximal linear branch segment, including hidden members. Codex and Cursor titles combine the custom conversation name with a model dropdown populated by the installed provider; the menu also offers Rename. Only the tail card (or an unsent draft) offers the dropdown; a card that has a child shows \"Title · Model\" as canvas text and refuses a model change. Model choice is journaled per card and inherited by new continuations. An open model dropdown hangs under the model name and paints every row whole on every frame at any zoom: the wheel over the list scrolls it (P0.10); anywhere else the wheel zooms the board and the list follows the title, open. Renaming a fork does not rename its siblings or upstream prefix. Outer PortalNode frame: P1.node.transform and P1.node.corner-grip (not on chat cards).",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-09-26"
         },
         "D14": {
           "behavior": "Switch presentation only through the contextual menu. Single chat window converts each maximal linear segment, keeps the current viewport height as its ceiling and shrinks shorter content. Chat train restores message views and forks. Single windows only show full conversation, and never offer Unbundle.",

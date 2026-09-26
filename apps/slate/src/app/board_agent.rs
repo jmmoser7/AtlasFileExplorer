@@ -199,6 +199,12 @@ pub struct AgentRuntime {
     models_error: HashMap<String, String>,
     artifact_popup: Option<(NodeId, bool)>,
     artifact_popup_rect: Option<Rect>,
+    /// Chat title whose model list is open. The list is re-anchored under the
+    /// title every frame, so zoom never detaches, resizes late, or closes it.
+    model_menu: Option<NodeId>,
+    /// False until the press that opened the model list is released.
+    model_menu_armed: bool,
+    model_menu_rect: Option<Rect>,
     /// HTML (and the rest of the preview catalog) waiting for text vs graphic.
     preview_ask: Option<(NodeId, String, Option<Pos2>)>,
     /// False until the pointer that opened the menu has been released.
@@ -1239,10 +1245,10 @@ impl SlateApp {
                     return true;
                 }
             }
-            if self
-                .agents
-                .artifact_popup_rect
-                .is_some_and(|r| r.contains(pointer))
+            if [self.agents.artifact_popup_rect, self.agents.model_menu_rect]
+                .into_iter()
+                .flatten()
+                .any(|r| r.contains(pointer))
             {
                 self.board_align_eat_press = true;
                 return true;
@@ -5062,6 +5068,9 @@ impl SlateApp {
         // menu is shoved upward until its top (Grok 4.7, Opus 5, …) sits above
         // the screen, so only the older tail looks available.
         let max_h = (ui.ctx().screen_rect().height() - 48.0).max(160.0);
+        // A popup lays out inside last frame's size. Its rows grow with the
+        // zoom, so without room of its own the list clips and scrolls away.
+        ui.set_max_height(max_h);
         egui::ScrollArea::vertical()
             .max_height(max_h)
             .show(ui, |ui| {
@@ -7759,6 +7768,8 @@ impl SlateApp {
             }
             let mut chosen = None;
             let mut rename = false;
+            let open = self.agents.model_menu == Some(node.id);
+            let mut model_rect = None;
             header.horizontal(|header| {
                 if header
                     .add(egui::Button::new(&title).frame(false))
@@ -7775,17 +7786,50 @@ impl SlateApp {
                 } else {
                     egui::RichText::new(model_name)
                 };
-                let model = header.menu_button(model_text, |ui| {
-                    chosen = self.model_menu_items(ui, node.id, agent, z);
-                });
+                let mut button = egui::Button::new(model_text);
+                if open {
+                    let open_look = &header.visuals().widgets.open;
+                    button = button.fill(open_look.weak_bg_fill).stroke(open_look.bg_stroke);
+                }
+                let model = header.add(button);
+                if model.clicked() {
+                    self.agents.model_menu = (!open).then_some(node.id);
+                    self.agents.model_menu_armed = false;
+                }
+                model_rect = Some(model.rect);
                 if full {
-                    model.response.on_hover_text(
+                    model.on_hover_text(
                         "Full access: this conversation runs commands and edits files without asking",
                     );
                 }
             });
             if rename {
                 self.agents.title_edit = Some((node.id, title));
+            }
+            if let Some(anchor) = model_rect.filter(|_| self.agents.model_menu == Some(node.id)) {
+                let mut armed = self.agents.model_menu_armed;
+                let shown = atlas_shell::menu::anchored(
+                    ui.ctx(),
+                    Id::new(("agent-model-menu", node.id.0)),
+                    anchor.left_bottom() + egui::vec2(0.0, canvas_scale::px(2.0, z)),
+                    palette.dark_mode,
+                    ui.ctx().screen_rect().width(),
+                    Some(&mut armed),
+                    |ui| self.model_menu_items(ui, node.id, agent, z),
+                );
+                chosen = shown.inner;
+                self.agents.model_menu_armed = armed;
+                let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
+                let pressed_title = ui.input(|i| {
+                    i.pointer.any_pressed()
+                        && i.pointer.interact_pos().is_some_and(|p| anchor.contains(p))
+                });
+                if chosen.is_some() || escape || (shown.dismissed && !pressed_title) {
+                    self.agents.model_menu = None;
+                    self.agents.model_menu_rect = None;
+                } else {
+                    self.agents.model_menu_rect = Some(shown.rect);
+                }
             }
             if let Some(model) = chosen {
                 self.board_sel = std::iter::once(node.id).collect();
@@ -7796,6 +7840,10 @@ impl SlateApp {
                 );
             }
         } else {
+            if self.agents.model_menu == Some(node.id) {
+                self.agents.model_menu = None;
+                self.agents.model_menu_rect = None;
+            }
             // Sent cards name the model that answered; only the tail chooses the next one.
             let font = FontId::proportional(canvas_text::authored_px(13.0, z));
             let clip = painter.with_clip_rect(title_rect);
@@ -11569,5 +11617,303 @@ To install them by hand, run in PowerShell:\n  cd \"C:\\workspace\\Slate\\docs\\
         assert!(h.app.doc().scene.node(card).is_some());
         assert!(h.app.doc().scene.node(lone).is_some_and(|n| n.hidden));
         assert!(h.app.doc().scene.node(lone_wire).is_some());
+    }
+
+    /// Every string one frame painted, with where it was painted.
+    fn painted_at(output: &egui::FullOutput) -> Vec<(String, Rect)> {
+        painted_clipped(output)
+            .into_iter()
+            .map(|(t, r, _)| (t, r))
+            .collect()
+    }
+
+    /// [`painted_at`] with each string's clip rect.
+    fn painted_clipped(output: &egui::FullOutput) -> Vec<(String, Rect, Rect)> {
+        fn walk(shape: &egui::Shape, clip: Rect, out: &mut Vec<(String, Rect, Rect)>) {
+            match shape {
+                egui::Shape::Text(t) => {
+                    out.push((t.galley.text().to_string(), t.visual_bounding_rect(), clip))
+                }
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, clip, out)),
+                _ => {}
+            }
+        }
+        let mut texts = Vec::new();
+        for clipped in &output.shapes {
+            walk(&clipped.shape, clipped.clip_rect, &mut texts);
+        }
+        texts
+    }
+
+    /// A Codex train card whose model list holds three installed models.
+    fn codex_card_with_models(h: &mut super::super::tests::Harness) -> NodeId {
+        let card = train(h, Pos2::ZERO, "codex");
+        let catalog = atlas_ai::agent::model_catalog("codex").to_string();
+        h.app.agents.models_started.insert(catalog.clone());
+        h.app.agents.models.insert(
+            catalog,
+            ["gpt-6-astra", "gpt-6-terra", "gpt-6-luna"]
+                .into_iter()
+                .map(|id| atlas_ai::agent::AgentModel {
+                    id: id.into(),
+                    name: id.into(),
+                })
+                .collect(),
+        );
+        h.app.patch_nodes(&[card], |n| {
+            if let NodeKind::Portal(p) = &mut n.kind {
+                p.title = "Review".into();
+                p.agent.as_mut().unwrap().model = Some("gpt-6-astra".into());
+            }
+        });
+        card
+    }
+
+    /// Open the card's model dropdown with a real click on its name.
+    fn open_model_menu(h: &mut super::super::tests::Harness, card: NodeId, z: f32) {
+        // A fresh draft sizes itself on its first frame; center on that size.
+        h.frame();
+        center_on(h, card);
+        h.app.tab_mut().cam.z = z;
+        h.frame();
+        let out = h.frame_output(|_| {});
+        let label = h.app.model_menu_label(
+            slate_doc::agent_chat::agent(h.app.doc().scene.node(card).unwrap()).unwrap(),
+        );
+        let texts = painted_at(&out);
+        let at = texts
+            .iter()
+            .find(|(t, _)| *t == label)
+            .map(|(_, r)| r.center())
+            .unwrap_or_else(|| panic!("the tail shows its model name: {texts:?}"));
+        press(h, at);
+        assert!(
+            menu_items_painted(&h.frame_output(|_| {})),
+            "the click opened the model list"
+        );
+    }
+
+    /// Every row of the open model list is painted whole: none clipped away
+    /// or scrolled out. The title reads "Astra", so the list's rows are
+    /// Default, Astra, Terra and, last, Luna.
+    fn menu_items_painted(output: &egui::FullOutput) -> bool {
+        let texts = painted_clipped(output);
+        ["Default", "Terra", "Luna"].iter().all(|item| {
+            texts
+                .iter()
+                .any(|(t, r, clip)| t == item && clip.expand(0.5).contains_rect(*r))
+        })
+    }
+
+    /// The list hangs under the title's model name; it never drifts off it.
+    fn menu_under_title(output: &egui::FullOutput) -> bool {
+        let texts = painted_at(output);
+        let (Some(title), Some(first)) = (
+            texts.iter().find(|(t, _)| t == "Astra").map(|(_, r)| *r),
+            texts.iter().find(|(t, _)| t == "Default").map(|(_, r)| *r),
+        ) else {
+            return false;
+        };
+        // Slack for the menu frame's and row's padding.
+        let gap = first.top() - title.bottom();
+        gap >= 0.0
+            && gap < title.height() * 3.0 + 16.0
+            && (first.left() - title.left()).abs() < title.height() + 16.0
+    }
+
+    /// Wheel notches at `at`: `steps` in, then as many out.
+    fn wheel_sweep(
+        h: &mut super::super::tests::Harness,
+        at: Pos2,
+        steps: usize,
+        mut check: impl FnMut(&mut super::super::tests::Harness, &egui::FullOutput, usize, f32),
+    ) {
+        for step in 0..steps * 2 {
+            let delta = if step < steps { 40.0 } else { -40.0 };
+            let out = h.frame_output(|i| {
+                i.events.push(egui::Event::PointerMoved(at));
+                i.events.push(egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(0.0, delta),
+                    modifiers: Default::default(),
+                });
+            });
+            let z = h.app.tab().cam.z;
+            check(h, &out, step, z);
+        }
+    }
+
+    #[test]
+    fn the_model_list_stays_open_while_the_wheel_zooms_the_board() {
+        let mut h = board("model_menu_wheel");
+        let card = codex_card_with_models(&mut h);
+        open_model_menu(&mut h, card, 1.0);
+        let r = h
+            .app
+            .board_xf()
+            .rect_w2s(h.app.doc().scene.node(card).unwrap().rect);
+        // Left of the card on empty board, clear of the list below the
+        // title: the wheel zooms about the card and keeps it in view.
+        let beside = Pos2::new(r.left() - 24.0, r.center().y);
+        let mut zooms = Vec::new();
+        wheel_sweep(&mut h, beside, 24, |_, out, step, z| {
+            zooms.push(z);
+            assert!(
+                menu_items_painted(out),
+                "the model list vanished at step {step}, zoom {z}: {:?}",
+                painted_at(out)
+            );
+            assert!(
+                menu_under_title(out),
+                "the model list left its title at step {step}, zoom {z}: {:?}",
+                painted_at(out)
+            );
+        });
+        assert!(
+            zooms.iter().cloned().fold(0.0, f32::max) > 2.0,
+            "the board zoomed in: {zooms:?}"
+        );
+    }
+
+    #[test]
+    fn the_model_list_opened_zoomed_in_stays_whole_while_zooming_out_and_back() {
+        let mut h = board("model_menu_zoomed");
+        let card = codex_card_with_models(&mut h);
+        open_model_menu(&mut h, card, 2.5);
+        let r = h
+            .app
+            .board_xf()
+            .rect_w2s(h.app.doc().scene.node(card).unwrap().rect);
+        let beside = Pos2::new(r.left() - 24.0, r.center().y);
+        let mut zooms = Vec::new();
+        for delta in [-40.0, 40.0] {
+            for step in 0..12 {
+                let out = h.frame_output(|i| {
+                    i.events.push(egui::Event::PointerMoved(beside));
+                    i.events.push(egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        delta: egui::vec2(0.0, delta),
+                        modifiers: Default::default(),
+                    });
+                });
+                let z = h.app.tab().cam.z;
+                zooms.push(z);
+                assert!(
+                    menu_items_painted(&out) && menu_under_title(&out),
+                    "the model list broke at step {step} ({delta}), zoom {z}: {:?}",
+                    painted_at(&out)
+                );
+            }
+        }
+        assert!(
+            zooms.iter().cloned().fold(f32::MAX, f32::min) < 1.5,
+            "the board zoomed out: {zooms:?}"
+        );
+    }
+
+    #[test]
+    fn the_model_list_owns_the_wheel_and_stays_open_over_itself() {
+        let mut h = board("model_menu_over");
+        let card = codex_card_with_models(&mut h);
+        open_model_menu(&mut h, card, 1.0);
+        let out = h.frame_output(|_| {});
+        let over = painted_at(&out)
+            .into_iter()
+            .find(|(t, _)| t == "Terra")
+            .map(|(_, r)| r.center())
+            .unwrap();
+        let z0 = h.app.tab().cam.z;
+        wheel_sweep(&mut h, over, 12, |_, out, step, z| {
+            assert!(menu_items_painted(out), "vanished at step {step}");
+            assert_eq!(z, z0, "a navigable menu owns the wheel (P0.10)");
+        });
+    }
+
+    /// A Codex card choosing among `n` saved conversations.
+    fn codex_chat_picker(h: &mut super::super::tests::Harness, n: usize) -> NodeId {
+        let card = codex_card_with_models(h);
+        let chats = (0..n)
+            .map(|i| CursorChat {
+                id: format!("thread-{i}"),
+                title: format!("Conversation {i}"),
+                updated_at: i as u64,
+            })
+            .collect();
+        h.app.present_agent_picker(card, chats);
+        center_on(h, card);
+        h.frame();
+        h.frame();
+        card
+    }
+
+    #[test]
+    fn the_conversation_picker_stays_painted_while_the_wheel_zooms_over_it() {
+        for n in [2, 5, 12] {
+            let mut h = board("chat_picker_wheel");
+            let card = codex_chat_picker(&mut h, n);
+            let out = h.frame_output(|_| {});
+            let at = painted_at(&out)
+                .into_iter()
+                .find(|(t, _)| t == "Conversation 0")
+                .map(|(_, r)| r.center())
+                .expect("the picker lists conversations");
+            let mut zooms = Vec::new();
+            // In and back out again: below ~25% the rows are too small to
+            // draw and drop by LOD (P0.9), which is not a flicker.
+            wheel_sweep(&mut h, at, 10, |h, out, step, z| {
+                zooms.push(z);
+                assert!(
+                    h.app
+                        .agents
+                        .chat_picker
+                        .as_ref()
+                        .is_some_and(|p| p.portal == card),
+                    "the picker closed at step {step} ({n} chats)"
+                );
+                assert!(
+                    painted_at(out)
+                        .iter()
+                        .any(|(t, _)| t.starts_with("Conversation ")),
+                    "the picker vanished at step {step}, zoom {z} ({n} chats): {zooms:?}"
+                );
+            });
+        }
+    }
+
+    #[test]
+    fn the_project_picker_stays_painted_while_the_wheel_moves_over_it() {
+        let mut h = board("project_picker_wheel");
+        let card = codex_card_with_models(&mut h);
+        h.app.agents.provider_recents.insert(
+            "codex".into(),
+            (0..4)
+                .map(|i| RecentEntry {
+                    path: PathBuf::from(format!("C:/projects/p{i}")),
+                    title: format!("Project {i}"),
+                    opened_at: i,
+                    cover: None,
+                })
+                .collect(),
+        );
+        h.app.agents.recents_started = true;
+        h.app.agents.recents_rx = None;
+        h.app.agents.project_picker = Some(card);
+        center_on(&mut h, card);
+        h.frame();
+        let out = h.frame_output(|_| {});
+        let at = painted_at(&out)
+            .into_iter()
+            .find(|(t, _)| t == "Project 0")
+            .map(|(_, r)| r.center())
+            .expect("the picker lists projects");
+        wheel_sweep(&mut h, at, 12, |h, out, step, z| {
+            assert_eq!(h.app.agents.project_picker, Some(card));
+            assert!(
+                painted_at(out)
+                    .iter()
+                    .any(|(t, _)| t.starts_with("Project ")),
+                "the project list vanished at step {step}, zoom {z}"
+            );
+        });
     }
 }

@@ -39,7 +39,7 @@ The user approved this refinement with “ok go for it!” after reviewing the
 | D10 | Cursor | Output-grip proximity suppresses body resize hit targets and resize cursors. The grip owns continuation/fork presses; surrounding body edges retain their existing resize behavior. | stated | 100 |
 | D11 | Commit | Portal presentation, message ranges, bundle membership and branch-view pruning use SceneCmd. Transcript bytes remain linked source data. Sending from a historical checkpoint starts an independent provider session with an explicit prefix replay; undo never reruns inference. | stated | 100 |
 | D12 | Cancel | Esc peels one layer per press (P0.1): maximize → contents focus → drag draft → armed tool → selection. Releasing contents focus leaves the shelf / poster intact. Agent sidecar work is out-of-process and is not cancelled by board Esc. | pattern | 80 |
-| D13 | Selected presentation | Double-click the title to edit the name across its maximal linear branch segment, including hidden members. Codex and Cursor titles combine the custom conversation name with a model dropdown populated by the installed provider; the menu also offers Rename. Only the tail card (or an unsent draft) offers the dropdown; a card that has a child shows "Title · Model" as canvas text and refuses a model change. Model choice is journaled per card and inherited by new continuations. Renaming a fork does not rename its siblings or upstream prefix. Outer **PortalNode** frame: **P1.node.transform** and **P1.node.corner-grip** (not on chat cards). | stated | 100 |
+| D13 | Selected presentation | Double-click the title to edit the name across its maximal linear branch segment, including hidden members. Codex and Cursor titles combine the custom conversation name with a model dropdown populated by the installed provider; the menu also offers Rename. Only the tail card (or an unsent draft) offers the dropdown; a card that has a child shows "Title · Model" as canvas text and refuses a model change. Model choice is journaled per card and inherited by new continuations. An open model dropdown hangs under the model name and paints every row whole on every frame at any zoom: the wheel over the list scrolls it (P0.10); anywhere else the wheel zooms the board and the list follows the title, open. Renaming a fork does not rename its siblings or upstream prefix. Outer **PortalNode** frame: **P1.node.transform** and **P1.node.corner-grip** (not on chat cards). | stated | 100 |
 | D14 | Post-edit | Switch presentation only through the contextual menu. Single chat window converts each maximal linear segment, keeps the current viewport height as its ceiling and shrinks shorter content. Chat train restores message views and forks. Single windows only show full conversation, and never offer Unbundle. | stated | 100 |
 | D15 | Non-goals | Codex and Cursor expose only conversations supported by their installed interfaces. Legacy Cursor desktop chats are not claimed as SDK agents. No hidden provider-history deletion. Ollama is local chat and the one-shot text block; it reads wired pictures only with an installed vision model. ComfyUI runs installed Stable Diffusion 1.5, 2, and XL checkpoints with core nodes only; the Style port runs the Stable Diffusion 1.5 T2I style adapter with CLIP ViT-L. IP-Adapter and other custom nodes, transformer checkpoints (FLUX, SD3, Qwen-Image), masked edit, upscale, and weight download remain later. Image agents may also use ChatGPT through the installed Codex's ChatGPT sign-in (no API key) or GPT Image through the person's own OpenAI API key; ComfyUI stays the default, so no image agent requires an account (Art. I.4). Video generation remains later; a video contributes the frame it shows. Direct OpenAI chat and local tool execution remain later increments. | stated | 100 |
 | D16 | Create-style inheritance | No. Host portals use portal styling and do not consume shape/text style state. | pattern | 80 |
@@ -693,3 +693,16 @@ The user ratified that an agent makes media, not a card type of its own:
   stay in the linked session folder, owned by the session. What it shows is
   picked or edited by the person. Run completion never patches the scene
   (Art. VII.6). It exports as the media it shows (D24).
+
+### Chat review fixes (26 September 2026)
+
+- **Model list under zoom (D13).** Zooming with the chat title's model list
+  open made it flicker. The list sat in an egui popup that lays out inside
+  last frame's size, so rows scaled up by the zoom (P0.9) were clipped and
+  scrolled out of view, and the popup stayed where it opened while the
+  title moved. The title now owns the list (`AgentRuntime::model_menu`)
+  and anchors it under the model name every frame through
+  `atlas_shell::menu::anchored`. The shared `model_menu_items` gives its
+  scroll area room of its own, so the chip menu and the editor gain the
+  same fix. Tests sweep the wheel from 100% and from 250% and check that
+  every row is painted whole and under the title on every frame.
