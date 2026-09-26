@@ -56,6 +56,12 @@ impl Bench {
     }
 
     fn frame_with(&mut self, events: Vec<egui::Event>) -> Duration {
+        let start = Instant::now();
+        let _ = self.frame_out(events);
+        start.elapsed()
+    }
+
+    fn frame_out(&mut self, events: Vec<egui::Event>) -> egui::FullOutput {
         let input = egui::RawInput {
             screen_rect: Some(ERect::from_min_size(Pos2::ZERO, EVec2::new(1920.0, 1080.0))),
             events,
@@ -63,9 +69,7 @@ impl Bench {
         };
         let ctx = self.ctx.clone();
         let app = &mut self.app;
-        let start = Instant::now();
-        let _ = ctx.run(input, |c| app.update_app(c));
-        start.elapsed()
+        ctx.run(input, |c| app.update_app(c))
     }
 }
 
@@ -498,6 +502,214 @@ fn erasing_paints_every_stroke_exactly_once_each_frame() {
         b.frame();
     }
     assert!(b.app.brush_tiles.last.settled, "tiles did not settle");
+}
+
+/// A horizontal brush bar `length` long, centered at `at`.
+fn bar_node(
+    scene: &mut slate_doc::scene::Scene,
+    at: [f32; 2],
+    length: f32,
+    width: f32,
+    blur: f32,
+) -> Node {
+    let mut node = dab_node(scene, at, width, 0.0, blur);
+    node.rect = WorldRect::new(at[0] - length * 0.5, at[1] - width * 0.5, length, width);
+    if let NodeKind::Shape(shape) = &mut node.kind {
+        shape.path = Some(std::sync::Arc::new(PathData {
+            start: [0.0, 0.5],
+            segs: vec![PathSeg::Line { to: [1.0, 0.5] }],
+            ..PathData::default()
+        }));
+    }
+    node
+}
+
+fn mesh_textures(shape: &egui::Shape, out: &mut Vec<egui::TextureId>) {
+    match shape {
+        egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| mesh_textures(s, out)),
+        egui::Shape::Mesh(mesh) => out.push(mesh.texture_id),
+        _ => {}
+    }
+}
+
+/// A stroke under the eraser keeps its look. Every frame of the drag it is
+/// painted once, from its live preview, and the preview is the committed
+/// bitmap (blur included) with the pass cut out: untouched pixels are the
+/// committed ones, fully covered pixels are transparent. On release the
+/// committed raster takes over on the next frame with the preview's pixels.
+#[test]
+fn an_erased_stroke_previews_as_committed_minus_the_pass() {
+    for blur in [8.0_f32, 0.0] {
+        let mut b = Bench::logged(0);
+        b.frame();
+        let view = view_world(&b);
+        let center = [(view[0] + view[2]) * 0.5, (view[1] + view[3]) * 0.5];
+        let bar = bar_node(&mut b.app.doc_mut().scene, center, 240.0, 30.0, blur);
+        let id = bar.id;
+        b.app.add_nodes(vec![bar]);
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            b.frame();
+            let ready = if blur > 0.0 {
+                b.app.brush_stamps.contains_key(&id)
+            } else {
+                b.app.brush_tiles.last.settled && !b.app.brush_tiles.tiles_with(id).is_empty()
+            };
+            if ready {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "blur {blur}: the bar never settled"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+        }
+
+        let node = b.app.doc().scene.node(id).cloned().unwrap();
+        let NodeKind::Shape(shape) = &node.kind else {
+            unreachable!()
+        };
+        let pixel = super::board_path::stamp_pixel_for_zoom(b.app.board_xf().z, 1.0);
+        let committed =
+            super::board_path::stroke_stamp(&node, shape, shape.path.as_ref().unwrap(), pixel)
+                .expect("the bar's stamp");
+        if blur > 0.0 {
+            let (w, h) = (committed.width, committed.height);
+            let halo = (0..h).any(|y| {
+                (0..w).any(|x| {
+                    let wy = committed.origin[1] + (y as f32 + 0.5) * committed.pixel;
+                    (wy - center[1]).abs() > 15.0 + 2.0
+                        && committed.rgba[((y * w + x) * 4 + 3) as usize] > 0
+                })
+            });
+            assert!(halo, "the fixture's committed bitmap has no blur halo");
+        }
+
+        b.app.set_board_tool(super::board::BoardTool::Eraser);
+        b.app.eraser_width = 16.0;
+        b.app.eraser_softness = 0.0;
+        b.app.eraser_opacity = 1.0;
+        b.frame();
+        let xf = b.app.board_xf();
+        let at = |t: f32| xf.w2s(Pos2::new(center[0], center[1] - 60.0 + t * 120.0));
+        b.frame_with(vec![egui::Event::PointerMoved(at(0.0))]);
+        let mut events = primary(at(0.0), true);
+        let mut last_shown = Vec::new();
+        for step in 0..=12 {
+            if step > 0 {
+                events = vec![egui::Event::PointerMoved(at(step as f32 / 12.0))];
+            }
+            let out = b.frame_out(events.clone());
+            let when = format!("blur {blur} step {step}");
+            let faults = coverage_faults(&b, [id]);
+            assert!(faults.is_empty(), "{when}: {faults:?}");
+            let Some(live) = b.app.erase_live.get(&id) else {
+                let gap = (60.0 - step as f32 * 10.0).abs();
+                let reach = 15.0 + 3.0 * blur + 8.0;
+                assert!(gap > reach - 10.0, "{when}: no live preview");
+                continue;
+            };
+            let mut painted = Vec::new();
+            for clipped in &out.shapes {
+                mesh_textures(&clipped.shape, &mut painted);
+            }
+            assert!(
+                painted.contains(&live.texture()),
+                "{when}: the live preview was not painted"
+            );
+            if let Some((_, gpu)) = b.app.brush_stamps.get(&id) {
+                assert!(
+                    !painted.contains(&gpu.tex.id()),
+                    "{when}: the committed raster was painted under the preview"
+                );
+            }
+            let mask = live.mask();
+            assert_eq!(
+                (mask.width, mask.height, mask.origin, mask.pixel),
+                (
+                    committed.width,
+                    committed.height,
+                    committed.origin,
+                    committed.pixel
+                ),
+                "{when}: the preview is not the committed bitmap"
+            );
+            let shown = live.shown();
+            let (mut kept, mut cut) = (0usize, 0usize);
+            for i in (0..shown.len()).step_by(4) {
+                match mask.rgba[i + 3] {
+                    0 => {
+                        assert_eq!(
+                            &shown[i..i + 4],
+                            &committed.rgba[i..i + 4],
+                            "{when}: pixel {} differs from the committed stroke",
+                            i / 4
+                        );
+                        kept += 1;
+                    }
+                    255 => {
+                        assert_eq!(shown[i + 3], 0, "{when}: erased pixel {} shows", i / 4);
+                        cut += 1;
+                    }
+                    _ => {}
+                }
+            }
+            assert!(kept > 0, "{when}: nothing kept");
+            if step == 12 {
+                assert!(cut > 0, "{when}: nothing erased");
+            }
+            last_shown = shown.to_vec();
+        }
+        assert!(!last_shown.is_empty(), "blur {blur}: never previewed");
+
+        b.frame_with(primary(at(1.0), false));
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let mut frame = 0;
+        loop {
+            let faults = coverage_faults(&b, [id]);
+            assert!(
+                faults.is_empty(),
+                "blur {blur}: frame {frame} after release: {faults:?}"
+            );
+            if b.app.brush_tiles.last.settled || Instant::now() > deadline {
+                break;
+            }
+            frame += 1;
+            std::thread::sleep(Duration::from_millis(2));
+            b.frame();
+        }
+        let node = b
+            .app
+            .doc()
+            .scene
+            .node(id)
+            .cloned()
+            .expect("bar erased away");
+        let NodeKind::Shape(shape) = &node.kind else {
+            unreachable!()
+        };
+        let after =
+            super::board_path::stroke_stamp(&node, shape, shape.path.as_ref().unwrap(), pixel)
+                .expect("the erased bar's stamp");
+        assert_eq!(
+            after.rgba.len(),
+            last_shown.len(),
+            "blur {blur}: bitmap resized"
+        );
+        let jumps = after
+            .rgba
+            .iter()
+            .skip(3)
+            .step_by(4)
+            .zip(last_shown.iter().skip(3).step_by(4))
+            .filter(|(a, s)| a.abs_diff(**s) > 16)
+            .count();
+        assert!(
+            jumps * 100 <= after.rgba.len() / 4,
+            "blur {blur}: {jumps} of {} pixels jump on release",
+            after.rgba.len() / 4
+        );
+    }
 }
 
 /// A heavily blurred dab keeps its dot: the blur spreads the ink inside a

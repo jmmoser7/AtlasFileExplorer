@@ -85,6 +85,7 @@ pub(crate) fn spot_reaches(node: &Node, bounds: WorldRect) -> bool {
         return false;
     }
     let ink = shape.stroke.width * 0.5
+        + 3.0 * shape.stroke.gaussian_blur.max(0.0)
         + shape
             .path
             .as_ref()
@@ -118,6 +119,7 @@ pub(crate) fn spot_touches(node: &Node, from: Pos2, to: Pos2, r: f32) -> bool {
         return false;
     };
     let tolerance = (r as f64 * 0.25).max(0.05);
+    let r = r + 3.0 * shape.stroke.gaussian_blur.max(0.0);
     let pos = |p: &vector_ink::TipPoint| Pos2::new(p.pos[0], p.pos[1]);
     board_path::stamped_contours(node, shape, path, tolerance)
         .iter()
@@ -1307,7 +1309,8 @@ impl SlateApp {
         if !(x0.is_finite() && y0.is_finite() && x1.is_finite() && y1.is_finite()) {
             return;
         }
-        let ink = super::settings::STROKE_WIDTH_MAX * 0.5;
+        let ink =
+            super::settings::STROKE_WIDTH_MAX * 0.5 + 3.0 * super::board_smooth::SMOOTH_BLUR_MAX;
         let query = slate_doc::scene::WorldRect::new(
             x0 - ink,
             y0 - ink,
@@ -1958,7 +1961,8 @@ impl SlateApp {
     }
 }
 
-/// Stamp an erased painted stroke once: `(pass touched ink, nothing left)`.
+/// Stamp an erased painted stroke once, as committed (blur included):
+/// `(pass touched ink, nothing left)`.
 pub(crate) fn erased_result(node: &slate_doc::Node) -> (bool, bool) {
     let NodeKind::Shape(shape) = &node.kind else {
         return (false, false);
@@ -1973,12 +1977,13 @@ pub(crate) fn erased_result(node: &slate_doc::Node) -> (bool, bool) {
         .map(|p| p.tip.diameter)
         .fold(0.0_f32, f32::max);
     let pixel = (widest / 64.0).max(1.0);
-    let Some(mut img) = vector_ink::stamp_tipped(&contours, pixel) else {
-        return (false, true);
-    };
     let marks = board_path::stamped_erase_marks(node, shape, path);
     let (older, newest) = marks.split_at(marks.len().saturating_sub(1));
-    vector_ink::apply_erase(&mut img, older);
+    let Some(mut img) =
+        vector_ink::stamp_blurred(&contours, older, pixel, shape.stroke.gaussian_blur)
+    else {
+        return (false, true);
+    };
     let before: Vec<u8> = img.rgba.iter().skip(3).step_by(4).copied().collect();
     vector_ink::apply_erase(&mut img, newest);
     let touched = img

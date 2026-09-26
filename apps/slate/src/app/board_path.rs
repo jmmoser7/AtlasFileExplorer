@@ -16,8 +16,8 @@ use std::sync::Arc as Shared;
 use vector_ink::kurbo::{self, Arc, BezPath, PathEl, Point};
 use vector_ink::{
     bezpath_from_anchors, classify_kind, flatten, flatten_contours, hit_stroke, move_handle,
-    stamp_segment, stamp_tipped, stroke_mesh, tipped_contours, Anchor, AnchorKind, Cap, InkMesh,
-    Join, StampStyle, StrokeStyle, TipPoint,
+    stamp_segment, stroke_mesh, tipped_contours, Anchor, AnchorKind, Cap, InkMesh, Join,
+    StampStyle, StrokeStyle, TipPoint,
 };
 
 use super::board::{rgba32, BoardXf};
@@ -1716,7 +1716,7 @@ fn paint_stamped_stroke(
 }
 
 /// One committed stroke's stamp bitmap at `pixel` world units per pixel:
-/// tipped dabs, erase marks, then the stroke's blur.
+/// tipped dabs, the stroke's blur, then erase marks.
 pub(crate) fn stroke_stamp(
     node: &Node,
     shape: &ShapeNode,
@@ -2106,7 +2106,8 @@ fn upload_region(tex: &mut egui::TextureHandle, rgba: &[u8], width: u32, dirty: 
 }
 
 /// Live spot erase on one stamped stroke during an eraser drag. `ink` is the
-/// stroke as committed (earlier passes applied); `mask` holds this pass with
+/// stroke's committed bitmap ([`stroke_stamp`]: blur and earlier passes
+/// applied), built once; `mask` holds this pass with
 /// max coverage; the texture shows `ink * (1 - mask)`, uploading only the
 /// region the eraser touched.
 pub struct EraseLive {
@@ -2128,9 +2129,7 @@ impl EraseLive {
         path: &PathData,
         pixel: f32,
     ) -> Option<EraseLive> {
-        let contours = stamped_contours(node, shape, path, (pixel as f64 * 0.5).max(0.05));
-        let mut img = stamp_tipped(&contours, pixel)?;
-        vector_ink::apply_erase(&mut img, &stamped_erase_marks(node, shape, path));
+        let img = stroke_stamp(node, shape, path, pixel)?;
         let tex = painter.ctx().load_texture(
             format!("erase-live-{}", node.id.0),
             egui::ColorImage::from_rgba_premultiplied(
@@ -2231,6 +2230,21 @@ impl EraseLive {
             egui::Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
             tint,
         );
+    }
+
+    #[cfg(test)]
+    pub(crate) fn texture(&self) -> egui::TextureId {
+        self.tex.id()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn mask(&self) -> &vector_ink::StampImage {
+        &self.mask
+    }
+
+    #[cfg(test)]
+    pub(crate) fn shown(&self) -> &[u8] {
+        &self.shown
     }
 }
 

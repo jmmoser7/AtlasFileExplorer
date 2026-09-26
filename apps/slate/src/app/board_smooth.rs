@@ -8,7 +8,7 @@ use slate_doc::scene::{Node, NodeKind, SceneCmd, ShapeKind, WorldRect};
 use slate_doc::NodeId;
 
 const SMOOTH_BLUR_STEP: f32 = 0.35;
-const SMOOTH_BLUR_MAX: f32 = 48.0;
+pub(crate) const SMOOTH_BLUR_MAX: f32 = 48.0;
 const SMOOTH_POLY_SPACING: f32 = 0.75;
 
 pub(crate) struct SmoothPolyline {

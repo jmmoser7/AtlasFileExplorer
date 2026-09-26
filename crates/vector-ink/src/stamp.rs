@@ -86,10 +86,11 @@ pub fn stamp_tipped(contours: &[Vec<TipPoint>], pixel: f32) -> Option<StampImage
 /// the kernel stays small.
 const MAX_BLUR_PX: f32 = 4.0;
 
-/// A committed stroke's bitmap: stamp `contours`, subtract `erase` passes,
-/// then blur by `blur`, a standard deviation in the contours' units (SVG
-/// `stdDeviation`). The bitmap is padded to hold the whole falloff, so a
-/// heavy blur never clips to a square.
+/// A committed stroke's bitmap: stamp `contours`, blur by `blur`, a standard
+/// deviation in the contours' units (SVG `stdDeviation`), then subtract
+/// `erase` passes. Erasing after the blur removes what is seen, halo
+/// included, and keeps the hole's edge as the eraser drew it. The bitmap is
+/// padded to hold the whole falloff, so a heavy blur never clips to a square.
 pub fn stamp_blurred(
     contours: &[Vec<TipPoint>],
     erase: &[Vec<TipPoint>],
@@ -103,10 +104,10 @@ pub fn stamp_blurred(
         pixel
     };
     let mut img = stamp_tipped_padded(contours, pixel, 3.0 * blur)?;
-    apply_erase(&mut img, erase);
     if blur > 0.0 {
         crate::blur::gaussian_blur_rgba(&mut img.rgba, img.width, img.height, blur / img.pixel);
     }
+    apply_erase(&mut img, erase);
     Some(img)
 }
 
@@ -779,6 +780,36 @@ mod tests {
         apply_erase(&mut img, &[vec![at(140.0, 0.0, half)]]);
         let twice = alpha_at(&img, 140.0, 0.0);
         assert!((58..=70).contains(&twice), "two passes left {twice}");
+    }
+
+    /// A blurred stroke is erased as seen: the pass removes the blurred ink,
+    /// halo included, with the eraser's own edge, and leaves the rest as the
+    /// unerased blur drew it.
+    #[test]
+    fn a_blurred_stamp_is_erased_after_its_blur() {
+        let tip = StampStyle {
+            diameter: 20.0,
+            softness: 0.0,
+            rgba: [200, 100, 50, 255],
+        };
+        let at = |x: f32, y: f32, tip| TipPoint { pos: [x, y], tip };
+        let line = vec![vec![at(0.0, 0.0, tip), at(200.0, 0.0, tip)]];
+        let eraser = StampStyle {
+            diameter: 30.0,
+            ..tip
+        };
+        let marks = vec![vec![at(100.0, -40.0, eraser), at(100.0, 40.0, eraser)]];
+        let plain = stamp_blurred(&line, &[], 1.0, 4.0).unwrap();
+        let erased = stamp_blurred(&line, &marks, 1.0, 4.0).unwrap();
+        assert!(alpha_at(&plain, 100.0, 14.0) > 0, "no halo to erase");
+        assert_eq!(alpha_at(&erased, 100.0, 0.0), 0, "the pass kept ink");
+        assert_eq!(alpha_at(&erased, 100.0, 14.0), 0, "the pass kept the halo");
+        assert_eq!(alpha_at(&erased, 110.0, 0.0), 0, "the hole's edge blurred");
+        assert_eq!(
+            alpha_at(&erased, 40.0, 0.0),
+            alpha_at(&plain, 40.0, 0.0),
+            "untouched ink changed"
+        );
     }
 
     /// Longest run of equal values in an 8-row band average of alpha, walking
