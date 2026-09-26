@@ -11,8 +11,8 @@
 
 use super::board::{BoardXf, MIN_DRAW};
 use super::path_edit_overlay::{
-    hit_anchor, paint_path_edit_anchors, path_edit_hit, PathEditAnchorColors, PathEditAnchorPaint,
-    PathEditHit,
+    hit_anchor, paint_path_edit_anchors, path_edit_hit, path_edit_hit_distance,
+    PathEditAnchorColors, PathEditAnchorPaint, PathEditHit,
 };
 use super::{board_line, board_path, SlateApp};
 use eframe::egui::{self, Pos2, Rect, Stroke as EStroke, Vec2};
@@ -180,6 +180,7 @@ impl SlateApp {
                         (&mut data, rect, 0.0),
                         &mut s.stroke,
                     );
+                    slate_doc::vertex_style::keep_corner_amounts(&old, &mut data);
                 }
                 s.shape = ShapeKind::Path;
                 s.flip = false;
@@ -278,6 +279,19 @@ impl SlateApp {
             screen,
         )
         .is_some()
+    }
+
+    /// Screen distance from `screen` to the grip of curve `id` a press there
+    /// would take, when `id` is the grip target and one is within reach.
+    pub(crate) fn curve_grip_distance(&self, id: NodeId, screen: Pos2) -> Option<f32> {
+        let (target, grips) = self.curve_grip_target()?;
+        if target != id {
+            return None;
+        }
+        path_edit_hit_distance(
+            &self.curve_grip_overlay(id, &grips, &self.board_xf()),
+            screen,
+        )
     }
 
     /// Press on a grip of the selected curve: one point or one handle drag,

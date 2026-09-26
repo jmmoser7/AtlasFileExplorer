@@ -265,9 +265,7 @@ impl SlateApp {
             return;
         };
         *node = before.clone();
-        let shared = slate_doc::scene::resolved_corner(before, path)
-            .effective(before.rect.w, before.rect.h)
-            .1;
+        let shared = slate_doc::scene::resolved_corner_effective(before, path).1;
         if (amount - Self::vertex_amount(before, v, shared)).abs() >= 1e-4 {
             slate_doc::scene::set_vertex_corner_amount(node, v, amount);
         }
@@ -379,7 +377,9 @@ impl SlateApp {
     }
 
     /// The topmost selected host whose corner grip is under `screen`, with
-    /// the polyline vertex that grip sets.
+    /// the polyline vertex that grip sets. Corner grips ride the segments
+    /// and curve grips sit on the vertices, so where their reaches overlap
+    /// the nearer one takes the press (a tie goes to the vertex).
     pub(crate) fn fillet_grip_hit_at(&self, screen: Pos2) -> Option<(NodeId, Option<usize>)> {
         let xf = self.board_xf();
         self.doc()
@@ -390,10 +390,19 @@ impl SlateApp {
             .filter(|n| self.board_sel.contains(&n.id))
             .find_map(|n| {
                 let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
-                self.corner_grips(n, &xf)
+                let (vertex, grip) = self
+                    .corner_grips(n, &xf)
                     .into_iter()
-                    .find(|(_, grip)| board_handles::hit_test_fillet_grip(screen, &geom, *grip))
-                    .map(|(vertex, _)| (n.id, vertex))
+                    .filter(|(_, grip)| board_handles::hit_test_fillet_grip(screen, &geom, *grip))
+                    .min_by(|a, b| a.1.distance(screen).total_cmp(&b.1.distance(screen)))?;
+                let reach = grip.distance(screen);
+                if self
+                    .curve_grip_distance(n.id, screen)
+                    .is_some_and(|d| d <= reach)
+                {
+                    return None;
+                }
+                Some((n.id, vertex))
             })
     }
 

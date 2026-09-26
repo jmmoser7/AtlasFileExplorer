@@ -217,6 +217,33 @@ pub fn keep_tips(
     }
 }
 
+/// Carry `old`'s per-vertex corner overrides onto its rebuilt geometry
+/// `new`, vertex for vertex, so a moved vertex keeps its own corner and the
+/// fillet re-clamps it to its new edges. A closing copy of the start
+/// vertex follows the shape's corner on either side. Dropped when the
+/// vertex count changed.
+pub fn keep_corner_amounts(old: &PathData, new: &mut PathData) {
+    if old.corner_amounts.len() != 1 + old.segs.len() || !new.extra.is_empty() {
+        return;
+    }
+    let vertices = |p: &PathData| 1 + p.segs.len() - usize::from(closes_on_start(p));
+    let n = vertices(old);
+    if n != vertices(new) {
+        return;
+    }
+    let mut amounts = old.corner_amounts[..n].to_vec();
+    amounts.resize(1 + new.segs.len(), None);
+    new.corner_amounts = amounts;
+}
+
+fn closes_on_start(path: &PathData) -> bool {
+    path.closed
+        && path.segs.last().is_some_and(|s| {
+            let end = seg_end(s);
+            (end[0] - path.start[0]).abs() <= 1e-6 && (end[1] - path.start[1]).abs() <= 1e-6
+        })
+}
+
 fn write_tips(path: &mut PathData, stroke: &mut Stroke, tips: Vec<StrokeSpan>) {
     if tips.iter().all(|t| *t == tips[0]) {
         path.tips.clear();
@@ -291,5 +318,48 @@ fn split_middle_span(path: &mut PathData) {
 fn seg_end(seg: &PathSeg) -> [f32; 2] {
     match *seg {
         PathSeg::Line { to } | PathSeg::Quad { to, .. } | PathSeg::Cubic { to, .. } => to,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn triangle(closing_copy: bool) -> PathData {
+        let line = |to| PathSeg::Line { to };
+        let mut segs = vec![line([1.0, 0.0]), line([0.0, 1.0])];
+        if closing_copy {
+            segs.push(line([0.0, 0.0]));
+        }
+        PathData {
+            start: [0.0, 0.0],
+            segs,
+            closed: true,
+            ..PathData::default()
+        }
+    }
+
+    #[test]
+    fn corner_overrides_follow_their_vertices_across_a_rebuild() {
+        let mut old = triangle(true);
+        old.corner_amounts = vec![Some(4.0), None, Some(9.0), None];
+        let mut rebuilt = triangle(false);
+        keep_corner_amounts(&old, &mut rebuilt);
+        assert_eq!(rebuilt.corner_amounts, vec![Some(4.0), None, Some(9.0)]);
+
+        let mut again = triangle(true);
+        keep_corner_amounts(&rebuilt, &mut again);
+        assert_eq!(again.corner_amounts, vec![Some(4.0), None, Some(9.0), None]);
+
+        let mut fewer = PathData {
+            segs: vec![PathSeg::Line { to: [1.0, 0.0] }],
+            closed: false,
+            ..triangle(false)
+        };
+        keep_corner_amounts(&old, &mut fewer);
+        assert!(
+            fewer.corner_amounts.is_empty(),
+            "a changed vertex count drops them"
+        );
     }
 }

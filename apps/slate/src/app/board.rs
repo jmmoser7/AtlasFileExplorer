@@ -748,6 +748,12 @@ impl BoardDrag {
                 | BoardDrag::GroupRotate { .. }
                 | BoardDrag::LineGrip { .. }
                 | BoardDrag::FilletRadius { .. }
+                | BoardDrag::Direct(
+                    super::board_direct::DirectDrag::Anchors { .. }
+                        | super::board_direct::DirectDrag::Segment { .. }
+                        | super::board_direct::DirectDrag::Handle { .. }
+                        | super::board_direct::DirectDrag::Arc { .. }
+                )
         )
     }
 
@@ -766,7 +772,13 @@ impl BoardDrag {
             }
             BoardDrag::Rotate { before, .. }
             | BoardDrag::CropPan { before, .. }
-            | BoardDrag::LineGrip { before, .. } => (vec![before], false),
+            | BoardDrag::LineGrip { before, .. }
+            | BoardDrag::Direct(
+                super::board_direct::DirectDrag::Anchors { before, .. }
+                | super::board_direct::DirectDrag::Segment { before, .. }
+                | super::board_direct::DirectDrag::Handle { before, .. }
+                | super::board_direct::DirectDrag::Arc { before, .. },
+            ) => (vec![before], false),
             _ => return None,
         })
     }
@@ -6254,7 +6266,8 @@ impl SlateApp {
                     }
                 }
                 // Match hover priority: the visible fillet grip wins any
-                // overlap with curve grips and wire/resize bands.
+                // overlap with wire/resize bands, and a curve grip only
+                // where it is nearer (`fillet_grip_hit_at`).
                 if let Some(drag) = self.begin_fillet_drag(screen, world) {
                     return Some(drag);
                 }

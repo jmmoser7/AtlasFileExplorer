@@ -33,6 +33,17 @@ pub fn path_edit_hit(anchors: &[PathEditAnchorPaint], screen: Pos2) -> Option<Pa
     }
 }
 
+/// Screen distance to what [`path_edit_hit`] would pick, so a neighboring
+/// grip can yield to a nearer one.
+pub fn path_edit_hit_distance(anchors: &[PathEditAnchorPaint], screen: Pos2) -> Option<f32> {
+    let handle = nearest_handle(anchors, screen).map(|(d, ..)| d);
+    let anchor = nearest_anchor(anchors, screen).map(|(d, _)| d);
+    match (handle, anchor) {
+        (Some(h), Some(a)) => Some(h.min(a)),
+        (h, a) => h.or(a),
+    }
+}
+
 /// Nearest anchor square within [`HIT_PX`].
 pub fn hit_anchor(anchors: &[PathEditAnchorPaint], screen: Pos2) -> Option<usize> {
     nearest_anchor(anchors, screen).map(|(_, i)| i)
