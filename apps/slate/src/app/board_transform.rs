@@ -96,7 +96,7 @@ impl SlateApp {
             return None;
         }
         let geom = board_handles::selection_geom(xf, node.rect, node.rotation_deg);
-        let grip_px = atlas_shell::canvas_scale::px(board_handles::FILLET_GRIP_PX, geom.zoom);
+        let grip_px = atlas_shell::canvas_scale::px(board_handles::FILLET_GRIP_HIT_PX, geom.zoom);
         if atlas_shell::canvas_scale::too_small(grip_px) {
             return None;
         }

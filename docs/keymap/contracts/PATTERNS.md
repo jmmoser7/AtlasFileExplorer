@@ -204,8 +204,12 @@ is searchable.
   Enter dispatches **one** journaled `board.shape.fillet` patch (clamped to
   the host's largest amount), Esc cancels without touching the selection.
   **Proposals** (implementation detail, not re-litigated per contract):
-  **single-select only**; painted size `FILLET_GRIP_PX` via `canvas_scale`
-  (P0.9); hidden in image crop mode, multi-select, and when portal chrome
+  **single-select only**; painted half-size `FILLET_GRIP_PX` via
+  `canvas_scale` (P0.9) — 1.6, **stated** 26 September 2026 as 40% of the
+  former 4; the hit box keeps the former half-size `FILLET_GRIP_HIT_PX` plus
+  slop and never falls under `HIT_SLOP_PX` on screen, and the grip drops
+  only when that hit size is illegible (proposal: the shrink does not change
+  the zoom at which the grip hides); hidden in image crop mode, multi-select, and when portal chrome
   suppresses the ordinary selection cast; cursor is the two-headed resize
   arrow along the edge; clamp `[0, host maximum]` (half the short side for
   boxes, half the shorter adjacent side for vertices); live preview,
