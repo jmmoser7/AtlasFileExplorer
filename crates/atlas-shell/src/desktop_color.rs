@@ -11,17 +11,28 @@ pub struct Sample {
     pub alt: bool,
 }
 pub type PickResult = Result<Option<Sample>, String>;
+
+/// How a pick session ends.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PickMode {
+    /// Click, move, click: a click on the desktop commits.
+    Click,
+    /// Brush's temporary Alt picker: releasing Alt cancels.
+    AltHeld,
+    /// Pressed on an eyedropper and dragged: releasing the button commits.
+    Drag,
+}
 pub struct DesktopColorPicker {
     rx: mpsc::Receiver<PickResult>,
     cancel: Arc<AtomicBool>,
 }
 impl DesktopColorPicker {
-    pub fn begin(cancel_on_alt_release: bool) -> Self {
+    pub fn begin(mode: PickMode) -> Self {
         let (tx, rx) = mpsc::channel();
         let cancel = Arc::new(AtomicBool::new(false));
         let stop = cancel.clone();
         std::thread::spawn(move || {
-            let _ = tx.send(platform::pick(stop, cancel_on_alt_release));
+            let _ = tx.send(platform::pick(stop, mode));
         });
         Self { rx, cancel }
     }
@@ -71,6 +82,14 @@ mod layout {
         pub fn side() -> i32 {
             LOUPE_PATCH * LOUPE_CELL
         }
+
+        /// Left, top, right, bottom of the drag session's live swatch: the
+        /// readout's right end.
+        pub fn swatch(&self) -> [i32; 4] {
+            let [x, y] = self.label;
+            let right = x + LOUPE_LABEL[0];
+            [right - LOUPE_LABEL[1], y, right, y + LOUPE_LABEL[1]]
+        }
     }
 
     /// The framed cell is centered on the hotspot, so what the magnifier marks
@@ -102,6 +121,32 @@ mod layout {
         }
     }
 
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub(super) enum Tick {
+        Continue,
+        Commit,
+        Cancel,
+    }
+
+    /// The session's timer rule. A drag session reads the button and Escape
+    /// here because the window that was pressed keeps the mouse until release.
+    pub(super) fn tick(
+        mode: super::PickMode,
+        stopped: bool,
+        alt_down: bool,
+        button_down: bool,
+        escape_down: bool,
+    ) -> Tick {
+        use super::PickMode;
+        match mode {
+            _ if stopped => Tick::Cancel,
+            PickMode::AltHeld if !alt_down => Tick::Cancel,
+            PickMode::Drag if escape_down => Tick::Cancel,
+            PickMode::Drag if !button_down => Tick::Commit,
+            _ => Tick::Continue,
+        }
+    }
+
     /// The capture pixel under a physical screen point. The capture starts at
     /// the virtual desktop's `origin`, which is negative when a monitor sits
     /// left of or above the primary.
@@ -129,7 +174,7 @@ pub fn sample_cursor() -> Option<[u8; 3]> {
 #[cfg(not(windows))]
 mod platform {
     use super::*;
-    pub fn pick(_: Arc<AtomicBool>, _: bool) -> PickResult {
+    pub fn pick(_: Arc<AtomicBool>, _: PickMode) -> PickResult {
         Err("Desktop sampling is available on Windows".into())
     }
 }
@@ -159,7 +204,7 @@ mod platform {
         result: Option<Sample>,
         done: bool,
         stop: Arc<AtomicBool>,
-        alt: bool,
+        mode: PickMode,
     }
     impl Drop for Session {
         fn drop(&mut self) {
@@ -232,11 +277,39 @@ mod platform {
                 LRESULT(0)
             }
             WM_TIMER => {
-                if state.stop.load(Ordering::Relaxed)
-                    || (state.alt && GetAsyncKeyState(VK_MENU.0 as i32) >= 0)
-                {
-                    state.done = true;
-                    let _ = DestroyWindow(hwnd);
+                let drag = state.mode == PickMode::Drag;
+                if drag {
+                    let before = (state.cursor.x, state.cursor.y);
+                    state.position();
+                    if before != (state.cursor.x, state.cursor.y) {
+                        let _ = InvalidateRect(Some(hwnd), None, false);
+                    }
+                }
+                // Async key state is physical: the primary button is the right
+                // one when the user has swapped them.
+                let primary = if GetSystemMetrics(SM_SWAPBUTTON) != 0 {
+                    VK_RBUTTON
+                } else {
+                    VK_LBUTTON
+                };
+                let held = |key: VIRTUAL_KEY| GetAsyncKeyState(key.0 as i32) < 0;
+                match tick(
+                    state.mode,
+                    state.stop.load(Ordering::Relaxed),
+                    held(VK_MENU),
+                    held(primary),
+                    drag && held(VK_ESCAPE),
+                ) {
+                    Tick::Continue => {}
+                    Tick::Commit => {
+                        state.result = state.candidate().map(|rgb| Sample { rgb, alt: false });
+                        state.done = true;
+                        let _ = DestroyWindow(hwnd);
+                    }
+                    Tick::Cancel => {
+                        state.done = true;
+                        let _ = DestroyWindow(hwnd);
+                    }
                 }
                 LRESULT(0)
             }
@@ -298,12 +371,27 @@ mod platform {
                 FillRect(dc, &panel, HBRUSH(black.0));
                 SetTextColor(dc, COLORREF(0xffffff));
                 SetBkMode(dc, TRANSPARENT);
-                let label = match state.candidate() {
+                let candidate = state.candidate();
+                let label = match candidate {
                     Some([r, g, b]) => format!("RGB {r}, {g}, {b}"),
                     None => "Unavailable · Esc".into(),
                 };
                 let text: Vec<u16> = label.encode_utf16().collect();
                 let _ = TextOutW(dc, label_x + 3, label_y, &text);
+                if let (PickMode::Drag, Some([r, g, b])) = (state.mode, candidate) {
+                    let [left, top, right, bottom] = loupe.swatch();
+                    let brush = CreateSolidBrush(COLORREF(
+                        u32::from(r) | u32::from(g) << 8 | u32::from(b) << 16,
+                    ));
+                    let swatch = RECT {
+                        left,
+                        top,
+                        right,
+                        bottom,
+                    };
+                    FillRect(dc, &swatch, brush);
+                    let _ = DeleteObject(brush.into());
+                }
                 let [cross_x, cross_y] = loupe.marked;
                 let pixel = RECT {
                     left: cross_x,
@@ -335,19 +423,19 @@ mod platform {
         }
     }
 
-    pub fn pick(stop: Arc<AtomicBool>, alt: bool) -> PickResult {
+    pub fn pick(stop: Arc<AtomicBool>, mode: PickMode) -> PickResult {
         unsafe {
             // Every coordinate below is physical virtual-desktop space, including
             // monitors to the left/above the primary and mixed DPI configurations.
             let old_dpi = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-            let result = pick_inner(stop, alt);
+            let result = pick_inner(stop, mode);
             if !old_dpi.0.is_null() {
                 SetThreadDpiAwarenessContext(old_dpi);
             }
             result
         }
     }
-    unsafe fn pick_inner(stop: Arc<AtomicBool>, alt: bool) -> PickResult {
+    unsafe fn pick_inner(stop: Arc<AtomicBool>, mode: PickMode) -> PickResult {
         let origin = POINT {
             x: GetSystemMetrics(SM_XVIRTUALSCREEN),
             y: GetSystemMetrics(SM_YVIRTUALSCREEN),
@@ -398,7 +486,7 @@ mod platform {
             result: None,
             done: false,
             stop,
-            alt,
+            mode,
         });
         capture.map_err(|e| e.to_string())?;
         state.position();
@@ -431,7 +519,9 @@ mod platform {
         .map_err(|e| e.to_string())?;
         let _ = SetForegroundWindow(hwnd);
         let _ = SetFocus(Some(hwnd));
-        if SetTimer(Some(hwnd), 1, 30, None) == 0 {
+        // A drag session follows the cursor on this timer, not mouse messages.
+        let interval = if mode == PickMode::Drag { 15 } else { 30 };
+        if SetTimer(Some(hwnd), 1, interval, None) == 0 {
             let _ = DestroyWindow(hwnd);
             return Err("Cannot start desktop sampling input session".into());
         }
@@ -495,6 +585,66 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    #[test]
+    fn click_and_alt_sessions_ignore_the_button_on_the_timer() {
+        for button in [false, true] {
+            assert_eq!(
+                tick(PickMode::Click, false, false, button, false),
+                Tick::Continue
+            );
+            assert_eq!(
+                tick(PickMode::AltHeld, false, true, button, false),
+                Tick::Continue
+            );
+            assert_eq!(
+                tick(PickMode::AltHeld, false, false, button, false),
+                Tick::Cancel
+            );
+            assert_eq!(
+                tick(PickMode::Click, true, false, button, false),
+                Tick::Cancel
+            );
+        }
+    }
+
+    #[test]
+    fn a_drag_session_commits_on_release_and_escape_cancels() {
+        assert_eq!(
+            tick(PickMode::Drag, false, false, true, false),
+            Tick::Continue
+        );
+        assert_eq!(
+            tick(PickMode::Drag, false, false, false, false),
+            Tick::Commit
+        );
+        assert_eq!(tick(PickMode::Drag, false, false, true, true), Tick::Cancel);
+        assert_eq!(
+            tick(PickMode::Drag, false, false, false, true),
+            Tick::Cancel
+        );
+        assert_eq!(tick(PickMode::Drag, true, false, true, false), Tick::Cancel);
+        // Alt is not part of a drag; only the button and Escape end it.
+        assert_eq!(
+            tick(PickMode::Drag, false, true, true, false),
+            Tick::Continue
+        );
+    }
+
+    #[test]
+    fn the_drag_swatch_sits_in_the_readout_clear_of_the_framed_cell() {
+        for pixel in [[400, 300], [0, 0], [SIZE[0] - 1, SIZE[1] - 1]] {
+            let l = loupe(pixel, SIZE);
+            let [left, top, right, bottom] = l.swatch();
+            assert!(left >= l.label[0] && right <= l.label[0] + LOUPE_LABEL[0]);
+            assert!(top >= l.label[1] && bottom <= l.label[1] + LOUPE_LABEL[1]);
+            assert!(right > left && bottom > top);
+            let [mx, my] = l.marked;
+            let overlaps =
+                left < mx + LOUPE_CELL && mx < right && top < my + LOUPE_CELL && my < bottom;
+            assert!(!overlaps, "the swatch never hides the sampled cell");
         }
     }
 

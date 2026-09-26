@@ -8,6 +8,7 @@
 
 use super::board::{to_rgba, BoardTool, MIN_DRAW};
 use super::{board_path, SlateApp};
+use atlas_shell::desktop_color::PickMode;
 use eframe::egui::{self, Color32, Pos2, Stroke as EStroke};
 use slate_doc::scene::{
     Node, NodeKind, Rgba, ShapeKind, ShapeNode, Stroke, StrokeCap, StrokeJoin, StrokeSpan,
@@ -227,23 +228,20 @@ impl SlateApp {
         }
     }
 
-    pub(crate) fn begin_desktop_sample(
-        &mut self,
-        destination: DesktopDestination,
-        temporary: bool,
-    ) {
+    pub(crate) fn begin_desktop_sample(&mut self, destination: DesktopDestination, mode: PickMode) {
         if self.desktop_sample.is_some() {
             return;
         }
         // Headless input tests never create native windows or consume desktop clicks.
         #[cfg(test)]
         {
-            let _ = (destination, temporary);
+            self.desktop_sample_requests.push(mode);
+            let _ = destination;
         }
         #[cfg(not(test))]
         {
             self.desktop_sample = Some(DesktopSample {
-                picker: atlas_shell::desktop_color::DesktopColorPicker::begin(temporary),
+                picker: atlas_shell::desktop_color::DesktopColorPicker::begin(mode),
                 tab: self.tab().id,
                 destination,
             });
@@ -255,7 +253,11 @@ impl SlateApp {
                 background,
                 alt_selects_background: self.board_tool == BoardTool::Eyedropper,
             },
-            temporary,
+            if temporary {
+                PickMode::AltHeld
+            } else {
+                PickMode::Click
+            },
         );
     }
     pub(crate) fn start_node_desktop_sample(
@@ -269,7 +271,7 @@ impl SlateApp {
                 panel,
                 preview: false,
             },
-            false,
+            PickMode::Click,
         );
     }
     pub(crate) fn desktop_sample_frame(&mut self, ctx: &egui::Context) {

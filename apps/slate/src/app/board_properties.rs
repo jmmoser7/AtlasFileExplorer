@@ -1596,7 +1596,7 @@ impl SlateApp {
                         self.shape_properties.text_size_open = false;
                     }
                     let rect = chrome::editor_rect(strip, height, z);
-                    let mut sample = false;
+                    let mut sample = None;
                     let canvas = self.canvas_rect;
                     egui::Area::new(Id::new("shape_property_editor"))
                         .order(egui::Order::Foreground)
@@ -1622,8 +1622,8 @@ impl SlateApp {
                     if live {
                         self.shape_properties.chrome_hits.push(rect);
                     }
-                    if sample {
-                        self.start_property_desktop_sample(panel);
+                    if let Some(gesture) = sample {
+                        self.start_property_desktop_sample(panel, gesture);
                     }
                 }
             }
@@ -1730,7 +1730,13 @@ impl SlateApp {
         scene::resolved_corner(node, self.node_item_path(node))
     }
 
-    fn shape_property_body(&mut self, ui: &mut egui::Ui, rect: Rect, panel: Panel, z: f32) -> bool {
+    fn shape_property_body(
+        &mut self,
+        ui: &mut egui::Ui,
+        rect: Rect,
+        panel: Panel,
+        z: f32,
+    ) -> Option<chrome::SampleGesture> {
         let theme = self.palette();
         let nodes_owned: Vec<Node> = if self.shape_properties.preview.is_empty() {
             self.shape_properties.nodes.clone()
@@ -1741,28 +1747,28 @@ impl SlateApp {
         let first = &nodes[0];
         if panel == Panel::Agent {
             let Some(id) = self.shape_properties.ids.first().copied() else {
-                return false;
+                return None;
             };
             let popups = self.agent_editor_body(ui, rect, id, z, theme);
             for popup in &popups {
                 self.agents.note_menu_popup(ui.ctx(), *popup);
             }
             self.shape_properties.chrome_hits.extend(popups);
-            return false;
+            return None;
         }
         if panel == Panel::AtlasFormat {
             let Some(id) = self.shape_properties.ids.first().copied() else {
-                return false;
+                return None;
             };
             self.atlas_format_body(ui, rect, id, z, theme);
-            return false;
+            return None;
         }
         if panel == Panel::ModelDisplay {
             let Some(id) = self.shape_properties.ids.first().copied() else {
-                return false;
+                return None;
             };
             let Some(display) = self.model_display_of(id) else {
-                return false;
+                return None;
             };
             let current = MODEL_DISPLAYS
                 .iter()
@@ -1797,12 +1803,12 @@ impl SlateApp {
                     );
                 }
             }
-            return false;
+            return None;
         }
         if panel == Panel::Filter {
             let committed = self.committed_shape_nodes();
             let Some(current) = committed.first().and_then(scene::adjust_of) else {
-                return false;
+                return None;
             };
             let common = committed
                 .iter()
@@ -1900,11 +1906,11 @@ impl SlateApp {
                     FilterStep::Rest => self.rebuild_shape_preview(None),
                 }
             }
-            return false;
+            return None;
         }
         if panel == Panel::Wire {
             let NodeKind::Connector(first) = &first.kind else {
-                return false;
+                return None;
             };
             let square = first.effective_routing(self.board_wire_routing)
                 == slate_doc::WireRouting::Orthogonal;
@@ -1958,7 +1964,7 @@ impl SlateApp {
                     width / slate_doc::scene::CONNECTOR_WIDTH_SCALE,
                 ));
             }
-            return false;
+            return None;
         }
         if panel == Panel::Corners {
             let corner = self.corner_for_editor(first);
@@ -2055,7 +2061,7 @@ impl SlateApp {
                     });
                 });
             }
-            return false;
+            return None;
         }
         if panel == Panel::Text {
             return self.shape_text_panel(ui, rect, z, theme);
@@ -2083,7 +2089,7 @@ impl SlateApp {
             if let Some(v) = edit.friction {
                 self.preview_shape_property(Property::BumperFriction(v));
             }
-            return false;
+            return None;
         }
         let get_color = |n: &Node| {
             if panel == Panel::Fill {
@@ -2183,7 +2189,7 @@ impl SlateApp {
         rect: Rect,
         z: f32,
         theme: atlas_shell::theme::Palette,
-    ) -> bool {
+    ) -> Option<chrome::SampleGesture> {
         let snapshot = {
             let nodes = if self.shape_properties.preview.is_empty() {
                 &self.shape_properties.nodes
@@ -2191,7 +2197,7 @@ impl SlateApp {
                 &self.shape_properties.preview
             };
             let Some(first) = nodes.first() else {
-                return false;
+                return None;
             };
             match &first.kind {
                 NodeKind::Shape(shape) if scene::shape_hosts_text(shape) => shape
@@ -2205,7 +2211,7 @@ impl SlateApp {
                     color: text.color,
                     align: text.align,
                 },
-                _ => return false,
+                _ => return None,
             }
         };
         let families: Vec<&str> = scene::Typeface::ALL
@@ -2284,14 +2290,21 @@ impl SlateApp {
         color_edit.sample
     }
 
-    pub(crate) fn start_property_desktop_sample(&mut self, panel: Panel) {
+    pub(crate) fn start_property_desktop_sample(
+        &mut self,
+        panel: Panel,
+        gesture: chrome::SampleGesture,
+    ) {
         self.begin_desktop_sample(
             super::board_color::DesktopDestination::Nodes {
                 ids: self.shape_properties.ids.clone(),
                 panel,
                 preview: true,
             },
-            false,
+            match gesture {
+                chrome::SampleGesture::Click => atlas_shell::desktop_color::PickMode::Click,
+                chrome::SampleGesture::Drag => atlas_shell::desktop_color::PickMode::Drag,
+            },
         );
     }
 
@@ -2701,6 +2714,53 @@ mod tests {
         assert_eq!(h.app.shape_properties.panel, Some(Panel::Fill));
         assert_eq!(h.app.doc().scene.node(id).unwrap().rect, before);
         assert!(h.app.board_sel.contains(&id));
+    }
+
+    #[test]
+    fn shape_property_eyedropper_click_and_drag_open_their_sampling_modes() {
+        use atlas_shell::desktop_color::PickMode;
+        let mut h = board();
+        let id = rectangle(&mut h, WorldRect::new(-100.0, -60.0, 200.0, 120.0), 0.0);
+        h.frame();
+        h.frame();
+        let r = h
+            .app
+            .board_xf()
+            .rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
+        let button = |pos: Pos2, pressed: bool| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let fill = Pos2::new(r.center().x - 37.0, r.top() - 29.0);
+        h.frame_with(|i| i.events.push(egui::Event::PointerMoved(fill)));
+        h.frame_with(|i| i.events.push(button(fill, true)));
+        h.frame_with(|i| i.events.push(button(fill, false)));
+        h.frame();
+        assert_eq!(h.app.shape_properties.panel, Some(Panel::Fill));
+        let editor = *h.app.shape_properties.chrome_hits.last().unwrap();
+        let z = h.app.tab().cam.z;
+        let dropper = Pos2::new(editor.left() + 21.0 * z, editor.bottom() - 20.0 * z);
+
+        h.frame_with(|i| i.events.push(egui::Event::PointerMoved(dropper)));
+        h.frame_with(|i| i.events.push(button(dropper, true)));
+        h.frame_with(|i| i.events.push(button(dropper, false)));
+        assert_eq!(h.app.desktop_sample_requests, vec![PickMode::Click]);
+
+        h.frame_with(|i| i.events.push(button(dropper, true)));
+        for step in [30.0, 120.0, 260.0] {
+            let at = dropper + Vec2::new(step, -step * 0.5);
+            h.frame_with(|i| i.events.push(egui::Event::PointerMoved(at)));
+        }
+        let release = dropper + Vec2::new(260.0, -130.0);
+        h.frame_with(|i| i.events.push(button(release, false)));
+        h.frame();
+        assert_eq!(
+            h.app.desktop_sample_requests,
+            vec![PickMode::Click, PickMode::Drag],
+            "press-drag opens one drag session; its release is not a second click"
+        );
     }
 
     #[test]

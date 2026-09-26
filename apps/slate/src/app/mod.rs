@@ -572,6 +572,9 @@ pub struct SlateApp {
     /// Live bumper-cars drag and glide replay (derived, never journaled).
     pub(crate) bumper: board_bumper::BumperState,
     pub desktop_sample: Option<board_color::DesktopSample>,
+    /// Pick sessions requested headlessly, where no native sampler opens.
+    #[cfg(test)]
+    pub desktop_sample_requests: Vec<atlas_shell::desktop_color::PickMode>,
     pub desktop_alt_latched: bool,
     pub board_colors: board_color::BoardColors,
     /// Last single-node style edit — seeds the next compatible create
@@ -901,6 +904,8 @@ impl SlateApp {
             shape_properties: board_properties::ShapeProperties::default(),
             bumper: Default::default(),
             desktop_sample: None,
+            #[cfg(test)]
+            desktop_sample_requests: Vec::new(),
             desktop_alt_latched: false,
             board_colors: board_color::BoardColors::theme_default(true),
             board_last_style: board_style::BoardLastStyle::default(),

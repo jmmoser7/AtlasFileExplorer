@@ -105,6 +105,8 @@ a fixed rainbow palette or global history. Previews and cancellation do not
 add colors; persistence and commit rules remain in P1.shape.properties.
 Every eyedropper uses the shared desktop-wide sampler, including outside
 Slate; see [desktop sampling](../../docs/keymap/specs/desktop-color-sampling.md).
+The footer eyedropper takes a click (then click the color) or a press and
+drag (release over the color commits; Escape cancels).
 
 ## Capsule default
 
