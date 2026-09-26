@@ -56,7 +56,23 @@ pub enum BoardPathDraft {
         /// double-click whose second press placed an anchor is two anchors,
         /// not a finish.
         last_press_placed: bool,
+        /// Pointer dwell on the start anchor (closing the span).
+        close_hover: CloseHover,
     },
+}
+
+/// Hover on a span's start anchor this long before the closed preview shows
+/// and a click closes the span (bezier-span.md `bezier.close_hover`).
+pub const BEZIER_CLOSE_HOVER_S: f64 = 0.35;
+
+/// Dwell of the pointer on the start anchor of a Bézier draft. Draft state,
+/// never journaled.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct CloseHover {
+    /// When the pointer arrived on the start anchor.
+    pub since: Option<f64>,
+    /// The closed preview is showing: a click on the start closes the span.
+    pub ready: bool,
 }
 
 /// Incoming / outgoing Bézier control offsets from an anchor point.
@@ -1356,6 +1372,13 @@ pub fn bezier_anchors_to_bezpath(anchors: &[(Pos2, BezierHandles)]) -> BezPath {
     bezpath_from_anchors(&bezier_draft_to_ink(anchors), false)
 }
 
+/// Closed span through the draft anchors. The closing segment arrives on the
+/// start anchor through its own incoming handle, so a weighted start joins
+/// smoothly and a start with no weights can kink.
+pub fn bezier_anchors_to_closed_bezpath(anchors: &[(Pos2, BezierHandles)]) -> BezPath {
+    bezpath_from_anchors(&bezier_draft_to_ink(anchors), true)
+}
+
 /// Draft anchors (handle offsets) as `vector_ink` anchors (absolute handle
 /// points). A zero offset is no handle.
 pub(crate) fn bezier_draft_to_ink(anchors: &[(Pos2, BezierHandles)]) -> Vec<Anchor> {
@@ -2321,13 +2344,19 @@ pub fn paint_path_draft(
             }
         }
         BoardPathDraft::Bezier {
-            anchors, placing, ..
+            anchors,
+            placing,
+            close_hover,
+            ..
         } => {
             let mut span = anchors.clone();
             if let Some((a, h)) = placing {
                 span.push((*a, *h));
             }
-            if span.len() >= 2 {
+            if close_hover.ready {
+                let bez = bezier_anchors_to_closed_bezpath(anchors);
+                paint_path_preview(painter, xf, color, style.width, &bez);
+            } else if span.len() >= 2 {
                 let bez = bezier_anchors_to_bezpath(&span);
                 paint_path_preview(painter, xf, color, style.width, &bez);
             } else if let Some(c) = cursor {
@@ -2504,9 +2533,60 @@ impl SlateApp {
                     placing: Some((press, BezierHandles::default())),
                     redo: vec![],
                     last_press_placed: true,
+                    close_hover: CloseHover::default(),
                 });
             }
         }
+    }
+
+    /// Track the pointer dwelling on the start anchor of a span of two or
+    /// more anchors, outside any drag. Returns the seconds left before the
+    /// closed preview shows, while that is still pending.
+    pub(crate) fn bezier_close_hover(&mut self, pointer: Option<Pos2>, now: f64) -> Option<f64> {
+        let on_start = self.board_drag.is_none()
+            && pointer.is_some_and(|p| self.bezier_draft_hit(p) == Some(PathEditHit::Anchor(0)));
+        let Some(BoardPathDraft::Bezier {
+            anchors,
+            close_hover,
+            ..
+        }) = &mut self.board_path_draft
+        else {
+            return None;
+        };
+        if !on_start || anchors.len() < 2 {
+            *close_hover = CloseHover::default();
+            return None;
+        }
+        let since = *close_hover.since.get_or_insert(now);
+        let left = BEZIER_CLOSE_HOVER_S - (now - since);
+        close_hover.ready = left <= 0.0;
+        (!close_hover.ready).then_some(left)
+    }
+
+    /// The closed preview is showing on the span's start anchor.
+    pub(crate) fn bezier_close_ready(&self) -> bool {
+        matches!(
+            &self.board_path_draft,
+            Some(BoardPathDraft::Bezier { close_hover, .. }) if close_hover.ready
+        )
+    }
+
+    /// Commit the draft as a closed path (a click on the start anchor while
+    /// the closed preview shows). One journaled add, like any finish.
+    pub(crate) fn close_bezier_draft(&mut self) -> bool {
+        let Some(BoardPathDraft::Bezier { anchors, .. }) = self.board_path_draft.take() else {
+            return false;
+        };
+        if anchors.len() < 2 {
+            return false;
+        }
+        let bez = bezier_anchors_to_closed_bezpath(&anchors);
+        let (rect, data) = bezpath_to_path_data(&bez, true);
+        if data.is_empty() {
+            return false;
+        }
+        self.commit_path_node(StrokeTool::Bezier, rect, data, true);
+        true
     }
 
     /// A press on a placed draft anchor or handle knob, by the shared
@@ -2665,6 +2745,7 @@ impl SlateApp {
                 placing,
                 redo,
                 last_press_placed,
+                ..
             }) => {
                 anchors.push((press, handles));
                 *placing = None;
@@ -2677,6 +2758,7 @@ impl SlateApp {
                     placing: None,
                     redo: vec![],
                     last_press_placed: true,
+                    close_hover: CloseHover::default(),
                 });
             }
         }
@@ -2709,6 +2791,7 @@ impl SlateApp {
                     placing: Some((press, handles)),
                     redo: vec![],
                     last_press_placed: true,
+                    close_hover: CloseHover::default(),
                 });
             }
         }

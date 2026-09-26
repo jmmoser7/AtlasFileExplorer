@@ -3480,11 +3480,11 @@
           "decided": "2026-09-25"
         },
         "D04": {
-          "behavior": "Handle drag uses draft.drag_threshold = 4 screen px (world travel = px/zoom); a stationary click (shorter travel) places a corner anchor with zero handles. The tool reads ordered pointer press/release like Polyline, so a click reaches it. Two quick clicks in different places are two anchors; a double-click finishes only when its second press lands on a placed anchor.",
+          "behavior": "Handle drag uses draft.drag_threshold = 4 screen px (world travel = px/zoom); a stationary click (shorter travel) places a corner anchor with zero handles. The tool reads ordered pointer press/release like Polyline, so a click reaches it. Two quick clicks in different places are two anchors; a double-click finishes only when its second press lands on a placed anchor. Closing (user, 26 September 2026): with two or more anchors, hovering the start anchor for bezier.close_hover (0.35 s) shows a preview of the closed curve; a click while that preview is visible commits the closed curve and finishes. A click on the start anchor before the preview appears keeps the default action and edits that control point.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-09-26"
         },
         "D05": {
           "behavior": "Alt while dragging an outgoing handle breaks symmetry (corner anchor with independent out handle). Alt on an existing handle, while drawing or on a selected span, also breaks symmetry; without Alt a smooth anchor keeps its opposite handle collinear at its own length. Other creation modifiers unchanged. Alt+right-drag scrubs the Bezier tool's own width through the Brush size HUD (board.stroke.width_hud, P1.curve.width-chord), horizontally only: no softness. Mid-draw it changes the width of the span being drawn, and the draft previews that width.",
@@ -3529,11 +3529,11 @@
           "decided": "2026-09-25"
         },
         "D11": {
-          "behavior": "Enter, a double-click on a placed anchor, or Esc commits a span of two or more anchors as exactly one journaled add, then returns to Select. P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history.",
+          "behavior": "Enter, a double-click on a placed anchor, or Esc commits a span of two or more anchors as exactly one journaled add, then returns to Select. A click on the start anchor while the closed preview shows (D04) commits a closed path as exactly one journaled add, then returns to Select (user, 26 September 2026). The closing vertex takes the start anchor's weights: a start with handles joins smoothly; a start with no handles may kink. The closed path gets the treatment of any closed form: closed-shape fill memory, wire ports, and the same closed contour in the board and the export. P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-09-26"
         },
         "D12": {
           "behavior": "Esc while drawing commits the open curve with two or more anchors and cancels with fewer (deviates from P2.RhinoDraft.esc). Ctrl+Z while drawing removes the last placed anchor and Ctrl+Y / Ctrl+Shift+Z re-adds it; neither touches the document journal. Ctrl+Z with zero anchors exits drawing; document undo resumes once drawing ends. Esc during a live press drops the anchor being placed or restores the anchor being edited. P1.shape.properties: Esc cancels the pending property edit and preserves selection.",
@@ -3571,11 +3571,11 @@
           "decided": "2026-09-25"
         },
         "D17": {
-          "behavior": "While drawing, a press on a placed anchor or handle knob drags it instead of placing an anchor (draft state, never journaled). Draft, selected-span, and Direct Selection grips share one hit rule (path_edit_overlay::path_edit_hit): only painted grips, nearest within 7 screen px, an anchor wins a tie. An open span offers no wire ports and takes no new wire ends (P1.wire.ports). P1.shape.properties: controls consume their input before canvas gestures; locked/read-only targets cannot be changed.",
+          "behavior": "While drawing, a press on a placed anchor or handle knob drags it instead of placing an anchor (draft state, never journaled). The one exception is the start anchor while the closed preview shows, where the press closes the span (D04). The dwell counts only while no drag is live and the pointer is on the start anchor by this same hit rule. Draft, selected-span, and Direct Selection grips share one hit rule (path_edit_overlay::path_edit_hit): only painted grips, nearest within 7 screen px, an anchor wins a tie. An open span offers no wire ports and takes no new wire ends (P1.wire.ports). P1.shape.properties: controls consume their input before canvas gestures; locked/read-only targets cannot be changed.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-09-26"
         }
       }
     },

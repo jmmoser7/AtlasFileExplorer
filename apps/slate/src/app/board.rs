@@ -5161,6 +5161,13 @@ impl SlateApp {
         }
 
         let draft_painter = self.image_paint_draft_painter(ui.ctx(), &painter, &xf);
+        if self.board_tool == BoardTool::BezierSpan {
+            let now = ui.input(|i| i.time);
+            if let Some(left) = self.bezier_close_hover(pointer.filter(|_| resp.hovered()), now) {
+                ui.ctx()
+                    .request_repaint_after(std::time::Duration::from_secs_f64(left.max(0.0)));
+            }
+        }
         if let Some(draft) = &self.board_path_draft {
             let zoom = self.tab().cam.z.max(f32::EPSILON);
             let cursor = self.board_osnap_hit.map(|h| h.point).or_else(|| {
@@ -6172,6 +6179,14 @@ impl SlateApp {
                 .map(BoardDrag::Direct),
             BoardTool::BezierSpan => {
                 if let Some(hit) = self.bezier_draft_hit(screen) {
+                    // Past the close delay the start anchor closes the span;
+                    // before it, the press edits the anchor as usual.
+                    if hit == super::path_edit_overlay::PathEditHit::Anchor(0)
+                        && self.bezier_close_ready()
+                    {
+                        self.close_bezier_draft();
+                        return None;
+                    }
                     self.bezier_note_edit_press();
                     if let Some(board_path::BoardPathDraft::Bezier { anchors, .. }) =
                         &self.board_path_draft
