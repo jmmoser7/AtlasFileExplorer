@@ -22,7 +22,7 @@ D01–D17 are every tool-scoped dimension. D18–D35 are portal-only and do not 
 | D06 | Constraints & snapping | No point snapping along the freehand stroke; it would quantize the sketch. Existing point snapping remains available when editing committed anchors. | guess | 55 |
 | D07 | Direction / value locks | n/a: no direction/value lock while sketching. | pattern | 85 |
 | D08 | Numeric / manual entry | tight local W/H stringers; change dimensions by scaling the committed path around bounds center without re-fitting the stroke. Alternative: one curve-length L stringer for uniform scaling. No dimensions in the toolbar. | guess | 55 |
-| D09 | Preview & readouts | Keep press/release endpoints and all intermediate events separated by at least 0.5 screen px. Fitter simplification tolerance is 0.5 screen px at capture zoom; this is a tuning parameter, not a proof of a global error bound. | pattern | 85 |
+| D09 | Preview & readouts | NURBS-style fit (stated 2026-09-26; reference Rhino Sketch + Rebuild): decimate at ~1.75 screen px, split only at true cusps (one per corner cluster), and fit each cusp-free run with one least-squares cubic B-spline (uniform knots on arc length, light fairing, knot count grown from stroke length / tolerance until every sample is within ~2 screen px). Stored, painted, and exported as the spline's exact C2 cubic Bézier segments; never straight polyline spans. | stated | 100 |
 | D10 | Cursor | A hard circle of the pen's own width and color, the same disc the Brush shows for its tip; the OS cursor hides under it over the board. The user offered circle or crosshair (stated 2026-09-25); the circle was chosen because it previews the width the width chord scrubs. The size HUD replaces it while open. Controls use shell hover and focus feedback. | stated | 100 |
 | D11 | Commit | P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history. | pattern | 85 |
 | D12 | Cancel | P1.shape.properties: Esc cancels the pending property edit and preserves selection. Existing creation cancellation remains unchanged. | pattern | 85 |
@@ -43,7 +43,8 @@ See [shape property editing](../specs/shape-property-editing.md) for the approve
 - Existing `draft.drag_threshold`: 4 screen px; compare unsnapped pointer travel.
 - Existing `osnap.radius` / `draft.osnap_radius`: retain the current shared tolerance and SnapKind priority.
 - `selection_toolbar.gap`: 14 world units, scaled via canvas_scale (P0.9).
-- `pen.sample_spacing_px`: 1.75 screen px (`board_path::FREEHAND_SAMPLE_SPACING_PX`); `pen.fit_error_px`: 2 screen px (`board_path::FREEHAND_FIT_ERROR_PX`). Fitting pipeline: decimate → light smooth → corner split → Schneider cubics (`vector_ink::fit_polyline_spaced`).
+- `pen.sample_spacing_px`: 1.75 screen px (`board_path::FREEHAND_SAMPLE_SPACING_PX`); `pen.fit_error_px`: 2 screen px (`board_path::FREEHAND_FIT_ERROR_PX`). Fitting pipeline (`vector_ink::fit_polyline_spaced`): decimate → cusp detection on a lightly smoothed copy (65° over 6 world units, one cusp per cluster) → one cubic B-spline per cusp-free run (`vector_ink::CubicBSpline::fit`) → C0 join at cusps → exact Bézier extraction (`CubicBSpline::to_bezpath`).
+- `bspline.fairing`: 0.01 (`vector_ink::DEFAULT_FAIRING`), bending weight on the control polygon's second differences, relative to samples per control point. First knot-span guess: one span per 48 tolerances of run length, grown ×1.5 until the tolerance holds.
 
 ## Golden paths
 
@@ -56,7 +57,7 @@ These are interaction acceptance scripts; automated coverage is listed below. Na
 
 ## Implementation notes
 
-Pen and brush strokes share `fit_polyline_spaced` with loop guards and endpoint merge on release. Regression tests live in `crates/vector-ink/src/fit.rs`.
+Pen and brush strokes share `fit_polyline_spaced` with endpoint merge on release. On 2026-09-26 the Schneider cubics were replaced by the B-spline fit because under-fitted spans fell back to straight lines and the stroke alternated between smooth and segmented. A width-chord stroke still fits each constant-width run on its own (P1.curve.width-chord) and maps one tip per fitted vertex. Regression tests: `crates/vector-ink/tests/pen_fit.rs` (C2 joints, tolerance, live handles, V cusp), `crates/vector-ink/src/bspline.rs` (exact Bézier extraction, knot insertion, joins), and `apps/slate/src/app/tests_ink_fit.rs` (stored and exported cubic chain, tip mapping).
 
 The native selection strip is implemented in `board_properties`; shell painting and desktop sampling are shared in atlas-shell. Model corner semantics live in slate-doc and are interpreted by both board and artifact renderers. Geometry-based capability gating applies to paths whose original tool provenance is not stored.
 

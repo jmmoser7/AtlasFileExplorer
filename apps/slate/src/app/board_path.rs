@@ -378,6 +378,66 @@ pub fn bezpath_to_path_data(bez: &BezPath, closed: bool) -> (WorldRect, PathData
     )
 }
 
+/// World-space contours as one compound path: the first is the primary
+/// contour, the rest become `extra`, all normalized to their shared bounds.
+pub fn contours_to_path_data(contours: &[(BezPath, bool)]) -> (WorldRect, PathData) {
+    let parts: Vec<(WorldRect, PathData)> = contours
+        .iter()
+        .map(|(bez, closed)| bezpath_to_path_data(bez, *closed))
+        .collect();
+    let Some(((first_rect, first), rest)) = parts.split_first() else {
+        return bezpath_to_path_data(&BezPath::new(), false);
+    };
+    let (mut x0, mut y0) = (f32::INFINITY, f32::INFINITY);
+    let (mut x1, mut y1) = (f32::NEG_INFINITY, f32::NEG_INFINITY);
+    for (r, _) in &parts {
+        x0 = x0.min(r.x);
+        y0 = y0.min(r.y);
+        x1 = x1.max(r.x + r.w);
+        y1 = y1.max(r.y + r.h);
+    }
+    let rect = WorldRect::new(x0, y0, x1 - x0, y1 - y0);
+    let renorm = |p: [f32; 2], from: WorldRect| {
+        norm(
+            Pos2::new(from.x + p[0] * from.w, from.y + p[1] * from.h),
+            rect,
+        )
+    };
+    let segs = |segs: &[PathSeg], from: WorldRect| -> Vec<PathSeg> {
+        segs.iter()
+            .map(|s| match *s {
+                PathSeg::Line { to } => PathSeg::Line {
+                    to: renorm(to, from),
+                },
+                PathSeg::Quad { ctrl, to } => PathSeg::Quad {
+                    ctrl: renorm(ctrl, from),
+                    to: renorm(to, from),
+                },
+                PathSeg::Cubic { c1, c2, to } => PathSeg::Cubic {
+                    c1: renorm(c1, from),
+                    c2: renorm(c2, from),
+                    to: renorm(to, from),
+                },
+            })
+            .collect()
+    };
+    let data = PathData {
+        start: renorm(first.start, *first_rect),
+        segs: segs(&first.segs, *first_rect),
+        closed: first.closed,
+        extra: rest
+            .iter()
+            .map(|(r, d)| slate_doc::scene::PathContour {
+                start: renorm(d.start, *r),
+                segs: segs(&d.segs, *r),
+                closed: d.closed,
+            })
+            .collect(),
+        ..Default::default()
+    };
+    (rect, data)
+}
+
 pub fn points_to_path_data(points: &[Pos2], closed: bool) -> (WorldRect, PathData) {
     if points.len() < 2 {
         let r = bounds_of_world_points(points);

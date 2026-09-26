@@ -1,6 +1,6 @@
 {
   "_about": "Approved-decision database for interaction contracts (canvas tools and portal subtypes). One entry per contract x dimension. Agents seed future volatile matrices from here: an approved decision that maps onto a new contract (same archetype / object class / portal class) is re-proposed with high confidence. Only verdict:'approved' rows count as precedent; 'proposed' rows are awaiting user confirmation in the volatile canvas. Schema: tools.<name>.family = tool|portal, and tools.<name>.decisions.<D##> = { behavior, source: stated|research|pattern|guess|precedent, confidence: 0-100, verdict: proposed|approved|rejected, decided: date|null }. Each contract answers exactly the dimensions DIMENSIONS.md scopes to its family; `cargo xtask contracts` enforces the parity between this file, the registry, and the contract markdown. Append-only in spirit: superseded decisions are overwritten only by a newer user approval.",
-  "updated": "2026-09-25",
+  "updated": "2026-09-26",
   "tools": {
     "bumper-cars": {
       "status": "shipped",
@@ -3645,11 +3645,11 @@
           "decided": "2026-09-17"
         },
         "D09": {
-          "behavior": "Fit with ~2 screen px error tolerance at capture zoom via Schneider cubics after decimation, light smoothing, and corner detection; handles clamped to chord length with anti-loop guards.",
+          "behavior": "NURBS-style fit (stated 2026-09-26; reference Rhino Sketch + Rebuild): decimate at ~1.75 screen px, split only at true cusps (one per corner cluster), and fit each cusp-free run with one least-squares cubic B-spline (uniform knots on arc length, light fairing, knot count grown from stroke length / tolerance until every sample is within ~2 screen px). Stored, painted, and exported as the spline's exact C2 cubic Bezier segments; never straight polyline spans.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-09-26"
         },
         "D10": {
           "behavior": "A hard circle of the pen's own width and color, the same disc the Brush shows for its tip; the OS cursor hides under it over the board. The user offered circle or crosshair (stated 2026-09-25); the circle was chosen because it previews the width the width chord scrubs. The size HUD replaces it while open. Controls use shell hover and focus feedback.",
@@ -4650,7 +4650,7 @@
           "decided": "2026-09-25"
         },
         "D03": {
-          "behavior": "Left-drag sweeps a circular brush over existing marks. Shift+drag is a straight pass. No paint on empty canvas.",
+          "behavior": "Left-drag sweeps a circular brush over existing marks: every stroke the brush crosses along the drag is picked, and passes run every half radius so a fast drag leaves no gap. Shift+drag is a straight pass from the end of the last pass; the whole segment is recomputed from the scene as the pointer moves. No paint on empty canvas.",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",
@@ -4706,11 +4706,11 @@
           "decided": "2026-09-25"
         },
         "D11": {
-          "behavior": "Release journals one invertible group of SceneCmd::Patch for every touched node (vectors: refit path; stamps: Stroke::gaussian_blur). Undo restores exact before snapshots.",
+          "behavior": "Release journals one invertible group of SceneCmd::Patch for every touched node (vectors: refit path, see Modes; stamps: Stroke::gaussian_blur). Undo restores exact before snapshots. A sparse Bezier is smoothed as a NURBS-style cubic B-spline: Laplacian on its control polygon under the brush, endpoints pinned, converted back to cubic Beziers (stated 2026-09-26).",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
-          "decided": "2026-09-25"
+          "verdict": "approved",
+          "decided": "2026-09-26"
         },
         "D12": {
           "behavior": "Esc drops the drag and live preview; no journal.",
@@ -4727,7 +4727,7 @@
           "decided": "2026-09-25"
         },
         "D14": {
-          "behavior": "Vector results stay editable paths. Smoothed lines/arcs become cubic paths. Stamp blur is authored on the stroke. The board and the HTML artifact share one blur: premultiplied f32 passes, dithered back to 8 bits, so a heavy blur fades smoothly instead of banding into rings. A blurred stroke paints from its own blurred raster, never from an unblurred tile.",
+          "behavior": "Vector results stay editable paths. Smoothed lines/arcs become cubic paths. A closed path stays closed; a compound path keeps each contour separate, and a contour the brush never reaches is written back unchanged. Stamp blur is authored on the stroke. The board and the HTML artifact share one blur: premultiplied f32 passes, dithered back to 8 bits, so a heavy blur fades smoothly instead of banding into rings. A blurred stroke paints from its own blurred raster, never from an unblurred tile.",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",

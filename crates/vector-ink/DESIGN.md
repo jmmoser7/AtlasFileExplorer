@@ -43,6 +43,23 @@ use the shared MSAA policy in [atlas-shell's paint contract](../atlas-shell/PAIN
 SVG consumers serialize the geometry and leave coverage to the browser. Curve
 flattening tolerance controls geometric error, independently of raster coverage.
 
+## Freehand fitting (B-spline owner)
+
+`bspline.rs` owns the one freehand curve fit. `CubicBSpline::fit` is a
+least-squares clamped cubic B-spline: arc-length parameters, uniform knots,
+end samples interpolated, light fairing on the control polygon's second
+differences, and parameter correction. It adds knot spans until every sample
+is within tolerance (`SplineFit::max_span` also caps span length). Nothing
+stores a spline: `to_bezpath` extracts the exact cubic Bézier segments by
+knot insertion, so storage and SVG export stay Bézier (Constitution Art. IV).
+`join` makes a C0 joint with a triple knot, which keeps a cusp sharp.
+
+`fit_polyline_spaced` (pen and brush) decimates, finds cusps, fits one
+spline per cusp-free run, and joins the runs. The smoothing brush refits a
+sparse vector path with `fit_path` (tangent breaks become triple-knot
+joints) and runs `laplacian_smooth_spline` on its control polygon and knot
+intervals, so a sharp joint under the brush relaxes into a C2 one.
+
 ## Edit module (Direct Selection / Join geometry)
 
 `edit.rs` is the pure-geometry home for Slate's Direct Selection tool (A) and

@@ -1163,11 +1163,6 @@ impl SlateApp {
         self.vector_sweep_hits_along(from, to, self.eraser_width)
     }
 
-    /// Vector Path/Line strokes under a circular pick (brush width = diameter).
-    pub(crate) fn vector_sweep_hits_at(&self, world: Pos2, pick_width: f32) -> Vec<NodeId> {
-        self.vector_sweep_hits_along(world, world, pick_width)
-    }
-
     /// Vector Path/Line strokes the circular pick touches anywhere along the
     /// segment `from` to `to`.
     pub(crate) fn vector_sweep_hits_along(
