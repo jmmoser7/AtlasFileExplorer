@@ -395,7 +395,9 @@ is searchable.
   Trim and Split pieces keep the tips and corner overrides of the source
   vertices they keep, and a cut vertex takes the stroke's width and color
   at the cut by this blend, with no corner override
-  (`slate_doc::vertex_style::split_tips_at`, the one owner). Both interpreters paint through
+  (`slate_doc::vertex_style::split_tips_at`, the one owner). A Direct
+  Selection edit that drops a vertex drops its entry; an added closing
+  copy of the start takes the start's tip. Both interpreters paint through
   `slate_doc::geom::tipped_stroke` and `vector_ink::stroke_mesh_tipped` /
   `stroke_outline_tipped`; the artifact writes the variable-width outline as
   a filled path. Colors are the tips' `color`, and a uniform stroke keeps

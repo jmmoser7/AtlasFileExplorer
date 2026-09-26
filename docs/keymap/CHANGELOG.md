@@ -6,6 +6,8 @@
   colors and corner overrides of the source vertices it keeps, and a cut
   vertex takes the stroke's width and color at the cut
   (P1.curve.vertex-style). No new command.
+- Direct Selection Join keeps each vertex's style; a merge drops only the
+  merged end's entry.
 
 ## 2026-09-25 — Sign-in pop-ups in web portals
 

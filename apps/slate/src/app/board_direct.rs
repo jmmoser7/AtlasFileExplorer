@@ -163,10 +163,20 @@ impl SlateApp {
     /// PathData recomputed, Line promoted to Path, rotation baked to 0
     /// (world shape is unchanged — the anchors were lifted rotated).
     fn direct_write_back(&mut self, id: NodeId, anchors: &[Anchor], closed: bool) {
-        self.write_back_world_bez(id, &bezpath_from_anchors(anchors, closed), closed);
+        self.write_back_world_bez(id, &bezpath_from_anchors(anchors, closed), closed, None);
     }
 
-    fn write_back_world_bez(&mut self, id: NodeId, bez: &BezPath, closed: bool) {
+    /// Write back `bez`. `sources`, when given, holds the old vertex each
+    /// new anchor came from (an edit that adds or drops anchors); the new
+    /// vertices then take those vertices' style. Otherwise the style is
+    /// kept grip for grip or vertex for vertex (`keep_tips`).
+    fn write_back_world_bez(
+        &mut self,
+        id: NodeId,
+        bez: &BezPath,
+        closed: bool,
+        sources: Option<&[usize]>,
+    ) {
         let (rect, mut data) = board_path::bezpath_to_path_data(bez, closed);
         let rect = WorldRect::new(rect.x, rect.y, rect.w.max(0.01), rect.h.max(0.01));
         if let Some(n) = self.doc_mut().scene.node_mut(id) {
@@ -175,12 +185,28 @@ impl SlateApp {
             n.rotation_deg = 0.0;
             if let NodeKind::Shape(s) = &mut n.kind {
                 if let Some(old) = s.path.clone() {
-                    slate_doc::vertex_style::keep_tips(
-                        (&old, old_rect, old_rot),
-                        (&mut data, rect, 0.0),
-                        &mut s.stroke,
-                    );
-                    slate_doc::vertex_style::keep_corner_amounts(&old, &mut data);
+                    match sources.filter(|s| !s.is_empty()) {
+                        Some(sources) => {
+                            // A closing copy of the start comes from anchor 0.
+                            let params: Vec<f32> = (0..=data.segs.len())
+                                .map(|v| sources[v % sources.len()] as f32)
+                                .collect();
+                            slate_doc::vertex_style::carry_vertex_style(
+                                (&old, old_rect, old_rot),
+                                &mut data,
+                                &mut s.stroke,
+                                &params,
+                            );
+                        }
+                        None => {
+                            slate_doc::vertex_style::keep_tips(
+                                (&old, old_rect, old_rot),
+                                (&mut data, rect, 0.0),
+                                &mut s.stroke,
+                            );
+                            slate_doc::vertex_style::keep_corner_amounts(&old, &mut data);
+                        }
+                    }
                 }
                 s.shape = ShapeKind::Path;
                 s.flip = false;
@@ -561,7 +587,7 @@ impl SlateApp {
                 let (node, mut points, idx) = (*node, *points, *idx);
                 points[idx] = self.resolve_point_snap(world, &[node], None, false, false);
                 let bez = board_path::arc_through_three_points(points[0], points[1], points[2]);
-                self.write_back_world_bez(node, &bez, false);
+                self.write_back_world_bez(node, &bez, false, None);
             }
             DirectDrag::Marquee { .. } => {}
             DirectDrag::Anchors { .. } => {}
@@ -805,7 +831,11 @@ impl SlateApp {
         let Some(before) = self.doc().scene.node(id).cloned() else {
             return false;
         };
-        self.direct_write_back(id, &joined, closed);
+        // The open path's anchors are its vertices, in order; a merge drops
+        // the last into the first.
+        let sources: Vec<usize> = (0..joined.len()).collect();
+        let bez = bezpath_from_anchors(&joined, closed);
+        self.write_back_world_bez(id, &bez, closed, Some(&sources));
         if let Some(after) = self.doc().scene.node(id).cloned() {
             if after != before {
                 self.tab_mut().journal.record(vec![SceneCmd::Patch {

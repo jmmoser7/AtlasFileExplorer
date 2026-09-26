@@ -68,7 +68,9 @@ Selection-driven, journaled:
    node's style, per Illustrator layer-of-first rule).
 2. **One open Path node selected** (whole-node selection, V or A): join its
    two endpoints (close the path) if they're within 24 world units, else
-   bridge with a straight closing segment.
+   bridge with a straight closing segment. Per-vertex widths, colors and
+   corner overrides stay on their vertices; a merge drops the merged end's
+   entry (P1.curve.vertex-style).
 3. **Two+ open Path nodes selected** (V): join nearest endpoint pairs
    iteratively (Illustrator object-level join).
 4. **Any closed operand** (rect, ellipse, closed path): region union

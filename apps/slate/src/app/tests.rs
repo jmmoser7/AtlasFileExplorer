@@ -13800,3 +13800,90 @@ fn split_closed_polyline_keeps_corner_overrides_and_tips() {
         }
     }
 }
+
+/// User request (2026-09-26): a Direct Select join that merges the two
+/// ends drops the merged end's entry; every other vertex keeps its width,
+/// color and corner override.
+#[test]
+fn direct_join_merge_drops_only_the_merged_vertex_style() {
+    let mut h = grip_board("direct_join_vertex_style");
+    let pts = [
+        Pos2::new(0.0, 0.0),
+        Pos2::new(100.0, 0.0),
+        Pos2::new(100.0, 100.0),
+        Pos2::new(0.0, 100.0),
+        Pos2::new(0.0, 2.0),
+    ];
+    let id = commit_polyline(&mut h, &pts, false);
+    style_vertices(
+        &mut h,
+        id,
+        &[2.0, 4.0, 6.0, 8.0, 10.0],
+        &[0, 40, 80, 120, 160],
+        &[None, Some(5.0), Some(10.0), Some(15.0), None],
+    );
+    h.app.set_board_tool(board::BoardTool::DirectSelect);
+    h.app.direct_set_target(Some(id));
+    h.app.direct.anchors = [0, 4].into_iter().collect();
+    assert!(h.app.cmd_join());
+    h.frame();
+    let (_, s) = curve_shape(&h, id);
+    assert!(s.path.as_ref().unwrap().closed, "the join closed the path");
+    let tips = painted_vertex_tips(&h, id);
+    assert_eq!(tips.len(), 4, "the merged end is gone");
+    for (k, (w, r)) in [(2.0, 0.0), (4.0, 40.0), (6.0, 80.0), (8.0, 120.0)]
+        .into_iter()
+        .enumerate()
+    {
+        assert_vertex(tips[k], w, r, &format!("vertex {k}"));
+    }
+    assert_eq!(
+        corner_overrides(&h, id),
+        vec![None, Some(5.0), Some(10.0), Some(15.0)]
+    );
+}
+
+/// A Direct Select edit that inserts a vertex (a closed path's seam turns
+/// curved, so the closing span ends on a copy of the start) gives it the
+/// start's style; every other vertex keeps its own.
+#[test]
+fn direct_seam_vertex_takes_the_start_style() {
+    let mut h = grip_board("direct_seam_vertex_style");
+    let pts = [
+        Pos2::new(0.0, 0.0),
+        Pos2::new(100.0, 0.0),
+        Pos2::new(100.0, 100.0),
+        Pos2::new(0.0, 100.0),
+    ];
+    let id = commit_polyline(&mut h, &pts, true);
+    style_vertices(
+        &mut h,
+        id,
+        &[2.0, 4.0, 6.0, 8.0],
+        &[0, 40, 80, 120],
+        &[Some(5.0), Some(10.0), Some(15.0), Some(20.0)],
+    );
+    h.app.set_board_tool(board::BoardTool::DirectSelect);
+    h.app.direct_set_target(Some(id));
+    let screen = h.app.board_xf().w2s(Pos2::new(0.0, 0.0));
+    assert!(h.app.direct_double_click(screen));
+    h.frame();
+    let tips = painted_vertex_tips(&h, id);
+    assert_eq!(tips.len(), 5, "the curved seam adds a closing vertex");
+    for (k, (w, r)) in [
+        (2.0, 0.0),
+        (4.0, 40.0),
+        (6.0, 80.0),
+        (8.0, 120.0),
+        (2.0, 0.0),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        assert_vertex(tips[k], w, r, &format!("vertex {k}"));
+    }
+    assert_eq!(
+        corner_overrides(&h, id),
+        vec![Some(5.0), Some(10.0), Some(15.0), Some(20.0), None]
+    );
+}
