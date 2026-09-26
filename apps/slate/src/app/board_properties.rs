@@ -2257,6 +2257,7 @@ impl SlateApp {
             theme,
         );
         for popup in edit.popups {
+            self.agents.note_menu_popup(ui.ctx(), popup);
             self.shape_properties.chrome_hits.push(popup);
         }
         if let Some(index) = edit.family {
@@ -3379,6 +3380,55 @@ mod tests {
                 modifiers: egui::Modifiers::NONE,
             })
         });
+    }
+
+    /// The typeface list scrolls under the wheel instead of zooming the board.
+    #[test]
+    fn wheel_over_the_typeface_list_does_not_zoom_the_board() {
+        let mut h = board();
+        text_node(&mut h, WorldRect::new(-120.0, -30.0, 240.0, 60.0));
+        let mut time = h.ctx.input(|i| i.time);
+        open_text_editor(&mut h, &mut time);
+        timed_frame(&mut h, &mut time, vec![]);
+        let editor = *h.app.shape_properties.chrome_hits.last().unwrap();
+        let z = h.app.board_xf().z;
+        let family = editor.min + Vec2::new(24.0, chrome::TEXT_ROW_HEIGHT * 0.5) * z;
+        timed_frame(&mut h, &mut time, vec![egui::Event::PointerMoved(family)]);
+        timed_frame(&mut h, &mut time, vec![primary(family, true)]);
+        timed_frame(&mut h, &mut time, vec![primary(family, false)]);
+        assert!(
+            h.app.shape_properties.text_family_open,
+            "typeface list open"
+        );
+        timed_frame(&mut h, &mut time, vec![]);
+        let strip_len = h
+            .app
+            .shape_properties
+            .last_chrome
+            .as_ref()
+            .unwrap()
+            .items
+            .len();
+        let list = h.app.shape_properties.chrome_hits[strip_len];
+        assert!(list.top() > editor.top() && list.height() > 100.0 * z);
+        let before = h.app.tab().cam.z;
+        let over = list.center();
+        for _ in 0..6 {
+            timed_frame(
+                &mut h,
+                &mut time,
+                vec![
+                    egui::Event::PointerMoved(over),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        delta: Vec2::new(0.0, -80.0),
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+            );
+        }
+        assert_eq!(h.app.tab().cam.z, before, "the board must not zoom");
+        assert!(h.app.shape_properties.text_family_open, "list stays open");
     }
 
     fn corner_grip(h: &Harness, id: NodeId) -> Pos2 {
