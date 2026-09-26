@@ -404,6 +404,9 @@ impl Harness {
         // Tool kits come from the built-in set only: a `.slatekit` file sitting
         // in the developer's own kit folder must not change a test result.
         app.kits = kits::KitState::builtin_only();
+        // The developer's AI workspace is real, often a synced folder: a
+        // frame with an agent card would publish its link folder there.
+        app.ai.config.workspace_dir = None;
         Harness { ctx, app, base }
     }
 
@@ -4527,6 +4530,15 @@ fn a_single_existing_agent_is_still_a_choice() {
         h.app.agent_picker_titles(),
         Some(vec!["The one agent".into()]),
         "one agent is still a list — do not auto-select"
+    );
+}
+
+#[test]
+fn the_harness_never_publishes_into_the_developers_ai_workspace() {
+    let h = Harness::new("hermetic_ai_workspace");
+    assert_eq!(
+        h.app.ai.config.workspace_dir, None,
+        "a test that needs an AI workspace sets its own"
     );
 }
 
