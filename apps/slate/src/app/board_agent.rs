@@ -4594,6 +4594,44 @@ impl SlateApp {
         (!waiting).then_some(Ok(inputs))
     }
 
+    /// One link folder's context: every card of a chat train shares the
+    /// folder, so each card's inputs are published, in card order. `None`
+    /// while any card's picture is still being clipped.
+    fn published_train_inputs(
+        &self,
+        cards: &[NodeId],
+    ) -> Option<Result<atlas_ai::agent::InputSnapshot, String>> {
+        let parts: Vec<_> = cards
+            .iter()
+            .map(|&id| self.published_agent_inputs(id))
+            .collect();
+        let mut merged: Option<atlas_ai::agent::InputSnapshot> = None;
+        let mut error = None;
+        for part in parts {
+            match part? {
+                Ok(inputs) => match &mut merged {
+                    None => merged = Some(inputs),
+                    Some(all) => {
+                        for (into, items) in [
+                            (&mut all.context, inputs.context),
+                            (&mut all.wired, inputs.wired),
+                        ] {
+                            for item in items {
+                                if !into.contains(&item) {
+                                    into.push(item);
+                                }
+                            }
+                        }
+                    }
+                },
+                Err(e) => {
+                    error.get_or_insert(e);
+                }
+            }
+        }
+        merged.map(Ok).or(error.map(Err))
+    }
+
     /// Wired and context inputs as board references, before any picture is
     /// clipped.
     fn agent_input_refs(&self, id: NodeId) -> Result<atlas_ai::agent::InputSnapshot, String> {
@@ -5634,6 +5672,17 @@ impl SlateApp {
         }
         let mut published = HashSet::new();
         let mut live_dirs = HashSet::new();
+        let mut trains: HashMap<PathBuf, Vec<NodeId>> = HashMap::new();
+        if publish {
+            for (id, agent) in &portals {
+                if let Some(agent) = agent.as_ref().filter(|a| !a.provider.is_empty()) {
+                    let dir = self
+                        .agent_link_dir(*id, &ws)
+                        .unwrap_or_else(|| atlas_ai::agent::agent_dir(&ws, &agent.session));
+                    trains.entry(dir).or_default().push(*id);
+                }
+            }
+        }
         for (id, agent) in portals {
             let Some(agent) = agent else {
                 continue;
@@ -5664,7 +5713,9 @@ impl SlateApp {
             {
                 let mut context =
                     self.agent_context_for(&agent.session, &agent.provider, agent.context);
-                match self.published_agent_inputs(id) {
+                let single = [id];
+                let cards = trains.get(&dir).map_or(&single[..], Vec::as_slice);
+                match self.published_train_inputs(cards) {
                     Some(Ok(inputs)) => {
                         context.selection = inputs
                             .context
@@ -7112,6 +7163,8 @@ impl SlateApp {
             .to_string();
         if !cfg!(test) {
             let mut recents = RecentList::load(AGENT_RECENTS_KEY);
+            recents.entries =
+                atlas_ai::projects::without_temporary(std::mem::take(&mut recents.entries));
             recents.record(path.clone(), title.clone());
             recents.save(AGENT_RECENTS_KEY);
         }
@@ -7124,7 +7177,7 @@ impl SlateApp {
         for list in std::iter::once(&mut self.agents.recents)
             .chain(self.agents.provider_recents.values_mut())
         {
-            list.retain(|e| !paths_same(&e.path, &path));
+            list.retain(|e| !atlas_ai::projects::same_folder(&e.path, &path));
             list.insert(0, used.clone());
         }
         self.agents.pending_chat_pick = Some(portal);
@@ -7175,7 +7228,9 @@ impl SlateApp {
         std::thread::spawn(move || {
             let mut slate = used;
             if !cfg!(test) {
-                slate.extend(RecentList::load(AGENT_RECENTS_KEY).entries);
+                slate.extend(atlas_ai::projects::without_temporary(
+                    RecentList::load(AGENT_RECENTS_KEY).entries,
+                ));
             }
             if let Some(ws) = &workspace {
                 slate.extend(atlas_ai::projects::session_projects(ws));
@@ -9294,7 +9349,10 @@ fn classify_agent_failure(reason: String) -> (String, Vec<AgentRecover>) {
         label: "Setup steps",
         path,
     });
-    if lower.contains("codex") {
+    if lower.starts_with("could not install the cursor sidecar packages") {
+        // The failed download and the manual steps are the next step.
+        (raw, setup.into_iter().collect())
+    } else if lower.contains("codex") {
         (
             raw,
             vec![AgentRecover::OpenUrl {
@@ -9457,20 +9515,6 @@ fn collect_agent_project_recents(provider: &str) -> Vec<RecentEntry> {
             entry
         })
         .collect()
-}
-
-fn paths_same(a: &std::path::Path, b: &std::path::Path) -> bool {
-    let ac = std::fs::canonicalize(a).unwrap_or_else(|_| a.to_path_buf());
-    let bc = std::fs::canonicalize(b).unwrap_or_else(|_| b.to_path_buf());
-    #[cfg(windows)]
-    {
-        ac.to_string_lossy()
-            .eq_ignore_ascii_case(&bc.to_string_lossy())
-    }
-    #[cfg(not(windows))]
-    {
-        ac == bc
-    }
 }
 
 fn fit_frame_height(width: f32, image_w: u32, image_h: u32) -> f32 {
@@ -9719,7 +9763,7 @@ mod agent_await_tests {
     }
 
     fn same_folder(a: &std::path::Path, b: &std::path::Path) -> bool {
-        paths_same(a, b)
+        atlas_ai::projects::same_folder(a, b)
     }
 
     #[test]
@@ -10808,6 +10852,22 @@ mod agent_await_tests {
         assert!(
             !reason.contains("Send again"),
             "must not hide a spawn error behind the PATH sermon: {reason}"
+        );
+    }
+
+    #[test]
+    fn a_package_install_failure_keeps_the_steps_to_finish_by_hand() {
+        let raw = "Could not install the Cursor sidecar packages: could not download \
+https://registry.npmjs.org/@cursor/sdk/-/sdk-1.0.28.tgz: ENOTFOUND\n\
+To install them by hand, run in PowerShell:\n  cd \"C:\\workspace\\Slate\\docs\\agent\\cursor-sidecar\"\n  \
+& \"C:\\cursor\\node.exe\" install.mjs\nthen send again.";
+        let (reason, actions) = classify_agent_failure(raw.into());
+        assert_eq!(reason, raw, "the download that failed and the manual steps");
+        assert!(
+            !actions
+                .iter()
+                .any(|a| matches!(a, AgentRecover::PickWorkspace)),
+            "a folder named workspace is not a missing AI workspace"
         );
     }
 

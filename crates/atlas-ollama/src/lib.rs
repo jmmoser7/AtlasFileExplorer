@@ -244,10 +244,7 @@ impl Client {
                 }
             }
         }
-        let images = pictures
-            .iter()
-            .map(|p| encode_image(p))
-            .collect::<Result<Vec<_>, _>>()?;
+        let body = self.chat_body(&session.turns, request)?;
         let _gpu = loop {
             if cancel.load(Ordering::Relaxed) {
                 return Err("Response stopped.".into());
@@ -258,26 +255,6 @@ impl Client {
                 Err(_) => std::thread::sleep(Duration::from_millis(50)),
             }
         };
-        let messages = chat_messages(&session.turns, request, images);
-        // Conservative v1 context budget; no silent truncation of a large replay.
-        let bytes: usize = messages
-            .iter()
-            .map(|m| m["content"].as_str().unwrap_or("").len())
-            .sum();
-        // A text block carries a whole page or document once; a chat grows turn by turn.
-        let (budget, context) = if request.oneshot {
-            (64_000, 24_576)
-        } else {
-            (12_000, 8_192)
-        };
-        if bytes > budget {
-            return Err(if request.oneshot {
-                "This text is too long for a local model. Choose an OpenAI or ChatGPT model, or wire a shorter source.".into()
-            } else {
-                "This local session exceeds the initial context budget. Start a new conversation with an explicit summary.".into()
-            });
-        }
-        let body = json!({"model":self.model,"messages":messages,"stream":true,"keep_alive":"5m","options":{"num_ctx":context,"num_predict":2048}});
         let mut child = Request::post_json(local("/api/chat"), &body)
             .loopback()
             .stream()
@@ -340,6 +317,36 @@ impl Client {
         let _ = child.kill();
         let _ = child.wait();
         result
+    }
+
+    /// The `/api/chat` body: history, this turn, and its pictures inline.
+    fn chat_body(&self, turns: &[AgentTurn], request: &AgentRequest) -> Result<Value, String> {
+        let images = request_images(request)
+            .into_iter()
+            .map(encode_image)
+            .collect::<Result<Vec<_>, _>>()?;
+        let messages = chat_messages(turns, request, images);
+        // Conservative v1 context budget; no silent truncation of a large replay.
+        let bytes: usize = messages
+            .iter()
+            .map(|m| m["content"].as_str().unwrap_or("").len())
+            .sum();
+        // A text block carries a whole page or document once; a chat grows turn by turn.
+        let (budget, context) = if request.oneshot {
+            (64_000, 24_576)
+        } else {
+            (12_000, 8_192)
+        };
+        if bytes > budget {
+            return Err(if request.oneshot {
+                "This text is too long for a local model. Choose an OpenAI or ChatGPT model, or wire a shorter source.".into()
+            } else {
+                "This local session exceeds the initial context budget. Start a new conversation with an explicit summary.".into()
+            });
+        }
+        Ok(
+            json!({"model":self.model,"messages":messages,"stream":true,"keep_alive":"5m","options":{"num_ctx":context,"num_predict":2048}}),
+        )
     }
 }
 
@@ -408,6 +415,48 @@ mod tests {
         image::RgbImage::new(2048, 512).save(&path).unwrap();
         let encoded = encode_image(path.to_str().unwrap()).unwrap();
         assert!(encoded.starts_with("/9j/"), "JPEG magic in base64");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_outgoing_chat_carries_the_wired_picture_and_words() {
+        use base64::Engine;
+        let dir = std::env::temp_dir().join(format!("atlas-ollama-body-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let picture = dir.join("roof.png");
+        image::RgbImage::from_pixel(64, 32, image::Rgb([200, 90, 40]))
+            .save(&picture)
+            .unwrap();
+        let request: AgentRequest = serde_json::from_value(json!({
+            "id": "r", "prompt": "What style is this?", "at": 0,
+            "inputs": {"revision": "1", "context": [], "wired": [
+                {"node": 3, "text": "", "images": [picture], "slot": "media"},
+                {"node": 4, "text": "Penn Station, 1910", "images": [], "slot": "prompt"}
+            ]}
+        }))
+        .unwrap();
+        let client = Client {
+            model: "fake-vision".into(),
+        };
+        let body = client.chat_body(&[], &request).unwrap();
+        let user = body["messages"].as_array().unwrap().last().unwrap().clone();
+        let images = user["images"]
+            .as_array()
+            .expect("the picture travels inline");
+        assert_eq!(images.len(), 1);
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(images[0].as_str().unwrap())
+            .unwrap();
+        let sent = image::load_from_memory(&bytes).unwrap();
+        assert_eq!(
+            (sent.width(), sent.height()),
+            (64, 32),
+            "the picture itself"
+        );
+        let content = user["content"].as_str().unwrap();
+        assert!(content.starts_with("What style is this?"), "{content}");
+        assert!(content.contains("Penn Station, 1910"), "the wired words");
+        assert_eq!(body["model"], "fake-vision");
         let _ = std::fs::remove_dir_all(dir);
     }
 }

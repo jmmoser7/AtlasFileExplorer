@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import path from "node:path";
 import { artifactFromTool, artifactGuide, SLATE_LINK_LINE, transcript } from './artifacts.mjs';
+import { userMessage } from './attachments.mjs';
 import { claimLink, releaseLink, supervisionLost } from './supervise.mjs';
 
 // process.exit while the SDK is closing a libuv handle aborts on Windows
@@ -224,7 +225,7 @@ async function failStartup(err) {
   };
   try {
     const modelId = typeof req.model === "string" && req.model ? req.model : model;
-    run = await agent.send(prompt, {
+    run = await agent.send(await userMessage(prompt, req.inputs?.wired), {
       idempotencyKey: req.id,
       model: { id: modelId },
       onDelta: async ({ update }) => {

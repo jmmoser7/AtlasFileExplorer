@@ -100,12 +100,39 @@ pub fn merge(lists: impl IntoIterator<Item = Vec<RecentEntry>>) -> Vec<RecentEnt
     out.into_iter().map(|(_, e)| e).collect()
 }
 
+/// Whether two spellings name one folder: links and junctions resolved, and
+/// on Windows case, `/`, trailing separators, and `\\?\` prefixes ignored.
+pub fn same_folder(a: &Path, b: &Path) -> bool {
+    folder_key(a) == folder_key(b)
+}
+
+/// Drops folders under the system temp folder. Test fixtures and scratch
+/// runs live there, often under one name, and are gone by the next launch.
+pub fn without_temporary(entries: Vec<RecentEntry>) -> Vec<RecentEntry> {
+    let temp = folder_key(&std::env::temp_dir());
+    entries
+        .into_iter()
+        .filter(|e| !folder_key(&e.path).starts_with(&temp))
+        .collect()
+}
+
 fn folder_key(path: &Path) -> PathBuf {
     let canon = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    if cfg!(windows) {
-        PathBuf::from(canon.to_string_lossy().to_lowercase())
+    if !cfg!(windows) {
+        return canon.components().collect();
+    }
+    let text = canon.to_string_lossy().replace('/', "\\");
+    let text = if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
     } else {
-        canon
+        text.strip_prefix(r"\\?\").unwrap_or(&text).to_string()
+    }
+    .to_lowercase();
+    let trimmed = text.trim_end_matches('\\');
+    if trimmed.is_empty() || trimmed.ends_with(':') {
+        PathBuf::from(text)
+    } else {
+        PathBuf::from(trimmed)
     }
 }
 
@@ -190,6 +217,114 @@ mod tests {
         ]);
         let paths: Vec<PathBuf> = merged.iter().map(|e| e.path.clone()).collect();
         assert_eq!(paths, vec![used, mru, provider]);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn several_spellings_of_one_folder_are_one_project() {
+        let root = temp("spellings");
+        let project = root.join("Climate Grid");
+        std::fs::create_dir_all(&project).unwrap();
+        let plain = project.to_string_lossy().into_owned();
+        let mut spellings = vec![
+            project.clone(),
+            PathBuf::from(format!("{plain}{}", std::path::MAIN_SEPARATOR)),
+            std::fs::canonicalize(&project).unwrap(),
+        ];
+        let junction = root.join("linked");
+        #[cfg(windows)]
+        {
+            spellings.push(PathBuf::from(plain.to_uppercase()));
+            spellings.push(PathBuf::from(plain.replace('\\', "/")));
+            spellings.push(PathBuf::from(format!(r"\\?\{plain}\")));
+            let made = std::process::Command::new("cmd")
+                .arg("/C")
+                .arg("mklink")
+                .arg("/J")
+                .arg(&junction)
+                .arg(&project)
+                .output()
+                .unwrap();
+            assert!(made.status.success(), "{made:?}");
+        }
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&project, &junction).unwrap();
+        spellings.push(junction.clone());
+
+        let ws = root.join("ws");
+        link(&ws, "card-one", &spellings[1], 30);
+        link(&ws, "card-two", &spellings[spellings.len() - 2], 20);
+        let merged = merge([
+            session_projects(&ws),
+            spellings.iter().map(|p| entry(p.clone(), 10)).collect(),
+            spellings
+                .iter()
+                .rev()
+                .map(|p| entry(p.clone(), 0))
+                .collect(),
+        ]);
+        let titles: Vec<&str> = merged.iter().map(|e| e.title.as_str()).collect();
+        assert_eq!(titles, ["Climate Grid"], "{merged:?}");
+        assert_eq!(merged[0].opened_at, 30);
+        for spelling in &spellings {
+            assert!(same_folder(spelling, &project), "{}", spelling.display());
+        }
+        let _ = std::fs::remove_dir(&junction);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn unreachable_spellings_of_one_folder_share_a_key() {
+        #[cfg(windows)]
+        let groups: &[&[&str]] = &[
+            &[
+                r"C:\Gone\Climate Grid",
+                r"c:\gone\climate grid\",
+                r"\\?\C:\Gone\Climate Grid",
+                r"C:/Gone/Climate Grid/",
+            ],
+            &[
+                r"\\server\share\Climate Grid",
+                r"\\?\UNC\server\share\climate grid\",
+            ],
+        ];
+        #[cfg(not(windows))]
+        let groups: &[&[&str]] = &[&["/gone/Climate Grid", "/gone/Climate Grid/"]];
+        for group in groups {
+            for spelling in group.iter() {
+                assert!(
+                    same_folder(Path::new(group[0]), Path::new(spelling)),
+                    "{} vs {spelling}",
+                    group[0]
+                );
+            }
+        }
+        assert!(!same_folder(
+            Path::new(groups[0][0]),
+            Path::new(&format!("{}-copy", groups[0][0]))
+        ));
+    }
+
+    #[test]
+    fn temporary_folders_are_not_offered_as_projects() {
+        let root = temp("fixtures");
+        let fixtures: Vec<PathBuf> = (0..3)
+            .map(|i| {
+                let dir = root
+                    .join(format!("slate_test_agent_bind_{i}"))
+                    .join("climate-grid");
+                std::fs::create_dir_all(&dir).unwrap();
+                dir
+            })
+            .collect();
+        let real = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let mut saved: Vec<RecentEntry> = fixtures.iter().map(|p| entry(p.clone(), 50)).collect();
+        saved.push(entry(real.clone(), 40));
+        let offered: Vec<PathBuf> = merge([without_temporary(saved)])
+            .into_iter()
+            .map(|e| e.path)
+            .collect();
+        assert_eq!(offered, vec![real]);
         let _ = std::fs::remove_dir_all(root);
     }
 }

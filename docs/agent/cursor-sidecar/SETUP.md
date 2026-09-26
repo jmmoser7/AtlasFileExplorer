@@ -34,19 +34,31 @@ The portal talks to Cursor through `docs/agent/cursor-sidecar` (out of
 process). On Send, Slate looks for `node.exe` in this order: `ATLAS_NODE`,
 `C:\Program Files\nodejs\node.exe`, Cursor's bundled runtime
 (`%LOCALAPPDATA%\Programs\cursor\resources\app\resources\helpers\node.exe`),
-other well-known folders, then `PATH`.
+other well-known folders, then `PATH`. When none is found, Slate runs
+`Cursor.exe` itself as Node (`ELECTRON_RUN_AS_NODE=1`), so a machine with
+Cursor installed needs no separate Node install.
 A GUI launch often misses a terminal-only PATH, so "Node not found" does
 not always mean Node is missing. If discovery fails, the portal lists the
 paths it tried.
 
-The first Send also runs `npm install` in this folder when `@cursor/sdk`
-is missing (off the UI thread). You do not have to do that by hand unless
-the portal reports that install failed.
+npm is not needed. The first Send runs `install.mjs` in this folder when
+`@cursor/sdk` is missing (off the UI thread): it downloads the packages
+pinned in `package-lock.json` from registry.npmjs.org, checks each against
+the lockfile's hash, and only then replaces `node_modules`. It honours
+`HTTPS_PROXY`; set `npm_config_registry` to use a company mirror. If the
+download is blocked, the portal shows the failed address and the command
+to run by hand:
+
+```powershell
+cd <this folder>
+& "<the node.exe Slate found>" install.mjs
+```
 
 If the portal still cannot see Node:
 
-1. Confirm `C:\Program Files\nodejs\node.exe` exists, or set `ATLAS_NODE`
-   to your `node.exe` and restart Slate.
+1. Install [Cursor](https://cursor.com/download), or confirm
+   `C:\Program Files\nodejs\node.exe` exists, or set `ATLAS_NODE` to your
+   `node.exe` and restart Slate.
 2. Otherwise install [Node.js](https://nodejs.org/en/download).
 3. Send again.
 

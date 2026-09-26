@@ -1089,6 +1089,43 @@ mod tests {
         assert!(!text.contains("photo.png"), "the hidden part never leaves");
     }
 
+    /// Every card of a train shares one link folder, so the context published
+    /// there carries what is wired to any card, not only the first.
+    #[test]
+    fn agent_life_a_train_publishes_pictures_wired_to_every_card() {
+        use slate_doc::scene::{ConnectorEnd, ImageNode, Side, WorldRect};
+        let (mut h, ws) = linked_board("agent_life_train_publish");
+        let ids = saved_train(&mut h, &ws, "conv-publish", true);
+        let dir = h.app.agent_link_dir(ids[0], &ws).unwrap();
+        assert_eq!(h.app.agent_link_dir(ids[1], &ws), Some(dir.clone()));
+        let anchored = |node, side| ConnectorEnd::Anchored { node, side, t: 0.5 };
+        for (card, name, y) in [
+            (ids[0], "first-card.png", 0.0),
+            (ids[1], "tail-card.png", 300.0),
+        ] {
+            let src = h.base.join(name);
+            image::RgbaImage::from_pixel(16, 16, image::Rgba([200, 90, 150, 255]))
+                .save(&src)
+                .unwrap();
+            let item = h.app.add_paths(std::slice::from_ref(&src))[0];
+            let picture = h.app.doc_mut().scene.build_node(
+                WorldRect::new(-600.0, y, 200.0, 100.0),
+                NodeKind::Image(ImageNode::new(item)),
+            );
+            let picture = h.app.add_nodes(vec![picture])[0];
+            h.app
+                .add_connector(anchored(picture, Side::Right), anchored(card, Side::Left))
+                .unwrap();
+        }
+        let context = dir.join("context.json");
+        let published =
+            |name: &str| std::fs::read_to_string(&context).is_ok_and(|t| t.contains(name));
+        frames_until(&mut h, "both cards' pictures in the context", |h| {
+            h.app.agents.context_tick = None;
+            published("first-card.png") && published("tail-card.png")
+        });
+    }
+
     #[test]
     fn agent_life_the_sessions_pass_never_probes_the_link_folder_on_the_frame_loop() {
         let probes = || crate::app::board_agent::LINK_PROBES_ON_THIS_THREAD.with(|n| n.get());
