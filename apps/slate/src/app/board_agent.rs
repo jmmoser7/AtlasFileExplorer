@@ -281,8 +281,14 @@ pub struct AgentRuntime {
 
     transcript_cache: HashMap<(NodeId, usize), (u64, u64, u64, std::sync::Arc<egui::Galley>, f32)>,
     transcript_scroll: HashMap<NodeId, f32>,
+    /// Chooser list scroll, in world units so zoom never shifts the rows.
+    pick_scroll: HashMap<NodeId, f32>,
     pub(crate) sessions: HashMap<NodeId, std::sync::Arc<AgentSession>>,
     prompts: HashMap<NodeId, String>,
+    /// Draft card → the card whose composer took its text in a presentation
+    /// switch. Undo and redo bring the card back or take it away again; the
+    /// unsent text follows whichever of the two is on the board.
+    absorbed_drafts: HashMap<NodeId, NodeId>,
     pending: Vec<Proposal>,
     stage: StageFeed,
     /// Sessions this user let act without asking (`atlas_ai::access`). Loaded
@@ -565,9 +571,25 @@ const SUMMARY_TEXT_TOP: f32 = 28.0;
 const COLLAPSED_ROWS: usize = 3;
 /// Card text size, in world units.
 const CARD_TEXT_PX: f32 = 13.0;
-/// Stop's disc and press reach on a streaming card's output circle, in world units.
-const STOP_RADIUS: f32 = 6.0;
+/// Stop's bare square (the output circle's diameter) and press reach on a
+/// streaming card's output circle, in world units.
+const STOP_SIDE: f32 = 7.0;
 const STOP_REACH: f32 = 8.0;
+/// Width a chooser list always keeps for its scroll bar, in world units, so
+/// the bar appearing never narrows the rows.
+const PICK_BAR_RESERVE: f32 = 8.0;
+
+/// Chooser columns, fixed by row count so rows never restack: the project
+/// list is one column; conversations take one up to 3 rows, two up to 8,
+/// otherwise three.
+fn agent_pick_columns(projects: bool, rows: usize) -> usize {
+    match rows {
+        _ if projects => 1,
+        0..=3 => 1,
+        4..=8 => 2,
+        _ => 3,
+    }
+}
 
 /// On-screen center of a chat card's top output circle.
 fn output_circle_center(card: Rect, z: f32) -> Pos2 {
@@ -609,7 +631,7 @@ pub(crate) fn agent_presentations(
     use slate_doc::agent_chat::Detail;
     let train = chat.train;
     [
-        ("portal.agent.chat", train && !chat.draft && !running),
+        ("portal.agent.chat", train && !running),
         (
             "portal.agent.train",
             (!train || chat.detail == Detail::Pair) && !running,
@@ -1819,16 +1841,26 @@ impl SlateApp {
             self.toast("Wait for the response before changing its presentation.");
             return true;
         }
+        let detail = if stride > 1 {
+            slate_doc::agent_chat::Detail::Pair
+        } else {
+            slate_doc::agent_chat::Detail::Summary
+        };
         let mut commands = Vec::new();
         let mut add_index = self.doc().scene.nodes.len();
         let mut moved = HashMap::new();
         let mut anchor = None;
         for path in slate_doc::agent_chat::segments(&self.doc().scene, id) {
-            let Some(cards) = self.agent_path_cards(&path) else {
+            let Some((cards, draft)) = self.agent_path_split(&path) else {
                 continue;
             };
             anchor = anchor.or(cards.last().copied());
-            self.agent_rechunk_path(&cards, stride, &mut add_index, &mut commands, &mut moved);
+            if !cards.is_empty() {
+                self.agent_rechunk_path(&cards, stride, &mut add_index, &mut commands, &mut moved);
+            }
+            if let Some(draft) = draft {
+                self.restyle_agent_draft(draft, true, detail, &mut commands);
+            }
         }
         let Some(anchor) = anchor else {
             return true;
@@ -1860,18 +1892,106 @@ impl SlateApp {
         true
     }
 
-    /// The chat cards of one linear path. A draft (or anything else that is
-    /// not a card) may only trail it; it keeps hanging from the last card.
-    fn agent_path_cards(&self, path: &[NodeId]) -> Option<Vec<NodeId>> {
+    /// The chat cards of one linear path and the unsent draft trailing them.
+    /// Anything else that is not a card may only trail. A path holding only
+    /// a draft is a fork's draft.
+    fn agent_path_split(&self, path: &[NodeId]) -> Option<(Vec<NodeId>, Option<NodeId>)> {
         let scene = &self.doc().scene;
-        let is_card = |id: &NodeId| {
-            scene.node(*id).is_some_and(|n| {
-                matches!(n.kind, NodeKind::Portal(_))
-                    && slate_doc::agent_chat::agent(n).is_some_and(|a| !a.chat.draft)
-            })
+        let draft = |id: &NodeId| {
+            scene
+                .node(*id)
+                .filter(|n| matches!(n.kind, NodeKind::Portal(_)))
+                .and_then(slate_doc::agent_chat::agent)
+                .map(|a| a.chat.draft)
         };
-        let n = path.iter().take_while(|id| is_card(id)).count();
-        (n > 0 && !path[n..].iter().any(is_card)).then(|| path[..n].to_vec())
+        let n = path.iter().take_while(|id| draft(id) == Some(false)).count();
+        let rest = &path[n..];
+        if rest.iter().any(|id| draft(id) == Some(false)) {
+            return None;
+        }
+        let trailing = rest.iter().copied().find(|id| draft(id) == Some(true));
+        (n > 0 || trailing.is_some()).then(|| (path[..n].to_vec(), trailing))
+    }
+
+    /// An unsent draft takes the new presentation's form where it hangs; the
+    /// patch also lets the relayout place it in line.
+    fn restyle_agent_draft(
+        &self,
+        id: NodeId,
+        train: bool,
+        detail: slate_doc::agent_chat::Detail,
+        commands: &mut Vec<slate_doc::SceneCmd>,
+    ) {
+        let Some(before) = self.doc().scene.node(id).cloned() else {
+            return;
+        };
+        let mut after = before.clone();
+        after.hidden = false;
+        if let Some(a) = slate_doc::agent_chat::agent_mut(&mut after) {
+            a.chat.train = train;
+            a.chat.detail = detail;
+        }
+        commands.push(slate_doc::SceneCmd::Patch {
+            before: Box::new(before),
+            after: Box::new(after),
+        });
+    }
+
+    /// A single chat window's composer takes the unsent text of the draft
+    /// card it absorbed, and the caret with it.
+    fn absorb_agent_drafts(&mut self, absorbed: &[(NodeId, NodeId)]) {
+        for &(draft, host) in absorbed {
+            match self.agents.prompts.remove(&draft) {
+                Some(text) => self.agents.prompts.insert(host, text),
+                None => self.agents.prompts.remove(&host),
+            };
+            if self.agents.composer_editing == Some(draft) {
+                self.agents.composer_editing = Some(host);
+            }
+            if self.agents.composer_focus == Some(draft) {
+                self.agents.composer_focus = Some(host);
+            }
+            self.agents.composer_rects.remove(&draft);
+            self.agents.absorbed_drafts.insert(draft, host);
+        }
+        self.agents.prompt_epoch = self.agents.prompt_epoch.wrapping_add(1);
+    }
+
+    /// The unsent text of a draft a switch absorbed follows whichever of the
+    /// draft card and its window is on the board, through Undo and Redo.
+    fn relocate_absorbed_drafts(&mut self, live: &HashSet<NodeId>) {
+        if self.agents.absorbed_drafts.is_empty() {
+            return;
+        }
+        let scene = &self.doc().scene;
+        let unsent = |id: &NodeId| {
+            scene
+                .node(*id)
+                .and_then(slate_doc::agent_chat::agent)
+                .is_some_and(|a| a.chat.draft)
+        };
+        let moves: Vec<(NodeId, NodeId)> = self
+            .agents
+            .absorbed_drafts
+            .iter()
+            .filter(|(draft, host)| live.contains(host) && (unsent(draft) || !live.contains(draft)))
+            .map(|(&draft, &host)| {
+                if live.contains(&draft) {
+                    (host, draft)
+                } else {
+                    (draft, host)
+                }
+            })
+            .collect();
+        self.agents
+            .absorbed_drafts
+            .retain(|draft, _| moves.iter().any(|(a, b)| a == draft || b == draft));
+        for (from, to) in moves {
+            if let Some(text) = self.agents.prompts.remove(&from) {
+                self.agents.prompts.insert(to, text);
+                self.agents.prompt_epoch = self.agents.prompt_epoch.wrapping_add(1);
+            }
+        }
     }
 
     /// Re-chunks one linear path's turns, `stride` 1 per turn or a user line
@@ -2265,14 +2385,28 @@ impl SlateApp {
         let mut commands = Vec::new();
         let mut selected = None;
         let mut anchor = None;
-        for path in segments {
-            let Some(path) = self.agent_path_cards(&path) else {
+        let mut absorbed = Vec::new();
+        for segment in segments {
+            let Some((path, draft)) = self.agent_path_split(&segment) else {
                 continue;
             };
-            let last = *path.last().unwrap();
+            let Some(&last) = path.last() else {
+                if let Some(draft) = draft {
+                    self.restyle_agent_draft(
+                        draft,
+                        false,
+                        slate_doc::agent_chat::Detail::Full,
+                        &mut commands,
+                    );
+                }
+                continue;
+            };
             anchor = anchor.or(Some(last));
-            if path.contains(&id) {
+            if segment.contains(&id) {
                 selected = Some(last);
+            }
+            if let Some(draft) = draft {
+                absorbed.push((draft, last));
             }
             for member in &path {
                 let before = self.doc().scene.node(*member).unwrap().clone();
@@ -2298,8 +2432,24 @@ impl SlateApp {
         let Some(anchor) = anchor else {
             return true;
         };
+        let moved: HashMap<_, _> = absorbed.iter().copied().collect();
+        self.retarget_agent_wires(&moved, &mut commands);
+        let mut removed: Vec<_> = absorbed
+            .iter()
+            .filter_map(|(draft, _)| {
+                let index = self.doc().scene.index_of(*draft)?;
+                Some((index, self.doc().scene.node(*draft)?.clone()))
+            })
+            .collect();
+        removed.sort_by_key(|(index, _)| std::cmp::Reverse(*index));
+        commands.extend(
+            removed
+                .into_iter()
+                .map(|(index, node)| slate_doc::SceneCmd::Remove { index, node }),
+        );
         self.arrange_agent_projection(anchor, &mut commands);
         if self.commit_scene(commands) {
+            self.absorb_agent_drafts(&absorbed);
             self.agents.projection_settle =
                 Some((anchor, self.tab().journal.undo_depth(), self.scene_gen));
         }
@@ -5988,7 +6138,9 @@ impl SlateApp {
         }
 
         self.agents.sessions.retain(|id, _| live.contains(id));
+        self.relocate_absorbed_drafts(&live);
         self.agents.prompts.retain(|id, _| live.contains(id));
+        self.agents.pick_scroll.retain(|id, _| live.contains(id));
         self.agents.awaiting.retain(|id, _| live.contains(id));
         self.agents.local_turns.retain(|id, _| live.contains(id));
         self.agents
@@ -7816,6 +7968,7 @@ impl SlateApp {
             "New conversation"
         };
         let mut chosen: Option<Option<String>> = None;
+        let mut scrolled = None;
         if interactive && canvas_text::legible(row_px) {
             egui::Area::new(Id::new(("agent-pick-list", node.id.0)))
                 .fixed_pos(heading.min)
@@ -7854,12 +8007,21 @@ impl SlateApp {
                     } else {
                         Color32::from_rgba_unmultiplied(15, 23, 32, 24)
                     };
-                    egui::ScrollArea::vertical()
+                    let bar = canvas_scale::px(PICK_BAR_RESERVE, z);
+                    let scroll = &mut ui.spacing_mut().scroll;
+                    scroll.floating = true;
+                    scroll.floating_allocated_width = bar;
+                    scroll.bar_width = bar * 0.75;
+                    scroll.floating_width = bar * 0.25;
+                    scroll.bar_inner_margin = 0.0;
+                    scroll.bar_outer_margin = bar * 0.125;
+                    let offset = self.agents.pick_scroll.get(&node.id).copied().unwrap_or(0.0);
+                    let out = egui::ScrollArea::vertical()
                         .id_salt(("agent-pick-scroll", node.id.0))
+                        .vertical_scroll_offset(offset * z)
                         .max_height(list.height())
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
-                            ui.set_width(list.width());
                             ui.spacing_mut().item_spacing.y = gap;
                             if let Some(error) = &self.agents.catalog_error {
                                 ui.label(
@@ -7882,23 +8044,26 @@ impl SlateApp {
                                         .color(palette.sub),
                                 );
                             }
-                            let cols = if projects {
-                                1
-                            } else if chats.len() > 8 {
-                                3
-                            } else if chats.len() > 3 {
-                                2
-                            } else {
-                                1
-                            };
+                            let cols = agent_pick_columns(projects, chats.len());
+                            let width = list.width() - bar;
                             let col_w =
-                                (list.width() - gap * (cols as f32 - 1.0)).max(40.0) / cols as f32;
-                            ui.horizontal_wrapped(|ui| {
-                                ui.set_width(list.width());
-                                ui.spacing_mut().item_spacing = egui::vec2(gap, gap);
-                                for chat in &chats {
-                                let (rect, resp) = ui.allocate_exact_size(
+                                ((width - gap * (cols - 1) as f32) / cols as f32).max(0.0);
+                            let rows = chats.len().div_ceil(cols);
+                            let grid_h = (rows as f32 * (row_h + gap) - gap).max(0.0);
+                            let (grid, _) =
+                                ui.allocate_exact_size(egui::vec2(width, grid_h), Sense::hover());
+                            for (i, chat) in chats.iter().enumerate() {
+                                let rect = Rect::from_min_size(
+                                    grid.min
+                                        + egui::vec2(
+                                            (i % cols) as f32 * (col_w + gap),
+                                            (i / cols) as f32 * (row_h + gap),
+                                        ),
                                     egui::vec2(col_w, row_h),
+                                );
+                                let resp = ui.interact(
+                                    rect,
+                                    Id::new(("agent-pick-row", node.id.0, i)),
                                     Sense::click(),
                                 );
                                 ui.painter().rect_filled(
@@ -7936,9 +8101,9 @@ impl SlateApp {
                                 if resp.clicked() {
                                     chosen = Some(Some(chat.id.clone()));
                                 }
-                                }
-                            });
+                            }
                         });
+                    scrolled = Some(out.state.offset.y / z);
                     let resp = ui.interact(
                         button,
                         Id::new(("agent-pick-new", node.id.0)),
@@ -7982,6 +8147,9 @@ impl SlateApp {
                 FontId::proportional(row_px),
                 palette.sub,
             );
+        }
+        if let Some(offset) = scrolled {
+            self.agents.pick_scroll.insert(node.id, offset);
         }
         if let Some(channel) = chosen {
             if projects {
@@ -8933,16 +9101,11 @@ impl SlateApp {
         let at = output_circle_center(xf.rect_w2s(n.rect), z);
         let palette = self.palette();
         let hot = pointer.is_some_and(|p| p.distance(at) <= canvas_scale::px(STOP_REACH, z));
-        painter.circle_filled(
-            at,
-            canvas_scale::px(STOP_RADIUS, z),
-            palette.sub.gamma_multiply(if hot { 0.95 } else { 0.7 }),
-        );
-        let side = canvas_scale::px(STOP_RADIUS * 0.8, z);
+        let side = canvas_scale::px(STOP_SIDE, z);
         painter.rect_filled(
             Rect::from_center_size(at, egui::vec2(side, side)),
-            canvas_scale::px(1.0, z),
-            palette.card,
+            canvas_scale::px(1.5, z),
+            palette.sub.gamma_multiply(if hot { 0.95 } else { 0.7 }),
         );
     }
 
@@ -12244,6 +12407,122 @@ To install them by hand, run in PowerShell:\n  cd \"C:\\workspace\\Slate\\docs\\
         }
     }
 
+    /// Where each conversation row's title is painted, relative to the card's
+    /// top-left and divided by the zoom: world units, so zoom alone moves
+    /// nothing. `xf` is the camera the frame painted with; the wheel moves
+    /// the camera after the board paints.
+    fn picker_rows(
+        h: &super::super::tests::Harness,
+        xf: &BoardXf,
+        out: &egui::FullOutput,
+        card: NodeId,
+        n: usize,
+    ) -> Vec<Option<egui::Vec2>> {
+        let origin = xf.rect_w2s(h.app.doc().scene.node(card).unwrap().rect).min;
+        let texts = painted_at(out);
+        (0..n)
+            .map(|i| {
+                let title = format!("Conversation {i}");
+                texts
+                    .iter()
+                    .find(|(t, _)| *t == title)
+                    .map(|(_, r)| (r.min - origin) / xf.z)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_conversation_picker_rows_keep_their_columns_while_ctrl_wheel_zooms() {
+        for n in [12, 20] {
+            let mut h = board("chat_picker_columns");
+            let card = codex_chat_picker(&mut h, n);
+            let xf = h.app.board_xf();
+            let out = h.frame_output(|_| {});
+            let base: Vec<egui::Vec2> = picker_rows(&h, &xf, &out, card, n)
+                .into_iter()
+                .map(|r| r.expect("every row is painted"))
+                .collect();
+            for row in base.chunks(3) {
+                assert!(
+                    row.iter().all(|p| (p.y - row[0].y).abs() < 0.5),
+                    "three columns share each row ({n} chats): {base:?}"
+                );
+                assert!(
+                    row.windows(2).all(|w| w[1].x > w[0].x + 40.0),
+                    "columns read left to right ({n} chats): {base:?}"
+                );
+            }
+            let at = h.app.board_xf().rect_w2s(h.app.doc().scene.node(card).unwrap().rect).min
+                + base[1] * h.app.tab().cam.z
+                + egui::vec2(4.0, 4.0);
+            let mut zooms = Vec::new();
+            for step in 0..20 {
+                let delta = if step < 10 { 40.0 } else { -40.0 };
+                let xf = h.app.board_xf();
+                let out = h.frame_output(|i| {
+                    i.events.push(egui::Event::PointerMoved(at));
+                    i.events.push(egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        delta: egui::vec2(0.0, delta),
+                        modifiers: egui::Modifiers::CTRL,
+                    });
+                });
+                let z = xf.z;
+                zooms.push(h.app.tab().cam.z);
+                for (i, (now, want)) in picker_rows(&h, &xf, &out, card, n)
+                    .into_iter()
+                    .zip(&base)
+                    .enumerate()
+                {
+                    let now = now.unwrap_or_else(|| {
+                        panic!("row {i} vanished at step {step}, zoom {z} ({n} chats)")
+                    });
+                    assert!(
+                        ((now - *want) * z).length() <= 2.5,
+                        "row {i} moved from {want:?} to {now:?} at step {step}, zoom {z} ({n} chats)"
+                    );
+                }
+            }
+            assert!(
+                zooms.iter().cloned().fold(0.0, f32::max) > 1.5,
+                "Ctrl+wheel zoomed the board: {zooms:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_project_picker_stays_single_column() {
+        let mut h = board("project_picker_column");
+        let card = codex_card_with_models(&mut h);
+        h.app.agents.provider_recents.insert(
+            "codex".into(),
+            (0..12)
+                .map(|i| RecentEntry {
+                    path: PathBuf::from(format!("C:/projects/p{i}")),
+                    title: format!("Project {i}"),
+                    opened_at: i,
+                    cover: None,
+                })
+                .collect(),
+        );
+        h.app.agents.recents_started = true;
+        h.app.agents.recents_rx = None;
+        h.app.agents.project_picker = Some(card);
+        center_on(&mut h, card);
+        h.frame();
+        let out = h.frame_output(|_| {});
+        let lefts: Vec<f32> = painted_at(&out)
+            .into_iter()
+            .filter(|(t, _)| t.starts_with("Project "))
+            .map(|(_, r)| r.left())
+            .collect();
+        assert!(lefts.len() >= 2, "the project list is painted");
+        assert!(
+            lefts.iter().all(|x| (x - lefts[0]).abs() < 0.5),
+            "one column of projects: {lefts:?}"
+        );
+    }
+
     #[test]
     fn the_project_picker_stays_painted_while_the_wheel_moves_over_it() {
         let mut h = board("project_picker_wheel");
@@ -12400,6 +12679,45 @@ To install them by hand, run in PowerShell:\n  cd \"C:\\workspace\\Slate\\docs\\
                 .iter()
                 .any(|n| slate_doc::agent_chat::agent(n).is_some_and(|a| a.chat.draft)),
             "Stop does not continue the train"
+        );
+    }
+
+    /// Any circle painted centered on `at`.
+    fn circle_at(output: &egui::FullOutput, at: Pos2) -> bool {
+        fn walk(shape: &egui::Shape, at: Pos2) -> bool {
+            match shape {
+                egui::Shape::Circle(c) => c.center.distance(at) < 1.5,
+                egui::Shape::Vec(v) => v.iter().any(|s| walk(s, at)),
+                _ => false,
+            }
+        }
+        output.shapes.iter().any(|c| walk(&c.shape, at))
+    }
+
+    #[test]
+    fn stop_is_a_bare_gray_square_that_scales_with_the_board() {
+        let (mut h, tail, _) = streaming_tail("stop_bare_square");
+        let mut sides = Vec::new();
+        for z in [1.0, 2.0] {
+            center_on(&mut h, tail);
+            h.app.tab_mut().cam.z = z;
+            h.frame();
+            let out = h.frame_output(|_| {});
+            let at = output_circle(&h, tail);
+            let square = stop_square_at(&out, at).expect("Stop is a square on the output circle");
+            assert!(
+                !circle_at(&out, at),
+                "no disc or ring around the Stop square at zoom {z}"
+            );
+            assert!(
+                (square.width() - square.height()).abs() < 0.01,
+                "a square: {square:?}"
+            );
+            sides.push(square.width() / z);
+        }
+        assert!(
+            (sides[0] - sides[1]).abs() < 0.01,
+            "the square scales with the board (P0.9): {sides:?}"
         );
     }
 
@@ -12640,6 +12958,16 @@ To install them by hand, run in PowerShell:\n  cd \"C:\\workspace\\Slate\\docs\\
     /// once, every visible card has the shape's form, cards read left to
     /// right without overlapping, and no provider ran.
     fn assert_projected(h: &super::super::tests::Harness, root: NodeId, shape: Shape) {
+        assert_projected_with(h, root, shape, None);
+    }
+
+    /// [`assert_projected`] with one unsent draft card allowed in the train.
+    fn assert_projected_with(
+        h: &super::super::tests::Harness,
+        root: NodeId,
+        shape: Shape,
+        draft: Option<NodeId>,
+    ) {
         use slate_doc::agent_chat::{conversation, visible_parent, Detail};
         let scene = &h.app.doc().scene;
         let visible: Vec<&Node> = conversation(scene, root)
@@ -12675,7 +13003,7 @@ To install them by hand, run in PowerShell:\n  cd \"C:\\workspace\\Slate\\docs\\
             .collect();
         want.sort();
         assert_eq!(read, want, "{shape:?}: each branch reads whole, once");
-        for n in &visible {
+        for n in visible.iter().filter(|n| Some(n.id) != draft) {
             let a = slate_doc::agent_chat::agent(n).unwrap();
             let turns = h.app.visible_agent_turns(n.id);
             assert!(!a.chat.draft, "{shape:?}: no stray draft card");
@@ -12806,6 +13134,123 @@ To install them by hand, run in PowerShell:\n  cd \"C:\\workspace\\Slate\\docs\\
             ],
             Shape::Pairs,
         );
+    }
+
+    /// The visible sent card that ends the main line.
+    fn main_tail(h: &super::super::tests::Harness, root: NodeId) -> NodeId {
+        let scene = &h.app.doc().scene;
+        slate_doc::agent_chat::conversation(scene, root)
+            .into_iter()
+            .find(|id| {
+                let n = scene.node(*id).unwrap();
+                !n.hidden
+                    && !slate_doc::agent_chat::agent(n).unwrap().chat.draft
+                    && shown(h, *id).last().map(String::as_str) == Some(MAIN[5])
+            })
+            .expect("the main line has a visible tail")
+    }
+
+    const DRAFT_TEXT: &str = "And the benches?";
+
+    /// The unsent draft sits at the tail of the main line in `shape`: its own
+    /// draft card in line with the train, or the composer of the tail card.
+    fn assert_draft_joined(
+        h: &super::super::tests::Harness,
+        root: NodeId,
+        draft: NodeId,
+        shape: Shape,
+        as_card: bool,
+    ) {
+        use slate_doc::agent_chat::{agent, visible_parent, Detail};
+        let scene = &h.app.doc().scene;
+        let tail = main_tail(h, root);
+        if !as_card {
+            assert!(scene.node(draft).is_none(), "{shape:?}: the draft card joined the tail");
+            assert_eq!(
+                h.app.agents.prompts.get(&tail).map(String::as_str),
+                Some(DRAFT_TEXT),
+                "{shape:?}: the tail's composer holds the unsent text"
+            );
+            assert!(!h.app.agent_has_child(tail), "{shape:?}: the tail shows its composer");
+            return;
+        }
+        let n = scene.node(draft).expect("the draft card stays");
+        let a = agent(n).unwrap();
+        assert!(a.chat.draft && !n.hidden, "{shape:?}: still an unsent draft");
+        assert_eq!(visible_parent(scene, n), Some(tail), "{shape:?}: hangs from the tail");
+        let want = match shape {
+            Shape::Pairs => (true, Detail::Pair),
+            Shape::Train => (true, Detail::Summary),
+            Shape::Window => (false, Detail::Full),
+        };
+        assert_eq!((a.chat.train, a.chat.detail), want, "{shape:?}: drawn in the new form");
+        assert_eq!(
+            h.app.agents.prompts.get(&draft).map(String::as_str),
+            Some(DRAFT_TEXT),
+            "{shape:?}: the unsent text is kept"
+        );
+    }
+
+    #[test]
+    fn an_unsent_draft_joins_every_presentation_switch() {
+        let (mut h, ids) = branched_pairs("mode_draft_joins");
+        let root = ids[0];
+        h.app.board_sel = std::iter::once(ids[2]).collect();
+        assert!(h.app.agent_spawn_command(None));
+        let draft = *h.app.board_sel.iter().next().unwrap();
+        *h.app.agents.prompt_mut(draft) = DRAFT_TEXT.into();
+        settle(&mut h);
+        assert_projected_with(&h, root, Shape::Pairs, Some(draft));
+        assert_draft_joined(&h, root, draft, Shape::Pairs, true);
+
+        let card = main_tail(&h, root);
+        switch(&mut h, card, Shape::Train);
+        assert_projected_with(&h, root, Shape::Train, Some(draft));
+        assert_draft_joined(&h, root, draft, Shape::Train, true);
+
+        let before = h.app.doc().scene.nodes.clone();
+        let card = main_tail(&h, root);
+        switch(&mut h, card, Shape::Window);
+        assert_projected(&h, root, Shape::Window);
+        assert_draft_joined(&h, root, draft, Shape::Window, false);
+        h.app.board_undo();
+        assert_eq!(
+            h.app.doc().scene.nodes,
+            before,
+            "one Undo restores the train and the draft's place"
+        );
+        settle(&mut h);
+        assert_draft_joined(&h, root, draft, Shape::Train, true);
+        h.app.board_redo();
+        settle(&mut h);
+        assert_draft_joined(&h, root, draft, Shape::Window, false);
+
+        let before = h.app.doc().scene.nodes.clone();
+        let card = main_tail(&h, root);
+        switch(&mut h, card, Shape::Pairs);
+        assert_projected(&h, root, Shape::Pairs);
+        assert_draft_joined(&h, root, draft, Shape::Pairs, false);
+        h.app.board_undo();
+        assert_eq!(
+            h.app.doc().scene.nodes,
+            before,
+            "one Undo restores the single window"
+        );
+        assert!(h.app.agents.dispatched.is_empty(), "the draft was never sent");
+    }
+
+    #[test]
+    fn a_draft_card_switches_presentation_from_its_own_selection() {
+        let (mut h, ids) = branched_pairs("mode_draft_selected");
+        let root = ids[0];
+        h.app.board_sel = std::iter::once(ids[2]).collect();
+        assert!(h.app.agent_spawn_command(None));
+        let draft = *h.app.board_sel.iter().next().unwrap();
+        *h.app.agents.prompt_mut(draft) = DRAFT_TEXT.into();
+        settle(&mut h);
+        switch(&mut h, draft, Shape::Window);
+        assert_projected(&h, root, Shape::Window);
+        assert_draft_joined(&h, root, draft, Shape::Window, false);
     }
 
     #[test]
