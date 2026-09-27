@@ -5091,7 +5091,7 @@ impl SlateApp {
         // Viewport cull uses the spatial index (Art. II); off-screen nodes
         // are not cloned or painted.
         self.begin_agent_paint();
-        self.brush_stamp_rebuilds = 0;
+        self.stamp_sync_px = 0.0;
         let _nodes_span = atlas_core::session_log::span("slate.board.nodes");
         let mut nodes = self.board_paint_nodes(rect);
         // A Shift preview that continues a stroke paints that stroke inside

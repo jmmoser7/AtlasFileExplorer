@@ -151,22 +151,29 @@ pub(crate) fn stamp_erase_mark(
     points: &[Pos2],
     span: StrokeSpan,
 ) -> Option<(Node, bool)> {
-    let mut after = before.clone();
-    let NodeKind::Shape(shape) = &mut after.kind else {
-        return None;
-    };
-    let path = shape.path.as_mut()?;
-    std::sync::Arc::make_mut(path)
-        .erase
-        .push(slate_doc::scene::EraseMark {
-            points: points
-                .iter()
-                .map(|point| board_path::world_to_node_norm(*point, after.rect, after.rotation_deg))
-                .collect(),
-            tips: vec![span],
-        });
+    let after = with_erase_mark(before, points, span);
     let (ink, gone) = erased_result(&after);
     ink.then_some((after, gone))
+}
+
+/// `before` with one more erase pass along world `points`.
+pub(crate) fn with_erase_mark(before: &Node, points: &[Pos2], span: StrokeSpan) -> Node {
+    let mut after = before.clone();
+    let (rect, rotation) = (after.rect, after.rotation_deg);
+    if let NodeKind::Shape(shape) = &mut after.kind {
+        if let Some(path) = shape.path.as_mut() {
+            std::sync::Arc::make_mut(path)
+                .erase
+                .push(slate_doc::scene::EraseMark {
+                    points: points
+                        .iter()
+                        .map(|point| board_path::world_to_node_norm(*point, rect, rotation))
+                        .collect(),
+                    tips: vec![span],
+                });
+        }
+    }
+    after
 }
 
 pub(crate) enum DesktopDestination {
@@ -986,12 +993,21 @@ impl SlateApp {
         );
         let ids = self.commit_created_nodes(vec![node]);
         let id = ids.first().copied();
+        self.hold_brush_live(id);
         self.brush_chain = Some(end);
         self.set_brush_anchor(end, id);
         self.push_history(
             atlas_commands::CommandId("board.brush.stroke"),
             Some("stroke".into()),
         );
+    }
+
+    /// The live brush canvas shows stroke `id` as committed; it stands in
+    /// until the stroke's own raster lands, so the commit frame builds none.
+    fn hold_brush_live(&mut self, id: Option<NodeId>) {
+        if let (Some(id), Some(canvas)) = (id, self.brush_live.as_mut()) {
+            canvas.hold(id);
+        }
     }
 
     fn set_brush_anchor(&mut self, pos: Pos2, node: Option<NodeId>) {
@@ -1026,6 +1042,7 @@ impl SlateApp {
             );
             let ids = self.commit_created_nodes(vec![node]);
             let id = ids.first().copied();
+            self.hold_brush_live(id);
             self.brush_chain = Some(points[0]);
             self.set_brush_anchor(points[0], id);
             self.push_history(
@@ -1070,6 +1087,7 @@ impl SlateApp {
         let end = self.tip_now();
         if let Some(id) = anchor {
             if self.extend_brush_chain(id, a, b, end) {
+                self.hold_brush_live(Some(id));
                 self.set_brush_anchor(b, Some(id));
                 self.push_history(
                     atlas_commands::CommandId("board.brush.stroke"),
@@ -1101,6 +1119,7 @@ impl SlateApp {
             }),
         );
         let ids = self.commit_created_nodes(vec![node]);
+        self.hold_brush_live(ids.first().copied());
         self.set_brush_anchor(b, ids.first().copied());
         self.push_history(
             atlas_commands::CommandId("board.brush.stroke"),
@@ -1377,7 +1396,7 @@ impl SlateApp {
         points: Vec<Pos2>,
         spot: Vec<NodeId>,
     ) {
-        let live = std::mem::take(&mut self.erase_live);
+        let mut live = std::mem::take(&mut self.erase_live);
         if let Some(last) = points.last() {
             self.eraser_anchor = Some(*last);
         }
@@ -1421,18 +1440,29 @@ impl SlateApp {
                 board_removes.push((index, node));
             }
         }
+        // Strokes whose preview becomes their stand-in once the patch lands.
+        let mut stand_ins = Vec::new();
         for id in &spot {
-            // Only strokes the pass visibly changed. Without a live preview
-            // (headless), fall back to stamping the result.
-            if live.get(&id).is_some_and(|l| !l.changed) {
+            // Only strokes the pass visibly changed. The live preview already
+            // holds the result, so release reads it instead of stamping the
+            // stroke again on the frame loop. Without one (headless), fall
+            // back to stamping the result.
+            if live.get(id).is_some_and(|l| !l.changed) {
                 continue;
             }
             let Some(before) = self.doc().scene.node(*id).cloned() else {
                 continue;
             };
-            let Some((after, gone)) = stamp_erase_mark(&before, &points, span) else {
+            let result = match live.get(id) {
+                Some(l) => Some((with_erase_mark(&before, &points, span), !l.left_ink())),
+                None => stamp_erase_mark(&before, &points, span),
+            };
+            let Some((after, gone)) = result else {
                 continue;
             };
+            if !gone && live.contains_key(id) {
+                stand_ins.push((*id, after.rect));
+            }
             if gone {
                 if let Some(index) = self
                     .doc()
@@ -1462,6 +1492,12 @@ impl SlateApp {
         if !cmds.is_empty() {
             self.last_board_edit = None;
             self.commit_scene(cmds);
+        }
+        for (id, rect) in stand_ins {
+            if let Some(l) = live.remove(&id) {
+                let gpu = l.into_stand_in(rect, self.frame_no);
+                self.brush_stamps.insert(id, (0, gpu));
+            }
         }
         if n > 0 {
             self.push_history(
@@ -2063,6 +2099,7 @@ pub(crate) fn erased_result(node: &slate_doc::Node) -> (bool, bool) {
         .fold(0.0_f32, f32::max);
     let pixel = (widest / 64.0).max(1.0);
     let marks = board_path::stamped_erase_marks(node, shape, path);
+    board_path::note_stamp_on_this_thread();
     let (older, newest) = marks.split_at(marks.len().saturating_sub(1));
     let Some(mut img) =
         vector_ink::stamp_blurred(&contours, older, pixel, shape.stroke.gaussian_blur)

@@ -634,8 +634,11 @@ pub struct SlateApp {
     /// Kept for strokes that are selected, faded, or mid-erase. Plain runs
     /// live in [`Self::brush_tiles`] instead.
     pub(crate) brush_stamps: HashMap<NodeId, (u64, board_path::BrushStampGpu)>,
-    /// Stamp resolution upgrades spent this frame.
-    pub(crate) brush_stamp_rebuilds: u32,
+    /// Stamp bitmap pixels rasterized on the frame loop this frame.
+    pub(crate) stamp_sync_px: f32,
+    /// Stamp bitmaps ever rasterized on the frame loop (the rest build on
+    /// the raster workers).
+    pub(crate) stamp_sync_builds: u64,
     /// World-aligned textures for runs of plain committed brush strokes.
     pub(crate) brush_tiles: board_path::tiles::BrushTiles,
     /// When false, every stamp paints through its own texture (the pre-tile path).
@@ -751,6 +754,9 @@ impl SlateApp {
         // installs them on a later frame (egui's built-in proportional face
         // until then; Home titles do not use the system list).
         let font_rx = Self::spawn_system_fonts(egui_ctx.clone());
+        // The brush textures' paper, baked once so the first textured stroke
+        // does not pay for it on the frame loop.
+        std::thread::spawn(vector_ink::warm_grain_fields);
         egui_ctx.set_theme(egui::ThemePreference::Dark);
         egui_ctx.set_visuals(dark_visuals());
         atlas_shell::canvas_text::install(egui_ctx);
@@ -960,7 +966,8 @@ impl SlateApp {
             brush_setting_undo: Vec::new(),
             brush_live: None,
             brush_stamps: HashMap::new(),
-            brush_stamp_rebuilds: 0,
+            stamp_sync_px: 0.0,
+            stamp_sync_builds: 0,
             brush_tiles: board_path::tiles::BrushTiles::default(),
             brush_tiles_enabled: true,
             eraser_width: settings::ERASER_WIDTH_DEFAULT,

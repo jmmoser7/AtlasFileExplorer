@@ -299,6 +299,134 @@ fn bench_eraser_across_blurred_strokes() {
     erase_across(erase_board("eraser_bench_50_blur", 6.0), "blurred strokes");
 }
 
+/// Screen-wide painted bars, the size behind "ran f4 erasor lock up
+/// interface on commit of comand": each bar's bitmap is far past what the
+/// frame loop may rasterize in one frame.
+fn big_bars(h: &mut Harness, blur: f32) {
+    let c = h.app.board_xf().s2w(center(h));
+    h.app.set_board_tool(BoardTool::Brush);
+    h.app.brush_width = 60.0;
+    for row in 0..6 {
+        let y = c.y - 225.0 + row as f32 * 90.0;
+        h.app.finish_freehand_brush(vec![
+            Pos2::new(c.x - 650.0, y),
+            Pos2::new(c.x, y + 6.0),
+            Pos2::new(c.x + 650.0, y),
+        ]);
+    }
+    if blur > 0.0 {
+        let ids: Vec<_> = h.app.doc().scene.nodes.iter().map(|n| n.id).collect();
+        h.app.patch_nodes(&ids, |n| {
+            if let NodeKind::Shape(s) = &mut n.kind {
+                s.stroke.gaussian_blur = blur;
+            }
+        });
+    }
+    settle(h);
+}
+
+fn settle(h: &mut Harness) {
+    let deadline = Instant::now() + std::time::Duration::from_secs(60);
+    loop {
+        h.frame();
+        if h.app.brush_tiles.last.settled {
+            return;
+        }
+        assert!(Instant::now() < deadline, "brush rasters did not settle");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
+/// The release frame and the ten after it. Worker time between frames is
+/// not frame time, so the frames are spaced a little.
+fn release_frames(h: &mut Harness, end: Pos2) -> (f32, f32) {
+    let release = timed(h, button(end, false));
+    let mut after = Vec::new();
+    for _ in 0..10 {
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        after.push(timed(h, pointer_at(end)));
+    }
+    (release, after.iter().cloned().fold(0.0, f32::max))
+}
+
+/// Press, drag, and release of the tool armed now along screen `path`.
+fn drag_release(h: &mut Harness, path: &[Pos2]) -> (f32, f32, f32, f32) {
+    hover_frame(h, path[0]);
+    let press = timed(h, button(path[0], true));
+    let mut moves = Vec::new();
+    for p in &path[1..] {
+        moves.push(timed(h, pointer_at(*p)));
+    }
+    let end = *path.last().unwrap();
+    for _ in 0..20 {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        moves.push(timed(h, pointer_at(end)));
+    }
+    let (release, next) = release_frames(h, end);
+    (press, moves.iter().cloned().fold(0.0, f32::max), release, next)
+}
+
+/// Frame cost of committing an erase, a brush stroke, and a smooth pass on
+/// screen-wide strokes: the press, the worst drag frame, the release frame,
+/// and the worst of the ten frames after it.
+#[test]
+#[ignore]
+fn bench_commits_on_big_strokes() {
+    for blur in [0.0, 6.0] {
+        let mut h = board("commit_bench_erase");
+        big_bars(&mut h, blur);
+        h.app.set_board_tool(BoardTool::Eraser);
+        h.app.eraser_width = 30.0;
+        let c = center(&h);
+        let path: Vec<Pos2> = (0..=12)
+            .map(|i| c + egui::vec2(0.0, -260.0 + i as f32 * 43.0))
+            .collect();
+        let (press, drag, release, next) = drag_release(&mut h, &path);
+        println!(
+            "eraser across 6 big strokes (blur {blur}): press {press:.1} ms, drag max {drag:.1} ms, release {release:.1} ms, next 10 max {next:.1} ms, {} erased",
+            touched(&h, |s| s.path.as_ref().is_some_and(|p| !p.erase.is_empty()))
+        );
+    }
+
+    let mut h = board("commit_bench_brush");
+    h.app.set_board_tool(BoardTool::Brush);
+    h.app.brush_width = 60.0;
+    let c = center(&h);
+    let path: Vec<Pos2> = (0..=26)
+        .map(|i| c + egui::vec2(-650.0 + i as f32 * 50.0, (i as f32 * 0.7).sin() * 40.0))
+        .collect();
+    let (press, drag, release, next) = drag_release(&mut h, &path);
+    println!(
+        "brush stroke across the view: press {press:.1} ms, drag max {drag:.1} ms, release {release:.1} ms, next 10 max {next:.1} ms, {} committed",
+        touched(&h, |_| true)
+    );
+
+    let mut h = board("commit_bench_smooth");
+    big_bars(&mut h, 0.0);
+    h.app.set_board_tool(BoardTool::Smooth);
+    h.app.smooth_width = 120.0;
+    h.app.smooth_strength = 1.0;
+    let c = center(&h);
+    let path: Vec<Pos2> = (0..=12)
+        .map(|i| c + egui::vec2(-300.0 + i as f32 * 50.0, -225.0 + i as f32 * 37.0))
+        .collect();
+    let (press, drag, release, next) = drag_release(&mut h, &path);
+    println!(
+        "smooth across 6 big strokes: press {press:.1} ms, drag max {drag:.1} ms, release {release:.1} ms, next 10 max {next:.1} ms, {} smoothed",
+        touched(&h, |s| s.stroke.gaussian_blur > 0.0)
+    );
+}
+
+fn touched(h: &Harness, test: impl Fn(&ShapeNode) -> bool) -> usize {
+    h.app
+        .doc()
+        .scene
+        .nodes
+        .iter()
+        .filter(|n| matches!(&n.kind, NodeKind::Shape(s) if test(s)))
+        .count()
+}
+
 fn erase_across(mut h: Harness, label: &str) {
     h.app.set_board_tool(BoardTool::Eraser);
     h.app.eraser_width = 24.0;

@@ -14,6 +14,7 @@ mod edit;
 mod fit;
 mod flatten;
 mod geom;
+mod grain;
 mod hit;
 mod mesh;
 mod smooth;
@@ -140,10 +141,12 @@ pub use hit::hit_stroke;
 pub use smooth::{
     curvature_variance, laplacian_smooth_pass, laplacian_smooth_spline, radial_weight,
 };
+pub use grain::warm_grain_fields;
 pub use stamp::{
-    apply_erase, default_pixel, erase_coverage_at, grain_coverage, multiply_by_mask, stamp_blurred,
-    stamp_contours, stamp_contours_at, stamp_line, stamp_polyline, stamp_segment, stamp_tipped,
-    tip_coverage, tipped_contours, Grain, StampImage, StampStyle, TipPoint,
+    apply_erase, default_pixel, erase_coverage_at, finish_grain, finished_region, grain_coverage, multiply_by_mask,
+    stamp_blurred, stamp_contours, stamp_contours_at, stamp_line, stamp_polyline, stamp_segment,
+    stamp_tipped, stroke_grain, tip_coverage, tipped_contours, Grain, StampImage, StampStyle,
+    TipPoint,
 };
 pub use stroke::{
     stroke_bounds, stroke_mesh, stroke_mesh_tinted, stroke_mesh_tipped, stroke_outline,

@@ -4674,6 +4674,7 @@ dependencies = [
  "earcutr",
  "i_overlay",
  "kurbo",
+ "png",
 ]
 
 [[package]]
