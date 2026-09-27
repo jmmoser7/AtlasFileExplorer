@@ -1,5 +1,22 @@
 # Canvas command project — change log
 
+## 2026-09-27 — KEYMAP brought in line with the brush and draft contracts
+
+- `KEYMAP.md` Tab / Shift+Tab: Tab locks the pending segment's direction
+  for every drawn segment (P2.RhinoDraft.tab): Line, Polyline, Arc,
+  Bézier span, the Brush Shift drag, and the Eraser Shift pass. It
+  previously cited only `line.md` D07.
+- `KEYMAP.md` Alt+right-drag: 2 screen px of diameter per pixel of travel
+  (was 1), softness for Brush, Eraser, and Smooth, and the style row
+  entered at maximum hardness, kept on release (`brush.md` D05, D08).
+- `KEYMAP.md` Shift+right-drag: Brush opacity, Eraser and Smooth strength,
+  and curve tools' opacity, down to 0 % (was "Brush only"; `brush.md`
+  D05).
+- `KEYMAP.md` adds Shift+left-drag (Brush) and Shift+click (Brush) rows:
+  the straight segment from the last stroke's end with 45° steps and the
+  Tab lock, and the connect click within 8 screen px (`brush.md` D03, D04,
+  D07). Neither steps opacity.
+
 ## 2026-09-27 — Agent chat: stable chooser, bare Stop, drafts join a switch
 
 - `portal-agent-link` D13: the Codex conversation chooser keeps a fixed
