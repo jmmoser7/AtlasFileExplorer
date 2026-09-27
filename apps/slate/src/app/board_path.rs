@@ -2722,7 +2722,7 @@ impl SlateApp {
     }
 
     pub(crate) fn path_tool_click(&mut self, world: Pos2) {
-        // Ortho (F8, Shift inverts): draft segments snap to 45Â° from the
+        // Ortho (F8, Shift inverts): draft segments snap to 45° from the
         // last anchor (constraints spec Â§1).
         let from = match &self.board_path_draft {
             Some(BoardPathDraft::Polyline { points, .. }) => points.last().copied(),
