@@ -75,6 +75,28 @@
   the pointer warp lands on the painted dot's center each time a dot is
   entered (`brush` D09, D17).
 
+## 2026-09-27 — Commits never stall on big strokes; lighter brush textures
+
+- `brush` D11 (user: "ran f4 erasor lock up interface on commit of
+  comand"): releasing an eraser pass, a brush stroke, or a smooth pass no
+  longer rasterizes big strokes on the frame loop. Bitmaps larger than
+  `SYNC_STAMP_PX` (256 × 256) build on the brush raster workers and the
+  newest wins. Until then the eraser preview, the live brush canvas, or the
+  stroke's previous bitmap stands in, and the un-erased stroke never paints
+  again. The eraser release reads the pass's result from its live preview
+  instead of stamping each stroke again. On six screen-wide strokes (dev
+  profile) the erase release frame went from 36 ms (75 ms blurred) to 1 ms,
+  the brush release from 10 ms to 1 ms, and the worst smooth drag frame
+  from 66 ms to 1 ms. No new command.
+- `brush` Textures (new section; user: "brush texres are very heavy ...
+  look closly at prior art from tools like photoshop"): the grain is applied
+  once to each finished pixel, reading its depth into the stroke and baked
+  world-tiling paper fields. No noise is evaluated per dab. Graphite, Pencil,
+  Ink, and Watercolor each follow their Photoshop counterpart: Watercolor
+  gains wet edges and granulation, Ink a slight wet rim. A textured stamp
+  costs about half what it did (Watercolor 112 → 49 ms on the bench). The
+  board, tiles, live previews, and HTML export share the one model.
+
 ## 2026-09-27 — Tip HUD for every open curve, styles, and anchor editing
 
 - Alt+right-drag's size circle is pinned to the canvas at the press point

@@ -13,3 +13,6 @@ path = "src/lib.rs"
 kurbo = { workspace = true }
 i_overlay = { workspace = true }
 earcutr = { workspace = true }
+
+[dev-dependencies]
+png = { workspace = true }

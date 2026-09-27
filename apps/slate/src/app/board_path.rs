@@ -1818,14 +1818,43 @@ pub(crate) fn stamped_contours(
     contours
 }
 
-/// Stamps rasterized on the frame loop per frame: rebuilds for a zoom change
-/// and live eraser previews. A stroke without any bitmap always builds, so a
-/// commit never flickers; a stroke waiting for its eraser preview keeps
-/// painting as committed.
-const STAMP_REBUILDS_PER_FRAME: u32 = 3;
+/// Stamp bitmap pixels the frame loop may rasterize in one frame. Anything
+/// larger builds on the raster workers while a stand-in paints (Art. II):
+/// a big stroke's commit, erase, smooth, or zoom never stalls the frame.
+const SYNC_STAMP_PX: f32 = 256.0 * 256.0;
 
-/// Build the live eraser preview for strokes the pass reached, a few per
-/// frame. Until a stroke has one it stays on the tile path, as committed.
+/// Bitmap pixels stroke `node` needs at `pixel` world units per pixel.
+fn stamp_area_px(node: &Node, shape: &ShapeNode, pixel: f32) -> f32 {
+    let r = tiles::ink_rect(node, shape);
+    let px = pixel.max(1.0e-3);
+    ((r[2] - r[0]) / px).max(1.0) * ((r[3] - r[1]) / px).max(1.0)
+}
+
+/// Spend this frame's synchronous raster budget on `area` pixels, if it fits.
+fn take_sync_budget(app: &mut SlateApp, area: f32) -> bool {
+    if app.stamp_sync_px + area > SYNC_STAMP_PX {
+        return false;
+    }
+    app.stamp_sync_px += area;
+    app.stamp_sync_builds += 1;
+    true
+}
+
+/// A stroke's stamp content key: path, style, and placement.
+fn stamp_key(node: &Node, shape: &ShapeNode, path: &PathData) -> u64 {
+    path_content_hash(
+        path,
+        &shape.stroke,
+        node.rect,
+        node.rotation_deg,
+        shape.corner,
+        0,
+    ) ^ 0x57A5
+}
+
+/// Start the live eraser preview for strokes the pass reached. Small
+/// strokes build on the frame loop within [`SYNC_STAMP_PX`]; others build on
+/// the raster workers and keep painting as committed until theirs lands.
 pub(crate) fn ensure_erase_live(app: &mut SlateApp, painter: &egui::Painter, xf: &BoardXf) {
     let Some(super::board::BoardDrag::Erase { spot, .. }) = &app.board_drag else {
         return;
@@ -1837,25 +1866,41 @@ pub(crate) fn ensure_erase_live(app: &mut SlateApp, painter: &egui::Painter, xf:
         .collect();
     let want = stamp_pixel_for_zoom(xf.z, painter.ctx().pixels_per_point());
     for id in waiting {
-        if app.brush_stamp_rebuilds >= STAMP_REBUILDS_PER_FRAME {
-            painter.ctx().request_repaint();
-            return;
-        }
         let Some(node) = app.doc().scene.node(id).cloned() else {
             continue;
         };
-        let NodeKind::Shape(shape) = &node.kind else {
-            continue;
-        };
-        let Some(path) = shape.path.as_ref() else {
-            continue;
-        };
-        app.brush_stamp_rebuilds += 1;
-        if let Some(live) = EraseLive::new(painter, &node, shape, path, want) {
-            app.erase_live.insert(id, live);
-        }
+        start_erase_live(app, painter, &node, want);
     }
 }
+
+fn start_erase_live(app: &mut SlateApp, painter: &egui::Painter, node: &Node, want: f32) {
+    let NodeKind::Shape(shape) = &node.kind else {
+        return;
+    };
+    let Some(path) = shape.path.as_ref() else {
+        return;
+    };
+    let key = stamp_key(node, shape, path);
+    if let Some(r) = app.brush_tiles.take_stroke(node.id) {
+        if r.key == key && r.pixel == want {
+            if let Some(stamp) = r.stamp {
+                let live = EraseLive::from_stamp(painter, node.id, stamp, r.image);
+                app.erase_live.insert(node.id, live);
+            }
+            return;
+        }
+    }
+    if take_sync_budget(app, stamp_area_px(node, shape, want)) {
+        if let Some(stamp) = stroke_stamp(node, shape, path, want) {
+            let live = EraseLive::from_stamp(painter, node.id, stamp, None);
+            app.erase_live.insert(node.id, live);
+        }
+        return;
+    }
+    app.brush_tiles.request_stroke(node, key, want);
+    painter.ctx().request_repaint();
+}
+
 const STAMP_CACHE_BYTES: usize = 384 * 1024 * 1024;
 
 /// Cached radial stamp for one committed stroke.
@@ -1867,6 +1912,22 @@ pub struct BrushStampGpu {
     pub wanted_pixel: f32,
     pub bytes: usize,
     pub used: u64,
+    /// Built from the stroke's content at `wanted_pixel`. A bitmap that is
+    /// not exact (an older key, the eraser preview at release) only stands
+    /// in while the exact one builds.
+    pub exact: bool,
+    /// The node's rect when this bitmap was built. A stand-in follows the
+    /// node's current rect.
+    pub rect: WorldRect,
+}
+
+/// A stroke has something to paint while its exact bitmap builds.
+pub(crate) fn has_stand_in(app: &SlateApp, id: NodeId) -> bool {
+    app.brush_stamps.contains_key(&id)
+        || app
+            .brush_live
+            .as_ref()
+            .is_some_and(|c| c.held.is_some_and(|(held, _)| held == id))
 }
 
 fn paint_stamped_stroke(
@@ -1889,13 +1950,8 @@ fn paint_stamped_stroke(
         if spot.contains(&node.id) {
             let (points, straight) = (points.clone(), *straight);
             let tip = app.eraser_tip();
-            if !app.erase_live.contains_key(&node.id)
-                && app.brush_stamp_rebuilds < STAMP_REBUILDS_PER_FRAME
-            {
-                app.brush_stamp_rebuilds += 1;
-                if let Some(live) = EraseLive::new(painter, node, shape, path, want) {
-                    app.erase_live.insert(node.id, live);
-                }
+            if !app.erase_live.contains_key(&node.id) {
+                start_erase_live(app, painter, node, want);
             }
             if let Some(live) = app.erase_live.get_mut(&node.id) {
                 live.feed(&points, tip, straight);
@@ -1904,38 +1960,61 @@ fn paint_stamped_stroke(
             }
         }
     }
-    let key = path_content_hash(
-        path,
-        &shape.stroke,
-        node.rect,
-        node.rotation_deg,
-        shape.corner,
-        0,
-    ) ^ 0x57A5;
-    let (same_shape, same_res) = match app.brush_stamps.get(&node.id) {
-        Some((cached, gpu)) => (*cached == key, gpu.wanted_pixel == want),
-        None => (false, false),
+    let key = stamp_key(node, shape, path);
+    let exact = |app: &SlateApp| {
+        app.brush_stamps
+            .get(&node.id)
+            .is_some_and(|(k, g)| g.exact && *k == key && g.wanted_pixel == want)
     };
-    if !(same_shape && same_res) {
-        let rebuild_allowed = !same_shape || app.brush_stamp_rebuilds < STAMP_REBUILDS_PER_FRAME;
-        if rebuild_allowed {
-            if same_shape {
-                app.brush_stamp_rebuilds += 1;
+    if !exact(app) {
+        if let Some(r) = app.brush_tiles.take_stroke(node.id) {
+            let current = r.key == key && r.pixel == want;
+            match r.stamp {
+                Some(stamp) => {
+                    let name = format!("brush-stamp-{}", node.id.0);
+                    let mut gpu = upload_stamp(painter, &name, stamp, r.image, r.pixel, node.rect);
+                    gpu.exact = current;
+                    app.brush_stamps.insert(node.id, (r.key, gpu));
+                    evict_brush_stamps(&mut app.brush_stamps, app.frame_no);
+                }
+                None if current => {
+                    app.brush_stamps.remove(&node.id);
+                    return;
+                }
+                None => {}
             }
+        }
+    }
+    if !exact(app) {
+        if take_sync_budget(app, stamp_area_px(node, shape, want)) {
             let Some(stamp) = stroke_stamp(node, shape, path, want) else {
                 app.brush_stamps.remove(&node.id);
                 return;
             };
-            let gpu = upload_stamp(painter, &format!("brush-stamp-{}", node.id.0), stamp, want);
+            let name = format!("brush-stamp-{}", node.id.0);
+            let gpu = upload_stamp(painter, &name, stamp, None, want, node.rect);
             app.brush_stamps.insert(node.id, (key, gpu));
             evict_brush_stamps(&mut app.brush_stamps, app.frame_no);
         } else {
+            // Tiles already rasterize a plain stroke off the frame loop.
+            let tiled = app.brush_tiles_enabled && tiles::plain_stamp(app, node).is_some();
+            if !tiled {
+                app.brush_tiles.request_stroke(node, key, want);
+            }
             painter.ctx().request_repaint();
+        }
+    }
+    if !exact(app) {
+        if let Some(canvas) = app.brush_live.as_mut() {
+            if canvas.stands_in_for(node.id, key) {
+                canvas.paint(painter, xf);
+                return;
+            }
         }
     }
     if let Some((_, gpu)) = app.brush_stamps.get_mut(&node.id) {
         gpu.used = app.frame_no;
-        paint_stamp_quad(painter, xf, gpu, fade(Color32::WHITE));
+        paint_stamp_quad(painter, xf, gpu, node.rect, fade(Color32::WHITE));
     }
 }
 
@@ -1947,6 +2026,7 @@ pub(crate) fn stroke_stamp(
     path: &PathData,
     pixel: f32,
 ) -> Option<vector_ink::StampImage> {
+    note_stamp_on_this_thread();
     let contours = stamped_contours(node, shape, path, (pixel as f64 * 0.5).max(0.05));
     vector_ink::stamp_blurred(
         &contours,
@@ -1954,6 +2034,29 @@ pub(crate) fn stroke_stamp(
         pixel,
         shape.stroke.gaussian_blur,
     )
+}
+
+#[cfg(test)]
+thread_local! {
+    static STAMPS_HERE: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Count a whole-stroke stamp rasterized on the calling thread. The raster
+/// workers are other threads, so on the frame thread this counts only
+/// frame-loop work.
+#[cfg(test)]
+pub(crate) fn note_stamp_on_this_thread() {
+    STAMPS_HERE.with(|n| n.set(n.get() + 1));
+}
+
+#[cfg(not(test))]
+#[inline(always)]
+pub(crate) fn note_stamp_on_this_thread() {}
+
+/// Whole-stroke stamps rasterized on this thread so far.
+#[cfg(test)]
+pub(crate) fn stamps_on_this_thread() -> u64 {
+    STAMPS_HERE.with(|n| n.get())
 }
 
 fn evict_brush_stamps(cache: &mut HashMap<NodeId, (u64, BrushStampGpu)>, frame: u64) {
@@ -1988,16 +2091,22 @@ fn premultiplied(rgba: &[u8]) -> Vec<u8> {
     out
 }
 
+/// Upload a stamp bitmap. `image` is its premultiplied texture when a worker
+/// already made it.
 fn upload_stamp(
     painter: &egui::Painter,
     name: &str,
     stamp: vector_ink::StampImage,
+    image: Option<egui::ColorImage>,
     wanted_pixel: f32,
+    rect: WorldRect,
 ) -> BrushStampGpu {
-    let image = egui::ColorImage::from_rgba_premultiplied(
-        [stamp.width as usize, stamp.height as usize],
-        &premultiplied(&stamp.rgba),
-    );
+    let image = image.unwrap_or_else(|| {
+        egui::ColorImage::from_rgba_premultiplied(
+            [stamp.width as usize, stamp.height as usize],
+            &premultiplied(&stamp.rgba),
+        )
+    });
     let tex = painter
         .ctx()
         .load_texture(name, image, egui::TextureOptions::LINEAR);
@@ -2011,15 +2120,33 @@ fn upload_stamp(
         wanted_pixel,
         bytes: stamp.rgba.len(),
         used: 0,
+        exact: true,
+        rect,
     }
 }
 
-fn paint_stamp_quad(painter: &egui::Painter, xf: &BoardXf, gpu: &BrushStampGpu, tint: Color32) {
-    let min = xf.w2s(Pos2::new(gpu.origin[0], gpu.origin[1]));
-    let max = xf.w2s(Pos2::new(
-        gpu.origin[0] + gpu.size[0],
-        gpu.origin[1] + gpu.size[1],
-    ));
+/// Paint a stamp bitmap for a node now at `rect`. A bitmap built for another
+/// rect (a stand-in while the node moves or resizes) maps onto the new one.
+fn paint_stamp_quad(
+    painter: &egui::Painter,
+    xf: &BoardXf,
+    gpu: &BrushStampGpu,
+    rect: WorldRect,
+    tint: Color32,
+) {
+    let (mut origin, mut size) = (gpu.origin, gpu.size);
+    if rect != gpu.rect {
+        let (old, new) = (gpu.rect, rect);
+        let sx = if old.w.abs() > 1.0e-3 { new.w / old.w } else { 1.0 };
+        let sy = if old.h.abs() > 1.0e-3 { new.h / old.h } else { 1.0 };
+        origin = [
+            new.x + (origin[0] - old.x) * sx,
+            new.y + (origin[1] - old.y) * sy,
+        ];
+        size = [size[0] * sx, size[1] * sy];
+    }
+    let min = xf.w2s(Pos2::new(origin[0], origin[1]));
+    let max = xf.w2s(Pos2::new(origin[0] + size[0], origin[1] + size[1]));
     painter.image(
         gpu.tex.id(),
         egui::Rect::from_min_max(min, max),
@@ -2043,8 +2170,12 @@ fn paint_stamp_quad(painter: &egui::Painter, xf: &BoardXf, gpu: &BrushStampGpu, 
 /// only the pixels the last one touched, so a stroke start costs its own area
 /// rather than a full-window allocation and upload.
 pub struct BrushLiveCanvas {
+    /// Raw coverage and depth; the grain is applied per upload, as the
+    /// committed stamp applies it once to the finished stroke.
     img: vector_ink::StampImage,
     base: Vec<u8>,
+    base_depth: Vec<u8>,
+    grain: vector_ink::Grain,
     tex: egui::TextureHandle,
     view: [u32; 6],
     pub anchor: Option<NodeId>,
@@ -2054,6 +2185,10 @@ pub struct BrushLiveCanvas {
     /// Every pixel box drawn since the last reset.
     touched: Option<[u32; 4]>,
     idle: bool,
+    /// The stroke the last drag committed, and its content key once seen.
+    /// Until the next stroke starts, the parked canvas stands in for it
+    /// while its exact bitmap or tiles build.
+    pub held: Option<(NodeId, Option<u64>)>,
 }
 
 fn view_key(xf: &BoardXf, screen: egui::Rect, ppp: f32) -> [u32; 6] {
@@ -2105,8 +2240,11 @@ impl BrushLiveCanvas {
                     origin: [0.0, 0.0],
                     pixel: 1.0,
                     rgba: rgba.clone(),
+                    depth: Vec::new(),
                 },
                 base: rgba,
+                base_depth: Vec::new(),
+                grain: vector_ink::Grain::Smooth,
                 tex,
                 view,
                 anchor: None,
@@ -2115,11 +2253,13 @@ impl BrushLiveCanvas {
                 line_dirty: None,
                 touched: None,
                 idle: true,
+                held: None,
             });
         }
         let canvas = slot.as_mut().expect("canvas just ensured");
         // An empty canvas is empty under any camera, so only the mapping moves.
         canvas.clear_touched();
+        canvas.held = None;
         let origin = xf.s2w(screen.min);
         canvas.img.origin = [origin.x, origin.y];
         canvas.img.pixel = 1.0 / (xf.z * ppp).max(1.0e-3);
@@ -2157,8 +2297,29 @@ impl BrushLiveCanvas {
         self.anchor = None;
     }
 
+    #[cfg(test)]
+    pub(crate) fn texture(&self) -> egui::TextureId {
+        self.tex.id()
+    }
+
+    /// The drag on this canvas committed as stroke `id`.
+    pub fn hold(&mut self, id: NodeId) {
+        self.held = Some((id, None));
+    }
+
+    /// This canvas still shows stroke `id` as it is now (content `key`).
+    /// The first ask after the commit records the key; an edit since then
+    /// means the canvas no longer shows the stroke.
+    fn stands_in_for(&mut self, id: NodeId, key: u64) -> bool {
+        match &mut self.held {
+            Some((held, seen)) if *held == id => *seen.get_or_insert(key) == key,
+            _ => false,
+        }
+    }
+
     /// Stamp a segment and remember its box for the next reset.
     fn stamp(&mut self, a: TipPoint, b: TipPoint) -> Option<[u32; 4]> {
+        self.grain = a.tip.grain;
         stamp_segment(&mut self.img, a, b);
         let bx = self.segment_box(a, b)?;
         self.touched = Some(union_box(self.touched, bx));
@@ -2167,13 +2328,25 @@ impl BrushLiveCanvas {
 
     /// Copy `b` between the canvas and `base` (`to_base` = canvas into base).
     fn copy_rows(&mut self, b: [u32; 4], to_base: bool) {
-        let stride = self.img.width as usize * 4;
+        let w = self.img.width as usize;
+        let stride = w * 4;
+        let deep = !self.img.depth.is_empty();
+        if deep && self.base_depth.len() != self.img.depth.len() {
+            self.base_depth = vec![0; self.img.depth.len()];
+        }
         for y in b[1] as usize..b[3] as usize {
             let row = y * stride + b[0] as usize * 4..y * stride + b[2] as usize * 4;
+            let drow = y * w + b[0] as usize..y * w + b[2] as usize;
             if to_base {
                 self.base[row.clone()].copy_from_slice(&self.img.rgba[row]);
+                if deep {
+                    self.base_depth[drow.clone()].copy_from_slice(&self.img.depth[drow]);
+                }
             } else {
                 self.img.rgba[row.clone()].copy_from_slice(&self.base[row]);
+                if deep {
+                    self.img.depth[drow.clone()].copy_from_slice(&self.base_depth[drow]);
+                }
             }
         }
     }
@@ -2182,11 +2355,19 @@ impl BrushLiveCanvas {
         let Some(b) = self.touched.take() else {
             return;
         };
-        let stride = self.img.width as usize * 4;
+        let w = self.img.width as usize;
+        let stride = w * 4;
         for y in b[1] as usize..b[3] as usize {
             let row = y * stride + b[0] as usize * 4..y * stride + b[2] as usize * 4;
             self.img.rgba[row.clone()].fill(0);
             self.base[row].fill(0);
+            let drow = y * w + b[0] as usize..y * w + b[2] as usize;
+            if !self.img.depth.is_empty() {
+                self.img.depth[drow.clone()].fill(0);
+            }
+            if !self.base_depth.is_empty() {
+                self.base_depth[drow].fill(0);
+            }
         }
         self.upload(b);
     }
@@ -2196,7 +2377,8 @@ impl BrushLiveCanvas {
     }
 
     fn upload(&mut self, dirty: [u32; 4]) {
-        upload_region(&mut self.tex, &self.img.rgba, self.img.width, dirty);
+        let sub = vector_ink::finished_region(&self.img, self.grain, dirty);
+        upload_rows(&mut self.tex, dirty, &sub);
     }
 
     /// Stamp freehand points not yet on the canvas.
@@ -2322,9 +2504,19 @@ fn upload_region(tex: &mut egui::TextureHandle, rgba: &[u8], width: u32, dirty: 
         let row = y * stride + x0 as usize * 4;
         sub.extend_from_slice(&rgba[row..row + w * 4]);
     }
+    upload_rows(tex, dirty, &sub);
+}
+
+/// Upload straight-alpha rows `sub` covering `dirty` into `tex`.
+fn upload_rows(tex: &mut egui::TextureHandle, dirty: [u32; 4], sub: &[u8]) {
+    let [x0, y0, x1, y1] = dirty;
+    let (w, h) = ((x1 - x0) as usize, (y1 - y0) as usize);
+    if w == 0 || h == 0 || sub.len() != w * h * 4 {
+        return;
+    }
     tex.set_partial(
         [x0 as usize, y0 as usize],
-        egui::ColorImage::from_rgba_premultiplied([w, h], &premultiplied(&sub)),
+        egui::ColorImage::from_rgba_premultiplied([w, h], &premultiplied(sub)),
         egui::TextureOptions::LINEAR,
     );
 }
@@ -2336,7 +2528,10 @@ fn upload_region(tex: &mut egui::TextureHandle, rgba: &[u8], width: u32, dirty: 
 /// region the eraser touched.
 pub struct EraseLive {
     ink: Vec<u8>,
+    /// This pass's raw coverage and depth.
     mask: vector_ink::StampImage,
+    /// The mask with the eraser's grain applied, for a textured eraser.
+    grained: Vec<u8>,
     shown: Vec<u8>,
     tex: egui::TextureHandle,
     done: usize,
@@ -2346,20 +2541,23 @@ pub struct EraseLive {
 }
 
 impl EraseLive {
-    fn new(
+    /// A preview over the stroke's committed bitmap `img`. `image` is its
+    /// premultiplied texture when a worker already made it.
+    fn from_stamp(
         painter: &egui::Painter,
-        node: &Node,
-        shape: &ShapeNode,
-        path: &PathData,
-        pixel: f32,
-    ) -> Option<EraseLive> {
-        let img = stroke_stamp(node, shape, path, pixel)?;
-        let tex = painter.ctx().load_texture(
-            format!("erase-live-{}", node.id.0),
+        id: NodeId,
+        img: vector_ink::StampImage,
+        image: Option<egui::ColorImage>,
+    ) -> EraseLive {
+        let image = image.unwrap_or_else(|| {
             egui::ColorImage::from_rgba_premultiplied(
                 [img.width as usize, img.height as usize],
                 &premultiplied(&img.rgba),
-            ),
+            )
+        });
+        let tex = painter.ctx().load_texture(
+            format!("erase-live-{}", id.0),
+            image,
             egui::TextureOptions::LINEAR,
         );
         let mask = vector_ink::StampImage {
@@ -2368,16 +2566,39 @@ impl EraseLive {
             origin: img.origin,
             pixel: img.pixel,
             rgba: vec![0u8; img.rgba.len()],
+            depth: Vec::new(),
         };
-        Some(EraseLive {
+        EraseLive {
             shown: img.rgba.clone(),
             ink: img.rgba,
             mask,
+            grained: Vec::new(),
             tex,
             done: 0,
             line_box: None,
             changed: false,
-        })
+        }
+    }
+
+    /// Any ink is left after this pass.
+    pub(crate) fn left_ink(&self) -> bool {
+        self.shown.iter().skip(3).step_by(4).any(|a| *a > 8)
+    }
+
+    /// The preview as the stroke's stand-in once the pass commits: it shows
+    /// the committed result until the exact bitmap lands.
+    pub(crate) fn into_stand_in(self, rect: WorldRect, frame: u64) -> BrushStampGpu {
+        let m = &self.mask;
+        BrushStampGpu {
+            origin: m.origin,
+            size: [m.width as f32 * m.pixel, m.height as f32 * m.pixel],
+            wanted_pixel: m.pixel,
+            bytes: self.shown.len(),
+            used: frame,
+            exact: false,
+            rect,
+            tex: self.tex,
+        }
     }
 
     /// Bring the mask up to date with the eraser's `points`. A straight pass
@@ -2393,10 +2614,12 @@ impl EraseLive {
                 return;
             };
             if let Some([x0, y0, x1, y1]) = self.line_box.take() {
-                let stride = self.mask.width as usize * 4;
+                let w = self.mask.width as usize;
                 for y in y0 as usize..y1 as usize {
-                    self.mask.rgba[y * stride + x0 as usize * 4..y * stride + x1 as usize * 4]
-                        .fill(0);
+                    self.mask.rgba[(y * w + x0 as usize) * 4..(y * w + x1 as usize) * 4].fill(0);
+                    if !self.mask.depth.is_empty() {
+                        self.mask.depth[y * w + x0 as usize..y * w + x1 as usize].fill(0);
+                    }
                 }
                 dirty = Some([x0, y0, x1, y1]);
                 self.changed = false;
@@ -2437,7 +2660,20 @@ impl EraseLive {
                 }
             }
         }
-        vector_ink::multiply_by_mask(&mut self.shown, &self.mask.rgba, w, Some(d));
+        if tip.grain == vector_ink::Grain::Smooth {
+            vector_ink::multiply_by_mask(&mut self.shown, &self.mask.rgba, w, Some(d));
+        } else {
+            if self.grained.len() != self.mask.rgba.len() {
+                self.grained = vec![0; self.mask.rgba.len()];
+            }
+            let rows = vector_ink::finished_region(&self.mask, tip.grain, d);
+            let span = (x1 - x0) as usize * 4;
+            for (row, y) in rows.chunks_exact(span).zip(y0..y1) {
+                let at = ((y * w + x0) * 4) as usize;
+                self.grained[at..at + span].copy_from_slice(row);
+            }
+            vector_ink::multiply_by_mask(&mut self.shown, &self.grained, w, Some(d));
+        }
         upload_region(&mut self.tex, &self.shown, w, d);
     }
 

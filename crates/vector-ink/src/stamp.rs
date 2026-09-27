@@ -25,22 +25,69 @@ pub struct StampStyle {
 
 /// Medium texture of a stamped tip, a deterministic function of world
 /// position: the same paper grain under every stroke and at every tile.
+///
+/// A stroke is stamped as the plain tip first. The grain then scales each
+/// finished pixel once ([`finish_grain`]) by a factor in `0..=1` read from
+/// the pixel's depth into the stroke and baked paper fields, so it costs one
+/// pass over the stroke however many dabs overlap, and a factor that peaks
+/// at the rim (a wet edge) cannot ring the joints between segments.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Grain {
     #[default]
     Smooth,
-    /// Soft paper tooth, medium scale.
+    /// Fine paper tooth lifting a mid-gray share of the body; the tooth
+    /// bites deeper toward the edge.
     Graphite,
-    /// Fine, streaked tooth; sparse toward the edge.
+    /// Harder and grainier: paper tooth breaks the edge up and speckles the
+    /// body.
     Pencil,
-    /// Solid body with a rough, bled edge.
+    /// Uniform density, crisp edge, with a slightly darker wet edge.
     Ink,
-    /// Blotchy translucent body with a soft, wavering edge.
+    /// Translucent wash that builds across strokes, blooms, pigment
+    /// granulation, and a darker wet edge on a wandering rim.
     Watercolor,
 }
 
-/// Tip coverage with the medium's grain at world point `(wx, wy)`.
-/// `dist` and `radius` share units; the noise is sampled in world units.
+/// How far a finished pixel lies inside its stroke: `0` at the rim, `1` a
+/// quarter radius in or deeper. Stored as a byte per pixel beside the ink.
+/// A pixel at full depth and full opacity skips every later overlapping
+/// segment, so a narrow band keeps a textured stroke near a plain one's cost.
+const DEPTH_SPAN: f32 = 0.25;
+
+fn depth_of(dist: f32, radius: f32) -> f32 {
+    ((radius - dist) / (radius * DEPTH_SPAN).max(1.0e-6)).clamp(0.0, 1.0)
+}
+
+/// Grain factor at `depth` (see [`DEPTH_SPAN`]) and world point `(wx, wy)`.
+fn grain_factor(grain: Grain, depth: f32, wx: f32, wy: f32) -> f32 {
+    match grain {
+        Grain::Smooth => 1.0,
+        Grain::Graphite => {
+            let tooth = crate::grain::fields().tooth.at(wx, wy);
+            let bite = 0.3 + 0.35 * (1.0 - depth);
+            1.0 - bite * (1.0 - tooth)
+        }
+        Grain::Pencil => {
+            let tooth = crate::grain::fields().pencil.at(wx, wy);
+            smoothstep(0.5, 0.78, tooth + 0.45 * depth)
+        }
+        Grain::Ink => {
+            let rim = 1.0 - smoothstep(0.0, 0.6, depth);
+            0.9 + 0.1 * rim
+        }
+        Grain::Watercolor => {
+            let f = crate::grain::fields();
+            let edge = smoothstep(0.0, 0.2, depth - 0.28 * (1.0 - f.wander.at(wx, wy)));
+            let wash = (0.4 + 0.16 * f.bloom.at(wx, wy)) * (0.8 + 0.2 * f.granule.at(wx, wy));
+            let rim = 1.0 - smoothstep(0.1, 0.8, depth);
+            edge * (wash + (0.92 - wash) * rim)
+        }
+    }
+}
+
+/// One dab's coverage with the medium's grain at world point `(wx, wy)`:
+/// the look a lone dab finishes with. `dist` and `radius` share units; the
+/// paper is sampled in world units.
 pub fn grain_coverage(
     grain: Grain,
     dist: f32,
@@ -49,82 +96,98 @@ pub fn grain_coverage(
     wx: f32,
     wy: f32,
 ) -> f32 {
-    match grain {
-        Grain::Smooth => tip_coverage(dist, radius, softness),
-        Grain::Graphite => {
-            let cover = tip_coverage(dist, radius, softness);
-            if cover <= 0.0 {
-                return 0.0;
+    let cover = tip_coverage(dist, radius, softness);
+    if cover <= 0.0 || grain == Grain::Smooth {
+        return cover;
+    }
+    cover * grain_factor(grain, depth_of(dist, radius), wx, wy)
+}
+
+/// Apply a stroke's grain to its finished stamp over `region` (the whole
+/// image when `None`), then clear the depth there. `img` must hold that one
+/// stroke, stamped since the depth was last cleared. Pixels are judged on
+/// the shared grid, so tiles and whole stamps of one stroke agree.
+pub fn finish_grain(img: &mut StampImage, grain: Grain, region: Option<[u32; 4]>) {
+    let (w, h) = (img.width, img.height);
+    if img.depth.len() != (w as usize) * (h as usize) {
+        return;
+    }
+    let [x0, y0, x1, y1] = region.unwrap_or([0, 0, w, h]);
+    let paper = Paper::of(img);
+    for y in y0..y1.min(h) {
+        for x in x0..x1.min(w) {
+            let p = (y * w + x) as usize;
+            let depth = std::mem::take(&mut img.depth[p]);
+            let a = img.rgba[p * 4 + 3];
+            if a != 0 && grain != Grain::Smooth {
+                img.rgba[p * 4 + 3] = paper.alpha(grain, a, depth, x, y);
             }
-            let tooth = 0.65 * value_noise(wx / 1.7, wy / 1.7, 11)
-                + 0.35 * value_noise(wx / 5.0, wy / 5.0, 12);
-            cover * smoothstep(0.2, 0.8, tooth + cover * 0.35)
         }
-        Grain::Pencil => {
-            let cover = tip_coverage(dist, radius, softness);
-            if cover <= 0.0 {
-                return 0.0;
+    }
+}
+
+/// `region` of a stamp still being drawn, as straight RGBA rows with the
+/// grain applied, leaving `img` raw so later segments keep stamping into
+/// it. The live brush and eraser previews upload this.
+pub fn finished_region(img: &StampImage, grain: Grain, region: [u32; 4]) -> Vec<u8> {
+    let [x0, y0, x1, y1] = region;
+    let (x1, y1) = (x1.min(img.width), y1.min(img.height));
+    let stride = img.width as usize * 4;
+    let mut out = Vec::with_capacity((x1.saturating_sub(x0) * y1.saturating_sub(y0) * 4) as usize);
+    for y in y0..y1 {
+        let row = y as usize * stride;
+        out.extend_from_slice(&img.rgba[row + x0 as usize * 4..row + x1 as usize * 4]);
+    }
+    let grained = grain != Grain::Smooth && img.depth.len() * 4 == img.rgba.len();
+    if !grained {
+        return out;
+    }
+    let paper = Paper::of(img);
+    let mut i = 0;
+    for y in y0..y1 {
+        for x in x0..x1 {
+            let a = out[i + 3];
+            if a != 0 {
+                let depth = img.depth[(y * img.width + x) as usize];
+                out[i + 3] = paper.alpha(grain, a, depth, x, y);
             }
-            let streak = 0.7 * value_noise(wx / 0.9, wy / 3.2, 21)
-                + 0.3 * value_noise(wx / 2.5, wy / 2.5, 22);
-            cover * smoothstep(0.38, 0.78, streak + cover * 0.28)
+            i += 4;
         }
-        Grain::Ink => {
-            if !(radius > 0.0) {
-                return 0.0;
-            }
-            // Wobble the edge: the rim moves in and out by up to 12%.
-            let wobble = value_noise(wx / 3.5, wy / 3.5, 31) - 0.5;
-            let dist = dist / (1.0 + wobble * 0.24).max(0.5);
-            let body = 0.9 + 0.1 * value_noise(wx / 1.4, wy / 1.4, 32);
-            tip_coverage(dist, radius * 0.94, softness) * body
+    }
+    out
+}
+
+/// Where an image's pixels sit on the world paper and the shared dither grid.
+struct Paper {
+    origin: [f32; 2],
+    pixel: f32,
+    grid: [i64; 2],
+}
+
+impl Paper {
+    fn of(img: &StampImage) -> Paper {
+        let px = img.pixel;
+        Paper {
+            origin: img.origin,
+            pixel: px,
+            grid: [
+                (img.origin[0] / px).round() as i64,
+                (img.origin[1] / px).round() as i64,
+            ],
         }
-        Grain::Watercolor => {
-            if !(radius > 0.0) {
-                return 0.0;
-            }
-            // Coverage must fall toward the rim: inside one stamp each pixel
-            // keeps its maximum, so a brighter rim would ring every segment.
-            // A soft wavering edge and blotchy translucent body read as wash.
-            let wobble = value_noise(wx / 9.0, wy / 9.0, 43) - 0.5;
-            let dist = dist / (1.0 + wobble * 0.18).max(0.5);
-            let cover = tip_coverage(dist, radius, softness.max(0.35));
-            let blot = value_noise(wx / 16.0, wy / 16.0, 41);
-            let fine = value_noise(wx / 3.0, wy / 3.0, 42);
-            cover * (0.45 + 0.35 * blot + 0.12 * fine)
-        }
+    }
+
+    fn alpha(&self, grain: Grain, a: u8, depth: u8, x: u32, y: u32) -> u8 {
+        let wx = self.origin[0] + (x as f32 + 0.5) * self.pixel;
+        let wy = self.origin[1] + (y as f32 + 0.5) * self.pixel;
+        let f = grain_factor(grain, depth as f32 / 255.0, wx, wy);
+        crate::dither::quantize(a as f32 * f, self.grid[0] + x as i64, self.grid[1] + y as i64)
     }
 }
 
 fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
     let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
-}
-
-fn lattice(ix: i32, iy: i32, seed: u32) -> f32 {
-    let mut h = (ix as u32).wrapping_mul(0x8da6_b343)
-        ^ (iy as u32).wrapping_mul(0xd816_3841)
-        ^ seed.wrapping_mul(0xcb1a_b31f);
-    h ^= h >> 13;
-    h = h.wrapping_mul(0x5bd1_e995);
-    h ^= h >> 15;
-    (h & 0x00ff_ffff) as f32 / 16_777_215.0
-}
-
-/// Smooth value noise in `0..=1` on a unit lattice.
-fn value_noise(x: f32, y: f32, seed: u32) -> f32 {
-    let (x0, y0) = (x.floor(), y.floor());
-    let (fx, fy) = (x - x0, y - y0);
-    let (ix, iy) = (x0 as i32, y0 as i32);
-    let sx = fx * fx * (3.0 - 2.0 * fx);
-    let sy = fy * fy * (3.0 - 2.0 * fy);
-    let a = lattice(ix, iy, seed);
-    let b = lattice(ix + 1, iy, seed);
-    let c = lattice(ix, iy + 1, seed);
-    let d = lattice(ix + 1, iy + 1, seed);
-    let top = a + (b - a) * sx;
-    let bottom = c + (d - c) * sx;
-    top + (bottom - top) * sy
 }
 
 /// One polyline vertex and the tip painted there. Segments lerp between
@@ -138,13 +201,17 @@ pub struct TipPoint {
 /// Raster of one stroke. `origin` is the top-left corner of pixel (0, 0)
 /// in the polyline's coordinate space. `pixel` is the length of one pixel
 /// in that space.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct StampImage {
     pub width: u32,
     pub height: u32,
     pub origin: [f32; 2],
     pub pixel: f32,
     pub rgba: Vec<u8>,
+    /// One byte per pixel while a textured stroke is being stamped: how deep
+    /// the pixel lies inside it. [`finish_grain`] reads and clears it. Empty
+    /// for smooth strokes.
+    pub depth: Vec<u8>,
 }
 
 const MAX_SIDE: f32 = 4096.0;
@@ -257,6 +324,7 @@ fn stamp_tipped_padded(contours: &[Vec<TipPoint>], pixel: f32, margin: f32) -> O
         origin: [x0, y0],
         pixel,
         rgba: vec![0u8; (w as usize) * (h as usize) * 4],
+        depth: Vec::new(),
     };
     for contour in contours {
         let pts: Vec<TipPoint> = contour
@@ -266,12 +334,25 @@ fn stamp_tipped_padded(contours: &[Vec<TipPoint>], pixel: f32, margin: f32) -> O
             .collect();
         stamp_polyline(&mut img, &pts);
     }
+    finish_grain(&mut img, stroke_grain(contours), None);
+    img.depth = Vec::new();
     Some(img)
+}
+
+/// The grain a stroke's contours were stamped with (segments keep their
+/// first tip's grain).
+pub fn stroke_grain(contours: &[Vec<TipPoint>]) -> Grain {
+    contours
+        .iter()
+        .flatten()
+        .next()
+        .map_or(Grain::Smooth, |p| p.tip.grain)
 }
 
 /// Stamp one segment into `img`, keeping the maximum coverage per pixel.
 /// Rows only visit the span the capsule can reach, so a long diagonal costs
-/// its own area and not its bounding box.
+/// its own area and not its bounding box. A textured tip also records depth;
+/// the stroke's grain lands once it is finished ([`finish_grain`]).
 pub fn stamp_segment(img: &mut StampImage, a: TipPoint, b: TipPoint) {
     let px = img.pixel;
     let to_px = |p: [f32; 2]| [(p[0] - img.origin[0]) / px, (p[1] - img.origin[1]) / px];
@@ -297,6 +378,14 @@ pub fn stamp_segment(img: &mut StampImage, a: TipPoint, b: TipPoint) {
         (img.origin[0] / px).round() as i64,
         (img.origin[1] / px).round() as i64,
     ];
+    let grained = a.tip.grain != Grain::Smooth;
+    let pixels = (img.width as usize) * (img.height as usize);
+    if grained && img.depth.len() != pixels {
+        img.depth = vec![0u8; pixels];
+    }
+    // A pixel already at this segment's opacity (and, for a textured tip, at
+    // full depth) cannot change, so dense dabs skip their overlap.
+    let top = a.tip.rgba[3].max(b.tip.rgba[3]);
     for py in y_lo..=y_hi {
         let qy = py as f32 + 0.5;
         // X extent of the capsule on this row: the segment clipped to
@@ -312,7 +401,12 @@ pub fn stamp_segment(img: &mut StampImage, a: TipPoint, b: TipPoint) {
         };
         let x_lo = ((x_min - reach).floor() as i64).max(0);
         let x_hi = ((x_max + reach).ceil() as i64).min(w - 1);
+        let row = py as usize * img.width as usize;
         for pxl in x_lo..=x_hi {
+            let p = row + pxl as usize;
+            if img.rgba[p * 4 + 3] >= top && (!grained || img.depth[p] == 255) {
+                continue;
+            }
             let qx = pxl as f32 + 0.5;
             let t = if len2 <= f32::EPSILON {
                 0.0
@@ -334,14 +428,16 @@ pub fn stamp_segment(img: &mut StampImage, a: TipPoint, b: TipPoint) {
                     lerp_rgba(a.tip.rgba, b.tip.rgba, t),
                 )
             };
-            let cover = grain_coverage(
-                a.tip.grain,
-                dist,
-                r,
-                soft,
-                img.origin[0] + qx * px,
-                img.origin[1] + qy * px,
-            );
+            if grained {
+                let d = (depth_of(dist, r) * 255.0).round() as u8;
+                if d > img.depth[p] {
+                    img.depth[p] = d;
+                }
+                if img.rgba[p * 4 + 3] >= top {
+                    continue;
+                }
+            }
+            let cover = tip_coverage(dist, r, soft);
             write_max(
                 &mut img.rgba,
                 img.width,
@@ -366,6 +462,7 @@ pub fn apply_erase(img: &mut StampImage, marks: &[Vec<TipPoint>]) {
         origin: img.origin,
         pixel: img.pixel,
         rgba: Vec::new(),
+        depth: Vec::new(),
     };
     for mark in marks {
         let Some(region) = polyline_box(img, mark) else {
@@ -375,6 +472,7 @@ pub fn apply_erase(img: &mut StampImage, marks: &[Vec<TipPoint>]) {
             mask.rgba = vec![0u8; img.rgba.len()];
         }
         stamp_polyline(&mut mask, mark);
+        finish_grain(&mut mask, stroke_grain(std::slice::from_ref(mark)), Some(region));
         multiply_by_mask(&mut img.rgba, &mask.rgba, img.width, Some(region));
         let stride = img.width as usize * 4;
         let [x0, y0, x1, y1] = region;
@@ -859,16 +957,11 @@ mod tests {
         assert_eq!(alpha_at(&img, quad_mid.x as f32, quad_mid.y as f32), 255);
     }
 
+    /// Dry media thin out toward the rim. Wet media (Ink, Watercolor) pool
+    /// pigment there: a hard tip's wet edge is denser than its body.
     #[test]
-    fn every_grain_falls_off_toward_the_rim() {
-        // Inside one stamp each pixel keeps its maximum coverage, so a grain
-        // that brightens toward the rim would ring every segment's cap.
-        for g in [
-            Grain::Graphite,
-            Grain::Pencil,
-            Grain::Ink,
-            Grain::Watercolor,
-        ] {
+    fn dry_grains_fall_off_toward_the_rim_and_wet_ones_darken_it() {
+        for g in [Grain::Graphite, Grain::Pencil] {
             for i in 0..200 {
                 let (wx, wy) = (i as f32 * 1.3, i as f32 * 0.7);
                 let mut last = f32::INFINITY;
@@ -878,6 +971,50 @@ mod tests {
                     last = c;
                 }
             }
+        }
+        for g in [Grain::Ink, Grain::Watercolor] {
+            let mean = |dist: f32| {
+                (0..400)
+                    .map(|i| grain_coverage(g, dist, 20.0, 0.0, i as f32 * 2.3, i as f32 * 1.1))
+                    .sum::<f32>()
+                    / 400.0
+            };
+            let body = mean(0.0);
+            let rim = (14..20).map(|d| mean(d as f32)).fold(0.0, f32::max);
+            assert!(rim > body + 0.04, "{g:?} has no wet edge: rim {rim}, body {body}");
+        }
+    }
+
+    /// The grain is applied to the finished stroke, so a chain of many short
+    /// segments paints exactly what one long segment paints: a wet edge or
+    /// a tooth never rings the joints.
+    #[test]
+    fn a_textured_chain_paints_like_one_segment() {
+        for grain in [
+            Grain::Graphite,
+            Grain::Pencil,
+            Grain::Ink,
+            Grain::Watercolor,
+        ] {
+            let tip = StampStyle {
+                diameter: 24.0,
+                softness: 0.0,
+                rgba: [20, 30, 40, 230],
+                grain,
+            };
+            let at = |x: f32| TipPoint { pos: [x, 0.0], tip };
+            let one = stamp_tipped(&[vec![at(0.0), at(120.0)]], 1.0).unwrap();
+            let many = stamp_tipped(&[(0..=40).map(|i| at(i as f32 * 3.0)).collect()], 1.0).unwrap();
+            assert_eq!((one.width, one.height, one.origin), (many.width, many.height, many.origin));
+            let worst = one
+                .rgba
+                .iter()
+                .zip(&many.rgba)
+                .map(|(a, b)| a.abs_diff(*b))
+                .max()
+                .unwrap();
+            assert!(worst <= 2, "{grain:?}: joints differ by {worst}");
+            assert!(one.depth.is_empty(), "{grain:?}: depth left on the stamp");
         }
     }
 

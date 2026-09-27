@@ -116,6 +116,37 @@ struct Job {
     ink: Arc<Mutex<InkCache>>,
 }
 
+/// One stroke's whole stamp bitmap, built off the frame loop because no
+/// tile can stand in for it (blurred, selected, restyled, or erased strokes).
+struct StrokeJob {
+    node: Node,
+    key: u64,
+    pixel: f32,
+    wanted: Arc<Mutex<StrokeWants>>,
+}
+
+/// The newest `(content key, pixel bits)` asked for each stroke. A job that
+/// is no longer wanted when a worker reaches it is skipped.
+type StrokeWants = HashMap<NodeId, (u64, u32)>;
+
+/// A stroke bitmap from the raster workers, premultiplied for upload.
+pub(crate) struct StrokeRaster {
+    pub key: u64,
+    pub pixel: f32,
+    pub stamp: Option<StampImage>,
+    pub image: Option<egui::ColorImage>,
+}
+
+enum Work {
+    Tile(Job),
+    Stroke(StrokeJob),
+}
+
+enum Done {
+    Tile(Finished),
+    Stroke(NodeId, StrokeRaster),
+}
+
 struct Finished {
     id: u64,
     token: u64,
@@ -246,10 +277,16 @@ pub(crate) struct BrushTiles {
     stash: Vec<Finished>,
     srcs: HashMap<NodeId, Arc<StrokeSrc>>,
     incoming: VecDeque<Finished>,
-    job_tx: Option<Sender<Job>>,
-    done_rx: Option<Receiver<Finished>>,
+    job_tx: Option<Sender<Work>>,
+    done_rx: Option<Receiver<Done>>,
     workers: Vec<JoinHandle<()>>,
     ink: Arc<Mutex<InkCache>>,
+    stroke_wants: Arc<Mutex<StrokeWants>>,
+    /// The newest stroke bitmap landed per stroke, current or not: an older
+    /// key still stands in better than the bitmap before it.
+    stroke_landed: HashMap<NodeId, StrokeRaster>,
+    /// Stroke bitmaps the workers have built, ever.
+    pub stroke_builds: u64,
     pub last: BrushPaintStats,
 }
 
@@ -278,6 +315,9 @@ impl Default for BrushTiles {
             done_rx: None,
             workers: Vec::new(),
             ink: Arc::new(Mutex::new(HashMap::new())),
+            stroke_wants: Arc::new(Mutex::new(HashMap::new())),
+            stroke_landed: HashMap::new(),
+            stroke_builds: 0,
             last: BrushPaintStats {
                 gpu_bytes: 0,
                 pending_jobs: 0,
@@ -329,9 +369,63 @@ impl BrushTiles {
         self.stash.clear();
         self.srcs.clear();
         self.incoming.clear();
+        self.stroke_landed.clear();
+        if let Ok(mut wants) = self.stroke_wants.lock() {
+            wants.clear();
+        }
         if let Ok(mut ink) = self.ink.lock() {
             ink.clear();
         }
+    }
+
+    /// Ask the raster workers for stroke `node`'s whole bitmap at `pixel`.
+    /// Asking again for the same key and pixel is free; a newer ask
+    /// supersedes an older one still queued.
+    pub(crate) fn request_stroke(&mut self, node: &Node, key: u64, pixel: f32) {
+        let want = (key, pixel.to_bits());
+        if self
+            .stroke_landed
+            .get(&node.id)
+            .is_some_and(|r| (r.key, r.pixel.to_bits()) == want)
+        {
+            return;
+        }
+        {
+            let Ok(mut wants) = self.stroke_wants.lock() else {
+                return;
+            };
+            if wants.get(&node.id) == Some(&want) {
+                return;
+            }
+            wants.insert(node.id, want);
+        }
+        self.ensure_pool();
+        let job = StrokeJob {
+            node: node.clone(),
+            key,
+            pixel,
+            wanted: Arc::clone(&self.stroke_wants),
+        };
+        if self
+            .job_tx
+            .as_ref()
+            .is_some_and(|tx| tx.send(Work::Stroke(job)).is_err())
+        {
+            if let Ok(mut wants) = self.stroke_wants.lock() {
+                wants.remove(&node.id);
+            }
+        }
+    }
+
+    /// The newest bitmap the workers finished for stroke `id`, if any.
+    pub(crate) fn take_stroke(&mut self, id: NodeId) -> Option<StrokeRaster> {
+        self.drain_finished();
+        self.stroke_landed.remove(&id)
+    }
+
+    /// Stroke bitmaps asked for and not landed yet.
+    pub(crate) fn strokes_pending(&self) -> usize {
+        self.stroke_wants.lock().map(|w| w.len()).unwrap_or(0)
     }
 
     fn sync_keys(&mut self, scene_gen: u64) {
@@ -400,8 +494,8 @@ impl BrushTiles {
         if self.job_tx.is_some() {
             return;
         }
-        let (job_tx, job_rx) = mpsc::channel::<Job>();
-        let (done_tx, done_rx) = mpsc::channel::<Finished>();
+        let (job_tx, job_rx) = mpsc::channel::<Work>();
+        let (done_tx, done_rx) = mpsc::channel::<Done>();
         let job_rx = Arc::new(Mutex::new(job_rx));
         for _ in 0..worker_count() {
             let job_rx = Arc::clone(&job_rx);
@@ -417,8 +511,19 @@ impl BrushTiles {
         let Some(rx) = self.done_rx.as_ref() else {
             return;
         };
-        while let Ok(fin) = rx.try_recv() {
-            self.incoming.push_back(fin);
+        while let Ok(done) = rx.try_recv() {
+            match done {
+                Done::Tile(fin) => self.incoming.push_back(fin),
+                Done::Stroke(id, raster) => {
+                    self.stroke_builds += 1;
+                    if let Ok(mut wants) = self.stroke_wants.lock() {
+                        if wants.get(&id) == Some(&(raster.key, raster.pixel.to_bits())) {
+                            wants.remove(&id);
+                        }
+                    }
+                    self.stroke_landed.insert(id, raster);
+                }
+            }
         }
     }
 
@@ -458,7 +563,11 @@ impl BrushTiles {
         if incremental {
             *self.inflight.entry((token, bits)).or_insert(0) += 1;
         }
-        if self.job_tx.as_ref().is_some_and(|tx| tx.send(job).is_err()) {
+        if self
+            .job_tx
+            .as_ref()
+            .is_some_and(|tx| tx.send(Work::Tile(job)).is_err())
+        {
             self.live_jobs.remove(&id);
             self.queued.remove(&tile);
             if incremental {
@@ -702,61 +811,103 @@ impl BrushTiles {
     }
 }
 
-fn worker(jobs: Arc<Mutex<Receiver<Job>>>, done: Sender<Finished>) {
+fn worker(jobs: Arc<Mutex<Receiver<Work>>>, done: Sender<Done>) {
     loop {
-        let job = {
+        let work = {
             let rx = jobs.lock().unwrap_or_else(|p| p.into_inner());
             match rx.recv() {
-                Ok(job) => job,
+                Ok(work) => work,
                 Err(_) => break,
             }
         };
-        let origin = tile_origin(job.tx, job.ty, job.pixel, TILE_PX);
-        let mut img = StampImage {
-            width: TILE_PX,
-            height: TILE_PX,
-            origin,
-            pixel: job.pixel,
-            rgba: job
-                .base
-                .unwrap_or_else(|| vec![0u8; (TILE_PX as usize) * (TILE_PX as usize) * 4]),
+        let sent = match work {
+            Work::Tile(job) => rasterize_tile(job, &done),
+            Work::Stroke(job) => rasterize_stroke(job, &done),
         };
-        if img.rgba.len() != (TILE_PX as usize) * (TILE_PX as usize) * 4 {
-            img.rgba
-                .resize((TILE_PX as usize) * (TILE_PX as usize) * 4, 0);
-        }
-        let mut layer = StampImage {
-            width: TILE_PX,
-            height: TILE_PX,
-            origin,
-            pixel: job.pixel,
-            rgba: vec![0u8; img.rgba.len()],
-        };
-        for src in &job.strokes {
-            let ink = cached_ink(&job.ink, src, job.pixel);
-            composite_stroke(&mut img, &mut layer, ink.as_ref());
-        }
-        let image = egui::ColorImage::from_rgba_premultiplied(
-            [TILE_PX as usize, TILE_PX as usize],
-            &super::premultiplied(&img.rgba),
-        );
-        if done
-            .send(Finished {
-                id: job.id,
-                token: job.token,
-                pixel: job.pixel,
-                tx: job.tx,
-                ty: job.ty,
-                rgba: img.rgba,
-                image,
-                baked: job.baked,
-                incremental: job.incremental,
-            })
-            .is_err()
-        {
+        if !sent {
             break;
         }
     }
+}
+
+fn rasterize_stroke(job: StrokeJob, done: &Sender<Done>) -> bool {
+    let wanted = job
+        .wanted
+        .lock()
+        .map(|w| w.get(&job.node.id) == Some(&(job.key, job.pixel.to_bits())))
+        .unwrap_or(false);
+    if !wanted {
+        return true;
+    }
+    let stamp = match &job.node.kind {
+        NodeKind::Shape(shape) => shape
+            .path
+            .as_ref()
+            .and_then(|path| super::stroke_stamp(&job.node, shape, path, job.pixel)),
+        _ => None,
+    };
+    let image = stamp.as_ref().map(|s| {
+        egui::ColorImage::from_rgba_premultiplied(
+            [s.width as usize, s.height as usize],
+            &super::premultiplied(&s.rgba),
+        )
+    });
+    done.send(Done::Stroke(
+        job.node.id,
+        StrokeRaster {
+            key: job.key,
+            pixel: job.pixel,
+            stamp,
+            image,
+        },
+    ))
+    .is_ok()
+}
+
+fn rasterize_tile(job: Job, done: &Sender<Done>) -> bool {
+    let origin = tile_origin(job.tx, job.ty, job.pixel, TILE_PX);
+    let mut img = StampImage {
+        width: TILE_PX,
+        height: TILE_PX,
+        origin,
+        pixel: job.pixel,
+        rgba: job
+            .base
+            .unwrap_or_else(|| vec![0u8; (TILE_PX as usize) * (TILE_PX as usize) * 4]),
+        depth: Vec::new(),
+    };
+    if img.rgba.len() != (TILE_PX as usize) * (TILE_PX as usize) * 4 {
+        img.rgba
+            .resize((TILE_PX as usize) * (TILE_PX as usize) * 4, 0);
+    }
+    let mut layer = StampImage {
+        width: TILE_PX,
+        height: TILE_PX,
+        origin,
+        pixel: job.pixel,
+        rgba: vec![0u8; img.rgba.len()],
+        depth: Vec::new(),
+    };
+    for src in &job.strokes {
+        let ink = cached_ink(&job.ink, src, job.pixel);
+        composite_stroke(&mut img, &mut layer, ink.as_ref());
+    }
+    let image = egui::ColorImage::from_rgba_premultiplied(
+        [TILE_PX as usize, TILE_PX as usize],
+        &super::premultiplied(&img.rgba),
+    );
+    done.send(Done::Tile(Finished {
+        id: job.id,
+        token: job.token,
+        pixel: job.pixel,
+        tx: job.tx,
+        ty: job.ty,
+        rgba: img.rgba,
+        image,
+        baked: job.baked,
+        incremental: job.incremental,
+    }))
+    .is_ok()
 }
 
 fn cached_ink(cache: &Mutex<InkCache>, src: &StrokeSrc, pixel: f32) -> Arc<StrokeInk> {
@@ -793,7 +944,7 @@ fn ink_for(node: &Node, pixel: f32) -> StrokeInk {
     }
 }
 
-fn plain_stamp<'a>(
+pub(super) fn plain_stamp<'a>(
     app: &SlateApp,
     node: &'a Node,
 ) -> Option<(&'a ShapeNode, &'a slate_doc::scene::PathData)> {
@@ -842,7 +993,7 @@ fn stamp_stroke(node: &Node) -> Option<&ShapeNode> {
     .then_some(shape)
 }
 
-fn ink_rect(node: &Node, shape: &ShapeNode) -> [f32; 4] {
+pub(super) fn ink_rect(node: &Node, shape: &ShapeNode) -> [f32; 4] {
     let pad = shape.stroke.width.max(1.0) * 0.5 + 4.0 + 3.0 * shape.stroke.gaussian_blur.max(0.0);
     if node.rotation_deg.abs() < 0.01 {
         let r = node.rect.normalized();
@@ -1002,7 +1153,15 @@ pub(crate) fn paint_rest(
     app.brush_tiles.coords = coords;
 
     app.brush_tiles.evict(frame);
-    let pending = app.brush_tiles.live_jobs.len() + app.brush_tiles.incoming.len();
+    if !app.brush_tiles.stroke_landed.is_empty() {
+        // A bitmap nobody painted this frame is for a stroke out of view.
+        app.brush_tiles
+            .stroke_landed
+            .retain(|id, _| nodes.iter().any(|n| n.id == *id));
+    }
+    let pending = app.brush_tiles.live_jobs.len()
+        + app.brush_tiles.incoming.len()
+        + app.brush_tiles.strokes_pending();
     let ready = app.brush_tiles.runs.iter().map(|r| r.tiles.len()).sum();
     let gpu_bytes = app.brush_tiles.gpu_bytes();
     let drew_fallback = app.brush_tiles.last.drew_fallback;
@@ -1433,10 +1592,10 @@ fn paint_plan(app: &mut SlateApp, pass: &Pass, plan: RunPlan, coords: &mut [Coor
 }
 
 /// Paint strokes no tile here shows yet, each clipped to the coordinates
-/// that need it, newest first. A stroke whose stamp bitmap is current always
-/// paints; at most `IMMEDIATE_STROKES` new bitmaps build per run and frame,
-/// so a full board never rasterizes on the frame loop. Returns how many
-/// strokes painted.
+/// that need it, newest first. A stroke whose stamp bitmap is current, or
+/// that has a stand-in, always paints; at most `IMMEDIATE_STROKES` others
+/// paint per run and frame, and each of those builds synchronously only
+/// within `SYNC_STAMP_PX`. Returns how many strokes painted.
 fn paint_fresh(
     app: &mut SlateApp,
     pass: &Pass,
@@ -1464,11 +1623,12 @@ fn paint_fresh(
         };
         let key = app.brush_tiles.keys.get(&node.id).copied();
         let current = key.is_some_and(|k| {
-            app.brush_stamps
-                .get(&node.id)
-                .is_some_and(|(cached, gpu)| *cached == k && gpu.wanted_pixel == pass.pixel)
+            app.brush_stamps.get(&node.id).is_some_and(|(cached, gpu)| {
+                gpu.exact && *cached == k && gpu.wanted_pixel == pass.pixel
+            })
         });
-        if !current {
+        // A stroke with a stand-in paints it without building anything.
+        if !current && !super::has_stand_in(app, node.id) {
             if built >= IMMEDIATE_STROKES {
                 continue;
             }

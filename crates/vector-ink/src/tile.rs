@@ -5,7 +5,9 @@
 //! grid. Because each pixel is independent, stamping a stroke into a tile and
 //! into a full canvas that shares `origin` and `pixel` writes the same bytes.
 
-use crate::stamp::{apply_erase, stamp_polyline, StampImage, TipPoint};
+use crate::stamp::{
+    apply_erase, finish_grain, stamp_polyline, stroke_grain, StampImage, TipPoint,
+};
 
 /// Side length of a board tile, in pixels. Tests pass a smaller size.
 pub const TILE_PX: u32 = 512;
@@ -105,6 +107,7 @@ pub fn composite_stroke(dst: &mut StampImage, layer: &mut StampImage, stroke: &S
     for contour in &stroke.contours {
         stamp_polyline(layer, contour);
     }
+    finish_grain(layer, stroke_grain(&stroke.contours), Some(region));
     if !stroke.erase.is_empty() {
         apply_erase(layer, &stroke.erase);
     }
@@ -120,6 +123,7 @@ pub fn composite_strokes(dst: &mut StampImage, strokes: &[StrokeInk]) {
         origin: dst.origin,
         pixel: dst.pixel,
         rgba: vec![0u8; dst.rgba.len()],
+        depth: Vec::new(),
     };
     for stroke in strokes {
         composite_stroke(dst, &mut layer, stroke);
@@ -187,6 +191,7 @@ fn tile_mut<'a>(
         origin,
         pixel: dst.pixel,
         rgba: vec![0u8; pixels],
+        depth: Vec::new(),
     };
     let layer = StampImage {
         width: w,
@@ -194,6 +199,7 @@ fn tile_mut<'a>(
         origin,
         pixel: dst.pixel,
         rgba: vec![0u8; pixels],
+        depth: Vec::new(),
     };
     tiles.push(TileBuf { img, layer, ox, oy });
     tiles.last_mut().expect("just pushed")
@@ -238,7 +244,7 @@ fn clear_region(rgba: &mut [u8], width: u32, region: [u32; 4]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::StampStyle;
+    use crate::{Grain, StampStyle};
 
     fn tip(x: f32, y: f32, diameter: f32, softness: f32, rgba: [u8; 4]) -> TipPoint {
         TipPoint {
@@ -259,6 +265,7 @@ mod tests {
             origin: [0.0, 0.0],
             pixel: 1.0,
             rgba: vec![0u8; 96 * 64 * 4],
+            depth: Vec::new(),
         }
     }
 
@@ -287,7 +294,22 @@ mod tests {
                 contours: vec![vec![tip(48.0, 24.0, 20.0, 0.15, [255, 255, 255, 90])]],
                 erase: Vec::new(),
             },
+            StrokeInk {
+                contours: vec![[(6.0, 52.0), (40.0, 44.0), (70.0, 56.0), (90.0, 40.0)]
+                    .iter()
+                    .map(|&(x, y)| grained(tip(x, y, 18.0, 0.0, [90, 30, 160, 230]), Grain::Watercolor))
+                    .collect()],
+                erase: vec![vec![grained(
+                    tip(60.0, 50.0, 10.0, 0.0, [0, 0, 0, 255]),
+                    Grain::Pencil,
+                )]],
+            },
         ]
+    }
+
+    fn grained(mut p: TipPoint, grain: Grain) -> TipPoint {
+        p.tip.grain = grain;
+        p
     }
 
     fn max_diff(a: &[u8], b: &[u8]) -> u8 {
@@ -320,12 +342,13 @@ mod tests {
         composite_strokes(&mut full, &strokes);
         // Prefix tiles, then source-over the newest stroke into those pixels.
         let mut prefix = canvas();
-        composite_strokes_tiled(&mut prefix, &strokes[..2], 32);
+        let last = strokes.len() - 1;
+        composite_strokes_tiled(&mut prefix, &strokes[..last], 32);
         let mut layer = StampImage {
             rgba: vec![0u8; prefix.rgba.len()],
             ..prefix.clone()
         };
-        composite_stroke(&mut prefix, &mut layer, &strokes[2]);
+        composite_stroke(&mut prefix, &mut layer, &strokes[last]);
         assert_eq!(max_diff(&full.rgba, &prefix.rgba), 0);
     }
 }

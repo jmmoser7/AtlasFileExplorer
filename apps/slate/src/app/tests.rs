@@ -9925,6 +9925,229 @@ fn the_eraser_spot_erases_painted_ink_and_keeps_the_stroke() {
     assert!(shape.path.as_ref().unwrap().erase.is_empty());
 }
 
+fn painted_textures(out: &egui::FullOutput) -> Vec<egui::TextureId> {
+    fn walk(shape: &egui::Shape, into: &mut Vec<egui::TextureId>) {
+        match shape {
+            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| walk(s, into)),
+            egui::Shape::Mesh(mesh) => into.push(mesh.texture_id),
+            _ => {}
+        }
+    }
+    let mut into = Vec::new();
+    for clipped in &out.shapes {
+        walk(&clipped.shape, &mut into);
+    }
+    into
+}
+
+/// Frames until the brush rasters are settled and `ready` holds.
+fn settle_brush(h: &mut Harness, what: &str, ready: impl Fn(&SlateApp) -> bool) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    loop {
+        h.frame();
+        if h.app.brush_tiles.last.settled && ready(&h.app) {
+            return;
+        }
+        assert!(std::time::Instant::now() < deadline, "{what} never settled");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
+/// A painted bar across the middle of the view, too big to rasterize on the
+/// frame loop.
+fn big_brush_bar(h: &mut Harness) -> NodeId {
+    let c = h.app.board_xf().s2w(h.app.canvas_rect.center());
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.brush_width = 80.0;
+    h.app.finish_freehand_brush(vec![
+        Pos2::new(c.x - 650.0, c.y),
+        Pos2::new(c.x, c.y + 4.0),
+        Pos2::new(c.x + 650.0, c.y),
+    ]);
+    h.app.doc().scene.nodes.last().unwrap().id
+}
+
+/// "ran f4 erasor lock up interface on commit of comand": releasing an
+/// eraser pass over a big painted stroke rasterizes nothing on the frame
+/// loop. The pass's live preview stands in for the stroke until its new
+/// raster lands from the workers, and the un-erased stroke never paints
+/// again.
+#[test]
+fn an_eraser_release_on_a_big_stroke_stamps_nothing_on_the_frame_loop() {
+    let mut h = line_board("eraser_commit_async");
+    h.frame();
+    let id = big_brush_bar(&mut h);
+    settle_brush(&mut h, "the bar", |app| {
+        !app.brush_tiles.tiles_with(id).is_empty()
+    });
+    let textures = h.app.brush_tiles.tile_textures();
+    let unerased: Vec<egui::TextureId> = h
+        .app
+        .brush_tiles
+        .tiles_with(id)
+        .iter()
+        .filter_map(|k| textures.get(k).copied())
+        .collect();
+
+    h.app.set_board_tool(board::BoardTool::Eraser);
+    h.app.eraser_width = 40.0;
+    h.frame();
+    let c = h.app.canvas_rect.center();
+    let (top, bottom) = (c - EVec2::new(0.0, 90.0), c + EVec2::new(0.0, 90.0));
+    h.frame_with(pointer_to(top, false));
+    let press = board_path::stamps_on_this_thread();
+    h.frame_with(primary_button(top, true, false));
+    for i in 1..=9 {
+        h.frame_with(pointer_to(top + (bottom - top) * (i as f32 / 9.0), false));
+    }
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while !h.app.erase_live.contains_key(&id) {
+        assert!(std::time::Instant::now() < deadline, "no live preview");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        h.frame_with(pointer_to(bottom, false));
+    }
+    assert_eq!(
+        board_path::stamps_on_this_thread(),
+        press,
+        "the pass built its preview on the frame loop"
+    );
+    let preview = h.app.erase_live[&id].texture();
+
+    let released = h.frame_output(primary_button(bottom, false, false));
+    let next = h.frame_output(|_| {});
+    assert_eq!(
+        board_path::stamps_on_this_thread(),
+        press,
+        "the release rasterized on the frame loop"
+    );
+    let node = h.app.doc().scene.node(id).expect("the bar survives");
+    let slate_doc::scene::NodeKind::Shape(shape) = &node.kind else {
+        panic!("path");
+    };
+    assert_eq!(shape.path.as_ref().unwrap().erase.len(), 1, "pass committed");
+    for (when, out) in [("release", &released), ("next frame", &next)] {
+        let painted = painted_textures(out);
+        assert!(
+            painted.contains(&preview),
+            "{when}: the erased bar is not standing in"
+        );
+        assert!(
+            !unerased.iter().any(|t| painted.contains(t)),
+            "{when}: the un-erased bar flashed back"
+        );
+    }
+
+    settle_brush(&mut h, "the erased bar", |app| {
+        !app.brush_tiles.tiles_with(id).is_empty()
+    });
+    let settled = h.frame_output(|_| {});
+    assert!(
+        !painted_textures(&settled).contains(&preview),
+        "the stand-in outlived the new tiles"
+    );
+    assert_eq!(
+        board_path::stamps_on_this_thread(),
+        press,
+        "the new raster was built on the frame loop"
+    );
+}
+
+/// The same holds for a brush release: the live canvas stands in for the
+/// committed stroke, so the commit frame rasterizes nothing.
+#[test]
+fn a_big_brush_release_stamps_nothing_on_the_frame_loop() {
+    let mut h = line_board("brush_commit_async");
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.brush_width = 80.0;
+    h.frame();
+    let c = h.app.canvas_rect.center();
+    let start = c - EVec2::new(650.0, 0.0);
+    h.frame_with(pointer_to(start, false));
+    let before = board_path::stamps_on_this_thread();
+    h.frame_with(primary_button(start, true, false));
+    for i in 1..=26 {
+        let at = start + EVec2::new(i as f32 * 50.0, (i as f32 * 0.7).sin() * 30.0);
+        h.frame_with(pointer_to(at, false));
+    }
+    let canvas = h.app.brush_live.as_ref().expect("live canvas").texture();
+    let nodes = h.app.doc().scene.nodes.len();
+    h.frame_with(primary_button(c + EVec2::new(650.0, 0.0), false, false));
+    assert_eq!(h.app.doc().scene.nodes.len(), nodes + 1, "stroke committed");
+    let id = h.app.doc().scene.nodes.last().unwrap().id;
+    let next = h.frame_output(|_| {});
+    assert_eq!(
+        board_path::stamps_on_this_thread(),
+        before,
+        "the brush release rasterized on the frame loop"
+    );
+    assert!(
+        painted_textures(&next).contains(&canvas),
+        "the committed stroke is not standing in"
+    );
+    settle_brush(&mut h, "the stroke", |app| {
+        !app.brush_tiles.tiles_with(id).is_empty()
+    });
+    assert_eq!(board_path::stamps_on_this_thread(), before);
+}
+
+/// And for Smooth: the preview and the commit rebuild the smoothed stroke on
+/// the workers, and the commit keeps every other stroke's raster.
+#[test]
+fn a_smooth_pass_on_a_big_stroke_stamps_nothing_on_the_frame_loop() {
+    let mut h = line_board("smooth_commit_async");
+    h.frame();
+    let id = big_brush_bar(&mut h);
+    let c = h.app.board_xf().s2w(h.app.canvas_rect.center());
+    h.app.finish_freehand_brush(vec![
+        Pos2::new(c.x - 650.0, c.y + 200.0),
+        Pos2::new(c.x + 650.0, c.y + 200.0),
+    ]);
+    let other = h.app.doc().scene.nodes.last().unwrap().id;
+    h.app.patch_nodes(&[other], |n| {
+        if let slate_doc::scene::NodeKind::Shape(s) = &mut n.kind {
+            s.stroke.gaussian_blur = 4.0;
+        }
+    });
+    settle_brush(&mut h, "the strokes", |app| {
+        !app.brush_tiles.tiles_with(id).is_empty()
+            && app.brush_stamps.get(&other).is_some_and(|(_, g)| g.exact)
+    });
+    let kept = h.app.brush_stamps[&other].1.tex.id();
+
+    h.app.set_board_tool(board::BoardTool::Smooth);
+    h.app.smooth_width = 60.0;
+    h.app.smooth_strength = 1.0;
+    h.frame();
+    let at = h.app.canvas_rect.center();
+    h.frame_with(pointer_to(at, false));
+    let before = board_path::stamps_on_this_thread();
+    h.frame_with(primary_button(at, true, false));
+    for i in 1..=8 {
+        h.frame_with(pointer_to(at + EVec2::new(i as f32 * 6.0, 0.0), false));
+    }
+    h.frame_with(primary_button(at + EVec2::new(48.0, 0.0), false, false));
+    h.frame();
+    assert_eq!(
+        board_path::stamps_on_this_thread(),
+        before,
+        "the smooth pass rasterized on the frame loop"
+    );
+    let node = h.app.doc().scene.node(id).unwrap();
+    let slate_doc::scene::NodeKind::Shape(shape) = &node.kind else {
+        panic!("path");
+    };
+    assert!(shape.stroke.gaussian_blur > 0.0, "the pass smoothed the bar");
+    assert_eq!(
+        h.app.brush_stamps.get(&other).map(|(_, g)| g.tex.id()),
+        Some(kept),
+        "the commit dropped another stroke's raster"
+    );
+    settle_brush(&mut h, "the smoothed bar", |app| {
+        app.brush_stamps.get(&id).is_some_and(|(_, g)| g.exact)
+    });
+    assert_eq!(board_path::stamps_on_this_thread(), before);
+}
+
 #[test]
 fn erasing_all_of_a_painted_stroke_removes_it() {
     let mut h = Harness::new("eraser_all");

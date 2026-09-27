@@ -551,6 +551,20 @@ it at every stroke start was the flat ~15 ms Brush paint in the session log. It 
 now parked between strokes, and the next stroke clears only the box the last one
 touched.
 
+Committing has its own cost too. An eraser, brush, or smooth release used to
+re-stamp every stroke it changed on the frame loop, which was the "lock up on
+commit" users felt. Now only bitmaps under `SYNC_STAMP_PX` (256 × 256 pixels a
+frame) build there. Larger ones go to the tile workers as generation-tagged
+stroke jobs, and a stand-in (the eraser preview, the live canvas, or the older
+bitmap mapped onto the new frame) paints until they land. Textures used to
+evaluate noise per dab. They now stamp the plain tip and apply the grain once
+per finished pixel from baked, world-tiling paper fields
+(`cargo test -p vector-ink --test bench_grain -- --ignored --nocapture`).
+
+```powershell
+cargo test -p slate --lib bench_commits_on_big_strokes -- --ignored --nocapture
+```
+
 The benches that hold these numbers (release-like profile, 5,000 strokes):
 
 ```powershell

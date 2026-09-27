@@ -386,7 +386,6 @@ impl SlateApp {
                 atlas_commands::CommandId("board.smooth.stroke"),
                 Some("smooth".into()),
             );
-            self.brush_stamps.clear();
         }
     }
 }
