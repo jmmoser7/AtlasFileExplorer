@@ -4,7 +4,7 @@ use slate_doc::media::{ext_badge, media_kind, web_safe_video, MediaKind};
 use slate_doc::scene::{
     connector_drawn_stroke, web_origin, ConnectorNode, Corner, Dash, DockStripNode, Node, NodeId,
     NodeKind, PathData, PathFillRule, PathSeg, PortalKind, PortalNode, Rgba, Scene, ShapeKind,
-    SheetLayout, StrokeCap, StrokeJoin, TextAlign, WebExport, WebSourceKind, WidthProfile,
+    SheetLayout, StrokeCap, StrokeJoin, TextAlign, WebExport, WebSourceKind,
     WireDisplay, WorldRect,
 };
 use slate_doc::wire::{
@@ -1557,11 +1557,7 @@ pub(crate) fn brush_stamp(
 }
 
 fn stamp_style(tip: slate_doc::scene::StrokeSpan) -> vector_ink::StampStyle {
-    vector_ink::StampStyle {
-        diameter: tip.width.max(0.0),
-        softness: tip.softness,
-        rgba: tip.color.0,
-    }
+    tip.stamp_style()
 }
 
 fn append_contour(
@@ -1639,7 +1635,13 @@ fn render_path(
 
     let w = rel.w;
     let h = rel.h;
-    let d = if slate_doc::geom::path_is_line_polyline(path) {
+    let d = if shape.stroke.arrow_end && !path.closed && !shape.stroke.is_none() {
+        let bez = slate_doc::geom::trim_end(
+            &path_data_to_bez(path, w, h),
+            slate_doc::geom::arrow_trim(shape.stroke.width),
+        );
+        bezpath_to_d(&bez)
+    } else if slate_doc::geom::path_is_line_polyline(path) {
         let bez = slate_doc::geom::path_data_to_world_bez_with_fillet(
             path,
             node.rect,
@@ -1708,10 +1710,7 @@ fn render_vector_path_d(
         html.push_str("\"/></filter></defs>");
     }
 
-    let taper = match shape.stroke.profile {
-        WidthProfile::Uniform => None,
-        WidthProfile::Taper { start, end } => Some((start, end)),
-    };
+    let taper = shape.stroke.profile.ink_taper();
     let tipped = path.and_then(|p| {
         slate_doc::geom::tipped_stroke(
             p,
@@ -1769,18 +1768,45 @@ fn render_vector_path_d(
                     taper,
                     dash: stroke_dash_ink(&shape.stroke),
                 };
+                let trim_for_arrow = |bez: &BezPath| {
+                    if shape.stroke.arrow_end && !path.closed {
+                        slate_doc::geom::trim_end(
+                            bez,
+                            slate_doc::geom::arrow_trim(shape.stroke.width),
+                        )
+                    } else {
+                        bez.clone()
+                    }
+                };
                 if let Some((t, colors)) = tipped
                     .as_ref()
                     .and_then(|t| t.colors.as_ref().map(|c| (t, c)))
                 {
-                    push_tinted_stroke(html, node.id.0, t, colors, &style, filter_id.as_deref());
+                    let trimmed = slate_doc::geom::TippedStroke {
+                        bez: trim_for_arrow(&t.bez),
+                        widths: t.widths.clone(),
+                        colors: t.colors.clone(),
+                        ease: t.ease,
+                    };
+                    push_tinted_stroke(
+                        html,
+                        node.id.0,
+                        &trimmed,
+                        colors,
+                        &style,
+                        filter_id.as_deref(),
+                    );
                 } else {
                     let outline = match &tipped {
-                        Some(t) => vector_ink::stroke_outline_tipped(
-                            &t.bez, &style, &t.widths, t.ease, 0.25,
-                        ),
+                        Some(t) => {
+                            let bez = trim_for_arrow(&t.bez);
+                            vector_ink::stroke_outline_tipped(
+                                &bez, &style, &t.widths, t.ease, 0.25,
+                            )
+                        }
                         None => {
-                            vector_ink::stroke_outline(&path_data_to_bez(path, w, h), &style, 0.25)
+                            let bez = trim_for_arrow(&path_data_to_bez(path, w, h));
+                            vector_ink::stroke_outline(&bez, &style, 0.25)
                         }
                     };
                     let outline_d = bezpath_to_d(&outline);
@@ -1804,6 +1830,21 @@ fn render_vector_path_d(
         }
     }
 
+    if shape.stroke.arrow_end && !shape.stroke.is_none() {
+        if let Some(path) = path.filter(|p| !p.closed) {
+            if let Some((tip, into)) =
+                slate_doc::geom::path_end_arrow(&path_data_to_bez(path, w, h))
+            {
+                push_arrow_triangle(
+                    html,
+                    tip,
+                    into,
+                    shape.stroke.width,
+                    &shape.stroke.color.css(),
+                );
+            }
+        }
+    }
     html.push_str("</svg></div>\n");
     push_shape_text_overlay(html, node, shape, rel);
 }
@@ -2444,28 +2485,39 @@ fn svg_d_for_path(path: &ConnectorPath, local: &impl Fn([f32; 2]) -> (f32, f32))
 }
 
 fn arrow_len(stroke: &slate_doc::scene::Stroke) -> f32 {
-    (stroke.width * 4.0).max(10.0)
+    slate_doc::geom::arrow_len(stroke.width)
 }
 
 /// One filled triangle: tip at the endpoint, base back along `into_curve`
 /// (the unit tangent pointing from the endpoint into the curve).
 fn push_arrow_head(html: &mut String, conn: &ConnectorNode, tip: (f32, f32), into_curve: [f32; 2]) {
-    let len = arrow_len(&connector_drawn_stroke(conn.stroke));
-    let half_w = len * 0.4;
-    let base = (tip.0 + into_curve[0] * len, tip.1 + into_curve[1] * len);
-    let perp = [-into_curve[1], into_curve[0]];
-    let b1 = (base.0 + perp[0] * half_w, base.1 + perp[1] * half_w);
-    let b2 = (base.0 - perp[0] * half_w, base.1 - perp[1] * half_w);
+    push_arrow_triangle(
+        html,
+        [tip.0, tip.1],
+        into_curve,
+        connector_drawn_stroke(conn.stroke).width,
+        &conn.stroke.color.css(),
+    );
+}
+
+fn push_arrow_triangle(
+    html: &mut String,
+    tip: [f32; 2],
+    into_curve: [f32; 2],
+    width: f32,
+    fill: &str,
+) {
+    let [a, b, c] = slate_doc::geom::arrow_head(tip, into_curve, width);
     let d = format!(
         "M {} {} L {} {} L {} {} Z",
-        fmt_px(tip.0),
-        fmt_px(tip.1),
-        fmt_px(b1.0),
-        fmt_px(b1.1),
-        fmt_px(b2.0),
-        fmt_px(b2.1),
+        fmt_px(a[0]),
+        fmt_px(a[1]),
+        fmt_px(b[0]),
+        fmt_px(b[1]),
+        fmt_px(c[0]),
+        fmt_px(c[1]),
     );
-    push_path_open(html, &d, &conn.stroke.color.css(), PathFillRule::NonZero);
+    push_path_open(html, &d, fill, PathFillRule::NonZero);
     html.push_str(" stroke=\"none\"></path>");
 }
 

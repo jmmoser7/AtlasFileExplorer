@@ -112,6 +112,8 @@ fn stroke_node(scene: &mut slate_doc::scene::Scene, seed: u64) -> Node {
         stamp: true,
         tween_from: None,
         gaussian_blur: 0.0,
+        arrow_end: false,
+        texture: Default::default(),
     };
     scene.build_node(
         WorldRect::new(x, y, w, h),
@@ -374,6 +376,8 @@ fn dab_node(
         stamp: true,
         tween_from: None,
         gaussian_blur: blur,
+        arrow_end: false,
+        texture: Default::default(),
     };
     scene.build_node(
         WorldRect::new(at[0] - width * 0.5, at[1] - width * 0.5, width, width),

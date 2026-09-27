@@ -201,6 +201,40 @@ impl SlateApp {
             })
     }
 
+    /// Stroke the armed curve tool will draw next. The tip HUD reads this;
+    /// each tool still keeps its own memory.
+    pub(crate) fn stroke_for_new_curve(&self) -> Stroke {
+        match self.armed_stroke_tool() {
+            Some(tool) => self.stroke_for_tool(tool),
+            None => board_path::default_curve_stroke(BoardColors::theme_default(self.dark_mode).fg),
+        }
+    }
+
+    /// Opacity the armed curve tool will draw with next. Closed shapes use
+    /// the shared closed memory.
+    pub(crate) fn opacity_for_new_node(&self, closed: bool) -> f32 {
+        if !closed {
+            if let Some(tool) = self.armed_stroke_tool() {
+                return self.opacity_for_tool(tool);
+            }
+        }
+        self.board_last_style.memory.closed.opacity.unwrap_or(1.0)
+    }
+
+    /// Write the armed curve tool's stroke (and opacity, when given) and
+    /// flush it to the workbook.
+    pub(crate) fn store_armed_curve_stroke(&mut self, stroke: Stroke, opacity: Option<f32>) {
+        let Some(tool) = self.armed_stroke_tool() else {
+            return;
+        };
+        let slot = self.board_last_style.memory.tool_mut(tool);
+        slot.stroke = Some(stroke);
+        if let Some(op) = opacity {
+            slot.opacity = Some(op);
+        }
+        self.flush_create_style_to_doc();
+    }
+
     /// Set the width `tool` draws with next. Not flushed to the workbook.
     pub(crate) fn set_tool_width(&mut self, tool: StrokeTool, width: f32) {
         let stroke = Stroke {

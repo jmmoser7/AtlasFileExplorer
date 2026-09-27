@@ -231,6 +231,68 @@ pub enum WidthProfile {
     Uniform,
     /// Width multipliers at path start / end, interpolated over arc length.
     Taper { start: f32, end: f32 },
+    /// Narrow to `tip` at both ends, full width through the middle.
+    Ends { tip: f32 },
+}
+
+impl WidthProfile {
+    /// The one reading of a profile as stroke-mesh taper, shared by the
+    /// board painter and the artifact writer.
+    pub fn ink_taper(self) -> Option<vector_ink::Taper> {
+        match self {
+            WidthProfile::Uniform => None,
+            WidthProfile::Taper { start, end } => Some(vector_ink::Taper::Linear(start, end)),
+            WidthProfile::Ends { tip } => Some(vector_ink::Taper::Ends(tip)),
+        }
+    }
+}
+
+/// Grain of a stamped brush tip. Every grain is a deterministic function of
+/// world position, so the board, its tiles, and the HTML artifact paint the
+/// same pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BrushTexture {
+    #[default]
+    Smooth,
+    Graphite,
+    Pencil,
+    Ink,
+    Watercolor,
+}
+
+impl BrushTexture {
+    pub const ALL: [BrushTexture; 5] = [
+        BrushTexture::Smooth,
+        BrushTexture::Graphite,
+        BrushTexture::Pencil,
+        BrushTexture::Ink,
+        BrushTexture::Watercolor,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            BrushTexture::Smooth => "Smooth",
+            BrushTexture::Graphite => "Graphite",
+            BrushTexture::Pencil => "Pencil",
+            BrushTexture::Ink => "Ink",
+            BrushTexture::Watercolor => "Watercolor",
+        }
+    }
+
+    pub fn grain(self) -> vector_ink::Grain {
+        match self {
+            BrushTexture::Smooth => vector_ink::Grain::Smooth,
+            BrushTexture::Graphite => vector_ink::Grain::Graphite,
+            BrushTexture::Pencil => vector_ink::Grain::Pencil,
+            BrushTexture::Ink => vector_ink::Grain::Ink,
+            BrushTexture::Watercolor => vector_ink::Grain::Watercolor,
+        }
+    }
+}
+
+fn texture_smooth(t: &BrushTexture) -> bool {
+    *t == BrushTexture::Smooth
 }
 
 /// Outline stroke. `width == 0` means no stroke.
@@ -262,6 +324,12 @@ pub struct Stroke {
     /// world units as stdDeviation. Distinct from edge softness.
     #[serde(default, skip_serializing_if = "gaussian_blur_zero")]
     pub gaussian_blur: f32,
+    /// An arrowhead at the path's last point (open curves).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub arrow_end: bool,
+    /// Grain of a stamped brush stroke. Vector strokes ignore it.
+    #[serde(default, skip_serializing_if = "texture_smooth")]
+    pub texture: BrushTexture,
 }
 
 fn gaussian_blur_zero(v: &f32) -> bool {
@@ -274,6 +342,8 @@ pub struct StrokeSpan {
     pub width: f32,
     pub softness: f32,
     pub color: Rgba,
+    #[serde(default, skip_serializing_if = "texture_smooth")]
+    pub texture: BrushTexture,
 }
 
 impl StrokeSpan {
@@ -282,6 +352,17 @@ impl StrokeSpan {
             width: stroke.width,
             softness: stroke.softness,
             color: stroke.color,
+            texture: stroke.texture,
+        }
+    }
+
+    /// The tip both stamp interpreters paint for this span.
+    pub fn stamp_style(self) -> vector_ink::StampStyle {
+        vector_ink::StampStyle {
+            diameter: self.width.max(0.0),
+            softness: self.softness,
+            rgba: self.color.0,
+            grain: self.texture.grain(),
         }
     }
 }
@@ -303,6 +384,8 @@ impl Default for Stroke {
             stamp: false,
             tween_from: None,
             gaussian_blur: 0.0,
+            arrow_end: false,
+            texture: Default::default(),
         }
     }
 }
@@ -3659,6 +3742,7 @@ mod tests {
             width,
             softness: 0.0,
             color: Rgba::BLACK,
+            texture: Default::default(),
         };
         let mut path = PathData {
             start: [0.0, 0.0],
@@ -4405,6 +4489,8 @@ mod tests {
                 stamp: false,
                 tween_from: None,
                 gaussian_blur: 0.0,
+                arrow_end: false,
+                texture: Default::default(),
             },
             corner: Corner::Square,
             sides: default_regular_sides(),
@@ -4471,6 +4557,8 @@ mod tests {
             stamp: false,
             tween_from: None,
             gaussian_blur: 0.0,
+            arrow_end: false,
+            texture: Default::default(),
         };
         for flip in [false, true] {
             let n = scene.build_node(

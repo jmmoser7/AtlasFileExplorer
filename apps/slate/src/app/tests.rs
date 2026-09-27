@@ -2518,6 +2518,8 @@ fn line_create_matches_last_edited_style() {
         stamp: false,
         tween_from: None,
         gaussian_blur: 0.0,
+        arrow_end: false,
+        texture: Default::default(),
     };
     h.app.patch_nodes(&[id], |n| {
         n.opacity = 0.5;
@@ -3051,6 +3053,8 @@ fn a_drawn_rectangle_inherits_last_fill_and_stroke() {
         stamp: false,
         tween_from: None,
         gaussian_blur: 0.0,
+        arrow_end: false,
+        texture: Default::default(),
     };
     h.app.patch_nodes(&[id], |n| {
         if let slate_doc::scene::NodeKind::Shape(s) = &mut n.kind {
@@ -8682,7 +8686,7 @@ fn a_color_dot_moves_the_pointer_and_leaves_the_wheel() {
     };
     let slot = board_color::wheel_slot_offset(0, 24, board_color::WHEEL_SLOT_RADIUS);
     let dot = center + egui::vec2(slot[0], slot[1]);
-    let approach = dot + egui::vec2(12.0, 0.0);
+    let approach = dot + egui::vec2(7.0, 0.0);
     assert!(h.app.drive_brush_hud(Some(approach), true, false));
     match h.app.brush_hud {
         Some(board_color::BrushHud::Wheel { center: now, .. }) => {
@@ -9042,7 +9046,11 @@ fn alt_right_drag_sizes_every_stroke_tool() {
         assert!(during.width > before.width + 1.0, "{tool:?} got wider");
         assert_eq!(during.softness, 0.0, "{tool:?} stays hard");
         let label = h.app.size_hud_label().unwrap_or_default();
-        assert!(label.ends_with(" px"), "{tool:?} HUD reads {label:?}");
+        let px = format!("{:.0} px", during.width);
+        assert!(
+            label.starts_with(&px),
+            "{tool:?} HUD reads {label:?}, expected it to start with {px}"
+        );
         release_chord(&mut h);
         assert_eq!(h.app.stroke_for_tool(slot).width, during.width);
         let saved = h.app.doc().view.create_style.clone().unwrap_or_default();
@@ -10330,11 +10338,10 @@ fn right_button(pos: Pos2, pressed: bool, alt: bool) -> impl FnOnce(&mut egui::R
     }
 }
 
-/// Stated 2026-09-26: the Alt+right-drag size circle is centered on the
-/// mouse cursor, the way the brush tip is. Its diameter still scrubs from
-/// the press point.
+/// The Alt+right-drag size circle stays on the press point and grows about
+/// that center. The pointer's travel only changes the diameter.
 #[test]
-fn the_size_hud_circle_is_centered_on_the_pointer() {
+fn the_size_hud_circle_stays_on_the_press_point() {
     let mut h = line_board("size_hud_center");
     h.app.set_board_tool(board::BoardTool::Brush);
     h.app.tab_mut().cam.z = 1.0;
@@ -10374,8 +10381,8 @@ fn the_size_hud_circle_is_centered_on_the_pointer() {
     assert!(!rings.is_empty(), "the size HUD painted its width ring");
     for center in rings {
         assert!(
-            center.distance(to) < 0.5,
-            "the size ring sits at {center:?}, the pointer is at {to:?} (press was {c:?})"
+            center.distance(c) < 0.5,
+            "the size ring sits at {center:?}, the press was {c:?} (pointer moved to {to:?})"
         );
     }
     h.frame_with(right_button(to, false, false));
@@ -13562,6 +13569,7 @@ fn style_vertices(
             width,
             softness: 0.0,
             color: Rgba([r, base[1], base[2], 255]),
+            texture: Default::default(),
         })
         .collect();
     path.corner_amounts = corners.to_vec();
@@ -14100,4 +14108,682 @@ fn trim_keeps_the_curve_profile_between_vertices() {
             .any(|seg| matches!(seg, slate_doc::scene::PathSeg::Cubic { .. })),
         "the piece stays a curve"
     );
+}
+
+#[test]
+fn alt_right_drag_scales_about_the_press_point_through_real_frames() {
+    let mut h = Harness::new("hud_center");
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    h.frame();
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.brush_width = 20.0;
+    let press = h.app.canvas_rect.center();
+    let alt = egui::Modifiers {
+        alt: true,
+        ..Default::default()
+    };
+    let cam0 = h.app.tab().cam.offset;
+    h.frame_with(|i| {
+        i.modifiers = alt;
+        i.events.push(egui::Event::PointerMoved(press));
+    });
+    h.frame_with(|i| {
+        i.modifiers = alt;
+        i.events.push(egui::Event::PointerButton {
+            pos: press,
+            button: egui::PointerButton::Secondary,
+            pressed: true,
+            modifiers: alt,
+        });
+    });
+    for k in 1..=6 {
+        let p = press + egui::vec2(10.0 * k as f32, -4.0 * k as f32);
+        h.frame_with(|i| {
+            i.modifiers = alt;
+            i.events.push(egui::Event::PointerMoved(p));
+        });
+    }
+    let origin = match h.app.brush_hud {
+        Some(board_color::BrushHud::Size { origin, .. }) => origin,
+        other => panic!("size hud open, got {other:?}"),
+    };
+    assert_eq!(
+        h.app.board_xf().w2s(origin),
+        press,
+        "HUD center is the press point, pinned to the canvas"
+    );
+    assert_eq!(
+        h.app.tab().cam.offset,
+        cam0,
+        "the canvas does not move under the HUD"
+    );
+    assert!(h.app.brush_width > 20.0);
+}
+
+#[test]
+fn curve_tools_take_the_size_color_and_opacity_hud() {
+    let mut h = Harness::new("curve_hud");
+    h.app.set_board_tool(board::BoardTool::Pen);
+    h.app.tab_mut().cam.z = 1.0;
+    let w0 = h.app.stroke_for_new_curve().width;
+    h.app.alt_down = true;
+    assert!(h.app.drive_brush_hud(Some(Pos2::new(0.0, 0.0)), true, true));
+    assert!(h
+        .app
+        .drive_brush_hud(Some(Pos2::new(30.0, -80.0)), true, false));
+    assert!(h
+        .app
+        .drive_brush_hud(Some(Pos2::new(30.0, -80.0)), false, false));
+    let s = h.app.stroke_for_new_curve();
+    assert!((s.width - (w0 + 30.0)).abs() < 0.5, "width {}", s.width);
+    assert_eq!(s.softness, 0.0, "vector curves have no softness");
+    h.app.alt_down = false;
+    h.app.shift_down = true;
+    assert!(h.app.drive_brush_hud(Some(Pos2::new(0.0, 0.0)), true, true));
+    assert!(h
+        .app
+        .drive_brush_hud(Some(Pos2::new(0.0, 50.0)), true, false));
+    assert!(h
+        .app
+        .drive_brush_hud(Some(Pos2::new(0.0, 50.0)), false, false));
+    assert!((h.app.opacity_for_new_node(false) - 0.5).abs() < 0.02);
+    h.app.shift_down = false;
+    h.app.ctrl_down = true;
+    assert!(h.app.drive_brush_hud(Some(Pos2::new(0.0, 0.0)), true, true));
+    assert!(matches!(
+        h.app.brush_hud,
+        Some(board_color::BrushHud::Wheel { .. })
+    ));
+    h.app.set_active_rgb([10, 200, 30]);
+    assert!(h
+        .app
+        .drive_brush_hud(Some(Pos2::new(0.0, 0.0)), false, false));
+    assert_eq!(h.app.stroke_for_new_curve().color.0[..3], [10, 200, 30]);
+}
+
+#[test]
+fn the_size_hud_palette_picks_curve_styles_and_brush_textures() {
+    use board_tip_hud::{palette_slot, CurveStyle, TipChoice};
+    let mut h = Harness::new("tip_palette");
+    h.app.tab_mut().cam.z = 1.0;
+    h.app.set_board_tool(board::BoardTool::Line);
+    h.app.alt_down = true;
+    let press = Pos2::new(200.0, 200.0);
+    assert!(h.app.drive_brush_hud(Some(press), true, true));
+    let r = (h.app.active_tip().0 * 0.5).max(1.5);
+    let n = h.app.tip_choices().len();
+    let arrow = palette_slot(press, r, 2, n);
+    assert!(h.app.drive_brush_hud(Some(arrow), true, false));
+    assert!(h.app.drive_brush_hud(Some(arrow), false, false));
+    assert_eq!(
+        h.app.current_tip_choice(),
+        Some(TipChoice::Curve(CurveStyle::Arrow))
+    );
+    assert!(h.app.stroke_for_new_curve().arrow_end);
+    h.app
+        .apply_tip_choice(TipChoice::Curve(CurveStyle::TaperBoth));
+    assert!(matches!(
+        h.app.stroke_for_new_curve().profile,
+        slate_doc::scene::WidthProfile::Ends { .. }
+    ));
+
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app
+        .apply_tip_choice(TipChoice::Texture(slate_doc::scene::BrushTexture::Pencil));
+    h.app
+        .finish_freehand_brush(vec![Pos2::new(0.0, 0.0), Pos2::new(80.0, 0.0)]);
+    let node = h.app.doc().scene.nodes.last().unwrap();
+    let slate_doc::scene::NodeKind::Shape(shape) = &node.kind else {
+        panic!("brush path");
+    };
+    assert_eq!(shape.stroke.texture, slate_doc::scene::BrushTexture::Pencil);
+}
+
+#[test]
+fn direct_select_deletes_an_anchor_and_rejoins_its_neighbors() {
+    let mut h = Harness::new("direct_delete");
+    let id = add_seg(&mut h.app, Pos2::new(0.0, 0.0), Pos2::new(100.0, 0.0));
+    h.app.set_board_tool(board::BoardTool::DirectSelect);
+    h.app.direct_set_target(Some(id));
+    // Make a three-anchor path by writing one through the direct helpers.
+    let (mut anchors, closed) = h.app.direct_anchors_of(id).unwrap();
+    anchors.insert(
+        1,
+        vector_ink::Anchor::corner(vector_ink::kurbo::Point::new(50.0, 40.0)),
+    );
+    h.app.patch_nodes(&[id], |_| {});
+    {
+        let bez = vector_ink::bezpath_from_anchors(&anchors, closed);
+        let (rect, data) = board_path::bezpath_to_path_data(&bez, closed);
+        h.app.patch_nodes(&[id], |n| {
+            n.rect = rect;
+            if let slate_doc::scene::NodeKind::Shape(s) = &mut n.kind {
+                s.path = Some(data.clone().into());
+            }
+        });
+    }
+    assert_eq!(h.app.direct_anchors_of(id).unwrap().0.len(), 3);
+    h.app.direct.anchors.insert(1);
+    assert!(h.app.direct_delete_anchors());
+    let (left, _) = h.app.direct_anchors_of(id).unwrap();
+    assert_eq!(left.len(), 2, "the middle anchor is gone");
+    assert!((left[1].point.x - 100.0).abs() < 1e-3, "neighbors rejoin");
+    h.app.board_undo();
+    assert_eq!(
+        h.app.direct_anchors_of(id).unwrap().0.len(),
+        3,
+        "one undo restores it"
+    );
+}
+
+#[test]
+fn an_exported_open_curve_draws_its_arrowhead() {
+    let mut doc = slate_doc::SlateDoc::new("Arrow");
+    let rect = slate_doc::scene::WorldRect::new(0.0, 0.0, 100.0, 10.0);
+    let mut stroke = board_path::default_curve_stroke(slate_doc::scene::Rgba::BLACK);
+    stroke.arrow_end = true;
+    let node = doc.scene.build_node(
+        rect,
+        slate_doc::scene::NodeKind::Shape(slate_doc::scene::ShapeNode {
+            shape: slate_doc::scene::ShapeKind::Path,
+            fill: None,
+            stroke,
+            corner: slate_doc::scene::Corner::Square,
+            phase_deg: 0.0,
+            flip: false,
+            path: Some(
+                slate_doc::scene::PathData {
+                    start: [0.0, 0.5],
+                    segs: vec![slate_doc::scene::PathSeg::Line { to: [1.0, 0.5] }],
+                    ..Default::default()
+                }
+                .into(),
+            ),
+            text: None,
+            sides: slate_doc::scene::default_regular_sides(),
+        }),
+    );
+    let index = doc.scene.nodes.len();
+    doc.scene
+        .apply(&slate_doc::scene::SceneCmd::Add { index, node });
+    let html = slate_artifact::render_html(&doc, &slate_artifact::AssetMap::default());
+    assert!(
+        html.contains("M 100.0 5.0 L"),
+        "arrow tip at the end:\n{html}"
+    );
+}
+
+#[test]
+fn a_dragged_anchor_snaps_to_another_anchor_on_its_own_curve() {
+    let mut h = Harness::new("direct_snap_self");
+    let id = add_seg(&mut h.app, Pos2::new(0.0, 0.0), Pos2::new(100.0, 0.0));
+    h.app.set_board_tool(board::BoardTool::DirectSelect);
+    h.app.direct_set_target(Some(id));
+    let (anchors, closed) = h.app.direct_anchors_of(id).unwrap();
+    let before = h.app.doc().scene.node(id).unwrap().clone();
+    // Grab the start anchor a little off its center and carry it next to
+    // the end anchor: it lands exactly on the end anchor, not offset by the
+    // grab.
+    let grab = Pos2::new(2.0, 1.0);
+    h.app.board_drag = Some(board::BoardDrag::Direct(
+        board_direct::DirectDrag::Anchors {
+            node: id,
+            before,
+            anchors0: anchors.clone(),
+            closed,
+            indices: vec![0],
+            start: grab,
+        },
+    ));
+    h.app
+        .update_direct_drag(Pos2::new(99.0, 3.0), egui::Modifiers::NONE);
+    let (moved, _) = h.app.direct_anchors_of(id).unwrap();
+    assert!(
+        (moved[0].point.x - 100.0).abs() < 1e-3 && moved[0].point.y.abs() < 1e-3,
+        "anchor at {:?}",
+        moved[0].point
+    );
+}
+
+#[test]
+#[ignore]
+fn texture_and_pen_style_validation_image() {
+    use board_tip_hud::{apply_curve_style, CurveStyle};
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/brush-validate");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut img = image::RgbaImage::from_pixel(700, 560, image::Rgba([16, 17, 20, 255]));
+    let mut put = |x: u32, y: u32, rgb: [u8; 3], a: f32| {
+        if x >= 700 || y >= 560 || a <= 0.0 {
+            return;
+        }
+        let p = img.get_pixel_mut(x, y);
+        for c in 0..3 {
+            p.0[c] = (rgb[c] as f32 * a + p.0[c] as f32 * (1.0 - a)).round() as u8;
+        }
+    };
+    // Brush textures: one wavy stroke each, same size and softness.
+    for (row, texture) in slate_doc::scene::BrushTexture::ALL.iter().enumerate() {
+        let y0 = 40.0 + row as f32 * 56.0;
+        let pts: Vec<vector_ink::TipPoint> = (0..=60)
+            .map(|i| {
+                let x = 30.0 + i as f32 * 5.0;
+                vector_ink::TipPoint {
+                    pos: [x, y0 + (i as f32 * 0.3).sin() * 12.0],
+                    tip: vector_ink::StampStyle {
+                        diameter: 34.0,
+                        softness: 0.35,
+                        rgba: [150, 255, 170, 255],
+                        grain: texture.grain(),
+                    },
+                }
+            })
+            .collect();
+        let stamp = vector_ink::stamp_tipped(&[pts], 1.0).unwrap();
+        for y in 0..stamp.height {
+            for x in 0..stamp.width {
+                let i = ((y * stamp.width + x) * 4) as usize;
+                let a = stamp.rgba[i + 3] as f32 / 255.0;
+                let wx = stamp.origin[0] + x as f32 + 0.5;
+                let wy = stamp.origin[1] + y as f32 + 0.5;
+                if wx >= 0.0 && wy >= 0.0 {
+                    put(wx as u32, wy as u32, [150, 255, 170], a);
+                }
+            }
+        }
+    }
+    // Pen styles: a bent open curve per style, outline filled by sampling.
+    let styles = [
+        CurveStyle::Square,
+        CurveStyle::Round,
+        CurveStyle::Arrow,
+        CurveStyle::TaperStart,
+        CurveStyle::TaperBoth,
+    ];
+    for (row, style) in styles.iter().enumerate() {
+        let y0 = 40.0 + row as f32 * 100.0;
+        let mut stroke = board_path::default_curve_stroke(slate_doc::scene::Rgba::BLACK);
+        stroke.width = 14.0;
+        apply_curve_style(&mut stroke, *style);
+        let mut bez = vector_ink::kurbo::BezPath::new();
+        bez.move_to((380.0, (y0 + 30.0) as f64));
+        bez.line_to((500.0, (y0 - 10.0) as f64));
+        bez.line_to((640.0, (y0 + 30.0) as f64));
+        let ink = board_path::stroke_style_world(&stroke, 1.0);
+        let body = if stroke.arrow_end {
+            slate_doc::geom::trim_end(&bez, slate_doc::geom::arrow_trim(stroke.width))
+        } else {
+            bez.clone()
+        };
+        let outline = vector_ink::stroke_outline(&body, &ink, 0.25);
+        let contours = vector_ink::flatten_contours(&outline, 0.25);
+        let arrow = stroke
+            .arrow_end
+            .then(|| slate_doc::geom::path_end_arrow(&bez))
+            .flatten()
+            .map(|(tip, into)| slate_doc::geom::arrow_head(tip, into, stroke.width));
+        for y in (y0 as u32).saturating_sub(40)..(y0 as u32 + 60) {
+            for x in 360..690 {
+                let p = [x as f32 + 0.5, y as f32 + 0.5];
+                let inside = vector_ink::point_in_polygon(&contours, p)
+                    || arrow.is_some_and(|t| vector_ink::point_in_polygon(&vec![t.to_vec()], p));
+                if inside {
+                    put(x, y, [230, 230, 240], 1.0);
+                }
+            }
+        }
+    }
+    img.save(dir.join("styles.png")).unwrap();
+}
+
+/// Software rasterizer for egui's own tessellated output, so the board and
+/// its HUDs can be inspected as real frames without a GPU or a screen grab.
+struct FrameRaster {
+    w: usize,
+    h: usize,
+    px: Vec<[f32; 4]>,
+    textures: std::collections::HashMap<egui::TextureId, (usize, usize, Vec<egui::Color32>)>,
+}
+
+impl FrameRaster {
+    fn new(w: usize, h: usize) -> Self {
+        FrameRaster {
+            w,
+            h,
+            px: vec![[0.0, 0.0, 0.0, 1.0]; w * h],
+            textures: Default::default(),
+        }
+    }
+
+    fn apply(&mut self, delta: &egui::TexturesDelta) {
+        for (id, d) in &delta.set {
+            let (w, h, pixels) = match &d.image {
+                egui::ImageData::Color(c) => (c.size[0], c.size[1], c.pixels.clone()),
+                egui::ImageData::Font(f) => (f.size[0], f.size[1], f.srgba_pixels(None).collect()),
+            };
+            match d.pos {
+                None => {
+                    self.textures.insert(*id, (w, h, pixels));
+                }
+                Some([x0, y0]) => {
+                    if let Some((tw, _, dst)) = self.textures.get_mut(id) {
+                        for y in 0..h {
+                            for x in 0..w {
+                                dst[(y0 + y) * *tw + x0 + x] = pixels[y * w + x];
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn sample(&self, id: egui::TextureId, u: f32, v: f32) -> [f32; 4] {
+        let Some((w, h, px)) = self.textures.get(&id) else {
+            return [1.0; 4];
+        };
+        let (w, h) = (*w, *h);
+        let fx = (u * w as f32 - 0.5).clamp(0.0, (w - 1) as f32);
+        let fy = (v * h as f32 - 0.5).clamp(0.0, (h - 1) as f32);
+        let (x0, y0) = (fx.floor() as usize, fy.floor() as usize);
+        let (x1, y1) = ((x0 + 1).min(w - 1), (y0 + 1).min(h - 1));
+        let (tx, ty) = (fx - x0 as f32, fy - y0 as f32);
+        let get = |x: usize, y: usize| {
+            let c = px[y * w + x];
+            [c.r() as f32 / 255.0, c.g() as f32 / 255.0, c.b() as f32 / 255.0, c.a() as f32 / 255.0]
+        };
+        let (a, b, c, d) = (get(x0, y0), get(x1, y0), get(x0, y1), get(x1, y1));
+        let mut out = [0.0; 4];
+        for k in 0..4 {
+            let top = a[k] + (b[k] - a[k]) * tx;
+            let bot = c[k] + (d[k] - c[k]) * tx;
+            out[k] = top + (bot - top) * ty;
+        }
+        out
+    }
+
+    fn draw(&mut self, prims: &[egui::ClippedPrimitive]) {
+        for prim in prims {
+            let egui::epaint::Primitive::Mesh(mesh) = &prim.primitive else {
+                continue;
+            };
+            let clip = prim.clip_rect;
+            for tri in mesh.indices.chunks_exact(3) {
+                let v = [
+                    &mesh.vertices[tri[0] as usize],
+                    &mesh.vertices[tri[1] as usize],
+                    &mesh.vertices[tri[2] as usize],
+                ];
+                let (p0, p1, p2) = (v[0].pos, v[1].pos, v[2].pos);
+                let area = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);
+                if area.abs() < 1e-9 {
+                    continue;
+                }
+                let minx = p0.x.min(p1.x).min(p2.x).max(clip.min.x).max(0.0).floor() as i64;
+                let maxx = p0.x.max(p1.x).max(p2.x).min(clip.max.x).min(self.w as f32).ceil() as i64;
+                let miny = p0.y.min(p1.y).min(p2.y).max(clip.min.y).max(0.0).floor() as i64;
+                let maxy = p0.y.max(p1.y).max(p2.y).min(clip.max.y).min(self.h as f32).ceil() as i64;
+                for y in miny..maxy {
+                    for x in minx..maxx {
+                        let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
+                        let w0 = ((p1.x - px) * (p2.y - py) - (p1.y - py) * (p2.x - px)) / area;
+                        let w1 = ((p2.x - px) * (p0.y - py) - (p2.y - py) * (p0.x - px)) / area;
+                        let w2 = 1.0 - w0 - w1;
+                        if w0 < 0.0 || w1 < 0.0 || w2 < 0.0 {
+                            continue;
+                        }
+                        let lerp = |f: &dyn Fn(&egui::epaint::Vertex) -> f32| {
+                            f(v[0]) * w0 + f(v[1]) * w1 + f(v[2]) * w2
+                        };
+                        let col = [
+                            lerp(&|q| q.color.r() as f32 / 255.0),
+                            lerp(&|q| q.color.g() as f32 / 255.0),
+                            lerp(&|q| q.color.b() as f32 / 255.0),
+                            lerp(&|q| q.color.a() as f32 / 255.0),
+                        ];
+                        let tex = self.sample(mesh.texture_id, lerp(&|q| q.uv.x), lerp(&|q| q.uv.y));
+                        let src = [col[0] * tex[0], col[1] * tex[1], col[2] * tex[2], col[3] * tex[3]];
+                        let dst = &mut self.px[y as usize * self.w + x as usize];
+                        for k in 0..4 {
+                            dst[k] = src[k] + dst[k] * (1.0 - src[3]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn save(&self, path: &std::path::Path) {
+        let mut img = image::RgbImage::new(self.w as u32, self.h as u32);
+        for (i, p) in self.px.iter().enumerate() {
+            let q = |c: f32| (c.clamp(0.0, 1.0) * 255.0).round() as u8;
+            img.put_pixel((i % self.w) as u32, (i / self.w) as u32, image::Rgb([q(p[0]), q(p[1]), q(p[2])]));
+        }
+        img.save(path).unwrap();
+    }
+}
+
+/// Run one frame with `prepare`, feeding its textures into `raster`.
+fn capture_frame(
+    h: &mut Harness,
+    raster: &mut FrameRaster,
+    prepare: impl FnOnce(&mut egui::RawInput),
+) -> egui::FullOutput {
+    let mut input = egui::RawInput {
+        screen_rect: Some(ERect::from_min_size(Pos2::ZERO, EVec2::new(1440.0, 900.0))),
+        ..Default::default()
+    };
+    prepare(&mut input);
+    let ctx = h.ctx.clone();
+    let app = &mut h.app;
+    let out = ctx.run(input, |c| app.update_app(c));
+    raster.apply(&out.textures_delta);
+    out
+}
+
+fn snapshot(h: &mut Harness, raster: &mut FrameRaster, out: egui::FullOutput, name: &str) {
+    // Tiled strokes render on worker threads; let them land first.
+    let mut out = out;
+    for _ in 0..200 {
+        if !h.app.brush_tiles_enabled || h.app.brush_tiles.last.pending_jobs == 0 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let mods = h.ctx.input(|i| i.modifiers);
+        out = capture_frame(h, raster, |i| i.modifiers = mods);
+    }
+    let prims = h.ctx.tessellate(out.shapes, out.pixels_per_point);
+    for p in raster.px.iter_mut() {
+        *p = [0.0, 0.0, 0.0, 1.0];
+    }
+    raster.draw(&prims);
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/brush-validate/frames");
+    std::fs::create_dir_all(&dir).unwrap();
+    raster.save(&dir.join(format!("{name}.png")));
+}
+
+#[test]
+#[ignore]
+fn visual_verification_frames() {
+    use board_tip_hud::{palette_slot, CurveStyle, TipChoice};
+    let mut h = Harness::new("visual");
+    let mut raster = FrameRaster::new(1440, 900);
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    capture_frame(&mut h, &mut raster, |_| {});
+    capture_frame(&mut h, &mut raster, |_| {});
+    let c = h.app.canvas_rect.center();
+    let xf = h.app.board_xf();
+    let w = |x: f32, y: f32| xf.s2w(Pos2::new(c.x + x, c.y + y));
+
+    // Five textured brush strokes.
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.board_colors.fg.0 = [150, 255, 170, 255];
+    for (i, t) in slate_doc::scene::BrushTexture::ALL.iter().enumerate() {
+        h.app.brush_texture = *t;
+        h.app.brush_width = 26.0 / xf.z;
+        h.app.brush_softness = 0.35;
+        let y0 = -330.0 + i as f32 * 52.0;
+        let pts: Vec<Pos2> = (0..=40)
+            .map(|k| w(-650.0 + k as f32 * 9.0, y0 + (k as f32 * 0.35).sin() * 12.0))
+            .collect();
+        h.app.finish_freehand_brush(pts);
+    }
+    // A spot erase through the first three strokes.
+    let out = capture_frame(&mut h, &mut raster, |_| {});
+    snapshot(&mut h, &mut raster, out, "00-before-erase");
+    h.app.set_board_tool(board::BoardTool::Eraser);
+    h.app.eraser_width = 22.0 / xf.z;
+    h.app.eraser_softness = 0.0;
+    h.app.eraser_opacity = 1.0;
+    h.app.board_drag = Some(h.app.begin_erase(w(-470.0, -360.0), false));
+    for k in 1..=12 {
+        h.app.update_erase(w(-470.0 + k as f32 * 2.0, -360.0 + k as f32 * 12.0));
+    }
+    if let Some(board::BoardDrag::Erase { touched, points, spot, .. }) = h.app.board_drag.take() {
+        h.app.finish_erase(touched, points, spot);
+    }
+    // Five pen curves, one per style.
+    h.app.set_board_tool(board::BoardTool::Pen);
+    let styles = [
+        CurveStyle::Square,
+        CurveStyle::Round,
+        CurveStyle::Arrow,
+        CurveStyle::TaperStart,
+        CurveStyle::TaperBoth,
+    ];
+    let mut arrow_id = None;
+    for (i, s) in styles.iter().enumerate() {
+        h.app.set_board_tool(board::BoardTool::Pen);
+        h.app.apply_tip_choice(TipChoice::Curve(*s));
+        let width = h.app.active_tip();
+        h.app.set_active_tip(12.0 / xf.z, width.1, 1.0);
+        let y0 = -330.0 + i as f32 * 60.0;
+        let pts = [w(200.0, y0 + 20.0), w(330.0, y0 - 15.0), w(470.0, y0 + 20.0)];
+        let (rect, data) = board_path::points_to_path_data(&pts, false);
+        h.app.commit_path_node(slate_doc::StrokeTool::Pen, rect, data, false);
+        if *s == CurveStyle::Arrow {
+            arrow_id = h.app.doc().scene.nodes.last().map(|n| n.id);
+        }
+    }
+    let out = capture_frame(&mut h, &mut raster, |_| {});
+    snapshot(&mut h, &mut raster, out, "01-strokes");
+
+    // Brush: Alt+right-drag size circle with the texture row.
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.brush_texture = slate_doc::scene::BrushTexture::Pencil;
+    let alt = egui::Modifiers { alt: true, ..Default::default() };
+    let ctrl = egui::Modifiers { ctrl: true, command: true, ..Default::default() };
+    let press = Pos2::new(c.x - 350.0, c.y + 180.0);
+    let rmb = |pos: Pos2, down: bool, m: egui::Modifiers| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Secondary,
+        pressed: down,
+        modifiers: m,
+    };
+    capture_frame(&mut h, &mut raster, |i| {
+        i.modifiers = alt;
+        i.events.push(egui::Event::PointerMoved(press));
+        i.events.push(rmb(press, true, alt));
+    });
+    let mut last = press;
+    for k in 1..=5 {
+        last = press + egui::vec2(8.0 * k as f32, -2.0 * k as f32);
+        let p = last;
+        capture_frame(&mut h, &mut raster, |i| {
+            i.modifiers = alt;
+            i.events.push(egui::Event::PointerMoved(p));
+        });
+    }
+    let out = capture_frame(&mut h, &mut raster, |i| i.modifiers = alt);
+    snapshot(&mut h, &mut raster, out, "02-brush-size-hud");
+    let r = h.app.active_tip().0 * 0.5 * h.app.tab().cam.z;
+    let before = (h.app.brush_width, h.app.brush_softness);
+    let slot = palette_slot(press, r, 4, 5);
+    for p in [
+        last + egui::vec2(0.0, r + 12.0),
+        slot + egui::vec2(-20.0, -8.0),
+        slot,
+    ] {
+        capture_frame(&mut h, &mut raster, |i| {
+            i.modifiers = alt;
+            i.events.push(egui::Event::PointerMoved(p));
+        });
+    }
+    let out = capture_frame(&mut h, &mut raster, |i| i.modifiers = alt);
+    snapshot(&mut h, &mut raster, out, "03-brush-palette-hover");
+    assert_eq!(
+        h.app.brush_width, before.0,
+        "reaching the style row must not scrub the size"
+    );
+    capture_frame(&mut h, &mut raster, |i| {
+        i.modifiers = alt;
+        i.events.push(rmb(slot, false, alt));
+    });
+    let _ = last;
+
+    // Color wheel with recent colors, then the ring gap, then outside.
+    let recents: Vec<[u8; 3]> = (0..14)
+        .map(|k| board_color::hsv_to_rgb([k as f32 / 14.0, 0.8, 0.95]))
+        .collect();
+    h.app.tab_mut().doc.view.recent_colors = Some(recents);
+    let wp = Pos2::new(c.x + 50.0, c.y + 150.0);
+    capture_frame(&mut h, &mut raster, |i| {
+        i.modifiers = ctrl;
+        i.events.push(egui::Event::PointerMoved(wp));
+        i.events.push(rmb(wp, true, ctrl));
+    });
+    let center = match h.app.brush_hud {
+        Some(board_color::BrushHud::Wheel { center, .. }) => center,
+        other => panic!("wheel open, got {other:?}"),
+    };
+    for (name, p) in [
+        ("04-wheel", wp + egui::vec2(3.0, 2.0)),
+        ("05-wheel-gap", center + egui::vec2(0.0, -(board_color::WHEEL_HUE_OUTER + 8.0))),
+        ("06-wheel-outside", center + egui::vec2(0.0, -(board_color::WHEEL_BACKDROP_RADIUS + 30.0))),
+    ] {
+        capture_frame(&mut h, &mut raster, |i| {
+            i.modifiers = ctrl;
+            i.events.push(egui::Event::PointerMoved(p));
+        });
+        let out = capture_frame(&mut h, &mut raster, |i| i.modifiers = ctrl);
+        snapshot(&mut h, &mut raster, out, name);
+    }
+    capture_frame(&mut h, &mut raster, |i| {
+        i.modifiers = ctrl;
+        i.events.push(rmb(wp, false, ctrl));
+    });
+    h.app.cancel_brush_hud();
+
+    // Pen: size circle with the curve-style row.
+    h.app.set_board_tool(board::BoardTool::Pen);
+    let pp = Pos2::new(c.x + 380.0, c.y + 190.0);
+    capture_frame(&mut h, &mut raster, |i| {
+        i.modifiers = alt;
+        i.events.push(egui::Event::PointerMoved(pp));
+        i.events.push(rmb(pp, true, alt));
+    });
+    let pr = h.app.active_tip().0 * 0.5 * h.app.tab().cam.z;
+    let pslot = palette_slot(pp, pr, 2, 5);
+    capture_frame(&mut h, &mut raster, |i| {
+        i.modifiers = alt;
+        i.events.push(egui::Event::PointerMoved(pslot));
+    });
+    let out = capture_frame(&mut h, &mut raster, |i| i.modifiers = alt);
+    snapshot(&mut h, &mut raster, out, "07-pen-size-hud");
+    capture_frame(&mut h, &mut raster, |i| {
+        i.modifiers = alt;
+        i.events.push(rmb(pslot, false, alt));
+    });
+
+    // Direct Select on the arrow curve, middle anchor selected.
+    h.app.set_board_tool(board::BoardTool::DirectSelect);
+    h.app.direct_set_target(arrow_id);
+    h.app.direct.anchors.insert(1);
+    let out = capture_frame(&mut h, &mut raster, |i| {
+        i.events.push(egui::Event::PointerMoved(Pos2::new(c.x + 330.0, c.y - 200.0)));
+    });
+    snapshot(&mut h, &mut raster, out, "08-direct-select");
 }

@@ -28,6 +28,7 @@ pub fn lerp_span(a: StrokeSpan, b: StrokeSpan, t: f32) -> StrokeSpan {
         width: mix(a.width, b.width),
         softness: mix(a.softness, b.softness),
         color: Rgba(color),
+        texture: if t < 0.5 { a.texture } else { b.texture },
     }
 }
 
@@ -327,6 +328,7 @@ fn vertex_tips(path: &PathData, stroke: &Stroke) -> Option<Vec<StrokeSpan>> {
                 width: widths.as_ref().map_or(stroke.width, |w| w[i]),
                 softness: t.softness,
                 color: colors.as_ref().map_or(stroke.color, |c| c[i]),
+                texture: t.texture,
             })
             .collect(),
     )
@@ -857,6 +859,7 @@ mod tests {
             width,
             softness: 0.0,
             color: Rgba([red, 0, 0, 255]),
+            texture: Default::default(),
         }
     }
 

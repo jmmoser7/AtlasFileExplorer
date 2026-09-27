@@ -682,6 +682,7 @@ fn set_tips(h: &mut Harness, id: NodeId, widths: &[f32], reds: &[u8]) {
             width,
             softness: 0.0,
             color: slate_doc::scene::Rgba([r, base[1], base[2], 255]),
+            texture: Default::default(),
         })
         .collect();
     s.stroke.width = widths.iter().copied().fold(0.0, f32::max);

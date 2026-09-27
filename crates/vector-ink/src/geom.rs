@@ -102,6 +102,6 @@ pub(crate) fn half_width_at(style: &crate::StrokeStyle, t: f32) -> f32 {
     let base = style.width * 0.5;
     match style.taper {
         None => base,
-        Some((a, b)) => base * lerp(a, b, t.clamp(0.0, 1.0)),
+        Some(taper) => base * taper.at(t),
     }
 }

@@ -1418,6 +1418,7 @@ mod tests {
             width,
             softness: 0.0,
             color: stroke_color,
+            texture: Default::default(),
         };
         let mut doc = SlateDoc::new("PenTips");
         add_frame(&mut doc.scene, 0, WorldRect::new(0.0, 0.0, 200.0, 200.0));

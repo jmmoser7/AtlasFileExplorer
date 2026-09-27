@@ -500,7 +500,7 @@ mod tests {
             width: 1.0,
             cap: Cap::Butt,
             join: Join::Round,
-            taper: Some((1.0, 0.5)),
+            taper: Some(crate::Taper::Linear(1.0, 0.5)),
             dash: None,
         };
         let mesh = stroke_mesh(&path, &style, 0.0, 0.02);
