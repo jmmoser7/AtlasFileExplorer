@@ -1,5 +1,44 @@
 # Canvas command project — change log
 
+## 2026-09-27 — Tip HUD help, tip-chord wording, Eraser row
+
+- `KEYMAP.md` Ctrl+right-drag: curve tools share the wheel, the disk
+  snaps to exact white and black, and the gap before the hue ring is dead
+  (keeps the last value, never samples; `brush` D09). Alt, Shift, and
+  Ctrl+right-drag rows name the committed-curve targets: picked vertices,
+  else the hovered vertex, else the whole curve under Direct Select.
+- `KEYMAP.md` E: painted brush strokes spot-erase (one Patch per pass);
+  vector strokes are removed whole. `[ ]` and Shift+`[ ]` name Eraser and
+  Smooth as well as Brush (`smooth` D05).
+- `board.brush.size_hud`, `board.brush.opacity_hud`, and
+  `board.brush.color_wheel` help (and `COMMANDS.md`) add Smooth where it
+  arms and the committed-curve targets. No binding changed.
+- `line`, `arc`, `polyline`, `bezier-span`, and `pen` D16, and `pen` D10:
+  "width chord" becomes the tip chord (P1.curve.tip-chord: width, color,
+  and opacity).
+- The size HUD's style row is described as transient input chrome at the
+  right-button press point (P0.9 pointer-attached exception), not
+  P2.GhostFollow, in `specs/brush-color.md` and `board_tip_hud.rs`.
+- Superseded notes added to the earlier "Tip HUD for every open curve"
+  entry (dot radius 130 px; the style row drives softness to hardest).
+
+## 2026-09-27 — KEYMAP brought in line with the brush and draft contracts
+
+- `KEYMAP.md` Tab / Shift+Tab: Tab locks the pending segment's direction
+  for every drawn segment (P2.RhinoDraft.tab): Line, Polyline, Arc,
+  Bézier span, the Brush Shift drag, and the Eraser Shift pass. It
+  previously cited only `line.md` D07.
+- `KEYMAP.md` Alt+right-drag: 2 screen px of diameter per pixel of travel
+  (was 1), softness for Brush, Eraser, and Smooth, and the style row
+  entered at maximum hardness, kept on release (`brush.md` D05, D08).
+- `KEYMAP.md` Shift+right-drag: Brush opacity, Eraser and Smooth strength,
+  and curve tools' opacity, down to 0 % (was "Brush only"; `brush.md`
+  D05).
+- `KEYMAP.md` adds Shift+left-drag (Brush) and Shift+click (Brush) rows:
+  the straight segment from the last stroke's end with 45° steps and the
+  Tab lock, and the connect click within 8 screen px (`brush.md` D03, D04,
+  D07). Neither steps opacity.
+
 ## 2026-09-27 — Agent chat: stable chooser, bare Stop, drafts join a switch
 
 - `portal-agent-link` D13: the Codex conversation chooser keeps a fixed
@@ -155,6 +194,9 @@
   (world anchored) and grows about that center.
 - The color wheel's saved-color dots sit clear of the hue ring (ring edge
   106 px, dots at 128 px with a 10 px pick), so the two no longer collide.
+  Superseded 2026-09-27: the ring's outer edge is 112 px and the dots sit
+  at 130 px (`WHEEL_SLOT_RADIUS`); see "Tip HUD feel: gain, style band,
+  0 % opacity, arrows, wheel gap" above and `brush` feel constants.
 - Line, Polyline, Arc, Pen, and Bezier take Alt+right-drag (size),
   Ctrl+right-drag (color wheel), and Shift+right-drag (opacity). They edit
   the open-curve create style. Softness stays Brush and Eraser only.
@@ -170,7 +212,10 @@
   other anchors. Delete removes the selected anchors and rejoins the
   neighbors.
 - Reaching the style row freezes the size and restores the softness from
-  the press, so picking a texture does not harden the tip. The color
+  the press, so picking a texture does not harden the tip. Superseded
+  2026-09-27: the way down drives softness to hardest and the release
+  keeps it; see "Tip HUD feel: gain, style band, 0 % opacity, arrows,
+  wheel gap" above (`brush` D05). The color
   wheel's saturation disk paints under the hue ring so no backdrop
   hairline shows between them.
 

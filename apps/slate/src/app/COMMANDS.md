@@ -255,6 +255,14 @@ drag the address-bar URL or a page link instead.
   using the Photoshop tiers in **screen px** converted by zoom
   (`<10:±1 · 10–50:±5 · 50–100:±10 · >100:±25`). A width circle (solid core
   + fainter feather ring) tracks the pointer while Brush/Eraser is armed.
+- **Tip HUD** — **Alt+right-drag** (`board.brush.size_hud`: size, and
+  softness for Brush, Eraser, and Smooth), **Shift+right-drag**
+  (`board.brush.opacity_hud`: opacity, or Eraser / Smooth strength), and
+  **Ctrl+right-drag** (`board.brush.color_wheel`: Brush and curve tools
+  only). They run while Brush, Eraser, Smooth, or a curve tool is armed,
+  and on a committed curve: its picked vertices (Direct Select anchors or
+  Select-tool grips), else the vertex under the pointer, else the whole
+  curve under Direct Select (see *Picked vertices* below).
 - **Alt+right-drag** (`board.stroke.width_hud`) with Pen, Line, Arc,
   Polyline, or Bézier armed opens the Brush size HUD for that tool's own
   width (horizontal only; these strokes are always hard). During a line,
