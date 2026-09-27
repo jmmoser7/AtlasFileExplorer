@@ -52,11 +52,13 @@ fn arc_steps(radius: f32, angle: f32, tolerance: f64) -> usize {
 }
 
 /// `widths`, when present, holds a full width per point and replaces
-/// `style.width` there; the taper still scales it.
+/// `style.width` there; the taper still scales it. An open run takes
+/// `ends[0]` at its start and `ends[1]` at its end.
 fn stations(
     points: &[[f32; 2]],
     widths: Option<&[f32]>,
     style: &StrokeStyle,
+    ends: [Cap; 2],
     closed: bool,
     tolerance: f64,
     feather: f32,
@@ -102,7 +104,7 @@ fn stations(
             points[0],
             first,
             half(0),
-            style.cap,
+            ends[0],
             true,
             tolerance,
             feather,
@@ -132,7 +134,7 @@ fn stations(
             points[n - 1],
             last,
             half(n - 1),
-            style.cap,
+            ends[1],
             false,
             tolerance,
             feather,
@@ -149,6 +151,7 @@ pub(crate) fn tessellate_run(
     widths: Option<&[f32]>,
     colors: Option<&[[f32; 4]]>,
     style: &StrokeStyle,
+    ends: [Cap; 2],
     feather: f32,
     closed: bool,
     tolerance: f64,
@@ -163,6 +166,7 @@ pub(crate) fn tessellate_run(
         &points,
         widths.as_deref(),
         style,
+        ends,
         closed,
         tolerance,
         feather,
@@ -189,7 +193,8 @@ pub(crate) fn run_pieces(
     if colors.len() != points.len() {
         return Vec::new();
     }
-    let mut sections = stations(points, widths, style, closed, tolerance, 0.0);
+    let ends = [style.cap; 2];
+    let mut sections = stations(points, widths, style, ends, closed, tolerance, 0.0);
     if sections.len() < 2 {
         return Vec::new();
     }
@@ -225,7 +230,8 @@ pub(crate) fn run_outline(
     closed: bool,
     tolerance: f64,
 ) -> Vec<Vec<[f32; 2]>> {
-    let sections = stations(points, widths, style, closed, tolerance, 0.0);
+    let ends = [style.cap; 2];
+    let sections = stations(points, widths, style, ends, closed, tolerance, 0.0);
     if sections.len() < 2 {
         return Vec::new();
     }
@@ -484,6 +490,43 @@ mod tests {
                 mesh_area(&mesh)
             );
         }
+    }
+
+    #[test]
+    fn butt_ends_meeting_mid_segment_tile_the_whole_stroke() {
+        use crate::{stroke_mesh_ends, TipEase};
+        let style = StrokeStyle {
+            width: 20.0,
+            cap: Cap::Round,
+            join: Join::Round,
+            taper: None,
+            dash: None,
+        };
+        let path = |svg: &str| BezPath::from_svg(svg).unwrap();
+        let whole = stroke_mesh(&path("M0 0H100V100"), &style, 0.0, 0.005);
+        let widths = [20.0, 20.0, 20.0];
+        let (round, butt) = (Cap::Round, Cap::Butt);
+        let ends = |svg: &str, ends: [Cap; 2], widths: &[f32]| {
+            let p = path(svg);
+            stroke_mesh_ends(
+                &p,
+                &style,
+                ends,
+                Some(widths),
+                None,
+                TipEase::Linear,
+                0.0,
+                0.005,
+            )
+        };
+        let first = ends("M0 0H100V50", [round, butt], &widths);
+        let second = ends("M100 50V100", [butt, round], &widths[..2]);
+        let tiled = mesh_area(&first) + mesh_area(&second);
+        assert!(
+            (tiled - mesh_area(&whole)).abs() < 0.5,
+            "no gap and no overlap: {tiled} vs {}",
+            mesh_area(&whole)
+        );
     }
 
     #[test]

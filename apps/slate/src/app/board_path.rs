@@ -111,6 +111,24 @@ pub(crate) struct CachedInkMesh {
     colors: Vec<Color32>,
 }
 
+impl From<InkMesh> for CachedInkMesh {
+    fn from(ink: InkMesh) -> Self {
+        CachedInkMesh {
+            vertices: ink.vertices.iter().map(|v| v.pos).collect(),
+            alphas: ink.vertices.iter().map(|v| v.alpha).collect(),
+            indices: ink.indices,
+            colors: ink
+                .colors
+                .iter()
+                .map(|c| {
+                    let [r, g, b, a] = c.map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8);
+                    Color32::from_rgba_unmultiplied(r, g, b, a)
+                })
+                .collect(),
+        }
+    }
+}
+
 type FillTriangles = (Vec<[f32; 2]>, Vec<u32>);
 
 #[derive(Clone)]
@@ -222,20 +240,7 @@ impl PathMeshCache {
             return c;
         }
         self.tess_misses = self.tess_misses.saturating_add(1);
-        let ink = build();
-        let cached = Shared::new(CachedInkMesh {
-            vertices: ink.vertices.iter().map(|v| v.pos).collect(),
-            alphas: ink.vertices.iter().map(|v| v.alpha).collect(),
-            indices: ink.indices,
-            colors: ink
-                .colors
-                .iter()
-                .map(|c| {
-                    let [r, g, b, a] = c.map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8);
-                    Color32::from_rgba_unmultiplied(r, g, b, a)
-                })
-                .collect(),
-        });
+        let cached = Shared::new(CachedInkMesh::from(build()));
         self.insert(key, CachedGeometry::Stroke(cached.clone()));
         cached
     }
@@ -1742,38 +1747,11 @@ fn vector_stroke_ink_for(
     }
 }
 
-/// Paint a draft mesh: `color` everywhere, or the mesh's own straight
-/// per-vertex colors when it has them, each at its feather coverage.
-pub(crate) fn paint_preview_ink(
-    painter: &egui::Painter,
-    xf: &BoardXf,
-    color: Color32,
-    ink: InkMesh,
-) {
-    use egui::epaint::{Vertex, WHITE_UV};
-    let tinted = ink.colors.len() == ink.vertices.len();
-    let mut mesh = egui::Mesh::default();
-    mesh.vertices.reserve(ink.vertices.len());
-    for (i, v) in ink.vertices.iter().enumerate() {
-        let base = if tinted {
-            let [r, g, b, a] = ink.colors[i].map(|c| (c.clamp(0.0, 1.0) * 255.0).round() as u8);
-            Color32::from_rgba_unmultiplied(r, g, b, a)
-        } else {
-            color
-        };
-        mesh.vertices.push(Vertex {
-            pos: xf.w2s(Pos2::new(v.pos[0], v.pos[1])),
-            uv: WHITE_UV,
-            color: base.gamma_multiply(v.alpha),
-        });
-    }
-    mesh.indices = ink.indices;
-    painter.add(Shape::mesh(mesh));
-}
-
-/// The Pen's live stroke: its samples, each with the tip it was drawn with
-/// (`tips`), then the pointer with `cursor_tip`. It blends between them like
-/// any stroke tool's draft (`draft_stroke_ink`).
+/// The Pen's live stroke as one mesh: its samples, each with the tip it was
+/// drawn with (`tips`), then the pointer with `cursor_tip`. It blends
+/// between them like any stroke tool's draft (`draft_stroke_ink`). The
+/// board paints the same stroke in pieces (`DraftInkCache::paint_pen`).
+#[cfg(test)]
 pub(crate) fn pen_preview_ink(
     pts: &[Pos2],
     tips: &[PlacedTip],
@@ -3056,6 +3034,17 @@ pub(crate) fn draft_stroke_ink(
     tips: &[PlacedTip],
     zoom: f32,
 ) -> (InkMesh, Color32) {
+    draft_stroke_ink_ends(bez, closed, tips, zoom, [Cap::Round; 2])
+}
+
+/// [`draft_stroke_ink`] with `ends` capping an open stroke's start and end.
+fn draft_stroke_ink_ends(
+    bez: &BezPath,
+    closed: bool,
+    tips: &[PlacedTip],
+    zoom: f32,
+    ends: [Cap; 2],
+) -> (InkMesh, Color32) {
     let floor = 1.0 / zoom.max(0.05);
     let tips: Vec<PlacedTip> = tips
         .iter()
@@ -3088,17 +3077,222 @@ pub(crate) fn draft_stroke_ink(
         slate_doc::geom::tipped_stroke(&data, &stroke, rect, 0.0, square)
     });
     let ink = match tipped.flatten() {
-        Some(t) => match &t.colors {
-            Some(colors) => vector_ink::stroke_mesh_tinted(
-                &t.bez, &style, &t.widths, colors, t.ease, feather, tolerance,
-            ),
-            None => vector_ink::stroke_mesh_tipped(
-                &t.bez, &style, &t.widths, t.ease, feather, tolerance,
-            ),
-        },
-        None => stroke_mesh(bez, &style, feather, tolerance),
+        Some(t) => vector_ink::stroke_mesh_ends(
+            &t.bez,
+            &style,
+            ends,
+            Some(&t.widths),
+            t.colors.as_deref(),
+            t.ease,
+            feather,
+            tolerance,
+        ),
+        None => vector_ink::stroke_mesh_ends(
+            bez,
+            &style,
+            ends,
+            None,
+            None,
+            vector_ink::TipEase::Linear,
+            feather,
+            tolerance,
+        ),
     };
     (ink, rgba32(first.color))
+}
+
+/// Settled Pen samples in each piece of its live preview.
+const PEN_PIECE: usize = 64;
+
+/// A draft mesh and the key of what it was built from.
+struct DraftMesh {
+    key: u64,
+    mesh: CachedInkMesh,
+    color: Color32,
+}
+
+/// The live draft previews' meshes (Art. II): a frame whose draft, tips,
+/// and zoom are unchanged repaints them without tessellating. A Pen stroke
+/// paints as pieces of [`PEN_PIECE`] settled samples, each built once, then
+/// the piece still being drawn, the only one a pointer move rebuilds.
+/// Pieces meet with butt ends in the middle of a segment, at that point's
+/// tip, so together they cover the stroke as one mesh would.
+#[derive(Default)]
+pub(crate) struct DraftInkCache {
+    draft: Option<DraftMesh>,
+    pen: Vec<Option<DraftMesh>>,
+    /// Draft meshes built so far; the board counts each frame's as
+    /// tessellation misses.
+    pub(crate) builds: u32,
+}
+
+fn draft_mesh<'a>(
+    slot: &'a mut Option<DraftMesh>,
+    builds: &mut u32,
+    key: u64,
+    build: impl FnOnce() -> (InkMesh, Color32),
+) -> &'a DraftMesh {
+    if slot.as_ref().is_none_or(|m| m.key != key) {
+        *builds = builds.wrapping_add(1);
+        let (ink, color) = build();
+        *slot = Some(DraftMesh {
+            key,
+            mesh: ink.into(),
+            color,
+        });
+    }
+    slot.as_ref().expect("filled above")
+}
+
+fn paint_draft_mesh(painter: &egui::Painter, xf: &BoardXf, m: &DraftMesh) {
+    painter.add(Shape::mesh(ink_mesh_to_epaint(&m.mesh, xf, m.color, |c| c)));
+}
+
+fn hash_tip(h: &mut impl Hasher, tip: &PlacedTip) {
+    hash_f32(h, tip.width);
+    tip.color.0.hash(h);
+    hash_f32(h, tip.opacity);
+}
+
+fn hash_pos(h: &mut impl Hasher, p: Pos2) {
+    hash_xy(h, [p.x, p.y]);
+}
+
+/// Piece `index` of a live Pen stroke of `pts` drawn with `tip(i)`: the
+/// samples from `index * PEN_PIECE` on, starting mid-segment after the
+/// first piece. A settled piece ends in the middle of the segment after
+/// its last sample; the last piece ends at `cursor`.
+fn pen_piece(
+    pts: &[Pos2],
+    tip: impl Fn(usize) -> PlacedTip,
+    cursor: (Pos2, PlacedTip),
+    index: usize,
+    settled: bool,
+) -> (BezPath, Vec<PlacedTip>, [Cap; 2]) {
+    let from = index * PEN_PIECE;
+    let mid = |i: usize| {
+        (
+            pts[i].lerp(pts[i + 1], 0.5),
+            PlacedTip::lerp(tip(i), tip(i + 1), 0.5),
+        )
+    };
+    let start = if index == 0 {
+        (pts[0], tip(0))
+    } else {
+        mid(from)
+    };
+    let (to, end) = if settled {
+        (from + PEN_PIECE, mid(from + PEN_PIECE))
+    } else {
+        (pts.len() - 1, cursor)
+    };
+    let mut bez = BezPath::new();
+    bez.move_to(to_k(start.0));
+    let mut tips = Vec::with_capacity(to - from + 2);
+    tips.push(start.1);
+    for i in from + 1..=to {
+        bez.line_to(to_k(pts[i]));
+        tips.push(tip(i));
+    }
+    bez.line_to(to_k(end.0));
+    tips.push(end.1);
+    let ends = [
+        if index == 0 { Cap::Round } else { Cap::Butt },
+        if settled { Cap::Butt } else { Cap::Round },
+    ];
+    (bez, tips, ends)
+}
+
+impl DraftInkCache {
+    /// Paint a draft stroke along `bez` with `tips` ([`draft_stroke_ink`]).
+    pub(crate) fn paint(
+        &mut self,
+        painter: &egui::Painter,
+        xf: &BoardXf,
+        bez: &BezPath,
+        closed: bool,
+        tips: &[PlacedTip],
+    ) {
+        let mut h = DefaultHasher::new();
+        for el in bez.elements() {
+            let o = Point::ZERO;
+            let (tag, pts, n) = match *el {
+                PathEl::MoveTo(p) => (0u8, [p, o, o], 1),
+                PathEl::LineTo(p) => (1, [p, o, o], 1),
+                PathEl::QuadTo(a, b) => (2, [a, b, o], 2),
+                PathEl::CurveTo(a, b, c) => (3, [a, b, c], 3),
+                PathEl::ClosePath => (4, [o, o, o], 0),
+            };
+            tag.hash(&mut h);
+            for p in &pts[..n] {
+                p.x.to_bits().hash(&mut h);
+                p.y.to_bits().hash(&mut h);
+            }
+        }
+        closed.hash(&mut h);
+        tips.iter().for_each(|t| hash_tip(&mut h, t));
+        hash_f32(&mut h, xf.z);
+        let m = draft_mesh(&mut self.draft, &mut self.builds, h.finish(), || {
+            draft_stroke_ink(bez, closed, tips, xf.z)
+        });
+        paint_draft_mesh(painter, xf, m);
+    }
+
+    /// Paint the Pen's live stroke: its samples `pts`, each with the tip it
+    /// was drawn with (`tips`), then the pointer with `cursor_tip`.
+    pub(crate) fn paint_pen(
+        &mut self,
+        painter: &egui::Painter,
+        xf: &BoardXf,
+        pts: &[Pos2],
+        tips: &[PlacedTip],
+        cursor: Pos2,
+        cursor_tip: PlacedTip,
+    ) {
+        if pts.is_empty() {
+            self.pen.clear();
+            return;
+        }
+        let tip = |i: usize| tips.get(i).copied().unwrap_or(cursor_tip);
+        let settled = pts.len().saturating_sub(2) / PEN_PIECE;
+        self.pen.resize_with(settled + 1, || None);
+        for (index, slot) in self.pen.iter_mut().enumerate() {
+            let is_settled = index < settled;
+            let from = index * PEN_PIECE;
+            let to = if is_settled {
+                from + PEN_PIECE + 1
+            } else {
+                pts.len() - 1
+            };
+            let mut h = DefaultHasher::new();
+            (index == 0, is_settled).hash(&mut h);
+            for i in from..=to {
+                hash_pos(&mut h, pts[i]);
+                hash_tip(&mut h, &tip(i));
+            }
+            if !is_settled {
+                hash_pos(&mut h, cursor);
+                hash_tip(&mut h, &cursor_tip);
+            }
+            hash_f32(&mut h, xf.z);
+            let m = draft_mesh(slot, &mut self.builds, h.finish(), || {
+                let (bez, piece_tips, ends) =
+                    pen_piece(pts, tip, (cursor, cursor_tip), index, is_settled);
+                draft_stroke_ink_ends(&bez, false, &piece_tips, xf.z, ends)
+            });
+            paint_draft_mesh(painter, xf, m);
+        }
+    }
+
+    /// Drop the Pen's pieces once no Pen stroke is live.
+    pub(crate) fn forget_pen(&mut self) {
+        self.pen.clear();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pen_pieces(&self) -> usize {
+        self.pen.len()
+    }
 }
 
 pub fn paint_path_draft(
@@ -3107,10 +3301,10 @@ pub fn paint_path_draft(
     draft: &BoardPathDraft,
     cursor: Option<Pos2>,
     style: PathDraftPaintStyle,
+    ink: &mut DraftInkCache,
 ) {
     if let Some((bez, closed, tips)) = path_draft_preview(draft, cursor, style.tip) {
-        let (ink, color) = draft_stroke_ink(&bez, closed, &tips, xf.z);
-        paint_preview_ink(painter, xf, color, ink);
+        ink.paint(painter, xf, &bez, closed, &tips);
     }
     if let BoardPathDraft::Bezier {
         anchors, placing, ..
@@ -3729,6 +3923,58 @@ mod tests {
         assert!(at(25.0, mid_y + 0.5));
         assert!(!at(25.0, mid_y + 3.0), "first span stays narrow");
         assert!(at(98.0, mid_y + 4.5), "the rest widens");
+    }
+
+    /// The Pen's live pieces cover its stroke as the one mesh does: the
+    /// same area, so no gap or overlap where they meet, and a stroke too
+    /// short to settle a piece is exactly that one mesh.
+    #[test]
+    fn pen_preview_pieces_tile_the_one_mesh_stroke() {
+        let pts: Vec<Pos2> = (0..300)
+            .map(|i| Pos2::new(i as f32 * 2.0, (i as f32 * 0.07).sin() * 30.0))
+            .collect();
+        let tips: Vec<PlacedTip> = (0..300)
+            .map(|i| PlacedTip {
+                width: 4.0 + (i % 50) as f32 * 0.2,
+                color: Rgba([(i % 256) as u8, 40, 200, 255]),
+                opacity: 0.6,
+            })
+            .collect();
+        let cursor = (Pos2::new(610.0, 0.0), tips[299]);
+        let area = |ink: &InkMesh| -> f64 {
+            ink.indices
+                .chunks(3)
+                .map(|t| {
+                    let [a, b, c] = [0, 1, 2].map(|k| ink.vertices[t[k] as usize].pos);
+                    let cross = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+                    (cross as f64).abs() * 0.5
+                })
+                .sum()
+        };
+        let tip = |i: usize| tips[i];
+        let settled = (pts.len() - 2) / PEN_PIECE;
+        assert!(settled >= 4);
+        let tiled: f64 = (0..=settled)
+            .map(|j| {
+                let (bez, t, ends) = pen_piece(&pts, tip, cursor, j, j < settled);
+                area(&draft_stroke_ink_ends(&bez, false, &t, 1.0, ends).0)
+            })
+            .sum();
+        let whole = area(&pen_preview_ink(&pts, &tips, cursor.0, cursor.1, 1.0).0);
+        assert!(
+            (tiled - whole).abs() < whole * 1e-3,
+            "pieces {tiled} vs one mesh {whole}"
+        );
+
+        let short = &pts[..40];
+        let (bez, t, ends) = pen_piece(short, tip, cursor, 0, false);
+        let (a, _) = draft_stroke_ink_ends(&bez, false, &t, 1.0, ends);
+        let (b, _) = pen_preview_ink(short, &tips[..40], cursor.0, cursor.1, 1.0);
+        let verts = |m: &InkMesh| -> Vec<([f32; 2], f32)> {
+            m.vertices.iter().map(|v| (v.pos, v.alpha)).collect()
+        };
+        assert_eq!(verts(&a), verts(&b));
+        assert_eq!((a.indices, a.colors), (b.indices, b.colors));
     }
 
     #[test]

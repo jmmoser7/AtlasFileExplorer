@@ -5398,6 +5398,7 @@ impl SlateApp {
                     .request_repaint_after(std::time::Duration::from_secs_f64(left.max(0.0)));
             }
         }
+        let draft_builds = self.draft_ink.builds;
         if let Some(draft) = &self.board_path_draft {
             let zoom = self.tab().cam.z.max(f32::EPSILON);
             // Hovering: the point the next click places (resolve_segment_point
@@ -5435,31 +5436,36 @@ impl SlateApp {
                     }),
                 _ => false,
             };
+            let style = board_path::PathDraftPaintStyle {
+                tip: self.placed_tip(
+                    self.armed_stroke_tool()
+                        .unwrap_or(slate_doc::StrokeTool::Polyline),
+                ),
+                overlay: super::path_edit_overlay::PathEditAnchorColors {
+                    select: palette.select,
+                    bg: palette.bg,
+                    accent: palette.accent,
+                    sub: palette.sub,
+                },
+                zoom,
+                close_first_anchor: close_first,
+            };
             board_path::paint_path_draft(
                 &draft_painter,
                 &xf,
                 draft,
                 cursor,
-                board_path::PathDraftPaintStyle {
-                    tip: self.placed_tip(
-                        self.armed_stroke_tool()
-                            .unwrap_or(slate_doc::StrokeTool::Polyline),
-                    ),
-                    overlay: super::path_edit_overlay::PathEditAnchorColors {
-                        select: palette.select,
-                        bg: palette.bg,
-                        accent: palette.accent,
-                        sub: palette.sub,
-                    },
-                    zoom,
-                    close_first_anchor: close_first,
-                },
+                style,
+                &mut self.draft_ink,
             );
         }
         // Line draft: rubber band in the fg color the committed stroke will
         // use (D09).
-        if self.board_tool == BoardTool::Line && self.line_draft.is_some() {
-            self.paint_line_draft(&draft_painter, &xf);
+        if self.board_tool == BoardTool::Line {
+            if let Some((bez, tips)) = self.line_draft_preview() {
+                self.draft_ink
+                    .paint(&draft_painter, &xf, &bez, false, &tips);
+            }
         }
         // The Tab direction lock's padlock beside the pointer, any tool (D10).
         if let (Some(p), true) = (pointer, resp.hovered()) {
@@ -5468,10 +5474,19 @@ impl SlateApp {
         if let (Some(BoardDrag::FreehandPen { stroke }), Some(w)) = (&self.board_drag, wp) {
             let now = self.placed_tip(slate_doc::StrokeTool::Pen);
             let cursor_tip = stroke.tip_at(w, now);
-            let (ink, color) =
-                board_path::pen_preview_ink(&stroke.points, &stroke.tips, w, cursor_tip, xf.z);
-            board_path::paint_preview_ink(&draft_painter, &xf, color, ink);
+            self.draft_ink.paint_pen(
+                &draft_painter,
+                &xf,
+                &stroke.points,
+                &stroke.tips,
+                w,
+                cursor_tip,
+            );
+        } else if !matches!(self.board_drag, Some(BoardDrag::FreehandPen { .. })) {
+            self.draft_ink.forget_pen();
         }
+        let built = self.draft_ink.builds.wrapping_sub(draft_builds);
+        self.path_mesh_cache.tess_misses = self.path_mesh_cache.tess_misses.saturating_add(built);
         // Brush drag preview: the screen-aligned canvas holds the same radial
         // stamp the release stores, each sample at its own tip. A Shift
         // segment that continues a stroke draws that stroke into the canvas

@@ -7,7 +7,7 @@ use crate::flatten::{flatten, flatten_contours};
 use crate::geom::{cumulative_arclength, dist, from_kurbo, is_finite_pt, lerp, to_kurbo, EPS};
 use crate::mesh::{run_outline, run_pieces, tessellate_run};
 use crate::trim::Polygon;
-use crate::{InkMesh, StrokeStyle, TintPiece, TipEase};
+use crate::{Cap, InkMesh, StrokeStyle, TintPiece, TipEase};
 
 /// Samples per segment, at least, where a smooth blend changes the tip: the
 /// piecewise-linear strip stays within 0.3% of the tip change of the curve.
@@ -19,7 +19,28 @@ pub(crate) fn valid_style(style: &StrokeStyle) -> bool {
 
 /// Tessellate a stroked path into a feathered AA mesh.
 pub fn stroke_mesh(path: &BezPath, style: &StrokeStyle, feather: f32, tolerance: f64) -> InkMesh {
-    stroke_mesh_with(path, style, None, feather, tolerance)
+    stroke_mesh_with(path, style, [style.cap; 2], None, feather, tolerance)
+}
+
+/// [`stroke_mesh`], or with `widths` [`stroke_mesh_tipped`], or with
+/// `colors` too [`stroke_mesh_tinted`], capping each open run with
+/// `ends[0]` at its start and `ends[1]` at its end instead of `style.cap`.
+/// Two meshes that meet with butt ends in the middle of one straight
+/// segment, each with that point's width and color, tile it without a gap
+/// or an overlap.
+#[allow(clippy::too_many_arguments)]
+pub fn stroke_mesh_ends(
+    path: &BezPath,
+    style: &StrokeStyle,
+    ends: [Cap; 2],
+    widths: Option<&[f32]>,
+    colors: Option<&[[f32; 4]]>,
+    ease: TipEase,
+    feather: f32,
+    tolerance: f64,
+) -> InkMesh {
+    let tips = widths.map(|w| Tipping::new(w, colors, ease));
+    stroke_mesh_with(path, style, ends, tips, feather, tolerance)
 }
 
 /// [`stroke_mesh`] with a full width at every on-curve vertex: each `MoveTo`,
@@ -36,7 +57,7 @@ pub fn stroke_mesh_tipped(
     tolerance: f64,
 ) -> InkMesh {
     let tips = Tipping::new(widths, None, ease);
-    stroke_mesh_with(path, style, Some(tips), feather, tolerance)
+    stroke_mesh_with(path, style, [style.cap; 2], Some(tips), feather, tolerance)
 }
 
 /// [`stroke_mesh_tipped`] with a straight RGBA color (`0..=1`) at every
@@ -53,7 +74,7 @@ pub fn stroke_mesh_tinted(
     tolerance: f64,
 ) -> InkMesh {
     let tips = Tipping::new(widths, Some(colors), ease);
-    stroke_mesh_with(path, style, Some(tips), feather, tolerance)
+    stroke_mesh_with(path, style, [style.cap; 2], Some(tips), feather, tolerance)
 }
 
 /// Per-vertex tips: a full width and optionally a straight RGBA color at
@@ -94,6 +115,7 @@ fn lerp_color(a: [f32; 4], b: [f32; 4], t: f32) -> [f32; 4] {
 fn stroke_mesh_with(
     path: &BezPath,
     style: &StrokeStyle,
+    ends: [Cap; 2],
     tips: Option<Tipping>,
     feather: f32,
     tolerance: f64,
@@ -117,6 +139,7 @@ fn stroke_mesh_with(
                 run.widths.as_deref(),
                 run.colors.as_deref(),
                 style,
+                ends,
                 feather,
                 run.closed,
                 tolerance,

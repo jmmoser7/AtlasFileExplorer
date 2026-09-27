@@ -336,9 +336,15 @@ is searchable.
   and of the points after it; points already placed keep theirs. The draft
   preview paints the tips it will commit (`board_path::draft_stroke_ink`,
   real colors, not the accent), and commit writes them as grip tips
-  (`vertex_style::set_grip_placed_tips`). Equal tips commit a plain stroke.
+  (`vertex_style::set_grip_placed_tips`). The preview mesh is rebuilt only
+  when the draft, its tips or the zoom change, and a live Pen stroke
+  rebuilds only its last piece of 64 samples (`board_path::DraftInkCache`,
+  Art. II). Equal tips commit a plain stroke.
   Curve opacity is node-level, so the node takes the most opaque tip and
-  each vertex's alpha carries its share of it. The tool keeps the tip it
+  each vertex's alpha carries its share of it. When every tip was placed
+  at 0 %, the node is 0 % and each vertex keeps its full alpha (user,
+  27 September 2026: opacity reaches 0 % on every tool, and a 0 % stroke is
+  still picked by its geometry). The tool keeps the tip it
   finished with (`board_style::keep_tool_tip`). **Easing** (user,
   26–27 September 2026: "linear tweening of curve width only on linear
   shapes. For curved, filleted, pen drawn shapes sigmoid or appropriate

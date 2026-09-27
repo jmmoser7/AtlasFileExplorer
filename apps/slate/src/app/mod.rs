@@ -637,6 +637,8 @@ pub struct SlateApp {
     pub(crate) brush_setting_undo: Vec<board_color::BrushSettingUndo>,
     /// The brush drag's screen-aligned canvas (freehand or Shift preview).
     pub(crate) brush_live: Option<board_path::BrushLiveCanvas>,
+    /// The vector draft tools' live preview meshes.
+    pub(crate) draft_ink: board_path::DraftInkCache,
     /// Committed radial stamps, keyed by node. The bitmap is derived.
     /// Kept for strokes that are selected, faded, or mid-erase. Plain runs
     /// live in [`Self::brush_tiles`] instead.
@@ -977,6 +979,7 @@ impl SlateApp {
             brush_line_anchor: None,
             brush_setting_undo: Vec::new(),
             brush_live: None,
+            draft_ink: Default::default(),
             brush_stamps: HashMap::new(),
             stamp_sync_px: 0.0,
             stamp_sync_builds: 0,

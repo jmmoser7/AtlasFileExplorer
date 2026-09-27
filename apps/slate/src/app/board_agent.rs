@@ -13266,6 +13266,92 @@ To install them by hand, run in PowerShell:\n  cd \"C:\\workspace\\Slate\\docs\\
         );
     }
 
+    /// Two unsent drafts in flight, one on each branch, through two
+    /// presentation switches and Undo/Redo across both: each draft's text
+    /// is kept exactly once, on its own draft card or on its own branch's
+    /// window, and nothing is sent.
+    #[test]
+    fn two_drafts_keep_their_text_through_switches_and_undo_redo() {
+        const FORK_TEXT: &str = "And the fountain?";
+        type H = super::super::tests::Harness;
+        let (mut h, ids) = branched_pairs("mode_two_drafts");
+        let root = ids[0];
+        let spawn = |h: &mut H, from: NodeId, text: &str| {
+            h.app.board_sel = std::iter::once(from).collect();
+            assert!(h.app.agent_spawn_command(None));
+            let draft = *h.app.board_sel.iter().next().unwrap();
+            *h.app.agents.prompt_mut(draft) = text.into();
+            draft
+        };
+        let main = spawn(&mut h, ids[2], DRAFT_TEXT);
+        let fork = spawn(&mut h, ids[4], FORK_TEXT);
+        settle(&mut h);
+        let check = |h: &H, as_cards: bool, when: &str| {
+            for (draft, text, tail) in [(main, DRAFT_TEXT, MAIN[5]), (fork, FORK_TEXT, FORK[5])] {
+                let held: Vec<NodeId> = h
+                    .app
+                    .agents
+                    .prompts
+                    .iter()
+                    .filter(|(_, t)| t.as_str() == text)
+                    .map(|(id, _)| *id)
+                    .collect();
+                assert_eq!(held.len(), 1, "{when}: {text:?} is kept once: {held:?}");
+                let at = held[0];
+                let scene = &h.app.doc().scene;
+                assert!(
+                    scene.node(at).is_some_and(|n| !n.hidden),
+                    "{when}: {text:?} is on a card on the board"
+                );
+                if as_cards {
+                    assert_eq!(at, draft, "{when}: the draft card keeps {text:?}");
+                } else {
+                    assert!(scene.node(draft).is_none(), "{when}: the draft joined");
+                    assert_eq!(
+                        shown(h, at).last().map(String::as_str),
+                        Some(tail),
+                        "{when}: {text:?} is on its own branch's tail"
+                    );
+                }
+            }
+            assert!(h.app.agents.dispatched.is_empty(), "{when}: nothing sent");
+        };
+        let undo = |h: &mut H| {
+            h.app.board_undo();
+            settle(h);
+        };
+        let redo = |h: &mut H| {
+            h.app.board_redo();
+            settle(h);
+        };
+        check(&h, true, "pairs");
+        let card = main_tail(&h, root);
+        switch(&mut h, card, Shape::Train);
+        check(&h, true, "train");
+        let card = main_tail(&h, root);
+        switch(&mut h, card, Shape::Window);
+        check(&h, false, "window");
+        undo(&mut h);
+        check(&h, true, "undo to train");
+        redo(&mut h);
+        check(&h, false, "redo to window");
+        let card = main_tail(&h, root);
+        switch(&mut h, card, Shape::Pairs);
+        check(&h, false, "window to pairs");
+        undo(&mut h);
+        check(&h, false, "undo to window");
+        undo(&mut h);
+        check(&h, true, "undo to train again");
+        undo(&mut h);
+        check(&h, true, "undo to the first pairs");
+        redo(&mut h);
+        check(&h, true, "redo to train");
+        redo(&mut h);
+        check(&h, false, "redo to window");
+        redo(&mut h);
+        check(&h, false, "redo to pairs");
+    }
+
     #[test]
     fn a_draft_card_switches_presentation_from_its_own_selection() {
         let (mut h, ids) = branched_pairs("mode_draft_selected");

@@ -415,16 +415,14 @@ impl SlateApp {
 
     /// Rubber band from the first point to the resolved cursor, in the
     /// Line tool's own color and width, the ones the committed stroke will
-    /// use (D09).
-    pub(crate) fn paint_line_draft(&self, painter: &egui::Painter, xf: &BoardXf) {
-        let Some(d) = &self.line_draft else {
-            return;
-        };
-        let Some(c) = d.cursor else {
-            return;
-        };
+    /// use (D09): its path and the tip at each end.
+    pub(crate) fn line_draft_preview(
+        &self,
+    ) -> Option<(vector_ink::kurbo::BezPath, [PlacedTip; 2])> {
+        let d = self.line_draft.as_ref()?;
+        let c = d.cursor?;
         if (c - d.start).length() < f32::EPSILON {
-            return;
+            return None;
         }
         let mut bez = vector_ink::kurbo::BezPath::new();
         bez.move_to(vector_ink::kurbo::Point::new(
@@ -432,9 +430,7 @@ impl SlateApp {
             d.start.y as f64,
         ));
         bez.line_to(vector_ink::kurbo::Point::new(c.x as f64, c.y as f64));
-        let tips = [d.start_tip, self.placed_tip(StrokeTool::Line)];
-        let (mesh, color) = board_path::draft_stroke_ink(&bez, false, &tips, xf.z);
-        board_path::paint_preview_ink(painter, xf, color, mesh);
+        Some((bez, [d.start_tip, self.placed_tip(StrokeTool::Line)]))
     }
 
     /// Endpoint grips on the selected simple line — no resize bbox (D13) —
