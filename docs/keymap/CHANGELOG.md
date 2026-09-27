@@ -27,6 +27,31 @@
   marked superseded; message pairs are the default since 25 September
   (D22).
 
+## 2026-09-27 — Tip HUD on picked vertices, strip at the picks, handle snap, vertex Delete
+
+- Corrects the earlier 2026-09-27 line "Direct Select: the same HUD edits
+  the target curve's width, color, opacity". User decision, 2026-09-26 and
+  2026-09-27: with vertices picked (Direct Select anchors or Select-tool
+  grip picks), Alt/Ctrl/Shift+right-drag edit only those vertices' width,
+  color and opacity (vertex color alpha). With nothing picked, hovering a
+  vertex arms the HUD for that vertex. Elsewhere under Direct Select it
+  edits the whole curve, and a whole-curve color now recolors existing
+  vertex tips, which previously hid it. One undo step per HUD; Esc
+  restores. The HTML export writes per-vertex opacity as `stop-opacity`.
+- `brush-color.md`: removed the unratified claim that per-vertex color and
+  opacity are not SVG-expressible (Art. IV). The `linearGradient` export
+  already expresses them.
+- With vertices picked, the shape property strip sits beside the picked
+  points under Direct Select and Select alike, and its edits apply to those
+  points.
+- Handle drags (Select grips, Direct Select, and a Bézier span being
+  drafted) keep the grab offset and snap the handle tip, never onto the
+  handle's own anchor.
+- Delete with picked vertices, under any tool, removes those vertices and
+  rejoins the neighbors. The curve is removed only when fewer than two
+  (open) or three (closed) vertices would remain. One Ctrl+Z restores
+  either way.
+
 ## 2026-09-27 — Tip HUD for every open curve, styles, and anchor editing
 
 - Alt+right-drag's size circle is pinned to the canvas at the press point
@@ -42,7 +67,8 @@
   narrow at both ends. Textures are world-anchored grain in the shared
   stamp, so the board and the HTML export match.
 - Direct Select: the same HUD edits the target curve's width, color,
-  opacity, and style as one undo step. Dragged anchors and handles snap by
+  opacity, and style as one undo step (outdated: picked vertices are
+  edited alone, see the entry above). Dragged anchors and handles snap by
   the anchor itself (not the cursor), to board snaps and to the curve's
   other anchors. Delete removes the selected anchors and rejoins the
   neighbors.

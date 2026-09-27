@@ -16,7 +16,7 @@ use std::sync::Arc as Shared;
 use vector_ink::kurbo::{self, Arc, BezPath, PathEl, Point};
 use vector_ink::{
     bezpath_from_anchors, classify_kind, flatten, flatten_contours, hit_stroke, move_handle,
-    stamp_segment, stroke_mesh, tipped_contours, Anchor, AnchorKind, Cap, InkMesh, Join,
+    stamp_segment, stroke_mesh, tipped_contours, Anchor, AnchorKind, Cap, HandleEnd, InkMesh, Join,
     StampStyle, StrokeStyle, TipPoint,
 };
 
@@ -2862,8 +2862,11 @@ impl SlateApp {
     }
 
     /// Live drag of a placed draft anchor or handle, from the press-time
-    /// anchors. Handles follow `vector_ink::move_handle`: a smooth anchor
-    /// keeps its opposite handle collinear; Alt breaks symmetry.
+    /// anchors. The dragged point keeps its offset from the press and snaps
+    /// itself, not the cursor, to board snaps and the draft's other anchors
+    /// (a handle never to its own anchor). Handles follow
+    /// `vector_ink::move_handle`: a smooth anchor keeps its opposite handle
+    /// collinear; Alt breaks symmetry.
     pub(crate) fn bezier_draft_edit(
         &mut self,
         hit: PathEditHit,
@@ -2872,18 +2875,37 @@ impl SlateApp {
         world: Pos2,
         alt: bool,
     ) {
+        let (i, point0) = match hit {
+            PathEditHit::Anchor(i) => (i, anchors0.get(i).map(|a| a.0)),
+            PathEditHit::Handle(i, end) => (
+                i,
+                anchors0.get(i).map(|(p, h)| {
+                    *p + match end {
+                        HandleEnd::In => h.handle_in,
+                        HandleEnd::Out => h.handle_out,
+                    }
+                }),
+            ),
+        };
+        let carried = point0.unwrap_or(start) + (world - start);
+        let others: Vec<Pos2> = anchors0
+            .iter()
+            .enumerate()
+            .filter(|(k, _)| *k != i)
+            .map(|(_, a)| a.0)
+            .collect();
+        let snapped = self.snap_with_own_points(carried, &[], &others);
         let edited = match hit {
             PathEditHit::Anchor(i) => {
-                let snapped = self.resolve_point_snap(world, &[], None, false, false);
                 let mut edited = anchors0.to_vec();
                 if let Some(a) = edited.get_mut(i) {
-                    a.0 = anchors0[i].0 + (snapped - start);
+                    a.0 = snapped;
                 }
                 edited
             }
             PathEditHit::Handle(i, end) => {
                 let mut ink = bezier_draft_to_ink(anchors0);
-                move_handle(&mut ink, i, end, to_k(world), alt);
+                move_handle(&mut ink, i, end, to_k(snapped), alt);
                 bezier_draft_from_ink(&ink)
             }
         };

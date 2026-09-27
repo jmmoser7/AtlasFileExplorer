@@ -716,8 +716,7 @@ impl SlateApp {
                 self.apply_align_action(action)
             }
             "board.delete" => {
-                if self.board_tool == board::BoardTool::DirectSelect && self.direct_delete_anchors()
-                {
+                if self.delete_picked_vertices() {
                     return true;
                 }
                 use super::board_image_layers::ImageStripFocus;

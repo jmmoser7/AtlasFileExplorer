@@ -1733,7 +1733,7 @@ impl SlateApp {
         if self.tip_hud_has_color() && self.ctrl_down {
             let fg = self.active_rgba();
             let hsv = rgb_to_hsv([fg[0], fg[1], fg[2]]);
-            self.hud_node_before = self.hud_node_snapshot();
+            self.begin_hud_node();
             self.brush_hud = Some(BrushHud::Wheel {
                 fg0: fg,
                 center: pointer - sv_offset(hsv[1], hsv[2]),
@@ -1745,7 +1745,7 @@ impl SlateApp {
         if self.alt_down {
             let (width0, softness0, _) = self.chord_tip();
             self.brush_hud_before = Some(self.brush_setting_snapshot());
-            self.hud_node_before = self.hud_node_snapshot();
+            self.begin_hud_node();
             self.brush_hud = Some(BrushHud::Size {
                 origin: self.board_xf().s2w(pointer),
                 width0,
@@ -1756,7 +1756,7 @@ impl SlateApp {
         // Shift alone. Ctrl and Alt already claimed the button above.
         if self.shift_down && armed {
             self.brush_hud_before = Some(self.brush_setting_snapshot());
-            self.hud_node_before = self.hud_node_snapshot();
+            self.begin_hud_node();
             self.brush_hud = Some(BrushHud::Opacity {
                 origin: self.board_xf().s2w(pointer),
                 opacity0: self.active_tip().2,

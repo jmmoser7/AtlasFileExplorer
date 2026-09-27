@@ -14393,6 +14393,544 @@ fn a_dragged_anchor_snaps_to_another_anchor_on_its_own_curve() {
     );
 }
 
+// ---------- tip HUD on picked curve vertices (direct-selection.md) ----------
+
+/// A right-button HUD chord through real frames: hover `at`, press there,
+/// move by `delta`, release.
+fn hud_scrub(h: &mut Harness, at: Pos2, delta: EVec2, mods: egui::Modifiers) {
+    let button = |pos: Pos2, pressed: bool| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Secondary,
+        pressed,
+        modifiers: mods,
+    };
+    h.frame_with(|i| {
+        i.modifiers = mods;
+        i.events.push(egui::Event::PointerMoved(at));
+    });
+    h.frame_with(|i| {
+        i.modifiers = mods;
+        i.events.push(egui::Event::PointerMoved(at));
+        i.events.push(button(at, true));
+    });
+    h.frame_with(|i| {
+        i.modifiers = mods;
+        i.events.push(egui::Event::PointerMoved(at + delta));
+    });
+    h.frame_with(|i| {
+        i.modifiers = mods;
+        i.events.push(button(at + delta, false));
+    });
+    h.frame();
+}
+
+/// Open the Ctrl+right color wheel at `at` through real frames and leave it
+/// open (the right button stays down).
+fn hud_open_wheel(h: &mut Harness, at: Pos2) {
+    h.frame_with(|i| {
+        i.modifiers = egui::Modifiers::CTRL;
+        i.events.push(egui::Event::PointerMoved(at));
+    });
+    h.frame_with(|i| {
+        i.modifiers = egui::Modifiers::CTRL;
+        i.events.push(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed: true,
+            modifiers: egui::Modifiers::CTRL,
+        });
+    });
+    assert!(
+        matches!(h.app.brush_hud, Some(board_color::BrushHud::Wheel { .. })),
+        "Ctrl+right opens the wheel"
+    );
+}
+
+fn hud_release_wheel(h: &mut Harness, at: Pos2) {
+    h.frame_with(|i| {
+        i.modifiers = egui::Modifiers::CTRL;
+        i.events.push(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed: false,
+            modifiers: egui::Modifiers::CTRL,
+        });
+    });
+    h.frame();
+}
+
+/// A three-vertex polyline across the middle of the canvas, selected.
+fn hud_polyline(h: &mut Harness) -> (NodeId, [Pos2; 3]) {
+    h.app.tab_mut().cam.offset = EVec2::ZERO;
+    h.frame();
+    let c = h.app.board_xf().s2w(h.app.canvas_rect.center());
+    let pts = [c + EVec2::new(-150.0, 0.0), c, c + EVec2::new(150.0, 0.0)];
+    let id = commit_polyline(h, &pts, false);
+    (id, pts)
+}
+
+fn press_primary(h: &mut Harness, screen: Pos2, mods: egui::Modifiers) {
+    h.frame_with(|i| i.events.push(egui::Event::PointerMoved(screen)));
+    h.frame_with(|i| {
+        i.modifiers = mods;
+        i.events.push(egui::Event::PointerButton {
+            pos: screen,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: mods,
+        });
+    });
+    h.frame_with(|i| {
+        i.modifiers = mods;
+        i.events.push(egui::Event::PointerButton {
+            pos: screen,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: mods,
+        });
+    });
+    h.frame();
+}
+
+/// User (27 September 2026, tip29): with vertices picked, Alt, Shift and
+/// Ctrl+right-drag edit only those vertices' width, opacity and color, one
+/// undo step per HUD, and Esc puts the curve back.
+#[test]
+fn direct_select_hud_edits_only_the_picked_anchors() {
+    let mut h = grip_board("hud_direct_picked");
+    let (id, pts) = hud_polyline(&mut h);
+    h.app.set_board_tool(board::BoardTool::DirectSelect);
+    h.app.direct_set_target(Some(id));
+    h.app.direct.anchors = [1].into_iter().collect();
+    h.frame();
+    let xf = h.app.board_xf();
+    let away = xf.w2s(pts[1] + EVec2::new(0.0, 160.0));
+    let before = painted_vertex_tips(&h, id);
+    let depth = h.app.tab().journal.undo_depth();
+
+    hud_scrub(&mut h, away, EVec2::new(40.0, 0.0), egui::Modifiers::ALT);
+    let tips = painted_vertex_tips(&h, id);
+    assert!(
+        tips[1].0 > before[1].0 + 10.0,
+        "the picked vertex widens: {tips:?}"
+    );
+    assert_eq!(tips[0], before[0], "vertex 0 keeps its width");
+    assert_eq!(tips[2], before[2], "vertex 2 keeps its width");
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "one undo step");
+
+    hud_scrub(&mut h, away, EVec2::new(0.0, 60.0), egui::Modifiers::SHIFT);
+    let faded = painted_vertex_tips(&h, id);
+    assert!(faded[1].1[3] < 200, "the picked vertex fades: {faded:?}");
+    assert_eq!(faded[0].1[3], 255);
+    assert_eq!(faded[2].1[3], 255);
+    assert_eq!(faded[1].0, tips[1].0, "opacity keeps the width");
+    assert_eq!(h.app.doc().scene.node(id).unwrap().opacity, 1.0);
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 2);
+
+    hud_open_wheel(&mut h, away);
+    h.app.set_active_rgb([10, 200, 30]);
+    hud_release_wheel(&mut h, away);
+    let colored = painted_vertex_tips(&h, id);
+    assert_eq!(colored[1].1[..3], [10, 200, 30]);
+    assert_eq!(colored[0].1, before[0].1, "vertex 0 keeps its color");
+    assert_eq!(colored[2].1, before[2].1, "vertex 2 keeps its color");
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 3);
+
+    // Esc mid-HUD restores the curve and journals nothing.
+    hud_open_wheel(&mut h, away);
+    h.app.set_active_rgb([200, 10, 10]);
+    press_key_with(&mut h, egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(h.app.brush_hud.is_none(), "Esc closes the HUD");
+    hud_release_wheel(&mut h, away);
+    assert_eq!(painted_vertex_tips(&h, id), colored, "Esc restores");
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 3);
+
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    assert_eq!(painted_vertex_tips(&h, id), faded, "one Ctrl+Z per HUD");
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    assert_eq!(painted_vertex_tips(&h, id), before);
+}
+
+/// Select-tool grip picks arm the same HUD for those vertices (user,
+/// 27 September 2026: "for all curve types if a curve verticie is selected").
+#[test]
+fn select_tool_grip_picks_take_the_tip_hud() {
+    let mut h = grip_board("hud_select_picked");
+    let (id, pts) = hud_polyline(&mut h);
+    let xf = h.app.board_xf();
+    press_primary(&mut h, xf.w2s(pts[2]), egui::Modifiers::NONE);
+    assert_eq!(
+        h.app.picked_vertices(),
+        Some((id, vec![2])),
+        "the click picks vertex 2"
+    );
+    let before = painted_vertex_tips(&h, id);
+    let depth = h.app.tab().journal.undo_depth();
+    let away = xf.w2s(pts[1] + EVec2::new(0.0, 160.0));
+    hud_scrub(&mut h, away, EVec2::new(40.0, 0.0), egui::Modifiers::ALT);
+    let tips = painted_vertex_tips(&h, id);
+    assert!(tips[2].0 > before[2].0 + 10.0, "{tips:?}");
+    assert_eq!(tips[0], before[0]);
+    assert_eq!(tips[1], before[1]);
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
+    assert!(h.app.board_sel.contains(&id), "the curve stays selected");
+}
+
+/// Hovering a vertex arms the HUD for that vertex alone; away from the
+/// vertices Direct Select edits the whole curve (user, 27 September 2026:
+/// "hover to re enter editing mode to spot edti radious color etcetra").
+#[test]
+fn hovering_a_vertex_arms_the_hud_for_that_vertex() {
+    let mut h = grip_board("hud_hover_vertex");
+    let (id, pts) = hud_polyline(&mut h);
+    let xf = h.app.board_xf();
+    let before = painted_vertex_tips(&h, id);
+
+    // Select tool, nothing picked: hover vertex 0.
+    hud_scrub(
+        &mut h,
+        xf.w2s(pts[0]),
+        EVec2::new(40.0, 0.0),
+        egui::Modifiers::ALT,
+    );
+    let tips = painted_vertex_tips(&h, id);
+    assert!(tips[0].0 > before[0].0 + 10.0, "{tips:?}");
+    assert_eq!(tips[1], before[1]);
+    assert_eq!(tips[2], before[2]);
+
+    // Direct Select, nothing picked: hover vertex 2.
+    h.app.set_board_tool(board::BoardTool::DirectSelect);
+    h.app.direct_set_target(Some(id));
+    h.frame();
+    hud_scrub(
+        &mut h,
+        xf.w2s(pts[2]),
+        EVec2::new(40.0, 0.0),
+        egui::Modifiers::ALT,
+    );
+    let hovered = painted_vertex_tips(&h, id);
+    assert!(hovered[2].0 > tips[2].0 + 10.0, "{hovered:?}");
+    assert_eq!(hovered[1], tips[1], "vertex 1 untouched");
+
+    // Direct Select away from every vertex: the whole curve.
+    let away = xf.w2s(pts[1] + EVec2::new(0.0, 160.0));
+    hud_scrub(&mut h, away, EVec2::new(-20.0, 0.0), egui::Modifiers::ALT);
+    let whole = painted_vertex_tips(&h, id);
+    for k in 0..3 {
+        assert!(whole[k].0 < hovered[k].0, "vertex {k} narrows: {whole:?}");
+    }
+}
+
+/// A whole-curve color change reaches a curve that carries per-vertex
+/// colors (they paint over the stroke color).
+#[test]
+fn a_whole_curve_hud_color_recolors_vertex_tips() {
+    let mut h = grip_board("hud_whole_color");
+    let (id, pts) = hud_polyline(&mut h);
+    style_vertices(
+        &mut h,
+        id,
+        &[4.0, 8.0, 4.0],
+        &[0, 120, 240],
+        &[None, None, None],
+    );
+    h.app.set_board_tool(board::BoardTool::DirectSelect);
+    h.app.direct_set_target(Some(id));
+    h.frame();
+    let away = h.app.board_xf().w2s(pts[1] + EVec2::new(0.0, 160.0));
+    hud_open_wheel(&mut h, away);
+    h.app.set_active_rgb([10, 200, 30]);
+    hud_release_wheel(&mut h, away);
+    let tips = painted_vertex_tips(&h, id);
+    for (k, (w, c)) in tips.iter().enumerate() {
+        assert_eq!(c[..3], [10, 200, 30], "vertex {k} takes the color");
+        assert_eq!(*w, [4.0, 8.0, 4.0][k], "vertex {k} keeps its width");
+    }
+}
+
+/// Per-vertex opacity is alpha in the vertex colors, which the HTML export
+/// writes as gradient stop opacity (Art. IV: both interpreters).
+#[test]
+fn per_vertex_opacity_exports_as_gradient_stop_opacity() {
+    let mut h = grip_board("hud_vertex_alpha_export");
+    let (id, pts) = hud_polyline(&mut h);
+    h.app.set_board_tool(board::BoardTool::DirectSelect);
+    h.app.direct_set_target(Some(id));
+    h.app.direct.anchors = [2].into_iter().collect();
+    h.frame();
+    let away = h.app.board_xf().w2s(pts[1] + EVec2::new(0.0, 160.0));
+    hud_scrub(&mut h, away, EVec2::new(0.0, 60.0), egui::Modifiers::SHIFT);
+    let alpha = painted_vertex_tips(&h, id)[2].1[3];
+    assert!(alpha < 200, "vertex 2 fades: {alpha}");
+    let html = slate_artifact::render_html(h.app.doc(), &slate_artifact::AssetMap::default());
+    let want = format!("stop-opacity=\"{:.3}\"", alpha as f32 / 255.0);
+    assert!(html.contains(&want), "the export fades vertex 2 ({want})");
+}
+
+/// User (27 September 2026): with control points picked, the property strip
+/// sits beside those points, under Select and Direct Select alike.
+#[test]
+fn the_property_strip_sits_beside_the_picked_vertices() {
+    // No editor is open, so every chrome hit is a strip squircle.
+    fn strip_rect(h: &Harness) -> ERect {
+        let hits = &h.app.shape_properties.chrome_hits;
+        assert!(!hits.is_empty(), "the strip painted");
+        hits.iter().fold(hits[0], |r, b| r.union(*b))
+    }
+    let mut h = grip_board("strip_at_picks");
+    let (id, pts) = hud_polyline(&mut h);
+    let xf = h.app.board_xf();
+    for _ in 0..8 {
+        h.frame();
+    }
+    let whole = strip_rect(&h);
+    assert!(
+        (whole.center().x - xf.w2s(pts[1]).x).abs() < 2.0,
+        "whole curve: centered"
+    );
+
+    press_primary(&mut h, xf.w2s(pts[2]), egui::Modifiers::NONE);
+    for _ in 0..8 {
+        h.frame();
+    }
+    let at = xf.w2s(pts[2]);
+    let strip = strip_rect(&h);
+    assert!(
+        (strip.center().x - at.x).abs() < 2.0,
+        "{strip:?} beside {at:?}"
+    );
+    assert!(strip.bottom() < at.y, "above the picked point");
+
+    h.app.set_board_tool(board::BoardTool::DirectSelect);
+    h.app.direct_set_target(Some(id));
+    h.app.direct.anchors = [0].into_iter().collect();
+    for _ in 0..8 {
+        h.frame();
+    }
+    let at = xf.w2s(pts[0]);
+    let strip = strip_rect(&h);
+    assert!(
+        (strip.center().x - at.x).abs() < 2.0,
+        "Direct Select: {strip:?} beside {at:?}"
+    );
+    assert_eq!(h.app.shape_property_points(), vec![0]);
+}
+
+/// A Bézier with a smooth middle anchor whose out handle points right.
+fn handle_bezier(h: &mut Harness) -> (NodeId, [Pos2; 3]) {
+    let (a, b, c) = (
+        Pos2::new(0.0, 0.0),
+        Pos2::new(100.0, 0.0),
+        Pos2::new(200.0, 80.0),
+    );
+    h.app.bezier_anchor_press(a);
+    h.app.bezier_anchor_release(a, a, false);
+    h.app.bezier_anchor_press(b);
+    h.app
+        .bezier_anchor_release(b, b + EVec2::new(40.0, 0.0), false);
+    h.app.bezier_anchor_press(c);
+    h.app.bezier_anchor_release(c, c, false);
+    assert!(h.app.path_tool_try_finish());
+    h.frame();
+    (h.app.doc().scene.nodes[0].id, [a, b, c])
+}
+
+/// tip31 (user: "works for polyline should also work for handels of bezier
+/// span"): a handle keeps its grab offset, snaps its tip to other anchors
+/// and never to its own anchor.
+#[test]
+fn a_dragged_handle_keeps_its_grab_offset_and_snaps_its_tip() {
+    let mut h = bezier_board("handle_snap_select");
+    let (id, [_, b, c]) = handle_bezier(&mut h);
+    let knob = b + EVec2::new(40.0, 0.0);
+    let grab = EVec2::new(4.0, 0.0);
+    let handle_out = |h: &Harness| {
+        kpt(h.app.direct_anchors_of(id).unwrap().0[1]
+            .handle_out
+            .unwrap())
+    };
+
+    select_drag(
+        &mut h,
+        knob + grab,
+        knob + grab + EVec2::new(0.0, 30.0),
+        egui::Modifiers::NONE,
+    );
+    let got = handle_out(&h);
+    assert!(
+        near(got, knob + EVec2::new(0.0, 30.0)),
+        "no jump to the cursor: {got:?}"
+    );
+
+    let from = handle_out(&h) + grab;
+    let to = b + grab + EVec2::new(3.0, 2.0);
+    select_drag(&mut h, from, to, egui::Modifiers::NONE);
+    let got = handle_out(&h);
+    assert!(
+        near(got, b + EVec2::new(3.0, 2.0)),
+        "the handle's own anchor is not a target: {got:?}"
+    );
+
+    let from = handle_out(&h) + grab;
+    select_drag(
+        &mut h,
+        from,
+        c + grab + EVec2::new(2.0, -1.5),
+        egui::Modifiers::NONE,
+    );
+    assert!(
+        near(handle_out(&h), c),
+        "the tip snaps to anchor c: {:?}",
+        handle_out(&h)
+    );
+}
+
+/// tip31 while drafting a Bézier span: the dragged handle keeps its offset
+/// and snaps its tip to another placed anchor, never its own.
+#[test]
+fn a_draft_bezier_handle_keeps_its_grab_offset_and_snaps_its_tip() {
+    let mut h = bezier_board("handle_snap_draft");
+    bezier_place(&mut h, Pos2::ZERO, Pos2::new(40.0, 0.0));
+    bezier_place(&mut h, Pos2::new(200.0, 0.0), Pos2::new(200.0, 0.0));
+    let grab = EVec2::new(4.0, 0.0);
+    let knob = Pos2::new(40.0, 0.0);
+    press_drag_release(
+        &mut h,
+        &[
+            knob + grab,
+            knob + grab + EVec2::new(0.0, 15.0),
+            knob + grab + EVec2::new(0.0, 30.0),
+        ],
+        egui::Modifiers::NONE,
+    );
+    let a = bezier_draft(&h);
+    assert!(
+        (a[0].1.handle_out - EVec2::new(40.0, 30.0)).length() < 0.01,
+        "no jump to the cursor: {:?}",
+        a[0].1.handle_out
+    );
+    let tip = a[0].0 + a[0].1.handle_out;
+    press_drag_release(
+        &mut h,
+        &[tip + grab, Pos2::new(3.0, 2.0) + grab],
+        egui::Modifiers::NONE,
+    );
+    let a = bezier_draft(&h);
+    assert!(
+        (a[0].1.handle_out - EVec2::new(3.0, 2.0)).length() < 0.01,
+        "its own anchor is not a target: {:?}",
+        a[0].1.handle_out
+    );
+    let tip = a[0].0 + a[0].1.handle_out;
+    let target = Pos2::new(200.0, 0.0) + EVec2::new(-2.0, 1.5);
+    press_drag_release(&mut h, &[tip + grab, target + grab], egui::Modifiers::NONE);
+    let a = bezier_draft(&h);
+    assert!(
+        near(a[0].0 + a[0].1.handle_out, Pos2::new(200.0, 0.0)),
+        "snaps to the other anchor: {:?}",
+        a[0].1.handle_out
+    );
+    assert!(h.app.doc().scene.nodes.is_empty(), "still drafting");
+}
+
+/// tip32 (user: "selection of single vrtecie and delession delete ful
+/// curve"): Delete with a Select-tool grip pick removes that vertex and
+/// rejoins its neighbors; tip33: too few left removes the curve. One
+/// Ctrl+Z each.
+#[test]
+fn delete_with_select_tool_grip_picks_removes_those_vertices() {
+    let mut h = grip_board("delete_select_grips");
+    let (id, pts) = hud_polyline(&mut h);
+    let xf = h.app.board_xf();
+    press_primary(&mut h, xf.w2s(pts[1]), egui::Modifiers::NONE);
+    assert_eq!(h.app.picked_vertices(), Some((id, vec![1])));
+    press_key_with(&mut h, egui::Key::Delete, egui::Modifiers::NONE);
+    assert!(h.app.doc().scene.node(id).is_some(), "the curve stays");
+    assert_eq!(
+        world_anchor_points(&h, id),
+        vec![pts[0], pts[2]],
+        "neighbors rejoin"
+    );
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    assert_eq!(
+        world_anchor_points(&h, id),
+        pts.to_vec(),
+        "one Ctrl+Z restores"
+    );
+
+    // Two picks on a three-vertex open curve leave one: the curve goes.
+    h.app.board_sel = [id].into_iter().collect();
+    h.frame();
+    press_primary(&mut h, xf.w2s(pts[0]), egui::Modifiers::NONE);
+    press_primary(&mut h, xf.w2s(pts[2]), egui::Modifiers::SHIFT);
+    assert_eq!(h.app.picked_vertices(), Some((id, vec![0, 2])));
+    press_key_with(&mut h, egui::Key::Delete, egui::Modifiers::NONE);
+    assert!(
+        h.app.doc().scene.node(id).is_none(),
+        "too few vertices removes it"
+    );
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    assert_eq!(
+        world_anchor_points(&h, id),
+        pts.to_vec(),
+        "one Ctrl+Z brings it back"
+    );
+}
+
+/// tip32/tip33 on Bézier spans and Pen paths, under both tools.
+#[test]
+fn delete_picked_anchors_on_bezier_and_pen_paths_under_both_tools() {
+    let mut h = bezier_board("delete_bezier_pen");
+    let (bez, [a, _, c]) = handle_bezier(&mut h);
+    h.app.board_sel = [bez].into_iter().collect();
+    h.frame();
+    let xf = h.app.board_xf();
+    press_primary(&mut h, xf.w2s(Pos2::new(100.0, 0.0)), egui::Modifiers::NONE);
+    assert_eq!(h.app.picked_vertices(), Some((bez, vec![1])));
+    press_key_with(&mut h, egui::Key::Delete, egui::Modifiers::NONE);
+    let left = world_anchor_points(&h, bez);
+    assert_eq!(left.len(), 2, "Select: one anchor gone");
+    assert!(near(left[0], a) && near(left[1], c));
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    assert_eq!(world_anchor_points(&h, bez).len(), 3);
+
+    // A Pen path of four cubic anchors.
+    let mut pen = vector_ink::kurbo::BezPath::new();
+    pen.move_to((0.0, 200.0));
+    pen.curve_to((30.0, 170.0), (60.0, 170.0), (90.0, 200.0));
+    pen.curve_to((120.0, 230.0), (150.0, 230.0), (180.0, 200.0));
+    pen.curve_to((210.0, 170.0), (240.0, 170.0), (270.0, 200.0));
+    let (r, d) = board_path::bezpath_to_path_data(&pen, false);
+    h.app
+        .commit_path_node(slate_doc::StrokeTool::Pen, r, d, false);
+    let pen_id = h.app.doc().scene.nodes.last().unwrap().id;
+    h.app.set_board_tool(board::BoardTool::DirectSelect);
+    h.app.direct_set_target(Some(pen_id));
+    h.app.direct.anchors = [1, 2].into_iter().collect();
+    h.frame();
+    press_key_with(&mut h, egui::Key::Delete, egui::Modifiers::NONE);
+    assert_eq!(
+        world_anchor_points(&h, pen_id).len(),
+        2,
+        "Direct Select: two gone"
+    );
+    h.app.direct.anchors = [0].into_iter().collect();
+    press_key_with(&mut h, egui::Key::Delete, egui::Modifiers::NONE);
+    assert!(
+        h.app.doc().scene.node(pen_id).is_none(),
+        "one anchor left removes it"
+    );
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    assert_eq!(
+        world_anchor_points(&h, pen_id).len(),
+        2,
+        "one Ctrl+Z brings it back"
+    );
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    assert_eq!(world_anchor_points(&h, pen_id).len(), 4);
+}
+
 #[test]
 #[ignore]
 fn texture_and_pen_style_validation_image() {

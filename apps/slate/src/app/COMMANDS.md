@@ -342,6 +342,21 @@ Enter, then click.
 - Click a grip to pick that point; Shift+click adds or removes it. Picked
   points paint filled and are never journaled.
 
+### Picked vertices (A anchors or Select grips)
+
+User decision, 27 September 2026 (`docs/keymap/specs/direct-selection.md`):
+
+- **Alt / Ctrl / Shift+right-drag** edit the width, color, and opacity of
+  the picked vertices only. With nothing picked, the vertex under the
+  pointer is edited; elsewhere Direct Select edits the whole curve,
+  per-vertex colors included. One undo step per HUD; Esc restores.
+- The shape property strip sits beside the picked points and edits them.
+- A dragged handle keeps its grab offset and snaps its tip, never onto its
+  own anchor. The same applies to a Bézier span being drafted.
+- **Delete / Backspace** (`board.delete`), under any tool, removes the
+  picked vertices and rejoins their neighbors. Too few left (fewer than two
+  open, three closed) removes the curve. One Ctrl+Z restores.
+
 ### Scene flags (hidden / locked / groups)
 
 The semantics matrix in `docs/keymap/specs/scene-flags.md` is normative:

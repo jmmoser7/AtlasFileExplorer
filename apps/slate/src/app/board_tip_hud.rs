@@ -4,11 +4,15 @@
 //! Alt+right-drag sizes, Ctrl+right-drag opens the color wheel, and
 //! Shift+right-drag sets opacity, exactly as for the Brush. A drawing tool
 //! edits its create style (P1.curve.create-style), so the next curve uses
-//! it. Direct Select edits its target curve live and journals one Patch
-//! when the HUD closes. Softness stays brush-only: vector strokes are not
-//! stamped, so there is nothing to blur.
+//! it. On a committed curve (Direct Select's target, or the Select tool's
+//! picked or hovered grip) the HUD edits the picked vertices, else the whole
+//! curve, live, through the property owner (`Property::apply_at`,
+//! P1.curve.vertex-style), and journals one Patch when the HUD closes.
+//! Softness stays brush-only: vector strokes are not stamped, so there is
+//! nothing to blur.
 
 use super::board::BoardTool;
+use super::board_properties::{picked_tip, Property};
 use super::SlateApp;
 use slate_doc::scene::{Node, NodeKind, Rgba, SceneCmd, ShapeKind};
 use slate_doc::NodeId;
@@ -26,21 +30,73 @@ pub(crate) fn curve_tool(tool: BoardTool) -> bool {
 }
 
 impl SlateApp {
-    /// The curve Direct Select is editing, when it is a stroked shape.
-    pub(crate) fn hud_node(&self) -> Option<NodeId> {
-        if self.board_tool != BoardTool::DirectSelect {
-            return None;
+    /// The committed curve the tip HUD edits, and which of its vertices
+    /// (grip indices, P1.curve.grips): the picked ones (Direct Select
+    /// anchors or Select-tool grips), else the one under the pointer, else
+    /// none, which is the whole curve. Direct Select arms on its target;
+    /// the Select tool only on a picked or hovered vertex. An open HUD keeps
+    /// the target it opened on.
+    pub(crate) fn hud_target(&self) -> Option<(NodeId, Vec<usize>)> {
+        if self.hud_frozen.is_some() {
+            return self.hud_frozen.clone();
         }
-        let id = self.direct.node?;
+        let hovered = || self.hud_pointer.and_then(|p| self.hovered_vertex(p));
+        let (id, points) = match self.board_tool {
+            BoardTool::DirectSelect => {
+                let id = self.direct.node?;
+                let points = match self.picked_vertices() {
+                    Some((_, picked)) => picked,
+                    None => hovered().map(|(_, i)| vec![i]).unwrap_or_default(),
+                };
+                (id, points)
+            }
+            BoardTool::Select => match self.picked_vertices() {
+                Some(picked) => picked,
+                None => hovered().map(|(id, i)| (id, vec![i]))?,
+            },
+            _ => return None,
+        };
         let node = self.doc().scene.node(id)?;
         match &node.kind {
             NodeKind::Shape(s)
                 if matches!(s.shape, ShapeKind::Path | ShapeKind::Line) && !node.locked =>
             {
-                Some(id)
+                Some((id, points))
             }
             _ => None,
         }
+    }
+
+    /// The curve [`Self::hud_target`] edits.
+    pub(crate) fn hud_node(&self) -> Option<NodeId> {
+        self.hud_target().map(|(id, _)| id)
+    }
+
+    /// Fix the HUD's target and snapshot it for one journaled Patch.
+    pub(crate) fn begin_hud_node(&mut self) {
+        self.hud_frozen = None;
+        self.hud_frozen = self.hud_target();
+        self.hud_node_before = self.hud_node_snapshot();
+    }
+
+    /// Apply property edits to the HUD target: at its vertices when some
+    /// are picked or hovered, else to the whole curve (`Property::apply_at`).
+    fn edit_hud_node(&mut self, edits: &[Property]) -> bool {
+        let Some((id, points)) = self.hud_target() else {
+            return false;
+        };
+        if let Some(n) = self.doc_mut().scene.node_mut(id) {
+            for edit in edits {
+                edit.apply_at(n, None, &points);
+            }
+        }
+        true
+    }
+
+    /// The painted tip at the first HUD vertex, when the HUD edits vertices.
+    fn hud_vertex_tip(&self) -> Option<slate_doc::scene::StrokeSpan> {
+        let (id, points) = self.hud_target()?;
+        picked_tip(self.doc().scene.node(id)?, &points)
     }
 
     /// Any tool whose right-button chords open the tip HUD.
@@ -63,17 +119,17 @@ impl SlateApp {
     pub(crate) fn tip_hud_has_softness(&self) -> bool {
         match self.board_tool {
             BoardTool::Brush | BoardTool::Eraser | BoardTool::Smooth => true,
-            BoardTool::DirectSelect => self.hud_node().is_some_and(|id| {
+            _ => self.hud_node().is_some_and(|id| {
                 matches!(
                     self.doc().scene.node(id).map(|n| &n.kind),
                     Some(NodeKind::Shape(s)) if s.stroke.paints_as_stamp()
                 )
             }),
-            _ => false,
         }
     }
 
-    /// Width, softness, opacity for a curve tool or the Direct Select target.
+    /// Width, softness, opacity for a curve tool or the HUD target. On
+    /// vertices: the first one's painted width and its own alpha.
     pub(crate) fn vector_tip(&self) -> Option<(f32, f32, f32)> {
         if curve_tool(self.board_tool) {
             let s = self.stroke_for_new_curve();
@@ -83,11 +139,16 @@ impl SlateApp {
         let NodeKind::Shape(s) = &node.kind else {
             return None;
         };
+        if let Some(tip) = self.hud_vertex_tip() {
+            return Some((tip.width, 0.0, tip.color.0[3] as f32 / 255.0));
+        }
         Some((s.stroke.width, s.stroke.softness, node.opacity))
     }
 
-    /// Write a curve tool's create style, or the Direct Select target live
-    /// (journaled when the HUD closes). Returns false for other tools.
+    /// Write a curve tool's create style, or the HUD target live (journaled
+    /// when the HUD closes). On vertices only what changed is written, so a
+    /// size scrub keeps each vertex's opacity and an opacity scrub keeps
+    /// each width. Returns false for other tools.
     pub(crate) fn set_vector_tip(&mut self, width: f32, softness: f32, opacity: f32) -> bool {
         if curve_tool(self.board_tool) {
             let mut s = self.stroke_for_new_curve();
@@ -98,6 +159,17 @@ impl SlateApp {
         let Some(id) = self.hud_node() else {
             return false;
         };
+        if let Some(tip) = self.hud_vertex_tip() {
+            let mut edits = Vec::new();
+            if (width - tip.width).abs() > f32::EPSILON * width.max(1.0) {
+                edits.push(Property::StrokeWidth(width));
+            }
+            let alpha = (opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
+            if alpha != tip.color.0[3] {
+                edits.push(Property::StrokeAlpha(alpha));
+            }
+            return self.edit_hud_node(&edits);
+        }
         let stamped = self.tip_hud_has_softness();
         if let Some(n) = self.doc_mut().scene.node_mut(id) {
             n.opacity = opacity.clamp(0.1, 1.0);
@@ -115,6 +187,9 @@ impl SlateApp {
     pub(crate) fn active_rgba(&self) -> [u8; 4] {
         if curve_tool(self.board_tool) {
             return self.stroke_for_new_curve().color.0;
+        }
+        if let Some(tip) = self.hud_vertex_tip() {
+            return tip.color.0;
         }
         if let Some(node) = self.hud_node().and_then(|id| self.doc().scene.node(id)) {
             if let NodeKind::Shape(s) = &node.kind {
@@ -134,12 +209,14 @@ impl SlateApp {
             self.board_colors.fg.0[..3].copy_from_slice(&rgba[..3]);
             return;
         }
-        if let Some(id) = self.hud_node() {
-            if let Some(n) = self.doc_mut().scene.node_mut(id) {
-                if let NodeKind::Shape(s) = &mut n.kind {
-                    s.stroke.color = Rgba(rgba);
-                }
-            }
+        // A whole-curve color also recolors per-vertex tips, which paint
+        // over the stroke color.
+        let before = self.active_rgba();
+        let mut edits = vec![Property::StrokeRgb([rgba[0], rgba[1], rgba[2]])];
+        if rgba[3] != before[3] {
+            edits.push(Property::StrokeAlpha(rgba[3]));
+        }
+        if self.edit_hud_node(&edits) {
             return;
         }
         self.board_colors.fg.0 = rgba;
@@ -151,14 +228,14 @@ impl SlateApp {
         self.set_active_rgba(c);
     }
 
-    /// Snapshot of the Direct Select target, taken when a HUD or key edit
-    /// starts.
+    /// Snapshot of the HUD target, taken when a HUD or key edit starts.
     pub(crate) fn hud_node_snapshot(&self) -> Option<Node> {
         self.doc().scene.node(self.hud_node()?).cloned()
     }
 
-    /// Journal the Direct Select target's HUD edit as one Patch.
+    /// Journal the HUD target's edit as one Patch.
     pub(crate) fn journal_hud_node(&mut self, before: Option<Node>) {
+        self.hud_frozen = None;
         let Some(before) = before else {
             return;
         };
@@ -179,8 +256,9 @@ impl SlateApp {
         }]);
     }
 
-    /// Esc: put the Direct Select target back.
+    /// Esc: put the HUD target back.
     pub(crate) fn restore_hud_node(&mut self, before: Option<Node>) {
+        self.hud_frozen = None;
         let Some(before) = before else {
             return;
         };
@@ -315,7 +393,7 @@ impl SlateApp {
         match self.board_tool {
             BoardTool::Brush | BoardTool::Eraser => &TEXTURE_CHOICES,
             _ if curve_tool(self.board_tool) => &CURVE_CHOICES,
-            BoardTool::DirectSelect if self.hud_node().is_some() => {
+            _ if self.hud_node().is_some() => {
                 if self.tip_hud_has_softness() {
                     &TEXTURE_CHOICES
                 } else {
@@ -352,8 +430,8 @@ impl SlateApp {
         }
     }
 
-    /// Apply a palette choice to the armed tool (Direct Select: live on its
-    /// target, journaled when the HUD closes).
+    /// Apply a palette choice to the armed tool (a committed curve: live on
+    /// the whole curve, journaled when the HUD closes).
     pub(crate) fn apply_tip_choice(&mut self, choice: TipChoice) {
         match (self.board_tool, choice) {
             (BoardTool::Brush, TipChoice::Texture(t)) => {
@@ -369,7 +447,7 @@ impl SlateApp {
                 apply_curve_style(&mut s, style);
                 self.store_armed_curve_stroke(s, None);
             }
-            (BoardTool::DirectSelect, choice) => {
+            (_, choice) => {
                 let Some(id) = self.hud_node() else {
                     return;
                 };
@@ -382,7 +460,6 @@ impl SlateApp {
                     }
                 }
             }
-            _ => {}
         }
     }
 
