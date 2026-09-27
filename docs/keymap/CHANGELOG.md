@@ -24,6 +24,15 @@
   wheel's saturation disk paints under the hue ring so no backdrop
   hairline shows between them.
 
+## 2026-09-27 — Selection outline follows the authored corner
+
+- P1.node.corner-grip records the 25 September request: the selection
+  outline and contents-focus highlight of a corner-capable node, including
+  a 3D viewport's live ring and portal frames, follow its fillet or
+  chamfer. Behavior was already correct; tests now pin the chamfer case.
+- DYNAMIC_PANELS.md marks the Fill, Stroke, and wire-properties reference
+  images: their second rail is saturation, not the value rail they show.
+
 ## 2026-09-26 — Per-vertex style survives editing
 
 - `trim` D16 and `split` D16: each piece keeps the per-vertex widths,
@@ -45,6 +54,74 @@
   colors their source painted between vertices (new token
   `trim.tip_tolerance`).
 
+## 2026-09-26 — Agent chat: Stop on the output circle, switch re-chunks
+
+- `portal-agent-link` D22: while a card's reply streams, Stop takes the
+  place of its top output circle, so it no longer moves as the card grows.
+  A click stops that card only; it neither continues nor forks.
+- `portal-agent-link` D14: switching between message pairs, one message
+  per card, and the single chat window mid-conversation re-chunks every
+  linear path of the whole conversation, keeps forks at their branch
+  points, and moves wires to the card that now shows their message. No
+  provider runs; one Undo returns the previous presentation.
+
+## 2026-09-26 — Menus own the wheel and stay on screen
+
+- New pattern P0.10 (owner `atlas_shell::menu_wheel`): an open list,
+  dropdown, or scroll menu takes the wheel while the pointer is over it;
+  the board does not zoom underneath (typeface and height lists in `text`
+  D14, the agent model dropdown).
+- DYNAMIC_PANELS.md / P1.shape.properties: popups paint on
+  `selection_tools::POPUP_ORDER`, above stringers, the strip, grips, and
+  nodes. `selection_tools::place_popup` fits a popup inside the viewport
+  while avoiding the selected geometry, and keeps the default position
+  when nothing fits.
+
+## 2026-09-26 — Paint layer palette and drop capsules
+
+- `image-paint-layers` D01 / D09 / D13: the layer palette hangs centered
+  10 units below the image while a hosting tool paints it; the `+` sits
+  past its right end; recent-color dots are smaller and live inside the
+  palette. Painting hides the blue cast, stringers, and fillet grip. The
+  photo-filter capsule holds filters only, and agent pictures offer it.
+- `image-paint-layers` D14: the Replace / Add as layer capsules are
+  reachable by dragging onto them; the dragged image is never its own
+  target.
+
+## 2026-09-26 — 3D screenshots match the viewport; drop-back preview
+
+- `media` D36: Export to canvas renders what the viewport shows (display
+  pass, filter, camera, aspect, background) through the live render target.
+- `media` D38: dragging a picture with a saved Slate view over a model
+  previews that camera with a short tween and draws the picture into the
+  viewport; releasing sets it, moving away restores the original view.
+
+## 2026-09-26 — Crop toggles packed; saturation rail keeps its color
+
+- `image-crop` D01: Off/Crop packs into the one Corners capsule with
+  Fillet/Chamfer and %/u, without changing the capsule or slider size.
+- `shape-selection-toolbar` D13 / DYNAMIC_PANELS.md: the saturation rail
+  paints gray to full hue at value 1 (the field's top edge), so it does not
+  darken with the selected color.
+
+## 2026-09-25 — Crop repeat, multi-crop, and first-grab handles
+
+- `image-crop` D02: a finished crop joins repeat-last (P0.4); a Space tap
+  or Enter re-enters crop on whatever image is selected.
+- `image-crop` D09 / D10 / D17: corner-first hit zones never smaller than
+  8 px, the very first press reaches the handle, and crop mode keeps every
+  selected image.
+- `media` D40: a 3D model's View wires attach like any node's: no port at
+  rest, the shared wire snap highlights the edge during a drag.
+
+## 2026-09-25 — Color editor reverted; value rail becomes saturation
+
+- `shape-selection-toolbar` D13 / GP8 and DYNAMIC_PANELS.md (user
+  decision): the original saturation/value field at the current hue comes
+  back, with opacity, saturation, and hue rails. Only the neutral value
+  rail changed, to saturation. The interim hue-by-value square with two
+  rails is withdrawn.
+
 ## 2026-09-25 — Sign-in pop-ups in web portals
 
 - `portal-web-embed` D15 / D22 (and the D32 deny list) amended, user-ratified:
@@ -54,6 +131,30 @@
   is titled with its origin, closes itself when the page calls
   `window.close()`, and closes with its portal. Links and featureless
   `window.open` still navigate the portal in place. No new command.
+
+## 2026-09-25 — 3D viewport declutter, screenshots, and saved views
+
+- `media` D13: display modes (Shaded, Arctic, Material mask, Z-buffer)
+  move to circle chips in a chips-only filter capsule on the selection
+  strip, and Measure becomes a strip action. The viewport paints only its
+  render: no file-type badge on the board or in the HTML export, no
+  padlock, no in-viewport tool strip.
+- `media` D36 / D37 / D38: Screenshot exports a PNG to the canvas under
+  the pointer (default) or a folder, with the camera in Slate XMP;
+  dropping it back on the model restores that view in one undo step.
+
+## 2026-09-25 — Paint layers and Replace / Add as layer
+
+- `image-paint-layers` D01: painting on a selected image creates a layer
+  in the same undo step; layers are not filters.
+- `image-paint-layers` D14: dropping an image onto another offers
+  Replace or Add as layer capsules; one undo restores both.
+
+## 2026-09-25 — Message pairs are the default
+
+- `portal-agent-link` D22: a new conversation's train presents message
+  pairs; one message per card and the single chat window stay menu
+  commands. Legacy workbooks keep their saved presentation.
 
 ## 2026-09-24 — Spot eraser and color wheel gap
 

@@ -244,6 +244,11 @@ is searchable.
   per-vertex grips (a multi-selection shows the shared grip, which also
   clears overrides); only the hovered or held grip lights; per-vertex
   edits never reach peers.
+  **Outline (stated):** the selection outline and contents-focus highlight
+  of a corner-capable node follow its authored corner (fillet or chamfer),
+  including 3D viewports and portals (user, 25 September 2026). Both stroke
+  `SlateApp::node_screen_outline` (`corner_outline` of the resolved corner);
+  a 3D viewport's live ring is its contents-focus highlight.
   **Proposals** (implementation detail, not re-litigated per contract):
   painted half-size `FILLET_GRIP_PX` via
   `canvas_scale` (P0.9) — 1.6, **stated** 26 September 2026 as 40% of the

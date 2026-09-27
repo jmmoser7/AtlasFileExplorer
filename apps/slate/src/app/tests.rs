@@ -6429,6 +6429,52 @@ fn selection_outline_follows_silhouette() {
     );
 }
 
+/// P1.node.corner-grip: a selected portal's painted outline is its authored
+/// corner — a chamfer as well as a fillet — not the frame box.
+#[test]
+fn selected_portal_outline_follows_its_authored_corner() {
+    let mut h = web_board("sel_portal_corner");
+    let node = h.app.doc_mut().scene.build_node(
+        WorldRect::new(0.0, 0.0, 320.0, 200.0),
+        NodeKind::Portal(slate_doc::PortalNode::unbound_web("Web")),
+    );
+    let id = node.id;
+    h.app.add_nodes(vec![node]);
+    h.app
+        .zoom_to_rect(WorldRect::new(-40.0, -40.0, 400.0, 280.0));
+    for corner in [
+        slate_doc::scene::Corner::Chamfer { cut: 30.0 },
+        slate_doc::scene::Corner::Rounded { radius: 30.0 },
+    ] {
+        h.app.patch_nodes(&[id], |n| {
+            if let NodeKind::Portal(p) = &mut n.kind {
+                p.corner = corner;
+            }
+        });
+        h.app.board_sel = std::iter::once(id).collect();
+        h.frame();
+        let out = h.frame_output(|_| {});
+        let xf = h.app.board_xf();
+        let node = h.app.doc().scene.node(id).unwrap();
+        let expected = board::corner_outline(xf.rect_w2s(node.rect), corner, xf.z);
+        assert!(
+            expected.len() > 4,
+            "{corner:?}: a cornered outline, not a box"
+        );
+        let same = |a: &[Pos2]| {
+            a.len() == expected.len() && a.iter().zip(&expected).all(|(p, q)| p.distance(*q) < 0.01)
+        };
+        assert!(
+            same(&h.app.node_screen_outline(&h.ctx, &xf, node)),
+            "{corner:?}: the selection outline is the corner outline"
+        );
+        assert!(
+            painted_closed_paths(&out).iter().any(|pts| same(pts)),
+            "{corner:?}: the painted selection ring is the corner outline"
+        );
+    }
+}
+
 fn add_dock_strip(app: &mut SlateApp, palette_id: &str, tools: &[&str]) -> NodeId {
     let n = tools.len().max(1) as f32;
     let rect = slate_doc::scene::WorldRect::new(0.0, 0.0, n * 160.0 + 80.0, 72.0);

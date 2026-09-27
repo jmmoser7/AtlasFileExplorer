@@ -4696,10 +4696,27 @@ mod tests {
 
     #[test]
     fn viewport_rings_follow_the_fillet_live_and_frozen() {
-        let (mut h, id) = live_model("model_ring_fillet");
+        assert_viewport_rings_follow(
+            "model_ring_fillet",
+            slate_doc::scene::Corner::Rounded { radius: 24.0 },
+        );
+    }
+
+    /// P1.node.corner-grip: the live ring (the viewport's contents-focus)
+    /// and the frozen selection outline follow a chamfer as well as a fillet.
+    #[test]
+    fn viewport_rings_follow_the_chamfer_live_and_frozen() {
+        assert_viewport_rings_follow(
+            "model_ring_chamfer",
+            slate_doc::scene::Corner::Chamfer { cut: 24.0 },
+        );
+    }
+
+    fn assert_viewport_rings_follow(tag: &str, authored: slate_doc::scene::Corner) {
+        let (mut h, id) = live_model(tag);
         h.app.patch_nodes(&[id], |n| {
             if let NodeKind::Image(img) = &mut n.kind {
-                img.corner = slate_doc::scene::Corner::Rounded { radius: 24.0 };
+                img.corner = authored;
             }
         });
         h.app.board_sel = std::iter::once(id).collect();
@@ -4717,7 +4734,7 @@ mod tests {
 
         let rings = painted_rings(&mut h);
         let (expected, selection) = corner_outline(&h);
-        assert!(expected.len() > 4, "a filleted outline, not a box");
+        assert!(expected.len() > 4, "a cornered outline, not a box");
         assert!(
             same(&selection, &expected),
             "the selection outline is the corner outline"

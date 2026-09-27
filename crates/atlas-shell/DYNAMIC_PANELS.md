@@ -268,18 +268,25 @@ provenance. Revision 3 establishes composition; subsequent user refinements
 above supersede its capsule thickness and add wires/short-span labels.
 A/B/C and earlier revisions are historical rejected directions.
 
-- Approved composition: [Fill](../../design/shape-palettes-2026-09-17/revision-3/fill.png),
-  [Stroke](../../design/shape-palettes-2026-09-17/revision-3/stroke.png),
+- Approved composition: [Fill](../../design/shape-palettes-2026-09-17/revision-3/fill.png)
+  (do not implement the second rail from this image: it is saturation (user
+  decision, 25 September 2026)),
+  [Stroke](../../design/shape-palettes-2026-09-17/revision-3/stroke.png)
+  (do not implement the second rail from this image: it is saturation (user
+  decision, 25 September 2026)),
   [Corners](../../design/shape-palettes-2026-09-17/revision-3/corners.png),
   [RGB](../../design/shape-palettes-2026-09-17/revision-3/rgb-reference.png),
   [stringers](../../design/shape-palettes-2026-09-17/revision-3/stringers.png).
 - Native slender controls and short stringers:
   [light](../../design/shape-palettes-2026-09-17/native/wire-properties-light.png)
   and [dark](../../design/shape-palettes-2026-09-17/native/wire-properties-dark.png).
+  Do not implement the second rail from these images: it is saturation (user
+  decision, 25 September 2026).
 
 **Needs refresh (25 September 2026):** these references show the second rail
 as the neutral value rail (white to dark); it is now the saturation rail.
 Their color field, opacity and hue rails, footer, and layout remain approved.
+The capture opens a native window, so it needs an interactive desktop session.
 Recapture with `shape_palettes --capture` in both themes:
 `native/palette-{light,dark}.png`, `native/refined-{light,dark}.png`,
 `native/wire-properties-{light,dark}.png`, and the generated
