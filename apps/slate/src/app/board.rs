@@ -5493,6 +5493,7 @@ impl SlateApp {
                     &xf,
                     rect,
                     None,
+                    None,
                     Vec::new,
                 );
                 if let Some(BoardDrag::FreehandBrush { stroke }) = &self.board_drag {
@@ -5510,12 +5511,14 @@ impl SlateApp {
                 let tolerance = (0.5 / (xf.z * ppp).max(1.0e-3)) as f64;
                 let scene = &self.tab().doc.scene;
                 let anchor_node = anchor_id.and_then(|id| scene.node(id).cloned());
+                let anchor_key = anchor_node.as_ref().and_then(board_path::node_stamp_key);
                 let canvas = board_path::BrushLiveCanvas::ensure(
                     &mut self.brush_live,
                     &draft_painter,
                     &xf,
                     rect,
                     anchor_id,
+                    anchor_key,
                     || match anchor_node.as_ref().map(|n| (n, &n.kind)) {
                         Some((n, NodeKind::Shape(s))) => match s.path.as_ref() {
                             Some(p) => board_path::stamped_contours(n, s, p, tolerance),

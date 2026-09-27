@@ -2078,6 +2078,14 @@ fn take_sync_budget(app: &mut SlateApp, area: f32) -> bool {
     true
 }
 
+/// [`stamp_key`] for a stamped path node.
+pub(crate) fn node_stamp_key(node: &Node) -> Option<u64> {
+    let NodeKind::Shape(shape) = &node.kind else {
+        return None;
+    };
+    Some(stamp_key(node, shape, shape.path.as_ref()?))
+}
+
 /// A stroke's stamp content key: path, style, and placement.
 fn stamp_key(node: &Node, shape: &ShapeNode, path: &PathData) -> u64 {
     path_content_hash(
@@ -2427,6 +2435,9 @@ pub struct BrushLiveCanvas {
     /// Until the next stroke starts, the parked canvas stands in for it
     /// while its exact bitmap or tiles build.
     pub held: Option<(NodeId, Option<u64>)>,
+    /// The canvas shows the held stroke and nothing else, so the next Shift
+    /// segment that continues it starts from these pixels.
+    reusable: bool,
 }
 
 fn view_key(xf: &BoardXf, screen: egui::Rect, ppp: f32) -> [u32; 6] {
@@ -2443,12 +2454,16 @@ fn view_key(xf: &BoardXf, screen: egui::Rect, ppp: f32) -> [u32; 6] {
 impl BrushLiveCanvas {
     /// Reuse `slot` while the camera and anchor are unchanged; otherwise
     /// build a fresh canvas with the anchor stroke's contours stamped in.
+    /// A parked canvas that still shows exactly the anchor (content
+    /// `anchor_key`, under this camera) is picked up as it is, so a chain of
+    /// Shift segments never re-stamps the chain on the frame loop.
     pub fn ensure<'a>(
         slot: &'a mut Option<BrushLiveCanvas>,
         painter: &egui::Painter,
         xf: &BoardXf,
         screen: egui::Rect,
         anchor_id: Option<NodeId>,
+        anchor_key: Option<u64>,
         anchor_contours: impl FnOnce() -> Vec<Vec<TipPoint>>,
     ) -> &'a mut BrushLiveCanvas {
         let ppp = painter.ctx().pixels_per_point();
@@ -2458,6 +2473,34 @@ impl BrushLiveCanvas {
             .is_some_and(|c| !c.idle && c.view == view && c.anchor == anchor_id);
         if live {
             return slot.as_mut().expect("live canvas");
+        }
+        let resume = anchor_id.is_some()
+            && anchor_key.is_some()
+            && slot.as_ref().is_some_and(|c| {
+                c.idle
+                    && c.reusable
+                    && c.view == view
+                    && c.held == anchor_id.map(|id| (id, anchor_key))
+            });
+        if resume {
+            let canvas = slot.as_mut().expect("parked canvas");
+            // A line canvas differs from its base only in the last segment.
+            let fresh = if canvas.freehand_done > 0 {
+                canvas.touched
+            } else {
+                canvas.line_dirty
+            };
+            canvas.line_dirty = None;
+            if let Some(b) = fresh {
+                canvas.copy_rows(b, true);
+            }
+            canvas.line_key = None;
+            canvas.held = None;
+            canvas.reusable = false;
+            canvas.anchor = anchor_id;
+            canvas.freehand_done = 0;
+            canvas.idle = false;
+            return canvas;
         }
         let w = (screen.width() * ppp).ceil().max(1.0) as u32;
         let h = (screen.height() * ppp).ceil().max(1.0) as u32;
@@ -2492,12 +2535,14 @@ impl BrushLiveCanvas {
                 touched: None,
                 idle: true,
                 held: None,
+                reusable: false,
             });
         }
         let canvas = slot.as_mut().expect("canvas just ensured");
         // An empty canvas is empty under any camera, so only the mapping moves.
         canvas.clear_touched();
         canvas.held = None;
+        canvas.reusable = false;
         let origin = xf.s2w(screen.min);
         canvas.img.origin = [origin.x, origin.y];
         canvas.img.pixel = 1.0 / (xf.z * ppp).max(1.0e-3);
@@ -2508,7 +2553,11 @@ impl BrushLiveCanvas {
         canvas.line_dirty = None;
         canvas.idle = false;
         if anchor_id.is_some() {
-            for contour in &anchor_contours() {
+            let contours = anchor_contours();
+            if !contours.is_empty() {
+                note_stamp_on_this_thread();
+            }
+            for contour in &contours {
                 match contour.as_slice() {
                     [] => {}
                     [only] => {
@@ -2540,9 +2589,22 @@ impl BrushLiveCanvas {
         self.tex.id()
     }
 
-    /// The drag on this canvas committed as stroke `id`.
-    pub fn hold(&mut self, id: NodeId) {
-        self.held = Some((id, None));
+    /// The drag on this canvas committed as stroke `id` (content `key`). The
+    /// canvas is reusable when it holds nothing else: a new stroke, or a
+    /// Shift segment that continued `id` itself.
+    pub fn hold(&mut self, id: NodeId, key: Option<u64>) {
+        let alone = !self.idle && self.anchor.is_none_or(|x| x == id);
+        self.held = Some((id, key));
+        self.reusable = alone && key.is_some();
+    }
+
+    /// [`Self::hold`] for the Shift segment `a`–`b`.
+    pub fn hold_line(&mut self, id: NodeId, key: Option<u64>, a: TipPoint, b: TipPoint) {
+        self.hold(id, key);
+        if self.reusable {
+            // The release may land off the last previewed point.
+            self.set_line(a, b);
+        }
     }
 
     /// This canvas still shows stroke `id` as it is now (content `key`).

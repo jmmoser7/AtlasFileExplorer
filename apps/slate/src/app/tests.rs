@@ -9909,6 +9909,129 @@ fn brush_shift_drag_after_a_stroke_continues_it() {
     assert!(near_px(v[v.len() - 2], from) && near_px(v[v.len() - 1], end), "{v:?}");
 }
 
+/// tip18 with a big brush: a Shift press starts from the canvas the last
+/// mark left (freehand or segment), so neither the first segment nor any
+/// later one re-stamps the stroke on the frame loop, however long the chain
+/// grows, and the earlier marks stay on screen while the chain is hidden
+/// from the scene paint.
+#[test]
+fn chained_brush_shift_presses_do_not_restamp_the_chain() {
+    let mut h = brush_board("brush_shift_chain_reuse");
+    h.app.board_colors.fg.0 = [255, 40, 40, 255];
+    h.app.brush_opacity = 1.0;
+    h.app.brush_softness = 0.0;
+    h.app.brush_width = 60.0;
+    let shift = egui::Modifiers::SHIFT;
+    let mut raster = FrameRaster::new(1440, 900);
+    capture_frame(&mut h, &mut raster, |_| {});
+    let xf = h.app.board_xf();
+    let c = xf.s2w(h.app.canvas_rect.center());
+    let p = |x: f32, y: f32| c + EVec2::new(x, y);
+    let lit = |raster: &FrameRaster, w: Pos2| {
+        let s = xf.w2s(w);
+        let p = raster.px[s.y as usize * raster.w + s.x as usize];
+        p[0] > 0.6 && p[1] < 0.4
+    };
+    // Every frame feeds the raster: it only knows the texture uploads it saw.
+    let button = |w: Pos2, pressed: bool, modifiers: egui::Modifiers| egui::Event::PointerButton {
+        pos: xf.w2s(w),
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers,
+    };
+    let drag = |h: &mut Harness, raster: &mut FrameRaster, mods: egui::Modifiers, pts: &[Pos2]| {
+        let mut events = vec![
+            vec![egui::Event::PointerMoved(xf.w2s(pts[0]))],
+            vec![button(pts[0], true, mods)],
+        ];
+        events.extend(
+            pts[1..]
+                .iter()
+                .map(|w| vec![egui::Event::PointerMoved(xf.w2s(*w))]),
+        );
+        for events in events {
+            capture_frame(h, raster, |inp| {
+                inp.modifiers = mods;
+                inp.events = events;
+            });
+        }
+        if mods.shift {
+            assert!(h.app.brush_live.as_ref().is_some_and(|c| c.showing_line()));
+        }
+        let last = *pts.last().unwrap();
+        capture_frame(h, raster, |inp| {
+            inp.modifiers = mods;
+            inp.events = vec![button(last, false, mods)];
+        });
+        capture_frame(h, raster, |inp| inp.modifiers = mods);
+    };
+    let freehand = [
+        p(-300.0, -200.0),
+        p(-200.0, -225.0),
+        p(-100.0, -175.0),
+        p(0.0, -200.0),
+    ];
+    drag(&mut h, &mut raster, egui::Modifiers::NONE, &freehand);
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
+    let id = h.app.doc().scene.nodes[0].id;
+    let before = board_path::stamps_on_this_thread();
+    let ends = [p(0.0, 100.0), p(300.0, 100.0), p(300.0, -150.0)];
+    for end in ends {
+        let press = end + EVec2::new(-60.0, 40.0);
+        drag(
+            &mut h,
+            &mut raster,
+            shift,
+            &[press, press + (end - press) * 0.5, end],
+        );
+    }
+    assert_eq!(
+        board_path::stamps_on_this_thread(),
+        before,
+        "a Shift press re-stamped the stroke on the frame loop"
+    );
+    assert_eq!(
+        h.app.doc().scene.nodes.len(),
+        1,
+        "every segment extends the stroke"
+    );
+    let v = path_vertices(h.app.doc().scene.node(id).unwrap());
+    assert!(
+        near_px(v[v.len() - 1], ends[2]) && near_px(v[v.len() - 4], freehand[3]),
+        "{v:?}"
+    );
+
+    let (end, press) = (p(-100.0, -150.0), p(100.0, -60.0));
+    for (i, events) in [
+        vec![egui::Event::PointerMoved(xf.w2s(press))],
+        vec![button(press, true, shift)],
+        vec![egui::Event::PointerMoved(xf.w2s(end))],
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let out = capture_frame(&mut h, &mut raster, |inp| {
+            inp.modifiers = shift;
+            inp.events = events;
+        });
+        if i == 2 {
+            snapshot(&mut h, &mut raster, out, "shift-chain-reuse");
+        }
+    }
+    assert!(h.app.brush_straight.is_some());
+    // Clear of the Shift status label above the pointer.
+    for w in [
+        p(-260.0, -200.0),
+        p(0.0, -50.0),
+        p(150.0, 100.0),
+        p(300.0, 0.0),
+        p(100.0, -150.0),
+    ] {
+        assert!(lit(&raster, w), "{w:?} is dark while the chain grows");
+    }
+    assert_eq!(board_path::stamps_on_this_thread(), before);
+}
+
 /// tip18 on real frames: the Shift preview is visible on screen, both from
 /// the press point and continuing an earlier stroke.
 #[test]
@@ -10040,6 +10163,184 @@ fn brush_shift_drag_frame_times_on_a_busy_board() {
     for k in 0..3 {
         timed(&format!("after {k}"), &mut h, vec![]);
     }
+}
+
+/// tip18 frame times at the user's brush (207 wide, pencil, softness 0.09)
+/// on a 1.5 px/pt display at 150 %: a freehand stroke, then six chained
+/// Shift segments. Prints press, move, release, and next-frame times.
+#[test]
+#[ignore]
+fn brush_shift_chain_frame_times_at_a_big_brush() {
+    let mut h = brush_board("tip18_chain");
+    h.ctx.set_pixels_per_point(1.5);
+    h.frame_with(|i| i.max_texture_side = Some(8192));
+    h.app.brush_width = 207.0;
+    h.app.brush_softness = 0.09;
+    h.app.brush_texture = slate_doc::scene::BrushTexture::Pencil;
+    h.app.tab_mut().cam.z = 1.5;
+    h.frame();
+    let xf = h.app.board_xf();
+    let c = xf.s2w(Pos2::new(720.0, 450.0));
+    press_drag_release_frames(
+        &mut h,
+        &[
+            c + EVec2::new(-300.0, -200.0),
+            c + EVec2::new(-150.0, -150.0),
+            c + EVec2::new(0.0, -200.0),
+        ],
+        egui::Modifiers::NONE,
+        |_| {},
+    );
+    let shift = egui::Modifiers::SHIFT;
+    for seg in 0..6 {
+        let xf = h.app.board_xf();
+        let a = xf.w2s(c + EVec2::new(-200.0 + 60.0 * seg as f32, 100.0));
+        let button = |pos: Pos2, pressed: bool| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: shift,
+        };
+        let t = std::time::Instant::now();
+        board::brush_prof::begin();
+        h.frame_with(|i| {
+            i.modifiers = shift;
+            i.events.push(egui::Event::PointerMoved(a));
+            i.events.push(button(a, true));
+        });
+        let laps: Vec<String> = board::brush_prof::take()
+            .into_iter()
+            .filter(|(_, ms)| *ms > 2.0)
+            .map(|(n, ms)| format!("{n}={ms:.0}"))
+            .collect();
+        let press = t.elapsed().as_secs_f64() * 1000.0;
+        let t = std::time::Instant::now();
+        let b = a + EVec2::new(if seg % 2 == 0 { 200.0 } else { -200.0 }, 120.0);
+        h.frame_with(|i| {
+            i.modifiers = shift;
+            i.events.push(egui::Event::PointerMoved(b));
+        });
+        let mv = t.elapsed().as_secs_f64() * 1000.0;
+        let t = std::time::Instant::now();
+        h.frame_with(|i| {
+            i.modifiers = shift;
+            i.events.push(button(b, false));
+        });
+        let rel = t.elapsed().as_secs_f64() * 1000.0;
+        let t = std::time::Instant::now();
+        h.frame();
+        let after = t.elapsed().as_secs_f64() * 1000.0;
+        eprintln!(
+            "seg{seg}: press {press:.1} {laps:?} move {mv:.1} release {rel:.1} after {after:.1} ms"
+        );
+    }
+}
+
+/// tip18 with a stroke selected under the press: its body, corner, and edge
+/// belong to the Shift drag, which previews every frame and extends the
+/// last mark.
+#[test]
+fn brush_shift_drag_over_a_selected_stroke_still_previews() {
+    let mut h = brush_board("tip18_sel");
+    press_drag_release_frames(
+        &mut h,
+        &[
+            Pos2::new(40.0, 40.0),
+            Pos2::new(80.0, 60.0),
+            Pos2::new(120.0, 40.0),
+        ],
+        egui::Modifiers::NONE,
+        |_| {},
+    );
+    let first = h.app.doc().scene.nodes[0].id;
+    h.app.board_sel = std::iter::once(first).collect();
+    h.frame();
+    let rect = h.app.doc().scene.node(first).unwrap().rect;
+    for start in [
+        Pos2::new(80.0, 60.0),
+        Pos2::new(rect.x + rect.w, rect.y + rect.h),
+        Pos2::new(rect.x + rect.w * 0.5, rect.y),
+    ] {
+        let before = path_vertices(h.app.doc().scene.node(first).unwrap()).len();
+        press_drag_release_frames(
+            &mut h,
+            &[
+                start,
+                start + EVec2::new(60.0, 80.0),
+                start + EVec2::new(140.0, 160.0),
+            ],
+            egui::Modifiers::SHIFT,
+            |h| {
+                assert!(h.app.brush_straight.is_some(), "press at {start:?}");
+                assert!(h.app.brush_live.as_ref().is_some_and(|c| c.showing_line()));
+            },
+        );
+        assert_eq!(h.app.doc().scene.nodes.len(), 1);
+        let after = path_vertices(h.app.doc().scene.node(first).unwrap()).len();
+        assert_eq!(after, before + 1, "press at {start:?}");
+    }
+}
+
+/// tip18 inside an image-paint session: the Shift drag previews every frame
+/// and commits onto the image's layer.
+#[test]
+fn brush_shift_drag_in_an_image_paint_session_previews() {
+    let mut h = Harness::new("tip18_img");
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    let p = h.base.join("photo.png");
+    std::fs::write(&p, b"png").unwrap();
+    let item = h.app.add_paths(&[p])[0];
+    let node = h.app.doc_mut().scene.build_node(
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 400.0, 300.0),
+        slate_doc::scene::NodeKind::Image(slate_doc::scene::ImageNode::new(item)),
+    );
+    let image_id = node.id;
+    h.app.add_nodes(vec![node]);
+    h.app.board_sel = std::iter::once(image_id).collect();
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.tab_mut().cam.z = 1.0;
+    h.app.board_osnap.enabled = false;
+    h.app.board_smart_guides = false;
+    h.app.board_snap_grid = false;
+    h.frame();
+    h.frame();
+    assert!(h.app.image_paint_session().is_some());
+    press_drag_release_frames(
+        &mut h,
+        &[
+            Pos2::new(40.0, 40.0),
+            Pos2::new(80.0, 60.0),
+            Pos2::new(120.0, 40.0),
+        ],
+        egui::Modifiers::NONE,
+        |_| {},
+    );
+    let layer_nodes = |h: &Harness| match &h.app.doc().scene.node(image_id).unwrap().kind {
+        slate_doc::scene::NodeKind::Image(img) => img
+            .paint_layers
+            .iter()
+            .map(|l| l.nodes.len())
+            .sum::<usize>(),
+        _ => 0,
+    };
+    assert_eq!(layer_nodes(&h), 1);
+    press_drag_release_frames(
+        &mut h,
+        &[
+            Pos2::new(200.0, 200.0),
+            Pos2::new(250.0, 150.0),
+            Pos2::new(300.0, 250.0),
+        ],
+        egui::Modifiers::SHIFT,
+        |h| {
+            assert!(h.app.brush_straight.is_some());
+            assert!(h.app.brush_live.as_ref().is_some_and(|c| c.showing_line()));
+        },
+    );
+    assert_eq!(layer_nodes(&h), 2, "the segment lands on the layer");
+    assert_eq!(h.app.doc().scene.nodes.len(), 1, "and not on the board");
 }
 
 #[test]
