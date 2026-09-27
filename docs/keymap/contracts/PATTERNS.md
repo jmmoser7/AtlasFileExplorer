@@ -689,9 +689,19 @@ State machine: `Armed → Placing(point k) → … → Commit`.
 - **P2.RhinoDraft.rubber** live rubber-band preview from the last placed
   point to the (constraint-resolved) cursor.
 - **P2.RhinoDraft.ortho** held Shift inverts the F8 ortho state for the
-  pending segment (45° steps, board convention).
-- **P2.RhinoDraft.tab** Tab locks the pending segment's *direction* at its
-  current angle; movement then only changes length; Tab again unlocks.
+  pending segment (45° steps from the last placed point, board convention).
+  Every drawn segment takes it: Line, Polyline, Arc, Bézier span, and the
+  Brush / Eraser Shift line (stated 2026-09-27). Where Shift already means
+  something else (rectangle and ellipse square / circle) that meaning holds.
+- **P2.RhinoDraft.tab** Tab locks the pending segment's *direction* from
+  the last placed point toward the pointer; movement then only changes
+  length; Tab again unlocks; placing the point, Esc, or a tool change ends
+  the lock. Point snaps still apply, projected onto the locked ray, so the
+  preview and the commit read one resolved point. One owner:
+  `SlateApp::toggle_segment_lock` / `resolve_segment_point`
+  (`board_osnap.rs`); the tool's pending origin comes from
+  `pending_segment_origin`. The board keeps the Tab key, so egui focus
+  navigation does not steal it (stated 2026-09-27).
 - **P2.RhinoDraft.numeric** after the first point, typed digits build a
   length readout; Enter (or the committing click) places the next point at
   that distance along the current direction. Backspace edits; Esc clears the

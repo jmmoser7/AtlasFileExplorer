@@ -2407,6 +2407,11 @@ impl BrushLiveCanvas {
         }
     }
 
+    #[cfg(test)]
+    pub fn showing_line(&self) -> bool {
+        !self.idle && self.line_dirty.is_some()
+    }
+
     /// Show one straight segment on top of the base canvas.
     pub fn set_line(&mut self, a: TipPoint, b: TipPoint) {
         let key = {
@@ -2987,14 +2992,11 @@ impl SlateApp {
 
     pub(crate) fn path_tool_click(&mut self, world: Pos2) {
         // Ortho (F8, Shift inverts): draft segments snap to 45° from the
-        // last anchor (constraints spec §1).
-        let from = match &self.board_path_draft {
-            Some(BoardPathDraft::Polyline { points, .. }) => points.last().copied(),
-            Some(BoardPathDraft::Arc { points, .. }) => points.last().copied(),
-            Some(BoardPathDraft::Bezier { anchors, .. }) => anchors.last().map(|(p, _)| *p),
-            None => None,
-        };
-        let world = self.resolve_point_snap(world, &[], from, self.shift_down, from.is_some());
+        // last anchor (constraints spec §1); a Tab lock holds the direction.
+        // Placing the point ends the lock.
+        let from = self.pending_segment_origin();
+        let world = self.resolve_segment_point(from, world, self.shift_down);
+        self.draft_lock = None;
         match self.board_tool {
             super::board::BoardTool::Polyline => {
                 let width = self.stroke_for_tool(StrokeTool::Polyline).width;
@@ -3267,6 +3269,7 @@ impl SlateApp {
     }
 
     pub(crate) fn bezier_anchor_release(&mut self, press: Pos2, world: Pos2, alt: bool) {
+        self.draft_lock = None;
         let zoom = self.tab().cam.z.max(f32::EPSILON);
         let thresh_sq = (DRAFT_DRAG_THRESHOLD_PX / zoom).powi(2);
         let out = world - press;

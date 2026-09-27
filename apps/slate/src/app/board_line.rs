@@ -48,8 +48,6 @@ pub struct LineDraft {
     /// Last constraint-resolved cursor position (rubber-band end, readout
     /// source, and the direction Enter commits along).
     pub cursor: Option<Pos2>,
-    /// Tab direction lock: unit vector the segment is pinned to (D07).
-    pub dir_lock: Option<Vec2>,
     /// Typed length entry ("100", "12.5") — digits set length (D08).
     pub entry: String,
     /// The tool width the first point was placed with; the end takes the
@@ -63,7 +61,6 @@ impl LineDraft {
             start,
             raw_start: start,
             cursor: None,
-            dir_lock: None,
             entry: String::new(),
             start_width,
         }
@@ -116,24 +113,13 @@ impl SlateApp {
         self.resolve_point_snap(world, &[], None, false, false)
     }
 
-    /// Second-point resolution against `origin`: Tab lock wins (movement
-    /// only changes length), then ortho (F8, Shift inverts, 45° steps),
-    /// then object snap, then grid snap. Lock and ortho suspend the point
-    /// snaps so they cannot pull the endpoint off the constrained axis
-    /// (DominantOrtho convention).
-    fn line_resolve_second(
-        &mut self,
-        origin: Pos2,
-        dir_lock: Option<Vec2>,
-        world: Pos2,
-        shift: bool,
-    ) -> Pos2 {
-        if let Some(dir) = dir_lock {
-            self.board_osnap_hit = None;
-            let t = (world - origin).dot(dir).max(0.0);
-            return origin + dir * t;
-        }
-        self.resolve_point_snap(world, &[], Some(origin), shift, true)
+    /// Second-point resolution against `origin`: the shared segment rule
+    /// ([`SlateApp::resolve_segment_point`]). The Tab lock wins (movement
+    /// only changes length; snaps land where they project onto the ray),
+    /// then ortho (F8, Shift inverts, 45° steps), then object snap, then
+    /// grid snap.
+    fn line_resolve_second(&mut self, origin: Pos2, world: Pos2, shift: bool) -> Pos2 {
+        self.resolve_segment_point(Some(origin), world, shift)
     }
 
     // ----- draft state machine (Armed → FirstPoint → SecondPoint → Commit) -------
@@ -159,7 +145,7 @@ impl SlateApp {
         let Some(d) = &self.line_draft else {
             return;
         };
-        let resolved = self.line_resolve_second(d.start, d.dir_lock, world, shift);
+        let resolved = self.line_resolve_second(d.start, world, shift);
         if let Some(d) = &mut self.line_draft {
             d.cursor = Some(resolved);
         }
@@ -180,26 +166,8 @@ impl SlateApp {
                 return;
             }
         }
-        let resolved = self.line_resolve_second(d.start, d.dir_lock, world, shift);
+        let resolved = self.line_resolve_second(d.start, world, shift);
         self.line_commit_at(resolved);
-    }
-
-    /// Tab: lock/unlock the segment direction at its current angle (D07).
-    pub(crate) fn line_toggle_lock(&mut self) {
-        let Some(d) = &mut self.line_draft else {
-            return;
-        };
-        if d.dir_lock.is_some() {
-            d.dir_lock = None;
-            return;
-        }
-        let Some(c) = d.cursor else {
-            return;
-        };
-        let v = c - d.start;
-        if v.length() > f32::EPSILON {
-            d.dir_lock = Some(v.normalized());
-        }
     }
 
     /// Typed digit / '.' appended to the length entry (D08).
@@ -234,7 +202,7 @@ impl SlateApp {
         let Some(d) = self.line_draft.clone() else {
             return false;
         };
-        let dir = d.dir_lock.or_else(|| {
+        let dir = self.draft_lock.or_else(|| {
             d.cursor.and_then(|c| {
                 let v = c - d.start;
                 (v.length() > f32::EPSILON).then(|| v.normalized())
@@ -261,8 +229,8 @@ impl SlateApp {
         };
         let end = if let Some(len) = self.line_entry_length() {
             let v = end - d.start;
-            let dir = d
-                .dir_lock
+            let dir = self
+                .draft_lock
                 .or_else(|| (v.length() > f32::EPSILON).then(|| v.normalized()))
                 .unwrap_or(Vec2::new(1.0, 0.0));
             d.start + dir * len
@@ -353,6 +321,7 @@ impl SlateApp {
         } else {
             self.line_draft = None;
         }
+        self.draft_lock = None;
         true
     }
 
@@ -477,20 +446,5 @@ impl SlateApp {
             &self.line_grip_overlay(node.id, [a, b], xf),
             self.path_edit_colors(),
         );
-    }
-
-    /// Small padlock glyph beside the pointer while Tab-locked (D10).
-    pub(crate) fn paint_line_lock_glyph(&self, painter: &egui::Painter, pointer: Pos2) {
-        let Some(d) = &self.line_draft else {
-            return;
-        };
-        if d.dir_lock.is_none() {
-            return;
-        }
-        let o = pointer + Vec2::new(14.0, -16.0);
-        let body = egui::Rect::from_min_size(o + Vec2::new(-4.0, 0.0), Vec2::new(8.0, 6.0));
-        let tint = self.palette().accent;
-        painter.circle_stroke(o, 3.0, egui::Stroke::new(1.5_f32, tint));
-        painter.rect_filled(body, 1.0, tint);
     }
 }

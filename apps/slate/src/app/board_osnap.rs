@@ -3,7 +3,7 @@
 //! document crate; continuous kinds (Near, Tan, Perp, Int) are resolved
 //! here against kurbo paths and the analytic ellipse helpers.
 
-use eframe::egui::{Color32, FontId, Pos2, Stroke};
+use eframe::egui::{self, Color32, FontId, Pos2, Stroke};
 use slate_doc::osnap::{
     discrete_anchors, nearest_on_ellipse, nearest_on_rect, node_facets, perp_on_ellipse,
     perp_on_rect, rect_segments, segment_intersection, tangents_on_ellipse, ObjectSnapSet,
@@ -60,6 +60,110 @@ impl SlateApp {
         let p = self.resolve_point_snap_inner(world, exclude, from, shift, allow_ortho);
         self.board_point_snap = Some(p);
         p
+    }
+
+    /// A point of the segment the armed drawing tool is laying down, from
+    /// the last placed point `origin` (none for the first point). The Tab
+    /// direction lock wins: point snaps still resolve, then project onto
+    /// the locked ray, so movement only changes length. Otherwise
+    /// [`Self::resolve_point_snap`] with ortho (F8, Shift inverts, 45°).
+    pub(crate) fn resolve_segment_point(
+        &mut self,
+        origin: Option<Pos2>,
+        world: Pos2,
+        shift: bool,
+    ) -> Pos2 {
+        let (Some(origin), Some(dir)) = (origin, self.draft_lock) else {
+            return self.resolve_point_snap(world, &[], origin, shift, origin.is_some());
+        };
+        let snapped = self.resolve_point_snap(world, &[], Some(origin), shift, false);
+        let p = board_snap::lock_ray_point(origin, dir, snapped);
+        self.board_point_snap = Some(p);
+        p
+    }
+
+    /// The end of a painted straight segment from `origin`. Ink takes no
+    /// point snaps: only the Tab lock, else 45° steps when `ortho`.
+    pub(crate) fn constrain_segment_end(&self, origin: Pos2, world: Pos2, ortho: bool) -> Pos2 {
+        match self.draft_lock {
+            Some(dir) => board_snap::lock_ray_point(origin, dir, world),
+            None if ortho => board_snap::ortho_snap_point(origin, world),
+            None => world,
+        }
+    }
+
+    /// The last placed point of the segment the armed tool is drawing:
+    /// Line, Polyline, Arc, Bézier span, and the Brush and Eraser Shift
+    /// straight lines. `None` when no segment is pending.
+    pub(crate) fn pending_segment_origin(&self) -> Option<Pos2> {
+        use super::board::{BoardDrag, BoardTool};
+        match self.board_tool {
+            BoardTool::Line => self.line_draft.as_ref().map(|d| d.start),
+            BoardTool::Polyline | BoardTool::Arc | BoardTool::BezierSpan => {
+                match &self.board_path_draft {
+                    Some(board_path::BoardPathDraft::Polyline { points, .. })
+                    | Some(board_path::BoardPathDraft::Arc { points, .. }) => points.last().copied(),
+                    Some(board_path::BoardPathDraft::Bezier { anchors, .. }) => {
+                        anchors.last().map(|(p, _)| *p)
+                    }
+                    None => None,
+                }
+            }
+            BoardTool::Brush => self.brush_straight_from().map(|(from, ..)| from),
+            BoardTool::Eraser => match &self.board_drag {
+                Some(BoardDrag::Erase {
+                    points,
+                    straight: true,
+                    ..
+                }) => points.first().copied(),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// Tab while a segment is pending: lock its direction from the last
+    /// placed point toward the resolved pointer; Tab again releases
+    /// (P2.RhinoDraft.tab). Placing the point also releases it. Returns
+    /// whether a segment was pending, so Tab does not cycle the selection.
+    pub(crate) fn toggle_segment_lock(&mut self, pointer: Option<Pos2>) -> bool {
+        let Some(origin) = self.pending_segment_origin() else {
+            return false;
+        };
+        if self.draft_lock.take().is_some() {
+            return true;
+        }
+        use super::board::{BoardDrag, BoardTool};
+        let cursor = match (self.board_tool, &self.board_drag) {
+            (BoardTool::Brush, _) => {
+                pointer.and_then(|p| self.brush_straight_end(p, self.shift_down))
+            }
+            (BoardTool::Eraser, Some(BoardDrag::Erase { points, .. })) => points.last().copied(),
+            _ => self.line_draft.as_ref().and_then(|d| d.cursor),
+        }
+        .or(self.board_point_snap)
+        .or(pointer);
+        if let Some(c) = cursor {
+            let v = c - origin;
+            if v.length() > f32::EPSILON {
+                self.draft_lock = Some(v.normalized());
+            }
+        }
+        true
+    }
+
+    /// Small padlock beside the pointer while Tab-locked (line D10).
+    /// Pointer-attached chrome, so screen-sized (P0.9 exception).
+    pub(crate) fn paint_draft_lock_glyph(&self, painter: &egui::Painter, pointer: Pos2) {
+        if self.draft_lock.is_none() {
+            return;
+        }
+        let o = pointer + egui::Vec2::new(14.0, -16.0);
+        let body =
+            egui::Rect::from_min_size(o + egui::Vec2::new(-4.0, 0.0), egui::Vec2::new(8.0, 6.0));
+        let tint = self.palette().accent;
+        painter.circle_stroke(o, 3.0, Stroke::new(1.5_f32, tint));
+        painter.rect_filled(body, 1.0, tint);
     }
 
     fn resolve_point_snap_inner(

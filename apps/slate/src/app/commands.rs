@@ -89,9 +89,9 @@ pub static SPECS: &[CommandSpec] = &[
     spec("board.wire.edit", "Board", "Edit wire properties", "Wire selection palette: color, weight, Square / Bezier, Solid / Dashed, None / Arrows", None, Repeat::Never, BOARD, &["wire properties", "wire weight", "wire arrows", "wire dash"]),
     spec("board.shape.dimension", "Board", "Edit shape dimension", "Click an external dimension stringer; Enter applies around the center, Escape cancels", None, Repeat::Never, BOARD, &["dimension", "length", "width", "height"]),
     spec("board.color.desktop", "Board", "Sample desktop color", "Eyedropper in any color editor: click it, then click any desktop pixel; or press it, drag to any desktop pixel and release. Escape cancels", None, Repeat::Never, BOARD, &["desktop color", "sample color"]),
-    spec("board.tool.polyline", "Board", "Polyline tool", "Shapes: click vertices; Enter finishes; snap to the start to close", None, Repeat::Repeatable, BOARD, &["polyline", "polygon"]),
-    spec("board.tool.arc", "Board", "Arc tool", "Shapes: pick three points for an arc", None, Repeat::Repeatable, BOARD, &["arc", "curve"]),
-    spec("board.tool.bezier", "Board", "Bezier span tool", "Shapes: place anchors and drag tangent handles", None, Repeat::Repeatable, BOARD, &["bezier", "handles"]),
+    spec("board.tool.polyline", "Board", "Polyline tool", "Shapes: click vertices; Enter finishes; snap to the start to close. Shift = 45° from the last vertex; Tab locks the direction", None, Repeat::Repeatable, BOARD, &["polyline", "polygon"]),
+    spec("board.tool.arc", "Board", "Arc tool", "Shapes: pick three points for an arc. Shift = 45° from the last point; Tab locks the direction", None, Repeat::Repeatable, BOARD, &["arc", "curve"]),
+    spec("board.tool.bezier", "Board", "Bezier span tool", "Shapes: place anchors and drag tangent handles. Shift = 45° from the last anchor; Tab locks the direction", None, Repeat::Repeatable, BOARD, &["bezier", "handles"]),
     // ----- Navigation -------------------------------------------------------
     spec(
         "nav.pan",
@@ -189,11 +189,24 @@ pub static SPECS: &[CommandSpec] = &[
         "canvas.cycle_next",
         "Navigation",
         "Cycle objects (reading order)",
-        "Tab / Shift+Tab",
+        "Tab / Shift+Tab (while drawing a segment, Tab locks its direction instead)",
         None, // handled specially (Shift variant + egui focus interplay)
         Repeat::Repeatable,
         GLOBAL,
         &[],
+    ),
+    spec(
+        "board.draft.direction_lock",
+        "Board",
+        "Lock segment direction",
+        "Tab while drawing a segment (Line, Polyline, Arc, Bézier span, the \
+         Brush or Eraser Shift line): locks the direction from the last point \
+         toward the pointer, which then changes only the length. Tab again \
+         releases; placing the point or Esc ends it. Hold Shift for 45° steps",
+        None, // Tab is handled specially (see canvas.cycle_next)
+        Repeat::Never,
+        BOARD,
+        &["ortho", "angle", "rhino tab"],
     ),
     spec(
         "canvas.pan_arrows",
@@ -413,7 +426,7 @@ pub static SPECS: &[CommandSpec] = &[
         "board.tool.line",
         "Board",
         "Line tool",
-        "L (Board view)",
+        "L (Board view). Shift = 45° from the first point; Tab locks the direction",
         Some(Chord::bare(Key::L)),
         Repeat::Repeatable,
         BOARD,
@@ -1693,9 +1706,11 @@ pub static SPECS: &[CommandSpec] = &[
         "Board",
         "Brush tool (expressive ink)",
         "B — freehand stroke in the foreground color. [ ] size, Shift+[ ] \
-         softness, Shift+click steps opacity, Shift+right-drag scrubs opacity, \
-         Alt+right-drag scrubs size and softness from the press point, \
-         Ctrl+right-drag opens the color wheel. Ctrl and Alt beat Shift.",
+         softness, Shift+drag straight line from the last stroke's end (45° \
+         steps, Tab locks its direction), Shift+click connects to the last \
+         stroke, Shift+right-drag scrubs opacity, Alt+right-drag scrubs size \
+         and softness from the press point, Ctrl+right-drag opens the color \
+         wheel. Ctrl and Alt beat Shift.",
         Some(Chord::bare(Key::B)),
         Repeat::Repeatable,
         BOARD,

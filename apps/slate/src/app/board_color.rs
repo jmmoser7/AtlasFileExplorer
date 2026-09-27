@@ -398,14 +398,14 @@ pub const STICKY_GAP: f32 = 24.0;
 pub use slate_doc::scene::{STICKY_FILL, STICKY_INK};
 
 /// A short primary press while Alt or Shift is held. Travel past this
-/// many screen pixels is a drag and does not sample or step opacity.
+/// many screen pixels is a drag: Alt does not sample, and a Shift segment
+/// takes the direction constraints instead of connecting to the click.
 pub(crate) const BRUSH_MOD_CLICK_PX: f32 = 8.0;
 
+/// An Alt primary press waiting for a short click (eyedropper sample).
 #[derive(Clone, Copy)]
 pub(crate) struct BrushModClick {
     pub origin: Pos2,
-    pub alt: bool,
-    pub shift: bool,
 }
 
 /// The shared foreground/background color pair consumed by Brush strokes,
@@ -485,16 +485,6 @@ pub(crate) const WHEEL_BACKDROP_RADIUS: f32 = WHEEL_SLOT_RADIUS + 16.0;
 pub(crate) const WHEEL_DOT_HIT: f32 = 10.0;
 /// The hue ring picks this far past its painted outer edge.
 pub(crate) const WHEEL_HUE_HIT_PAD: f32 = 3.0;
-
-/// Stepped opacity. Steps down by 10% and wraps from 0% back to 100%.
-pub fn step_opacity(current: f32) -> f32 {
-    let next = (current * 10.0).round() / 10.0 - 0.1;
-    if next < -1e-4 {
-        1.0
-    } else {
-        next.max(0.0)
-    }
-}
 
 /// Quarter-step softness. 0 is a hard edge, 1 is the softest.
 pub fn step_softness(current: f32, up: bool) -> f32 {
@@ -910,19 +900,6 @@ impl SlateApp {
         soft
     }
 
-    /// Opacity (erase strength) of the armed tip down by 10%, wrapping.
-    pub(crate) fn step_brush_opacity(&mut self) -> f32 {
-        let before = self.brush_setting_snapshot();
-        let node_before = self.hud_node_snapshot();
-        let (w, soft, opacity) = self.active_tip();
-        let opacity = step_opacity(opacity);
-        self.set_active_tip(w, soft, opacity);
-        self.settings.save();
-        self.push_brush_setting_undo(before);
-        self.journal_hud_node(node_before);
-        opacity
-    }
-
     pub(crate) fn brush_setting_snapshot(&self) -> BrushSettingUndo {
         BrushSettingUndo {
             width: self.brush_width,
@@ -1029,9 +1006,9 @@ impl SlateApp {
         }
     }
 
-    /// Commit a brush path node (freehand fit or straight chain segment).
-    /// One stroke = one journaled Add; the Brush tool stays armed and the
-    /// chain end updates for Shift+click straight segments.
+    /// Commit a freehand brush path node. One stroke = one journaled Add;
+    /// the Brush tool stays armed and the stroke's end becomes the anchor
+    /// of the next Shift segment.
     fn commit_brush_bez(&mut self, bez: &BezPath, end: Pos2) {
         let (rect, data) = board_path::bezpath_to_path_data(bez, false);
         if data.is_empty() {
@@ -1056,7 +1033,6 @@ impl SlateApp {
         let ids = self.commit_created_nodes(vec![node]);
         let id = ids.first().copied();
         self.hold_brush_live(id);
-        self.brush_chain = Some(end);
         self.set_brush_anchor(end, id);
         self.push_history(
             atlas_commands::CommandId("board.brush.stroke"),
@@ -1105,7 +1081,6 @@ impl SlateApp {
             let ids = self.commit_created_nodes(vec![node]);
             let id = ids.first().copied();
             self.hold_brush_live(id);
-            self.brush_chain = Some(points[0]);
             self.set_brush_anchor(points[0], id);
             self.push_history(
                 atlas_commands::CommandId("board.brush.stroke"),
@@ -1248,17 +1223,53 @@ impl SlateApp {
         true
     }
 
-    pub(crate) fn release_brush_straight(&mut self, end_screen: Pos2, end_world: Pos2) {
+    /// Where the live Shift segment starts: the end of the last brush mark,
+    /// else the press. With the tip there and the stroke it may extend.
+    pub(crate) fn brush_straight_from(&self) -> Option<(Pos2, BrushTip, Option<NodeId>)> {
+        let g = self.brush_straight.as_ref()?;
+        Some(
+            self.brush_line_anchor
+                .map_or((g.start, g.tip, None), |a| (a.pos, a.tip, a.node)),
+        )
+    }
+
+    /// The end of a painted straight segment (the Brush or Eraser Shift
+    /// line) from `from`, pressed at `press`, with the pointer at `world`.
+    /// A click connects to the click point exactly. A drag past the click
+    /// threshold takes the Tab direction lock, else ortho (F8, Shift
+    /// inverts): 45° steps from `from`. Preview and release both read this.
+    pub(crate) fn painted_segment_end(
+        &self,
+        from: Pos2,
+        press: Pos2,
+        world: Pos2,
+        shift: bool,
+    ) -> Pos2 {
+        let dragged = (world - press).length() * self.tab().cam.z > BRUSH_MOD_CLICK_PX;
+        let ortho = dragged && super::board_snap::effective_ortho(self.board_ortho, shift);
+        self.constrain_segment_end(from, world, ortho)
+    }
+
+    /// [`Self::painted_segment_end`] for the live Brush Shift segment.
+    pub(crate) fn brush_straight_end(&self, world: Pos2, shift: bool) -> Option<Pos2> {
+        let g = self.brush_straight.as_ref()?;
+        let (from, ..) = self.brush_straight_from()?;
+        Some(self.painted_segment_end(from, g.start, world, shift))
+    }
+
+    pub(crate) fn release_brush_straight(&mut self, end_screen: Pos2, end_world: Pos2, shift: bool) {
+        let (Some(end_world), Some((from, tip, node))) = (
+            self.brush_straight_end(end_world, shift),
+            self.brush_straight_from(),
+        ) else {
+            return;
+        };
         let Some(gesture) = self.brush_straight.take() else {
             return;
         };
+        self.draft_lock = None;
         let travel = end_screen.distance(gesture.start_screen);
-        let anchor = self.brush_line_anchor;
-        let (from, tip, node) =
-            anchor
-                .map(|a| (a.pos, a.tip, a.node))
-                .unwrap_or((gesture.start, gesture.tip, None));
-        if travel <= BRUSH_MOD_CLICK_PX && anchor.is_none() {
+        if travel <= BRUSH_MOD_CLICK_PX && self.brush_line_anchor.is_none() {
             self.brush_line_anchor = Some(BrushAnchor {
                 pos: end_world,
                 tip: gesture.tip,
@@ -1268,23 +1279,6 @@ impl SlateApp {
             self.commit_tween_line(from, end_world, tip, node);
         } else {
             self.set_brush_anchor(end_world, node);
-        }
-    }
-
-    /// Shift+click while Brush is armed: straight segment from the last
-    /// stroke end (PS convention). No-op (chain seed only) without one.
-    /// Shift+click used to chain a straight segment. Opacity owns that click
-    /// now; the helper stays for a later chord.
-    #[allow(dead_code)]
-    pub(crate) fn brush_straight_click(&mut self, world: Pos2) {
-        match self.brush_chain {
-            Some(from) if (world - from).length() > 0.5 => {
-                let mut bez = BezPath::new();
-                bez.move_to((from.x as f64, from.y as f64));
-                bez.line_to((world.x as f64, world.y as f64));
-                self.commit_brush_bez(&bez, world);
-            }
-            _ => self.brush_chain = Some(world),
         }
     }
 
@@ -1361,31 +1355,43 @@ impl SlateApp {
             points,
             straight: shift,
             spot: Vec::new(),
+            press: world,
         };
         self.collect_erase_hits(&mut drag, world);
         drag
     }
 
+    /// Extend the pass to `world`. A Shift pass is a straight line whose end
+    /// is a [`Self::painted_segment_end`], as for the Brush.
     pub(crate) fn update_erase(&mut self, world: Pos2) {
         let Some(mut drag) = self.board_drag.take() else {
             return;
         };
+        let zoom = self.tab().cam.z;
+        let mut hit_end = world;
         if let super::board::BoardDrag::Erase {
-            points, straight, ..
+            points,
+            straight,
+            press,
+            ..
         } = &mut drag
         {
             if *straight {
+                let end = points.first().map_or(world, |from| {
+                    self.painted_segment_end(*from, *press, world, self.shift_down)
+                });
                 if let Some(last) = points.last_mut() {
-                    *last = world;
+                    *last = end;
                 }
+                hit_end = end;
             } else if points
                 .last()
-                .is_none_or(|p| (*p - world).length() * self.tab().cam.z >= 0.75)
+                .is_none_or(|p| (*p - world).length() * zoom >= 0.75)
             {
                 points.push(world);
             }
         }
-        self.collect_erase_hits(&mut drag, world);
+        self.collect_erase_hits(&mut drag, hit_end);
         self.board_drag = Some(drag);
     }
 
@@ -1397,6 +1403,7 @@ impl SlateApp {
             points,
             straight,
             spot,
+            ..
         } = drag
         else {
             return;
@@ -1459,6 +1466,7 @@ impl SlateApp {
         spot: Vec<NodeId>,
     ) {
         let mut live = std::mem::take(&mut self.erase_live);
+        self.draft_lock = None;
         if let Some(last) = points.last() {
             self.eraser_anchor = Some(*last);
         }
@@ -2339,9 +2347,6 @@ mod tests {
         assert_eq!(vector_ink::tip_coverage(0.0, 20.0, 1.0), 1.0);
         assert_eq!(vector_ink::tip_coverage(10.0, 20.0, 0.5), 1.0);
         assert!(vector_ink::tip_coverage(15.0, 20.0, 0.5) < 1.0);
-        assert!((step_opacity(1.0) - 0.9).abs() < 1e-4);
-        assert!(step_opacity(0.1).abs() < 1e-4);
-        assert!((step_opacity(0.0) - 1.0).abs() < 1e-4);
         let hard = slate_doc::scene::Stroke {
             width: 40.0,
             softness: 0.0,
