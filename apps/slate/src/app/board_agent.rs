@@ -1904,7 +1904,10 @@ impl SlateApp {
                 .and_then(slate_doc::agent_chat::agent)
                 .map(|a| a.chat.draft)
         };
-        let n = path.iter().take_while(|id| draft(id) == Some(false)).count();
+        let n = path
+            .iter()
+            .take_while(|id| draft(id) == Some(false))
+            .count();
         let rest = &path[n..];
         if rest.iter().any(|id| draft(id) == Some(false)) {
             return None;
@@ -12452,7 +12455,11 @@ To install them by hand, run in PowerShell:\n  cd \"C:\\workspace\\Slate\\docs\\
                     "columns read left to right ({n} chats): {base:?}"
                 );
             }
-            let at = h.app.board_xf().rect_w2s(h.app.doc().scene.node(card).unwrap().rect).min
+            let at = h
+                .app
+                .board_xf()
+                .rect_w2s(h.app.doc().scene.node(card).unwrap().rect)
+                .min
                 + base[1] * h.app.tab().cam.z
                 + egui::vec2(4.0, 4.0);
             let mut zooms = Vec::new();
@@ -13165,25 +13172,42 @@ To install them by hand, run in PowerShell:\n  cd \"C:\\workspace\\Slate\\docs\\
         let scene = &h.app.doc().scene;
         let tail = main_tail(h, root);
         if !as_card {
-            assert!(scene.node(draft).is_none(), "{shape:?}: the draft card joined the tail");
+            assert!(
+                scene.node(draft).is_none(),
+                "{shape:?}: the draft card joined the tail"
+            );
             assert_eq!(
                 h.app.agents.prompts.get(&tail).map(String::as_str),
                 Some(DRAFT_TEXT),
                 "{shape:?}: the tail's composer holds the unsent text"
             );
-            assert!(!h.app.agent_has_child(tail), "{shape:?}: the tail shows its composer");
+            assert!(
+                !h.app.agent_has_child(tail),
+                "{shape:?}: the tail shows its composer"
+            );
             return;
         }
         let n = scene.node(draft).expect("the draft card stays");
         let a = agent(n).unwrap();
-        assert!(a.chat.draft && !n.hidden, "{shape:?}: still an unsent draft");
-        assert_eq!(visible_parent(scene, n), Some(tail), "{shape:?}: hangs from the tail");
+        assert!(
+            a.chat.draft && !n.hidden,
+            "{shape:?}: still an unsent draft"
+        );
+        assert_eq!(
+            visible_parent(scene, n),
+            Some(tail),
+            "{shape:?}: hangs from the tail"
+        );
         let want = match shape {
             Shape::Pairs => (true, Detail::Pair),
             Shape::Train => (true, Detail::Summary),
             Shape::Window => (false, Detail::Full),
         };
-        assert_eq!((a.chat.train, a.chat.detail), want, "{shape:?}: drawn in the new form");
+        assert_eq!(
+            (a.chat.train, a.chat.detail),
+            want,
+            "{shape:?}: drawn in the new form"
+        );
         assert_eq!(
             h.app.agents.prompts.get(&draft).map(String::as_str),
             Some(DRAFT_TEXT),
@@ -13236,7 +13260,10 @@ To install them by hand, run in PowerShell:\n  cd \"C:\\workspace\\Slate\\docs\\
             before,
             "one Undo restores the single window"
         );
-        assert!(h.app.agents.dispatched.is_empty(), "the draft was never sent");
+        assert!(
+            h.app.agents.dispatched.is_empty(),
+            "the draft was never sent"
+        );
     }
 
     #[test]

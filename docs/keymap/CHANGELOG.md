@@ -1,5 +1,32 @@
 # Canvas command project — change log
 
+## 2026-09-27 — Agent chat: stable chooser, bare Stop, drafts join a switch
+
+- `portal-agent-link` D13: the Codex conversation chooser keeps a fixed
+  column count from its row count (one up to 3 rows, two up to 8, otherwise
+  three) and places every row by its index, so no row changes column or
+  row while zooming or scrolling. It always reserves its scroll bar's
+  width, and the bar and scroll offset scale with the board (P0.9). The
+  project chooser stays one column. The narrative's "wrap into columns" is
+  superseded.
+- `portal-agent-link` D22: while a reply streams, Stop is a bare small gray
+  square on the output circle's place, with no disc or ring; the place,
+  press reach and hand-back are unchanged.
+- `portal-agent-link` D14: an unsent draft joins a presentation switch.
+  In message pairs and one message per card it stays a draft card in the
+  new form, in line with the train; in a single chat window the window's
+  composer takes its text and wires. Nothing is sent, and one Undo returns
+  the draft to its card and place with its text. Any card, a draft
+  included, can start the switch. Replaces "An unsent draft stays on its
+  card."
+- `portal-agent-link` D11: pasting a copied chat train is an independent
+  fork (user decision, 25 September 2026): a new linked source replaying
+  the copied transcript, fresh session ids, titled `Forked from <name> ·
+  replayed`; the original is untouched.
+- `portal-agent-link` narrative: "Train presentation is the default" is
+  marked superseded; message pairs are the default since 25 September
+  (D22).
+
 ## 2026-09-27 — Tip HUD for every open curve, styles, and anchor editing
 
 - Alt+right-drag's size circle is pinned to the canvas at the press point
