@@ -154,18 +154,26 @@ fn ctrl_z(h: &mut Harness) {
     );
 }
 
-fn enter(h: &mut Harness) {
+fn key(h: &mut Harness, key: egui::Key) {
     events(
         h,
         Modifiers::NONE,
         vec![egui::Event::Key {
-            key: egui::Key::Enter,
+            key,
             physical_key: None,
             pressed: true,
             repeat: false,
             modifiers: Modifiers::NONE,
         }],
     );
+}
+
+fn enter(h: &mut Harness) {
+    key(h, egui::Key::Enter);
+}
+
+fn escape(h: &mut Harness) {
+    key(h, egui::Key::Escape);
 }
 
 /// The one committed curve: its node opacity and its tips as painted
@@ -510,6 +518,136 @@ fn a_pen_stroke_tweens_width_and_color_changed_mid_stroke() {
     assert!(last.width > first.width + 10.0, "{first:?} → {last:?}");
     assert_differs(first.color, last.color, "the rest of the stroke's color");
     undo_removes_the_curve(&mut h);
+}
+
+/// Shift+right-drag 150 px down from full at `world`: past 0 %, which it
+/// holds.
+fn fade_out(h: &mut Harness, world: Pos2) {
+    let at = screen(h, world);
+    chord(h, SHIFT, at, &[Vec2::new(0.0, 75.0), Vec2::new(0.0, 150.0)]);
+}
+
+/// The one committed curve is clear, and a Select click on its geometry
+/// (after a click on empty board clears the selection) selects it.
+fn assert_clear_and_picked(h: &mut Harness, on: Pos2) {
+    assert_eq!(h.app.doc().scene.nodes.len(), 1, "one committed curve");
+    let node = &h.app.doc().scene.nodes[0];
+    let id = node.id;
+    assert_eq!(node.opacity, 0.0, "the curve commits at 0 %");
+    if h.app.board_tool != BoardTool::Select {
+        escape(h);
+    }
+    assert_eq!(h.app.board_tool, BoardTool::Select);
+    click(h, Pos2::new(on.x, on.y + 300.0));
+    assert!(
+        h.app.board_sel.is_empty(),
+        "empty board clears the selection"
+    );
+    click(h, on);
+    assert_eq!(
+        h.app.board_sel.iter().copied().collect::<Vec<_>>(),
+        vec![id],
+        "a 0 % curve is picked by its geometry"
+    );
+}
+
+/// User decision (27 September 2026): "Opacity reaches 0 %" on every tool,
+/// and a 0 % stroke is still picked by its geometry.
+#[test]
+fn a_line_armed_at_zero_opacity_commits_clear_and_still_picks() {
+    let mut h = board("zero_line", BoardTool::Line);
+    fade_out(&mut h, Pos2::new(100.0, 100.0));
+    assert_eq!(h.app.opacity_for_tool(StrokeTool::Line), 0.0);
+    click(&mut h, Pos2::new(0.0, 0.0));
+    hover(&mut h, Pos2::new(200.0, 0.0));
+    click(&mut h, Pos2::new(200.0, 0.0));
+    assert_clear_and_picked(&mut h, Pos2::new(100.0, 0.0));
+}
+
+#[test]
+fn a_polyline_armed_at_zero_opacity_commits_clear_and_still_picks() {
+    let mut h = board("zero_polyline", BoardTool::Polyline);
+    fade_out(&mut h, Pos2::new(100.0, 100.0));
+    for p in [
+        Pos2::new(0.0, 0.0),
+        Pos2::new(150.0, 0.0),
+        Pos2::new(150.0, 150.0),
+    ] {
+        hover(&mut h, p - Vec2::new(0.0, 20.0));
+        hover(&mut h, p);
+        click(&mut h, p);
+    }
+    assert!(h.app.board_path_draft.is_some(), "the polyline is drawing");
+    enter(&mut h);
+    assert_clear_and_picked(&mut h, Pos2::new(75.0, 0.0));
+}
+
+#[test]
+fn a_pen_stroke_armed_at_zero_opacity_commits_clear_and_still_picks() {
+    let mut h = board("zero_pen", BoardTool::Pen);
+    fade_out(&mut h, Pos2::new(100.0, 100.0));
+    assert_eq!(h.app.opacity_for_tool(StrokeTool::Pen), 0.0);
+    stroke_start(&mut h, Pos2::new(0.0, 0.0));
+    stroke_through(&mut h, run(0.0, 200.0));
+    stroke_end(&mut h, Pos2::new(200.0, 0.0));
+    assert_clear_and_picked(&mut h, Pos2::new(100.0, 0.0));
+}
+
+/// Art. II: a draft preview repaints its cached mesh on a frame where
+/// nothing changed, rebuilds it once when the pointer moves, and a Pen
+/// stroke's move rebuilds only the piece still being drawn.
+#[test]
+fn an_unchanged_draft_frame_does_not_re_tessellate() {
+    let still = |h: &mut Harness, what: &str| {
+        let built = h.app.draft_ink.builds;
+        for _ in 0..4 {
+            h.frame();
+        }
+        assert_eq!(h.app.draft_ink.builds, built, "{what}: a still frame");
+    };
+    let mut h = board("draft_cache_polyline", BoardTool::Polyline);
+    click(&mut h, Pos2::new(0.0, 0.0));
+    hover(&mut h, Pos2::new(80.0, 0.0));
+    hover(&mut h, Pos2::new(150.0, 0.0));
+    click(&mut h, Pos2::new(150.0, 0.0));
+    hover(&mut h, Pos2::new(150.0, 120.0));
+    assert!(h.app.board_path_draft.is_some(), "the polyline is drawing");
+    still(&mut h, "polyline");
+    let built = h.app.draft_ink.builds;
+    hover(&mut h, Pos2::new(160.0, 130.0));
+    h.frame();
+    assert_eq!(h.app.draft_ink.builds, built + 1, "a move rebuilds it once");
+    still(&mut h, "polyline after the move");
+
+    let mut h = board("draft_cache_line", BoardTool::Line);
+    click(&mut h, Pos2::new(0.0, 0.0));
+    hover(&mut h, Pos2::new(120.0, 40.0));
+    assert!(h.app.line_draft_preview().is_some(), "the line previews");
+    still(&mut h, "line");
+
+    let mut h = board("draft_cache_pen", BoardTool::Pen);
+    stroke_start(&mut h, Pos2::new(0.0, 0.0));
+    stroke_through(
+        &mut h,
+        (1..=300).map(|i| Pos2::new(i as f32 * 2.0, (i as f32 * 0.05).sin() * 40.0)),
+    );
+    let pieces = h.app.draft_ink.pen_pieces();
+    assert!(pieces >= 4, "a long stroke paints in pieces ({pieces})");
+    still(&mut h, "pen");
+    let built = h.app.draft_ink.builds;
+    stroke_through(&mut h, [Pos2::new(601.0, 0.0)]);
+    h.frame();
+    let rebuilt = h.app.draft_ink.builds - built;
+    assert!(
+        (1..=2).contains(&rebuilt),
+        "a move rebuilds only the live piece, not all {pieces} ({rebuilt})"
+    );
+    stroke_end(&mut h, Pos2::new(601.0, 0.0));
+    assert_eq!(
+        h.app.draft_ink.pen_pieces(),
+        0,
+        "the release drops the pieces"
+    );
 }
 
 #[test]

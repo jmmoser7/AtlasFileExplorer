@@ -149,7 +149,8 @@ pub use stamp::{
     TipPoint,
 };
 pub use stroke::{
-    stroke_bounds, stroke_mesh, stroke_mesh_tinted, stroke_mesh_tipped, stroke_outline,
+    stroke_bounds, stroke_mesh, stroke_mesh_ends, stroke_mesh_tinted, stroke_mesh_tipped,
+    stroke_outline,
     stroke_outline_tipped, stroke_pieces_tinted, stroke_ribbon,
 };
 pub use tile::{

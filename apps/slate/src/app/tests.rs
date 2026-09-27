@@ -9879,6 +9879,71 @@ fn eraser_shift_pass_takes_45_degree_steps_and_tab_locks_it() {
     assert!(h.app.draft_lock.is_none(), "the end of the pass clears the lock");
 }
 
+/// The same Eraser Shift pass and Tab lock, driven through real frames:
+/// Shift+press, drag, let go of Shift, Tab, Tab again, Tab, release.
+#[test]
+fn eraser_shift_pass_and_tab_lock_through_frames() {
+    let mut h = brush_board("eraser_shift_45_frames");
+    h.app.set_board_tool(board::BoardTool::Eraser);
+    h.frame();
+    let xf = h.app.board_xf();
+    let (shift, none) = (egui::Modifiers::SHIFT, egui::Modifiers::NONE);
+    let move_to = |h: &mut Harness, w: Pos2, m: egui::Modifiers| {
+        h.frame_with(|i| {
+            i.modifiers = m;
+            i.events.push(egui::Event::PointerMoved(xf.w2s(w)));
+        });
+    };
+    let button = |h: &mut Harness, w: Pos2, m: egui::Modifiers, pressed: bool| {
+        h.frame_with(|i| {
+            i.modifiers = m;
+            i.events.push(egui::Event::PointerButton {
+                pos: xf.w2s(w),
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: m,
+            });
+        });
+    };
+    let last = |h: &Harness| match &h.app.board_drag {
+        Some(board::BoardDrag::Erase {
+            points,
+            straight: true,
+            ..
+        }) => *points.last().unwrap(),
+        _ => panic!("a straight erase pass"),
+    };
+    let a = Pos2::new(100.0, 100.0);
+    move_to(&mut h, a, shift);
+    button(&mut h, a, shift, true);
+    move_to(&mut h, Pos2::new(200.0, 137.0), shift);
+    assert!(on_45(a, last(&h)), "Shift: 45° steps, {:?}", last(&h));
+    let free = Pos2::new(130.0, 140.0);
+    move_to(&mut h, free, none);
+    assert!(
+        near_px(last(&h), free),
+        "Shift released: free, {:?}",
+        last(&h)
+    );
+    press_key_with(&mut h, egui::Key::Tab, none);
+    let dir = EVec2::new(0.6, 0.8);
+    let lock = h.app.draft_lock.expect("Tab locks the pass");
+    assert!((lock - dir).length() < 1.0e-3, "{lock:?}");
+    move_to(&mut h, Pos2::new(600.0, 80.0), none);
+    assert!(on_ray(a, dir, last(&h)), "{:?} stays on the ray", last(&h));
+    press_key_with(&mut h, egui::Key::Tab, none);
+    assert!(h.app.draft_lock.is_none(), "Tab again releases");
+    press_key_with(&mut h, egui::Key::Tab, none);
+    assert!(h.app.draft_lock.is_some(), "Tab locks again");
+    button(&mut h, Pos2::new(600.0, 80.0), none, false);
+    h.frame();
+    assert!(h.app.board_drag.is_none(), "the release ends the pass");
+    assert!(
+        h.app.draft_lock.is_none(),
+        "the end of the pass clears the lock"
+    );
+}
+
 /// tip18 / tip19: after a stroke, Shift+drag previews from that stroke's
 /// end and the release extends the same path.
 #[test]

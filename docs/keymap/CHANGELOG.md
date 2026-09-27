@@ -48,6 +48,20 @@
   (110–183 ms per press at a 207 px brush, 150 % zoom, 1.5 px/pt). The
   gesture is unchanged: D03 and D04 stand as written.
 
+## 2026-09-27 — Curves drawn at 0 % commit clear; cached draft previews
+
+- P1.curve.tip-chord: a Line, Arc, Polyline, Bézier span or Pen drawn
+  with every tip at 0 % opacity now commits a node at 0 %, with each
+  vertex keeping its full alpha. It used to commit fully opaque, against
+  the 27 September decision that opacity reaches 0 % on every tool. Mixed
+  tips still normalize to the most opaque tip. The HTML export writes
+  `opacity:0` for such a node, and it is still picked by its geometry.
+- The vector draft previews no longer tessellate on a frame where the
+  draft, its tips and the zoom are unchanged. A live Pen stroke paints as
+  pieces of 64 samples that meet with butt ends mid-segment, so a pointer
+  move rebuilds only the last piece. The preview is otherwise unchanged
+  (`board_path::DraftInkCache`, Art. II). No new command.
+
 ## 2026-09-27 — Agent chat: stable chooser, bare Stop, drafts join a switch
 
 - `portal-agent-link` D13: the Codex conversation chooser keeps a fixed

@@ -1537,6 +1537,65 @@ mod tests {
         );
     }
 
+    /// A curve drawn with every tip at 0 % exports clear, as the board
+    /// paints it (Art. IV).
+    #[test]
+    fn a_curve_placed_at_zero_opacity_exports_clear() {
+        use slate_doc::vertex_style::{set_grip_placed_tips, PlacedTip};
+        let rect = WorldRect::new(20.0, 20.0, 160.0, 20.0);
+        let mut path = PathData {
+            start: [0.0, 0.5],
+            segs: vec![PathSeg::Line { to: [1.0, 0.5] }],
+            closed: false,
+            ..Default::default()
+        };
+        let mut stroke = Stroke {
+            width: 2.0,
+            dash: Dash::Solid,
+            ..Default::default()
+        };
+        let tip = |width, color| PlacedTip {
+            width,
+            color,
+            opacity: 0.0,
+        };
+        let tips = [
+            tip(2.0, Rgba::opaque(200, 0, 0)),
+            tip(12.0, Rgba::opaque(0, 0, 200)),
+        ];
+        let opacity = set_grip_placed_tips(&mut path, &mut stroke, rect, 0.0, &tips).unwrap();
+        assert_eq!(opacity, 0.0);
+        let mut doc = SlateDoc::new("ClearCurve");
+        add_frame(&mut doc.scene, 0, WorldRect::new(0.0, 0.0, 200.0, 200.0));
+        let mut node = doc.scene.build_node(
+            rect,
+            NodeKind::Shape(ShapeNode {
+                shape: ShapeKind::Path,
+                fill: None,
+                stroke,
+                corner: Corner::Square,
+                sides: slate_doc::scene::default_regular_sides(),
+                phase_deg: 0.0,
+                flip: false,
+                path: Some(std::sync::Arc::new(path)),
+                text: None,
+            }),
+        );
+        node.opacity = opacity;
+        let index = doc.scene.nodes.len();
+        doc.scene.apply(&SceneCmd::Add { index, node });
+
+        let html = render_html(&doc, &AssetMap::default());
+        assert!(
+            html.contains("opacity:0.000;"),
+            "the node exports clear:\n{html}"
+        );
+        assert!(
+            html.contains("stop-opacity=\"1.000\""),
+            "the tips keep their full relative alpha:\n{html}"
+        );
+    }
+
     #[test]
     fn soft_brush_stroke_blurs_in_the_html_artifact() {
         let mut doc = SlateDoc::new("SoftBrush");

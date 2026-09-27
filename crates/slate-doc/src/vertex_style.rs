@@ -182,7 +182,9 @@ impl PlacedTip {
 
 /// Placed tips as a hard curve stores them: the node opacity is the most
 /// opaque tip's, and each tip's alpha carries its share of that, so the
-/// curve paints every tip at the opacity it was placed with. The softness
+/// curve paints every tip at the opacity it was placed with. When every tip
+/// was placed at 0 % the node is 0 and each tip keeps its full alpha, so
+/// raising the node opacity later shows the tips as drawn. The softness
 /// and texture are the stroke's.
 pub fn placed_spans(stroke: &Stroke, tips: &[PlacedTip]) -> (f32, Vec<StrokeSpan>) {
     let top = tips.iter().map(|t| t.opacity).fold(0.0_f32, f32::max);
@@ -199,7 +201,7 @@ pub fn placed_spans(stroke: &Stroke, tips: &[PlacedTip]) -> (f32, Vec<StrokeSpan
             }
         })
         .collect();
-    (if top > 0.0 { top } else { 1.0 }, spans)
+    (top, spans)
 }
 
 /// Give each grip of a just-drawn curve the tip its point was placed with,
@@ -1082,6 +1084,32 @@ mod tests {
         assert_eq!(opacity, Some(0.5));
         assert!(path.tips.is_empty(), "equal tips commit a plain stroke");
         assert_eq!((stroke.width, stroke.color), (3.0, red));
+    }
+
+    /// Opacity reaches 0 % on every curve tool: tips all placed at 0 % make
+    /// a clear node whose tips keep their full relative alpha.
+    #[test]
+    fn tips_all_placed_at_zero_opacity_make_a_clear_node() {
+        let red = Rgba([200, 0, 0, 255]);
+        let placed = |width| PlacedTip {
+            width,
+            color: red,
+            opacity: 0.0,
+        };
+        let (opacity, spans) = placed_spans(&hard(4.0), &[placed(2.0), placed(6.0)]);
+        assert_eq!(opacity, 0.0, "the node is as clear as its tips");
+        assert!(spans.iter().all(|s| s.color.0[3] == 255), "{spans:?}");
+
+        let mut path = PathData {
+            start: [0.0, 0.0],
+            segs: vec![PathSeg::Line { to: [1.0, 0.0] }],
+            ..PathData::default()
+        };
+        let mut stroke = hard(4.0);
+        let same = [placed(3.0), placed(3.0)];
+        let opacity = set_grip_placed_tips(&mut path, &mut stroke, UNIT, 0.0, &same);
+        assert_eq!(opacity, Some(0.0));
+        assert_eq!(stroke.color, red, "the stroke keeps its own alpha");
     }
 
     #[test]
