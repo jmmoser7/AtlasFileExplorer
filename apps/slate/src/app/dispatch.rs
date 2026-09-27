@@ -446,7 +446,7 @@ impl SlateApp {
                 true
             }
             "board.tool.brush" => {
-                // Re-arming also breaks the Shift+click straight chain.
+                // Re-arming also forgets where the next Shift segment starts.
                 self.set_board_tool(board::BoardTool::Brush);
                 true
             }
@@ -1641,10 +1641,13 @@ impl SlateApp {
         if let Some(dir) = keys.tab {
             if board && self.board_tool == board::BoardTool::Deck {
                 // Deck has no direction lock and does not cycle the selection.
-            } else if board && self.line_draft.is_some() {
-                // Mid-draft Tab locks the segment direction instead of
-                // cycling the selection (contract D07; KEYMAP Tab note).
-                self.line_toggle_lock();
+            } else if board && {
+                // Mid-segment Tab locks the direction instead of cycling the
+                // selection (P2.RhinoDraft.tab; KEYMAP Tab note).
+                let pointer = ctx.pointer_latest_pos().map(|p| self.board_xf().s2w(p));
+                self.toggle_segment_lock(pointer)
+            } {
+                self.board_took_tab = Some(ctx.memory(|m| m.focused()));
             } else if self.board_crop.is_none() {
                 self.cycle_objects(dir);
                 self.push_history(

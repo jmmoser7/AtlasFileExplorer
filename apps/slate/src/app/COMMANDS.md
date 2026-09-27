@@ -85,6 +85,14 @@ drag the address-bar URL or a page link instead.
   **Ctrl+F** canvas search (Enter / Shift+Enter cycle + camera fly, Esc
   closes; non-matches dim to 35 % at paint time) · **Tab / Shift+Tab** cycle
   visible, unlocked objects in reading order with minimal camera nudge.
+- **Tab while drawing a segment** (`board.draft.direction_lock`; Line,
+  Polyline, Arc, Bézier span, and the Brush / Eraser Shift line) locks the
+  direction from the last point toward the pointer, as Rhino does: the
+  pointer then changes only the length, and snaps land where they project
+  onto that ray. Tab again releases; placing the point, Esc, or a tool
+  change ends it. A padlock rides beside the pointer while locked. Held
+  **Shift** inverts ortho (F8): 45° steps from the last point. The board
+  keeps that Tab, so it does not move keyboard focus to a panel field.
 - **Double-click empty board** — canvas palette at that point (fuzzy search
   over commands + aliases like "note", "box", "circle", "slide").
 - **Type-to-command (Board)** — typing a letter with no bare shortcut opens
@@ -227,8 +235,12 @@ drag the address-bar URL or a page link instead.
 - **B — Brush**: freehand ink through the same `vector-ink` fitter as the
   Pen, with expressive defaults (round caps/joins, slight end taper), color
   = fg, width = `brush_width` (persisted). The tool **stays armed** after a
-  stroke. **Shift+click** draws a straight segment chained from the last
-  stroke end (chain breaks when the tool re-arms). Held **Alt**
+  stroke. **Shift+drag** previews a straight segment from the last stroke
+  end (else the press) and the release commits it, extending that stroke;
+  the drag takes 45° steps and **Tab** locks its direction. **Shift+click**
+  connects the last stroke end to the click at any angle (the start point
+  resets when the tool re-arms). Shift never steps opacity;
+  **Shift+right-drag** scrubs it. Held **Alt**
   spring-loads the eyedropper (`board.brush.sample`): a click samples the
   screen color under the cursor into fg (opacity kept) and the recent
   colors, and releasing Alt paints again. The sampling cursor's swatch is a

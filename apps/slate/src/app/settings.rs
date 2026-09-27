@@ -119,7 +119,7 @@ pub struct SlateSettings {
     pub brush_width: f32,
     /// Brush edge falloff, 0 = hard, 1 = softest (`Shift+[` / `Shift+]`).
     pub brush_softness: f32,
-    /// Brush paint opacity, 0.1..=1. Shift+click steps it.
+    /// Brush paint opacity, 0.1..=1. Shift+right-drag scrubs it.
     pub brush_opacity: f32,
     /// Eraser pick-circle width in world units.
     pub eraser_width: f32,

@@ -37,7 +37,9 @@ pub struct BoardColors { pub fg: Rgba, pub bg: Rgba }
     current width at the pointer (feather extent as a fainter outer ring —
     matches the InkMesh contract). Stepping shows the circle even mid-air.
 - **Shift+click**: straight segment from the last stroke end to the click
-  (PS convention §1). Break the chain when tool re-arms.
+  (PS convention §1). Break the chain when tool re-arms. **Shift+drag**
+  previews the segment and commits on release, in 45° steps; Tab locks its
+  direction (P2.RhinoDraft, 2026-09-27). Shift never steps opacity.
 - **Smoothing**: reuse the existing freehand fitter tolerance; expose no UI
   in P1 (default ≈ PS 10% feel).
 - One stroke = one undo step (`Add`, authored).
@@ -57,7 +59,8 @@ pub struct BoardColors { pub fg: Rgba, pub bg: Rgba }
 - The eraser shares the brush's tip controls: `[`/`]` size, Shift+[ ]
   softness, Alt+right-drag size and softness, Shift+right-drag strength,
   a click erases one dab, Shift+drag or Shift+click erases a straight line
-  from the end of the last pass, and Ctrl+Z restores the last setting
+  from the end of the last pass (a Shift drag takes 45° steps and Tab
+  locks its direction, as for the Brush), and Ctrl+Z restores the last setting
   change. The cursor is the soft tip disc. No color wheel.
 - The eraser follows the pointer's path, not its samples: each frame tests
   the segment from the previous sample to the cursor, stepped at no more
@@ -138,7 +141,8 @@ pub struct BoardColors { pub fg: Rgba, pub bg: Rgba }
 | Shift+right-drag | `board.brush.opacity_hud` (Brush only; Ctrl and Alt win) |
 | Ctrl+right-drag | `board.brush.color_wheel` |
 | Alt+click (Brush) | `board.brush.sample` (screen color to fg and recent colors) |
-| Shift+click (Brush) | steps opacity down 10% |
+| Shift+drag (Brush) | straight segment from the last stroke's end, 45° steps; Tab locks its direction |
+| Shift+click (Brush) | connects the last stroke's end to the click (never steps opacity) |
 | Alt+click (Eyedropper) | sample to bg |
 | , / . | preset cycling — **P2** (reserved, not bound in P1) |
 | F6 | color panel — **P2** (chips popover covers P1) |

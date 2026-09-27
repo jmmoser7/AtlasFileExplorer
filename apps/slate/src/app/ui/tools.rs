@@ -144,9 +144,9 @@ fn tool_flyout_desc(tool: BoardTool) -> &'static str {
         BoardTool::Line => "Draw a straight line.",
         BoardTool::Pen => "Freehand path.",
         BoardTool::Brush => {
-            "Brush — [ ] size, Shift+[ ] softness, Shift+click steps opacity, Shift+right-drag scrubs opacity, Alt+right-drag scrubs size and softness from the press point, Ctrl+right-drag opens the color wheel."
+            "Brush — [ ] size, Shift+[ ] softness, Shift+drag straight line from the last stroke's end (45° steps, Tab locks its direction), Shift+click connects to the last stroke, Shift+right-drag scrubs opacity, Alt+right-drag scrubs size and softness from the press point, Ctrl+right-drag opens the color wheel."
         }
-        BoardTool::Eraser => "Eraser — erase painted ink; vector strokes go whole. [ ] size, Shift+[ ] softness, Alt+right-drag size and softness, Shift+right-drag strength, Shift+drag or Shift+click for a straight pass.",
+        BoardTool::Eraser => "Eraser — erase painted ink; vector strokes go whole. [ ] size, Shift+[ ] softness, Alt+right-drag size and softness, Shift+right-drag strength, Shift+drag (45° steps, Tab locks) or Shift+click for a straight pass.",
         BoardTool::Smooth => "Smooth — Laplacian on vector strokes; whole-stroke blur on painted ink. [ ] size, Shift+[ ] softness, Alt+right-drag size and softness, Shift+right-drag strength, Shift+drag for a straight pass.",
         BoardTool::Arc => "Draw an arc.",
         BoardTool::Polyline => "Draw a polyline.",

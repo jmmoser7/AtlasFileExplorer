@@ -1220,6 +1220,12 @@ pub fn ortho_snap_point(origin: Pos2, p: Pos2) -> Pos2 {
     origin + ortho_snap_vec(p - origin)
 }
 
+/// Project `p` onto the ray from `origin` along the unit `dir` (Tab
+/// direction lock: movement only changes length, never flips the ray).
+pub fn lock_ray_point(origin: Pos2, dir: Vec2, p: Pos2) -> Pos2 {
+    origin + dir * (p - origin).dot(dir).max(0.0)
+}
+
 /// Shift-constrain a rubber-band draw rect (square for shapes/frames).
 #[cfg(test)]
 pub fn constrain_draw_rect(raw: WorldRect, tool_square: bool, shift: bool) -> WorldRect {

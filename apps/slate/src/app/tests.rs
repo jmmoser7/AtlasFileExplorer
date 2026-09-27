@@ -2409,8 +2409,8 @@ fn line_gp4_tab_lock_and_numeric_entry() {
     h.app.line_begin(Pos2::new(0.0, 0.0), false);
     h.app.line_release(Pos2::new(0.0, 0.0), true, false);
     h.app.line_hover(Pos2::new(30.0, 40.0), false);
-    h.app.line_toggle_lock();
-    assert!(h.app.line_draft.as_ref().unwrap().dir_lock.is_some());
+    assert!(h.app.toggle_segment_lock(None));
+    assert!(h.app.draft_lock.is_some());
     // Movement now only changes length (D07): far off-axis cursor stays on
     // the locked ray.
     h.app.line_hover(Pos2::new(500.0, -20.0), false);
@@ -9462,6 +9462,534 @@ fn a_shift_chain_extends_one_stroke_so_joints_do_not_stack() {
         panic!("path");
     };
     assert_eq!(shape.path.as_ref().unwrap().tips.len(), path.tips.len() - 1);
+}
+
+fn brush_board(tag: &str) -> Harness {
+    let mut h = line_board(tag);
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.tab_mut().cam.z = 1.0;
+    h.app.board_osnap.enabled = false;
+    h.app.board_smart_guides = false;
+    h.app.board_snap_grid = false;
+    h.app.brush_width = 12.0;
+    h.frame();
+    h.frame();
+    h
+}
+
+/// One frame per event: a press, each move in its own frame, then the
+/// release, with `modifiers` held throughout.
+fn press_drag_release_frames(
+    h: &mut Harness,
+    world: &[Pos2],
+    modifiers: egui::Modifiers,
+    mut during: impl FnMut(&Harness),
+) {
+    let xf = h.app.board_xf();
+    let pts: Vec<Pos2> = world.iter().map(|w| xf.w2s(*w)).collect();
+    let (first, last) = (pts[0], *pts.last().unwrap());
+    h.frame_with(|i| {
+        i.modifiers = modifiers;
+        i.events.push(egui::Event::PointerMoved(first));
+    });
+    h.frame_with(|i| {
+        i.modifiers = modifiers;
+        i.events.push(egui::Event::PointerButton {
+            pos: first,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers,
+        });
+    });
+    for p in &pts[1..] {
+        h.frame_with(|i| {
+            i.modifiers = modifiers;
+            i.events.push(egui::Event::PointerMoved(*p));
+        });
+        during(h);
+    }
+    h.frame_with(|i| {
+        i.modifiers = modifiers;
+        i.events.push(egui::Event::PointerButton {
+            pos: last,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers,
+        });
+    });
+    h.frame();
+}
+
+fn path_vertices(node: &slate_doc::Node) -> Vec<Pos2> {
+    let NodeKind::Shape(s) = &node.kind else {
+        panic!("a shape")
+    };
+    let bez = board_path::path_data_to_world_bez(s.path.as_ref().unwrap(), node.rect, node.rotation_deg);
+    bez.elements()
+        .iter()
+        .filter_map(|el| match el {
+            vector_ink::kurbo::PathEl::MoveTo(p) | vector_ink::kurbo::PathEl::LineTo(p) => {
+                Some(kpt(*p))
+            }
+            vector_ink::kurbo::PathEl::CurveTo(_, _, p) | vector_ink::kurbo::PathEl::QuadTo(_, p) => {
+                Some(kpt(*p))
+            }
+            vector_ink::kurbo::PathEl::ClosePath => None,
+        })
+        .collect()
+}
+
+/// tip18: Shift+press, drag through several points, release. Every frame
+/// of the drag previews the straight segment; the release commits it.
+#[test]
+fn brush_shift_drag_previews_and_commits_a_straight_line() {
+    let mut h = brush_board("brush_shift_drag");
+    let a = Pos2::new(100.0, 100.0);
+    let end = Pos2::new(260.0, 180.0);
+    press_drag_release_frames(
+        &mut h,
+        &[a, Pos2::new(140.0, 160.0), Pos2::new(220.0, 90.0), end],
+        egui::Modifiers::SHIFT,
+        |h| {
+            assert!(h.app.brush_straight.is_some(), "the Shift press owns the drag");
+            assert!(
+                h.app.brush_live.as_ref().is_some_and(|c| c.showing_line()),
+                "the live canvas shows the straight segment"
+            );
+        },
+    );
+    assert!(h.app.brush_straight.is_none());
+    assert_eq!(h.app.doc().scene.nodes.len(), 1, "one straight stroke");
+    let v = path_vertices(&h.app.doc().scene.nodes[0]);
+    assert_eq!(v.len(), 2, "a straight segment: {v:?}");
+    // A Shift drag takes 45° steps from its start.
+    let end = board_snap::ortho_snap_point(a, end);
+    assert!(near_px(v[0], a) && near_px(v[1], end), "{v:?}");
+}
+
+/// Within 0.05 world units: pointer events round-trip through screen space.
+fn near_px(a: Pos2, b: Pos2) -> bool {
+    (a - b).length() < 0.05
+}
+
+/// `to - from` lies on a 45° step.
+fn on_45(from: Pos2, to: Pos2) -> bool {
+    let d = to - from;
+    let step = std::f32::consts::FRAC_PI_4;
+    let a = d.y.atan2(d.x) / step;
+    d.length() > 1.0 && (a - a.round()).abs() < 1.0e-3
+}
+
+/// `p` lies on the ray from `origin` along `dir`.
+fn on_ray(origin: Pos2, dir: EVec2, p: Pos2) -> bool {
+    let d = p - origin;
+    (d.x * dir.y - d.y * dir.x).abs() < 0.05 && d.dot(dir) > 0.0
+}
+
+/// Draft-tool board with snaps off at zoom 1.
+fn draft_board(tag: &str, tool: board::BoardTool) -> Harness {
+    let mut h = line_board(tag);
+    h.app.set_board_tool(tool);
+    h.app.tab_mut().cam.z = 1.0;
+    h.app.board_osnap.enabled = false;
+    h.app.board_smart_guides = false;
+    h.app.board_snap_grid = false;
+    h.frame();
+    h.frame();
+    h
+}
+
+fn hover_at(h: &mut Harness, world: Pos2, modifiers: egui::Modifiers) {
+    let s = h.app.board_xf().w2s(world);
+    h.frame_with(|i| {
+        i.modifiers = modifiers;
+        i.events.push(egui::Event::PointerMoved(s));
+    });
+    h.frame_with(|i| i.modifiers = modifiers);
+}
+
+/// A click, a second after the last input so it is never a double click.
+fn click_at(h: &mut Harness, world: Pos2, modifiers: egui::Modifiers) {
+    let t = h.ctx.input(|i| i.time);
+    h.frame_with(|i| {
+        i.time = Some(t + 1.0);
+        i.modifiers = modifiers;
+    });
+    press_drag_release(h, &[world], modifiers);
+    h.frame_with(|i| i.modifiers = modifiers);
+}
+
+/// The last placed vertex of the armed vector draft tool.
+fn last_vertex(h: &Harness) -> Option<Pos2> {
+    match &h.app.board_path_draft {
+        Some(board_path::BoardPathDraft::Polyline { points, .. })
+        | Some(board_path::BoardPathDraft::Arc { points, .. }) => points.last().copied(),
+        Some(board_path::BoardPathDraft::Bezier { anchors, .. }) => anchors.last().map(|a| a.0),
+        None => None,
+    }
+}
+
+const VERTEX_TOOLS: [board::BoardTool; 3] = [
+    board::BoardTool::Polyline,
+    board::BoardTool::Arc,
+    board::BoardTool::BezierSpan,
+];
+
+/// Shift places each next vertex on a 45° step from the last one.
+#[test]
+fn shift_places_the_next_vertex_on_a_45_degree_step() {
+    for tool in VERTEX_TOOLS {
+        let mut h = draft_board("shift_45_vertex", tool);
+        let a = Pos2::new(0.0, 0.0);
+        click_at(&mut h, a, egui::Modifiers::NONE);
+        let raw = Pos2::new(100.0, 37.0);
+        hover_at(&mut h, raw, egui::Modifiers::SHIFT);
+        click_at(&mut h, raw, egui::Modifiers::SHIFT);
+        let v = last_vertex(&h).expect("a draft");
+        assert!(on_45(a, v), "{tool:?}: {v:?}");
+        assert!(!near_px(v, raw), "{tool:?}: the raw pointer was constrained");
+    }
+    // Line: its second point, the committed end.
+    let mut h = draft_board("shift_45_line", board::BoardTool::Line);
+    click_at(&mut h, Pos2::ZERO, egui::Modifiers::NONE);
+    hover_at(&mut h, Pos2::new(100.0, 37.0), egui::Modifiers::SHIFT);
+    click_at(&mut h, Pos2::new(100.0, 37.0), egui::Modifiers::SHIFT);
+    let (a, b) = board_line::line_endpoints(&h.app.doc().scene.nodes[0]).unwrap();
+    assert!(on_45(a, b), "{b:?}");
+}
+
+/// Tab locks the direction toward the pointer; an off-axis move only
+/// changes length; placing the point ends the lock (P2.RhinoDraft.tab).
+#[test]
+fn tab_locks_the_segment_direction_on_every_vector_draft_tool() {
+    let dir = EVec2::new(0.6, 0.8);
+    for tool in VERTEX_TOOLS.into_iter().chain([board::BoardTool::Line]) {
+        let mut h = draft_board("tab_lock_vertex", tool);
+        click_at(&mut h, Pos2::ZERO, egui::Modifiers::NONE);
+        hover_at(&mut h, Pos2::new(30.0, 40.0), egui::Modifiers::NONE);
+        press_key_with(&mut h, egui::Key::Tab, egui::Modifiers::NONE);
+        let lock = h.app.draft_lock.unwrap_or_else(|| panic!("{tool:?}: Tab locks"));
+        assert!((lock - dir).length() < 1.0e-3, "{tool:?}: {lock:?}");
+        let off = Pos2::new(500.0, -20.0);
+        hover_at(&mut h, off, egui::Modifiers::NONE);
+        assert!(h.app.draft_lock.is_some(), "{tool:?}: the lock holds while hovering");
+        click_at(&mut h, off, egui::Modifiers::NONE);
+        let v = if tool == board::BoardTool::Line {
+            board_line::line_endpoints(&h.app.doc().scene.nodes[0]).unwrap().1
+        } else {
+            last_vertex(&h).expect("a draft")
+        };
+        assert!(on_ray(Pos2::ZERO, dir, v), "{tool:?}: {v:?} stays on the locked ray");
+        assert!(h.app.draft_lock.is_none(), "{tool:?}: placing the point ends the lock");
+    }
+}
+
+/// Tab again releases the lock; Esc clears it with the draft.
+#[test]
+fn tab_again_or_escape_releases_the_segment_lock() {
+    for tool in VERTEX_TOOLS.into_iter().chain([board::BoardTool::Line]) {
+        let mut h = draft_board("tab_lock_release", tool);
+        click_at(&mut h, Pos2::ZERO, egui::Modifiers::NONE);
+        hover_at(&mut h, Pos2::new(30.0, 40.0), egui::Modifiers::NONE);
+        press_key_with(&mut h, egui::Key::Tab, egui::Modifiers::NONE);
+        assert!(h.app.draft_lock.is_some(), "{tool:?}");
+        assert!(!h.ctx.wants_keyboard_input(), "{tool:?}: the board kept the Tab");
+        press_key_with(&mut h, egui::Key::Tab, egui::Modifiers::NONE);
+        assert!(h.app.draft_lock.is_none(), "{tool:?}: Tab again releases");
+        let off = Pos2::new(500.0, -20.0);
+        hover_at(&mut h, off, egui::Modifiers::NONE);
+        if tool != board::BoardTool::Line {
+            click_at(&mut h, off, egui::Modifiers::NONE);
+            assert!(near_px(last_vertex(&h).unwrap(), off), "{tool:?}: free again");
+        }
+        hover_at(&mut h, Pos2::new(600.0, 100.0), egui::Modifiers::NONE);
+        press_key_with(&mut h, egui::Key::Tab, egui::Modifiers::NONE);
+        assert!(h.app.draft_lock.is_some(), "{tool:?}");
+        press_key_with(&mut h, egui::Key::Escape, egui::Modifiers::NONE);
+        assert!(h.app.draft_lock.is_none(), "{tool:?}: Esc clears the lock");
+    }
+}
+
+/// Brush: a Shift click connects to the click at any angle (tip19) and
+/// never changes opacity; a Shift drag takes 45° steps; Tab locks it.
+#[test]
+fn brush_shift_click_connects_and_shift_drag_takes_45_degree_steps() {
+    let mut h = brush_board("brush_shift_45");
+    h.app.brush_opacity = 0.7;
+    press_drag_release_frames(
+        &mut h,
+        &[Pos2::new(40.0, 40.0), Pos2::new(80.0, 60.0), Pos2::new(120.0, 40.0)],
+        egui::Modifiers::NONE,
+        |_| {},
+    );
+    let first = h.app.doc().scene.nodes[0].id;
+    let from = h.app.brush_line_anchor.expect("anchor").pos;
+    let click = Pos2::new(230.0, 83.0);
+    click_at(&mut h, click, egui::Modifiers::SHIFT);
+    assert!((h.app.brush_opacity - 0.7).abs() < 1.0e-6, "Shift never steps opacity");
+    let v = path_vertices(h.app.doc().scene.node(first).unwrap());
+    assert!(near_px(v[v.len() - 2], from) && near_px(v[v.len() - 1], click), "{v:?}");
+
+    // Shift drag from the new end: 45° steps, and the same stroke grows.
+    let from = click;
+    let raw = Pos2::new(420.0, 150.0);
+    press_drag_release_frames(
+        &mut h,
+        &[Pos2::new(300.0, 300.0), Pos2::new(350.0, 250.0), raw],
+        egui::Modifiers::SHIFT,
+        |_| {},
+    );
+    let v = path_vertices(h.app.doc().scene.node(first).unwrap());
+    let end = v[v.len() - 1];
+    assert!(on_45(from, end), "{end:?}");
+    assert!(near_px(end, board_snap::ortho_snap_point(from, raw)), "{end:?}");
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
+}
+
+/// Brush: Tab during a Shift drag locks the segment direction; the
+/// release commits on that ray and ends the lock.
+#[test]
+fn brush_tab_locks_the_shift_segment_direction() {
+    let mut h = brush_board("brush_tab_lock");
+    let a = Pos2::new(100.0, 100.0);
+    let xf = h.app.board_xf();
+    let shift = egui::Modifiers::SHIFT;
+    h.frame_with(|i| {
+        i.modifiers = shift;
+        i.events.push(egui::Event::PointerMoved(xf.w2s(a)));
+    });
+    h.frame_with(|i| {
+        i.modifiers = shift;
+        i.events.push(egui::Event::PointerButton {
+            pos: xf.w2s(a),
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: shift,
+        });
+    });
+    let aim = Pos2::new(200.0, 200.0);
+    h.frame_with(|i| {
+        i.modifiers = shift;
+        i.events.push(egui::Event::PointerMoved(xf.w2s(aim)));
+    });
+    press_key_with(&mut h, egui::Key::Tab, shift);
+    let lock = h.app.draft_lock.expect("Tab locks the Shift segment");
+    let dir = EVec2::new(1.0, 1.0).normalized();
+    assert!((lock - dir).length() < 1.0e-3, "{lock:?}");
+    let off = Pos2::new(400.0, 120.0);
+    h.frame_with(|i| {
+        i.modifiers = egui::Modifiers::NONE;
+        i.events.push(egui::Event::PointerMoved(xf.w2s(off)));
+    });
+    h.frame_with(|i| {
+        i.events.push(egui::Event::PointerButton {
+            pos: xf.w2s(off),
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+    });
+    h.frame();
+    let v = path_vertices(&h.app.doc().scene.nodes[0]);
+    assert!(near_px(v[0], a) && on_ray(a, dir, v[1]), "{v:?}");
+    assert!(h.app.draft_lock.is_none(), "the release ends the lock");
+}
+
+/// Eraser: a Shift pass takes 45° steps; Tab locks its direction; the
+/// end of the pass clears the lock.
+#[test]
+fn eraser_shift_pass_takes_45_degree_steps_and_tab_locks_it() {
+    let mut h = brush_board("eraser_shift_45");
+    h.app.set_board_tool(board::BoardTool::Eraser);
+    h.app.shift_down = true;
+    let a = Pos2::new(0.0, 0.0);
+    h.app.board_drag = Some(h.app.begin_erase(a, true));
+    h.app.update_erase(Pos2::new(100.0, 37.0));
+    let last = |h: &Harness| match &h.app.board_drag {
+        Some(board::BoardDrag::Erase { points, .. }) => *points.last().unwrap(),
+        _ => panic!("erase drag"),
+    };
+    assert!(on_45(a, last(&h)), "{:?}", last(&h));
+    h.app.shift_down = false;
+    h.app.update_erase(Pos2::new(30.0, 40.0));
+    assert!(near(last(&h), Pos2::new(30.0, 40.0)), "Shift released: free");
+    assert!(h.app.toggle_segment_lock(Some(Pos2::new(30.0, 40.0))));
+    h.app.update_erase(Pos2::new(500.0, -20.0));
+    assert!(on_ray(a, EVec2::new(0.6, 0.8), last(&h)), "{:?}", last(&h));
+    assert!(h.app.toggle_segment_lock(None));
+    assert!(h.app.draft_lock.is_none(), "Tab again releases");
+    assert!(h.app.toggle_segment_lock(Some(Pos2::new(30.0, 40.0))));
+    let Some(board::BoardDrag::Erase {
+        touched, points, spot, ..
+    }) = h.app.board_drag.take()
+    else {
+        panic!("erase drag");
+    };
+    h.app.finish_erase(touched, points, spot);
+    assert!(h.app.draft_lock.is_none(), "the end of the pass clears the lock");
+}
+
+/// tip18 / tip19: after a stroke, Shift+drag previews from that stroke's
+/// end and the release extends the same path.
+#[test]
+fn brush_shift_drag_after_a_stroke_continues_it() {
+    let mut h = brush_board("brush_shift_drag_chain");
+    press_drag_release_frames(
+        &mut h,
+        &[Pos2::new(40.0, 40.0), Pos2::new(80.0, 60.0), Pos2::new(120.0, 40.0)],
+        egui::Modifiers::NONE,
+        |_| {},
+    );
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
+    let first = h.app.doc().scene.nodes[0].id;
+    let from = h.app.brush_line_anchor.expect("anchor").pos;
+    let end = Pos2::new(300.0, 200.0);
+    press_drag_release_frames(
+        &mut h,
+        &[Pos2::new(200.0, 200.0), Pos2::new(250.0, 150.0), end],
+        egui::Modifiers::SHIFT,
+        |h| {
+            assert!(h.app.brush_straight.is_some());
+            assert!(h.app.brush_live.as_ref().is_some_and(|c| c.showing_line()));
+        },
+    );
+    assert_eq!(h.app.doc().scene.nodes.len(), 1, "the segment extends the stroke");
+    let v = path_vertices(h.app.doc().scene.node(first).unwrap());
+    let end = board_snap::ortho_snap_point(from, end);
+    assert!(near_px(v[v.len() - 2], from) && near_px(v[v.len() - 1], end), "{v:?}");
+}
+
+/// tip18 on real frames: the Shift preview is visible on screen, both from
+/// the press point and continuing an earlier stroke.
+#[test]
+fn brush_shift_drag_preview_reaches_the_screen() {
+    let mut h = brush_board("brush_shift_raster");
+    if let Ok(z) = std::env::var("SLATE_TEST_PPP") {
+        h.ctx.set_pixels_per_point(z.parse().unwrap());
+        h.frame_with(|i| i.max_texture_side = Some(8192));
+        h.frame();
+    }
+    h.app.board_colors.fg.0 = [255, 40, 40, 255];
+    h.app.brush_opacity = 1.0;
+    h.app.brush_softness = 0.0;
+    h.app.brush_width = 16.0;
+    let mut raster = FrameRaster::new(1440, 900);
+    capture_frame(&mut h, &mut raster, |_| {});
+    let xf = h.app.board_xf();
+    let lit = |raster: &FrameRaster, s: Pos2| {
+        let p = raster.px[s.y as usize * raster.w + s.x as usize];
+        p[0] > 0.6 && p[1] < 0.4
+    };
+    let shift = egui::Modifiers::SHIFT;
+    for (round, (a, b)) in [
+        (Pos2::new(100.0, 100.0), Pos2::new(300.0, 100.0)),
+        (Pos2::new(250.0, 300.0), Pos2::new(450.0, 300.0)),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let (sa, sb) = (xf.w2s(a), xf.w2s(b));
+        capture_frame(&mut h, &mut raster, |i| {
+            i.modifiers = shift;
+            i.events.push(egui::Event::PointerMoved(sa));
+            i.events.push(egui::Event::PointerButton {
+                pos: sa,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: shift,
+            });
+        });
+        capture_frame(&mut h, &mut raster, |i| {
+            i.modifiers = shift;
+            i.events.push(egui::Event::PointerMoved(sa + (sb - sa) * 0.5));
+        });
+        let out = capture_frame(&mut h, &mut raster, |i| {
+            i.modifiers = shift;
+            i.events.push(egui::Event::PointerMoved(sb));
+        });
+        snapshot(&mut h, &mut raster, out, &format!("shift-preview-{round}"));
+        let from = if round == 0 { a } else { Pos2::new(300.0, 100.0) };
+        // A Shift drag takes 45° steps from where the segment starts.
+        let (from, end) = (xf.w2s(from), xf.w2s(board_snap::ortho_snap_point(from, b)));
+        let mid = from + (end - from) * 0.5;
+        assert!(lit(&raster, mid), "round {round}: the preview is on screen at {mid:?}");
+        capture_frame(&mut h, &mut raster, |i| {
+            i.modifiers = shift;
+            i.events.push(egui::Event::PointerButton {
+                pos: sb,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: shift,
+            });
+        });
+    }
+}
+
+#[test]
+#[ignore]
+fn brush_shift_drag_frame_times_on_a_busy_board() {
+    let mut h = brush_board("brush_shift_busy");
+    h.frame_with(|i| i.max_texture_side = Some(8192));
+    h.app.brush_width = 40.0;
+    h.app.brush_softness = 0.6;
+    h.app.brush_opacity = 0.6;
+    for k in 0..70 {
+        let y0 = -400.0 + k as f32 * 12.0;
+        let pts: Vec<Pos2> = (0..=200)
+            .map(|i| {
+                let t = i as f32 / 200.0;
+                Pos2::new(-600.0 + t * 1200.0, y0 + (t * 20.0).sin() * 40.0)
+            })
+            .collect();
+        h.app.finish_freehand_brush(pts);
+    }
+    for _ in 0..50 {
+        h.frame();
+        if h.app.brush_tiles.last.pending_jobs == 0 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let xf = h.app.board_xf();
+    let shift = egui::Modifiers::SHIFT;
+    let a = xf.w2s(Pos2::new(0.0, 0.0));
+    let mut timed = |label: &str, h: &mut Harness, ev: Vec<egui::Event>| {
+        let t = std::time::Instant::now();
+        h.frame_with(|i| {
+            i.modifiers = shift;
+            i.events = ev;
+        });
+        eprintln!("{label}: {:.1} ms", t.elapsed().as_secs_f64() * 1000.0);
+    };
+    timed("hover", &mut h, vec![egui::Event::PointerMoved(a)]);
+    timed(
+        "press",
+        &mut h,
+        vec![egui::Event::PointerButton {
+            pos: a,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: shift,
+        }],
+    );
+    for k in 1..=5 {
+        let p = a + EVec2::new(30.0 * k as f32, 10.0 * k as f32);
+        timed(&format!("move {k}"), &mut h, vec![egui::Event::PointerMoved(p)]);
+    }
+    let end = a + EVec2::new(150.0, 50.0);
+    timed(
+        "release",
+        &mut h,
+        vec![egui::Event::PointerButton {
+            pos: end,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: shift,
+        }],
+    );
+    for k in 0..3 {
+        timed(&format!("after {k}"), &mut h, vec![]);
+    }
 }
 
 #[test]

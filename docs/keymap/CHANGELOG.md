@@ -1,5 +1,33 @@
 # Canvas command project — change log
 
+## 2026-09-27 — Shift 45° steps and the Tab direction lock on every drawn segment
+
+- P2.RhinoDraft.ortho / .tab now cover every drawn segment: Line,
+  Polyline, Arc, Bézier span, and the Brush / Eraser Shift straight line
+  (user: "hold shift to lock orientatin f drawn segment or position of
+  vertecie relitive to last drawn verticie. tap tab to hard lock curet
+  orientation or trajectory"). Held Shift puts the next point on a 45° step
+  from the last placed one. Tab locks the direction from the last point
+  toward the pointer; the pointer then changes only length; Tab again
+  releases; placing the point, Esc, or a tool change ends it. One owner
+  (`toggle_segment_lock` / `resolve_segment_point`) replaces the Line-only
+  `line_toggle_lock`. `polyline` D07 no longer deviates; `arc` D07,
+  `bezier-span` D07, `brush` D07 gain the lock; `pen` D07 notes that
+  freehand has no pending segment.
+- Under a Tab lock, point snaps now land where they project onto the locked
+  ray instead of being suspended (`line` D07, `object-snap` D06 / D07).
+- The board keeps the Tab it uses for the lock: egui's focus navigation no
+  longer moves keyboard focus into a panel field, which had made "Tab again
+  releases" unreachable from the keyboard.
+- Brush (tip18): Shift+drag previews a straight segment from the last
+  stroke's end and commits on release; a drag past 8 screen px takes 45°
+  steps, a Shift+click still connects to the click point at any angle
+  (tip19). The dead "Shift+click steps opacity" owner is removed
+  (`step_opacity`, `step_brush_opacity`, the stale `brush_chain`); Shift
+  never steps opacity, Shift+right-drag scrubs it (`brush` D03 / D04 / D05 /
+  D06 / D09, `brush-color.md`, the dock tooltip, `board.tool.brush` help).
+- New reference entry `board.draft.direction_lock` (Tab while drawing).
+
 ## 2026-09-27 — Tip HUD for every open curve, styles, and anchor editing
 
 - Alt+right-drag's size circle is pinned to the canvas at the press point

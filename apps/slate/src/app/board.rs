@@ -670,6 +670,8 @@ pub enum BoardDrag {
         points: Vec<Pos2>,
         straight: bool,
         spot: Vec<NodeId>,
+        /// The press, for the Shift pass's click-vs-drag rule.
+        press: Pos2,
     },
     /// Smoothing brush drag — live preview, one Patch group on release.
     Smooth {
@@ -1234,9 +1236,9 @@ impl SlateApp {
         self.shape_properties = Default::default();
         self.desktop_sample = None;
         self.armed_kit_id = None;
-        self.brush_chain = None;
         self.brush_straight = None;
         self.brush_line_anchor = None;
+        self.draft_lock = None;
         if tool != BoardTool::DirectSelect {
             self.direct.node = None;
             self.direct.anchors.clear();
@@ -4166,6 +4168,11 @@ impl SlateApp {
         self.board_point_snap = None;
         self.board_draw_rect = None;
         self.ortho_feedback = None;
+        // The Tab lock lives only while a segment is pending (Esc, cancel,
+        // and placement all end it).
+        if self.draft_lock.is_some() && self.pending_segment_origin().is_none() {
+            self.draft_lock = None;
+        }
         self.sync_crop_mode();
         // Connector AABBs follow their endpoints; synced once per scene
         // generation (journal commits / undo / redo), never per frame.
@@ -4446,11 +4453,7 @@ impl SlateApp {
                                     self.board_drag = None;
                                 } else if self.board_tool == BoardTool::Brush && modifiers.alt {
                                     self.brush_mod_click =
-                                        Some(super::board_color::BrushModClick {
-                                            origin: pos,
-                                            alt: true,
-                                            shift: modifiers.shift,
-                                        });
+                                        Some(super::board_color::BrushModClick { origin: pos });
                                     self.board_drag = None;
                                 } else if self.board_tool == BoardTool::Brush
                                     && self.brush_hud.is_some()
@@ -4477,20 +4480,11 @@ impl SlateApp {
                             self.brush_straight = None;
                             self.end_gesture(xf.s2w(pos), Some(pos), modifiers);
                         } else if self.brush_straight.is_some() {
-                            self.release_brush_straight(pos, xf.s2w(pos));
+                            self.release_brush_straight(pos, xf.s2w(pos), modifiers.shift);
                         } else if let Some(click) = self.brush_mod_click.take() {
                             if pos.distance(click.origin) <= super::board_color::BRUSH_MOD_CLICK_PX
                             {
-                                if click.alt {
-                                    self.eyedropper_click(xf.s2w(pos), false);
-                                } else if click.shift {
-                                    self.brush_line_anchor =
-                                        Some(super::board_color::BrushAnchor {
-                                            pos: xf.s2w(pos),
-                                            tip: self.tip_now(),
-                                            node: None,
-                                        });
-                                }
+                                self.eyedropper_click(xf.s2w(pos), false);
                             }
                         }
                     }
@@ -4933,17 +4927,8 @@ impl SlateApp {
             && self.board_drag.is_none()
         {
             if let Some(w) = wp {
-                let from = match &self.board_path_draft {
-                    Some(board_path::BoardPathDraft::Polyline { points, .. }) => {
-                        points.last().copied()
-                    }
-                    Some(board_path::BoardPathDraft::Arc { points, .. }) => points.last().copied(),
-                    Some(board_path::BoardPathDraft::Bezier { anchors, .. }) => {
-                        anchors.last().map(|(p, _)| *p)
-                    }
-                    None => None,
-                };
-                let _ = self.resolve_point_snap(w, &[], from, self.shift_down, from.is_some());
+                let from = self.pending_segment_origin();
+                let _ = self.resolve_segment_point(from, w, self.shift_down);
             }
         }
         if matches!(
@@ -5413,7 +5398,15 @@ impl SlateApp {
         }
         if let Some(draft) = &self.board_path_draft {
             let zoom = self.tab().cam.z.max(f32::EPSILON);
-            let cursor = self.board_osnap_hit.map(|h| h.point).or_else(|| {
+            // Hovering: the point the next click places (resolve_segment_point
+            // above, with ortho, the Tab lock, and snaps). A handle drag keeps
+            // its own ortho against the press.
+            let hover = self
+                .board_drag
+                .is_none()
+                .then(|| self.board_point_snap.or(wp))
+                .flatten();
+            let cursor = hover.or_else(|| self.board_osnap_hit.map(|h| h.point)).or_else(|| {
                 if board_snap::effective_ortho(self.board_ortho, self.shift_down) {
                     let from = match draft {
                         board_path::BoardPathDraft::Polyline { points, .. } => {
@@ -5462,14 +5455,13 @@ impl SlateApp {
             );
         }
         // Line draft: rubber band in the fg color the committed stroke will
-        // use (D09) + the Tab-lock padlock beside the pointer (D10).
+        // use (D09).
         if self.board_tool == BoardTool::Line && self.line_draft.is_some() {
             self.paint_line_draft(&draft_painter, &xf);
-            if let Some(p) = pointer {
-                if resp.hovered() {
-                    self.paint_line_lock_glyph(&painter, p);
-                }
-            }
+        }
+        // The Tab direction lock's padlock beside the pointer, any tool (D10).
+        if let (Some(p), true) = (pointer, resp.hovered()) {
+            self.paint_draft_lock_glyph(&painter, p);
         }
         if let (Some(BoardDrag::FreehandPen { points, widths, .. }), Some(w)) =
             (&self.board_drag, wp)
@@ -5490,9 +5482,13 @@ impl SlateApp {
             }
             _ => None,
         };
-        let live_line = self.brush_straight.as_ref().map(|g| (g.start, g.tip));
-        match (live_freehand, live_line, wp) {
-            (Some(points), _, _) => {
+        let live_line = wp.and_then(|w| {
+            let end = self.brush_straight_end(w, self.shift_down)?;
+            let (from, start, anchor) = self.brush_straight_from()?;
+            Some((from, start, anchor, end))
+        });
+        match (live_freehand, live_line) {
+            (Some(points), _) => {
                 let tip = self.tip_now().stamp();
                 let canvas = board_path::BrushLiveCanvas::ensure(
                     &mut self.brush_live,
@@ -5505,11 +5501,9 @@ impl SlateApp {
                 canvas.add_freehand(&points, tip);
                 canvas.paint(&draft_painter, &xf);
             }
-            (None, Some((press, press_tip)), Some(w)) => {
+            (None, Some((from, start, anchor, w))) => {
                 let end = self.tip_now();
-                let anchor = self.brush_line_anchor;
-                let (from, start) = anchor.map(|a| (a.pos, a.tip)).unwrap_or((press, press_tip));
-                let anchor_id = anchor.and_then(|a| a.node).filter(|id| {
+                let anchor_id = anchor.filter(|id| {
                     self.doc().scene.node(*id).is_some_and(|n| !n.hidden)
                         || slate_doc::image_paint::find_layer_node(&self.doc().scene, *id).is_some()
                 });
@@ -6402,7 +6396,8 @@ impl SlateApp {
             }),
             BoardTool::Brush => {
                 if self.alt_down || self.shift_down {
-                    // Alt samples. Shift+click steps opacity. Neither starts ink.
+                    // Alt samples; Shift draws a straight segment. The
+                    // ordered press owns both. Neither starts freehand ink.
                     None
                 } else {
                     Some(BoardDrag::FreehandBrush {
@@ -6442,13 +6437,9 @@ impl SlateApp {
                         });
                     }
                 }
-                let from = match &self.board_path_draft {
-                    Some(board_path::BoardPathDraft::Bezier { anchors, .. }) => {
-                        anchors.last().map(|(a, _)| *a)
-                    }
-                    _ => None,
-                };
-                let press = self.resolve_point_snap(world, &[], from, mods.shift, from.is_some());
+                let from = self.pending_segment_origin();
+                let press = self.resolve_segment_point(from, world, mods.shift);
+                self.draft_lock = None;
                 self.bezier_anchor_press(press);
                 Some(BoardDrag::BezierAnchor { press })
             }
@@ -8158,14 +8149,10 @@ impl SlateApp {
                 return;
             }
             BoardTool::Brush => {
+                // Spring-loaded eyedropper (samples into fg). Shift clicks
+                // belong to the ordered press / release path.
                 if mods.alt {
-                    // Spring-loaded eyedropper (samples into fg).
                     self.eyedropper_click(world, false);
-                } else if mods.shift {
-                    self.step_brush_opacity();
-                } else {
-                    // Plain click seeds the straight-segment chain.
-                    self.brush_chain = Some(world);
                 }
                 return;
             }

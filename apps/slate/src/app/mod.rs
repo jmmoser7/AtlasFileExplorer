@@ -609,7 +609,7 @@ pub struct SlateApp {
     pub brush_width: f32,
     /// Brush edge falloff 0..=1 (persisted; `Shift+[` / `Shift+]` and the size HUD).
     pub brush_softness: f32,
-    /// Brush paint opacity 0.1..=1 (persisted; Shift+click steps it).
+    /// Brush paint opacity 0.1..=1 (persisted; Shift+right-drag scrubs it).
     pub brush_opacity: f32,
     /// Live Alt+right size HUD, Shift+right opacity HUD, or Ctrl+right color wheel.
     pub(crate) brush_hud: Option<board_color::BrushHud>,
@@ -617,7 +617,7 @@ pub struct SlateApp {
     pub(crate) brush_hud_before: Option<board_color::BrushSettingUndo>,
     /// Direct Select target as it was when the HUD opened.
     pub(crate) hud_node_before: Option<slate_doc::scene::Node>,
-    /// Alt or Shift primary press waiting for a short click (sample / opacity).
+    /// Alt primary press waiting for a short click (eyedropper sample).
     pub(crate) brush_mod_click: Option<board_color::BrushModClick>,
     /// Swatch pick: (press point, where that color sits on the wheel). The
     /// pointer moves; the wheel does not.
@@ -660,9 +660,12 @@ pub struct SlateApp {
     pub(crate) eraser_anchor: Option<egui::Pos2>,
     /// Painted strokes under the eraser this drag, shown with the pass applied.
     pub(crate) erase_live: HashMap<NodeId, board_path::EraseLive>,
-    /// Last brush stroke end — Shift+click chains a straight segment from
-    /// it; cleared whenever the Brush tool re-arms or changes.
-    pub(crate) brush_chain: Option<egui::Pos2>,
+    /// Tab direction lock of the segment being drawn (unit vector from its
+    /// last placed point). Placing the point, Esc, and tool changes clear it
+    /// (P2.RhinoDraft.tab).
+    pub(crate) draft_lock: Option<egui::Vec2>,
+    /// This frame's Tab went to the board: the widget focused before it.
+    pub(crate) board_took_tab: Option<Option<egui::Id>>,
     /// Direct-selection (A) state: target path node + selected anchors.
     pub(crate) direct: board_direct::DirectState,
     /// Per-frame connector grip hover (Select tool near a node edge).
@@ -976,7 +979,8 @@ impl SlateApp {
             smooth_preview: HashMap::new(),
             smooth_polylines: HashMap::new(),
             erase_live: HashMap::new(),
-            brush_chain: None,
+            draft_lock: None,
+            board_took_tab: None,
             direct: board_direct::DirectState::default(),
             wire_grips: None,
             wire_label_edit: None,
@@ -2518,6 +2522,15 @@ impl SlateApp {
         {
             let _span = atlas_core::session_log::span("slate.shell_drag");
             self.atlas_run_shell_drag(ctx);
+        }
+        // egui moves keyboard focus on Tab as the panels draw. When the
+        // board took the Tab (segment lock), hand that focus back, or the
+        // next Tab lands in a text field instead of releasing the lock.
+        if let Some(before) = self.board_took_tab.take() {
+            ctx.memory_mut(|m| match m.focused() {
+                Some(id) if Some(id) != before => m.surrender_focus(id),
+                _ => {}
+            });
         }
         self.debug_screenshot(ctx);
     }
