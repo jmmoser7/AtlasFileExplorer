@@ -2263,11 +2263,11 @@ impl PathData {
         if widest <= 0.0 || !widest.is_finite() || widest - narrowest <= f32::EPSILON * widest {
             return None;
         }
-        let width = stroke.width.max(0.0);
+        let scale = stroke.width.max(0.0) / widest;
         Some(
             self.tips
                 .iter()
-                .map(|t| width * (t.width.max(0.0) / widest))
+                .map(|t| t.width.max(0.0) * scale)
                 .collect(),
         )
     }
