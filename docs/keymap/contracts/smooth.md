@@ -19,7 +19,7 @@ D01–D17 are every tool-scoped dimension. D18–D35 are portal-only and do not 
 | D05 | Modifiers | Shares Brush/Eraser width chords: `[` / `]` size, Shift+[ / ] softness, Alt+right-drag size+softness, Shift+right-drag strength (Smooth/Eraser). Esc cancels an in-progress pass without journal. | stated | 100 |
 | D06 | Constraints & snapping | No object or grid snap on the brush center. | pattern | 85 |
 | D07 | Direction / value locks | n/a | pattern | 85 |
-| D08 | Numeric / manual entry | `[` / `]` screen-px tiers (same as Brush). Strength 0.1..=1 via Shift+right-drag. | stated | 100 |
+| D08 | Numeric / manual entry | `[` / `]` screen-px tiers (same as Brush). Strength 0..=1 via Shift+right-drag; a pass applies at least 0.05. | stated | 100 |
 | D09 | Preview & readouts | Canvas-scaled soft disc (same as Eraser). Live preview replaces touched nodes until release. Bottom readout: diameter, softness, strength %. | stated | 100 |
 | D10 | Cursor | Filled radial tip + white diameter ring (P0.9); gray fill for Smooth. The circle is the cursor: the OS arrow hides under it over the board (stated 2026-09-25). | stated | 100 |
 | D11 | Commit | Release journals one invertible group of `SceneCmd::Patch` for every touched node (vectors: refit path, see Modes; stamps: `Stroke::gaussian_blur`). Undo restores exact before snapshots. A sparse Bézier is smoothed as a NURBS-style cubic B-spline: Laplacian on its control polygon under the brush, endpoints pinned, converted back to cubic Béziers (stated 2026-09-26). | stated | 100 |
