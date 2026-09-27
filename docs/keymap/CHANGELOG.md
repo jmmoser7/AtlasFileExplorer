@@ -1,5 +1,14 @@
 # Canvas command project — change log
 
+## 2026-09-27 — Brush Shift press starts from the live canvas (tip18)
+
+- `brush` D11: a Shift press that continues the last brush mark starts its
+  preview from the live canvas that mark left, while that canvas still
+  shows the stroke under the same camera. It no longer re-stamps the whole
+  stroke on the frame loop, a cost that grew with every chained segment
+  (110–183 ms per press at a 207 px brush, 150 % zoom, 1.5 px/pt). The
+  gesture is unchanged: D03 and D04 stand as written.
+
 ## 2026-09-27 — Agent chat: stable chooser, bare Stop, drafts join a switch
 
 - `portal-agent-link` D13: the Codex conversation chooser keeps a fixed

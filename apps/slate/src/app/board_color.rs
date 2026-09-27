@@ -1053,8 +1053,36 @@ impl SlateApp {
     /// The live brush canvas shows stroke `id` as committed; it stands in
     /// until the stroke's own raster lands, so the commit frame builds none.
     fn hold_brush_live(&mut self, id: Option<NodeId>) {
-        if let (Some(id), Some(canvas)) = (id, self.brush_live.as_mut()) {
-            canvas.hold(id);
+        let Some(id) = id else {
+            return;
+        };
+        let key = self
+            .doc()
+            .scene
+            .node(id)
+            .and_then(board_path::node_stamp_key);
+        if let Some(canvas) = self.brush_live.as_mut() {
+            canvas.hold(id, key);
+        }
+    }
+
+    /// [`Self::hold_brush_live`] for a committed Shift segment from `a` to
+    /// `b`, each end at its tip.
+    fn hold_brush_line(&mut self, id: Option<NodeId>, a: (Pos2, BrushTip), b: (Pos2, BrushTip)) {
+        let Some(id) = id else {
+            return;
+        };
+        let key = self
+            .doc()
+            .scene
+            .node(id)
+            .and_then(board_path::node_stamp_key);
+        if let Some(canvas) = self.brush_live.as_mut() {
+            let at = |(p, tip): (Pos2, BrushTip)| vector_ink::TipPoint {
+                pos: [p.x, p.y],
+                tip: tip.stamp(),
+            };
+            canvas.hold_line(id, key, at(a), at(b));
         }
     }
 
@@ -1163,7 +1191,7 @@ impl SlateApp {
         let end = self.tip_now();
         if let Some(id) = anchor {
             if self.extend_brush_chain(id, a, b, end) {
-                self.hold_brush_live(Some(id));
+                self.hold_brush_line(Some(id), (a, start), (b, end));
                 self.set_brush_anchor(b, Some(id));
                 self.push_history(
                     atlas_commands::CommandId("board.brush.stroke"),
@@ -1195,7 +1223,7 @@ impl SlateApp {
             }),
         );
         let ids = self.commit_created_nodes(vec![node]);
-        self.hold_brush_live(ids.first().copied());
+        self.hold_brush_line(ids.first().copied(), (a, start), (b, end));
         self.set_brush_anchor(b, ids.first().copied());
         self.push_history(
             atlas_commands::CommandId("board.brush.stroke"),
