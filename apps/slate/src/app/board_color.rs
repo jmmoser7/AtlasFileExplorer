@@ -455,14 +455,21 @@ pub fn step_width_px(px: f32, up: bool) -> f32 {
 
 pub(crate) const SOFTNESS_STEP: f32 = 0.25;
 pub(crate) const SOFTNESS_DRAG_PX: f32 = 100.0;
+/// Screen px of diameter per screen px of horizontal Alt+right-drag travel.
+pub(crate) const SIZE_DRAG_GAIN: f32 = 2.0;
 /// Vertical Shift+right-drag travel across the full opacity range.
 pub(crate) const OPACITY_DRAG_PX: f32 = 100.0;
-pub(crate) const WHEEL_SLOT_RADIUS: f32 = 128.0;
-pub(crate) const WHEEL_HUE_INNER: f32 = 86.0;
-pub(crate) const WHEEL_HUE_OUTER: f32 = 106.0;
+pub(crate) const WHEEL_SLOT_RADIUS: f32 = 130.0;
 pub(crate) const WHEEL_SV_RADIUS: f32 = 84.0;
+/// Dead band between the saturation/value disk and the hue ring. Neither
+/// control picks in it.
+pub(crate) const WHEEL_RING_GAP: f32 = 8.0;
+pub(crate) const WHEEL_HUE_INNER: f32 = WHEEL_SV_RADIUS + WHEEL_RING_GAP;
+pub(crate) const WHEEL_HUE_OUTER: f32 = WHEEL_HUE_INNER + 20.0;
+/// Radius of the snap regions at the disk's pure white and pure black.
+pub(crate) const WHEEL_SNAP_RADIUS: f32 = 8.0;
 /// Painted swatch radius. Swatches sit clear of the hue ring: ring edge
-/// 106, swatch inner edge 120, so neither hit zone reaches the other.
+/// 112, swatch inner edge 122, so neither hit zone reaches the other.
 pub(crate) const WHEEL_DOT_RADIUS: f32 = 8.0;
 /// The wheel's dark backdrop. Inside it the wheel keeps the last value;
 /// past it the hold samples the canvas.
@@ -472,13 +479,13 @@ pub(crate) const WHEEL_DOT_HIT: f32 = 10.0;
 /// The hue ring picks this far past its painted outer edge.
 pub(crate) const WHEEL_HUE_HIT_PAD: f32 = 3.0;
 
-/// Shift+click opacity. Steps down by 10% and wraps from 10% back to 100%.
+/// Stepped opacity. Steps down by 10% and wraps from 0% back to 100%.
 pub fn step_opacity(current: f32) -> f32 {
     let next = (current * 10.0).round() / 10.0 - 0.1;
-    if next < 0.1 {
+    if next < -1e-4 {
         1.0
     } else {
-        next
+        next.max(0.0)
     }
 }
 
@@ -492,9 +499,9 @@ pub fn step_softness(current: f32, up: bool) -> f32 {
     next.clamp(0.0, 1.0)
 }
 
-/// Horizontal HUD travel adds screen pixels to the diameter.
+/// Horizontal HUD travel adds [`SIZE_DRAG_GAIN`] screen px of diameter per px.
 pub fn scrub_diameter_px(start_px: f32, dx: f32) -> f32 {
-    (start_px + dx).max(1.0)
+    (start_px + dx * SIZE_DRAG_GAIN).max(1.0)
 }
 
 /// Vertical HUD travel. Screen +y is down, so dragging up increases softness.
@@ -503,15 +510,26 @@ pub fn scrub_softness(start: f32, dy_screen: f32) -> f32 {
 }
 
 /// Vertical Shift+right-drag. Screen +y is down, so dragging up increases
-/// opacity. The floor matches the persisted 10% minimum.
+/// opacity, down to 0%.
 pub fn scrub_opacity(start: f32, dy_screen: f32) -> f32 {
-    (start - dy_screen / OPACITY_DRAG_PX).clamp(0.1, 1.0)
+    (start - dy_screen / OPACITY_DRAG_PX).clamp(0.0, 1.0)
 }
 
 /// Slot 0 sits at 6 o'clock. Later slots step clockwise. +y is down.
 pub fn wheel_slot_offset(slot: usize, slots: usize, radius: f32) -> [f32; 2] {
     let theta = slot as f32 / slots.max(1) as f32 * std::f32::consts::TAU;
     [-theta.sin() * radius, theta.cos() * radius]
+}
+
+/// Screen center of recent-color swatch `slot` on a wheel centered at
+/// `center`. Painting, picking, and the pointer warp all read this.
+pub fn wheel_slot_center(center: Pos2, slot: usize) -> Pos2 {
+    let [x, y] = wheel_slot_offset(
+        slot,
+        slate_doc::ViewState::WHEEL_COLOR_LIMIT,
+        WHEEL_SLOT_RADIUS,
+    );
+    center + egui::vec2(x, y)
 }
 
 pub fn rgb_to_hsv(rgb: [u8; 3]) -> [f32; 3] {
@@ -565,49 +583,90 @@ pub fn wheel_sv_cursor(center: Pos2, hsv: [f32; 3]) -> Pos2 {
     center + sv_offset(hsv[1], hsv[2])
 }
 
+/// The saturation/value square stretched over the whole disk (elliptical
+/// grid mapping), so every corner of the square is on the disk: pure white
+/// at its upper-left rim, the pure hue at its upper-right rim, and black
+/// along its lower rim.
 fn sv_offset(sat: f32, val: f32) -> egui::Vec2 {
+    let x = sat.clamp(0.0, 1.0) * 2.0 - 1.0;
+    let y = 1.0 - val.clamp(0.0, 1.0) * 2.0;
     egui::vec2(
-        (sat - 0.5) * 2.0 * WHEEL_SV_RADIUS,
-        (0.5 - val) * 2.0 * WHEEL_SV_RADIUS,
+        x * (1.0 - y * y * 0.5).sqrt(),
+        y * (1.0 - x * x * 0.5).sqrt(),
+    ) * WHEEL_SV_RADIUS
+}
+
+/// Inverse of [`sv_offset`] for a point on or inside the disk.
+fn sv_at(local: egui::Vec2) -> (f32, f32) {
+    let mut d = local / WHEEL_SV_RADIUS;
+    if d.length_sq() > 1.0 {
+        d = d.normalized();
+    }
+    let (u2, v2) = (d.x * d.x, d.y * d.y);
+    let k = 2.0 * std::f32::consts::SQRT_2;
+    let x = 0.5 * (2.0 + u2 - v2 + k * d.x).max(0.0).sqrt()
+        - 0.5 * (2.0 + u2 - v2 - k * d.x).max(0.0).sqrt();
+    let y = 0.5 * (2.0 - u2 + v2 + k * d.y).max(0.0).sqrt()
+        - 0.5 * (2.0 - u2 + v2 - k * d.y).max(0.0).sqrt();
+    (
+        ((x + 1.0) * 0.5).clamp(0.0, 1.0),
+        ((1.0 - y) * 0.5).clamp(0.0, 1.0),
     )
 }
 
+/// Wheel-local centers of the pure white and pure black snap regions, and
+/// the saturation/value each returns.
+fn wheel_snaps() -> [(egui::Vec2, [f32; 2]); 2] {
+    [
+        (sv_offset(0.0, 1.0), [0.0, 1.0]),
+        (sv_offset(0.5, 0.0), [0.5, 0.0]),
+    ]
+}
+
 /// What the pointer is over inside the color wheel, in wheel-local pixels.
+#[derive(Debug)]
 pub enum WheelHit {
-    /// On the wheel between controls: keep the current value.
+    /// On the wheel between controls, including the gap around the disk:
+    /// keep the current value.
     Keep,
     /// Past the wheel's backdrop: sample the canvas.
     Outside,
     Field([u8; 3], [f32; 3]),
-    /// Recent swatch, plus its position in wheel-local pixels.
-    Dot([u8; 3], [f32; 2]),
+    /// Recent swatch: its color and slot.
+    Dot([u8; 3], usize),
 }
 
 pub fn sample_wheel(local: [f32; 2], hsv: [f32; 3], recents: &[[u8; 3]]) -> WheelHit {
     let slots = slate_doc::ViewState::WHEEL_COLOR_LIMIT;
-    let mut nearest: Option<(f32, [u8; 3], [f32; 2])> = None;
+    let mut nearest: Option<(f32, [u8; 3], usize)> = None;
     for (index, color) in recents.iter().enumerate().take(slots) {
-        let at = wheel_slot_offset(index, slots, WHEEL_SLOT_RADIUS);
-        let dx = local[0] - at[0];
-        let dy = local[1] - at[1];
+        let at = wheel_slot_center(Pos2::ZERO, index);
+        let dx = local[0] - at.x;
+        let dy = local[1] - at.y;
         let d2 = dx * dx + dy * dy;
         if d2 <= WHEEL_DOT_HIT * WHEEL_DOT_HIT
             && nearest.as_ref().is_none_or(|(best, _, _)| d2 < *best)
         {
-            nearest = Some((d2, *color, at));
+            nearest = Some((d2, *color, index));
         }
     }
-    if let Some((_, rgb, at)) = nearest {
-        return WheelHit::Dot(rgb, at);
+    if let Some((_, rgb, slot)) = nearest {
+        return WheelHit::Dot(rgb, slot);
     }
     let dist = (local[0] * local[0] + local[1] * local[1]).sqrt();
     if dist <= WHEEL_SV_RADIUS {
-        let sat = (local[0] / (2.0 * WHEEL_SV_RADIUS) + 0.5).clamp(0.0, 1.0);
-        let val = (0.5 - local[1] / (2.0 * WHEEL_SV_RADIUS)).clamp(0.0, 1.0);
+        let p = egui::vec2(local[0], local[1]);
+        let snap = wheel_snaps()
+            .into_iter()
+            .find(|(at, _)| (p - *at).length() <= WHEEL_SNAP_RADIUS);
+        let (sat, val) = match snap {
+            Some((_, [s, v])) => (s, v),
+            None => sv_at(p),
+        };
         let next = [hsv[0], sat, val];
         return WheelHit::Field(hsv_to_rgb(next), next);
     }
-    if (WHEEL_SV_RADIUS..=WHEEL_HUE_OUTER + WHEEL_HUE_HIT_PAD).contains(&dist) {
+    if (WHEEL_HUE_INNER..=WHEEL_HUE_OUTER + WHEEL_HUE_HIT_PAD).contains(&dist) {
         let mut hue = (-local[1]).atan2(local[0]) / std::f32::consts::TAU;
         if hue < 0.0 {
             hue += 1.0;
@@ -695,6 +754,9 @@ pub(crate) enum BrushHud {
         hsv: [f32; 3],
         /// Pointer left the wheel, so this hold samples the canvas instead.
         sampling: bool,
+        /// The swatch the pointer last entered. Entering another one moves
+        /// the pointer to its center.
+        dot: Option<usize>,
     },
     /// Shift+right-drag: opacity (Brush) or strength (Eraser). The circle
     /// stays on the press point.
@@ -817,7 +879,7 @@ impl SlateApp {
         } else if self.board_tool == BoardTool::Smooth {
             self.smooth_width = width;
             self.smooth_softness = softness;
-            self.smooth_strength = opacity.clamp(0.1, 1.0);
+            self.smooth_strength = opacity.clamp(0.0, 1.0);
         } else {
             self.brush_width = width;
             self.brush_softness = softness;
@@ -928,7 +990,7 @@ impl SlateApp {
 
     fn brush_rgba(&self) -> Rgba {
         let c = self.board_colors.fg.0;
-        let a = (c[3] as f32 * self.brush_opacity.clamp(0.1, 1.0)).round() as u8;
+        let a = (c[3] as f32 * self.brush_opacity.clamp(0.0, 1.0)).round() as u8;
         Rgba([c[0], c[1], c[2], a])
     }
 
@@ -948,7 +1010,7 @@ impl SlateApp {
     /// The eraser's tip and size-HUD fill: its rim color at the erase strength.
     pub(crate) fn eraser_preview_color(&self) -> Color32 {
         self.eraser_rim_color()
-            .gamma_multiply(self.eraser_opacity.clamp(0.1, 1.0))
+            .gamma_multiply(self.eraser_opacity.clamp(0.0, 1.0))
     }
 
     /// Rim of the tip disc: the eraser neutral for the Eraser, white otherwise.
@@ -1260,7 +1322,7 @@ impl SlateApp {
                 0,
                 0,
                 0,
-                (self.eraser_opacity.clamp(0.1, 1.0) * 255.0).round() as u8,
+                (self.eraser_opacity.clamp(0.0, 1.0) * 255.0).round() as u8,
             ],
             grain: self.eraser_texture.grain(),
         }
@@ -1600,7 +1662,7 @@ impl SlateApp {
         let ink = match self.board_tool {
             BoardTool::Brush => self.brush_preview_color(),
             BoardTool::Eraser => self.eraser_preview_color(),
-            BoardTool::Smooth => Color32::from_gray(160).gamma_multiply(strength.clamp(0.1, 1.0)),
+            BoardTool::Smooth => Color32::from_gray(160).gamma_multiply(strength.clamp(0.0, 1.0)),
             BoardTool::Pen => {
                 super::board::rgba32(self.stroke_for_tool(slate_doc::StrokeTool::Pen).color)
             }
@@ -1739,6 +1801,7 @@ impl SlateApp {
                 center: pointer - sv_offset(hsv[1], hsv[2]),
                 hsv,
                 sampling: false,
+                dot: None,
             });
             return true;
         }
@@ -1776,22 +1839,21 @@ impl SlateApp {
                 width0,
                 softness0,
             } => {
+                use super::board_tip_hud::{palette_band_y, palette_hit, palette_zone};
                 let z = self.tab().cam.z.max(f32::EPSILON);
                 let o = self.board_xf().w2s(*origin);
-                // In the style band under the circle, the pointer picks a
-                // style and the size and softness hold still.
                 let r_now = (self.active_tip().0 * 0.5 * z).max(1.5);
                 let choices = self.tip_choices();
-                if super::board_tip_hud::palette_zone(o, r_now, choices.len(), pointer) {
-                    // Reaching the row means crossing the harder half of the
-                    // softness scrub; the trip is travel, not an edit.
-                    if self.tip_hud_has_softness() {
+                let softens = self.tip_hud_has_softness();
+                // Anywhere in the band under the circle the pointer picks a
+                // style: size holds, and softness stays at the hardest edge
+                // the way down reached, so each style is entered hard.
+                if palette_zone(o, r_now, choices.len(), pointer) {
+                    if softens {
                         let (w, _, opacity) = self.active_tip();
-                        self.set_active_tip(w, *softness0, opacity);
+                        self.set_active_tip(w, 0.0, opacity);
                     }
-                    if let Some(i) =
-                        super::board_tip_hud::palette_hit(o, r_now, choices.len(), pointer)
-                    {
+                    if let Some(i) = palette_hit(o, r_now, choices.len(), pointer) {
                         self.apply_tip_choice(choices[i]);
                     }
                     self.brush_hud = Some(hud);
@@ -1802,10 +1864,15 @@ impl SlateApp {
                     super::settings::STROKE_WIDTH_MIN,
                     super::settings::STROKE_WIDTH_MAX,
                 );
-                let soft = if self.tip_hud_has_softness() {
-                    scrub_softness(*softness0, pointer.y - o.y)
-                } else {
+                let dy = pointer.y - o.y;
+                let soft = if !softens {
                     *softness0
+                } else if choices.is_empty() || dy <= 0.0 {
+                    scrub_softness(*softness0, dy)
+                } else {
+                    let r = (width * 0.5 * z).max(1.5);
+                    let reach = (palette_band_y(o, r) - o.y).max(1.0);
+                    scrub_softness(*softness0, dy).min(*softness0 * (1.0 - dy / reach).max(0.0))
                 };
                 let opacity = self.active_tip().2;
                 self.set_active_tip(width, soft, opacity);
@@ -1819,32 +1886,35 @@ impl SlateApp {
                 center,
                 hsv,
                 sampling,
+                dot,
                 ..
             } => {
                 let local = pointer - *center;
                 let recents = self.doc().view.recent_colors.clone().unwrap_or_default();
-                match sample_wheel([local.x, local.y], *hsv, &recents) {
-                    WheelHit::Keep => {
-                        *sampling = false;
-                    }
+                let hit = sample_wheel([local.x, local.y], *hsv, &recents);
+                let entered = match hit {
+                    WheelHit::Dot(_, slot) => Some(slot),
+                    _ => None,
+                };
+                let newly = entered.is_some() && entered != *dot;
+                *dot = entered;
+                *sampling = matches!(hit, WheelHit::Outside);
+                match hit {
+                    WheelHit::Keep => {}
                     WheelHit::Outside => {
-                        *sampling = true;
                         if let Some(rgb) = atlas_shell::desktop_color::sample_cursor() {
                             self.set_active_rgb(rgb);
                         }
                     }
-                    WheelHit::Dot(rgb, at) => {
-                        *sampling = false;
-                        let changed = self.active_rgba()[..3] != rgb;
+                    WheelHit::Dot(rgb, slot) => {
                         self.set_active_rgb(rgb);
                         *hsv = rgb_to_hsv(rgb);
-                        let target = *center + egui::vec2(at[0], at[1]);
-                        if changed && pointer.distance(target) > 4.0 {
+                        let target = wheel_slot_center(*center, slot);
+                        if newly && pointer.distance(target) > 0.25 {
                             self.brush_cursor_warp = Some((pointer, target));
                         }
                     }
                     WheelHit::Field(rgb, next) => {
-                        *sampling = false;
                         self.set_active_rgb(rgb);
                         *hsv = next;
                     }
@@ -1902,8 +1972,7 @@ impl SlateApp {
     }
 
     /// Pointer-attached HUD. Numbers stay in screen px (P2.GhostFollow).
-    /// The size circle sits on the pointer like the brush tip; the opacity
-    /// circle stays on the press point.
+    /// The size and opacity circles stay pinned on the press point.
     pub(crate) fn paint_brush_hud(&self, painter: &egui::Painter, pointer: Pos2, accent: Color32) {
         match self.brush_hud {
             Some(BrushHud::Size { origin, .. }) => {
@@ -1966,22 +2035,20 @@ impl SlateApp {
         let rings = 32u32;
         let slices = 96u32;
         let mut mesh = egui::Mesh::default();
-        let sv_at = |local: egui::Vec2| {
-            let sat = (local.x / (2.0 * WHEEL_SV_RADIUS) + 0.5).clamp(0.0, 1.0);
-            let val = (0.5 - local.y / (2.0 * WHEEL_SV_RADIUS)).clamp(0.0, 1.0);
+        let color_at = |local: egui::Vec2| {
+            let (sat, val) = sv_at(local);
             let rgb = hsv_to_rgb([hsv[0], sat, val]);
             Color32::from_rgb(rgb[0], rgb[1], rgb[2])
         };
-        mesh.colored_vertex(center, sv_at(egui::Vec2::ZERO));
-        // The disk runs under the hue ring's inner edge so no backdrop
-        // shows between them; colors past the field radius clamp to its rim.
-        let disk_radius = WHEEL_HUE_INNER + 1.0;
+        mesh.colored_vertex(center, color_at(egui::Vec2::ZERO));
+        // The disk ends at its own radius: the gap out to the hue ring is
+        // the backdrop, and picks nothing.
         for ring in 1..=rings {
-            let dist = disk_radius * ring as f32 / rings as f32;
+            let dist = WHEEL_SV_RADIUS * ring as f32 / rings as f32;
             for slice in 0..slices {
                 let angle = slice as f32 / slices as f32 * std::f32::consts::TAU;
                 let local = egui::vec2(angle.cos() * dist, angle.sin() * dist);
-                mesh.colored_vertex(center + local, sv_at(local));
+                mesh.colored_vertex(center + local, color_at(local));
             }
         }
         for slice in 0..slices {
@@ -1999,35 +2066,34 @@ impl SlateApp {
             }
         }
         painter.add(egui::Shape::mesh(mesh));
-        let hue_steps = 120;
+        let hue_steps = 120u32;
+        let mut ring = egui::Mesh::default();
         for i in 0..hue_steps {
-            let a0 = i as f32 / hue_steps as f32 * std::f32::consts::TAU;
-            let a1 = (i + 1) as f32 / hue_steps as f32 * std::f32::consts::TAU;
-            let c0 = hsv_to_rgb([a0 / std::f32::consts::TAU, 1.0, 1.0]);
-            let c1 = hsv_to_rgb([a1 / std::f32::consts::TAU, 1.0, 1.0]);
-            let c0 = Color32::from_rgb(c0[0], c0[1], c0[2]);
-            let c1 = Color32::from_rgb(c1[0], c1[1], c1[2]);
-            let p = |radius: f32, angle: f32| {
-                center + egui::vec2(angle.cos() * radius, -angle.sin() * radius)
-            };
-            let mut quad = egui::Mesh::default();
-            for (pos, color) in [
-                (p(WHEEL_HUE_INNER, a0), c0),
-                (p(WHEEL_HUE_OUTER, a0), c0),
-                (p(WHEEL_HUE_OUTER, a1), c1),
-                (p(WHEEL_HUE_INNER, a1), c1),
-            ] {
-                quad.colored_vertex(pos, color);
-            }
-            quad.add_triangle(0, 1, 2);
-            quad.add_triangle(0, 2, 3);
-            painter.add(egui::Shape::mesh(quad));
+            let a = i as f32 / hue_steps as f32 * std::f32::consts::TAU;
+            let c = hsv_to_rgb([a / std::f32::consts::TAU, 1.0, 1.0]);
+            let c = Color32::from_rgb(c[0], c[1], c[2]);
+            let dir = egui::vec2(a.cos(), -a.sin());
+            ring.colored_vertex(center + dir * WHEEL_HUE_INNER, c);
+            ring.colored_vertex(center + dir * WHEEL_HUE_OUTER, c);
+        }
+        for i in 0..hue_steps {
+            let (a, b) = (2 * i, 2 * ((i + 1) % hue_steps));
+            ring.add_triangle(a, a + 1, b + 1);
+            ring.add_triangle(a, b + 1, b);
+        }
+        painter.add(egui::Shape::mesh(ring));
+        for (at, _) in wheel_snaps() {
+            let inside = at - at.normalized() * (WHEEL_SNAP_RADIUS * 0.5);
+            painter.circle_stroke(
+                center + inside,
+                2.5,
+                EStroke::new(1.0_f32, Color32::from_gray(128)),
+            );
         }
         let recents = self.doc().view.recent_colors.clone().unwrap_or_default();
         let slots = slate_doc::ViewState::WHEEL_COLOR_LIMIT;
         for (index, color) in recents.iter().enumerate().take(slots) {
-            let [x, y] = wheel_slot_offset(index, slots, WHEEL_SLOT_RADIUS);
-            let at = center + egui::vec2(x, y);
+            let at = wheel_slot_center(center, index);
             painter.circle_filled(
                 at,
                 WHEEL_DOT_RADIUS,
@@ -2211,15 +2277,17 @@ mod tests {
     }
 
     #[test]
-    fn softness_steps_are_quarters_and_the_hud_scrubs_one_pixel() {
+    fn softness_steps_are_quarters_and_the_hud_scrubs_two_pixels_of_diameter() {
         assert_eq!(step_softness(0.0, true), 0.25);
         assert_eq!(step_softness(1.0, true), 1.0);
         assert_eq!(step_softness(0.5, false), 0.25);
-        assert_eq!(scrub_diameter_px(10.0, 40.0), 50.0);
+        assert_eq!(SIZE_DRAG_GAIN, 2.0);
+        assert_eq!(scrub_diameter_px(10.0, 40.0), 90.0);
+        assert_eq!(scrub_diameter_px(10.0, -40.0), 1.0);
         assert!((scrub_softness(0.0, -50.0) - 0.5).abs() < 1e-5);
         assert!((scrub_opacity(1.0, 50.0) - 0.5).abs() < 1e-4);
         assert!((scrub_opacity(0.2, -100.0) - 1.0).abs() < 1e-4);
-        assert!((scrub_opacity(0.5, 1000.0) - 0.1).abs() < 1e-4);
+        assert_eq!(scrub_opacity(0.5, 1000.0), 0.0);
         let slot0 = wheel_slot_offset(0, 24, 10.0);
         assert!(slot0[0].abs() < 1e-4);
         assert!((slot0[1] - 10.0).abs() < 1e-4);
@@ -2235,7 +2303,8 @@ mod tests {
         assert_eq!(vector_ink::tip_coverage(10.0, 20.0, 0.5), 1.0);
         assert!(vector_ink::tip_coverage(15.0, 20.0, 0.5) < 1.0);
         assert!((step_opacity(1.0) - 0.9).abs() < 1e-4);
-        assert!((step_opacity(0.1) - 1.0).abs() < 1e-4);
+        assert!(step_opacity(0.1).abs() < 1e-4);
+        assert!((step_opacity(0.0) - 1.0).abs() < 1e-4);
         let hard = slate_doc::scene::Stroke {
             width: 40.0,
             softness: 0.0,
@@ -2287,5 +2356,61 @@ mod tests {
             sample_wheel(gap, [0.0, 1.0, 1.0], &[[9, 8, 7]]),
             WheelHit::Keep
         ));
+    }
+
+    #[test]
+    fn the_wheel_zones_leave_a_dead_strip_between_disk_and_ring() {
+        assert!(WHEEL_HUE_INNER - WHEEL_SV_RADIUS >= 6.0);
+        let hsv = [0.6, 0.4, 0.7];
+        for k in 0..36 {
+            let a = k as f32 / 36.0 * std::f32::consts::TAU;
+            let at = |r: f32| [a.cos() * r, a.sin() * r];
+            assert!(matches!(sample_wheel(at(WHEEL_SV_RADIUS - 0.5), hsv, &[]), WheelHit::Field(..)));
+            assert!(matches!(sample_wheel(at(WHEEL_SV_RADIUS + 0.5), hsv, &[]), WheelHit::Keep));
+            assert!(matches!(sample_wheel(at(WHEEL_HUE_INNER - 0.5), hsv, &[]), WheelHit::Keep));
+            match sample_wheel(at(WHEEL_HUE_INNER + 0.5), hsv, &[]) {
+                WheelHit::Field(_, next) => {
+                    assert_eq!(next[1..], hsv[1..], "the ring changes hue only")
+                }
+                other => panic!("ring at {a}: {other:?}"),
+            }
+            assert!(matches!(sample_wheel(at(WHEEL_BACKDROP_RADIUS + 1.0), hsv, &[]), WheelHit::Outside));
+        }
+    }
+
+    #[test]
+    fn the_wheel_snaps_to_exact_white_and_black() {
+        let [(white, _), (black, _)] = wheel_snaps();
+        for hue in [0.0, 0.33, 0.8] {
+            for nudge in [egui::Vec2::ZERO, egui::vec2(3.0, -2.0), egui::vec2(-4.0, 5.0)] {
+                let p = white + nudge;
+                match sample_wheel([p.x, p.y], [hue, 0.7, 0.4], &[]) {
+                    WheelHit::Field(rgb, _) => assert_eq!(rgb, [255, 255, 255]),
+                    other => panic!("white snap: {other:?}"),
+                }
+                let p = black + nudge;
+                if p.length() <= WHEEL_SV_RADIUS {
+                    match sample_wheel([p.x, p.y], [hue, 0.7, 0.4], &[]) {
+                        WheelHit::Field(rgb, _) => assert_eq!(rgb, [0, 0, 0]),
+                        other => panic!("black snap: {other:?}"),
+                    }
+                }
+            }
+        }
+        assert!(white.length() <= WHEEL_SV_RADIUS + 1e-3);
+        assert!(black.length() <= WHEEL_SV_RADIUS + 1e-3);
+    }
+
+    #[test]
+    fn the_sv_disk_reaches_every_corner_of_the_square() {
+        for (s, v) in [(0.0, 1.0), (1.0, 1.0), (0.0, 0.0), (1.0, 0.0), (0.3, 0.6)] {
+            let at = sv_offset(s, v);
+            assert!(at.length() <= WHEEL_SV_RADIUS + 1e-3, "({s},{v}) at {at:?}");
+            let (s2, v2) = sv_at(at);
+            assert!((s2 - s).abs() < 1e-3 && (v2 - v).abs() < 1e-3, "({s},{v}) -> ({s2},{v2})");
+        }
+        // Pure white sits on the rim, reachable without the snap.
+        let (s, v) = sv_at(sv_offset(0.0, 1.0));
+        assert_eq!(hsv_to_rgb([0.4, s, v]), [255, 255, 255]);
     }
 }

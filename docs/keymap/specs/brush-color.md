@@ -80,10 +80,12 @@ pub struct BoardColors { pub fg: Rgba, pub bg: Rgba }
   curves flat/square, round/round, arrow at the end (`Stroke::arrow_end`),
   narrow at the start (`WidthProfile::Taper`), narrow at both ends
   (`WidthProfile::Ends`).
-- Below the circle's rim the pointer is in the style row: size holds and
-  softness returns to its value at the press point, because the way down
-  crosses the harder half of the softness scrub. Harder and a new texture
-  take two gestures.
+- The way down toward the row drives softness to hardest by the band's
+  top edge, so each style is entered at maximum hardness (user,
+  2026-09-27), and the release keeps it. The band spans the full width
+  below the circle's rim: anywhere in it size and softness hold, so the
+  row never moves under the pointer. Swatches are screen-sized
+  (P2.GhostFollow), drawn from cached textures and meshes.
 - Direct Select applies the same HUD and row to its target curve, as one
   journaled Patch per HUD release. Per-vertex color and opacity on a vector
   curve are not offered: SVG cannot vary a stroke's color along its length
@@ -135,7 +137,7 @@ pub struct BoardColors { pub fg: Rgba, pub bg: Rgba }
 | [ / ] | `board.brush.width_down` / `width_up` |
 | Shift+[ / Shift+] | `board.brush.softness_up` / `softness_down` (softer / harder) |
 | Alt+right-drag | `board.brush.size_hud` |
-| Shift+right-drag | `board.brush.opacity_hud` (Brush only; Ctrl and Alt win) |
+| Shift+right-drag | `board.brush.opacity_hud` (Brush, Eraser strength, curve tools; 0–100%; Ctrl and Alt win) |
 | Ctrl+right-drag | `board.brush.color_wheel` |
 | Alt+click (Brush) | `board.brush.sample` (screen color to fg and recent colors) |
 | Shift+click (Brush) | steps opacity down 10% |

@@ -148,9 +148,56 @@ fn stroke_subpaths(path: &BezPath, tips: Option<Tipping>, tolerance: f64) -> Vec
         .unwrap_or_else(|| subpaths(path, tolerance))
 }
 
+/// Stations along an open contour for a [`Taper::Ends`] swell. The taper
+/// is read at points only, so a straight span needs interior ones.
+const SWELL_STATIONS: f32 = 48.0;
+
+/// Split long spans of an open contour so a non-linear taper is sampled
+/// along them; widths and colors blend linearly into the new points.
+fn sample_swell(sub: &mut SubPath) {
+    let total: f32 = sub.points.windows(2).map(|w| dist(w[0], w[1])).sum();
+    let step = total / SWELL_STATIONS;
+    if sub.closed || !(step > EPS) {
+        return;
+    }
+    let n = sub.points.len();
+    let mut points = Vec::with_capacity(n + SWELL_STATIONS as usize);
+    let mut widths = sub.widths.as_ref().map(|_| Vec::with_capacity(points.capacity()));
+    let mut colors = sub.colors.as_ref().map(|_| Vec::with_capacity(points.capacity()));
+    for i in 0..n {
+        if i > 0 {
+            let (a, b) = (sub.points[i - 1], sub.points[i]);
+            let splits = (dist(a, b) / step).floor() as usize;
+            for k in 1..=splits {
+                let t = k as f32 / (splits + 1) as f32;
+                points.push([lerp(a[0], b[0], t), lerp(a[1], b[1], t)]);
+                if let (Some(out), Some(w)) = (&mut widths, &sub.widths) {
+                    out.push(lerp(w[i - 1], w[i], t));
+                }
+                if let (Some(out), Some(c)) = (&mut colors, &sub.colors) {
+                    out.push(lerp_color(c[i - 1], c[i], t));
+                }
+            }
+        }
+        points.push(sub.points[i]);
+        if let (Some(out), Some(w)) = (&mut widths, &sub.widths) {
+            out.push(w[i]);
+        }
+        if let (Some(out), Some(c)) = (&mut colors, &sub.colors) {
+            out.push(c[i]);
+        }
+    }
+    sub.points = points;
+    sub.widths = widths;
+    sub.colors = colors;
+}
+
 fn stroke_runs(mut sub: SubPath, style: &StrokeStyle) -> Vec<Run> {
     if sub.points.len() < 2 {
         return Vec::new();
+    }
+    if matches!(style.taper, Some(crate::Taper::Ends(_))) {
+        sample_swell(&mut sub);
     }
     let Some((pattern, phase)) = &style.dash else {
         return vec![Run {
@@ -693,6 +740,28 @@ mod tests {
             last_half = y;
         }
         assert!(last_x > 50.0);
+    }
+
+    /// "Narrow at both ends" on a two-point line swells to full width in
+    /// the middle, on the board mesh and in the exported outline alike.
+    #[test]
+    fn an_ends_taper_swells_along_a_straight_line() {
+        let path = line_path(0.0, 0.0, 200.0, 0.0);
+        let style = StrokeStyle {
+            width: 10.0,
+            cap: Cap::Round,
+            join: Join::Round,
+            taper: Some(crate::Taper::Ends(0.12)),
+            dash: None,
+        };
+        let mesh = stroke_mesh(&path, &style, 0.5, 0.01);
+        assert!(inside(&mesh, [100.0, 4.5]), "full width at the middle");
+        assert!(!inside(&mesh, [5.0, 4.5]), "narrow near the start");
+        assert!(!inside(&mesh, [195.0, 4.5]), "narrow near the end");
+        let outline = stroke_outline(&path, &style, 0.01);
+        let rings = flatten_contours(&outline, 0.01);
+        assert!(crate::point_in_polygon(&rings, [100.0, 4.5]));
+        assert!(!crate::point_in_polygon(&rings, [5.0, 4.5]));
     }
 
     fn inside(mesh: &InkMesh, p: [f32; 2]) -> bool {

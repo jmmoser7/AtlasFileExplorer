@@ -609,7 +609,7 @@ pub struct SlateApp {
     pub brush_width: f32,
     /// Brush edge falloff 0..=1 (persisted; `Shift+[` / `Shift+]` and the size HUD).
     pub brush_softness: f32,
-    /// Brush paint opacity 0.1..=1 (persisted; Shift+click steps it).
+    /// Brush paint opacity 0..=1 (persisted; Shift+click steps it).
     pub brush_opacity: f32,
     /// Live Alt+right size HUD, Shift+right opacity HUD, or Ctrl+right color wheel.
     pub(crate) brush_hud: Option<board_color::BrushHud>,
@@ -651,7 +651,7 @@ pub struct SlateApp {
     /// Smoothing brush width (world units), `[`/`]` while Smooth is armed.
     pub smooth_width: f32,
     pub smooth_softness: f32,
-    /// Laplacian / blur strength (0.1..=1).
+    /// Laplacian / blur strength (0..=1).
     pub smooth_strength: f32,
     pub(crate) smooth_anchor: Option<egui::Pos2>,
     pub(crate) smooth_preview: HashMap<NodeId, slate_doc::scene::Node>,

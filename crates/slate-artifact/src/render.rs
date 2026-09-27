@@ -1720,7 +1720,11 @@ fn render_vector_path_d(
             shape.corner,
         )
     });
-    match (taper, tipped) {
+    let head = tipped
+        .as_ref()
+        .and_then(|t| t.widths.last().copied())
+        .unwrap_or(shape.stroke.width);
+    match (taper, &tipped) {
         (None, None) => {
             push_path_open(html, d, &fill_css, fill_rule);
             if shape.stroke.is_none() {
@@ -1768,44 +1772,41 @@ fn render_vector_path_d(
                     taper,
                     dash: stroke_dash_ink(&shape.stroke),
                 };
-                let trim_for_arrow = |bez: &BezPath| {
-                    if shape.stroke.arrow_end && !path.closed {
-                        slate_doc::geom::trim_end(
-                            bez,
-                            slate_doc::geom::arrow_trim(shape.stroke.width),
-                        )
+                let arrow = shape.stroke.arrow_end && !path.closed;
+                let body = tipped.as_ref().map(|t| {
+                    if arrow {
+                        slate_doc::geom::trim_tipped_end(t, slate_doc::geom::arrow_trim(head))
                     } else {
-                        bez.clone()
+                        t.clone()
                     }
-                };
-                if let Some((t, colors)) = tipped
+                });
+                if let Some((t, colors)) = body
                     .as_ref()
                     .and_then(|t| t.colors.as_ref().map(|c| (t, c)))
                 {
-                    let trimmed = slate_doc::geom::TippedStroke {
-                        bez: trim_for_arrow(&t.bez),
-                        widths: t.widths.clone(),
-                        colors: t.colors.clone(),
-                        ease: t.ease,
-                    };
                     push_tinted_stroke(
                         html,
                         node.id.0,
-                        &trimmed,
+                        t,
                         colors,
                         &style,
                         filter_id.as_deref(),
                     );
                 } else {
-                    let outline = match &tipped {
-                        Some(t) => {
-                            let bez = trim_for_arrow(&t.bez);
-                            vector_ink::stroke_outline_tipped(
-                                &bez, &style, &t.widths, t.ease, 0.25,
-                            )
-                        }
+                    let outline = match &body {
+                        Some(t) => vector_ink::stroke_outline_tipped(
+                            &t.bez, &style, &t.widths, t.ease, 0.25,
+                        ),
                         None => {
-                            let bez = trim_for_arrow(&path_data_to_bez(path, w, h));
+                            let bez = path_data_to_bez(path, w, h);
+                            let bez = if arrow {
+                                slate_doc::geom::trim_end(
+                                    &bez,
+                                    slate_doc::geom::arrow_trim(head),
+                                )
+                            } else {
+                                bez
+                            };
                             vector_ink::stroke_outline(&bez, &style, 0.25)
                         }
                     };
@@ -1832,16 +1833,18 @@ fn render_vector_path_d(
 
     if shape.stroke.arrow_end && !shape.stroke.is_none() {
         if let Some(path) = path.filter(|p| !p.closed) {
-            if let Some((tip, into)) =
-                slate_doc::geom::path_end_arrow(&path_data_to_bez(path, w, h))
-            {
-                push_arrow_triangle(
-                    html,
-                    tip,
-                    into,
-                    shape.stroke.width,
-                    &shape.stroke.color.css(),
-                );
+            let bez = tipped
+                .as_ref()
+                .map_or_else(|| path_data_to_bez(path, w, h), |t| t.bez.clone());
+            if let Some((tip, into)) = slate_doc::geom::path_end_arrow(&bez, head) {
+                let fill = tipped
+                    .as_ref()
+                    .and_then(|t| t.colors.as_ref()?.last().copied())
+                    .map_or_else(
+                        || shape.stroke.color.css(),
+                        |c| Rgba(c.map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8)).css(),
+                    );
+                push_arrow_triangle(html, tip, into, head, &fill);
             }
         }
     }
