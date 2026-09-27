@@ -225,31 +225,79 @@ pub fn tipped_stroke(
         return None;
     }
     let widths = widths.unwrap_or_else(|| vec![stroke.width.max(0.0); path.tips.len()]);
-    let ease = tip_ease(&path_data_to_world_bez(path, rect, rotation_deg));
     let (bez, params) = tipped_stroke_world_path(path, rect, rotation_deg, corner);
+    let mut ease = tip_ease(&bez);
+    let mut between = vector_ink::TipEase::Linear;
+    // A filleted polyline eases from polyline vertex to polyline vertex, not
+    // between the fillet ends it paints through: its values are eased by
+    // vertex parameter and its straight edges are densified to carry them.
+    let (bez, params) = if ease == vector_ink::TipEase::Smooth && path_is_line_polyline(path) {
+        (between, ease) = (ease, vector_ink::TipEase::Linear);
+        densify_lines(&bez, &params, FILLETED_TIP_STEPS)
+    } else {
+        (bez, params)
+    };
     let colors = colors.map(|colors| {
         let channels: [Vec<f32>; 4] =
             std::array::from_fn(|i| colors.iter().map(|c| c.0[i] as f32 / 255.0).collect());
         params
             .iter()
-            .map(|at| std::array::from_fn(|i| value_at_param(&channels[i], *at)))
+            .map(|at| std::array::from_fn(|i| eased_value_at_param(&channels[i], *at, between)))
             .collect()
     });
     Some(TippedStroke {
         bez,
         widths: params
             .iter()
-            .map(|at| value_at_param(&widths, *at))
+            .map(|at| eased_value_at_param(&widths, *at, between))
             .collect(),
         colors,
         ease,
     })
 }
 
+/// Pieces each straight edge of a filleted polyline's tipped stroke is cut
+/// into, so a linear blend between them follows the smoothstep.
+const FILLETED_TIP_STEPS: usize = 16;
+
+/// `bez` with each line segment cut into `steps` equal pieces, and the
+/// vertex parameter of every on-curve vertex (`params` for the old ones).
+fn densify_lines(bez: &BezPath, params: &[f32], steps: usize) -> (BezPath, Vec<f32>) {
+    use vector_ink::kurbo::PathEl;
+    let mut out = BezPath::new();
+    let mut at = Vec::with_capacity(params.len() * steps);
+    let (mut k, mut last) = (0usize, Point::ZERO);
+    for el in bez.elements() {
+        if let (PathEl::LineTo(p), Some(&from), Some(&to)) =
+            (el, params.get(k.wrapping_sub(1)), params.get(k))
+        {
+            for s in 1..steps {
+                let t = s as f64 / steps as f64;
+                out.line_to(last.lerp(*p, t));
+                at.push(from + (to - from) * t as f32);
+            }
+        }
+        out.push(*el);
+        if let Some(p) = el.end_point() {
+            if !matches!(el, PathEl::ClosePath) {
+                at.push(params.get(k).copied().unwrap_or(0.0));
+                k += 1;
+            }
+            last = p;
+        }
+    }
+    (out, at)
+}
+
 /// `values` (one per path vertex) at vertex parameter `at`, straight between
 /// vertices. Parameter `values.len()` is the first vertex again, the far end
 /// of a closed path's closing segment.
 pub fn value_at_param(values: &[f32], at: f32) -> f32 {
+    eased_value_at_param(values, at, vector_ink::TipEase::Linear)
+}
+
+/// [`value_at_param`], blended between vertices by `ease`.
+fn eased_value_at_param(values: &[f32], at: f32, ease: vector_ink::TipEase) -> f32 {
     let Some(&first) = values.first() else {
         return 0.0;
     };
@@ -261,13 +309,14 @@ pub fn value_at_param(values: &[f32], at: f32) -> f32 {
     if f <= 0.0 {
         return get(i);
     }
-    get(i) + (get(i + 1) - get(i)) * f
+    get(i) + (get(i + 1) - get(i)) * ease.weight(f)
 }
 
-/// How a path blends per-vertex tips (P1.curve.vertex-style): polylines,
+/// How a path blends per-vertex tips (P1.curve.tip-chord): polylines,
 /// lines and circular arcs straight by arc length; any other curve (a Bézier
-/// span, a Pen curve) smoothly, so its width has no chines. Geometry, not
-/// tool provenance, decides, as for the curve's grips.
+/// span, a Pen curve, a filleted polyline as it paints) smoothly, so its
+/// width and color have no chines. Geometry, not tool provenance, decides,
+/// as for the curve's grips.
 pub fn tip_ease(bez: &BezPath) -> vector_ink::TipEase {
     let curved = bez.elements().iter().any(|el| {
         matches!(
@@ -681,6 +730,74 @@ pub fn node_closed_poly(n: &Node, tolerance: f32) -> Option<Polygon> {
 mod tests {
     use super::*;
     use crate::scene::{Corner, PathData, PathSeg, WorldRect};
+
+    /// P1.curve.tip-chord: a polyline blends its tips straight while its
+    /// corners are sharp or chamfered, and smoothly once they are filleted;
+    /// a circular arc stays straight along its sweep.
+    #[test]
+    fn a_filleted_polyline_blends_its_tips_smoothly() {
+        let tip = |width| crate::scene::StrokeSpan {
+            width,
+            softness: 0.0,
+            color: crate::scene::Rgba::opaque(0, 0, 0),
+            texture: Default::default(),
+        };
+        let path = PathData {
+            start: [0.0, 0.0],
+            segs: vec![
+                PathSeg::Line { to: [1.0, 0.0] },
+                PathSeg::Line { to: [1.0, 1.0] },
+            ],
+            tips: vec![tip(2.0), tip(10.0), tip(4.0)],
+            ..Default::default()
+        };
+        let stroke = crate::scene::Stroke {
+            width: 10.0,
+            ..Default::default()
+        };
+        let rect = WorldRect::new(0.0, 0.0, 100.0, 100.0);
+        let width_at = |corner, x: f64| {
+            let t = tipped_stroke(&path, &stroke, rect, 0.0, corner).unwrap();
+            assert_eq!(t.ease, vector_ink::TipEase::Linear, "{corner:?}");
+            let k = t
+                .bez
+                .elements()
+                .iter()
+                .filter_map(|el| el.end_point())
+                .position(|p| (p - Point::new(x, 0.0)).hypot() < 1e-6);
+            k.map(|k| t.widths[k])
+        };
+        assert_eq!(
+            width_at(Corner::Square, 25.0),
+            None,
+            "sharp: one straight edge"
+        );
+        assert_eq!(width_at(Corner::Chamfer { cut: 20.0 }, 25.0), None);
+        // A 20-unit fillet starts at x = 80, so the edge is cut every 5 units.
+        let smooth = 2.0 + 8.0 * vector_ink::TipEase::Smooth.weight(0.25);
+        let got = width_at(Corner::Rounded { radius: 20.0 }, 25.0).expect("densified");
+        assert!((got - smooth).abs() < 1e-4, "{got} != {smooth}");
+        let got = width_at(Corner::Rounded { radius: 20.0 }, 0.0).unwrap();
+        assert_eq!(got, 2.0, "a vertex keeps its own");
+
+        let mut arc = BezPath::new();
+        arc.move_to((0.0, 0.0));
+        arc.extend(
+            vector_ink::kurbo::Arc::new(
+                (50.0, 0.0),
+                (50.0, 50.0),
+                std::f64::consts::PI,
+                -std::f64::consts::PI,
+                0.0,
+            )
+            .append_iter(0.1),
+        );
+        assert_eq!(
+            tip_ease(&arc),
+            vector_ink::TipEase::Linear,
+            "an arc tweens along its sweep"
+        );
+    }
 
     #[test]
     fn polyline_fillet_zero_is_sharp_polyline() {

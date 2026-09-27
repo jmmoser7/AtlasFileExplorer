@@ -651,16 +651,17 @@ pub enum BoardDrag {
     /// Dragging an endpoint grip of a selected simple line (0 = start,
     /// 1 = end). Journals one point-edit Patch on release (D13/D14).
     LineGrip { id: NodeId, before: Node, end: u8 },
-    /// Freehand pen stroke (world-space samples).
-    /// `widths` holds the Pen width at each point, so a width chord
-    /// mid-stroke changes the rest of the stroke.
+    /// Freehand pen stroke: world-space samples, each with the Pen tip it
+    /// was drawn with, so a tip chord mid-stroke blends into the rest of
+    /// the stroke (P1.curve.tip-chord).
     FreehandPen {
-        points: Vec<Pos2>,
-        last: Pos2,
-        widths: Vec<f32>,
+        stroke: board_path::FreehandTips<slate_doc::vertex_style::PlacedTip>,
     },
-    /// Freehand brush stroke (fg color / brush width; tool stays armed).
-    FreehandBrush { points: Vec<Pos2>, last: Pos2 },
+    /// Freehand brush stroke (tool stays armed): samples with the brush tip
+    /// each was drawn with.
+    FreehandBrush {
+        stroke: board_path::FreehandTips<slate_doc::scene::StrokeSpan>,
+    },
     /// Eraser scrub. Vector strokes it crosses (`touched`) render at 30% and
     /// are removed on release. Painted strokes it crosses (`spot`) lose only
     /// the ink under the pass. `points` is the pass; a Shift pass is a
@@ -5440,10 +5441,10 @@ impl SlateApp {
                 draft,
                 cursor,
                 board_path::PathDraftPaintStyle {
-                    stroke: palette.accent,
-                    width: self
-                        .armed_stroke_tool()
-                        .map_or(2.0, |tool| self.stroke_for_tool(tool).width),
+                    tip: self.placed_tip(
+                        self.armed_stroke_tool()
+                            .unwrap_or(slate_doc::StrokeTool::Polyline),
+                    ),
                     overlay: super::path_edit_overlay::PathEditAnchorColors {
                         select: palette.select,
                         bg: palette.bg,
@@ -5464,33 +5465,28 @@ impl SlateApp {
         if let (Some(p), true) = (pointer, resp.hovered()) {
             self.paint_draft_lock_glyph(&painter, p);
         }
-        if let (Some(BoardDrag::FreehandPen { points, widths, .. }), Some(w)) =
-            (&self.board_drag, wp)
-        {
-            if !points.is_empty() {
-                let width = self.stroke_for_tool(slate_doc::StrokeTool::Pen).width;
-                let ink = board_path::pen_preview_ink(points, widths, w, width, xf.z);
-                board_path::paint_preview_ink(&draft_painter, &xf, palette.accent, ink);
-            }
+        if let (Some(BoardDrag::FreehandPen { stroke }), Some(w)) = (&self.board_drag, wp) {
+            let now = self.placed_tip(slate_doc::StrokeTool::Pen);
+            let cursor_tip = stroke.tip_at(w, now);
+            let (ink, color) =
+                board_path::pen_preview_ink(&stroke.points, &stroke.tips, w, cursor_tip, xf.z);
+            board_path::paint_preview_ink(&draft_painter, &xf, color, ink);
         }
         // Brush drag preview: the screen-aligned canvas holds the same radial
-        // stamp the release stores. A Shift segment that continues a stroke
-        // draws that stroke into the canvas too, so the joint shows the
-        // committed max-coverage result.
-        let live_freehand = match &self.board_drag {
-            Some(BoardDrag::FreehandBrush { points, .. }) if !points.is_empty() => {
-                Some(points.clone())
-            }
-            _ => None,
-        };
+        // stamp the release stores, each sample at its own tip. A Shift
+        // segment that continues a stroke draws that stroke into the canvas
+        // too, so the joint shows the committed max-coverage result.
+        let live_freehand = matches!(
+            &self.board_drag,
+            Some(BoardDrag::FreehandBrush { stroke }) if !stroke.points.is_empty()
+        );
         let live_line = wp.and_then(|w| {
             let end = self.brush_straight_end(w, self.shift_down)?;
             let (from, start, anchor) = self.brush_straight_from()?;
             Some((from, start, anchor, end))
         });
         match (live_freehand, live_line) {
-            (Some(points), _) => {
-                let tip = self.tip_now().stamp();
+            (true, _) => {
                 let canvas = board_path::BrushLiveCanvas::ensure(
                     &mut self.brush_live,
                     &draft_painter,
@@ -5499,10 +5495,12 @@ impl SlateApp {
                     None,
                     Vec::new,
                 );
-                canvas.add_freehand(&points, tip);
+                if let Some(BoardDrag::FreehandBrush { stroke }) = &self.board_drag {
+                    canvas.add_freehand(&stroke.points, &stroke.tips);
+                }
                 canvas.paint(&draft_painter, &xf);
             }
-            (None, Some((from, start, anchor, w))) => {
+            (false, Some((from, start, anchor, w))) => {
                 let end = self.tip_now();
                 let anchor_id = anchor.filter(|id| {
                     self.doc().scene.node(*id).is_some_and(|n| !n.hidden)
@@ -6391,9 +6389,10 @@ impl SlateApp {
             }
             BoardTool::Pan => None, // drag pans the canvas
             BoardTool::Pen => Some(BoardDrag::FreehandPen {
-                points: vec![world],
-                last: world,
-                widths: vec![self.stroke_for_tool(slate_doc::StrokeTool::Pen).width],
+                stroke: board_path::FreehandTips::new(
+                    world,
+                    self.placed_tip(slate_doc::StrokeTool::Pen),
+                ),
             }),
             BoardTool::Brush => {
                 if self.alt_down || self.shift_down {
@@ -6402,8 +6401,7 @@ impl SlateApp {
                     None
                 } else {
                     Some(BoardDrag::FreehandBrush {
-                        points: vec![world],
-                        last: world,
+                        stroke: board_path::FreehandTips::new(world, self.tip_now().span()),
                     })
                 }
             }
@@ -6556,33 +6554,28 @@ impl SlateApp {
             }
             return;
         }
-        if matches!(self.board_drag, Some(BoardDrag::FreehandPen { .. })) {
-            // The size chord's scrub is not ink.
+        if matches!(
+            self.board_drag,
+            Some(BoardDrag::FreehandPen { .. } | BoardDrag::FreehandBrush { .. })
+        ) {
+            // A tip chord's scrub is not ink.
             if self.brush_hud.is_some() {
                 return;
             }
-            let width = self.stroke_for_tool(slate_doc::StrokeTool::Pen).width;
             let zoom = self.tabs[self.active_tab].cam.z;
-            if let Some(BoardDrag::FreehandPen {
-                points,
-                last,
-                widths,
-            }) = &mut self.board_drag
-            {
-                if (world - *last).length() * zoom >= board_path::FREEHAND_SAMPLE_SPACING_PX {
-                    points.push(world);
-                    widths.push(width);
-                    *last = world;
+            let far = |last: Pos2| {
+                (world - last).length() * zoom >= board_path::FREEHAND_SAMPLE_SPACING_PX
+            };
+            let pen_tip = self.placed_tip(slate_doc::StrokeTool::Pen);
+            let brush_tip = self.tip_now().span();
+            match &mut self.board_drag {
+                Some(BoardDrag::FreehandPen { stroke }) if far(stroke.last()) => {
+                    stroke.push(world, pen_tip, zoom);
                 }
-            }
-            return;
-        }
-        if let Some(BoardDrag::FreehandBrush { points, last }) = &mut self.board_drag {
-            if (world - *last).length() * self.tabs[self.active_tab].cam.z
-                >= board_path::FREEHAND_SAMPLE_SPACING_PX
-            {
-                points.push(world);
-                *last = world;
+                Some(BoardDrag::FreehandBrush { stroke }) if far(stroke.last()) => {
+                    stroke.push(world, brush_tip, zoom);
+                }
+                _ => {}
             }
             return;
         }
@@ -7316,27 +7309,13 @@ impl SlateApp {
                     }
                 }
             }
-            Some(BoardDrag::FreehandPen {
-                mut points,
-                mut widths,
-                ..
-            }) => {
-                board_path::append_freehand_endpoint(
-                    &mut points,
-                    world,
-                    self.tabs[self.active_tab].cam.z,
-                );
-                let last = widths.last().copied().unwrap_or_default();
-                widths.resize(points.len(), last);
-                self.finish_freehand_pen_widths(points, &widths);
+            Some(BoardDrag::FreehandPen { mut stroke }) => {
+                stroke.end_at(world, self.tabs[self.active_tab].cam.z);
+                self.finish_freehand_pen_stroke(&stroke);
             }
-            Some(BoardDrag::FreehandBrush { mut points, .. }) => {
-                board_path::append_freehand_endpoint(
-                    &mut points,
-                    world,
-                    self.tabs[self.active_tab].cam.z,
-                );
-                self.finish_freehand_brush(points);
+            Some(BoardDrag::FreehandBrush { mut stroke }) => {
+                stroke.end_at(world, self.tabs[self.active_tab].cam.z);
+                self.finish_freehand_brush_stroke(&stroke);
             }
             Some(BoardDrag::Erase {
                 touched,

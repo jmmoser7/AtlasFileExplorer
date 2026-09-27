@@ -1464,6 +1464,79 @@ mod tests {
         );
     }
 
+    /// P1.curve.tip-chord: a line drawn narrow, red, and opaque, then
+    /// finished wide, blue, and at half opacity exports each end's width,
+    /// color, and opacity: a filled outline graded between the ends' colors
+    /// with the fade in the gradient's stop opacity, and no opaque underfill.
+    #[test]
+    fn tip_chord_line_exports_per_vertex_width_color_and_opacity() {
+        use slate_doc::vertex_style::{set_grip_placed_tips, PlacedTip};
+        let (red, blue) = (Rgba::opaque(200, 0, 0), Rgba::opaque(0, 0, 200));
+        let rect = WorldRect::new(20.0, 20.0, 160.0, 20.0);
+        let mut path = PathData {
+            start: [0.0, 0.5],
+            segs: vec![PathSeg::Line { to: [1.0, 0.5] }],
+            closed: false,
+            ..Default::default()
+        };
+        let mut stroke = Stroke {
+            width: 2.0,
+            color: red,
+            dash: Dash::Solid,
+            ..Default::default()
+        };
+        let tips = [
+            PlacedTip {
+                width: 2.0,
+                color: red,
+                opacity: 1.0,
+            },
+            PlacedTip {
+                width: 12.0,
+                color: blue,
+                opacity: 0.5,
+            },
+        ];
+        let opacity = set_grip_placed_tips(&mut path, &mut stroke, rect, 0.0, &tips).unwrap();
+        assert_eq!(opacity, 1.0, "the node is as opaque as its most opaque tip");
+        assert_eq!(path.tips[1].color.0[3], 128, "the end carries its fade");
+        let mut doc = SlateDoc::new("TipChord");
+        add_frame(&mut doc.scene, 0, WorldRect::new(0.0, 0.0, 200.0, 200.0));
+        let mut node = doc.scene.build_node(
+            rect,
+            NodeKind::Shape(ShapeNode {
+                shape: ShapeKind::Path,
+                fill: None,
+                stroke,
+                corner: Corner::Square,
+                sides: slate_doc::scene::default_regular_sides(),
+                phase_deg: 0.0,
+                flip: false,
+                path: Some(std::sync::Arc::new(path)),
+                text: None,
+            }),
+        );
+        node.opacity = opacity;
+        let index = doc.scene.nodes.len();
+        doc.scene.apply(&SceneCmd::Add { index, node });
+
+        let html = render_html(&doc, &AssetMap::default());
+        assert!(html.contains("<linearGradient"), "graded color:\n{html}");
+        assert!(
+            html.contains("stop-color=\"rgb(200,0,0)\" stop-opacity=\"1.000\""),
+            "the start's opaque red:\n{html}"
+        );
+        assert!(
+            html.contains("stop-color=\"rgb(0,0,200)\" stop-opacity=\"0.502\""),
+            "the end's half-opaque blue:\n{html}"
+        );
+        assert!(!html.contains("stroke-width=\"12"), "not a uniform stroke");
+        assert!(
+            !html.contains("fill=\"rgba(100,0,100"),
+            "no opaque underfill"
+        );
+    }
+
     #[test]
     fn soft_brush_stroke_blurs_in_the_html_artifact() {
         let mut doc = SlateDoc::new("SoftBrush");

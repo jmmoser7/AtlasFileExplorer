@@ -99,6 +99,9 @@ pub struct BoardColors { pub fg: Rgba, pub bg: Rgba }
   and the HTML export writes a `linearGradient` with `stop-opacity`. One
   journaled Patch per HUD release; Esc restores. See
   [direct selection](direct-selection.md#tip-hud-on-picked-vertices).
+- The HUD also works mid-draw: a width, color or opacity chord while a
+  curve is being drawn gives the next placed point that tip, and the
+  committed curve tweens between them (P1.curve.tip-chord).
 - **P2**: segment-split erase (Illustrator path-eraser semantics, research
   §2B) — splits the centerline at crossings, regenerates meshes, journals
   Remove+Add pairs.

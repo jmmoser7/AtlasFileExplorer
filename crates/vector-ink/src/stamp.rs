@@ -607,8 +607,10 @@ pub fn default_pixel(diameter: f32) -> f32 {
 }
 
 /// Flatten `path` to tipped contours. `tips` holds one tip per vertex in
-/// path order (the move-to, then the end of every segment); segments lerp
-/// between their end tips by arc length. Missing tips fall back to `base`.
+/// path order (the move-to, then the end of every segment); segments blend
+/// between their end tips by arc length, straight on a line and by
+/// smoothstep on a curve (P1.curve.tip-chord). Missing tips fall back to
+/// `base`.
 pub fn tipped_contours(
     path: &kurbo::BezPath,
     tips: &[StampStyle],
@@ -654,27 +656,27 @@ pub fn tipped_contours(
         let from = tip_at(vertex);
         vertex += 1;
         let to = tip_at(vertex);
-        let mut pts: Vec<kurbo::Point> = Vec::new();
+        let ease = match seg {
+            KSeg::Line(_) => crate::TipEase::Linear,
+            KSeg::Quad(_) | KSeg::Cubic(_) => crate::TipEase::Smooth,
+        };
+        let mut pts: Vec<[f32; 2]> = vec![[last.x as f32, last.y as f32]];
         kurbo::flatten([PathEl::MoveTo(last), seg.as_path_el()], tolerance, |e| {
             if let PathEl::LineTo(p) = e {
-                pts.push(p);
+                pts.push([p.x as f32, p.y as f32]);
             }
         });
-        let mut lengths = Vec::with_capacity(pts.len());
-        let mut acc = 0.0_f64;
-        let mut prev = last;
-        for p in &pts {
-            acc += prev.distance(*p);
-            lengths.push(acc);
-            prev = *p;
+        // An eased blend needs points to bend at, as for a hard stroke.
+        if ease == crate::TipEase::Smooth && from != to {
+            pts = crate::stroke::densify(&pts, crate::stroke::SMOOTH_TIP_STEPS);
         }
-        let total = acc.max(1.0e-9);
+        let lengths = crate::geom::cumulative_arclength(&pts);
+        let total = lengths.last().copied().unwrap_or(0.0).max(1.0e-9);
         let contour = out.last_mut().expect("contour started");
-        for (p, len) in pts.iter().zip(lengths) {
-            let t = (len / total) as f32;
+        for (p, len) in pts.iter().zip(&lengths).skip(1) {
             contour.push(TipPoint {
-                pos: [p.x as f32, p.y as f32],
-                tip: lerp_tip(from, to, t),
+                pos: *p,
+                tip: lerp_tip(from, to, ease.weight(len / total)),
             });
         }
         last = match seg {
@@ -1205,5 +1207,46 @@ mod tests {
             .expect("corner vertex");
         assert!((corner.tip.diameter - 10.0).abs() < 1e-3);
         assert!((chain.last().unwrap().tip.diameter - 30.0).abs() < 1e-3);
+    }
+
+    /// P1.curve.tip-chord: a stamped curve eases its tips by smoothstep over
+    /// arc length; a straight segment stays linear.
+    #[test]
+    fn tipped_contours_ease_curves_by_smoothstep() {
+        let a = StampStyle {
+            diameter: 2.0,
+            softness: 0.0,
+            rgba: [0, 0, 0, 255],
+            grain: Default::default(),
+        };
+        let b = StampStyle {
+            diameter: 10.0,
+            ..a
+        };
+        let near = |chain: &[TipPoint], x: f32| {
+            chain
+                .iter()
+                .min_by(|p, q| (p.pos[0] - x).abs().total_cmp(&(q.pos[0] - x).abs()))
+                .map(|p| (p.pos[0], p.tip.diameter))
+                .unwrap()
+        };
+        let mut curve = kurbo::BezPath::new();
+        curve.move_to((0.0, 0.0));
+        curve.curve_to((30.0, 0.0), (70.0, 0.0), (100.0, 0.0));
+        let chain = &tipped_contours(&curve, &[a, b], a, 0.25)[0];
+        assert!(chain.len() > 4, "a curve densifies its blend");
+        let (x, d) = near(chain, 25.0);
+        let smooth = 2.0 + 8.0 * crate::TipEase::Smooth.weight(x / 100.0);
+        assert!((d - smooth).abs() < 0.05, "{d} at {x}, want {smooth}");
+        assert!(
+            d < 2.0 + 8.0 * x / 100.0 - 0.3,
+            "slower than linear near the start"
+        );
+
+        let mut line = kurbo::BezPath::new();
+        line.move_to((0.0, 0.0));
+        line.line_to((100.0, 0.0));
+        let chain = &tipped_contours(&line, &[a, b], a, 0.25)[0];
+        assert_eq!(chain.len(), 2, "a line blends straight between its ends");
     }
 }

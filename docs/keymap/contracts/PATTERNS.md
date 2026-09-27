@@ -319,23 +319,50 @@ is searchable.
   (`Stroke::hard_vector`): edge softness, stamp, and Gaussian blur are never
   inherited, not even from an edited brush stroke, and those tools offer no
   softness or blur control. Existing documents are not rewritten on load.
-- **P1.curve.width-chord** (stated 2026-09-25) Alt+right-drag with pen,
-  line, arc, polyline, or Bézier armed runs the Brush size HUD
-  (`board_color::drive_brush_hud`, no copy) on that tool's own width:
-  horizontal scrub, no softness, Esc restores, release saves to the tool's
-  memory. It takes the right button from pan and the context menu like the
-  brush chords. Mid-draw on a line, arc, polyline or Bézier it sets the
-  width of the point being placed and of the points after it; points
-  already placed keep theirs, so the curve tapers between them by the
-  P1.curve.vertex-style blend (user, 26 September 2026), and the draft
-  previews that taper. Mid-stroke the Pen stops sampling while the
-  HUD is up and the rest of the stroke takes the new width: each
-  constant-width run is fitted on its own and `PathData::tips` stores one
-  tip per vertex. Tips on a hard vector stroke are relative
-  (`PathData::vector_widths`): the widest vertex paints at `Stroke::width`,
-  so a later width edit scales the whole stroke. Both interpreters stroke
-  them through `vector_ink::stroke_mesh_tipped` / `stroke_outline_tipped`
-  (the artifact writes the filled outline, as for a taper).
+- **P1.curve.tip-chord** (stated 2026-09-25 as the width chord, widened
+  2026-09-27) Alt+right-drag with pen, line, arc, polyline, or Bézier armed
+  runs the Brush size HUD (`board_color::drive_brush_hud`, no copy) on that
+  tool's own width: horizontal scrub, no softness, Esc restores, release
+  saves to the tool's memory. The color and opacity HUDs reach the same
+  tools (user, 27 September 2026). The chords take the right button from pan
+  and the context menu like the brush chords. **Mid-draw tips** (user,
+  27 September 2026: "earlier versions had the ability for the user to
+  dynamically change brush properties part way through the drawing process
+  and for the drawing preview to update to show the interpolation between
+  those two states and for the committed drawing to retain them
+  parametrically"): every placed point or sample records the tool's whole
+  tip — width, color, and opacity (`vertex_style::PlacedTip`). On a line,
+  arc, polyline or Bézier a chord sets the tip of the point being placed
+  and of the points after it; points already placed keep theirs. The draft
+  preview paints the tips it will commit (`board_path::draft_stroke_ink`,
+  real colors, not the accent), and commit writes them as grip tips
+  (`vertex_style::set_grip_placed_tips`). Equal tips commit a plain stroke.
+  Curve opacity is node-level, so the node takes the most opaque tip and
+  each vertex's alpha carries its share of it. The tool keeps the tip it
+  finished with (`board_style::keep_tool_tip`). **Easing** (user,
+  26–27 September 2026: "linear tweening of curve width only on linear
+  shapes. For curved, filleted, pen drawn shapes sigmoid or appropriate
+  interpolation should be used"): straight by arc length on lines and
+  sharp or chamfered polylines, straight along the sweep on a circular
+  arc, smoothstep on Bézier spans, Pen curves and filleted polylines
+  (`slate_doc::geom::tip_ease` on the path as it paints). A stamped stroke
+  eases per segment: straight on a line segment, smoothstep on a curve
+  (`vector_ink::tipped_contours`). **Freehand:** mid-stroke the Pen and the
+  Brush stop sampling while a HUD is up, so the scrub draws nothing. The
+  samples after it blend from the last drawn tip to the new one by
+  smoothstep over 24 screen px, or the wider of the two tips if that is
+  longer (`board_path::FreehandTips`); the live preview draws each sample
+  at its own tip. The fit splits at the blend's ends, and each fitted
+  vertex takes the tip drawn at its spot, so `PathData::tips` stores one tip
+  per vertex (a Brush stroke's tips are absolute stamped tips). Tips on a
+  hard vector stroke are relative (`PathData::vector_widths`): the widest
+  vertex paints at `Stroke::width`, so a later width edit scales the whole
+  stroke. Both interpreters stroke them through `slate_doc::geom::tipped_stroke`
+  and `vector_ink::stroke_mesh_tipped` / `stroke_mesh_tinted` /
+  `stroke_outline_tipped`; the artifact writes the filled outline, graded
+  by `linearGradient` stops whose `stop-opacity` carries each vertex's
+  alpha (P1.curve.vertex-style). Curve tools never gain softness.
+  Formerly P1.curve.width-chord.
 - **P1.curve.grips** selected open curves expose their defining points as
   gripable handles (endpoints, on-curve anchors) — **not** a resize bbox.
   Applies to **every** selected simple line in the selection, not only when
@@ -379,9 +406,14 @@ is searchable.
   every vertex, keeping the taper. A click off the grips clears the pick.
   Each edit is one journaled Patch through `board.shape.edit`, whose request
   carries the picked grips (`PropertyRequest::points`), so agents drive the
-  same edit. Between vertices the width blends straight for polylines and
-  lines, straight along the sweep for arcs, and with a smoothstep for
-  Bézier spans (zero slope at every vertex, so the stroke has no chines).
+  same edit. Between vertices the width blends straight for sharp or
+  chamfered polylines and lines, straight along the sweep for arcs, and
+  with a smoothstep for Bézier spans, Pen curves and filleted polylines
+  (zero slope at every vertex, so the stroke has no chines;
+  P1.curve.tip-chord, 27 September 2026). A filleted polyline eases from
+  polyline vertex to polyline vertex by vertex parameter, not between the
+  fillet ends it paints through, and a cut on it takes that eased value
+  (`split_tips_at` reads the shape's corner).
   Color follows the same model (user, 26 September 2026: "sub-select
   individual vertices to create a blended color between that vertex and its
   neighbors"): the Stroke color field and opacity rail edit the picked
@@ -422,10 +454,10 @@ is searchable.
   alternative, but they would step the blend. An opaque stroke fills its
   whole outline in the mean color under the pieces, so browser
   antialiasing seams between quads do not show the background. While
-  drawing, the width chord sets the point being placed (P1.curve.width-chord).
-  Drafts record the tool width per placed point (`BoardPathDraft` widths,
-  `LineDraft::start_width`) and commit them as grip widths
-  (`vertex_style::set_grip_widths`). The draft preview paints through the
+  drawing, the tip chords set the point being placed (P1.curve.tip-chord).
+  Drafts record the tool's tip per placed point (`BoardPathDraft::tips`,
+  `LineDraft::start_tip`) and commit them as grip tips
+  (`vertex_style::set_grip_placed_tips`). The draft preview paints through the
   same call (`board_path::draft_stroke_ink`).
   Implementation: `slate_doc::vertex_style`,
   `board_properties::Property::apply_at`.

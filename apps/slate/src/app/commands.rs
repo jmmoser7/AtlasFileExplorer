@@ -1919,8 +1919,9 @@ pub static SPECS: &[CommandSpec] = &[
         "Scrub stroke width",
         "Alt+right-drag while Pen, Line, Arc, Polyline, or Bezier is armed: \
          the Brush size HUD, for that tool's own width only (no softness). \
-         Mid-draw it changes the shape being drawn; mid-stroke the Pen \
-         widens or narrows from that point on. Esc restores the width.",
+         Mid-draw it sets the width of the point being placed, and the \
+         curve tweens from the points already placed; mid-stroke the Pen \
+         blends into the new width. Esc restores the width.",
         None,
         Repeat::Never,
         BOARD,

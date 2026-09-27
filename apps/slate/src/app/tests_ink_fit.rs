@@ -236,7 +236,7 @@ fn pen_stroke_stores_and_exports_one_cubic_chain() {
     }
 }
 
-/// Stated (P1.curve.width-chord): a width change mid-stroke still maps one
+/// Stated (P1.curve.tip-chord): a width change mid-stroke still maps one
 /// tip per fitted vertex, narrow before the change and wide after it.
 #[test]
 fn variable_width_pen_tips_map_onto_the_fitted_vertices() {
@@ -268,7 +268,13 @@ fn pen_preview_shows_each_points_width() {
         .iter()
         .map(|p| if p.x < 100.0 { 2.0 } else { 10.0 })
         .collect();
-    let ink = board_path::pen_preview_ink(&pts, &widths, Pos2::new(202.0, 0.0), 10.0, 1.0);
+    let tip = |width: f32| slate_doc::vertex_style::PlacedTip {
+        width,
+        color: slate_doc::scene::Rgba([0, 0, 0, 255]),
+        opacity: 1.0,
+    };
+    let tips: Vec<_> = widths.iter().map(|w| tip(*w)).collect();
+    let (ink, _) = board_path::pen_preview_ink(&pts, &tips, Pos2::new(202.0, 0.0), tip(10.0), 1.0);
     let verts: Vec<[f32; 2]> = ink.vertices.iter().map(|v| v.pos).collect();
     let inside = |x: f32, y: f32| vector_ink::point_in_mesh(&verts, &ink.indices, [x, y]);
     assert!(inside(50.0, 0.5), "the preview covers the stroke");

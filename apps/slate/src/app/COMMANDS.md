@@ -258,9 +258,12 @@ drag the address-bar URL or a page link instead.
 - **Alt+right-drag** (`board.stroke.width_hud`) with Pen, Line, Arc,
   Polyline, or Bézier armed opens the Brush size HUD for that tool's own
   width (horizontal only; these strokes are always hard). During a line,
-  arc, polyline, or Bézier draft it changes the shape being drawn. During a
-  Pen stroke the scrub draws nothing and the rest of the stroke takes the
-  new width, stored as one tip per vertex. Esc restores the width.
+  arc, polyline, or Bézier draft it sets the width of the point being
+  placed, and the curve tweens from the points already placed; the color
+  and opacity HUDs do the same for color and opacity (P1.curve.tip-chord).
+  During a Pen or Brush stroke a HUD draws nothing and the rest of the
+  stroke blends into the new tip, stored as one tip per vertex. Esc
+  restores the width.
 - **I — Eyedropper**: samples the topmost node's salient color
   (shape/path stroke → fill → text color → sticky fill → frame fill; image
   nodes yield only their border stroke — raster sampling is P2). Click →

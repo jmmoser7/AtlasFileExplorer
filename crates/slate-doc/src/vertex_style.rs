@@ -14,7 +14,7 @@ use vector_ink::kurbo::{
 };
 
 use crate::geom::{arc_grip_points, path_data_to_world_bez, tip_ease};
-use crate::scene::{PathData, PathSeg, Rgba, Stroke, StrokeSpan, WorldRect};
+use crate::scene::{Corner, PathData, PathSeg, Rgba, Stroke, StrokeSpan, WorldRect};
 
 /// `a` blended toward `b` by `t` (0 = `a`, 1 = `b`).
 pub fn lerp_span(a: StrokeSpan, b: StrokeSpan, t: f32) -> StrokeSpan {
@@ -145,32 +145,89 @@ pub fn set_grip_tips(
     true
 }
 
-/// Give each grip of a just-drawn curve the width its point was placed
-/// with, in grip order, keeping the stroke's other style. Equal widths set
-/// the stroke width alone. `false` when `widths` does not fit the curve.
-pub fn set_grip_widths(
+/// The tip a point of a drawn curve was placed with (P1.curve.tip-chord):
+/// the tool's width, color, and opacity at that moment.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PlacedTip {
+    pub width: f32,
+    pub color: Rgba,
+    pub opacity: f32,
+}
+
+impl PlacedTip {
+    /// `a` blended toward `b` by `t` (0 = `a`, 1 = `b`).
+    pub fn lerp(a: PlacedTip, b: PlacedTip, t: f32) -> PlacedTip {
+        let t = t.clamp(0.0, 1.0);
+        let mix = |x: f32, y: f32| x + (y - x) * t;
+        PlacedTip {
+            width: mix(a.width, b.width),
+            color: Rgba(std::array::from_fn(|i| {
+                mix(a.color.0[i] as f32, b.color.0[i] as f32).round() as u8
+            })),
+            opacity: mix(a.opacity, b.opacity),
+        }
+    }
+
+    /// Straight color with the opacity folded into alpha, as it paints.
+    pub fn rgba(self) -> Rgba {
+        let [r, g, b, a] = self.color.0;
+        Rgba([
+            r,
+            g,
+            b,
+            (a as f32 * self.opacity.clamp(0.0, 1.0)).round() as u8,
+        ])
+    }
+}
+
+/// Placed tips as a hard curve stores them: the node opacity is the most
+/// opaque tip's, and each tip's alpha carries its share of that, so the
+/// curve paints every tip at the opacity it was placed with. The softness
+/// and texture are the stroke's.
+pub fn placed_spans(stroke: &Stroke, tips: &[PlacedTip]) -> (f32, Vec<StrokeSpan>) {
+    let top = tips.iter().map(|t| t.opacity).fold(0.0_f32, f32::max);
+    let spans = tips
+        .iter()
+        .map(|t| {
+            let share = if top > 0.0 { t.opacity / top } else { 1.0 };
+            let mut color = t.color;
+            color.0[3] = (color.0[3] as f32 * share.clamp(0.0, 1.0)).round() as u8;
+            StrokeSpan {
+                width: t.width,
+                color,
+                ..StrokeSpan::of(stroke)
+            }
+        })
+        .collect();
+    (if top > 0.0 { top } else { 1.0 }, spans)
+}
+
+/// Give each grip of a just-drawn curve the tip its point was placed with,
+/// in grip order ([`placed_spans`]). Equal tips leave a plain stroke. The
+/// node opacity the curve takes, or `None` when `tips` does not fit it.
+pub fn set_grip_placed_tips(
     path: &mut PathData,
     stroke: &mut Stroke,
     rect: WorldRect,
     rotation_deg: f32,
-    widths: &[f32],
-) -> bool {
-    let Some(&first) = widths.first() else {
-        return false;
-    };
-    if widths.iter().all(|w| *w == first) {
-        path.tips.clear();
-        stroke.width = first;
-        return true;
+    tips: &[PlacedTip],
+) -> Option<f32> {
+    if tips.is_empty() {
+        return None;
     }
-    let grips: Vec<StrokeSpan> = widths
-        .iter()
-        .map(|&width| StrokeSpan {
-            width,
-            ..StrokeSpan::of(stroke)
-        })
-        .collect();
-    set_grip_tips(path, stroke, rect, rotation_deg, &grips)
+    let (opacity, spans) = placed_spans(stroke, tips);
+    set_grip_tips(path, stroke, rect, rotation_deg, &spans).then_some(opacity)
+}
+
+/// Write one tip per vertex of the one-contour `path`. Equal tips clear
+/// the list and set the stroke; otherwise the stroke width becomes the
+/// widest tip. `false` when `tips` does not fit the path.
+pub fn set_vertex_tips(path: &mut PathData, stroke: &mut Stroke, tips: Vec<StrokeSpan>) -> bool {
+    if tips.is_empty() || !path.extra.is_empty() || tips.len() != 1 + path.segs.len() {
+        return false;
+    }
+    write_tips(path, stroke, tips);
+    true
 }
 
 /// Apply `edit` to the tips at the `picked` grips. `false` when the curve
@@ -339,21 +396,39 @@ fn vertex_tips(path: &PathData, stroke: &Stroke) -> Option<Vec<StrokeSpan>> {
 /// leaves plus the arc-length fraction along that segment; a closed
 /// contour's implicit closing edge leaves its last vertex and ends on its
 /// first. Between vertices the tip blends as the painters do: a hard stroke
-/// by [`tip_ease`] (straight on polylines, lines and arcs, smoothstep on
-/// other curves), a stamped stroke straight. `None` when `path` paints one
-/// tip everywhere.
+/// by [`tip_ease`] on the path as `corner` paints it (straight on sharp or
+/// chamfered polylines, lines and arcs, smoothstep on filleted polylines and
+/// other curves), a stamped stroke per segment (straight on a line,
+/// smoothstep on a curve, as `vector_ink::tipped_contours`). `None` when
+/// `path` paints one tip everywhere.
 pub fn split_tips_at(
     path: &PathData,
     stroke: &Stroke,
     rect: WorldRect,
     rotation_deg: f32,
+    corner: Corner,
     at: &[f32],
 ) -> Option<Vec<StrokeSpan>> {
     let tips = vertex_tips(path, stroke)?;
-    let ease = if stroke.paints_as_stamp() {
-        vector_ink::TipEase::Linear
-    } else {
-        tip_ease(&path_data_to_world_bez(path, rect, rotation_deg))
+    let stamp = stroke.paints_as_stamp();
+    let painted = crate::geom::tipped_stroke_world_path(path, rect, rotation_deg, corner).0;
+    let hard_ease = tip_ease(&painted);
+    let segs: Vec<&PathSeg> = std::iter::once(&path.segs)
+        .chain(path.extra.iter().map(|c| &c.segs))
+        .flat_map(|s| s.iter().map(Some).chain(std::iter::once(None)))
+        .map(|s| s.unwrap_or(&PathSeg::Line { to: [0.0, 0.0] }))
+        .collect();
+    let ease_at = |i: usize| {
+        if !stamp {
+            hard_ease
+        } else if matches!(
+            segs.get(i),
+            Some(PathSeg::Quad { .. } | PathSeg::Cubic { .. })
+        ) {
+            vector_ink::TipEase::Smooth
+        } else {
+            vector_ink::TipEase::Linear
+        }
     };
     let spans = contours(path);
     Some(
@@ -374,7 +449,7 @@ pub fn split_tips_at(
                 } else {
                     i
                 };
-                lerp_span(tips[i], tips[next], ease.weight(f))
+                lerp_span(tips[i], tips[next], ease_at(i).weight(f))
             })
             .collect(),
     )
@@ -387,17 +462,18 @@ pub fn split_tips_at(
 /// an old vertex and nowhere else; a closing copy of the start follows the
 /// shape's corner, as in [`keep_corner_amounts`]. `stroke` is `old`'s stroke
 /// and becomes `new`'s: a hard stroke's width is its widest painted tip.
+/// `old` is the source path, its rect, rotation, and shape corner.
 pub fn carry_vertex_style(
-    old: (&PathData, WorldRect, f32),
+    old: (&PathData, WorldRect, f32, Corner),
     new: &mut PathData,
     stroke: &mut Stroke,
     params: &[f32],
 ) {
-    let (old_path, rect, rotation_deg) = old;
+    let (old_path, rect, rotation_deg, corner) = old;
     if params.len() != vertex_count(new) {
         return;
     }
-    if let Some(tips) = split_tips_at(old_path, stroke, rect, rotation_deg, params) {
+    if let Some(tips) = split_tips_at(old_path, stroke, rect, rotation_deg, corner, params) {
         if stroke.paints_as_stamp() {
             new.tips = tips;
         } else {
@@ -585,18 +661,28 @@ pub fn cut_curve(
             .filter(|v| *v < to),
     );
     params.push(to);
-    let ease = if stroke.paints_as_stamp() {
-        vector_ink::TipEase::Linear
-    } else {
-        tip_ease(&subpath_through(&segs, &params))
+    let hard_ease = tip_ease(&subpath_through(&segs, &params));
+    let ease_between = |a: f32, b: f32| {
+        if !stroke.paints_as_stamp() {
+            hard_ease
+        } else if matches!(
+            segs.get(((a + b) / 2.0).floor() as usize),
+            Some((KSeg::Line(_), ..))
+        ) {
+            vector_ink::TipEase::Linear
+        } else {
+            vector_ink::TipEase::Smooth
+        }
     };
     let strays = |a: f32, b: f32| {
         const SAMPLES: [f32; 7] = [0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875];
         let mut at = vec![a, b];
         at.extend(SAMPLES.iter().map(|g| a + (b - a) * g));
-        let Some(tips) = split_tips_at(path, stroke, rect, rotation_deg, &at) else {
+        let Some(tips) = split_tips_at(path, stroke, rect, rotation_deg, Corner::Square, &at)
+        else {
             return false;
         };
+        let ease = ease_between(a, b);
         SAMPLES.iter().zip(&tips[2..]).any(|(g, source)| {
             let piece = lerp_span(tips[0], tips[1], ease.weight(*g));
             (piece.width - source.width).abs() > tolerance.width
@@ -876,6 +962,7 @@ mod tests {
         w: 100.0,
         h: 100.0,
     };
+    const SQ: Corner = Corner::Square;
 
     /// A straight polyline (0,0) → (100,0) → (100,100) in `UNIT`.
     fn ell() -> PathData {
@@ -906,8 +993,9 @@ mod tests {
 
     #[test]
     fn split_tips_follow_the_painters_blend() {
-        let at =
-            |path: &PathData, p: f32| split_tips_at(path, &hard(10.0), UNIT, 0.0, &[p]).unwrap()[0];
+        let at = |path: &PathData, p: f32| {
+            split_tips_at(path, &hard(10.0), UNIT, 0.0, SQ, &[p]).unwrap()[0]
+        };
         let line = ell();
         assert_eq!(at(&line, 1.0), tip(10.0, 200), "a vertex keeps its own");
         let quarter = at(&line, 0.25);
@@ -920,7 +1008,80 @@ mod tests {
             "smoothstep on a curve"
         );
         assert_eq!(curve.color.0[0], (200.0 * ease).round() as u8);
-        assert!(split_tips_at(&PathData::default(), &hard(1.0), UNIT, 0.0, &[0.0]).is_none());
+        assert!(split_tips_at(&PathData::default(), &hard(1.0), UNIT, 0.0, SQ, &[0.0]).is_none());
+    }
+
+    #[test]
+    fn a_stamped_stroke_splits_straight_on_lines_and_smoothly_on_curves() {
+        let brush = Stroke {
+            stamp: true,
+            ..hard(10.0)
+        };
+        let at =
+            |path: &PathData, p: f32| split_tips_at(path, &brush, UNIT, 0.0, SQ, &[p]).unwrap()[0];
+        let mut mixed = straight_cubic();
+        mixed.segs.push(PathSeg::Line { to: [1.0, 1.0] });
+        mixed.tips.push(tip(4.0, 0));
+        let ease = vector_ink::TipEase::Smooth.weight(0.25);
+        let curve = at(&mixed, 0.25);
+        assert!((curve.width - (2.0 + 8.0 * ease)).abs() < 1e-5, "{curve:?}");
+        let line = at(&mixed, 1.25);
+        assert!((line.width - 8.5).abs() < 1e-5, "{line:?}");
+    }
+
+    /// A filleted polyline paints its tips by smoothstep between its
+    /// vertices (P1.curve.tip-chord), so a cut there takes that value.
+    #[test]
+    fn a_filleted_polyline_splits_by_smoothstep_as_it_paints() {
+        let round = Corner::Rounded { radius: 20.0 };
+        let at = |corner, p: f32| {
+            split_tips_at(&ell(), &hard(10.0), UNIT, 0.0, corner, &[p]).unwrap()[0]
+        };
+        let ease = vector_ink::TipEase::Smooth.weight(0.25);
+        let got = at(round, 0.25);
+        assert!((got.width - (2.0 + 8.0 * ease)).abs() < 1e-5, "{got:?}");
+        assert_eq!(got.color.0[0], (200.0 * ease).round() as u8);
+        assert!((at(Corner::Chamfer { cut: 20.0 }, 0.25).width - 4.0).abs() < 1e-5);
+        let painted = crate::geom::tipped_stroke(&ell(), &hard(10.0), UNIT, 0.0, round).unwrap();
+        let k = painted
+            .bez
+            .elements()
+            .iter()
+            .filter_map(|el| el.end_point())
+            .position(|p| (p - Point::new(25.0, 0.0)).hypot() < 1e-6)
+            .expect("a painted vertex at the cut");
+        assert!(
+            (painted.widths[k] - got.width).abs() < 1e-4,
+            "cut matches the paint"
+        );
+    }
+
+    #[test]
+    fn placed_tips_fold_opacity_into_alpha_and_equal_tips_stay_plain() {
+        let red = Rgba([200, 0, 0, 255]);
+        let placed = |width, opacity| PlacedTip {
+            width,
+            color: red,
+            opacity,
+        };
+        let (opacity, spans) = placed_spans(&hard(4.0), &[placed(2.0, 0.8), placed(6.0, 0.4)]);
+        assert_eq!(opacity, 0.8, "the node takes the most opaque tip");
+        assert_eq!(spans[0].color.0[3], 255);
+        assert_eq!(spans[1].color.0[3], 128, "half the node's opacity");
+        let mid = PlacedTip::lerp(placed(2.0, 0.8), placed(6.0, 0.4), 0.5);
+        assert!((mid.width - 4.0).abs() < 1e-5 && (mid.opacity - 0.6).abs() < 1e-5);
+
+        let mut path = PathData {
+            start: [0.0, 0.0],
+            segs: vec![PathSeg::Line { to: [1.0, 0.0] }],
+            ..PathData::default()
+        };
+        let mut stroke = hard(4.0);
+        let same = [placed(3.0, 0.5), placed(3.0, 0.5)];
+        let opacity = set_grip_placed_tips(&mut path, &mut stroke, UNIT, 0.0, &same);
+        assert_eq!(opacity, Some(0.5));
+        assert!(path.tips.is_empty(), "equal tips commit a plain stroke");
+        assert_eq!((stroke.width, stroke.color), (3.0, red));
     }
 
     #[test]
@@ -933,7 +1094,7 @@ mod tests {
             closed: false,
         });
         closed.tips.extend([tip(6.0, 0), tip(8.0, 0)]);
-        let got = split_tips_at(&closed, &hard(10.0), UNIT, 0.0, &[2.5, 3.0, 3.5]).unwrap();
+        let got = split_tips_at(&closed, &hard(10.0), UNIT, 0.0, SQ, &[2.5, 3.0, 3.5]).unwrap();
         assert!(
             (got[0].width - 3.0).abs() < 1e-5,
             "closing edge blends to the start"
@@ -980,7 +1141,12 @@ mod tests {
             ..PathData::default()
         };
         let mut stroke = hard(10.0);
-        carry_vertex_style((&old, UNIT, 0.0), &mut piece, &mut stroke, &[0.5, 1.0, 1.5]);
+        carry_vertex_style(
+            (&old, UNIT, 0.0, SQ),
+            &mut piece,
+            &mut stroke,
+            &[0.5, 1.0, 1.5],
+        );
         let widths: Vec<f32> = piece.tips.iter().map(|t| t.width).collect();
         assert_eq!(widths, vec![6.0, 10.0, 7.0]);
         assert_eq!(stroke.width, 10.0, "the widest painted tip");
@@ -991,7 +1157,7 @@ mod tests {
             ..PathData::default()
         };
         let mut stroke = hard(10.0);
-        carry_vertex_style((&old, UNIT, 0.0), &mut narrow, &mut stroke, &[0.0, 0.5]);
+        carry_vertex_style((&old, UNIT, 0.0, SQ), &mut narrow, &mut stroke, &[0.0, 0.5]);
         assert_eq!(stroke.width, 6.0, "a piece paints at its own widest");
         let painted = narrow.vector_widths(&stroke).unwrap();
         assert_eq!(painted, vec![2.0, 6.0], "and keeps the widths it painted");
@@ -1055,11 +1221,12 @@ mod tests {
             .all(|e| matches!(e, PathEl::CurveTo(..))));
         let start = bez.elements()[0].end_point().unwrap();
         assert!((start - Point::new(25.0, 0.0)).hypot() < 1e-3, "{start:?}");
-        let tips = split_tips_at(&curve, &stroke, UNIT, 0.0, &params).unwrap();
+        let tips = split_tips_at(&curve, &stroke, UNIT, 0.0, SQ, &params).unwrap();
         for (w, t) in params.windows(2).zip(tips.windows(2)) {
             for g in [0.25_f32, 0.5, 0.75] {
-                let want = split_tips_at(&curve, &stroke, UNIT, 0.0, &[w[0] + (w[1] - w[0]) * g])
-                    .unwrap()[0];
+                let want =
+                    split_tips_at(&curve, &stroke, UNIT, 0.0, SQ, &[w[0] + (w[1] - w[0]) * g])
+                        .unwrap()[0];
                 let got = lerp_span(t[0], t[1], vector_ink::TipEase::Smooth.weight(g));
                 assert!((got.width - want.width).abs() <= 0.05, "{w:?} at {g}");
             }

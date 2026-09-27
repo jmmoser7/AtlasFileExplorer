@@ -125,6 +125,30 @@
   D06 / D09, `brush-color.md`, the dock tooltip, `board.tool.brush` help).
 - New reference entry `board.draft.direction_lock` (Tab while drawing).
 
+## 2026-09-27 — Mid-draw tip changes tween (P1.curve.tip-chord)
+
+- P1.curve.width-chord becomes P1.curve.tip-chord: each placed point or
+  sample records the tool's whole tip (width, color and opacity), not
+  only its width. Line, Arc, Polyline, Bézier span, Pen and Brush.
+- The draft previews paint the committed tips in their real colors and
+  show the blend; commit keeps them per vertex. Equal tips commit a plain
+  stroke. Curve opacity stays node-level: the node takes the most opaque
+  tip and each vertex's alpha carries its share. One Ctrl+Z still removes
+  the curve.
+- Easing: straight on lines and sharp or chamfered polylines, along the
+  sweep on arcs, smoothstep on Bézier spans, Pen curves and filleted
+  polylines. Stamped strokes ease per segment. A filleted polyline eases
+  between its polyline vertices, and Trim, Split, and smoothing cuts on
+  it take the eased value (supersedes the straight filleted taper of
+  2026-09-26).
+- Pen and Brush stop sampling while a HUD is up (the Brush used to keep
+  painting under the scrub) and blend into the new tip by smoothstep over
+  24 screen px. Brush strokes now keep per-sample stamped tips.
+- HTML export grades the outline with per-vertex `stop-opacity`, matching
+  the board.
+- Rows: `line` D05, `arc` D05, `polyline` D05, `bezier-span` D05, `pen`
+  D05, `brush` D11.
+
 ## 2026-09-27 — Tip HUD for every open curve, styles, and anchor editing
 
 - Alt+right-drag's size circle is pinned to the canvas at the press point

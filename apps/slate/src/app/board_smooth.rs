@@ -331,7 +331,7 @@ impl SlateApp {
             if slate_doc::vertex_style::has_vertex_style(old) {
                 let params = refit_params(old, curve, &contours);
                 slate_doc::vertex_style::carry_vertex_style(
-                    (old, old_rect, old_rot),
+                    (old, old_rect, old_rot, shape.corner),
                     &mut path_data,
                     &mut shape.stroke,
                     &params,

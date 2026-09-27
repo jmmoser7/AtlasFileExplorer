@@ -7,6 +7,7 @@ use std::collections::HashMap;
 
 use slate_doc::create_style::{legible_text_color, CreateStyleMemory, StrokeTool, StyleMemorySlot};
 use slate_doc::scene::{Node, NodeKind, Rgba, ShapeKind, ShapeNode, Stroke};
+use slate_doc::vertex_style::PlacedTip;
 use slate_doc::NodeId;
 
 use super::board::{to_rgba, BoardTool};
@@ -242,6 +243,27 @@ impl SlateApp {
             ..self.stroke_for_tool(tool)
         };
         self.board_last_style.memory.tool_mut(tool).stroke = Some(stroke);
+    }
+
+    /// After a curve with per-vertex tips commits, `tool` draws next with
+    /// `tip`, the one last chosen, rather than the committed curve's widest
+    /// or first tip (P1.curve.tip-chord).
+    pub(crate) fn keep_tool_tip(&mut self, tool: StrokeTool, tip: PlacedTip) {
+        let now = self.stroke_for_tool(tool);
+        if now.width == tip.width
+            && now.color == tip.color
+            && self.opacity_for_tool(tool) == tip.opacity
+        {
+            return;
+        }
+        let slot = self.board_last_style.memory.tool_mut(tool);
+        slot.stroke = Some(Stroke {
+            width: tip.width.max(Self::OPEN_STROKE_MIN),
+            color: tip.color,
+            ..now
+        });
+        slot.opacity = Some(tip.opacity);
+        self.flush_create_style_to_doc();
     }
 
     /// The stroke tool armed on the board, if any.

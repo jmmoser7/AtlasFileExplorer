@@ -13,6 +13,7 @@
 
 use eframe::egui::{self, Pos2, Vec2};
 use slate_doc::scene::{NodeKind, PathSeg, ShapeKind, ShapeNode, WorldRect};
+use slate_doc::vertex_style::PlacedTip;
 use slate_doc::{Node, NodeId, StrokeTool};
 use vector_ink::kurbo::PathEl;
 
@@ -50,19 +51,19 @@ pub struct LineDraft {
     pub cursor: Option<Pos2>,
     /// Typed length entry ("100", "12.5") — digits set length (D08).
     pub entry: String,
-    /// The tool width the first point was placed with; the end takes the
-    /// width at commit (P1.curve.vertex-style).
-    pub start_width: f32,
+    /// The tool tip the first point was placed with; the end takes the tip
+    /// at commit (P1.curve.tip-chord).
+    pub start_tip: PlacedTip,
 }
 
 impl LineDraft {
-    fn new(start: Pos2, start_width: f32) -> Self {
+    fn new(start: Pos2, start_tip: PlacedTip) -> Self {
         LineDraft {
             start,
             raw_start: start,
             cursor: None,
             entry: String::new(),
-            start_width,
+            start_tip,
         }
     }
 }
@@ -132,8 +133,7 @@ impl SlateApp {
             return false;
         }
         let p = self.line_resolve_first(world);
-        let width = self.stroke_for_tool(StrokeTool::Line).width;
-        let mut draft = LineDraft::new(p, width);
+        let mut draft = LineDraft::new(p, self.placed_tip(StrokeTool::Line));
         draft.raw_start = world;
         self.line_draft = Some(draft);
         true
@@ -242,7 +242,7 @@ impl SlateApp {
         if (end - d.start).length() < 0.01 {
             return false;
         }
-        self.commit_line_from(d.start, end, Some(d.start_width));
+        self.commit_line_from(d.start, end, Some(d.start_tip));
         true
     }
 
@@ -253,26 +253,33 @@ impl SlateApp {
 
     /// Build and journal the parametric 2-point line node: stroke from the
     /// Line tool's own memory (P1.curve.create-style) or Square-cap draft
-    /// defaults; one-shot tool returns to Select (D02/D11). `start_width`
-    /// is the width `a` was placed with; `b` takes the tool's width now, and
-    /// the tool keeps that width for the next line.
-    fn commit_line_from(&mut self, a: Pos2, b: Pos2, start_width: Option<f32>) -> Option<NodeId> {
+    /// defaults; one-shot tool returns to Select (D02/D11). `start_tip` is
+    /// the tip `a` was placed with; `b` takes the tool's tip now, and the
+    /// tool keeps that tip for the next line (P1.curve.tip-chord).
+    fn commit_line_from(
+        &mut self,
+        a: Pos2,
+        b: Pos2,
+        start_tip: Option<PlacedTip>,
+    ) -> Option<NodeId> {
         let (rect, mut data) = board_path::points_to_path_data(&[a, b], false);
         if data.is_empty() {
             return None;
         }
         let mut stroke = self.stroke_for_tool(StrokeTool::Line);
-        let remembered = stroke.width;
-        if let Some(start) = start_width {
-            slate_doc::vertex_style::set_grip_widths(
+        let current = self.placed_tip(StrokeTool::Line);
+        let mut opacity = current.opacity;
+        if let Some(start) = start_tip {
+            if let Some(op) = slate_doc::vertex_style::set_grip_placed_tips(
                 &mut data,
                 &mut stroke,
                 rect,
                 0.0,
-                &[start, remembered],
-            );
+                &[start, current],
+            ) {
+                opacity = op;
+            }
         }
-        let opacity = self.opacity_for_tool(StrokeTool::Line);
         let node = self.doc_mut().scene.build_node(
             rect,
             NodeKind::Shape(ShapeNode {
@@ -298,10 +305,7 @@ impl SlateApp {
         if let Some(n) = self.doc().scene.node(node.id).cloned() {
             self.note_tool_style(StrokeTool::Line, &n);
         }
-        if stroke.width != remembered {
-            self.set_tool_width(StrokeTool::Line, remembered);
-            self.flush_create_style_to_doc();
-        }
+        self.keep_tool_tip(StrokeTool::Line, current);
         self.push_history(
             atlas_commands::CommandId("board.tool.line"),
             Some("drawn".into()),
@@ -428,10 +432,9 @@ impl SlateApp {
             d.start.y as f64,
         ));
         bez.line_to(vector_ink::kurbo::Point::new(c.x as f64, c.y as f64));
-        let stroke = self.stroke_for_tool(StrokeTool::Line);
-        let ink = super::board::rgba32(stroke.color);
-        let mesh = board_path::draft_stroke_ink(&bez, false, &[d.start_width, stroke.width], xf.z);
-        board_path::paint_preview_ink(painter, xf, ink, mesh);
+        let tips = [d.start_tip, self.placed_tip(StrokeTool::Line)];
+        let (mesh, color) = board_path::draft_stroke_ink(&bez, false, &tips, xf.z);
+        board_path::paint_preview_ink(painter, xf, color, mesh);
     }
 
     /// Endpoint grips on the selected simple line — no resize bbox (D13) —
