@@ -1,5 +1,25 @@
 # Canvas command project — change log
 
+## 2026-09-27 — Tip HUD for every open curve, styles, and anchor editing
+
+- Alt+right-drag's size circle is pinned to the canvas at the press point
+  (world anchored) and grows about that center.
+- The color wheel's saved-color dots sit clear of the hue ring (ring edge
+  106 px, dots at 128 px with a 10 px pick), so the two no longer collide.
+- Line, Polyline, Arc, Pen, and Bezier take Alt+right-drag (size),
+  Ctrl+right-drag (color wheel), and Shift+right-drag (opacity). They edit
+  the open-curve create style. Softness stays Brush and Eraser only.
+- Under the size circle, a row of style icons: Brush and Eraser pick a
+  texture (Smooth, Graphite, Pencil, Ink, Watercolor); vector tools pick
+  flat/square, round/round, arrow at the end, narrow at the start, or
+  narrow at both ends. Textures are world-anchored grain in the shared
+  stamp, so the board and the HTML export match.
+- Direct Select: the same HUD edits the target curve's width, color,
+  opacity, and style as one undo step. Dragged anchors and handles snap by
+  the anchor itself (not the cursor), to board snaps and to the curve's
+  other anchors. Delete removes the selected anchors and rejoins the
+  neighbors.
+
 ## 2026-09-25 — Sign-in pop-ups in web portals
 
 - `portal-web-embed` D15 / D22 (and the D32 deny list) amended, user-ratified:

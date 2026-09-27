@@ -18,6 +18,113 @@ pub struct StampStyle {
     pub softness: f32,
     /// Straight RGBA. Alpha is the paint opacity.
     pub rgba: [u8; 4],
+    /// Medium texture. Grain never raises coverage above the plain tip, so
+    /// the stroke's opacity stays its ceiling.
+    pub grain: Grain,
+}
+
+/// Medium texture of a stamped tip, a deterministic function of world
+/// position: the same paper grain under every stroke and at every tile.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Grain {
+    #[default]
+    Smooth,
+    /// Soft paper tooth, medium scale.
+    Graphite,
+    /// Fine, streaked tooth; sparse toward the edge.
+    Pencil,
+    /// Solid body with a rough, bled edge.
+    Ink,
+    /// Blotchy translucent body with a soft, wavering edge.
+    Watercolor,
+}
+
+/// Tip coverage with the medium's grain at world point `(wx, wy)`.
+/// `dist` and `radius` share units; the noise is sampled in world units.
+pub fn grain_coverage(
+    grain: Grain,
+    dist: f32,
+    radius: f32,
+    softness: f32,
+    wx: f32,
+    wy: f32,
+) -> f32 {
+    match grain {
+        Grain::Smooth => tip_coverage(dist, radius, softness),
+        Grain::Graphite => {
+            let cover = tip_coverage(dist, radius, softness);
+            if cover <= 0.0 {
+                return 0.0;
+            }
+            let tooth = 0.65 * value_noise(wx / 1.7, wy / 1.7, 11)
+                + 0.35 * value_noise(wx / 5.0, wy / 5.0, 12);
+            cover * smoothstep(0.2, 0.8, tooth + cover * 0.35)
+        }
+        Grain::Pencil => {
+            let cover = tip_coverage(dist, radius, softness);
+            if cover <= 0.0 {
+                return 0.0;
+            }
+            let streak = 0.7 * value_noise(wx / 0.9, wy / 3.2, 21)
+                + 0.3 * value_noise(wx / 2.5, wy / 2.5, 22);
+            cover * smoothstep(0.38, 0.78, streak + cover * 0.28)
+        }
+        Grain::Ink => {
+            if !(radius > 0.0) {
+                return 0.0;
+            }
+            // Wobble the edge: the rim moves in and out by up to 12%.
+            let wobble = value_noise(wx / 3.5, wy / 3.5, 31) - 0.5;
+            let dist = dist / (1.0 + wobble * 0.24).max(0.5);
+            let body = 0.9 + 0.1 * value_noise(wx / 1.4, wy / 1.4, 32);
+            tip_coverage(dist, radius * 0.94, softness) * body
+        }
+        Grain::Watercolor => {
+            if !(radius > 0.0) {
+                return 0.0;
+            }
+            // Coverage must fall toward the rim: inside one stamp each pixel
+            // keeps its maximum, so a brighter rim would ring every segment.
+            // A soft wavering edge and blotchy translucent body read as wash.
+            let wobble = value_noise(wx / 9.0, wy / 9.0, 43) - 0.5;
+            let dist = dist / (1.0 + wobble * 0.18).max(0.5);
+            let cover = tip_coverage(dist, radius, softness.max(0.35));
+            let blot = value_noise(wx / 16.0, wy / 16.0, 41);
+            let fine = value_noise(wx / 3.0, wy / 3.0, 42);
+            cover * (0.45 + 0.35 * blot + 0.12 * fine)
+        }
+    }
+}
+
+fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
+    let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+fn lattice(ix: i32, iy: i32, seed: u32) -> f32 {
+    let mut h = (ix as u32).wrapping_mul(0x8da6_b343)
+        ^ (iy as u32).wrapping_mul(0xd816_3841)
+        ^ seed.wrapping_mul(0xcb1a_b31f);
+    h ^= h >> 13;
+    h = h.wrapping_mul(0x5bd1_e995);
+    h ^= h >> 15;
+    (h & 0x00ff_ffff) as f32 / 16_777_215.0
+}
+
+/// Smooth value noise in `0..=1` on a unit lattice.
+fn value_noise(x: f32, y: f32, seed: u32) -> f32 {
+    let (x0, y0) = (x.floor(), y.floor());
+    let (fx, fy) = (x - x0, y - y0);
+    let (ix, iy) = (x0 as i32, y0 as i32);
+    let sx = fx * fx * (3.0 - 2.0 * fx);
+    let sy = fy * fy * (3.0 - 2.0 * fy);
+    let a = lattice(ix, iy, seed);
+    let b = lattice(ix + 1, iy, seed);
+    let c = lattice(ix, iy + 1, seed);
+    let d = lattice(ix + 1, iy + 1, seed);
+    let top = a + (b - a) * sx;
+    let bottom = c + (d - c) * sx;
+    top + (bottom - top) * sy
 }
 
 /// One polyline vertex and the tip painted there. Segments lerp between
@@ -184,7 +291,14 @@ pub fn stamp_segment(img: &mut StampImage, a: TipPoint, b: TipPoint) {
                     lerp_rgba(a.tip.rgba, b.tip.rgba, t),
                 )
             };
-            let cover = tip_coverage(dist, r, soft);
+            let cover = grain_coverage(
+                a.tip.grain,
+                dist,
+                r,
+                soft,
+                img.origin[0] + qx * px,
+                img.origin[1] + qy * px,
+            );
             write_max(
                 &mut img.rgba,
                 img.width,
@@ -439,6 +553,7 @@ fn lerp_tip(a: StampStyle, b: StampStyle, t: f32) -> StampStyle {
         diameter: a.diameter + (b.diameter - a.diameter) * t,
         softness: a.softness + (b.softness - a.softness) * t,
         rgba: lerp_rgba(a.rgba, b.rgba, t),
+        grain: a.grain,
     }
 }
 
@@ -511,6 +626,7 @@ mod tests {
         diameter: 20.0,
         softness: 0.0,
         rgba: [255, 0, 0, 100],
+        grain: Grain::Smooth,
     };
 
     #[test]
@@ -529,6 +645,7 @@ mod tests {
             diameter: 20.0,
             softness: 1.0,
             rgba: [10, 20, 30, 255],
+            grain: Default::default(),
         };
         let img = stamp_contours(&[vec![[0.0, 0.0], [40.0, 0.0]]], style).unwrap();
         let center = alpha_at(&img, 20.0, 0.0);
@@ -601,6 +718,7 @@ mod tests {
                 diameter: radius * 2.0,
                 softness: 0.85,
                 rgba: [255, 255, 255, 220],
+                grain: Default::default(),
             },
         )
         .unwrap();
@@ -631,6 +749,7 @@ mod tests {
             diameter: 18.0,
             softness: 0.0,
             rgba: [0, 0, 0, 255],
+            grain: Default::default(),
         };
         let img = stamp_line(a, b, style, style, 1.0).unwrap();
         for y in 0..img.height {
@@ -652,6 +771,7 @@ mod tests {
             diameter: 4.0,
             softness: 0.0,
             rgba: [0, 0, 0, 255],
+            grain: Default::default(),
         };
         let thick = StampStyle {
             diameter: 40.0,
@@ -672,6 +792,7 @@ mod tests {
             diameter: 6.0,
             softness: 0.0,
             rgba: [0, 0, 0, 255],
+            grain: Default::default(),
         };
         let pts = tipped_contours(&bez, &[], tip, 0.25);
         let chain = &pts[0];
@@ -687,17 +808,69 @@ mod tests {
     }
 
     #[test]
+    fn every_grain_falls_off_toward_the_rim() {
+        // Inside one stamp each pixel keeps its maximum coverage, so a grain
+        // that brightens toward the rim would ring every segment's cap.
+        for g in [
+            Grain::Graphite,
+            Grain::Pencil,
+            Grain::Ink,
+            Grain::Watercolor,
+        ] {
+            for i in 0..200 {
+                let (wx, wy) = (i as f32 * 1.3, i as f32 * 0.7);
+                let mut last = f32::INFINITY;
+                for d in 0..20 {
+                    let c = grain_coverage(g, d as f32, 20.0, 0.4, wx, wy);
+                    assert!(c <= last + 1e-5, "{g:?} rises at d={d}: {c} > {last}");
+                    last = c;
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn every_grain_stays_within_the_plain_tip_and_differs_from_smooth() {
+        let grains = [
+            Grain::Graphite,
+            Grain::Pencil,
+            Grain::Ink,
+            Grain::Watercolor,
+        ];
+        for g in grains {
+            let mut differs = false;
+            for i in 0..400 {
+                let (wx, wy) = (i as f32 * 0.37, i as f32 * 0.91);
+                let dist = (i % 20) as f32;
+                let c = grain_coverage(g, dist, 20.0, 0.4, wx, wy);
+                assert!((0.0..=1.0).contains(&c), "{g:?} coverage {c}");
+                if (c - tip_coverage(dist, 20.0, 0.4)).abs() > 0.05 {
+                    differs = true;
+                }
+            }
+            assert!(differs, "{g:?} looks identical to Smooth");
+            // Deterministic: the same world point gives the same grain.
+            assert_eq!(
+                grain_coverage(g, 5.0, 20.0, 0.4, 12.3, 45.6),
+                grain_coverage(g, 5.0, 20.0, 0.4, 12.3, 45.6)
+            );
+        }
+    }
+
+    #[test]
     fn an_erase_pass_cuts_a_hole_and_never_exceeds_its_strength() {
         let ink = StampStyle {
             diameter: 30.0,
             softness: 0.0,
             rgba: [200, 100, 50, 255],
+            grain: Default::default(),
         };
         let mut img = stamp_contours(&[vec![[0.0, 0.0], [200.0, 0.0]]], ink).unwrap();
         let full = StampStyle {
             diameter: 20.0,
             softness: 0.0,
             rgba: [0, 0, 0, 255],
+            grain: Default::default(),
         };
         let half = StampStyle {
             rgba: [0, 0, 0, 128],
@@ -740,6 +913,7 @@ mod tests {
             diameter: 2.0,
             softness: 0.0,
             rgba: [0, 0, 0, 255],
+            grain: Default::default(),
         };
         let b = StampStyle {
             diameter: 10.0,

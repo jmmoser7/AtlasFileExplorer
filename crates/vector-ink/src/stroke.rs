@@ -266,7 +266,7 @@ mod tests {
             width: 10.0,
             cap: Cap::Butt,
             join: Join::Miter,
-            taper: Some((1.0, 0.0)),
+            taper: Some(crate::Taper::Linear(1.0, 0.0)),
             dash: None,
         };
         let mesh = stroke_mesh(&path, &style, 0.5, 0.01);
@@ -351,7 +351,7 @@ mod tests {
             width: 8.0,
             cap: Cap::Round,
             join: Join::Round,
-            taper: Some((1.0, 0.5)),
+            taper: Some(crate::Taper::Linear(1.0, 0.5)),
             dash: Some((vec![200.0, 10.0], 0.0)),
         };
         let outline = stroke_outline(&path, &style, 0.02);

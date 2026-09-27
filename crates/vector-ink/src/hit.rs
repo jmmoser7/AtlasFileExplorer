@@ -98,7 +98,7 @@ mod tests {
             width: 10.0,
             cap: Cap::Butt,
             join: Join::Miter,
-            taper: Some((1.0, 0.0)),
+            taper: Some(crate::Taper::Linear(1.0, 0.0)),
             dash: None,
         };
         assert!(hit_stroke(&path, &style, [5.0, 0.0], 0.0));

@@ -47,11 +47,30 @@ pub struct StrokeStyle {
     pub width: f32,
     pub cap: Cap,
     pub join: Join,
-    /// Width multipliers at path start/end, linearly interpolated over arc
-    /// length. `None` = uniform. (Each in `0.0..=1.0`.)
-    pub taper: Option<(f32, f32)>,
+    /// Width multiplier along arc length. `None` = uniform.
+    pub taper: Option<Taper>,
     /// Dash pattern lengths in world units (on, off, …), plus phase offset.
     pub dash: Option<(Vec<f32>, f32)>,
+}
+
+/// Width multiplier profile along a stroke's arc length, `t` in `0..=1`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Taper {
+    /// Start and end multipliers, linearly interpolated. Each in `0..=1`.
+    Linear(f32, f32),
+    /// Narrow to `tip` at both ends, full width at the middle, with a
+    /// smooth (sine) swell in between.
+    Ends(f32),
+}
+
+impl Taper {
+    pub fn at(self, t: f32) -> f32 {
+        let t = t.clamp(0.0, 1.0);
+        match self {
+            Taper::Linear(a, b) => a + (b - a) * t,
+            Taper::Ends(tip) => tip + (1.0 - tip) * (t * std::f32::consts::PI).sin(),
+        }
+    }
 }
 
 /// Renderer-agnostic AA mesh. Positions match input path space.
@@ -78,9 +97,9 @@ pub use flatten::{flatten, flatten_contours};
 pub use hit::hit_stroke;
 pub use smooth::{curvature_variance, laplacian_smooth_pass, radial_weight};
 pub use stamp::{
-    apply_erase, default_pixel, erase_coverage_at, multiply_by_mask, stamp_contours,
-    stamp_contours_at, stamp_line, stamp_polyline, stamp_segment, stamp_tipped, tip_coverage,
-    tipped_contours, StampImage, StampStyle, TipPoint,
+    apply_erase, default_pixel, erase_coverage_at, grain_coverage, multiply_by_mask,
+    stamp_contours, stamp_contours_at, stamp_line, stamp_polyline, stamp_segment, stamp_tipped,
+    tip_coverage, tipped_contours, Grain, StampImage, StampStyle, TipPoint,
 };
 pub use stroke::{stroke_bounds, stroke_mesh, stroke_outline, stroke_ribbon};
 pub use tile::{

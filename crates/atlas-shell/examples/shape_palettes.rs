@@ -520,7 +520,7 @@ fn stroke_quality_preview() -> Vec<egui::Mesh> {
             BezPath::from_svg("M650 400C770 220 910 560 1090 350").unwrap(),
             StrokeStyle {
                 width: 64.0,
-                taper: Some((1.0, 0.08)),
+                taper: Some(vector_ink::Taper::Linear(1.0, 0.08)),
                 ..base.clone()
             },
         ),

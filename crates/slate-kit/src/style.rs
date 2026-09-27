@@ -86,6 +86,10 @@ pub enum Profile {
         start: f32,
         end: f32,
     },
+    /// Narrow at both ends.
+    Ends {
+        tip: f32,
+    },
 }
 
 impl From<Profile> for WidthProfile {
@@ -93,6 +97,7 @@ impl From<Profile> for WidthProfile {
         match p {
             Profile::Uniform => WidthProfile::Uniform,
             Profile::Taper { start, end } => WidthProfile::Taper { start, end },
+            Profile::Ends { tip } => WidthProfile::Ends { tip },
         }
     }
 }
@@ -102,6 +107,7 @@ impl From<WidthProfile> for Profile {
         match p {
             WidthProfile::Uniform => Profile::Uniform,
             WidthProfile::Taper { start, end } => Profile::Taper { start, end },
+            WidthProfile::Ends { tip } => Profile::Ends { tip },
         }
     }
 }
@@ -148,6 +154,8 @@ impl StrokeSpec {
             stamp: false,
             tween_from: None,
             gaussian_blur: 0.0,
+            arrow_end: false,
+            texture: Default::default(),
         }
     }
 }

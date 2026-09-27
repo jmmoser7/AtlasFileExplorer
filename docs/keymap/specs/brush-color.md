@@ -62,6 +62,26 @@ pub struct BoardColors { pub fg: Rgba, pub bg: Rgba }
 - Only ink/shape strokes are erasable — images, text, frames, connectors
   are not (delete covers those).
 - Esc cancels the drag (no journal; the live preview drops).
+
+## Tip HUD on vector tools and Direct Select
+
+- Line, Polyline, Arc, Pen, and Bezier share the brush's right-button HUD:
+  Alt+right-drag size, Ctrl+right-drag color wheel, Shift+right-drag
+  opacity. They write the open-curve create style (P1.curve.create-style).
+  No softness: vector strokes are not stamped.
+- The size circle carries a style row (`board_tip_hud.rs`): textures for
+  Brush/Eraser (`Stroke::texture`, `vector_ink::Grain`), and for vector
+  curves flat/square, round/round, arrow at the end (`Stroke::arrow_end`),
+  narrow at the start (`WidthProfile::Taper`), narrow at both ends
+  (`WidthProfile::Ends`).
+- Below the circle's rim the pointer is in the style row: size holds and
+  softness returns to its value at the press point, because the way down
+  crosses the harder half of the softness scrub. Harder and a new texture
+  take two gestures.
+- Direct Select applies the same HUD and row to its target curve, as one
+  journaled Patch per HUD release. Per-vertex color and opacity on a vector
+  curve are not offered: SVG cannot vary a stroke's color along its length
+  (Art. IV), so they would need a raster stroke.
 - **P2**: segment-split erase (Illustrator path-eraser semantics, research
   §2B) — splits the centerline at crossings, regenerates meshes, journals
   Remove+Add pairs.

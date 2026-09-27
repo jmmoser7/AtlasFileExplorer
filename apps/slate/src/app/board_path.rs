@@ -398,7 +398,7 @@ pub fn points_to_path_data(points: &[Pos2], closed: bool) -> (WorldRect, PathDat
     bezpath_to_path_data(&bez, closed)
 }
 
-pub fn cap_join_profile(stroke: &Stroke) -> (Cap, Join, Option<(f32, f32)>) {
+pub fn cap_join_profile(stroke: &Stroke) -> (Cap, Join, Option<vector_ink::Taper>) {
     let cap = match stroke.cap {
         StrokeCap::Butt => Cap::Butt,
         StrokeCap::Round => Cap::Round,
@@ -409,11 +409,7 @@ pub fn cap_join_profile(stroke: &Stroke) -> (Cap, Join, Option<(f32, f32)>) {
         StrokeJoin::Round => Join::Round,
         StrokeJoin::Bevel => Join::Bevel,
     };
-    let taper = match stroke.profile {
-        WidthProfile::Uniform => None,
-        WidthProfile::Taper { start, end } => Some((start, end)),
-    };
-    (cap, join, taper)
+    (cap, join, stroke.profile.ink_taper())
 }
 
 pub fn stroke_style_world(stroke: &Stroke, zoom: f32) -> StrokeStyle {
@@ -528,7 +524,13 @@ fn hash_stroke(h: &mut impl Hasher, stroke: &Stroke) {
             hash_f32(h, start);
             hash_f32(h, end);
         }
+        WidthProfile::Ends { tip } => {
+            2u8.hash(h);
+            hash_f32(h, tip);
+        }
     }
+    stroke.arrow_end.hash(h);
+    (stroke.texture as u8).hash(h);
     hash_f32(h, stroke.softness);
     hash_f32(h, stroke.gaussian_blur);
     stroke.stamp.hash(h);
@@ -1201,6 +1203,8 @@ pub fn default_draw_stroke(accent: Rgba) -> Stroke {
         stamp: false,
         tween_from: None,
         gaussian_blur: 0.0,
+        arrow_end: false,
+        texture: Default::default(),
     }
 }
 
@@ -1218,6 +1222,8 @@ pub fn default_curve_stroke(color: Rgba) -> Stroke {
         stamp: false,
         tween_from: None,
         gaussian_blur: 0.0,
+        arrow_end: false,
+        texture: Default::default(),
     }
 }
 
@@ -1368,6 +1374,14 @@ pub fn paint_path_shape(
     );
     let cached = app.path_mesh_cache.get_or_tessellate(node.id, key, || {
         let bez = bez.get_or_insert_with(|| shape_path_world_bez(node, shape, path));
+        let trimmed;
+        let bez = if shape.stroke.arrow_end && !path.closed {
+            trimmed =
+                slate_doc::geom::trim_end(bez, slate_doc::geom::arrow_trim(shape.stroke.width));
+            &trimmed
+        } else {
+            &*bez
+        };
         let style = stroke_style_world(&shape.stroke, xf.z);
         let (ink_width, soft) = shape.stroke.paint_profile();
         let mut style = style;
@@ -1383,6 +1397,56 @@ pub fn paint_path_shape(
     let base = fade(rgba32(shape.stroke.color));
     let mesh = ink_mesh_to_epaint(&cached, xf, base, fade);
     painter.add(Shape::mesh(mesh));
+    if shape.stroke.arrow_end && !path.closed {
+        paint_path_arrow(painter, xf, node, shape, path, base);
+    }
+}
+
+/// Arrowhead on an open path's last point, from its last segment alone so a
+/// warm paint builds no curve.
+fn paint_path_arrow(
+    painter: &egui::Painter,
+    xf: &BoardXf,
+    node: &Node,
+    shape: &ShapeNode,
+    path: &PathData,
+    color: Color32,
+) {
+    let Some(last) = path.segs.last() else {
+        return;
+    };
+    let prev_to = match path.segs.len() {
+        1 => path.start,
+        n => match path.segs[n - 2] {
+            PathSeg::Line { to } | PathSeg::Quad { to, .. } | PathSeg::Cubic { to, .. } => to,
+        },
+    };
+    let (to, from) = match *last {
+        PathSeg::Line { to } => (to, prev_to),
+        PathSeg::Quad { ctrl, to } => (to, ctrl),
+        PathSeg::Cubic { c2, to, .. } => (to, c2),
+    };
+    let w = |p: [f32; 2]| slate_doc::geom::world_point(p, node.rect, node.rotation_deg);
+    let (tip, back) = (w(to), w(from));
+    let (dx, dy) = ((back.x - tip.x) as f32, (back.y - tip.y) as f32);
+    let len = dx.hypot(dy);
+    if !(len > 1e-6) {
+        return;
+    }
+    let [a, b, c] = slate_doc::geom::arrow_head(
+        [tip.x as f32, tip.y as f32],
+        [dx / len, dy / len],
+        shape.stroke.width,
+    );
+    painter.add(egui::Shape::convex_polygon(
+        vec![
+            xf.w2s(Pos2::new(a[0], a[1])),
+            xf.w2s(Pos2::new(b[0], b[1])),
+            xf.w2s(Pos2::new(c[0], c[1])),
+        ],
+        color,
+        EStroke::NONE,
+    ));
 }
 
 pub fn paint_path_preview(painter: &egui::Painter, xf: &BoardXf, color: Color32, bez: &BezPath) {
@@ -1439,11 +1503,7 @@ pub(crate) fn stamp_pixel_for_zoom(zoom: f32, pixels_per_point: f32) -> f32 {
 }
 
 fn stamp_style(tip: StrokeSpan) -> StampStyle {
-    StampStyle {
-        diameter: tip.width.max(0.0),
-        softness: tip.softness,
-        rgba: tip.color.0,
-    }
+    tip.stamp_style()
 }
 
 /// World-space tipped contours for a stamped brush path. A path with no

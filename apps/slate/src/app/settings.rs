@@ -127,6 +127,9 @@ pub struct SlateSettings {
     pub eraser_softness: f32,
     /// Eraser strength on painted strokes, 0.1..=1.
     pub eraser_opacity: f32,
+    /// Medium texture of the Brush and of the Eraser.
+    pub brush_texture: slate_doc::scene::BrushTexture,
+    pub eraser_texture: slate_doc::scene::BrushTexture,
     /// The (provider, model) last chosen for image agents and text agents.
     /// New frames and editors start from it until another is chosen.
     pub agent_image_model: Option<(String, String)>,
@@ -154,6 +157,8 @@ impl Default for SlateSettings {
             eraser_width: ERASER_WIDTH_DEFAULT,
             eraser_softness: 0.0,
             eraser_opacity: 1.0,
+            brush_texture: Default::default(),
+            eraser_texture: Default::default(),
             agent_image_model: None,
             agent_text_model: None,
             optional_bumper_cars: false,

@@ -475,3 +475,94 @@ mod paint_window_tests {
         assert!(!stroke_intersects_node_outline(&outside, &host, 0.05));
     }
 }
+
+/// Arrowhead for a stroke of `stroke_width`: a filled triangle with its tip
+/// at `tip` and its base back along `into_curve` (the unit tangent pointing
+/// from the endpoint into the curve). Connectors and open curves share it,
+/// on the board and in the artifact.
+pub fn arrow_head(tip: [f32; 2], into_curve: [f32; 2], stroke_width: f32) -> [[f32; 2]; 3] {
+    let len = arrow_len(stroke_width);
+    let half = len * 0.4;
+    let base = [tip[0] + into_curve[0] * len, tip[1] + into_curve[1] * len];
+    let perp = [-into_curve[1], into_curve[0]];
+    [
+        tip,
+        [base[0] + perp[0] * half, base[1] + perp[1] * half],
+        [base[0] - perp[0] * half, base[1] - perp[1] * half],
+    ]
+}
+
+/// Arrowhead length along the curve.
+pub fn arrow_len(stroke_width: f32) -> f32 {
+    (stroke_width * 4.0).max(10.0)
+}
+
+/// Endpoint and inward unit tangent at the end of an open path, for an
+/// arrowhead. `None` for an empty or degenerate path.
+pub fn path_end_arrow(bez: &BezPath) -> Option<([f32; 2], [f32; 2])> {
+    use vector_ink::kurbo::{ParamCurve, ParamCurveDeriv, PathSeg};
+    let seg: PathSeg = bez.segments().last()?;
+    let end = seg.eval(1.0);
+    let d = match seg {
+        PathSeg::Line(l) => l.p0 - l.p1,
+        PathSeg::Quad(q) => {
+            let v = -q.deriv().eval(1.0).to_vec2();
+            if v.hypot() > 1e-9 {
+                v
+            } else {
+                q.p0 - q.p2
+            }
+        }
+        PathSeg::Cubic(c) => {
+            let v = -c.deriv().eval(1.0).to_vec2();
+            if v.hypot() > 1e-9 {
+                v
+            } else {
+                c.p0 - c.p3
+            }
+        }
+    };
+    let len = d.hypot();
+    if !(len > 1e-9) {
+        return None;
+    }
+    Some((
+        [end.x as f32, end.y as f32],
+        [(d.x / len) as f32, (d.y / len) as f32],
+    ))
+}
+
+/// `bez` with its last segment shortened by `by` along its arc length, so a
+/// stroke under an arrowhead ends at the head's base and not at its tip.
+pub fn trim_end(bez: &BezPath, by: f64) -> BezPath {
+    use vector_ink::kurbo::{ParamCurve, ParamCurveArclen, PathEl};
+    let Some(last) = bez.segments().last() else {
+        return bez.clone();
+    };
+    let len = last.arclen(1e-3);
+    if !(by > 0.0) || len <= by * 1.05 {
+        return bez.clone();
+    }
+    let t = last.inv_arclen(len - by, 1e-3);
+    let cut = last.subsegment(0.0..t);
+    let mut out = BezPath::new();
+    let els = bez.elements();
+    let last_idx = els
+        .iter()
+        .rposition(|e| !matches!(e, PathEl::ClosePath | PathEl::MoveTo(_)))
+        .unwrap_or(0);
+    for (i, el) in els.iter().enumerate() {
+        if i == last_idx {
+            out.push(cut.as_path_el());
+        } else {
+            out.push(*el);
+        }
+    }
+    out
+}
+
+/// How far a stroke under an arrowhead stops short of the tip: most of the
+/// head's length, so the line tucks under the base.
+pub fn arrow_trim(stroke_width: f32) -> f64 {
+    (arrow_len(stroke_width) * 0.8) as f64
+}

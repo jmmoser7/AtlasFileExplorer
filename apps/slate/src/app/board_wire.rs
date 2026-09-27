@@ -1,4 +1,4 @@
-﻿//! Connector wires (keymap wave 2b, cluster B): edge grips, the Grasshopper
+//! Connector wires (keymap wave 2b, cluster B): edge grips, the Grasshopper
 //! wire-drag grammar (add / Shift add / Ctrl detach / Ctrl+Shift move-all),
 //! connector painting through the path-mesh cache, label editing, and the
 //! derived-AABB sync that keeps `Node.rect` fresh for marquee/hit systems.
@@ -270,6 +270,8 @@ impl SlateApp {
             stamp: false,
             tween_from: None,
             gaussian_blur: 0.0,
+            arrow_end: false,
+            texture: Default::default(),
         }
     }
 
@@ -1077,18 +1079,13 @@ impl SlateApp {
 
         // Arrowheads: filled triangles, tip at the endpoint, base back along
         // the tangent into the curve; size matches the artifact.
-        let arrow_len = (stroke.width * 4.0).max(10.0);
         let arrow = |tip: [f32; 2], into: [f32; 2]| {
-            let base_pt = [tip[0] + into[0] * arrow_len, tip[1] + into[1] * arrow_len];
-            let half = arrow_len * 0.4;
-            let perp = [-into[1], into[0]];
-            let b1 = [base_pt[0] + perp[0] * half, base_pt[1] + perp[1] * half];
-            let b2 = [base_pt[0] - perp[0] * half, base_pt[1] - perp[1] * half];
+            let [a, b, c] = slate_doc::geom::arrow_head(tip, into, stroke.width);
             painter.add(egui::Shape::convex_polygon(
                 vec![
-                    xf.w2s(Pos2::new(tip[0], tip[1])),
-                    xf.w2s(Pos2::new(b1[0], b1[1])),
-                    xf.w2s(Pos2::new(b2[0], b2[1])),
+                    xf.w2s(Pos2::new(a[0], a[1])),
+                    xf.w2s(Pos2::new(b[0], b[1])),
+                    xf.w2s(Pos2::new(c[0], c[1])),
                 ],
                 base,
                 EStroke::NONE,
@@ -1351,6 +1348,8 @@ mod tests {
             stamp: false,
             tween_from: None,
             gaussian_blur: 0.0,
+            arrow_end: false,
+            texture: Default::default(),
         }
     }
 

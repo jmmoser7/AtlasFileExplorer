@@ -385,15 +385,20 @@ pub(crate) const SOFTNESS_STEP: f32 = 0.25;
 pub(crate) const SOFTNESS_DRAG_PX: f32 = 100.0;
 /// Vertical Shift+right-drag travel across the full opacity range.
 pub(crate) const OPACITY_DRAG_PX: f32 = 100.0;
-pub(crate) const WHEEL_SLOT_RADIUS: f32 = 120.0;
+pub(crate) const WHEEL_SLOT_RADIUS: f32 = 128.0;
 pub(crate) const WHEEL_HUE_INNER: f32 = 86.0;
-pub(crate) const WHEEL_HUE_OUTER: f32 = 108.0;
+pub(crate) const WHEEL_HUE_OUTER: f32 = 106.0;
 pub(crate) const WHEEL_SV_RADIUS: f32 = 84.0;
+/// Painted swatch radius. Swatches sit clear of the hue ring: ring edge
+/// 106, swatch inner edge 120, so neither hit zone reaches the other.
+pub(crate) const WHEEL_DOT_RADIUS: f32 = 8.0;
 /// The wheel's dark backdrop. Inside it the wheel keeps the last value;
 /// past it the hold samples the canvas.
 pub(crate) const WHEEL_BACKDROP_RADIUS: f32 = WHEEL_SLOT_RADIUS + 16.0;
-/// Generous on purpose: the painted swatch is small and the pointer is moving.
-pub(crate) const WHEEL_DOT_HIT: f32 = 16.0;
+/// A little past the painted swatch, and short of the hue ring.
+pub(crate) const WHEEL_DOT_HIT: f32 = 10.0;
+/// The hue ring picks this far past its painted outer edge.
+pub(crate) const WHEEL_HUE_HIT_PAD: f32 = 3.0;
 
 /// Shift+click opacity. Steps down by 10% and wraps from 10% back to 100%.
 pub fn step_opacity(current: f32) -> f32 {
@@ -530,7 +535,7 @@ pub fn sample_wheel(local: [f32; 2], hsv: [f32; 3], recents: &[[u8; 3]]) -> Whee
         let next = [hsv[0], sat, val];
         return WheelHit::Field(hsv_to_rgb(next), next);
     }
-    if (WHEEL_SV_RADIUS..=WHEEL_HUE_OUTER + 4.0).contains(&dist) {
+    if (WHEEL_SV_RADIUS..=WHEEL_HUE_OUTER + WHEEL_HUE_HIT_PAD).contains(&dist) {
         let mut hue = (-local[1]).atan2(local[0]) / std::f32::consts::TAU;
         if hue < 0.0 {
             hue += 1.0;
@@ -553,6 +558,8 @@ pub(crate) struct BrushSettingUndo {
     pub eraser_width: f32,
     pub eraser_softness: f32,
     pub eraser_opacity: f32,
+    pub brush_texture: slate_doc::scene::BrushTexture,
+    pub eraser_texture: slate_doc::scene::BrushTexture,
 }
 
 #[derive(Clone, Copy)]
@@ -560,6 +567,7 @@ pub(crate) struct BrushTip {
     pub width: f32,
     pub softness: f32,
     pub color: Rgba,
+    pub texture: slate_doc::scene::BrushTexture,
 }
 
 impl BrushTip {
@@ -568,6 +576,7 @@ impl BrushTip {
             width: self.width,
             softness: self.softness,
             color: self.color,
+            texture: self.texture,
         }
     }
 
@@ -576,6 +585,7 @@ impl BrushTip {
             diameter: self.width.max(0.0),
             softness: self.softness,
             rgba: self.color.0,
+            grain: self.texture.grain(),
         }
     }
 }
@@ -600,6 +610,8 @@ pub(crate) enum BrushHud {
     /// Alt+right-drag: size horizontally, softness vertically, for the
     /// armed Brush or Eraser.
     Size {
+        /// The press point in world space, so the circle stays pinned to the
+        /// canvas under it for the whole hold.
         origin: Pos2,
         width0: f32,
         softness0: f32,
@@ -644,6 +656,7 @@ impl SlateApp {
         let z = self.tab().cam.z.max(f32::EPSILON);
         let eraser = matches!(self.board_tool, BoardTool::Eraser | BoardTool::Smooth);
         let before = self.brush_setting_snapshot();
+        let node_before = self.hud_node_snapshot();
         let (w, soft, opacity) = self.active_tip();
         let px = step_width_px(w * z, up);
         let new_w = (px / z).clamp(
@@ -653,11 +666,15 @@ impl SlateApp {
         self.set_active_tip(new_w, soft, opacity);
         self.settings.save();
         self.push_brush_setting_undo(before);
+        self.journal_hud_node(node_before);
         (new_w, eraser)
     }
 
     /// Width, softness, and opacity (erase strength) of the armed tip.
     pub(crate) fn active_tip(&self) -> (f32, f32, f32) {
+        if let Some(tip) = self.vector_tip() {
+            return tip;
+        }
         match self.board_tool {
             BoardTool::Eraser => (self.eraser_width, self.eraser_softness, self.eraser_opacity),
             BoardTool::Smooth => (
@@ -671,6 +688,9 @@ impl SlateApp {
 
     /// Write the armed tip into app state and settings (not saved).
     pub(crate) fn set_active_tip(&mut self, width: f32, softness: f32, opacity: f32) {
+        if self.set_vector_tip(width, softness, opacity) {
+            return;
+        }
         if self.board_tool == BoardTool::Eraser {
             self.eraser_width = width;
             self.eraser_softness = softness;
@@ -695,22 +715,26 @@ impl SlateApp {
     /// `Shift+[` / `Shift+]` — softness of the armed tip in quarter steps.
     pub(crate) fn step_brush_softness(&mut self, up: bool) -> f32 {
         let before = self.brush_setting_snapshot();
+        let node_before = self.hud_node_snapshot();
         let (w, soft, opacity) = self.active_tip();
         let soft = step_softness(soft, up);
         self.set_active_tip(w, soft, opacity);
         self.settings.save();
         self.push_brush_setting_undo(before);
+        self.journal_hud_node(node_before);
         soft
     }
 
     /// Opacity (erase strength) of the armed tip down by 10%, wrapping.
     pub(crate) fn step_brush_opacity(&mut self) -> f32 {
         let before = self.brush_setting_snapshot();
+        let node_before = self.hud_node_snapshot();
         let (w, soft, opacity) = self.active_tip();
         let opacity = step_opacity(opacity);
         self.set_active_tip(w, soft, opacity);
         self.settings.save();
         self.push_brush_setting_undo(before);
+        self.journal_hud_node(node_before);
         opacity
     }
 
@@ -723,6 +747,8 @@ impl SlateApp {
             eraser_width: self.eraser_width,
             eraser_softness: self.eraser_softness,
             eraser_opacity: self.eraser_opacity,
+            brush_texture: self.brush_texture,
+            eraser_texture: self.eraser_texture,
         }
     }
 
@@ -750,6 +776,10 @@ impl SlateApp {
         self.eraser_width = before.eraser_width;
         self.eraser_softness = before.eraser_softness;
         self.eraser_opacity = before.eraser_opacity;
+        self.brush_texture = before.brush_texture;
+        self.eraser_texture = before.eraser_texture;
+        self.settings.brush_texture = before.brush_texture;
+        self.settings.eraser_texture = before.eraser_texture;
         self.settings.brush_width = before.width;
         self.settings.brush_softness = before.softness;
         self.settings.brush_opacity = before.opacity;
@@ -775,6 +805,8 @@ impl SlateApp {
             stamp: true,
             tween_from: None,
             gaussian_blur: 0.0,
+            arrow_end: false,
+            texture: self.brush_texture,
         }
     }
 
@@ -875,6 +907,7 @@ impl SlateApp {
             width: self.brush_width,
             softness: self.brush_softness,
             color: self.brush_rgba(),
+            texture: self.brush_texture,
         }
     }
 
@@ -1075,6 +1108,7 @@ impl SlateApp {
                 0,
                 (self.eraser_opacity.clamp(0.1, 1.0) * 255.0).round() as u8,
             ],
+            grain: self.eraser_texture.grain(),
         }
     }
 
@@ -1197,6 +1231,7 @@ impl SlateApp {
             width: tip.diameter,
             softness: tip.softness,
             color: Rgba([0, 0, 0, tip.rgba[3]]),
+            texture: self.eraser_texture,
         };
         let mut cmds = Vec::new();
         let mut board_removes = Vec::new();
@@ -1459,15 +1494,21 @@ impl SlateApp {
             return None;
         }
         let tool = self.board_tool;
-        if !matches!(
-            tool,
-            BoardTool::Brush | BoardTool::Eraser | BoardTool::Smooth
-        ) {
+        let vector = super::board_tip_hud::curve_tool(tool) || self.hud_node().is_some();
+        if !vector
+            && !matches!(
+                tool,
+                BoardTool::Brush | BoardTool::Eraser | BoardTool::Smooth
+            )
+        {
             return None;
         }
         let z = self.tab().cam.z.max(f32::EPSILON);
         let (width, softness, opacity) = self.active_tip();
         let px = width * z;
+        if vector && !self.tip_hud_has_softness() {
+            return Some(format!("{px:.0} px · {:.0}% opacity", opacity * 100.0));
+        }
         let soft = if softness <= 0.001 {
             "hard".to_string()
         } else {
@@ -1499,10 +1540,7 @@ impl SlateApp {
             self.commit_brush_hud();
             return true;
         }
-        let armed = matches!(
-            self.board_tool,
-            BoardTool::Brush | BoardTool::Eraser | BoardTool::Smooth
-        );
+        let armed = self.tip_hud_armed();
         // A held button counts, not only the press edge. The modifier often
         // arrives on the same chord a frame after `button_pressed` has passed.
         if (!secondary_down && !secondary_pressed) || !armed {
@@ -1511,9 +1549,10 @@ impl SlateApp {
         let Some(pointer) = pointer else {
             return false;
         };
-        if self.board_tool == BoardTool::Brush && self.ctrl_down {
-            let fg = self.board_colors.fg.0;
+        if self.tip_hud_has_color() && self.ctrl_down {
+            let fg = self.active_rgba();
             let hsv = rgb_to_hsv([fg[0], fg[1], fg[2]]);
+            self.hud_node_before = self.hud_node_snapshot();
             self.brush_hud = Some(BrushHud::Wheel {
                 fg0: fg,
                 center: pointer - sv_offset(hsv[1], hsv[2]),
@@ -1525,8 +1564,9 @@ impl SlateApp {
         if self.alt_down {
             let (width0, softness0, _) = self.active_tip();
             self.brush_hud_before = Some(self.brush_setting_snapshot());
+            self.hud_node_before = self.hud_node_snapshot();
             self.brush_hud = Some(BrushHud::Size {
-                origin: pointer,
+                origin: self.board_xf().s2w(pointer),
                 width0,
                 softness0,
             });
@@ -1535,8 +1575,9 @@ impl SlateApp {
         // Shift alone. Ctrl and Alt already claimed the button above.
         if self.shift_down {
             self.brush_hud_before = Some(self.brush_setting_snapshot());
+            self.hud_node_before = self.hud_node_snapshot();
             self.brush_hud = Some(BrushHud::Opacity {
-                origin: pointer,
+                origin: self.board_xf().s2w(pointer),
                 opacity0: self.active_tip().2,
             });
             return true;
@@ -1555,18 +1596,43 @@ impl SlateApp {
                 softness0,
             } => {
                 let z = self.tab().cam.z.max(f32::EPSILON);
-                let px = scrub_diameter_px(*width0 * z, pointer.x - origin.x);
+                let o = self.board_xf().w2s(*origin);
+                // In the style band under the circle, the pointer picks a
+                // style and the size and softness hold still.
+                let r_now = (self.active_tip().0 * 0.5 * z).max(1.5);
+                let choices = self.tip_choices();
+                if super::board_tip_hud::palette_zone(o, r_now, choices.len(), pointer) {
+                    // Reaching the row means crossing the harder half of the
+                    // softness scrub; the trip is travel, not an edit.
+                    if self.tip_hud_has_softness() {
+                        let (w, _, opacity) = self.active_tip();
+                        self.set_active_tip(w, *softness0, opacity);
+                    }
+                    if let Some(i) =
+                        super::board_tip_hud::palette_hit(o, r_now, choices.len(), pointer)
+                    {
+                        self.apply_tip_choice(choices[i]);
+                    }
+                    self.brush_hud = Some(hud);
+                    return;
+                }
+                let px = scrub_diameter_px(*width0 * z, pointer.x - o.x);
                 let width = (px / z).clamp(
                     super::settings::STROKE_WIDTH_MIN,
                     super::settings::STROKE_WIDTH_MAX,
                 );
-                let soft = scrub_softness(*softness0, pointer.y - origin.y);
+                let soft = if self.tip_hud_has_softness() {
+                    scrub_softness(*softness0, pointer.y - o.y)
+                } else {
+                    *softness0
+                };
                 let opacity = self.active_tip().2;
                 self.set_active_tip(width, soft, opacity);
             }
             BrushHud::Opacity { origin, opacity0 } => {
                 let (w, soft, _) = self.active_tip();
-                self.set_active_tip(w, soft, scrub_opacity(*opacity0, pointer.y - origin.y));
+                let o = self.board_xf().w2s(*origin);
+                self.set_active_tip(w, soft, scrub_opacity(*opacity0, pointer.y - o.y));
             }
             BrushHud::Wheel {
                 center,
@@ -1583,13 +1649,13 @@ impl SlateApp {
                     WheelHit::Outside => {
                         *sampling = true;
                         if let Some(rgb) = atlas_shell::desktop_color::sample_cursor() {
-                            self.board_colors.fg.0[..3].copy_from_slice(&rgb);
+                            self.set_active_rgb(rgb);
                         }
                     }
                     WheelHit::Dot(rgb, at) => {
                         *sampling = false;
-                        let changed = self.board_colors.fg.0[..3] != rgb;
-                        self.board_colors.fg.0[..3].copy_from_slice(&rgb);
+                        let changed = self.active_rgba()[..3] != rgb;
+                        self.set_active_rgb(rgb);
                         *hsv = rgb_to_hsv(rgb);
                         let target = *center + egui::vec2(at[0], at[1]);
                         if changed && pointer.distance(target) > 4.0 {
@@ -1598,7 +1664,7 @@ impl SlateApp {
                     }
                     WheelHit::Field(rgb, next) => {
                         *sampling = false;
-                        self.board_colors.fg.0[..3].copy_from_slice(&rgb);
+                        self.set_active_rgb(rgb);
                         *hsv = next;
                     }
                 }
@@ -1610,29 +1676,28 @@ impl SlateApp {
     pub(crate) fn commit_brush_hud(&mut self) {
         self.brush_cursor_warp = None;
         let before = self.brush_hud_before.take();
+        let node_before = self.hud_node_before.take();
         let Some(hud) = self.brush_hud.take() else {
             return;
         };
         match hud {
             BrushHud::Size { .. } | BrushHud::Opacity { .. } => self.settings.save(),
             BrushHud::Wheel { .. } => {
-                let rgb = [
-                    self.board_colors.fg.0[0],
-                    self.board_colors.fg.0[1],
-                    self.board_colors.fg.0[2],
-                ];
+                let c = self.active_rgba();
                 self.save_board_colors();
-                self.remember_document_colors(vec![rgb]);
+                self.remember_document_colors(vec![[c[0], c[1], c[2]]]);
             }
         }
         if let Some(before) = before {
             self.push_brush_setting_undo(before);
         }
+        self.journal_hud_node(node_before);
     }
 
     pub(crate) fn cancel_brush_hud(&mut self) {
         self.brush_cursor_warp = None;
         self.brush_hud_before = None;
+        let node_before = self.hud_node_before.take();
         let Some(hud) = self.brush_hud.take() else {
             return;
         };
@@ -1647,15 +1712,23 @@ impl SlateApp {
                 let (w, soft, _) = self.active_tip();
                 self.set_active_tip(w, soft, opacity0);
             }
-            BrushHud::Wheel { fg0, .. } => self.board_colors.fg.0 = fg0,
+            BrushHud::Wheel { fg0, .. } => self.set_active_rgba(fg0),
         }
+        self.restore_hud_node(node_before);
     }
 
     /// Pointer-attached HUD. Numbers stay in screen px (P2.GhostFollow).
     pub(crate) fn paint_brush_hud(&self, painter: &egui::Painter, _pointer: Pos2, accent: Color32) {
         match self.brush_hud {
-            Some(BrushHud::Size { origin, .. } | BrushHud::Opacity { origin, .. }) => {
-                self.paint_size_hud(painter, origin, accent)
+            Some(BrushHud::Size { origin, .. }) => {
+                let o = self.board_xf().w2s(origin);
+                self.paint_size_hud(painter, o, accent);
+                let z = self.tab().cam.z.max(f32::EPSILON);
+                let r = (self.active_tip().0 * 0.5 * z).max(1.5);
+                self.paint_tip_palette(painter, o, r, _pointer, accent);
+            }
+            Some(BrushHud::Opacity { origin, .. }) => {
+                self.paint_size_hud(painter, self.board_xf().w2s(origin), accent)
             }
             Some(BrushHud::Wheel {
                 center,
@@ -1677,10 +1750,13 @@ impl SlateApp {
     fn paint_size_hud(&self, painter: &egui::Painter, pointer: Pos2, _accent: Color32) {
         let z = self.tab().cam.z.max(f32::EPSILON);
         let eraser = self.board_tool == BoardTool::Eraser;
-        let (width, softness, _) = self.active_tip();
+        let (width, softness, opacity) = self.active_tip();
         let r = (width * 0.5 * z).max(1.5);
         let ink = if eraser {
             Color32::from_gray(180).gamma_multiply(self.eraser_opacity.clamp(0.1, 1.0))
+        } else if self.vector_tip().is_some() {
+            let c = self.active_rgba();
+            Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]).gamma_multiply(opacity)
         } else {
             self.brush_preview_color()
         };
@@ -1711,8 +1787,11 @@ impl SlateApp {
             Color32::from_rgb(rgb[0], rgb[1], rgb[2])
         };
         mesh.colored_vertex(center, sv_at(egui::Vec2::ZERO));
+        // The disk runs under the hue ring's inner edge so no backdrop
+        // shows between them; colors past the field radius clamp to its rim.
+        let disk_radius = WHEEL_HUE_INNER + 1.0;
         for ring in 1..=rings {
-            let dist = WHEEL_SV_RADIUS * ring as f32 / rings as f32;
+            let dist = disk_radius * ring as f32 / rings as f32;
             for slice in 0..slices {
                 let angle = slice as f32 / slices as f32 * std::f32::consts::TAU;
                 let local = egui::vec2(angle.cos() * dist, angle.sin() * dist);
@@ -1763,8 +1842,12 @@ impl SlateApp {
         for (index, color) in recents.iter().enumerate().take(slots) {
             let [x, y] = wheel_slot_offset(index, slots, WHEEL_SLOT_RADIUS);
             let at = center + egui::vec2(x, y);
-            painter.circle_filled(at, 10.0, Color32::from_rgb(color[0], color[1], color[2]));
-            painter.circle_stroke(at, 10.0, EStroke::new(1.5_f32, Color32::WHITE));
+            painter.circle_filled(
+                at,
+                WHEEL_DOT_RADIUS,
+                Color32::from_rgb(color[0], color[1], color[2]),
+            );
+            painter.circle_stroke(at, WHEEL_DOT_RADIUS, EStroke::new(1.5_f32, Color32::WHITE));
         }
         let mark = center + sv_offset(hsv[1], hsv[2]);
         painter.circle_stroke(mark, 7.0, EStroke::new(2.0_f32, Color32::WHITE));
@@ -1996,11 +2079,27 @@ mod tests {
         }
         let off = {
             let at = wheel_slot_offset(0, 24, WHEEL_SLOT_RADIUS);
-            [at[0] + 12.0, at[1] - 4.0]
+            [at[0] + 7.0, at[1] - 3.0]
         };
         assert!(matches!(
             sample_wheel(off, [0.0, 1.0, 1.0], &[[9, 8, 7]]),
             WheelHit::Dot([9, 8, 7], _)
+        ));
+        // The hue ring's outer edge and the swatches' inner edge never share
+        // a pick: just inside the swatch zone is hue-free, and the ring's
+        // padded edge is swatch-free.
+        let dot_inner = WHEEL_SLOT_RADIUS - WHEEL_DOT_HIT;
+        let ring_outer = WHEEL_HUE_OUTER + WHEEL_HUE_HIT_PAD;
+        assert!(dot_inner > ring_outer + 4.0, "{dot_inner} vs {ring_outer}");
+        let ring_edge = [0.0, ring_outer - 0.5];
+        assert!(matches!(
+            sample_wheel(ring_edge, [0.0, 1.0, 1.0], &[[9, 8, 7]]),
+            WheelHit::Field(..)
+        ));
+        let gap = [0.0, (ring_outer + dot_inner) * 0.5];
+        assert!(matches!(
+            sample_wheel(gap, [0.0, 1.0, 1.0], &[[9, 8, 7]]),
+            WheelHit::Keep
         ));
     }
 }

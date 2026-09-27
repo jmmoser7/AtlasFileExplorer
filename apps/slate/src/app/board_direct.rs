@@ -119,6 +119,41 @@ impl SlateApp {
         let bez = bezpath_from_anchors(anchors, closed);
         let (rect, data) = board_path::bezpath_to_path_data(&bez, closed);
         let rect = WorldRect::new(rect.x, rect.y, rect.w.max(0.01), rect.h.max(0.01));
+        let mut data: slate_doc::scene::PathData = data.into();
+        // A painted stroke keeps its per-vertex tips while the vertex count
+        // holds, and its erase passes stay where they were in the world.
+        if let Some(old) = self.doc().scene.node(id) {
+            if let NodeKind::Shape(s) = &old.kind {
+                if let Some(path) = s.path.as_ref() {
+                    if path.tips.len() == anchors.len() {
+                        data.tips = path.tips.clone();
+                    }
+                    data.erase = path
+                        .erase
+                        .iter()
+                        .map(|mark| slate_doc::scene::EraseMark {
+                            points: mark
+                                .points
+                                .iter()
+                                .map(|p| {
+                                    let w = slate_doc::geom::world_point(
+                                        *p,
+                                        old.rect,
+                                        old.rotation_deg,
+                                    );
+                                    board_path::world_to_node_norm(
+                                        Pos2::new(w.x as f32, w.y as f32),
+                                        rect,
+                                        0.0,
+                                    )
+                                })
+                                .collect(),
+                            tips: mark.tips.clone(),
+                        })
+                        .collect();
+                }
+            }
+        }
         if let Some(n) = self.doc_mut().scene.node_mut(id) {
             n.rect = rect;
             n.rotation_deg = 0.0;
@@ -128,6 +163,99 @@ impl SlateApp {
                 s.path = Some(data.into());
             }
         }
+    }
+
+    /// Snap a dragged anchor or handle position: the board's snaps (other
+    /// nodes, grid, guides) and this curve's own anchors that are not moving.
+    fn direct_snap(
+        &mut self,
+        node: NodeId,
+        p: Pos2,
+        anchors0: &[Anchor],
+        moving: &[usize],
+    ) -> Pos2 {
+        let board = self.resolve_point_snap(p, &[node], None, false, false);
+        let reach = self.board_snap_threshold_pub();
+        let own = anchors0
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !moving.contains(i))
+            .map(|(_, a)| from_point(a.point))
+            .map(|q| (q.distance(p), q))
+            .filter(|(d, _)| *d <= reach)
+            .min_by(|a, b| a.0.total_cmp(&b.0));
+        match own {
+            Some((d, q)) if board == p || d <= board.distance(p) => {
+                self.board_point_snap = Some(q);
+                q
+            }
+            _ => board,
+        }
+    }
+
+    /// Delete the selected anchors of the Direct Select target. The curve
+    /// rebuilds through its remaining neighbors; a curve left with too few
+    /// anchors is removed. One undo step.
+    pub(crate) fn direct_delete_anchors(&mut self) -> bool {
+        let Some(id) = self.direct.node else {
+            return false;
+        };
+        if self.direct.anchors.is_empty() {
+            return false;
+        }
+        let Some((mut anchors, closed)) = self.direct_anchors_of(id) else {
+            return false;
+        };
+        let Some(before) = self.doc().scene.node(id).cloned() else {
+            return false;
+        };
+        let mut gone: Vec<usize> = self.direct.anchors.drain().collect();
+        gone.sort_unstable_by(|a, b| b.cmp(a));
+        let tips_follow = matches!(
+            &before.kind,
+            NodeKind::Shape(s) if s.path.as_ref().is_some_and(|p| p.tips.len() == anchors.len())
+        );
+        for &i in &gone {
+            if i < anchors.len() {
+                anchors.remove(i);
+            }
+        }
+        if anchors.len() < if closed { 3 } else { 2 } {
+            self.direct_set_target(None);
+            self.delete_board_nodes(&[id]);
+        } else {
+            if tips_follow {
+                if let Some(n) = self.doc_mut().scene.node_mut(id) {
+                    if let NodeKind::Shape(s) = &mut n.kind {
+                        if let Some(path) = s.path.as_mut() {
+                            let path = std::sync::Arc::make_mut(path);
+                            for &i in &gone {
+                                if i < path.tips.len() {
+                                    path.tips.remove(i);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            self.direct_write_back(id, &anchors, closed);
+            let Some(after) = self.doc().scene.node(id).cloned() else {
+                return false;
+            };
+            if let Some(n) = self.doc_mut().scene.node_mut(id) {
+                *n = before.clone();
+            }
+            self.last_board_edit = None;
+            self.commit_scene(vec![SceneCmd::Patch {
+                before: Box::new(before),
+                after: Box::new(after),
+            }]);
+        }
+        self.push_history(
+            atlas_commands::CommandId("board.direct.delete_anchor"),
+            Some(format!("{} anchor(s)", gone.len())),
+        );
+        true
     }
 
     /// Set the direct-selection target (mirrors into `board_sel` so the
@@ -271,11 +399,22 @@ impl SlateApp {
             _ => None,
         };
         if let Some((node, closed, start, mut anchors, indices)) = anchors_drag {
-            let snapped = self.resolve_point_snap(world, &[node], None, false, false);
-            let mut d = snapped - start;
-            if super::board_snap::effective_ortho(self.board_ortho, mods.shift) {
-                d = super::board_snap::ortho_snap_vec(d);
+            // Snap the anchor being carried, not the cursor: the grab point
+            // is rarely the anchor's exact center.
+            let lead = indices
+                .first()
+                .and_then(|i| anchors.get(*i))
+                .map(|a| from_point(a.point))
+                .unwrap_or(start);
+            let carried = lead + (world - start);
+            let mut d = if super::board_snap::effective_ortho(self.board_ortho, mods.shift) {
                 self.ortho_feedback = Some((start, super::board_snap::ortho_axis(world - start)));
+                super::board_snap::ortho_snap_vec(world - start)
+            } else {
+                self.direct_snap(node, carried, &anchors, &indices) - lead
+            };
+            if !d.x.is_finite() || !d.y.is_finite() {
+                d = Vec2::ZERO;
             }
             let delta = KVec2::new(d.x as f64, d.y as f64);
             for idx in indices {
@@ -317,7 +456,8 @@ impl SlateApp {
             } => {
                 let (node, closed, idx, end) = (*node, *closed, *idx, *end);
                 let mut anchors = anchors0.clone();
-                move_handle(&mut anchors, idx, end, to_point(world), mods.alt);
+                let snapped = self.direct_snap(node, world, &anchors, &[]);
+                move_handle(&mut anchors, idx, end, to_point(snapped), mods.alt);
                 self.direct_write_back(node, &anchors, closed);
             }
             DirectDrag::Marquee { .. } => {}

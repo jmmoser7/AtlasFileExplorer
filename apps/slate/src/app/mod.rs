@@ -56,6 +56,7 @@ mod board_slate;
 mod board_smooth;
 mod board_snap;
 mod board_style;
+mod board_tip_hud;
 mod board_transform;
 mod board_trim;
 mod board_video;
@@ -580,6 +581,8 @@ pub struct SlateApp {
     pub(crate) brush_hud: Option<board_color::BrushHud>,
     /// Tool settings when the right-button HUD opened, for Ctrl+Z.
     pub(crate) brush_hud_before: Option<board_color::BrushSettingUndo>,
+    /// Direct Select target as it was when the HUD opened.
+    pub(crate) hud_node_before: Option<slate_doc::scene::Node>,
     /// Alt or Shift primary press waiting for a short click (sample / opacity).
     pub(crate) brush_mod_click: Option<board_color::BrushModClick>,
     /// Swatch pick: (press point, where that color sits on the wheel). The
@@ -608,6 +611,9 @@ pub struct SlateApp {
     /// Eraser falloff and strength on painted strokes (persisted).
     pub eraser_softness: f32,
     pub eraser_opacity: f32,
+    /// Medium texture of the Brush and of the Eraser's passes (persisted).
+    pub brush_texture: slate_doc::scene::BrushTexture,
+    pub eraser_texture: slate_doc::scene::BrushTexture,
     /// Smoothing brush width (world units), `[`/`]` while Smooth is armed.
     pub smooth_width: f32,
     pub smooth_softness: f32,
@@ -899,6 +905,7 @@ impl SlateApp {
             brush_opacity: 1.0,
             brush_hud: None,
             brush_hud_before: None,
+            hud_node_before: None,
             brush_mod_click: None,
             brush_cursor_warp: None,
             brush_straight: None,
@@ -912,6 +919,8 @@ impl SlateApp {
             eraser_width: settings::ERASER_WIDTH_DEFAULT,
             eraser_softness: 0.0,
             eraser_opacity: 1.0,
+            brush_texture: Default::default(),
+            eraser_texture: Default::default(),
             eraser_anchor: None,
             smooth_width: settings::ERASER_WIDTH_DEFAULT,
             smooth_softness: 0.0,
@@ -943,6 +952,8 @@ impl SlateApp {
         app.eraser_width = app.settings.eraser_width;
         app.eraser_softness = app.settings.eraser_softness;
         app.eraser_opacity = app.settings.eraser_opacity;
+        app.brush_texture = app.settings.brush_texture;
+        app.eraser_texture = app.settings.eraser_texture;
         debug_assert!(
             app.registry.validate().is_ok(),
             "SPECS table inconsistent: {:?}",

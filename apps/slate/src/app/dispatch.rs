@@ -678,6 +678,10 @@ impl SlateApp {
                 self.apply_align_action(action)
             }
             "board.delete" => {
+                if self.board_tool == board::BoardTool::DirectSelect && self.direct_delete_anchors()
+                {
+                    return true;
+                }
                 use super::board_image_layers::ImageStripFocus;
                 if let Some(session) = self.image_paint.as_ref() {
                     if self.board_sel.len() == 1 && self.board_sel.contains(&session.image) {

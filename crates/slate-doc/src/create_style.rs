@@ -66,6 +66,8 @@ mod tests {
                 stamp: false,
                 tween_from: None,
                 gaussian_blur: 0.0,
+                arrow_end: false,
+                texture: Default::default(),
             }),
             fill: Some(Rgba::WHITE),
         };

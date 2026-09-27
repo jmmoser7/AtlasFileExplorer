@@ -3940,18 +3940,15 @@ impl SlateApp {
         self.ctrl_down = pointer_mods.0.ctrl
             || pointer_mods.0.command
             || pointer_mods.1.is_some_and(|(_, m)| m.ctrl || m.command);
-        let hud_pointer = pointer.or(pointer_mods.1.map(|(pos, _)| pos));
-        let brush_armed = matches!(
-            self.board_tool,
-            BoardTool::Brush | BoardTool::Eraser | BoardTool::Smooth
-        );
+        let hud_pointer = pointer_mods.1.map(|(pos, _)| pos).or(pointer);
+        let brush_armed = self.tip_hud_armed();
         let right_held = secondary_down || secondary_pressed;
         // Alt+right is size. Shift+right is opacity. Ctrl+right is the color
         // wheel. Ctrl and Alt beat Shift. Each chord owns the button before
         // turbo pan or a plain right-drag pan.
         let claim_right = self.brush_hud.is_some()
             || (brush_armed && right_held && self.alt_down)
-            || (self.board_tool == BoardTool::Brush && right_held && self.ctrl_down)
+            || (self.tip_hud_has_color() && right_held && self.ctrl_down)
             || (brush_armed && right_held && self.shift_down && !self.ctrl_down && !self.alt_down);
         let mut cam_offset_tmp = self.tab().cam.offset;
         let ctx2 = ui.ctx().clone();
