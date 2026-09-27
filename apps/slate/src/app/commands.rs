@@ -1341,7 +1341,9 @@ pub static SPECS: &[CommandSpec] = &[
         "board.delete",
         "Board",
         "Delete objects",
-        "Delete or Backspace",
+        "Delete or Backspace — with curve vertices picked (Direct Select \
+         anchors or Select grips), removes those vertices and rejoins the \
+         neighbors; too few left removes the curve",
         Some(Chord::bare(Key::Delete)),
         Repeat::Never,
         BOARD_SEL,
@@ -1784,10 +1786,12 @@ pub static SPECS: &[CommandSpec] = &[
         "Direct select (anchors)",
         "A — click a path to edit anchors: drag anchors/segments/handles \
          (Alt breaks handle symmetry; they snap to other anchors on the \
-         curve and to board snaps), double-click toggles corner/smooth, \
-         Delete removes the selected anchors and rejoins the neighbors, \
-         arrows nudge (Shift ×10). Alt/Ctrl/Shift+right-drag edit the \
-         curve's width, color, and opacity.",
+         curve and to board snaps; a handle snaps its tip, never to its own \
+         anchor), double-click toggles corner/smooth, Delete removes the \
+         selected anchors and rejoins the neighbors, arrows nudge (Shift \
+         ×10). Alt/Ctrl/Shift+right-drag edit width, color, and opacity of \
+         the selected anchors only (or the hovered anchor; elsewhere the \
+         whole curve); the property strip sits beside the selected anchors.",
         Some(Chord::bare(Key::A)),
         Repeat::Repeatable,
         BOARD,

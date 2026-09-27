@@ -617,6 +617,11 @@ pub struct SlateApp {
     pub(crate) brush_hud_before: Option<board_color::BrushSettingUndo>,
     /// Direct Select target as it was when the HUD opened.
     pub(crate) hud_node_before: Option<slate_doc::scene::Node>,
+    /// The curve and picked or hovered vertices the open HUD edits, fixed
+    /// when it opened (`SlateApp::hud_target`).
+    pub(crate) hud_frozen: Option<(NodeId, Vec<usize>)>,
+    /// Pointer this frame, so hovering a curve vertex arms the tip HUD.
+    pub(crate) hud_pointer: Option<egui::Pos2>,
     /// Alt or Shift primary press waiting for a short click (sample / opacity).
     pub(crate) brush_mod_click: Option<board_color::BrushModClick>,
     /// Swatch pick: (press point, where that color sits on the wheel). The
@@ -953,6 +958,8 @@ impl SlateApp {
             brush_hud: None,
             brush_hud_before: None,
             hud_node_before: None,
+            hud_frozen: None,
+            hud_pointer: None,
             brush_mod_click: None,
             brush_cursor_warp: None,
             brush_straight: None,

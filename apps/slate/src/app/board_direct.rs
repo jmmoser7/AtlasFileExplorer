@@ -99,7 +99,8 @@ pub enum DirectDrag {
         seg: usize,
         start: Pos2,
     },
-    /// Drag one direction handle (Alt = break symmetry).
+    /// Drag one direction handle (Alt = break symmetry). The handle tip
+    /// keeps its offset from the press point `start`.
     Handle {
         node: NodeId,
         before: Node,
@@ -107,6 +108,7 @@ pub enum DirectDrag {
         closed: bool,
         idx: usize,
         end: HandleEnd,
+        start: Pos2,
     },
     /// Drag one arc grip; the arc is rebuilt through start, through, end.
     Arc {
@@ -129,11 +131,11 @@ fn from_point(p: Point) -> Pos2 {
 
 /// Rebuild node `n` from the world path `bez`: rect and normalized PathData
 /// recomputed, a Line promoted to Path, rotation baked to 0. `sources`, when
-/// given, holds the old vertex each new anchor came from (an edit that adds
-/// or drops anchors); the new vertices then take those vertices' style.
+/// given, holds the old vertex parameter each new anchor came from (an edit
+/// that adds or drops anchors); the new vertices then take the style there.
 /// Otherwise the style is kept grip for grip or vertex for vertex
 /// (`keep_tips`).
-fn rebuild_from_world_bez(n: &mut Node, bez: &BezPath, closed: bool, sources: Option<&[usize]>) {
+fn rebuild_from_world_bez(n: &mut Node, bez: &BezPath, closed: bool, sources: Option<&[f32]>) {
     let (rect, mut data) = board_path::bezpath_to_path_data(bez, closed);
     let rect = WorldRect::new(rect.x, rect.y, rect.w.max(0.01), rect.h.max(0.01));
     let (old_rect, old_rot) = (n.rect, n.rotation_deg);
@@ -147,7 +149,7 @@ fn rebuild_from_world_bez(n: &mut Node, bez: &BezPath, closed: bool, sources: Op
             Some(sources) => {
                 // A closing copy of the start comes from anchor 0.
                 let params: Vec<f32> = (0..=data.segs.len())
-                    .map(|v| sources[v % sources.len()] as f32)
+                    .map(|v| sources[v % sources.len()])
                     .collect();
                 slate_doc::vertex_style::carry_vertex_style(
                     (&old, old_rect, old_rot),
@@ -176,11 +178,7 @@ fn rebuild_from_world_bez(n: &mut Node, bez: &BezPath, closed: bool, sources: Op
                     .iter()
                     .map(|p| {
                         let w = slate_doc::geom::world_point(*p, old_rect, old_rot);
-                        board_path::world_to_node_norm(
-                            Pos2::new(w.x as f32, w.y as f32),
-                            rect,
-                            0.0,
-                        )
+                        board_path::world_to_node_norm(Pos2::new(w.x as f32, w.y as f32), rect, 0.0)
                     })
                     .collect(),
                 tips: mark.tips.clone(),
@@ -239,7 +237,7 @@ impl SlateApp {
         id: NodeId,
         bez: &BezPath,
         closed: bool,
-        sources: Option<&[usize]>,
+        sources: Option<&[f32]>,
     ) {
         if let Some(n) = self.doc_mut().scene.node_mut(id) {
             rebuild_from_world_bez(n, bez, closed, sources);
@@ -255,14 +253,32 @@ impl SlateApp {
         anchors0: &[Anchor],
         moving: &[usize],
     ) -> Pos2 {
-        let board = self.resolve_point_snap(p, &[node], None, false, false);
-        let reach = self.board_snap_threshold_pub();
-        let own = anchors0
+        let own: Vec<Pos2> = anchors0
             .iter()
             .enumerate()
             .filter(|(i, _)| !moving.contains(i))
             .map(|(_, a)| from_point(a.point))
-            .map(|q| (q.distance(p), q))
+            .collect();
+        self.snap_with_own_points(p, &[node], &own)
+    }
+
+    /// Snap a carried path-edit point: the board's snaps, excluding
+    /// `exclude`, or the nearest of the edited curve's own `points` within
+    /// snap reach, whichever is nearer.
+    pub(crate) fn snap_with_own_points(
+        &mut self,
+        p: Pos2,
+        exclude: &[NodeId],
+        points: &[Pos2],
+    ) -> Pos2 {
+        let board = self.resolve_point_snap(p, exclude, None, false, false);
+        if self.alt_down {
+            return board;
+        }
+        let reach = self.board_snap_threshold_pub();
+        let own = points
+            .iter()
+            .map(|q| (q.distance(p), *q))
             .filter(|(d, _)| *d <= reach)
             .min_by(|a, b| a.0.total_cmp(&b.0));
         match own {
@@ -284,42 +300,96 @@ impl SlateApp {
         if self.direct.anchors.is_empty() {
             return false;
         }
-        let Some((mut anchors, closed)) = self.direct_anchors_of(id) else {
+        let Some((anchors, closed)) = self.direct_anchors_of(id) else {
             return false;
         };
+        let gone: Vec<usize> = self.direct.anchors.drain().collect();
+        if !self.delete_curve_anchors(id, anchors, closed, &gone, None) {
+            return false;
+        }
+        if self.doc().scene.node(id).is_none() {
+            self.direct_set_target(None);
+        }
+        true
+    }
+
+    /// Delete picked vertices under any tool: Direct Select's anchors, or
+    /// the Select tool's grip picks on its one selected curve. An arc's
+    /// remaining grips become a straight segment. One undo step.
+    pub(crate) fn delete_picked_vertices(&mut self) -> bool {
+        if self.board_tool == super::board::BoardTool::DirectSelect {
+            return self.direct_delete_anchors();
+        }
+        let Some((id, gone)) = self.picked_vertices() else {
+            return false;
+        };
+        if self.doc().scene.node(id).is_none_or(|n| n.locked) {
+            return false;
+        }
+        let (anchors, closed, vertices) = match self.curve_grips_of(id) {
+            Some(CurveGrips::Arc(points)) => {
+                let n = self.curve_vertex_count(id).saturating_sub(1) as f32;
+                (
+                    points.map(|p| Anchor::corner(to_point(p))).to_vec(),
+                    false,
+                    Some([0.0, n * 0.5, n]),
+                )
+            }
+            _ => match self.direct_anchors_of(id) {
+                Some((anchors, closed)) => (anchors, closed, None),
+                None => return false,
+            },
+        };
+        self.direct.grip_points = GripPoints::default();
+        self.delete_curve_anchors(
+            id,
+            anchors,
+            closed,
+            &gone,
+            vertices.as_ref().map(|v| &v[..]),
+        )
+    }
+
+    /// Vertices of curve `id`'s path (a closing copy of the start counts).
+    fn curve_vertex_count(&self, id: NodeId) -> usize {
+        match self.doc().scene.node(id).map(|n| &n.kind) {
+            Some(NodeKind::Shape(s)) => s.path.as_ref().map_or(2, |p| 1 + p.segs.len()),
+            _ => 0,
+        }
+    }
+
+    /// Remove `gone` from `anchors` of curve `id` and rebuild through the
+    /// rest, each kept anchor keeping its vertex style; `vertices` gives the
+    /// path vertex parameter of each anchor when they are not the path's
+    /// own vertices (an arc's grips). Too few anchors left removes the node.
+    fn delete_curve_anchors(
+        &mut self,
+        id: NodeId,
+        mut anchors: Vec<Anchor>,
+        closed: bool,
+        gone: &[usize],
+        vertices: Option<&[f32]>,
+    ) -> bool {
         let Some(before) = self.doc().scene.node(id).cloned() else {
             return false;
         };
-        let mut gone: Vec<usize> = self.direct.anchors.drain().collect();
-        gone.sort_unstable_by(|a, b| b.cmp(a));
-        let tips_follow = matches!(
-            &before.kind,
-            NodeKind::Shape(s) if s.path.as_ref().is_some_and(|p| p.tips.len() == anchors.len())
-        );
-        for &i in &gone {
-            if i < anchors.len() {
-                anchors.remove(i);
-            }
+        let count = anchors.len();
+        let kept: Vec<usize> = (0..count).filter(|i| !gone.contains(i)).collect();
+        if kept.len() == count {
+            return false;
         }
+        anchors = kept.iter().map(|&i| anchors[i]).collect();
         if anchors.len() < if closed { 3 } else { 2 } {
-            self.direct_set_target(None);
             self.delete_board_nodes(&[id]);
         } else {
-            if tips_follow {
-                if let Some(n) = self.doc_mut().scene.node_mut(id) {
-                    if let NodeKind::Shape(s) = &mut n.kind {
-                        if let Some(path) = s.path.as_mut() {
-                            let path = std::sync::Arc::make_mut(path);
-                            for &i in &gone {
-                                if i < path.tips.len() {
-                                    path.tips.remove(i);
-                                }
-                            }
-                        }
-                    }
-                }
+            let bez = bezpath_from_anchors(&anchors, closed);
+            let sources: Vec<f32> = kept
+                .iter()
+                .map(|&i| vertices.map_or(i as f32, |v| v[i]))
+                .collect();
+            if let Some(n) = self.doc_mut().scene.node_mut(id) {
+                rebuild_from_world_bez(n, &bez, closed, Some(&sources));
             }
-            self.direct_write_back(id, &anchors, closed);
             let Some(after) = self.doc().scene.node(id).cloned() else {
                 return false;
             };
@@ -334,9 +404,115 @@ impl SlateApp {
         }
         self.push_history(
             atlas_commands::CommandId("board.direct.delete_anchor"),
-            Some(format!("{} anchor(s)", gone.len())),
+            Some(format!("{} anchor(s)", count - kept.len())),
         );
         true
+    }
+
+    /// The curve whose vertices are picked, with those vertices as grip
+    /// indices (P1.curve.grips): Direct Select's anchors on its target, else
+    /// the Select tool's grip picks on its one selected curve.
+    pub(crate) fn picked_vertices(&self) -> Option<(NodeId, Vec<usize>)> {
+        if self.board_tool == super::board::BoardTool::DirectSelect {
+            let id = self.direct.node?;
+            if self.direct.anchors.is_empty() {
+                return None;
+            }
+            return Some((
+                id,
+                self.anchor_grips(id, self.direct.anchors.iter().copied()),
+            ));
+        }
+        let id = self.direct.grip_points.node?;
+        if self.direct.grip_points.picked.is_empty()
+            || self.board_sel.len() != 1
+            || !self.board_sel.contains(&id)
+        {
+            return None;
+        }
+        Some((id, self.direct.grip_points.picked.iter().copied().collect()))
+    }
+
+    /// World position of each picked vertex ([`Self::picked_vertices`]).
+    pub(crate) fn picked_vertex_points(&self) -> Option<(NodeId, Vec<Pos2>)> {
+        let (id, grips) = self.picked_vertices()?;
+        let direct = self.board_tool == super::board::BoardTool::DirectSelect;
+        let (all, picked): (Vec<Pos2>, Vec<usize>) = match self.curve_grips_of(id) {
+            _ if direct => {
+                let (anchors, _) = self.direct_anchors_of(id)?;
+                let mut picked: Vec<usize> = self.direct.anchors.iter().copied().collect();
+                picked.sort_unstable();
+                (
+                    anchors.iter().map(|a| from_point(a.point)).collect(),
+                    picked,
+                )
+            }
+            Some(CurveGrips::Arc(points)) => (points.to_vec(), grips),
+            Some(CurveGrips::Anchors { anchors, .. }) => {
+                (anchors.iter().map(|a| from_point(a.point)).collect(), grips)
+            }
+            None => {
+                let (a, b) = board_line::line_endpoints(self.doc().scene.node(id)?)?;
+                (vec![a, b], grips)
+            }
+        };
+        let points: Vec<Pos2> = picked.iter().filter_map(|&i| all.get(i).copied()).collect();
+        (!points.is_empty()).then_some((id, points))
+    }
+
+    /// The curve vertex (grip index) under `screen`: an anchor or its handle
+    /// on Direct Select's target, or a grip of the Select tool's one
+    /// selected curve.
+    pub(crate) fn hovered_vertex(&self, screen: Pos2) -> Option<(NodeId, usize)> {
+        let xf = self.board_xf();
+        let vertex = |hit: PathEditHit| match hit {
+            PathEditHit::Anchor(i) | PathEditHit::Handle(i, _) => i,
+        };
+        match self.board_tool {
+            super::board::BoardTool::DirectSelect => {
+                let id = self.direct.node?;
+                let i = vertex(path_edit_hit(&self.direct_overlay(&xf)?, screen)?);
+                Some((id, *self.anchor_grips(id, [i]).first()?))
+            }
+            super::board::BoardTool::Select => {
+                if let Some((id, grips)) = self.curve_grip_target() {
+                    let overlay = self.curve_grip_overlay(id, &grips, &xf);
+                    return path_edit_hit(&overlay, screen).map(|hit| (id, vertex(hit)));
+                }
+                if self.board_sel.len() != 1 {
+                    return None;
+                }
+                let id = *self.board_sel.iter().next()?;
+                self.line_grip_at(id, screen, &xf).map(|i| (id, i as usize))
+            }
+            _ => None,
+        }
+    }
+
+    /// Grip indices (P1.curve.grips) of anchors `picked` on curve `id`.
+    /// Anchors are grips on every curve but a circular arc, whose start,
+    /// through and end grips each take the anchors nearest them.
+    pub(crate) fn anchor_grips(
+        &self,
+        id: NodeId,
+        picked: impl IntoIterator<Item = usize>,
+    ) -> Vec<usize> {
+        let mut grips: Vec<usize> = picked.into_iter().collect();
+        if let (Some(CurveGrips::Arc(points)), Some((anchors, _))) =
+            (self.curve_grips_of(id), self.direct_anchors_of(id))
+        {
+            grips = grips
+                .iter()
+                .filter_map(|&i| {
+                    let at = from_point(anchors.get(i)?.point);
+                    (0..3)
+                        .min_by(|&a, &b| points[a].distance(at).total_cmp(&points[b].distance(at)))
+                })
+                .collect();
+        }
+        grips.sort_unstable();
+        grips.dedup();
+        grips
     }
 
     /// Set the direct-selection target (mirrors into `board_sel` so the
@@ -380,6 +556,11 @@ impl SlateApp {
             return None;
         }
         let id = *self.board_sel.iter().next()?;
+        Some((id, self.curve_grips_of(id)?))
+    }
+
+    /// The grips of curve `id` ([`Self::curve_grip_target`]), selected or not.
+    pub(crate) fn curve_grips_of(&self, id: NodeId) -> Option<CurveGrips> {
         let n = self.doc().scene.node(id)?;
         if n.locked || n.hidden || board_line::line_endpoints(n).is_some() {
             return None;
@@ -397,11 +578,11 @@ impl SlateApp {
         let bez = board_path::path_data_to_world_bez(path, n.rect, n.rotation_deg);
         if !path.closed {
             if let Some(points) = board_path::arc_grip_points(&bez) {
-                return Some((id, CurveGrips::Arc(points)));
+                return Some(CurveGrips::Arc(points));
             }
         }
         let (anchors, closed) = anchors_from_bezpath(&bez);
-        Some((id, CurveGrips::Anchors { anchors, closed }))
+        Some(CurveGrips::Anchors { anchors, closed })
     }
 
     /// Screen adornment for the grip target, picked points filled.
@@ -477,6 +658,7 @@ impl SlateApp {
                     closed,
                     idx,
                     end,
+                    start: xf.s2w(screen),
                 }
             }
             (CurveGrips::Anchors { anchors, closed }, PathEditHit::Anchor(idx)) => {
@@ -494,18 +676,10 @@ impl SlateApp {
     }
 
     /// Click on a grip of the selected curve or line: pick that point
-    /// (Shift toggles it). Returns whether the click landed on a grip.
+    /// (Shift toggles it). A handle picks its anchor. Returns whether the
+    /// click landed on a grip.
     pub(crate) fn pick_curve_grip_point(&mut self, screen: Pos2, shift: bool) -> bool {
-        let xf = self.board_xf();
-        let hit = if let Some((id, grips)) = self.curve_grip_target() {
-            hit_anchor(&self.curve_grip_overlay(id, &grips, &xf), screen).map(|i| (id, i))
-        } else if self.board_sel.len() == 1 {
-            let id = *self.board_sel.iter().next().unwrap();
-            self.line_grip_at(id, screen, &xf).map(|i| (id, i as usize))
-        } else {
-            None
-        };
-        let Some((id, idx)) = hit else {
+        let Some((id, idx)) = self.hovered_vertex(screen) else {
             // A click off the grips targets whole nodes again.
             self.direct.grip_points = GripPoints::default();
             return false;
@@ -580,6 +754,7 @@ impl SlateApp {
                     closed,
                     idx,
                     end,
+                    start: world,
                 });
             }
             // Anchor press: select (replace unless Shift/already selected)
@@ -709,11 +884,21 @@ impl SlateApp {
                 closed,
                 idx,
                 end,
+                start,
                 ..
             } => {
-                let (node, closed, idx, end) = (*node, *closed, *idx, *end);
+                let (node, closed, idx, end, start) = (*node, *closed, *idx, *end, *start);
                 let mut anchors = anchors0.clone();
-                let snapped = self.direct_snap(node, world, &anchors, &[]);
+                let a = &anchors[idx];
+                let tip0 = match end {
+                    HandleEnd::In => a.handle_in,
+                    HandleEnd::Out => a.handle_out,
+                }
+                .map_or(start, from_point);
+                // Snap the handle tip, not the cursor; its own anchor is not
+                // a target.
+                let carried = tip0 + (world - start);
+                let snapped = self.direct_snap(node, carried, &anchors, &[idx]);
                 move_handle(&mut anchors, idx, end, to_point(snapped), mods.alt);
                 self.direct_write_back(node, &anchors, closed);
             }
@@ -962,7 +1147,7 @@ impl SlateApp {
         };
         // The open path's anchors are its vertices, in order; a merge drops
         // the last into the first.
-        let sources: Vec<usize> = (0..joined.len()).collect();
+        let sources: Vec<f32> = (0..joined.len()).map(|i| i as f32).collect();
         let bez = bezpath_from_anchors(&joined, closed);
         self.write_back_world_bez(id, &bez, closed, Some(&sources));
         if let Some(after) = self.doc().scene.node(id).cloned() {

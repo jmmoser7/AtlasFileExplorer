@@ -295,7 +295,7 @@ fn recolor_vertex_tips(node: &mut Node, recolor: impl Fn(&mut Rgba)) {
 }
 
 /// The painted tip at the first of `points` (grip indices) of a path node.
-fn picked_tip(node: &Node, points: &[usize]) -> Option<scene::StrokeSpan> {
+pub(crate) fn picked_tip(node: &Node, points: &[usize]) -> Option<scene::StrokeSpan> {
     let first = *points.first()?;
     let NodeKind::Shape(s) = &node.kind else {
         return None;
@@ -1096,15 +1096,38 @@ impl SlateApp {
         out
     }
 
-    /// Grips picked on the strip's one target curve (P1.curve.vertex-style);
-    /// empty when the whole selection is the target.
+    /// Grips picked on the strip's one target curve (P1.curve.vertex-style):
+    /// Select-tool grip picks or Direct Select anchors. Empty when the whole
+    /// selection is the target.
     pub(crate) fn shape_property_points(&self) -> Vec<usize> {
-        match self.shape_properties.ids.as_slice() {
-            [id] if self.direct.grip_points.node == Some(*id) => {
-                self.direct.grip_points.picked.iter().copied().collect()
-            }
+        match (self.shape_properties.ids.as_slice(), self.picked_vertices()) {
+            ([id], Some((picked, points))) if *id == picked => points,
             _ => Vec::new(),
         }
+    }
+
+    /// World bounds of the picked vertices of the strip's one curve, grown
+    /// by the stroke's half width, so the strip sits beside those points.
+    fn picked_vertex_bounds(&self) -> Option<WorldRect> {
+        let (id, points) = self.picked_vertex_points()?;
+        if self.shape_properties.ids.as_slice() != [id] {
+            return None;
+        }
+        let half = match self.doc().scene.node(id).map(|n| &n.kind) {
+            Some(NodeKind::Shape(s)) => s.stroke.width * 0.5,
+            _ => 0.0,
+        };
+        let (mut lo, mut hi) = (points[0], points[0]);
+        for p in &points[1..] {
+            lo = lo.min(*p);
+            hi = hi.max(*p);
+        }
+        Some(WorldRect::new(
+            lo.x - half,
+            lo.y - half,
+            hi.x - lo.x + 2.0 * half,
+            hi.y - lo.y + 2.0 * half,
+        ))
     }
 
     fn committed_shape_nodes(&self) -> Vec<Node> {
@@ -1313,14 +1336,17 @@ impl SlateApp {
                 .is_some_and(|n| matches!(&n.kind, NodeKind::Text(t) if t.fill.is_some()))
         });
         let composing_text_box = self.text_box_draft.is_some();
+        let vertex_bounds = self.picked_vertex_bounds();
+        let direct_picks = self.board_tool == BoardTool::DirectSelect && vertex_bounds.is_some();
         let live = self.board_drag.is_none()
             && !editing_sticky
             && !composing_text_box
             && (editing_hosted_text
-                || (self.board_tool == BoardTool::Select && self.text_edit.is_none()))
+                || ((self.board_tool == BoardTool::Select || direct_picks)
+                    && self.text_edit.is_none()))
             && !self.shape_properties.nodes.is_empty();
         if live {
-            if let Some(bounds) = self.shape_properties.bounds {
+            if let Some(bounds) = vertex_bounds.or(self.shape_properties.bounds) {
                 self.shape_properties.last_chrome = Some(LastChrome {
                     bounds,
                     items: live_property_strip_items(self, &self.shape_properties.nodes),

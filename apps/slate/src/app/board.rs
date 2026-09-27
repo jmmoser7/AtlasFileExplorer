@@ -4297,6 +4297,7 @@ impl SlateApp {
             || pointer_mods.0.command
             || pointer_mods.1.is_some_and(|(_, m)| m.ctrl || m.command);
         let hud_pointer = pointer_mods.1.map(|(pos, _)| pos).or(pointer);
+        self.hud_pointer = hud_pointer;
         let brush_armed = self.tip_hud_armed();
         let right_held = secondary_down || secondary_pressed;
         // Alt+right is size. Shift+right is opacity. Ctrl+right is the color

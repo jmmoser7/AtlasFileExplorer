@@ -50,6 +50,60 @@ One drag = one journaled `Patch` on the node (before/after path data), via
 the existing gesture pipeline (`begin_gesture`/`end_gesture`). Nudges use
 `amend_last_patch` coalescing.
 
+A dragged handle keeps its offset from the press point. The handle tip, not
+the cursor, snaps (`resolve_point_snap`, then the curve's other anchors);
+the handle's own anchor is never a target. The same holds for Select-tool
+grips and for anchors and handles of a Bézier span still being drafted.
+Handles and anchor squares stay screen-constant (P0.9 path-edit exception).
+
+## Picked vertices (Direct Select and Select grips)
+
+"Picked vertices" means Direct Select's selected anchors, or the grips picked
+with the Select tool on a single selected curve (P1.curve.grips). An arc's
+picks are its three grips. Both tools share the behavior below
+(`picked_vertices`, `board_direct.rs`).
+
+### Tip HUD on picked vertices
+
+User decision, 2026-09-26 and 2026-09-27 (supersedes the 2026-09-27
+"whole curve" line in the changelog).
+
+| Action | Behavior |
+|--------|----------|
+| Alt+right-drag | Width of the picked vertices only |
+| Ctrl+right-drag | Color wheel for the picked vertices only |
+| Shift+right-drag | Opacity (vertex color alpha) of the picked vertices only |
+| The same over a vertex, nothing picked | Edits the hovered vertex |
+| The same elsewhere, nothing picked (Direct Select) | Edits the whole curve, per-vertex tips included |
+
+- The target is fixed at HUD start, so the pointer can wander.
+- Values are written through `Property::apply_at` into `PathData` tips
+  (P1.curve.vertex-style, Art. XII). A multi-pick edit writes only the
+  changed channel, so each vertex keeps its other values.
+- A whole-curve color also recolors existing vertex tips, because they paint
+  over the stroke color.
+- Art. IV: per-vertex color and opacity export as a `linearGradient` with
+  per-stop `stop-color` / `stop-opacity`.
+- One journaled Patch per HUD release; one Ctrl+Z reverts it; Esc during the
+  HUD restores the curve and journals nothing.
+
+### Property strip at the picks
+
+With vertices picked, the shape property strip anchors to the bounds of the
+picked points (plus half the stroke width) instead of the whole curve. It
+follows `crates/atlas-shell/DYNAMIC_PANELS.md` placement and edge rules, under
+Direct Select and Select alike. Strip edits apply to the picked points
+(`shape_property_points`).
+
+### Delete
+
+Delete (`board.delete`), under any tool, with picked vertices removes those
+vertices and rejoins their neighbors as one journaled Patch. Every kept
+vertex keeps its width, color and corner override. When fewer than two (open)
+or three (closed) vertices would remain, the node is removed instead. Either
+way, one Ctrl+Z restores it. With nothing picked, Delete removes the selected
+nodes as before.
+
 ## Geometry home
 
 Anchor/handle math (segment reshape with preserved handle angles,
@@ -94,6 +148,8 @@ the path (direct selection pierces groups — Illustrator behavior).
 | Ctrl+J | `board.path.join` |
 | Double-click anchor (A) | toggle corner/smooth |
 | Alt+drag handle (A) | break handle symmetry |
+| Alt/Ctrl/Shift+right-drag with picks or over a vertex | tip HUD on those vertices |
+| Delete with picked vertices (any tool) | remove vertices (`board.delete`) |
 
 ## Tests (vector-ink)
 

@@ -69,7 +69,7 @@ pub struct BoardColors { pub fg: Rgba, pub bg: Rgba }
   are not (delete covers those).
 - Esc cancels the drag (no journal; the live preview drops).
 
-## Tip HUD on vector tools and Direct Select
+## Tip HUD on vector tools and committed curves
 
 - Line, Polyline, Arc, Pen, and Bezier share the brush's right-button HUD:
   Alt+right-drag size, Ctrl+right-drag color wheel, Shift+right-drag
@@ -84,10 +84,16 @@ pub struct BoardColors { pub fg: Rgba, pub bg: Rgba }
   softness returns to its value at the press point, because the way down
   crosses the harder half of the softness scrub. Harder and a new texture
   take two gestures.
-- Direct Select applies the same HUD and row to its target curve, as one
-  journaled Patch per HUD release. Per-vertex color and opacity on a vector
-  curve are not offered: SVG cannot vary a stroke's color along its length
-  (Art. IV), so they would need a raster stroke.
+- Committed curves take the same HUD (user, 2026-09-26 and 2026-09-27).
+  With vertices picked (Direct Select anchors or Select-tool grip picks) it
+  edits only those vertices' width, color and opacity; with none picked, a
+  hovered vertex; otherwise Direct Select edits the whole curve, existing
+  per-vertex tips included. Per-vertex values live in `PathData` tips
+  (P1.curve.vertex-style); opacity is the alpha of the vertex color. Both
+  interpreters render them (Art. IV): the painter blends along the stroke,
+  and the HTML export writes a `linearGradient` with `stop-opacity`. One
+  journaled Patch per HUD release; Esc restores. See
+  [direct selection](direct-selection.md#tip-hud-on-picked-vertices).
 - **P2**: segment-split erase (Illustrator path-eraser semantics, research
   §2B) — splits the centerline at crossings, regenerates meshes, journals
   Remove+Add pairs.
