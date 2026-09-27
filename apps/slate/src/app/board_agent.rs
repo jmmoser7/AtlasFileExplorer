@@ -5402,6 +5402,8 @@ impl SlateApp {
             return false;
         };
         std::thread::spawn(move || {
+            // The link folder is published by a worker; Stop may run first.
+            let _ = std::fs::create_dir_all(&dir);
             let _ = atlas_ai::agent::atomic_write_json(
                 &dir.join("cancel.json"),
                 &serde_json::json!({"id": request}),
@@ -12753,6 +12755,15 @@ To install them by hand, run in PowerShell:\n  cd \"C:\\workspace\\Slate\\docs\\
         );
         press(&mut h, at);
         assert!(stop_requested(&cancel), "the unmoved Stop still stops");
+    }
+
+    #[test]
+    fn stop_lands_before_the_link_folder_is_published() {
+        let (mut h, tail, cancel) = streaming_tail("stop_before_link");
+        let at = output_circle(&h, tail);
+        let _ = std::fs::remove_dir_all(cancel.parent().unwrap());
+        press(&mut h, at);
+        assert!(stop_requested(&cancel), "Stop is never lost to a missing folder");
     }
 
     #[test]
