@@ -12643,7 +12643,7 @@ To install them by hand, run in PowerShell:\n  cd \"C:\\workspace\\Slate\\docs\\
 
     /// The cancel request lands on a worker thread.
     fn stop_requested(cancel: &std::path::Path) -> bool {
-        (0..40).any(|_| {
+        (0..200).any(|_| {
             if cancel.is_file() {
                 return true;
             }
