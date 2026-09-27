@@ -85,9 +85,10 @@ pub struct BoardColors { pub fg: Rgba, pub bg: Rgba }
   crosses the harder half of the softness scrub. Harder and a new texture
   take two gestures.
 - Direct Select applies the same HUD and row to its target curve, as one
-  journaled Patch per HUD release. Per-vertex color and opacity on a vector
-  curve are not offered: SVG cannot vary a stroke's color along its length
-  (Art. IV), so they would need a raster stroke.
+  journaled Patch per HUD release. Vector curves do carry per-vertex width,
+  color and opacity (mid-draw chords, P1.curve.tip-chord; picked grips,
+  P1.curve.vertex-style); the HTML artifact grades them with
+  `linearGradient` stops, within Art. IV.
 - **P2**: segment-split erase (Illustrator path-eraser semantics, research
   §2B) — splits the centerline at crossings, regenerates meshes, journals
   Remove+Add pairs.

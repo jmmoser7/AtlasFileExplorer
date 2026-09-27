@@ -960,15 +960,25 @@ impl SlateApp {
         }
     }
 
-    /// Commit a brush path node (freehand fit or straight chain segment).
+    /// Commit a brush path node (freehand fit or straight chain segment),
+    /// with one stamped tip per vertex when `tips` vary (P1.curve.tip-chord).
     /// One stroke = one journaled Add; the Brush tool stays armed and the
     /// chain end updates for Shift+click straight segments.
-    fn commit_brush_bez(&mut self, bez: &BezPath, end: Pos2) {
-        let (rect, data) = board_path::bezpath_to_path_data(bez, false);
+    fn commit_brush_bez(&mut self, bez: &BezPath, end: Pos2, tips: Vec<StrokeSpan>) {
+        let (rect, mut data) = board_path::bezpath_to_path_data(bez, false);
         if data.is_empty() {
             return;
         }
-        let stroke = self.brush_stroke();
+        let mut stroke = self.brush_stroke();
+        if let Some(last) = tips.last().copied() {
+            if slate_doc::vertex_style::set_vertex_tips(&mut data, &mut stroke, tips) {
+                stroke.softness = last.softness;
+                stroke.texture = last.texture;
+                if !data.tips.is_empty() {
+                    stroke.color = last.color;
+                }
+            }
+        }
         let node = self.doc_mut().scene.build_node(
             rect,
             NodeKind::Shape(ShapeNode {
@@ -1002,14 +1012,42 @@ impl SlateApp {
         });
     }
 
-    /// Freehand brush release: same fitter as the Pen, expressive defaults.
+    /// Freehand brush release at the brush tip now: same fitter as the Pen,
+    /// expressive defaults.
     pub(crate) fn finish_freehand_brush(&mut self, points: Vec<Pos2>) {
+        let Some(&first) = points.first() else {
+            return;
+        };
+        let tip = self.tip_now().span();
+        let mut stroke = board_path::FreehandTips::new(first, tip);
+        let zoom = self.tab().cam.z;
+        for p in &points[1..] {
+            stroke.push(*p, tip, zoom);
+        }
+        self.finish_freehand_brush_stroke(&stroke);
+    }
+
+    /// Freehand brush release: one fit, split at its tip blends, one
+    /// stamped tip per fitted vertex as the stroke drew it
+    /// (P1.curve.tip-chord).
+    pub(crate) fn finish_freehand_brush_stroke(
+        &mut self,
+        drawn: &board_path::FreehandTips<StrokeSpan>,
+    ) {
+        let points = &drawn.points;
         if points.is_empty() {
             return;
         }
         if points.len() == 1 {
-            let (rect, data) = board_path::points_to_path_data(&points, false);
-            let stroke = self.brush_stroke();
+            let (rect, data) = board_path::points_to_path_data(points, false);
+            let tip = drawn.tips[0];
+            let stroke = Stroke {
+                width: tip.width,
+                softness: tip.softness,
+                color: tip.color,
+                texture: tip.texture,
+                ..self.brush_stroke()
+            };
             let node = self.doc_mut().scene.build_node(
                 rect,
                 NodeKind::Shape(ShapeNode {
@@ -1037,10 +1075,11 @@ impl SlateApp {
         let zoom = self.tab().cam.z.max(f32::EPSILON);
         let tol = board_path::FREEHAND_FIT_ERROR_PX / zoom;
         let spacing = board_path::FREEHAND_SAMPLE_SPACING_PX / zoom;
-        let flat: Vec<[f32; 2]> = points.iter().map(|p| [p.x, p.y]).collect();
-        let bez = vector_ink::fit_polyline_spaced(&flat, tol, spacing);
+        let Some((bez, tips)) = drawn.fit(tol, spacing) else {
+            return;
+        };
         let end = *points.last().expect("len >= 2");
-        self.commit_brush_bez(&bez, end);
+        self.commit_brush_bez(&bez, end, tips);
     }
 
     pub(crate) fn tip_now(&self) -> BrushTip {
@@ -1201,7 +1240,7 @@ impl SlateApp {
                 let mut bez = BezPath::new();
                 bez.move_to((from.x as f64, from.y as f64));
                 bez.line_to((world.x as f64, world.y as f64));
-                self.commit_brush_bez(&bez, world);
+                self.commit_brush_bez(&bez, world, Vec::new());
             }
             _ => self.brush_chain = Some(world),
         }

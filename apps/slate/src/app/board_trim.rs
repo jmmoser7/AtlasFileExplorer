@@ -887,7 +887,12 @@ fn curve_piece(
     }
     let (piece_rect, mut path) = super::board_path::bezpath_to_path_data(&bez, false);
     let mut stroke = source.stroke;
-    carry_vertex_style((old, rect, rot), &mut path, &mut stroke, &params);
+    carry_vertex_style(
+        (old, rect, rot, source.corner),
+        &mut path,
+        &mut stroke,
+        &params,
+    );
     Some((
         piece_rect,
         ShapeNode {
@@ -921,7 +926,7 @@ fn cut_piece(
         return piece;
     };
     let reach = f64::from(trim_tokens::GEOMETRY_TOLERANCE) * 2.0;
-    let old = (old, before.rect, before.rotation_deg);
+    let old = (old, before.rect, before.rotation_deg, source.corner);
     let params = slate_doc::vertex_style::locate_vertex_params(old.0, old.1, old.2, points, reach);
     slate_doc::vertex_style::carry_vertex_style(
         old,

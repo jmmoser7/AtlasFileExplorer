@@ -2307,10 +2307,10 @@ fn shape_drawing_pen_keeps_all_frame_motion_samples_and_final_release() {
             i.events.push(egui::Event::PointerMoved(xf.w2s(p)));
         }
     });
-    let Some(board::BoardDrag::FreehandPen { points, .. }) = &h.app.board_drag else {
+    let Some(board::BoardDrag::FreehandPen { stroke }) = &h.app.board_drag else {
         panic!("pen owns the press")
     };
-    assert_eq!(points.len(), 4);
+    assert_eq!(stroke.points.len(), 4);
     let end = Pos2::new(61.0, 21.0);
     h.frame_with(|i| {
         i.events.push(egui::Event::PointerButton {
@@ -9136,10 +9136,11 @@ fn the_width_chord_tapers_a_polyline_between_points() {
     let wide = h.app.stroke_for_tool(tool).width;
     assert!(wide > narrow + 30.0);
     let draft = h.app.board_path_draft.as_ref().expect("still drawing");
+    let tip = h.app.placed_tip(tool);
     let (_, _, preview) =
-        board_path::path_draft_preview(draft, Some(Pos2::new(200.0, 0.0)), wide).unwrap();
+        board_path::path_draft_preview(draft, Some(Pos2::new(200.0, 0.0)), tip).unwrap();
     assert_eq!(
-        preview,
+        preview.iter().map(|t| t.width).collect::<Vec<_>>(),
         vec![narrow, narrow, wide],
         "the preview tapers to the point being placed"
     );
@@ -9241,7 +9242,7 @@ fn the_width_chord_tapers_a_bezier_span_smoothly() {
 
 fn pen_point_count(h: &Harness) -> usize {
     match &h.app.board_drag {
-        Some(board::BoardDrag::FreehandPen { points, .. }) => points.len(),
+        Some(board::BoardDrag::FreehandPen { stroke }) => stroke.points.len(),
         _ => panic!("the pen stroke is live"),
     }
 }
@@ -13233,8 +13234,9 @@ fn bezier_vertex_widths_blend_smoothly_with_zero_slope_at_vertices() {
     }
 }
 
-/// A filleted polyline keeps its vertex widths: the taper follows the
-/// original polyline and each fillet's middle keeps its corner's width.
+/// A filleted polyline keeps its vertex widths: the taper blends by
+/// smoothstep between the original polyline's vertices (P1.curve.tip-chord,
+/// 27 September 2026) and each fillet's middle keeps its corner's width.
 #[test]
 fn a_filleted_polyline_keeps_its_vertex_widths() {
     let mut h = grip_board("vertex_width_fillet");
@@ -13252,7 +13254,8 @@ fn a_filleted_polyline_keeps_its_vertex_widths() {
         }
     }
     let got = ink_half_width(&h, id, Pos2::new(10.0, 0.0), EVec2::new(0.0, 1.0));
-    assert_close(got, (w0 + (20.0 - w0) * 0.1) * 0.5, 0.15, "near the start");
+    let want = (w0 + (20.0 - w0) * smoothstep(0.1)) * 0.5;
+    assert_close(got, want, 0.15, "near the start");
     let d = std::f32::consts::FRAC_1_SQRT_2;
     let mid = Pos2::new(80.0 + 20.0 * d, 20.0 - 20.0 * d);
     let got = ink_half_width(&h, id, mid, EVec2::new(d, -d));
@@ -13659,7 +13662,8 @@ fn assert_matches_ink(got: (f32, [u8; 4]), ink: (f32, [f32; 4]), what: &str) {
 
 /// User request (2026-09-26): a trimmed polyline keeps each vertex's width,
 /// color and corner override; the cut vertex takes the stroke's value at
-/// the cut, straight between its neighbors as the board paints it.
+/// the cut as the board paints it. The corner overrides fillet it, so that
+/// value is the smoothstep between its neighbors (P1.curve.tip-chord).
 #[test]
 fn trim_keeps_per_vertex_style_and_interpolates_the_cut() {
     let mut h = grip_board("trim_vertex_style");
@@ -13674,7 +13678,8 @@ fn trim_keeps_per_vertex_style_and_interpolates_the_cut() {
     assert_eq!(world_vertices(&h, id)[0], Pos2::new(25.0, 0.0));
     let tips = painted_vertex_tips(&h, id);
     assert_eq!(tips.len(), 4, "cut vertex plus the three kept vertices");
-    assert_vertex(tips[0], 6.5, 50.0, "cut vertex");
+    let s = smoothstep(0.25);
+    assert_vertex(tips[0], 2.0 + 18.0 * s, 200.0 * s, "cut vertex");
     assert_vertex(tips[1], 20.0, 200.0, "vertex 1");
     assert_vertex(tips[2], 6.0, 100.0, "vertex 2");
     assert_vertex(tips[3], 12.0, 50.0, "vertex 3");
@@ -13743,13 +13748,15 @@ fn split_keeps_per_vertex_style_on_every_piece() {
     assert_eq!(world_vertices(&h, id)[1], Pos2::new(25.0, 0.0));
     assert_eq!(first.len(), 2);
     assert_vertex(first[0], 2.0, 0.0, "first piece start");
-    assert_vertex(first[1], 6.5, 50.0, "first piece cut");
+    let s = smoothstep(0.25);
+    let (cut_w, cut_r) = (2.0 + 18.0 * s, 200.0 * s);
+    assert_vertex(first[1], cut_w, cut_r, "first piece cut");
     assert!(corner_overrides(&h, id).iter().all(Option::is_none));
 
     let second = painted_vertex_tips(&h, rest);
     assert_eq!(world_vertices(&h, rest)[0], Pos2::new(25.0, 0.0));
     assert_eq!(second.len(), 4);
-    assert_vertex(second[0], 6.5, 50.0, "second piece cut");
+    assert_vertex(second[0], cut_w, cut_r, "second piece cut");
     assert_vertex(second[1], 20.0, 200.0, "vertex 1");
     assert_vertex(second[2], 6.0, 100.0, "vertex 2");
     assert_vertex(second[3], 12.0, 50.0, "vertex 3");

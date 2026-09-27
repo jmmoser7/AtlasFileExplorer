@@ -150,7 +150,7 @@ fn rebuild_from_world_bez(n: &mut Node, bez: &BezPath, closed: bool, sources: Op
                     .map(|v| sources[v % sources.len()] as f32)
                     .collect();
                 slate_doc::vertex_style::carry_vertex_style(
-                    (&old, old_rect, old_rot),
+                    (&old, old_rect, old_rot, s.corner),
                     &mut data,
                     &mut s.stroke,
                     &params,

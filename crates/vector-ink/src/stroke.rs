@@ -11,7 +11,7 @@ use crate::{InkMesh, StrokeStyle, TintPiece, TipEase};
 
 /// Samples per segment, at least, where a smooth blend changes the tip: the
 /// piecewise-linear strip stays within 0.3% of the tip change of the curve.
-const SMOOTH_TIP_STEPS: usize = 16;
+pub(crate) const SMOOTH_TIP_STEPS: usize = 16;
 
 pub(crate) fn valid_style(style: &StrokeStyle) -> bool {
     style.width.is_finite() && style.width > 0.0
@@ -372,7 +372,7 @@ fn push_tipped_segment(
 }
 
 /// `flat` resampled so no chord is longer than `1 / steps` of its length.
-fn densify(flat: &[[f32; 2]], steps: usize) -> Vec<[f32; 2]> {
+pub(crate) fn densify(flat: &[[f32; 2]], steps: usize) -> Vec<[f32; 2]> {
     let total = cumulative_arclength(flat).last().copied().unwrap_or(0.0);
     if flat.len() < 2 || total <= EPS {
         return flat.to_vec();

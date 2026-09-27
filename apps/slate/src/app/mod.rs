@@ -92,6 +92,8 @@ pub mod settings;
 mod tests;
 #[cfg(test)]
 mod tests_ink_fit;
+#[cfg(test)]
+mod tests_tip_chord;
 mod ui;
 
 pub use chrome::ChromeConfig;
