@@ -840,11 +840,21 @@ pub(crate) fn world_to_node_norm(p: Pos2, rect: WorldRect, rotation_deg: f32) ->
     ]
 }
 
+/// Opacity rides in the stroke color's alpha, so a 0 % stroke still picks
+/// by its geometry. Only a shape whose visible fill already picks treats a
+/// transparent stroke as no stroke.
+fn stroke_picks(shape: &ShapeNode) -> bool {
+    let stroke = &shape.stroke;
+    let filled = shape.fill.is_some_and(|f| f.0[3] > 0)
+        && shape.path.as_ref().is_some_and(|p| p.closed);
+    stroke.width > 0.0 && (!stroke.is_none() || stroke.paints_as_stamp() || !filled)
+}
+
 /// The ink disc of a single-click brush stroke: world center and radius.
 /// `None` for anything that is not a lone stamp dab.
 fn brush_dab_disc(node: &Node, shape: &ShapeNode) -> Option<(Pos2, f32)> {
     let path = shape.path.as_ref()?;
-    if !path.is_empty() || shape.stroke.is_none() || !shape.stroke.paints_as_stamp() {
+    if !path.is_empty() || !stroke_picks(shape) || !shape.stroke.paints_as_stamp() {
         return None;
     }
     let (cx, cy) = node.rect.center();
@@ -877,7 +887,7 @@ pub fn hit_shape_stroke(node: &Node, shape: &ShapeNode, wx: f32, wy: f32, zoom: 
     };
     let style = stroke_style_world(&shape.stroke, zoom);
     let slop = pick_slop_world(zoom);
-    if !shape.stroke.is_none() && hit_stroke(&bez, &style, [wx, wy], slop) {
+    if stroke_picks(shape) && hit_stroke(&bez, &style, [wx, wy], slop) {
         return true;
     }
     false
@@ -902,7 +912,7 @@ pub fn hit_path_node(node: &Node, shape: &ShapeNode, wx: f32, wy: f32, zoom: f32
     let bez = shape_path_world_bez(node, shape, path);
     let style = stroke_style_world(&shape.stroke, zoom);
     let slop = pick_slop_world(zoom);
-    if !shape.stroke.is_none() && hit_stroke(&bez, &style, [wx, wy], slop) {
+    if stroke_picks(shape) && hit_stroke(&bez, &style, [wx, wy], slop) {
         return true;
     }
     if path.closed {
@@ -1572,56 +1582,53 @@ pub fn paint_path_shape(
     let base = fade(rgba32(shape.stroke.color));
     let mesh = ink_mesh_to_epaint(&cached, xf, base, fade);
     painter.add(Shape::mesh(mesh));
-    if shape.stroke.arrow_end && !path.closed {
-        paint_path_arrow(painter, xf, node, shape, path, base);
-    }
 }
 
-/// Arrowhead on an open path's last point, from its last segment alone so a
-/// warm paint builds no curve.
-fn paint_path_arrow(
-    painter: &egui::Painter,
-    xf: &BoardXf,
-    node: &Node,
-    shape: &ShapeNode,
-    path: &PathData,
-    color: Color32,
+/// The arrowhead of an open curve ([`slate_doc::geom::arrow_head`] aimed by
+/// [`slate_doc::geom::path_end_arrow`]), added to its stroke ink with the
+/// same feathered edge so it caches with the stroke. `color` is the end tip
+/// of a stroke with per-vertex colors.
+pub(crate) fn push_arrow_ink(
+    ink: &mut InkMesh,
+    bez: &BezPath,
+    width: f32,
+    feather: f32,
+    color: Option<[f32; 4]>,
 ) {
-    let Some(last) = path.segs.last() else {
+    let Some((tip, into)) = slate_doc::geom::path_end_arrow(bez, width) else {
         return;
     };
-    let prev_to = match path.segs.len() {
-        1 => path.start,
-        n => match path.segs[n - 2] {
-            PathSeg::Line { to } | PathSeg::Quad { to, .. } | PathSeg::Cubic { to, .. } => to,
-        },
+    let tri = slate_doc::geom::arrow_head(tip, into, width);
+    let unit = |v: [f32; 2]| {
+        let l = v[0].hypot(v[1]).max(1e-6);
+        [v[0] / l, v[1] / l]
     };
-    let (to, from) = match *last {
-        PathSeg::Line { to } => (to, prev_to),
-        PathSeg::Quad { ctrl, to } => (to, ctrl),
-        PathSeg::Cubic { c2, to, .. } => (to, c2),
-    };
-    let w = |p: [f32; 2]| slate_doc::geom::world_point(p, node.rect, node.rotation_deg);
-    let (tip, back) = (w(to), w(from));
-    let (dx, dy) = ((back.x - tip.x) as f32, (back.y - tip.y) as f32);
-    let len = dx.hypot(dy);
-    if !(len > 1e-6) {
-        return;
+    let first = ink.vertices.len() as u32;
+    for p in tri {
+        ink.vertices.push(vector_ink::InkVertex { pos: p, alpha: 1.0 });
     }
-    let [a, b, c] = slate_doc::geom::arrow_head(
-        [tip.x as f32, tip.y as f32],
-        [dx / len, dy / len],
-        shape.stroke.width,
-    );
-    painter.add(egui::Shape::convex_polygon(
-        vec![
-            xf.w2s(Pos2::new(a[0], a[1])),
-            xf.w2s(Pos2::new(b[0], b[1])),
-            xf.w2s(Pos2::new(c[0], c[1])),
-        ],
-        color,
-        EStroke::NONE,
-    ));
+    for i in 0..3 {
+        let p = tri[i];
+        let a = unit([tri[(i + 1) % 3][0] - p[0], tri[(i + 1) % 3][1] - p[1]]);
+        let b = unit([tri[(i + 2) % 3][0] - p[0], tri[(i + 2) % 3][1] - p[1]]);
+        let out = unit([-(a[0] + b[0]), -(a[1] + b[1])]);
+        let half = ((a[0] * b[0] + a[1] * b[1]).clamp(-1.0, 1.0).acos() * 0.5).sin();
+        let d = feather / half.max(0.2);
+        ink.vertices.push(vector_ink::InkVertex {
+            pos: [p[0] + out[0] * d, p[1] + out[1] * d],
+            alpha: 0.0,
+        });
+    }
+    ink.indices.extend([first, first + 1, first + 2]);
+    for i in 0..3u32 {
+        let j = (i + 1) % 3;
+        ink.indices.extend([first + i, first + j, first + 3 + j]);
+        ink.indices.extend([first + i, first + 3 + j, first + 3 + i]);
+    }
+    if !ink.colors.is_empty() {
+        let c = color.or_else(|| ink.colors.last().copied()).unwrap_or([1.0; 4]);
+        ink.colors.resize(ink.vertices.len(), c);
+    }
 }
 
 /// World-space mesh of a vector path stroke. A path with per-vertex tips
@@ -1650,6 +1657,7 @@ fn vector_stroke_ink_for(
     zoom: f32,
 ) -> InkMesh {
     let arrow = shape.stroke.arrow_end && !path.closed;
+    let full = bez;
     let trimmed_body;
     let bez = if arrow {
         trimmed_body =
@@ -1681,26 +1689,46 @@ fn vector_stroke_ink_for(
         .flatten();
     match tipped {
         Some(t) => {
-            let trimmed_tip;
-            let tip_bez = if arrow {
-                trimmed_tip = slate_doc::geom::trim_end(
-                    &t.bez,
-                    slate_doc::geom::arrow_trim(shape.stroke.width),
-                );
-                &trimmed_tip
+            let head = t.widths.last().copied().unwrap_or(shape.stroke.width);
+            let trimmed;
+            let body = if arrow {
+                trimmed = slate_doc::geom::trim_tipped_end(&t, slate_doc::geom::arrow_trim(head));
+                &trimmed
             } else {
-                &t.bez
+                &t
             };
-            match &t.colors {
+            let mut ink = match &body.colors {
                 Some(colors) => vector_ink::stroke_mesh_tinted(
-                    tip_bez, &style, &t.widths, colors, t.ease, feather, tolerance,
+                    &body.bez,
+                    &style,
+                    &body.widths,
+                    colors,
+                    body.ease,
+                    feather,
+                    tolerance,
                 ),
                 None => vector_ink::stroke_mesh_tipped(
-                    tip_bez, &style, &t.widths, t.ease, feather, tolerance,
+                    &body.bez,
+                    &style,
+                    &body.widths,
+                    body.ease,
+                    feather,
+                    tolerance,
                 ),
+            };
+            if arrow {
+                let end = t.colors.as_ref().and_then(|c| c.last().copied());
+                push_arrow_ink(&mut ink, &t.bez, head, feather, end);
             }
+            ink
         }
-        None => stroke_mesh(bez, &style, feather, tolerance),
+        None => {
+            let mut ink = stroke_mesh(bez, &style, feather, tolerance);
+            if arrow {
+                push_arrow_ink(&mut ink, full, shape.stroke.width, feather, None);
+            }
+            ink
+        }
     }
 }
 
@@ -2723,7 +2751,7 @@ impl SlateApp {
 
     pub(crate) fn path_tool_click(&mut self, world: Pos2) {
         // Ortho (F8, Shift inverts): draft segments snap to 45° from the
-        // last anchor (constraints spec Â§1).
+        // last anchor (constraints spec §1).
         let from = match &self.board_path_draft {
             Some(BoardPathDraft::Polyline { points, .. }) => points.last().copied(),
             Some(BoardPathDraft::Arc { points, .. }) => points.last().copied(),

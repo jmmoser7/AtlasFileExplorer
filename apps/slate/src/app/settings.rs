@@ -119,13 +119,13 @@ pub struct SlateSettings {
     pub brush_width: f32,
     /// Brush edge falloff, 0 = hard, 1 = softest (`Shift+[` / `Shift+]`).
     pub brush_softness: f32,
-    /// Brush paint opacity, 0.1..=1. Shift+click steps it.
+    /// Brush paint opacity, 0..=1. Shift+click steps it.
     pub brush_opacity: f32,
     /// Eraser pick-circle width in world units.
     pub eraser_width: f32,
     /// Eraser edge falloff on painted strokes, 0 = hard.
     pub eraser_softness: f32,
-    /// Eraser strength on painted strokes, 0.1..=1.
+    /// Eraser strength on painted strokes, 0..=1.
     pub eraser_opacity: f32,
     /// Medium texture of the Brush and of the Eraser.
     pub brush_texture: slate_doc::scene::BrushTexture,
@@ -221,7 +221,7 @@ impl SlateSettings {
         if !self.brush_opacity.is_finite() {
             self.brush_opacity = 1.0;
         }
-        self.brush_opacity = self.brush_opacity.clamp(0.1, 1.0);
+        self.brush_opacity = self.brush_opacity.clamp(0.0, 1.0);
         self.eraser_width = self.eraser_width.clamp(STROKE_WIDTH_MIN, STROKE_WIDTH_MAX);
         if !self.eraser_softness.is_finite() {
             self.eraser_softness = 0.0;
@@ -230,7 +230,7 @@ impl SlateSettings {
         if !self.eraser_opacity.is_finite() {
             self.eraser_opacity = 1.0;
         }
-        self.eraser_opacity = self.eraser_opacity.clamp(0.1, 1.0);
+        self.eraser_opacity = self.eraser_opacity.clamp(0.0, 1.0);
         self
     }
 }

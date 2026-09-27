@@ -52,6 +52,29 @@
   (open) or three (closed) vertices would remain. One Ctrl+Z restores
   either way.
 
+## 2026-09-27 — Tip HUD feel: gain, style band, 0 % opacity, arrows, wheel gap
+
+- Size HUD gain is 2 screen px of diameter per px of travel
+  (`SIZE_DRAG_GAIN`), still scaling about the press point (`brush` D05, D08).
+- The way down to the style row now drives softness to hardest and the
+  release keeps it; this reverses the earlier restore-at-the-row entry
+  below (user: "intentionaly put the brushe types at the bottome so that
+  user wouldenter each type with maximum hardnes"). The row's band spans
+  the full width under the circle: size and softness never scrub inside
+  it, so the row holds still. Swatches are 42 px, screen-sized, and drawn
+  from cached stamps and meshes that show what each choice produces.
+- Opacity reaches 0 % everywhere (HUD scrub, Shift+click steps, curve
+  opacity, eraser strength); a 0 % stroke is still picked by its geometry.
+- The arrow style aims its head along the last head-length of the curve,
+  not the last tiny segment, and the body tucks under it across short
+  segments, on the board and in the HTML export (one owner in
+  `slate_doc::geom`). Narrow-at-both-ends swells along straight spans.
+- Color wheel: an 8 px dead gap between the saturation/value disk and the
+  hue ring (it keeps the value and never samples), a disk mapping that
+  reaches pure white, snaps that return exactly #FFFFFF and #000000, and
+  the pointer warp lands on the painted dot's center each time a dot is
+  entered (`brush` D09, D17).
+
 ## 2026-09-27 — Tip HUD for every open curve, styles, and anchor editing
 
 - Alt+right-drag's size circle is pinned to the canvas at the press point
