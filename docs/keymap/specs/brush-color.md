@@ -87,8 +87,10 @@ pub struct BoardColors { pub fg: Rgba, pub bg: Rgba }
   top edge, so each style is entered at maximum hardness (user,
   2026-09-27), and the release keeps it. The band spans the full width
   below the circle's rim: anywhere in it size and softness hold, so the
-  row never moves under the pointer. Swatches are screen-sized
-  (P2.GhostFollow), drawn from cached textures and meshes.
+  row never moves under the pointer. Swatches are screen-sized: the HUD is
+  transient input chrome, opened at the right-button press point and gone
+  when that right-drag ends, not a board object (P0.9's pointer-attached
+  chrome exception). They are drawn from cached textures and meshes.
 - Committed curves take the same HUD (user, 2026-09-26 and 2026-09-27).
   With vertices picked (Direct Select anchors or Select-tool grip picks) it
   edits only those vertices' width, color and opacity; with none picked, a

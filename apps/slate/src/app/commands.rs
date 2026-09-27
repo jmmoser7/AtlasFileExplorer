@@ -1901,10 +1901,13 @@ pub static SPECS: &[CommandSpec] = &[
         "board.brush.size_hud",
         "Board",
         "Scrub brush size",
-        "Alt+right-drag while Brush, Eraser, or a curve tool is armed. The \
+        "Alt+right-drag while Brush, Eraser, Smooth, or a curve tool is armed, \
+         or on a committed curve: its picked vertices (Direct Select anchors or \
+         Select-tool grips), else the vertex under the pointer, else the whole \
+         curve under Direct Select. The \
          circle stays centered on the press point. Horizontal travel from the \
          press changes diameter by two screen pixels per pixel. Vertical changes \
-         softness (up softer; Brush and Eraser only). Dragging down into the \
+         softness (up softer; Brush, Eraser, and Smooth only). Dragging down into the \
          style row under the circle reaches hardest softness, and anywhere in \
          that band size and softness hold while a swatch picks the texture or \
          curve style. Esc restores the values from the press.",
@@ -1931,7 +1934,9 @@ pub static SPECS: &[CommandSpec] = &[
         "board.brush.color_wheel",
         "Board",
         "Brush color wheel",
-        "Ctrl+right-drag while Brush or a curve tool is armed. The wheel opens \
+        "Ctrl+right-drag while Brush or a curve tool is armed, or on a \
+         committed curve (the same picked, hovered, or whole-curve target as \
+         the size HUD). Eraser and Smooth have no wheel. The wheel opens \
          with the pointer on the current color. The disk sets saturation and \
          value, with snaps at pure white and pure black; the gap before the hue \
          ring picks nothing. 24 recent colors fill equal slots clockwise from \
@@ -1960,7 +1965,9 @@ pub static SPECS: &[CommandSpec] = &[
         "board.brush.opacity_hud",
         "Board",
         "Scrub brush opacity",
-        "Shift+right-drag while Brush, Eraser (strength), or a curve tool is armed, with neither Ctrl nor Alt. \
+        "Shift+right-drag while Brush, Eraser (strength), Smooth (strength), or a curve tool is armed, \
+         or on a committed curve (the same target as the size HUD; a vertex's \
+         opacity is its color alpha), with neither Ctrl nor Alt. \
          The circle stays on the press point. Dragging up raises opacity and \
          dragging down lowers it, 0 to 100 percent across 100 screen pixels. The chord does \
          not pan or open the context menu. Esc restores the press.",

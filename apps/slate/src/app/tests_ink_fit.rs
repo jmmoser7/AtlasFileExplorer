@@ -766,7 +766,7 @@ fn smoothing_resamples_vertex_tips_by_arc_length() {
     assert!((widths[0] - 2.0).abs() <= 1e-3 && (widths.last().unwrap() - 10.0).abs() <= 1e-3);
 }
 
-/// Carried over from r5/nurbs: smoothing a width-chord pen stroke kept its
+/// Carried over from r5/nurbs: smoothing a tip-chord pen stroke kept its
 /// shape but dropped its tips, so the whole stroke went to one width.
 #[test]
 fn smoothing_keeps_a_variable_width_pen_stroke_tapered() {

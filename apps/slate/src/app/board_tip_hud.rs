@@ -466,8 +466,9 @@ impl SlateApp {
         }
     }
 
-    /// The palette row under the size circle. Pointer-attached chrome
-    /// (P2.GhostFollow), so icons stay screen-sized.
+    /// The palette row under the size circle. Transient input chrome opened
+    /// at the right-button press point for the life of the drag, so icons
+    /// stay screen-sized (P0.9 pointer-attached exception).
     pub(crate) fn paint_tip_palette(
         &self,
         painter: &egui::Painter,
