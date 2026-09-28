@@ -146,6 +146,59 @@ fn dist_segment_segment(a0: Pos2, a1: Pos2, b0: Pos2, b1: Pos2) -> f32 {
         .min(dist_point_segment(b1, a0, a1))
 }
 
+/// Append a straight segment from `from` to `to` to world-space stamped
+/// brush path `node`, ending at tip `end`. False, leaving `node` alone,
+/// unless it is a visible, unlocked, open stamped path whose last vertex
+/// lies within `slop` of `from`.
+fn extend_stamped_chain(node: &mut Node, from: Pos2, to: Pos2, end: BrushTip, slop: f32) -> bool {
+    if node.locked || node.hidden {
+        return false;
+    }
+    let NodeKind::Shape(shape) = &node.kind else {
+        return false;
+    };
+    let Some(path) = shape.path.as_ref() else {
+        return false;
+    };
+    if shape.shape != ShapeKind::Path
+        || !shape.stroke.paints_as_stamp()
+        || path.closed
+        || !path.extra.is_empty()
+    {
+        return false;
+    }
+    let mut bez = board_path::path_data_to_world_bez(path, node.rect, node.rotation_deg);
+    let last = match bez.elements().last() {
+        Some(vector_ink::kurbo::PathEl::MoveTo(p) | vector_ink::kurbo::PathEl::LineTo(p)) => *p,
+        Some(vector_ink::kurbo::PathEl::QuadTo(_, p)) => *p,
+        Some(vector_ink::kurbo::PathEl::CurveTo(_, _, p)) => *p,
+        _ => return false,
+    };
+    if ((last.x as f32 - from.x).powi(2) + (last.y as f32 - from.y).powi(2)).sqrt() > slop {
+        return false;
+    }
+    let vertices = 1 + path.segs.len();
+    let mut tips = path.paint_tips(&shape.stroke);
+    if tips.len() != vertices {
+        tips = vec![slate_doc::scene::StrokeSpan::of(&shape.stroke); vertices];
+    }
+    tips.push(end.span());
+    bez.line_to((to.x as f64, to.y as f64));
+    let (rect, mut data) = board_path::bezpath_to_path_data(&bez, false);
+    let widest = tips.iter().map(|t| t.width).fold(0.0_f32, f32::max);
+    data.tips = tips;
+    node.rect = rect;
+    node.rotation_deg = 0.0;
+    if let NodeKind::Shape(s) = &mut node.kind {
+        s.path = Some(data.into());
+        s.stroke.width = widest;
+        s.stroke.softness = end.softness;
+        s.stroke.color = end.color;
+        s.stroke.tween_from = None;
+    }
+    true
+}
+
 pub(crate) fn stamp_erase_mark(
     before: &Node,
     points: &[Pos2],
@@ -1235,99 +1288,31 @@ impl SlateApp {
     }
 
     /// Append a straight segment to stamped brush path `id`, whose last
-    /// vertex must be `from`: a board node through `patch_nodes`, a paint
-    /// layer node through one journaled layer patch.
+    /// vertex must be `from`: a board node through `patch_nodes`, a mark on
+    /// the session's paint layer through one journaled layer patch. A mark
+    /// on another image or layer is never extended.
     fn extend_brush_chain(&mut self, id: NodeId, from: Pos2, to: Pos2, end: BrushTip) -> bool {
-        let layer = slate_doc::image_paint::find_layer_node(&self.doc().scene, id);
-        let node = match layer {
-            None => self.doc().scene.node(id).cloned(),
-            Some(loc) => self.doc().scene.node(loc.image).and_then(|host| match &host.kind {
-                NodeKind::Image(img) => img
-                    .paint_layers
-                    .get(loc.layer_index)?
-                    .nodes
-                    .get(loc.node_index)
-                    .map(|local| slate_doc::image_paint::layer_node_to_world(host, img, local)),
-                _ => None,
-            }),
-        };
-        let Some(node) = node else {
-            return false;
-        };
-        if node.locked || node.hidden {
-            return false;
-        }
-        let NodeKind::Shape(shape) = &node.kind else {
-            return false;
-        };
-        let Some(path) = shape.path.as_ref() else {
-            return false;
-        };
-        if shape.shape != ShapeKind::Path
-            || !shape.stroke.paints_as_stamp()
-            || path.closed
-            || !path.extra.is_empty()
-        {
-            return false;
-        }
-        let mut bez = board_path::path_data_to_world_bez(path, node.rect, node.rotation_deg);
-        let last = match bez.elements().last() {
-            Some(vector_ink::kurbo::PathEl::MoveTo(p) | vector_ink::kurbo::PathEl::LineTo(p)) => *p,
-            Some(vector_ink::kurbo::PathEl::QuadTo(_, p)) => *p,
-            Some(vector_ink::kurbo::PathEl::CurveTo(_, _, p)) => *p,
-            _ => return false,
-        };
         let slop = 1.0 / self.tab().cam.z.max(0.05);
-        if ((last.x as f32 - from.x).powi(2) + (last.y as f32 - from.y).powi(2)).sqrt() > slop {
+        if slate_doc::image_paint::find_layer_node(&self.doc().scene, id).is_some() {
+            let cmd = self.patch_layer_node_in_world(id, |world| {
+                if extend_stamped_chain(world, from, to, end, slop) {
+                    super::board_image_layers::LayerMarkEdit::Patch
+                } else {
+                    super::board_image_layers::LayerMarkEdit::Keep
+                }
+            });
+            return cmd.is_some_and(|cmd| self.commit_scene(vec![cmd]));
+        }
+        let Some(mut node) = self.doc().scene.node(id).cloned() else {
+            return false;
+        };
+        if !extend_stamped_chain(&mut node, from, to, end, slop) {
             return false;
         }
-        let vertices = 1 + path.segs.len();
-        let mut tips = path.paint_tips(&shape.stroke);
-        if tips.len() != vertices {
-            tips = vec![slate_doc::scene::StrokeSpan::of(&shape.stroke); vertices];
-        }
-        tips.push(end.span());
-        bez.line_to((to.x as f64, to.y as f64));
-        let (rect, mut data) = board_path::bezpath_to_path_data(&bez, false);
-        let widest = tips.iter().map(|t| t.width).fold(0.0_f32, f32::max);
-        data.tips = tips;
-        let extend = |n: &mut Node| {
-            n.rect = rect;
-            n.rotation_deg = 0.0;
-            if let NodeKind::Shape(s) = &mut n.kind {
-                s.path = Some(data.clone().into());
-                s.stroke.width = widest;
-                s.stroke.softness = end.softness;
-                s.stroke.color = end.color;
-                s.stroke.tween_from = None;
-            }
-        };
-        let Some(loc) = layer else {
-            // Each Shift segment is its own undo step, not a coalesced edit.
-            self.last_board_edit = None;
-            self.patch_nodes(&[id], extend);
-            return true;
-        };
-        let Some(host) = self.doc().scene.node(loc.image).cloned() else {
-            return false;
-        };
-        let NodeKind::Image(img) = &host.kind else {
-            return false;
-        };
-        let Some(sheet) = img.paint_layers.get(loc.layer_index) else {
-            return false;
-        };
-        let before = sheet.nodes[loc.node_index].clone();
-        let mut world = node;
-        extend(&mut world);
-        let after = slate_doc::image_paint::layer_node_from_world(&host, img, &world);
-        self.commit_scene(vec![slate_doc::scene::SceneCmd::LayerNodePatch {
-            host: loc.image,
-            layer: sheet.id,
-            index: loc.node_index,
-            before: Box::new(before),
-            after: Box::new(after),
-        }])
+        // Each Shift segment is its own undo step, not a coalesced edit.
+        self.last_board_edit = None;
+        self.patch_nodes(&[id], |n| *n = node.clone());
+        true
     }
 
     /// Where the live Shift segment starts: the end of the last brush mark,

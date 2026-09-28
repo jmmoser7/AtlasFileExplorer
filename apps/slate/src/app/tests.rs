@@ -10843,6 +10843,183 @@ fn brush_shift_drag_in_an_image_paint_session_previews() {
     assert_eq!(mark(&h), drawn, "one undo takes back just the segment");
 }
 
+/// An image at `rect` turned by `rotation_deg`, selected, with the Brush
+/// painting on it at 50 % opacity and one mark drawn through `mark`.
+fn image_paint_board(
+    name: &str,
+    rect: slate_doc::scene::WorldRect,
+    rotation_deg: f32,
+    mark: &[Pos2],
+) -> (Harness, NodeId) {
+    let mut h = Harness::new(name);
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    let p = h.base.join("photo.png");
+    std::fs::write(&p, b"png").unwrap();
+    let item = h.app.add_paths(&[p])[0];
+    let mut node = h.app.doc_mut().scene.build_node(
+        rect,
+        slate_doc::scene::NodeKind::Image(slate_doc::scene::ImageNode::new(item)),
+    );
+    node.rotation_deg = rotation_deg;
+    let image_id = node.id;
+    h.app.add_nodes(vec![node]);
+    h.app.board_sel = std::iter::once(image_id).collect();
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.tab_mut().cam.z = 1.0;
+    h.app.board_osnap.enabled = false;
+    h.app.board_smart_guides = false;
+    h.app.board_snap_grid = false;
+    h.app.brush_opacity = 0.5;
+    h.app.brush_softness = 0.0;
+    h.frame();
+    h.frame();
+    assert!(h.app.image_paint_session().is_some());
+    press_drag_release_frames(&mut h, mark, egui::Modifiers::NONE, |_| {});
+    (h, image_id)
+}
+
+/// The marks on each paint layer of `image`, layer by layer.
+fn layer_marks(h: &Harness, image: NodeId) -> Vec<Vec<slate_doc::Node>> {
+    match &h.app.doc().scene.node(image).unwrap().kind {
+        NodeKind::Image(img) => img.paint_layers.iter().map(|l| l.nodes.clone()).collect(),
+        _ => panic!("the image"),
+    }
+}
+
+/// Review r9 finding 8: once the image paint session ends (the image is
+/// deselected, Brush still armed), a Shift drag never writes into the
+/// image's layer mark; it paints a new mark on the board.
+#[test]
+fn brush_shift_after_the_paint_session_ends_leaves_the_layer_mark() {
+    let (mut h, image_id) = image_paint_board(
+        "tip18_img_ended",
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 400.0, 300.0),
+        0.0,
+        &[
+            Pos2::new(40.0, 40.0),
+            Pos2::new(80.0, 60.0),
+            Pos2::new(120.0, 40.0),
+        ],
+    );
+    let drawn = layer_marks(&h, image_id);
+    assert_eq!(drawn.iter().map(Vec::len).sum::<usize>(), 1);
+    h.app.board_sel.clear();
+    h.frame();
+    assert!(h.app.image_paint_session().is_none(), "the session ended");
+    assert_eq!(h.app.board_tool, board::BoardTool::Brush);
+    press_drag_release_frames(
+        &mut h,
+        &[
+            Pos2::new(200.0, 200.0),
+            Pos2::new(250.0, 150.0),
+            Pos2::new(300.0, 250.0),
+        ],
+        egui::Modifiers::SHIFT,
+        |_| {},
+    );
+    assert_eq!(layer_marks(&h, image_id), drawn, "the layer mark is unchanged");
+    assert_eq!(h.app.doc().scene.nodes.len(), 2, "the segment is a board node");
+}
+
+/// Review r9 finding 8, layer variant: after the palette's `+` makes a new
+/// layer active, a Shift drag paints a new mark there and leaves the mark
+/// on the previous layer alone.
+#[test]
+fn brush_shift_after_switching_layers_leaves_the_other_layer() {
+    let (mut h, image_id) = image_paint_board(
+        "tip18_img_layer",
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 400.0, 300.0),
+        0.0,
+        &[
+            Pos2::new(40.0, 40.0),
+            Pos2::new(80.0, 60.0),
+            Pos2::new(120.0, 40.0),
+        ],
+    );
+    let drawn = layer_marks(&h, image_id)[0].clone();
+    h.app.on_image_paint_add_clicked(image_id);
+    h.frame();
+    assert_eq!(h.app.image_paint_session().map(|s| s.layer_index), Some(1));
+    press_drag_release_frames(
+        &mut h,
+        &[
+            Pos2::new(200.0, 200.0),
+            Pos2::new(250.0, 150.0),
+            Pos2::new(300.0, 250.0),
+        ],
+        egui::Modifiers::SHIFT,
+        |_| {},
+    );
+    let marks = layer_marks(&h, image_id);
+    assert_eq!(marks[0], drawn, "the first layer's mark is unchanged");
+    assert_eq!(marks[1].len(), 1, "the segment is a new mark on the active layer");
+    assert_eq!(h.app.doc().scene.nodes.len(), 1, "and not on the board");
+}
+
+/// Review r9 finding 9: on an offset image turned 30°, two Shift segments
+/// each extend the layer mark through the rotated basis; each Ctrl+Z takes
+/// back one segment and each Ctrl+Y restores exactly what it took.
+#[test]
+fn brush_shift_segments_on_a_rotated_image_undo_and_redo_one_at_a_time() {
+    let (mut h, image_id) = image_paint_board(
+        "tip18_img_rotated",
+        slate_doc::scene::WorldRect::new(150.0, 80.0, 400.0, 300.0),
+        30.0,
+        &[
+            Pos2::new(300.0, 200.0),
+            Pos2::new(340.0, 220.0),
+            Pos2::new(380.0, 200.0),
+        ],
+    );
+    let mark = |h: &Harness| {
+        let marks = layer_marks(h, image_id);
+        assert_eq!(marks.iter().map(Vec::len).sum::<usize>(), 1, "one layer mark");
+        marks[0][0].clone()
+    };
+    let world_end = |h: &Harness| {
+        let host = h.app.doc().scene.node(image_id).unwrap().clone();
+        let NodeKind::Image(img) = &host.kind else {
+            panic!("the image");
+        };
+        let world = slate_doc::image_paint::layer_node_to_world(&host, img, &mark(h));
+        let v = path_vertices(&world);
+        (v[v.len() - 2], v[v.len() - 1], v.len())
+    };
+    let mut marks = vec![mark(&h)];
+    let (_, _, drawn_len) = world_end(&h);
+    for (k, (press, raw_end)) in [
+        (Pos2::new(390.0, 230.0), Pos2::new(430.0, 250.0)),
+        (Pos2::new(420.0, 260.0), Pos2::new(330.0, 262.0)),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let from = h.app.brush_line_anchor.expect("the mark's end").pos;
+        press_drag_release_frames(
+            &mut h,
+            &[press, press + (raw_end - press) * 0.5, raw_end],
+            egui::Modifiers::SHIFT,
+            |_| {},
+        );
+        assert_eq!(h.app.doc().scene.nodes.len(), 1, "segment {k} stays on the layer");
+        let end = board_snap::ortho_snap_point(from, raw_end);
+        let (a, b, len) = world_end(&h);
+        assert!(near_px(a, from) && near_px(b, end), "segment {k}: {a:?} {b:?}");
+        assert_eq!(len, drawn_len + k + 1, "segment {k} adds one vertex");
+        marks.push(mark(&h));
+    }
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    assert_eq!(mark(&h), marks[1], "the first undo takes back the second segment");
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    assert_eq!(mark(&h), marks[0], "the second undo takes back the first");
+    press_key_with(&mut h, egui::Key::Y, egui::Modifiers::CTRL);
+    assert_eq!(mark(&h), marks[1], "the first redo restores the first segment");
+    press_key_with(&mut h, egui::Key::Y, egui::Modifiers::CTRL);
+    assert_eq!(mark(&h), marks[2], "the second redo restores the second");
+}
+
 #[test]
 fn space_repeats_the_latest_tool_not_a_brush_stroke() {
     let mut h = Harness::new("repeat_tool");
