@@ -3509,14 +3509,32 @@ impl Scene {
         }
     }
 
-    /// Applies a group of commands, stopping at the first failure.
+    /// Applies a group of commands, all or nothing: when one fails, the ones
+    /// already applied are reverted and the scene is left as it was.
     pub fn apply_all(&mut self, cmds: &[SceneCmd]) -> bool {
-        cmds.iter().all(|c| self.apply(c))
+        let next_node_id = self.next_node_id;
+        let Some(failed) = cmds.iter().position(|c| !self.apply(c)) else {
+            return true;
+        };
+        for cmd in cmds[..failed].iter().rev() {
+            self.apply(&cmd.inverted());
+        }
+        self.next_node_id = next_node_id;
+        false
     }
 
-    /// Reverts a group of commands (inverse order, inverted).
+    /// Reverts a group of commands (inverse order, inverted), all or nothing
+    /// like [`Self::apply_all`].
     pub fn revert_all(&mut self, cmds: &[SceneCmd]) -> bool {
-        cmds.iter().rev().all(|c| self.apply(&c.inverted()))
+        let next_node_id = self.next_node_id;
+        let Some(failed) = cmds.iter().rev().position(|c| !self.apply(&c.inverted())) else {
+            return true;
+        };
+        for cmd in &cmds[cmds.len() - failed..] {
+            self.apply(cmd);
+        }
+        self.next_node_id = next_node_id;
+        false
     }
 }
 
@@ -4313,6 +4331,285 @@ mod tests {
             before: Box::new(ghost.clone()),
             after: Box::new(ghost),
         }));
+    }
+
+    /// Authored state equal, and the derived lookups agree with the nodes.
+    fn assert_scene_unchanged(scene: &Scene, before: &Scene, context: &str) {
+        assert_eq!(scene, before, "{context}");
+        for (index, node) in scene.nodes.iter().enumerate() {
+            assert_eq!(scene.index_of(node.id), Some(index), "{context}");
+            assert_eq!(
+                scene.query_rect(node.rect),
+                before.query_rect(node.rect),
+                "{context}"
+            );
+        }
+        let everything = WorldRect::new(-1.0e5, -1.0e5, 2.0e5, 2.0e5);
+        assert_eq!(
+            scene.query_rect(everything),
+            before.query_rect(everything),
+            "{context}"
+        );
+    }
+
+    fn ghost_patch(scene: &Scene) -> SceneCmd {
+        let mut ghost = scene.nodes[0].clone();
+        ghost.id = NodeId(9999);
+        SceneCmd::Patch {
+            before: Box::new(ghost.clone()),
+            after: Box::new(ghost),
+        }
+    }
+
+    #[test]
+    fn a_failed_commit_leaves_the_scene_and_journal_as_they_were() {
+        let (mut scene, frame_id, img_id) = scene_with_frame_and_image();
+        let mut journal = SceneJournal::default();
+        let img = scene.node(img_id).unwrap().clone();
+        let mut faded = img.clone();
+        faded.opacity = 0.5;
+        assert!(journal.commit(
+            &mut scene,
+            vec![SceneCmd::Patch {
+                before: Box::new(img),
+                after: Box::new(faded),
+            }]
+        ));
+        let added = scene.build_node(
+            WorldRect::new(500.0, 0.0, 50.0, 50.0),
+            NodeKind::Image(ImageNode::new(ItemId(2))),
+        );
+        let frame = scene.node(frame_id).unwrap().clone();
+        let mut moved = frame.clone();
+        moved.rect.x += 40.0;
+        let ghost = ghost_patch(&scene);
+        let _warm = scene.query_rect(WorldRect::new(0.0, 0.0, 1.0, 1.0));
+        let snapshot = scene.clone();
+        let depth = journal.undo_depth();
+
+        assert!(!journal.commit(
+            &mut scene,
+            vec![
+                SceneCmd::Add {
+                    index: 2,
+                    node: added,
+                },
+                SceneCmd::Patch {
+                    before: Box::new(frame),
+                    after: Box::new(moved),
+                },
+                ghost,
+            ],
+        ));
+        assert_scene_unchanged(&scene, &snapshot, "failed commit");
+        assert_eq!(journal.undo_depth(), depth, "nothing journaled");
+
+        assert!(journal.undo(&mut scene));
+        assert_eq!(scene.node(img_id).unwrap().opacity, 1.0);
+        assert_eq!(scene.nodes.len(), 2);
+        assert!(!journal.can_undo());
+    }
+
+    #[test]
+    fn a_failed_undo_or_redo_leaves_the_scene_as_it_was() {
+        let group = |scene: &mut Scene, frame_id: NodeId| {
+            let added = scene.build_node(
+                WorldRect::new(500.0, 0.0, 50.0, 50.0),
+                NodeKind::Image(ImageNode::new(ItemId(2))),
+            );
+            let frame = scene.node(frame_id).unwrap().clone();
+            let mut moved = frame.clone();
+            moved.rect.x += 40.0;
+            vec![
+                SceneCmd::Add {
+                    index: 2,
+                    node: added,
+                },
+                SceneCmd::Patch {
+                    before: Box::new(frame),
+                    after: Box::new(moved),
+                },
+            ]
+        };
+
+        // Undo reverts the patch, then finds the added node moved.
+        let (mut scene, frame_id, _) = scene_with_frame_and_image();
+        let mut journal = SceneJournal::default();
+        let cmds = group(&mut scene, frame_id);
+        assert!(journal.commit(&mut scene, cmds));
+        scene.nodes.swap(1, 2);
+        let _warm = scene.query_rect(WorldRect::new(0.0, 0.0, 1.0, 1.0));
+        let snapshot = scene.clone();
+        assert!(!journal.undo(&mut scene));
+        assert_scene_unchanged(&scene, &snapshot, "failed undo");
+
+        // Redo adds the node, then finds the patched frame gone.
+        let (mut scene, frame_id, _) = scene_with_frame_and_image();
+        let mut journal = SceneJournal::default();
+        let cmds = group(&mut scene, frame_id);
+        assert!(journal.commit(&mut scene, cmds));
+        assert!(journal.undo(&mut scene));
+        scene.nodes[0].id = NodeId(77);
+        let _warm = scene.query_rect(WorldRect::new(0.0, 0.0, 1.0, 1.0));
+        let snapshot = scene.clone();
+        assert!(!journal.redo(&mut scene));
+        assert_scene_unchanged(&scene, &snapshot, "failed redo");
+    }
+
+    #[test]
+    fn a_batch_failing_at_any_position_changes_nothing() {
+        use crate::image_paint::{PaintLayer, PaintLayerId};
+        let layer = PaintLayerId(1);
+        let mark = |scene: &mut Scene, x: f32| {
+            scene.build_node(
+                WorldRect::new(x, 0.1, 0.2, 0.2),
+                NodeKind::Image(ImageNode::new(ItemId(9))),
+            )
+        };
+
+        let (mut base, frame_id, img_id) = scene_with_frame_and_image();
+        let first_mark = mark(&mut base, 0.1);
+        let mut host = base.node(img_id).unwrap().clone();
+        let NodeKind::Image(img) = &mut host.kind else {
+            unreachable!()
+        };
+        let mut painted = PaintLayer::new(layer);
+        painted.nodes.push(first_mark.clone());
+        img.paint_layers.push(painted);
+        assert!(base.apply(&SceneCmd::Patch {
+            before: Box::new(base.node(img_id).unwrap().clone()),
+            after: Box::new(host),
+        }));
+        let extra_id = push_image(&mut base, WorldRect::new(0.0, 300.0, 80.0, 80.0));
+
+        // Each step is built from the state the previous steps leave.
+        let mut plan = base.clone();
+        let mut valid = Vec::new();
+        let mut step = |plan: &mut Scene, cmd: SceneCmd| {
+            assert!(plan.apply(&cmd));
+            valid.push(cmd);
+        };
+        let appended = plan.build_node(
+            WorldRect::new(600.0, 0.0, 40.0, 40.0),
+            NodeKind::Image(ImageNode::new(ItemId(3))),
+        );
+        let index = plan.nodes.len();
+        step(
+            &mut plan,
+            SceneCmd::Add {
+                index,
+                node: appended,
+            },
+        );
+        let frame = plan.node(frame_id).unwrap().clone();
+        let mut moved = frame.clone();
+        moved.rect.y += 25.0;
+        step(
+            &mut plan,
+            SceneCmd::Patch {
+                before: Box::new(frame),
+                after: Box::new(moved),
+            },
+        );
+        let second_mark = mark(&mut plan, 0.5);
+        step(
+            &mut plan,
+            SceneCmd::LayerNodeAdd {
+                host: img_id,
+                layer,
+                index: 1,
+                node: second_mark,
+            },
+        );
+        let mut erased = first_mark.clone();
+        erased.opacity = 0.25;
+        step(
+            &mut plan,
+            SceneCmd::LayerNodePatch {
+                host: img_id,
+                layer,
+                index: 0,
+                before: Box::new(first_mark),
+                after: Box::new(erased),
+            },
+        );
+        let extra = plan.node(extra_id).unwrap().clone();
+        let index = plan.index_of(extra_id).unwrap();
+        step(&mut plan, SceneCmd::Remove { index, node: extra });
+        let mut foreign = plan.build_node(
+            WorldRect::new(-300.0, -300.0, 60.0, 60.0),
+            NodeKind::Image(ImageNode::new(ItemId(4))),
+        );
+        foreign.id = NodeId(500);
+        step(
+            &mut plan,
+            SceneCmd::Add {
+                index: 0,
+                node: foreign,
+            },
+        );
+        let host = plan.node(img_id).unwrap().clone();
+        let mut faded = host.clone();
+        faded.opacity = 0.6;
+        faded.rect.x -= 70.0;
+        step(
+            &mut plan,
+            SceneCmd::Patch {
+                before: Box::new(host),
+                after: Box::new(faded),
+            },
+        );
+        let frame = base.node(frame_id).unwrap().clone();
+        let bad = [
+            ghost_patch(&base),
+            SceneCmd::Add {
+                index: 0,
+                node: frame.clone(),
+            },
+            // The frame sits at 0, or at 1 once the foreign node is in front.
+            SceneCmd::Remove {
+                index: 2,
+                node: frame,
+            },
+            SceneCmd::LayerNodePatch {
+                host: img_id,
+                layer,
+                index: 99,
+                before: Box::new(base.nodes[0].clone()),
+                after: Box::new(base.nodes[0].clone()),
+            },
+            SceneCmd::LayerNodeAdd {
+                host: img_id,
+                layer: PaintLayerId(77),
+                index: 0,
+                node: mark(&mut plan, 0.9),
+            },
+            SceneCmd::Add {
+                index: 999,
+                node: mark(&mut plan, 0.7),
+            },
+        ];
+
+        for at in 0..=valid.len() {
+            for (kind, wrong) in bad.iter().enumerate() {
+                let mut scene = base.clone();
+                let _warm = scene.query_rect(WorldRect::new(0.0, 0.0, 1.0, 1.0));
+                let mut journal = SceneJournal::default();
+                let mut batch = valid[..at].to_vec();
+                batch.push(wrong.clone());
+                batch.extend_from_slice(&valid[at..]);
+                assert!(!journal.commit(&mut scene, batch));
+                assert_scene_unchanged(&scene, &base, &format!("bad {kind} at {at}"));
+                assert_eq!(journal.undo_depth(), 0);
+            }
+        }
+
+        let mut scene = base.clone();
+        let mut journal = SceneJournal::default();
+        assert!(journal.commit(&mut scene, valid));
+        assert_eq!(scene.nodes, plan.nodes);
+        assert!(journal.undo(&mut scene));
+        assert_eq!(scene.nodes, base.nodes);
     }
 
     #[test]
