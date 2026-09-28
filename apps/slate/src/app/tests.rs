@@ -23986,7 +23986,7 @@ fn a_new_agent_portal_starts_at_its_program_grid_size() {
     );
 
     // Programs change after another edit: the fit is its own step.
-    add_rect(&mut h.app, 900.0, 0.0);
+    let other = add_rect(&mut h.app, 900.0, 0.0);
     h.app.set_agent_programs_for_test(&["cursor", "codex"]);
     for _ in 0..4 {
         h.frame();
@@ -24000,6 +24000,10 @@ fn a_new_agent_portal_starts_at_its_program_grid_size() {
         h.app.doc().scene.node(id).unwrap().rect.w,
         496.0,
         "Undo returns the fit and the fit waits"
+    );
+    assert!(
+        h.app.doc().scene.node(other).is_some(),
+        "the fit was its own step"
     );
     assert!(h.app.tab().journal.can_redo(), "redo survives the next paint");
 }
