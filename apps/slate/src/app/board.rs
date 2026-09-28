@@ -5518,7 +5518,7 @@ impl SlateApp {
                 let end = self.tip_now();
                 let anchor_id = anchor.filter(|id| {
                     self.doc().scene.node(*id).is_some_and(|n| !n.hidden)
-                        || slate_doc::image_paint::find_layer_node(&self.doc().scene, *id).is_some()
+                        || self.session_layer_mark(*id).is_some()
                 });
                 let ppp = ui.ctx().pixels_per_point();
                 let tolerance = (0.5 / (xf.z * ppp).max(1.0e-3)) as f64;

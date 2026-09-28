@@ -1350,8 +1350,9 @@ impl SlateApp {
     }
 
     /// Append a straight segment to stamped brush path `id`, whose last
-    /// vertex must be `from`: a board node through `patch_nodes`, a paint
-    /// layer node through one journaled layer patch.
+    /// vertex must be `from`: a board node through `patch_nodes`, a mark on
+    /// the session's paint layer through one journaled layer patch. A mark
+    /// on another image or layer is never extended.
     fn extend_brush_chain(&mut self, id: NodeId, from: Pos2, to: Pos2, end: BrushTip) -> bool {
         let Some(BrushMark {
             layer,
@@ -1363,6 +1364,9 @@ impl SlateApp {
         else {
             return false;
         };
+        if layer.is_some() && self.session_layer_mark(id).is_none() {
+            return false;
+        }
         let NodeKind::Shape(shape) = &node.kind else {
             return false;
         };
@@ -1392,32 +1396,17 @@ impl SlateApp {
                 s.stroke.tween_from = None;
             }
         };
-        let Some(loc) = layer else {
+        if layer.is_none() {
             // Each Shift segment is its own undo step, not a coalesced edit.
             self.last_board_edit = None;
             self.patch_nodes(&[id], extend);
             return true;
-        };
-        let Some(host) = self.doc().scene.node(loc.image).cloned() else {
-            return false;
-        };
-        let NodeKind::Image(img) = &host.kind else {
-            return false;
-        };
-        let Some(sheet) = img.paint_layers.get(loc.layer_index) else {
-            return false;
-        };
-        let before = sheet.nodes[loc.node_index].clone();
-        let mut world = node;
-        extend(&mut world);
-        let after = slate_doc::image_paint::layer_node_from_world(&host, img, &world);
-        self.commit_scene(vec![slate_doc::scene::SceneCmd::LayerNodePatch {
-            host: loc.image,
-            layer: sheet.id,
-            index: loc.node_index,
-            before: Box::new(before),
-            after: Box::new(after),
-        }])
+        }
+        let cmd = self.patch_layer_node_in_world(id, |world| {
+            extend(world);
+            super::board_image_layers::LayerMarkEdit::Patch
+        });
+        cmd.is_some_and(|cmd| self.commit_scene(vec![cmd]))
     }
 
     /// Where the live Shift segment starts: the end of the last brush mark,

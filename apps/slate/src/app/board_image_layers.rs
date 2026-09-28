@@ -26,6 +26,14 @@ pub struct ImagePaintSession {
     pub focus: ImageStripFocus,
 }
 
+/// What an edit of a layer mark in world space asks for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum LayerMarkEdit {
+    Keep,
+    Patch,
+    Remove,
+}
+
 #[derive(Clone)]
 pub(crate) struct PaintLayerTextureCache {
     key: u128,
@@ -183,6 +191,48 @@ impl SlateApp {
                 },
                 focus,
             });
+        }
+    }
+
+    /// Where layer mark `id` sits, while the image paint session paints its
+    /// layer. A mark on another image or layer is out of reach.
+    pub(crate) fn session_layer_mark(&self, id: NodeId) -> Option<LayerNodeRef> {
+        let loc = find_layer_node(&self.doc().scene, id)?;
+        let session = self.image_paint.as_ref()?;
+        (session.image == loc.image && session.layer_index == loc.layer_index).then_some(loc)
+    }
+
+    /// Edit layer mark `id` as a world-space node and return the layer
+    /// command that stores the result. `None` when the mark is out of the
+    /// session's reach or `edit` keeps it.
+    pub(crate) fn patch_layer_node_in_world(
+        &self,
+        id: NodeId,
+        edit: impl FnOnce(&mut Node) -> LayerMarkEdit,
+    ) -> Option<SceneCmd> {
+        let loc = self.session_layer_mark(id)?;
+        let host = self.doc().scene.node(loc.image)?;
+        let NodeKind::Image(img) = &host.kind else {
+            return None;
+        };
+        let layer = img.paint_layers.get(loc.layer_index)?;
+        let before = layer.nodes.get(loc.node_index)?.clone();
+        let mut world = layer_node_to_world(host, img, &before);
+        match edit(&mut world) {
+            LayerMarkEdit::Keep => None,
+            LayerMarkEdit::Patch => Some(SceneCmd::LayerNodePatch {
+                host: loc.image,
+                layer: layer.id,
+                index: loc.node_index,
+                after: Box::new(layer_node_from_world(host, img, &world)),
+                before: Box::new(before),
+            }),
+            LayerMarkEdit::Remove => Some(SceneCmd::LayerNodeRemove {
+                host: loc.image,
+                layer: layer.id,
+                index: loc.node_index,
+                node: before,
+            }),
         }
     }
 
@@ -622,69 +672,36 @@ impl SlateApp {
         live: &std::collections::HashMap<NodeId, super::board_path::EraseLive>,
     ) -> (Vec<SceneCmd>, usize) {
         let mut cmds = Vec::new();
-        let mut removes: Vec<(LayerNodeRef, Node, PaintLayerId)> = Vec::new();
+        let mut removes = Vec::new();
         let mut touched = 0usize;
         for id in spot {
             if live.get(id).is_some_and(|l| !l.changed) {
                 continue;
             }
-            let Some(loc) = find_layer_node(&self.doc().scene, *id) else {
-                continue;
-            };
-            let Some(session) = self.image_paint.as_ref() else {
-                continue;
-            };
-            if session.image != loc.image || session.layer_index != loc.layer_index {
-                continue;
-            }
-            let Some(host) = self.doc().scene.node(loc.image).cloned() else {
-                continue;
-            };
-            let NodeKind::Image(ref snap_img) = host.kind else {
-                continue;
-            };
-            let Some(layer_id) = snap_img.paint_layers.get(loc.layer_index).map(|l| l.id) else {
-                continue;
-            };
-            let Some(before_local) = snap_img.paint_layers[loc.layer_index]
-                .nodes
-                .get(loc.node_index)
-                .cloned()
-            else {
-                continue;
-            };
-            let world = layer_node_to_world(&host, snap_img, &before_local);
-            let Some((world, gone)) = super::board_color::stamp_erase_mark(&world, points, span)
-            else {
-                continue;
-            };
-            touched += 1;
-            if gone {
-                removes.push((loc, before_local, layer_id));
-            } else {
-                let after_local = layer_node_from_world(&host, snap_img, &world);
-                cmds.push(SceneCmd::LayerNodePatch {
-                    host: loc.image,
-                    layer: layer_id,
-                    index: loc.node_index,
-                    before: Box::new(before_local),
-                    after: Box::new(after_local),
-                });
-            }
-        }
-        removes.sort_by(|a, b| {
-            b.0.layer_index
-                .cmp(&a.0.layer_index)
-                .then(b.0.node_index.cmp(&a.0.node_index))
-        });
-        for (loc, node, layer_id) in removes {
-            cmds.push(SceneCmd::LayerNodeRemove {
-                host: loc.image,
-                layer: layer_id,
-                index: loc.node_index,
-                node,
+            let cmd = self.patch_layer_node_in_world(*id, |world| {
+                match super::board_color::stamp_erase_mark(world, points, span) {
+                    None => LayerMarkEdit::Keep,
+                    Some((_, true)) => LayerMarkEdit::Remove,
+                    Some((erased, false)) => {
+                        *world = erased;
+                        LayerMarkEdit::Patch
+                    }
+                }
             });
+            match cmd {
+                Some(remove @ SceneCmd::LayerNodeRemove { .. }) => removes.push(remove),
+                Some(patch) => cmds.push(patch),
+                None => continue,
+            }
+            touched += 1;
         }
+        // Every mark here is on the session's one layer: remove from the
+        // back so earlier indices stay valid.
+        removes.sort_by_key(|cmd| match cmd {
+            SceneCmd::LayerNodeRemove { index, .. } => std::cmp::Reverse(*index),
+            _ => std::cmp::Reverse(0),
+        });
+        cmds.extend(removes);
         (cmds, touched)
     }
 

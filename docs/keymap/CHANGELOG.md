@@ -13,6 +13,16 @@
   says so ("stop it in Cursor"), rather than reporting a stop that never
   reached the run (`docs/agent-link-contract.md`). No binding changed.
 
+## 2026-09-27 — Shift segments stay on the painted layer (review r9)
+
+- `brush` D11: a Brush Shift segment extends an image's layer mark only
+  while the image paint session paints that mark's layer. After the
+  session ends (the image deselected, Brush still armed) or once another
+  layer is active, the segment is a new mark, on the board or on the
+  active layer, and the earlier mark is untouched. The Eraser already
+  kept to the active layer; both now edit layer marks through one
+  session-guarded owner.
+
 ## 2026-09-27 — Tip HUD on brush strokes, painted opacity (review r7)
 
 - `specs/direct-selection.md`, `specs/brush-color.md`, PATTERNS
