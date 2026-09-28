@@ -1,5 +1,21 @@
 # Canvas command project — change log
 
+## 2026-09-27 — One Alt+right-drag entry; Smooth in the tip keys; HUD naming
+
+- `board.stroke.width_hud` is removed: it had no dispatch owner and
+  listed Alt+right-drag a second time in the Advanced window. Its
+  mid-draw sentence (and its "width" / "thickness" aliases) moved into
+  `board.brush.size_hud`. `line`, `arc`, `polyline`, `bezier-span`, and
+  `pen` D05 now cite `board.brush.size_hud`. No binding changed.
+- `board.brush.width_down/up` and `board.brush.softness_up/down` help
+  name Smooth, as the dispatch already did. `COMMANDS.md` E bullet: painted
+  strokes are spot-erased (one `Patch` per reached stroke), vector strokes
+  removed whole; the `[ / ]` bullet names Smooth.
+- `brush` D09 and implementation notes: the size HUD's style row and the
+  color wheel are transient input chrome opened at the right-button press
+  point for the life of the right-drag (P0.9's pointer-attached chrome
+  exception), not P2.GhostFollow.
+
 ## 2026-09-27 — Tip HUD help, tip-chord wording, Eraser row
 
 - `KEYMAP.md` Ctrl+right-drag: curve tools share the wheel, the disk

@@ -2082,7 +2082,8 @@ impl SlateApp {
         self.restore_hud_node(node_before);
     }
 
-    /// Pointer-attached HUD. Numbers stay in screen px (P2.GhostFollow).
+    /// Transient input HUD opened at the right-button press for the life of
+    /// the drag. Numbers stay in screen px (P0.9 pointer-attached exception).
     /// The size and opacity circles stay pinned on the press point.
     pub(crate) fn paint_brush_hud(&self, painter: &egui::Painter, pointer: Pos2, accent: Color32) {
         match self.brush_hud {
