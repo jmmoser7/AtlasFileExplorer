@@ -1495,6 +1495,31 @@ impl SlateApp {
         captures
     }
 
+    /// This frame's press that commits an open panel's preview (D11), if
+    /// any: `Some(true)` for a primary press on a crop handle, a cropping
+    /// image, or a painted curve grip, which is that gesture rather than a
+    /// click-away. Crop keeps the Corners panel up (D09) and the selection
+    /// whole; a grip press is the grip's drag (P1.curve.grips). Neither is
+    /// eaten. Right-drag and middle-drag are the
+    /// canvas pan, so only a secondary or middle click without a drag counts.
+    fn property_dismiss_press(&self, ctx: &egui::Context) -> Option<bool> {
+        let (primary, click) = ctx.input(|i| {
+            (
+                i.pointer
+                    .button_pressed(egui::PointerButton::Primary)
+                    .then(|| i.pointer.press_origin()),
+                i.pointer.button_clicked(egui::PointerButton::Secondary)
+                    || i.pointer.button_clicked(egui::PointerButton::Middle),
+            )
+        });
+        match primary {
+            Some(origin) => Some(
+                origin.is_some_and(|p| self.crop_owns_pointer(p) || self.curve_knob_under(p)),
+            ),
+            None => click.then_some(false),
+        }
+    }
+
     /// Runs before board input. Layout is recomputed from the host transform every frame.
     pub(crate) fn shape_properties_ui(&mut self, ui: &mut egui::Ui, xf: &BoardXf) -> bool {
         let ctx = ui.ctx().clone();
@@ -1528,18 +1553,15 @@ impl SlateApp {
             && !self.shape_properties.nodes.is_empty();
         if live {
             let items = live_property_strip_items(self, &self.shape_properties.nodes);
-            // D13 / D12: a panel whose squircle the strip no longer offers
-            // (a grip pick narrowed it to per-vertex controls) closes. The
-            // grip press already committed its pending edits.
-            if self
-                .shape_properties
-                .panel
-                .is_some_and(|panel| !items.contains(&StripItem::Panel(panel)))
+            // D13 / D12: a panel whose squircle a vertex pick took off the
+            // strip commits its pending edits and closes.
+            if !self.shape_property_points().is_empty()
+                && self
+                    .shape_properties
+                    .panel
+                    .is_some_and(|panel| !items.contains(&StripItem::Panel(panel)))
             {
-                self.shape_properties.preview.clear();
-                self.shape_properties.edits.clear();
-                self.shape_properties.panel = None;
-                self.shape_properties.color = Default::default();
+                self.apply_shape_preview(&ctx, true);
             }
             if let Some(bounds) = vertex_bounds.or(self.shape_properties.bounds) {
                 self.shape_properties.last_chrome = Some(LastChrome { bounds, items });
@@ -1554,6 +1576,16 @@ impl SlateApp {
         }
         let z = xf.z;
         if canvas_scale::too_small(12.0 * z) {
+            // The strip and its panel are not painted, but screen-constant
+            // grips still take presses, so the D11 commit still runs. The
+            // press keeps its board meaning.
+            let overlay_open =
+                self.shape_properties.panel.is_some() || self.shape_properties.number.is_some();
+            if let (true, true, Some(grip)) =
+                (live, overlay_open, self.property_dismiss_press(&ctx))
+            {
+                self.apply_shape_preview(&ctx, !grip);
+            }
             return false;
         }
         let Some(chrome_state) = self.shape_properties.last_chrome.clone() else {
@@ -1947,31 +1979,10 @@ impl SlateApp {
             }
             let overlay_open =
                 self.shape_properties.panel.is_some() || self.shape_properties.number.is_some();
-            // Primary press on empty canvas commits and deselects. Right-drag
-            // and middle-drag are the canvas pan, so that press must not
-            // collapse the editor that emerged from the selection squircles.
-            // A secondary or middle click with no drag is still a click-away.
-            let dismiss = ctx.input(|i| {
-                i.pointer.button_pressed(egui::PointerButton::Primary)
-                    || i.pointer.button_clicked(egui::PointerButton::Secondary)
-                    || i.pointer.button_clicked(egui::PointerButton::Middle)
-            });
-            // A press on a crop handle or a cropping image is the crop
-            // gesture, not a click-away: the Corners panel stays up (D09),
-            // the selection stays whole, and the press is not eaten. A
-            // press on a painted curve grip is likewise the grip's drag
-            // (P1.curve.grips).
-            let crop_press = ctx
-                .input(|i| {
-                    i.pointer
-                        .button_pressed(egui::PointerButton::Primary)
-                        .then(|| i.pointer.press_origin())
-                        .flatten()
-                })
-                .is_some_and(|p| self.crop_owns_pointer(p) || self.curve_knob_under(p));
-            if overlay_open && !captures && dismiss && crop_press {
+            let press = self.property_dismiss_press(&ctx);
+            if overlay_open && !captures && press == Some(true) {
                 self.apply_shape_preview(&ctx, false);
-            } else if overlay_open && !captures && dismiss {
+            } else if overlay_open && !captures && press.is_some() {
                 self.apply_shape_preview(&ctx, true);
                 if let Some(p) = ctx.pointer_latest_pos() {
                     if self.canvas_rect.contains(p) {

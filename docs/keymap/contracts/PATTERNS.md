@@ -426,8 +426,9 @@ is searchable.
   screen px, an anchor wins a tie; a painted grip (a curve anchor, a
   handle knob, or a line end point) under the selection strip still takes
   the press, with or without a strip panel open, and a press on one is
-  never a click-away; the panel closes only when the new pick leaves its
-  squircle off the strip. A rectangle or regular-polygon vertex
+  never a click-away; it commits the panel's pending edits at any zoom,
+  and the panel closes only when the new vertex pick leaves its squircle
+  off the strip. A rectangle or regular-polygon vertex
   (P1.shape.vertex-style) under a strip button leaves the button its click
   (shape-selection-toolbar D13; `board_direct::curve_knob_under`). One drag moves one point and is one
   journaled Patch; Esc mid-drag restores. A handle drag takes the Bézier

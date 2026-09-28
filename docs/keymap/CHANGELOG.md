@@ -1,5 +1,31 @@
 # Canvas command project — change log
 
+## 2026-09-28 — Stale strip panels commit before they close; only vertex picks close them (round 8, fourth review)
+
+- Corrects the entry below on two points. It said the close "loses
+  nothing": below about one-third zoom the strip is not painted and the
+  grip-press commit never ran, yet screen-constant grips stayed
+  clickable, so picking an anchor with a Fill preview pending closed the
+  panel and discarded the preview (D11). It also said no panel opener,
+  text editing included, opens a panel its strip does not offer:
+  double-clicking a text-hosting member of a group opens Text with the
+  group still selected, whose strip has no Text squircle, and the close
+  shut it the next frame.
+- `shape-selection-toolbar` D11 / D13: a grip or crop press commits an
+  open panel's pending edits at every zoom, and below the strip's LOD a
+  click-away commits them too (the press keeps its board meaning, since
+  no chrome is painted to click away from). A panel a vertex pick takes
+  off the strip commits its pending edits through the journaled edit
+  command before it closes; with nothing pending it journals nothing.
+- `shape-selection-toolbar` D13 / D12: the close applies only while
+  vertices are picked on the strip's one curve, the case it was written
+  for; other panels the strip does not list (Text while editing a
+  grouped shape) stay up. The D13 sentence is marked as an agent
+  decision awaiting user confirmation; `PATTERNS.md` P1.curve.grips
+  follows.
+- Tests: `a_zoomed_out_grip_pick_commits_the_fill_preview_it_closes`,
+  `text_editing_a_grouped_shape_keeps_the_text_panel`.
+
 ## 2026-09-28 — Stale strip panels close; line end points and Direct Select knobs win (round 8, third review)
 
 - `shape-selection-toolbar` D13 / D12: a grip press keeps the open panel
@@ -9,9 +35,10 @@
   picked end point with a slider that did nothing. A strip panel whose
   squircle the live strip no longer offers now closes. The grip press
   has already committed its pending edits once, so the close journals
-  nothing and loses nothing. No panel opener (text editing, crosstalk,
-  Pages, Agent, crop, model display) opens a panel its strip does not
-  offer, so the rule is general.
+  nothing. (Corrected by the entry above: below the strip's LOD the
+  close discarded a pending preview, and Text opened on a grouped shape
+  is not on its strip; the close now commits and applies only to vertex
+  picks.)
 - `shape-selection-toolbar` D13, `PATTERNS.md` P1.curve.grips: a simple
   line's end point is a painted path-edit grip (`line` D13), so it now
   wins a press under a strip button like a curve anchor or handle knob.
