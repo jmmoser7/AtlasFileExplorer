@@ -96,7 +96,9 @@ pub struct OrthoLane {
     pub start_along: f32,
     /// Slide the end attach along the port edge.
     pub end_along: f32,
-    /// Mid-span rail offset from the preferred midpoint jive.
+    /// Mid-span rail offset from the preferred midpoint jive. The connection
+    /// zone spreads lanes at their ports, so `scene_ortho_lanes` leaves this
+    /// at 0; the path tiers still honor and clamp a nonzero value.
     pub rail: f32,
     /// A nested bundle's trunk, in world units: the horizontal run's y or
     /// the vertical run's x, measured from the shared port (File Atlas
@@ -2141,8 +2143,8 @@ mod tests {
         let la = lanes[&NodeId(10)];
         let lb = lanes[&NodeId(11)];
         assert!(
-            (la.end_along - lb.end_along).abs() > 1.0 || (la.rail - lb.rail).abs() > 1.0,
-            "shared dest must fan or offset rails: {la:?} {lb:?}"
+            (la.end_along - lb.end_along).abs() > 1.0 || la.trunk_y != lb.trunk_y,
+            "shared dest must fan or nest trunks: {la:?} {lb:?}"
         );
         let pa = connector_route_in_scene(
             &scene,

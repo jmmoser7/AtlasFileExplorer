@@ -1333,13 +1333,17 @@ impl SlateApp {
             return true;
         }
         if let Some(pointer) = ui.ctx().pointer_latest_pos() {
-            // Crosstalk chips and their capsule take their own presses, not
-            // the moves and release of a gesture that began elsewhere.
+            // Blisters, the Send pill, the capsule and its editor take their
+            // own presses, not the moves and release of a gesture that began
+            // elsewhere. Only a press arms the guard: a hover that held it
+            // until a release would eat the next board click.
             let gesture = self.board_drag.is_some()
                 || self.brush_straight.is_some()
                 || self.pen_straight.is_some();
             if !gesture && self.crosstalk_captures(pointer) {
-                self.board_align_eat_press = true;
+                if ui.input(|i| i.pointer.any_pressed()) {
+                    self.board_align_eat_press = true;
+                }
                 return true;
             }
             if self.board_drag.is_none() && self.board_tool == super::board::BoardTool::Select {
@@ -8008,12 +8012,7 @@ impl SlateApp {
             if let Some(after) = resized {
                 // Fitting the grid settles the step that placed the portal,
                 // so one Undo still removes it (and a wire placed with it).
-                if !self.tab().journal.can_redo() && self.tab_mut().journal.fold_into_last(&after) {
-                    if let Some(node) = self.doc_mut().scene.node_mut(id) {
-                        *node = after;
-                    }
-                    self.note_scene_change();
-                } else {
+                if !self.fold_into_last_step(&after) {
                     self.patch_nodes(&[id], |n| {
                         n.rect.w = width;
                         n.rect.h = height;

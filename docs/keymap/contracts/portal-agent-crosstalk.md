@@ -31,7 +31,7 @@ reopened.
 
 | ID | Dimension | Agreed behavior | Source | Conf |
 |----|-----------|-----------------|--------|------|
-| D01 | Initiation & arming | No armed tool and no palette placement. A crosstalk starts by dragging from one Cursor or Codex chat card's crosstalk port to another's. Keyboard path for parity (Art. VII.1): select two coding chat cards, then palette "Start crosstalk". Commands in SPECS: `portal.agent.crosstalk.link`, `.start`, `.pause`, `.resume`, `.stop`, `.edit`, `.send`, `.skip`, `.more`. No default hotkeys. | pattern | 70 |
+| D01 | Initiation & arming | No armed tool and no palette placement. A crosstalk starts by dragging from one Cursor or Codex chat card's crosstalk port to another's. Keyboard path for parity (Art. VII.1): select two coding chat cards, then palette "Start crosstalk". Commands in SPECS: `portal.agent.crosstalk.link`, `.start`, `.pause`, `.resume`, `.stop`, `.edit`, `.send`, `.skip`, `.more`, `.capsule`, `.trust`. No default hotkeys. | pattern | 70 |
 | D02 | Stickiness & repeat | One-shot: after the drag the tool is still Select. Not repeatable through Space or Enter, since it needs two targets. | pattern | 80 |
 | D03 | Gesture grammar | PortHover → Dragging (red rubber wire from the port) → released on a partner → owner crosswire committed, Start capsule open (roles, stop rule, goal, Start) → Running ⇄ Paused → Ended. A partner is another coding chat card (one provider-owned stream) with a conversation, past the chooser phase, in a different conversation. Released anywhere else, the drag is inert and nothing is journaled. Drawing never sends. Start relays the source card's latest finished reply, or waits for its next one if it has none; you type the task into the builder as usual. See X01–X04. | guess | 65 |
 | D04 | Click vs drag rule | Travel under `draft.drag_threshold` (4 px) is a click. On a wired port it selects that crosswire; on an unwired port it does nothing. The wire's controls open from its blister (X17). | precedent | 80 |
@@ -115,26 +115,27 @@ D rows above cite them. They are mirrored in `decisions.json` under
 | `crosstalk.wire_alpha` | Crosswire opacity, both themes | `0.85` |
 | `crosstalk.message_tint` | Danger fill behind a received message | `0.10` |
 | `crosstalk.default_turns` | Turn limit on a new crosstalk | `10` |
-| `crosstalk.more_turns` | "N more turns" on a stopped chip | `5` |
+| `crosstalk.more_turns` | "N more turns" in a stopped capsule | `5` |
 | `crosstalk.relay_max_chars` | Longest reply relayed without asking | `30,000` |
 | `crosstalk.turn_timeout_min` | Minutes without an answer before pausing | `20` |
 | `crosstalk.hub_queue` | Queries waiting on one expert (later) | `8` |
 
 Model constants live in `slate_doc::crosstalk`; painting constants beside the
-chip painter in `board_agent/crosstalk.rs`.
+capsule painter in `board_agent/crosstalk.rs`.
 
 ## Golden paths
 
 1. **GP1.** Cursor and Codex tails on the same project. Drag Cursor's bottom
    port onto Codex. The owner crosswire is red and the capsule opens: Cursor
    builds, Codex reviews, goal "tests pass and the reviewer approves", 10
-   turns, Start. Type the task into Cursor. When its reply finishes the chip
-   reads "Send to Codex?"; Send puts the reply in Codex as a red user
+   turns, Start. Type the task into Cursor. When its reply finishes the capsule
+   reads "Send to Codex?" and a Send pill waits beside the newest blister;
+   Send puts the reply in Codex as a red user
    message on a new card, with one red crosswire, in one undo step authored
    by Cursor. Codex's review comes back the same way. Cursor claims the goal,
-   Codex agrees, and the chip reads "Goal met · Cursor claimed, Codex agreed".
+   Codex agrees, and the capsule reads "Goal met · Cursor claimed, Codex agreed".
 2. **GP2.** Mid-run, switch Codex to a single chat window: its crosswires
-   paint as one wire whose chip shows the count. Switch back: the zipper
+   paint as one wire with one blister (X02). Switch back: the zipper
    returns. One Undo restores the previous presentation and anchors.
 3. **GP3.** Type into Codex while Cursor is replying: your message goes out at
    once, the crosstalk keeps running, and the relay of Cursor's reply waits
@@ -214,8 +215,10 @@ the board and the artifact draw one path. The bundle rule is
 (28 September 2026), which now calls it with unchanged output.
 
 DRY review (27 September 2026): **extract-first**, applied. The handle dot
-became one function before the ports used it; the Start capsule is a property
-strip panel drawn by atlas-shell, not a second floating editor; Step
+became one function before the ports used it; the Start editor was a property
+strip panel drawn by atlas-shell, not a second floating editor (since 28
+September 2026 Edit places that same `selection_tools::crosstalk_editor`
+beside the wire's capsule with `place_popup`); Step
 proposals stay derived in the crosstalk runtime rather than going through
 `StageFeed`, which stages agent-proposed scene edits, not human-pressed sends.
 Forbidden forks: a second connector painter, a second send path, a

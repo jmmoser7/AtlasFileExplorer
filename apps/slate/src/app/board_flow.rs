@@ -1,6 +1,6 @@
 //! Dataflow on image generators and text blocks, after Flora and xFigura:
 //! typed input ports down the left edge, one output port whose click (or a
-//! wire dropped on empty board) offers Text or Image, and the text block card
+//! wire dropped on empty board) offers Text, Image or Agent, and the text block card
 //! that runs a local language model once per press.
 //!
 //! Port positions come from `WireHost::ports`, which reads the table in
@@ -604,7 +604,7 @@ impl SlateApp {
         from: Option<(Side, f32)>,
     ) -> bool {
         const CONTEXT_T: f32 = 0.5;
-        let (w, h) = super::board::AGENT_PORTAL_SIZE;
+        let (w, h) = self.agent_portal_size();
         let size = egui::vec2(w, h);
         let drop = at.map(|[x, y]| Pos2::new(x, y - CONTEXT_T * size.y));
         let zoom = self.tab().cam.z;

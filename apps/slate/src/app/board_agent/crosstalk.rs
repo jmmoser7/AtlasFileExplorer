@@ -1,5 +1,5 @@
 //! Crosstalk between two coding chat cards (contract `portal-agent-crosstalk`):
-//! the top and bottom crosstalk ports, the relay pump, and the chip on the
+//! the top and bottom crosstalk ports, the relay pump, and the blister on the
 //! wire with its capsule. The model and its rules are `slate_doc::crosstalk`;
 //! a relay is the composer's own send with the partner's reply as its text.
 
@@ -22,7 +22,8 @@ use super::AgentAwait;
 
 /// Autonomous relays wait for amendment VIII.1a
 /// (`docs/audit/amendments/2026-09-27-crosstalk-amendments.md`). Until the user
-/// ratifies it, every relay is a Step: the person presses Send on the chip.
+/// ratifies it, every relay is a Step: the person presses Send beside the
+/// blister or in the capsule.
 pub(crate) const CROSSTALK_AUTONOMY_RATIFIED: bool = false;
 /// `crosstalk.port_reach`, designed px.
 const PORT_REACH: f32 = 7.0;
@@ -307,7 +308,7 @@ impl SlateApp {
     }
 
     /// Crosswires that repeat an earlier wire's ends (every relay between two
-    /// single windows): one wire paints, its chip carries the count.
+    /// single windows): one wire with one blister paints (X02).
     pub(crate) fn crosstalk_duplicate(&self, id: NodeId) -> bool {
         let revision = (self.scene_gen, self.doc().scene.scene_gen());
         let mut cache = self.agents.crosstalk.duplicates.borrow_mut();
@@ -362,18 +363,8 @@ impl SlateApp {
     /// A card an agent's step just added fits its text inside that step, so
     /// one Undo removes the relay whole (X09).
     pub(super) fn fold_into_agent_step(&mut self, after: &Node) -> bool {
-        let journal = &self.tab().journal;
-        if journal.can_redo() || !matches!(journal.last_author(), Some(CmdAuthor::Agent(_))) {
-            return false;
-        }
-        if !self.tab_mut().journal.fold_into_last(after) {
-            return false;
-        }
-        if let Some(node) = self.doc_mut().scene.node_mut(after.id) {
-            *node = after.clone();
-        }
-        self.note_scene_change();
-        true
+        matches!(self.tab().journal.last_author(), Some(CmdAuthor::Agent(_)))
+            && self.fold_into_last_step(after)
     }
 
     /// A presentation switch's commands, plus the patches that keep each
@@ -1297,7 +1288,7 @@ impl SlateApp {
         Ok(())
     }
 
-    // ----- chip and capsule -----
+    // ----- blister and capsule -----
 
     /// "Turn 3 of 10 · 04:12 · Codex is replying", or why it is not running.
     pub(crate) fn crosstalk_status(&self, chain: &str) -> String {
@@ -1539,7 +1530,8 @@ impl SlateApp {
         Some((to, offer.text.chars().count() > xt::RELAY_MAX_CHARS))
     }
 
-    /// True when the pointer is on a chip or capsule painted last frame.
+    /// True when the pointer is on a blister, Send pill, capsule or editor
+    /// painted last frame.
     pub(crate) fn crosstalk_captures(&self, pointer: Pos2) -> bool {
         self.agents
             .crosstalk
@@ -1783,7 +1775,7 @@ impl SlateApp {
         let _ = painter;
     }
 
-    /// The crosstalk editor in a selected crosswire's property strip
+    /// The crosstalk editor that Edit attaches beside a wire's capsule
     /// (`selection_tools::crosstalk_editor`): roles and Start on the owner
     /// wire, a rule override on any other.
     pub(crate) fn crosstalk_panel(&mut self, ui: &mut egui::Ui, rect: Rect, wire: NodeId, z: f32) {
@@ -3003,6 +2995,24 @@ mod tests {
             p.h.app.tab().journal.undo_depth(),
             depth,
             "opening and folding is view state"
+        );
+    }
+
+    /// Hovering a blister shields only a press that lands on it. The next
+    /// board click after the pointer leaves still reaches the board.
+    #[test]
+    fn hovering_a_blister_does_not_eat_the_next_board_click() {
+        let mut p = linked("xt_hover_guard");
+        escape(&mut p.h);
+        let mid = mid_span(&p.h, owner_wire(&p.h));
+        p.h.frame_with(|i| i.events.push(egui::Event::PointerMoved(mid)));
+        p.h.frame();
+        p.h.app.board_sel = [p.codex].into_iter().collect();
+        let canvas = p.h.app.canvas_rect;
+        click(&mut p.h, canvas.left_bottom() + egui::vec2(40.0, -40.0));
+        assert!(
+            p.h.app.board_sel.is_empty(),
+            "the click on empty board clears the selection"
         );
     }
 

@@ -1338,6 +1338,21 @@ impl SlateApp {
         self.brush_tiles.note_unspecified();
     }
 
+    /// Settles `after` into the newest journal step when that step already
+    /// adds or patches the node and nothing waits to redo, and applies it to
+    /// the scene, so one Undo still returns the whole gesture. `false`
+    /// changes nothing; the caller journals the edit on its own.
+    pub(crate) fn fold_into_last_step(&mut self, after: &Node) -> bool {
+        if self.tab().journal.can_redo() || !self.tab_mut().journal.fold_into_last(after) {
+            return false;
+        }
+        if let Some(node) = self.doc_mut().scene.node_mut(after.id) {
+            *node = after.clone();
+        }
+        self.note_scene_change();
+        true
+    }
+
     /// Applies an edit to several nodes and journals one coalescible patch
     /// group (continuous slider scrubs collapse into a single undo step).
     pub fn patch_nodes(&mut self, ids: &[NodeId], f: impl Fn(&mut Node)) {
@@ -7858,9 +7873,18 @@ impl SlateApp {
             self.place_from_recipe(BoardTool::AgentPortal, center, AGENT_PORTAL_SIZE);
             return;
         }
-        let (w, h) = AGENT_PORTAL_SIZE;
+        let (w, h) = self.agent_portal_size();
         let rect = WorldRect::new(center.x - w * 0.5, center.y - h * 0.5, w, h);
         self.add_agent_portal(rect, "placed");
+    }
+
+    /// A new agent portal's size. The Agent tool's recipe (`core.slatekit`)
+    /// owns it; the constant stands in only when no kit supplies one.
+    pub(crate) fn agent_portal_size(&self) -> (f32, f32) {
+        self.kits
+            .recipe_for(BoardTool::AgentPortal)
+            .and_then(|r| r.default_size())
+            .map_or(AGENT_PORTAL_SIZE, |[w, h]| (w, h))
     }
 
     /// Click-to-place default File Atlas lens (960×540, unbound).
