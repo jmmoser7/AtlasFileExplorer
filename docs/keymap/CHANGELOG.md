@@ -1,5 +1,30 @@
 # Canvas command project — change log
 
+## 2026-09-28 — Grips under an open strip panel; style row reads end caps (round 8, second review)
+
+- `shape-selection-toolbar` D13 and `PATTERNS.md` P1.curve.grips: with a
+  strip panel open (Stroke or Corners for a picked anchor), a handle knob
+  under a strip button was still blocked: the panel's capture counted the
+  strip buttons, and the click-away then ate the press. A press on a
+  painted anchor or handle knob of the edited curve now goes to the grip
+  with or without a panel open, and is not a click-away, so the panel stays
+  up (as a crop press, D09). Only curve anchors and handle knobs win:
+  a rectangle or polygon vertex or a line end point under a strip button
+  (zoomed out) leaves the button its click, as D13 already said.
+- `PATTERNS.md` P1.curve.vertex-style: the style row's current choice reads
+  the effective end caps. Round set on both ends of a Butt curve reads as
+  Round, and narrowing both ends reads as narrow at both ends again (lost
+  when `set_end` stopped rewriting `cap`). The reader never rewrites `cap`.
+- Art. II: the styled closed-form paint cache is keyed by the board being
+  painted as well as the node id, so a nested board's rectangle with the
+  host's id no longer evicts the host's paint path every frame.
+- `polygon` D14 in `decisions.json` regains "(fillet/chamfer like
+  rectangles)", matching the contract.
+- Tests: `a_handle_knob_under_the_property_strip_drags_with_a_panel_open`,
+  `a_strip_button_over_a_rectangle_corner_keeps_its_click`,
+  `curve_style_reads_two_equal_end_caps_as_the_curves_cap`,
+  `a_nested_styled_rectangle_with_the_host_id_keeps_its_own_paint_path`.
+
 ## 2026-09-28 — Crosstalk: an immediate Undo of a relay pauses (review)
 
 - Round 8 review: an Undo pressed before the pump after a relay did not pause

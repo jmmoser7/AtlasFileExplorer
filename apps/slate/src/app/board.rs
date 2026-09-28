@@ -4068,9 +4068,10 @@ impl SlateApp {
                 }
             }
             NodeKind::Shape(s) => {
+                let scope = self.closed_form_scope();
                 let styled = self
                     .path_mesh_cache
-                    .closed_form_paint_shape(node.id, s, node.rect);
+                    .closed_form_paint_shape(scope, node.id, s, node.rect);
                 match s.shape {
                     _ if styled.is_some() => {
                         if let Some(styled) = &styled {

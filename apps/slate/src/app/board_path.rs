@@ -177,7 +177,8 @@ pub struct PathMeshCache {
     resident_bytes: usize,
     budget_bytes: usize,
     entry_limit: usize,
-    closed_forms: HashMap<NodeId, ClosedFormPaint>,
+    /// Keyed by (board scope, id): every board numbers its nodes from one.
+    closed_forms: HashMap<(u64, NodeId), ClosedFormPaint>,
     /// Cache misses this paint — reset at the start of `board_canvas`.
     pub tess_misses: u32,
 }
@@ -200,9 +201,11 @@ impl PathMeshCache {
     /// The path shape closed form `id` paints as while it stores per-vertex
     /// style (`vertex_style::closed_form_paint_shape`), derived again only
     /// when the shape or its box changes, so a steady frame allocates
-    /// nothing (Art. II).
+    /// nothing (Art. II). `scope` names the board being painted
+    /// ([`SlateApp::closed_form_scope`]).
     pub(crate) fn closed_form_paint_shape(
         &mut self,
+        scope: u64,
         id: NodeId,
         shape: &ShapeNode,
         rect: WorldRect,
@@ -212,6 +215,7 @@ impl PathMeshCache {
         {
             return None;
         }
+        let id = (scope, id);
         if let Some(entry) = self.closed_forms.get(&id) {
             if entry.rect == rect && entry.source == *shape {
                 return entry.styled.clone();

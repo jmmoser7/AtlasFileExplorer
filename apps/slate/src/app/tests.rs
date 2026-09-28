@@ -22317,6 +22317,41 @@ fn join_keeps_free_end_conditions_and_drops_joined_ones() {
     assert_eq!((s.cap_start, s.cap_end), (None, None));
 }
 
+/// P1.curve.vertex-style: the style row reads the effective end caps. Two
+/// equal end caps are the curve's end cap; `cap` still caps the dashes.
+#[test]
+fn curve_style_reads_two_equal_end_caps_as_the_curves_cap() {
+    use board_tip_hud::{curve_style_of, CurveStyle};
+    use slate_doc::scene::{Stroke, StrokeCap, StrokeEnd};
+    let mut s = Stroke::none();
+    s.width = 4.0;
+    s.cap = StrokeCap::Butt;
+    assert_eq!(curve_style_of(&s), Some(CurveStyle::Square));
+    let round = StrokeEnd {
+        cap: StrokeCap::Round,
+        arrow: false,
+        narrow: false,
+    };
+    s.set_end(0, round);
+    assert_eq!(curve_style_of(&s), None, "the ends were set apart");
+    s.set_end(1, round);
+    assert_eq!(s.cap, StrokeCap::Butt, "the reader never rewrites cap");
+    assert_eq!(curve_style_of(&s), Some(CurveStyle::Round), "Round on both ends");
+
+    let narrow = StrokeEnd {
+        cap: StrokeCap::Round,
+        arrow: false,
+        narrow: true,
+    };
+    let mut s = Stroke::none();
+    s.width = 4.0;
+    s.cap = StrokeCap::Butt;
+    s.set_end(0, narrow);
+    s.set_end(1, narrow);
+    assert_eq!(curve_style_of(&s), Some(CurveStyle::TaperBoth), "narrow at both ends");
+    assert_eq!(s.cap, StrokeCap::Butt);
+}
+
 /// es1 (user pass, 28 September 2026: "Releasing on one restyles the whole
 /// curve, even with points picked"): with only an interior point picked,
 /// the row still restyles the whole curve.
@@ -22696,6 +22731,59 @@ fn a_handle_knob_under_the_property_strip_still_drags() {
         "Shift keeps its direction: {v0:?} -> {v1:?}"
     );
     assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "one undo step");
+}
+
+/// P1.curve.grips with a strip panel open: Stroke is offered for a picked
+/// anchor, and its handle knob under a strip button still drags.
+#[test]
+fn a_handle_knob_under_the_property_strip_drags_with_a_panel_open() {
+    let mut h = bezier_board("knob_under_strip_panel");
+    let (id, [_, b, _]) = handle_bezier(&mut h);
+    grip_drag(
+        &mut h,
+        b + EVec2::new(40.0, 0.0),
+        b + EVec2::new(0.0, -25.0),
+        egui::Modifiers::NONE,
+    );
+    let (_, out0) = handle_pair(&h, id, 1);
+    let xf = h.app.board_xf();
+    press_primary(&mut h, xf.w2s(b), egui::Modifiers::NONE);
+    for _ in 0..8 {
+        h.frame();
+    }
+    assert_eq!(h.app.picked_vertices(), Some((id, vec![1])), "b is picked");
+    h.app.shape_properties.panel = Some(board_properties::Panel::Stroke);
+    h.frame();
+    h.frame();
+    let knob = xf.w2s(out0);
+    let press = h
+        .app
+        .shape_properties
+        .chrome_hits
+        .iter()
+        .map(|r| r.shrink(0.5).clamp(knob))
+        .find(|p| p.distance(knob) < 5.0)
+        .expect("a strip button covers the knob");
+    assert_eq!(h.app.hovered_vertex(press), Some((id, 1)));
+    let depth = h.app.tab().journal.undo_depth();
+    let from = xf.s2w(press);
+    grip_drag(&mut h, from, from + EVec2::new(0.0, -20.0), egui::Modifiers::SHIFT);
+    let (_, out1) = handle_pair(&h, id, 1);
+    let (v0, v1) = (out0 - b, out1 - b);
+    assert!(
+        (v1.length() - (v0.length() + 20.0)).abs() < 0.5,
+        "the handle lengthens: {v0:?} -> {v1:?}"
+    );
+    assert!(
+        (v1.angle() - v0.angle()).abs() < 1e-3,
+        "Shift keeps its direction: {v0:?} -> {v1:?}"
+    );
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "one undo step");
+    assert_eq!(
+        h.app.shape_properties.panel,
+        Some(board_properties::Panel::Stroke),
+        "a grip press is not a click-away"
+    );
 }
 
 /// User, 28 September 2026: "ctrl lmb to scale handels on both sides of
@@ -24561,6 +24649,105 @@ fn a_styled_rectangle_derives_its_paint_path_once() {
         1,
         "an edit derives it again, once"
     );
+}
+
+/// Art. II: a nested board numbers its nodes from one too. A host styled
+/// rectangle and a nested one with the same id keep their own paint paths
+/// instead of evicting each other every frame.
+#[test]
+fn a_nested_styled_rectangle_with_the_host_id_keeps_its_own_paint_path() {
+    use slate_doc::scene::ShapeKind;
+    let (mut h, id, v) = closed_form_board("closed_rect_nested_cache", ShapeKind::Rect);
+    let xf = h.app.board_xf();
+    press_primary(&mut h, xf.w2s(v[2]), egui::Modifiers::NONE);
+    h.app
+        .preview_shape_property(board_properties::Property::CornerAmount(12.0));
+    h.app.apply_shape_preview(&h.ctx, true);
+    assert_eq!(closed_corner_overrides(&h, id, 4)[2], Some(12.0));
+
+    let mut nested = h.app.doc().scene.node(id).unwrap().clone();
+    if let NodeKind::Shape(s) = &mut nested.kind {
+        std::sync::Arc::make_mut(s.path.as_mut().unwrap()).corner_amounts[2] = Some(30.0);
+    }
+    let wb = h.base.join("child.slate");
+    let mut child = SlateDoc::new("Child");
+    child.scene.nodes.push(nested);
+    child.save_to(&wb).unwrap();
+    h.app.tab_mut().path = Some(h.base.join("parent.slate"));
+    let c = h.app.canvas_rect.center();
+    let ctx = h.ctx.clone();
+    h.app
+        .apply_workbook_drop(&ctx, board_slate::WorkbookDropChoice::Insert, wb, xf.s2w(c));
+    let portal = h.app.doc().scene.nodes.last().unwrap().id;
+    assert_ne!(portal, id);
+    let (a, b) = (
+        xf.s2w(c + EVec2::new(150.0, -220.0)),
+        xf.s2w(c + EVec2::new(410.0, -110.0)),
+    );
+    h.app.patch_nodes(&[portal], |n| {
+        n.rect = WorldRect::new(a.x, a.y, b.x - a.x, b.y - a.y);
+    });
+    h.app.board_sel.clear();
+    h.frame();
+    let host_warm = board_path::closed_form_derives_on_this_thread();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while h.app.slate_boards_ready() == 0 {
+        assert!(std::time::Instant::now() < deadline, "the nested board never loaded");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        h.frame();
+    }
+    h.frame();
+    h.frame();
+    assert!(
+        board_path::closed_form_derives_on_this_thread() > host_warm,
+        "the nested rectangle derives its own paint path"
+    );
+    let before = board_path::closed_form_derives_on_this_thread();
+    h.frame();
+    h.frame();
+    assert_eq!(
+        board_path::closed_form_derives_on_this_thread() - before,
+        0,
+        "two steady frames derive neither rectangle again"
+    );
+}
+
+/// Shape-selection-toolbar D13: only an anchor or a handle knob of the
+/// selected curve wins a press under a strip button. A rectangle corner
+/// under the strip's bottom edge (zoomed out) leaves the button its click.
+#[test]
+fn a_strip_button_over_a_rectangle_corner_keeps_its_click() {
+    use slate_doc::scene::ShapeKind;
+    let (mut h, id, _) = closed_form_board("closed_rect_strip_corner", ShapeKind::Rect);
+    h.app.tab_mut().cam.z = 0.4;
+    h.frame();
+    let c = h.app.board_xf().s2w(h.app.canvas_rect.center());
+    h.app.patch_nodes(&[id], |n| {
+        n.rect = WorldRect::new(c.x - 20.0, c.y - 90.0, 40.0, 180.0);
+    });
+    for _ in 0..10 {
+        h.frame();
+    }
+    let xf = h.app.board_xf();
+    let corner = xf.w2s(Pos2::new(c.x - 20.0, c.y - 90.0));
+    let press = h
+        .app
+        .shape_properties
+        .chrome_hits
+        .iter()
+        .map(|r| r.shrink(0.5).clamp(corner))
+        .find(|p| p.distance(corner) < 6.5)
+        .expect("a strip button reaches the corner");
+    assert_eq!(
+        h.app.hovered_vertex(press),
+        Some((id, 0)),
+        "the press is within the corner's hit radius"
+    );
+    let depth = h.app.tab().journal.undo_depth();
+    press_primary(&mut h, press, egui::Modifiers::NONE);
+    assert!(h.app.shape_properties.panel.is_some(), "the button opened its panel");
+    assert_eq!(h.app.picked_vertices(), None, "the corner was not picked");
+    assert_eq!(h.app.tab().journal.undo_depth(), depth);
 }
 
 /// Polygon D13: a click on a vertex picks it, and the hover + / − beside

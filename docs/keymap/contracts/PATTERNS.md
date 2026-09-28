@@ -423,8 +423,12 @@ is searchable.
   or fitted pen stroke shows every anchor and every non-zero tangent
   handle. Lines keep their endpoint grips. Every grip is painted and picked
   by the shared path-edit overlay: only painted grips, nearest within 7
-  screen px, an anchor wins a tie; a grip under the selection strip still
-  takes the press (shape-selection-toolbar D13). One drag moves one point and is one
+  screen px, an anchor wins a tie; an anchor square or handle knob of the
+  edited curve under the selection strip still takes the press, with or
+  without a strip panel open, and a press on one is never a click-away
+  (the panel stays up); a rectangle or polygon vertex or a line end point
+  under a strip button leaves the button its click
+  (shape-selection-toolbar D13; `board_direct::curve_knob_under`). One drag moves one point and is one
   journaled Patch; Esc mid-drag restores. A handle drag takes the Bézier
   keys (bezier-span D05 / D07): Alt moves only that handle (user pass,
   28 September 2026, pm3), Shift keeps its direction and changes only its
@@ -580,7 +584,12 @@ is searchable.
   rewrites `cap`, so giving both ends the same cap leaves the dash caps
   alone, review round 8), `arrow_start` /
   `arrow_end`, and narrowing in `WidthProfile` (`Taper` narrows one end,
-  `Ends` both), read and written through `Stroke::end` / `set_end`. Both
+  `Ends` both), read and written through `Stroke::end` / `set_end`. The
+  row's current whole-curve choice reads the effective end caps
+  (`Stroke::end_caps`): two equal end caps count as the curve's end cap,
+  so Round set on both ends of a Butt curve reads as Round and narrowing
+  both ends reads as narrow at both ends; the reader never rewrites
+  `cap` (`board_tip_hud::curve_style_of`, second review of round 8). Both
   interpreters cap the two ends through `vector_ink::stroke_mesh_ends` /
   `stroke_outline_ends` (dash ends in between keep `cap`), trim under each
   head with `slate_doc::geom::trim_arrow_ends`, and draw each head with
