@@ -22646,6 +22646,58 @@ fn shift_drag_of_a_handle_keeps_its_angle_and_changes_only_length() {
     );
 }
 
+/// P1.curve.grips: every non-zero handle is draggable, even where the
+/// property strip over a picked anchor covers its knob. A press on the
+/// knob drags the handle; it does not open a strip panel.
+#[test]
+fn a_handle_knob_under_the_property_strip_still_drags() {
+    let mut h = bezier_board("knob_under_strip");
+    let (id, [_, b, _]) = handle_bezier(&mut h);
+    grip_drag(
+        &mut h,
+        b + EVec2::new(40.0, 0.0),
+        b + EVec2::new(0.0, -25.0),
+        egui::Modifiers::NONE,
+    );
+    let (_, out0) = handle_pair(&h, id, 1);
+    assert!(near_eps(out0, b + EVec2::new(0.0, -25.0), 0.01), "{out0:?}");
+    let xf = h.app.board_xf();
+    press_primary(&mut h, xf.w2s(b), egui::Modifiers::NONE);
+    for _ in 0..8 {
+        h.frame();
+    }
+    assert_eq!(h.app.picked_vertices(), Some((id, vec![1])), "b is picked");
+    let knob = xf.w2s(out0);
+    let press = h
+        .app
+        .shape_properties
+        .chrome_hits
+        .iter()
+        .map(|r| r.shrink(0.5).clamp(knob))
+        .find(|p| p.distance(knob) < 5.0)
+        .expect("a strip button covers the knob");
+    assert_eq!(
+        h.app.hovered_vertex(press),
+        Some((id, 1)),
+        "the press lands on the knob's grip"
+    );
+    let depth = h.app.tab().journal.undo_depth();
+    let from = xf.s2w(press);
+    grip_drag(&mut h, from, from + EVec2::new(0.0, -20.0), egui::Modifiers::SHIFT);
+    assert_eq!(h.app.shape_properties.panel, None, "no strip panel opened");
+    let (_, out1) = handle_pair(&h, id, 1);
+    let (v0, v1) = (out0 - b, out1 - b);
+    assert!(
+        (v1.length() - (v0.length() + 20.0)).abs() < 0.5,
+        "the handle lengthens: {v0:?} -> {v1:?}"
+    );
+    assert!(
+        (v1.angle() - v0.angle()).abs() < 1e-3,
+        "Shift keeps its direction: {v0:?} -> {v1:?}"
+    );
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "one undo step");
+}
+
 /// User, 28 September 2026: "ctrl lmb to scale handels on both sides of
 /// controle point". Ctrl+drag that doubles the dragged handle doubles the
 /// opposite one; it stays collinear on a smooth anchor. Ctrl+Shift also
@@ -24297,6 +24349,86 @@ fn strip_corner_rounding_at_a_picked_rectangle_corner_sets_only_that_corner() {
     assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
     press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
     assert_eq!(closed_corner_overrides(&h, id, 4), vec![None; 4], "undo");
+}
+
+/// Shape-selection-toolbar D13: the Corners amount reads the first picked
+/// corner. A rectangle or polygon stores its overrides without segments,
+/// so the reading must come through the closed form, not the stored path.
+#[test]
+fn corners_panel_reads_a_picked_closed_form_corner_override() {
+    use slate_doc::scene::ShapeKind;
+    for (tag, kind, n) in [
+        ("closed_rect_corner_read", ShapeKind::Rect, 4),
+        ("closed_poly_corner_read", ShapeKind::RegularPolygon, 6),
+    ] {
+        let (mut h, id, v) = closed_form_board(tag, kind);
+        let xf = h.app.board_xf();
+        press_primary(&mut h, xf.w2s(v[2]), egui::Modifiers::NONE);
+        for _ in 0..3 {
+            h.frame();
+        }
+        assert_eq!(h.app.shape_property_points(), vec![2], "{kind:?}");
+        h.app
+            .preview_shape_property(board_properties::Property::CornerAmount(12.0));
+        h.app.apply_shape_preview(&h.ctx, true);
+        h.frame();
+        assert_eq!(closed_corner_overrides(&h, id, n)[2], Some(12.0), "{kind:?}");
+        let node = h.app.doc().scene.node(id).unwrap().clone();
+        assert_eq!(
+            h.app.corners_panel_reading(&node).2,
+            12.0,
+            "{kind:?}: the Corners amount reads the picked corner, not the shared 0"
+        );
+        assert_eq!(h.app.node_grip_amount(&node, Some(2)), 12.0, "{kind:?}");
+        assert_eq!(h.app.node_grip_amount(&node, Some(1)), 0.0, "{kind:?}");
+
+        h.app
+            .preview_shape_property(board_properties::Property::CornerAmount(0.0));
+        h.app.apply_shape_preview(&h.ctx, true);
+        h.frame();
+        let node = h.app.doc().scene.node(id).unwrap().clone();
+        assert_eq!(
+            h.app.corners_panel_reading(&node).2,
+            0.0,
+            "{kind:?}: the corner can go back to square"
+        );
+    }
+}
+
+/// Art. II: a styled closed form derives its paint path once per change;
+/// a steady frame reuses it.
+#[test]
+fn a_styled_rectangle_derives_its_paint_path_once() {
+    use slate_doc::scene::ShapeKind;
+    let (mut h, id, v) = closed_form_board("closed_rect_paint_cache", ShapeKind::Rect);
+    let xf = h.app.board_xf();
+    press_primary(&mut h, xf.w2s(v[2]), egui::Modifiers::NONE);
+    for _ in 0..3 {
+        h.frame();
+    }
+    h.app
+        .preview_shape_property(board_properties::Property::CornerAmount(12.0));
+    h.app.apply_shape_preview(&h.ctx, true);
+    assert_eq!(closed_corner_overrides(&h, id, 4)[2], Some(12.0));
+    let before = board_path::closed_form_derives_on_this_thread();
+    h.frame();
+    h.frame();
+    assert_eq!(
+        board_path::closed_form_derives_on_this_thread() - before,
+        1,
+        "two painted frames derive the styled rectangle once"
+    );
+    h.app
+        .preview_shape_property(board_properties::Property::CornerAmount(20.0));
+    h.app.apply_shape_preview(&h.ctx, true);
+    let before = board_path::closed_form_derives_on_this_thread();
+    h.frame();
+    h.frame();
+    assert_eq!(
+        board_path::closed_form_derives_on_this_thread() - before,
+        1,
+        "an edit derives it again, once"
+    );
 }
 
 /// Polygon D13: a click on a vertex picks it, and the hover + / − beside

@@ -163,12 +163,21 @@ struct GeometryEntry {
     referenced: bool,
 }
 
+/// The path shape a styled closed form paints as, with the shape and box
+/// it was derived from.
+struct ClosedFormPaint {
+    source: ShapeNode,
+    rect: WorldRect,
+    styled: Option<Shared<ShapeNode>>,
+}
+
 pub struct PathMeshCache {
     map: HashMap<GeometryKey, GeometryEntry>,
     clock: VecDeque<GeometryKey>,
     resident_bytes: usize,
     budget_bytes: usize,
     entry_limit: usize,
+    closed_forms: HashMap<NodeId, ClosedFormPaint>,
     /// Cache misses this paint — reset at the start of `board_canvas`.
     pub tess_misses: u32,
 }
@@ -181,12 +190,49 @@ impl Default for PathMeshCache {
             resident_bytes: 0,
             budget_bytes: CACHE_BYTES,
             entry_limit: CACHE_ENTRIES,
+            closed_forms: HashMap::new(),
             tess_misses: 0,
         }
     }
 }
 
 impl PathMeshCache {
+    /// The path shape closed form `id` paints as while it stores per-vertex
+    /// style (`vertex_style::closed_form_paint_shape`), derived again only
+    /// when the shape or its box changes, so a steady frame allocates
+    /// nothing (Art. II).
+    pub(crate) fn closed_form_paint_shape(
+        &mut self,
+        id: NodeId,
+        shape: &ShapeNode,
+        rect: WorldRect,
+    ) -> Option<Shared<ShapeNode>> {
+        if shape.path.is_none()
+            || slate_doc::vertex_style::closed_form_vertex_count(shape).is_none()
+        {
+            return None;
+        }
+        if let Some(entry) = self.closed_forms.get(&id) {
+            if entry.rect == rect && entry.source == *shape {
+                return entry.styled.clone();
+            }
+        }
+        note_closed_form_derive();
+        let styled = slate_doc::vertex_style::closed_form_paint_shape(shape, rect).map(Shared::new);
+        if self.closed_forms.len() >= CACHE_ENTRIES && !self.closed_forms.contains_key(&id) {
+            self.closed_forms.clear();
+        }
+        self.closed_forms.insert(
+            id,
+            ClosedFormPaint {
+                source: shape.clone(),
+                rect,
+                styled: styled.clone(),
+            },
+        );
+        styled
+    }
+
     fn get(&mut self, key: GeometryKey) -> Option<CachedGeometry> {
         let entry = self.map.get_mut(&key)?;
         entry.referenced = true;
@@ -700,6 +746,18 @@ fn hash_stroke(h: &mut impl Hasher, stroke: &Stroke) {
 #[cfg(test)]
 thread_local! {
     static CONTENT_HASHED_HERE: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static CLOSED_FORM_DERIVES_HERE: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Styled closed-form paint shapes derived on this thread so far.
+#[cfg(test)]
+pub(crate) fn closed_form_derives_on_this_thread() -> u64 {
+    CLOSED_FORM_DERIVES_HERE.with(|n| n.get())
+}
+
+fn note_closed_form_derive() {
+    #[cfg(test)]
+    CLOSED_FORM_DERIVES_HERE.with(|n| n.set(n.get() + 1));
 }
 
 /// Stroke contents hashed on this thread so far.

@@ -574,6 +574,17 @@ pub fn vertex_style_path(shape: &ShapeNode) -> Option<PathData> {
     }
 }
 
+/// Corner amount at vertex `i` of a curve or closed form: its override,
+/// else `shared`. A closed form stores one override per vertex without
+/// segments ([`store_closed_form_style`]).
+pub fn vertex_corner_amount(shape: &ShapeNode, i: usize, shared: f32) -> f32 {
+    let Some(path) = shape.path.as_deref() else {
+        return shared;
+    };
+    let count = closed_form_vertex_count(shape).unwrap_or(path.segs.len() + 1);
+    path.vertex_corner_amount_of(count, i, shared)
+}
+
 /// Store an edited [`vertex_style_path`] back on its shape.
 pub fn store_vertex_style_path(shape: &mut ShapeNode, path: PathData) {
     if closed_form_vertex_count(shape).is_some() {
@@ -1276,6 +1287,17 @@ mod tests {
         path.corner_amounts.clear();
         store_closed_form_style(&mut rect, &path);
         assert!(rect.path.is_none(), "no style left, nothing stored");
+    }
+
+    #[test]
+    fn a_closed_form_corner_reads_its_stored_override() {
+        let mut rect = closed_form(ShapeKind::Rect, 6);
+        assert_eq!(vertex_corner_amount(&rect, 1, 7.0), 7.0, "nothing stored");
+        let mut path = closed_form_path(&rect).unwrap();
+        path.corner_amounts = vec![None, Some(3.0), None, None];
+        store_closed_form_style(&mut rect, &path);
+        assert_eq!(vertex_corner_amount(&rect, 1, 7.0), 3.0, "the override");
+        assert_eq!(vertex_corner_amount(&rect, 2, 7.0), 7.0, "the shared amount");
     }
 
     #[test]

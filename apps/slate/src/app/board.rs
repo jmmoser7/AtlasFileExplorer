@@ -4068,7 +4068,9 @@ impl SlateApp {
                 }
             }
             NodeKind::Shape(s) => {
-                let styled = slate_doc::vertex_style::closed_form_paint_shape(s, node.rect);
+                let styled = self
+                    .path_mesh_cache
+                    .closed_form_paint_shape(node.id, s, node.rect);
                 match s.shape {
                     _ if styled.is_some() => {
                         if let Some(styled) = &styled {

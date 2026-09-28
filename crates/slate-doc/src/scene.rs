@@ -2339,7 +2339,13 @@ impl PathData {
 
     /// Corner amount at vertex `i`: its override, else `shared`.
     pub fn vertex_corner_amount(&self, i: usize, shared: f32) -> f32 {
-        if self.corner_amounts.len() != self.segs.len() + 1 {
+        self.vertex_corner_amount_of(self.segs.len() + 1, i, shared)
+    }
+
+    /// Corner amount at vertex `i` of `count` vertices: its override when
+    /// one is stored per vertex, else `shared`.
+    pub fn vertex_corner_amount_of(&self, count: usize, i: usize, shared: f32) -> f32 {
+        if self.corner_amounts.len() != count {
             return shared;
         }
         match self.corner_amounts.get(i).copied().flatten() {
