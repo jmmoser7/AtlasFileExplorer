@@ -5462,9 +5462,8 @@ impl SlateApp {
         // Line draft: rubber band in the fg color the committed stroke will
         // use (D09).
         if self.board_tool == BoardTool::Line {
-            if let Some((bez, tips)) = self.line_draft_preview() {
-                self.draft_ink
-                    .paint(&draft_painter, &xf, &bez, false, &tips);
+            if let Some((a, b, tips)) = self.line_draft_preview() {
+                self.draft_ink.paint_line(&draft_painter, &xf, a, b, tips);
             }
         }
         // The Tab direction lock's padlock beside the pointer, any tool (D10).

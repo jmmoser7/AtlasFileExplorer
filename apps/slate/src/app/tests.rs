@@ -16247,15 +16247,15 @@ fn curve_style_visual_frames() {
 
 /// Software rasterizer for egui's own tessellated output, so the board and
 /// its HUDs can be inspected as real frames without a GPU or a screen grab.
-struct FrameRaster {
-    w: usize,
+pub(super) struct FrameRaster {
+    pub(super) w: usize,
     h: usize,
-    px: Vec<[f32; 4]>,
+    pub(super) px: Vec<[f32; 4]>,
     textures: std::collections::HashMap<egui::TextureId, (usize, usize, Vec<egui::Color32>)>,
 }
 
 impl FrameRaster {
-    fn new(w: usize, h: usize) -> Self {
+    pub(super) fn new(w: usize, h: usize) -> Self {
         FrameRaster {
             w,
             h,
@@ -16373,7 +16373,7 @@ impl FrameRaster {
 }
 
 /// Run one frame with `prepare`, feeding its textures into `raster`.
-fn capture_frame(
+pub(super) fn capture_frame(
     h: &mut Harness,
     raster: &mut FrameRaster,
     prepare: impl FnOnce(&mut egui::RawInput),
@@ -16391,6 +16391,14 @@ fn capture_frame(
 }
 
 fn snapshot(h: &mut Harness, raster: &mut FrameRaster, out: egui::FullOutput, name: &str) {
+    rasterize(h, raster, out);
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/brush-validate/frames");
+    std::fs::create_dir_all(&dir).unwrap();
+    raster.save(&dir.join(format!("{name}.png")));
+}
+
+/// Draw `out` into `raster` over black.
+pub(super) fn rasterize(h: &mut Harness, raster: &mut FrameRaster, out: egui::FullOutput) {
     // Tiled strokes render on worker threads; let them land first.
     let mut out = out;
     for _ in 0..200 {
@@ -16406,9 +16414,6 @@ fn snapshot(h: &mut Harness, raster: &mut FrameRaster, out: egui::FullOutput, na
         *p = [0.0, 0.0, 0.0, 1.0];
     }
     raster.draw(&prims);
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/brush-validate/frames");
-    std::fs::create_dir_all(&dir).unwrap();
-    raster.save(&dir.join(format!("{name}.png")));
 }
 
 #[test]
