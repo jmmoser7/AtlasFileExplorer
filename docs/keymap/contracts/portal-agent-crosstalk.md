@@ -142,7 +142,7 @@ chip painter in `board_agent/crosstalk.rs`.
    chip reads "Stopped · 2 turns"; "5 more turns" continues.
 7. **GP7.** Esc mid-drag, or release on empty board: nothing is journaled.
 8. **GP8.** Undo after a relay removes that relay's card and wire in one step
-   and pauses the crosstalk.
+   and pauses the crosstalk, even when it is pressed before the next frame.
 
 ## Build status (27 September 2026)
 

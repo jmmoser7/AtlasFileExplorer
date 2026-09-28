@@ -1,5 +1,16 @@
 # Canvas command project — change log
 
+## 2026-09-28 — Crosstalk: an immediate Undo of a relay pauses (review)
+
+- Round 8 review: an Undo pressed before the pump after a relay did not pause
+  the crosstalk. The pump recorded how many relays it had seen before relaying,
+  so the wire it had just added went uncounted. Undo then found no fewer relays
+  than expected, and the offer came back as "Codex replied · Send to Cursor?".
+  The pump now counts the relay it performs, so X09 and GP8 hold ("Paused · a
+  relay was undone"). Step mode is unchanged. `portal-agent-crosstalk` GP8
+  now says the pause holds even when Undo comes before the next frame. Test:
+  `undoing_a_relay_in_the_pump_that_sent_it_pauses_the_run`.
+
 ## 2026-09-28 — Whole-curve tip HUD under Select, relative edits (user)
 
 - User, 28 September 2026 (checklist ed1, applying to ed1–ed3 and eb1):
