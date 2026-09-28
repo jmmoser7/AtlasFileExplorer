@@ -429,8 +429,18 @@ is searchable.
   individual vertices to create a blended color between that vertex and its
   neighbors"): the Stroke color field and opacity rail edit the picked
   vertices and read the first of them, colors blend between vertices by the
-  same rule as widths, and a color edit with no grip picked sets every
-  vertex. A vertex's opacity is the opacity it paints at (node opacity ×
+  same rule as widths, and a Stroke-strip color edit with no grip picked
+  sets every vertex. The property strip stays absolute. The tip HUD's
+  whole-curve edits instead shift the curve (user, 28 September 2026, ed1:
+  "i dont wat it to be a whole scale overwrite of the curves properties but
+  rate a shifting of them"): with no grip picked and no point hovered, the
+  HUD edits the whole selected curve under the Select tool or Direct
+  Select; width scales every tip by one factor, the wheel shifts every tip
+  color and the stroke color by the change from the curve's first color to
+  the pick (hue rotates, saturation and value shift;
+  `board_color::shift_hsv`), so a gradient stays a gradient, and opacity
+  scales the node's, so each vertex keeps its share.
+  A vertex's opacity is the opacity it paints at (node opacity ×
   its alpha); an edit writes it back through the share rule
   (`vertex_style::set_grip_opacity` over `placed_spans`), so the others
   keep painting as before. **Painted strokes** (review r7, 27 September
@@ -438,8 +448,9 @@ is searchable.
   and take the same edits. Picked anchors edit only their tips (softness
   too); with none picked, size and softness scale every tip in
   proportion from the tips at the edit's start
-  (`vertex_style::scale_stamped_tips`), color and texture reach every tip
-  (`vertex_style::edit_every_tip`), and the stroke's width stays its
+  (`vertex_style::scale_stamped_tips`), color (strip: set; HUD: shifted)
+  and texture reach every tip (`vertex_style::edit_every_tip`), and the
+  stroke's width stays its
   widest tip so the tile padding covers it. Uniform tips collapse onto the
   stroke. The painter (`board_path::stamped_contours`) and the artifact
   (`brush_stamp`) both read `PathData::paint_tips`.

@@ -5,9 +5,13 @@
 //! Shift+right-drag sets opacity, exactly as for the Brush. A drawing tool
 //! edits its create style (P1.curve.create-style), so the next curve uses
 //! it. On a committed curve (Direct Select's target, or the Select tool's
-//! picked or hovered grip) the HUD edits the picked vertices, else the whole
-//! curve, live, through the property owner (`Property::apply_at`,
-//! P1.curve.vertex-style), and journals one Patch when the HUD closes.
+//! one selected curve) the HUD edits the picked vertices, else the hovered
+//! one, else the whole curve, live, and journals one Patch when the HUD
+//! closes. Vertex edits go through the property owner
+//! (`Property::apply_at`, P1.curve.vertex-style). Whole-curve edits are
+//! relative (user, 28 September 2026, ed1): width scales every tip, the
+//! color shifts every tip's hue, saturation and value, and opacity scales
+//! the node's. The property strip stays absolute.
 //! Softness stays brush-only: vector strokes are not stamped, so there is
 //! nothing to blur.
 
@@ -16,6 +20,14 @@ use super::board_properties::{picked_tip, Property};
 use super::SlateApp;
 use slate_doc::scene::{Node, NodeKind, Rgba, SceneCmd, ShapeKind};
 use slate_doc::NodeId;
+
+/// The color a whole curve reads as: its first painted tip, else its stroke.
+fn curve_color(node: &Node) -> Option<Rgba> {
+    let NodeKind::Shape(s) = &node.kind else {
+        return None;
+    };
+    Some(picked_tip(node, &[0]).map_or(s.stroke.color, |t| t.color))
+}
 
 /// Open vector drawing tools that take the tip HUD.
 pub(crate) fn curve_tool(tool: BoardTool) -> bool {
@@ -33,9 +45,11 @@ impl SlateApp {
     /// The committed curve the tip HUD edits, and which of its vertices
     /// (grip indices, P1.curve.grips): the picked ones (Direct Select
     /// anchors or Select-tool grips), else the one under the pointer, else
-    /// none, which is the whole curve. Direct Select arms on its target;
-    /// the Select tool only on a picked or hovered vertex. An open HUD keeps
-    /// the target it opened on.
+    /// none, which is the whole curve. Direct Select arms on its target.
+    /// The Select tool arms on a picked or hovered vertex, and on its one
+    /// selected curve while the right button is held (user, 28 September
+    /// 2026, ed1), so a plain selection does not turn every tip readout and
+    /// key onto the curve. An open HUD keeps the target it opened on.
     pub(crate) fn hud_target(&self) -> Option<(NodeId, Vec<usize>)> {
         if self.hud_frozen.is_some() {
             return self.hud_frozen.clone();
@@ -52,7 +66,13 @@ impl SlateApp {
             }
             BoardTool::Select => match self.picked_vertices() {
                 Some(picked) => picked,
-                None => hovered().map(|(id, i)| (id, vec![i]))?,
+                None => match hovered() {
+                    Some((id, i)) => (id, vec![i]),
+                    None if self.hud_right_held && self.board_sel.len() == 1 => {
+                        (*self.board_sel.iter().next()?, Vec::new())
+                    }
+                    None => return None,
+                },
             },
             _ => return None,
         };
@@ -227,8 +247,8 @@ impl SlateApp {
             return tip.color.0;
         }
         if let Some(node) = self.hud_node().and_then(|id| self.doc().scene.node(id)) {
-            if let NodeKind::Shape(s) = &node.kind {
-                return s.stroke.color.0;
+            if let Some(c) = curve_color(node) {
+                return c.0;
             }
         }
         self.board_colors.fg.0
@@ -243,10 +263,15 @@ impl SlateApp {
             self.store_armed_curve_stroke(s, None);
             return;
         }
-        // A whole-curve color also recolors per-vertex tips, which paint
-        // over the stroke color.
         let before = self.active_rgba();
-        let mut edits = vec![Property::StrokeRgb([rgba[0], rgba[1], rgba[2]])];
+        let rgb = [rgba[0], rgba[1], rgba[2]];
+        let whole = self.hud_target().filter(|(_, points)| points.is_empty());
+        let mut edits = Vec::new();
+        if let Some((id, _)) = whole {
+            self.shift_curve_color(id, rgb);
+        } else {
+            edits.push(Property::StrokeRgb(rgb));
+        }
         if rgba[3] != before[3] {
             edits.push(Property::StrokeAlpha(rgba[3]));
         }
@@ -254,6 +279,47 @@ impl SlateApp {
             return;
         }
         self.board_colors.fg.0 = rgba;
+    }
+
+    /// Whole-curve color (user, 28 September 2026, ed1): the change from
+    /// the curve's color when the HUD opened to `rgb` shifts every tip and
+    /// the stroke color from where each was (`shift_hsv`), so a gradient
+    /// stays a gradient. A one-color curve lands on `rgb`.
+    fn shift_curve_color(&mut self, id: NodeId, rgb: [u8; 3]) {
+        let base = self
+            .hud_node_before
+            .clone()
+            .filter(|b| b.id == id)
+            .or_else(|| self.doc().scene.node(id).cloned());
+        let Some(base) = base else {
+            return;
+        };
+        let (Some(from), NodeKind::Shape(bs)) = (curve_color(&base), &base.kind) else {
+            return;
+        };
+        let from = [from.0[0], from.0[1], from.0[2]];
+        let shift = |base: Rgba, out: &mut Rgba| {
+            let c = super::board_color::shift_hsv([base.0[0], base.0[1], base.0[2]], from, rgb);
+            out.0[..3].copy_from_slice(&c);
+        };
+        let Some(n) = self.doc_mut().scene.node_mut(id) else {
+            return;
+        };
+        let NodeKind::Shape(s) = &mut n.kind else {
+            return;
+        };
+        shift(bs.stroke.color, &mut s.stroke.color);
+        if let (Some(b), Some(t)) = (bs.stroke.tween_from, s.stroke.tween_from.as_mut()) {
+            shift(b.color, &mut t.color);
+        }
+        if let (Some(bp), Some(p)) = (bs.path.as_ref(), s.path.as_mut()) {
+            if bp.tips.len() == p.tips.len() && !p.tips.is_empty() {
+                let p = std::sync::Arc::make_mut(p);
+                for (b, t) in bp.tips.iter().zip(&mut p.tips) {
+                    shift(b.color, &mut t.color);
+                }
+            }
+        }
     }
 
     pub(crate) fn set_active_rgb(&mut self, rgb: [u8; 3]) {

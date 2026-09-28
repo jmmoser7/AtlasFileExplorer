@@ -1815,8 +1815,11 @@ pub static SPECS: &[CommandSpec] = &[
          anchor), double-click toggles corner/smooth, Delete removes the \
          selected anchors and rejoins the neighbors, arrows nudge (Shift \
          ×10). Alt/Ctrl/Shift+right-drag edit width, color, and opacity of \
-         the selected anchors only (or the hovered anchor; elsewhere the \
-         whole curve); the property strip sits beside the selected anchors.",
+         the selected anchors only, or the hovered anchor. With no grip \
+         picked and no point hovered, the HUD edits the whole selected curve \
+         under the Select tool or Direct Select, relatively: width scales \
+         every tip, color shifts every tip's hue, saturation, and value, and \
+         opacity scales. The property strip sits beside the selected anchors.",
         Some(Chord::bare(Key::A)),
         Repeat::Repeatable,
         BOARD,
@@ -1914,7 +1917,9 @@ pub static SPECS: &[CommandSpec] = &[
         "Alt+right-drag while Brush, Eraser, Smooth, or a curve tool is armed, \
          or on a committed curve: its picked vertices (Direct Select anchors or \
          Select-tool grips), else the vertex under the pointer, else the whole \
-         curve under Direct Select. The \
+         selected curve under the Select tool or Direct Select, every tip \
+         scaled by one factor so tapers keep (a painted stroke's widest tip \
+         lands on the value shown). The \
          circle stays centered on the press point. Horizontal travel from the \
          press changes diameter by two screen pixels per pixel. Vertical changes \
          softness (up softer; Brush, Eraser, and Smooth only). Dragging down into the \
@@ -1935,8 +1940,12 @@ pub static SPECS: &[CommandSpec] = &[
         "Brush color wheel",
         "Ctrl+right-drag while Brush or a curve tool is armed, or on a \
          committed curve (the same picked, hovered, or whole-curve target as \
-         the size HUD). Eraser and Smooth have no wheel. The wheel opens \
-         with the pointer on the current color. The disk sets saturation and \
+         the size HUD). Eraser and Smooth have no wheel; elsewhere \
+         Ctrl+right-drag is turbo pan. The wheel opens with the pointer on \
+         the current color (a whole curve's first tip). On a whole curve the \
+         change from that color to the pick shifts every tip's hue, \
+         saturation, and value from where it was, so a gradient stays a \
+         gradient. The disk sets saturation and \
          value, with snaps at pure white and pure black; the gap before the hue \
          ring picks nothing. 24 recent colors fill equal slots clockwise from \
          6 o'clock; a repeat moves to 6 o'clock. Entering a dot keeps the wheel \
@@ -1966,7 +1975,8 @@ pub static SPECS: &[CommandSpec] = &[
         "Scrub brush opacity",
         "Shift+right-drag while Brush, Eraser (strength), Smooth (strength), or a curve tool is armed, \
          or on a committed curve (the same target as the size HUD; a vertex's \
-         opacity is its color alpha), with neither Ctrl nor Alt. \
+         opacity is its color alpha; a whole curve's opacity scales, so each \
+         vertex keeps its share), with neither Ctrl nor Alt. \
          The circle stays on the press point. Dragging up raises opacity and \
          dragging down lowers it, 0 to 100 percent across 100 screen pixels. The chord does \
          not pan or open the context menu. Esc restores the press.",

@@ -631,6 +631,9 @@ pub struct SlateApp {
     pub(crate) hud_frozen: Option<(NodeId, Vec<usize>)>,
     /// Pointer this frame, so hovering a curve vertex arms the tip HUD.
     pub(crate) hud_pointer: Option<egui::Pos2>,
+    /// The right button is down this frame, so the Select tool's selected
+    /// curve arms the tip HUD for the chord only.
+    pub(crate) hud_right_held: bool,
     /// Alt primary press waiting for a short click (eyedropper sample).
     pub(crate) brush_mod_click: Option<board_color::BrushModClick>,
     /// Swatch pick: (press point, where that color sits on the wheel). The
@@ -989,6 +992,7 @@ impl SlateApp {
             hud_node_before: None,
             hud_frozen: None,
             hud_pointer: None,
+            hud_right_held: false,
             brush_mod_click: None,
             brush_cursor_warp: None,
             freehand_resume: false,

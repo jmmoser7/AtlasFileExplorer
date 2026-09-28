@@ -1,5 +1,48 @@
 # Canvas command project — change log
 
+## 2026-09-28 — Whole-curve tip HUD under Select, relative edits (user)
+
+- User, 28 September 2026 (checklist ed1, applying to ed1–ed3 and eb1):
+  "think we can just cutto the chase and implementthis function when the
+  user has a full curveselected. simpl alt + drag or ctrl or shift. in
+  each case i dont wat it to be a whole scale overwrite of the curves
+  properties but rate a shifting of them." With no grip picked and no
+  point hovered, the tip HUD now edits the whole selected curve under the
+  Select tool as well as Direct Select: lines, polylines, arcs, Bézier
+  spans, Pen paths and painted brush strokes. Target precedence: picked
+  vertices, then the hovered vertex (ed8), then the whole curve. This
+  supersedes ed7 (the Select tool took the HUD only on grips and the
+  whole-curve HUD belonged to Direct Select).
+- Whole-curve HUD edits are relative: Alt scales every tip by one factor
+  (a painted stroke's widest tip lands on the value shown, and vertical
+  travel scales softness); Ctrl opens the wheel on the curve's first color
+  and shifts every tip's hue, saturation and value by the change to the
+  pick, so a gradient stays a gradient (`board_color::shift_hsv`); Shift
+  scales the curve's opacity, down to 0 %. The property strip stays
+  absolute (ep3). `specs/direct-selection.md`, `specs/brush-color.md`,
+  `PATTERNS.md` P1.curve.vertex-style, `brush` D13 (new GP7),
+  `KEYMAP.md`, `COMMANDS.md` and the command help follow. The brush-color
+  spec's "open-curve create style" now reads "the armed tool's own
+  create-style slot".
+- `KEYMAP.md`: Ctrl+right-drag stays turbo pan except with a drawing tool
+  armed or a curve targeted, where it is the color wheel (Smooth and the
+  Eraser show no wheel); Shift+right-drag likewise becomes opacity there.
+- User, 28 September 2026: "general issue using charicters in this way as
+  it launches the search fetur on the canvas". Auto-repeat of a held tool
+  letter no longer opens command entry or starts a new hold; two real key
+  presses still open it.
+- Tests: `select_tool_alt_right_drag_scales_the_whole_selected_curve`,
+  `select_tool_ctrl_right_drag_shifts_the_whole_curve_color`,
+  `select_tool_shift_right_drag_fades_the_whole_curve_relatively`,
+  `select_tool_alt_right_drag_scales_a_whole_brush_stroke`,
+  `a_late_modifier_on_the_whole_curve_hud_neither_pans_nor_opens_a_menu`,
+  `select_tool_style_row_restyles_the_whole_selected_curve`,
+  `select_tool_whole_curve_hud_reaches_lines_and_bezier_spans`,
+  `a_relative_color_shift_rotates_every_hue_together`,
+  `a_held_tool_letter_never_opens_command_entry`.
+  `a_whole_curve_hud_color_recolors_vertex_tips` now asserts the shift
+  instead of every vertex taking the pick.
+
 ## 2026-09-28 — Two brush decisions recorded (user)
 
 - `brush` D03, D05: the Alt+right-drag size circle stays pinned where the

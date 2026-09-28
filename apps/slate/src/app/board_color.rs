@@ -581,6 +581,26 @@ pub fn hsv_to_rgb(hsv: [f32; 3]) -> [u8; 3] {
     ]
 }
 
+/// `rgb` moved by the change from `from` to `to`, Photoshop Hue/Saturation
+/// style: the hue rotates and saturation and value shift by the same
+/// amounts, so a gradient keeps its spread. `from` itself lands on `to`.
+/// A gray has no hue to rotate: a gray `rgb` takes `to`'s hue, and a gray
+/// `from` leaves every hue where it is.
+pub fn shift_hsv(rgb: [u8; 3], from: [u8; 3], to: [u8; 3]) -> [u8; 3] {
+    if rgb == from {
+        return to;
+    }
+    let (a, b, c) = (rgb_to_hsv(rgb), rgb_to_hsv(from), rgb_to_hsv(to));
+    let hue = if a[1] <= 0.0 {
+        c[0]
+    } else if b[1] <= 0.0 {
+        a[0]
+    } else {
+        a[0] + c[0] - b[0]
+    };
+    hsv_to_rgb([hue.rem_euclid(1.0), a[1] + c[1] - b[1], a[2] + c[2] - b[2]])
+}
+
 /// Screen position of a color on the wheel's saturation/value disc.
 /// The wheel stays put; a swatch pick moves the pointer here.
 #[allow(dead_code)]
