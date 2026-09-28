@@ -305,7 +305,7 @@ impl SlateApp {
 // ---------- tip style palette (under the Alt+right size circle) ----------
 
 use eframe::egui::{self, Color32, Pos2, Stroke as EStroke};
-use slate_doc::scene::{BrushTexture, Stroke, StrokeCap, StrokeJoin, WidthProfile};
+use slate_doc::scene::{BrushTexture, Stroke, StrokeCap, StrokeEnd, StrokeJoin, WidthProfile};
 
 /// End and corner treatment of an open vector curve.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -322,10 +322,47 @@ pub(crate) enum CurveStyle {
     TaperBoth,
 }
 
+/// The condition of one picked end of an open curve.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum EndStyle {
+    Flat,
+    Round,
+    Arrow,
+    Narrow,
+}
+
+impl EndStyle {
+    fn of(end: StrokeEnd) -> EndStyle {
+        if end.arrow {
+            EndStyle::Arrow
+        } else if end.narrow {
+            EndStyle::Narrow
+        } else if end.cap == StrokeCap::Round {
+            EndStyle::Round
+        } else {
+            EndStyle::Flat
+        }
+    }
+
+    /// The end this style sets. A narrow end is round, as the whole-curve
+    /// narrow styles are; an arrowed end is flat under its head.
+    fn end(self) -> StrokeEnd {
+        let (cap, arrow, narrow) = match self {
+            EndStyle::Flat => (StrokeCap::Butt, false, false),
+            EndStyle::Round => (StrokeCap::Round, false, false),
+            EndStyle::Arrow => (StrokeCap::Butt, true, false),
+            EndStyle::Narrow => (StrokeCap::Round, false, true),
+        };
+        StrokeEnd { cap, arrow, narrow }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum TipChoice {
     Texture(BrushTexture),
     Curve(CurveStyle),
+    /// The condition of the picked end(s) only.
+    End(EndStyle),
 }
 
 const TEXTURE_CHOICES: [TipChoice; 5] = [
@@ -344,6 +381,13 @@ const CURVE_CHOICES: [TipChoice; 5] = [
     TipChoice::Curve(CurveStyle::TaperBoth),
 ];
 
+const END_CHOICES: [TipChoice; 4] = [
+    TipChoice::End(EndStyle::Flat),
+    TipChoice::End(EndStyle::Round),
+    TipChoice::End(EndStyle::Arrow),
+    TipChoice::End(EndStyle::Narrow),
+];
+
 /// Screen px between the size circle's bottom and the palette row's centers.
 const PALETTE_GAP: f32 = 36.0;
 const PALETTE_SPACING: f32 = 50.0;
@@ -352,18 +396,24 @@ const PALETTE_HIT_R: f32 = 24.0;
 /// Width of the preview stroke inside a swatch, screen px.
 const SWATCH_STROKE: f32 = 11.0;
 /// How narrow a taper gets at its thin end.
-const TAPER_TIP: f32 = 0.12;
+const TAPER_TIP: f32 = slate_doc::scene::NARROW_TIP;
 
-pub(crate) fn curve_style_of(stroke: &Stroke) -> CurveStyle {
+/// The whole-curve style `stroke` has, or `None` when its two ends were
+/// set apart (P1.curve.vertex-style end conditions).
+pub(crate) fn curve_style_of(stroke: &Stroke) -> Option<CurveStyle> {
+    if stroke.arrow_start || stroke.cap_start.is_some() || stroke.cap_end.is_some() {
+        return None;
+    }
     if stroke.arrow_end {
-        return CurveStyle::Arrow;
+        return Some(CurveStyle::Arrow);
     }
-    match stroke.profile {
-        WidthProfile::Taper { .. } => CurveStyle::TaperStart,
-        WidthProfile::Ends { .. } => CurveStyle::TaperBoth,
-        WidthProfile::Uniform if stroke.cap == StrokeCap::Round => CurveStyle::Round,
-        WidthProfile::Uniform => CurveStyle::Square,
-    }
+    Some(match stroke.profile.narrow_ends() {
+        [true, false] => CurveStyle::TaperStart,
+        [true, true] => CurveStyle::TaperBoth,
+        [false, true] => return None,
+        [false, false] if stroke.cap == StrokeCap::Round => CurveStyle::Round,
+        [false, false] => CurveStyle::Square,
+    })
 }
 
 pub(crate) fn apply_curve_style(stroke: &mut Stroke, style: CurveStyle) {
@@ -372,6 +422,9 @@ pub(crate) fn apply_curve_style(stroke: &mut Stroke, style: CurveStyle) {
         s.join = StrokeJoin::Round;
     };
     stroke.arrow_end = false;
+    stroke.arrow_start = false;
+    stroke.cap_start = None;
+    stroke.cap_end = None;
     stroke.profile = WidthProfile::Uniform;
     match style {
         CurveStyle::Square => {
@@ -425,6 +478,35 @@ pub(crate) fn palette_zone(o: Pos2, r: f32, n: usize, pointer: Pos2) -> bool {
 const PALETTE_ZONE_TOP: f32 = 8.0;
 
 impl SlateApp {
+    /// Which ends of the HUD's open curve its picked (or hovered) grips
+    /// are, `[first point, last point]`, when at least one is: the row then
+    /// sets those ends' conditions only (user, 28 September 2026, tl5).
+    pub(crate) fn hud_end_picks(&self) -> Option<[bool; 2]> {
+        let (id, points) = self.hud_target()?;
+        let node = self.doc().scene.node(id)?;
+        let NodeKind::Shape(s) = &node.kind else {
+            return None;
+        };
+        let open = s
+            .path
+            .as_ref()
+            .is_some_and(|p| !p.closed && p.extra.is_empty());
+        if s.shape != ShapeKind::Path || !open || s.stroke.paints_as_stamp() {
+            return None;
+        }
+        let grips = if super::board_line::line_endpoints(node).is_some() {
+            2
+        } else {
+            match self.curve_grips_of(id)? {
+                super::board_direct::CurveGrips::Arc(_) => 3,
+                super::board_direct::CurveGrips::Anchors { anchors, .. } => anchors.len(),
+            }
+        };
+        let last = grips.checked_sub(1).filter(|l| *l > 0)?;
+        let ends = [points.contains(&0), points.contains(&last)];
+        ends.contains(&true).then_some(ends)
+    }
+
     /// The style choices the armed tool offers under its size circle.
     pub(crate) fn tip_choices(&self) -> &'static [TipChoice] {
         match self.board_tool {
@@ -433,6 +515,8 @@ impl SlateApp {
             _ if self.hud_node().is_some() => {
                 if self.tip_hud_has_softness() {
                     &TEXTURE_CHOICES
+                } else if self.hud_end_picks().is_some() {
+                    &END_CHOICES
                 } else {
                     &CURVE_CHOICES
                 }
@@ -453,23 +537,31 @@ impl SlateApp {
         match self.board_tool {
             BoardTool::Brush => Some(TipChoice::Texture(self.brush_texture)),
             BoardTool::Eraser => Some(TipChoice::Texture(self.eraser_texture)),
-            _ if curve_tool(self.board_tool) => Some(TipChoice::Curve(curve_style_of(
-                &self.stroke_for_new_curve(),
-            ))),
+            _ if curve_tool(self.board_tool) => {
+                curve_style_of(&self.stroke_for_new_curve()).map(TipChoice::Curve)
+            }
             _ => {
                 let s = self.hud_node_stroke()?;
-                Some(if s.paints_as_stamp() {
-                    TipChoice::Texture(s.texture)
-                } else {
-                    TipChoice::Curve(curve_style_of(&s))
-                })
+                if s.paints_as_stamp() {
+                    return Some(TipChoice::Texture(s.texture));
+                }
+                let Some(picked) = self.hud_end_picks() else {
+                    return curve_style_of(&s).map(TipChoice::Curve);
+                };
+                let mut styles = (0..2)
+                    .filter(|&i| picked[i])
+                    .map(|i| EndStyle::of(s.end(i)));
+                let first = styles.next()?;
+                styles.all(|e| e == first).then_some(TipChoice::End(first))
             }
         }
     }
 
     /// Apply a palette choice to the armed tool (a committed curve: live on
-    /// the whole curve, journaled when the HUD closes).
+    /// the whole curve, or on its picked ends for an end choice; journaled
+    /// when the HUD closes).
     pub(crate) fn apply_tip_choice(&mut self, choice: TipChoice) {
+        let picked = self.hud_end_picks();
         match (self.board_tool, choice) {
             (BoardTool::Brush, TipChoice::Texture(t)) => {
                 self.brush_texture = t;
@@ -493,6 +585,12 @@ impl SlateApp {
                         match choice {
                             TipChoice::Texture(t) => s.stroke.texture = t,
                             TipChoice::Curve(style) => apply_curve_style(&mut s.stroke, style),
+                            TipChoice::End(style) => {
+                                let picked = picked.unwrap_or_default();
+                                for i in (0..2).filter(|&i| picked[i]) {
+                                    s.stroke.set_end(i, style.end());
+                                }
+                            }
                         }
                     }
                     if let TipChoice::Texture(t) = choice {
@@ -519,6 +617,7 @@ impl SlateApp {
             return;
         }
         let current = self.current_tip_choice();
+        let both = self.hud_end_picks() == Some([true, true]);
         let hovered = palette_hit(o, r, choices.len(), pointer);
         // Full-strength ink so a faint tip still shows its style.
         let ink = if self.board_tool == BoardTool::Eraser {
@@ -542,7 +641,7 @@ impl SlateApp {
             } else {
                 EStroke::new(1.0_f32, Color32::from_gray(110))
             };
-            paint_choice_glyph(painter, at, *choice, ink);
+            paint_choice_glyph(painter, at, *choice, both, ink);
             painter.circle_stroke(at, PALETTE_ICON_R, ring);
         }
         let labelled = hovered.or_else(|| choices.iter().position(|c| current == Some(*c)));
@@ -551,7 +650,7 @@ impl SlateApp {
             painter.text(
                 at + egui::vec2(0.0, PALETTE_ICON_R + 5.0),
                 egui::Align2::CENTER_TOP,
-                choice_label(choices[i]),
+                choice_label(choices[i], both),
                 egui::FontId::proportional(13.0),
                 Color32::WHITE,
             );
@@ -609,8 +708,13 @@ fn texture_swatch(ctx: &egui::Context, texture: BrushTexture) -> Option<(egui::T
 /// The curve `style` really produces, on a small bent path around the
 /// swatch center: the same stroke style, taper, and arrowhead the board
 /// paints. Tessellated once and kept in egui memory.
-fn curve_glyph(ctx: &egui::Context, style: CurveStyle) -> vector_ink::InkMesh {
-    let id = egui::Id::new(("slate.tip_curve_glyph", style as u8));
+fn curve_glyph(ctx: &egui::Context, choice: TipChoice, both: bool) -> vector_ink::InkMesh {
+    let key = match choice {
+        TipChoice::End(style) => 16 + style as u8 * 2 + u8::from(both),
+        TipChoice::Curve(style) => style as u8,
+        TipChoice::Texture(_) => 255,
+    };
+    let id = egui::Id::new(("slate.tip_curve_glyph", key));
     if let Some(ink) = ctx.data(|d| d.get_temp::<vector_ink::InkMesh>(id)) {
         return ink;
     }
@@ -618,26 +722,44 @@ fn curve_glyph(ctx: &egui::Context, style: CurveStyle) -> vector_ink::InkMesh {
         width: 4.0,
         ..Stroke::default()
     };
-    apply_curve_style(&mut stroke, style);
+    match choice {
+        TipChoice::Curve(style) => apply_curve_style(&mut stroke, style),
+        // The end being set is the glyph's right end; the left stays flat.
+        TipChoice::End(style) => {
+            let ends: &[usize] = if both { &[0, 1] } else { &[1] };
+            for &i in ends {
+                stroke.set_end(i, style.end());
+            }
+        }
+        TipChoice::Texture(_) => {}
+    }
     let mut bez = vector_ink::kurbo::BezPath::new();
     bez.move_to((-13.0, 7.0));
     bez.line_to((-2.0, -6.0));
     bez.line_to((14.0, 4.0));
     let ink_style = super::board_path::stroke_style_world(&stroke, 1.0);
     let feather = 0.8;
-    let ink = if stroke.arrow_end {
-        let body = slate_doc::geom::trim_end(&bez, slate_doc::geom::arrow_trim(stroke.width));
-        let mut ink = vector_ink::stroke_mesh(&body, &ink_style, feather, 0.05);
-        super::board_path::push_arrow_ink(&mut ink, &bez, stroke.width, feather, None);
-        ink
-    } else {
-        vector_ink::stroke_mesh(&bez, &ink_style, feather, 0.05)
-    };
+    let arrows = stroke.arrows();
+    let body = slate_doc::geom::trim_arrow_ends(&bez, arrows, [stroke.width; 2]);
+    let ends = stroke.end_caps().map(super::board_path::ink_cap);
+    let mut ink = vector_ink::stroke_mesh_ends(
+        &body,
+        &ink_style,
+        ends,
+        None,
+        None,
+        vector_ink::TipEase::Linear,
+        feather,
+        0.05,
+    );
+    for end in (0..2).filter(|&i| arrows[i]) {
+        super::board_path::push_arrow_ink(&mut ink, &bez, end, stroke.width, feather, None);
+    }
     ctx.data_mut(|d| d.insert_temp(id, ink.clone()));
     ink
 }
 
-fn choice_label(choice: TipChoice) -> &'static str {
+pub(crate) fn choice_label(choice: TipChoice, both: bool) -> &'static str {
     match choice {
         TipChoice::Texture(t) => t.label(),
         TipChoice::Curve(CurveStyle::Square) => "Flat ends, square corners",
@@ -645,11 +767,27 @@ fn choice_label(choice: TipChoice) -> &'static str {
         TipChoice::Curve(CurveStyle::Arrow) => "Arrow at the end",
         TipChoice::Curve(CurveStyle::TaperStart) => "Narrow at the start",
         TipChoice::Curve(CurveStyle::TaperBoth) => "Narrow at both ends",
+        TipChoice::End(style) => match (style, both) {
+            (EndStyle::Flat, false) => "Flat end here",
+            (EndStyle::Round, false) => "Round end here",
+            (EndStyle::Arrow, false) => "Arrow here",
+            (EndStyle::Narrow, false) => "Narrow here",
+            (EndStyle::Flat, true) => "Flat at both ends",
+            (EndStyle::Round, true) => "Round at both ends",
+            (EndStyle::Arrow, true) => "Arrows at both ends",
+            (EndStyle::Narrow, true) => "Narrow at both ends",
+        },
     }
 }
 
 /// Each choice drawn as what it produces, in the tool's color.
-fn paint_choice_glyph(painter: &egui::Painter, at: Pos2, choice: TipChoice, ink: Color32) {
+fn paint_choice_glyph(
+    painter: &egui::Painter,
+    at: Pos2,
+    choice: TipChoice,
+    both: bool,
+    ink: Color32,
+) {
     match choice {
         TipChoice::Texture(texture) => {
             if let Some((tex, rect)) = texture_swatch(painter.ctx(), texture) {
@@ -661,8 +799,8 @@ fn paint_choice_glyph(painter: &egui::Painter, at: Pos2, choice: TipChoice, ink:
                 );
             }
         }
-        TipChoice::Curve(style) => {
-            let ink_mesh = curve_glyph(painter.ctx(), style);
+        TipChoice::Curve(_) | TipChoice::End(_) => {
+            let ink_mesh = curve_glyph(painter.ctx(), choice, both);
             let mut mesh = egui::Mesh::default();
             mesh.vertices.reserve(ink_mesh.vertices.len());
             for v in &ink_mesh.vertices {

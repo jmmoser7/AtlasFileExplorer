@@ -1321,6 +1321,96 @@ mod tests {
         );
     }
 
+    /// A horizontal open line across (20, 20, 200 × 40), 8 wide, with flat
+    /// ends and `set` applied; returns every exported path's `d` as points.
+    fn end_condition_export(set: impl FnOnce(&mut Stroke)) -> (String, Vec<Vec<[f32; 2]>>) {
+        let mut doc = SlateDoc::new("Ends");
+        add_frame(&mut doc.scene, 0, WorldRect::new(0.0, 0.0, 400.0, 200.0));
+        let mut stroke = Stroke {
+            width: 8.0,
+            color: Rgba::BLACK,
+            dash: Dash::Solid,
+            cap: StrokeCap::Butt,
+            ..Default::default()
+        };
+        set(&mut stroke);
+        let node = doc.scene.build_node(
+            WorldRect::new(20.0, 20.0, 200.0, 40.0),
+            NodeKind::Shape(ShapeNode {
+                shape: ShapeKind::Path,
+                fill: None,
+                stroke,
+                corner: Corner::Square,
+                sides: slate_doc::scene::default_regular_sides(),
+                phase_deg: 0.0,
+                flip: false,
+                path: Some(std::sync::Arc::new(PathData {
+                    start: [0.0, 0.5],
+                    segs: vec![PathSeg::Line { to: [1.0, 0.5] }],
+                    closed: false,
+                    ..Default::default()
+                })),
+                text: None,
+            }),
+        );
+        let index = doc.scene.nodes.len();
+        doc.scene.apply(&SceneCmd::Add { index, node });
+        let html = render_html(&doc, &AssetMap::default());
+        let paths = html
+            .split(" d=\"")
+            .skip(1)
+            .map(|rest| {
+                let d = rest.split('"').next().unwrap_or("");
+                let nums: Vec<f32> = d
+                    .split(|c: char| c.is_ascii_alphabetic() || c.is_whitespace() || c == ',')
+                    .filter_map(|t| t.parse().ok())
+                    .collect();
+                nums.as_chunks::<2>().0.to_vec()
+            })
+            .collect();
+        (html, paths)
+    }
+
+    #[test]
+    fn a_start_arrow_exports_at_the_start_only() {
+        let (_, paths) = end_condition_export(|s| s.arrow_start = true);
+        let heads: Vec<_> = paths.iter().filter(|p| p.len() == 3).collect();
+        assert_eq!(heads.len(), 1, "one head: {paths:?}");
+        let len = slate_doc::geom::arrow_len(8.0);
+        assert!(
+            heads[0].iter().all(|p| p[0] <= len + 0.5),
+            "the head sits at the start: {:?}",
+            heads[0]
+        );
+        let body = paths.iter().find(|p| p.len() == 2).expect("the line body");
+        let xs = body.iter().map(|p| p[0]);
+        assert!(
+            xs.clone().fold(f32::MAX, f32::min) > 1.0,
+            "trimmed under the head"
+        );
+        assert!(
+            (xs.fold(f32::MIN, f32::max) - 200.0).abs() < 0.01,
+            "the end is untouched"
+        );
+    }
+
+    #[test]
+    fn mixed_end_caps_export_as_an_outline() {
+        let (html, paths) = end_condition_export(|s| s.cap_end = Some(StrokeCap::Round));
+        assert!(
+            !html.contains("stroke-linecap"),
+            "one linecap cannot hold two caps"
+        );
+        let outline = paths.iter().max_by_key(|p| p.len()).expect("an outline");
+        let xs = outline.iter().map(|p| p[0]);
+        let (lo, hi) = (
+            xs.clone().fold(f32::MAX, f32::min),
+            xs.fold(f32::MIN, f32::max),
+        );
+        assert!(lo > -0.01, "the start stays flat: {lo}");
+        assert!(hi > 203.5, "the end is round: {hi}");
+    }
+
     #[test]
     fn path_shape_closed_fill_and_stroke() {
         let fill = Rgba::opaque(200, 100, 50);

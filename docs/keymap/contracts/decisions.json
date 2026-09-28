@@ -1,6 +1,6 @@
 {
   "_about": "Approved-decision database for interaction contracts (canvas tools and portal subtypes). One entry per contract x dimension. Agents seed future volatile matrices from here: an approved decision that maps onto a new contract (same archetype / object class / portal class) is re-proposed with high confidence. Only verdict:'approved' rows count as precedent; 'proposed' rows are awaiting user confirmation in the volatile canvas. Schema: tools.<name>.family = tool|portal, and tools.<name>.decisions.<D##> = { behavior, source: stated|research|pattern|guess|precedent, confidence: 0-100, verdict: proposed|approved|rejected, decided: date|null }. Each contract answers exactly the dimensions DIMENSIONS.md scopes to its family; `cargo xtask contracts` enforces the parity between this file, the registry, and the contract markdown. Append-only in spirit: superseded decisions are overwritten only by a newer user approval.",
-  "updated": "2026-09-27",
+  "updated": "2026-09-28",
   "tools": {
     "bumper-cars": {
       "status": "shipped",
@@ -548,11 +548,11 @@
           "decided": "2026-09-26"
         },
         "D14": {
-          "behavior": "Grip drag re-journals as a point edit; Direct Selection (A) sees the same two anchors; Ctrl+J joins endpoints with other curves (P1.curve.style). Per-vertex width (P1.curve.vertex-style; user, 26 September 2026): with an endpoint grip picked, the Stroke stringer's width edits only that end, tapering straight along the line; with none picked it scales the whole line. Per-vertex color (user, 26 September 2026): a picked endpoint takes the Stroke color, blending straight along the line; with none picked the color sets both ends.",
+          "behavior": "Grip drag re-journals as a point edit; Direct Selection (A) sees the same two anchors; Ctrl+J joins endpoints with other curves (P1.curve.style). Per-vertex width (P1.curve.vertex-style; user, 26 September 2026): with an endpoint grip picked, the Stroke stringer's width edits only that end, tapering straight along the line; with none picked it scales the whole line. Per-vertex color (user, 26 September 2026): a picked endpoint takes the Stroke color, blending straight along the line; with none picked the color sets both ends. End conditions (P1.curve.vertex-style; user, 28 September 2026, tl5: \"should be able to spesify end condition on a per vertex bass\"): the row edits the whole curve, except the end conditions: with an end grip picked, it sets that end only (user, 28 September 2026, tl5). The Alt+right-drag style row then offers flat, round, arrow here, and narrow here; the other end keeps its condition, both ends picked set both, and each release is one undo step that Esc before the release restores. With no grip picked, or only interior points, releasing on a choice restyles the whole curve, even with points picked (es1, user pass, 28 September 2026).",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-26"
+          "decided": "2026-09-28"
         },
         "D15": {
           "behavior": "Cut (Art. III): Rhino BothSides/Normal/Angled command options; length<angle typed syntax; chaining (that's the Polyline tool).",

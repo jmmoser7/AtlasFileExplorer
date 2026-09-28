@@ -1482,6 +1482,68 @@ pub fn arrow_trim(stroke_width: f32) -> f64 {
     (arrow_len(stroke_width) * 0.8) as f64
 }
 
+/// [`path_end_arrow`] for the path's first point.
+pub fn path_start_arrow(bez: &BezPath, stroke_width: f32) -> Option<([f32; 2], [f32; 2])> {
+    path_end_arrow(&bez.reverse_subpaths(), stroke_width)
+}
+
+/// The tip and inward direction of the head at end `i` (0 = first point,
+/// 1 = last) of an open path, for a stroke `stroke_width` wide there.
+pub fn path_arrow(bez: &BezPath, i: usize, stroke_width: f32) -> Option<([f32; 2], [f32; 2])> {
+    if i == 0 {
+        path_start_arrow(bez, stroke_width)
+    } else {
+        path_end_arrow(bez, stroke_width)
+    }
+}
+
+/// `bez` shortened under the arrowheads `arrows` (first point, last point)
+/// of a stroke `widths` wide at those ends.
+pub fn trim_arrow_ends(bez: &BezPath, arrows: [bool; 2], widths: [f32; 2]) -> BezPath {
+    let mut out = if arrows[1] {
+        trim_end(bez, arrow_trim(widths[1]))
+    } else {
+        bez.clone()
+    };
+    if arrows[0] {
+        out = trim_end(&out.reverse_subpaths(), arrow_trim(widths[0])).reverse_subpaths();
+    }
+    out
+}
+
+fn reverse_tipped(t: &TippedStroke) -> TippedStroke {
+    let rev = |v: &[f32]| v.iter().rev().copied().collect::<Vec<_>>();
+    TippedStroke {
+        bez: t.bez.reverse_subpaths(),
+        widths: rev(&t.widths),
+        colors: t.colors.as_ref().map(|c| c.iter().rev().copied().collect()),
+        ease: t.ease,
+    }
+}
+
+/// [`trim_arrow_ends`] for a per-vertex stroke, each head sized to the
+/// width at its own end ([`trim_tipped_end`]).
+pub fn trim_tipped_arrow_ends(t: &TippedStroke, arrows: [bool; 2]) -> TippedStroke {
+    let head = |t: &TippedStroke, first: bool| {
+        let w = if first {
+            t.widths.first()
+        } else {
+            t.widths.last()
+        };
+        arrow_trim(w.copied().unwrap_or(0.0))
+    };
+    let mut out = if arrows[1] {
+        trim_tipped_end(t, head(t, false))
+    } else {
+        t.clone()
+    };
+    if arrows[0] {
+        let by = head(&out, true);
+        out = reverse_tipped(&trim_tipped_end(&reverse_tipped(&out), by));
+    }
+    out
+}
+
 #[cfg(test)]
 mod arrow_tests {
     use super::*;

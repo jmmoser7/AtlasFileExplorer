@@ -235,6 +235,9 @@ pub enum WidthProfile {
     Ends { tip: f32 },
 }
 
+/// How narrow a narrowed end gets, as a fraction of the stroke width.
+pub const NARROW_TIP: f32 = 0.12;
+
 impl WidthProfile {
     /// The one reading of a profile as stroke-mesh taper, shared by the
     /// board painter and the artifact writer.
@@ -245,6 +248,49 @@ impl WidthProfile {
             WidthProfile::Ends { tip } => Some(vector_ink::Taper::Ends(tip)),
         }
     }
+
+    /// Which ends narrow: `[start, end]`.
+    pub fn narrow_ends(self) -> [bool; 2] {
+        match self {
+            WidthProfile::Uniform => [false, false],
+            WidthProfile::Taper { start, end } => [start < 1.0, end < 1.0],
+            WidthProfile::Ends { .. } => [true, true],
+        }
+    }
+
+    /// This profile with `ends` narrowing, keeping its own tip width. An
+    /// unchanged answer keeps the profile as it is.
+    pub fn with_narrow_ends(self, ends: [bool; 2]) -> WidthProfile {
+        if ends == self.narrow_ends() {
+            return self;
+        }
+        let tip = match self {
+            WidthProfile::Taper { start, end } if start.min(end) < 1.0 => start.min(end),
+            WidthProfile::Ends { tip } => tip,
+            _ => NARROW_TIP,
+        };
+        match ends {
+            [false, false] => WidthProfile::Uniform,
+            [true, false] => WidthProfile::Taper {
+                start: tip,
+                end: 1.0,
+            },
+            [false, true] => WidthProfile::Taper {
+                start: 1.0,
+                end: tip,
+            },
+            [true, true] => WidthProfile::Ends { tip },
+        }
+    }
+}
+
+/// The condition at one end of an open stroke: its cap, an arrowhead, or
+/// narrowing to a point (P1.curve.vertex-style end conditions).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StrokeEnd {
+    pub cap: StrokeCap,
+    pub arrow: bool,
+    pub narrow: bool,
 }
 
 /// Grain of a stamped brush tip. Every grain is a deterministic function of
@@ -327,6 +373,15 @@ pub struct Stroke {
     /// An arrowhead at the path's last point (open curves).
     #[serde(default, skip_serializing_if = "is_false")]
     pub arrow_end: bool,
+    /// An arrowhead at the path's first point (open curves).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub arrow_start: bool,
+    /// The cap at the first / last point of an open curve where it differs
+    /// from `cap`, which still caps dash ends in between.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cap_start: Option<StrokeCap>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cap_end: Option<StrokeCap>,
     /// Grain of a stamped brush stroke. Vector strokes ignore it.
     #[serde(default, skip_serializing_if = "texture_smooth")]
     pub texture: BrushTexture,
@@ -385,12 +440,73 @@ impl Default for Stroke {
             tween_from: None,
             gaussian_blur: 0.0,
             arrow_end: false,
+            arrow_start: false,
+            cap_start: None,
+            cap_end: None,
             texture: Default::default(),
         }
     }
 }
 
 impl Stroke {
+    /// The caps an open curve paints at its first and last point.
+    pub fn end_caps(&self) -> [StrokeCap; 2] {
+        [
+            self.cap_start.unwrap_or(self.cap),
+            self.cap_end.unwrap_or(self.cap),
+        ]
+    }
+
+    /// Arrowheads at the first and last point of an open curve.
+    pub fn arrows(&self) -> [bool; 2] {
+        [self.arrow_start, self.arrow_end]
+    }
+
+    /// The condition at end `i` (0 = first point, 1 = last).
+    pub fn end(&self, i: usize) -> StrokeEnd {
+        let i = i.min(1);
+        StrokeEnd {
+            cap: self.end_caps()[i],
+            arrow: self.arrows()[i],
+            narrow: self.profile.narrow_ends()[i],
+        }
+    }
+
+    /// Set the condition at end `i` (0 = first point, 1 = last); the other
+    /// end keeps its own.
+    pub fn set_end(&mut self, i: usize, end: StrokeEnd) {
+        let i = i.min(1);
+        let mut arrows = self.arrows();
+        arrows[i] = end.arrow;
+        [self.arrow_start, self.arrow_end] = arrows;
+        let mut narrow = self.profile.narrow_ends();
+        narrow[i] = end.narrow;
+        self.profile = self.profile.with_narrow_ends(narrow);
+        let mut caps = self.end_caps();
+        caps[i] = end.cap;
+        if caps[0] == caps[1] {
+            self.cap = caps[0];
+        }
+        self.cap_start = (caps[0] != self.cap).then_some(caps[0]);
+        self.cap_end = (caps[1] != self.cap).then_some(caps[1]);
+    }
+
+    /// A piece cut from this stroke keeps the condition of each original
+    /// end it still owns (`keep`); a new cut end takes the plain base cap,
+    /// with no arrowhead and no narrowing.
+    pub fn keep_ends(&mut self, keep: [bool; 2]) {
+        let plain = StrokeEnd {
+            cap: self.cap,
+            arrow: false,
+            narrow: false,
+        };
+        for (i, kept) in keep.into_iter().enumerate() {
+            if !kept {
+                self.set_end(i, plain);
+            }
+        }
+    }
+
     /// `width` is the outer diameter, matching the on-canvas tip. The fade
     /// sits inside that diameter: opaque out to `(1 - softness)` of the
     /// radius, clear at the rim. Returns `(stroke width, feather)` for
@@ -3782,6 +3898,78 @@ mod tests {
     use super::*;
 
     #[test]
+    fn end_conditions_are_per_end_and_round_trip() {
+        let mut s = Stroke {
+            width: 4.0,
+            ..Stroke::default()
+        };
+        let plain = serde_json::to_string(&s).unwrap();
+        for key in ["arrow_start", "cap_start", "cap_end"] {
+            assert!(!plain.contains(key), "{key} is skipped at its default");
+        }
+        let old: Stroke =
+            serde_json::from_str(&plain).expect("a stroke saved without end conditions loads");
+        assert_eq!(old, s);
+        s.set_end(
+            0,
+            StrokeEnd {
+                cap: StrokeCap::Butt,
+                arrow: true,
+                narrow: false,
+            },
+        );
+        s.set_end(
+            1,
+            StrokeEnd {
+                cap: StrokeCap::Round,
+                arrow: false,
+                narrow: true,
+            },
+        );
+        assert_eq!(s.arrows(), [true, false]);
+        assert_eq!(s.end_caps(), [StrokeCap::Butt, StrokeCap::Round]);
+        assert_eq!(s.profile.narrow_ends(), [false, true]);
+        assert_eq!(s.end(0).cap, StrokeCap::Butt, "the other end keeps its own");
+        let back: Stroke = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!(back, s);
+
+        let mut cut = s;
+        cut.keep_ends([false, true]);
+        assert_eq!(cut.end(1), s.end(1), "a kept end keeps its condition");
+        assert_eq!(
+            cut.end(0),
+            StrokeEnd {
+                cap: cut.cap,
+                arrow: false,
+                narrow: false,
+            },
+            "a cut end is plain"
+        );
+    }
+
+    #[test]
+    fn narrowing_one_end_keeps_the_other_ends_width() {
+        let both = WidthProfile::Ends { tip: 0.3 };
+        assert_eq!(both.narrow_ends(), [true, true]);
+        assert_eq!(
+            both.with_narrow_ends([false, true]),
+            WidthProfile::Taper {
+                start: 1.0,
+                end: 0.3
+            }
+        );
+        assert_eq!(
+            WidthProfile::Uniform.with_narrow_ends([true, false]),
+            WidthProfile::Taper {
+                start: NARROW_TIP,
+                end: 1.0
+            }
+        );
+        assert_eq!(both.with_narrow_ends([false, false]), WidthProfile::Uniform);
+        assert_eq!(both.with_narrow_ends([true, true]), both, "unchanged stays");
+    }
+
+    #[test]
     fn polygon_sides_step_about_a_vertex_and_stay_aligned_to_it() {
         // A wide box: the vertices ride an ellipse, and the rule stays exact.
         let rect = WorldRect::new(-80.0, -50.0, 160.0, 100.0);
@@ -5208,6 +5396,9 @@ mod tests {
                 tween_from: None,
                 gaussian_blur: 0.0,
                 arrow_end: false,
+                arrow_start: false,
+                cap_start: None,
+                cap_end: None,
                 texture: Default::default(),
             },
             corner: Corner::Square,
@@ -5276,6 +5467,9 @@ mod tests {
             tween_from: None,
             gaussian_blur: 0.0,
             arrow_end: false,
+            arrow_start: false,
+            cap_start: None,
+            cap_end: None,
             texture: Default::default(),
         };
         for flip in [false, true] {

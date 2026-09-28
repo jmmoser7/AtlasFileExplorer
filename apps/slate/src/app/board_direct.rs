@@ -16,7 +16,7 @@ use super::path_edit_overlay::{
 };
 use super::{board_line, board_path, SlateApp};
 use eframe::egui::{self, Pos2, Rect};
-use slate_doc::scene::{Node, NodeKind, SceneCmd, ShapeKind, WorldRect};
+use slate_doc::scene::{Node, NodeKind, SceneCmd, ShapeKind, StrokeCap, StrokeEnd, WorldRect};
 use slate_doc::vertex_style::{self, VertexStyle};
 use slate_doc::NodeId;
 use std::collections::{BTreeSet, HashSet};
@@ -1150,6 +1150,12 @@ impl SlateApp {
         let sources: Vec<f32> = (0..joined.len()).map(|i| i as f32).collect();
         let bez = bezpath_from_anchors(&joined, closed);
         self.write_back_world_bez(id, &bez, closed, Some(&sources));
+        if closed {
+            if let Some(NodeKind::Shape(s)) = self.doc_mut().scene.node_mut(id).map(|n| &mut n.kind)
+            {
+                s.stroke.keep_ends([false; 2]);
+            }
+        }
         if let Some(after) = self.doc().scene.node(id).cloned() {
             if after != before {
                 self.tab_mut().journal.record(vec![SceneCmd::Patch {
@@ -1166,7 +1172,8 @@ impl SlateApp {
 
     fn join_nodes(&mut self, ids: &[NodeId]) -> bool {
         let radius = self.board_snap_threshold_pub() as f64;
-        let mut acc: Option<(Vec<Anchor>, NodeId, Vec<VertexStyle>)> = None;
+        let mut acc: Option<(Vec<Anchor>, NodeId, Vec<VertexStyle>, [StrokeEnd; 2])> = None;
+        let mut base_cap = StrokeCap::default();
         let mut styled = false;
         for id in ids {
             let Some((anchors, closed)) = self.direct_anchors_of(*id) else {
@@ -1183,14 +1190,49 @@ impl SlateApp {
                 .as_deref()
                 .is_some_and(vertex_style::has_vertex_style);
             let styles = vertex_style::vertex_styles(s.path.as_deref(), &s.stroke, anchors.len());
+            let stroke = s.stroke;
             acc = Some(match acc {
-                None => (anchors, *id, styles),
-                Some((first, style_id, first_styles)) => {
+                None => {
+                    base_cap = stroke.cap;
+                    let ends = [stroke.end(0), stroke.end(1)];
+                    (anchors, *id, styles, ends)
+                }
+                Some((first, style_id, first_styles, first_ends)) => {
                     let Some((joined, _, trace)) =
                         join_endpoints_traced(&first, Some(&anchors), radius)
                     else {
                         return false;
                     };
+                    // The first node's base cap wins; a later node brings
+                    // only the conditions set on its own ends.
+                    let base = StrokeEnd {
+                        cap: base_cap,
+                        arrow: false,
+                        narrow: false,
+                    };
+                    let second_end = |i: usize| {
+                        let e = stroke.end(i);
+                        StrokeEnd {
+                            cap: if stroke.end_caps()[i] != stroke.cap {
+                                e.cap
+                            } else {
+                                base.cap
+                            },
+                            ..e
+                        }
+                    };
+                    let (first_last, second_last) = (
+                        first.len().saturating_sub(1),
+                        anchors.len().saturating_sub(1),
+                    );
+                    let free_end = |from: Option<&JoinSource>| match from.copied() {
+                        Some(JoinSource::First(0)) => first_ends[0],
+                        Some(JoinSource::First(i)) if i == first_last => first_ends[1],
+                        Some(JoinSource::Second(0)) => second_end(0),
+                        Some(JoinSource::Second(i)) if i == second_last => second_end(1),
+                        _ => base,
+                    };
+                    let ends = [free_end(trace.first()), free_end(trace.last())];
                     let styles = trace
                         .iter()
                         .map(|from| match *from {
@@ -1198,11 +1240,11 @@ impl SlateApp {
                             JoinSource::Second(i) => styles[i],
                         })
                         .collect();
-                    (joined, style_id, styles)
+                    (joined, style_id, styles, ends)
                 }
             });
         }
-        let Some((joined, style_id, styles)) = acc else {
+        let Some((joined, style_id, styles, ends)) = acc else {
             return false;
         };
         let Some(style_node) = self.doc().scene.node(style_id).cloned() else {
@@ -1227,6 +1269,9 @@ impl SlateApp {
             // Unstyled sources keep the first node's style everywhere.
             if styled {
                 vertex_style::apply_vertex_styles(&mut data, &mut s.stroke, &styles);
+            }
+            for (i, end) in ends.into_iter().enumerate() {
+                s.stroke.set_end(i, end);
             }
             s.shape = ShapeKind::Path;
             s.flip = false;

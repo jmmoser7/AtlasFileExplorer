@@ -482,8 +482,33 @@ is searchable.
   `LineDraft::start_tip`) and commit them as grip tips
   (`vertex_style::set_grip_placed_tips`). The draft preview paints through the
   same call (`board_path::draft_stroke_ink`).
+  **End conditions** (user, 28 September 2026, tl5: "should be able to
+  spesify end condition on a per vertex bass"): the row edits the whole
+  curve, except the end conditions: with an end grip picked, it sets that
+  end only (user, 28 September 2026, tl5). The Alt+right-drag style row
+  (flat, round, arrow at the end, narrow at the start, narrow at both ends)
+  restyles the whole curve when nothing is picked or only interior points
+  are (es1, user pass, 28 September 2026: "Releasing on one restyles the
+  whole curve, even with points picked"). With an end grip or anchor of an
+  open curve picked (or hovered, as for the HUD's other edits) the row
+  offers that end's choices (flat here, round here, arrow here, narrow
+  here; with both ends picked, at both ends) and sets only the picked
+  ends; the other end keeps its own. One release is one journaled Patch,
+  and Esc before the release restores. The model is `Stroke::cap_start` /
+  `cap_end` (only where the cap differs from `cap`), `arrow_start` /
+  `arrow_end`, and narrowing in `WidthProfile` (`Taper` narrows one end,
+  `Ends` both), read and written through `Stroke::end` / `set_end`. Both
+  interpreters cap the two ends through `vector_ink::stroke_mesh_ends` /
+  `stroke_outline_ends` (dash ends in between keep `cap`), trim under each
+  head with `slate_doc::geom::trim_arrow_ends`, and draw each head with
+  `slate_doc::geom::arrow_head`; the artifact writes mixed caps as the
+  filled outline. A Trim or Split piece keeps the condition of each source
+  end it still owns and a cut end takes the plain base cap
+  (`Stroke::keep_ends`); a Join drops the conditions at the joined ends and
+  keeps the free ends'. **Open question:** an end condition on an interior
+  vertex (perhaps a per-vertex join style) is not built.
   Implementation: `slate_doc::vertex_style`,
-  `board_properties::Property::apply_at`.
+  `board_properties::Property::apply_at`, `board_tip_hud::apply_tip_choice`.
 - **P1.curve.pick** click and marquee selection hit the **stroke** (via
   `vector_ink::hit_stroke` + `pick.slop` ≈ 4 screen px), never the node's
   axis-aligned rect alone. Closed unfilled paths included — each contour

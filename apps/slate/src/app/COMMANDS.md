@@ -267,7 +267,10 @@ drag the address-bar URL or a page link instead.
   only). They run while Brush, Eraser, Smooth, or a curve tool is armed,
   and on a committed curve: its picked vertices (Direct Select anchors or
   Select-tool grips), else the vertex under the pointer, else the whole
-  curve under Direct Select (see *Picked vertices* below).
+  curve under Direct Select (see *Picked vertices* below). The size HUD's
+  style row restyles the whole curve, except that with an end grip of an
+  open curve picked it sets that end's cap, arrowhead, or narrowing only
+  (user, 28 September 2026, tl5).
 - **Alt+right-drag** (`board.brush.size_hud`) with Pen, Line, Arc,
   Polyline, or Bézier armed opens the Brush size HUD for that tool's own
   width (horizontal only; these strokes are always hard). During a line,

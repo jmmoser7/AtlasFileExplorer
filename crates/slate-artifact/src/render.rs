@@ -1635,11 +1635,11 @@ fn render_path(
 
     let w = rel.w;
     let h = rel.h;
-    let d = if shape.stroke.arrow_end && !path.closed && !shape.stroke.is_none() {
-        let bez = slate_doc::geom::trim_end(
-            &path_data_to_bez(path, w, h),
-            slate_doc::geom::arrow_trim(shape.stroke.width),
-        );
+    let arrows = shape.stroke.arrows();
+    let d = if arrows.contains(&true) && !path.closed && !shape.stroke.is_none() {
+        let width = shape.stroke.width;
+        let bez =
+            slate_doc::geom::trim_arrow_ends(&path_data_to_bez(path, w, h), arrows, [width; 2]);
         bezpath_to_d(&bez)
     } else if slate_doc::geom::path_is_line_polyline(path) {
         let bez = slate_doc::geom::path_data_to_world_bez_with_fillet(
@@ -1720,12 +1720,17 @@ fn render_vector_path_d(
             shape.corner,
         )
     });
-    let head = tipped
-        .as_ref()
-        .and_then(|t| t.widths.last().copied())
-        .unwrap_or(shape.stroke.width);
+    let open = path.is_some_and(|p| !p.closed);
+    let arrows = if open {
+        shape.stroke.arrows()
+    } else {
+        [false; 2]
+    };
+    // Two different end caps are not one `stroke-linecap`: the outline
+    // carries them.
+    let own_ends = open && shape.stroke.end_caps() != [shape.stroke.cap; 2];
     match (taper, &tipped) {
-        (None, None) => {
+        (None, None) if !own_ends => {
             push_path_open(html, d, &fill_css, fill_rule);
             if shape.stroke.is_none() {
                 html.push_str(" stroke=\"none\"");
@@ -1756,7 +1761,7 @@ fn render_vector_path_d(
             html.push_str("></path>");
         }
         (taper, tipped) => {
-            if shape.fill.is_some() && closed_for_taper {
+            if shape.fill.is_some() && (closed_for_taper || own_ends) {
                 push_path_open(html, d, &fill_css, fill_rule);
                 html.push_str(" stroke=\"none\"></path>");
             }
@@ -1772,14 +1777,10 @@ fn render_vector_path_d(
                     taper,
                     dash: stroke_dash_ink(&shape.stroke),
                 };
-                let arrow = shape.stroke.arrow_end && !path.closed;
-                let body = tipped.as_ref().map(|t| {
-                    if arrow {
-                        slate_doc::geom::trim_tipped_end(t, slate_doc::geom::arrow_trim(head))
-                    } else {
-                        t.clone()
-                    }
-                });
+                let ends = shape.stroke.end_caps().map(ink_cap);
+                let body = tipped
+                    .as_ref()
+                    .map(|t| slate_doc::geom::trim_tipped_arrow_ends(t, arrows));
                 if let Some((t, colors)) = body
                     .as_ref()
                     .and_then(|t| t.colors.as_ref().map(|c| (t, c)))
@@ -1790,24 +1791,36 @@ fn render_vector_path_d(
                         t,
                         colors,
                         &style,
+                        ends,
                         filter_id.as_deref(),
                     );
                 } else {
                     let outline = match &body {
-                        Some(t) => vector_ink::stroke_outline_tipped(
-                            &t.bez, &style, &t.widths, t.ease, 0.25,
+                        Some(t) => vector_ink::stroke_outline_ends(
+                            &t.bez,
+                            &style,
+                            ends,
+                            Some(&t.widths),
+                            t.ease,
+                            0.25,
                         ),
                         None => {
-                            let bez = path_data_to_bez(path, w, h);
-                            let bez = if arrow {
-                                slate_doc::geom::trim_end(
-                                    &bez,
-                                    slate_doc::geom::arrow_trim(head),
-                                )
-                            } else {
-                                bez
-                            };
-                            vector_ink::stroke_outline(&bez, &style, 0.25)
+                            let bez = slate_doc::geom::path_data_to_world_bez_with_fillet(
+                                path,
+                                WorldRect::new(0.0, 0.0, w, h),
+                                0.0,
+                                shape.corner,
+                            );
+                            let width = shape.stroke.width;
+                            let bez = slate_doc::geom::trim_arrow_ends(&bez, arrows, [width; 2]);
+                            vector_ink::stroke_outline_ends(
+                                &bez,
+                                &style,
+                                ends,
+                                None,
+                                vector_ink::TipEase::Linear,
+                                0.25,
+                            )
                         }
                     };
                     let outline_d = bezpath_to_d(&outline);
@@ -1831,20 +1844,25 @@ fn render_vector_path_d(
         }
     }
 
-    if shape.stroke.arrow_end && !shape.stroke.is_none() {
-        if let Some(path) = path.filter(|p| !p.closed) {
+    if arrows.contains(&true) && !shape.stroke.is_none() {
+        if let Some(path) = path {
             let bez = tipped
                 .as_ref()
                 .map_or_else(|| path_data_to_bez(path, w, h), |t| t.bez.clone());
-            if let Some((tip, into)) = slate_doc::geom::path_end_arrow(&bez, head) {
-                let fill = tipped
-                    .as_ref()
-                    .and_then(|t| t.colors.as_ref()?.last().copied())
-                    .map_or_else(
+            for end in (0..2).filter(|&i| arrows[i]) {
+                let at = |t: &slate_doc::geom::TippedStroke| {
+                    let i = if end == 0 { 0 } else { t.widths.len().saturating_sub(1) };
+                    (t.widths.get(i).copied(), t.colors.as_ref().and_then(|c| c.get(i).copied()))
+                };
+                let (head, color) = tipped.as_ref().map_or((None, None), at);
+                let head = head.unwrap_or(shape.stroke.width);
+                if let Some((tip, into)) = slate_doc::geom::path_arrow(&bez, end, head) {
+                    let fill = color.map_or_else(
                         || shape.stroke.color.css(),
                         |c| Rgba(c.map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8)).css(),
                     );
-                push_arrow_triangle(html, tip, into, head, &fill);
+                    push_arrow_triangle(html, tip, into, head, &fill);
+                }
             }
         }
     }
@@ -1903,11 +1921,13 @@ fn push_tinted_stroke(
     tipped: &slate_doc::geom::TippedStroke,
     colors: &[[f32; 4]],
     style: &StrokeStyle,
+    ends: [vector_ink::Cap; 2],
     filter_id: Option<&str>,
 ) {
-    let pieces = vector_ink::stroke_pieces_tinted(
+    let pieces = vector_ink::stroke_pieces_tinted_ends(
         &tipped.bez,
         style,
+        ends,
         &tipped.widths,
         colors,
         tipped.ease,
@@ -1977,10 +1997,11 @@ fn push_tinted_stroke(
     }
     html.push('>');
     if colors.iter().all(|c| c[3] >= 1.0) {
-        let outline = vector_ink::stroke_outline_tipped(
+        let outline = vector_ink::stroke_outline_ends(
             &tipped.bez,
             style,
-            &tipped.widths,
+            ends,
+            Some(&tipped.widths),
             tipped.ease,
             0.25,
         );

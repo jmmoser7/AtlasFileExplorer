@@ -516,12 +516,16 @@ pub fn points_to_path_data(points: &[Pos2], closed: bool) -> (WorldRect, PathDat
     bezpath_to_path_data(&bez, closed)
 }
 
-pub fn cap_join_profile(stroke: &Stroke) -> (Cap, Join, Option<vector_ink::Taper>) {
-    let cap = match stroke.cap {
+pub(crate) fn ink_cap(cap: StrokeCap) -> Cap {
+    match cap {
         StrokeCap::Butt => Cap::Butt,
         StrokeCap::Round => Cap::Round,
         StrokeCap::Square => Cap::Square,
-    };
+    }
+}
+
+pub fn cap_join_profile(stroke: &Stroke) -> (Cap, Join, Option<vector_ink::Taper>) {
+    let cap = ink_cap(stroke.cap);
     let join = match stroke.join {
         StrokeJoin::Miter => Join::Miter,
         StrokeJoin::Round => Join::Round,
@@ -676,6 +680,9 @@ fn hash_stroke(h: &mut impl Hasher, stroke: &Stroke) {
         }
     }
     stroke.arrow_end.hash(h);
+    stroke.arrow_start.hash(h);
+    stroke.cap_start.map(|c| c as u8).hash(h);
+    stroke.cap_end.map(|c| c as u8).hash(h);
     (stroke.texture as u8).hash(h);
     hash_f32(h, stroke.softness);
     hash_f32(h, stroke.gaussian_blur);
@@ -1397,6 +1404,9 @@ pub fn default_draw_stroke(accent: Rgba) -> Stroke {
         tween_from: None,
         gaussian_blur: 0.0,
         arrow_end: false,
+        arrow_start: false,
+        cap_start: None,
+        cap_end: None,
         texture: Default::default(),
     }
 }
@@ -1416,6 +1426,9 @@ pub fn default_curve_stroke(color: Rgba) -> Stroke {
         tween_from: None,
         gaussian_blur: 0.0,
         arrow_end: false,
+        arrow_start: false,
+        cap_start: None,
+        cap_end: None,
         texture: Default::default(),
     }
 }
@@ -1637,18 +1650,19 @@ pub fn paint_path_shape(
     painter.add(Shape::mesh(mesh));
 }
 
-/// The arrowhead of an open curve ([`slate_doc::geom::arrow_head`] aimed by
-/// [`slate_doc::geom::path_end_arrow`]), added to its stroke ink with the
-/// same feathered edge so it caches with the stroke. `color` is the end tip
-/// of a stroke with per-vertex colors.
+/// The arrowhead at end `end` (0 = first point, 1 = last) of an open curve
+/// ([`slate_doc::geom::arrow_head`] aimed by [`slate_doc::geom::path_arrow`]),
+/// added to its stroke ink with the same feathered edge so it caches with
+/// the stroke. `color` is that end's tip on a stroke with per-vertex colors.
 pub(crate) fn push_arrow_ink(
     ink: &mut InkMesh,
     bez: &BezPath,
+    end: usize,
     width: f32,
     feather: f32,
     color: Option<[f32; 4]>,
 ) {
-    let Some((tip, into)) = slate_doc::geom::path_end_arrow(bez, width) else {
+    let Some((tip, into)) = slate_doc::geom::path_arrow(bez, end, width) else {
         return;
     };
     let tri = slate_doc::geom::arrow_head(tip, into, width);
@@ -1709,12 +1723,17 @@ fn vector_stroke_ink_for(
     path: &PathData,
     zoom: f32,
 ) -> InkMesh {
-    let arrow = shape.stroke.arrow_end && !path.closed;
+    let arrows = if path.closed {
+        [false; 2]
+    } else {
+        shape.stroke.arrows()
+    };
+    let ends = shape.stroke.end_caps().map(ink_cap);
     let full = bez;
     let trimmed_body;
-    let bez = if arrow {
-        trimmed_body =
-            slate_doc::geom::trim_end(bez, slate_doc::geom::arrow_trim(shape.stroke.width));
+    let bez = if arrows.contains(&true) {
+        let w = shape.stroke.width;
+        trimmed_body = slate_doc::geom::trim_arrow_ends(bez, arrows, [w, w]);
         &trimmed_body
     } else {
         bez
@@ -1742,43 +1761,40 @@ fn vector_stroke_ink_for(
         .flatten();
     match tipped {
         Some(t) => {
-            let head = t.widths.last().copied().unwrap_or(shape.stroke.width);
-            let trimmed;
-            let body = if arrow {
-                trimmed = slate_doc::geom::trim_tipped_end(&t, slate_doc::geom::arrow_trim(head));
-                &trimmed
-            } else {
-                &t
-            };
-            let mut ink = match &body.colors {
-                Some(colors) => vector_ink::stroke_mesh_tinted(
-                    &body.bez,
-                    &style,
-                    &body.widths,
-                    colors,
-                    body.ease,
-                    feather,
-                    tolerance,
-                ),
-                None => vector_ink::stroke_mesh_tipped(
-                    &body.bez,
-                    &style,
-                    &body.widths,
-                    body.ease,
-                    feather,
-                    tolerance,
-                ),
-            };
-            if arrow {
-                let end = t.colors.as_ref().and_then(|c| c.last().copied());
-                push_arrow_ink(&mut ink, &t.bez, head, feather, end);
+            let body = slate_doc::geom::trim_tipped_arrow_ends(&t, arrows);
+            let mut ink = vector_ink::stroke_mesh_ends(
+                &body.bez,
+                &style,
+                ends,
+                Some(&body.widths),
+                body.colors.as_deref(),
+                body.ease,
+                feather,
+                tolerance,
+            );
+            for end in (0..2).filter(|&i| arrows[i]) {
+                let pick = |v: &[f32]| if end == 0 { v.first() } else { v.last() }.copied();
+                let head = pick(&t.widths).unwrap_or(shape.stroke.width);
+                let color = t.colors.as_ref().and_then(|c| {
+                    if end == 0 { c.first() } else { c.last() }.copied()
+                });
+                push_arrow_ink(&mut ink, &t.bez, end, head, feather, color);
             }
             ink
         }
         None => {
-            let mut ink = stroke_mesh(bez, &style, feather, tolerance);
-            if arrow {
-                push_arrow_ink(&mut ink, full, shape.stroke.width, feather, None);
+            let mut ink = vector_ink::stroke_mesh_ends(
+                bez,
+                &style,
+                ends,
+                None,
+                None,
+                vector_ink::TipEase::Linear,
+                feather,
+                tolerance,
+            );
+            for end in (0..2).filter(|&i| arrows[i]) {
+                push_arrow_ink(&mut ink, full, end, shape.stroke.width, feather, None);
             }
             ink
         }

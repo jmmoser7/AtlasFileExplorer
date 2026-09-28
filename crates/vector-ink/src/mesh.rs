@@ -182,18 +182,19 @@ pub(crate) fn tessellate_run(
 
 /// The quads between consecutive sections of one run, with the colors of
 /// their two sections (`stroke_pieces_tinted`).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn run_pieces(
     points: &[[f32; 2]],
     widths: Option<&[f32]>,
     colors: &[[f32; 4]],
     style: &StrokeStyle,
+    ends: [Cap; 2],
     closed: bool,
     tolerance: f64,
 ) -> Vec<TintPiece> {
     if colors.len() != points.len() {
         return Vec::new();
     }
-    let ends = [style.cap; 2];
     let mut sections = stations(points, widths, style, ends, closed, tolerance, 0.0);
     if sections.len() < 2 {
         return Vec::new();
@@ -227,10 +228,10 @@ pub(crate) fn run_outline(
     points: &[[f32; 2]],
     widths: Option<&[f32]>,
     style: &StrokeStyle,
+    ends: [Cap; 2],
     closed: bool,
     tolerance: f64,
 ) -> Vec<Vec<[f32; 2]>> {
-    let ends = [style.cap; 2];
     let sections = stations(points, widths, style, ends, closed, tolerance, 0.0);
     if sections.len() < 2 {
         return Vec::new();

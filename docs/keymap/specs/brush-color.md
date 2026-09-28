@@ -88,7 +88,15 @@ pub struct BoardColors { pub fg: Rgba, pub bg: Rgba }
   Brush/Eraser (`Stroke::texture`, `vector_ink::Grain`), and for vector
   curves flat/square, round/round, arrow at the end (`Stroke::arrow_end`),
   narrow at the start (`WidthProfile::Taper`), narrow at both ends
-  (`WidthProfile::Ends`).
+  (`WidthProfile::Ends`). These restyle the whole curve, also with interior
+  points picked (es1, user pass, 28 September 2026).
+- With an end grip or anchor of a committed open curve picked, the row sets
+  that end's condition only (user, 28 September 2026, tl5: "should be able
+  to spesify end condition on a per vertex bass"): flat here, round here,
+  arrow here (`Stroke::arrow_start` / `arrow_end`), or narrow here
+  (`WidthProfile::Taper` on one end, `Ends` on both). The caps live in
+  `Stroke::cap_start` / `cap_end` where they differ from `cap`. With both
+  ends picked the labels read "at both ends" and set both.
 - The way down toward the row drives softness to hardest by the band's
   top edge, so each style is entered at maximum hardness (user,
   2026-09-27), and the release keeps it. The band spans the full width

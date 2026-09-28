@@ -23,8 +23,9 @@ pub fn stroke_mesh(path: &BezPath, style: &StrokeStyle, feather: f32, tolerance:
 }
 
 /// [`stroke_mesh`], or with `widths` [`stroke_mesh_tipped`], or with
-/// `colors` too [`stroke_mesh_tinted`], capping each open run with
-/// `ends[0]` at its start and `ends[1]` at its end instead of `style.cap`.
+/// `colors` too [`stroke_mesh_tinted`], capping each open contour with
+/// `ends[0]` at its first point and `ends[1]` at its last instead of
+/// `style.cap`; dash ends in between keep `style.cap`.
 /// Two meshes that meet with butt ends in the middle of one straight
 /// segment, each with that point's width and color, tile it without a gap
 /// or an overlap.
@@ -132,7 +133,7 @@ fn stroke_mesh_with(
     mesh.indices.reserve(512);
 
     for sub in stroke_subpaths(path, tips, tolerance) {
-        for run in stroke_runs(sub, style) {
+        for (run, ends) in capped_runs(sub, style, ends) {
             tessellate_run(
                 &mut mesh,
                 &run.points,
@@ -148,6 +149,23 @@ fn stroke_mesh_with(
     }
 
     mesh
+}
+
+/// The runs of one contour, each with its caps: `ends` at the contour's own
+/// first and last point, `style.cap` at the dash ends in between and on
+/// every dash of a closed contour.
+fn capped_runs(sub: SubPath, style: &StrokeStyle, ends: [Cap; 2]) -> Vec<(Run, [Cap; 2])> {
+    let closed = sub.closed;
+    let runs = stroke_runs(sub, style);
+    let last = runs.len().saturating_sub(1);
+    runs.into_iter()
+        .enumerate()
+        .map(|(k, run)| {
+            let own = |at: usize, cap: Cap| if !closed && k == at { cap } else { style.cap };
+            let caps = [own(0, ends[0]), own(last, ends[1])];
+            (run, caps)
+        })
+        .collect()
 }
 
 struct SubPath {
@@ -520,7 +538,7 @@ fn dist2(a: [f32; 2], b: [f32; 2]) -> f32 {
 
 /// The stroked region as a closed outline path (for SVG export).
 pub fn stroke_outline(path: &BezPath, style: &StrokeStyle, tolerance: f64) -> BezPath {
-    stroke_outline_with(path, style, None, tolerance)
+    stroke_outline_with(path, style, [style.cap; 2], None, tolerance)
 }
 
 /// [`stroke_outline`] with per-vertex widths, as in [`stroke_mesh_tipped`].
@@ -532,7 +550,22 @@ pub fn stroke_outline_tipped(
     tolerance: f64,
 ) -> BezPath {
     let tips = Tipping::new(widths, None, ease);
-    stroke_outline_with(path, style, Some(tips), tolerance)
+    stroke_outline_with(path, style, [style.cap; 2], Some(tips), tolerance)
+}
+
+/// The region [`stroke_mesh_ends`] fills, as a closed outline path: `ends`
+/// cap each contour's first and last point, and `widths`, when given, are
+/// per-vertex widths as in [`stroke_outline_tipped`].
+pub fn stroke_outline_ends(
+    path: &BezPath,
+    style: &StrokeStyle,
+    ends: [Cap; 2],
+    widths: Option<&[f32]>,
+    ease: TipEase,
+    tolerance: f64,
+) -> BezPath {
+    let tips = widths.map(|w| Tipping::new(w, None, ease));
+    stroke_outline_with(path, style, ends, tips, tolerance)
 }
 
 /// The stroked region of [`stroke_mesh_tinted`] cut into the quads between
@@ -550,6 +583,20 @@ pub fn stroke_pieces_tinted(
     ease: TipEase,
     tolerance: f64,
 ) -> Vec<TintPiece> {
+    stroke_pieces_tinted_ends(path, style, [style.cap; 2], widths, colors, ease, tolerance)
+}
+
+/// [`stroke_pieces_tinted`] with `ends` capping each contour's first and
+/// last point, as [`stroke_mesh_ends`] does.
+pub fn stroke_pieces_tinted_ends(
+    path: &BezPath,
+    style: &StrokeStyle,
+    ends: [Cap; 2],
+    widths: &[f32],
+    colors: &[[f32; 4]],
+    ease: TipEase,
+    tolerance: f64,
+) -> Vec<TintPiece> {
     if !valid_style(style) || (tolerance <= 0.0 || !tolerance.is_finite()) {
         return Vec::new();
     }
@@ -562,13 +609,14 @@ pub fn stroke_pieces_tinted(
     };
     let mut pieces = Vec::new();
     for sub in subs {
-        for run in stroke_runs(sub, style) {
+        for (run, caps) in capped_runs(sub, style, ends) {
             if let Some(colors) = &run.colors {
                 pieces.extend(run_pieces(
                     &run.points,
                     run.widths.as_deref(),
                     colors,
                     style,
+                    caps,
                     run.closed,
                     tolerance,
                 ));
@@ -581,6 +629,7 @@ pub fn stroke_pieces_tinted(
 fn stroke_outline_with(
     path: &BezPath,
     style: &StrokeStyle,
+    ends: [Cap; 2],
     tips: Option<Tipping>,
     tolerance: f64,
 ) -> BezPath {
@@ -589,11 +638,12 @@ fn stroke_outline_with(
     }
     let mut outline = BezPath::new();
     for sub in stroke_subpaths(path, tips, tolerance) {
-        for run in stroke_runs(sub, style) {
+        for (run, caps) in capped_runs(sub, style, ends) {
             for ring in run_outline(
                 &run.points,
                 run.widths.as_deref(),
                 style,
+                caps,
                 run.closed,
                 tolerance,
             ) {
@@ -941,6 +991,68 @@ mod tests {
         assert!(
             max_y < 4.75,
             "round cap should not be fatter than the stroke, got half={max_y}"
+        );
+    }
+
+    /// Per-end caps (P1.curve.vertex-style end conditions): the mesh and the
+    /// export outline cap each end with its own cap, and a dashed line keeps
+    /// the base cap on the dash ends in between.
+    #[test]
+    fn per_end_caps_cap_only_their_own_end() {
+        let path = line_path(0.0, 0.0, 80.0, 0.0);
+        let style = StrokeStyle {
+            width: 8.0,
+            cap: Cap::Butt,
+            join: Join::Miter,
+            taper: None,
+            dash: None,
+        };
+        let ends = [Cap::Butt, Cap::Round];
+        let span = |xs: &mut dyn Iterator<Item = f32>| {
+            xs.fold((f32::MAX, f32::MIN), |(lo, hi), x| (lo.min(x), hi.max(x)))
+        };
+        let mesh = stroke_mesh_ends(&path, &style, ends, None, None, TipEase::Linear, 0.0, 0.01);
+        let (lo, hi) = span(&mut mesh.vertices.iter().map(|v| v.pos[0]));
+        assert!(lo > -0.01, "the start stays flat: {lo}");
+        assert!(hi > 83.5 && hi < 84.5, "the end is round: {hi}");
+        let outline = stroke_outline_ends(&path, &style, ends, None, TipEase::Linear, 0.01);
+        let (olo, ohi) = span(
+            &mut outline
+                .elements()
+                .iter()
+                .filter_map(|e| e.end_point())
+                .map(|p| p.x as f32),
+        );
+        assert!(
+            (olo - lo).abs() < 1e-3 && (ohi - hi).abs() < 1e-3,
+            "{olo}..{ohi}"
+        );
+
+        let dashed = StrokeStyle {
+            dash: Some((vec![20.0, 10.0], 0.0)),
+            ..style.clone()
+        };
+        let round_starts = [Cap::Round, Cap::Butt];
+        let mesh = stroke_mesh_ends(
+            &path,
+            &dashed,
+            round_starts,
+            None,
+            None,
+            TipEase::Linear,
+            0.0,
+            0.01,
+        );
+        let (lo, _) = span(&mut mesh.vertices.iter().map(|v| v.pos[0]));
+        assert!(lo < -3.5, "the first dash starts round: {lo}");
+        let inner = mesh
+            .vertices
+            .iter()
+            .filter(|v| v.pos[0] > 25.0 && v.pos[0] < 30.0)
+            .count();
+        assert_eq!(
+            inner, 0,
+            "the second dash starts flat at 30, no round cap before it"
         );
     }
 

@@ -113,6 +113,9 @@ fn stroke_node(scene: &mut slate_doc::scene::Scene, seed: u64) -> Node {
         tween_from: None,
         gaussian_blur: 0.0,
         arrow_end: false,
+        arrow_start: false,
+        cap_start: None,
+        cap_end: None,
         texture: Default::default(),
     };
     scene.build_node(
@@ -377,6 +380,9 @@ fn dab_node(
         tween_from: None,
         gaussian_blur: blur,
         arrow_end: false,
+        arrow_start: false,
+        cap_start: None,
+        cap_end: None,
         texture: Default::default(),
     };
     scene.build_node(
