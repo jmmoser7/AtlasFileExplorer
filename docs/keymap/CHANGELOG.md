@@ -1,6 +1,31 @@
 # Canvas command project — change log
 
-## 2026-09-27 — A refused eraser pass takes no ink check over (review r14)
+## 2026-09-27 — An eraser band outlasts hiding, panning and undo (review r16)
+
+- `brush` D11: an eraser band stays while its stroke is hidden or out of
+  view, until the stroke shows its raster for its content in view. A
+  hidden stroke's band does not paint and asks for no frames. It paints
+  again with the hide ghost and once the stroke is shown, so neither
+  shows the un-erased stroke. A flick band now also stays when the stroke
+  is panned away and back.
+- `brush` D11: undoing an eraser pass keeps its band, unpainted, while
+  the pass can be redone. A redo brings the band back, including over a
+  stand-in whose cut the workers gave up on.
+- `brush` D11: once an eraser stand-in starts a stroke's chain, each new
+  bitmap keeps up to two bitmaps of other contents behind it. A redo after
+  the restored bitmap was rebuilt at another zoom paints the erased bitmap
+  again. A late raster of other content no longer replaces a bitmap that
+  shows the stroke's current content. D11 now says that an eviction by the
+  bitmap memory budget is not covered.
+- `brush` D11: closing a tab frees its queued stroke raster jobs, its
+  landed rasters, and every cached bitmap of its strokes, including nested
+  boards' and removed strokes'. A raster a worker is still building for it
+  is dropped when it lands.
+- A nested board's landed stroke raster that nobody takes within about
+  120 frames is dropped; a portal still on screen asks again. Pruning
+  landed rasters compares node ids and hashes nothing per frame.
+
+## 2026-09-27 — A refused eraser pass takes no ink check over (review r15)
 
 - `brush` D11: an eraser pass on a read-only tab no longer takes over an
   earlier pass's ink check. The earlier pass's answer stays with it and

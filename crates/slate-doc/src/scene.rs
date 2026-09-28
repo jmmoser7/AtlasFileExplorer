@@ -3612,6 +3612,15 @@ impl SceneJournal {
             .is_ok()
     }
 
+    /// Group `token` was undone and waits to be redone. A commit clears it.
+    pub fn is_undone(&self, token: GroupToken) -> bool {
+        // Undone groups stay in reverse token order: undo moves the newest
+        // done group across, and redo takes the oldest undone one back.
+        self.undone
+            .binary_search_by(|g| token.0.cmp(&g.token.0))
+            .is_ok()
+    }
+
     /// Applies `cmds` and appends them to group `token`, so one undo reverts
     /// both, when that group is still the newest done group, `author`
     /// committed it, and nothing waits to be redone. All or nothing: when a
@@ -4478,6 +4487,29 @@ mod tests {
         assert!(!journal.is_applied(second));
         assert!(!journal.redo(&mut scene));
         assert!(!journal.is_applied(second));
+    }
+
+    #[test]
+    fn is_undone_holds_only_while_a_group_waits_to_be_redone() {
+        let (mut scene, frame_id, img_id) = scene_with_frame_and_image();
+        let mut journal = SceneJournal::default();
+        let mut tokens = Vec::new();
+        for (id, o) in [(img_id, 0.5), (frame_id, 0.7), (img_id, 0.3)] {
+            let cmds = fade(&scene, id, o);
+            assert!(journal.commit(&mut scene, cmds));
+            tokens.push(journal.top_token().unwrap());
+        }
+        assert!(tokens.iter().all(|t| !journal.is_undone(*t)), "all applied");
+        assert!(journal.undo(&mut scene) && journal.undo(&mut scene));
+        assert!(!journal.is_undone(tokens[0]));
+        assert!(journal.is_undone(tokens[1]) && journal.is_undone(tokens[2]));
+        assert!(journal.redo(&mut scene));
+        assert!(!journal.is_undone(tokens[1]), "redone");
+        assert!(journal.is_undone(tokens[2]));
+        let cmds = fade(&scene, frame_id, 0.9);
+        assert!(journal.commit(&mut scene, cmds));
+        assert!(!journal.is_undone(tokens[2]), "a commit drops the redo stack");
+        assert!(!journal.is_applied(tokens[2]));
     }
 
     #[test]

@@ -111,8 +111,21 @@ impl SlateBoards {
 /// ([`SlateApp::stroke_cache_id`]).
 pub(crate) const NESTED_STROKE: u64 = 1 << 63;
 
+#[cfg(test)]
+thread_local! {
+    static SALTED_HERE: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Stroke cache ids hashed on this thread so far.
+#[cfg(test)]
+pub(crate) fn salted_on_this_thread() -> u64 {
+    SALTED_HERE.with(|n| n.get())
+}
+
 fn salted(salt: u64, v: impl std::hash::Hash) -> u64 {
     use std::hash::{Hash, Hasher};
+    #[cfg(test)]
+    SALTED_HERE.with(|n| n.set(n.get() + 1));
     let mut h = std::collections::hash_map::DefaultHasher::new();
     salt.hash(&mut h);
     v.hash(&mut h);
