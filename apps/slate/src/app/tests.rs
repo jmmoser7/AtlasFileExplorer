@@ -24882,6 +24882,84 @@ fn a_grip_press_commits_a_pending_stroke_preview_once() {
     assert_eq!(scene_nodes(&h), before, "one Ctrl+Z restores");
 }
 
+/// Shape-selection-toolbar D11 / D13 below the strip's LOD: zoomed out the
+/// strip is not painted but the screen-constant grips still take presses.
+/// A grip press that narrows the strip commits the pending Fill preview
+/// once before its panel closes; nothing is discarded.
+#[test]
+fn a_zoomed_out_grip_pick_commits_the_fill_preview_it_closes() {
+    let mut h = bezier_board("grip_pick_zoomed_out_fill");
+    let (id, [_, _, c]) = closed_bezier(&mut h);
+    h.app.shape_properties.panel = Some(board_properties::Panel::Fill);
+    h.frame();
+    h.frame();
+    h.app
+        .preview_shape_property(board_properties::Property::FillRgb([200, 40, 40]));
+    h.app.tab_mut().cam.z = 0.3;
+    for _ in 0..3 {
+        h.frame();
+    }
+    let xf = h.app.board_xf();
+    let press = xf.w2s(c);
+    assert!(h.app.canvas_rect.contains(press), "the anchor is on screen");
+    let depth = h.app.tab().journal.undo_depth();
+    press_primary(&mut h, press, egui::Modifiers::NONE);
+    for _ in 0..3 {
+        h.frame();
+    }
+    assert_eq!(h.app.picked_vertices(), Some((id, vec![2])), "the anchor is picked");
+    assert_eq!(h.app.shape_properties.panel, None, "Fill closes");
+    assert_eq!(
+        h.app.tab().journal.undo_depth(),
+        depth + 1,
+        "the pending Fill was committed once"
+    );
+    let (_, s) = only_shape(&h);
+    assert_eq!(s.fill.map(|f| [f.0[0], f.0[1], f.0[2]]), Some([200, 40, 40]));
+}
+
+/// Shape-selection-toolbar D13: only a vertex pick closes a panel the strip
+/// stops offering. Double-clicking a grouped rectangle edits its text with
+/// the group still selected, and the Text panel stays up.
+#[test]
+fn text_editing_a_grouped_shape_keeps_the_text_panel() {
+    let mut h = grip_board("grouped_text_panel");
+    h.app.tab_mut().cam.offset = EVec2::ZERO;
+    h.frame();
+    let c = h.app.board_xf().s2w(h.app.canvas_rect.center());
+    let a = add_rect(&mut h.app, c.x - 120.0, c.y - 30.0);
+    let b = add_rect(&mut h.app, c.x + 40.0, c.y - 30.0);
+    h.app.board_sel = [a, b].into_iter().collect();
+    assert!(h
+        .app
+        .dispatch(&h.ctx, atlas_commands::CommandId("board.group"), None));
+    h.app.board_sel.clear();
+    h.frame();
+    let xf = h.app.board_xf();
+    let on_a = xf.w2s(Pos2::new(c.x - 80.0, c.y));
+    click_board(&mut h, on_a);
+    for _ in 0..3 {
+        h.frame();
+    }
+    assert_eq!(h.app.board_sel, [a, b].into_iter().collect(), "the group");
+    pause(&mut h);
+    click_board(&mut h, on_a);
+    click_board(&mut h, on_a);
+    for _ in 0..4 {
+        h.frame();
+    }
+    assert!(
+        h.app.text_edit.as_ref().is_some_and(|(id, _)| *id == a),
+        "the double-click edits the member's text"
+    );
+    assert_eq!(h.app.board_sel, [a, b].into_iter().collect(), "still the group");
+    assert_eq!(
+        h.app.shape_properties.panel,
+        Some(board_properties::Panel::Text),
+        "the Text panel stays up"
+    );
+}
+
 /// P1.curve.grips under Direct Select: a soft brush stroke is not a Select
 /// grip target, but Direct Select paints its anchors and handle knobs, so a
 /// knob under a strip button still drags.
