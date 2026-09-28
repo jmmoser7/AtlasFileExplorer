@@ -10,6 +10,7 @@
 //! strokes still paint above it.
 
 use super::super::board::BoardXf;
+use super::super::board_slate::{stroke_cache_id_in, NESTED_STROKE};
 use super::super::SlateApp;
 use super::{line_raster, paint_path_shape, path_content_hash, LineJob, LineRaster};
 use eframe::egui::{self, Color32, Pos2};
@@ -119,6 +120,8 @@ struct Job {
 /// One stroke's whole stamp bitmap, built off the frame loop because no
 /// tile can stand in for it (blurred, selected, restyled, or erased strokes).
 struct StrokeJob {
+    /// The stroke's cache id ([`SlateApp::stroke_cache_id`]).
+    id: NodeId,
     node: Node,
     key: u64,
     pixel: f32,
@@ -331,6 +334,9 @@ pub(crate) struct BrushTiles {
     /// Test hook: landed tiles and stroke bitmaps are not taken in.
     #[cfg(test)]
     pub(crate) hold_rasters: bool,
+    /// Test hook: every line job asked for is lost on the workers.
+    #[cfg(test)]
+    pub(crate) lose_lines: bool,
 }
 
 impl Default for BrushTiles {
@@ -380,6 +386,8 @@ impl Default for BrushTiles {
             hold_inks: false,
             #[cfg(test)]
             hold_rasters: false,
+            #[cfg(test)]
+            lose_lines: false,
         }
     }
 }
@@ -436,14 +444,15 @@ impl BrushTiles {
         }
     }
 
-    /// Ask the raster workers for stroke `node`'s whole bitmap at `pixel`.
-    /// Asking again for the same key and pixel is free; a newer ask
-    /// supersedes an older one still queued.
-    pub(crate) fn request_stroke(&mut self, node: &Node, key: u64, pixel: f32) {
+    /// Ask the raster workers for stroke `node`'s whole bitmap at `pixel`,
+    /// under its cache id `id` ([`SlateApp::stroke_cache_id`]). Asking
+    /// again for the same key and pixel is free; a newer ask supersedes an
+    /// older one still queued.
+    pub(crate) fn request_stroke(&mut self, id: NodeId, node: &Node, key: u64, pixel: f32) {
         let want = (key, pixel.to_bits());
         if self
             .stroke_landed
-            .get(&node.id)
+            .get(&id)
             .is_some_and(|r| (r.key, r.pixel.to_bits()) == want)
         {
             return;
@@ -452,13 +461,15 @@ impl BrushTiles {
             let Ok(mut wants) = self.stroke_wants.lock() else {
                 return;
             };
-            if wants.get(&node.id) == Some(&want) {
+            if wants.get(&id) == Some(&want) {
                 return;
             }
-            wants.insert(node.id, want);
+            wants.insert(id, want);
         }
         self.ensure_pool();
+        super::note_node_clone();
         let job = StrokeJob {
+            id,
             node: node.clone(),
             key,
             pixel,
@@ -470,12 +481,12 @@ impl BrushTiles {
             .is_some_and(|tx| tx.send(Work::Stroke(job)).is_err())
         {
             if let Ok(mut wants) = self.stroke_wants.lock() {
-                wants.remove(&node.id);
+                wants.remove(&id);
             }
         }
     }
 
-    /// The newest bitmap the workers finished for stroke `id`, if any.
+    /// The newest bitmap the workers finished for cache id `id`, if any.
     pub(crate) fn take_stroke(&mut self, id: NodeId) -> Option<StrokeRaster> {
         self.drain_finished();
         #[cfg(test)]
@@ -500,6 +511,11 @@ impl BrushTiles {
     /// Stamp a live Shift segment (brush or eraser) on the raster workers.
     /// Hands the job back when no worker can take it.
     pub(crate) fn request_line(&mut self, job: LineJob) -> Result<(), LineJob> {
+        #[cfg(test)]
+        let job = LineJob {
+            panic: job.panic || self.lose_lines,
+            ..job
+        };
         self.ensure_pool();
         let Some(tx) = self.job_tx.as_ref() else {
             return Err(job);
@@ -1063,7 +1079,7 @@ fn rasterize_stroke(job: StrokeJob, done: &Sender<Done>) -> bool {
     let wanted = job
         .wanted
         .lock()
-        .map(|w| w.get(&job.node.id) == Some(&(job.key, job.pixel.to_bits())))
+        .map(|w| w.get(&job.id) == Some(&(job.key, job.pixel.to_bits())))
         .unwrap_or(false);
     if !wanted {
         return true;
@@ -1082,7 +1098,7 @@ fn rasterize_stroke(job: StrokeJob, done: &Sender<Done>) -> bool {
         )
     });
     done.send(Done::Stroke(
-        job.node.id,
+        job.id,
         StrokeRaster {
             key: job.key,
             pixel: job.pixel,
@@ -1391,10 +1407,12 @@ pub(crate) fn paint_rest(
 
     app.brush_tiles.evict(frame);
     if !app.brush_tiles.stroke_landed.is_empty() {
-        // A bitmap nobody painted this frame is for a stroke out of view.
-        app.brush_tiles
-            .stroke_landed
-            .retain(|id, _| nodes.iter().any(|n| n.id == *id));
+        // A bitmap nobody painted this frame is for a stroke out of view. A
+        // nested board's may land after its portal painted: it stays.
+        let tab = app.tab().id;
+        app.brush_tiles.stroke_landed.retain(|id, _| {
+            id.0 & NESTED_STROKE != 0 || nodes.iter().any(|n| stroke_cache_id_in(tab, n.id) == *id)
+        });
     }
     let pending = app.brush_tiles.live_jobs.len()
         + app.brush_tiles.incoming.len()
@@ -1871,7 +1889,8 @@ fn paint_fresh(
         };
         let key = app.brush_tiles.keys.get(&node.id).copied();
         let current = key.is_some_and(|k| {
-            app.brush_stamps.get(&node.id).is_some_and(|(cached, gpu)| {
+            let id = app.stroke_cache_id(node.id);
+            app.brush_stamps.get(&id).is_some_and(|(cached, gpu)| {
                 gpu.exact && *cached == k && gpu.wanted_pixel == pass.pixel
             })
         });

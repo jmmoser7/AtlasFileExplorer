@@ -208,7 +208,7 @@ fn a_blurred_brush_stroke_paints_with_its_blur() {
         "a tile baked the blurred stroke without its blur"
     );
     assert!(
-        b.app.brush_stamps.contains_key(&id),
+        b.app.brush_stamps.contains_key(&b.app.stroke_cache_id(id)),
         "the blurred stroke has no raster of its own"
     );
 }
@@ -601,7 +601,7 @@ fn an_erased_stroke_previews_as_committed_minus_the_pass() {
         loop {
             b.frame();
             let ready = if blur > 0.0 {
-                b.app.brush_stamps.contains_key(&id)
+                b.app.brush_stamps.contains_key(&b.app.stroke_cache_id(id))
             } else {
                 b.app.brush_tiles.last.settled && !b.app.brush_tiles.tiles_with(id).is_empty()
             };
@@ -667,7 +667,7 @@ fn an_erased_stroke_previews_as_committed_minus_the_pass() {
                 painted.contains(&live.texture()),
                 "{when}: the live preview was not painted"
             );
-            if let Some((_, gpu)) = b.app.brush_stamps.get(&id) {
+            if let Some((_, gpu)) = b.app.brush_stamps.get(&b.app.stroke_cache_id(id)) {
                 assert!(
                     !painted.contains(&gpu.tex.id()),
                     "{when}: the committed raster was painted under the preview"
@@ -886,7 +886,7 @@ fn a_blurred_dab_stays_put_while_strokes_follow() {
         std::thread::sleep(Duration::from_millis(2));
     }
     assert!(b.app.brush_tiles.last.settled, "tiles did not settle");
-    let tex = b.app.brush_stamps.get(&id).map(|(_, g)| g.tex.id());
+    let tex = b.app.brush_stamps.get(&b.app.stroke_cache_id(id)).map(|(_, g)| g.tex.id());
     assert!(tex.is_some(), "the blurred dab has no raster of its own");
 
     for i in 0..12 {
@@ -897,7 +897,7 @@ fn a_blurred_dab_stays_put_while_strokes_follow() {
             let faults = coverage_faults(&b, [id]);
             assert!(faults.is_empty(), "stroke {i} frame {f}: {faults:?}");
             assert_eq!(
-                b.app.brush_stamps.get(&id).map(|(_, g)| g.tex.id()),
+                b.app.brush_stamps.get(&b.app.stroke_cache_id(id)).map(|(_, g)| g.tex.id()),
                 tex,
                 "stroke {i} frame {f}: the dab's pixels changed"
             );

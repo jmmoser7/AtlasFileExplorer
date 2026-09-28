@@ -75,6 +75,9 @@ pub(crate) struct SlateBoards {
     stack: Vec<CachedBoard>,
     depth: u32,
     ancestors: Vec<String>,
+    /// Per nested board being painted: a hash of the portal chain that
+    /// reached it, from the open tab down.
+    salts: Vec<u64>,
     last_stat: Instant,
     stat_inflight: bool,
 }
@@ -91,6 +94,7 @@ impl SlateBoards {
             stack: Vec::new(),
             depth: 0,
             ancestors: Vec::new(),
+            salts: Vec::new(),
             last_stat: Instant::now()
                 .checked_sub(STAT_EVERY)
                 .unwrap_or_else(Instant::now),
@@ -101,6 +105,24 @@ impl SlateBoards {
     fn nesting(&self) -> bool {
         self.depth > 0
     }
+}
+
+/// The bit a nested board's stroke cache ids carry
+/// ([`SlateApp::stroke_cache_id`]).
+pub(crate) const NESTED_STROKE: u64 = 1 << 63;
+
+fn salted(salt: u64, v: impl std::hash::Hash) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    salt.hash(&mut h);
+    v.hash(&mut h);
+    h.finish()
+}
+
+/// [`SlateApp::stroke_cache_id`] of stroke `id` on document `tab`'s own
+/// board.
+pub(crate) fn stroke_cache_id_in(tab: u64, id: NodeId) -> NodeId {
+    NodeId(salted(tab, id.0) & !NESTED_STROKE)
 }
 
 impl SlateApp {
@@ -129,15 +151,15 @@ impl SlateApp {
             .count()
     }
 
-    /// The id stroke `id` of the nested board being painted goes by in the
-    /// stroke caches, which the open tab's ids key: `None` outside one.
-    pub(crate) fn nested_stroke_id(&self, id: NodeId) -> Option<NodeId> {
-        use std::hash::{Hash, Hasher};
-        let board = self.slate_boards.ancestors.last()?;
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        board.hash(&mut h);
-        id.0.hash(&mut h);
-        Some(NodeId(h.finish() | 1 << 63))
+    /// The id stroke `id` of the board being painted goes by in the stroke
+    /// bitmap caches. Every document numbers its nodes from one, so the id
+    /// folds in the open tab and, inside a nested board, the chain of
+    /// portals that reached it: two portals of one workbook never share.
+    pub(crate) fn stroke_cache_id(&self, id: NodeId) -> NodeId {
+        match self.slate_boards.salts.last() {
+            Some(salt) => NodeId(salted(*salt, id.0) | NESTED_STROKE),
+            None => stroke_cache_id_in(self.tab().id, id),
+        }
     }
 
     /// A dropped `.slate` file. A blank board opens it as a tab. A board that
@@ -622,7 +644,7 @@ impl SlateApp {
                         );
                     } else {
                         self.request_slate(ui.ctx(), path.clone(), false);
-                        self.paint_slate_body(&clipped, ui, xf, &layout.body, &key);
+                        self.paint_slate_body(&clipped, ui, xf, &layout.body, &key, node.id);
                     }
                 }
             }
@@ -656,6 +678,7 @@ impl SlateApp {
         xf: &BoardXf,
         body: &egui::Rect,
         key: &str,
+        portal: NodeId,
     ) {
         let Some(cached) = self.slate_boards.cache.get(key).cloned() else {
             self.paint_slate_caption(painter, *body, xf.z, "Loading…");
@@ -688,6 +711,9 @@ impl SlateApp {
         };
         let doc = Arc::clone(doc);
         let child_xf = child_xf(xf, fit);
+        let above = self.slate_boards.salts.last().copied();
+        let salt = salted(above.unwrap_or_else(|| self.tab().id), portal.0);
+        self.slate_boards.salts.push(salted(salt, key));
         self.slate_boards.stack.push(cached);
         self.slate_boards.depth += 1;
         self.slate_boards.ancestors.push(key.to_string());
@@ -715,6 +741,7 @@ impl SlateApp {
         self.slate_boards.ancestors.pop();
         self.slate_boards.depth -= 1;
         self.slate_boards.stack.pop();
+        self.slate_boards.salts.pop();
     }
 
     fn paint_slate_caption(&self, painter: &egui::Painter, body: egui::Rect, zoom: f32, msg: &str) {

@@ -3602,6 +3602,16 @@ impl SceneJournal {
         self.done.last().map(|g| g.token)
     }
 
+    /// Group `token` is applied to the scene: committed and not undone, or
+    /// redone since. Amending a group keeps its token.
+    pub fn is_applied(&self, token: GroupToken) -> bool {
+        // Done groups stay in token order: a commit appends a new token and
+        // clears redo, and undo and redo move the newest group across.
+        self.done
+            .binary_search_by_key(&token.0, |g| g.token.0)
+            .is_ok()
+    }
+
     /// Applies `cmds` and appends them to group `token`, so one undo reverts
     /// both, when that group is still the newest done group, `author`
     /// committed it, and nothing waits to be redone. All or nothing: when a
@@ -4427,6 +4437,57 @@ mod tests {
         assert!(journal.redo(&mut scene));
         journal.record(fade(&scene, frame_id, 0.8));
         assert_ne!(journal.top_token(), Some(token));
+    }
+
+    #[test]
+    fn is_applied_follows_undo_redo_and_amend() {
+        let (mut scene, frame_id, img_id) = scene_with_frame_and_image();
+        let mut journal = SceneJournal::default();
+        let cmds = fade(&scene, img_id, 0.5);
+        assert!(journal.commit(&mut scene, cmds));
+        let first = journal.top_token().unwrap();
+        let cmds = fade(&scene, frame_id, 0.7);
+        assert!(journal.commit(&mut scene, cmds));
+        let second = journal.top_token().unwrap();
+        assert!(journal.is_applied(first) && journal.is_applied(second));
+
+        // Amended: the same group, still applied.
+        assert!(amend_removing(
+            &mut journal,
+            &mut scene,
+            second,
+            &CmdAuthor::Human,
+            img_id
+        ));
+        assert!(journal.is_applied(second));
+
+        assert!(journal.undo(&mut scene));
+        assert!(journal.is_applied(first));
+        assert!(!journal.is_applied(second), "undone");
+        assert!(journal.undo(&mut scene));
+        assert!(!journal.is_applied(first));
+        assert!(journal.redo(&mut scene));
+        assert!(journal.is_applied(first), "redone");
+        assert!(!journal.is_applied(second));
+
+        // A new edit drops the redo stack: the undone group never returns.
+        let cmds = fade(&scene, frame_id, 0.9);
+        assert!(journal.commit(&mut scene, cmds));
+        let third = journal.top_token().unwrap();
+        assert!(journal.is_applied(first) && journal.is_applied(third));
+        assert!(!journal.is_applied(second));
+        assert!(!journal.redo(&mut scene));
+        assert!(!journal.is_applied(second));
+    }
+
+    #[test]
+    fn is_applied_is_false_for_a_token_never_handed_out() {
+        let (mut scene, _, img_id) = scene_with_frame_and_image();
+        let mut journal = SceneJournal::default();
+        assert!(!journal.is_applied(GroupToken(1)), "nothing committed yet");
+        let cmds = fade(&scene, img_id, 0.5);
+        assert!(journal.commit(&mut scene, cmds));
+        assert!(!journal.is_applied(GroupToken(2)), "never handed out");
     }
 
     #[test]

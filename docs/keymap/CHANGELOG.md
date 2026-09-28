@@ -14,6 +14,31 @@
   taken in only between gestures, and that undoing the earlier pass
   restores its ink.
 
+## 2026-09-27 — An erased stroke stays erased across edits, tabs and redo (review r14)
+
+- `brush` D11: an eraser stand-in is sealed by the undo step of the pass
+  that made it. Deleting a picked vertex, or any edit that keeps the pass,
+  no longer brings back the stroke's bitmap from before the pass; undoing
+  the pass does, and a redo paints the erased stand-in again.
+- `brush` D11: cached stroke bitmaps belong to one document and one
+  nesting. A stroke with the same node id in another tab, or in another
+  portal of the same nested board, never paints or replaces another's
+  stand-in. Closing a tab frees its eraser settles, line jobs, and bitmaps
+  at once, and a settled pass in a tab not shown keeps only its stand-in.
+- `brush` D11: a band with no preview stays while its own reach or the
+  stroke's ink is in view, not only the stroke's centerline. A band over a
+  stand-in, including one whose cut the workers gave up on, stays off view
+  until the stroke's raster is current. Hidden strokes no longer keep the
+  board asking for frames.
+- `brush` D11: the image paint session sentence says layer marks are
+  decided by the budgeted check alone (they have no live preview), and
+  that the layer composite still re-stamps on the frame loop (open).
+- Nested board strokes no longer clone their node on every frame.
+- `brush` D03: the Shift-inverts-Ortho sentence from review r7 is
+  labelled as agent text. `brush` D11: the image paint session sentence
+  from review r9 is labelled as agent text (was listed under the
+  "Undo never skips a step" entry).
+
 ## 2026-09-27 — Quick eraser passes remove every stroke they empty (review r13)
 
 - `brush` D11: an eraser pass that commits while an earlier pass's
@@ -61,8 +86,6 @@
 - An untitled tab whose board was emptied by delete or undo is not blank
   while it still has board undo or redo history. Opening a workbook takes
   a new tab, so that history (possibly the only copy of a drawing) is kept.
-- `brush` D11: the image paint session sentence from review r9 is labelled
-  as agent text.
 
 ## 2026-09-27 — A Shift release before the rebuild lands keeps the segment (review r11)
 

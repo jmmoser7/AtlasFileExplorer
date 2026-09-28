@@ -11640,7 +11640,7 @@ fn release_before_the_anchor_lands(tag: &str, tiled: bool) {
         let landed = if tiled {
             h.app.brush_tiles.last.pending_jobs == 0
         } else {
-            h.app.brush_stamps.get(&id).is_some_and(|(k, g)| g.exact && Some(*k) == key)
+            stamp_of(&h, id).is_some_and(|(k, g)| g.exact && Some(*k) == key)
         };
         let settled = landed && h.app.brush_live.as_ref().is_some_and(|c| !c.asking());
         if settled {
@@ -13566,12 +13566,46 @@ fn moving_a_stroke_during_its_eraser_settle_never_shows_the_uncut_stroke() {
 /// its own.
 #[test]
 fn undoing_an_eraser_pass_after_it_settles_paints_the_restored_ink() {
-    let (mut h, mut raster, id, cross) = eraser_bar_board("eraser_settle_undo");
+    undo_a_settled_eraser_pass("eraser_settle_undo", false);
+}
+
+/// Review r14 finding 7: Ctrl+Y after that undo paints the erased stroke
+/// again, not the restored ink, until the redone stroke's raster lands.
+#[test]
+fn redoing_an_undone_eraser_pass_paints_the_erased_ink() {
+    undo_a_settled_eraser_pass("eraser_settle_redo", true);
+}
+
+/// Stroke `id`'s cached bitmap for the open tab.
+fn stamp_of(h: &Harness, id: NodeId) -> Option<&(u64, board_path::BrushStampGpu)> {
+    stamp_of_app(&h.app, id)
+}
+
+/// A frame pressing `key` with Ctrl held.
+fn ctrl_key(key: egui::Key) -> Box<dyn FnOnce(&mut egui::RawInput)> {
+    let ctrl = egui::Modifiers::CTRL;
+    Box::new(move |i| {
+        i.modifiers = ctrl;
+        i.events.push(egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: ctrl,
+        });
+    })
+}
+
+/// Settle a pass on the bar into its stand-in with the tiles off, undo it
+/// (the restored ink shows every frame), then with `redo` redo it (the cut
+/// stays erased every frame, the first five with stroke bitmaps held).
+fn undo_a_settled_eraser_pass(tag: &str, redo: bool) {
+    let (mut h, mut raster, id, cross) = eraser_bar_board(tag);
     h.app.brush_tiles_enabled = false;
     let before = h.app.doc().scene.node(id).unwrap().clone();
     let key = board_path::node_stamp_key(&before);
     settle_captured(&mut h, &mut raster, "the bar's own bitmap", |app| {
-        app.brush_stamps.get(&id).is_some_and(|(k, g)| g.exact && Some(*k) == key)
+        stamp_of_app(app, id).is_some_and(|(k, g)| g.exact && Some(*k) == key)
     });
     let lit = half_lit(&h, &raster, cross);
     release_a_settling_pass(&mut h, &mut raster, id);
@@ -13582,17 +13616,8 @@ fn undoing_an_eraser_pass_after_it_settles_paints_the_restored_ink() {
         std::thread::sleep(std::time::Duration::from_millis(5));
         shot(&mut h, &mut raster, |_| {});
     }
-    let ctrl = egui::Modifiers::CTRL;
-    let mut prepare: Box<dyn FnOnce(&mut egui::RawInput)> = Box::new(move |i| {
-        i.modifiers = ctrl;
-        i.events.push(egui::Event::Key {
-            key: egui::Key::Z,
-            physical_key: None,
-            pressed: true,
-            repeat: false,
-            modifiers: ctrl,
-        });
-    });
+    let erased = h.app.doc().scene.node(id).unwrap().clone();
+    let mut prepare = ctrl_key(egui::Key::Z);
     let mut frames = 0;
     loop {
         shot(&mut h, &mut raster, std::mem::replace(&mut prepare, Box::new(|_| {})));
@@ -13602,7 +13627,7 @@ fn undoing_an_eraser_pass_after_it_settles_paints_the_restored_ink() {
             let r = redness(&raster, &xf, p);
             assert!(r > lit, "frame {frames} after undo: {p:?} is still erased ({r:.2})");
         }
-        let current = h.app.brush_stamps.get(&id).is_some_and(|(k, g)| g.exact && Some(*k) == key);
+        let current = stamp_of(&h, id).is_some_and(|(k, g)| g.exact && Some(*k) == key);
         if current && !h.app.erase_settling() {
             break;
         }
@@ -13610,6 +13635,370 @@ fn undoing_an_eraser_pass_after_it_settles_paints_the_restored_ink() {
         std::thread::sleep(std::time::Duration::from_millis(5));
         frames += 1;
     }
+    if !redo {
+        return;
+    }
+    let key = board_path::node_stamp_key(&erased);
+    h.app.brush_tiles.hold_rasters = true;
+    let mut prepare = ctrl_key(egui::Key::Y);
+    let mut frames = 0;
+    loop {
+        if frames == 5 {
+            h.app.brush_tiles.hold_rasters = false;
+        }
+        shot(&mut h, &mut raster, std::mem::replace(&mut prepare, Box::new(|_| {})));
+        assert_eq!(h.app.doc().scene.node(id), Some(&erased), "Ctrl+Y erases the bar again");
+        let xf = h.app.board_xf();
+        for p in cut_points(cross) {
+            let r = redness(&raster, &xf, p);
+            assert!(r < lit, "frame {frames} after redo: {p:?} shows the uncut bar ({r:.2})");
+        }
+        let current = stamp_of(&h, id).is_some_and(|(k, g)| g.exact && Some(*k) == key);
+        if frames >= 5 && current {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "the redone bar never settled");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        frames += 1;
+    }
+}
+
+/// [`stamp_of`] from inside a readiness check.
+fn stamp_of_app(app: &SlateApp, id: NodeId) -> Option<&(u64, board_path::BrushStampGpu)> {
+    app.brush_stamps.get(&app.stroke_cache_id(id))
+}
+
+/// Review r14 finding 1(a): Delete on a picked end vertex of a stroke whose
+/// eraser pass settled into its stand-in keeps that stand-in: a vertex edit
+/// is no undo, so the stroke's bitmap from before the pass never paints
+/// again and the cut stays erased until the edited stroke's raster lands.
+#[test]
+fn deleting_a_vertex_before_an_erased_bitmap_lands_never_paints_the_uncut_stroke() {
+    let (mut h, mut raster, id, cross) = eraser_bar_board("eraser_stand_in_vertex_delete");
+    h.app.brush_tiles_enabled = false;
+    let key = board_path::node_stamp_key(h.app.doc().scene.node(id).unwrap());
+    settle_captured(&mut h, &mut raster, "the bar's own bitmap", |app| {
+        stamp_of_app(app, id).is_some_and(|(k, g)| g.exact && Some(*k) == key)
+    });
+    let uncut = stamp_of(&h, id).unwrap().1.tex.id();
+    let lit = half_lit(&h, &raster, cross);
+    settle_into_stand_in(&mut h, &mut raster, id);
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.app.board_sel = [id].into_iter().collect();
+    h.app.direct.grip_points = Default::default();
+    let end = world_anchor_points(&h, id).len() - 1;
+    h.app.direct.grip_points.pick(id, end, false);
+    assert!(h.app.delete_picked_vertices(), "Delete takes the end vertex");
+    h.app.board_sel.clear();
+    let key = board_path::node_stamp_key(h.app.doc().scene.node(id).expect("the bar stays"));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let mut frames = 0;
+    loop {
+        if frames == 6 {
+            h.app.brush_tiles.hold_rasters = false;
+        }
+        shot(&mut h, &mut raster, |_| {});
+        assert_ne!(
+            stamp_of(&h, id).map(|(_, g)| g.tex.id()),
+            Some(uncut),
+            "frame {frames} after the delete: the bar's bitmap from before the pass is back"
+        );
+        let xf = h.app.board_xf();
+        for p in cut_points(cross) {
+            let r = redness(&raster, &xf, p);
+            assert!(r < lit, "frame {frames} after the delete: {p:?} shows the uncut bar ({r:.2})");
+        }
+        let current = stamp_of(&h, id).is_some_and(|(k, g)| g.exact && Some(*k) == key);
+        if frames >= 6 && current && !h.app.erase_settling() {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "the edited bar never settled");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        frames += 1;
+    }
+}
+
+/// [`release_a_settling_pass`], then let its cut land with stroke bitmaps
+/// held: the settled preview stands in for the bar.
+fn settle_into_stand_in(h: &mut Harness, raster: &mut FrameRaster, id: NodeId) {
+    release_a_settling_pass(h, raster, id);
+    h.app.brush_tiles.hold_rasters = true;
+    h.app.erase_settle.hold = false;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while h.app.erase_settle.holds(h.app.tab().id, id) {
+        assert!(std::time::Instant::now() < deadline, "the cut never landed");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        shot(h, raster, |_| {});
+    }
+    assert!(
+        stamp_of(h, id).is_some_and(|(_, g)| !g.exact && g.seal.is_some()),
+        "the preview stands in"
+    );
+}
+
+/// Review r14 finding 1(b): another tab whose stroke has the bar's node id
+/// never paints the bar's bitmaps nor ends its stand-in; back on the bar's
+/// tab the cut stays erased.
+#[test]
+fn another_tabs_stroke_with_the_same_id_never_takes_the_eraser_stand_in() {
+    let (mut h, mut raster, id, cross) = eraser_bar_board("eraser_stand_in_other_tab");
+    h.app.brush_tiles_enabled = false;
+    let before = h.app.doc().scene.node(id).unwrap().clone();
+    let key = board_path::node_stamp_key(&before);
+    settle_captured(&mut h, &mut raster, "the bar's own bitmap", |app| {
+        stamp_of_app(app, id).is_some_and(|(k, g)| g.exact && Some(*k) == key)
+    });
+    let uncut = stamp_of(&h, id).unwrap().1.tex.id();
+    let lit = half_lit(&h, &raster, cross);
+    settle_into_stand_in(&mut h, &mut raster, id);
+    let stand_in = stamp_of(&h, id).unwrap().1.tex.id();
+    let first = h.app.active_tab;
+    h.app.new_tab();
+    let mut other = before.clone();
+    other.opacity = 0.5;
+    h.app.doc_mut().scene.nodes.push(other);
+    h.app.note_scene_change();
+    for k in 0..5 {
+        let out = capture_frame(&mut h, &mut raster, |_| {});
+        let painted = painted_textures(&out);
+        assert!(
+            !painted.contains(&uncut) && !painted.contains(&stand_in),
+            "frame {k} on the other tab: it paints the bar's bitmap"
+        );
+        draw_now(&h, &mut raster, out);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    h.app.switch_tab(first);
+    let key = board_path::node_stamp_key(h.app.doc().scene.node(id).unwrap());
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let mut frames = 0;
+    loop {
+        if frames == 6 {
+            h.app.brush_tiles.hold_rasters = false;
+        }
+        shot(&mut h, &mut raster, |_| {});
+        let xf = h.app.board_xf();
+        for p in cut_points(cross) {
+            let r = redness(&raster, &xf, p);
+            assert!(r < lit, "frame {frames} back on the tab: {p:?} shows the uncut bar ({r:.2})");
+        }
+        let current = stamp_of(&h, id).is_some_and(|(k, g)| g.exact && Some(*k) == key);
+        if frames >= 6 && current {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "the erased bar never settled");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        frames += 1;
+    }
+}
+
+/// Review r14 finding 6: closing a tab while one of its eraser passes
+/// settles frees that settle and its cut on the workers at once.
+#[test]
+fn closing_a_tab_during_an_eraser_settle_frees_it() {
+    let (mut h, mut raster, id, _) = eraser_bar_board("eraser_settle_close");
+    release_a_settling_pass(&mut h, &mut raster, id);
+    let first = h.app.active_tab;
+    h.app.new_tab();
+    shot(&mut h, &mut raster, |_| {});
+    h.app.force_close_tab(first);
+    assert!(h.app.erase_settle.is_empty(), "the closed tab's settle is kept");
+    assert_eq!(h.app.brush_tiles.lines_wanted_len(), 0, "the closed tab's cut still waits on the workers");
+}
+
+/// Put the bar's centerline just below the view with its ink still in it,
+/// tiles off so the bar paints its own bitmap, and return the world points
+/// in that ink along the pass at `cross` and the redness half of it lit
+/// shows.
+fn bar_at_the_view_bottom(
+    h: &mut Harness,
+    raster: &mut FrameRaster,
+    id: NodeId,
+    cross: Pos2,
+) -> ([Pos2; 3], f32) {
+    let seen = place_bar_at_the_view_bottom(h, id, cross);
+    h.app.brush_tiles_enabled = false;
+    let key = board_path::node_stamp_key(h.app.doc().scene.node(id).unwrap());
+    settle_captured(h, raster, "the bar at the edge", |app| {
+        stamp_of_app(app, id).is_some_and(|(k, g)| g.exact && Some(*k) == key)
+    });
+    let xf = h.app.board_xf();
+    let lit = 0.5 * redness(raster, &xf, seen[0] + EVec2::new(500.0, 0.0));
+    for p in seen {
+        let r = redness(raster, &xf, p);
+        assert!(r > lit, "the bar's ink shows at {p:?} before the pass ({r:.2})");
+    }
+    (seen, lit)
+}
+
+fn place_bar_at_the_view_bottom(h: &mut Harness, id: NodeId, cross: Pos2) -> [Pos2; 3] {
+    let r = h.app.doc().scene.node(id).unwrap().rect;
+    let z = h.app.tab().cam.z;
+    let half = 0.5 * h.app.canvas_rect.height() / z;
+    h.app.tab_mut().cam.offset.y = r.y - 6.0 - half;
+    let xf = h.app.board_xf();
+    let view = xf.s2w(h.app.canvas_rect.max);
+    assert!(r.y > view.y, "the bar's centerline is out of view");
+    let up = EVec2::new(0.0, -20.0);
+    let seen = [cross + up, cross + up + EVec2::new(45.0, 0.0), cross + up - EVec2::new(45.0, 0.0)];
+    for p in seen {
+        assert!(h.app.canvas_rect.contains(xf.w2s(p)), "{p:?} is in view");
+    }
+    seen
+}
+
+/// Review r14 finding 3: a Shift flick released before its preview exists
+/// keeps its band while the stroke's ink shows at the view's edge, even
+/// with the stroke's centerline out of view.
+#[test]
+fn a_band_at_the_view_edge_stays_while_its_ink_shows() {
+    let (mut h, mut raster, id, cross) = eraser_bar_board("eraser_band_view_edge");
+    let (seen, lit) = bar_at_the_view_bottom(&mut h, &mut raster, id, cross);
+    h.app.brush_tiles.hold_rasters = true;
+    let c = h.app.canvas_rect.center();
+    let press = Pos2::new(c.x - 300.0, h.app.canvas_rect.min.y + 80.0);
+    let last = Pos2::new(c.x - 300.0, h.app.canvas_rect.max.y - 4.0);
+    shot(&mut h, &mut raster, shift_at(press, None));
+    shot(&mut h, &mut raster, shift_at(press, Some(true)));
+    shot(&mut h, &mut raster, shift_at(last, None));
+    assert!(!h.app.erase_live.contains_key(&id), "no preview before the release");
+    shot(&mut h, &mut raster, shift_at(last, Some(false)));
+    assert_eq!(erase_marks(h.app.doc().scene.node(id).unwrap()).len(), 1, "the flick commits");
+    band_holds_at_the_edge(&mut h, &mut raster, (id, seen), lit, "flick");
+}
+
+/// Every frame, the points `seen` stay erased: six with stroke bitmaps
+/// held, then until stroke `id`'s own bitmap is current.
+fn band_holds_at_the_edge(
+    h: &mut Harness,
+    raster: &mut FrameRaster,
+    (id, seen): (NodeId, [Pos2; 3]),
+    lit: f32,
+    what: &str,
+) {
+    let key = board_path::node_stamp_key(h.app.doc().scene.node(id).unwrap());
+    // The eraser's cursor would cover the points.
+    let away = h.app.canvas_rect.min + EVec2::new(200.0, 200.0);
+    shot(h, raster, |i| i.events.push(egui::Event::PointerMoved(away)));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let mut frames = 0;
+    loop {
+        if frames == 6 {
+            h.app.brush_tiles.hold_rasters = false;
+        }
+        shot(h, raster, |_| {});
+        let xf = h.app.board_xf();
+        for p in seen {
+            let r = redness(raster, &xf, p);
+            assert!(r < lit, "{what}: frame {frames} after release: {p:?} shows the uncut bar ({r:.2})");
+        }
+        let current = stamp_of(h, id).is_some_and(|(k, g)| g.exact && Some(*k) == key);
+        if frames >= 6 && current && !h.app.erase_settling() {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "{what}: the erased bar never settled");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        frames += 1;
+    }
+}
+
+/// The same when the workers give up on a settling pass's cut: its preview
+/// stands in uncut under the band, which stays at the view's edge and
+/// while the stroke is panned away and back.
+#[test]
+fn a_band_over_a_given_up_cut_stays_at_the_view_edge_and_off_view() {
+    let (mut h, mut raster, id, cross) = eraser_bar_board("eraser_band_gave_up");
+    let (seen, lit) = bar_at_the_view_bottom(&mut h, &mut raster, id, cross);
+    let c = h.app.canvas_rect.center();
+    let press = Pos2::new(c.x - 300.0, h.app.canvas_rect.min.y + 80.0);
+    let first = Pos2::new(c.x - 300.0, h.app.canvas_rect.max.y - 60.0);
+    let last = Pos2::new(c.x - 300.0, h.app.canvas_rect.max.y - 4.0);
+    shot(&mut h, &mut raster, shift_at(press, None));
+    shot(&mut h, &mut raster, shift_at(press, Some(true)));
+    shot(&mut h, &mut raster, shift_at(first, None));
+    let mut waited = 0;
+    while !h.app.erase_live.get(&id).is_some_and(|l| l.line_exact()) {
+        waited += 1;
+        assert!(waited < 2000, "the first cut never landed");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        shot(&mut h, &mut raster, |i| i.modifiers = egui::Modifiers::SHIFT);
+    }
+    h.app.brush_tiles.lose_lines = true;
+    shot(&mut h, &mut raster, shift_at(last, None));
+    h.app.brush_tiles.hold_rasters = true;
+    shot(&mut h, &mut raster, shift_at(last, Some(false)));
+    assert!(h.app.erase_settle.holds(h.app.tab().id, id), "the pass settles");
+    let away = h.app.canvas_rect.min + EVec2::new(200.0, 200.0);
+    shot(&mut h, &mut raster, |i| i.events.push(egui::Event::PointerMoved(away)));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let mut frames = 0;
+    while h.app.erase_settle.holds(h.app.tab().id, id) {
+        assert!(std::time::Instant::now() < deadline, "the workers never gave up");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        shot(&mut h, &mut raster, |_| {});
+        frames += 1;
+    }
+    h.app.brush_tiles.lose_lines = false;
+    let xf = h.app.board_xf();
+    for k in 0..4 {
+        shot(&mut h, &mut raster, |_| {});
+        for p in seen {
+            let r = redness(&raster, &xf, p);
+            assert!(r < lit, "frame {k} after giving up ({frames} settling): {p:?} shows the uncut bar ({r:.2})");
+        }
+    }
+    let home = h.app.tab().cam.offset;
+    h.app.tab_mut().cam.offset.y += 3000.0;
+    for _ in 0..3 {
+        shot(&mut h, &mut raster, |_| {});
+    }
+    h.app.tab_mut().cam.offset = home;
+    band_holds_at_the_edge(&mut h, &mut raster, (id, seen), lit, "gave up");
+}
+
+/// Review r14 finding 2 (Art. II) and note N1: a nested board portal's
+/// strokes paint without cloning a scene node per frame.
+#[test]
+fn nested_board_strokes_clone_no_node_per_frame() {
+    let (mut h, mut raster, id, _) = eraser_bar_board("eraser_nested_clones");
+    let c = h.app.canvas_rect.center();
+    nested_bar_portal(&mut h, &mut raster, id, (c + EVec2::new(150.0, -220.0), c + EVec2::new(410.0, -110.0)));
+    let clones = board_path::node_clones_on_this_thread();
+    for _ in 0..10 {
+        shot(&mut h, &mut raster, |_| {});
+    }
+    let cloned = board_path::node_clones_on_this_thread() - clones;
+    assert_eq!(cloned, 0, "10 frames with a nested board cloned {cloned} nodes");
+}
+
+/// A nested board portal over screen corners `span` whose child workbook
+/// holds a clone of stroke `id` (same node id), loaded and painted.
+fn nested_bar_portal(h: &mut Harness, raster: &mut FrameRaster, id: NodeId, span: (Pos2, Pos2)) -> NodeId {
+    let wb = h.base.join("child.slate");
+    let mut child = SlateDoc::new("Child");
+    child.scene.nodes.push(h.app.doc().scene.node(id).unwrap().clone());
+    child.save_to(&wb).unwrap();
+    h.app.tab_mut().path = Some(h.base.join("parent.slate"));
+    let c = h.app.canvas_rect.center();
+    let xf = h.app.board_xf();
+    let ctx = h.ctx.clone();
+    h.app
+        .apply_workbook_drop(&ctx, board_slate::WorkbookDropChoice::Insert, wb, xf.s2w(c));
+    let portal = h.app.doc().scene.nodes.last().unwrap().id;
+    assert_ne!(portal, id);
+    let (a, b) = (xf.s2w(span.0), xf.s2w(span.1));
+    h.app.patch_nodes(&[portal], |n| {
+        n.rect = slate_doc::scene::WorldRect::new(a.x, a.y, b.x - a.x, b.y - a.y);
+    });
+    h.app.board_sel.clear();
+    h.app.set_board_tool(board::BoardTool::Eraser);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while h.app.slate_boards_ready() == 0 || !h.app.brush_tiles.last.settled {
+        assert!(std::time::Instant::now() < deadline, "the nested board never loaded");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        shot(h, raster, |_| {});
+    }
+    portal
 }
 
 /// Review r12 finding 2 (Art. II): a settling stroke panned out of view
@@ -13665,30 +14054,8 @@ fn an_eraser_settle_ends_when_its_stroke_is_panned_away() {
 #[test]
 fn a_nested_board_portal_does_not_end_the_hosts_eraser_settle() {
     let (mut h, mut raster, id, cross) = eraser_bar_board("eraser_settle_nested");
-    let wb = h.base.join("child.slate");
-    let mut child = SlateDoc::new("Child");
-    child.scene.nodes.push(h.app.doc().scene.node(id).unwrap().clone());
-    child.save_to(&wb).unwrap();
-    h.app.tab_mut().path = Some(h.base.join("parent.slate"));
     let c = h.app.canvas_rect.center();
-    let xf = h.app.board_xf();
-    let ctx = h.ctx.clone();
-    h.app
-        .apply_workbook_drop(&ctx, board_slate::WorkbookDropChoice::Insert, wb, xf.s2w(c));
-    let portal = h.app.doc().scene.nodes.last().unwrap().id;
-    assert_ne!(portal, id);
-    let (a, b) = (xf.s2w(c + EVec2::new(150.0, -220.0)), xf.s2w(c + EVec2::new(410.0, -110.0)));
-    h.app.patch_nodes(&[portal], |n| {
-        n.rect = slate_doc::scene::WorldRect::new(a.x, a.y, b.x - a.x, b.y - a.y);
-    });
-    h.app.board_sel.clear();
-    h.app.set_board_tool(board::BoardTool::Eraser);
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
-    while h.app.slate_boards_ready() == 0 || !h.app.brush_tiles.last.settled {
-        assert!(std::time::Instant::now() < deadline, "the nested board never loaded");
-        std::thread::sleep(std::time::Duration::from_millis(5));
-        shot(&mut h, &mut raster, |_| {});
-    }
+    nested_bar_portal(&mut h, &mut raster, id, (c + EVec2::new(150.0, -220.0), c + EVec2::new(410.0, -110.0)));
     let at = (cross, half_lit(&h, &raster, cross));
     let px = release_a_settling_pass(&mut h, &mut raster, id);
     for k in 0..10 {
@@ -13698,9 +14065,11 @@ fn a_nested_board_portal_does_not_end_the_hosts_eraser_settle() {
     settle_watched(&mut h, &mut raster, at, px, "nested portal");
 }
 
-/// Review r12 finding 4 (Art. II): an eraser pass across a big paint-layer
-/// mark rasterizes nothing on its release frame, as on the board, and the
-/// mark takes the pass.
+/// Review r12 finding 4 (Art. II): the release's decision over a big
+/// paint-layer mark stays within the frame's stamp budget, and the mark
+/// takes the pass. This counts only `board_path` stamps: the layer
+/// composite that re-stamps the erased mark after the commit still runs on
+/// the frame loop and is not counted here (review r14 finding 4, open).
 #[test]
 fn an_eraser_release_over_a_big_layer_mark_rasterizes_nothing() {
     let zig = [
@@ -14224,7 +14593,7 @@ fn an_erased_stand_in_follows_a_nudge_before_its_bitmap_lands() {
         h.app.brush_tiles_enabled = tiled;
         let key = board_path::node_stamp_key(h.app.doc().scene.node(id).unwrap());
         settle_captured(&mut h, &mut raster, "the bar", |app| {
-            tiled || app.brush_stamps.get(&id).is_some_and(|(k, g)| g.exact && Some(*k) == key)
+            tiled || stamp_of_app(app, id).is_some_and(|(k, g)| g.exact && Some(*k) == key)
         });
         let lit = half_lit(&h, &raster, cross);
         let c = h.app.canvas_rect.center();
@@ -14247,7 +14616,7 @@ fn an_erased_stand_in_follows_a_nudge_before_its_bitmap_lands() {
         );
         shot(&mut h, &mut raster, shift_at(last, Some(false)));
         assert!(
-            h.app.brush_stamps.get(&id).is_some_and(|(_, g)| !g.exact && g.seal.is_some()),
+            stamp_of(&h, id).is_some_and(|(_, g)| !g.exact && g.seal.is_some()),
             "tiles {tiled}: the preview stands in"
         );
         h.app.patch_nodes(&[id], |n| n.rect = n.rect.translated(0.0, 200.0));
@@ -14338,9 +14707,9 @@ fn a_smooth_pass_on_a_big_stroke_stamps_nothing_on_the_frame_loop() {
     });
     settle_brush(&mut h, "the strokes", |app| {
         !app.brush_tiles.tiles_with(id).is_empty()
-            && app.brush_stamps.get(&other).is_some_and(|(_, g)| g.exact)
+            && stamp_of_app(app, other).is_some_and(|(_, g)| g.exact)
     });
-    let kept = h.app.brush_stamps[&other].1.tex.id();
+    let kept = stamp_of(&h, other).unwrap().1.tex.id();
 
     h.app.set_board_tool(board::BoardTool::Smooth);
     h.app.smooth_width = 60.0;
@@ -14366,12 +14735,12 @@ fn a_smooth_pass_on_a_big_stroke_stamps_nothing_on_the_frame_loop() {
     };
     assert!(shape.stroke.gaussian_blur > 0.0, "the pass smoothed the bar");
     assert_eq!(
-        h.app.brush_stamps.get(&other).map(|(_, g)| g.tex.id()),
+        stamp_of(&h, other).map(|(_, g)| g.tex.id()),
         Some(kept),
         "the commit dropped another stroke's raster"
     );
     settle_brush(&mut h, "the smoothed bar", |app| {
-        app.brush_stamps.get(&id).is_some_and(|(_, g)| g.exact)
+        stamp_of_app(app, id).is_some_and(|(_, g)| g.exact)
     });
     assert_eq!(board_path::stamps_on_this_thread(), before);
 }
