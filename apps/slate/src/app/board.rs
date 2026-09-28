@@ -63,6 +63,9 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+/// A freshly placed agent portal, sized for its program grid (width, height).
+pub(crate) const AGENT_PORTAL_SIZE: (f32, f32) = (384.0, 168.0);
+
 /// One undo step. Scene steps stay on the tab journal; spreadsheet steps
 /// write the linked file and ride the same Ctrl+Z order.
 pub(crate) enum BoardMark {
@@ -7849,10 +7852,11 @@ impl SlateApp {
         if self.armed_kit_id.is_some() {
             // An agent portal is a chat card, not a document viewport, so it
             // does not take PORTAL_DEFAULT_W/H.
-            self.place_from_recipe(BoardTool::AgentPortal, center, (384.0, 168.0));
+            self.place_from_recipe(BoardTool::AgentPortal, center, AGENT_PORTAL_SIZE);
             return;
         }
-        let rect = WorldRect::new(center.x - 384.0 * 0.5, center.y - 168.0 * 0.5, 384.0, 168.0);
+        let (w, h) = AGENT_PORTAL_SIZE;
+        let rect = WorldRect::new(center.x - w * 0.5, center.y - h * 0.5, w, h);
         self.add_agent_portal(rect, "placed");
     }
 
@@ -8249,11 +8253,16 @@ impl SlateApp {
         }
     }
 
-    fn add_agent_portal(&mut self, rect: WorldRect, detail: &'static str) {
-        let node = self.doc_mut().scene.build_node(
+    /// An agent portal before a program is chosen: it shows the program grid.
+    pub(crate) fn build_agent_portal(&mut self, rect: WorldRect) -> Node {
+        self.doc_mut().scene.build_node(
             rect,
             NodeKind::Portal(PortalNode::unbound_agent("Agent portal", "")),
-        );
+        )
+    }
+
+    fn add_agent_portal(&mut self, rect: WorldRect, detail: &'static str) {
+        let node = self.build_agent_portal(rect);
         let id = node.id;
         self.add_nodes(vec![node]);
         self.board_sel.clear();
