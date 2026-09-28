@@ -5083,9 +5083,22 @@ impl SlateApp {
         let _nodes_span = atlas_core::session_log::span("slate.board.nodes");
         let mut nodes = self.board_paint_nodes(rect);
         // A Shift preview that continues a stroke paints that stroke inside
-        // its own canvas, so the scene copy stays out of this frame.
+        // its own canvas once the workers have stamped it there, so the
+        // scene copy stays out of those frames. Rasters land before this
+        // decision, so one frame never paints the stroke from both.
+        if let Some(canvas) = self.brush_live.as_mut() {
+            canvas.take_landed(&mut self.brush_tiles);
+        }
         if let Some((_, _, Some(id))) = self.brush_straight_from() {
-            nodes.retain(|n| n.id != id);
+            let key = self.doc().scene.node(id).and_then(board_path::node_stamp_key);
+            let ppp = ui.ctx().pixels_per_point();
+            let covered = self
+                .brush_live
+                .as_ref()
+                .is_some_and(|c| c.covers_anchor(id, key, &xf, rect, ppp));
+            if covered {
+                nodes.retain(|n| n.id != id);
+            }
         }
         // Ctrl+F: dim non-matching nodes to ~35% at paint time only — the
         // opacity tweak lives on this per-frame clone, never in the scene
@@ -5502,6 +5515,7 @@ impl SlateApp {
             (true, _) => {
                 let canvas = board_path::BrushLiveCanvas::ensure(
                     &mut self.brush_live,
+                    &mut self.brush_tiles,
                     &draft_painter,
                     &xf,
                     rect,
@@ -5527,6 +5541,7 @@ impl SlateApp {
                 let anchor_key = anchor_node.as_ref().and_then(board_path::node_stamp_key);
                 let canvas = board_path::BrushLiveCanvas::ensure(
                     &mut self.brush_live,
+                    &mut self.brush_tiles,
                     &draft_painter,
                     &xf,
                     rect,

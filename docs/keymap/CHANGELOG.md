@@ -1,5 +1,20 @@
 # Canvas command project — change log
 
+## 2026-09-27 — Shift rebuilds off the frame loop, honest preview (review r10)
+
+- `brush` D11: when the camera or the stroke changed, the next Shift press
+  rebuilds the live canvas by stamping the stroke on the raster workers;
+  the scene keeps painting the stroke until that stamp lands, so the press
+  frame stamps nothing on the frame loop. A pan is named among the camera
+  changes. A line job lost on a worker is asked again twice, then the
+  scene paints the stroke.
+- `brush` D11 and Textures: the moving Shift preview is stated as an
+  approximation of the exact stamp. It starts square on a stamped chain,
+  fades over softness times the radius, and is premultiplied as the stamp
+  is, but ahead of the joint it still covers the chain's last dab until
+  the exact stamp lands. Textures no longer claims the moving preview
+  paints the stamp's pixels.
+
 ## 2026-09-27 — Agent-authored D11 sentences marked as proposals
 
 - `brush` D11: the Shift segment's vector-mesh stand-in and worker

@@ -923,6 +923,29 @@ fn an_unchanged_draft_frame_does_not_re_tessellate() {
     );
     fresh(&h, "zoom");
     still(&mut h, "after the zoom");
+    // A pan alone rebuilds no draft mesh, yet the screen mesh follows the
+    // camera offset. The pointer leaves first, so the rubber band's end
+    // stays where it is in the world.
+    events(&mut h, Modifiers::NONE, vec![egui::Event::PointerGone]);
+    h.frame();
+    let (built, before) = (h.app.draft_ink.builds, inputs(&h));
+    h.app.tab_mut().cam.offset += Vec2::new(40.0, -25.0);
+    h.frame();
+    assert_eq!(inputs(&h), before, "the pan changed only the camera");
+    assert_eq!(h.app.draft_ink.builds, built, "a pan rebuilds no draft mesh");
+    let xf = h.app.board_xf();
+    let (mesh, color) = h.app.draft_ink.draft_mesh().expect("a cached mesh");
+    let want = board_path::ink_mesh_to_epaint(mesh, &xf, color, |c| c);
+    let screen = h.app.draft_ink.draft_screen_mesh().expect("a painted screen mesh");
+    assert_eq!(screen.vertices.len(), want.vertices.len());
+    for (s, w) in screen.vertices.iter().zip(&want.vertices) {
+        assert!(
+            (s.pos - w.pos).length() < 1e-3,
+            "the screen mesh kept the old pan: {:?} for {:?}",
+            s.pos,
+            w.pos
+        );
+    }
 
     let mut h = board("draft_cache_pen", BoardTool::Pen);
     stroke_start(&mut h, Pos2::new(0.0, 0.0));
