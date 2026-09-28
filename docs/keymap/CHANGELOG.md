@@ -1,5 +1,17 @@
 # Canvas command project — change log
 
+## 2026-09-27 — The board paints every rotated node again (review r19)
+
+- `brush` D11: the board again paints every rotated node, as it did
+  before review r18, so a rotated path's miter spikes, blur, square caps
+  and wide tween tips no longer vanish at the view edge. The review r18
+  entry below that said the board stops painting rotated paths outside
+  the view no longer holds.
+- `brush` D11: a band over a rotated stroke counts as in view, and asks
+  for frames, only while the stroke's rotated ink box meets the view. That
+  box is the one the tiles use for the stroke's ink (`tiles::ink_rect`).
+  A band over a rotated stroke out of view still asks for no frames.
+
 ## 2026-09-27 — An eraser band outlasts Delete, and rotated strokes cull (review r18)
 
 - `brush` D11: deleting a stroke while an eraser band's pass is applied

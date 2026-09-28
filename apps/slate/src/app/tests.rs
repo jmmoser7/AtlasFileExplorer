@@ -14274,8 +14274,9 @@ fn a_band_over_a_rotated_stroke_off_view_asks_for_no_frames() {
 }
 
 /// Review r18 R1: a rotated stroke whose rotated ink meets the view
-/// paints, though its unrotated box is out of view, and half its width
-/// counts past its rotated box.
+/// paints, though its unrotated box is out of view, and a band over it
+/// counts as in view only while its rotated ink box meets the view
+/// (review r19 R1).
 #[test]
 fn a_rotated_stroke_partly_in_view_still_paints() {
     let (mut h, mut raster, id, _) = eraser_bar_board("rotated_stroke_partly_in_view");
@@ -14294,8 +14295,63 @@ fn a_rotated_stroke_partly_in_view_still_paints() {
     assert!(r > 0.5, "the upright bar is blank in view ({r:.2})");
     let edge = upright.x + upright.w;
     let beside = |gap: f32| WorldRect::new(edge + gap, upright.y, 500.0, upright.h);
-    assert!(board::paints_in_view(&node, &beside(30.0)), "the upright bar's ink edge is culled");
-    assert!(!board::paints_in_view(&node, &beside(45.0)), "a view clear of the upright bar's ink keeps it");
+    assert!(board_path::band_in_view(&node, &beside(30.0)), "a band misses the upright bar's ink edge");
+    assert!(!board_path::band_in_view(&node, &beside(45.0)), "a band sees a view clear of the upright bar's ink");
+}
+
+/// Review r19 R1: a rotated polyline whose miter spike alone reaches into
+/// view, past half its width beyond its rotated box, still paints it.
+#[test]
+fn a_rotated_path_miter_spike_at_the_view_edge_still_paints() {
+    use slate_doc::scene::{PathData, PathSeg, ShapeKind, ShapeNode, StrokeCap};
+    let mut h = line_board("rotated_miter_spike");
+    let mut raster = FrameRaster::new(1440, 900);
+    capture_frame(&mut h, &mut raster, |i| i.max_texture_side = Some(8192));
+    let mut stroke = board_path::default_curve_stroke(slate_doc::scene::Rgba([255, 40, 40, 255]));
+    stroke.width = 60.0;
+    stroke.cap = StrokeCap::Butt;
+    let rect = WorldRect::new(0.0, 0.0, 229.4, 400.0);
+    let mut node = h.app.doc_mut().scene.build_node(
+        rect,
+        slate_doc::scene::NodeKind::Shape(ShapeNode {
+            shape: ShapeKind::Path,
+            fill: None,
+            stroke,
+            corner: slate_doc::scene::Corner::Square,
+            sides: slate_doc::scene::default_regular_sides(),
+            phase_deg: 0.0,
+            flip: false,
+            path: Some(std::sync::Arc::new(PathData {
+                start: [0.0, 0.0],
+                segs: vec![PathSeg::Line { to: [0.5, 1.0] }, PathSeg::Line { to: [1.0, 0.0] }],
+                closed: false,
+                ..Default::default()
+            })),
+            text: None,
+        }),
+    );
+    node.rotation_deg = 1.0;
+    let id = h.app.add_nodes(vec![node])[0];
+    let node = h.app.doc().scene.node(id).unwrap().clone();
+    // The arms meet at about 32 degrees, so the miter reaches about 109
+    // units past the vertex at (114.7, 400); 80 units past it is on the spike.
+    let (cx, cy) = rect.center();
+    let (sin, cos) = 1.0_f32.to_radians().sin_cos();
+    let (lx, ly) = (114.7 - cx, 480.0 - cy);
+    let spike = Pos2::new(cx + lx * cos - ly * sin, cy + lx * sin + ly * cos);
+    h.app.tab_mut().cam.z = 4.0;
+    let half = h.app.canvas_rect.size() * (0.5 / 4.0);
+    h.app.tab_mut().cam.offset = EVec2::new(spike.x, 460.0 + half.y);
+    let xf = h.app.board_xf();
+    assert!(h.app.canvas_rect.shrink(4.0).contains(xf.w2s(spike)), "the spike is off screen");
+    let view = h.app.board_paint_view(h.app.canvas_rect);
+    let boxed = node.rect.rotated_bounds(node.rotation_deg);
+    assert!(boxed.y + boxed.h + 30.0 < view.y, "the rotated box's half-width pad reaches the view");
+    for _ in 0..3 {
+        shot(&mut h, &mut raster, |_| {});
+    }
+    let r = redness(&raster, &h.app.board_xf(), spike);
+    assert!(r > 0.5, "the rotated polyline's miter spike is blank in view ({r:.2})");
 }
 
 /// Review r14 finding 2 (Art. II) and note N1: a nested board portal's
