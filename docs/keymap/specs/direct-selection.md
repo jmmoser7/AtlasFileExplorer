@@ -66,7 +66,7 @@ picks are its three grips. Both tools share the behavior below
 ### Tip HUD on picked vertices
 
 User decision, 2026-09-26 and 2026-09-27 (supersedes the 2026-09-27
-"whole curve" line in the changelog).
+"whole curve" line in the changelog), and 2026-09-28 for the whole curve.
 
 | Action | Behavior |
 |--------|----------|
@@ -74,8 +74,39 @@ User decision, 2026-09-26 and 2026-09-27 (supersedes the 2026-09-27
 | Ctrl+right-drag | Color wheel for the picked vertices only |
 | Shift+right-drag | Opacity the picked vertices paint at, only theirs |
 | The same over a vertex, nothing picked | Edits the hovered vertex |
-| The same elsewhere, nothing picked (Direct Select) | Edits the whole curve, per-vertex tips included |
+| The same elsewhere, nothing picked (Select tool or Direct Select) | Edits the whole selected curve, relatively (below) |
 
+- Target precedence: picked vertices, then the hovered vertex, then the
+  whole selected curve. With no grip picked and no point hovered, the HUD
+  edits the whole selected curve under the Select tool or Direct Select
+  (user, 28 September 2026, ed1: "think we can just cutto the chase and
+  implementthis function when the user has a full curveselected. simpl
+  alt + drag or ctrl or shift"). This covers lines, polylines, arcs, Bézier
+  spans, Pen paths, and painted brush strokes. It supersedes the earlier
+  rule that the Select tool took the HUD only on grips and that the
+  whole-curve HUD belonged to Direct Select (ed7). The Select tool arms on
+  its one selected curve only while the right button is held, so a plain
+  selection does not move tip readouts or `[` / `]` onto the curve.
+- Whole-curve edits shift the curve instead of overwriting it (user,
+  28 September 2026: "in each case i dont wat it to be a whole scale
+  overwrite of the curves properties but rate a shifting of them. so for
+  color holding ctrl it acts like the phoitoshop hue picker sifting the rgb
+  values from thercurent position rther tahn ovewriting them. so gradient
+  curve staysgradient but whth translated rgb"):
+  - Alt: every tip and the stroke width scale by one factor, so tapers
+    keep. On a painted stroke the widest tip lands on the value shown and
+    vertical travel scales every tip's softness the same way.
+  - Ctrl: the wheel opens on the curve's first tip color (else its stroke
+    color). The change from that color to the pick rotates the hue and
+    shifts saturation and value of every tip color and the stroke color
+    (`board_color::shift_hsv`). A one-color curve lands on the pick.
+  - Shift: the curve's opacity scales from its own value, so each vertex
+    keeps its share; it reaches 0 %, and a 0 % curve still selects on its
+    line.
+  - The style row under the size circle restyles the whole curve.
+- The property strip stays absolute (ep3, passed): with nothing picked, a
+  strip width edit scales every vertex and keeps the taper, and a strip
+  color edit sets every vertex. Only the HUD shifts.
 - The target is fixed at HUD start, so the pointer can wander.
 - Values are written through `slate_doc::vertex_style` into `PathData` tips
   (P1.curve.vertex-style, Art. XII). A multi-pick edit writes only the
@@ -86,13 +117,13 @@ User decision, 2026-09-26 and 2026-09-27 (supersedes the 2026-09-27
   vertices keep painting as before (review r7, 2026-09-27).
 - Painted (brush) strokes store one absolute tip per vertex. With nothing
   picked, the whole-curve size and softness scale every tip in proportion
-  (the widest tip lands on the scrubbed value), color recolors every tip
-  and a texture choice retextures every tip. The readout is the widest,
-  softest tip. Picks on a painted stroke are Direct Select anchors or the
-  hovered anchor; the Select tool shows no grips on painted ink
-  (P1.curve.grips). Review r7, 2026-09-27.
-- A whole-curve color also recolors existing vertex tips, because they paint
-  over the stroke color.
+  (the widest tip lands on the scrubbed value), the wheel shifts every
+  tip's color and a texture choice retextures every tip. The readout is
+  the widest, softest tip. Picks on a painted stroke are Direct Select
+  anchors or the hovered anchor; the Select tool shows no grips on painted
+  ink (P1.curve.grips) and edits the whole stroke. Review r7, 2026-09-27.
+- A whole-curve HUD color also shifts existing vertex tips, because they
+  paint over the stroke color.
 - Art. IV: per-vertex color and opacity export as a `linearGradient` with
   per-stop `stop-color` / `stop-opacity`; a painted stroke exports the
   bitmap its tips stamp, the same tips the board paints.
@@ -161,6 +192,7 @@ the path (direct selection pierces groups — Illustrator behavior).
 | Double-click anchor (A) | toggle corner/smooth |
 | Alt+drag handle (A) | break handle symmetry |
 | Alt/Ctrl/Shift+right-drag with picks or over a vertex | tip HUD on those vertices |
+| Alt/Ctrl/Shift+right-drag elsewhere, one curve selected (Select or A) | tip HUD on the whole curve, relative |
 | Delete with picked vertices (any tool) | remove vertices (`board.delete`) |
 
 ## Tests (vector-ink)

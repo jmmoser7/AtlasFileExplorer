@@ -3803,11 +3803,11 @@
           "decided": "2026-09-22"
         },
         "D13": {
-          "behavior": "P1.shape.properties: a selected stroke keeps the shared Fill / Stroke / Corners strip; it shows no dimension stringers (D08).",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "P1.shape.properties: a selected stroke keeps the shared Fill / Stroke / Corners strip; it shows no dimension stringers (D08). The strip stays absolute. With the stroke selected under the Select tool (painted ink shows no grips there) or targeted by Direct Select with nothing picked, Alt/Ctrl/Shift+right-drag edit the whole stroke, relatively (user, 28 September 2026, eb1 and ed1: \"think we can just cutto the chase and implementthis function when the user has a full curveselected\"): every tip scales in proportion and the widest tip lands on the value shown, vertical travel scales every tip's softness the same way, the wheel shifts every tip's hue, saturation and value from where it was, and opacity scales the stroke's. One journaled Patch per HUD; Esc restores.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-22"
+          "decided": "2026-09-28"
         },
         "D14": {
           "behavior": "A committed stroke keeps the softness it was painted with. Recoloring that stroke later leaves the brush softness where it was. The temporary Alt eyedropper, and the Eyedropper tool, still sample across the desktop.",

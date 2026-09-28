@@ -80,8 +80,10 @@ pub struct BoardColors { pub fg: Rgba, pub bg: Rgba }
 
 - Line, Polyline, Arc, Pen, and Bezier share the brush's right-button HUD:
   Alt+right-drag size, Ctrl+right-drag color wheel, Shift+right-drag
-  opacity. They write the open-curve create style (P1.curve.create-style).
-  No softness: vector strokes are not stamped.
+  opacity. They write the armed tool's own create-style slot
+  (P1.curve.create-style). No softness: vector strokes are not stamped.
+  With a drawing tool armed or a curve targeted, Ctrl+right-drag is the
+  color wheel instead of turbo pan; Smooth and the Eraser show no wheel.
 - The Alt+right-drag size circle stays pinned where the user pressed and
   grows about that point for the whole hold (user, 2026-09-28).
 - The size circle carries a style row (`board_tip_hud.rs`): textures for
@@ -100,13 +102,22 @@ pub struct BoardColors { pub fg: Rgba, pub bg: Rgba }
 - Committed curves take the same HUD (user, 2026-09-26 and 2026-09-27).
   With vertices picked (Direct Select anchors or Select-tool grip picks) it
   edits only those vertices' width, color and opacity; with none picked, a
-  hovered vertex; otherwise Direct Select edits the whole curve, existing
-  per-vertex tips included. Per-vertex values live in `PathData` tips
+  hovered vertex. With no grip picked and no point hovered, the HUD edits
+  the whole selected curve under the Select tool or Direct Select (user,
+  28 September 2026, ed1), existing per-vertex tips included, and shifts
+  it rather than overwriting it: width scales every tip, the wheel shifts
+  every tip's hue, saturation and value by the change from the curve's
+  first color to the pick (a gradient stays a gradient), and opacity
+  scales the curve's. The property strip stays absolute
+  ([direct selection](direct-selection.md#tip-hud-on-picked-vertices)).
+  Per-vertex values live in `PathData` tips
   (P1.curve.vertex-style); a vertex's opacity is the opacity it paints at
   (node opacity × the alpha of its color), written back by the share rule.
   Committed brush strokes take the HUD too (review r7, 2026-09-27): their
-  stamped tips scale in proportion for whole-curve size and softness, and
-  recolor or retexture together; a picked or hovered anchor edits only its
+  stamped tips scale in proportion for whole-curve size and softness (the
+  widest tip lands on the value shown), and shift color or retexture
+  together; the Select tool reaches them too, since painted ink shows no
+  grips there. A picked or hovered anchor edits only its
   own tip. Both interpreters render them (Art. IV): the painter blends
   along the stroke, and the HTML export writes a `linearGradient` with
   `stop-opacity` (vector) or the stamped bitmap of the same tips (brush).

@@ -101,6 +101,10 @@ drag the address-bar URL or a page link instead.
   window promotes the keystroke into the same palette entry mode (so
   typing `brush` is not stolen by the `B` tool binding). Esc cancels a
   pending hold; pointer-down or another chord commits it early.
+  Auto-repeat of the held letter does not open command entry and does not
+  start a new hold: holding `A` arms Direct Select once (user,
+  28 September 2026: "general issue using charicters in this way as it
+  launches the search fetur on the canvas").
 - **`"` or `'` then Enter (Board)** — the Grasshopper panel entry. A leading
   quote opens the same canvas palette with the quote as its query and
   **Media: new text document** (`board.media.text_new`) as the only row.
@@ -267,7 +271,10 @@ drag the address-bar URL or a page link instead.
   only). They run while Brush, Eraser, Smooth, or a curve tool is armed,
   and on a committed curve: its picked vertices (Direct Select anchors or
   Select-tool grips), else the vertex under the pointer, else the whole
-  curve under Direct Select (see *Picked vertices* below).
+  selected curve under the Select tool or Direct Select (see *Picked
+  vertices* below). With a drawing tool armed or a curve targeted,
+  Ctrl+right-drag is the color wheel instead of turbo pan; Smooth and the
+  Eraser show no wheel.
 - **Alt+right-drag** (`board.brush.size_hud`) with Pen, Line, Arc,
   Polyline, or Bézier armed opens the Brush size HUD for that tool's own
   width (horizontal only; these strokes are always hard). During a line,
@@ -376,8 +383,18 @@ User decision, 27 September 2026 (`docs/keymap/specs/direct-selection.md`):
 
 - **Alt / Ctrl / Shift+right-drag** edit the width, color, and opacity of
   the picked vertices only. With nothing picked, the vertex under the
-  pointer is edited; elsewhere Direct Select edits the whole curve,
-  per-vertex colors included. One undo step per HUD; Esc restores.
+  pointer is edited. With no grip picked and no point hovered, the HUD
+  edits the whole selected curve under the Select tool or Direct Select
+  (user, 28 September 2026, ed1), painted brush strokes included. Those
+  whole-curve edits shift the curve rather than overwrite it: width scales
+  every tip by one factor (tapers keep), the color wheel shifts every tip's
+  hue, saturation, and value by the change from the curve's first color to
+  the pick (a gradient stays a gradient), and opacity scales the curve's,
+  so each vertex keeps its share, down to 0 % (a 0 % curve still selects
+  on its line). The style row under the size circle restyles the whole
+  curve too. One undo step per HUD; Esc restores.
+- The shape property strip stays absolute: with nothing picked, its width
+  scales every vertex and keeps the taper, and its color sets every vertex.
 - The shape property strip sits beside the picked points and edits them.
 - A dragged handle keeps its grab offset and snaps its tip, never onto its
   own anchor. The same applies to a Bézier span being drafted.

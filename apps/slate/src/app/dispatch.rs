@@ -1354,9 +1354,10 @@ impl SlateApp {
                     continue;
                 }
                 // On the board, bare letters wait out the hold window so a
-                // second character can open type-to-command instead.
+                // second character can open type-to-command instead. A held
+                // letter's auto-repeat is neither.
                 if command_typing_ok && chord.is_bare_letter() {
-                    if let Some(ch) = chord.key.as_letter() {
+                    if let Some(ch) = chord.key.as_letter().filter(|_| chord_fresh(i, chord)) {
                         k.bare_letter = Some((spec.id, ch));
                     }
                     continue;
@@ -1377,7 +1378,7 @@ impl SlateApp {
                         continue;
                     }
                     if command_typing_ok && chord.is_bare_letter() {
-                        if let Some(ch) = chord.key.as_letter() {
+                        if let Some(ch) = chord.key.as_letter().filter(|_| chord_fresh(i, *chord)) {
                             k.bare_letter = Some((*id, ch));
                         }
                         continue;
@@ -1418,11 +1419,30 @@ impl SlateApp {
             // Printable text for type-to-command (letters/digits; drafts
             // already gate command_typing_ok). Space is allowed only after
             // the first character so Space-tap pan/repeat is not stolen.
+            // The character a held key auto-repeats is not typing: holding
+            // a tool letter never opens command entry.
             if command_typing_ok && !i.modifiers.ctrl && !i.modifiers.alt && !i.modifiers.command {
+                let mut repeated: Vec<char> = i
+                    .events
+                    .iter()
+                    .filter_map(|e| match e {
+                        egui::Event::Key {
+                            key,
+                            pressed: true,
+                            repeat: true,
+                            ..
+                        } => key_char(*key),
+                        _ => None,
+                    })
+                    .collect();
                 for e in &i.events {
                     if let egui::Event::Text(t) = e {
                         for c in t.chars() {
                             let c = c.to_ascii_lowercase();
+                            if let Some(at) = repeated.iter().position(|r| *r == c) {
+                                repeated.swap_remove(at);
+                                continue;
+                            }
                             if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
                                 k.typed.push(c);
                             } else if matches!(c, '"' | '\'')
@@ -1711,6 +1731,30 @@ fn chord_pressed(i: &egui::InputState, chord: Chord) -> bool {
             && modifiers.shift == chord.shift
             && modifiers.alt == chord.alt)
     })
+}
+
+/// [`chord_pressed`] by a real press, not a held key's auto-repeat.
+fn chord_fresh(i: &egui::InputState, chord: Chord) -> bool {
+    let Some(key) = to_egui_key(chord.key) else {
+        return false;
+    };
+    i.events.iter().any(|event| {
+        matches!(event, egui::Event::Key {
+            key: event_key, pressed: true, repeat: false, modifiers, ..
+        } if *event_key == key
+            && modifiers.ctrl == chord.ctrl
+            && modifiers.shift == chord.shift
+            && modifiers.alt == chord.alt)
+    })
+}
+
+/// The lowercase character a letter or digit key types.
+fn key_char(key: egui::Key) -> Option<char> {
+    let mut name = key.name().chars();
+    match (name.next(), name.next()) {
+        (Some(c), None) if c.is_ascii_alphanumeric() => Some(c.to_ascii_lowercase()),
+        _ => None,
+    }
 }
 
 /// The pre-registry suppression gates, applied per chord shape:
