@@ -275,10 +275,7 @@ impl SlateApp {
 
     fn vertex_amount(node: &Node, vertex: usize, shared: f32) -> f32 {
         match &node.kind {
-            NodeKind::Shape(s) => s
-                .path
-                .as_ref()
-                .map_or(shared, |p| p.vertex_corner_amount(vertex, shared)),
+            NodeKind::Shape(s) => slate_doc::vertex_style::vertex_corner_amount(s, vertex, shared),
             _ => shared,
         }
     }

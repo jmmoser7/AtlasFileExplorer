@@ -423,7 +423,8 @@ is searchable.
   or fitted pen stroke shows every anchor and every non-zero tangent
   handle. Lines keep their endpoint grips. Every grip is painted and picked
   by the shared path-edit overlay: only painted grips, nearest within 7
-  screen px, an anchor wins a tie. One drag moves one point and is one
+  screen px, an anchor wins a tie; a grip under the selection strip still
+  takes the press (shape-selection-toolbar D13). One drag moves one point and is one
   journaled Patch; Esc mid-drag restores. A handle drag takes the Bézier
   keys (bezier-span D05 / D07): Alt moves only that handle (user pass,
   28 September 2026, pm3), Shift keeps its direction and changes only its

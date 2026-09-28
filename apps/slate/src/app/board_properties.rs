@@ -1577,6 +1577,18 @@ impl SlateApp {
         let mut requested_measure = false;
         let mut requested_screenshot = false;
         let mut captures = false;
+        // P1.curve.grips: a painted grip under a button takes the press. The
+        // board hit-tests a drag at its press origin, so a held press is
+        // judged there too.
+        let grip_probe = ctx.input(|i| {
+            let held = i.pointer.any_down();
+            i.pointer
+                .press_origin()
+                .filter(|_| held)
+                .or(i.pointer.latest_pos())
+        });
+        let grip_under = live
+            && grip_probe.is_some_and(|p| strip.contains(p) && self.hovered_vertex(p).is_some());
         for (index, item) in items.iter().enumerate() {
             let r = chrome::strip_button_rect(strip, index, z);
             let (label, icon, active) = match item {
@@ -1680,6 +1692,7 @@ impl SlateApp {
                     self.board_tool == BoardTool::Deck,
                 ),
             };
+            let button_live = live && !grip_under;
             let response = chrome::button(
                 ui,
                 r,
@@ -1690,9 +1703,9 @@ impl SlateApp {
                 z,
                 theme,
                 fade,
-                live,
+                button_live,
             );
-            if live && response.clicked() {
+            if button_live && response.clicked() {
                 match item {
                     StripItem::Panel(panel) => requested_panel = Some(*panel),
                     StripItem::Frame(action) => requested_frame = Some(*action),
@@ -1701,7 +1714,7 @@ impl SlateApp {
                     StripItem::ModelScreenshot => requested_screenshot = true,
                 }
             }
-            captures |= ctx.pointer_latest_pos().is_some_and(|p| r.contains(p));
+            captures |= button_live && ctx.pointer_latest_pos().is_some_and(|p| r.contains(p));
             if live {
                 self.shape_properties.chrome_hits.push(r);
             }
@@ -2026,7 +2039,7 @@ impl SlateApp {
     /// What the Corners panel shows for `first`: its treatment and units,
     /// the slider's maximum, and the amount, which is the first picked
     /// corner's when corners are picked (ep2).
-    fn corners_panel_reading(&self, first: &Node) -> (bool, bool, f32, f32) {
+    pub(crate) fn corners_panel_reading(&self, first: &Node) -> (bool, bool, f32, f32) {
         let (chamfer, percent, amount) = self.corner_for_editor(first).parameters();
         let limit = first.rect.w.min(first.rect.h) * 0.5;
         let maximum = if percent { 100.0 } else { limit };

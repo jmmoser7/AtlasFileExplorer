@@ -1,5 +1,23 @@
 # Canvas command project — change log
 
+## 2026-09-28 — Closed-form corners read back; grips under the strip (round 8 review)
+
+- `shape-selection-toolbar` D13: a picked rectangle or regular polygon
+  vertex shows Stroke and Corners (matching rectangle D14, polygon D14);
+  only end points and Bézier anchors hide Corners. The Corners amount and
+  the corner grip now read a closed form's stored per-vertex override
+  instead of the shared amount, so the panel shows what was set and a
+  corner can be set back to the shared amount.
+- D13 and `PATTERNS.md` P1.curve.grips: a press on a painted anchor or
+  handle knob goes to the grip even where a strip button covers it, so a
+  handle pointing up from a picked anchor still drags (bezier-span D07).
+- Art. II: a styled rectangle or polygon derives its paint path once per
+  change and reuses it on steady frames.
+- Tests: `corners_panel_reads_a_picked_closed_form_corner_override`,
+  `a_closed_form_corner_reads_its_stored_override` (slate-doc),
+  `a_handle_knob_under_the_property_strip_still_drags`,
+  `a_styled_rectangle_derives_its_paint_path_once`.
+
 ## 2026-09-28 — Whole-curve tip HUD under Select, relative edits (user)
 
 - User, 28 September 2026 (checklist ed1, applying to ed1–ed3 and eb1):
