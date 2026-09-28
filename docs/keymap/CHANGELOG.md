@@ -1,5 +1,20 @@
 # Canvas command project — change log
 
+## 2026-09-27 — An eraser band outlasts Delete, and rotated strokes cull (review r18)
+
+- `brush` D11: deleting a stroke while an eraser band's pass is applied
+  keeps the band, unpainted and asking for no frames, and a preview still
+  settling for the removed stroke turns into such bands. Ctrl+Z that
+  brings the stroke back never paints the un-erased stroke. The band
+  ends when its tab closes or its pass leaves the undo history.
+- `brush` D11: a rotated stroke is in view only while the box around its
+  rotated frame, padded as the board pads strokes, meets the view. A band
+  over a rotated stroke out of view asks for no frames, and the board
+  stops painting rotated paths outside the view. Other rotated nodes, and
+  rotated paths with an arrowhead or hosted text, still count as in view.
+- The rotated-frame box that the tiles and culling use is now
+  `WorldRect::rotated_bounds` in both places.
+
 ## 2026-09-27 — An undone eraser band survives settling and re-adds (review r17)
 
 - `brush` D11: undoing an eraser pass while its preview still settles
