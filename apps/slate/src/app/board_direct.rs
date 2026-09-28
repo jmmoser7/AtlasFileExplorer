@@ -31,6 +31,27 @@ use vector_ink::{
 const SEGMENT_HIT_PX: f32 = 6.0;
 /// World length below which a handle is its anchor.
 const HANDLE_EPS: f64 = 1e-3;
+/// Designed width of the picked-edge highlight (world units at zoom 1).
+const EDGE_HIGHLIGHT_W: f32 = 3.0;
+/// Below this painted width the highlight is dropped, never floored.
+const EDGE_HIGHLIGHT_MIN_PX: f32 = 1.0;
+
+/// World polylines of the picked edges, flattened for one zoom bucket.
+struct PickedEdgeLines {
+    key: u64,
+    lines: Vec<Vec<Pos2>>,
+}
+
+#[cfg(test)]
+thread_local! {
+    static EDGES_FLATTENED_HERE: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Picked-edge highlights flattened on this thread so far.
+#[cfg(test)]
+pub(crate) fn picked_edges_flattened_on_this_thread() -> u64 {
+    EDGES_FLATTENED_HERE.with(|n| n.get())
+}
 
 /// Direct-selection state: the target path node + selected anchor indices.
 #[derive(Default)]
@@ -964,7 +985,8 @@ impl SlateApp {
     }
 
     /// Picked edges of the selected curve, drawn over it in the path-edit
-    /// select color (path-edit adornment: screen-constant, like the grips).
+    /// select color. The highlight is a canvas object (P0.9): its width
+    /// tracks the camera and it drops below a screen pixel.
     pub(crate) fn paint_picked_edges(&self, painter: &egui::Painter, xf: &BoardXf) {
         let Some(id) = self.direct.grip_points.node else {
             return;
@@ -972,24 +994,73 @@ impl SlateApp {
         if self.direct.grip_points.edges.is_empty() || !self.board_sel.contains(&id) {
             return;
         }
-        let Some((anchors, closed)) = self.direct_anchors_of(id) else {
+        let width = atlas_shell::canvas_scale::px(EDGE_HIGHLIGHT_W, xf.z);
+        if width < EDGE_HIGHLIGHT_MIN_PX {
+            return;
+        }
+        let Some(key) = self.picked_edge_key(id, xf.z) else {
             return;
         };
-        let bez = bezpath_from_anchors(&anchors, closed);
-        let color = self.palette().select;
-        for (i, seg) in bez.segments().enumerate() {
-            if !self.direct.grip_points.edges.contains_key(&i) {
-                continue;
+        let cache = egui::Id::new("slate.picked_edge_lines");
+        let lines = match painter
+            .ctx()
+            .data(|d| d.get_temp::<std::sync::Arc<PickedEdgeLines>>(cache))
+            .filter(|c| c.key == key)
+        {
+            Some(lines) => lines,
+            None => {
+                let Some(built) = self.flatten_picked_edges(id, key, xf.z) else {
+                    return;
+                };
+                let built = std::sync::Arc::new(built);
+                painter.ctx().data_mut(|d| d.insert_temp(cache, built.clone()));
+                built
             }
-            let one = vector_ink::kurbo::Shape::to_path(&seg, 0.1);
-            let pts: Vec<Pos2> = vector_ink::flatten(&one, 0.5)
-                .iter()
-                .map(|[x, y]| xf.w2s(Pos2::new(*x, *y)))
-                .collect();
-            if pts.len() >= 2 {
-                painter.add(egui::Shape::line(pts, egui::Stroke::new(3.0_f32, color)));
-            }
+        };
+        let stroke = egui::Stroke::new(width, self.palette().select);
+        for line in &lines.lines {
+            let pts: Vec<Pos2> = line.iter().map(|p| xf.w2s(*p)).collect();
+            painter.add(egui::Shape::line(pts, stroke));
         }
+    }
+
+    /// What the picked-edge highlight depends on: the curve's geometry, the
+    /// zoom bucket its flattening is good for, and the picked edges.
+    fn picked_edge_key(&self, id: NodeId, zoom: f32) -> Option<u64> {
+        use std::hash::{Hash, Hasher};
+        let node = self.doc().scene.node(id)?;
+        let NodeKind::Shape(s) = &node.kind else {
+            return None;
+        };
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        id.hash(&mut h);
+        board_path::hash_shape_geometry(&mut h, node, s);
+        board_path::zoom_bucket(zoom).hash(&mut h);
+        for seg in self.direct.grip_points.edges.keys() {
+            seg.hash(&mut h);
+        }
+        Some(h.finish())
+    }
+
+    fn flatten_picked_edges(&self, id: NodeId, key: u64, zoom: f32) -> Option<PickedEdgeLines> {
+        #[cfg(test)]
+        EDGES_FLATTENED_HERE.with(|n| n.set(n.get() + 1));
+        let (anchors, closed) = self.direct_anchors_of(id)?;
+        let tolerance = board_path::curve_tolerance(zoom);
+        let lines = bezpath_from_anchors(&anchors, closed)
+            .segments()
+            .enumerate()
+            .filter(|(i, _)| self.direct.grip_points.edges.contains_key(i))
+            .map(|(_, seg)| {
+                let one = vector_ink::kurbo::Shape::to_path(&seg, tolerance);
+                vector_ink::flatten(&one, tolerance)
+                    .iter()
+                    .map(|[x, y]| Pos2::new(*x, *y))
+                    .collect::<Vec<Pos2>>()
+            })
+            .filter(|pts| pts.len() >= 2)
+            .collect();
+        Some(PickedEdgeLines { key, lines })
     }
 
     pub(crate) fn paint_curve_grips(&self, painter: &egui::Painter, xf: &BoardXf) {

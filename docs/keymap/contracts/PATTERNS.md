@@ -454,8 +454,12 @@ is searchable.
   (user, 28 September 2026, "dig selection"): Ctrl+Shift+click on a
   segment, away from the grips, picks that edge and its two end vertices
   (Rhino sub-object selection; the group-member and locked meanings stay).
-  More clicks add edges or toggle one off. A picked edge paints a
-  screen-constant line (path-edit exception); dragging it moves every
+  More clicks add edges or toggle one off. A picked edge paints a line
+  in the selection color that scales with the canvas (P0.9:
+  `canvas_scale::px(3, z)`, dropped under one screen pixel; it is not a
+  path-edit handle), flattened once per zoom bucket
+  (`board_path::curve_tolerance`) and cached until the curve, the zoom
+  bucket or the picked edges change (review round 8); dragging it moves every
   picked vertex as one snapped Patch; Delete removes the picked segments
   through the trim owner (`commit_open_pieces`), splitting an open curve
   and opening a closed one. With points picked the property strip shows
@@ -571,7 +575,9 @@ is searchable.
   here; with both ends picked, at both ends) and sets only the picked
   ends; the other end keeps its own. One release is one journaled Patch,
   and Esc before the release restores. The model is `Stroke::cap_start` /
-  `cap_end` (only where the cap differs from `cap`), `arrow_start` /
+  `cap_end` (only where the cap differs from `cap`; `set_end` never
+  rewrites `cap`, so giving both ends the same cap leaves the dash caps
+  alone, review round 8), `arrow_start` /
   `arrow_end`, and narrowing in `WidthProfile` (`Taper` narrows one end,
   `Ends` both), read and written through `Stroke::end` / `set_end`. Both
   interpreters cap the two ends through `vector_ink::stroke_mesh_ends` /
