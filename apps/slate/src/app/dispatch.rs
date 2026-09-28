@@ -1146,7 +1146,7 @@ impl SlateApp {
                     // live preview restores the ink.
                     _ => {
                         self.erase_live.clear();
-                        self.brush_tiles.forget_erase_lines();
+                        self.brush_tiles.forget_erase_lines(&self.erase_settle.lanes());
                     }
                 }
                 true

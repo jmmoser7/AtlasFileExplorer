@@ -12,6 +12,23 @@
   line from a point of a different document. Esc on a pass also drops its
   cuts still on the raster workers (review r11).
 
+## 2026-09-27 — Eraser Shift release stamps nothing on the frame loop; Shift+wheel pans (review r10)
+
+- `brush` D11: an Eraser Shift release takes in a cut that landed after
+  the last paint instead of discarding it and stamping the segment again.
+  When the final cut is still on the workers, the release commits the
+  erase mark at once and the preview and band stand in until the cut
+  lands. A flick that crossed a stroke before its preview existed keeps
+  the stroke's tiles under the band until its erased bitmap is current.
+  The release stamps on the frame loop only within the frame's
+  `SYNC_STAMP_PX` budget. The committed erase mark is unchanged.
+- `brush` Textures: the eraser band's approximation lasts until the exact
+  cut lands after the release as well as after the pointer stops.
+- `canvas.pan_scroll`: Shift + scroll wheel pans the board sideways again.
+  egui delivers a Shift wheel as a horizontal delta, which the board had
+  been ignoring. Plain wheel zoom and Ctrl + wheel are unchanged; the
+  binding text is unchanged.
+
 ## 2026-09-27 — Shift rebuilds off the frame loop, honest preview (review r10)
 
 - `brush` D11: when the camera or the stroke changed, the next Shift press

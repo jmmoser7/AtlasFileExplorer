@@ -513,10 +513,10 @@ impl BrushTiles {
         self.drain_finished();
     }
 
-    /// Drop landed eraser segment rasters, and any still on the workers:
-    /// their pass is over.
-    pub(crate) fn forget_erase_lines(&mut self) {
-        self.lines_wanted.retain(|w| w.0 == BRUSH_LANE);
+    /// Drop landed eraser segment rasters, and any still on the workers,
+    /// except on the lanes in `keep`: their pass is over.
+    pub(crate) fn forget_erase_lines(&mut self, keep: &[u64]) {
+        self.lines_wanted.retain(|w| w.0 == BRUSH_LANE || keep.contains(&w.0));
         self.drain_finished();
     }
 
@@ -1100,7 +1100,10 @@ pub(super) fn plain_stamp<'a>(
     }
     // A stroke the eraser reached leaves the tiles once its live preview
     // exists (`ensure_erase_live`), not before, so it never goes undrawn.
-    if app.board_sel.contains(&node.id) || app.erase_live.contains_key(&node.id) {
+    if app.board_sel.contains(&node.id)
+        || app.erase_live.contains_key(&node.id)
+        || app.erase_settle.holds(node.id)
+    {
         return None;
     }
     if app.shape_properties.preview.iter().any(|p| p.id == node.id) {

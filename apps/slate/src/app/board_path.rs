@@ -2050,7 +2050,7 @@ fn stamp_area_px(node: &Node, shape: &ShapeNode, pixel: f32) -> f32 {
 }
 
 /// Spend this frame's synchronous raster budget on `area` pixels, if it fits.
-fn take_sync_budget(app: &mut SlateApp, area: f32) -> bool {
+pub(crate) fn take_sync_budget(app: &mut SlateApp, area: f32) -> bool {
     if app.stamp_sync_px + area > SYNC_STAMP_PX {
         return false;
     }
@@ -2100,13 +2100,181 @@ pub(crate) fn ensure_erase_live(app: &mut SlateApp, painter: &egui::Painter, xf:
     }
 }
 
+/// A straight eraser pass released before a reached stroke's final cut
+/// landed (Art. II). The pass's erase marks are committed at release and
+/// nothing stamps on the frame loop for them. Until its cut lands, a stroke
+/// with a preview paints that preview; a stroke released before its
+/// preview existed paints as the scene has it until its new raster lands.
+/// The eraser's band covers the part of the pass not cut yet, as during
+/// the drag.
+#[derive(Default)]
+pub struct EraseSettle {
+    tab: Option<u64>,
+    /// Previews waiting for their pass's final cut, under the stroke's
+    /// committed content key.
+    live: HashMap<NodeId, (u64, EraseLive)>,
+    /// Strokes with no preview: their pass and committed content key.
+    waiting: Vec<(NodeId, Seg, u64)>,
+}
+
+impl EraseSettle {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.live.is_empty() && self.waiting.is_empty()
+    }
+
+    /// Eraser lanes whose jobs a settling preview still wants.
+    pub(crate) fn lanes(&self) -> Vec<u64> {
+        self.live.keys().map(|id| tiles::erase_lane(*id)).collect()
+    }
+
+    /// A settling preview paints stroke `id`, not the tiles.
+    pub(crate) fn holds(&self, id: NodeId) -> bool {
+        self.live.contains_key(&id)
+    }
+
+    /// Start settling for document `tab`, dropping another document's.
+    pub(crate) fn here(&mut self, tab: u64, tiles: &mut tiles::BrushTiles) -> &mut Self {
+        if self.tab != Some(tab) {
+            self.clear(tiles);
+            self.tab = Some(tab);
+        }
+        self
+    }
+
+    /// Stroke `id`, committed under content `key`, paints `live` until its
+    /// final cut lands.
+    pub(crate) fn hold(&mut self, id: NodeId, key: u64, live: EraseLive) {
+        self.waiting.retain(|w| w.0 != id);
+        self.live.insert(id, (key, live));
+    }
+
+    /// Stroke `id`, committed under content `key` with no preview, keeps
+    /// the band over the straight pass along `points` until its new raster
+    /// lands.
+    pub(crate) fn wait(&mut self, id: NodeId, key: u64, points: &[Pos2], tip: StampStyle) {
+        if let Some(seg) = straight_seg(points, tip) {
+            self.waiting.retain(|w| w.0 != id);
+            self.waiting.push((id, seg, key));
+        }
+    }
+
+    /// Stop settling stroke `id`: a new pass's preview shows it.
+    pub(crate) fn release(&mut self, id: NodeId, tiles: &mut tiles::BrushTiles) {
+        if let Some((_, mut live)) = self.live.remove(&id) {
+            live.forget(tiles, tiles::erase_lane(id));
+        }
+        self.waiting.retain(|w| w.0 != id);
+    }
+
+    fn clear(&mut self, tiles: &mut tiles::BrushTiles) {
+        for (id, (_, mut live)) in self.live.drain() {
+            live.forget(tiles, tiles::erase_lane(id));
+        }
+        self.waiting.clear();
+    }
+
+    /// Each settling stroke's pass and where along it the uncut part starts.
+    fn rests(&self) -> impl Iterator<Item = (Seg, TipPoint, bool)> + Clone + '_ {
+        self.live
+            .values()
+            .filter_map(|(_, live)| {
+                let seg = live.line?;
+                live.uncovered(seg).map(|(from, cut)| (seg, from, cut))
+            })
+            .chain(self.waiting.iter().map(|(_, seg, _)| (*seg, seg.0, false)))
+    }
+}
+
+/// Stroke `node` while its released straight pass waits for the final cut:
+/// its preview. Once the cut lands the preview becomes the stroke's
+/// stand-in until its new raster lands, and this returns false so the
+/// stroke paints as usual; so it does when the workers gave up.
+fn paint_settling_erase(
+    app: &mut SlateApp,
+    painter: &egui::Painter,
+    xf: &BoardXf,
+    node: &Node,
+    fade: &impl Fn(Color32) -> Color32,
+) -> bool {
+    let Some((key, mut live)) = app.erase_settle.live.remove(&node.id) else {
+        return false;
+    };
+    let lane = tiles::erase_lane(node.id);
+    if node_stamp_key(node) != Some(key) {
+        live.forget(&mut app.brush_tiles, lane);
+        return false;
+    }
+    live.pump(&mut app.brush_tiles, lane, painter.ctx());
+    if live.settled() {
+        let gpu = live.into_stand_in(node.rect, app.frame_no);
+        app.brush_stamps.insert(node.id, (0, gpu));
+        return false;
+    }
+    if live.gave_up() {
+        return false;
+    }
+    live.paint(painter, xf, fade(Color32::WHITE));
+    app.erase_settle.live.insert(node.id, (key, live));
+    true
+}
+
+/// End the settle of strokes whose new raster has landed, or that changed
+/// or left the scene since the release.
+fn tend_erase_settle(app: &mut SlateApp, painter: &egui::Painter, xf: &BoardXf) {
+    if app.erase_settle.is_empty() {
+        return;
+    }
+    let tab = app.tab().id;
+    app.erase_settle.here(tab, &mut app.brush_tiles);
+    let want = stamp_pixel_for_zoom(xf.z, painter.ctx().pixels_per_point());
+    let mut waiting = std::mem::take(&mut app.erase_settle.waiting);
+    waiting.retain(|(id, _, key)| match app.doc().scene.node(*id) {
+        Some(n) if node_stamp_key(n) == Some(*key) => !stroke_raster_current(app, n, *key, want),
+        _ => false,
+    });
+    app.erase_settle.waiting = waiting;
+    let gone: Vec<NodeId> = app
+        .erase_settle
+        .live
+        .keys()
+        .filter(|id| app.doc().scene.node(**id).is_none())
+        .copied()
+        .collect();
+    for id in gone {
+        app.erase_settle.release(id, &mut app.brush_tiles);
+    }
+    painter.ctx().request_repaint();
+}
+
+/// Stroke `node` paints its exact raster for content `key` at `want`.
+fn stroke_raster_current(app: &SlateApp, node: &Node, key: u64, want: f32) -> bool {
+    if app.brush_tiles_enabled && tiles::plain_stamp(app, node).is_some() {
+        return app.brush_tiles.last.settled;
+    }
+    app.brush_stamps
+        .get(&node.id)
+        .is_some_and(|(k, g)| g.exact && *k == key && g.wanted_pixel == want)
+}
+
 /// The straight eraser pass's vector stand-in: the eraser's band, in its
 /// preview color, over the part of the segment that some reached stroke
 /// does not show its exact cut for yet, so the preview follows the pointer
-/// on frames the workers have not caught up with.
+/// on frames the workers have not caught up with. A released pass keeps
+/// its band while it settles ([`EraseSettle`]).
 pub(crate) fn paint_erase_band(app: &mut SlateApp, painter: &egui::Painter, xf: &BoardXf) {
+    tend_erase_settle(app, painter, xf);
     let mut band = std::mem::take(&mut app.erase_band);
     band.begin();
+    let rgba = app.eraser_preview_color().to_srgba_unmultiplied();
+    let far = |seg: Seg, p: TipPoint| (p.pos[0] - seg.1.pos[0]).hypot(p.pos[1] - seg.1.pos[1]);
+    let mut paint = |seg: Seg, from: TipPoint, cut: bool| {
+        let shade = |p: TipPoint| TipPoint {
+            tip: StampStyle { rgba, ..p.tip },
+            ..p
+        };
+        let start = if cut { Cap::Butt } else { Cap::Round };
+        band.paint(painter, xf, (shade(from), shade(seg.1)), [start, Cap::Round]);
+    };
     if let Some(super::board::BoardDrag::Erase {
         points,
         spot,
@@ -2121,21 +2289,21 @@ pub(crate) fn paint_erase_band(app: &mut SlateApp, painter: &egui::Painter, xf: 
                     Some(live) => live.uncovered(seg),
                     None => Some((seg.0, false)),
                 })
-                .max_by(|a, b| {
-                    let far =
-                        |p: &TipPoint| (p.pos[0] - seg.1.pos[0]).hypot(p.pos[1] - seg.1.pos[1]);
-                    far(&a.0).total_cmp(&far(&b.0))
-                })
-                .map(|(from, cut)| (from, seg.1, cut))
+                .max_by(|a, b| far(seg, a.0).total_cmp(&far(seg, b.0)))
+                .map(|(from, cut)| (seg, from, cut))
         });
-        if let Some((from, to, cut)) = rest {
-            let rgba = app.eraser_preview_color().to_srgba_unmultiplied();
-            let shade = |p: TipPoint| TipPoint {
-                tip: StampStyle { rgba, ..p.tip },
-                ..p
-            };
-            let start = if cut { Cap::Butt } else { Cap::Round };
-            band.paint(painter, xf, (shade(from), shade(to)), [start, Cap::Round]);
+        if let Some((seg, from, cut)) = rest {
+            paint(seg, from, cut);
+        }
+    }
+    let rests = app.erase_settle.rests();
+    for (i, (seg, from, cut)) in rests.clone().enumerate() {
+        let d = far(seg, from);
+        let beaten = rests.clone().enumerate().any(|(j, (s, f, _))| {
+            j != i && s == seg && (far(s, f) > d || (far(s, f) == d && j < i))
+        });
+        if !beaten {
+            paint(seg, from, cut);
         }
     }
     app.erase_band = band;
@@ -2221,6 +2389,9 @@ fn paint_stamped_stroke(
             if !app.erase_live.contains_key(&node.id) {
                 start_erase_live(app, painter, node, want);
             }
+            if app.erase_live.contains_key(&node.id) {
+                app.erase_settle.release(node.id, &mut app.brush_tiles);
+            }
             if let Some(live) = app.erase_live.get_mut(&node.id) {
                 live.feed(&points, tip, straight);
                 live.pump(
@@ -2232,6 +2403,9 @@ fn paint_stamped_stroke(
                 return;
             }
         }
+    }
+    if paint_settling_erase(app, painter, xf, node, fade) {
+        return;
     }
     let key = stamp_key(node, shape, path);
     let exact = |app: &SlateApp| {
@@ -3563,7 +3737,8 @@ fn upload_rows(tex: &mut egui::TextureHandle, dirty: [u32; 4], sub: &[u8]) {
 /// cuts the segment out of the ink under it on the raster workers, and the
 /// newest landed cut shows. A frame the cut does not cover yet paints the
 /// eraser's band over the segment instead ([`paint_erase_band`]). The
-/// release takes in the cut that shows the final segment.
+/// release takes in the cut that shows the final segment, or leaves the
+/// preview standing in until it lands ([`EraseSettle`]).
 pub struct EraseLive {
     ink: Shared<Vec<u8>>,
     /// This pass's raw coverage and depth.
@@ -3572,6 +3747,8 @@ pub struct EraseLive {
     grained: Vec<u8>,
     shown: Vec<u8>,
     tex: egui::TextureHandle,
+    /// The mask's size; the landed cut's box of it shows that cut.
+    line_tex: egui::TextureHandle,
     done: usize,
     /// The straight pass's segment, not yet in `mask` or `shown`.
     line: Option<Seg>,
@@ -3586,14 +3763,26 @@ pub struct EraseLive {
 }
 
 /// A straight pass's cut from the raster workers: `seg` stamped into a clear
-/// mask over box `bx`, and the ink there with that mask taken out.
+/// mask over box `bx`, and the ink there with that mask taken out. Its
+/// pixels are in the preview's line texture.
 struct EraseExact {
     seg: Seg,
     bx: [u32; 4],
-    tex: egui::TextureHandle,
     raw: vector_ink::StampImage,
+    image: Shared<egui::ColorImage>,
     shown: Vec<u8>,
     changed: bool,
+}
+
+/// What an eraser release did with a preview's straight pass.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum EraseSettled {
+    /// A freehand pass: the mask already holds it.
+    Freehand,
+    /// The final segment is in the mask.
+    Done,
+    /// The final cut is still on the workers and too big to stamp here.
+    Pending,
 }
 
 impl EraseLive {
@@ -3616,6 +3805,15 @@ impl EraseLive {
             image,
             egui::TextureOptions::LINEAR,
         );
+        let line_tex = painter.ctx().load_texture(
+            format!("erase-live-line-{}", id.0),
+            egui::ColorImage::new(
+                [img.width as usize, img.height as usize],
+                Color32::TRANSPARENT,
+            ),
+            egui::TextureOptions::LINEAR,
+        );
+        note_line_tex_alloc();
         let mask = vector_ink::StampImage {
             width: img.width,
             height: img.height,
@@ -3630,6 +3828,7 @@ impl EraseLive {
             mask,
             grained: Vec::new(),
             tex,
+            line_tex,
             done: 0,
             line: None,
             exact: None,
@@ -3696,25 +3895,12 @@ impl EraseLive {
     /// Take the straight pass's cut from the workers when it lands, then ask
     /// for the segment the pass shows now; the newest segment wins.
     pub(crate) fn pump(&mut self, tiles: &mut tiles::BrushTiles, lane: u64, ctx: &egui::Context) {
-        if let Some((tag, seg, bx)) = self.inflight {
-            match tiles.take_line(lane, tag) {
-                None => {}
-                Some(tiles::LineLanded::Raster(r)) => {
-                    self.inflight = None;
-                    self.losses = 0;
-                    self.land(seg, bx, r, ctx);
-                }
-                Some(tiles::LineLanded::Lost) => {
-                    self.inflight = None;
-                    self.losses += 1;
-                }
-            }
-        }
+        self.take_landed(tiles, lane);
         // Past the retries the band stands in and the release cuts once here.
         if self.inflight.is_none() && self.losses <= LINE_RETRIES {
             if let Some(seg) = self.line {
                 if !self.exact.as_ref().is_some_and(|e| e.seg == seg) {
-                    self.ask(tiles, lane, seg, ctx);
+                    self.ask(tiles, lane, seg);
                 }
             }
         }
@@ -3723,7 +3909,33 @@ impl EraseLive {
         }
     }
 
-    fn ask(&mut self, tiles: &mut tiles::BrushTiles, lane: u64, seg: Seg, ctx: &egui::Context) {
+    /// Take the straight pass's cut if it has landed, asking for nothing.
+    pub(crate) fn take_landed(&mut self, tiles: &mut tiles::BrushTiles, lane: u64) {
+        let Some((tag, seg, bx)) = self.inflight else {
+            return;
+        };
+        match tiles.take_line(lane, tag) {
+            None => {}
+            Some(tiles::LineLanded::Raster(r)) => {
+                self.inflight = None;
+                self.losses = 0;
+                self.land(seg, bx, r);
+            }
+            Some(tiles::LineLanded::Lost) => {
+                self.inflight = None;
+                self.losses += 1;
+            }
+        }
+    }
+
+    /// Drop the job on the workers: nobody will take it.
+    pub(crate) fn forget(&mut self, tiles: &mut tiles::BrushTiles, lane: u64) {
+        if let Some((tag, ..)) = self.inflight.take() {
+            tiles.forget_line(lane, tag);
+        }
+    }
+
+    fn ask(&mut self, tiles: &mut tiles::BrushTiles, lane: u64, seg: Seg) {
         let Some(bx) = segment_box(&self.mask, seg.0, seg.1) else {
             return;
         };
@@ -3756,28 +3968,25 @@ impl EraseLive {
             Ok(()) => self.inflight = Some((tag, seg, bx)),
             Err(job) => {
                 let r = line_raster(job);
-                self.land(seg, bx, r, ctx);
+                self.land(seg, bx, r);
             }
         }
     }
 
-    fn land(&mut self, seg: Seg, bx: [u32; 4], r: LineRaster, ctx: &egui::Context) {
+    fn land(&mut self, seg: Seg, bx: [u32; 4], r: LineRaster) {
         if !fits_box(&r.raw, bx) {
             return;
         }
-        note_line_tex_alloc();
-        let tex = match self.exact.take() {
-            Some(mut old) => {
-                old.tex.set(r.image, egui::TextureOptions::LINEAR);
-                old.tex
-            }
-            None => ctx.load_texture("erase-live-line", r.image, egui::TextureOptions::LINEAR),
-        };
+        self.line_tex.set_partial(
+            [bx[0] as usize, bx[1] as usize],
+            Shared::clone(&r.image),
+            egui::TextureOptions::LINEAR,
+        );
         self.exact = Some(EraseExact {
             seg,
             bx,
-            tex,
             raw: r.raw,
+            image: r.image,
             shown: r.shown,
             changed: r.changed,
         });
@@ -3805,25 +4014,56 @@ impl EraseLive {
     }
 
     /// Release of a straight pass along `points`: the cut that shows its
-    /// final segment goes into the preview; without one, it stamps here.
-    pub(crate) fn settle_line(&mut self, points: &[Pos2], tip: StampStyle) {
-        if self.line.take().is_none() {
-            return;
+    /// final segment goes into the preview. Without one, the segment stamps
+    /// here only when `fits` grants its box from the frame's raster budget
+    /// (or the workers keep losing the job); otherwise the pass stays
+    /// [`EraseSettled::Pending`] and [`Self::pump`] keeps asking for the cut.
+    pub(crate) fn settle_line(
+        &mut self,
+        points: &[Pos2],
+        tip: StampStyle,
+        fits: &mut dyn FnMut(f32) -> bool,
+    ) -> EraseSettled {
+        if self.line.is_none() {
+            return EraseSettled::Freehand;
         }
-        self.inflight = None;
         let Some(seg) = straight_seg(points, tip) else {
-            return;
+            self.line = None;
+            return EraseSettled::Done;
         };
-        match self.exact.take() {
-            Some(e) if e.seg == seg => self.take_in(e),
-            _ => {
-                stamp_segment(&mut self.mask, seg.0, seg.1);
-                if let Some(bx) = segment_box(&self.mask, seg.0, seg.1) {
-                    note_stamp_px(box_area(bx));
-                    self.reveal(bx, tip.grain);
-                }
+        if let Some(e) = self.exact.take_if(|e| e.seg == seg) {
+            self.take_in(e);
+        } else if let Some(bx) = segment_box(&self.mask, seg.0, seg.1) {
+            if self.losses <= LINE_RETRIES && !fits(box_area(bx) as f32) {
+                self.line = Some(seg);
+                return EraseSettled::Pending;
             }
+            stamp_segment(&mut self.mask, seg.0, seg.1);
+            note_stamp_px(box_area(bx));
+            self.reveal(bx, tip.grain);
         }
+        self.line = None;
+        self.inflight = None;
+        EraseSettled::Done
+    }
+
+    /// A pending straight pass took in its final cut: the preview shows the
+    /// committed result.
+    pub(crate) fn settled(&mut self) -> bool {
+        let Some(line) = self.line else {
+            return true;
+        };
+        let Some(e) = self.exact.take_if(|e| e.seg == line) else {
+            return false;
+        };
+        self.take_in(e);
+        self.line = None;
+        true
+    }
+
+    /// The workers lost this pass's cut past the retries.
+    pub(crate) fn gave_up(&self) -> bool {
+        self.inflight.is_none() && self.losses > LINE_RETRIES
     }
 
     fn take_in(&mut self, e: EraseExact) {
@@ -3843,7 +4083,11 @@ impl EraseLive {
             }
         }
         self.changed = e.changed;
-        upload_region(&mut self.tex, &self.shown, self.mask.width, e.bx);
+        self.tex.set_partial(
+            [x0 as usize, y0 as usize],
+            e.image,
+            egui::TextureOptions::LINEAR,
+        );
     }
 
     /// Recompute `shown` as ink minus the mask over box `d`, and upload it.
@@ -3893,19 +4137,7 @@ impl EraseLive {
             return;
         };
         paint_around(painter, xf, self.tex.id(), img, e.bx, tint);
-        let size = [e.bx[2] - e.bx[0], e.bx[3] - e.bx[1]];
-        let origin = [
-            m.origin[0] + e.bx[0] as f32 * m.pixel,
-            m.origin[1] + e.bx[1] as f32 * m.pixel,
-        ];
-        paint_texels(
-            painter,
-            xf,
-            e.tex.id(),
-            (origin, m.pixel, size),
-            [0, 0, size[0], size[1]],
-            tint,
-        );
+        paint_texels(painter, xf, self.line_tex.id(), img, e.bx, tint);
     }
 
     #[cfg(test)]
