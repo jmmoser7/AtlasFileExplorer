@@ -1,5 +1,17 @@
 # Canvas command project — change log
 
+## 2026-09-27 — An eraser pass that empties a big stroke removes it (review r11)
+
+- `brush` D11: when a release cannot tell within the frame's
+  `SYNC_STAMP_PX` budget whether a pass left a stroke any ink, the raster
+  workers run the same coarse check instead of the stroke being treated
+  as changed and not removed. A stroke with no ink left is removed in the
+  pass's own undo step: one undo restores it with its ink, one redo
+  removes it again. This holds for Shift and freehand passes. If an undo,
+  another edit, or a document switch comes first, nothing is removed and
+  the fully erased stroke stays; its erased pixels do not pick. Nothing
+  stamps on the frame loop for the check.
+
 ## 2026-09-27 — A board drawing keeps its untitled tab
 
 - An untitled tab whose only content is on its board is no longer treated

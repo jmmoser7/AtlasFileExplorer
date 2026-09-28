@@ -70,6 +70,17 @@ pub(crate) enum BoardMark {
     Sheet(SheetMark),
 }
 
+/// The node a scene command adds, removes, or patches.
+fn cmd_node_id(cmd: &SceneCmd) -> NodeId {
+    match cmd {
+        SceneCmd::Add { node, .. }
+        | SceneCmd::Remove { node, .. }
+        | SceneCmd::LayerNodeAdd { node, .. }
+        | SceneCmd::LayerNodeRemove { node, .. } => node.id,
+        SceneCmd::Patch { after, .. } | SceneCmd::LayerNodePatch { after, .. } => after.id,
+    }
+}
+
 pub(crate) struct SheetMark {
     pub item: ItemId,
     pub path: PathBuf,
@@ -1549,15 +1560,7 @@ impl SlateApp {
                 Some((Some(before.as_ref()), after.as_ref()))
             }
         }));
-        self.brush_tiles
-            .note_ids(cmds.iter().filter_map(|c| match c {
-                SceneCmd::Add { node, .. } | SceneCmd::Remove { node, .. } => Some(node.id),
-                SceneCmd::Patch { after, .. } => Some(after.id),
-                SceneCmd::LayerNodeAdd { node, .. } | SceneCmd::LayerNodeRemove { node, .. } => {
-                    Some(node.id)
-                }
-                SceneCmd::LayerNodePatch { after, .. } => Some(after.id),
-            }));
+        self.brush_tiles.note_ids(cmds.iter().map(cmd_node_id));
         let tab = self.tab_mut();
         tab.dirty = true;
         let doc = &mut tab.doc;
@@ -1571,6 +1574,35 @@ impl SlateApp {
         }
         self.note_scene_change();
         ok
+    }
+
+    /// Fold `cmds` into journal group `token` when it is still the board's
+    /// newest undo step, so the step it already is reverts them too; no
+    /// new step. False, with nothing changed, otherwise.
+    pub(crate) fn amend_scene_group(
+        &mut self,
+        token: slate_doc::scene::GroupToken,
+        cmds: Vec<SceneCmd>,
+    ) -> bool {
+        let tab = self.tab();
+        if tab.read_only
+            || !matches!(tab.edits.last(), Some(BoardMark::Scene))
+            || !tab.edit_redo.is_empty()
+        {
+            return false;
+        }
+        let ids: Vec<NodeId> = cmds.iter().map(cmd_node_id).collect();
+        let tab = self.tab_mut();
+        let doc = &mut tab.doc;
+        let author = slate_doc::scene::CmdAuthor::Human;
+        if !tab.journal.amend_top(&mut doc.scene, token, &author, cmds) {
+            return false;
+        }
+        tab.dirty = true;
+        self.brush_tiles.note_ids(ids);
+        self.paint_layer_texture_cache.clear();
+        self.note_scene_change();
+        true
     }
 
     fn undo_scene_journal(&mut self) -> Option<usize> {
@@ -4164,6 +4196,7 @@ impl SlateApp {
         let _span = atlas_core::session_log::span("slate.board.paint");
         brush_prof::lap("paint-start");
         self.stamp_sync_px = 0.0;
+        self.settle_erase_checks();
         self.path_mesh_cache.tess_misses = 0;
         self.board_snap_guides.clear();
         self.board_osnap_hit = None;

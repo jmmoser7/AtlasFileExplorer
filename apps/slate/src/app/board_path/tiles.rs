@@ -149,6 +149,8 @@ enum Work {
     Tile(Job),
     Stroke(StrokeJob),
     Line(LineJob),
+    /// Whether an erased stroke, under its content key, has ink left.
+    Ink(Node, u64),
 }
 
 enum Done {
@@ -157,6 +159,7 @@ enum Done {
     Line(LineRaster),
     /// Line job `(lane, tag)` panicked on its worker.
     LineLost(u64, u64),
+    Ink(NodeId, u64, bool),
 }
 
 /// What became of a line job: its raster, or nothing because it panicked.
@@ -311,6 +314,10 @@ pub(crate) struct BrushTiles {
     /// Line jobs `(lane, tag)` on the workers whose owner still wants them.
     /// A raster for any other job is dropped as it lands.
     lines_wanted: Vec<(u64, u64)>,
+    /// Ink checks `(stroke, content key)` on the workers.
+    inks_wanted: Vec<(NodeId, u64)>,
+    /// Ink checks landed and not taken yet: whether ink is left.
+    inks_landed: HashMap<(NodeId, u64), bool>,
     /// The last Shift segment job tag handed out, over every lane.
     line_tag: u64,
     /// Stroke bitmaps the workers have built, ever.
@@ -348,6 +355,8 @@ impl Default for BrushTiles {
             lines_landed: Vec::new(),
             lines_lost: Vec::new(),
             lines_wanted: Vec::new(),
+            inks_wanted: Vec::new(),
+            inks_landed: HashMap::new(),
             line_tag: 0,
             stroke_builds: 0,
             last: BrushPaintStats {
@@ -405,6 +414,8 @@ impl BrushTiles {
         self.lines_landed.clear();
         self.lines_lost.clear();
         self.lines_wanted.clear();
+        self.inks_wanted.clear();
+        self.inks_landed.clear();
         if let Ok(mut wants) = self.stroke_wants.lock() {
             wants.clear();
         }
@@ -518,6 +529,36 @@ impl BrushTiles {
     pub(crate) fn forget_erase_lines(&mut self, keep: &[u64]) {
         self.lines_wanted.retain(|w| w.0 == BRUSH_LANE || keep.contains(&w.0));
         self.drain_finished();
+    }
+
+    /// Whether erased stroke `node`, under content `key`, has ink left:
+    /// `Some` once the workers have found out. The first call for a key
+    /// asks them; a check no worker can take reads as ink left.
+    pub(crate) fn ink_left(&mut self, node: &Node, key: u64) -> Option<bool> {
+        self.drain_finished();
+        let at = (node.id, key);
+        if let Some(left) = self.inks_landed.remove(&at) {
+            return Some(left);
+        }
+        if self.inks_wanted.contains(&at) {
+            return None;
+        }
+        self.ensure_pool();
+        let sent = self
+            .job_tx
+            .as_ref()
+            .is_some_and(|tx| tx.send(Work::Ink(node.clone(), key)).is_ok());
+        if !sent {
+            return Some(true);
+        }
+        self.inks_wanted.push(at);
+        None
+    }
+
+    /// Drop stroke `id`'s ink checks, asked or landed.
+    pub(crate) fn forget_ink(&mut self, id: NodeId) {
+        self.inks_wanted.retain(|w| w.0 != id);
+        self.inks_landed.retain(|at, _| at.0 != id);
     }
 
     /// Line results landed and not taken yet, lost jobs included.
@@ -641,6 +682,12 @@ impl BrushTiles {
                 Done::LineLost(lane, tag) => {
                     if self.lines_wanted.contains(&(lane, tag)) {
                         self.lines_lost.push((lane, tag));
+                    }
+                }
+                Done::Ink(id, key, left) => {
+                    if let Some(i) = self.inks_wanted.iter().position(|w| *w == (id, key)) {
+                        self.inks_wanted.swap_remove(i);
+                        self.inks_landed.insert((id, key), left);
                     }
                 }
             }
@@ -954,6 +1001,14 @@ fn worker(jobs: Arc<Mutex<Receiver<Work>>>, done: Sender<Done>) {
                     Ok(raster) => done.send(Done::Line(raster)).is_ok(),
                     Err(_) => done.send(Done::LineLost(lane, tag)).is_ok(),
                 }
+            }
+            Work::Ink(node, key) => {
+                // A panic reads as ink left: the stroke stays.
+                let gone = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    crate::app::board_color::erased_result(&node).1
+                }))
+                .unwrap_or(false);
+                done.send(Done::Ink(node.id, key, !gone)).is_ok()
             }
         };
         if !sent {

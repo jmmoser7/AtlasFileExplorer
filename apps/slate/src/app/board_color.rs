@@ -1790,6 +1790,8 @@ impl SlateApp {
         let mut stand_ins = Vec::new();
         // Strokes whose pass settles after the patch lands.
         let mut settles = Vec::new();
+        // Strokes changed past the budget: the workers find out if ink is left.
+        let mut checks = Vec::new();
         for id in &spot {
             // Only strokes the pass visibly changed. The live preview already
             // holds the result, so release reads it instead of stamping the
@@ -1825,6 +1827,11 @@ impl SlateApp {
             } else if deferred && straight {
                 settles.push((*id, board_path::node_stamp_key(&after)));
             }
+            if deferred {
+                if let Some(key) = board_path::node_stamp_key(&after) {
+                    checks.push((*id, key, after.clone()));
+                }
+            }
             if gone {
                 if let Some(index) = self
                     .doc()
@@ -1852,9 +1859,12 @@ impl SlateApp {
                 .map(|(index, node)| slate_doc::scene::SceneCmd::Remove { index, node }),
         );
         let n = cmds.len();
+        let mut pass = None;
         if !cmds.is_empty() {
             self.last_board_edit = None;
-            self.commit_scene(cmds);
+            if self.commit_scene(cmds) {
+                pass = self.tab().journal.top_token();
+            }
         }
         for (id, rect) in stand_ins {
             if let Some(l) = live.remove(&id) {
@@ -1873,6 +1883,13 @@ impl SlateApp {
                 None => settle.wait(id, key, &points, tip),
             }
         }
+        if let Some(token) = pass {
+            for (id, key, after) in checks {
+                if self.brush_tiles.ink_left(&after, key) != Some(true) {
+                    self.erase_settle.check(id, key, token);
+                }
+            }
+        }
         for (id, mut l) in live {
             if pending.contains(&id) {
                 l.forget(&mut self.brush_tiles, board_path::tiles::erase_lane(id));
@@ -1883,6 +1900,61 @@ impl SlateApp {
                 atlas_commands::CommandId("board.eraser.stroke"),
                 Some(format!("{n} stroke(s)")),
             );
+        }
+    }
+
+    /// Strokes a pass changed past the frame's raster budget leave the scene
+    /// in that pass's undo step once the workers find no ink left
+    /// ([`board_path::EraseSettle::check`]). A stroke that changed or left
+    /// the scene since, or whose pass is no longer the board's newest undo
+    /// step, stays as committed: fully erased, and erased pixels do not
+    /// pick. Nothing is decided while a gesture is in progress.
+    pub(crate) fn settle_erase_checks(&mut self) {
+        if !self.erase_settle.has_checks() || self.board_drag.is_some() {
+            return;
+        }
+        let tab = self.tab().id;
+        let checks = self
+            .erase_settle
+            .here(tab, &mut self.brush_tiles)
+            .take_checks();
+        let mut empty = Vec::new();
+        for (id, key, token) in checks {
+            let node = self
+                .doc()
+                .scene
+                .node(id)
+                .filter(|n| board_path::node_stamp_key(n) == Some(key))
+                .cloned();
+            let Some(node) = node else {
+                self.brush_tiles.forget_ink(id);
+                continue;
+            };
+            match self.brush_tiles.ink_left(&node, key) {
+                None => self.erase_settle.check(id, key, token),
+                Some(true) => {}
+                Some(false) => empty.push((token, id)),
+            }
+        }
+        while let Some(&(token, _)) = empty.first() {
+            let (pass, rest): (Vec<_>, Vec<_>) = empty.into_iter().partition(|e| e.0 == token);
+            empty = rest;
+            let scene = &self.doc().scene;
+            let mut removes: Vec<(usize, Node)> = pass
+                .iter()
+                .filter_map(|(_, id)| Some((scene.index_of(*id)?, scene.node(*id)?.clone())))
+                .collect();
+            removes.sort_by_key(|(index, _)| std::cmp::Reverse(*index));
+            let ids: Vec<NodeId> = removes.iter().map(|(_, n)| n.id).collect();
+            let cmds = removes
+                .into_iter()
+                .map(|(index, node)| slate_doc::scene::SceneCmd::Remove { index, node })
+                .collect();
+            if self.amend_scene_group(token, cmds) {
+                for id in ids {
+                    self.board_sel.remove(&id);
+                }
+            }
         }
     }
 

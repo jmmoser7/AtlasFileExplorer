@@ -3551,7 +3551,12 @@ pub enum CmdAuthor {
 struct CommitGroup {
     cmds: Vec<SceneCmd>,
     author: CmdAuthor,
+    token: GroupToken,
 }
+
+/// Names one journal group of one [`SceneJournal`], never reused by it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct GroupToken(u64);
 
 /// Session-local undo/redo stack of command groups (one group = one user
 /// gesture). Not serialized with the document.
@@ -3559,6 +3564,7 @@ struct CommitGroup {
 pub struct SceneJournal {
     done: Vec<CommitGroup>,
     undone: Vec<CommitGroup>,
+    last_token: u64,
 }
 
 impl SceneJournal {
@@ -3576,8 +3582,51 @@ impl SceneJournal {
         if !scene.apply_all(&cmds) {
             return false;
         }
-        self.done.push(CommitGroup { cmds, author });
+        self.push_done(cmds, author);
+        true
+    }
+
+    fn push_done(&mut self, cmds: Vec<SceneCmd>, author: CmdAuthor) {
+        self.last_token += 1;
+        let token = GroupToken(self.last_token);
+        self.done.push(CommitGroup {
+            cmds,
+            author,
+            token,
+        });
         self.undone.clear();
+    }
+
+    /// The newest done group, the one [`Self::undo`] reverts next.
+    pub fn top_token(&self) -> Option<GroupToken> {
+        self.done.last().map(|g| g.token)
+    }
+
+    /// Applies `cmds` and appends them to group `token`, so one undo reverts
+    /// both, when that group is still the newest done group, `author`
+    /// committed it, and nothing waits to be redone. All or nothing: when a
+    /// guard fails or a command does not apply, the scene and the journal
+    /// are left as they were and this returns false.
+    pub fn amend_top(
+        &mut self,
+        scene: &mut Scene,
+        token: GroupToken,
+        author: &CmdAuthor,
+        cmds: Vec<SceneCmd>,
+    ) -> bool {
+        if cmds.is_empty() || !self.undone.is_empty() {
+            return false;
+        }
+        let Some(group) = self.done.last_mut() else {
+            return false;
+        };
+        if group.token != token || &group.author != author {
+            return false;
+        }
+        if !crate::agent_chat::valid_commands(scene, &cmds) || !scene.apply_all(&cmds) {
+            return false;
+        }
+        group.cmds.extend(cmds);
         true
     }
 
@@ -3593,8 +3642,7 @@ impl SceneJournal {
         if cmds.is_empty() {
             return;
         }
-        self.done.push(CommitGroup { cmds, author });
-        self.undone.clear();
+        self.push_done(cmds, author);
     }
 
     /// Author of the most recent committed (done) group, if any.
@@ -4253,6 +4301,150 @@ mod tests {
         assert!(journal.redo(&mut scene));
         assert_eq!(scene.node(img_id).unwrap().opacity, 0.5);
         assert!(!journal.redo(&mut scene));
+    }
+
+    fn fade(scene: &Scene, id: NodeId, opacity: f32) -> Vec<SceneCmd> {
+        let before = scene.node(id).unwrap().clone();
+        let mut after = before.clone();
+        after.opacity = opacity;
+        vec![SceneCmd::Patch {
+            before: Box::new(before),
+            after: Box::new(after),
+        }]
+    }
+
+    fn removal(scene: &Scene, id: NodeId) -> SceneCmd {
+        SceneCmd::Remove {
+            index: scene.index_of(id).unwrap(),
+            node: scene.node(id).unwrap().clone(),
+        }
+    }
+
+    /// [`SceneJournal::amend_top`] with the removal of `id`.
+    fn amend_removing(
+        journal: &mut SceneJournal,
+        scene: &mut Scene,
+        token: GroupToken,
+        author: &CmdAuthor,
+        id: NodeId,
+    ) -> bool {
+        let cmds = vec![removal(scene, id)];
+        journal.amend_top(scene, token, author, cmds)
+    }
+
+    #[test]
+    fn amend_top_folds_into_the_newest_group_as_one_undo_step() {
+        let (mut scene, _, img_id) = scene_with_frame_and_image();
+        let mut journal = SceneJournal::default();
+        let original = scene.node(img_id).unwrap().clone();
+        let cmds = fade(&scene, img_id, 0.5);
+        assert!(journal.commit(&mut scene, cmds));
+        let token = journal.top_token().unwrap();
+        let depth = journal.undo_depth();
+        let human = CmdAuthor::Human;
+        assert!(amend_removing(
+            &mut journal,
+            &mut scene,
+            token,
+            &human,
+            img_id
+        ));
+        assert!(scene.node(img_id).is_none());
+        assert_eq!(journal.undo_depth(), depth, "no new undo step");
+        assert_eq!(journal.top_token(), Some(token));
+
+        assert!(journal.undo(&mut scene));
+        assert_eq!(scene.node(img_id), Some(&original), "one undo restores all");
+        assert!(journal.redo(&mut scene));
+        assert!(scene.node(img_id).is_none(), "one redo re-applies all");
+    }
+
+    #[test]
+    fn amend_top_refuses_a_group_that_is_not_the_newest() {
+        let (mut scene, frame_id, img_id) = scene_with_frame_and_image();
+        let mut journal = SceneJournal::default();
+        let cmds = fade(&scene, img_id, 0.5);
+        assert!(journal.commit(&mut scene, cmds));
+        let token = journal.top_token().unwrap();
+        let human = CmdAuthor::Human;
+
+        // Undone: the group waits to be redone.
+        assert!(journal.undo(&mut scene));
+        let undone = scene.clone();
+        assert!(!amend_removing(
+            &mut journal,
+            &mut scene,
+            token,
+            &human,
+            img_id
+        ));
+        assert_eq!(scene.nodes, undone.nodes);
+
+        // Redone, it is the newest again.
+        assert!(journal.redo(&mut scene));
+        assert_eq!(journal.top_token(), Some(token), "redo keeps the token");
+
+        // Another edit on top.
+        let cmds = fade(&scene, frame_id, 0.9);
+        assert!(journal.commit(&mut scene, cmds));
+        let later = scene.clone();
+        assert!(!amend_removing(
+            &mut journal,
+            &mut scene,
+            token,
+            &human,
+            img_id
+        ));
+        assert_eq!(scene.nodes, later.nodes);
+        assert_eq!(journal.undo_depth(), 2);
+
+        // That edit undone: redo still holds it.
+        assert!(journal.undo(&mut scene));
+        assert_eq!(journal.top_token(), Some(token));
+        assert!(!amend_removing(
+            &mut journal,
+            &mut scene,
+            token,
+            &human,
+            img_id
+        ));
+        assert!(scene.node(img_id).is_some());
+
+        // Recorded groups get tokens of their own.
+        assert!(journal.redo(&mut scene));
+        journal.record(fade(&scene, frame_id, 0.8));
+        assert_ne!(journal.top_token(), Some(token));
+    }
+
+    #[test]
+    fn amend_top_refuses_another_author_and_leaves_a_failing_batch_unapplied() {
+        let (mut scene, frame_id, img_id) = scene_with_frame_and_image();
+        let mut journal = SceneJournal::default();
+        let cmds = fade(&scene, img_id, 0.5);
+        assert!(journal.commit(&mut scene, cmds));
+        let token = journal.top_token().unwrap();
+        let bot = CmdAuthor::Agent("bot".into());
+        assert!(!amend_removing(
+            &mut journal,
+            &mut scene,
+            token,
+            &bot,
+            img_id
+        ));
+        assert!(scene.node(img_id).is_some());
+
+        // The second command names a node already gone: nothing applies.
+        let before = scene.clone();
+        let cmds = vec![removal(&scene, frame_id), removal(&scene, img_id)];
+        assert!(!journal.amend_top(&mut scene, token, &CmdAuthor::Human, cmds));
+        assert_eq!(scene.nodes, before.nodes);
+        assert!(journal.undo(&mut scene));
+        assert_eq!(
+            scene.node(img_id).unwrap().opacity,
+            1.0,
+            "the group is intact"
+        );
+        assert!(!journal.can_undo());
     }
 
     #[test]
