@@ -751,6 +751,8 @@ fn path_fill_hash(
     h.finish()
 }
 
+/// `base_color` and the mesh's own tints come unfaded; `fade` applies the
+/// node's opacity to each vertex exactly once.
 pub(crate) fn ink_mesh_to_epaint(
     cached: &CachedInkMesh,
     xf: &BoardXf,
@@ -764,7 +766,7 @@ pub(crate) fn ink_mesh_to_epaint(
     for (i, (pos, alpha)) in cached.vertices.iter().zip(cached.alphas.iter()).enumerate() {
         let sp = xf.w2s(Pos2::new(pos[0], pos[1]));
         let base = if tinted {
-            fade(cached.colors[i])
+            cached.colors[i]
         } else {
             base_color
         };
@@ -1632,8 +1634,7 @@ pub fn paint_path_shape(
         let bez = bez.get_or_insert_with(|| shape_path_world_bez(node, shape, path));
         vector_stroke_ink_for(node, bez, shape, path, xf.z)
     });
-    let base = fade(rgba32(shape.stroke.color));
-    let mesh = ink_mesh_to_epaint(&cached, xf, base, fade);
+    let mesh = ink_mesh_to_epaint(&cached, xf, rgba32(shape.stroke.color), fade);
     painter.add(Shape::mesh(mesh));
 }
 
@@ -3312,7 +3313,7 @@ pub struct BrushLiveCanvas {
     broken: bool,
     meshes: SegMeshes,
     /// Pixel buffers of a dropped raster, reused for the next job's base.
-    spare: (Vec<u8>, Vec<u8>),
+    spare: Spare,
     /// Test hook: the next line job panics on its worker.
     #[cfg(test)]
     pub(crate) panic_next: bool,
@@ -3437,7 +3438,7 @@ pub(crate) fn line_raster(job: LineJob) -> LineRaster {
     let grain = job
         .segs
         .last()
-        .map_or(vector_ink::Grain::Smooth, |s| s.0.tip.grain);
+        .map_or(vector_ink::Grain::Smooth, |s| s.1.tip.grain);
     let rows = vector_ink::finished_region(&img, grain, [0, 0, img.width, img.height]);
     let (shown, changed) = match &job.cut {
         Some(cut) => cut.apply(&img.rgba, &rows),
@@ -3457,12 +3458,19 @@ pub(crate) fn line_raster(job: LineJob) -> LineRaster {
     }
 }
 
+/// Buffers of a landed raster, kept for the next region copy.
+type Spare = (Vec<u8>, Vec<u8>, vector_ink::StampSide);
+
+fn spare_of(raw: vector_ink::StampImage) -> Spare {
+    (raw.rgba, raw.depth, raw.side)
+}
+
 /// Copy of `img`'s pixels in box `b` as its own image on the world, into
-/// the reused buffers `(rgba, depth)`.
+/// the reused buffers `(rgba, depth, side)`.
 fn copy_region(
     img: &vector_ink::StampImage,
     b: [u32; 4],
-    (mut rgba, mut depth): (Vec<u8>, Vec<u8>),
+    (mut rgba, mut depth, side): Spare,
 ) -> vector_ink::StampImage {
     rgba.clear();
     depth.clear();
@@ -3484,6 +3492,7 @@ fn copy_region(
         pixel: img.pixel,
         rgba,
         depth,
+        side: img.side.crop_into(img.width, b, side),
     }
 }
 
@@ -3659,6 +3668,7 @@ impl BrushLiveCanvas {
                     pixel: 1.0,
                     rgba: vec![0u8; (w as usize) * (h as usize) * 4],
                     depth: Vec::new(),
+                    side: Default::default(),
                 },
                 grain: vector_ink::Grain::Smooth,
                 tex,
@@ -3680,7 +3690,7 @@ impl BrushLiveCanvas {
                 losses: 0,
                 broken: false,
                 meshes: SegMeshes::default(),
-                spare: (Vec::new(), Vec::new()),
+                spare: Default::default(),
                 #[cfg(test)]
                 panic_next: false,
                 #[cfg(test)]
@@ -3809,7 +3819,7 @@ impl BrushLiveCanvas {
                 .is_some_and(|e| e.seg == self.commits[0] && e.gen == self.gen);
         if ready {
             let e = self.exact.take().expect("checked above");
-            self.take_in(e.bx, e.raw, e.image, e.seg.0.tip.grain);
+            self.take_in(e.bx, e.raw, e.image, e.seg.1.tip.grain);
             self.commits.clear();
         }
     }
@@ -3833,7 +3843,7 @@ impl BrushLiveCanvas {
 
     /// Stamp a segment and remember its box for the next reset.
     fn stamp(&mut self, a: TipPoint, b: TipPoint) -> Option<[u32; 4]> {
-        self.grain = a.tip.grain;
+        self.grain = b.tip.grain;
         self.gen += 1;
         stamp_segment(&mut self.img, a, b);
         let bx = self.segment_box(a, b)?;
@@ -3847,16 +3857,7 @@ impl BrushLiveCanvas {
             return;
         };
         self.gen += 1;
-        let w = self.img.width as usize;
-        let stride = w * 4;
-        for y in b[1] as usize..b[3] as usize {
-            let row = y * stride + b[0] as usize * 4..y * stride + b[2] as usize * 4;
-            self.img.rgba[row].fill(0);
-            let drow = y * w + b[0] as usize..y * w + b[2] as usize;
-            if !self.img.depth.is_empty() {
-                self.img.depth[drow].fill(0);
-            }
-        }
+        vector_ink::clear_stamp_box(&mut self.img, b, true);
         self.upload(b);
     }
 
@@ -3873,7 +3874,7 @@ impl BrushLiveCanvas {
         grain: vector_ink::Grain,
     ) {
         if !fits_box(&raw, b) {
-            self.spare = (raw.rgba, raw.depth);
+            self.spare = spare_of(raw);
             return;
         }
         let w = self.img.width as usize;
@@ -3889,6 +3890,8 @@ impl BrushLiveCanvas {
                     .copy_from_slice(&raw.depth[i * bw..(i + 1) * bw]);
             }
         }
+        let (width, height) = (self.img.width, self.img.height);
+        self.img.side.paste(width, height, b, &raw.side);
         self.grain = grain;
         self.gen += 1;
         self.touched = Some(union_box(self.touched, b));
@@ -3897,7 +3900,7 @@ impl BrushLiveCanvas {
             image,
             egui::TextureOptions::LINEAR,
         );
-        self.spare = (raw.rgba, raw.depth);
+        self.spare = spare_of(raw);
     }
 
     fn segment_box(&self, a: TipPoint, b: TipPoint) -> Option<[u32; 4]> {
@@ -4103,6 +4106,7 @@ impl BrushLiveCanvas {
                 pixel: px,
                 rgba: Vec::new(),
                 depth: Vec::new(),
+                side: self.img.side.continuing(),
             }
         } else {
             self.region(bx)
@@ -4135,17 +4139,17 @@ impl BrushLiveCanvas {
 
     fn land(&mut self, ask: LineAsk, r: LineRaster) {
         if ask.gen != self.gen || !fits_box(&r.raw, ask.bx) {
-            self.spare = (r.raw.rgba, r.raw.depth);
+            self.spare = spare_of(r.raw);
             return;
         }
-        let grain = ask.segs.last().map_or(self.grain, |s| s.0.tip.grain);
+        let grain = ask.segs.last().map_or(self.grain, |s| s.1.tip.grain);
         match ask.kind {
             AskKind::Anchor => {
                 if self.anchor_segs == ask.segs && self.held.is_none() {
                     self.take_in(ask.bx, r.raw, r.image, grain);
                     self.anchor_segs.clear();
                 } else {
-                    self.spare = (r.raw.rgba, r.raw.depth);
+                    self.spare = spare_of(r.raw);
                 }
             }
             AskKind::Commit => {
@@ -4153,7 +4157,7 @@ impl BrushLiveCanvas {
                     self.take_in(ask.bx, r.raw, r.image, grain);
                     self.commits.drain(..ask.segs.len());
                 } else {
-                    self.spare = (r.raw.rgba, r.raw.depth);
+                    self.spare = spare_of(r.raw);
                 }
             }
             AskKind::Preview => {
@@ -4163,7 +4167,7 @@ impl BrushLiveCanvas {
                     egui::TextureOptions::LINEAR,
                 );
                 if let Some(old) = self.exact.take() {
-                    self.spare = (old.raw.rgba, old.raw.depth);
+                    self.spare = spare_of(old.raw);
                 }
                 self.exact = Some(LineExact {
                     seg: ask.segs[0],
@@ -4434,6 +4438,7 @@ impl EraseLive {
             pixel: img.pixel,
             rgba: vec![0u8; img.rgba.len()],
             depth: Vec::new(),
+            side: vector_ink::StampSide::for_mask(),
         };
         EraseLive {
             shown: img.rgba.clone(),
@@ -4596,6 +4601,7 @@ impl EraseLive {
                 pixel: m.pixel,
                 rgba: Vec::new(),
                 depth: Vec::new(),
+                side: m.side.continuing(),
             },
             segs: vec![seg],
             cut: Some(InkCut {
@@ -4724,6 +4730,8 @@ impl EraseLive {
                     .copy_from_slice(&e.raw.depth[i * bw..(i + 1) * bw]);
             }
         }
+        let (width, height) = (self.mask.width, self.mask.height);
+        self.mask.side.paste(width, height, e.bx, &e.raw.side);
         self.changed = e.changed;
         self.tex.set_partial(
             [x0 as usize, y0 as usize],
@@ -5886,6 +5894,7 @@ mod tests {
             pixel: 0.43,
             rgba: vec![0; 640 * 480 * 4],
             depth: Vec::new(),
+            side: Default::default(),
         };
         stamp_segment(&mut full, at(150.0, 0.0), at(250.0, 80.0));
         let (a, b) = (at(250.0, 80.0), at(380.0, 100.0));
@@ -5893,7 +5902,7 @@ mod tests {
         let job = LineJob {
             tag: 1,
             lane: tiles::BRUSH_LANE,
-            base: copy_region(&full, bx, (Vec::new(), Vec::new())),
+            base: copy_region(&full, bx, Default::default()),
             segs: vec![(a, b)],
             cut: None,
             panic: false,
@@ -5901,7 +5910,7 @@ mod tests {
         let r = line_raster(job);
         stamp_segment(&mut full, a, b);
         let whole = vector_ink::finished_region(&full, tip.grain, bx);
-        let raw = copy_region(&full, bx, (Vec::new(), Vec::new()));
+        let raw = copy_region(&full, bx, Default::default());
         let finished = r.image.as_raw();
         let worst = |x: &[u8], y: &[u8]| x.iter().zip(y).map(|(p, q)| p.abs_diff(*q)).max().unwrap_or(0);
         assert_eq!(r.raw.rgba.len(), raw.rgba.len());
@@ -5988,7 +5997,7 @@ mod tests {
         let wrong = line_raster(LineJob {
             tag: 0,
             lane: tiles::BRUSH_LANE,
-            base: copy_region(&b.img, [0, 0, 10, 10], (Vec::new(), Vec::new())),
+            base: copy_region(&b.img, [0, 0, 10, 10], Default::default()),
             segs: vec![short],
             cut: None,
             panic: false,
@@ -6027,6 +6036,7 @@ mod tests {
             pixel,
             rgba: vec![0; (w * h * 4) as usize],
             depth: Vec::new(),
+            side: vector_ink::StampSide::for_mask(),
         };
         let at = |x: f32, y: f32| TipPoint { pos: [x, y], tip };
         let (a, b) = (at(180.0, 20.0), at(360.0, 110.0));
@@ -6044,6 +6054,7 @@ mod tests {
                 pixel,
                 rgba: Vec::new(),
                 depth: Vec::new(),
+                side: vector_ink::StampSide::for_mask(),
             },
             segs: vec![(a, b)],
             cut: Some(InkCut {
@@ -6064,7 +6075,7 @@ mod tests {
                 ..mask.clone()
             },
             bx,
-            (Vec::new(), Vec::new()),
+            Default::default(),
         );
         let worst = |x: &[u8], y: &[u8]| {
             x.iter()

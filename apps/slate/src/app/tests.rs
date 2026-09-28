@@ -11035,6 +11035,324 @@ fn brush_shift_after_a_style_row_texture_change_keeps_the_chain() {
     );
 }
 
+/// Pick `choice` in the armed tool's style row with Alt+right-button
+/// events: press at screen `press`, drop straight into the row's band, move
+/// onto the slot, and release there.
+fn pick_style_row(h: &mut Harness, press: Pos2, choice: board_tip_hud::TipChoice) {
+    let n = h.app.tip_choices().len();
+    let i = h
+        .app
+        .tip_choices()
+        .iter()
+        .position(|c| *c == choice)
+        .expect("a slot for the choice");
+    h.frame_with(pointer_to(press, true));
+    h.frame_with(right_button(press, true, true));
+    let r = h.app.active_tip().0 * 0.5 * h.app.tab().cam.z;
+    let band = board_tip_hud::palette_band_y(press, r);
+    let slot = board_tip_hud::palette_slot(press, r, i, n);
+    h.frame_with(pointer_to(Pos2::new(press.x, band + 1.0), true));
+    h.frame_with(pointer_to(slot, true));
+    h.frame_with(right_button(slot, false, true));
+    h.frame_with(|i| i.modifiers = egui::Modifiers::NONE);
+    assert_eq!(h.app.current_tip_choice(), Some(choice), "the style row picked");
+}
+
+/// Stroke `n` with every tip, and the stroke itself, in texture `t`.
+fn with_texture(n: &slate_doc::Node, t: slate_doc::scene::BrushTexture) -> slate_doc::Node {
+    let mut n = n.clone();
+    if let NodeKind::Shape(s) = &mut n.kind {
+        s.stroke.texture = t;
+        if let Some(path) = s.path.as_mut() {
+            for tip in &mut std::sync::Arc::make_mut(path).tips {
+                tip.texture = t;
+            }
+        }
+    }
+    n
+}
+
+/// Committed stroke `n` stamped as the tiles stamp it, one world unit per
+/// pixel.
+fn stamp_at_one(n: &slate_doc::Node) -> vector_ink::StampImage {
+    let NodeKind::Shape(s) = &n.kind else {
+        panic!("a shape")
+    };
+    board_path::stroke_stamp(n, s, s.path.as_ref().expect("a path"), 1.0).expect("a stamp")
+}
+
+/// The stamp's pixel under world point `w`, clear outside it.
+fn stamp_px(img: &vector_ink::StampImage, w: Pos2) -> [u8; 4] {
+    let x = ((w.x - img.origin[0]) / img.pixel).floor();
+    let y = ((w.y - img.origin[1]) / img.pixel).floor();
+    if x < 0.0 || y < 0.0 || x >= img.width as f32 || y >= img.height as f32 {
+        return [0; 4];
+    }
+    let i = (y as usize * img.width as usize + x as usize) * 4;
+    [img.rgba[i], img.rgba[i + 1], img.rgba[i + 2], img.rgba[i + 3]]
+}
+
+/// World points on a 1-unit grid within `half` of `w`.
+fn around(w: Pos2, half: i32) -> Vec<Pos2> {
+    (-half..=half)
+        .flat_map(|dy| (-half..=half).map(move |dx| w + EVec2::new(dx as f32, dy as f32)))
+        .collect()
+}
+
+/// Points every 10 world units along the polyline through `corners`.
+fn dense(corners: &[Pos2]) -> Vec<Pos2> {
+    let mut out = vec![corners[0]];
+    for w in corners.windows(2) {
+        let steps = ((w[1] - w[0]).length() / 10.0).ceil().max(1.0) as usize;
+        out.extend((1..=steps).map(|k| w[0] + (w[1] - w[0]) * (k as f32 / steps as f32)));
+    }
+    out
+}
+
+/// r7-8 (user, 28 September 2026): "A Shift segment uses the currently
+/// armed texture, stored per tip." A Graphite stroke, then Watercolor
+/// picked in the style row and a Shift drag: the segment paints exactly as
+/// an all-Watercolor stroke would there, and the freehand body exactly as
+/// an all-Graphite one.
+#[test]
+fn a_shift_segment_paints_the_texture_armed_for_it() {
+    use slate_doc::scene::BrushTexture;
+    let mut h = brush_board("r7_8_segment_texture");
+    h.app.board_colors.fg.0 = [40, 60, 200, 255];
+    h.app.brush_opacity = 0.8;
+    h.app.brush_softness = 0.2;
+    h.app.brush_width = 24.0;
+    h.frame();
+    let c = h.app.board_xf().s2w(h.app.canvas_rect.center());
+    let p = |x: f32, y: f32| c + EVec2::new(x, y);
+    let hud = h.app.board_xf().w2s(p(0.0, 150.0));
+    pick_style_row(&mut h, hud, board_tip_hud::TipChoice::Texture(BrushTexture::Graphite));
+    press_drag_release_frames(
+        &mut h,
+        &dense(&[p(-300.0, -100.0), p(-100.0, -100.0)]),
+        egui::Modifiers::NONE,
+        |_| {},
+    );
+    let id = h.app.doc().scene.nodes.last().expect("the stroke").id;
+    pick_style_row(&mut h, hud, board_tip_hud::TipChoice::Texture(BrushTexture::Watercolor));
+    press_drag_release_frames(
+        &mut h,
+        &[p(-60.0, 60.0), p(0.0, 20.0), p(60.0, -20.0), p(100.0, -98.0)],
+        egui::Modifiers::SHIFT,
+        |_| {},
+    );
+    assert_eq!(h.app.doc().scene.nodes.len(), 1, "the segment extends the stroke");
+    let node = h.app.doc().scene.node(id).unwrap().clone();
+    let NodeKind::Shape(s) = &node.kind else {
+        panic!("a shape")
+    };
+    let tips = &s.path.as_ref().unwrap().tips;
+    assert_eq!(tips.last().map(|t| t.texture), Some(BrushTexture::Watercolor));
+    assert_eq!(tips[tips.len() - 2].texture, BrushTexture::Graphite);
+    let mixed = stamp_at_one(&node);
+    let wet = stamp_at_one(&with_texture(&node, BrushTexture::Watercolor));
+    let dry = stamp_at_one(&with_texture(&node, BrushTexture::Graphite));
+    for w in around(p(20.0, -100.0), 6) {
+        assert_eq!(stamp_px(&mixed, w), stamp_px(&wet, w), "the segment at {w:?}");
+    }
+    for w in around(p(-220.0, -100.0), 6) {
+        assert_eq!(stamp_px(&mixed, w), stamp_px(&dry, w), "the body at {w:?}");
+    }
+    assert!(
+        around(p(20.0, -100.0), 6)
+            .iter()
+            .any(|w| stamp_px(&mixed, *w) != stamp_px(&dry, *w)),
+        "the segment paints Graphite"
+    );
+}
+
+/// r7-9 (user, 28 September 2026): "Watercolor builds where a stroke
+/// crosses itself." One Watercolor stroke that crosses its own first leg
+/// paints that crossing as two strokes along the same path, split between
+/// the two passes, would; the pair is drawn 256 world units lower, one
+/// period of the paper, so both sit on the same grain.
+#[test]
+fn one_watercolor_stroke_builds_where_it_crosses_itself() {
+    use slate_doc::scene::BrushTexture;
+    let mut h = brush_board("r7_9_self_crossing");
+    h.app.board_colors.fg.0 = [30, 90, 200, 255];
+    h.app.brush_opacity = 0.8;
+    h.app.brush_softness = 0.1;
+    h.app.brush_width = 24.0;
+    h.frame();
+    let c = h.app.board_xf().s2w(h.app.canvas_rect.center());
+    let c = Pos2::new(c.x.round(), c.y.round() - 200.0);
+    let p = |x: f32, y: f32| c + EVec2::new(x, y);
+    let hud = h.app.board_xf().w2s(p(-300.0, 150.0));
+    pick_style_row(&mut h, hud, board_tip_hud::TipChoice::Texture(BrushTexture::Watercolor));
+    let first = [p(-150.0, 0.0), p(100.0, 0.0), p(100.0, 80.0), p(0.0, 80.0)];
+    let second = [p(0.0, 80.0), p(0.0, -80.0)];
+    let one: Vec<Pos2> = first.iter().chain(&second[1..]).copied().collect();
+    press_drag_release_frames(&mut h, &dense(&one), egui::Modifiers::NONE, |_| {});
+    let low = |w: &Pos2| *w + EVec2::new(0.0, 256.0);
+    for leg in [&first[..], &second[..]] {
+        let leg: Vec<Pos2> = leg.iter().map(low).collect();
+        press_drag_release_frames(&mut h, &dense(&leg), egui::Modifiers::NONE, |_| {});
+    }
+    let nodes = &h.app.doc().scene.nodes;
+    assert_eq!(nodes.len(), 3, "one crossing stroke and a pair");
+    let (whole, a, b) = (stamp_at_one(&nodes[0]), stamp_at_one(&nodes[1]), stamp_at_one(&nodes[2]));
+    let mut built = 0;
+    for w in around(p(0.0, 0.0), 3) {
+        let one = stamp_px(&whole, w)[3] as i32;
+        let lower = low(&w);
+        let pair = vector_ink::over_px(stamp_px(&b, lower), stamp_px(&a, lower))[3] as i32;
+        let single = stamp_px(&a, lower)[3] as i32;
+        assert!(
+            (one - pair).abs() <= 6,
+            "at {w:?} the crossing paints {one}, two strokes paint {pair}"
+        );
+        built += (pair - single >= 25) as usize;
+    }
+    assert!(built >= 25, "two strokes do not build at the crossing ({built} px)");
+}
+
+/// tx1 on the board: the eraser shows the vector curves it crosses at 30 %
+/// opacity while the drag lasts, and the release removes each one whole;
+/// one Ctrl+Z restores it.
+#[test]
+fn the_eraser_dims_crossed_curves_and_removes_them_whole() {
+    let mut h = brush_board("tx1_board_curve");
+    h.app.set_board_tool(board::BoardTool::Pen);
+    let c = h.app.board_xf().s2w(h.app.canvas_rect.center());
+    let p = |x: f32, y: f32| c + EVec2::new(x, y);
+    h.app.finish_freehand_pen(vec![p(-300.0, 0.0), p(300.0, 0.0)]);
+    let id = h.app.doc().scene.nodes.last().expect("the curve").id;
+    let before = h.app.doc().scene.node(id).unwrap().clone();
+    let NodeKind::Shape(s) = &before.kind else {
+        panic!("a shape")
+    };
+    assert!(!s.stroke.paints_as_stamp(), "a vector curve");
+    h.app.set_board_tool(board::BoardTool::Eraser);
+    h.app.eraser_width = 40.0;
+    let mut raster = FrameRaster::new(1440, 900);
+    shot(&mut h, &mut raster, |_| {});
+    let xf = h.app.board_xf();
+    // The brightest pixel within two screen rows of `w`.
+    let bright = |raster: &FrameRaster, w: Pos2| {
+        let s = xf.w2s(w);
+        (-2..=2)
+            .map(|dy| {
+                let px = raster.px[(s.y as i64 + dy) as usize * raster.w + s.x as usize];
+                (px[0] + px[1] + px[2]) / 3.0
+            })
+            .fold(0.0, f32::max)
+    };
+    let (on, off) = (p(-200.0, 0.0), p(-200.0, 60.0));
+    let lit = bright(&raster, on) - bright(&raster, off);
+    assert!(lit > 0.4, "the curve paints: {lit}");
+    let depth = h.app.tab().journal.undo_depth();
+    let pass = [p(0.0, -120.0), p(0.0, -40.0), p(0.0, 40.0), p(0.0, 120.0)];
+    let s: Vec<Pos2> = pass.iter().map(|w| xf.w2s(*w)).collect();
+    shot(&mut h, &mut raster, pointer_to(s[0], false));
+    shot(&mut h, &mut raster, primary_button(s[0], true, false));
+    for at in &s[1..] {
+        shot(&mut h, &mut raster, pointer_to(*at, false));
+    }
+    let dim = (bright(&raster, on) - bright(&raster, off)) / lit;
+    assert!((dim - 0.3).abs() < 0.06, "the crossed curve shows at {dim:.2} of its ink");
+    assert!(h.app.doc().scene.node(id).is_some(), "nothing is removed before release");
+    shot(&mut h, &mut raster, primary_button(s[3], false, false));
+    shot(&mut h, &mut raster, |_| {});
+    assert!(h.app.doc().scene.node(id).is_none(), "the release removes the curve whole");
+    assert!(
+        (bright(&raster, on) - bright(&raster, off)).abs() < 0.05,
+        "the removed curve still paints"
+    );
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "the pass is one undo step");
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    assert_eq!(h.app.doc().scene.node(id), Some(&before), "one undo restores the curve");
+}
+
+/// A 24-wide, opaque, smooth red brush stroke across the middle of the
+/// view, with the Eraser armed at 80 wide and Pencil picked in its style
+/// row by events. Returns the stroke and the world center.
+fn pencil_eraser_board(tag: &str) -> (Harness, NodeId, Pos2) {
+    use slate_doc::scene::BrushTexture;
+    let mut h = brush_board(tag);
+    h.app.board_colors.fg.0 = [255, 30, 30, 255];
+    h.app.brush_opacity = 1.0;
+    h.app.brush_softness = 0.0;
+    h.app.brush_width = 24.0;
+    h.frame();
+    let c = h.app.board_xf().s2w(h.app.canvas_rect.center());
+    let p = |x: f32, y: f32| c + EVec2::new(x, y);
+    press_drag_release_frames(
+        &mut h,
+        &dense(&[p(-80.0, 0.0), p(80.0, 0.0)]),
+        egui::Modifiers::NONE,
+        |_| {},
+    );
+    let id = h.app.doc().scene.nodes.last().expect("the stroke").id;
+    settle_brush(&mut h, "the stroke", |app| !app.brush_tiles.tiles_with(id).is_empty());
+    h.app.set_board_tool(board::BoardTool::Eraser);
+    h.app.eraser_width = 80.0;
+    h.app.eraser_softness = 0.0;
+    h.app.eraser_opacity = 1.0;
+    let hud = h.app.board_xf().w2s(p(0.0, 200.0));
+    pick_style_row(&mut h, hud, board_tip_hud::TipChoice::Texture(BrushTexture::Pencil));
+    (h, id, c)
+}
+
+/// r7-10 (user, 28 September 2026): "a full erase removes the stroke";
+/// ink remaining is measured on the untextured tip coverage, so the paper
+/// grain a Pencil eraser leaves never keeps a stroke alive. A freehand
+/// pass that covers the whole stroke, released once its preview shows,
+/// removes it in the pass's undo step.
+#[test]
+fn a_full_pencil_eraser_pass_removes_the_stroke() {
+    let (mut h, id, c) = pencil_eraser_board("r7_10_pencil_full_erase");
+    let p = |x: f32, y: f32| c + EVec2::new(x, y);
+    let before = h.app.doc().scene.node(id).unwrap().clone();
+    let depth = h.app.tab().journal.undo_depth();
+    let xf = h.app.board_xf();
+    let pass: Vec<Pos2> = dense(&[p(-140.0, 0.0), p(140.0, 0.0)]).iter().map(|w| xf.w2s(*w)).collect();
+    h.frame_with(pointer_to(pass[0], false));
+    h.frame_with(primary_button(pass[0], true, false));
+    for s in &pass[1..] {
+        h.frame_with(pointer_to(*s, false));
+    }
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while !h.app.erase_live.contains_key(&id) {
+        assert!(std::time::Instant::now() < deadline, "no live preview");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        h.frame();
+    }
+    h.frame_with(primary_button(*pass.last().unwrap(), false, false));
+    settle_erase(&mut h);
+    assert!(
+        h.app.doc().scene.node(id).is_none(),
+        "the fully erased stroke stayed: grain residue kept it"
+    );
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "the pass is one undo step");
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    assert_eq!(h.app.doc().scene.node(id), Some(&before), "one undo restores the stroke");
+}
+
+/// r7-10 past the frame's raster budget: the user's Pencil eraser over
+/// the big zigzag leaves it no untextured ink, so once the workers check,
+/// the stroke leaves in the pass's own undo step, nothing stamped on the
+/// frame loop (tx3, r7-3..r7-7 keep the off-frame path).
+#[test]
+fn a_deferred_pencil_eraser_pass_that_empties_a_big_stroke_removes_it() {
+    use slate_doc::scene::BrushTexture;
+    let (mut h, id, a, b) = erasable_zigzag("r7_10_pencil_deferred");
+    let hud = Pos2::new(a.x + 200.0, a.y + 300.0);
+    h.app.eraser_width = 20.0;
+    pick_style_row(&mut h, hud, board_tip_hud::TipChoice::Texture(BrushTexture::Pencil));
+    h.app.eraser_width = 207.0;
+    h.frame();
+    let before = h.app.doc().scene.node(id).unwrap().clone();
+    let depth = h.app.tab().journal.undo_depth();
+    let counted = flick_eraser(&mut h, id, a, b, false);
+    assert_emptied_stroke_leaves_with_its_pass(&mut h, id, &before, depth, counted);
+}
+
 /// tip18 on real frames: the Shift preview is visible on screen, both from
 /// the press point and continuing an earlier stroke.
 #[test]

@@ -164,6 +164,28 @@ pub(crate) fn stamp_erase_mark_within(
     }
 }
 
+/// A textured tip is in `node`'s ink, its earlier erase passes, or the pass
+/// `span` adds.
+fn erase_meets_grain(node: &Node, span: StrokeSpan) -> bool {
+    use slate_doc::scene::BrushTexture;
+    if span.texture != BrushTexture::Smooth {
+        return true;
+    }
+    let NodeKind::Shape(shape) = &node.kind else {
+        return false;
+    };
+    let Some(path) = shape.path.as_ref() else {
+        return false;
+    };
+    shape.stroke.texture != BrushTexture::Smooth
+        || path.tips.iter().any(|t| t.texture != BrushTexture::Smooth)
+        || path
+            .erase
+            .iter()
+            .flat_map(|m| &m.tips)
+            .any(|t| t.texture != BrushTexture::Smooth)
+}
+
 /// `before` with one more erase pass along world `points`.
 pub(crate) fn with_erase_mark(before: &Node, points: &[Pos2], span: StrokeSpan) -> Node {
     let mut after = before.clone();
@@ -1432,6 +1454,7 @@ impl SlateApp {
                 s.stroke.width = widest;
                 s.stroke.softness = end.softness;
                 s.stroke.color = end.color;
+                s.stroke.texture = end.texture;
                 s.stroke.tween_from = None;
             }
         };
@@ -1805,8 +1828,10 @@ impl SlateApp {
             let Some(before) = self.doc().scene.node(*id).cloned() else {
                 continue;
             };
+            // The preview shows paper grain, which never keeps a stroke: a
+            // textured stroke or pass is judged untextured instead.
             let (result, deferred) = match live.get(id) {
-                Some(l) if !unseen => (
+                Some(l) if !unseen && !erase_meets_grain(&before, span) => (
                     Some((with_erase_mark(&before, &points, span), !l.left_ink())),
                     false,
                 ),
@@ -2707,8 +2732,9 @@ pub(crate) fn settle_work_on_this_thread() -> u64 {
     SETTLE_WORK_HERE.with(|n| n.get())
 }
 
-/// Stamp an erased painted stroke once, as committed (blur included):
-/// `(pass touched ink, nothing left)`.
+/// Stamp an erased painted stroke once, as committed (blur included) but
+/// with every tip untextured: `(pass touched ink, nothing left)`. Paper
+/// grain left behind by a textured stroke or eraser never keeps a stroke.
 pub(crate) fn erased_result(node: &slate_doc::Node) -> (bool, bool) {
     erased_result_within(node, &mut |_| true).unwrap_or((false, false))
 }
@@ -2725,7 +2751,13 @@ pub(crate) fn erased_result_within(
     let Some(path) = shape.path.as_ref() else {
         return Some((false, false));
     };
-    let contours = board_path::stamped_contours(node, shape, path, 0.5);
+    let plain = |mut lines: Vec<Vec<vector_ink::TipPoint>>| {
+        for p in lines.iter_mut().flatten() {
+            p.tip.grain = vector_ink::Grain::Smooth;
+        }
+        lines
+    };
+    let contours = plain(board_path::stamped_contours(node, shape, path, 0.5));
     let widest = contours
         .iter()
         .flatten()
@@ -2744,7 +2776,7 @@ pub(crate) fn erased_result_within(
     if !fits(side(0) * side(1)) {
         return None;
     }
-    let marks = board_path::stamped_erase_marks(node, shape, path);
+    let marks = plain(board_path::stamped_erase_marks(node, shape, path));
     board_path::note_stamp_on_this_thread();
     let (older, newest) = marks.split_at(marks.len().saturating_sub(1));
     let Some(mut img) =

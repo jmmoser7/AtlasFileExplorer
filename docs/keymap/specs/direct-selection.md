@@ -90,7 +90,8 @@ User decision, 2026-09-26 and 2026-09-27 (supersedes the 2026-09-27
   and a texture choice retextures every tip. The readout is the widest,
   softest tip. Picks on a painted stroke are Direct Select anchors or the
   hovered anchor; the Select tool shows no grips on painted ink
-  (P1.curve.grips). Review r7, 2026-09-27.
+  (P1.curve.grips). Worded in review r7, 2026-09-27 (user pass,
+  28 September 2026, eb2, eb3).
 - A whole-curve color also recolors existing vertex tips, because they paint
   over the stroke color.
 - Art. IV: per-vertex color and opacity export as a `linearGradient` with

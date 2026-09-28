@@ -3005,6 +3005,99 @@ mod tests {
         );
     }
 
+    /// r7-8 and r7-9 (user, 28 September 2026) in the export (Art. IV): a
+    /// Shift segment exports in its own tip's texture, and one Watercolor
+    /// stroke that crosses itself builds there as two strokes would.
+    #[test]
+    fn the_export_stamps_segment_textures_and_watercolor_crossings() {
+        use slate_doc::scene::{BrushTexture, PathSeg, Rgba, ShapeKind, ShapeNode, StrokeSpan};
+        let (w, h) = (400.0, 200.0);
+        let n = |x: f32, y: f32| [x / w, y / h];
+        let span = |texture| StrokeSpan {
+            width: 24.0,
+            softness: 0.1,
+            color: Rgba([30, 90, 200, 200]),
+            texture,
+        };
+        let stamp_of = |pts: &[[f32; 2]], textures: &[BrushTexture]| {
+            let path = PathData {
+                start: pts[0],
+                segs: pts[1..].iter().map(|p| PathSeg::Line { to: *p }).collect(),
+                tips: textures.iter().map(|t| span(*t)).collect(),
+                ..PathData::default()
+            };
+            let stroke = slate_doc::scene::Stroke {
+                width: 24.0,
+                color: Rgba([30, 90, 200, 200]),
+                softness: 0.1,
+                stamp: true,
+                texture: *textures.last().unwrap(),
+                ..Default::default()
+            };
+            let shape = ShapeNode {
+                shape: ShapeKind::Path,
+                fill: None,
+                stroke,
+                corner: Corner::Square,
+                sides: slate_doc::scene::default_regular_sides(),
+                phase_deg: 0.0,
+                flip: false,
+                path: Some(path.clone().into()),
+                text: None,
+            };
+            brush_stamp(&shape, &path, w, h, 1.0).expect("a stamp")
+        };
+        let alpha = |img: &vector_ink::StampImage, x: f32, y: f32| {
+            let px = ((x - img.origin[0]) / img.pixel).floor() as u32;
+            let py = ((y - img.origin[1]) / img.pixel).floor() as u32;
+            img.rgba[((py * img.width + px) * 4 + 3) as usize]
+        };
+        use BrushTexture::{Graphite, Watercolor};
+        let chain = [n(40.0, 60.0), n(160.0, 60.0), n(360.0, 60.0)];
+        let mixed = stamp_of(&chain, &[Graphite, Graphite, Watercolor]);
+        let wet = stamp_of(&chain, &[Watercolor; 3]);
+        let dry = stamp_of(&chain, &[Graphite; 3]);
+        let mut differs = false;
+        for y in 54..=66 {
+            for x in 254..=266 {
+                let (x, y) = (x as f32 + 0.5, y as f32 + 0.5);
+                assert_eq!(alpha(&mixed, x, y), alpha(&wet, x, y), "the segment at {x}, {y}");
+                differs |= alpha(&mixed, x, y) != alpha(&dry, x, y);
+            }
+            for x in 74..=86 {
+                let (x, y) = (x as f32 + 0.5, y as f32 + 0.5);
+                assert_eq!(alpha(&mixed, x, y), alpha(&dry, x, y), "the body at {x}, {y}");
+            }
+        }
+        assert!(differs, "the segment exports Graphite");
+
+        let first = [n(50.0, 100.0), n(300.0, 100.0), n(300.0, 180.0), n(200.0, 180.0)];
+        let second = [n(200.0, 180.0), n(200.0, 20.0)];
+        let whole: Vec<[f32; 2]> = first.iter().chain(&second[1..]).copied().collect();
+        let one = stamp_of(&whole, &[Watercolor; 5]);
+        let (a, b) = (stamp_of(&first, &[Watercolor; 4]), stamp_of(&second, &[Watercolor; 2]));
+        let px = |img: &vector_ink::StampImage, x: f32, y: f32| {
+            let px = ((x - img.origin[0]) / img.pixel).floor() as u32;
+            let py = ((y - img.origin[1]) / img.pixel).floor() as u32;
+            let i = ((py * img.width + px) * 4) as usize;
+            [img.rgba[i], img.rgba[i + 1], img.rgba[i + 2], img.rgba[i + 3]]
+        };
+        let mut built = 0;
+        for y in 97..=103 {
+            for x in 197..=203 {
+                let (x, y) = (x as f32 + 0.5, y as f32 + 0.5);
+                let pair = vector_ink::over_px(px(&b, x, y), px(&a, x, y))[3] as i32;
+                let crossing = alpha(&one, x, y) as i32;
+                assert!(
+                    (crossing - pair).abs() <= 2,
+                    "at {x}, {y} the crossing exports {crossing}, two strokes {pair}"
+                );
+                built += (pair - alpha(&a, x, y) as i32 >= 25) as usize;
+            }
+        }
+        assert!(built >= 25, "two strokes do not build at the crossing ({built} px)");
+    }
+
     /// A wide, soft, heavily blurred brush dab exports a PNG whose falloff
     /// changes smoothly instead of holding one alpha in rings.
     #[test]

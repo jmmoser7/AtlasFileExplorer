@@ -82,6 +82,7 @@ fn bench_grain_stamp() {
                 pixel: 0.5,
                 rgba: vec![0u8; 2048 * 512 * 4],
                 depth: Vec::new(),
+                side: Default::default(),
             };
             composite_strokes_tiled(&mut dst, &ink, 512);
             std::hint::black_box(dst);

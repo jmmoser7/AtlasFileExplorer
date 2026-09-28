@@ -143,10 +143,10 @@ pub use smooth::{
 };
 pub use grain::warm_grain_fields;
 pub use stamp::{
-    apply_erase, default_pixel, erase_coverage_at, finish_grain, finished_region, grain_coverage, multiply_by_mask,
-    stamp_blurred, stamp_contours, stamp_contours_at, stamp_line, stamp_polyline, stamp_segment,
-    stamp_tipped, stroke_grain, tip_coverage, tipped_contours, Grain, StampImage, StampStyle,
-    TipPoint,
+    apply_erase, clear_stamp_box, default_pixel, erase_coverage_at, finish_grain, finished_region,
+    grain_coverage, multiply_by_mask, over_px, stamp_blurred, stamp_contours, stamp_contours_at,
+    stamp_line, stamp_polyline, stamp_segment, stamp_tipped, stroke_grain, tip_coverage,
+    tipped_contours, Grain, StampImage, StampSide, StampStyle, TipPoint, WET_REVISIT_DIAMETERS,
 };
 pub use stroke::{
     stroke_bounds, stroke_mesh, stroke_mesh_ends, stroke_mesh_tinted, stroke_mesh_tipped,
