@@ -395,8 +395,9 @@ is searchable.
   adjacent edges, never by the bounding box (user, 26 September 2026).
   Arcs are recognized by geometry, not tool provenance: an open path of
   cubic spans that stays on one circle within the Arc tool's fitting
-  tolerance. **Proposals:** the through grip is the middle of the sweep,
-  so it re-centers after a drag (the AutoCAD arc midpoint grip). A dragged
+  tolerance. The through grip is the middle of the sweep, so it
+  re-centers after a drag (the AutoCAD arc midpoint grip; user pass,
+  28 September 2026, pm6). **Proposals:** a dragged
   vertex lands on the snapped cursor rather than keeping its press offset.
   Grips win over resize at a bounding-box corner; the visible fillet grip
   wins over a vertex grip. A click or press on a grip picks that point
@@ -443,14 +444,22 @@ is searchable.
   widest tip so the tile padding covers it. Uniform tips collapse onto the
   stroke. The painter (`board_path::stamped_contours`) and the artifact
   (`brush_stamp`) both read `PathData::paint_tips`.
-  **Proposals:** the widths are the existing `PathData::tips`, one per
+  **Proposal:** the widths are the existing `PathData::tips`, one per
   vertex, not a second per-vertex list. The blend is read from the geometry
   (`slate_doc::geom::tip_ease`: any curve that is not a circular arc is
-  smooth), like the grips. An arc stores a tip at every span joint, derived
-  from its three grip values; an arc with an odd span count gains a joint
-  at its through point. A filleted polyline keeps its vertex widths, and
-  each fillet's middle takes its corner's width. Grip drags keep the tips
-  when the grips still fit. Edits that change the vertex count carry them
+  smooth), like the grips (user pass, 28 September 2026, tn3, ph1). An arc
+  stores a tip at every span joint, derived from its three grip values; an
+  arc with an odd span count gains a joint at its through point (user
+  pass, 28 September 2026, ph1). A filleted polyline keeps its vertex
+  widths, and each fillet's middle takes its corner's width (user pass,
+  28 September 2026, tp4). The width is C1-continuous through the fillet,
+  with no kink at its middle or its tangent points (user, 28 September
+  2026, tp4): a point on a fillet takes the vertex parameter where the ray
+  from the fillet's center meets its half's edge, and each half is cut
+  into pieces whose middle joint sits at the corner's own parameter
+  (`slate_doc::wire::filleted_vertex_path_params_each`, the one owner;
+  `geom::FILLETED_TIP_STEPS`). Grip drags keep the tips when the grips
+  still fit (user pass, 28 September 2026, pm5). Edits that change the vertex count carry them
   (user, 26 September 2026: "per-vertex properties survive editing"):
   Trim and Split pieces keep the tips and corner overrides of the source
   vertices they keep, and a cut vertex takes the stroke's width and color
@@ -755,7 +764,9 @@ State machine: `Armed → Placing(point k) → … → Commit`.
 - **P2.RhinoDraft.ortho** held Shift inverts the F8 ortho state for the
   pending segment (45° steps from the last placed point, board convention).
   Every drawn segment takes it: Line, Polyline, Arc, Bézier span, and the
-  Brush / Eraser Shift line (stated 2026-09-27). Where Shift already means
+  Brush / Eraser Shift line (stated 2026-09-27), and the Pen Shift line
+  (user, 28 September 2026: "shift for strate line", "at 45 dgree
+  intervals"; pen D07). Where Shift already means
   something else (rectangle and ellipse square / circle) that meaning holds.
 - **P2.RhinoDraft.tab** Tab locks the pending segment's *direction* from
   the last placed point toward the pointer; movement then only changes

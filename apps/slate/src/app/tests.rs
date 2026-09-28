@@ -10426,6 +10426,147 @@ fn brush_tab_locks_the_shift_segment_direction() {
     assert!(h.app.draft_lock.is_none(), "the release ends the lock");
 }
 
+fn pen_board(tag: &str) -> Harness {
+    draft_board(tag, board::BoardTool::Pen)
+}
+
+/// Re-arm the Pen after a stroke (Pen D02: one-shot). A bare P waits out
+/// the type-to-command hold window, so the harness arms it directly.
+fn arm_pen(h: &mut Harness) {
+    assert_eq!(h.app.board_tool, board::BoardTool::Select, "the Pen is one-shot");
+    h.app.set_board_tool(board::BoardTool::Pen);
+    h.frame();
+}
+
+/// User, 28 September 2026 (Pen add-item form): "shift for strate line" /
+/// "at 45 dgree intervals". Shift+drag with the Pen previews a straight
+/// segment in 45° steps from the end of the last Pen stroke, not from the
+/// press, and the release extends that stroke as one path; one undo takes
+/// the segment back.
+#[test]
+fn pen_shift_drag_extends_the_last_pen_stroke_in_45_degree_steps() {
+    let mut h = pen_board("pen_shift_drag");
+    let freehand = [Pos2::new(40.0, 40.0), Pos2::new(80.0, 60.0), Pos2::new(120.0, 40.0)];
+    press_drag_release_frames(&mut h, &freehand, egui::Modifiers::NONE, |_| {});
+    assert_eq!(h.app.doc().scene.nodes.len(), 1, "one Pen stroke");
+    let id = h.app.doc().scene.nodes[0].id;
+    let drawn = path_vertices(h.app.doc().scene.node(id).unwrap());
+    let end = *drawn.last().unwrap();
+    arm_pen(&mut h);
+    let raw = Pos2::new(420.0, 150.0);
+    let mut previewed = 0;
+    press_drag_release_frames(
+        &mut h,
+        &[Pos2::new(300.0, 300.0), Pos2::new(350.0, 250.0), raw],
+        egui::Modifiers::SHIFT,
+        |h| {
+            let (from, to, _) = h.app.pen_line_preview().expect("a live straight segment");
+            assert!(near_px(from, end), "the preview starts at {from:?}, the stroke ends at {end:?}");
+            assert!(on_45(from, to), "the preview takes 45° steps: {to:?}");
+            previewed += 1;
+        },
+    );
+    assert_eq!(previewed, 2, "every move frame previews the segment");
+    assert!(h.app.pen_line_preview().is_none(), "the release ends the preview");
+    assert_eq!(h.app.doc().scene.nodes.len(), 1, "the segment extends the stroke");
+    let v = path_vertices(h.app.doc().scene.node(id).unwrap());
+    assert_eq!(v.len(), drawn.len() + 1, "{v:?}");
+    let last = v[v.len() - 1];
+    assert!(on_45(end, last), "{last:?}");
+    assert!(near_px(last, board_snap::ortho_snap_point(end, raw)), "{last:?}");
+    let node = h.app.doc().scene.node(id).unwrap();
+    let NodeKind::Shape(s) = &node.kind else {
+        panic!("a shape");
+    };
+    assert!(!s.stroke.paints_as_stamp(), "the Pen stays a hard vector stroke");
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    assert_eq!(
+        path_vertices(h.app.doc().scene.node(id).unwrap()),
+        drawn,
+        "one undo takes the segment back"
+    );
+}
+
+/// With no Pen stroke yet, a Shift drag starts at its press. A Shift click
+/// then connects the end of that stroke to exactly the click point, at any
+/// angle.
+#[test]
+fn pen_shift_starts_at_the_press_without_a_stroke_and_shift_click_connects() {
+    let mut h = pen_board("pen_shift_press");
+    let (press, raw) = (Pos2::new(100.0, 100.0), Pos2::new(260.0, 180.0));
+    press_drag_release_frames(
+        &mut h,
+        &[press, Pos2::new(180.0, 150.0), raw],
+        egui::Modifiers::SHIFT,
+        |h| {
+            let (from, ..) = h.app.pen_line_preview().expect("a live straight segment");
+            assert!(near_px(from, press), "{from:?}");
+        },
+    );
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
+    let id = h.app.doc().scene.nodes[0].id;
+    let v = path_vertices(h.app.doc().scene.node(id).unwrap());
+    let end = board_snap::ortho_snap_point(press, raw);
+    assert!(v.len() == 2 && near_px(v[0], press) && near_px(v[1], end), "{v:?}");
+
+    arm_pen(&mut h);
+    let click = Pos2::new(230.0, 83.0);
+    click_at(&mut h, click, egui::Modifiers::SHIFT);
+    assert_eq!(h.app.doc().scene.nodes.len(), 1, "the click extends the stroke");
+    let v = path_vertices(h.app.doc().scene.node(id).unwrap());
+    assert_eq!(v.len(), 3, "{v:?}");
+    assert!(near_px(v[1], end) && near_px(v[2], click), "{v:?}");
+}
+
+/// Tab during a Pen Shift drag locks the segment direction; the release
+/// commits on that ray and ends the lock.
+#[test]
+fn pen_tab_locks_the_shift_segment_direction() {
+    let mut h = pen_board("pen_tab_lock");
+    let a = Pos2::new(100.0, 100.0);
+    let xf = h.app.board_xf();
+    let shift = egui::Modifiers::SHIFT;
+    h.frame_with(|i| {
+        i.modifiers = shift;
+        i.events.push(egui::Event::PointerMoved(xf.w2s(a)));
+    });
+    h.frame_with(|i| {
+        i.modifiers = shift;
+        i.events.push(egui::Event::PointerButton {
+            pos: xf.w2s(a),
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: shift,
+        });
+    });
+    let aim = Pos2::new(200.0, 200.0);
+    h.frame_with(|i| {
+        i.modifiers = shift;
+        i.events.push(egui::Event::PointerMoved(xf.w2s(aim)));
+    });
+    press_key_with(&mut h, egui::Key::Tab, shift);
+    let lock = h.app.draft_lock.expect("Tab locks the Pen's Shift segment");
+    let dir = EVec2::new(1.0, 1.0).normalized();
+    assert!((lock - dir).length() < 1.0e-3, "{lock:?}");
+    let off = Pos2::new(400.0, 120.0);
+    h.frame_with(|i| {
+        i.modifiers = egui::Modifiers::NONE;
+        i.events.push(egui::Event::PointerMoved(xf.w2s(off)));
+    });
+    h.frame_with(|i| {
+        i.events.push(egui::Event::PointerButton {
+            pos: xf.w2s(off),
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+    });
+    h.frame();
+    let v = path_vertices(&h.app.doc().scene.nodes[0]);
+    assert!(near_px(v[0], a) && on_ray(a, dir, v[1]), "{v:?}");
+    assert!(h.app.draft_lock.is_none(), "the release ends the lock");
+}
+
 /// Eraser: a Shift pass takes 45° steps; Tab locks its direction; the
 /// end of the pass clears the lock.
 #[test]
@@ -18540,8 +18681,13 @@ fn tip_widths(h: &Harness, id: NodeId) -> Vec<f32> {
 /// Painted half-width of `id`'s board stroke at `p` along unit `normal`
 /// (camera at 1:1), less the anti-aliasing fringe.
 fn ink_half_width(h: &Harness, id: NodeId, p: Pos2, normal: EVec2) -> f32 {
+    ink_half_width_at(h, id, p, normal, 1.0)
+}
+
+/// [`ink_half_width`] on the mesh the board builds at `zoom`.
+fn ink_half_width_at(h: &Harness, id: NodeId, p: Pos2, normal: EVec2, zoom: f32) -> f32 {
     let (n, s) = curve_shape(h, id);
-    let mesh = board_path::vector_stroke_ink(&n, &s, s.path.as_ref().unwrap(), 1.0);
+    let mesh = board_path::vector_stroke_ink(&n, &s, s.path.as_ref().unwrap(), zoom);
     let verts: Vec<[f32; 2]> = mesh.vertices.iter().map(|v| v.pos).collect();
     let inside = |d: f32| {
         let q = p + normal * d;
@@ -18557,7 +18703,7 @@ fn ink_half_width(h: &Harness, id: NodeId, p: Pos2, normal: EVec2) -> f32 {
             hi = mid;
         }
     }
-    lo - board_path::FEATHER_PX * 0.5
+    lo - board_path::FEATHER_PX * 0.5 / zoom
 }
 
 fn assert_close(got: f32, want: f32, tol: f32, what: &str) {
@@ -18728,6 +18874,46 @@ fn a_filleted_polyline_keeps_its_vertex_widths() {
     let mid = Pos2::new(80.0 + 20.0 * d, 20.0 - 20.0 * d);
     let got = ink_half_width(&h, id, mid, EVec2::new(d, -d));
     assert_close(got, 10.0, 0.2, "the fillet's middle keeps the corner width");
+}
+
+/// User, 28 September 2026 (tp4): "it works but taper produces kink at mid
+/// fillet". The painted width eases through the fillet's middle with no
+/// slope jump: coming in and going out, the width's slope there is zero.
+#[test]
+fn a_filleted_taper_paints_no_kink_at_the_fillet_middle() {
+    let mut h = grip_board("vertex_width_fillet_kink");
+    let pts = [
+        Pos2::new(0.0, 0.0),
+        Pos2::new(100.0, 0.0),
+        Pos2::new(100.0, 100.0),
+    ];
+    let id = commit_polyline(&mut h, &pts, false);
+    vertex_stringer_width(&mut h, id, &[1], 20.0);
+    if let Some(n) = h.app.doc_mut().scene.node_mut(id) {
+        if let NodeKind::Shape(s) = &mut n.kind {
+            s.corner = slate_doc::scene::Corner::from_parameters(false, false, 20.0);
+        }
+    }
+    // The fillet's circle: center (80, 20), radius 20, middle at -45°.
+    let (center, r) = (Pos2::new(80.0, 20.0), 20.0_f32);
+    let zoom = 64.0;
+    let half_at = |arc: f32| {
+        let a = -std::f32::consts::FRAC_PI_4 + arc / r;
+        let normal = EVec2::new(a.cos(), a.sin());
+        ink_half_width_at(&h, id, center + normal * r, normal, zoom)
+    };
+    assert_close(half_at(0.0), 10.0, 0.05, "the middle keeps the corner width");
+    // One-sided slopes at the middle, extrapolated from 2 and 4 units so the
+    // width's curvature cancels and only a kink would remain.
+    let one_sided = |dir: f32| {
+        let at = |s: f32| (half_at(dir * s) - half_at(0.0)) / s;
+        2.0 * at(2.0) - at(4.0)
+    };
+    let (coming, going) = (-one_sided(-1.0), one_sided(1.0));
+    assert!(
+        coming.abs() < 0.02 && going.abs() < 0.02,
+        "slope {coming} into the middle, {going} out of it"
+    );
 }
 
 /// Grip drags keep vertex widths; an arc keeps its three grip widths while
@@ -19635,6 +19821,106 @@ fn alt_right_drag_scales_about_the_press_point_through_real_frames() {
         "the canvas does not move under the HUD"
     );
     assert!(h.app.brush_width > 20.0);
+}
+
+/// A right-button chord through real frames: press at `press` with `mods`
+/// held, six moves out to `press + delta`, then the release.
+fn right_chord(
+    h: &mut Harness,
+    press: Pos2,
+    delta: EVec2,
+    mods: egui::Modifiers,
+    mut during: impl FnMut(&Harness),
+) {
+    h.frame_with(|i| {
+        i.modifiers = mods;
+        i.events.push(egui::Event::PointerMoved(press));
+    });
+    h.frame_with(|i| {
+        i.modifiers = mods;
+        i.events.push(egui::Event::PointerButton {
+            pos: press,
+            button: egui::PointerButton::Secondary,
+            pressed: true,
+            modifiers: mods,
+        });
+    });
+    for k in 1..=6 {
+        let p = press + delta * (k as f32 / 6.0);
+        h.frame_with(|i| {
+            i.modifiers = mods;
+            i.events.push(egui::Event::PointerMoved(p));
+        });
+        during(h);
+    }
+    h.frame_with(|i| {
+        i.modifiers = mods;
+        i.events.push(egui::Event::PointerButton {
+            pos: press + delta,
+            button: egui::PointerButton::Secondary,
+            pressed: false,
+            modifiers: mods,
+        });
+    });
+    h.frame_with(|i| i.modifiers = egui::Modifiers::NONE);
+}
+
+/// ts3 (user pass, 28 September 2026): with Smooth armed, Alt+right-drag
+/// scrubs its size and softness, Shift+right-drag its strength, and
+/// Ctrl+right-drag shows no color wheel.
+#[test]
+fn smooth_tip_chords_scrub_size_softness_and_strength_with_no_wheel() {
+    let mut h = Harness::new("smooth_chords");
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    h.frame();
+    h.app.set_board_tool(board::BoardTool::Smooth);
+    h.app.tab_mut().cam.z = 1.0;
+    h.app.smooth_width = 40.0;
+    h.app.smooth_softness = 0.5;
+    h.app.smooth_strength = 0.5;
+    h.frame();
+    let press = h.app.canvas_rect.center();
+    let alt = egui::Modifiers {
+        alt: true,
+        ..Default::default()
+    };
+    right_chord(&mut h, press, EVec2::new(30.0, -30.0), alt, |h| {
+        assert!(
+            matches!(h.app.brush_hud, Some(board_color::BrushHud::Size { .. })),
+            "Alt+right-drag opens the size HUD: {:?}",
+            h.app.brush_hud
+        );
+    });
+    assert!(h.app.smooth_width > 40.0 + 10.0, "size grew: {}", h.app.smooth_width);
+    assert!(h.app.smooth_softness > 0.5, "softness rose: {}", h.app.smooth_softness);
+    assert!((h.app.smooth_strength - 0.5).abs() < 1e-6, "strength untouched");
+
+    let (width, softness) = (h.app.smooth_width, h.app.smooth_softness);
+    right_chord(&mut h, press, EVec2::new(0.0, -30.0), egui::Modifiers::SHIFT, |h| {
+        assert!(
+            matches!(h.app.brush_hud, Some(board_color::BrushHud::Opacity { .. })),
+            "Shift+right-drag opens the strength HUD: {:?}",
+            h.app.brush_hud
+        );
+    });
+    assert!(h.app.smooth_strength > 0.6, "strength rose: {}", h.app.smooth_strength);
+    assert_eq!((h.app.smooth_width, h.app.smooth_softness), (width, softness));
+
+    let fg = h.app.board_colors.fg;
+    let strength = h.app.smooth_strength;
+    right_chord(&mut h, press, EVec2::new(40.0, 20.0), egui::Modifiers::CTRL, |h| {
+        assert!(
+            !matches!(h.app.brush_hud, Some(board_color::BrushHud::Wheel { .. })),
+            "Ctrl+right-drag shows no color wheel for Smooth"
+        );
+    });
+    assert_eq!(h.app.board_colors.fg, fg, "no color was picked");
+    assert_eq!(
+        (h.app.smooth_width, h.app.smooth_softness, h.app.smooth_strength),
+        (width, softness, strength)
+    );
 }
 
 #[test]

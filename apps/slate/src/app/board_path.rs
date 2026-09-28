@@ -5387,7 +5387,7 @@ impl SlateApp {
 
     /// Commit a drawn curve with the tips its points were placed with
     /// (P1.curve.tip-chord). The tool keeps its current tip for the next
-    /// curve.
+    /// curve. Returns the new node's id.
     pub(crate) fn commit_drawn_path(
         &mut self,
         tool: StrokeTool,
@@ -5395,7 +5395,7 @@ impl SlateApp {
         path_data: PathData,
         closed: bool,
         tips: DrawnTips<'_>,
-    ) {
+    ) -> Vec<NodeId> {
         let mut path_data = path_data;
         path_data.closed = closed;
         let current = self.placed_tip(tool);
@@ -5447,8 +5447,9 @@ impl SlateApp {
         // The next stroke starts with the tip last chosen, not the widest.
         self.keep_tool_tip(tool, current);
         let ids = self.commit_created_nodes(vec![node]);
-        self.select_created_nodes(ids);
+        self.select_created_nodes(ids.clone());
         self.board_tool = super::board::BoardTool::Select;
+        ids
     }
 
     pub(crate) fn path_tool_click(&mut self, world: Pos2) {
@@ -5849,7 +5850,10 @@ impl SlateApp {
             return;
         }
         let tips = DrawnTips::Vertices(&tips);
-        self.commit_drawn_path(StrokeTool::Pen, rect, data, false, tips);
+        let ids = self.commit_drawn_path(StrokeTool::Pen, rect, data, false, tips);
+        if let (Some(&id), Some(&end)) = (ids.first(), stroke.points.last()) {
+            self.set_pen_anchor(end, Some(id));
+        }
     }
 
     pub(crate) fn path_tool_try_finish(&mut self) -> bool {

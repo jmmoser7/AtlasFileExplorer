@@ -1898,6 +1898,66 @@ mod tests {
         h.app.crosstalk_status(&chain(h))
     }
 
+    /// Audit, 28 September 2026: a crosstalk chip takes its own presses,
+    /// never a stroke passing over it. A Pen stroke dragged onto the chip
+    /// keeps its moves there and ends where it is released on the chip.
+    #[test]
+    fn a_stroke_released_on_a_crosstalk_chip_still_commits() {
+        let mut p = pair("xt_stroke_over_chip");
+        let (from, to) = (
+            port(&p.h, p.cursor, Side::Bottom),
+            port(&p.h, p.codex, Side::Top),
+        );
+        drag(&mut p.h, from, to);
+        p.h.app.board_sel.clear();
+        p.h.app.set_board_tool(super::super::super::board::BoardTool::Pen);
+        p.h.frame();
+        p.h.frame();
+        let chip = *p.h.app.agents.crosstalk.rects.first().expect("a chip");
+        let before = p.h.app.doc().scene.nodes.len();
+        let start = chip.left_center() - egui::vec2(120.0, 0.0);
+        let end = chip.center();
+        p.h.frame_with(|i| i.events.push(egui::Event::PointerMoved(start)));
+        p.h.frame_with(|i| {
+            i.events.push(egui::Event::PointerButton {
+                pos: start,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            })
+        });
+        for k in 1..=8 {
+            let at = start + (end - start) * (k as f32 / 8.0) + egui::vec2(0.0, (k % 2) as f32 * 6.0);
+            p.h.frame_with(|i| i.events.push(egui::Event::PointerMoved(at)));
+        }
+        p.h.frame_with(|i| {
+            i.events.push(egui::Event::PointerButton {
+                pos: end,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            })
+        });
+        p.h.frame();
+        assert!(p.h.app.board_drag.is_none(), "the release on the chip ended the stroke");
+        assert_eq!(p.h.app.doc().scene.nodes.len(), before + 1, "the stroke committed");
+        let node = p.h.app.doc().scene.nodes.last().unwrap();
+        let NodeKind::Shape(s) = &node.kind else {
+            panic!("a Pen stroke");
+        };
+        let bez = slate_doc::geom::path_data_to_world_bez(
+            s.path.as_ref().unwrap(),
+            node.rect,
+            node.rotation_deg,
+        );
+        let last = bez.elements().last().and_then(|el| el.end_point()).unwrap();
+        let want = p.h.app.board_xf().s2w(end);
+        assert!(
+            (Pos2::new(last.x as f32, last.y as f32) - want).length() < 2.0,
+            "the stroke ends on the chip: {last:?} vs {want:?}"
+        );
+    }
+
     #[test]
     fn dragging_between_ports_links_the_conversations_and_opens_the_editor() {
         let mut p = pair("xt_link");

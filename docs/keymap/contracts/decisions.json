@@ -520,11 +520,11 @@
           "decided": "2026-07-23"
         },
         "D10": {
-          "behavior": "Crosshair while armed; small lock glyph appended while Tab-locked.",
-          "source": "guess",
-          "confidence": 60,
+          "behavior": "Crosshair while armed; a small padlock beside the pointer while Tab-locked (user pass, 28 September 2026, tl4: \"padlock beside the pointer\").",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-07-23"
+          "decided": "2026-09-28"
         },
         "D11": {
           "behavior": "A parametric 2-point line node; stroke from the Line tool's own P1.curve.create-style memory (D16), else default_curve_stroke in the theme ink (Square end caps, Miter joins, 2 px); opacity from the Line's memory or 1.0; the rubber band previews that color and width; journal cmd board.tool.line; one gesture = one undo (P0.2/P0.3).",
@@ -3160,7 +3160,7 @@
           "decided": "2026-09-26"
         },
         "D14": {
-          "behavior": "Open line-only polyline: Stroke button plus Corners (one fillet radius or chamfer cut at every interior vertex, clamped per vertex; 0 = sharp). Closed line-only polyline: Fill and Stroke plus Corners. The Corners slider reads the stored amount after commit, and Fillet / Chamfer are both selectable. Board and artifact share path_data_to_world_bez_with_fillet, which draws chamfers as straight cuts. Per-vertex corners (stated 26 September 2026): the path stores an optional amount per vertex (PathData.corner_amounts, in path order); a vertex grip overrides its own corner, and the Corners value sets every corner again, clearing the overrides. Overrides use the shape's treatment, so Fillet / Chamfer switches them too, and a shared-grip edit also clears them (proposals). The same function reads the overrides for board and artifact. A vertex edit keeps the authored radius or cut, overrides included, and re-applies it to the new corners, clamped per corner by the adjacent edges and never by the bounding box (user, 26 September 2026; Corner::vertex_effective). Per-vertex width (P1.curve.vertex-style; user, 26 September 2026): with vertices picked, the Stroke stringer's width edits only those vertices, tapering straight to their neighbors; with none picked it scales the whole curve. Proposal: a fillet's middle keeps its corner's width. Per-vertex color (user, 26 September 2026): picked vertices take the Stroke color and blend straight to their neighbors; with none picked the color sets every vertex. Proposal: the export fills each stroke section with a two-stop linear gradient (P1.curve.vertex-style).",
+          "behavior": "Open line-only polyline: Stroke button plus Corners (one fillet radius or chamfer cut at every interior vertex, clamped per vertex; 0 = sharp). Closed line-only polyline: Fill and Stroke plus Corners. The Corners slider reads the stored amount after commit, and Fillet / Chamfer are both selectable. Board and artifact share path_data_to_world_bez_with_fillet, which draws chamfers as straight cuts. Per-vertex corners (stated 26 September 2026): the path stores an optional amount per vertex (PathData.corner_amounts, in path order); a vertex grip overrides its own corner, and the Corners value sets every corner again, clearing the overrides. Overrides use the shape's treatment, so Fillet / Chamfer switches them too, and a shared-grip edit also clears them (proposals). The same function reads the overrides for board and artifact. A vertex edit keeps the authored radius or cut, overrides included, and re-applies it to the new corners, clamped per corner by the adjacent edges and never by the bounding box (user, 26 September 2026; Corner::vertex_effective). Per-vertex width (P1.curve.vertex-style; user, 26 September 2026): with vertices picked, the Stroke stringer's width edits only those vertices, tapering straight to their neighbors; with none picked it scales the whole curve. A fillet's middle keeps its corner's width (user pass, 28 September 2026, tp4), and the width is C1-continuous through the fillet, with no kink at the midpoint (user, 28 September 2026, tp4: \"it works but taper produces kink at mid fillet\"). Per-vertex color (user, 26 September 2026): picked vertices take the Stroke color and blend straight to their neighbors; with none picked the color sets every vertex. Proposal: the export fills each stroke section with a two-stop linear gradient (P1.curve.vertex-style).",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -3413,14 +3413,14 @@
           "decided": "2026-09-17"
         },
         "D13": {
-          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry. P1.curve.grips (user, 26 September 2026): a single selected arc shows start, end and through point through the shared path-edit overlay; dragging one rebuilds the circular arc through the three points as one journaled Patch, snapped through resolve_point_snap. Proposal: the through grip sits at the middle of the sweep, so it re-centers after a drag. Picked grips (user, 27 September 2026; direct-selection.md): Alt/Ctrl/Shift+right-drag edit only the picked grips' width, color and opacity, or the hovered grip when none is picked; one journaled Patch per HUD, Esc restores. Delete with grips picked removes them, rebuilding the path through the rest; fewer than two left removes the node; one Ctrl+Z restores.",
+          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry. P1.curve.grips (user, 26 September 2026): a single selected arc shows start, end and through point through the shared path-edit overlay; dragging one rebuilds the circular arc through the three points as one journaled Patch, snapped through resolve_point_snap. The through grip sits at the middle of the sweep, so it re-centers after a drag (user pass, 28 September 2026, pm6). Picked grips (user, 27 September 2026; direct-selection.md): Alt/Ctrl/Shift+right-drag edit only the picked grips' width, color and opacity, or the hovered grip when none is picked; one journaled Patch per HUD, Esc restores. Delete with grips picked removes them, rebuilding the path through the rest; fewer than two left removes the node; one Ctrl+Z restores.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
           "decided": "2026-09-26"
         },
         "D14": {
-          "behavior": "Circular Stroke button with applicable stroke details; shared desktop sampling. No dimension stringers (D08). Exact R/sweep requires durable arc parameters; current generic paths use honest path measurements. Per-vertex width (P1.curve.vertex-style; user, 26 September 2026): with start, through or end picked, the Stroke stringer's width edits only that grip; widths blend straight along the sweep. Proposal: the arc stores a width at every span joint, derived from its three grip widths, and gains a joint at its through point. Per-vertex color (user, 26 September 2026): a picked grip takes the Stroke color, blending straight along the sweep; with none picked the color sets the whole arc.",
+          "behavior": "Circular Stroke button with applicable stroke details; shared desktop sampling. No dimension stringers (D08). Exact R/sweep requires durable arc parameters; current generic paths use honest path measurements. Per-vertex width (P1.curve.vertex-style; user, 26 September 2026): with start, through or end picked, the Stroke stringer's width edits only that grip; widths blend straight along the sweep. The arc stores a width at every span joint, derived from its three grip widths, and gains a joint at its through point (user pass, 28 September 2026, ta4, ph1). Per-vertex color (user, 26 September 2026): a picked grip takes the Stroke color, blending straight along the sweep; with none picked the color sets the whole arc.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -3550,7 +3550,7 @@
           "decided": "2026-09-26"
         },
         "D14": {
-          "behavior": "Circular Stroke and, only for a closed path, Fill. Handle editing is on-canvas through the selected-span grips (D13) and Direct Selection. No rectangle Corners or dimensional toolbar fields. Color editors use the shared desktop sampler. Per-vertex width (P1.curve.vertex-style; user, 26 September 2026): with anchors picked, the Stroke stringer's width edits only those anchors; widths blend between anchors with a smoothstep, zero slope at each anchor, so the stroke has no chines. Proposal: geometry decides the blend, so any curve that is not a circular arc, including a Pen stroke, blends smoothly. Per-vertex color (user, 26 September 2026): picked anchors take the Stroke color, blending by the same smoothstep as widths; with none picked the color sets every anchor.",
+          "behavior": "Circular Stroke and, only for a closed path, Fill. Handle editing is on-canvas through the selected-span grips (D13) and Direct Selection. No rectangle Corners or dimensional toolbar fields. Color editors use the shared desktop sampler. Per-vertex width (P1.curve.vertex-style; user, 26 September 2026): with anchors picked, the Stroke stringer's width edits only those anchors; widths blend between anchors with a smoothstep, zero slope at each anchor, so the stroke has no chines. Geometry decides the blend, so any curve that is not a circular arc, including a Pen stroke, blends smoothly (user pass, 28 September 2026, tn3, ph1). Per-vertex color (user, 26 September 2026): picked anchors take the Stroke color, blending by the same smoothstep as widths; with none picked the color sets every anchor.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -3603,11 +3603,11 @@
           "decided": "2026-09-17"
         },
         "D03": {
-          "behavior": "Capture ordered freehand input events and fit a smooth committed curve with the shared vector-ink fitter.",
+          "behavior": "Capture ordered freehand input events and fit a smooth committed curve with the shared vector-ink fitter. Shift+left-drag draws a straight segment instead (D07).",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-28"
         },
         "D04": {
           "behavior": "Capture press, release, and moves; keep samples ≥ ~1.75 screen px apart during drag; on release merge the final point into the last kept sample when closer than that spacing (no end hook).",
@@ -3617,11 +3617,11 @@
           "decided": "2026-09-25"
         },
         "D05": {
-          "behavior": "Retain tool-specific creation modifiers and P1.node.transform for selected objects. Alt+right-drag scrubs the Pen's own width through the Brush size HUD (board.brush.size_hud, P1.curve.tip-chord), horizontally only: no softness. The color and opacity HUDs reach the Pen too. Mid-stroke a chord draws nothing; the samples after it blend from the last drawn tip to the new width, color and opacity by smoothstep over 24 screen px (or the wider tip), and the committed stroke stores one tip per vertex. The live preview draws each sample at its own tip, like the other stroke drafts (user, 26-27 September 2026).",
+          "behavior": "Retain tool-specific creation modifiers and P1.node.transform for selected objects. Alt+right-drag scrubs the Pen's own width through the Brush size HUD (board.brush.size_hud, P1.curve.tip-chord), horizontally only: no softness. The color and opacity HUDs reach the Pen too. Mid-stroke a chord draws nothing; when its HUD closes the pointer returns to the last drawn point and the stroke continues from there (user pass, 28 September 2026, tn2); the samples after it blend from the last drawn tip to the new width, color and opacity by smoothstep over 24 screen px (or the wider tip), and the committed stroke stores one tip per vertex. The live preview draws each sample at its own tip, like the other stroke drafts (user, 26-27 September 2026).",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-26"
+          "decided": "2026-09-28"
         },
         "D06": {
           "behavior": "No point snapping along the freehand stroke; it would quantize the sketch. Existing point snapping remains available when editing committed anchors.",
@@ -3631,11 +3631,11 @@
           "decided": "2026-09-17"
         },
         "D07": {
-          "behavior": "n/a: no direction/value lock while sketching. The Pen places no segments (freehand only), so P2.RhinoDraft.ortho / .tab have no pending segment to act on (2026-09-27).",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "User, 28 September 2026 (Pen add-item form): \"shift for strate line\", \"at 45 dgree intervals\". Shift+left-drag with the Pen previews a straight segment every frame and the release commits it, as the Brush Shift line does (brush D03, D07, GP6). It starts at the end of the last Pen stroke, else at the press, and takes 45° steps from its start (P2.RhinoDraft.ortho); Tab locks its direction (P2.RhinoDraft.tab) and Tab again, the release, or Esc ends the lock. Shift+click connects that end to exactly the click point, at any angle; with no Pen stroke yet it only sets the point the next segment starts from. From a Pen stroke the segment extends that stroke as one path, one undo step (board.pen.line); a stroke it cannot extend (locked, closed, several contours) still gives the start, and the segment becomes a new Pen path. The start follows the journal: the newest Pen stroke still on the board in this workbook. The Pen stays one-shot (D02): each segment returns to Select, and the next P press continues from the same end. No lock on width, color, or opacity.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-28"
         },
         "D08": {
           "behavior": "An open pen path shows no dimension stringers (user, 26 September 2026: \"remove the dimension stringers from open curves right now\"). An explicitly closed pen path keeps tight local W/H stringers, scaling the committed path around bounds center without re-fitting the stroke. No dimensions in the toolbar.",
@@ -3645,11 +3645,11 @@
           "decided": "2026-09-26"
         },
         "D09": {
-          "behavior": "NURBS-style fit (stated 2026-09-26; reference Rhino Sketch + Rebuild): decimate at ~1.75 screen px, split only at true cusps (one per corner cluster), and fit each cusp-free run with one least-squares cubic B-spline (uniform knots on arc length, light fairing, knot count grown from stroke length / tolerance until every sample is within ~2 screen px). Stored, painted, and exported as the spline's exact C2 cubic Bezier segments; never straight polyline spans.",
+          "behavior": "NURBS-style fit (stated 2026-09-26; reference Rhino Sketch + Rebuild): decimate at ~1.75 screen px, split only at true cusps (one per corner cluster), and fit each cusp-free run with one least-squares cubic B-spline (uniform knots on arc length, light fairing, knot count grown from stroke length / tolerance until every sample is within ~2 screen px). Stored, painted, and exported as the spline's exact C2 cubic Bezier segments; never straight polyline spans. A Shift segment (D07) is the one straight span, previewed as the same rubber band the Line tool draws, at the Pen's tip (user, 28 September 2026).",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-26"
+          "decided": "2026-09-28"
         },
         "D10": {
           "behavior": "A hard circle of the pen's own width and color, the same disc the Brush shows for its tip; the OS cursor hides under it over the board. The user offered circle or crosshair (stated 2026-09-25); the circle was chosen because it previews the width the tip chord's size HUD scrubs. The size HUD replaces it while open. Controls use shell hover and focus feedback.",
@@ -3673,11 +3673,11 @@
           "decided": "2026-09-17"
         },
         "D13": {
-          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers. P1.curve.grips: a single selected Pen stroke shows every anchor and every non-zero tangent handle with the Select tool; each drag is one journaled Patch (user pass, 28 September 2026, tn3).",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-28"
         },
         "D14": {
           "behavior": "Circular Stroke with width, RGB, alpha, dash and appropriate caps/joins; Fill only on a closed path. Preserve authored profile; no unsupported smoothing or rectangle Corners control.",
@@ -4627,7 +4627,7 @@
       }
     },
     "smooth": {
-      "status": "draft",
+      "status": "agreed",
       "family": "tool",
       "reference": "Rhino smoothing brush subset; brush HUD chords",
       "inherits": [
@@ -4639,63 +4639,63 @@
           "behavior": "S and board.tool.smooth arm Smoothing beside Brush and Eraser in the Shapes flyout ink group.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
+          "verdict": "approved",
           "decided": "2026-09-25"
         },
         "D02": {
           "behavior": "Sticky like Brush/Eraser: stays armed after each pass; each drag is one undo group.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
+          "verdict": "approved",
           "decided": "2026-09-25"
         },
         "D03": {
           "behavior": "Left-drag sweeps a circular brush over existing marks: every stroke the brush crosses along the drag is picked, and passes run every half radius so a fast drag leaves no gap. Shift+drag is a straight pass from the end of the last pass; the whole segment is recomputed from the scene as the pointer moves. No paint on empty canvas.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
+          "verdict": "approved",
           "decided": "2026-09-25"
         },
         "D04": {
           "behavior": "Any drag under the board sampling threshold still runs one smoothing pass at the press point.",
           "source": "guess",
           "confidence": 55,
-          "verdict": "proposed",
+          "verdict": "approved",
           "decided": "2026-09-25"
         },
         "D05": {
-          "behavior": "Shares Brush/Eraser width chords: [ ] size, Shift+[ ] softness, Alt+right-drag size+softness, Shift+right-drag strength. Esc cancels an in-progress pass without journal.",
+          "behavior": "Shares Brush/Eraser width chords: [ ] size, Shift+[ ] softness, Alt+right-drag size+softness, Shift+right-drag strength (Smooth/Eraser). Ctrl+right-drag shows no wheel (user pass, 28 September 2026, ts3). Esc cancels an in-progress pass without journal.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
-          "decided": "2026-09-25"
+          "verdict": "approved",
+          "decided": "2026-09-28"
         },
         "D06": {
           "behavior": "No object or grid snap on the brush center.",
           "source": "pattern",
           "confidence": 85,
-          "verdict": "proposed",
+          "verdict": "approved",
           "decided": "2026-09-25"
         },
         "D07": {
           "behavior": "n/a",
           "source": "pattern",
           "confidence": 85,
-          "verdict": "proposed",
+          "verdict": "approved",
           "decided": "2026-09-25"
         },
         "D08": {
           "behavior": "[ ] screen-px tiers (same as Brush). Strength 0..=1 via Shift+right-drag; a pass applies at least 0.05.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
+          "verdict": "approved",
           "decided": "2026-09-25"
         },
         "D09": {
           "behavior": "Canvas-scaled soft disc (same as Eraser). Live preview replaces touched nodes until release. Bottom readout: diameter, softness, strength %.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
+          "verdict": "approved",
           "decided": "2026-09-25"
         },
         "D10": {
@@ -4716,42 +4716,42 @@
           "behavior": "Esc drops the drag and live preview; no journal.",
           "source": "pattern",
           "confidence": 85,
-          "verdict": "proposed",
+          "verdict": "approved",
           "decided": "2026-09-25"
         },
         "D13": {
           "behavior": "Unchanged during drag.",
           "source": "pattern",
           "confidence": 85,
-          "verdict": "proposed",
+          "verdict": "approved",
           "decided": "2026-09-25"
         },
         "D14": {
           "behavior": "Vector results stay editable paths. Smoothed lines/arcs become cubic paths. A closed path stays closed; a compound path keeps each contour separate, and a contour the brush never reaches is written back unchanged. Per-vertex widths and colors resample onto the refit vertices at the same fraction of each contour's length, so a tapered pen stroke stays tapered; corner overrides end, since the result is no longer a line polyline (user, 26 September 2026). Stamp blur is authored on the stroke. The board and the HTML artifact share one blur: premultiplied f32 passes, dithered back to 8 bits, so a heavy blur fades smoothly instead of banding into rings. A blurred stroke paints from its own blurred raster, never from an unblurred tile.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
+          "verdict": "approved",
           "decided": "2026-09-25"
         },
         "D15": {
           "behavior": "Non-goals: partial-length blur on stamps; image paint layers; corner pinning via fit pipeline (v2); full Rhino smooth modes.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
+          "verdict": "approved",
           "decided": "2026-09-25"
         },
         "D16": {
           "behavior": "Does not create nodes; only mutates existing ink.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
+          "verdict": "approved",
           "decided": "2026-09-25"
         },
         "D17": {
           "behavior": "Vectors: stroke hit-test within pick radius (non-stamp Path + Line). Stamps: stroke hit-test on stamped paths. Hidden/locked skipped.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
+          "verdict": "approved",
           "decided": "2026-09-25"
         }
       }

@@ -93,8 +93,8 @@ impl SlateApp {
     }
 
     /// The last placed point of the segment the armed tool is drawing:
-    /// Line, Polyline, Arc, Bézier span, and the Brush and Eraser Shift
-    /// straight lines. `None` when no segment is pending.
+    /// Line, Polyline, Arc, Bézier span, and the Pen, Brush, and Eraser
+    /// Shift straight lines. `None` when no segment is pending.
     pub(crate) fn pending_segment_origin(&self) -> Option<Pos2> {
         use super::board::{BoardDrag, BoardTool};
         match self.board_tool {
@@ -110,6 +110,7 @@ impl SlateApp {
                 }
             }
             BoardTool::Brush => self.brush_straight_from().map(|(from, ..)| from),
+            BoardTool::Pen => self.pen_straight.as_ref().map(|g| g.from),
             BoardTool::Eraser => match &self.board_drag {
                 Some(BoardDrag::Erase {
                     points,
@@ -138,6 +139,7 @@ impl SlateApp {
             (BoardTool::Brush, _) => {
                 pointer.and_then(|p| self.brush_straight_end(p, self.shift_down))
             }
+            (BoardTool::Pen, _) => self.pen_straight.as_ref().map(|g| g.end),
             (BoardTool::Eraser, Some(BoardDrag::Erase { points, .. })) => points.last().copied(),
             _ => self.line_draft.as_ref().and_then(|d| d.cursor),
         }
