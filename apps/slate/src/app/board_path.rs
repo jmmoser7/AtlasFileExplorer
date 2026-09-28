@@ -2100,6 +2100,47 @@ pub(crate) fn ensure_erase_live(app: &mut SlateApp, painter: &egui::Painter, xf:
     }
 }
 
+/// The straight eraser pass's vector stand-in: the eraser's band, in its
+/// preview color, over the part of the segment that some reached stroke
+/// does not show its exact cut for yet, so the preview follows the pointer
+/// on frames the workers have not caught up with.
+pub(crate) fn paint_erase_band(app: &mut SlateApp, painter: &egui::Painter, xf: &BoardXf) {
+    let mut band = std::mem::take(&mut app.erase_band);
+    band.begin();
+    if let Some(super::board::BoardDrag::Erase {
+        points,
+        spot,
+        straight: true,
+        ..
+    }) = &app.board_drag
+    {
+        let tip = app.eraser_tip();
+        let rest = straight_seg(points, tip).and_then(|seg| {
+            spot.iter()
+                .filter_map(|id| match app.erase_live.get(id) {
+                    Some(live) => live.uncovered(seg),
+                    None => Some((seg.0, false)),
+                })
+                .max_by(|a, b| {
+                    let far =
+                        |p: &TipPoint| (p.pos[0] - seg.1.pos[0]).hypot(p.pos[1] - seg.1.pos[1]);
+                    far(&a.0).total_cmp(&far(&b.0))
+                })
+                .map(|(from, cut)| (from, seg.1, cut))
+        });
+        if let Some((from, to, cut)) = rest {
+            let rgba = app.eraser_preview_color().to_srgba_unmultiplied();
+            let shade = |p: TipPoint| TipPoint {
+                tip: StampStyle { rgba, ..p.tip },
+                ..p
+            };
+            let start = if cut { Cap::Butt } else { Cap::Round };
+            band.paint(painter, xf, (shade(from), shade(to)), [start, Cap::Round]);
+        }
+    }
+    app.erase_band = band;
+}
+
 fn start_erase_live(app: &mut SlateApp, painter: &egui::Painter, node: &Node, want: f32) {
     let NodeKind::Shape(shape) = &node.kind else {
         return;
@@ -2182,6 +2223,11 @@ fn paint_stamped_stroke(
             }
             if let Some(live) = app.erase_live.get_mut(&node.id) {
                 live.feed(&points, tip, straight);
+                live.pump(
+                    &mut app.brush_tiles,
+                    tiles::erase_lane(node.id),
+                    painter.ctx(),
+                );
                 live.paint(painter, xf, fade(Color32::WHITE));
                 return;
             }
@@ -2466,10 +2512,7 @@ pub struct BrushLiveCanvas {
     /// The newest exact preview stamp the workers returned.
     exact: Option<LineExact>,
     inflight: Option<LineAsk>,
-    next_tag: u64,
-    /// Stand-in meshes painted last frame, and this frame's.
-    meshes: Vec<(u64, DraftMesh)>,
-    meshes_next: Vec<(u64, DraftMesh)>,
+    meshes: SegMeshes,
     /// Pixel buffers of a dropped raster, reused for the next job's base.
     spare: (Vec<u8>, Vec<u8>),
 }
@@ -2497,40 +2540,90 @@ struct LineAsk {
     bx: [u32; 4],
 }
 
-/// Shift segments to stamp over `base`, a copy of the live canvas pixels
-/// under them. Runs on a raster worker ([`line_raster`]).
+/// Shift segments to stamp over `base`, a copy of the owner's pixels under
+/// them (an empty `rgba` is a clear box). Runs on a raster worker
+/// ([`line_raster`]). `lane` names the owner: the brush canvas or one
+/// stroke's eraser preview.
 pub(crate) struct LineJob {
     pub tag: u64,
+    pub lane: u64,
     base: vector_ink::StampImage,
     segs: Vec<Seg>,
+    /// An eraser pass: the stamped segments come out of this ink.
+    cut: Option<InkCut>,
 }
 
-/// A finished [`LineJob`]: raw coverage and depth for the canvas, and the
-/// grained, premultiplied pixels for upload.
+/// A stroke's ink, `width` pixels wide, and the box of it an eraser
+/// segment job covers.
+struct InkCut {
+    ink: Shared<Vec<u8>>,
+    width: u32,
+    bx: [u32; 4],
+}
+
+impl InkCut {
+    /// The ink in the box with `mask` (the grained coverage of the stamped
+    /// box) taken out, and whether `raw` coverage met any ink.
+    fn apply(&self, raw: &[u8], mask: &[u8]) -> (Vec<u8>, bool) {
+        let [x0, y0, x1, y1] = self.bx;
+        let (w, bw) = (self.width as usize, (x1 - x0) as usize);
+        let mut shown = Vec::with_capacity(bw * (y1 - y0) as usize * 4);
+        for y in y0 as usize..y1 as usize {
+            shown
+                .extend_from_slice(&self.ink[(y * w + x0 as usize) * 4..(y * w + x1 as usize) * 4]);
+        }
+        let changed = shown
+            .chunks_exact(4)
+            .zip(raw.chunks_exact(4))
+            .any(|(i, m)| i[3] > 0 && m[3] > 0);
+        vector_ink::multiply_by_mask(&mut shown, mask, bw as u32, None);
+        (shown, changed)
+    }
+}
+
+/// A finished [`LineJob`]: raw coverage and depth for the owner, and the
+/// grained, premultiplied pixels for upload. An eraser job also returns
+/// the cut ink as straight alpha and whether the cut met any ink.
 pub(crate) struct LineRaster {
     pub tag: u64,
+    pub lane: u64,
     raw: vector_ink::StampImage,
     image: egui::ColorImage,
+    shown: Vec<u8>,
+    changed: bool,
 }
 
 /// Stamp a [`LineJob`]. Worker threads run it; the frame thread only when
 /// no worker can.
 pub(crate) fn line_raster(job: LineJob) -> LineRaster {
     let mut img = job.base;
+    if img.rgba.is_empty() {
+        img.rgba = vec![0; img.width as usize * img.height as usize * 4];
+    }
     for (a, b) in &job.segs {
         stamp_segment(&mut img, *a, *b);
     }
     note_stamp_px(img.width as u64 * img.height as u64);
-    let grain = job.segs.last().map_or(vector_ink::Grain::Smooth, |s| s.0.tip.grain);
+    let grain = job
+        .segs
+        .last()
+        .map_or(vector_ink::Grain::Smooth, |s| s.0.tip.grain);
     let rows = vector_ink::finished_region(&img, grain, [0, 0, img.width, img.height]);
+    let (shown, changed) = match &job.cut {
+        Some(cut) => cut.apply(&img.rgba, &rows),
+        None => (Vec::new(), false),
+    };
     let image = egui::ColorImage::from_rgba_premultiplied(
         [img.width as usize, img.height as usize],
-        &premultiplied(&rows),
+        &premultiplied(if job.cut.is_some() { &shown } else { &rows }),
     );
     LineRaster {
         tag: job.tag,
+        lane: job.lane,
         raw: img,
         image,
+        shown,
+        changed,
     }
 }
 
@@ -2597,6 +2690,7 @@ fn paint_texels(
     tex: egui::TextureId,
     (origin, pixel, size): ([f32; 2], f32, [u32; 2]),
     px: [u32; 4],
+    tint: Color32,
 ) {
     if px[2] <= px[0] || px[3] <= px[1] {
         return;
@@ -2611,8 +2705,38 @@ fn paint_texels(
         tex,
         egui::Rect::from_min_max(xf.w2s(world(px[0], px[1])), xf.w2s(world(px[2], px[3]))),
         uv,
-        Color32::WHITE,
+        tint,
     );
+}
+
+/// [`paint_texels`] for the whole texture except box `b`, which another
+/// texture paints.
+fn paint_around(
+    painter: &egui::Painter,
+    xf: &BoardXf,
+    tex: egui::TextureId,
+    img: ([f32; 2], f32, [u32; 2]),
+    b: [u32; 4],
+    tint: Color32,
+) {
+    let [w, h] = img.2;
+    for part in [
+        [0, 0, w, b[1]],
+        [0, b[3], w, h],
+        [0, b[1], b[0], b[3]],
+        [b[2], b[1], w, b[3]],
+    ] {
+        paint_texels(painter, xf, tex, img, part, tint);
+    }
+}
+
+/// A straight pass's one segment: its first and last point at `tip`.
+fn straight_seg(points: &[Pos2], tip: StampStyle) -> Option<Seg> {
+    let at = |p: &Pos2| TipPoint {
+        pos: [p.x, p.y],
+        tip,
+    };
+    Some((at(points.first()?), at(points.last()?)))
 }
 
 fn view_key(xf: &BoardXf, screen: egui::Rect, ppp: f32) -> [u32; 6] {
@@ -2705,9 +2829,7 @@ impl BrushLiveCanvas {
                 commits: Vec::new(),
                 exact: None,
                 inflight: None,
-                next_tag: 0,
-                meshes: Vec::new(),
-                meshes_next: Vec::new(),
+                meshes: SegMeshes::default(),
                 spare: (Vec::new(), Vec::new()),
             });
         }
@@ -2920,6 +3042,11 @@ impl BrushLiveCanvas {
         self.line.filter(|_| !self.idle).map(|(_, b)| b.pos)
     }
 
+    #[cfg(test)]
+    pub fn live_line_start(&self) -> Option<[f32; 2]> {
+        self.line.filter(|_| !self.idle).map(|(a, _)| a.pos)
+    }
+
     /// The preview shows the live segment's exact stamp.
     #[cfg(test)]
     pub fn line_exact(&self) -> bool {
@@ -2947,7 +3074,7 @@ impl BrushLiveCanvas {
     /// one: committed segments first, then the live segment's preview.
     pub fn pump(&mut self, tiles: &mut tiles::BrushTiles, ctx: &egui::Context) {
         if let Some(tag) = self.inflight.as_ref().map(|a| a.tag) {
-            if let Some(r) = tiles.take_line(tag) {
+            if let Some(r) = tiles.take_line(tiles::BRUSH_LANE, tag) {
                 let ask = self.inflight.take().expect("checked above");
                 self.land(ask, r, ctx);
             }
@@ -2983,12 +3110,13 @@ impl BrushLiveCanvas {
             }
             return;
         };
-        self.next_tag += 1;
-        let tag = self.next_tag;
+        let tag = tiles.next_line_tag();
         let job = LineJob {
             tag,
+            lane: tiles::BRUSH_LANE,
             base: self.region(bx),
             segs: segs.clone(),
+            cut: None,
         };
         let ask = LineAsk {
             tag,
@@ -3056,41 +3184,64 @@ impl BrushLiveCanvas {
         };
         let img = (self.img.origin, self.img.pixel, [self.img.width, self.img.height]);
         let (w, h) = (self.img.width, self.img.height);
+        let white = Color32::WHITE;
         match shown {
             Some((b, line_tex)) => {
-                for part in [
-                    [0, 0, w, b[1]],
-                    [0, b[3], w, h],
-                    [0, b[1], b[0], b[3]],
-                    [b[2], b[1], w, b[3]],
-                ] {
-                    paint_texels(painter, xf, self.tex.id(), img, part);
-                }
+                paint_around(painter, xf, self.tex.id(), img, b, white);
                 let px = self.img.pixel;
                 let origin = [
                     self.img.origin[0] + b[0] as f32 * px,
                     self.img.origin[1] + b[1] as f32 * px,
                 ];
                 let size = [b[2] - b[0], b[3] - b[1]];
-                paint_texels(painter, xf, line_tex, (origin, px, size), [0, 0, size[0], size[1]]);
+                paint_texels(
+                    painter,
+                    xf,
+                    line_tex,
+                    (origin, px, size),
+                    [0, 0, size[0], size[1]],
+                    white,
+                );
             }
-            None => paint_texels(painter, xf, self.tex.id(), img, [0, 0, w, h]),
+            None => paint_texels(painter, xf, self.tex.id(), img, [0, 0, w, h], white),
         }
-        std::mem::swap(&mut self.meshes, &mut self.meshes_next);
-        self.meshes_next.clear();
+        self.meshes.begin();
         for i in 0..self.commits.len() {
-            self.paint_seg_mesh(painter, xf, self.commits[i], [Cap::Round; 2]);
+            self.meshes
+                .paint(painter, xf, self.commits[i], [Cap::Round; 2]);
         }
         if let Some((seg, ends)) = rest {
-            self.paint_seg_mesh(painter, xf, seg, ends);
+            self.meshes.paint(painter, xf, seg, ends);
         }
     }
+}
 
-    /// A segment's vector mesh at its tips, built once per segment and zoom.
-    fn paint_seg_mesh(&mut self, painter: &egui::Painter, xf: &BoardXf, seg: Seg, ends: [Cap; 2]) {
+/// Vector stand-ins for straight segments whose exact stamp has not landed:
+/// each segment's mesh at its tips, built once per segment and zoom, and
+/// kept while consecutive frames paint it.
+#[derive(Default)]
+pub struct SegMeshes {
+    last: Vec<(u64, DraftMesh)>,
+    next: Vec<(u64, DraftMesh)>,
+}
+
+impl SegMeshes {
+    /// Meshes painted this frame.
+    #[cfg(test)]
+    pub(crate) fn painted(&self) -> usize {
+        self.next.len()
+    }
+
+    /// Start a frame: meshes it does not paint are dropped at the next one.
+    fn begin(&mut self) {
+        std::mem::swap(&mut self.last, &mut self.next);
+        self.next.clear();
+    }
+
+    fn paint(&mut self, painter: &egui::Painter, xf: &BoardXf, seg: Seg, ends: [Cap; 2]) {
         let key = seg_mesh_key(seg, ends, xf.z);
-        let mut mesh = match self.meshes.iter().position(|(k, _)| *k == key) {
-            Some(i) => self.meshes.swap_remove(i).1,
+        let mut mesh = match self.last.iter().position(|(k, _)| *k == key) {
+            Some(i) => self.last.swap_remove(i).1,
             None => {
                 let tip = |p: TipPoint| PlacedTip {
                     width: p.tip.diameter,
@@ -3110,7 +3261,7 @@ impl BrushLiveCanvas {
             }
         };
         paint_draft_mesh(painter, xf, &mut mesh);
-        self.meshes_next.push((key, mesh));
+        self.next.push((key, mesh));
     }
 }
 
@@ -3176,8 +3327,15 @@ fn upload_rows(tex: &mut egui::TextureHandle, dirty: [u32; 4], sub: &[u8]) {
 /// applied), built once; `mask` holds this pass with
 /// max coverage; the texture shows `ink * (1 - mask)`, uploading only the
 /// region the eraser touched.
+///
+/// A straight (Shift) pass is never stamped on the frame loop (Art. II): as
+/// for the brush's Shift segment ([`BrushLiveCanvas`]), one job at a time
+/// cuts the segment out of the ink under it on the raster workers, and the
+/// newest landed cut shows. A frame the cut does not cover yet paints the
+/// eraser's band over the segment instead ([`paint_erase_band`]). The
+/// release takes in the cut that shows the final segment.
 pub struct EraseLive {
-    ink: Vec<u8>,
+    ink: Shared<Vec<u8>>,
     /// This pass's raw coverage and depth.
     mask: vector_ink::StampImage,
     /// The mask with the eraser's grain applied, for a textured eraser.
@@ -3185,9 +3343,25 @@ pub struct EraseLive {
     shown: Vec<u8>,
     tex: egui::TextureHandle,
     done: usize,
-    line_box: Option<[u32; 4]>,
+    /// The straight pass's segment, not yet in `mask` or `shown`.
+    line: Option<Seg>,
+    /// The newest cut the workers returned for a straight pass.
+    exact: Option<EraseExact>,
+    /// The one straight-pass job on the workers: its tag, segment, and box.
+    inflight: Option<(u64, Seg, [u32; 4])>,
     /// Some visible ink lies under the pass, so release journals it.
     pub changed: bool,
+}
+
+/// A straight pass's cut from the raster workers: `seg` stamped into a clear
+/// mask over box `bx`, and the ink there with that mask taken out.
+struct EraseExact {
+    seg: Seg,
+    bx: [u32; 4],
+    tex: egui::TextureHandle,
+    raw: vector_ink::StampImage,
+    shown: Vec<u8>,
+    changed: bool,
 }
 
 impl EraseLive {
@@ -3220,12 +3394,14 @@ impl EraseLive {
         };
         EraseLive {
             shown: img.rgba.clone(),
-            ink: img.rgba,
+            ink: Shared::new(img.rgba),
             mask,
             grained: Vec::new(),
             tex,
             done: 0,
-            line_box: None,
+            line: None,
+            exact: None,
+            inflight: None,
             changed: false,
         }
     }
@@ -3252,53 +3428,178 @@ impl EraseLive {
     }
 
     /// Bring the mask up to date with the eraser's `points`. A straight pass
-    /// is only its first and last point and replaces last frame's line.
+    /// is only its first and last point: it becomes the segment
+    /// [`Self::pump`] asks the workers to cut, and nothing stamps here.
     fn feed(&mut self, points: &[Pos2], tip: StampStyle, straight: bool) {
         let at = |p: Pos2| TipPoint {
             pos: [p.x, p.y],
             tip,
         };
-        let mut dirty: Option<[u32; 4]> = None;
         if straight {
-            let (Some(first), Some(last)) = (points.first(), points.last()) else {
-                return;
-            };
-            if let Some([x0, y0, x1, y1]) = self.line_box.take() {
-                let w = self.mask.width as usize;
-                for y in y0 as usize..y1 as usize {
-                    self.mask.rgba[(y * w + x0 as usize) * 4..(y * w + x1 as usize) * 4].fill(0);
-                    if !self.mask.depth.is_empty() {
-                        self.mask.depth[y * w + x0 as usize..y * w + x1 as usize].fill(0);
-                    }
-                }
-                dirty = Some([x0, y0, x1, y1]);
-                self.changed = false;
+            self.line = straight_seg(points, tip);
+            return;
+        }
+        let mut dirty: Option<[u32; 4]> = None;
+        if self.done == 0 {
+            if let Some(p) = points.first() {
+                stamp_segment(&mut self.mask, at(*p), at(*p));
+                dirty = segment_box(&self.mask, at(*p), at(*p));
             }
-            let (a, b) = (at(*first), at(*last));
+        }
+        for i in self.done.max(1)..points.len() {
+            let (a, b) = (at(points[i - 1]), at(points[i]));
             stamp_segment(&mut self.mask, a, b);
             if let Some(bx) = segment_box(&self.mask, a, b) {
-                self.line_box = Some(bx);
                 dirty = Some(union_box(dirty, bx));
             }
-        } else {
-            if self.done == 0 {
-                if let Some(p) = points.first() {
-                    stamp_segment(&mut self.mask, at(*p), at(*p));
-                    dirty = segment_box(&self.mask, at(*p), at(*p));
-                }
-            }
-            for i in self.done.max(1)..points.len() {
-                let (a, b) = (at(points[i - 1]), at(points[i]));
-                stamp_segment(&mut self.mask, a, b);
-                if let Some(bx) = segment_box(&self.mask, a, b) {
-                    dirty = Some(union_box(dirty, bx));
-                }
-            }
-            self.done = points.len();
         }
-        let Some(d) = dirty else {
+        self.done = points.len();
+        if let Some(d) = dirty {
+            note_stamp_px(box_area(d));
+            self.reveal(d, tip.grain);
+        }
+    }
+
+    /// Take the straight pass's cut from the workers when it lands, then ask
+    /// for the segment the pass shows now; the newest segment wins.
+    pub(crate) fn pump(&mut self, tiles: &mut tiles::BrushTiles, lane: u64, ctx: &egui::Context) {
+        if let Some((tag, seg, bx)) = self.inflight {
+            if let Some(r) = tiles.take_line(lane, tag) {
+                self.inflight = None;
+                self.land(seg, bx, r, ctx);
+            }
+        }
+        if self.inflight.is_none() {
+            if let Some(seg) = self.line {
+                if !self.exact.as_ref().is_some_and(|e| e.seg == seg) {
+                    self.ask(tiles, lane, seg, ctx);
+                }
+            }
+        }
+        if self.inflight.is_some() {
+            ctx.request_repaint();
+        }
+    }
+
+    fn ask(&mut self, tiles: &mut tiles::BrushTiles, lane: u64, seg: Seg, ctx: &egui::Context) {
+        let Some(bx) = segment_box(&self.mask, seg.0, seg.1) else {
             return;
         };
+        let m = &self.mask;
+        let tag = tiles.next_line_tag();
+        let job = LineJob {
+            tag,
+            lane,
+            base: vector_ink::StampImage {
+                width: bx[2] - bx[0],
+                height: bx[3] - bx[1],
+                origin: [
+                    m.origin[0] + bx[0] as f32 * m.pixel,
+                    m.origin[1] + bx[1] as f32 * m.pixel,
+                ],
+                pixel: m.pixel,
+                rgba: Vec::new(),
+                depth: Vec::new(),
+            },
+            segs: vec![seg],
+            cut: Some(InkCut {
+                ink: Shared::clone(&self.ink),
+                width: m.width,
+                bx,
+            }),
+        };
+        match tiles.request_line(job) {
+            Ok(()) => self.inflight = Some((tag, seg, bx)),
+            Err(job) => {
+                let r = line_raster(job);
+                self.land(seg, bx, r, ctx);
+            }
+        }
+    }
+
+    fn land(&mut self, seg: Seg, bx: [u32; 4], r: LineRaster, ctx: &egui::Context) {
+        let tex = match self.exact.take() {
+            Some(mut old) => {
+                old.tex.set(r.image, egui::TextureOptions::LINEAR);
+                old.tex
+            }
+            None => ctx.load_texture("erase-live-line", r.image, egui::TextureOptions::LINEAR),
+        };
+        self.exact = Some(EraseExact {
+            seg,
+            bx,
+            tex,
+            raw: r.raw,
+            shown: r.shown,
+            changed: r.changed,
+        });
+    }
+
+    /// The landed cut to show for the straight pass: one of its segment, or
+    /// of a shorter run of it.
+    fn shown_exact(&self) -> Option<&EraseExact> {
+        let line = self.line?;
+        self.exact
+            .as_ref()
+            .filter(|e| e.seg == line || extends(e.seg, line))
+    }
+
+    /// Where along straight segment `seg` this stroke's preview stops
+    /// showing the exact cut: `None` when it shows all of it (or `seg` misses
+    /// the stroke), else the start of the rest and whether a cut runs up to it.
+    fn uncovered(&self, seg: Seg) -> Option<(TipPoint, bool)> {
+        segment_box(&self.mask, seg.0, seg.1)?;
+        match self.exact.as_ref() {
+            Some(e) if e.seg == seg => None,
+            Some(e) if extends(e.seg, seg) => Some((e.seg.1, true)),
+            _ => Some((seg.0, false)),
+        }
+    }
+
+    /// Release of a straight pass along `points`: the cut that shows its
+    /// final segment goes into the preview; without one, it stamps here.
+    pub(crate) fn settle_line(&mut self, points: &[Pos2], tip: StampStyle) {
+        if self.line.take().is_none() {
+            return;
+        }
+        self.inflight = None;
+        let Some(seg) = straight_seg(points, tip) else {
+            return;
+        };
+        match self.exact.take() {
+            Some(e) if e.seg == seg => self.take_in(e),
+            _ => {
+                stamp_segment(&mut self.mask, seg.0, seg.1);
+                if let Some(bx) = segment_box(&self.mask, seg.0, seg.1) {
+                    note_stamp_px(box_area(bx));
+                    self.reveal(bx, tip.grain);
+                }
+            }
+        }
+    }
+
+    fn take_in(&mut self, e: EraseExact) {
+        let [x0, y0, x1, y1] = e.bx;
+        let w = self.mask.width as usize;
+        let bw = (x1 - x0) as usize;
+        if !e.raw.depth.is_empty() && self.mask.depth.is_empty() {
+            self.mask.depth = vec![0; w * self.mask.height as usize];
+        }
+        for (i, y) in (y0 as usize..y1 as usize).enumerate() {
+            let row = (y * w + x0 as usize) * 4..(y * w + x1 as usize) * 4;
+            self.mask.rgba[row.clone()].copy_from_slice(&e.raw.rgba[i * bw * 4..(i + 1) * bw * 4]);
+            self.shown[row].copy_from_slice(&e.shown[i * bw * 4..(i + 1) * bw * 4]);
+            if !e.raw.depth.is_empty() {
+                self.mask.depth[y * w + x0 as usize..y * w + x1 as usize]
+                    .copy_from_slice(&e.raw.depth[i * bw..(i + 1) * bw]);
+            }
+        }
+        self.changed = e.changed;
+        upload_region(&mut self.tex, &self.shown, self.mask.width, e.bx);
+    }
+
+    /// Recompute `shown` as ink minus the mask over box `d`, and upload it.
+    fn reveal(&mut self, d: [u32; 4], grain: vector_ink::Grain) {
         let [x0, y0, x1, y1] = d;
         let w = self.mask.width;
         for y in y0..y1 {
@@ -3310,13 +3611,13 @@ impl EraseLive {
                 }
             }
         }
-        if tip.grain == vector_ink::Grain::Smooth {
+        if grain == vector_ink::Grain::Smooth {
             vector_ink::multiply_by_mask(&mut self.shown, &self.mask.rgba, w, Some(d));
         } else {
             if self.grained.len() != self.mask.rgba.len() {
                 self.grained = vec![0; self.mask.rgba.len()];
             }
-            let rows = vector_ink::finished_region(&self.mask, tip.grain, d);
+            let rows = vector_ink::finished_region(&self.mask, grain, d);
             let span = (x1 - x0) as usize * 4;
             for (row, y) in rows.chunks_exact(span).zip(y0..y1) {
                 let at = ((y * w + x0) * 4) as usize;
@@ -3327,17 +3628,34 @@ impl EraseLive {
         upload_region(&mut self.tex, &self.shown, w, d);
     }
 
+    /// The stroke minus the pass; for a straight pass, the landed cut in its
+    /// box and the stroke as committed around it.
     fn paint(&self, painter: &egui::Painter, xf: &BoardXf, tint: Color32) {
         let m = &self.mask;
-        let min = xf.w2s(Pos2::new(m.origin[0], m.origin[1]));
-        let max = xf.w2s(Pos2::new(
-            m.origin[0] + m.width as f32 * m.pixel,
-            m.origin[1] + m.height as f32 * m.pixel,
-        ));
-        painter.image(
-            self.tex.id(),
-            egui::Rect::from_min_max(min, max),
-            egui::Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+        let img = (m.origin, m.pixel, [m.width, m.height]);
+        let Some(e) = self.shown_exact() else {
+            paint_texels(
+                painter,
+                xf,
+                self.tex.id(),
+                img,
+                [0, 0, m.width, m.height],
+                tint,
+            );
+            return;
+        };
+        paint_around(painter, xf, self.tex.id(), img, e.bx, tint);
+        let size = [e.bx[2] - e.bx[0], e.bx[3] - e.bx[1]];
+        let origin = [
+            m.origin[0] + e.bx[0] as f32 * m.pixel,
+            m.origin[1] + e.bx[1] as f32 * m.pixel,
+        ];
+        paint_texels(
+            painter,
+            xf,
+            e.tex.id(),
+            (origin, m.pixel, size),
+            [0, 0, size[0], size[1]],
             tint,
         );
     }
@@ -3345,6 +3663,17 @@ impl EraseLive {
     #[cfg(test)]
     pub(crate) fn texture(&self) -> egui::TextureId {
         self.tex.id()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn live_line_end(&self) -> Option<[f32; 2]> {
+        self.line.map(|(_, b)| b.pos)
+    }
+
+    /// The preview shows the straight pass's exact cut.
+    #[cfg(test)]
+    pub(crate) fn line_exact(&self) -> bool {
+        self.line.is_some() && self.uncovered(self.line.unwrap()).is_none()
     }
 
     #[cfg(test)]
@@ -4431,8 +4760,10 @@ mod tests {
         let bx = segment_box(&full, a, b).expect("on the canvas");
         let job = LineJob {
             tag: 1,
+            lane: tiles::BRUSH_LANE,
             base: copy_region(&full, bx, (Vec::new(), Vec::new())),
             segs: vec![(a, b)],
+            cut: None,
         };
         let r = line_raster(job);
         stamp_segment(&mut full, a, b);
@@ -4446,6 +4777,83 @@ mod tests {
         assert!(worst(&r.raw.depth, &raw.depth) <= 1, "depth differs");
         let expect = premultiplied(&whole);
         assert!(worst(finished, &expect) <= 1, "finished pixels differ");
+    }
+
+    /// An eraser segment cut by a worker out of the ink under it gives the
+    /// pixels the frame-loop pass gave: the segment stamped into the whole
+    /// stroke's mask, its grain applied, and the ink multiplied by it.
+    #[test]
+    fn an_eraser_line_raster_matches_cutting_the_whole_stroke() {
+        let tip = StampStyle {
+            diameter: 90.0,
+            softness: 0.09,
+            rgba: [0, 0, 0, 200],
+            grain: vector_ink::Grain::Pencil,
+        };
+        let (w, h) = (640u32, 480u32);
+        let (origin, pixel) = ([123.37, -45.11], 0.43);
+        let ink: Vec<u8> = (0..w * h)
+            .flat_map(|i| [30, 90, 200, (i % 251) as u8])
+            .collect();
+        let mut mask = vector_ink::StampImage {
+            width: w,
+            height: h,
+            origin,
+            pixel,
+            rgba: vec![0; (w * h * 4) as usize],
+            depth: Vec::new(),
+        };
+        let at = |x: f32, y: f32| TipPoint { pos: [x, y], tip };
+        let (a, b) = (at(180.0, 20.0), at(360.0, 110.0));
+        let bx = segment_box(&mask, a, b).expect("on the stroke");
+        let job = LineJob {
+            tag: 1,
+            lane: tiles::erase_lane(NodeId(7)),
+            base: vector_ink::StampImage {
+                width: bx[2] - bx[0],
+                height: bx[3] - bx[1],
+                origin: [
+                    origin[0] + bx[0] as f32 * pixel,
+                    origin[1] + bx[1] as f32 * pixel,
+                ],
+                pixel,
+                rgba: Vec::new(),
+                depth: Vec::new(),
+            },
+            segs: vec![(a, b)],
+            cut: Some(InkCut {
+                ink: Shared::new(ink.clone()),
+                width: w,
+                bx,
+            }),
+        };
+        let r = line_raster(job);
+        stamp_segment(&mut mask, a, b);
+        let grained = vector_ink::finished_region(&mask, tip.grain, [0, 0, w, h]);
+        let mut shown = ink.clone();
+        vector_ink::multiply_by_mask(&mut shown, &grained, w, Some(bx));
+        let whole = copy_region(
+            &vector_ink::StampImage {
+                rgba: shown,
+                ..mask.clone()
+            },
+            bx,
+            (Vec::new(), Vec::new()),
+        );
+        let worst = |x: &[u8], y: &[u8]| {
+            x.iter()
+                .zip(y)
+                .map(|(p, q)| p.abs_diff(*q))
+                .max()
+                .unwrap_or(0)
+        };
+        assert_eq!(r.shown.len(), whole.rgba.len());
+        assert!(worst(&r.shown, &whole.rgba) <= 1, "cut pixels differ");
+        assert!(r.changed, "the cut met ink");
+        assert!(
+            worst(r.image.as_raw(), &premultiplied(&whole.rgba)) <= 1,
+            "upload pixels differ"
+        );
     }
 
     /// Two strokes that differ only in one tip's texture, or one erase mark

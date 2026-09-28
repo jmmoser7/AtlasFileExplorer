@@ -137,6 +137,14 @@ pub(crate) struct StrokeRaster {
     pub image: Option<egui::ColorImage>,
 }
 
+/// The line-job lane of the brush's live canvas.
+pub(crate) const BRUSH_LANE: u64 = 0;
+
+/// The line-job lane of stroke `id`'s eraser preview.
+pub(crate) fn erase_lane(id: NodeId) -> u64 {
+    id.0.wrapping_add(1).max(1)
+}
+
 enum Work {
     Tile(Job),
     Stroke(StrokeJob),
@@ -287,8 +295,11 @@ pub(crate) struct BrushTiles {
     /// The newest stroke bitmap landed per stroke, current or not: an older
     /// key still stands in better than the bitmap before it.
     stroke_landed: HashMap<NodeId, StrokeRaster>,
-    /// Live brush Shift segment rasters landed and not taken yet.
+    /// Live Shift segment rasters (brush canvas, eraser previews) landed and
+    /// not taken yet.
     lines_landed: Vec<LineRaster>,
+    /// The last Shift segment job tag handed out, over every lane.
+    line_tag: u64,
     /// Stroke bitmaps the workers have built, ever.
     pub stroke_builds: u64,
     pub last: BrushPaintStats,
@@ -322,6 +333,7 @@ impl Default for BrushTiles {
             stroke_wants: Arc::new(Mutex::new(HashMap::new())),
             stroke_landed: HashMap::new(),
             lines_landed: Vec::new(),
+            line_tag: 0,
             stroke_builds: 0,
             last: BrushPaintStats {
                 gpu_bytes: 0,
@@ -429,8 +441,14 @@ impl BrushTiles {
         self.stroke_landed.remove(&id)
     }
 
-    /// Stamp a live brush Shift segment on the raster workers. Hands the
-    /// job back when no worker can take it.
+    /// A fresh Shift segment job tag, never handed out before.
+    pub(crate) fn next_line_tag(&mut self) -> u64 {
+        self.line_tag += 1;
+        self.line_tag
+    }
+
+    /// Stamp a live Shift segment (brush or eraser) on the raster workers.
+    /// Hands the job back when no worker can take it.
     pub(crate) fn request_line(&mut self, job: LineJob) -> Result<(), LineJob> {
         self.ensure_pool();
         let Some(tx) = self.job_tx.as_ref() else {
@@ -442,13 +460,19 @@ impl BrushTiles {
         })
     }
 
-    /// The raster for line job `tag`, once it has landed. Rasters of older
-    /// jobs are dropped.
-    pub(crate) fn take_line(&mut self, tag: u64) -> Option<LineRaster> {
+    /// The raster for `lane`'s line job `tag`, once it has landed. That
+    /// lane's rasters of older jobs are dropped.
+    pub(crate) fn take_line(&mut self, lane: u64, tag: u64) -> Option<LineRaster> {
         self.drain_finished();
-        self.lines_landed.retain(|r| r.tag >= tag);
+        self.lines_landed.retain(|r| r.lane != lane || r.tag >= tag);
         let i = self.lines_landed.iter().position(|r| r.tag == tag)?;
         Some(self.lines_landed.swap_remove(i))
+    }
+
+    /// Drop landed eraser segment rasters: their pass is over.
+    pub(crate) fn forget_erase_lines(&mut self) {
+        self.drain_finished();
+        self.lines_landed.retain(|r| r.lane == BRUSH_LANE);
     }
 
     /// Stroke bitmaps asked for and not landed yet.

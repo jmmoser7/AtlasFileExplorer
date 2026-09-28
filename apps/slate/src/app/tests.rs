@@ -9482,11 +9482,11 @@ fn a_shift_chain_extends_one_stroke_so_joints_do_not_stack() {
     h.app
         .finish_freehand_brush(vec![Pos2::new(0.0, 0.0), Pos2::new(60.0, 0.0)]);
     let before = h.app.doc().scene.nodes.len();
-    let anchor = h.app.brush_line_anchor.expect("anchor after a stroke");
+    let anchor = h.app.brush_line_anchor().expect("anchor after a stroke");
     let first = anchor.node.expect("anchor names the stroke");
     h.app
         .commit_tween_line(anchor.pos, Pos2::new(60.0, 50.0), anchor.tip, anchor.node);
-    let anchor = h.app.brush_line_anchor.unwrap();
+    let anchor = h.app.brush_line_anchor().unwrap();
     h.app
         .commit_tween_line(anchor.pos, Pos2::new(10.0, 10.0), anchor.tip, anchor.node);
     assert_eq!(
@@ -9615,6 +9615,120 @@ fn brush_shift_drag_previews_and_commits_a_straight_line() {
     // A Shift drag takes 45° steps from its start.
     let end = board_snap::ortho_snap_point(a, end);
     assert!(near_px(v[0], a) && near_px(v[1], end), "{v:?}");
+}
+
+/// D03: the Shift anchor follows the journal. After Ctrl+Z takes back a
+/// Shift segment, the next Shift drag previews from the stroke's end as it
+/// is now and extends that same stroke; one undo takes the new segment back.
+#[test]
+fn brush_shift_after_undo_starts_at_the_strokes_real_end() {
+    let mut h = brush_board("brush_shift_undo_anchor");
+    let freehand = [Pos2::new(40.0, 40.0), Pos2::new(80.0, 60.0), Pos2::new(120.0, 40.0)];
+    press_drag_release_frames(&mut h, &freehand, egui::Modifiers::NONE, |_| {});
+    let id = h.app.doc().scene.nodes[0].id;
+    let drawn = path_vertices(h.app.doc().scene.node(id).unwrap());
+    let end = *drawn.last().unwrap();
+    press_drag_release_frames(
+        &mut h,
+        &[Pos2::new(200.0, 200.0), Pos2::new(260.0, 200.0), Pos2::new(300.0, 200.0)],
+        egui::Modifiers::SHIFT,
+        |_| {},
+    );
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
+    assert_eq!(path_vertices(h.app.doc().scene.node(id).unwrap()).len(), drawn.len() + 1);
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    assert_eq!(path_vertices(h.app.doc().scene.node(id).unwrap()), drawn, "undone");
+    let raw = Pos2::new(420.0, 330.0);
+    press_drag_release_frames(
+        &mut h,
+        &[Pos2::new(300.0, 320.0), Pos2::new(360.0, 330.0), raw],
+        egui::Modifiers::SHIFT,
+        |h| {
+            let (from, _, node) = h.app.brush_straight_from().expect("a Shift drag");
+            assert!(
+                near_px(from, end),
+                "the preview starts at {from:?}, the stroke ends at {end:?}"
+            );
+            assert_eq!(node, Some(id), "the segment continues the stroke");
+            let shown = h.app.brush_live.as_ref().and_then(|c| c.live_line_start());
+            assert!(
+                shown.is_some_and(|s| near_px(Pos2::new(s[0], s[1]), end)),
+                "the live canvas starts the segment at {shown:?}"
+            );
+        },
+    );
+    assert_eq!(h.app.doc().scene.nodes.len(), 1, "the segment extends the stroke");
+    let v = path_vertices(h.app.doc().scene.node(id).unwrap());
+    assert_eq!(v.len(), drawn.len() + 1, "{v:?}");
+    assert!(near_px(v[v.len() - 1], board_snap::ortho_snap_point(end, raw)), "{v:?}");
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    assert_eq!(
+        path_vertices(h.app.doc().scene.node(id).unwrap()),
+        drawn,
+        "one undo takes the segment back"
+    );
+}
+
+/// D03 with no mark left: after Ctrl+Z twice takes back the segment and the
+/// stroke, the next Shift drag starts at its own press.
+#[test]
+fn brush_shift_after_undoing_the_whole_stroke_starts_at_the_press() {
+    let mut h = brush_board("brush_shift_undo_all");
+    let freehand = [Pos2::new(40.0, 40.0), Pos2::new(80.0, 60.0), Pos2::new(120.0, 40.0)];
+    press_drag_release_frames(&mut h, &freehand, egui::Modifiers::NONE, |_| {});
+    press_drag_release_frames(
+        &mut h,
+        &[Pos2::new(200.0, 200.0), Pos2::new(260.0, 200.0), Pos2::new(300.0, 200.0)],
+        egui::Modifiers::SHIFT,
+        |_| {},
+    );
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    assert!(h.app.doc().scene.nodes.is_empty(), "the stroke is gone");
+    let (press, raw) = (Pos2::new(300.0, 320.0), Pos2::new(420.0, 330.0));
+    press_drag_release_frames(
+        &mut h,
+        &[press, Pos2::new(360.0, 330.0), raw],
+        egui::Modifiers::SHIFT,
+        |h| {
+            let (from, _, node) = h.app.brush_straight_from().expect("a Shift drag");
+            assert!(near_px(from, press), "the preview starts at {from:?}, not the press");
+            assert_eq!(node, None);
+        },
+    );
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
+    let v = path_vertices(&h.app.doc().scene.nodes[0]);
+    assert_eq!(v.len(), 2, "{v:?}");
+    assert!(near_px(v[0], press), "{v:?}");
+    assert!(near_px(v[1], board_snap::ortho_snap_point(press, raw)), "{v:?}");
+}
+
+/// D03 across marks: undoing the newest stroke leaves the one before it as
+/// the most recent mark, so the next Shift drag continues that one.
+#[test]
+fn brush_shift_after_undoing_the_newest_mark_continues_the_one_before() {
+    let mut h = brush_board("brush_shift_undo_newest");
+    let first = [Pos2::new(40.0, 40.0), Pos2::new(80.0, 60.0), Pos2::new(120.0, 40.0)];
+    press_drag_release_frames(&mut h, &first, egui::Modifiers::NONE, |_| {});
+    let id = h.app.doc().scene.nodes[0].id;
+    let drawn = path_vertices(h.app.doc().scene.node(id).unwrap());
+    let second = [Pos2::new(40.0, 160.0), Pos2::new(80.0, 180.0), Pos2::new(120.0, 160.0)];
+    press_drag_release_frames(&mut h, &second, egui::Modifiers::NONE, |_| {});
+    assert_eq!(h.app.doc().scene.nodes.len(), 2);
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
+    press_drag_release_frames(
+        &mut h,
+        &[Pos2::new(300.0, 320.0), Pos2::new(360.0, 330.0), Pos2::new(420.0, 330.0)],
+        egui::Modifiers::SHIFT,
+        |h| {
+            let (from, _, node) = h.app.brush_straight_from().expect("a Shift drag");
+            assert!(near_px(from, *drawn.last().unwrap()), "starts at {from:?}");
+            assert_eq!(node, Some(id));
+        },
+    );
+    assert_eq!(h.app.doc().scene.nodes.len(), 1, "the segment extends the first stroke");
+    assert_eq!(path_vertices(h.app.doc().scene.node(id).unwrap()).len(), drawn.len() + 1);
 }
 
 /// Within 0.05 world units: pointer events round-trip through screen space.
@@ -9773,7 +9887,7 @@ fn brush_shift_click_connects_and_shift_drag_takes_45_degree_steps() {
         |_| {},
     );
     let first = h.app.doc().scene.nodes[0].id;
-    let from = h.app.brush_line_anchor.expect("anchor").pos;
+    let from = h.app.brush_line_anchor().expect("anchor").pos;
     let click = Pos2::new(230.0, 83.0);
     click_at(&mut h, click, egui::Modifiers::SHIFT);
     assert!((h.app.brush_opacity - 0.7).abs() < 1.0e-6, "Shift never steps opacity");
@@ -9957,7 +10071,7 @@ fn brush_shift_drag_after_a_stroke_continues_it() {
     );
     assert_eq!(h.app.doc().scene.nodes.len(), 1);
     let first = h.app.doc().scene.nodes[0].id;
-    let from = h.app.brush_line_anchor.expect("anchor").pos;
+    let from = h.app.brush_line_anchor().expect("anchor").pos;
     let end = Pos2::new(300.0, 200.0);
     press_drag_release_frames(
         &mut h,
@@ -10664,7 +10778,7 @@ fn brush_shift_move_frames_stamp_nothing_on_the_frame_loop() {
         });
     });
     assert!(h.app.brush_straight.is_some());
-    let from = h.app.brush_line_anchor.expect("the stroke's end").pos;
+    let from = h.app.brush_line_anchor().expect("the stroke's end").pos;
     for k in 1..=8 {
         let s = press + EVec2::new(45.0 * k as f32, 25.0 * k as f32);
         let before = board_path::stamp_px_on_this_thread();
@@ -10806,7 +10920,7 @@ fn brush_shift_drag_in_an_image_paint_session_previews() {
         _ => panic!("the image"),
     };
     let drawn = mark(&h);
-    let from = h.app.brush_line_anchor.expect("the mark's end").pos;
+    let from = h.app.brush_line_anchor().expect("the mark's end").pos;
     let raw_end = Pos2::new(300.0, 250.0);
     press_drag_release_frames(
         &mut h,
@@ -10917,7 +11031,7 @@ fn brush_validation_images() {
         Pos2::new(330.0, 380.0),
         Pos2::new(120.0, 430.0),
     ] {
-        let a = h.app.brush_line_anchor.unwrap();
+        let a = h.app.brush_line_anchor().unwrap();
         h.app.commit_tween_line(a.pos, p, a.tip, a.node);
     }
 
@@ -10936,7 +11050,7 @@ fn brush_validation_images() {
     {
         h.app.brush_width = 8.0 + 22.0 * (i + 1) as f32;
         h.app.board_colors.fg.0 = [150, 255 - 60 * i as u8, 170 + 25 * i as u8, 255];
-        let a = h.app.brush_line_anchor.unwrap();
+        let a = h.app.brush_line_anchor().unwrap();
         h.app.commit_tween_line(a.pos, p, a.tip, a.node);
     }
 
@@ -11380,6 +11494,114 @@ fn an_eraser_release_on_a_big_stroke_stamps_nothing_on_the_frame_loop() {
         press,
         "the new raster was built on the frame loop"
     );
+}
+
+/// Art. II at the user's eraser (207 wide, pencil, softness 0.09, 150 %,
+/// 1.5 px/pt): a Shift pass across a big painted stroke stamps nothing on
+/// the frame loop on its move frames, yet the preview follows the pointer
+/// on every one; the exact cut lands from the workers, and the release
+/// takes it in and commits the same erase mark as the pass.
+#[test]
+fn eraser_shift_move_frames_stamp_nothing_on_the_frame_loop() {
+    let mut h = line_board("eraser_shift_budget");
+    h.ctx.set_pixels_per_point(1.5);
+    h.frame_with(|i| i.max_texture_side = Some(8192));
+    h.app.tab_mut().cam.z = 1.5;
+    h.frame();
+    let id = big_brush_bar(&mut h);
+    h.app.set_board_tool(board::BoardTool::Eraser);
+    h.app.eraser_width = 207.0;
+    h.app.eraser_softness = 0.09;
+    h.app.eraser_texture = slate_doc::scene::BrushTexture::Pencil;
+    h.frame();
+    let shift = egui::Modifiers::SHIFT;
+    let c = h.app.canvas_rect.center();
+    let press = c + EVec2::new(-300.0, -250.0);
+    let first = c + EVec2::new(-200.0, 150.0);
+    let at = |h: &mut Harness, s: Pos2| {
+        h.frame_with(|i| {
+            i.modifiers = shift;
+            i.events.push(egui::Event::PointerMoved(s));
+        });
+    };
+    at(&mut h, press);
+    h.frame_with(|i| {
+        i.modifiers = shift;
+        i.events.push(egui::Event::PointerButton {
+            pos: press,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: shift,
+        });
+    });
+    at(&mut h, first);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while !h.app.erase_live.contains_key(&id) {
+        assert!(std::time::Instant::now() < deadline, "no live preview");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        h.frame_with(|i| i.modifiers = shift);
+    }
+    let from = h.app.board_xf().s2w(press);
+    let mut spent_per_move = Vec::new();
+    for k in 1..=8 {
+        let s = first + EVec2::new(40.0 * k as f32, 20.0 * k as f32);
+        let before = board_path::stamp_px_on_this_thread();
+        at(&mut h, s);
+        spent_per_move.push(board_path::stamp_px_on_this_thread() - before);
+        let end = board_snap::ortho_snap_point(from, h.app.board_xf().s2w(s));
+        let shown = h.app.erase_live[&id].live_line_end().expect("the preview shows the pass");
+        assert!(
+            near_px(Pos2::new(shown[0], shown[1]), end),
+            "move {k}: the preview shows {shown:?}, the pointer asks {end:?}"
+        );
+        assert_eq!(h.app.erase_band.painted(), 1, "move {k}: the band stands in");
+    }
+    assert!(
+        spent_per_move.iter().all(|px| *px == 0),
+        "move frames stamped {spent_per_move:?} px on the frame loop"
+    );
+    let mut waited = 0;
+    while !h.app.erase_live[&id].line_exact() {
+        waited += 1;
+        assert!(waited < 400, "the exact cut never landed");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        h.frame_with(|i| i.modifiers = shift);
+    }
+    h.frame_with(|i| i.modifiers = shift);
+    assert_eq!(h.app.erase_band.painted(), 0, "the exact cut replaces the band");
+    let Some(board::BoardDrag::Erase { points, .. }) = &h.app.board_drag else {
+        panic!("a straight erase pass");
+    };
+    let before_node = h.app.doc().scene.node(id).unwrap().clone();
+    let tip = h.app.eraser_tip();
+    let span = slate_doc::scene::StrokeSpan {
+        width: tip.diameter,
+        softness: tip.softness,
+        color: slate_doc::scene::Rgba([0, 0, 0, tip.rgba[3]]),
+        texture: h.app.eraser_texture,
+    };
+    let expected = board_color::with_erase_mark(&before_node, points, span);
+    let last = first + EVec2::new(40.0 * 8.0, 20.0 * 8.0);
+    let before = board_path::stamp_px_on_this_thread();
+    let stamps = board_path::stamps_on_this_thread();
+    h.frame_with(|i| {
+        i.modifiers = shift;
+        i.events.push(egui::Event::PointerButton {
+            pos: last,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: shift,
+        });
+    });
+    h.frame();
+    assert_eq!(board_path::stamp_px_on_this_thread(), before, "the release stamped");
+    assert_eq!(board_path::stamps_on_this_thread(), stamps, "the release rasterized");
+    let erase = |n: &slate_doc::Node| match &n.kind {
+        slate_doc::scene::NodeKind::Shape(s) => s.path.as_ref().unwrap().erase.clone(),
+        _ => panic!("a path"),
+    };
+    let node = h.app.doc().scene.node(id).expect("the bar survives");
+    assert_eq!(erase(node), erase(&expected), "the committed erase mark");
 }
 
 /// The same holds for a brush release: the live canvas stands in for the

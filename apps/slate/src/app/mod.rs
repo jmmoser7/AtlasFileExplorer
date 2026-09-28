@@ -631,8 +631,8 @@ pub struct SlateApp {
     pub(crate) brush_cursor_warp: Option<(egui::Pos2, egui::Pos2)>,
     /// Shift+drag straight line, from the press tip.
     pub(crate) brush_straight: Option<board_color::BrushStraight>,
-    /// End of the last brush mark, where the next Shift segment starts.
-    pub(crate) brush_line_anchor: Option<board_color::BrushAnchor>,
+    /// The brush marks the next Shift segment may start from.
+    pub(crate) brush_chain: board_color::BrushChain,
     /// Size, color, and opacity edits undone by Ctrl+Z until another action.
     pub(crate) brush_setting_undo: Vec<board_color::BrushSettingUndo>,
     /// The brush drag's screen-aligned canvas (freehand or Shift preview).
@@ -672,6 +672,8 @@ pub struct SlateApp {
     pub(crate) eraser_anchor: Option<egui::Pos2>,
     /// Painted strokes under the eraser this drag, shown with the pass applied.
     pub(crate) erase_live: HashMap<NodeId, board_path::EraseLive>,
+    /// The straight eraser pass's stand-in band.
+    pub(crate) erase_band: board_path::SegMeshes,
     /// Tab direction lock of the segment being drawn (unit vector from its
     /// last placed point). Placing the point, Esc, and tool changes clear it
     /// (P2.RhinoDraft.tab).
@@ -976,7 +978,7 @@ impl SlateApp {
             brush_mod_click: None,
             brush_cursor_warp: None,
             brush_straight: None,
-            brush_line_anchor: None,
+            brush_chain: Default::default(),
             brush_setting_undo: Vec::new(),
             brush_live: None,
             draft_ink: Default::default(),
@@ -998,6 +1000,7 @@ impl SlateApp {
             smooth_preview: HashMap::new(),
             smooth_polylines: HashMap::new(),
             erase_live: HashMap::new(),
+            erase_band: Default::default(),
             draft_lock: None,
             board_took_tab: None,
             direct: board_direct::DirectState::default(),
