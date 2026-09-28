@@ -1675,6 +1675,7 @@ impl SlateApp {
                 }
                 // A reused blank tab keeps its id; its old board's runtime must not.
                 self.release_agent_doc(self.active_tab);
+                self.brush_chain = Default::default();
                 self.record_recent_workbook(&path, &doc);
                 let (lease, read_only, holder, held_toast) = match Lease::acquire(&path) {
                     Ok(LeaseState::Acquired(lease)) => (Some(lease), false, None, None),

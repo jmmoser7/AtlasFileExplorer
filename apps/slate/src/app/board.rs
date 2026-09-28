@@ -5084,7 +5084,7 @@ impl SlateApp {
         let mut nodes = self.board_paint_nodes(rect);
         // A Shift preview that continues a stroke paints that stroke inside
         // its own canvas, so the scene copy stays out of this frame.
-        if let Some((_, _, Some(id))) = self.brush_straight_from() {
+        if let Some(id) = self.brush_straight_extends() {
             nodes.retain(|n| n.id != id);
         }
         // Ctrl+F: dim non-matching nodes to ~35% at paint time only — the
@@ -5495,8 +5495,8 @@ impl SlateApp {
         );
         let live_line = wp.and_then(|w| {
             let end = self.brush_straight_end(w, self.shift_down)?;
-            let (from, start, anchor) = self.brush_straight_from()?;
-            Some((from, start, anchor, end))
+            let (from, start, _) = self.brush_straight_from()?;
+            Some((from, start, end))
         });
         match (live_freehand, live_line) {
             (true, _) => {
@@ -5514,9 +5514,9 @@ impl SlateApp {
                 }
                 canvas.paint(&draft_painter, &xf);
             }
-            (false, Some((from, start, anchor, w))) => {
+            (false, Some((from, start, w))) => {
                 let end = self.tip_now();
-                let anchor_id = anchor.filter(|id| {
+                let anchor_id = self.brush_straight_extends().filter(|id| {
                     self.doc().scene.node(*id).is_some_and(|n| !n.hidden)
                         || self.session_layer_mark(*id).is_some()
                 });
