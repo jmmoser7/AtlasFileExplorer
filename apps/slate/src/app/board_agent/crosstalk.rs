@@ -8,7 +8,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use atlas_ai::agent::AgentStatus;
-use atlas_shell::selection_tools::{self as tools, Capsule, StackSide};
+use atlas_shell::selection_tools::{self as tools, Capsule};
 use atlas_shell::{canvas_scale, canvas_text};
 use eframe::egui::{self, Align2, Color32, Id, Pos2, Rect};
 use slate_doc::crosstalk::{
@@ -101,9 +101,14 @@ pub(crate) struct CrosstalkUi {
     goal: Option<(NodeId, String)>,
     turns_edit: Option<tools::NumberEdit>,
     minutes_edit: Option<tools::NumberEdit>,
-    rects: Vec<Rect>,
-    /// The chip whose actions stay open while the pointer is on them.
-    expanded: Option<NodeId>,
+    /// Blisters, Send pills, the open capsule and its editor, last frame.
+    pub(crate) rects: Vec<Rect>,
+    /// The wire whose blister is open as a capsule, and whether its rule
+    /// editor shows beside it. View state: never journaled.
+    pub(crate) open: Option<NodeId>,
+    /// The tab the capsule opened on; another tab folds it.
+    open_tab: u64,
+    pub(crate) editing: bool,
     /// The sender label a relay in progress hands to `send_agent_prompt`.
     pub(super) relaying: Option<String>,
     relayed: PerRevision<RelayedTurns>,
@@ -130,6 +135,61 @@ fn provider_label(provider: &str) -> String {
 
 fn clock(secs: u64) -> String {
     format!("{:02}:{:02}", secs / 60, secs % 60)
+}
+
+/// A crosswire's mid-span on screen, for its blister or capsule.
+struct Blister {
+    wire: NodeId,
+    chain: String,
+    seq: u32,
+    mid: Pos2,
+    path: slate_doc::ConnectorPath,
+}
+
+/// Where the wire enters and leaves a capsule centered on its mid-span: the
+/// capsule's input and output.
+fn capsule_ports(path: &slate_doc::ConnectorPath, rect: Rect, xf: &BoardXf) -> [Pos2; 2] {
+    let world: Vec<[f32; 2]> = match path {
+        slate_doc::ConnectorPath::Bezier(curve) => {
+            (0..=32).map(|i| curve.point_at(i as f32 / 32.0)).collect()
+        }
+        slate_doc::ConnectorPath::Orthogonal(pts) => pts.clone(),
+    };
+    let pts: Vec<Pos2> = world
+        .iter()
+        .map(|p| xf.w2s(Pos2::new(p[0], p[1])))
+        .collect();
+    // Where the polyline first enters `rect`, walking from one end: the
+    // segment clipped to the rect's slabs (Liang–Barsky).
+    fn entry(rect: Rect, mut walk: impl Iterator<Item = (Pos2, Pos2)>) -> Option<Pos2> {
+        walk.find_map(|(a, b)| {
+            let d = b - a;
+            let (mut t0, mut t1) = (0.0f32, 1.0f32);
+            for (p, q) in [
+                (-d.x, a.x - rect.left()),
+                (d.x, rect.right() - a.x),
+                (-d.y, a.y - rect.top()),
+                (d.y, rect.bottom() - a.y),
+            ] {
+                if p.abs() < 1e-6 {
+                    if q < 0.0 {
+                        return None;
+                    }
+                } else if p < 0.0 {
+                    t0 = t0.max(q / p);
+                } else {
+                    t1 = t1.min(q / p);
+                }
+            }
+            (t0 <= t1).then(|| a + d * t0)
+        })
+    }
+    let from = entry(rect, pts.windows(2).map(|w| (w[0], w[1])));
+    let to = entry(rect, pts.windows(2).rev().map(|w| (w[1], w[0])));
+    [
+        from.unwrap_or(rect.center_top()),
+        to.unwrap_or(rect.center_bottom()),
+    ]
 }
 
 impl SlateApp {
@@ -295,6 +355,7 @@ impl SlateApp {
         Some(atlas_agent::GoalTurn {
             goal,
             claims: owner.role(session) == Some(Role::Builds),
+            in_reply: self.crosstalk_policy(session) == atlas_agent::TurnPolicy::ReadOnly,
         })
     }
 
@@ -441,19 +502,79 @@ impl SlateApp {
         true
     }
 
-    /// Select a crosswire with its crosstalk editor open (the Start capsule).
+    /// Open a crosswire's capsule with its rule editor beside it (on a new
+    /// wire, the Start capsule).
     fn crosstalk_open_editor(&mut self, wire: NodeId) {
-        self.board_sel = std::iter::once(wire).collect();
-        self.sync_shape_properties();
-        self.shape_properties.panel = Some(super::super::board_properties::Panel::Crosstalk);
+        let tab = self.tab().id;
+        let ui = &mut self.agents.crosstalk;
+        ui.open = Some(wire);
+        ui.open_tab = tab;
+        ui.editing = true;
+    }
+
+    /// Fold the open capsule back to its blister. Unsubmitted drafts drop.
+    fn crosstalk_fold(&mut self) {
+        let ui = &mut self.agents.crosstalk;
+        ui.open = None;
+        ui.editing = false;
+        ui.goal = None;
+        ui.turns_edit = None;
+        ui.minutes_edit = None;
+    }
+
+    /// `portal.agent.crosstalk.capsule`: open or fold a wire's capsule. The
+    /// detail is a wire id; otherwise the selected crosswire.
+    pub(crate) fn crosstalk_capsule_command(&mut self, detail: Option<&str>) -> bool {
+        let scene = &self.doc().scene;
+        let wire = detail
+            .and_then(|d| d.parse::<u64>().ok())
+            .map(NodeId)
+            .or_else(|| {
+                self.board_sel
+                    .iter()
+                    .copied()
+                    .find(|id| scene.node(*id).and_then(xt::crosstalk).is_some())
+            })
+            .filter(|id| {
+                scene
+                    .node(*id)
+                    .is_some_and(|n| !n.hidden && xt::crosstalk(n).is_some())
+            });
+        let Some(wire) = wire else {
+            self.toast("Select a crosstalk wire first.");
+            return false;
+        };
+        if self.agents.crosstalk.open == Some(wire) {
+            self.crosstalk_fold();
+            return true;
+        }
+        let unstarted = xt::crosstalk(scene.node(wire).unwrap())
+            .and_then(|x| xt::owner(scene, &x.chain))
+            .is_some_and(|(n, x)| n.id == wire && x.started.is_none());
+        self.crosstalk_fold();
+        self.agents.crosstalk.open = Some(wire);
+        self.agents.crosstalk.open_tab = self.tab().id;
+        self.agents.crosstalk.editing = unstarted;
+        true
     }
 
     fn crosswire_node(&mut self, from: NodeId, to: NodeId, binding: Crosstalk) -> Option<Node> {
         let (a, b) = xt::ends(&self.doc().scene, from, to)?;
+        // A new link takes the board's routing for new wires, like any
+        // connector; a relay keeps its conversation's newest wire's routing.
+        let routing = xt::wires(&self.doc().scene, &binding.chain)
+            .into_iter()
+            .max_by_key(|(_, x)| x.seq)
+            .and_then(|(n, _)| match &n.kind {
+                NodeKind::Connector(c) => c.routing,
+                _ => None,
+            });
         let mut node = self.build_connector(a, b);
         if let NodeKind::Connector(c) = &mut node.kind {
             c.stroke = xt::wire_stroke();
-            c.routing = Some(slate_doc::wire::WireRouting::Bezier);
+            if routing.is_some() {
+                c.routing = routing;
+            }
             c.binding = None;
             c.crosstalk = Some(Box::new(binding));
         }
@@ -626,7 +747,7 @@ impl SlateApp {
         // A Cursor reviewer's sidecar restarts with read-only tools.
         for session in owner.roles.keys() {
             if self.xt_provider(session) == "cursor" {
-                self.detach_cursor_sidecar(session);
+                self.restart_cursor_sidecar(session);
             }
         }
         let relays = xt::relays(&self.doc().scene, &chain);
@@ -634,7 +755,7 @@ impl SlateApp {
             .crosstalk
             .runs
             .insert(chain, Run::new(relays, None));
-        self.shape_properties.panel = None;
+        self.agents.crosstalk.editing = false;
         true
     }
 
@@ -687,7 +808,7 @@ impl SlateApp {
         self.agents.crosstalk.runs.remove(&chain);
         for session in owner.roles.keys() {
             if self.xt_provider(session) == "cursor" {
-                self.detach_cursor_sidecar(session);
+                self.restart_cursor_sidecar(session);
             }
         }
         true
@@ -732,6 +853,16 @@ impl SlateApp {
                 return false;
             };
             let builds = builds.to_string();
+            if let Some(reviewer) = x_sessions(&self.doc().scene, &x.chain)
+                .into_iter()
+                .find(|s| *s != builds && self.agent_full_access(s))
+            {
+                let name = self.xt_name(&reviewer);
+                self.toast(format!(
+                    "{name} has Full access, and a reviewer cannot. Turn it off in {name}'s ellipsis menu first."
+                ));
+                return false;
+            }
             let swapped = self.patch_crosstalk(chain_owner, |x| {
                 for (session, role) in x.roles.iter_mut() {
                     *role = if *session == builds {
@@ -744,7 +875,7 @@ impl SlateApp {
             // A Cursor side that changed role restarts with the matching tools.
             for session in x_sessions(&self.doc().scene, &x.chain) {
                 if self.xt_provider(&session) == "cursor" {
-                    self.detach_cursor_sidecar(&session);
+                    self.restart_cursor_sidecar(&session);
                 }
             }
             return swapped;
@@ -857,14 +988,15 @@ impl SlateApp {
             self.agents.crosstalk.trust.remove(&session);
         }
         if self.xt_provider(&session) == "cursor" {
-            self.detach_cursor_sidecar(&session);
+            self.restart_cursor_sidecar(&session);
         }
         true
     }
 
     // ----- the relay pump -----
 
-    /// Goal verdicts from each side's `return.json`, in the order written.
+    /// Goal verdicts in the order written: from a side's `return.json`, or
+    /// the verdict line a read-only reply ends with (`goal_in_reply`).
     fn crosstalk_goal_progress(&self, owner: &Crosstalk) -> GoalProgress {
         let Some(started) = owner.started.as_ref() else {
             return GoalProgress::Open;
@@ -874,28 +1006,30 @@ impl SlateApp {
             let Some(tail) = self.xt_tail(session) else {
                 continue;
             };
-            let Some(outputs) = self
-                .agent_output_link(tail)
-                .and_then(|dir| self.agents.sources.outputs(&dir))
-            else {
-                continue;
-            };
             let turns = self.agent_all_turns(tail);
             let from = started.get(session).copied().unwrap_or(0);
-            for set in &outputs.deliverables.sets {
-                let Some(goal) = &set.goal else {
-                    continue;
-                };
-                if set.turn < from {
+            let mut by_turn = std::collections::BTreeMap::new();
+            if let Some(outputs) = self
+                .agent_output_link(tail)
+                .and_then(|dir| self.agents.sources.outputs(&dir))
+            {
+                for set in &outputs.deliverables.sets {
+                    if let Some(goal) = set.goal.as_ref().filter(|_| set.turn >= from) {
+                        by_turn.insert(set.turn, goal.status);
+                    }
+                }
+            }
+            for (turn, reply) in turns.iter().enumerate().skip(from) {
+                if reply.role != "assistant" || by_turn.contains_key(&turn) {
                     continue;
                 }
-                let at = turns.get(set.turn).map_or(u64::MAX, |t| t.at);
-                verdicts.push((
-                    at,
-                    set.turn,
-                    *role,
-                    goal.status == atlas_agent::GoalStatus::Met,
-                ));
+                if let Some(goal) = atlas_agent::goal_in_reply(&reply.text) {
+                    by_turn.insert(turn, goal.status);
+                }
+            }
+            for (turn, status) in by_turn {
+                let at = turns.get(turn).map_or(u64::MAX, |t| t.at);
+                verdicts.push((at, turn, *role, status == atlas_agent::GoalStatus::Met));
             }
         }
         verdicts.sort_by_key(|(at, turn, role, _)| (*at, *turn, *role == Role::Reviews));
@@ -1148,6 +1282,10 @@ impl SlateApp {
         if let Some(wire) = self.crosswire_node(from_card, to_card, binding) {
             self.add_nodes(vec![wire]);
         }
+        let relays = xt::relays(&self.doc().scene, chain);
+        if let Some(run) = self.agents.crosstalk.runs.get_mut(chain) {
+            run.seen = relays;
+        }
         self.tab_mut()
             .journal
             .merge_since(depth, CmdAuthor::Agent(author));
@@ -1240,14 +1378,28 @@ impl SlateApp {
         format!("{turn} · {stopwatch}{replying}")
     }
 
-    /// Chip actions for the current state: (label, command, detail).
-    fn crosstalk_actions(&self, chain: &str) -> Vec<(String, &'static str, Option<String>)> {
+    /// The capsule's actions for the current state: (label, command, detail).
+    /// Edit… addresses `wire`, so a downstream wire edits its own rule.
+    fn crosstalk_actions(
+        &self,
+        chain: &str,
+        wire: NodeId,
+    ) -> Vec<(String, &'static str, Option<String>)> {
         let scene = &self.doc().scene;
         let Some((_, owner)) = xt::owner(scene, chain) else {
             return Vec::new();
         };
-        if owner.ended || owner.started.is_none() {
-            return Vec::new();
+        let route = self.crosstalk_route_action(chain);
+        if owner.ended {
+            return vec![route];
+        }
+        let edit = (
+            "Edit…".to_string(),
+            "portal.agent.crosstalk.edit",
+            Some(serde_json::json!({ "wire": wire.0 }).to_string()),
+        );
+        if owner.started.is_none() {
+            return vec![edit, route];
         }
         let c = Some(chain.to_string());
         let mut rows = Vec::new();
@@ -1259,7 +1411,8 @@ impl SlateApp {
                     c.clone(),
                 ));
             }
-            rows.push(("Edit…".into(), "portal.agent.crosstalk.edit", c.clone()));
+            rows.push(edit);
+            rows.push(route);
             rows.push(("Stop".into(), "portal.agent.crosstalk.stop", c));
             return rows;
         }
@@ -1301,9 +1454,88 @@ impl SlateApp {
         } else {
             rows.push(("Pause".into(), "portal.agent.crosstalk.pause", c.clone()));
         }
-        rows.push(("Edit…".into(), "portal.agent.crosstalk.edit", c.clone()));
+        rows.push(edit);
+        rows.push(route);
         rows.push(("Stop".into(), "portal.agent.crosstalk.stop", c));
         rows
+    }
+
+    /// "Square wires" or "Curved wires": the board's own routing commands,
+    /// aimed at every wire of this conversation (one journaled edit).
+    fn crosstalk_route_action(&self, chain: &str) -> (String, &'static str, Option<String>) {
+        let wires = xt::wires(&self.doc().scene, chain);
+        let square = wires.iter().any(|(n, _)| {
+            matches!(&n.kind, NodeKind::Connector(c)
+                if c.effective_routing(self.board_wire_routing) == slate_doc::WireRouting::Orthogonal)
+        });
+        let ids: Vec<u64> = wires.iter().map(|(n, _)| n.id.0).collect();
+        let detail = Some(serde_json::json!({ "wires": ids }).to_string());
+        if square {
+            ("Curved wires".into(), "board.wire.bezier", detail)
+        } else {
+            ("Square wires".into(), "board.wire.orthogonal", detail)
+        }
+    }
+
+    /// The capsule's second line: who builds and who reviews, and a rule
+    /// this wire overrides from here on.
+    fn crosstalk_detail(&self, chain: &str, wire: NodeId) -> String {
+        let scene = &self.doc().scene;
+        let Some((_, owner)) = xt::owner(scene, chain) else {
+            return String::new();
+        };
+        let mut sides: Vec<(&String, &Role)> = owner.roles.iter().collect();
+        sides.sort_by_key(|(_, role)| **role == Role::Reviews);
+        let roles = sides
+            .into_iter()
+            .map(|(session, role)| match role {
+                Role::Builds => format!("{} builds", self.xt_name(session)),
+                Role::Reviews => format!("{} reviews, read-only", self.xt_name(session)),
+            })
+            .collect::<Vec<_>>()
+            .join(" · ");
+        match scene
+            .node(wire)
+            .and_then(xt::crosstalk)
+            .filter(|x| !x.is_owner())
+            .and_then(|x| x.rule.as_ref())
+        {
+            Some(rule) => format!("{roles} · from here: {}", rule.summary()),
+            None => roles,
+        }
+    }
+
+    /// Relaying now: started, not paused, not stopped by its rule.
+    fn crosstalk_live(&self, chain: &str) -> bool {
+        let scene = &self.doc().scene;
+        let Some((_, owner)) = xt::owner(scene, chain) else {
+            return false;
+        };
+        !owner.ended
+            && owner.started.is_some()
+            && self
+                .agents
+                .crosstalk
+                .runs
+                .get(chain)
+                .is_some_and(|r| r.pause.is_none())
+            && self.crosstalk_stopped(chain, owner).is_none()
+    }
+
+    /// The reply waiting for Send in Step mode: who it goes to, and whether
+    /// it is too long to send in one click.
+    fn crosstalk_offer(&self, chain: &str) -> Option<(String, bool)> {
+        let offer = self
+            .agents
+            .crosstalk
+            .runs
+            .get(chain)?
+            .offer
+            .as_ref()
+            .filter(|o| o.accepted.is_none())?;
+        let (_, owner) = xt::owner(&self.doc().scene, chain)?;
+        let to = self.xt_name(owner.partner(&offer.from.session)?);
+        Some((to, offer.text.chars().count() > xt::RELAY_MAX_CHARS))
     }
 
     /// True when the pointer is on a chip or capsule painted last frame.
@@ -1315,8 +1547,22 @@ impl SlateApp {
             .any(|r| r.contains(pointer))
     }
 
-    /// Ports, chips and the capsule, after the board's nodes (P0.9).
+    /// Ports, blisters and the open capsule, after the board's nodes (P0.9).
     pub(crate) fn paint_crosstalk(&mut self, ui: &egui::Ui, painter: &egui::Painter, xf: &BoardXf) {
+        // A press anywhere but the crosstalk chrome, or Esc, folds the open
+        // capsule back to its blister.
+        if self.agents.crosstalk.open.is_some() {
+            let away = ui.input(|i| {
+                i.pointer.primary_pressed()
+                    && i.pointer
+                        .interact_pos()
+                        .is_some_and(|p| !self.agents.crosstalk.rects.iter().any(|r| r.contains(p)))
+            });
+            let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
+            if away || escape || self.agents.crosstalk.open_tab != self.tab().id {
+                self.crosstalk_fold();
+            }
+        }
         self.agents.crosstalk.rects.clear();
         let z = xf.z;
         let palette = self.palette();
@@ -1371,104 +1617,163 @@ impl SlateApp {
                 }
             }
         }
-        // Chips on the owner wire and on each wire that carries its own rule.
-        let mut chips: Vec<(NodeId, String, Pos2)> = Vec::new();
+        // A blister at every crosswire's mid-span, older wires included; the
+        // open one is a capsule the wire runs through (user, 28 September 2026).
+        let mut blisters: Vec<Blister> = Vec::new();
         for n in scene.nodes.iter().filter(|n| !n.hidden) {
             let (NodeKind::Connector(c), Some(x)) = (&n.kind, xt::crosstalk(n)) else {
                 continue;
             };
-            if !(x.is_owner() || x.rule.is_some()) || self.crosstalk_duplicate(n.id) {
+            if self.crosstalk_duplicate(n.id) {
                 continue;
             }
             let Some(path) = self.connector_path_visible(n.id, c) else {
                 continue;
             };
             let m = path.midpoint();
-            chips.push((n.id, x.chain.clone(), xf.w2s(Pos2::new(m[0], m[1]))));
+            blisters.push(Blister {
+                wire: n.id,
+                chain: x.chain.clone(),
+                seq: x.seq,
+                mid: xf.w2s(Pos2::new(m[0], m[1])),
+                path,
+            });
         }
-        if !canvas_text::legible(canvas_scale::font(9.0, z).size) {
-            return;
+        // Per chain: relaying, the reply waiting for Send, and the newest
+        // wire, which carries the Send pill beside its blister.
+        let mut chains: HashMap<String, (bool, Option<(String, bool)>, NodeId, u32)> =
+            HashMap::new();
+        for b in &blisters {
+            match chains.get_mut(&b.chain) {
+                Some(entry) if b.seq >= entry.3 => {
+                    entry.2 = b.wire;
+                    entry.3 = b.seq;
+                }
+                Some(_) => {}
+                None => {
+                    let state = (
+                        self.crosstalk_live(&b.chain),
+                        self.crosstalk_offer(&b.chain),
+                        b.wire,
+                        b.seq,
+                    );
+                    chains.insert(b.chain.clone(), state);
+                }
+            }
+        }
+        let red = super::super::board::rgba32(xt::RED);
+        let open = self
+            .agents
+            .crosstalk
+            .open
+            .and_then(|id| blisters.iter().position(|b| b.wire == id));
+        if open.is_none() && self.agents.crosstalk.open.is_some() {
+            self.crosstalk_fold();
         }
         let mut dispatch: Option<(&'static str, Option<String>)> = None;
-        for (wire, chain, anchor) in chips {
-            let owner_wire =
-                xt::owner(&self.doc().scene, &chain).is_some_and(|(n, _)| n.id == wire);
-            let status = if owner_wire {
-                self.crosstalk_status(&chain)
-            } else {
-                let rule = self
-                    .doc()
-                    .scene
-                    .node(wire)
-                    .and_then(xt::crosstalk)
-                    .and_then(|x| x.rule.clone())
-                    .unwrap_or_default();
-                format!("From here · {}", rule.summary())
-            };
-            let actions = if owner_wire {
-                self.crosstalk_actions(&chain)
-            } else {
-                Vec::new()
-            };
-            let selected = self.board_sel.contains(&wire);
-            let rows_all = 1 + actions.len();
-            let rects_all: Vec<Rect> =
-                tools::capsule_stack_rects(anchor, StackSide::Right, rows_all, z).collect();
-            let bounds_all = rects_all.iter().fold(Rect::NOTHING, |b, r| b.union(*r));
-            let chip = tools::capsule_stack_rects(anchor, StackSide::Right, 1, z)
-                .next()
-                .unwrap();
-            let slack = canvas_scale::px(8.0, z);
-            let over_chip = pointer.is_some_and(|p| chip.expand(slack).contains(p));
-            let over_all = pointer.is_some_and(|p| bounds_all.expand(slack).contains(p));
-            let was = self.agents.crosstalk.expanded == Some(wire);
-            let offering = actions.iter().any(|a| a.1 == "portal.agent.crosstalk.send");
-            let expanded = selected || offering || over_chip || (was && over_all);
-            if over_chip || (was && over_all) {
-                self.agents.crosstalk.expanded = Some(wire);
-            } else if was {
-                self.agents.crosstalk.expanded = None;
+        if canvas_scale::px(tools::BLISTER_RADIUS, z) >= 1.5 {
+            for (i, b) in blisters.iter().enumerate() {
+                if Some(i) == open {
+                    continue;
+                }
+                let (live, offer, newest, _) = &chains[&b.chain];
+                let bead = tools::blister(
+                    ui,
+                    Id::new(("crosstalk-blister", b.wire.0)),
+                    b.mid,
+                    red,
+                    *live || offer.is_some(),
+                    z,
+                    palette,
+                );
+                self.agents
+                    .crosstalk
+                    .rects
+                    .push(tools::blister_rect(b.mid, z));
+                if bead.clicked() {
+                    dispatch = Some(("portal.agent.crosstalk.capsule", Some(b.wire.0.to_string())));
+                }
+                let Some((to, long)) = offer.as_ref().filter(|_| *newest == b.wire) else {
+                    continue;
+                };
+                // Step mode: the waiting reply is one quiet click away.
+                let pill = tools::blister_send_rect(b.mid, z);
+                let label = if *long {
+                    "Long reply · choose…".to_string()
+                } else {
+                    format!("Send to {to}")
+                };
+                let send = Capsule {
+                    label: &label,
+                    ..Default::default()
+                };
+                let id = Id::new(("crosstalk-send", b.wire.0));
+                if tools::capsule(ui, id, pill, &send, z, palette)
+                    .response
+                    .clicked()
+                {
+                    dispatch = Some(if *long {
+                        ("portal.agent.crosstalk.capsule", Some(b.wire.0.to_string()))
+                    } else {
+                        ("portal.agent.crosstalk.send", Some(b.chain.clone()))
+                    });
+                }
+                self.agents.crosstalk.rects.push(pill);
             }
-            let rects: Vec<Rect> = if expanded { rects_all } else { vec![chip] };
-            let status_capsule = Capsule {
-                label: &status,
-                ..Default::default()
+        }
+        if let Some(b) = open.map(|i| &blisters[i]) {
+            let wire = b.wire;
+            let status = self.crosstalk_status(&b.chain);
+            let detail = self.crosstalk_detail(&b.chain, wire);
+            let actions = self.crosstalk_actions(&b.chain, wire);
+            let labels: Vec<(&str, bool)> = actions
+                .iter()
+                .map(|(label, command, _)| {
+                    (label.as_str(), *command == "portal.agent.crosstalk.stop")
+                })
+                .collect();
+            let rect = tools::crosstalk_capsule_rect(b.mid, labels.len(), z);
+            let view = tools::CrosstalkCapsuleView {
+                status: &status,
+                detail: &detail,
+                actions: &labels,
             };
-            let r = tools::capsule(
+            let clicked = tools::crosstalk_capsule(
                 ui,
-                Id::new(("crosstalk-chip", wire.0)),
-                rects[0],
-                &status_capsule,
+                Id::new(("crosstalk-capsule", wire.0)),
+                rect,
+                &view,
                 z,
                 palette,
             );
-            if r.response.clicked() {
-                if owner_wire
-                    && xt::owner(&self.doc().scene, &chain)
-                        .is_some_and(|(_, x)| x.started.is_none())
-                {
-                    self.crosstalk_open_editor(wire);
+            let chrome = tools::object_painter(ui);
+            for port in capsule_ports(&b.path, rect, xf) {
+                super::paint_handle_dot(&chrome, port, z, false, red);
+            }
+            self.agents.crosstalk.rects.push(rect);
+            if let Some((_, command, detail)) = clicked.map(|i| &actions[i]) {
+                if *command == "portal.agent.crosstalk.edit" && self.agents.crosstalk.editing {
+                    self.agents.crosstalk.editing = false;
                 } else {
-                    self.board_sel = std::iter::once(wire).collect();
+                    dispatch = Some((command, detail.clone()));
                 }
             }
-            self.agents.crosstalk.rects.push(rects[0]);
-            if expanded {
-                for ((label, command, detail), rect) in actions.iter().zip(rects.iter().skip(1)) {
-                    let capsule = Capsule {
-                        label,
-                        dim: *command == "portal.agent.crosstalk.stop",
-                        ..Default::default()
-                    };
-                    let id = Id::new(("crosstalk-action", wire.0, *command, detail.clone()));
-                    if tools::capsule(ui, id, *rect, &capsule, z, palette)
-                        .response
-                        .clicked()
-                    {
-                        dispatch = Some((command, detail.clone()));
-                    }
-                    self.agents.crosstalk.rects.push(*rect);
-                }
+            if self.agents.crosstalk.editing {
+                let size = egui::vec2(tools::EDITOR_WIDTH, tools::CROSSTALK_HEIGHT) * z;
+                let canvas = self.canvas_rect;
+                let at = tools::place_popup(size, rect, rect, canvas_scale::px(8.0, z), canvas);
+                let ctx = ui.ctx().clone();
+                tools::popup_area(&ctx, Id::new("crosstalk_editor"), ui.layer_id())
+                    .fixed_pos(at.min)
+                    .constrain(false)
+                    .movable(false)
+                    .fade_in(false)
+                    .show(&ctx, |ui| {
+                        ui.set_clip_rect(canvas);
+                        ui.set_min_size(at.size());
+                        self.crosstalk_panel(ui, at, wire, z);
+                    });
+                self.agents.crosstalk.rects.push(at);
             }
         }
         if let Some((command, detail)) = dispatch {
@@ -1615,7 +1920,7 @@ impl SlateApp {
                 atlas_commands::CommandId("portal.agent.crosstalk.edit"),
                 Some(detail),
             );
-            self.shape_properties.panel = None;
+            self.agents.crosstalk.editing = false;
         }
         if edit.action {
             if action == "Start" {
@@ -1625,7 +1930,7 @@ impl SlateApp {
                     Some(x.chain.clone()),
                 );
             } else {
-                self.shape_properties.panel = None;
+                self.agents.crosstalk.editing = false;
             }
         }
     }
@@ -1773,11 +2078,79 @@ mod tests {
                 && h.app.xt_turns(&session(h, codex)).len() == 2
         });
         settle(&mut h);
+        // Step mode is pinned, so ratifying VIII.1a changes only the default.
+        h.app.agents.crosstalk.autonomy = Some(false);
         Pair {
             h,
             ws,
             cursor,
             codex,
+        }
+    }
+
+    /// Link Cursor's bottom port to Codex's top port.
+    fn linked(tag: &str) -> Pair {
+        let mut p = pair(tag);
+        let (from, to) = (
+            port(&p.h, p.cursor, Side::Bottom),
+            port(&p.h, p.codex, Side::Top),
+        );
+        drag(&mut p.h, from, to);
+        p
+    }
+
+    fn owner_wire(h: &Harness) -> NodeId {
+        h.app
+            .doc()
+            .scene
+            .nodes
+            .iter()
+            .find(|n| xt::crosstalk(n).is_some_and(|x| x.is_owner()))
+            .unwrap()
+            .id
+    }
+
+    fn click(h: &mut Harness, at: Pos2) {
+        h.frame_with(|i| i.events.push(egui::Event::PointerMoved(at)));
+        for pressed in [true, false] {
+            h.frame_with(|i| {
+                i.events.push(egui::Event::PointerButton {
+                    pos: at,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                })
+            });
+        }
+        h.frame();
+    }
+
+    fn escape(h: &mut Harness) {
+        h.frame_with(|i| {
+            i.events.push(egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            })
+        });
+        h.frame();
+    }
+
+    /// The wire's routed mid-span on screen.
+    fn mid_span(h: &Harness, wire: NodeId) -> Pos2 {
+        let NodeKind::Connector(c) = &h.app.doc().scene.node(wire).unwrap().kind else {
+            panic!("a connector");
+        };
+        let m = h.app.connector_path_visible(wire, c).unwrap().midpoint();
+        h.app.board_xf().w2s(Pos2::new(m[0], m[1]))
+    }
+
+    fn routing(h: &Harness, wire: NodeId) -> slate_doc::WireRouting {
+        match &h.app.doc().scene.node(wire).unwrap().kind {
+            NodeKind::Connector(c) => c.effective_routing(h.app.board_wire_routing),
+            _ => panic!("a connector"),
         }
     }
 
@@ -1910,7 +2283,8 @@ mod tests {
         );
         drag(&mut p.h, from, to);
         p.h.app.board_sel.clear();
-        p.h.app.set_board_tool(super::super::super::board::BoardTool::Pen);
+        p.h.app
+            .set_board_tool(super::super::super::board::BoardTool::Pen);
         p.h.frame();
         p.h.frame();
         let chip = *p.h.app.agents.crosstalk.rects.first().expect("a chip");
@@ -1927,7 +2301,8 @@ mod tests {
             })
         });
         for k in 1..=8 {
-            let at = start + (end - start) * (k as f32 / 8.0) + egui::vec2(0.0, (k % 2) as f32 * 6.0);
+            let at =
+                start + (end - start) * (k as f32 / 8.0) + egui::vec2(0.0, (k % 2) as f32 * 6.0);
             p.h.frame_with(|i| i.events.push(egui::Event::PointerMoved(at)));
         }
         p.h.frame_with(|i| {
@@ -1939,8 +2314,15 @@ mod tests {
             })
         });
         p.h.frame();
-        assert!(p.h.app.board_drag.is_none(), "the release on the chip ended the stroke");
-        assert_eq!(p.h.app.doc().scene.nodes.len(), before + 1, "the stroke committed");
+        assert!(
+            p.h.app.board_drag.is_none(),
+            "the release on the chip ended the stroke"
+        );
+        assert_eq!(
+            p.h.app.doc().scene.nodes.len(),
+            before + 1,
+            "the stroke committed"
+        );
         let node = p.h.app.doc().scene.nodes.last().unwrap();
         let NodeKind::Shape(s) = &node.kind else {
             panic!("a Pen stroke");
@@ -2006,12 +2388,12 @@ mod tests {
             "one undo step"
         );
         assert_eq!(p.h.app.tab().journal.last_author(), Some(&CmdAuthor::Human));
-        assert!(p.h.app.board_sel.contains(&node.id));
         assert_eq!(
-            p.h.app.shape_properties.panel,
-            Some(super::super::super::board_properties::Panel::Crosstalk),
-            "the Start capsule is open"
+            p.h.app.agents.crosstalk.open,
+            Some(node.id),
+            "the wire's capsule opens at its mid-span"
         );
+        assert!(p.h.app.agents.crosstalk.editing, "with Start ready");
         assert_eq!(status(&p.h), "Crosstalk · not started");
         assert!(p.h.app.agents.dispatched.is_empty() && p.h.app.agents.requests.is_empty());
         p.h.app.board_undo();
@@ -2522,5 +2904,498 @@ mod tests {
             before,
             "one Undo returns every anchor"
         );
+    }
+
+    fn has_rect_at(h: &Harness, want: Rect) -> bool {
+        h.app.agents.crosstalk.rects.iter().any(|r| {
+            (r.center() - want.center()).length() < 0.5 && (r.width() - want.width()).abs() < 0.5
+        })
+    }
+
+    fn visible_crosswires(h: &Harness) -> Vec<NodeId> {
+        h.app
+            .doc()
+            .scene
+            .nodes
+            .iter()
+            .filter(|n| !n.hidden && xt::crosstalk(n).is_some())
+            .map(|n| n.id)
+            .collect()
+    }
+
+    /// User, 28 September 2026: every crosswire carries a blister at its
+    /// mid-span, derived on load, so wires drawn before it need no redraw.
+    #[test]
+    fn every_crosswire_has_a_blister_including_ones_reopened_from_disk() {
+        let mut p = started("xt_blister_reopen");
+        p.h.frame();
+        assert!(command(&mut p.h, "portal.agent.crosstalk.send", None));
+        p.h.frame();
+        let path = p.h.base.join("blister.slate");
+        let tab = p.h.app.tab().id;
+        p.h.app.save_doc_to(tab, path.clone());
+        p.h.app.close_tab(p.h.app.active_tab);
+        p.h.app.open_doc_at(path);
+        for _ in 0..5 {
+            p.h.frame();
+        }
+        assert_eq!(p.h.app.agents.crosstalk.open, None, "blisters only");
+        let wires = visible_crosswires(&p.h);
+        assert_eq!(wires.len(), 2);
+        let z = p.h.app.board_xf().z;
+        for wire in wires {
+            let bead = tools::blister_rect(mid_span(&p.h, wire), z);
+            assert!(has_rect_at(&p.h, bead), "{wire:?} has its blister");
+        }
+    }
+
+    #[test]
+    fn a_blister_opens_the_capsule_and_click_away_or_esc_folds_it() {
+        let mut p = linked("xt_capsule");
+        let wire = owner_wire(&p.h);
+        let depth = p.h.app.tab().journal.undo_depth();
+        escape(&mut p.h);
+        assert_eq!(p.h.app.agents.crosstalk.open, None, "Esc folds");
+        let mid = mid_span(&p.h, wire);
+        click(&mut p.h, mid);
+        assert_eq!(
+            p.h.app.agents.crosstalk.open,
+            Some(wire),
+            "the blister opens it"
+        );
+        assert!(
+            p.h.app.agents.crosstalk.editing,
+            "an unstarted wire opens on Start"
+        );
+        let capsule = *p.h.app.agents.crosstalk.rects.first().unwrap();
+        assert!(
+            (capsule.center() - mid).length() < 0.5,
+            "the capsule expands in place at the mid-span"
+        );
+        let canvas = p.h.app.canvas_rect;
+        click(&mut p.h, canvas.left_bottom() + egui::vec2(40.0, -40.0));
+        assert_eq!(p.h.app.agents.crosstalk.open, None, "a click away folds");
+        assert_eq!(
+            p.h.app.tab().journal.undo_depth(),
+            depth,
+            "opening and folding is view state"
+        );
+    }
+
+    /// Step mode keeps each hand-off one quiet click beside the newest
+    /// wire's blister.
+    #[test]
+    fn step_mode_sends_from_the_pill_beside_the_blister() {
+        let mut p = started("xt_send_pill");
+        escape(&mut p.h);
+        p.h.frame();
+        assert_eq!(status(&p.h), "Cursor replied · Send to Codex?");
+        let wire = owner_wire(&p.h);
+        let pill = tools::blister_send_rect(mid_span(&p.h, wire), p.h.app.board_xf().z);
+        assert!(has_rect_at(&p.h, pill), "the pill waits beside the blister");
+        assert!(p.h.app.agents.dispatched.is_empty());
+        click(&mut p.h, pill.center());
+        p.h.frame();
+        let (_, request) =
+            p.h.app
+                .agents
+                .dispatched
+                .last()
+                .cloned()
+                .expect("one click sends");
+        assert_eq!(request.prompt, "I built the parser.");
+        assert_eq!(p.h.app.agents.crosstalk.open, None, "sending opens nothing");
+    }
+
+    /// User, 28 September 2026: a crosstalk's cards stay collapsed.
+    #[test]
+    fn relayed_cards_arrive_collapsed_and_open_by_hand() {
+        let mut p = started("xt_collapsed");
+        p.h.frame();
+        assert!(command(&mut p.h, "portal.agent.crosstalk.send", None));
+        p.h.frame();
+        let codex = session(&p.h, p.codex);
+        let landed = xt::card_showing(&p.h.app.doc().scene, &codex, 2).unwrap();
+        let collapsed = |h: &Harness, id: NodeId| {
+            slate_doc::agent_chat::agent(h.app.doc().scene.node(id).unwrap())
+                .unwrap()
+                .chat
+                .collapsed
+        };
+        assert!(collapsed(&p.h, landed), "the relayed card is collapsed");
+        p.h.app.board_sel = std::iter::once(landed).collect();
+        assert!(command(&mut p.h, "portal.agent.collapse", None));
+        for _ in 0..3 {
+            p.h.frame();
+        }
+        assert!(!collapsed(&p.h, landed), "a person can still open it");
+    }
+
+    /// Codex fixes permissions when a turn starts; a reviewer stays
+    /// read-only; a change mid-reply applies from the next message.
+    #[test]
+    fn full_access_applies_from_the_next_message_and_a_reviewer_is_refused() {
+        let mut p = started("xt_access_mid_run");
+        p.h.app.agents.access_path = Some(p.h.base.join("agent-access.json"));
+        let codex = session(&p.h, p.codex);
+        let cursor = session(&p.h, p.cursor);
+        p.h.frame();
+        p.h.app.board_sel = std::iter::once(p.codex).collect();
+        assert!(!command(&mut p.h, "portal.agent.full_access", None));
+        assert!(!p.h.app.agent_full_access(&codex));
+        assert!(
+            p.h.app
+                .toasts
+                .last()
+                .unwrap()
+                .0
+                .contains("reviews read-only"),
+            "the refusal says why"
+        );
+        assert!(command(&mut p.h, "portal.agent.crosstalk.send", None));
+        p.h.frame();
+        codex_answers(&mut p, "Looks right.");
+        p.h.frame();
+        assert!(command(&mut p.h, "portal.agent.crosstalk.send", None));
+        p.h.frame();
+        let link = p.h.app.agent_link_dir(p.cursor, &p.ws).unwrap();
+        frames_until(&mut p.h, "Cursor's request", |_| {
+            link.join("request.json").is_file()
+        });
+        let tail = p.h.app.xt_tail(&cursor).unwrap();
+        assert!(p.h.app.agent_is_running(tail), "Cursor is replying");
+        p.h.app.board_sel = std::iter::once(tail).collect();
+        assert!(command(&mut p.h, "portal.agent.full_access", None));
+        assert!(p.h.app.agent_full_access(&cursor));
+        assert!(
+            p.h.app
+                .toasts
+                .last()
+                .unwrap()
+                .0
+                .contains("from the next message"),
+            "{:?}",
+            p.h.app.toasts.last()
+        );
+        assert!(
+            p.h.app.agents.sidecar_restart.contains(&cursor),
+            "the reply in progress keeps its sidecar until it finishes"
+        );
+    }
+
+    /// A read-only reviewer cannot write `return.json`; its verdict is the
+    /// strict last line of its reply.
+    #[test]
+    fn a_read_only_reviewer_reports_its_verdict_in_its_reply() {
+        let mut p = started("xt_goal_in_reply");
+        let owner = owner_wire(&p.h);
+        let rule = StopRule {
+            turns: Some(10),
+            goal: Some("the parser handles errors".into()),
+            ..Default::default()
+        };
+        assert!(command(
+            &mut p.h,
+            "portal.agent.crosstalk.edit",
+            Some(serde_json::json!({ "wire": owner.0, "rule": rule }).to_string())
+        ));
+        let cursor_link = p.h.app.agent_link_dir(p.cursor, &p.ws).unwrap();
+        write_goal(&cursor_link, "met");
+        let chain = chain(&p.h);
+        frames_until(&mut p.h, "Cursor's claim", |h| {
+            let (_, owner) = xt::owner(&h.app.doc().scene, &chain).unwrap();
+            h.app.crosstalk_goal_progress(owner) == GoalProgress::Claimed
+        });
+        assert!(command(&mut p.h, "portal.agent.crosstalk.send", None));
+        p.h.frame();
+        let (_, request) = p.h.app.agents.dispatched.last().cloned().unwrap();
+        assert!(
+            request.goal.as_ref().unwrap().in_reply,
+            "asked to answer in the reply"
+        );
+        codex_answers(
+            &mut p,
+            "Checked the error path.\nSlate goal: {\"status\":\"met\",\"reason\":\"errors handled\"}",
+        );
+        frames_until(&mut p.h, "the verdict", |h| {
+            h.app.crosstalk_status(&chain).starts_with("Goal met")
+        });
+        assert_eq!(status(&p.h), "Goal met · Cursor claimed, Codex agreed");
+    }
+
+    #[test]
+    fn step_mode_is_the_default_until_viii_1a_is_ratified() {
+        let h = Harness::new("xt_autonomy_default");
+        assert_eq!(h.app.agents.crosstalk.autonomy, None);
+        assert_eq!(h.app.xt_autonomy(), CROSSTALK_AUTONOMY_RATIFIED);
+    }
+
+    /// Screen distance from `p` to a polyline.
+    fn off_path(pts: &[Pos2], p: Pos2) -> f32 {
+        pts.windows(2)
+            .map(|w| {
+                let (a, b) = (w[0], w[1]);
+                let ab = b - a;
+                let t = ((p - a).dot(ab) / ab.length_sq().max(1e-6)).clamp(0.0, 1.0);
+                (a + ab * t - p).length()
+            })
+            .fold(f32::INFINITY, f32::min)
+    }
+
+    /// Each red wire in the exported HTML, as its path numbers, next to the
+    /// board's drawn path for the same wire; both relative to their start.
+    fn export_matches_board(h: &Harness) {
+        use slate_doc::{filleted_polyline, ConnectorPath, PathCmd, ORTHO_CORNER_RADIUS};
+        let relative =
+            |v: Vec<f32>| -> Vec<f32> { v.iter().enumerate().map(|(i, x)| x - v[i % 2]).collect() };
+        let mut board: Vec<Vec<f32>> = Vec::new();
+        let mut css = String::new();
+        for wire in visible_crosswires(h) {
+            let NodeKind::Connector(c) = &h.app.doc().scene.node(wire).unwrap().kind else {
+                unreachable!()
+            };
+            css = c.stroke.color.css();
+            let path = h.app.connector_path_visible(wire, c).unwrap();
+            let (path, _) =
+                super::super::super::board_wire::drawn_connector(&h.app.doc().scene, path, c);
+            let pts: Vec<[f32; 2]> = match &path {
+                ConnectorPath::Bezier(b) => vec![b.p0, b.c1, b.c2, b.p3],
+                ConnectorPath::Orthogonal(pts) => filleted_polyline(pts, ORTHO_CORNER_RADIUS)
+                    .into_iter()
+                    .flat_map(|cmd| match cmd {
+                        PathCmd::Move(p) | PathCmd::Line(p) => vec![p],
+                        PathCmd::Cubic { c1, c2, to } => vec![c1, c2, to],
+                    })
+                    .collect(),
+            };
+            board.push(relative(pts.into_iter().flatten().collect()));
+        }
+        let html = slate_artifact::render_html(h.app.doc(), &slate_artifact::AssetMap::default());
+        let tail = format!("\" fill=\"none\" stroke=\"{css}\"");
+        let exported: Vec<Vec<f32>> = html
+            .match_indices(&tail)
+            .map(|(at, _)| {
+                let d = &html[..at];
+                let d = &d[d.rfind("<path d=\"").unwrap() + 9..];
+                relative(
+                    d.split_whitespace()
+                        .filter_map(|t| t.parse().ok())
+                        .collect(),
+                )
+            })
+            .collect();
+        assert_eq!(exported.len(), board.len(), "every crosswire exports");
+        for want in &board {
+            assert!(
+                exported.iter().any(|got| got.len() == want.len()
+                    && got.iter().zip(want).all(|(g, w)| (g - w).abs() < 0.2)),
+                "the export draws the board's routed path: {want:?} in {exported:?}"
+            );
+        }
+    }
+
+    /// User, 28 September 2026: crosswires square up like any wire.
+    #[test]
+    fn a_crosswire_squares_and_curves_through_the_board_routing_commands() {
+        let mut p = pair("xt_routing");
+        p.h.app.patch_nodes(&[p.codex], |n| n.rect.x += 700.0);
+        settle(&mut p.h);
+        let (from, to) = (
+            port(&p.h, p.cursor, Side::Bottom),
+            port(&p.h, p.codex, Side::Top),
+        );
+        drag(&mut p.h, from, to);
+        let wire = owner_wire(&p.h);
+        let bezier = slate_doc::WireRouting::Bezier;
+        let square = slate_doc::WireRouting::Orthogonal;
+        assert_eq!(
+            routing(&p.h, wire),
+            bezier,
+            "a new link takes the board's routing"
+        );
+        let chain = chain(&p.h);
+        let depth = p.h.app.tab().journal.undo_depth();
+        let (label, id, detail) = p.h.app.crosstalk_route_action(&chain);
+        assert_eq!(label, "Square wires");
+        assert!(command(&mut p.h, id, detail));
+        assert_eq!(routing(&p.h, wire), square);
+        assert_eq!(
+            p.h.app.tab().journal.undo_depth(),
+            depth + 1,
+            "one journaled edit"
+        );
+        assert_eq!(
+            p.h.app.board_wire_routing, bezier,
+            "the board default is untouched"
+        );
+        export_matches_board(&p.h);
+
+        escape(&mut p.h);
+        p.h.frame();
+        let xf = p.h.app.board_xf();
+        let mid = mid_span(&p.h, wire);
+        assert!(
+            has_rect_at(&p.h, tools::blister_rect(mid, xf.z)),
+            "on the routed mid-span"
+        );
+        let NodeKind::Connector(c) = p.h.app.doc().scene.node(wire).unwrap().kind.clone() else {
+            unreachable!()
+        };
+        let path = p.h.app.connector_path_visible(wire, &c).unwrap();
+        let slate_doc::ConnectorPath::Orthogonal(world) = &path else {
+            panic!("square")
+        };
+        let screen: Vec<Pos2> = world
+            .iter()
+            .map(|q| xf.w2s(Pos2::new(q[0], q[1])))
+            .collect();
+        assert!(screen.len() >= 4, "a jive, not a straight run");
+        assert!(
+            off_path(&screen, mid) < 0.5,
+            "the blister sits on the square wire"
+        );
+        click(&mut p.h, mid);
+        assert_eq!(p.h.app.agents.crosstalk.open, Some(wire));
+        let capsule = *p.h.app.agents.crosstalk.rects.first().unwrap();
+        let [input, output] = capsule_ports(&path, capsule, &xf);
+        for port in [input, output] {
+            let edge = [
+                (port.x - capsule.left()).abs(),
+                (port.x - capsule.right()).abs(),
+                (port.y - capsule.top()).abs(),
+                (port.y - capsule.bottom()).abs(),
+            ]
+            .into_iter()
+            .fold(f32::INFINITY, f32::min);
+            assert!(edge < 1.0, "{port:?} sits on the capsule's edge");
+            assert!(
+                off_path(&screen, port) < 1.0,
+                "{port:?} sits on the square wire"
+            );
+        }
+        assert!(
+            (input - output).length() > capsule.width() * 0.5,
+            "in one side, out the other"
+        );
+
+        let (label, id, detail) = p.h.app.crosstalk_route_action(&chain);
+        assert_eq!(label, "Curved wires");
+        assert!(command(&mut p.h, id, detail));
+        assert_eq!(routing(&p.h, wire), bezier);
+        export_matches_board(&p.h);
+        p.h.app.board_sel = std::iter::once(wire).collect();
+        assert!(command(&mut p.h, "board.wire.routing", None));
+        assert_eq!(
+            routing(&p.h, wire),
+            square,
+            "selected, it toggles like any wire"
+        );
+        p.h.app.board_undo();
+        assert_eq!(routing(&p.h, wire), bezier);
+    }
+
+    /// Several agents asking one expert: square crosswires converging on
+    /// one card bundle by the File Atlas nested-rail rule, never touching
+    /// each other or running through a card, and export the same paths.
+    #[test]
+    fn converging_square_crosswires_bundle_without_touching() {
+        let mut h = Harness::new("xt_converging");
+        h.app.leave_home();
+        h.app.ensure_work_tab();
+        h.app.doc_mut().view.active_view = slate_doc::ViewKind::Board;
+        h.frame();
+        let expert = chat(&mut h, Pos2::new(160.0, 1500.0), "codex", "conv-expert");
+        let sources: Vec<NodeId> = [
+            (-1500.0, 270.0),
+            (-700.0, 420.0),
+            (160.0, 270.0),
+            (900.0, 340.0),
+            (1700.0, 270.0),
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(i, (x, y))| chat(&mut h, Pos2::new(x, y), "cursor", &format!("conv-s{i}")))
+        .collect();
+        h.app.tab_mut().cam.z = 0.25;
+        settle(&mut h);
+        let partner = session(&h, expert);
+        let mut wires = Vec::new();
+        for (i, from) in sources.iter().enumerate() {
+            let binding = Crosstalk::owner(
+                format!("chain-{i}"),
+                &session(&h, *from),
+                &partner,
+                Role::Builds,
+            );
+            let node = h.app.crosswire_node(*from, expert, binding).unwrap();
+            wires.push(node.id);
+            h.app.add_nodes(vec![node]);
+        }
+        let ids: Vec<u64> = wires.iter().map(|w| w.0).collect();
+        assert!(command(
+            &mut h,
+            "board.wire.orthogonal",
+            Some(serde_json::json!({ "wires": ids }).to_string())
+        ));
+        h.frame();
+        let scene = h.app.doc().scene.clone();
+        let cards: Vec<(f32, f32, f32, f32)> = scene
+            .nodes
+            .iter()
+            .filter(|n| !n.hidden && !matches!(n.kind, NodeKind::Connector(_)))
+            .map(|n| (n.rect.x, n.rect.y, n.rect.w, n.rect.h))
+            .collect();
+        let routes: Vec<Vec<[f32; 2]>> = wires
+            .iter()
+            .map(|w| {
+                let NodeKind::Connector(c) = &scene.node(*w).unwrap().kind else {
+                    unreachable!()
+                };
+                match h.app.connector_path_visible(*w, c) {
+                    Some(slate_doc::ConnectorPath::Orthogonal(pts)) => pts,
+                    other => panic!("a square route, not {other:?}"),
+                }
+            })
+            .collect();
+        for (w, pts) in routes.iter().enumerate() {
+            for seg in pts.windows(2) {
+                for &(x, y, cw, ch) in &cards {
+                    for k in 0..=16 {
+                        let t = k as f32 / 16.0;
+                        let q = [
+                            seg[0][0] + (seg[1][0] - seg[0][0]) * t,
+                            seg[0][1] + (seg[1][1] - seg[0][1]) * t,
+                        ];
+                        let inside = q[0] > x + 0.5
+                            && q[0] < x + cw - 0.5
+                            && q[1] > y + 0.5
+                            && q[1] < y + ch - 0.5;
+                        assert!(!inside, "wire {w} runs through a card at {q:?}");
+                    }
+                }
+            }
+        }
+        let bounds = |a: [f32; 2], b: [f32; 2]| {
+            (
+                a[0].min(b[0]),
+                a[0].max(b[0]),
+                a[1].min(b[1]),
+                a[1].max(b[1]),
+            )
+        };
+        for i in 0..routes.len() {
+            for j in i + 1..routes.len() {
+                for p in routes[i].windows(2) {
+                    for q in routes[j].windows(2) {
+                        let (x0, x1, y0, y1) = bounds(p[0], p[1]);
+                        let (u0, u1, v0, v1) = bounds(q[0], q[1]);
+                        let meet =
+                            x0 <= u1 + 0.5 && u0 <= x1 + 0.5 && y0 <= v1 + 0.5 && v0 <= y1 + 0.5;
+                        assert!(!meet, "wires {i} and {j} meet: {p:?} and {q:?}");
+                    }
+                }
+            }
+        }
+        export_matches_board(&h);
     }
 }

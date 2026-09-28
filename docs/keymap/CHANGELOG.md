@@ -1,5 +1,33 @@
 # Canvas command project — change log
 
+## 2026-09-28 — Crosstalk blister and capsule, collapsed cards, square crosswires (user)
+
+- User, 28 September 2026: "everytime a new wire is linked between agents
+  ther should be a subtle blister at the mid span of the wire that when
+  clicked expands to a capsule … with the wire pluged to its inputs and
+  outputs". Every crosswire, including saved ones, shows a blister at its
+  routed mid-span; `portal.agent.crosstalk.capsule` expands it into a
+  capsule the wire runs through, holding status, roles and every action.
+  Esc or a click away folds it (view state, not journaled). The status chip
+  and the crosswire's property-strip panel are removed. Ordinary connectors
+  get no blister. `portal-agent-crosstalk` X17; D04, D09, D12, D13, D14,
+  D23, D35 revised.
+- User, 28 September 2026: "keep the chat train capsules in there colapsed
+  state". New cards in a crosstalk arrive collapsed and open by hand (X18).
+- User, 28 September 2026: crosstalk wires toggle to orthogonal "same as
+  with normal wires", bundling many-to-one like File Atlas. They take
+  `board.wire.routing` / `.bezier` / `.orthogonal` and the board's routing
+  default; the capsule's Square / Curved wires runs the command on the
+  whole conversation. Square crosswires at a shared port use the folder
+  map's nested-rail rule, extracted to `vector_ink::rails` and called by
+  both (File Atlas output unchanged). Export draws the same path (X19, D07,
+  D24).
+- Step mode stays (VIII.1a unratified): the pending hand-off is a quiet Send
+  pill beside the newest wire's blister (X10).
+- Full access toggles mid-run and applies from the next message; a live
+  reviewer is refused with the fix named; a read-only reviewer reports its
+  goal verdict as its reply's last line (X08, X11, X12, X20).
+
 ## 2026-09-28 — Whole-curve tip HUD under Select, relative edits (user)
 
 - User, 28 September 2026 (checklist ed1, applying to ed1–ed3 and eb1):

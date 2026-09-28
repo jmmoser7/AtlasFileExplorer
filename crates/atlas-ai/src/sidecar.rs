@@ -911,10 +911,11 @@ mod tests {
     fn sidecar_goal_guide_twin_matches_the_rust_guide() {
         let script = sidecar_script().expect("docs/agent/cursor-sidecar/index.mjs must ship");
         let js = std::fs::read_to_string(script.with_file_name("artifacts.mjs")).unwrap();
-        for claims in [true, false] {
+        for (claims, in_reply) in [(true, false), (false, false), (true, true), (false, true)] {
             let goal = atlas_agent::GoalTurn {
                 goal: "{GOAL}".into(),
                 claims,
+                in_reply,
             };
             let guide = atlas_agent::goal_guide_in(&goal, None);
             for part in guide

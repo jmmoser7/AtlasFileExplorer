@@ -1,4 +1,4 @@
-﻿//! Derived connector geometry: the bezier span and an obstacle-aware
+//! Derived connector geometry: the bezier span and an obstacle-aware
 //! orthogonal (PCB-trace) router.
 //!
 //! Geometry is never stored — both interpreters (the egui board painter and
@@ -89,6 +89,11 @@ pub struct OrthoLane {
     pub end_along: f32,
     /// Mid-span rail offset from the preferred midpoint jive.
     pub rail: f32,
+    /// A nested bundle's trunk, in world units: the horizontal run's y or
+    /// the vertical run's x, measured from the shared port (File Atlas
+    /// nested rails, `vector_ink::rails`). Replaces the midpoint jive.
+    pub trunk_x: Option<f32>,
+    pub trunk_y: Option<f32>,
 }
 
 const EPS: f32 = 0.35;
@@ -191,16 +196,26 @@ pub fn scene_ortho_lanes(scene: &Scene) -> HashMap<NodeId, OrthoLane> {
         a: ConnectorEnd,
         b: ConnectorEnd,
     }
+    let mut nested_ports: std::collections::HashSet<(NodeId, Side)> = Default::default();
     let items: Vec<Item> = scene
         .nodes
         .iter()
         .filter(|n| !n.hidden)
         .filter_map(|n| match &n.kind {
-            NodeKind::Connector(c) if c.routing != Some(WireRouting::Bezier) => Some(Item {
-                id: n.id,
-                a: c.a,
-                b: c.b,
-            }),
+            NodeKind::Connector(c) if c.routing != Some(WireRouting::Bezier) => {
+                if c.crosstalk.is_some() {
+                    for end in [c.a, c.b] {
+                        if let ConnectorEnd::Anchored { node, side, .. } = end {
+                            nested_ports.insert((node, side));
+                        }
+                    }
+                }
+                Some(Item {
+                    id: n.id,
+                    a: c.a,
+                    b: c.b,
+                })
+            }
             _ => None,
         })
         .collect();
@@ -231,6 +246,9 @@ pub fn scene_ortho_lanes(scene: &Scene) -> HashMap<NodeId, OrthoLane> {
     struct RailPick {
         size: usize,
         rail: f32,
+        /// A nested trunk: (the port faces up or down, so this is a y;
+        /// else an x).
+        trunk: Option<(bool, f32)>,
         node: u64,
         side: u8,
     }
@@ -255,6 +273,61 @@ pub fn scene_ortho_lanes(scene: &Scene) -> HashMap<NodeId, OrthoLane> {
         let gap = ORTHO_EXIT_GAP.min(max_along / (group.len() as f32 * 0.5).max(1.0));
         let size = group.len();
         let key = (node.0, side_ord(side));
+        let take =
+            |rail_from: &HashMap<NodeId, RailPick>, cid: NodeId, pick: &RailPick| match rail_from
+                .get(&cid)
+            {
+                Some(old) => {
+                    pick.size > old.size
+                        || (pick.size == old.size && (pick.node, pick.side) < (old.node, old.side))
+                }
+                None => true,
+            };
+
+        // A port carrying crosstalk bundles by the File Atlas rule: the
+        // farthest wire exits outermost and its trunk runs nearest the port,
+        // so many wires converging on one card never cross (user, 28
+        // September 2026).
+        if nested_ports.contains(&(node, side)) {
+            let mut group = group;
+            group.sort_by_key(|(cid, end_b, _)| (cid.0, *end_b));
+            let offsets: Vec<f32> = group
+                .iter()
+                .map(|(_, _, other)| {
+                    (other[0] - origin[0]) * tan[0] + (other[1] - origin[1]) * tan[1]
+                })
+                .collect();
+            let vertical = out[1].abs() >= out[0].abs();
+            let (depth, away) = if vertical {
+                (origin[1], out[1].signum())
+            } else {
+                (origin[0], out[0].signum())
+            };
+            let rails = vector_ink::rails::nested_rails(&offsets, LANE_LOCK);
+            for (&(cid, end_b, _), rail) in group.iter().zip(rails) {
+                let Some(rail) = rail else {
+                    continue;
+                };
+                let lane = lanes.entry(cid).or_default();
+                if end_b {
+                    lane.end_along = rail.exit(gap);
+                } else {
+                    lane.start_along = rail.exit(gap);
+                }
+                let reach = ORTHO_CLEARANCE * 2.0 + ORTHO_RAIL_GAP * rail.rank as f32;
+                let pick = RailPick {
+                    size,
+                    rail: 0.0,
+                    trunk: Some((vertical, depth + away * reach)),
+                    node: key.0,
+                    side: key.1,
+                };
+                if take(&rail_from, cid, &pick) {
+                    rail_from.insert(cid, pick);
+                }
+            }
+            continue;
+        }
 
         let mut pos: Vec<(f32, NodeId, bool)> = Vec::new();
         let mut neg: Vec<(f32, NodeId, bool)> = Vec::new();
@@ -288,18 +361,11 @@ pub fn scene_ortho_lanes(scene: &Scene) -> HashMap<NodeId, OrthoLane> {
                 let pick = RailPick {
                     size,
                     rail: sign * (r as f32 + 1.0) * ORTHO_RAIL_GAP,
+                    trunk: None,
                     node: key.0,
                     side: key.1,
                 };
-                let take = match rail_from.get(&cid) {
-                    Some(old) => {
-                        pick.size > old.size
-                            || (pick.size == old.size
-                                && (pick.node, pick.side) < (old.node, old.side))
-                    }
-                    None => true,
-                };
-                if take {
+                if take(rail_from, cid, &pick) {
                     rail_from.insert(cid, pick);
                 }
             }
@@ -308,7 +374,13 @@ pub fn scene_ortho_lanes(scene: &Scene) -> HashMap<NodeId, OrthoLane> {
         assign(&mut lanes, &mut rail_from, &neg, -1.0);
     }
     for (cid, pick) in rail_from {
-        lanes.entry(cid).or_default().rail = pick.rail;
+        let lane = lanes.entry(cid).or_default();
+        lane.rail = pick.rail;
+        match pick.trunk {
+            Some((true, y)) => lane.trunk_y = Some(y),
+            Some((false, x)) => lane.trunk_x = Some(x),
+            None => {}
+        }
     }
     lanes
 }
@@ -462,7 +534,7 @@ pub fn connector_ortho_path(
     let solids = host_solids(&hosts, &others);
     let s_stub = escape_stub(p0, dir_a, &solids);
     let e_stub = escape_stub(p3, dir_b, &solids);
-    let tiers = path_tiers(p0, s_stub, p3, e_stub, &solids, lane.rail, dir_a, dir_b);
+    let tiers = path_tiers(p0, s_stub, p3, e_stub, &solids, lane, dir_a, dir_b);
 
     for tier in &tiers {
         let pts = if tier.first_wins {
@@ -754,9 +826,8 @@ pub fn filleted_vertex_path_params_each(
         // A closed path's first corner is reached along its closing edge,
         // whose far end is parameter `n`.
         let arrive_corner = if i == 0 { param(n) } else { param(i) };
-        let toward = |edge: f32, corner: f32, angle: f32| {
-            edge + (corner - edge) * (angle.tan() / half_tan)
-        };
+        let toward =
+            |edge: f32, corner: f32, angle: f32| edge + (corner - edge) * (angle.tan() / half_tan);
         let from = sub(a, center);
         let mut p0 = a;
         for k in 1..=pieces {
@@ -965,12 +1036,21 @@ fn path_tiers(
     e_anchor: [f32; 2],
     e_stub: [f32; 2],
     solids: &[Solid],
-    rail: f32,
+    lane: OrthoLane,
     dir_a: Option<[f32; 2]>,
     dir_b: Option<[f32; 2]>,
 ) -> Vec<PathTier> {
-    let mid_x = trunk_between((s_stub[0] + e_stub[0]) * 0.5 + rail, s_stub[0], e_stub[0]);
-    let mid_y = trunk_between((s_stub[1] + e_stub[1]) * 0.5 + rail, s_stub[1], e_stub[1]);
+    let rail = lane.rail;
+    let mid_x = trunk_between(
+        lane.trunk_x.unwrap_or((s_stub[0] + e_stub[0]) * 0.5 + rail),
+        s_stub[0],
+        e_stub[0],
+    );
+    let mid_y = trunk_between(
+        lane.trunk_y.unwrap_or((s_stub[1] + e_stub[1]) * 0.5 + rail),
+        s_stub[1],
+        e_stub[1],
+    );
     let vhv = vec![
         s_anchor,
         s_stub,

@@ -268,6 +268,13 @@ pub fn chain_of_session(scene: &Scene, session: &str) -> Option<String> {
         .map(|x| x.chain.clone())
 }
 
+/// Cards a crosstalk conversation adds start collapsed, relayed ones
+/// included, to keep two growing trains quiet (user decision, 28 September
+/// 2026). The person can still expand any one by hand.
+pub fn collapses_new_cards(scene: &Scene, session: &str) -> bool {
+    chain_of_session(scene, session).is_some()
+}
+
 /// Relayed messages so far.
 pub fn relays(scene: &Scene, chain: &str) -> u32 {
     wires(scene, chain)
@@ -787,5 +794,89 @@ mod tests {
         assert!(!json.contains("crosstalk"), "ordinary wires save as before");
         let old: ConnectorNode = serde_json::from_str(&json).unwrap();
         assert_eq!(old, plain);
+    }
+
+    /// Several agents asking one expert: square crosswires converging on
+    /// one card bundle by the File Atlas nested-rail rule (user, 28
+    /// September 2026), so no two touch and none runs through a card.
+    #[test]
+    fn converging_square_crosswires_never_touch_or_cross_a_card() {
+        use crate::wire::{connector_route_in_scene, ConnectorPath, WireRouting};
+        let mut s = Scene::default();
+        let expert = card(&mut s, "expert", 0, None, 700.0);
+        let mut sources = Vec::new();
+        for (i, (x, y)) in [
+            (-900.0, 0.0),
+            (-450.0, 120.0),
+            (0.0, 0.0),
+            (430.0, 60.0),
+            (880.0, 0.0),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let id = card(&mut s, &format!("s{i}"), 0, None, y);
+            s.node_mut(id).unwrap().rect.x = x;
+            sources.push(id);
+        }
+        let mut wires = Vec::new();
+        for (i, from) in sources.iter().enumerate() {
+            let x = Crosstalk::owner(format!("c{i}"), &format!("s{i}"), "expert", Role::Builds);
+            let id = wire(&mut s, *from, expert, x);
+            if let NodeKind::Connector(c) = &mut s.node_mut(id).unwrap().kind {
+                c.routing = Some(WireRouting::Orthogonal);
+            }
+            wires.push(id);
+        }
+        let cards: Vec<(NodeId, WorldRect)> = s
+            .nodes
+            .iter()
+            .filter(|n| !matches!(n.kind, NodeKind::Connector(_)))
+            .map(|n| (n.id, n.rect))
+            .collect();
+        let segments: Vec<Vec<([f32; 2], [f32; 2])>> = wires
+            .iter()
+            .map(|id| {
+                let NodeKind::Connector(c) = &s.node(*id).unwrap().kind else {
+                    unreachable!()
+                };
+                let Some(ConnectorPath::Orthogonal(pts)) =
+                    connector_route_in_scene(&s, Some(*id), &c.a, &c.b, WireRouting::Orthogonal)
+                else {
+                    panic!("a square route");
+                };
+                pts.windows(2).map(|w| (w[0], w[1])).collect()
+            })
+            .collect();
+        let inside = |r: WorldRect, p: [f32; 2]| {
+            p[0] > r.x + 0.5 && p[0] < r.x + r.w - 0.5 && p[1] > r.y + 0.5 && p[1] < r.y + r.h - 0.5
+        };
+        for (w, segs) in segments.iter().enumerate() {
+            for &(a, b) in segs {
+                for &(_, r) in &cards {
+                    for k in 0..=16 {
+                        let t = k as f32 / 16.0;
+                        let p = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+                        assert!(!inside(r, p), "wire {w} runs through a card at {p:?}");
+                    }
+                }
+            }
+        }
+        let touch = |(a, b): ([f32; 2], [f32; 2]), (c, d): ([f32; 2], [f32; 2])| {
+            let (x0, x1) = (a[0].min(b[0]), a[0].max(b[0]));
+            let (y0, y1) = (a[1].min(b[1]), a[1].max(b[1]));
+            let (u0, u1) = (c[0].min(d[0]), c[0].max(d[0]));
+            let (v0, v1) = (c[1].min(d[1]), c[1].max(d[1]));
+            x0 <= u1 + 0.5 && u0 <= x1 + 0.5 && y0 <= v1 + 0.5 && v0 <= y1 + 0.5
+        };
+        for i in 0..segments.len() {
+            for j in i + 1..segments.len() {
+                for &p in &segments[i] {
+                    for &q in &segments[j] {
+                        assert!(!touch(p, q), "wires {i} and {j} meet: {p:?} and {q:?}");
+                    }
+                }
+            }
+        }
     }
 }

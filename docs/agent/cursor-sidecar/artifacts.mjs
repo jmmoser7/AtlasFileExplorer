@@ -59,8 +59,18 @@ export function artifactGuide(outputDir, linkDir = '') {
 // TWIN: crates/atlas-agent/src/lib.rs GOAL_MARKER.
 export const GOAL_MARKER = '\n\nCrosstalk goal:\n';
 
-// TWIN: crates/atlas-agent/src/lib.rs goal_guide_in.
+// TWIN: crates/atlas-agent/src/lib.rs GOAL_REPLY_PREFIX.
+export const GOAL_REPLY_PREFIX = 'Slate goal: ';
+
+// TWIN: crates/atlas-agent/src/lib.rs goal_guide_in. A read-only turn cannot
+// write return.json, so it ends its reply with the verdict line instead.
 export function goalGuide(goal, linkDir = '') {
+  if (goal?.in_reply) {
+    const report = goal?.claims
+      ? 'When you believe this goal is met, end your reply with this line, and nothing after it: Slate goal: {"status":"met","reason":"one line"}. Do not write files for it.'
+      : 'Another agent claims this goal is met when its message says so. Judge that claim and end your reply with this line, and nothing after it: Slate goal: {"status":"met"|"not_met","reason":"one line"}. Do not write files for it.';
+    return `Goal: ${String(goal?.goal ?? '').trim()}\n${report}`;
+  }
   const at = returnAt(linkDir);
   const report = goal?.claims
     ? `When you believe this goal is met, add "goal":{"status":"met","reason":"one line"} to ${at} for this message. "items" may be empty when you only report the goal.`

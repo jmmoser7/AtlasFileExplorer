@@ -1,4 +1,4 @@
-﻿//! Command dispatch: the keyboard front-end of the registry.
+//! Command dispatch: the keyboard front-end of the registry.
 //!
 //! `hotkeys` builds [`atlas_commands::Chord`]s from egui key events, looks
 //! them up in the registry (respecting the pre-existing suppression gates:
@@ -569,6 +569,7 @@ impl SlateApp {
             "portal.agent.pocket" => self.agent_toggle_pocket(detail.as_deref()),
             "portal.agent.crosstalk.link" => self.crosstalk_link_selected(detail.as_deref()),
             "portal.agent.crosstalk.start" => self.crosstalk_start(detail.as_deref()),
+            "portal.agent.crosstalk.capsule" => self.crosstalk_capsule_command(detail.as_deref()),
             "portal.agent.crosstalk.pause" => self.crosstalk_pause(detail.as_deref()),
             "portal.agent.crosstalk.resume" => self.crosstalk_resume(detail.as_deref()),
             "portal.agent.crosstalk.stop" => self.crosstalk_stop(detail.as_deref()),
@@ -855,28 +856,29 @@ impl SlateApp {
                 detail = detail.or(Some(format!("{} {state}", kind.token())));
                 true
             }
-            "board.wire.routing" => {
-                let routing = self
-                    .board_sel
-                    .iter()
-                    .find_map(|id| match &self.doc().scene.node(*id)?.kind {
-                        slate_doc::scene::NodeKind::Connector(c) => {
-                            Some(c.effective_routing(self.board_wire_routing))
-                        }
-                        _ => None,
-                    })
-                    .unwrap_or(self.board_wire_routing)
-                    .toggle();
-                detail = detail.or(Some(routing.label().to_ascii_lowercase()));
-                self.set_wire_routing(routing)
-            }
-            "board.wire.bezier" => {
-                detail = detail.or(Some("bezier".into()));
-                self.set_wire_routing(slate_doc::WireRouting::Bezier)
-            }
-            "board.wire.orthogonal" => {
-                detail = detail.or(Some("orthogonal".into()));
-                self.set_wire_routing(slate_doc::WireRouting::Orthogonal)
+            "board.wire.routing" | "board.wire.bezier" | "board.wire.orthogonal" => {
+                let wires = self.wire_routing_targets(detail.as_deref());
+                let routing = match id.0 {
+                    "board.wire.bezier" => slate_doc::WireRouting::Bezier,
+                    "board.wire.orthogonal" => slate_doc::WireRouting::Orthogonal,
+                    _ => wires
+                        .iter()
+                        .find_map(|wire| match &self.doc().scene.node(*wire)?.kind {
+                            slate_doc::scene::NodeKind::Connector(c) => {
+                                Some(c.effective_routing(self.board_wire_routing))
+                            }
+                            _ => None,
+                        })
+                        .unwrap_or(self.board_wire_routing)
+                        .toggle(),
+                };
+                let label = Some(routing.label().to_ascii_lowercase());
+                detail = if wires.is_empty() {
+                    detail.or(label)
+                } else {
+                    label
+                };
+                self.set_wire_routing(routing, wires)
             }
             "board.ortho" => {
                 self.board_ortho = !self.board_ortho;
@@ -1156,7 +1158,8 @@ impl SlateApp {
                     // live preview restores the ink.
                     _ => {
                         self.erase_live.clear();
-                        self.brush_tiles.forget_erase_lines(&self.erase_settle.jobs());
+                        self.brush_tiles
+                            .forget_erase_lines(&self.erase_settle.jobs());
                     }
                 }
                 true
