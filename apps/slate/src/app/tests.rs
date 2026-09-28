@@ -9953,10 +9953,36 @@ fn brush_shift_in_another_tab_starts_at_the_press_and_leaves_its_node() {
     assert_shift_starts_at_the_press(&mut h, Pos2::new(300.0, 120.0));
 }
 
+/// An untitled tab whose only content is on its board is not blank:
+/// opening a workbook takes a new tab instead of replacing the drawing.
+#[test]
+fn opening_a_workbook_keeps_an_untitled_board_only_tab() {
+    let mut h = brush_board("open_keeps_board_only_tab");
+    let freehand = [
+        Pos2::new(40.0, 40.0),
+        Pos2::new(80.0, 60.0),
+        Pos2::new(120.0, 40.0),
+    ];
+    press_drag_release_frames(&mut h, &freehand, egui::Modifiers::NONE, |_| {});
+    let mark = h.app.doc().scene.nodes[0].clone();
+    assert!(h.app.tab().path.is_none());
+    assert!(h.app.doc().items.is_empty());
+    assert!(!h.app.tab().is_blank(), "a board stroke is content");
+    let (drawn_tab, tabs) = (h.app.tab().id, h.app.tabs.len());
+    let path = h.base.join("other.slate");
+    SlateDoc::new("Other").save_to(&path).unwrap();
+    h.app.open_doc_at(path.clone());
+    assert_eq!(h.app.tabs.len(), tabs + 1, "the workbook took a new tab");
+    assert_eq!(h.app.tab().path.as_deref(), Some(path.as_path()));
+    let kept = h.app.tabs.iter().find(|t| t.id == drawn_tab).unwrap();
+    assert_eq!(kept.doc.scene.nodes, vec![mark]);
+}
+
 /// Review r10 finding 1, same tab: opening a workbook reuses a blank tab
-/// (one with no items, whatever its board holds) under the same tab id,
-/// and the loaded document numbers its nodes afresh. A Shift drag there
-/// starts at the press and leaves the loaded node with the mark's number.
+/// under the same tab id, and the loaded document numbers its nodes
+/// afresh. The stroke is deleted first so the tab is blank again while the
+/// chain still names it. A Shift drag there starts at the press and leaves
+/// the loaded node with the mark's number.
 #[test]
 fn brush_shift_after_opening_a_workbook_over_the_tab_starts_at_the_press() {
     let mut h = brush_board("brush_shift_open_over");
@@ -9968,6 +9994,8 @@ fn brush_shift_after_opening_a_workbook_over_the_tab_starts_at_the_press() {
     press_drag_release_frames(&mut h, &freehand, egui::Modifiers::NONE, |_| {});
     let mark = h.app.doc().scene.nodes[0].clone();
     let tab_id = h.app.tab().id;
+    h.app.delete_board_nodes(&[mark.id]);
+    assert!(h.app.tab().is_blank());
     let mut other = SlateDoc::new("Other");
     other.view.active_view = ViewKind::Board;
     while other.scene.node(mark.id).is_none() {

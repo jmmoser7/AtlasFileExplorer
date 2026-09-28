@@ -1,5 +1,13 @@
 # Canvas command project — change log
 
+## 2026-09-27 — A board drawing keeps its untitled tab
+
+- An untitled tab whose only content is on its board is no longer treated
+  as blank. Opening a workbook takes a new tab instead of silently
+  replacing the drawing, and the tab stays in the strip on Home.
+- `brush` D03: opening a workbook into a new tab no longer empties another
+  tab's Shift chain; only a reused tab starts fresh.
+
 ## 2026-09-27 — Shift rebuilds off the frame loop, honest preview (review r10)
 
 - `brush` D11: when the camera or the stroke changed, the next Shift press

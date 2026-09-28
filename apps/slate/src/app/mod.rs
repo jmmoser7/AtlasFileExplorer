@@ -199,7 +199,10 @@ impl SlateTab {
     }
 
     pub fn is_blank(&self) -> bool {
-        self.path.is_none() && self.doc.items.is_empty() && self.doc.groups.is_empty()
+        self.path.is_none()
+            && self.doc.items.is_empty()
+            && self.doc.groups.is_empty()
+            && self.doc.scene.nodes.is_empty()
     }
 }
 
@@ -1675,7 +1678,8 @@ impl SlateApp {
                 }
                 // A reused blank tab keeps its id; its old board's runtime must not.
                 self.release_agent_doc(self.active_tab);
-                self.brush_chain = Default::default();
+                let tab_id = self.tab().id;
+                self.brush_chain.forget_tab(tab_id);
                 self.record_recent_workbook(&path, &doc);
                 let (lease, read_only, holder, held_toast) = match Lease::acquire(&path) {
                     Ok(LeaseState::Acquired(lease)) => (Some(lease), false, None, None),

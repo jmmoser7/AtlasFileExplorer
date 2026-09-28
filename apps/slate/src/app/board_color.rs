@@ -743,6 +743,16 @@ pub(crate) struct BrushChain {
     point: Option<(Pos2, BrushTip)>,
 }
 
+impl BrushChain {
+    /// Empties the chain when `tab` drew it: that tab's document is being
+    /// replaced, and the new one numbers its nodes afresh.
+    pub(crate) fn forget_tab(&mut self, tab: u64) {
+        if self.tab == Some(tab) {
+            *self = Self::default();
+        }
+    }
+}
+
 const BRUSH_CHAIN_MARKS: usize = 32;
 
 pub(crate) struct BrushStraight {
