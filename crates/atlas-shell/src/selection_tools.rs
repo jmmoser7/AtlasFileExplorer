@@ -2094,6 +2094,220 @@ pub fn agent_editor(
     out
 }
 
+/// Crosstalk editor on a selected crosstalk wire: which side builds, the stop
+/// rule (turns, minutes, goal), then Start or Done. Rows are default capsules.
+pub const CROSSTALK_GOAL_HEIGHT: f32 = 40.0;
+pub const CROSSTALK_HEIGHT: f32 = CORNER_HEIGHT * 3.0 + CROSSTALK_GOAL_HEIGHT + 34.0;
+
+/// What the crosstalk editor shows. The caller owns the drafts.
+pub struct CrosstalkView<'a> {
+    /// Both sides' names, and which one builds. `None` on a wire that only
+    /// overrides the rule.
+    pub sides: Option<([&'a str; 2], usize)>,
+    /// Roles change only while the crosstalk is not running.
+    pub roles_locked: bool,
+    pub turns: Option<u32>,
+    pub minutes: Option<u32>,
+    pub turns_edit: &'a mut Option<NumberEdit>,
+    pub minutes_edit: &'a mut Option<NumberEdit>,
+    pub goal: &'a mut String,
+    pub goal_hint: &'a str,
+    /// A builder with Full access: the tick's label and whether it is on.
+    pub trust: Option<(&'a str, bool)>,
+    /// A wire that overrides its rule offers to inherit again.
+    pub inherit: bool,
+    /// "Start" or "Done".
+    pub action: &'a str,
+}
+
+#[derive(Default)]
+pub struct CrosstalkEditResponse {
+    pub builds: Option<usize>,
+    /// `Some(None)` turns the limit off.
+    pub turns: Option<Option<u32>>,
+    pub minutes: Option<Option<u32>>,
+    pub goal: PromptField,
+    pub trust: bool,
+    pub inherit: bool,
+    pub action: bool,
+}
+
+pub fn crosstalk_editor(
+    ui: &mut egui::Ui,
+    rect: Rect,
+    edit: CrosstalkView<'_>,
+    zoom: f32,
+    theme: Palette,
+) -> CrosstalkEditResponse {
+    panel(ui, rect, zoom, theme);
+    let mut out = CrosstalkEditResponse::default();
+    let inner = rect.shrink(8.0 * zoom);
+    let row_h = CORNER_HEIGHT * zoom;
+    let gap = 6.0 * zoom;
+    let mut y = inner.top();
+    let mut row = |height: f32| {
+        let r = Rect::from_min_size(Pos2::new(inner.left(), y), Vec2::new(inner.width(), height));
+        y = r.bottom() + gap;
+        r
+    };
+    let roles = row(row_h);
+    if let Some((names, builds)) = edit.sides {
+        let labels = names.map(|n| format!("{n} builds"));
+        let labels = [labels[0].as_str(), labels[1].as_str()];
+        ui.add_enabled_ui(!edit.roles_locked, |ui| {
+            let picked = segments(
+                ui,
+                roles,
+                ui.id().with("crosstalk-roles"),
+                labels,
+                builds,
+                zoom,
+                theme,
+            );
+            if picked != builds {
+                out.builds = Some(picked);
+            }
+        });
+    } else {
+        tag(ui, roles, "From this wire on", zoom, theme);
+    }
+    // Turns and Minutes; a chip switches a limit on or off.
+    let limits = row(row_h);
+    let half = (limits.width() - gap) * 0.5;
+    for (i, (label, value, number, range, default)) in [
+        ("Turns", edit.turns, &mut *edit.turns_edit, 1.0..=200.0, 10),
+        (
+            "Minutes",
+            edit.minutes,
+            &mut *edit.minutes_edit,
+            1.0..=480.0,
+            30,
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let cell = Rect::from_min_size(
+            Pos2::new(limits.left() + i as f32 * (half + gap), limits.top()),
+            Vec2::new(half, row_h),
+        );
+        let toggle = Rect::from_min_size(cell.min, Vec2::new(64.0 * zoom, row_h));
+        if chip(
+            ui,
+            toggle,
+            ui.id().with(("crosstalk-limit", i)),
+            label,
+            value.is_some(),
+            zoom,
+            theme,
+        ) {
+            let next = if value.is_some() { None } else { Some(default) };
+            if i == 0 {
+                out.turns = Some(next);
+            } else {
+                out.minutes = Some(next);
+            }
+        }
+        if let Some(value) = value {
+            let at = Pos2::new((toggle.right() + cell.right()) * 0.5, cell.center().y);
+            let typed = inline_number(
+                ui,
+                ui.id().with(("crosstalk-number", i)),
+                at,
+                0.0,
+                "",
+                "",
+                value as f32,
+                zoom,
+                theme,
+                theme.ink,
+                number,
+                range,
+                true,
+            );
+            if let Some(v) = typed.value {
+                let v = Some(v.round() as u32);
+                if i == 0 {
+                    out.turns = Some(v);
+                } else {
+                    out.minutes = Some(v);
+                }
+            }
+        }
+    }
+    let face = row(CROSSTALK_GOAL_HEIGHT * zoom);
+    ui.painter().rect(
+        face,
+        6.0 * zoom,
+        theme.bg,
+        Stroke::new(0.8 * zoom, theme.border),
+        egui::StrokeKind::Inside,
+    );
+    out.goal = prompt_field(
+        ui,
+        ui.id().with("crosstalk-goal"),
+        face.shrink(6.0 * zoom),
+        zoom,
+        edit.goal,
+        edit.goal_hint,
+        true,
+        false,
+        theme,
+    );
+    let bottom = row(row_h);
+    let go = Rect::from_min_size(
+        Pos2::new(bottom.right() - 64.0 * zoom, bottom.top()),
+        Vec2::new(64.0 * zoom, row_h),
+    );
+    out.action = chip(
+        ui,
+        go,
+        ui.id().with("crosstalk-go"),
+        edit.action,
+        true,
+        zoom,
+        theme,
+    );
+    let left = Rect::from_min_max(bottom.min, Pos2::new(go.left() - gap, bottom.bottom()));
+    if let Some((label, on)) = edit.trust {
+        out.trust = chip(
+            ui,
+            left,
+            ui.id().with("crosstalk-trust"),
+            label,
+            on,
+            zoom,
+            theme,
+        );
+    } else if edit.inherit {
+        let r = Rect::from_min_size(left.min, Vec2::new(left.width().min(140.0 * zoom), row_h));
+        out.inherit = chip(
+            ui,
+            r,
+            ui.id().with("crosstalk-inherit"),
+            "Use inherited rule",
+            false,
+            zoom,
+            theme,
+        );
+    }
+    out
+}
+
+/// A quiet caption in a capsule row.
+fn tag(ui: &egui::Ui, rect: Rect, text: &str, zoom: f32, theme: Palette) {
+    if canvas_text::legible(canvas_text::authored_px(9.0, zoom)) {
+        canvas_text::text(
+            ui.painter(),
+            rect.left_center() + Vec2::new(4.0 * zoom, 0.0),
+            Align2::LEFT_CENTER,
+            text,
+            canvas_scale::font(9.0, zoom),
+            theme.sub,
+        );
+    }
+}
+
 /// One radio in the photo-filter capsule. `thumb` is a low-resolution image
 /// with that filter applied; the fills show until it is ready. A second fill
 /// splits Invert.

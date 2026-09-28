@@ -309,6 +309,17 @@ Do not create a competing style master in an app, proposal, or rule file.
 
 Show only actions meaningful for the current object and selection. Hide actions whose preconditions are absent rather than teaching the user through disabled or irrelevant entries. Prefer direct graphical affordances for continuation/forking and the shared selection squircle strip for bundle/unbundle. Agent windows omit ordinary selection outlines and dimension stringers; their card skin follows the active theme. This refinement was explicitly requested by the user.
 
+## Crosstalk editor (27 September 2026)
+
+A selected crosstalk wire's strip holds one squircle, Crosstalk, whose editor
+is `selection_tools::crosstalk_editor` on the shared panel
+(`CROSSTALK_HEIGHT`). Rows are default capsules: `segments` for which side
+builds, Turns and Minutes as a toggle chip plus `inline_number`, the goal in a
+`prompt_field` face, then the relay-trust chip (only when the builder has Full
+access) and Start or Done at the right end. No header or footer. A crosswire
+offers no Stroke or Wire editors: its red is its meaning. Its mid-span status
+chip and its actions are `capsule` rows from `capsule_stack_rects`.
+
 ## Agent editor and album index (24 September 2026)
 
 The Agent squircle (robot glyph, `Icon::Agent`) appears on a single selected
