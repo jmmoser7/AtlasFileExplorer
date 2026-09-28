@@ -119,6 +119,27 @@ impl SlateApp {
         self.slate_boards.nesting()
     }
 
+    /// Nested boards loaded and ready to paint.
+    #[cfg(test)]
+    pub(crate) fn slate_boards_ready(&self) -> usize {
+        self.slate_boards
+            .cache
+            .values()
+            .filter(|c| matches!(c.state, ChildState::Ready(_)))
+            .count()
+    }
+
+    /// The id stroke `id` of the nested board being painted goes by in the
+    /// stroke caches, which the open tab's ids key: `None` outside one.
+    pub(crate) fn nested_stroke_id(&self, id: NodeId) -> Option<NodeId> {
+        use std::hash::{Hash, Hasher};
+        let board = self.slate_boards.ancestors.last()?;
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        board.hash(&mut h);
+        id.0.hash(&mut h);
+        Some(NodeId(h.finish() | 1 << 63))
+    }
+
     /// A dropped `.slate` file. A blank board opens it as a tab. A board that
     /// already has nodes asks Open or Insert.
     pub(crate) fn pending_workbook_drops(&self) -> usize {

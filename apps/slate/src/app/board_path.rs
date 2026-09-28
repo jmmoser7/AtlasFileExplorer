@@ -571,19 +571,7 @@ fn hash_path_data(h: &mut impl Hasher, path: &PathData) {
         tip.color.0.hash(h);
         (tip.texture as u8).hash(h);
     }
-    path.erase.len().hash(h);
-    for mark in &path.erase {
-        mark.points.len().hash(h);
-        for p in &mark.points {
-            hash_xy(h, *p);
-        }
-        for tip in &mark.tips {
-            hash_f32(h, tip.width);
-            hash_f32(h, tip.softness);
-            tip.color.0.hash(h);
-            (tip.texture as u8).hash(h);
-        }
-    }
+    hash_erase_marks(h, &path.erase);
     path.segs.len().hash(h);
     for seg in &path.segs {
         match seg {
@@ -633,6 +621,61 @@ fn hash_path_data(h: &mut impl Hasher, path: &PathData) {
             }
         }
     }
+}
+
+fn hash_erase_marks(h: &mut impl Hasher, marks: &[slate_doc::scene::EraseMark]) {
+    marks.len().hash(h);
+    for mark in marks {
+        mark.points.len().hash(h);
+        for p in &mark.points {
+            hash_xy(h, *p);
+        }
+        for tip in &mark.tips {
+            hash_f32(h, tip.width);
+            hash_f32(h, tip.softness);
+            tip.color.0.hash(h);
+            (tip.texture as u8).hash(h);
+        }
+    }
+}
+
+/// The erase passes an eraser preview shows: a stroke's first `marks`
+/// erase marks. The preview is an honest picture of that stroke while its
+/// marks still start with these, whatever else changed; an undo of the
+/// pass breaks the seal.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct EraseSeal {
+    marks: usize,
+    hash: u64,
+}
+
+impl EraseSeal {
+    fn of(marks: &[slate_doc::scene::EraseMark]) -> EraseSeal {
+        let mut h = DefaultHasher::new();
+        hash_erase_marks(&mut h, marks);
+        EraseSeal {
+            marks: marks.len(),
+            hash: h.finish(),
+        }
+    }
+
+    /// Stroke `node`'s erase marks start with the sealed ones.
+    fn holds_for(&self, node: &Node) -> bool {
+        let NodeKind::Shape(shape) = &node.kind else {
+            return false;
+        };
+        shape.path.as_ref().is_some_and(|path| {
+            path.erase.len() >= self.marks && EraseSeal::of(&path.erase[..self.marks]) == *self
+        })
+    }
+}
+
+/// The seal of every erase mark stroke `node` has.
+pub(crate) fn erase_seal(node: &Node) -> Option<EraseSeal> {
+    let NodeKind::Shape(shape) = &node.kind else {
+        return None;
+    };
+    Some(EraseSeal::of(&shape.path.as_ref()?.erase))
 }
 
 fn hash_stroke(h: &mut impl Hasher, stroke: &Stroke) {
@@ -2113,18 +2156,53 @@ pub(crate) fn ensure_erase_live(app: &mut SlateApp, painter: &egui::Painter, xf:
 /// The eraser's band covers the part of the pass not cut yet, as during
 /// the drag. A stroke any pass changed without knowing whether ink is left
 /// is removed in that pass's undo step once the workers find none.
+///
+/// A settling stroke leaves only to something that shows the same or newer
+/// content: its preview once the cut lands (as its stand-in), a newer
+/// pass's preview once that pass commits, or its own new raster. Strokes
+/// settle per document, so a tab switch keeps them.
 #[derive(Default)]
 pub struct EraseSettle {
+    /// The document whose ink checks are pending.
     tab: Option<u64>,
-    /// Previews waiting for their pass's final cut, under the stroke's
-    /// committed content key.
-    live: HashMap<NodeId, (u64, EraseLive)>,
-    /// Strokes with no preview: their pass and committed content key.
-    waiting: Vec<(NodeId, Seg, u64)>,
+    /// Previews waiting for their pass's final cut, by document and stroke.
+    live: HashMap<(u64, NodeId), Settling>,
+    /// Strokes with no preview, by document: their pass and committed
+    /// content key.
+    waiting: Vec<(u64, NodeId, Seg, u64)>,
     /// Strokes a pass changed past the frame's raster budget, straight or
     /// freehand, while the workers find out whether any ink is left: the
     /// committed content key and the pass's journal group.
     checks: Vec<(NodeId, u64, GroupToken)>,
+    /// Test hook: settling previews, and the release, take no landed cut.
+    #[cfg(test)]
+    pub(crate) hold: bool,
+}
+
+/// A released pass's preview while its final cut is on the workers.
+struct Settling {
+    /// The stroke's committed content key.
+    key: u64,
+    /// What the preview shows once its cut lands: the stroke's content
+    /// key at release, placed at `rect`, with the erase marks `seal`.
+    shows: u64,
+    rect: WorldRect,
+    seal: EraseSeal,
+    live: EraseLive,
+    /// Later straight passes released before their preview existed,
+    /// placed for `rect`: the band covers them until the stroke's raster
+    /// for `key` lands.
+    bands: Vec<Seg>,
+    /// How far the stroke moved from `rect`: the preview follows it.
+    shift: [f32; 2],
+}
+
+fn shift_seg((a, b): Seg, d: [f32; 2]) -> Seg {
+    let at = |p: TipPoint| TipPoint {
+        pos: [p.pos[0] + d[0], p.pos[1] + d[1]],
+        ..p
+    };
+    (at(a), at(b))
 }
 
 impl EraseSettle {
@@ -2147,108 +2225,182 @@ impl EraseSettle {
         !self.checks.is_empty()
     }
 
-    /// Eraser lanes whose jobs a settling preview still wants.
-    pub(crate) fn lanes(&self) -> Vec<u64> {
-        self.live.keys().map(|id| tiles::erase_lane(*id)).collect()
+    /// Eraser line jobs, `(lane, tag)`, a settling preview still wants.
+    pub(crate) fn jobs(&self) -> Vec<(u64, u64)> {
+        self.live
+            .iter()
+            .filter_map(|((_, id), s)| s.live.job(tiles::erase_lane(*id)))
+            .collect()
     }
 
-    /// A settling preview paints stroke `id`, not the tiles.
-    pub(crate) fn holds(&self, id: NodeId) -> bool {
-        self.live.contains_key(&id)
+    /// A settling preview paints stroke `id` of document `tab`, not the
+    /// tiles.
+    pub(crate) fn holds(&self, tab: u64, id: NodeId) -> bool {
+        self.live.contains_key(&(tab, id))
     }
 
-    /// Start settling for document `tab`, dropping another document's
-    /// (its strokes stay as committed).
+    /// The release and settling previews take no landed cut (test hook).
+    pub(crate) fn held(&self) -> bool {
+        #[cfg(test)]
+        return self.hold;
+        #[cfg(not(test))]
+        false
+    }
+
+    /// Decide ink checks for document `tab`, dropping another document's
+    /// (its strokes stay as committed). Settling strokes stay with their
+    /// document.
     pub(crate) fn here(&mut self, tab: u64, tiles: &mut tiles::BrushTiles) -> &mut Self {
         if self.tab != Some(tab) {
-            self.clear(tiles);
+            for (id, ..) in self.checks.drain(..) {
+                tiles.forget_ink(id);
+            }
             self.tab = Some(tab);
         }
         self
     }
 
-    /// Stroke `id`, committed under content `key`, paints `live` until its
-    /// final cut lands.
-    pub(crate) fn hold(&mut self, id: NodeId, key: u64, live: EraseLive) {
-        self.waiting.retain(|w| w.0 != id);
-        self.live.insert(id, (key, live));
+    /// Stroke `node` of document `tab`, committed under content `key`,
+    /// paints `live` until its final cut lands. It replaces what settled
+    /// for the stroke before: `live` was built on the stroke as committed.
+    pub(crate) fn hold(
+        &mut self,
+        tab: u64,
+        node: &Node,
+        key: u64,
+        mut live: EraseLive,
+        tiles: &mut tiles::BrushTiles,
+    ) {
+        self.release(tab, node.id, tiles);
+        let Some(seal) = erase_seal(node) else {
+            live.forget(tiles, tiles::erase_lane(node.id));
+            return;
+        };
+        let s = Settling {
+            key,
+            shows: key,
+            rect: node.rect,
+            seal,
+            live,
+            bands: Vec::new(),
+            shift: [0.0; 2],
+        };
+        self.live.insert((tab, node.id), s);
     }
 
-    /// Stroke `id`, committed under content `key` with no preview, keeps
-    /// the band over the straight pass along `points` until its new raster
-    /// lands.
-    pub(crate) fn wait(&mut self, id: NodeId, key: u64, points: &[Pos2], tip: StampStyle) {
-        if let Some(seg) = straight_seg(points, tip) {
-            self.waiting.retain(|w| w.0 != id);
-            self.waiting.push((id, seg, key));
+    /// Stroke `node` of document `tab`, committed under content `key` with
+    /// no preview, keeps the band over the straight pass along `points`
+    /// until its new raster lands. A preview still settling for it keeps
+    /// showing the earlier passes under the band, and so does an earlier
+    /// band.
+    pub(crate) fn wait(
+        &mut self,
+        tab: u64,
+        node: &Node,
+        key: u64,
+        points: &[Pos2],
+        tip: StampStyle,
+    ) {
+        let Some(seg) = straight_seg(points, tip) else {
+            return;
+        };
+        if let Some(s) = self.live.get_mut(&(tab, node.id)) {
+            s.key = key;
+            let back = [s.rect.x - node.rect.x, s.rect.y - node.rect.y];
+            s.bands.push(shift_seg(seg, back));
+            return;
         }
+        for w in self.waiting.iter_mut().filter(|w| (w.0, w.1) == (tab, node.id)) {
+            w.3 = key;
+        }
+        self.waiting.push((tab, node.id, seg, key));
     }
 
-    /// Stop settling stroke `id`: a new pass's preview shows it.
-    pub(crate) fn release(&mut self, id: NodeId, tiles: &mut tiles::BrushTiles) {
-        if let Some((_, mut live)) = self.live.remove(&id) {
-            live.forget(tiles, tiles::erase_lane(id));
+    /// Stop settling stroke `id` of document `tab`: a newer pass's preview
+    /// shows it.
+    pub(crate) fn release(&mut self, tab: u64, id: NodeId, tiles: &mut tiles::BrushTiles) {
+        if let Some(mut s) = self.live.remove(&(tab, id)) {
+            s.live.forget(tiles, tiles::erase_lane(id));
         }
-        self.waiting.retain(|w| w.0 != id);
+        self.waiting.retain(|w| (w.0, w.1) != (tab, id));
     }
 
-    fn clear(&mut self, tiles: &mut tiles::BrushTiles) {
-        for (id, (_, mut live)) in self.live.drain() {
-            live.forget(tiles, tiles::erase_lane(id));
-        }
-        self.waiting.clear();
-        for (id, ..) in self.checks.drain(..) {
-            tiles.forget_ink(id);
-        }
-    }
-
-    /// Each settling stroke's pass and where along it the uncut part starts.
-    fn rests(&self) -> impl Iterator<Item = (Seg, TipPoint, bool)> + Clone + '_ {
-        self.live
-            .values()
-            .filter_map(|(_, live)| {
-                let seg = live.line?;
-                live.uncovered(seg).map(|(from, cut)| (seg, from, cut))
-            })
-            .chain(self.waiting.iter().map(|(_, seg, _)| (*seg, seg.0, false)))
+    /// Each settling stroke of document `tab` that no live preview paints:
+    /// its passes, and where along each the uncut part starts.
+    fn rests<'a>(
+        &'a self,
+        tab: u64,
+        live: &'a HashMap<NodeId, EraseLive>,
+    ) -> impl Iterator<Item = (Seg, TipPoint, bool)> + Clone + 'a {
+        let settling = self
+            .live
+            .iter()
+            .filter(move |(k, _)| k.0 == tab && !live.contains_key(&k.1))
+            .flat_map(|(_, s)| {
+                let cut = s.live.line.and_then(|seg| {
+                    let (from, cut) = s.live.uncovered(seg)?;
+                    let seg = shift_seg(seg, s.shift);
+                    Some((seg, shift_seg((from, from), s.shift).0, cut))
+                });
+                let bands = s.bands.iter().map(move |seg| {
+                    let seg = shift_seg(*seg, s.shift);
+                    (seg, seg.0, false)
+                });
+                cut.into_iter().chain(bands)
+            });
+        let waiting = self
+            .waiting
+            .iter()
+            .filter(move |w| w.0 == tab && !live.contains_key(&w.1))
+            .map(|(_, _, seg, _)| (*seg, seg.0, false));
+        settling.chain(waiting)
     }
 }
 
+/// Where settling preview `s` paints for stroke `node`: shifted by how far
+/// the stroke moved, or at its own place after any other change. `None`
+/// once the stroke no longer has the preview's erase passes (an undo).
+fn settling_fit(node: &Node, s: &Settling) -> Option<[f32; 2]> {
+    if !s.seal.holds_for(node) {
+        return None;
+    }
+    let NodeKind::Shape(shape) = &node.kind else {
+        return None;
+    };
+    let path = shape.path.as_ref()?;
+    let (r, o) = (node.rect, s.rect);
+    let moved = (r.x, r.y) != (o.x, o.y)
+        && (r.w, r.h) == (o.w, o.h)
+        && stamp_key_at(node, shape, path, o) == s.key;
+    Some(if moved { [r.x - o.x, r.y - o.y] } else { [0.0; 2] })
+}
+
 /// Stroke `node` while its released straight pass waits for the final cut:
-/// its preview. Once the cut lands the preview becomes the stroke's
-/// stand-in until its new raster lands, and this returns false so the
-/// stroke paints as usual; so it does when the workers gave up.
+/// its preview ([`tend_erase_settle`] ends the settle).
 fn paint_settling_erase(
-    app: &mut SlateApp,
+    app: &SlateApp,
     painter: &egui::Painter,
     xf: &BoardXf,
     node: &Node,
     fade: &impl Fn(Color32) -> Color32,
 ) -> bool {
-    let Some((key, mut live)) = app.erase_settle.live.remove(&node.id) else {
+    let Some(s) = app.erase_settle.live.get(&(app.tab().id, node.id)) else {
         return false;
     };
-    let lane = tiles::erase_lane(node.id);
-    if node_stamp_key(node) != Some(key) {
-        live.forget(&mut app.brush_tiles, lane);
+    let Some(shift) = settling_fit(node, s) else {
         return false;
-    }
-    live.pump(&mut app.brush_tiles, lane, painter.ctx());
-    if live.settled() {
-        let gpu = live.into_stand_in(node.rect, app.frame_no);
-        app.brush_stamps.insert(node.id, (0, gpu));
-        return false;
-    }
-    if live.gave_up() {
-        return false;
-    }
-    live.paint(painter, xf, fade(Color32::WHITE));
-    app.erase_settle.live.insert(node.id, (key, live));
+    };
+    s.live.paint(painter, xf, fade(Color32::WHITE), shift);
     true
 }
 
-/// End the settle of strokes whose new raster has landed, or that changed
-/// or left the scene since the release.
+/// Pump every settling preview, visible or not, and end the settle of
+/// strokes whose cut or new raster has landed, or that were undone or left
+/// the scene since the release. A settled preview becomes the stroke's
+/// stand-in until its new raster lands; so it does when the workers gave
+/// up, with the band over its uncut pass. A stroke with no preview stops
+/// settling once it leaves the view. Another document's previews take
+/// their cuts and wait for it.
 fn tend_erase_settle(app: &mut SlateApp, painter: &egui::Painter, xf: &BoardXf) {
     if app.erase_settle.is_empty() {
         return;
@@ -2256,23 +2408,65 @@ fn tend_erase_settle(app: &mut SlateApp, painter: &egui::Painter, xf: &BoardXf) 
     let tab = app.tab().id;
     app.erase_settle.here(tab, &mut app.brush_tiles);
     let want = stamp_pixel_for_zoom(xf.z, painter.ctx().pixels_per_point());
+    let clip = painter.clip_rect();
+    let (lo, hi) = (xf.s2w(clip.min), xf.s2w(clip.max));
+    let view = WorldRect::new(lo.x, lo.y, hi.x - lo.x, hi.y - lo.y);
+    let open = |app: &SlateApp, t: u64| app.tabs.iter().any(|x| x.id == t);
     let mut waiting = std::mem::take(&mut app.erase_settle.waiting);
-    waiting.retain(|(id, _, key)| match app.doc().scene.node(*id) {
-        Some(n) if node_stamp_key(n) == Some(*key) => !stroke_raster_current(app, n, *key, want),
-        _ => false,
+    waiting.retain(|(t, id, _, key)| {
+        if *t != tab {
+            return open(app, *t);
+        }
+        match app.doc().scene.node(*id) {
+            Some(n) if node_stamp_key(n) == Some(*key) => {
+                n.rect.intersects(&view) && !stroke_raster_current(app, n, *key, want)
+            }
+            _ => false,
+        }
     });
+    let mut busy = waiting.iter().any(|w| w.0 == tab);
     app.erase_settle.waiting = waiting;
-    let gone: Vec<NodeId> = app
-        .erase_settle
-        .live
-        .keys()
-        .filter(|id| app.doc().scene.node(**id).is_none())
-        .copied()
-        .collect();
-    for id in gone {
-        app.erase_settle.release(id, &mut app.brush_tiles);
+    let held = app.erase_settle.held();
+    let at: Vec<(u64, NodeId)> = app.erase_settle.live.keys().copied().collect();
+    for (t, id) in at {
+        let Some(mut s) = app.erase_settle.live.remove(&(t, id)) else {
+            continue;
+        };
+        let lane = tiles::erase_lane(id);
+        let fit = if t == tab {
+            app.doc().scene.node(id).and_then(|n| settling_fit(n, &s))
+        } else {
+            open(app, t).then_some(s.shift)
+        };
+        let Some(shift) = fit else {
+            s.live.forget(&mut app.brush_tiles, lane);
+            continue;
+        };
+        if !held {
+            s.live.take_landed(&mut app.brush_tiles, lane);
+            s.live.ask_next(&mut app.brush_tiles, lane);
+        }
+        s.shift = shift;
+        if t != tab || !(s.live.settled() || s.live.gave_up()) {
+            busy |= t == tab && s.live.in_flight();
+            app.erase_settle.live.insert((t, id), s);
+            continue;
+        }
+        // The tiles take the stroke back on the next frame.
+        busy = true;
+        let mut bands = std::mem::take(&mut s.bands);
+        bands.extend(s.live.line);
+        s.live.forget(&mut app.brush_tiles, lane);
+        let gpu = s.live.into_stand_in(s.rect, app.frame_no);
+        insert_erase_stand_in(app, id, s.shows, s.seal, gpu);
+        for seg in bands {
+            let seg = shift_seg(seg, shift);
+            app.erase_settle.waiting.push((tab, id, seg, s.key));
+        }
     }
-    painter.ctx().request_repaint();
+    if busy {
+        painter.ctx().request_repaint();
+    }
 }
 
 /// Stroke `node` paints its exact raster for content `key` at `want`.
@@ -2325,7 +2519,7 @@ pub(crate) fn paint_erase_band(app: &mut SlateApp, painter: &egui::Painter, xf: 
             paint(seg, from, cut);
         }
     }
-    let rests = app.erase_settle.rests();
+    let rests = app.erase_settle.rests(app.tab().id, &app.erase_live);
     for (i, (seg, from, cut)) in rests.clone().enumerate() {
         let d = far(seg, from);
         let beaten = rests.clone().enumerate().any(|(j, (s, f, _))| {
@@ -2384,6 +2578,65 @@ pub struct BrushStampGpu {
     /// The node's rect when this bitmap was built. A stand-in follows the
     /// node's current rect.
     pub rect: WorldRect,
+    /// An eraser preview standing in: it shows these erase passes, so it
+    /// paints only for a stroke that still has them.
+    pub seal: Option<EraseSeal>,
+    /// The bitmap an eraser stand-in replaced, and the one it carries on
+    /// once its exact bitmap lands: an undo paints it.
+    pub fallback: Option<Box<(u64, BrushStampGpu)>>,
+}
+
+impl BrushStampGpu {
+    fn total_bytes(&self) -> usize {
+        self.bytes + self.fallback.as_ref().map_or(0, |f| f.1.total_bytes())
+    }
+}
+
+/// Stroke `id`'s eraser preview `gpu` stands in for its content `key`,
+/// erase marks `seal`, until the exact bitmap lands. What it replaces
+/// stays behind it, two bitmaps deep, for an undo.
+pub(crate) fn insert_erase_stand_in(
+    app: &mut SlateApp,
+    id: NodeId,
+    key: u64,
+    seal: EraseSeal,
+    mut gpu: BrushStampGpu,
+) {
+    let mut before = app.brush_stamps.remove(&id);
+    if let Some(f) = before.as_mut().and_then(|(_, g)| g.fallback.as_mut()) {
+        f.1.fallback = None;
+    }
+    gpu.seal = Some(seal);
+    gpu.fallback = before.map(Box::new);
+    app.brush_stamps.insert(id, (key, gpu));
+}
+
+/// Take stroke `id`'s bitmap out for a new one; an eraser stand-in hands
+/// on what it replaced.
+fn stand_in_fallback(app: &mut SlateApp, id: NodeId) -> Option<Box<(u64, BrushStampGpu)>> {
+    app.brush_stamps
+        .remove(&id)
+        .and_then(|(_, g)| g.seal.and(g.fallback))
+}
+
+/// Stroke `node`, content `key`: an eraser stand-in whose passes the
+/// stroke no longer has (an undo) gives way to what it replaced, and a
+/// bitmap of exactly this content behind the top one comes forward.
+fn promote_stamp_fallback(app: &mut SlateApp, node: &Node, key: u64) {
+    while let Some((k, g)) = app.brush_stamps.get(&node.id) {
+        let undone = g.seal.is_some_and(|s| !s.holds_for(node));
+        let behind = *k != key && g.fallback.as_ref().is_some_and(|f| f.0 == key);
+        if !undone && !behind {
+            return;
+        }
+        let Some((_, g)) = app.brush_stamps.remove(&node.id) else {
+            return;
+        };
+        match g.fallback {
+            Some(f) => app.brush_stamps.insert(node.id, *f),
+            None => return,
+        };
+    }
 }
 
 /// A stroke has something to paint while its exact bitmap builds. `key`
@@ -2405,6 +2658,18 @@ fn paint_stamped_stroke(
     path: &PathData,
     fade: &impl Fn(Color32) -> Color32,
 ) {
+    // A nested board numbers its strokes as the host does: they keep their
+    // own cache entries and never meet the host's eraser state.
+    let nested;
+    let node = match app.nested_stroke_id(node.id) {
+        Some(id) => {
+            let mut n = node.clone();
+            n.id = id;
+            nested = n;
+            &nested
+        }
+        None => node,
+    };
     let want = stamp_pixel_for_zoom(xf.z, painter.ctx().pixels_per_point());
     if let Some(super::board::BoardDrag::Erase {
         points,
@@ -2418,18 +2683,14 @@ fn paint_stamped_stroke(
             let tip = app.eraser_tip();
             if !app.erase_live.contains_key(&node.id) {
                 start_erase_live(app, painter, node, want);
-            }
-            if app.erase_live.contains_key(&node.id) {
-                app.erase_settle.release(node.id, &mut app.brush_tiles);
-            }
-            if let Some(live) = app.erase_live.get_mut(&node.id) {
+            }            if let Some(live) = app.erase_live.get_mut(&node.id) {
                 live.feed(&points, tip, straight);
                 live.pump(
                     &mut app.brush_tiles,
                     tiles::erase_lane(node.id),
                     painter.ctx(),
                 );
-                live.paint(painter, xf, fade(Color32::WHITE));
+                live.paint(painter, xf, fade(Color32::WHITE), [0.0; 2]);
                 return;
             }
         }
@@ -2438,6 +2699,7 @@ fn paint_stamped_stroke(
         return;
     }
     let key = stamp_key(node, shape, path);
+    promote_stamp_fallback(app, node, key);
     let exact = |app: &SlateApp| {
         app.brush_stamps
             .get(&node.id)
@@ -2446,14 +2708,22 @@ fn paint_stamped_stroke(
     if !exact(app) {
         if let Some(r) = app.brush_tiles.take_stroke(node.id) {
             let current = r.key == key && r.pixel == want;
+            // A stale bitmap does not replace an eraser stand-in that
+            // shows the stroke.
+            let shown = app
+                .brush_stamps
+                .get(&node.id)
+                .is_some_and(|(_, g)| g.seal.is_some_and(|s| s.holds_for(node)));
             match r.stamp {
-                Some(stamp) => {
+                Some(stamp) if current || !shown => {
                     let name = format!("brush-stamp-{}", node.id.0);
                     let mut gpu = upload_stamp(painter, &name, stamp, r.image, r.pixel, r.rect);
                     gpu.exact = current;
+                    gpu.fallback = stand_in_fallback(app, node.id);
                     app.brush_stamps.insert(node.id, (r.key, gpu));
                     evict_brush_stamps(&mut app.brush_stamps, app.frame_no);
                 }
+                Some(_) => {}
                 None if current => {
                     app.brush_stamps.remove(&node.id);
                     return;
@@ -2469,7 +2739,8 @@ fn paint_stamped_stroke(
                 return;
             };
             let name = format!("brush-stamp-{}", node.id.0);
-            let gpu = upload_stamp(painter, &name, stamp, None, want, node.rect);
+            let mut gpu = upload_stamp(painter, &name, stamp, None, want, node.rect);
+            gpu.fallback = stand_in_fallback(app, node.id);
             app.brush_stamps.insert(node.id, (key, gpu));
             evict_brush_stamps(&mut app.brush_stamps, app.frame_no);
         } else {
@@ -2626,14 +2897,14 @@ fn box_area(b: [u32; 4]) -> u64 {
 }
 
 fn evict_brush_stamps(cache: &mut HashMap<NodeId, (u64, BrushStampGpu)>, frame: u64) {
-    let total: usize = cache.values().map(|(_, g)| g.bytes).sum();
+    let total: usize = cache.values().map(|(_, g)| g.total_bytes()).sum();
     if total <= STAMP_CACHE_BYTES {
         return;
     }
     let mut old: Vec<(u64, NodeId, usize)> = cache
         .iter()
         .filter(|(_, (_, g))| g.used + 1 < frame)
-        .map(|(id, (_, g))| (g.used, *id, g.bytes))
+        .map(|(id, (_, g))| (g.used, *id, g.total_bytes()))
         .collect();
     old.sort_by_key(|(used, _, _)| *used);
     let mut total = total;
@@ -2694,6 +2965,8 @@ fn upload_stamp(
         used: 0,
         exact: true,
         rect,
+        seal: None,
+        fallback: None,
     }
 }
 
@@ -3847,8 +4120,10 @@ pub struct EraseLive {
     grained: Vec<u8>,
     shown: Vec<u8>,
     tex: egui::TextureHandle,
-    /// The mask's size; the landed cut's box of it shows that cut.
-    line_tex: egui::TextureHandle,
+    /// The mask's size; the landed cut's box of it shows that cut. Made
+    /// with the first straight-pass job; a freehand pass never needs it.
+    line_tex: Option<egui::TextureHandle>,
+    ctx: egui::Context,
     done: usize,
     /// The straight pass's segment, not yet in `mask` or `shown`.
     line: Option<Seg>,
@@ -3905,15 +4180,6 @@ impl EraseLive {
             image,
             egui::TextureOptions::LINEAR,
         );
-        let line_tex = painter.ctx().load_texture(
-            format!("erase-live-line-{}", id.0),
-            egui::ColorImage::new(
-                [img.width as usize, img.height as usize],
-                Color32::TRANSPARENT,
-            ),
-            egui::TextureOptions::LINEAR,
-        );
-        note_line_tex_alloc();
         let mask = vector_ink::StampImage {
             width: img.width,
             height: img.height,
@@ -3928,7 +4194,8 @@ impl EraseLive {
             mask,
             grained: Vec::new(),
             tex,
-            line_tex,
+            line_tex: None,
+            ctx: painter.ctx().clone(),
             done: 0,
             line: None,
             exact: None,
@@ -3936,6 +4203,16 @@ impl EraseLive {
             losses: 0,
             changed: false,
         }
+    }
+
+    /// The straight-pass job on the workers, as `(lane, tag)`.
+    pub(crate) fn job(&self, lane: u64) -> Option<(u64, u64)> {
+        self.inflight.map(|(tag, ..)| (lane, tag))
+    }
+
+    /// A straight-pass job is on the workers.
+    pub(crate) fn in_flight(&self) -> bool {
+        self.inflight.is_some()
     }
 
     /// Any ink is left after this pass.
@@ -3956,6 +4233,8 @@ impl EraseLive {
             exact: false,
             rect,
             tex: self.tex,
+            seal: None,
+            fallback: None,
         }
     }
 
@@ -3996,6 +4275,15 @@ impl EraseLive {
     /// for the segment the pass shows now; the newest segment wins.
     pub(crate) fn pump(&mut self, tiles: &mut tiles::BrushTiles, lane: u64, ctx: &egui::Context) {
         self.take_landed(tiles, lane);
+        self.ask_next(tiles, lane);
+        if self.inflight.is_some() {
+            ctx.request_repaint();
+        }
+    }
+
+    /// Ask for the segment the pass shows now, when no job is out and the
+    /// newest cut is of another one.
+    pub(crate) fn ask_next(&mut self, tiles: &mut tiles::BrushTiles, lane: u64) {
         // Past the retries the band stands in and the release cuts once here.
         if self.inflight.is_none() && self.losses <= LINE_RETRIES {
             if let Some(seg) = self.line {
@@ -4003,9 +4291,6 @@ impl EraseLive {
                     self.ask(tiles, lane, seg);
                 }
             }
-        }
-        if self.inflight.is_some() {
-            ctx.request_repaint();
         }
     }
 
@@ -4040,6 +4325,15 @@ impl EraseLive {
             return;
         };
         let m = &self.mask;
+        if self.line_tex.is_none() {
+            let clear =
+                egui::ColorImage::new([m.width as usize, m.height as usize], Color32::TRANSPARENT);
+            let tex = self
+                .ctx
+                .load_texture("erase-live-line", clear, egui::TextureOptions::LINEAR);
+            self.line_tex = Some(tex);
+            note_line_tex_alloc();
+        }
         let tag = tiles.next_line_tag();
         let job = LineJob {
             tag,
@@ -4074,10 +4368,10 @@ impl EraseLive {
     }
 
     fn land(&mut self, seg: Seg, bx: [u32; 4], r: LineRaster) {
-        if !fits_box(&r.raw, bx) {
+        let Some(line_tex) = self.line_tex.as_mut().filter(|_| fits_box(&r.raw, bx)) else {
             return;
-        }
-        self.line_tex.set_partial(
+        };
+        line_tex.set_partial(
             [bx[0] as usize, bx[1] as usize],
             Shared::clone(&r.image),
             egui::TextureOptions::LINEAR,
@@ -4220,12 +4514,14 @@ impl EraseLive {
         upload_region(&mut self.tex, &self.shown, w, d);
     }
 
-    /// The stroke minus the pass; for a straight pass, the landed cut in its
-    /// box and the stroke as committed around it.
-    fn paint(&self, painter: &egui::Painter, xf: &BoardXf, tint: Color32) {
+    /// The stroke minus the pass, moved by `shift`; for a straight pass,
+    /// the landed cut in its box and the stroke as committed around it.
+    fn paint(&self, painter: &egui::Painter, xf: &BoardXf, tint: Color32, shift: [f32; 2]) {
         let m = &self.mask;
-        let img = (m.origin, m.pixel, [m.width, m.height]);
-        let Some(e) = self.shown_exact() else {
+        let origin = [m.origin[0] + shift[0], m.origin[1] + shift[1]];
+        let img = (origin, m.pixel, [m.width, m.height]);
+        let exact = self.shown_exact().zip(self.line_tex.as_ref());
+        let Some((e, line_tex)) = exact else {
             paint_texels(
                 painter,
                 xf,
@@ -4237,7 +4533,7 @@ impl EraseLive {
             return;
         };
         paint_around(painter, xf, self.tex.id(), img, e.bx, tint);
-        paint_texels(painter, xf, self.line_tex.id(), img, e.bx, tint);
+        paint_texels(painter, xf, line_tex.id(), img, e.bx, tint);
     }
 
     #[cfg(test)]

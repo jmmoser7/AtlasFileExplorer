@@ -1,5 +1,28 @@
 # Canvas command project — change log
 
+## 2026-09-27 — A settling eraser preview leaves only to a newer one (review r12)
+
+- `brush` D11: a released Shift eraser pass whose cut is still on the
+  workers keeps its preview and band until something shows the same
+  strokes or newer ones. A second pass released unchanged, a flick
+  released before its preview exists, Esc, a tab switch and back, and a
+  move of the stroke no longer drop it to the uncut stroke; a move
+  carries the preview with the stroke. When the workers give up on the
+  cut, the preview stands in with the band over its uncut part.
+- `brush` D11: a settling preview takes its cut even out of view, a band
+  with no preview ends once its stroke leaves the view, and the board
+  stops asking for frames once no cut is on the workers.
+- `brush` D11: a nested board's strokes keep their own bitmaps and never
+  touch the host's eraser settle, even under a colliding node id.
+- `brush` D11: an eraser stand-in paints only while the stroke keeps the
+  passes it shows; after an undo the stroke's earlier bitmap paints
+  until the restored one lands.
+- `brush` D11: the eraser release decides image paint layer marks from
+  the preview or within the frame's raster budget, as on the board; past
+  the budget the mark commits and stays, even when fully erased.
+- `brush` D11: states that a Shift eraser pass continues the last pass
+  only in the tab that made it (review r11).
+
 ## 2026-09-27 — Undo never skips a step; an emptied board keeps its tab (review r12)
 
 - Board undo / redo: a step that cannot be undone stays on the undo stack
