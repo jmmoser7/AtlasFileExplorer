@@ -6,7 +6,7 @@
 //! into a full canvas that shares `origin` and `pixel` writes the same bytes.
 
 use crate::stamp::{
-    apply_erase, finish_grain, stamp_polyline, stroke_grain, StampImage, TipPoint,
+    apply_erase, finish_grain, over_px, stamp_polyline, stroke_grain, StampImage, TipPoint,
 };
 
 /// Side length of a board tile, in pixels. Tests pass a smaller size.
@@ -64,27 +64,12 @@ pub fn source_over_region(dst: &mut [u8], src: &[u8], width: u32, region: [u32; 
     for y in y0..y1 {
         for x in x0..x1 {
             let i = ((y * width + x) * 4) as usize;
-            let sa = src[i + 3];
-            if sa == 0 {
+            if src[i + 3] == 0 {
                 continue;
             }
-            if sa == 255 || dst[i + 3] == 0 {
-                dst[i..i + 4].copy_from_slice(&src[i..i + 4]);
-                continue;
-            }
-            let da = dst[i + 3] as u32;
-            let inv = 255 - sa as u32;
-            let out_a = sa as u32 + (da * inv + 127) / 255;
-            if out_a == 0 {
-                dst[i..i + 4].fill(0);
-                continue;
-            }
-            for c in 0..3 {
-                let num =
-                    src[i + c] as u32 * sa as u32 + (dst[i + c] as u32 * da * inv + 127) / 255;
-                dst[i + c] = ((num + out_a / 2) / out_a).min(255) as u8;
-            }
-            dst[i + 3] = out_a.min(255) as u8;
+            let s: [u8; 4] = src[i..i + 4].try_into().expect("four bytes");
+            let d: [u8; 4] = dst[i..i + 4].try_into().expect("four bytes");
+            dst[i..i + 4].copy_from_slice(&over_px(s, d));
         }
     }
 }
@@ -124,6 +109,7 @@ pub fn composite_strokes(dst: &mut StampImage, strokes: &[StrokeInk]) {
         pixel: dst.pixel,
         rgba: vec![0u8; dst.rgba.len()],
         depth: Vec::new(),
+        side: Default::default(),
     };
     for stroke in strokes {
         composite_stroke(dst, &mut layer, stroke);
@@ -192,6 +178,7 @@ fn tile_mut<'a>(
         pixel: dst.pixel,
         rgba: vec![0u8; pixels],
         depth: Vec::new(),
+        side: Default::default(),
     };
     let layer = StampImage {
         width: w,
@@ -200,6 +187,7 @@ fn tile_mut<'a>(
         pixel: dst.pixel,
         rgba: vec![0u8; pixels],
         depth: Vec::new(),
+        side: Default::default(),
     };
     tiles.push(TileBuf { img, layer, ox, oy });
     tiles.last_mut().expect("just pushed")
@@ -266,6 +254,7 @@ mod tests {
             pixel: 1.0,
             rgba: vec![0u8; 96 * 64 * 4],
             depth: Vec::new(),
+            side: Default::default(),
         }
     }
 

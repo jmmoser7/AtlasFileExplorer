@@ -50,13 +50,18 @@ pub struct BoardColors { pub fg: Rgba, pub bg: Rgba }
 
 ## Eraser tool (E)
 
+The agreed behavior lives in [the eraser contract](../contracts/eraser.md);
+this section is the implementation outline.
+
 - `BoardTool::Eraser`. **Painted (stamped) brush strokes** are spot-erased:
   each pass is stored on the stroke as a `PathData::erase` mark (points in
   the path's normalized coordinates plus the eraser tip) and both painters
   subtract it from the stamp (`vector_ink::apply_erase`). Within a pass,
   coverage keeps the maximum, so a pass never erases more than its strength
   where it crosses itself; separate passes compound. A stroke with no ink
-  left is removed. Erased pixels do not pick. One pass is one undo step.
+  left is removed. Ink left is measured on the untextured tip coverage, so
+  a textured pass's grain residue never keeps a stroke alive (user,
+  2026-09-28, r7-10). Erased pixels do not pick. One pass is one undo step.
 - **Vector strokes** keep whole-stroke delete: any the eraser circle
   crosses (`vector-ink::hit_stroke`) are removed on release, rendering at
   30% opacity until then.
@@ -121,7 +126,8 @@ pub struct BoardColors { pub fg: Rgba, pub bg: Rgba }
   Per-vertex values live in `PathData` tips
   (P1.curve.vertex-style); a vertex's opacity is the opacity it paints at
   (node opacity × the alpha of its color), written back by the share rule.
-  Committed brush strokes take the HUD too (review r7, 2026-09-27): their
+  Committed brush strokes take the HUD too (review r7, 2026-09-27; user
+  pass, 28 September 2026, eb2, eb3): their
   stamped tips scale in proportion for whole-curve size and softness (the
   widest tip lands on the value shown), and shift color or retexture
   together; the Select tool reaches them too, since painted ink shows no

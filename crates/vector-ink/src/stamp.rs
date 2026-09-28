@@ -6,6 +6,9 @@
 //! is the tip (opaque out to `(1 - softness)` of the radius, then a smooth
 //! fade to the rim). Inside one stamp, overlaps keep the maximum, so a stroke
 //! never exceeds its own opacity where it crosses itself or turns a corner.
+//! Watercolor is the one exception: where the tip comes back to a pixel more
+//! than a tip diameter further along the stroke, the new visit builds over
+//! the old one ([`StampSide::arc`]).
 //! The board and the HTML artifact then draw the finished bitmap over earlier
 //! ink with source-over, so a second stroke covers the first.
 
@@ -43,9 +46,190 @@ pub enum Grain {
     Pencil,
     /// Uniform density, crisp edge, with a slightly darker wet edge.
     Ink,
-    /// Translucent wash that builds across strokes, blooms, pigment
-    /// granulation, and a darker wet edge on a wandering rim.
+    /// Translucent wash that builds across strokes and where one stroke
+    /// comes back over itself, blooms, pigment granulation, and a darker wet
+    /// edge on a wandering rim.
     Watercolor,
+}
+
+impl Grain {
+    const ALL: [Grain; 5] = [
+        Grain::Smooth,
+        Grain::Graphite,
+        Grain::Pencil,
+        Grain::Ink,
+        Grain::Watercolor,
+    ];
+
+    fn code(self) -> u8 {
+        Grain::ALL.iter().position(|g| *g == self).unwrap_or(0) as u8
+    }
+
+    fn of_code(code: u8) -> Grain {
+        Grain::ALL.get(code as usize).copied().unwrap_or_default()
+    }
+}
+
+/// A Watercolor tip that comes back to a pixel more than this many tip
+/// diameters further along the stroke builds over what it left there; a
+/// nearer dab keeps the maximum coverage. The legs of a joint with interior
+/// angle `a` overlap up to `cot(a / 2)` diameters of arc apart, so 3 keeps
+/// every joint of 37° or wider (Shift steps by 45°) from building.
+pub const WET_REVISIT_DIAMETERS: f32 = 3.0;
+
+/// Arc gap, in pixels, between separate contours of one stroke: always a
+/// revisit.
+const CONTOUR_GAP_PX: f32 = 8192.0;
+
+/// Per-pixel records of a stroke while it is being stamped, beside
+/// [`StampImage::depth`]. Every buffer stays empty until a stroke needs it,
+/// so a plain Smooth stroke costs nothing more. [`finish_grain`] clears them.
+#[derive(Clone, Debug, Default)]
+pub struct StampSide {
+    /// The texture of the tip that reached deepest into each pixel (the
+    /// first one on a tie), once any textured tip has been stamped. A
+    /// segment takes its end tip's texture, so a Shift segment painted after
+    /// a texture change keeps the texture it was painted with.
+    pub grain: Vec<u8>,
+    /// Arc position, in half pixels (wrapping), of the last Watercolor dab
+    /// that covered each pixel.
+    pub arc: Vec<u16>,
+    /// The finished earlier visits of each pixel (straight RGBA), once a
+    /// Watercolor stroke has come back over itself.
+    pub prev: Vec<[u8; 4]>,
+    /// Arc length stamped so far, in pixels.
+    pub run: f32,
+    /// An erase mask: one pass never builds over itself, Watercolor or not.
+    pub mask: bool,
+}
+
+impl StampSide {
+    /// Side records for an erase mask.
+    pub fn for_mask() -> StampSide {
+        StampSide {
+            mask: true,
+            ..Default::default()
+        }
+    }
+
+    /// Empty records that continue this stroke's arc: a clear region that
+    /// the next segment of the same stroke stamps into.
+    pub fn continuing(&self) -> StampSide {
+        StampSide {
+            run: self.run,
+            mask: self.mask,
+            ..Default::default()
+        }
+    }
+
+    /// Box `b` of records kept for an image `width` pixels wide, reusing the
+    /// buffers of `into`.
+    pub fn crop_into(&self, width: u32, b: [u32; 4], mut into: StampSide) -> StampSide {
+        let w = width as usize;
+        let rows = b[1] as usize..b[3] as usize;
+        let span = |y: usize| y * w + b[0] as usize..y * w + b[2] as usize;
+        into.grain.clear();
+        into.arc.clear();
+        into.prev.clear();
+        for y in rows {
+            if !self.grain.is_empty() {
+                into.grain.extend_from_slice(&self.grain[span(y)]);
+            }
+            if !self.arc.is_empty() {
+                into.arc.extend_from_slice(&self.arc[span(y)]);
+            }
+            if !self.prev.is_empty() {
+                into.prev.extend_from_slice(&self.prev[span(y)]);
+            }
+        }
+        into.run = self.run;
+        into.mask = self.mask;
+        into
+    }
+
+    /// Write `src`, the records of box `b`, into these records of an image
+    /// `width` × `height`, and continue `src`'s arc.
+    pub fn paste(&mut self, width: u32, height: u32, b: [u32; 4], src: &StampSide) {
+        let (w, pixels) = (width as usize, width as usize * height as usize);
+        let bw = (b[2] - b[0]) as usize;
+        fn put<T: Copy + Default>(dst: &mut Vec<T>, src: &[T], pixels: usize, w: usize, bw: usize, b: [u32; 4]) {
+            if src.is_empty() && dst.is_empty() {
+                return;
+            }
+            if dst.len() != pixels {
+                *dst = vec![T::default(); pixels];
+            }
+            for (i, y) in (b[1] as usize..b[3] as usize).enumerate() {
+                let row = &mut dst[y * w + b[0] as usize..y * w + b[2] as usize];
+                match src.get(i * bw..(i + 1) * bw) {
+                    Some(s) => row.copy_from_slice(s),
+                    None => row.fill(T::default()),
+                }
+            }
+        }
+        put(&mut self.grain, &src.grain, pixels, w, bw, b);
+        put(&mut self.arc, &src.arc, pixels, w, bw, b);
+        put(&mut self.prev, &src.prev, pixels, w, bw, b);
+        self.run = src.run;
+    }
+
+    fn clear_box(&mut self, width: u32, b: [u32; 4]) {
+        let w = width as usize;
+        for y in b[1] as usize..b[3] as usize {
+            let span = y * w + b[0] as usize..y * w + b[2] as usize;
+            if !self.grain.is_empty() {
+                self.grain[span.clone()].fill(0);
+            }
+            if !self.arc.is_empty() {
+                self.arc[span.clone()].fill(0);
+            }
+            if !self.prev.is_empty() {
+                self.prev[span].fill([0; 4]);
+            }
+        }
+    }
+}
+
+/// Clear box `b` of a stamp still being drawn: ink, depth, and side
+/// records. With `whole` the box holds everything stamped so far, so the
+/// next stroke starts a fresh arc.
+pub fn clear_stamp_box(img: &mut StampImage, b: [u32; 4], whole: bool) {
+    let w = img.width as usize;
+    for y in b[1] as usize..b[3] as usize {
+        img.rgba[(y * w + b[0] as usize) * 4..(y * w + b[2] as usize) * 4].fill(0);
+        if !img.depth.is_empty() {
+            img.depth[y * w + b[0] as usize..y * w + b[2] as usize].fill(0);
+        }
+    }
+    img.side.clear_box(img.width, b);
+    if whole {
+        img.side.run = 0.0;
+    }
+}
+
+/// `src` over `dst`, both straight RGBA: the source-over every finished
+/// stamp is composited with.
+pub fn over_px(src: [u8; 4], dst: [u8; 4]) -> [u8; 4] {
+    let sa = src[3];
+    if sa == 0 {
+        return dst;
+    }
+    if sa == 255 || dst[3] == 0 {
+        return src;
+    }
+    let da = dst[3] as u32;
+    let inv = 255 - sa as u32;
+    let out_a = sa as u32 + (da * inv + 127) / 255;
+    if out_a == 0 {
+        return [0; 4];
+    }
+    let mut out = [0u8; 4];
+    for c in 0..3 {
+        let num = src[c] as u32 * sa as u32 + (dst[c] as u32 * da * inv + 127) / 255;
+        out[c] = ((num + out_a / 2) / out_a).min(255) as u8;
+    }
+    out[3] = out_a.min(255) as u8;
+    out
 }
 
 /// How far a finished pixel lies inside its stroke: `0` at the rim, `1` a
@@ -104,26 +288,41 @@ pub fn grain_coverage(
 }
 
 /// Apply a stroke's grain to its finished stamp over `region` (the whole
-/// image when `None`), then clear the depth there. `img` must hold that one
-/// stroke, stamped since the depth was last cleared. Pixels are judged on
-/// the shared grid, so tiles and whole stamps of one stroke agree.
+/// image when `None`), then clear the depth and side records there and
+/// start the next stroke's arc afresh. `img` must hold that one stroke,
+/// stamped since the records were last cleared. `grain` is the stroke's
+/// texture for pixels without a recorded one. Pixels are judged on the
+/// shared grid, so tiles and whole stamps of one stroke agree.
 pub fn finish_grain(img: &mut StampImage, grain: Grain, region: Option<[u32; 4]>) {
     let (w, h) = (img.width, img.height);
+    img.side.run = 0.0;
     if img.depth.len() != (w as usize) * (h as usize) {
         return;
     }
     let [x0, y0, x1, y1] = region.unwrap_or([0, 0, w, h]);
     let paper = Paper::of(img);
+    let plain = img.side.grain.is_empty() && img.side.prev.is_empty();
     for y in y0..y1.min(h) {
         for x in x0..x1.min(w) {
             let p = (y * w + x) as usize;
             let depth = std::mem::take(&mut img.depth[p]);
             let a = img.rgba[p * 4 + 3];
-            if a != 0 && grain != Grain::Smooth {
-                img.rgba[p * 4 + 3] = paper.alpha(grain, a, depth, x, y);
+            if plain {
+                if a != 0 && grain != Grain::Smooth {
+                    img.rgba[p * 4 + 3] = paper.alpha(grain, a, depth, x, y);
+                }
+                continue;
             }
+            if a == 0 && img.side.prev.get(p).is_none_or(|u| u[3] == 0) {
+                continue;
+            }
+            let px: [u8; 4] = img.rgba[p * 4..p * 4 + 4].try_into().expect("four bytes");
+            let out = paper.finish_px(img, grain, px, p, depth, x, y);
+            img.rgba[p * 4..p * 4 + 4].copy_from_slice(&out);
         }
     }
+    let region = [x0, y0, x1.min(w), y1.min(h)];
+    img.side.clear_box(w, region);
 }
 
 /// `region` of a stamp still being drawn, as straight RGBA rows with the
@@ -138,19 +337,16 @@ pub fn finished_region(img: &StampImage, grain: Grain, region: [u32; 4]) -> Vec<
         let row = y as usize * stride;
         out.extend_from_slice(&img.rgba[row + x0 as usize * 4..row + x1 as usize * 4]);
     }
-    let grained = grain != Grain::Smooth && img.depth.len() * 4 == img.rgba.len();
-    if !grained {
+    if img.depth.len() * 4 != img.rgba.len() {
         return out;
     }
     let paper = Paper::of(img);
     let mut i = 0;
     for y in y0..y1 {
         for x in x0..x1 {
-            let a = out[i + 3];
-            if a != 0 {
-                let depth = img.depth[(y * img.width + x) as usize];
-                out[i + 3] = paper.alpha(grain, a, depth, x, y);
-            }
+            let p = (y * img.width + x) as usize;
+            let px: [u8; 4] = out[i..i + 4].try_into().expect("four bytes");
+            out[i..i + 4].copy_from_slice(&paper.finished(img, grain, px, p, x, y));
             i += 4;
         }
     }
@@ -183,6 +379,26 @@ impl Paper {
         let f = grain_factor(grain, depth as f32 / 255.0, wx, wy);
         crate::dither::quantize(a as f32 * f, self.grid[0] + x as i64, self.grid[1] + y as i64)
     }
+
+    /// Raw pixel `px` (index `p`, at `x`, `y`) of `img` as it finishes: its
+    /// texture's grain, over the earlier visits a Watercolor stroke left.
+    fn finished(&self, img: &StampImage, grain: Grain, px: [u8; 4], p: usize, x: u32, y: u32) -> [u8; 4] {
+        self.finish_px(img, grain, px, p, img.depth[p], x, y)
+    }
+
+    /// [`Self::finished`] with the pixel's `depth` already read.
+    #[allow(clippy::too_many_arguments)]
+    fn finish_px(&self, img: &StampImage, grain: Grain, px: [u8; 4], p: usize, depth: u8, x: u32, y: u32) -> [u8; 4] {
+        let mut out = px;
+        let g = img.side.grain.get(p).map_or(grain, |c| Grain::of_code(*c));
+        if out[3] != 0 && g != Grain::Smooth {
+            out[3] = self.alpha(g, out[3], depth, x, y);
+        }
+        match img.side.prev.get(p) {
+            Some(under) if under[3] != 0 => over_px(out, *under),
+            _ => out,
+        }
+    }
 }
 
 fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
@@ -212,6 +428,8 @@ pub struct StampImage {
     /// the pixel lies inside it. [`finish_grain`] reads and clears it. Empty
     /// for smooth strokes.
     pub depth: Vec<u8>,
+    /// Texture and Watercolor revisit records while a stroke is stamped.
+    pub side: StampSide,
 }
 
 const MAX_SIDE: f32 = 4096.0;
@@ -325,6 +543,7 @@ fn stamp_tipped_padded(contours: &[Vec<TipPoint>], pixel: f32, margin: f32) -> O
         pixel,
         rgba: vec![0u8; (w as usize) * (h as usize) * 4],
         depth: Vec::new(),
+        side: StampSide::default(),
     };
     for contour in contours {
         let pts: Vec<TipPoint> = contour
@@ -336,11 +555,12 @@ fn stamp_tipped_padded(contours: &[Vec<TipPoint>], pixel: f32, margin: f32) -> O
     }
     finish_grain(&mut img, stroke_grain(contours), None);
     img.depth = Vec::new();
+    img.side = StampSide::default();
     Some(img)
 }
 
-/// The grain a stroke's contours were stamped with (segments keep their
-/// first tip's grain).
+/// The grain of a stroke's first tip: the texture of pixels no textured
+/// tip recorded (each segment takes its end tip's grain).
 pub fn stroke_grain(contours: &[Vec<TipPoint>]) -> Grain {
     contours
         .iter()
@@ -351,8 +571,11 @@ pub fn stroke_grain(contours: &[Vec<TipPoint>]) -> Grain {
 
 /// Stamp one segment into `img`, keeping the maximum coverage per pixel.
 /// Rows only visit the span the capsule can reach, so a long diagonal costs
-/// its own area and not its bounding box. A textured tip also records depth;
-/// the stroke's grain lands once it is finished ([`finish_grain`]).
+/// its own area and not its bounding box. A textured tip also records depth
+/// and its texture; the grain lands once the stroke is finished
+/// ([`finish_grain`]). The segment continues the arc of the one stamped
+/// before it: a Watercolor tip builds over a pixel it last covered more
+/// than [`WET_REVISIT_DIAMETERS`] back along that arc.
 pub fn stamp_segment(img: &mut StampImage, a: TipPoint, b: TipPoint) {
     let px = img.pixel;
     let to_px = |p: [f32; 2]| [(p[0] - img.origin[0]) / px, (p[1] - img.origin[1]) / px];
@@ -361,12 +584,17 @@ pub fn stamp_segment(img: &mut StampImage, a: TipPoint, b: TipPoint) {
     let ra = a.tip.diameter.max(0.0) * 0.5 / px;
     let rb = b.tip.diameter.max(0.0) * 0.5 / px;
     let reach = ra.max(rb);
-    if reach <= 0.0 || reach.is_nan() {
-        return;
-    }
     let abx = pb[0] - pa[0];
     let aby = pb[1] - pa[1];
     let len2 = abx * abx + aby * aby;
+    let arc0 = img.side.run;
+    let seg_len = len2.sqrt();
+    if seg_len.is_finite() {
+        img.side.run += seg_len;
+    }
+    if reach <= 0.0 || reach.is_nan() {
+        return;
+    }
     let w = img.width as i64;
     let h = img.height as i64;
     let y_lo = ((pa[1].min(pb[1]) - reach).floor() as i64).max(0);
@@ -378,13 +606,32 @@ pub fn stamp_segment(img: &mut StampImage, a: TipPoint, b: TipPoint) {
         (img.origin[0] / px).round() as i64,
         (img.origin[1] / px).round() as i64,
     ];
-    let grained = a.tip.grain != Grain::Smooth;
+    let grain = b.tip.grain;
+    let code = grain.code();
     let pixels = (img.width as usize) * (img.height as usize);
-    if grained && img.depth.len() != pixels {
-        img.depth = vec![0u8; pixels];
+    if grain != Grain::Smooth {
+        if img.depth.len() != pixels {
+            img.depth = vec![0u8; pixels];
+        }
+        if img.side.grain.len() != pixels {
+            img.side.grain = vec![0u8; pixels];
+        }
     }
+    // Depth and texture are tracked once any textured tip is in the stroke,
+    // so a smooth segment of a mixed chain keeps its own pixels smooth.
+    let grained = img.depth.len() == pixels;
+    let owned = img.side.grain.len() == pixels;
+    let wet = grain == Grain::Watercolor && !img.side.mask;
+    if wet && img.side.arc.len() != pixels {
+        img.side.arc = vec![0u16; pixels];
+    }
+    let wet_code = Grain::Watercolor.code();
+    // Half pixels, so the wrapping u16 spans 32768 px of arc.
+    let revisit = WET_REVISIT_DIAMETERS * 2.0 * reach * 2.0;
+    let paper = Paper::of(img);
     // A pixel already at this segment's opacity (and, for a textured tip, at
-    // full depth) cannot change, so dense dabs skip their overlap.
+    // full depth) cannot change, so dense dabs skip their overlap. A
+    // Watercolor dab still reads such a pixel's arc.
     let top = a.tip.rgba[3].max(b.tip.rgba[3]);
     for py in y_lo..=y_hi {
         let qy = py as f32 + 0.5;
@@ -404,7 +651,8 @@ pub fn stamp_segment(img: &mut StampImage, a: TipPoint, b: TipPoint) {
         let row = py as usize * img.width as usize;
         for pxl in x_lo..=x_hi {
             let p = row + pxl as usize;
-            if img.rgba[p * 4 + 3] >= top && (!grained || img.depth[p] == 255) {
+            let full = img.rgba[p * 4 + 3] >= top && (!grained || img.depth[p] == 255);
+            if full && !wet {
                 continue;
             }
             let qx = pxl as f32 + 0.5;
@@ -415,10 +663,26 @@ pub fn stamp_segment(img: &mut StampImage, a: TipPoint, b: TipPoint) {
             };
             let cx = pa[0] + abx * t;
             let cy = pa[1] + aby * t;
-            let dist = (qx - cx).hypot(qy - cy);
+            let (dx, dy) = (qx - cx, qy - cy);
             let r = ra + (rb - ra) * t;
-            if dist >= r {
+            if dx * dx + dy * dy >= r * r {
                 continue;
+            }
+            let dist = (dx * dx + dy * dy).sqrt();
+            let mut full = full;
+            if wet {
+                let at = ((arc0 + seg_len * t) * 2.0) as i64 as u16;
+                if img.rgba[p * 4 + 3] != 0 && img.side.grain[p] == wet_code {
+                    let gap = (at.wrapping_sub(img.side.arc[p]) as i16).unsigned_abs();
+                    if gap as f32 > revisit {
+                        fold_visit(img, &paper, p, pxl as u32, py as u32);
+                        full = false;
+                    }
+                }
+                img.side.arc[p] = at;
+                if full {
+                    continue;
+                }
             }
             let (soft, color) = if same {
                 (a.tip.softness, a.tip.rgba)
@@ -430,6 +694,9 @@ pub fn stamp_segment(img: &mut StampImage, a: TipPoint, b: TipPoint) {
             };
             if grained {
                 let d = (depth_of(dist, r) * 255.0).round() as u8;
+                if owned && (d > img.depth[p] || img.rgba[p * 4 + 3] == 0) {
+                    img.side.grain[p] = code;
+                }
                 if d > img.depth[p] {
                     img.depth[p] = d;
                 }
@@ -450,6 +717,20 @@ pub fn stamp_segment(img: &mut StampImage, a: TipPoint, b: TipPoint) {
     }
 }
 
+/// Close pixel `p`'s current Watercolor visit: finish it with its grain,
+/// lay it over the visits before it, and clear the pixel for the next one.
+fn fold_visit(img: &mut StampImage, paper: &Paper, p: usize, x: u32, y: u32) {
+    let px: [u8; 4] = img.rgba[p * 4..p * 4 + 4].try_into().expect("four bytes");
+    let finished = paper.finished(img, Grain::Watercolor, px, p, x, y);
+    let pixels = img.depth.len();
+    if img.side.prev.len() != pixels {
+        img.side.prev = vec![[0; 4]; pixels];
+    }
+    img.side.prev[p] = finished;
+    img.rgba[p * 4..p * 4 + 4].fill(0);
+    img.depth[p] = 0;
+}
+
 /// Subtract eraser passes from a finished stamp, oldest first. Each pass is
 /// stamped into a mask with the tip falloff and max compositing (tip alpha =
 /// strength), then ink alpha scales by `1 - mask`. So one pass never erases
@@ -463,6 +744,7 @@ pub fn apply_erase(img: &mut StampImage, marks: &[Vec<TipPoint>]) {
         pixel: img.pixel,
         rgba: Vec::new(),
         depth: Vec::new(),
+        side: StampSide::for_mask(),
     };
     for mark in marks {
         let Some(region) = polyline_box(img, mark) else {
@@ -503,8 +785,11 @@ fn polyline_box(img: &StampImage, pts: &[TipPoint]) -> Option<[u32; 4]> {
     (x1 > x0 && y1 > y0).then_some([x0 as u32, y0 as u32, x1 as u32, y1 as u32])
 }
 
-/// Stamp one tipped polyline (a single point is a dab) into `img`.
+/// Stamp one tipped polyline (a single point is a dab) into `img`. A
+/// polyline after another of the same stroke starts far along the arc, so
+/// Watercolor builds where contours meet.
 pub fn stamp_polyline(img: &mut StampImage, pts: &[TipPoint]) {
+    img.side.run += CONTOUR_GAP_PX;
     match pts {
         [] => {}
         [only] => stamp_segment(img, *only, *only),
@@ -688,6 +973,8 @@ pub fn tipped_contours(
     out
 }
 
+/// Size, softness, and color blend; the texture is the end tip's anywhere
+/// past the start, since a paper grain is not a number to blend.
 fn lerp_tip(a: StampStyle, b: StampStyle, t: f32) -> StampStyle {
     if a == b {
         return a;
@@ -696,7 +983,7 @@ fn lerp_tip(a: StampStyle, b: StampStyle, t: f32) -> StampStyle {
         diameter: a.diameter + (b.diameter - a.diameter) * t,
         softness: a.softness + (b.softness - a.softness) * t,
         rgba: lerp_rgba(a.rgba, b.rgba, t),
-        grain: a.grain,
+        grain: if t > 0.0 { b.grain } else { a.grain },
     }
 }
 
@@ -1018,6 +1305,90 @@ mod tests {
             assert!(worst <= 2, "{grain:?}: joints differ by {worst}");
             assert!(one.depth.is_empty(), "{grain:?}: depth left on the stamp");
         }
+    }
+
+    /// `contours` stamped and finished, with Watercolor revisits on or off.
+    fn finished(contours: &[Vec<TipPoint>], revisits: bool) -> StampImage {
+        let mut img = StampImage {
+            width: 360,
+            height: 300,
+            origin: [-80.0, -150.0],
+            pixel: 1.0,
+            rgba: vec![0u8; 360 * 300 * 4],
+            depth: Vec::new(),
+            side: if revisits {
+                StampSide::default()
+            } else {
+                StampSide::for_mask()
+            },
+        };
+        for c in contours {
+            stamp_polyline(&mut img, c);
+        }
+        finish_grain(&mut img, stroke_grain(contours), None);
+        img
+    }
+
+    fn wet_chain(points: &[(f32, f32)], alpha: u8) -> Vec<Vec<TipPoint>> {
+        let tip = StampStyle {
+            diameter: 24.0,
+            softness: 0.3,
+            rgba: [40, 60, 160, alpha],
+            grain: Grain::Watercolor,
+        };
+        vec![points
+            .iter()
+            .map(|&(x, y)| TipPoint { pos: [x, y], tip })
+            .collect()]
+    }
+
+    /// r7-9 keeps tr7: neighbouring dabs along the path and Shift-chain
+    /// joints down to 45° keep the maximum coverage, so they paint exactly
+    /// what a stroke that never builds paints.
+    #[test]
+    fn watercolor_joints_and_neighbouring_dabs_do_not_build() {
+        let dense: Vec<(f32, f32)> = (0..=80).map(|i| (i as f32 * 2.5, (i as f32 * 0.2).sin() * 30.0)).collect();
+        for points in [
+            dense,
+            vec![(0.0, 0.0), (100.0, 0.0), (100.0, 100.0)],
+            vec![(0.0, 0.0), (120.0, 0.0), (60.0, 60.0)],
+            vec![(0.0, 0.0), (60.0, 0.0), (60.0, 60.0), (0.0, 60.0), (0.0, 110.0)],
+        ] {
+            let chain = wet_chain(&points, 200);
+            let wet = finished(&chain, true);
+            let dry = finished(&chain, false);
+            let worst = wet.rgba.iter().zip(&dry.rgba).map(|(a, b)| a.abs_diff(*b)).max().unwrap();
+            assert_eq!(worst, 0, "{points:?} built by {worst}");
+        }
+    }
+
+    /// Erase masks never build over themselves, whatever their texture: one
+    /// pass never erases more than its strength.
+    #[test]
+    fn a_self_crossing_watercolor_erase_pass_never_exceeds_its_strength() {
+        let mut img = finished(&wet_chain(&[(0.0, 0.0), (200.0, 0.0)], 255), true);
+        let solid = img.rgba.clone();
+        let pass = wet_chain(&[(100.0, -40.0), (100.0, 40.0), (60.0, 40.0), (140.0, -40.0)], 128);
+        let mut once = img.clone();
+        apply_erase(&mut img, &pass);
+        apply_erase(&mut once, &[pass[0][..2].to_vec()]);
+        let at = |i: &StampImage| alpha_at(i, 100.0, 0.0);
+        assert!(at(&img) < solid[((150 * 360 + 180) * 4 + 3) as usize]);
+        assert_eq!(at(&img), at(&once), "the pass built where it crossed itself");
+    }
+
+    /// The side records are gone once a stroke finishes, so a reused layer
+    /// starts the next stroke clean.
+    #[test]
+    fn finishing_clears_the_side_records() {
+        let path = [(0.0, 0.0), (200.0, 0.0), (200.0, 100.0), (100.0, 100.0), (100.0, -100.0)];
+        let img = finished(&wet_chain(&path, 200), true);
+        assert!(img.depth.iter().all(|d| *d == 0));
+        assert!(img.side.grain.iter().all(|g| *g == 0));
+        assert!(img.side.arc.iter().all(|a| *a == 0));
+        assert!(img.side.prev.iter().all(|p| *p == [0; 4]));
+        assert!(img.side.prev.len() == img.depth.len(), "the crossing kept no earlier visit");
+        assert_eq!(img.side.run, 0.0);
     }
 
     #[test]

@@ -244,6 +244,43 @@
   `direct_select_picks_closed_form_vertices_as_anchors`,
   `closed_form_vertex_stroke_round_trips_and_exports_as_the_board_paints`.
 
+## 2026-09-28 — Brush textures, full erases, and the eraser contract (user pass r7-8..r7-10)
+
+- `brush` D03 and Textures (r7-8): a Shift segment's end tip takes the
+  texture armed for it, stored per tip; the stamp holds a tip's texture up
+  to the next vertex, so the segment paints in that texture on the board,
+  the tiles, and the export. Pinned by
+  `a_shift_segment_paints_the_texture_armed_for_it` and
+  `the_export_stamps_segment_textures_and_watercolor_crossings`.
+- `brush` Textures (r7-9): Watercolor builds where one stroke comes back
+  over itself, as two separate strokes would (`vector_ink::stamp`, revisit
+  past 3 diameters of arc); adjacent dabs and joints of 37° or wider do
+  not darken. Deterministic across board, tiles, and export
+  (`one_watercolor_stroke_builds_where_it_crosses_itself`,
+  `texture_rules.rs`). Research and the Photoshop mapping:
+  `specs/brush-textures.md`.
+- `eraser` D11 and `brush` D11 (r7-10): a full erase removes the stroke.
+  Ink left is measured on the untextured tip coverage, so grain residue
+  never keeps a stroke alive; the painted result still shows the grain.
+  The release reads the live preview only when nothing involved is
+  textured, else the budgeted coarse check or the workers
+  (`a_full_pencil_eraser_pass_removes_the_stroke`,
+  `a_deferred_pencil_eraser_pass_that_empties_a_big_stroke_removes_it`).
+- New contract `contracts/eraser.md`: the Eraser's clauses moved out of
+  brush D11 with their attributions (tx1-tx5, r7-3..r7-7, limit keys r7-6
+  and r7-7); brush D05 and D11 point to it. Board test for tx1:
+  `the_eraser_dims_crossed_curves_and_removes_them_whole`. It found a bug:
+  node opacity was applied twice to vector ink meshes, so the 30 % dimming
+  showed at 9 % and half-opacity curves painted at a quarter; fixed in
+  `board_path::ink_mesh_to_epaint`.
+- Relabels from agent to user pass: brush D03 (tr4, tr5), D11 (tr2; the
+  Shift segment on the workers, r7-1, r7-2), direct-selection brush
+  styling (eb2, eb3). The review r9 and r11 clauses no pass cites are
+  marked proposals.
+- Open question in brush D03: arming any tool clears the Shift chain, so
+  after a tool switch the next Shift press starts at its press. Code
+  unchanged until the user decides.
+
 ## 2026-09-28 — Two brush decisions recorded (user)
 
 - `brush` D03, D05: the Alt+right-drag size circle stays pinned where the

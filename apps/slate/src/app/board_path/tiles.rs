@@ -1187,6 +1187,7 @@ fn rasterize_tile(job: Job, done: &Sender<Done>) -> bool {
             .base
             .unwrap_or_else(|| vec![0u8; (TILE_PX as usize) * (TILE_PX as usize) * 4]),
         depth: Vec::new(),
+        side: Default::default(),
     };
     if img.rgba.len() != (TILE_PX as usize) * (TILE_PX as usize) * 4 {
         img.rgba
@@ -1199,6 +1200,7 @@ fn rasterize_tile(job: Job, done: &Sender<Done>) -> bool {
         pixel: job.pixel,
         rgba: vec![0u8; img.rgba.len()],
         depth: Vec::new(),
+        side: Default::default(),
     };
     for src in &job.strokes {
         let ink = cached_ink(&job.ink, src, job.pixel);
