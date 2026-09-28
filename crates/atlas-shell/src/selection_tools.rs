@@ -102,7 +102,9 @@ pub fn popup_area(ctx: &egui::Context, id: Id, opener: egui::LayerId) -> egui::A
     egui::Area::new(id).order(POPUP_ORDER)
 }
 
-fn object_painter(ui: &egui::Ui) -> egui::Painter {
+/// The painter object-attached chrome draws with: canvas chrome order, or the
+/// popup's own layer inside a popup.
+pub fn object_painter(ui: &egui::Ui) -> egui::Painter {
     if ui.layer_id().order >= POPUP_ORDER {
         return ui.painter().clone();
     }
@@ -2292,6 +2294,148 @@ pub fn crosstalk_editor(
         );
     }
     out
+}
+
+/// A crosstalk wire's mid-span blister: a small bead on the wire that opens
+/// the wire's capsule (user decision, 28 September 2026).
+pub const BLISTER_RADIUS: f32 = 6.0;
+/// The one-click Send beside a blister while a reply waits in Step mode. A
+/// wire control, so it keeps the wire baseline height (`WIRE_HEIGHT`).
+pub const BLISTER_SEND_WIDTH: f32 = 104.0;
+/// Width of the capsule a blister opens into.
+pub const CROSSTALK_CAPSULE_WIDTH: f32 = STACK_WIDTH + 16.0;
+const CROSSTALK_CAPSULE_PAD: f32 = 8.0;
+const CROSSTALK_CAPTION: f32 = 13.0;
+
+pub fn blister_rect(center: Pos2, zoom: f32) -> Rect {
+    Rect::from_center_size(center, Vec2::splat(BLISTER_RADIUS * 2.0 * zoom))
+}
+
+/// The Send pill, right of the blister and centered on it.
+pub fn blister_send_rect(center: Pos2, zoom: f32) -> Rect {
+    let h = WIRE_HEIGHT * zoom;
+    Rect::from_min_size(
+        Pos2::new(center.x + (BLISTER_RADIUS + 5.0) * zoom, center.y - h * 0.5),
+        Vec2::new(BLISTER_SEND_WIDTH * zoom, h),
+    )
+}
+
+/// A blister on a wire of color `ring`. `live` fills its center while the
+/// crosstalk relays.
+pub fn blister(
+    ui: &egui::Ui,
+    id: Id,
+    center: Pos2,
+    ring: Color32,
+    live: bool,
+    zoom: f32,
+    theme: Palette,
+) -> egui::Response {
+    let response = ui.interact(blister_rect(center, zoom), id, Sense::click());
+    let painter = object_painter(ui);
+    let hot = response.hovered();
+    painter.circle(
+        center,
+        BLISTER_RADIUS * zoom,
+        if hot { theme.card_hover } else { theme.panel },
+        Stroke::new(if hot { 2.0 } else { 1.4 } * zoom, ring),
+    );
+    painter.circle_filled(center, 2.2 * zoom, if live { ring } else { theme.sub });
+    response
+}
+
+/// What a crosstalk wire's capsule shows: the status, a quiet second line
+/// (roles, a rule override), and its actions as default capsules, two to a
+/// row. `dim` marks a quiet action (Stop).
+pub struct CrosstalkCapsuleView<'a> {
+    pub status: &'a str,
+    pub detail: &'a str,
+    pub actions: &'a [(&'a str, bool)],
+}
+
+/// Board-unit size of a capsule with `actions` actions.
+pub fn crosstalk_capsule_size(actions: usize) -> Vec2 {
+    let rows = actions.div_ceil(2) as f32;
+    // One gap under the captions, then one between action rows.
+    let body = 2.0 * CROSSTALK_CAPTION + rows * CORNER_HEIGHT + rows.max(1.0) * STACK_GAP;
+    Vec2::new(CROSSTALK_CAPSULE_WIDTH, body + 2.0 * CROSSTALK_CAPSULE_PAD)
+}
+
+/// The capsule centered on the wire's mid-span, so the wire runs through it.
+pub fn crosstalk_capsule_rect(mid_span: Pos2, actions: usize, zoom: f32) -> Rect {
+    Rect::from_center_size(mid_span, crosstalk_capsule_size(actions) * zoom)
+}
+
+/// Paint the capsule and its actions. Returns the index of a clicked action.
+pub fn crosstalk_capsule(
+    ui: &egui::Ui,
+    id: Id,
+    rect: Rect,
+    view: &CrosstalkCapsuleView,
+    zoom: f32,
+    theme: Palette,
+) -> Option<usize> {
+    // The body takes presses so a click on it is not a click-away.
+    ui.interact(rect, id, Sense::click());
+    let painter = object_painter(ui);
+    painter.rect(
+        rect,
+        10.0 * zoom,
+        theme.panel,
+        Stroke::new(0.8 * zoom, theme.border_strong),
+        egui::StrokeKind::Inside,
+    );
+    let inner = rect.shrink(CROSSTALK_CAPSULE_PAD * zoom);
+    let caption = CROSSTALK_CAPTION * zoom;
+    if canvas_text::legible(canvas_text::authored_px(CAPSULE_TAG, zoom)) {
+        let clip = painter.with_clip_rect(inner.intersect(painter.clip_rect()));
+        for (i, (text, size, ink)) in [
+            (view.status, CAPSULE_LABEL, theme.ink),
+            (view.detail, CAPSULE_TAG, theme.sub),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            canvas_text::text(
+                &clip,
+                Pos2::new(
+                    inner.left() + 4.0 * zoom,
+                    inner.top() + caption * (i as f32 + 0.5),
+                ),
+                Align2::LEFT_CENTER,
+                text,
+                canvas_scale::font(size, zoom),
+                ink,
+            );
+        }
+    }
+    let gap = STACK_GAP * zoom;
+    let half = (inner.width() - gap) * 0.5;
+    let h = CORNER_HEIGHT * zoom;
+    let top = inner.top() + 2.0 * caption + gap;
+    let mut clicked = None;
+    for (i, (label, dim)) in view.actions.iter().enumerate() {
+        let (row, col) = (i / 2, i % 2);
+        let r = Rect::from_min_size(
+            Pos2::new(
+                inner.left() + col as f32 * (half + gap),
+                top + row as f32 * (h + gap),
+            ),
+            Vec2::new(half, h),
+        );
+        let capsule_view = Capsule {
+            label,
+            dim: *dim,
+            ..Default::default()
+        };
+        if capsule(ui, id.with(i), r, &capsule_view, zoom, theme)
+            .response
+            .clicked()
+        {
+            clicked = Some(i);
+        }
+    }
+    clicked
 }
 
 /// A quiet caption in a capsule row.

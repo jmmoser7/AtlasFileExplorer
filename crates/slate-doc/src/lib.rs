@@ -57,7 +57,6 @@ pub use wire::{
     connector_aabb_routed, connector_ortho_path, connector_route, connector_route_in_scene,
     filleted_polyline, filleted_vertex_path, nearest_on_polyline, scene_ortho_lanes,
     scene_wire_hosts, scene_wire_obstacles, vertex_corner, ConnectorPath, OrthoLane, PathCmd,
-    VertexCorner, WireObstacle, WireRouting, ORTHO_CLEARANCE, ORTHO_CORNER_RADIUS, ORTHO_EXIT_GAP,
-    ORTHO_RAIL_GAP,
+    VertexCorner, WireObstacle, WireRouting, CONNECTION_ZONE, ORTHO_CLEARANCE, ORTHO_CORNER_RADIUS,
 };
 pub use wire_host::{connector_anchor_on, is_open_shape, WireHost, WirePort, WireSnap};

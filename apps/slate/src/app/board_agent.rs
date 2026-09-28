@@ -297,6 +297,9 @@ pub struct AgentRuntime {
     full_access: std::collections::BTreeSet<String>,
     /// None in tests, so a toggle never touches the real per-user store.
     access_path: Option<std::path::PathBuf>,
+    /// Cursor sessions whose permissions changed while a reply was running.
+    /// Their sidecar restarts before the next message, never mid-reply.
+    pub(crate) sidecar_restart: std::collections::BTreeSet<String>,
     /// Schedule per session, read once from its `schedule.json`.
     schedules: HashMap<String, Option<atlas_ai::schedule::AgentSchedule>>,
     schedule_dialog: Option<schedule::ScheduleDialog>,
@@ -1761,10 +1764,22 @@ impl SlateApp {
         let Some((session, provider)) = self.agent_session_for(id) else {
             return false;
         };
-        if !atlas_ai::runtime::linear_provider(&provider) || self.agent_is_running(id) {
+        if !atlas_ai::runtime::linear_provider(&provider) {
             return false;
         }
         let on = !self.agent_full_access(&session);
+        if on && self.crosstalk_policy(&session) == atlas_agent::TurnPolicy::ReadOnly {
+            let name = if provider == "codex" {
+                "Codex"
+            } else {
+                "Cursor"
+            };
+            self.toast(format!(
+                "{name} reviews read-only in this crosstalk, so Full access cannot apply. To let {name} build, pause the crosstalk and swap roles in the wire's capsule."
+            ));
+            return false;
+        }
+        let running = self.agent_is_running(id);
         if let Some(path) = self.agents.access_path.clone() {
             if let Err(error) = atlas_ai::access::set_in(&path, &session, on) {
                 self.toast(error);
@@ -1778,12 +1793,19 @@ impl SlateApp {
         }
         // Cursor reads the grant when its sidecar starts; the next Send restarts it.
         if provider == "cursor" {
-            self.detach_cursor_sidecar(&session);
+            self.restart_cursor_sidecar(&session);
         }
-        self.toast(if on {
-            "Full access on. This conversation runs commands and edits files without asking."
+        let what = if on {
+            "Full access on. This conversation runs commands and edits files without asking"
         } else {
-            "Full access off. The agent asks before risky actions."
+            "Full access off. The agent asks before risky actions"
+        };
+        // A running reply keeps the permissions it started with; providers
+        // fix them when a turn starts.
+        self.toast(if running {
+            format!("{what}, from the next message. The reply in progress keeps its permissions.")
+        } else {
+            format!("{what}.")
         });
         true
     }
@@ -2850,6 +2872,7 @@ impl SlateApp {
             return Some((id, Vec::new()));
         }
         let linear = self.agent_linear(id);
+        let collapsed = slate_doc::crosstalk::collapses_new_cards(&self.doc().scene, &a.session);
         if linear
             && self.doc().scene.nodes.iter().any(|n| {
                 slate_doc::agent_chat::agent(n).is_some_and(|other| other.chat.parent == Some(id))
@@ -2957,6 +2980,7 @@ impl SlateApp {
                     detail: if pair { Detail::Pair } else { Detail::Summary },
                     custom_fill: a.chat.custom_fill,
                     stroke: a.chat.stroke,
+                    collapsed,
                     ..Default::default()
                 };
             }
@@ -5501,6 +5525,21 @@ impl SlateApp {
         self.agents.sidecar_booting.remove(session);
     }
 
+    /// A Cursor sidecar reads its permissions when it starts. Restart it now
+    /// when idle; while a reply runs, before the next message instead, so the
+    /// running reply is never killed and keeps the permissions it began with.
+    pub(super) fn restart_cursor_sidecar(&mut self, session: &str) {
+        let running = self.doc().scene.nodes.iter().any(|n| {
+            slate_doc::agent_chat::agent(n).is_some_and(|a| a.session == session)
+                && self.agent_is_running(n.id)
+        });
+        if running {
+            self.agents.sidecar_restart.insert(session.to_string());
+        } else {
+            self.detach_cursor_sidecar(session);
+        }
+    }
+
     /// Drop the portal's owned provider thread pointer. The provider keeps the
     /// conversation; the next send starts a new one.
     fn forget_owned_thread(&mut self, portal: NodeId, file: &str) {
@@ -6729,6 +6768,9 @@ impl SlateApp {
         if provider != "cursor" {
             return;
         } // configured external sidecars consume request.json
+        if self.agents.sidecar_restart.remove(session) {
+            self.detach_cursor_sidecar(session);
+        }
         if self.agents.sidecar_spawned.contains(session)
             || self.agents.sidecar_booting.contains(session)
         {
@@ -8566,6 +8608,7 @@ impl SlateApp {
             widget.bg_stroke = egui::Stroke::NONE;
         }
         let full_on = self.agent_full_access(&agent.session);
+        let reviews = self.crosstalk_policy(&agent.session) == atlas_agent::TurnPolicy::ReadOnly;
         // The menu selects this card first; the editor resolves its crosstalk.
         let crosstalk =
             slate_doc::crosstalk::chain_of_session(&self.doc().scene, &agent.session).is_some();
@@ -8638,7 +8681,7 @@ impl SlateApp {
                     ),
                     (
                         1,
-                        full_access.enabled(!running),
+                        full_access,
                         "portal.agent.full_access",
                         atlas_ai::runtime::linear_provider(&agent.provider) && !agent.chat.draft,
                     ),
@@ -8691,9 +8734,13 @@ impl SlateApp {
                     group = Some(section);
                     let response = atlas_shell::menu::row(ui, row, dark);
                     let response = if id == "portal.agent.full_access" {
-                        response.on_hover_text(
-                            "Run commands and edit files without asking, in this conversation",
-                        )
+                        response.on_hover_text(if reviews {
+                            "This side reviews read-only in its crosstalk; Full access cannot apply"
+                        } else if running {
+                            "Run commands and edit files without asking, from the next message"
+                        } else {
+                            "Run commands and edit files without asking, in this conversation"
+                        })
                     } else {
                         response
                     };
@@ -12944,7 +12991,10 @@ To install them by hand, run in PowerShell:\n  cd \"C:\\workspace\\Slate\\docs\\
             "Stop does not recreate a bundle folder that moved"
         );
         assert!(
-            h.app.toasts.iter().any(|(m, _)| m.contains("folder has moved")),
+            h.app
+                .toasts
+                .iter()
+                .any(|(m, _)| m.contains("folder has moved")),
             "the user is told the run was not stopped"
         );
     }

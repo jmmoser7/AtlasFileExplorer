@@ -33,8 +33,6 @@ pub enum Panel {
     Bumper,
     /// 3D viewport display pass: Shaded / Arctic / Material mask / Z-buffer.
     ModelDisplay,
-    /// A crosstalk wire: roles, the stop rule, Start (`portal-agent-crosstalk`).
-    Crosstalk,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -632,8 +630,7 @@ fn edits_picked_vertices(item: &StripItem) -> bool {
             | Panel::Text
             | Panel::Agent
             | Panel::Bumper
-            | Panel::ModelDisplay
-            | Panel::Crosstalk,
+            | Panel::ModelDisplay,
         )
         | StripItem::Frame(_)
         | StripItem::Agent(_)
@@ -694,16 +691,12 @@ fn node_strip_items(app: &SlateApp, nodes: &[Node]) -> Vec<StripItem> {
         return items;
     }
     // A crosswire's red is its meaning (crosstalk D16): no stroke or wire
-    // styling, only its own editor.
+    // styling. Its editor is the capsule at its mid-span.
     if nodes
         .iter()
         .any(|n| slate_doc::crosstalk::crosstalk(n).is_some())
     {
-        return if nodes.len() == 1 {
-            vec![StripItem::Panel(Panel::Crosstalk)]
-        } else {
-            Vec::new()
-        };
+        return Vec::new();
     }
     let mut items = property_strip_items(nodes);
     if nodes.iter().any(|n| image_is_text(app, n)) {
@@ -1692,11 +1685,6 @@ impl SlateApp {
                     Icon::Model,
                     self.shape_properties.panel == Some(Panel::ModelDisplay),
                 ),
-                StripItem::Panel(Panel::Crosstalk) => (
-                    "Crosstalk: roles, stop rule, Start",
-                    Icon::Agent,
-                    self.shape_properties.panel == Some(Panel::Crosstalk),
-                ),
                 StripItem::ModelMeasure => (
                     "Measure: pick two points on the model",
                     Icon::Ruler,
@@ -1939,7 +1927,6 @@ impl SlateApp {
                         Panel::Agent => chrome::AGENT_HEIGHT,
                         Panel::Bumper => chrome::CORNER_HEIGHT,
                         Panel::ModelDisplay => chrome::FILTER_CHIPS_HEIGHT,
-                        Panel::Crosstalk => chrome::CROSSTALK_HEIGHT,
                     };
                     if panel != Panel::Text {
                         self.shape_properties.text_family_open = false;
@@ -2176,11 +2163,6 @@ impl SlateApp {
                 }
                 FilterStep::Rest => self.rebuild_shape_preview(None),
             }
-            return None;
-        }
-        if panel == Panel::Crosstalk {
-            let wire = first.id;
-            self.crosstalk_panel(ui, rect, wire, z);
             return None;
         }
         if panel == Panel::Wire {
@@ -4913,7 +4895,6 @@ mod tests {
                 StripItem::Panel(Panel::Agent) => "agent",
                 StripItem::Panel(Panel::Bumper) => "bumper",
                 StripItem::Panel(Panel::ModelDisplay) => "display",
-                StripItem::Panel(Panel::Crosstalk) => "crosstalk",
                 StripItem::ModelMeasure => "measure",
                 StripItem::ModelScreenshot => "screenshot",
                 StripItem::Frame(FrameAction::Prev) => "prev",

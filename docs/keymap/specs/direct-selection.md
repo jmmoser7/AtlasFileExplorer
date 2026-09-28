@@ -161,8 +161,8 @@ With vertices picked the strip offers only per-vertex controls (user,
 28 September 2026, ed9): Stroke (width, color, opacity) and Corners when a
 picked vertex turns a corner of a line-only polyline. Every other squircle
 edits the whole node and hides while vertices are picked: Fill, Wire,
-Filter, Pages, Formatting, Text, Agent, Bumper cars, Model display,
-Crosstalk, frame actions, agent actions, Measure and Screenshot. End
+Filter, Pages, Formatting, Text, Agent, Bumper cars, Model display, frame
+actions, agent actions, Measure and Screenshot. End
 points, Bezier anchors, rectangles and regular polygons carry no per-vertex
 corner, so Corners hides for them. `edits_picked_vertices` classifies every
 strip item, so a new squircle must choose. The strip's target stays fixed

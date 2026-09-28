@@ -2633,7 +2633,7 @@
           "decided": "2026-09-17"
         },
         "D13": {
-          "behavior": "P1.shape.properties: capability-gated squircle controls above the selection; dimensions use separate exterior stringers. Fill and Stroke share one compact panel: a saturation/value color field at the current hue, then opacity, saturation and hue rails (saturation replaced the neutral value rail, user decision 25 September 2026); Stroke adds only a width rail. With grips picked on a single curve, that rail and the Stroke color field and opacity rail read and edit the picked vertices only (P1.curve.vertex-style; user, 26 September 2026). With vertices picked, under Select or Direct Select, the strip anchors beside the picked points (their bounds plus half the stroke width, DYNAMIC_PANELS placement and edge rules) instead of the whole curve (user, 27 September 2026). With vertices picked the strip offers only per-vertex controls (user, 28 September 2026, ed9): Stroke (width, color, opacity) and Corners when a picked vertex turns a corner of a line-only polyline or is a vertex of a rectangle or regular polygon (rectangle D14, polygon D14). Every other squircle edits the whole node and hides while vertices are picked: Fill, Wire, Filter, Pages, Formatting, Text, Agent, Bumper cars, Model display, Crosstalk, frame actions, agent actions, Measure and Screenshot. End points and Bezier anchors carry no per-vertex corner, so Corners hides for them. With corners picked, the Corners amount reads the first picked corner (a rectangle's or polygon's stored override included) and writes only the picked corners' corner_amounts; with nothing picked it sets every corner; each accepted edit is one journaled step (user, 28 September 2026, ep2). Fillet / Chamfer and the units toggle stay whole-curve. The strip's target stays fixed at the press. A press on a painted path-edit grip (a curve anchor, a handle knob, or a line end point, P1.curve.grips) goes to the grip even where a strip button covers it, with or without a panel open, and is not a click-away; a rectangle or regular-polygon vertex (P1.shape.vertex-style) under a button leaves the button its click (agent decision, round 8, awaiting user confirmation). A grip press commits an open panel's pending edits once, at any zoom; when a vertex pick leaves an open panel's squircle off the strip, that panel commits its pending edits and closes (D11), otherwise it stays up (agent decision, round 8, awaiting user confirmation). The strip keeps every other press. The fillet capsule is 30% taller than the 17-unit wire capsule; the photo-filter capsule is twice that fillet height. Wires expose Bezier/Square, stroke weight, Solid/Dashed and None/Arrows; routing moves out of Document Settings. Images expose a None radio and low-resolution filtered thumbnails of the selected image, plus an intensity slider as thick as the radio radius. A File Atlas portal adds a Formatting squircle (search, type radios, Ghost/Hide, Zoom to matches, Zoom to fit). Frame-only actions reuse the same strip. P1.node.corner-grip appears on every selected corner-capable host, and in a multi-selection one grip's drag or typed amount sets them all, clamped per host (stated 26 September 2026); the Corners squircle and grip share one Corner field. Shared light/dark theme tokens apply throughout.",
+          "behavior": "P1.shape.properties: capability-gated squircle controls above the selection; dimensions use separate exterior stringers. Fill and Stroke share one compact panel: a saturation/value color field at the current hue, then opacity, saturation and hue rails (saturation replaced the neutral value rail, user decision 25 September 2026); Stroke adds only a width rail. With grips picked on a single curve, that rail and the Stroke color field and opacity rail read and edit the picked vertices only (P1.curve.vertex-style; user, 26 September 2026). With vertices picked, under Select or Direct Select, the strip anchors beside the picked points (their bounds plus half the stroke width, DYNAMIC_PANELS placement and edge rules) instead of the whole curve (user, 27 September 2026). With vertices picked the strip offers only per-vertex controls (user, 28 September 2026, ed9): Stroke (width, color, opacity) and Corners when a picked vertex turns a corner of a line-only polyline or is a vertex of a rectangle or regular polygon (rectangle D14, polygon D14). Every other squircle edits the whole node and hides while vertices are picked: Fill, Wire, Filter, Pages, Formatting, Text, Agent, Bumper cars, Model display, frame actions, agent actions, Measure and Screenshot. End points and Bezier anchors carry no per-vertex corner, so Corners hides for them. With corners picked, the Corners amount reads the first picked corner (a rectangle's or polygon's stored override included) and writes only the picked corners' corner_amounts; with nothing picked it sets every corner; each accepted edit is one journaled step (user, 28 September 2026, ep2). Fillet / Chamfer and the units toggle stay whole-curve. The strip's target stays fixed at the press. A press on a painted path-edit grip (a curve anchor, a handle knob, or a line end point, P1.curve.grips) goes to the grip even where a strip button covers it, with or without a panel open, and is not a click-away; a rectangle or regular-polygon vertex (P1.shape.vertex-style) under a button leaves the button its click (agent decision, round 8, awaiting user confirmation). A grip press commits an open panel's pending edits once, at any zoom; when a vertex pick leaves an open panel's squircle off the strip, that panel commits its pending edits and closes (D11), otherwise it stays up (agent decision, round 8, awaiting user confirmation). The strip keeps every other press. The fillet capsule is 30% taller than the 17-unit wire capsule; the photo-filter capsule is twice that fillet height. Wires expose Bezier/Square, stroke weight, Solid/Dashed and None/Arrows; routing moves out of Document Settings. Images expose a None radio and low-resolution filtered thumbnails of the selected image, plus an intensity slider as thick as the radio radius. A File Atlas portal adds a Formatting squircle (search, type radios, Ghost/Hide, Zoom to matches, Zoom to fit). Frame-only actions reuse the same strip. P1.node.corner-grip appears on every selected corner-capable host, and in a multi-selection one grip's drag or typed amount sets them all, clamped per host (stated 26 September 2026); the Corners squircle and grip share one Corner field. Shared light/dark theme tokens apply throughout.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -5060,12 +5060,12 @@
           "note": "Not individually reviewed: approved under the user's \"looks good, please take it from here\" (27 Sep 2026). Reopen on request."
         },
         "D04": {
-          "behavior": "Travel under `draft.drag_threshold` (4 px) is a click. On a wired port it selects that crosswire and opens its chip; on an unwired port it does nothing.",
+          "behavior": "Travel under `draft.drag_threshold` (4 px) is a click. On a wired port it selects that crosswire; on an unwired port it does nothing. The wire's controls open from its blister (X17).",
           "source": "precedent",
           "confidence": 80,
           "verdict": "approved",
-          "decided": "2026-09-27",
-          "note": "Not individually reviewed: approved under the user's \"looks good, please take it from here\" (27 Sep 2026). Reopen on request."
+          "decided": "2026-09-28",
+          "note": "Revised 28 Sep 2026: the chip is gone; the blister opens the capsule (X17, the user's decision)."
         },
         "D05": {
           "behavior": "None in v1. Alt keeps its usual meaning (suppress snaps) during the drag; Shift and Ctrl are unassigned.",
@@ -5084,12 +5084,12 @@
           "note": "Not individually reviewed: approved under the user's \"looks good, please take it from here\" (27 Sep 2026). Reopen on request."
         },
         "D07": {
-          "behavior": "A cubic curve with vertical tangents out of the top or bottom ports. Width `crosstalk.wire_width` = 4.5 like the history rails, deep red at `crosstalk.wire_alpha` = 0.85 in both themes (stored on the connector as the danger red, so both interpreters paint the same stroke). Geometry updates live while either card moves.",
+          "behavior": "A cubic curve with vertical tangents out of the top or bottom ports, or square (orthogonal) like any wire (X19). Width `crosstalk.wire_width` = 4.5 like the history rails, deep red at `crosstalk.wire_alpha` = 0.85 in both themes (stored on the connector as the danger red, so both interpreters paint the same stroke). Geometry updates live while either card moves.",
           "source": "guess",
           "confidence": 60,
           "verdict": "approved",
-          "decided": "2026-09-27",
-          "note": "Not individually reviewed: approved under the user's \"looks good, please take it from here\" (27 Sep 2026). Reopen on request."
+          "decided": "2026-09-28",
+          "note": "Revised 28 Sep 2026: square routing added by the user's decision (X19)."
         },
         "D08": {
           "behavior": "In the capsule: Turns (whole number 1 to 200, default 10), Minutes (1 to 480, off by default), Goal (text, off by default). Click a value, type, and Enter or clicking away commits; Esc cancels.",
@@ -5100,12 +5100,12 @@
           "note": "Not individually reviewed: approved under the user's \"looks good, please take it from here\" (27 Sep 2026). Reopen on request."
         },
         "D09": {
-          "behavior": "A chip at mid-span of the owner wire, and of any wire with its own rule, reads for example \"Turn 3 of 10 · 04:12 · Codex is replying\". After a stop it reads the reason. The chip hides when idle and not hovered. Received messages follow F1. During the drag: the red rubber wire and the partner's revealed ports. In Step mode a finished reply shows \"Send to Codex?\" with Send and Skip on the chip (X10).",
-          "source": "guess",
-          "confidence": 65,
+          "behavior": "Every crosswire carries a small blister at its routed mid-span; its centre dot is red while the crosstalk relays or a reply waits (X17). The open capsule reads for example \"Turn 3 of 10 · 04:12 · Codex is replying\", then the roles, and after a stop the reason. Received messages follow F1. During the drag: the red rubber wire and the partner's revealed ports. In Step mode a finished reply shows \"Send to Codex\" beside the newest wire's blister; Skip is in the capsule (X10).",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-27",
-          "note": "Not individually reviewed: approved under the user's \"looks good, please take it from here\" (27 Sep 2026). Reopen on request."
+          "decided": "2026-09-28",
+          "note": "The user's decision, 28 Sep 2026: blister at mid-span replaces the chip (X17)."
         },
         "D10": {
           "behavior": "Near a crosstalk port, resize targets and cursors are suppressed and the pointer is the grab hand, as for the output grip.",
@@ -5124,28 +5124,28 @@
           "note": "Not individually reviewed: approved under the user's \"looks good, please take it from here\" (27 Sep 2026). Reopen on request."
         },
         "D12": {
-          "behavior": "Esc mid-drag drops the rubber wire and journals nothing. Esc in the capsule closes it; the committed wire stays with a \"Not started\" chip, and Undo removes it. Board Esc never pauses or stops a running crosstalk, since agent work is out of process. Pause and Stop are explicit.",
+          "behavior": "Esc mid-drag drops the rubber wire and journals nothing. Esc, or a click anywhere but the capsule, folds it back to its blister; the committed wire stays \"Not started\", and Undo removes it. Board Esc never pauses or stops a running crosstalk, since agent work is out of process. Pause and Stop are explicit.",
           "source": "precedent",
           "confidence": 80,
           "verdict": "approved",
-          "decided": "2026-09-27",
-          "note": "Not individually reviewed: approved under the user's \"looks good, please take it from here\" (27 Sep 2026). Reopen on request."
+          "decided": "2026-09-28",
+          "note": "Revised 28 Sep 2026 for the capsule (X17, the user's decision)."
         },
         "D13": {
-          "behavior": "Selecting a crosswire expands its chip: rule summary, roles, Pause or Resume, Stop, Edit. Selecting the owner wire also highlights every downstream wire in its chain. Chat card selection is unchanged.",
-          "source": "guess",
-          "confidence": 60,
+          "behavior": "Selecting a crosswire shows the ordinary connector highlight and no property strip; its controls are the capsule its blister opens (X17): status, roles, Send, Pause or Resume, Edit, 5 more turns, Square or Curved wires, Stop. Selecting the owner wire also highlights every downstream wire in its chain. Chat card selection is unchanged.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-27",
-          "note": "Not individually reviewed: approved under the user's \"looks good, please take it from here\" (27 Sep 2026). Reopen on request."
+          "decided": "2026-09-28",
+          "note": "The user's decision, 28 Sep 2026: controls live in the mid-span capsule (X17)."
         },
         "D14": {
-          "behavior": "Edit any crosswire's rule from its chip; the override applies from that wire onward, and \"Use inherited rule\" clears it. Roles change only while paused. Presentation switches re-anchor wires (X05).",
+          "behavior": "Edit any crosswire's rule from its capsule; the override applies from that wire onward, and \"Use inherited rule\" clears it. Roles change only while paused. Presentation switches re-anchor wires (X05).",
           "source": "pattern",
           "confidence": 70,
           "verdict": "approved",
-          "decided": "2026-09-27",
-          "note": "Not individually reviewed: approved under the user's \"looks good, please take it from here\" (27 Sep 2026). Reopen on request."
+          "decided": "2026-09-28",
+          "note": "Revised 28 Sep 2026: chip renamed capsule (X17)."
         },
         "D15": {
           "behavior": "v1 leaves out: more than two parties (hub-and-spoke is designed for, X15); Ollama, text blocks and image agents as parties; crosstalk across workbooks or machines; relaying tool logs, diffs or reasoning; Slate-run check scripts (Art. VII.4); accepting a reviewer's suggestions automatically; a reviewer that writes files.",
@@ -5164,7 +5164,7 @@
           "note": "Not individually reviewed: approved under the user's \"looks good, please take it from here\" (27 Sep 2026). Reopen on request."
         },
         "D17": {
-          "behavior": "Crosswires pick on their stroke with `pick.slop`; the chip picks its capsule. Their ends cannot be dragged to another card, because anchors follow messages, like history rails. Delete on a crosswire ends the crosstalk at that wire: later relays stop, the wire leaves (hidden, so the message it carried keeps its red provenance), and one Undo restores it.",
+          "behavior": "Crosswires pick on their stroke with `pick.slop`; the blister picks first and opens the capsule. Their ends cannot be dragged to another card, because anchors follow messages, like history rails. Delete on a crosswire ends the crosstalk at that wire: later relays stop, the wire leaves (hidden, so the message it carried keeps its red provenance), and one Undo restores it.",
           "source": "guess",
           "confidence": 60,
           "verdict": "approved",
@@ -5212,7 +5212,7 @@
           "note": "Not individually reviewed: approved under the user's \"looks good, please take it from here\" (27 Sep 2026). Reopen on request."
         },
         "D23": {
-          "behavior": "Crosswires, ports and chips scale with the board (P0.9). Below legible size the chip text drops and the red wire stays. Collapsed cards keep their ports.",
+          "behavior": "Crosswires, ports, blisters and capsules scale with the board (P0.9). Below legible size the capsule's text drops, never clamped; a blister under 1.5 px drops and the red wire stays. Collapsed cards keep their ports.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -5220,7 +5220,7 @@
           "note": "Not individually reviewed: approved under the user's \"looks good, please take it from here\" (27 Sep 2026). Reopen on request."
         },
         "D24": {
-          "behavior": "Crosswires export as ordinary connectors with the same red stroke and curve in both interpreters (Art. IV). The owner wire exports its chain as the wire label (\"Crosstalk · 6 turns\"), read from the scene by `slate_doc::crosstalk::export_label`; on the board the chip is that label's live rendering, so a crosswire's label cannot be hand-edited. The red message treatment is part of each card's host poster. No live controls.",
+          "behavior": "Crosswires export as ordinary connectors with the same red stroke and the same routed path, curved or square with its bundle lanes, in both interpreters (Art. IV). The owner wire exports its chain as the wire label (\"Crosstalk · 6 turns\"), read from the scene by `slate_doc::crosstalk::export_label`; on the board the capsule's status is that label's live rendering, so a crosswire's label cannot be hand-edited. The red message treatment is part of each card's host poster. No live controls.",
           "source": "precedent",
           "confidence": 80,
           "verdict": "approved",
@@ -5252,7 +5252,7 @@
           "note": "Not individually reviewed: approved under the user's \"looks good, please take it from here\" (27 Sep 2026). Reopen on request."
         },
         "D28": {
-          "behavior": "Host provenance: every red message names the sending agent and role; its crosswire names the conversation and turn it carries. The chip names which wire's rule is in force.",
+          "behavior": "Host provenance: every red message names the sending agent and role; its crosswire names the conversation and turn it carries. The capsule names which wire's rule is in force.",
           "source": "precedent",
           "confidence": 80,
           "verdict": "approved",
@@ -5260,7 +5260,7 @@
           "note": "Not individually reviewed: approved under the user's \"looks good, please take it from here\" (27 Sep 2026). Reopen on request."
         },
         "D29": {
-          "behavior": "Relays are written by the link worker, off the frame loop. Crosstalk state recomputes on session or scene change only, not per frame; chip layout goes through the shared canvas text cache. Budget: 20 crosswires add under 0.2 ms a frame.",
+          "behavior": "Relays are written by the link worker, off the frame loop. Crosstalk state recomputes on session or scene change only, not per frame; capsule layout goes through the shared canvas text cache. Budget: 20 crosswires add under 0.2 ms a frame.",
           "source": "pattern",
           "confidence": 75,
           "verdict": "approved",
@@ -5308,12 +5308,12 @@
           "note": "Not individually reviewed: approved under the user's \"looks good, please take it from here\" (27 Sep 2026). Reopen on request."
         },
         "D35": {
-          "behavior": "Every crosstalk control lives on the wire chip and its capsule, or the card's ellipsis menu (\"Crosstalk…\"). Nothing on Document Settings. The capsule is the selected crosswire's editor in its property strip (`selection_tools::crosstalk_editor`, DRY review 27 September 2026), the same place every wire's editor opens; drawing a crosswire selects it with that editor open.",
-          "source": "pattern",
-          "confidence": 90,
+          "behavior": "Every crosstalk control lives on the wire: its blister, the capsule it opens, and the editor attached to that capsule (`selection_tools::crosstalk_editor`), or the card's ellipsis menu. Nothing on Document Settings and no property strip. Drawing a crosswire opens its capsule with the Start editor (X17).",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-27",
-          "note": "Not individually reviewed: approved under the user's \"looks good, please take it from here\" (27 Sep 2026). Reopen on request."
+          "decided": "2026-09-28",
+          "note": "The user's decision, 28 Sep 2026: the capsule at the wire's mid-span replaces the property-strip editor (X17)."
         }
       },
       "behaviors": {
@@ -5354,7 +5354,7 @@
           "note": "Not individually reviewed: approved under the user's \"looks good, please take it from here\" (27 Sep 2026). Reopen on request."
         },
         "X02": {
-          "behavior": "Single chat window: two single windows are joined by one deep-red wire between facing ports. Each message from the partner lands in the window's transcript on the user side, in red with the sender's name (\"Codex · reviewer\"). No cards or wires are added per turn beyond the relay's own crosswire, and every crosswire between the same two windows paints as one wire whose chip carries the count.",
+          "behavior": "Single chat window: two single windows are joined by one deep-red wire between facing ports. Each message from the partner lands in the window's transcript on the user side, in red with the sender's name (\"Codex · reviewer\"). No cards or wires are added per turn beyond the relay's own crosswire, and every crosswire between the same two windows paints as one wire with one blister.",
           "source": "stated",
           "confidence": 95,
           "verdict": "approved",
@@ -5394,14 +5394,14 @@
           "note": "Not individually reviewed: approved under the user's \"looks good, please take it from here\" (27 Sep 2026). Reopen on request."
         },
         "X07": {
-          "behavior": "**Altered by you:** \"Your message goes first and the exchange carries on. We can pause explicitly from the wire interface.\" Both composers stay live (Art. VIII.3). A message you send goes out as a normal user turn (not red) and does not pause the crosstalk; a relay waiting for that side is held while you have unsent text in its composer, so yours goes first. The reply to your message is that side's newest reply and relays onward like any other. Pause, Resume and Stop sit on the wire chip. The card's Stop square cancels only that reply and pauses the crosstalk; the partial reply is not relayed.",
+          "behavior": "**Altered by you:** \"Your message goes first and the exchange carries on. We can pause explicitly from the wire interface.\" Both composers stay live (Art. VIII.3). A message you send goes out as a normal user turn (not red) and does not pause the crosstalk; a relay waiting for that side is held while you have unsent text in its composer, so yours goes first. The reply to your message is that side's newest reply and relays onward like any other. Pause, Resume and Stop sit in the wire's capsule (X17). The card's Stop square cancels only that reply and pauses the crosstalk; the partial reply is not relayed.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
           "decided": "2026-09-27"
         },
         "X08": {
-          "behavior": "**Altered by you:** \"The builder claims done; the reviewer must agree.\" The rule is a closed set: max turns (one turn = one relayed message), max minutes of running time (paused time excluded), and a goal you write, combined as whichever comes first. With a goal, the builder claims it by writing `\"goal\": {\"status\": \"met\", \"reason\": \"…\"}` in that message's `return.json`; the reviewer's next reply agrees (`met`) or disagrees (`not_met`) the same way. Only an agreed claim stops the crosstalk (\"Goal met · Cursor claimed, Codex agreed\"); a disagreement clears the claim and the exchange carries on. Slate reads the file; prose is never scraped. The goal line in the transport guide is added only when the wire has a goal. At a limit, no new relay starts; a reply already streaming finishes and stays on its card, unrelayed. The chip reads \"Stopped · 10 turns\", \"Stopped · 30 min\", \"Goal met · …\" or \"Stopped by you\". To continue, raise the limit or press \"5 more turns\". No check command runs (Art. VII.4).",
+          "behavior": "**Altered by you:** \"The builder claims done; the reviewer must agree.\" The rule is a closed set: max turns (one turn = one relayed message), max minutes of running time (paused time excluded), and a goal you write, combined as whichever comes first. With a goal, the builder claims it by writing `\"goal\": {\"status\": \"met\", \"reason\": \"…\"}` in that message's `return.json`; the reviewer's next reply agrees (`met`) or disagrees (`not_met`) the same way. A read-only reviewer cannot write that file, so its transport guide asks for the verdict as the reply's strict last line, `Slate goal: {\"status\": \"met\" | \"not_met\", \"reason\": \"…\"}` (`atlas_agent::goal_in_reply`); nothing else in the prose is read. Only an agreed claim stops the crosstalk (\"Goal met · Cursor claimed, Codex agreed\"); a disagreement clears the claim and the exchange carries on. Slate reads the file or that one line; other prose is never scraped. The goal line in the transport guide is added only when the wire has a goal. At a limit, no new relay starts; a reply already streaming finishes and stays on its card, unrelayed. The capsule reads \"Stopped · 10 turns\", \"Stopped · 30 min\", \"Goal met · …\" or \"Stopped by you\". To continue, raise the limit or press \"5 more turns\". No check command runs (Art. VII.4).",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -5416,14 +5416,14 @@
           "note": "Not individually reviewed: approved under the user's \"looks good, please take it from here\" (27 Sep 2026). Reopen on request."
         },
         "X10": {
-          "behavior": "**Answered by you:** \"Start is a bounded grant, read as conforming.\" Drawing the crosswire sends nothing. Start is the person's explicit grant to relay messages between these two conversations and add the cards and wires that show them, until the stop rule fires; it grants nothing else. Board edits either agent proposes still stage through StageFeed; tool approvals still appear on the card; Full access is untouched. Agents cannot start, resume or edit a crosstalk. **Built for now as Step mode:** each finished reply waits on the chip as \"Send to Codex?\" and relays only when you press Send, because an autonomous relay puts agent-authored text into a conversation without your wire into its midpoint (Art. VIII.1). Draft amendment VIII.1a in `docs/audit/amendments/2026-09-27-crosstalk-amendments.md`; ratifying it flips `CROSSTALK_AUTONOMY_RATIFIED` and Start becomes the grant you chose.",
+          "behavior": "**Answered by you:** \"Start is a bounded grant, read as conforming.\" Drawing the crosswire sends nothing. Start is the person's explicit grant to relay messages between these two conversations and add the cards and wires that show them, until the stop rule fires; it grants nothing else. Board edits either agent proposes still stage through StageFeed; tool approvals still appear on the card; Full access is untouched. Agents cannot start, resume or edit a crosstalk. **Built for now as Step mode:** each finished reply waits as a quiet \"Send to Codex\" pill beside the newest wire's blister and relays only when you press it, one click, because an autonomous relay puts agent-authored text into a conversation without your wire into its midpoint (Art. VIII.1). Draft amendment VIII.1a in `docs/audit/amendments/2026-09-27-crosstalk-amendments.md`; ratifying it flips `CROSSTALK_AUTONOMY_RATIFIED`, the only code change, and Start becomes the grant you chose.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
           "decided": "2026-09-27"
         },
         "X11": {
-          "behavior": "A reviewer cannot hold Full access; Start refuses and says why. A builder with Full access runs relayed turns under the provider's default approvals, so approvals surface on the card, unless you tick \"Let <builder> act on <reviewer>'s messages without asking\" in the Start capsule. That tick is stored for this user in `agent-access.json` beside the Full access grant, never in the workbook. A crosstalk never grants Full access by itself. Cursor applies approvals per sidecar, not per turn, so a Cursor builder with Full access needs the tick or Start refuses.",
+          "behavior": "A reviewer cannot hold Full access: Start refuses and says why, and while the crosstalk is live the card's Full access toggle refuses a reviewer the same way, naming the fix (pause and swap roles in the capsule). Swapping roles refuses while the side about to review holds Full access. A builder with Full access runs relayed turns under the provider's default approvals, so approvals surface on the card, unless you tick \"Let <builder> act on <reviewer>'s messages without asking\" in the Start capsule. That tick is stored for this user in `agent-access.json` beside the Full access grant, never in the workbook. A crosstalk never grants Full access by itself. Cursor applies approvals per sidecar, not per turn, so a Cursor builder with Full access needs the tick or Start refuses.",
           "source": "guess",
           "confidence": 55,
           "verdict": "approved",
@@ -5431,7 +5431,7 @@
           "note": "Not individually reviewed: approved under the user's \"looks good, please take it from here\" (27 Sep 2026). Reopen on request."
         },
         "X12": {
-          "behavior": "Roles are chosen in the Start capsule and journaled on the owner wire, per side: Builds (provider default permissions) or Reviews (read-only). The default is Cursor builds and Codex reviews. Codex reviewer turns carry `sandboxPolicy: readOnly` with `approvalPolicy: never`, so it cannot escalate. A Cursor reviewer's sidecar starts with a read-only tool allowlist (read, grep, glob, ls, semantic search, lints) and sends in `plan` mode; a read-only request to a sidecar started with write tools fails closed. Enforcement is provider policy, never a persona in the prompt. Windows enforcement of Codex's sandbox and Cursor's plan mode are unverified locally. Both sides must be bound to the same project folder, or Start refuses with \"Bind Codex to <project>\". A role only restricts, so it may travel in the workbook; grants stay per user.",
+          "behavior": "Roles are chosen in the Start capsule and journaled on the owner wire, per side: Builds (provider default permissions) or Reviews (read-only). The default is Cursor builds and Codex reviews. Codex reviewer turns carry `sandboxPolicy: readOnly` with `approvalPolicy: never`, so it cannot escalate. A Cursor reviewer's sidecar starts with a read-only tool allowlist (read, grep, glob, ls, semantic search, lints) and sends in `plan` mode; a read-only request to a sidecar started with write tools fails closed. Enforcement is provider policy, never a persona in the prompt. A read-only reviewer reports a goal verdict in its reply, not a file (X08). Windows enforcement of Codex's sandbox and Cursor's plan mode are unverified locally. Both sides must be bound to the same project folder, or Start refuses with \"Bind Codex to <project>\". A role only restricts, so it may travel in the workbook; grants stay per user.",
           "source": "research",
           "confidence": 55,
           "verdict": "approved",
@@ -5463,12 +5463,51 @@
           "note": "Not individually reviewed: approved under the user's \"looks good, please take it from here\" (27 Sep 2026). Reopen on request."
         },
         "X16": {
-          "behavior": "Failures pause, never auto-approve. Error: the crosstalk pauses and the chip reads \"Paused · Codex failed\" with Retry, which resends the same relayed message. Timeout: after `crosstalk.turn_timeout_min` (20) the chip reads \"Codex has not answered in 20 min\" and the crosstalk pauses. Needs approval: Allow once / Deny appear on the card and the chip reads \"Waiting for you · Cursor needs approval\"; the time limit stops counting. Partner card deleted: the crosstalk ends; one Undo restores it.",
+          "behavior": "Failures pause, never auto-approve. Error: the crosstalk pauses and the capsule reads \"Paused · Codex failed\" with Retry, which resends the same relayed message. Timeout: after `crosstalk.turn_timeout_min` (20) the capsule reads \"Codex has not answered in 20 min\" and the crosstalk pauses. Needs approval: Allow once / Deny appear on the card and the capsule reads \"Waiting for you · Cursor needs approval\"; the time limit stops counting. Partner card deleted: the crosstalk ends; one Undo restores it.",
           "source": "precedent",
           "confidence": 70,
           "verdict": "approved",
           "decided": "2026-09-27",
           "note": "Not individually reviewed: approved under the user's \"looks good, please take it from here\" (27 Sep 2026). Reopen on request."
+        },
+        "X17": {
+          "behavior": "**Yours, 28 September 2026:** \"everytime a new wire is linked between agents ther should be a subtle blister at the mid span of the wire that when clicked expands to a capsule or node expanded at the mid span of the wire with the wire pluged to its inputs and outputs … accesable from all previously drawn conector wires.\" Every visible crosswire, including ones saved before this, shows a blister at its routed mid-span, derived on paint, never stored. Clicking it (`portal.agent.crosstalk.capsule`) expands it in place into a capsule the wire runs through: its input and output are where the wire enters and leaves the capsule's edge, marked with the card's handle dot. The capsule holds status, roles, and the actions the old chip had (Send, Skip and pause, Pause or Resume, Edit, 5 more turns, Square or Curved wires, Stop). Edit attaches the stop-rule editor beside it. Esc or a click away folds it back. Open or folded is view state, never journaled; every edit inside it is. The old chip and the crosswire's property-strip panel are gone, so there is one surface. Drawn with `selection_tools` (`blister`, `crosstalk_capsule`, `place_popup`) and scaled with the board (P0.9). Ordinary connectors get no blister: their mid-span holds their label, their editor is the selection strip, and they have no running state a capsule would own.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-28",
+          "note": "The user's decision, 28 Sep 2026. No blister on ordinary connectors is the agent's call under it; reopen on request."
+        },
+        "X18": {
+          "behavior": "**Yours, 28 September 2026:** \"for crosstalk lets keep the chat train capsules in there colapsed state. to minimize the visual cluter\". Every new card of a conversation in a crosstalk, relayed or typed, arrives collapsed (`slate_doc::crosstalk::collapses_new_cards`). A person can still open any card by hand, and Slate never collapses it again.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-28"
+        },
+        "X19": {
+          "behavior": "**Yours, 28 September 2026:** \"user should have option to toggle wires to orthognal mode same as with normal wires. look to file atlas orthgnal wire drawing for president on avoiding colissions between wires of multiple nodes particularly when doing many to one bundeling.\" A crosswire routes curved or square through the board's own routing commands and persistence: `board.wire.routing` / `.bezier` / `.orthogonal` toggle the selected wires as one journaled edit, or, with nothing selected, the board's routing for new wires (settings, not journaled). A new link takes the board's routing like any connector; a relay keeps its conversation's newest wire's routing. The capsule's \"Square wires\" / \"Curved wires\" runs the same command on every wire of that conversation. Square crosswires meeting at one port bundle by the File Atlas nested-rail rule, now shared as `vector_ink::rails` and called by both the folder map and `slate_doc::scene_ortho_lanes`: per side of the port, the farthest wire exits outermost along the edge and its trunk runs nearest the port, so wires converging on one card neither touch nor cross a card. The blister, capsule and export follow the routed path in both routings.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-28",
+          "note": "The user's decision, 28 Sep 2026. Extended to every square wire by X21 the same day."
+        },
+        "X20": {
+          "behavior": "Permissions change from the next message. Full access can be toggled while a reply runs; the toast says \"…, from the next message. The reply in progress keeps its permissions.\" A Cursor sidecar restart waits until that conversation's reply finishes. Codex turns carry an explicit sandbox and approval policy only when overriding, and the first turn after an override restores the thread's own settings, read from `thread/start` or `thread/resume` (or the provider default), so a reviewer's read-only turn cannot leak into the builder's next turn.",
+          "source": "pattern",
+          "confidence": 70,
+          "verdict": "approved",
+          "decided": "2026-09-28",
+          "note": "Fixes the user's report that toggling Full access mid-run failed (28 Sep 2026). Real Codex app-server behavior is unverified."
+        },
+        "X21": {
+          "behavior": "**Yours, 28 September 2026:** \"colission avoidence should be best efort. not absolute. alocate a zone for conection where bundeling wires can spred out but once that space is filled up the packing and bundeling simply densifeies with optimaly sorted incoming wires.\" Every square wire, crosstalk or not, bundles by the one rule (P1.wire.rails): each connection has a bounded zone (`slate_doc::CONNECTION_ZONE`: 96 along the edge, 48 deep); lanes sit 10 apart while they fit, then pack evenly denser inside the same zone down to 3; incoming wires are sorted so they do not cross, and a wire goes around a node body where it can. Best effort: the zone never grows and no wire is rerouted far away. The blister stays on each wire's routed mid-span and the export draws the same path.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-28",
+          "note": "The user's decision, 28 Sep 2026. Also recorded on P1.wire.rails and in specs/connectors.md; File Atlas keeps its own spacing and look."
         },
         "F1": {
           "behavior": "**Altered by you:** \"Same red, different places. Red label for Full access. Red text for inter-agent crosstalk. General interpretation: red is for elevated privileges. A visual cue that this is not a typical chat train.\" Full access keeps its red model-name label; a message another agent wrote shows its body text in red with a red sender label. Promoted as **P1.portal.elevated-red**.",

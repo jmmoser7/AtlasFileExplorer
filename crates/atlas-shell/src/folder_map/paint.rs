@@ -12,6 +12,7 @@ use eframe::egui::{
 };
 use std::collections::HashSet;
 use std::path::Path;
+use vector_ink::rails::LaneSpacing;
 
 /// File Atlas default LOD buckets (percent × 0.01 → zoom).
 pub const LOD_MID: usize = 6;
@@ -179,6 +180,18 @@ fn matched(args: &PaintArgs<'_>, i: usize) -> bool {
     args.file_match.get(i).copied().unwrap_or(true)
 }
 
+/// Leader fan along the folder card's edge. No floor: the folder map packs
+/// as tight as its room.
+const LEADER_EXITS: LaneSpacing = LaneSpacing {
+    preferred: 4.0,
+    min: 0.0,
+};
+/// Leader turn depth steps out from the card.
+const LEADER_RAILS: LaneSpacing = LaneSpacing {
+    preferred: 8.0,
+    min: 0.0,
+};
+
 fn paint_branch<M: MapMedia>(
     painter: &Painter,
     tree: &Tree,
@@ -229,37 +242,25 @@ fn paint_branch<M: MapMedia>(
         let (p_b, p_d) = if v { (py, px) } else { (px, py) };
         let breadth = |t: &Pos2| if v { t.y } else { t.x };
         let depth_of = |t: &Pos2| if v { t.x } else { t.y };
-        let mut neg: Vec<(f32, usize)> = Vec::new();
-        let mut pos: Vec<(f32, usize)> = Vec::new();
-        for (i, tp) in targets.iter().enumerate() {
-            let db = breadth(tp) - p_b;
-            if db > 0.5 {
-                pos.push((db, i));
-            } else if db < -0.5 {
-                neg.push((-db, i));
-            }
-        }
+        let offsets: Vec<f32> = targets.iter().map(|t| breadth(t) - p_b).collect();
+        let rails = vector_ink::rails::nested_rails(&offsets, 0.5);
         let exit_limit = ((if v { d.h } else { d.w }) / 2.0 - 8.0).max(2.0);
-        for (mut list, sign) in [(neg, -1.0f32), (pos, 1.0f32)] {
-            if list.is_empty() {
-                continue;
-            }
-            list.sort_by(|a, b| b.0.total_cmp(&a.0));
-            let n = list.len() as f32;
-            let exit_gap = 4.0f32.min(exit_limit / n);
-            let min_td = list
-                .iter()
-                .map(|&(_, i)| depth_of(&targets[i]))
-                .fold(f32::INFINITY, f32::min);
-            let avail = (min_td - p_d - 16.0 - 14.0).max(0.0);
-            let rail_gap = if n > 1.0 {
-                8.0f32.min(avail / (n - 1.0))
-            } else {
-                8.0
+        for sign in [-1.0f32, 1.0f32] {
+            let side = || {
+                rails
+                    .iter()
+                    .enumerate()
+                    .filter_map(move |(i, r)| r.filter(|r| r.side == sign).map(|r| (i, r)))
             };
-            for (r, &(_, i)) in list.iter().enumerate() {
-                let exit = p_b + sign * (n - r as f32) * exit_gap;
-                let rail = (p_d + 16.0 + r as f32 * rail_gap)
+            let min_td = side()
+                .map(|(i, _)| depth_of(&targets[i]))
+                .fold(f32::INFINITY, f32::min);
+            for (i, rail) in side() {
+                let exit_gap = LEADER_EXITS.fit(rail.count, exit_limit);
+                let avail = (min_td - p_d - 16.0 - 14.0).max(0.0);
+                let rail_gap = LEADER_RAILS.fit(rail.count - 1, avail);
+                let exit = p_b + rail.exit(exit_gap);
+                let rail = (p_d + 16.0 + rail.rank as f32 * rail_gap)
                     .min(depth_of(&targets[i]) - 12.0)
                     .max(p_d + 4.0);
                 routes[i] = Some((exit, rail));

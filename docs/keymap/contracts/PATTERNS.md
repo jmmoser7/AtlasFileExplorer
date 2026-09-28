@@ -645,9 +645,22 @@ is searchable.
   for an ellipse), not the world AABB. Sibling rails take the fan side
   their dest already sits on (no-crossover); a dead zone around the
   port centre plus connector id as the remaining tie-break stops the
-  sign from flipping while a dest is dragged across. Geometry stays
-  derived (Art. VI.3). Implementation: `slate_doc::scene_ortho_lanes`,
-  `ORTHO_RAIL_GAP` / `ORTHO_EXIT_GAP`.
+  sign from flipping while a dest is dragged across. Per side the
+  farthest wire exits outermost and turns nearest the port (the File
+  Atlas leader rule), so converging wires arrive sorted. **User, 28
+  September 2026:** "colission avoidence should be best efort. not
+  absolute. alocate a zone for conection where bundeling wires can
+  spred out but once that space is filled up the packing and bundeling
+  simply densifeies with optimaly sorted incoming wires." Each
+  connection has a bounded zone; lanes sit at the preferred spacing
+  while they fit and pack evenly denser inside the same zone down to a
+  floor; crossings and node bodies are avoided where a route exists,
+  never by growing the zone or rerouting far away. Normal connectors
+  and crosstalk wires share it; File Atlas passes its own spacing
+  (no floor) and looks as before. Geometry stays derived (Art. VI.3).
+  Implementation: `vector_ink::rails` (`nested_rails`, `LaneSpacing`,
+  `ConnectionZone`), `slate_doc::scene_ortho_lanes`, tokens in
+  `slate_doc::CONNECTION_ZONE`.
 
 ### P1.text / P1.image
 

@@ -1,4 +1,4 @@
-﻿//! Derived connector geometry: the bezier span and an obstacle-aware
+//! Derived connector geometry: the bezier span and an obstacle-aware
 //! orthogonal (PCB-trace) router.
 //!
 //! Geometry is never stored — both interpreters (the egui board painter and
@@ -17,6 +17,7 @@ use crate::wire_host::WireHost;
 use crate::NodeId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use vector_ink::rails::{nested_rails, ConnectionZone, LaneSpacing};
 
 /// Authored connector routing. The session preference is only the creation
 /// default and a fallback for legacy connectors without an explicit route.
@@ -48,10 +49,18 @@ impl WireRouting {
 pub const ORTHO_CORNER_RADIUS: f32 = 8.0;
 /// Preferred gutter past a host edge, in world units.
 pub const ORTHO_CLEARANCE: f32 = 12.0;
-/// Parallel-rail spacing for bundled orthogonal wires (File Atlas nested rails).
-pub const ORTHO_RAIL_GAP: f32 = 10.0;
-/// Fan spacing along a shared port edge.
-pub const ORTHO_EXIT_GAP: f32 = 8.0;
+/// Where square wires arriving at one side of a node spread out, in world
+/// units: the one place to tune bundling (user, 28 September 2026). Lanes
+/// sit `spacing.preferred` apart while they fit and pack evenly denser
+/// inside the same zone, down to `spacing.min`.
+pub const CONNECTION_ZONE: ConnectionZone = ConnectionZone {
+    width: 96.0,
+    depth: 48.0,
+    spacing: LaneSpacing {
+        preferred: 10.0,
+        min: 3.0,
+    },
+};
 /// Dest must clear the port centre by this many world units before it
 /// claims a fan side. Inside the band the wire stays on the port mid
 /// (no sign flip while a dest is dragged across its sibling).
@@ -89,6 +98,11 @@ pub struct OrthoLane {
     pub end_along: f32,
     /// Mid-span rail offset from the preferred midpoint jive.
     pub rail: f32,
+    /// A nested bundle's trunk, in world units: the horizontal run's y or
+    /// the vertical run's x, measured from the shared port (File Atlas
+    /// nested rails, `vector_ink::rails`). Replaces the midpoint jive.
+    pub trunk_x: Option<f32>,
+    pub trunk_y: Option<f32>,
 }
 
 const EPS: f32 = 0.35;
@@ -177,14 +191,16 @@ pub fn scene_wire_obstacles(scene: &Scene) -> Vec<WireObstacle> {
         .collect()
 }
 
-/// File Atlas nested-rail assignment: wires that share a port fan along
-/// that edge and take parallel mid-span rails so they do not stack.
+/// File Atlas nested-rail assignment for every square wire (user, 28
+/// September 2026): wires that share a port fan along that edge, the
+/// farthest exiting outermost with its trunk nearest the port, so wires
+/// converging on one node do not cross or stack.
 ///
 /// Each dest claims the fan side it already sits on (the sign of its
-/// projection on the port tangent). That is the no-crossover rule —
-/// an upper dest never takes the lower rail. A dead zone around the
-/// port centre keeps the sign from flipping while a dest is dragged
-/// across the mid. Connector id only breaks a true tie.
+/// projection on the port tangent). A dead zone around the port centre
+/// keeps the sign from flipping while a dest is dragged across the mid.
+/// Spacing follows [`CONNECTION_ZONE`]: best effort, never a bigger zone.
+/// Connector id only breaks a true tie.
 pub fn scene_ortho_lanes(scene: &Scene) -> HashMap<NodeId, OrthoLane> {
     struct Item {
         id: NodeId,
@@ -228,14 +244,17 @@ pub fn scene_ortho_lanes(scene: &Scene) -> HashMap<NodeId, OrthoLane> {
         }
     }
 
-    struct RailPick {
+    struct TrunkPick {
         size: usize,
-        rail: f32,
+        /// The port faces up or down, so the trunk is a y; else an x.
+        vertical: bool,
+        at: f32,
         node: u64,
         side: u8,
     }
-    let mut rail_from: HashMap<NodeId, RailPick> = HashMap::new();
-    for ((node, side), group) in ports {
+    let zone = CONNECTION_ZONE;
+    let mut trunk_from: HashMap<NodeId, TrunkPick> = HashMap::new();
+    for ((node, side), mut group) in ports {
         if group.len() < 2 {
             continue;
         }
@@ -251,47 +270,59 @@ pub fn scene_ortho_lanes(scene: &Scene) -> HashMap<NodeId, OrthoLane> {
         } else {
             48.0
         };
-        let max_along = (edge_len * 0.5 - 6.0).max(ORTHO_EXIT_GAP);
-        let gap = ORTHO_EXIT_GAP.min(max_along / (group.len() as f32 * 0.5).max(1.0));
+        let half = (zone.width * 0.5)
+            .min(edge_len * 0.5 - 6.0)
+            .max(zone.spacing.min);
         let size = group.len();
         let key = (node.0, side_ord(side));
-
-        let mut pos: Vec<(f32, NodeId, bool)> = Vec::new();
-        let mut neg: Vec<(f32, NodeId, bool)> = Vec::new();
-        for (cid, end_b, other) in &group {
-            let dot = (other[0] - origin[0]) * tan[0] + (other[1] - origin[1]) * tan[1];
-            if dot > LANE_LOCK {
-                pos.push((dot, *cid, *end_b));
-            } else if dot < -LANE_LOCK {
-                neg.push((-dot, *cid, *end_b));
-            }
-            // |dot| ≤ LANE_LOCK: leave on the port mid. No sign to flip.
-        }
-        // Longest run first (File Atlas) so nested rails stay crossing-free;
-        // id is the tie-break when two dests share a breadth.
-        for list in [&mut pos, &mut neg] {
-            list.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1 .0.cmp(&b.1 .0)));
-        }
-
-        let assign = |lanes: &mut HashMap<NodeId, OrthoLane>,
-                      rail_from: &mut HashMap<NodeId, RailPick>,
-                      list: &[(f32, NodeId, bool)],
-                      sign: f32| {
-            for (r, &(_, cid, end_b)) in list.iter().enumerate() {
-                let along = sign * (r as f32 + 1.0) * gap;
+        group.sort_by_key(|(cid, end_b, _)| (cid.0, *end_b));
+        let dot = |p: [f32; 2], axis: [f32; 2]| {
+            (p[0] - origin[0]) * axis[0] + (p[1] - origin[1]) * axis[1]
+        };
+        let offsets: Vec<f32> = group.iter().map(|(_, _, o)| dot(*o, tan)).collect();
+        let rails = nested_rails(&offsets, LANE_LOCK);
+        // One even spacing along the edge for both sides, from the fuller one.
+        let fullest = rails.iter().flatten().map(|r| r.count).max().unwrap_or(0);
+        let along = zone.spacing.fit(fullest, half);
+        let vertical = out[1].abs() >= out[0].abs();
+        let (depth, away) = if vertical {
+            (origin[1], out[1].signum())
+        } else {
+            (origin[0], out[0].signum())
+        };
+        for sign in [-1.0f32, 1.0] {
+            let members: Vec<usize> = (0..group.len())
+                .filter(|&i| rails[i].is_some_and(|r| r.side == sign))
+                .collect();
+            let Some(first) = members.first().and_then(|&i| rails[i]) else {
+                continue;
+            };
+            // Trunks turn inside the zone's depth and short of the nearest
+            // far end on this side.
+            let nearest = members
+                .iter()
+                .map(|&i| dot(group[i].2, out))
+                .fold(f32::INFINITY, f32::min);
+            let room = zone.depth.min(nearest - ORTHO_CLEARANCE * 3.0).max(0.0);
+            let step = zone.spacing.fit(first.count - 1, room);
+            for &i in &members {
+                let (cid, end_b, _) = group[i];
+                let rail = rails[i].unwrap();
                 let lane = lanes.entry(cid).or_default();
                 if end_b {
-                    lane.end_along = along;
+                    lane.end_along = rail.exit(along);
                 } else {
-                    lane.start_along = along;
+                    lane.start_along = rail.exit(along);
                 }
-                let pick = RailPick {
+                let reach = ORTHO_CLEARANCE * 2.0 + step * rail.rank as f32;
+                let pick = TrunkPick {
                     size,
-                    rail: sign * (r as f32 + 1.0) * ORTHO_RAIL_GAP,
+                    vertical,
+                    at: depth + away * reach,
                     node: key.0,
                     side: key.1,
                 };
-                let take = match rail_from.get(&cid) {
+                let take = match trunk_from.get(&cid) {
                     Some(old) => {
                         pick.size > old.size
                             || (pick.size == old.size
@@ -300,15 +331,18 @@ pub fn scene_ortho_lanes(scene: &Scene) -> HashMap<NodeId, OrthoLane> {
                     None => true,
                 };
                 if take {
-                    rail_from.insert(cid, pick);
+                    trunk_from.insert(cid, pick);
                 }
             }
-        };
-        assign(&mut lanes, &mut rail_from, &pos, 1.0);
-        assign(&mut lanes, &mut rail_from, &neg, -1.0);
+        }
     }
-    for (cid, pick) in rail_from {
-        lanes.entry(cid).or_default().rail = pick.rail;
+    for (cid, pick) in trunk_from {
+        let lane = lanes.entry(cid).or_default();
+        if pick.vertical {
+            lane.trunk_y = Some(pick.at);
+        } else {
+            lane.trunk_x = Some(pick.at);
+        }
     }
     lanes
 }
@@ -462,7 +496,7 @@ pub fn connector_ortho_path(
     let solids = host_solids(&hosts, &others);
     let s_stub = escape_stub(p0, dir_a, &solids);
     let e_stub = escape_stub(p3, dir_b, &solids);
-    let tiers = path_tiers(p0, s_stub, p3, e_stub, &solids, lane.rail, dir_a, dir_b);
+    let tiers = path_tiers(p0, s_stub, p3, e_stub, &solids, lane, dir_a, dir_b);
 
     for tier in &tiers {
         let pts = if tier.first_wins {
@@ -754,9 +788,8 @@ pub fn filleted_vertex_path_params_each(
         // A closed path's first corner is reached along its closing edge,
         // whose far end is parameter `n`.
         let arrive_corner = if i == 0 { param(n) } else { param(i) };
-        let toward = |edge: f32, corner: f32, angle: f32| {
-            edge + (corner - edge) * (angle.tan() / half_tan)
-        };
+        let toward =
+            |edge: f32, corner: f32, angle: f32| edge + (corner - edge) * (angle.tan() / half_tan);
         let from = sub(a, center);
         let mut p0 = a;
         for k in 1..=pieces {
@@ -965,12 +998,21 @@ fn path_tiers(
     e_anchor: [f32; 2],
     e_stub: [f32; 2],
     solids: &[Solid],
-    rail: f32,
+    lane: OrthoLane,
     dir_a: Option<[f32; 2]>,
     dir_b: Option<[f32; 2]>,
 ) -> Vec<PathTier> {
-    let mid_x = trunk_between((s_stub[0] + e_stub[0]) * 0.5 + rail, s_stub[0], e_stub[0]);
-    let mid_y = trunk_between((s_stub[1] + e_stub[1]) * 0.5 + rail, s_stub[1], e_stub[1]);
+    let rail = lane.rail;
+    let mid_x = trunk_between(
+        lane.trunk_x.unwrap_or((s_stub[0] + e_stub[0]) * 0.5 + rail),
+        s_stub[0],
+        e_stub[0],
+    );
+    let mid_y = trunk_between(
+        lane.trunk_y.unwrap_or((s_stub[1] + e_stub[1]) * 0.5 + rail),
+        s_stub[1],
+        e_stub[1],
+    );
     let vhv = vec![
         s_anchor,
         s_stub,
@@ -996,8 +1038,15 @@ fn path_tiers(
     // When both ends leave vertically, a vertical mid-trunk cannot
     // swallow the stubs — the path reads as a 5-leg stair. Prefer the
     // horizontal trunk so leave + approach collapse into three legs.
-    let prefer_vhv = (leave_vert(dir_a) && leave_vert(dir_b))
-        || (!(leave_horz(dir_a) && leave_horz(dir_b)) && dy > dx + AXIS_LOCK);
+    // A bundle's trunk decides: its lanes only hold if the wire turns there.
+    let prefer_vhv = match (lane.trunk_x, lane.trunk_y) {
+        (Some(_), None) => false,
+        (None, Some(_)) => true,
+        _ => {
+            (leave_vert(dir_a) && leave_vert(dir_b))
+                || (!(leave_horz(dir_a) && leave_horz(dir_b)) && dy > dx + AXIS_LOCK)
+        }
+    };
     let mid_jive = if prefer_vhv {
         vec![vhv, hvh]
     } else {
@@ -2181,8 +2230,8 @@ mod tests {
             "lower dest must take the downward fan: {to_lower:?}"
         );
         assert!(
-            to_upper.rail > 0.0 && to_lower.rail < 0.0,
-            "rail sign follows the dest, not the connector id: {to_upper:?} {to_lower:?}"
+            to_upper.trunk_x.is_some() && to_lower.trunk_x.is_some(),
+            "both turn on a nested trunk out from the right port: {to_upper:?} {to_lower:?}"
         );
     }
 

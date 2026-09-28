@@ -27,6 +27,7 @@ pub struct Client {
     approval_dir: Option<std::path::PathBuf>,
     /// The person's full-access grant for this conversation (atlas-ai `access`).
     full_access: bool,
+    permissions: TurnPermissions,
     /// Where image runs copy their pictures, outside Codex's own folder.
     image_dir: Option<std::path::PathBuf>,
     /// The folder Codex runs in; fresh threads for one-shot runs start here.
@@ -52,7 +53,8 @@ pub fn thread_params(cwd: &Path, thread: Option<&str>) -> Value {
 }
 
 /// Without a grant the provider's own approval and sandbox settings apply.
-/// A read-only turn overrides the grant.
+/// A read-only turn overrides the grant. `restore` puts the thread's own
+/// settings back on a turn that follows an override ([`Permissions`]).
 pub fn turn_params(
     thread: &str,
     input: Vec<Value>,
@@ -60,19 +62,87 @@ pub fn turn_params(
     model: Option<&str>,
     policy: TurnPolicy,
     full_access: bool,
+    restore: Option<&Permissions>,
 ) -> Value {
     let mut p =
         json!({"threadId":thread,"input":input,"clientUserMessageId":request,"model":model});
-    let sandbox = match policy {
+    if let Some(sandbox) = turn_override(policy, full_access) {
+        p["approvalPolicy"] = json!("never");
+        p["sandboxPolicy"] = json!({ "type": sandbox });
+    } else if let Some(own) = restore {
+        p["approvalPolicy"] = own.approval.clone();
+        p["sandboxPolicy"] = own.sandbox.clone();
+    }
+    p
+}
+
+fn turn_override(policy: TurnPolicy, full_access: bool) -> Option<&'static str> {
+    match policy {
         TurnPolicy::ReadOnly => Some("readOnly"),
         TurnPolicy::Default if full_access => Some("dangerFullAccess"),
         TurnPolicy::Default => None,
-    };
-    if let Some(sandbox) = sandbox {
-        p["approvalPolicy"] = json!("never");
-        p["sandboxPolicy"] = json!({ "type": sandbox });
     }
-    p
+}
+
+/// A thread's own approval and sandbox settings, as `thread/start` or
+/// `thread/resume` reported them. Codex keeps a turn's overrides for the
+/// turns after it, so a turn that should run under the provider's settings
+/// after a read-only or full-access turn sends these back explicitly.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Permissions {
+    pub approval: Value,
+    pub sandbox: Value,
+}
+
+impl Permissions {
+    pub fn from_thread_response(response: &Value) -> Option<Self> {
+        let approval = response.get("approvalPolicy").filter(|v| !v.is_null())?;
+        let sandbox = match response.get("sandbox")? {
+            Value::String(mode) => json!({ "type": match mode.as_str() {
+                "read-only" => "readOnly",
+                "workspace-write" => "workspaceWrite",
+                "danger-full-access" => "dangerFullAccess",
+                other => other,
+            } }),
+            object @ Value::Object(_) => object.clone(),
+            _ => return None,
+        };
+        Some(Self {
+            approval: approval.clone(),
+            sandbox,
+        })
+    }
+
+    /// Codex's own defaults, for a thread that did not report its settings:
+    /// ask before acting, write only inside the workspace.
+    pub fn provider_default() -> Self {
+        Self {
+            approval: json!("on-request"),
+            sandbox: json!({ "type": "workspaceWrite" }),
+        }
+    }
+}
+
+/// Which settings each turn of one thread sends. Only a turn after an
+/// override restores; a thread that was never overridden sends nothing.
+#[derive(Clone, Debug, Default)]
+pub struct TurnPermissions {
+    pub own: Option<Permissions>,
+    overridden: bool,
+}
+
+impl TurnPermissions {
+    /// The `restore` argument of [`turn_params`] for the next turn.
+    pub fn next(&mut self, policy: TurnPolicy, full_access: bool) -> Option<Permissions> {
+        let overrides = turn_override(policy, full_access).is_some();
+        let restore = (!overrides && self.overridden).then(|| {
+            self.own
+                .clone()
+                .unwrap_or_else(Permissions::provider_default)
+        });
+        self.overridden = overrides;
+        restore
+    }
 }
 
 impl Client {
@@ -141,6 +211,7 @@ impl Client {
             thread: String::new(),
             approval_dir: None,
             full_access: false,
+            permissions: TurnPermissions::default(),
             image_dir: None,
             cwd: cwd.to_path_buf(),
         };
@@ -234,6 +305,7 @@ impl Client {
             .and_then(Value::as_str)
             .ok_or("Codex did not return a conversation id")?
             .into();
+        c.permissions.own = Permissions::from_thread_response(&response);
         Ok(c)
     }
     pub fn set_approval_dir(&mut self, path: &Path) {
@@ -243,7 +315,8 @@ impl Client {
     pub fn set_image_dir(&mut self, dir: std::path::PathBuf) {
         self.image_dir = Some(dir);
     }
-    /// Applies from the next turn; the thread keeps its provider configuration.
+    /// Applies from the next turn, which also restores the thread's own
+    /// settings when the grant is withdrawn ([`TurnPermissions`]).
     pub fn set_full_access(&mut self, on: bool) {
         self.full_access = on;
     }
@@ -300,6 +373,10 @@ impl Client {
                 .and_then(Value::as_str)
                 .ok_or("Codex did not return a conversation id")?
                 .into();
+            self.permissions = TurnPermissions {
+                own: Permissions::from_thread_response(&response),
+                ..Default::default()
+            };
         }
         // An image run asks the built-in image tool for pictures and collects
         // them from Codex's generated-images folder as they appear.
@@ -335,6 +412,7 @@ impl Client {
         for path in attached {
             input.push(json!({"type":"localImage","path":path}));
         }
+        let restore = self.permissions.next(request.policy, self.full_access);
         let result = self.rpc(
             "turn/start",
             turn_params(
@@ -344,6 +422,7 @@ impl Client {
                 request.model.as_deref(),
                 request.policy,
                 self.full_access,
+                restore.as_ref(),
             ),
         )?;
         let turn = result
@@ -819,19 +898,104 @@ mod tests {
 
     #[test]
     fn full_access_is_per_turn_and_absent_without_a_grant() {
-        let asks = turn_params("t", vec![], "r", Some("gpt"), TurnPolicy::Default, false);
+        let asks = turn_params(
+            "t",
+            vec![],
+            "r",
+            Some("gpt"),
+            TurnPolicy::Default,
+            false,
+            None,
+        );
         assert!(asks.get("approvalPolicy").is_none());
         assert!(asks.get("sandboxPolicy").is_none());
-        let full = turn_params("t", vec![], "r", Some("gpt"), TurnPolicy::Default, true);
+        let full = turn_params(
+            "t",
+            vec![],
+            "r",
+            Some("gpt"),
+            TurnPolicy::Default,
+            true,
+            None,
+        );
         assert_eq!(full["approvalPolicy"], "never");
         assert_eq!(full["sandboxPolicy"]["type"], "dangerFullAccess");
         assert_eq!(full["threadId"], "t");
     }
 
+    /// First hands-on use, 28 September 2026: Codex overrides persist on the
+    /// thread, so a turn after a read-only or full-access turn must put the
+    /// thread's own settings back, or it silently keeps the last override.
+    #[test]
+    fn a_turn_after_an_override_restores_the_threads_own_settings() {
+        let own = Permissions::from_thread_response(&json!({
+            "thread": {"id": "t"},
+            "approvalPolicy": "on-request",
+            "sandbox": {"type": "workspaceWrite", "networkAccess": false}
+        }))
+        .expect("the thread reports its settings");
+        let mut turns = TurnPermissions {
+            own: Some(own.clone()),
+            ..Default::default()
+        };
+        let send = |turns: &mut TurnPermissions, policy, full| {
+            let restore = turns.next(policy, full);
+            turn_params("t", vec![], "r", None, policy, full, restore.as_ref())
+        };
+        let first = send(&mut turns, TurnPolicy::Default, false);
+        assert!(
+            first.get("sandboxPolicy").is_none(),
+            "never overridden: nothing sent"
+        );
+        let review = send(&mut turns, TurnPolicy::ReadOnly, false);
+        assert_eq!(review["sandboxPolicy"]["type"], "readOnly");
+        let after_review = send(&mut turns, TurnPolicy::Default, false);
+        assert_eq!(after_review["approvalPolicy"], "on-request");
+        assert_eq!(after_review["sandboxPolicy"], own.sandbox);
+        let steady = send(&mut turns, TurnPolicy::Default, false);
+        assert!(steady.get("sandboxPolicy").is_none(), "restored once");
+        let full = send(&mut turns, TurnPolicy::Default, true);
+        assert_eq!(full["sandboxPolicy"]["type"], "dangerFullAccess");
+        let withdrawn = send(&mut turns, TurnPolicy::Default, false);
+        assert_eq!(
+            withdrawn["approvalPolicy"], "on-request",
+            "withdrawing Full access applies from the next message"
+        );
+
+        let mut unknown = TurnPermissions::default();
+        unknown.next(TurnPolicy::Default, true);
+        assert_eq!(
+            unknown.next(TurnPolicy::Default, false),
+            Some(Permissions::provider_default()),
+            "a thread that did not report its settings falls back to asking"
+        );
+        assert_eq!(
+            Permissions::from_thread_response(&json!({
+                "approvalPolicy": "never",
+                "sandbox": "read-only"
+            }))
+            .map(|p| p.sandbox),
+            Some(json!({"type": "readOnly"}))
+        );
+        assert_eq!(
+            Permissions::from_thread_response(&json!({"thread": {}})),
+            None
+        );
+    }
+
     #[test]
     fn a_read_only_turn_is_sandboxed_and_outranks_full_access() {
         for full_access in [false, true] {
-            let p = turn_params("t", vec![], "r", None, TurnPolicy::ReadOnly, full_access);
+            let own = Permissions::provider_default();
+            let p = turn_params(
+                "t",
+                vec![],
+                "r",
+                None,
+                TurnPolicy::ReadOnly,
+                full_access,
+                Some(&own),
+            );
             assert_eq!(p["approvalPolicy"], "never");
             assert_eq!(
                 p["sandboxPolicy"],

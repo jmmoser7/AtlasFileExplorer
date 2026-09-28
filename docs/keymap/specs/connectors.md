@@ -50,10 +50,16 @@ Rules:
     is clear. An L, a wrap, a stair, or a 45° cut runs only if the
     three-leg hits a host — never as a same-length alternative (that
     flicker is a spaz). Sibling wires that share a source or destination
-    fan along the port and take parallel rails (`ORTHO_EXIT_GAP` /
-    `ORTHO_RAIL_GAP`) so they do not stack. Each dest claims the fan
-    side it already sits on (no-crossover); a dead zone around the
-    port centre keeps that sign from flipping during a drag. Collision uses each host's
+    bundle by the File Atlas nested-rail rule (`vector_ink::rails`):
+    each dest claims the fan side it already sits on, and per side the
+    farthest exits outermost along the edge and turns nearest the port,
+    so converging wires arrive sorted and do not cross. A dead zone
+    around the port centre keeps that sign from flipping during a drag.
+    Spacing is best effort inside a bounded connection zone
+    (`CONNECTION_ZONE`: 96 wide along the edge, 48 deep, lanes 10 apart,
+    packing evenly down to 3 when full); the zone never grows and no
+    wire is rerouted far away to keep its spacing (user, 28 September
+    2026). Collision uses each host's
     oriented silhouette (box, or the oval for an ellipse), not the
     world AABB. Equal-length ties prefer the right-hand path, then the
     bottom path. Corner fillets match File Atlas PCB-trace wires

@@ -297,9 +297,15 @@ message. The drag is the wire gesture (`board_wire.rs`) with a crosstalk port
 as its grip; a relay is `send_agent_prompt` on the partner's tail with the
 reply as its text, merged into one journal group authored by the sending
 agent (`SceneJournal::merge_since`). Running state is derived in
-`CrosstalkUi`. Relays are Step mode (Send on the wire's chip) until
-amendment VIII.1a is ratified: `CROSSTALK_AUTONOMY_RATIFIED`. The editor is
-`selection_tools::crosstalk_editor` in the selected wire's property strip.
+`CrosstalkUi`. Relays are Step mode (a Send pill beside the newest wire's
+blister) until amendment VIII.1a is ratified: `CROSSTALK_AUTONOMY_RATIFIED`.
+Every crosswire's controls are a blister at its routed mid-span that opens a
+capsule the wire runs through (`paint_crosstalk`, `selection_tools`); which
+capsule is open is view state in `CrosstalkUi`, and Edit attaches
+`selection_tools::crosstalk_editor` beside it. Crosswires route curved or
+square through the board's `board.wire.*` commands; square ones bundle at a
+shared port on `slate_doc::wire` lanes built by `vector_ink::rails`, the rule
+the File Atlas folder map uses.
 
 ### Web portals (`board_web.rs`, `board_web_win.rs`)
 

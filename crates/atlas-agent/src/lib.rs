@@ -116,6 +116,10 @@ pub struct GoalTurn {
     pub goal: String,
     /// true: this side claims the goal (the builder); false: it judges a claim (the reviewer).
     pub claims: bool,
+    /// A read-only turn cannot write `return.json`, so it reports the verdict
+    /// as the last line of its reply ([`goal_in_reply`]).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub in_reply: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -340,6 +344,22 @@ pub const GOAL_MARKER: &str = "\n\nCrosstalk goal:\n";
 /// with "Goal: " ([`display_prompt`] validates the suffix by it).
 /// TWIN: `docs/agent/cursor-sidecar/artifacts.mjs` `goalGuide`.
 pub fn goal_guide_in(goal: &GoalTurn, link_dir: Option<&str>) -> String {
+    if goal.in_reply {
+        let report = if goal.claims {
+            "When you believe this goal is met, end your reply with this line"
+        } else {
+            "Another agent claims this goal is met when its message says so. Judge that claim and end your reply with this line"
+        };
+        let status = if goal.claims {
+            "met"
+        } else {
+            "met\"|\"not_met"
+        };
+        return format!(
+            "Goal: {}\n{report}, and nothing after it: {GOAL_REPLY_PREFIX}{{\"status\":\"{status}\",\"reason\":\"one line\"}}. Do not write files for it.",
+            goal.goal.trim()
+        );
+    }
     let at = return_at(link_dir);
     let report = if goal.claims {
         format!("When you believe this goal is met, add \"goal\":{{\"status\":\"met\",\"reason\":\"one line\"}} to {at} for this message.")
@@ -350,6 +370,19 @@ pub fn goal_guide_in(goal: &GoalTurn, link_dir: Option<&str>) -> String {
         "Goal: {}\n{report} \"items\" may be empty when you only report the goal.",
         goal.goal.trim()
     )
+}
+
+/// Leads the verdict line a read-only turn ends its reply with.
+/// TWIN: `docs/agent/cursor-sidecar/artifacts.mjs` `GOAL_REPLY_PREFIX`.
+pub const GOAL_REPLY_PREFIX: &str = "Slate goal: ";
+
+/// The verdict a read-only turn reported: its reply's last non-empty line,
+/// exactly [`GOAL_REPLY_PREFIX`] and a [`GoalVerdict`] object. Anything else,
+/// anywhere else in the reply, is prose and reports nothing.
+pub fn goal_in_reply(reply: &str) -> Option<GoalVerdict> {
+    let last = reply.lines().rev().find(|l| !l.trim().is_empty())?.trim();
+    let last = last.trim_matches('`').trim();
+    serde_json::from_str(last.strip_prefix(GOAL_REPLY_PREFIX)?.trim()).ok()
 }
 
 /// Script the web host runs in a local dashboard so a wired table is visible.
@@ -1084,6 +1117,7 @@ mod prompt_tests {
         builder.goal = Some(GoalTurn {
             goal: " The chart loads the CSV ".into(),
             claims: true,
+            in_reply: false,
         });
         builder.inputs.wired = vec![ContextItem {
             node: 1,
@@ -1120,11 +1154,62 @@ mod prompt_tests {
             &GoalTurn {
                 goal: "g".into(),
                 claims: false,
+                in_reply: false,
             },
             None,
         );
         assert!(judge.contains("\"status\":\"met\"|\"not_met\""));
         assert!(judge.contains("to return.json beside session.json for this message"));
+    }
+
+    /// First hands-on use, 28 September 2026: a read-only reviewer's
+    /// `return.json` write was refused by its sandbox, so it reports the
+    /// verdict as the reply's last line instead, and never writes a file.
+    #[test]
+    fn a_read_only_turn_reports_its_verdict_in_the_reply() {
+        let judge = GoalTurn {
+            goal: "tests pass".into(),
+            claims: false,
+            in_reply: true,
+        };
+        let guide = goal_guide_in(&judge, Some("C:/ws/.atlas-ai/agent/s1"));
+        assert!(guide.starts_with("Goal: tests pass\n"), "{guide}");
+        assert!(guide.contains("Slate goal: {\"status\":\"met\"|\"not_met\""));
+        assert!(!guide.contains("return.json"), "{guide}");
+        let mut request = request(None);
+        request.goal = Some(judge.clone());
+        assert_eq!(display_prompt(&request.input_text()), "make a chart");
+        assert!(serde_json::to_string(&request)
+            .unwrap()
+            .contains("\"in_reply\":true"));
+        let plain = GoalTurn {
+            in_reply: false,
+            ..judge
+        };
+        assert!(!serde_json::to_string(&plain).unwrap().contains("in_reply"));
+
+        assert_eq!(
+            goal_in_reply(
+                "Looks right.\n\nSlate goal: {\"status\":\"met\",\"reason\":\"tests pass\"}\n"
+            ),
+            Some(GoalVerdict {
+                status: GoalStatus::Met,
+                reason: "tests pass".into()
+            })
+        );
+        assert_eq!(
+            goal_in_reply("`Slate goal: {\"status\":\"not_met\"}`").map(|v| v.status),
+            Some(GoalStatus::NotMet)
+        );
+        for prose in [
+            "The goal is met.",
+            "Slate goal: {\"status\":\"met\"}\nbut one more thing",
+            "Slate goal: met",
+            "Slate goal: {\"status\":\"done\"}",
+            "",
+        ] {
+            assert_eq!(goal_in_reply(prose), None, "{prose:?}");
+        }
     }
 
     #[test]

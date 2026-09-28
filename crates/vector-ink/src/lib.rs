@@ -17,6 +17,7 @@ mod geom;
 mod grain;
 mod hit;
 mod mesh;
+pub mod rails;
 mod smooth;
 mod stamp;
 mod stroke;
@@ -137,11 +138,11 @@ pub use edit::{
 };
 pub use fit::{fit_polyline, fit_polyline_spaced};
 pub use flatten::{flatten, flatten_contours};
+pub use grain::warm_grain_fields;
 pub use hit::hit_stroke;
 pub use smooth::{
     curvature_variance, laplacian_smooth_pass, laplacian_smooth_spline, radial_weight,
 };
-pub use grain::warm_grain_fields;
 pub use stamp::{
     apply_erase, clear_stamp_box, default_pixel, erase_coverage_at, finish_grain, finished_region,
     grain_coverage, multiply_by_mask, over_px, stamp_blurred, stamp_contours, stamp_contours_at,
@@ -161,6 +162,5 @@ pub use trim::{
     boolean_difference, boolean_intersection, boolean_union, boolean_union_all,
     closest_polyline_span, extend_polyline_end, fill_triangles, infinite_line, point_in_mesh,
     point_in_polygon, slice_closed_by_line, slice_closed_by_path, split_closed,
-    split_open_at_cutters,
-    trim_closed_at_click, Cutter, Polygon, SpanHit, TrimPolys,
+    split_open_at_cutters, trim_closed_at_click, Cutter, Polygon, SpanHit, TrimPolys,
 };

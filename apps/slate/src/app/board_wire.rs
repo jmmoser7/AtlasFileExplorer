@@ -235,7 +235,7 @@ fn wire_blocked_by_node(scene: &Scene, wx: f32, wy: f32, zoom: f32) -> bool {
 
 /// Painted stroke (twice the stored width) and the same curve pulled just
 /// outside each anchored host so the stroke does not cross that face.
-fn drawn_connector(
+pub(crate) fn drawn_connector(
     scene: &Scene,
     path: ConnectorPath,
     conn: &ConnectorNode,
@@ -284,18 +284,30 @@ impl SlateApp {
         self.connector_sync_gen = 0;
     }
 
-    pub(crate) fn set_wire_routing(&mut self, routing: WireRouting) -> bool {
-        let ids: Vec<_> = self
-            .board_sel
-            .iter()
-            .copied()
+    /// The connectors a routing command acts on: `{"wires":[…]}` (a
+    /// crosstalk capsule names its conversation's wires), else the selected
+    /// connectors. Empty means the board's default for new wires.
+    pub(crate) fn wire_routing_targets(&self, detail: Option<&str>) -> Vec<NodeId> {
+        #[derive(serde::Deserialize)]
+        struct Targets {
+            wires: Vec<NodeId>,
+        }
+        let named = detail.and_then(|d| serde_json::from_str::<Targets>(d).ok());
+        let ids: Vec<NodeId> = match named {
+            Some(t) => t.wires,
+            None => self.board_sel.iter().copied().collect(),
+        };
+        ids.into_iter()
             .filter(|id| {
                 self.doc()
                     .scene
                     .node(*id)
                     .is_some_and(|n| matches!(n.kind, NodeKind::Connector(_)))
             })
-            .collect();
+            .collect()
+    }
+
+    pub(crate) fn set_wire_routing(&mut self, routing: WireRouting, ids: Vec<NodeId>) -> bool {
         if ids.is_empty() {
             self.board_wire_routing = routing;
             self.persist_wire_routing();
