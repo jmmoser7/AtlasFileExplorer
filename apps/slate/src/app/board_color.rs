@@ -725,14 +725,20 @@ pub(crate) struct BrushAnchor {
     pub pos: Pos2,
     pub tip: BrushTip,
     pub node: Option<NodeId>,
+    /// The release can append to `node`, so the preview may continue it.
+    pub extendable: bool,
 }
 
 /// The brush marks this armed Brush drew, newest last, and the bare
 /// Shift+click point a chain may start from. Holds identities only: the
 /// anchor is the newest mark the scene still shows, at its end as it is
 /// now, so undo, redo, and deletes move it with the journal (D03).
+/// Node ids are numbered per document, so the chain belongs to the tab
+/// whose document drew it; another tab, or another document loaded into
+/// the same tab, starts a fresh chain.
 #[derive(Clone, Default)]
 pub(crate) struct BrushChain {
+    tab: Option<u64>,
     marks: Vec<NodeId>,
     point: Option<(Pos2, BrushTip)>,
 }
@@ -751,10 +757,13 @@ pub(crate) struct BrushStraight {
 /// the end a Shift segment starts from, and one tip per vertex.
 struct BrushMark {
     layer: Option<slate_doc::image_paint::LayerNodeRef>,
-    node: Node,
     bez: BezPath,
     end: Pos2,
     tips: Vec<StrokeSpan>,
+    /// An open, unlocked, single-contour stamped stroke on the board or on
+    /// the layer the image paint session paints: a Shift segment can
+    /// append to it.
+    extendable: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1117,7 +1126,7 @@ impl SlateApp {
     /// the bare point `pos`.
     fn set_brush_anchor(&mut self, pos: Pos2, node: Option<NodeId>) {
         let tip = self.tip_now();
-        let chain = &mut self.brush_chain;
+        let chain = self.brush_chain_here();
         match node {
             Some(id) => {
                 chain.marks.retain(|m| *m != id);
@@ -1133,10 +1142,26 @@ impl SlateApp {
         }
     }
 
+    /// The chain for the active tab, emptied first when another tab drew it.
+    fn brush_chain_here(&mut self) -> &mut BrushChain {
+        let tab = Some(self.tab().id);
+        if self.brush_chain.tab != tab {
+            self.brush_chain = BrushChain {
+                tab,
+                ..Default::default()
+            };
+        }
+        &mut self.brush_chain
+    }
+
     /// Where the next Shift segment starts: the end of the newest brush mark
-    /// the scene still shows, else the chain's bare click point.
+    /// the scene still shows, else the chain's bare click point. A chain
+    /// another tab drew has no start here.
     pub(crate) fn brush_line_anchor(&self) -> Option<BrushAnchor> {
         let chain = &self.brush_chain;
+        if chain.tab != Some(self.tab().id) {
+            return None;
+        }
         chain
             .marks
             .iter()
@@ -1153,6 +1178,7 @@ impl SlateApp {
                     pos: mark.end,
                     tip,
                     node: Some(id),
+                    extendable: mark.extendable,
                 })
             })
             .or_else(|| {
@@ -1160,6 +1186,7 @@ impl SlateApp {
                     pos,
                     tip,
                     node: None,
+                    extendable: false,
                 })
             })
     }
@@ -1203,12 +1230,17 @@ impl SlateApp {
         if tips.len() != vertices {
             tips = vec![StrokeSpan::of(&shape.stroke); vertices];
         }
+        let extendable = !node.locked
+            && shape.stroke.paints_as_stamp()
+            && !path.closed
+            && path.extra.is_empty()
+            && (layer.is_none() || self.session_layer_mark(id).is_some());
         Some(BrushMark {
             layer,
             end: Pos2::new(end.x as f32, end.y as f32),
             bez,
             tips,
-            node,
+            extendable,
         })
     }
 
@@ -1356,26 +1388,15 @@ impl SlateApp {
     fn extend_brush_chain(&mut self, id: NodeId, from: Pos2, to: Pos2, end: BrushTip) -> bool {
         let Some(BrushMark {
             layer,
-            node,
             mut bez,
             end: last,
             mut tips,
+            extendable: true,
+            ..
         }) = self.brush_mark(id)
         else {
             return false;
         };
-        if layer.is_some() && self.session_layer_mark(id).is_none() {
-            return false;
-        }
-        let NodeKind::Shape(shape) = &node.kind else {
-            return false;
-        };
-        let Some(path) = shape.path.as_ref() else {
-            return false;
-        };
-        if node.locked || !shape.stroke.paints_as_stamp() || path.closed || !path.extra.is_empty() {
-            return false;
-        }
         let slop = 1.0 / self.tab().cam.z.max(0.05);
         if (last - from).length() > slop {
             return false;
@@ -1419,6 +1440,18 @@ impl SlateApp {
         )
     }
 
+    /// The stroke the live Shift segment continues: the press's anchor when
+    /// the release can extend it. The preview paints that stroke inside its
+    /// own canvas in place of the scene copy; any other anchor only gives
+    /// the segment its start.
+    pub(crate) fn brush_straight_extends(&self) -> Option<NodeId> {
+        self.brush_straight
+            .as_ref()?
+            .anchor
+            .filter(|a| a.extendable)?
+            .node
+    }
+
     /// The end of a painted straight segment (the Brush or Eraser Shift
     /// line) from `from`, pressed at `press`, with the pointer at `world`.
     /// A click connects to the click point exactly. A drag past the click
@@ -1458,8 +1491,9 @@ impl SlateApp {
         self.draft_lock = None;
         let travel = end_screen.distance(gesture.start_screen);
         if travel <= BRUSH_MOD_CLICK_PX && gesture.anchor.is_none() {
-            self.brush_chain.marks.clear();
-            self.brush_chain.point = Some((end_world, gesture.tip));
+            let chain = self.brush_chain_here();
+            chain.marks.clear();
+            chain.point = Some((end_world, gesture.tip));
         } else if (end_world - from).length() > 0.5 {
             self.commit_tween_line(from, end_world, tip, node);
         } else {
@@ -1669,6 +1703,7 @@ impl SlateApp {
         };
         let mut cmds = Vec::new();
         let mut board_removes = Vec::new();
+        let mut layer_removes = Vec::new();
         for id in touched {
             if let Some(loc) = slate_doc::image_paint::find_layer_node(&self.doc().scene, id) {
                 let Some(host) = self.doc().scene.node(loc.image) else {
@@ -1683,7 +1718,7 @@ impl SlateApp {
                 let Some(node) = layer.nodes.get(loc.node_index).cloned() else {
                     continue;
                 };
-                cmds.push(slate_doc::scene::SceneCmd::LayerNodeRemove {
+                layer_removes.push(slate_doc::scene::SceneCmd::LayerNodeRemove {
                     host: loc.image,
                     layer: layer.id,
                     index: loc.node_index,
@@ -1740,7 +1775,8 @@ impl SlateApp {
                 });
             }
         }
-        let (layer_cmds, _) = self.finish_erase_layer_spot(&spot, &points, span, &live);
+        let (layer_cmds, _) =
+            self.finish_erase_layer_spot(&spot, &points, span, &live, layer_removes);
         cmds.extend(layer_cmds);
         board_removes.sort_by_key(|(index, _)| std::cmp::Reverse(*index));
         cmds.extend(

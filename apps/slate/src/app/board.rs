@@ -5089,7 +5089,7 @@ impl SlateApp {
         if let Some(canvas) = self.brush_live.as_mut() {
             canvas.take_landed(&mut self.brush_tiles);
         }
-        if let Some((_, _, Some(id))) = self.brush_straight_from() {
+        if let Some(id) = self.brush_straight_extends() {
             let key = self.doc().scene.node(id).and_then(board_path::node_stamp_key);
             let ppp = ui.ctx().pixels_per_point();
             let covered = self
@@ -5508,8 +5508,8 @@ impl SlateApp {
         );
         let live_line = wp.and_then(|w| {
             let end = self.brush_straight_end(w, self.shift_down)?;
-            let (from, start, anchor) = self.brush_straight_from()?;
-            Some((from, start, anchor, end))
+            let (from, start, _) = self.brush_straight_from()?;
+            Some((from, start, end))
         });
         match (live_freehand, live_line) {
             (true, _) => {
@@ -5528,9 +5528,9 @@ impl SlateApp {
                 }
                 canvas.paint(&draft_painter, &xf);
             }
-            (false, Some((from, start, anchor, w))) => {
+            (false, Some((from, start, w))) => {
                 let end = self.tip_now();
-                let anchor_id = anchor.filter(|id| {
+                let anchor_id = self.brush_straight_extends().filter(|id| {
                     self.doc().scene.node(*id).is_some_and(|n| !n.hidden)
                         || self.session_layer_mark(*id).is_some()
                 });

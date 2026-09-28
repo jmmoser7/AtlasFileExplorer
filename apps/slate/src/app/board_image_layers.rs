@@ -663,16 +663,18 @@ impl SlateApp {
         }
     }
 
-    /// Eraser release for paint-layer strokes (active layer only).
+    /// Eraser release for paint-layer strokes (active layer only), with
+    /// `removes`, the layer's vector marks the pass crossed, in the same
+    /// ordered batch.
     pub(crate) fn finish_erase_layer_spot(
         &mut self,
         spot: &[NodeId],
         points: &[Pos2],
         span: slate_doc::scene::StrokeSpan,
         live: &std::collections::HashMap<NodeId, super::board_path::EraseLive>,
+        mut removes: Vec<SceneCmd>,
     ) -> (Vec<SceneCmd>, usize) {
         let mut cmds = Vec::new();
-        let mut removes = Vec::new();
         let mut touched = 0usize;
         for id in spot {
             if live.get(id).is_some_and(|l| !l.changed) {
@@ -695,8 +697,9 @@ impl SlateApp {
             }
             touched += 1;
         }
-        // Every mark here is on the session's one layer: remove from the
-        // back so earlier indices stay valid.
+        // Every mark here is on the session's one layer and is addressed by
+        // index: patch first, then remove from the back, so each index still
+        // names its mark when it applies.
         removes.sort_by_key(|cmd| match cmd {
             SceneCmd::LayerNodeRemove { index, .. } => std::cmp::Reverse(*index),
             _ => std::cmp::Reverse(0),

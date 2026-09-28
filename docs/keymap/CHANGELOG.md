@@ -15,6 +15,22 @@
   the exact stamp lands. Textures no longer claims the moving preview
   paints the stamp's pixels.
 
+## 2026-09-27 — Shift segments start only from marks they can reach (review r10)
+
+- `brush` D03: the Brush's newest mark belongs to the workbook that drew
+  it. After another tab draws a mark, or another workbook is opened into
+  the same tab, the next Shift segment starts at its own press and never
+  extends a stroke that only shares the mark's number.
+- `brush` D03: a newest mark the segment cannot extend (locked, closed,
+  not a brush stamp, or on a layer the image paint session is not
+  painting) still gives the segment its start. The segment is a new
+  stroke, and the preview no longer takes that mark into its canvas, so
+  what the drag shows is what the release commits.
+- Eraser: one pass that removes a vector mark on a paint layer and cuts
+  brush marks above it on the same layer now commits every edit as one
+  undo step. Before, the batch stopped partway, leaving the removal
+  applied with no undo step and dropping the cuts. No binding changed.
+
 ## 2026-09-27 — Agent-authored D11 sentences marked as proposals
 
 - `brush` D11: the Shift segment's vector-mesh stand-in and worker

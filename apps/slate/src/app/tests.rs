@@ -9731,6 +9731,311 @@ fn brush_shift_after_undoing_the_newest_mark_continues_the_one_before() {
     assert_eq!(path_vertices(h.app.doc().scene.node(id).unwrap()).len(), drawn.len() + 1);
 }
 
+/// D03 after a redo: Ctrl+Z takes a Shift segment back and Ctrl+Y restores
+/// it, so the next Shift drag starts at the redone end and extends the
+/// same stroke.
+#[test]
+fn brush_shift_after_redo_starts_at_the_redone_end() {
+    let mut h = brush_board("brush_shift_redo");
+    let freehand = [
+        Pos2::new(40.0, 40.0),
+        Pos2::new(80.0, 60.0),
+        Pos2::new(120.0, 40.0),
+    ];
+    press_drag_release_frames(&mut h, &freehand, egui::Modifiers::NONE, |_| {});
+    let id = h.app.doc().scene.nodes[0].id;
+    press_drag_release_frames(
+        &mut h,
+        &[
+            Pos2::new(200.0, 200.0),
+            Pos2::new(260.0, 200.0),
+            Pos2::new(300.0, 200.0),
+        ],
+        egui::Modifiers::SHIFT,
+        |_| {},
+    );
+    let extended = path_vertices(h.app.doc().scene.node(id).unwrap());
+    let redone_end = *extended.last().unwrap();
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    assert_eq!(
+        path_vertices(h.app.doc().scene.node(id).unwrap()).len(),
+        extended.len() - 1
+    );
+    press_key_with(&mut h, egui::Key::Y, egui::Modifiers::CTRL);
+    assert_eq!(
+        path_vertices(h.app.doc().scene.node(id).unwrap()),
+        extended,
+        "redone"
+    );
+    press_drag_release_frames(
+        &mut h,
+        &[
+            Pos2::new(300.0, 320.0),
+            Pos2::new(360.0, 330.0),
+            Pos2::new(420.0, 330.0),
+        ],
+        egui::Modifiers::SHIFT,
+        |h| {
+            let (from, _, node) = h.app.brush_straight_from().expect("a Shift drag");
+            assert!(
+                near_px(from, redone_end),
+                "starts at {from:?}, redone end {redone_end:?}"
+            );
+            assert_eq!(node, Some(id));
+        },
+    );
+    assert_eq!(
+        h.app.doc().scene.nodes.len(),
+        1,
+        "the segment extends the stroke"
+    );
+    assert_eq!(
+        path_vertices(h.app.doc().scene.node(id).unwrap()).len(),
+        extended.len() + 1
+    );
+}
+
+/// Draw two freehand brush strokes and return their ids, oldest first.
+fn two_brush_marks(h: &mut Harness) -> (NodeId, NodeId) {
+    let first = [
+        Pos2::new(40.0, 40.0),
+        Pos2::new(80.0, 60.0),
+        Pos2::new(120.0, 40.0),
+    ];
+    press_drag_release_frames(h, &first, egui::Modifiers::NONE, |_| {});
+    let second = [
+        Pos2::new(40.0, 160.0),
+        Pos2::new(80.0, 180.0),
+        Pos2::new(120.0, 160.0),
+    ];
+    press_drag_release_frames(h, &second, egui::Modifiers::NONE, |_| {});
+    let nodes = &h.app.doc().scene.nodes;
+    assert_eq!(nodes.len(), 2);
+    (nodes[0].id, nodes[1].id)
+}
+
+/// Shift-drag from `press` and assert the segment starts at the end of
+/// `mark` and extends it.
+fn assert_shift_continues(h: &mut Harness, mark: NodeId, press: Pos2) {
+    let drawn = path_vertices(h.app.doc().scene.node(mark).unwrap());
+    let end = *drawn.last().unwrap();
+    press_drag_release_frames(
+        h,
+        &[
+            press,
+            press + egui::vec2(60.0, 10.0),
+            press + egui::vec2(120.0, 10.0),
+        ],
+        egui::Modifiers::SHIFT,
+        |h| {
+            let (from, _, node) = h.app.brush_straight_from().expect("a Shift drag");
+            assert!(
+                near_px(from, end),
+                "starts at {from:?}, the mark ends at {end:?}"
+            );
+            assert_eq!(node, Some(mark));
+        },
+    );
+    assert_eq!(
+        path_vertices(h.app.doc().scene.node(mark).unwrap()).len(),
+        drawn.len() + 1
+    );
+}
+
+/// D03, current rule (the user has not ruled on it; review r10 Q1):
+/// deleting the newest mark makes the newest remaining visible mark the
+/// start. Rename and flip this test if the rule becomes "the press".
+#[test]
+fn brush_shift_after_deleting_the_newest_mark_starts_at_the_newest_remaining_mark() {
+    let mut h = brush_board("brush_shift_delete_newest");
+    let (first, second) = two_brush_marks(&mut h);
+    h.app.delete_board_nodes(&[second]);
+    assert!(h.app.doc().scene.node(second).is_none());
+    assert_shift_continues(&mut h, first, Pos2::new(300.0, 320.0));
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
+}
+
+/// D03, current rule (review r10 Q1): hiding the newest mark (Ctrl+H) makes
+/// the newest remaining visible mark the start, and the hidden stroke is
+/// left alone. Rename and flip this test if the rule becomes "the press".
+#[test]
+fn brush_shift_after_hiding_the_newest_mark_starts_at_the_newest_remaining_mark() {
+    let mut h = brush_board("brush_shift_hide_newest");
+    let (first, second) = two_brush_marks(&mut h);
+    let hidden = h.app.doc().scene.node(second).unwrap().clone();
+    h.app.board_sel = std::iter::once(second).collect();
+    assert_eq!(h.app.cmd_hide_selection(), 1);
+    assert_shift_continues(&mut h, first, Pos2::new(300.0, 320.0));
+    let after = h.app.doc().scene.node(second).unwrap();
+    assert!(after.hidden);
+    assert_eq!(
+        path_vertices(after),
+        path_vertices(&hidden),
+        "the hidden stroke is untouched"
+    );
+}
+
+/// Add copies of the stamped stroke `proto`, moved by `offset`, until the
+/// active document has a node numbered `id`.
+fn stamped_node_numbered(h: &mut Harness, proto: &slate_doc::Node, offset: egui::Vec2, id: NodeId) {
+    for _ in 0..=id.0 {
+        if h.app.doc().scene.node(id).is_some() {
+            break;
+        }
+        let rect = proto.rect.translated(offset.x, offset.y);
+        let node = h.app.doc_mut().scene.build_node(rect, proto.kind.clone());
+        h.app.add_nodes(vec![node]);
+    }
+    let n = h.app.doc().scene.node(id).expect("a node with that number");
+    let NodeKind::Shape(s) = &n.kind else {
+        panic!("a shape")
+    };
+    assert!(!n.locked && !n.hidden && s.stroke.paints_as_stamp());
+    assert!(!s.path.as_ref().unwrap().closed);
+}
+
+/// Shift-drag from `press` and assert the segment starts there, with no
+/// stroke to extend, as one new node; every node already there is kept.
+fn assert_shift_starts_at_the_press(h: &mut Harness, press: Pos2) {
+    let before = h.app.doc().scene.nodes.clone();
+    let raw = press + egui::vec2(120.0, 10.0);
+    press_drag_release_frames(
+        h,
+        &[press, press + egui::vec2(60.0, 10.0), raw],
+        egui::Modifiers::SHIFT,
+        |h| {
+            let (from, _, node) = h.app.brush_straight_from().expect("a Shift drag");
+            assert!(
+                near_px(from, press),
+                "starts at {from:?}, the press is {press:?}"
+            );
+            assert_eq!(node, None, "nothing to extend");
+        },
+    );
+    let nodes = &h.app.doc().scene.nodes;
+    assert_eq!(nodes.len(), before.len() + 1, "one new stroke");
+    assert_eq!(
+        &nodes[..before.len()],
+        &before[..],
+        "every other node is unchanged"
+    );
+    let v = path_vertices(nodes.last().unwrap());
+    assert_eq!(v.len(), 2, "{v:?}");
+    assert!(near_px(v[0], press), "{v:?}");
+}
+
+/// Review r10 finding 1 (D03, Art. VI): node ids are numbered per
+/// document, so the newest mark in one tab is not a mark in another. A
+/// Shift drag in a new tab whose node has the same number as the mark
+/// starts at the press and leaves that node alone. Back in the first tab,
+/// the newest mark is the one just drawn in the other tab, so the segment
+/// starts at the press there too.
+#[test]
+fn brush_shift_in_another_tab_starts_at_the_press_and_leaves_its_node() {
+    let mut h = brush_board("brush_shift_other_tab");
+    let freehand = [
+        Pos2::new(40.0, 40.0),
+        Pos2::new(80.0, 60.0),
+        Pos2::new(120.0, 40.0),
+    ];
+    press_drag_release_frames(&mut h, &freehand, egui::Modifiers::NONE, |_| {});
+    let mark = h.app.doc().scene.nodes[0].clone();
+    let tab_a = h.app.active_tab;
+    h.app.new_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    h.app.tab_mut().cam.z = 1.0;
+    h.frame();
+    stamped_node_numbered(&mut h, &mark, egui::vec2(0.0, 200.0), mark.id);
+    assert_shift_starts_at_the_press(&mut h, Pos2::new(300.0, 320.0));
+    h.app.switch_tab(tab_a);
+    h.frame();
+    assert_eq!(h.app.doc().scene.nodes, vec![mark.clone()]);
+    assert_shift_starts_at_the_press(&mut h, Pos2::new(300.0, 120.0));
+}
+
+/// Review r10 finding 1, same tab: opening a workbook reuses a blank tab
+/// (one with no items, whatever its board holds) under the same tab id,
+/// and the loaded document numbers its nodes afresh. A Shift drag there
+/// starts at the press and leaves the loaded node with the mark's number.
+#[test]
+fn brush_shift_after_opening_a_workbook_over_the_tab_starts_at_the_press() {
+    let mut h = brush_board("brush_shift_open_over");
+    let freehand = [
+        Pos2::new(40.0, 40.0),
+        Pos2::new(80.0, 60.0),
+        Pos2::new(120.0, 40.0),
+    ];
+    press_drag_release_frames(&mut h, &freehand, egui::Modifiers::NONE, |_| {});
+    let mark = h.app.doc().scene.nodes[0].clone();
+    let tab_id = h.app.tab().id;
+    let mut other = SlateDoc::new("Other");
+    other.view.active_view = ViewKind::Board;
+    while other.scene.node(mark.id).is_none() {
+        let node = other
+            .scene
+            .build_node(mark.rect.translated(0.0, 200.0), mark.kind.clone());
+        other.scene.nodes.push(node);
+    }
+    let path = h.base.join("other.slate");
+    other.save_to(&path).unwrap();
+    h.app.open_doc_at(path);
+    assert_eq!(h.app.tab().id, tab_id, "the blank tab was reused");
+    h.app.tab_mut().cam.z = 1.0;
+    h.app.tab_mut().cam.offset = egui::Vec2::ZERO;
+    h.frame();
+    assert!(h.app.doc().scene.node(mark.id).is_some());
+    assert_shift_starts_at_the_press(&mut h, Pos2::new(300.0, 320.0));
+}
+
+/// Review r10 finding 4: a locked newest mark still gives the segment its
+/// start, but the release cannot extend it, so the preview must not either.
+/// The live canvas starts empty, the locked stroke keeps painting from the
+/// scene, and the release adds exactly one node.
+#[test]
+fn brush_shift_from_a_locked_mark_starts_at_its_end_as_a_new_stroke() {
+    let mut h = brush_board("brush_shift_locked");
+    h.app.brush_opacity = 0.5;
+    let freehand = [
+        Pos2::new(40.0, 40.0),
+        Pos2::new(80.0, 60.0),
+        Pos2::new(120.0, 40.0),
+    ];
+    press_drag_release_frames(&mut h, &freehand, egui::Modifiers::NONE, |_| {});
+    let id = h.app.doc().scene.nodes[0].id;
+    h.app.board_sel = std::iter::once(id).collect();
+    assert_eq!(h.app.cmd_lock_selection(), 1);
+    let locked = h.app.doc().scene.node(id).unwrap().clone();
+    assert!(locked.locked);
+    let end = *path_vertices(&locked).last().unwrap();
+    press_drag_release_frames(
+        &mut h,
+        &[
+            Pos2::new(300.0, 320.0),
+            Pos2::new(360.0, 330.0),
+            Pos2::new(420.0, 330.0),
+        ],
+        egui::Modifiers::SHIFT,
+        |h| {
+            let (from, ..) = h.app.brush_straight_from().expect("a Shift drag");
+            assert!(
+                near_px(from, end),
+                "starts at {from:?}, the mark ends at {end:?}"
+            );
+            let canvas = h.app.brush_live.as_ref().expect("live canvas");
+            assert_eq!(canvas.anchor, None, "the canvas starts empty");
+            assert_eq!(
+                h.app.brush_straight_extends(),
+                None,
+                "the scene keeps painting it"
+            );
+        },
+    );
+    let nodes = &h.app.doc().scene.nodes;
+    assert_eq!(nodes.len(), 2, "one new node");
+    assert_eq!(nodes[0], locked, "the locked stroke is unchanged");
+    assert!(near_px(path_vertices(&nodes[1])[0], end));
+}
+
 /// Within 0.05 world units: pointer events round-trip through screen space.
 fn near_px(a: Pos2, b: Pos2) -> bool {
     (a - b).length() < 0.05
@@ -11271,6 +11576,14 @@ fn brush_shift_after_the_paint_session_ends_leaves_the_layer_mark() {
     h.frame();
     assert!(h.app.image_paint_session().is_none(), "the session ended");
     assert_eq!(h.app.board_tool, board::BoardTool::Brush);
+    // Current rule (review r10 Q1): the segment still starts at the layer
+    // mark's end, as a new board node.
+    let host = h.app.doc().scene.node(image_id).unwrap();
+    let NodeKind::Image(img) = &host.kind else {
+        panic!("the image")
+    };
+    let world = slate_doc::image_paint::layer_node_to_world(host, img, &drawn[0][0]);
+    let end = *path_vertices(&world).last().unwrap();
     press_drag_release_frames(
         &mut h,
         &[
@@ -11279,10 +11592,22 @@ fn brush_shift_after_the_paint_session_ends_leaves_the_layer_mark() {
             Pos2::new(300.0, 250.0),
         ],
         egui::Modifiers::SHIFT,
-        |_| {},
+        |h| {
+            let (from, ..) = h.app.brush_straight_from().expect("a Shift drag");
+            assert!(
+                near_px(from, end),
+                "starts at {from:?}, the layer mark ends at {end:?}"
+            );
+        },
     );
     assert_eq!(layer_marks(&h, image_id), drawn, "the layer mark is unchanged");
     assert_eq!(h.app.doc().scene.nodes.len(), 2, "the segment is a board node");
+    let v = path_vertices(&h.app.doc().scene.nodes[1]);
+    assert!(
+        near_px(v[0], end),
+        "the board node starts at {:?}, not {end:?}",
+        v[0]
+    );
 }
 
 /// Review r9 finding 8, layer variant: after the palette's `+` makes a new
@@ -11627,6 +11952,105 @@ fn image_paint_eraser_removes_vector_stroke_and_undo_restores_it() {
     assert!(slate_doc::image_paint::find_layer_node(&h.app.doc().scene, stroke_id).is_none());
     h.app.board_undo();
     assert!(slate_doc::image_paint::find_layer_node(&h.app.doc().scene, stroke_id).is_some());
+}
+
+/// Review r10 note: layer commands address marks by index. One Eraser pass
+/// through frames crosses a Line mark at the bottom of the layer (removed)
+/// and two brush marks above it (patched). Every edit lands as one undo
+/// step, and one Ctrl+Z restores the layer.
+#[test]
+fn one_eraser_pass_over_a_layer_line_below_brush_marks_commits_every_edit() {
+    let mut h = Harness::new("eraser_layer_order");
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    let p = h.base.join("photo.png");
+    std::fs::write(&p, b"png").unwrap();
+    let item = h.app.add_paths(&[p])[0];
+    let node = h.app.doc_mut().scene.build_node(
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 400.0, 300.0),
+        slate_doc::scene::NodeKind::Image(slate_doc::scene::ImageNode::new(item)),
+    );
+    let image_id = node.id;
+    h.app.add_nodes(vec![node]);
+    h.app.tab_mut().cam.z = 1.0;
+    h.app.board_osnap.enabled = false;
+    h.app.board_smart_guides = false;
+    h.app.board_snap_grid = false;
+    let select_image = |h: &mut Harness, tool: board::BoardTool| {
+        h.app.board_sel = std::iter::once(image_id).collect();
+        h.app.set_board_tool(tool);
+        h.app.sync_image_paint_for_tool();
+        h.frame();
+        assert!(
+            h.app.image_paint_session().is_some(),
+            "{tool:?} paints on the image"
+        );
+    };
+    select_image(&mut h, board::BoardTool::Line);
+    let (a, b) = (Pos2::new(40.0, 150.0), Pos2::new(360.0, 150.0));
+    assert!(h.app.line_begin(a, false));
+    h.app.line_release(a, true, false);
+    h.app.line_hover(b, false);
+    h.app.line_begin(b, false);
+    h.app.line_release(b, false, false);
+    assert_eq!(
+        layer_marks(&h, image_id).concat().len(),
+        1,
+        "the line is a layer mark"
+    );
+    select_image(&mut h, board::BoardTool::Brush);
+    h.app.brush_width = 12.0;
+    h.app.brush_opacity = 1.0;
+    for x in [200.0, 260.0] {
+        press_drag_release_frames(
+            &mut h,
+            &[Pos2::new(x, 60.0), Pos2::new(x, 150.0), Pos2::new(x, 240.0)],
+            egui::Modifiers::NONE,
+            |_| {},
+        );
+    }
+    assert_eq!(
+        h.app.doc().scene.nodes.len(),
+        1,
+        "every mark is on the layer"
+    );
+    let before = layer_marks(&h, image_id);
+    assert_eq!(before.len(), 1);
+    let before = before[0].clone();
+    assert_eq!(before.len(), 3, "the line and two brush marks");
+    let stamped =
+        |n: &slate_doc::Node| matches!(&n.kind, NodeKind::Shape(s) if s.stroke.paints_as_stamp());
+    assert!(!stamped(&before[0]) && stamped(&before[1]) && stamped(&before[2]));
+    select_image(&mut h, board::BoardTool::Eraser);
+    h.app.eraser_width = 30.0;
+    h.app.eraser_opacity = 1.0;
+    press_drag_release_frames(
+        &mut h,
+        &[
+            Pos2::new(150.0, 150.0),
+            Pos2::new(230.0, 150.0),
+            Pos2::new(300.0, 150.0),
+        ],
+        egui::Modifiers::NONE,
+        |_| {},
+    );
+    let after = layer_marks(&h, image_id)[0].clone();
+    assert!(
+        !after.iter().any(|n| n.id == before[0].id),
+        "the line is erased"
+    );
+    assert_eq!(after.len(), 2, "both brush marks keep ink");
+    for (was, now) in before[1..].iter().zip(&after) {
+        assert_eq!(was.id, now.id);
+        assert_ne!(was, now, "brush mark {:?} took the pass", was.id);
+    }
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    assert_eq!(
+        layer_marks(&h, image_id)[0],
+        before,
+        "one undo restores the layer"
+    );
 }
 
 #[test]
