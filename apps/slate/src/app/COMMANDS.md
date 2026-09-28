@@ -256,9 +256,10 @@ drag the address-bar URL or a page link instead.
   **Esc cancels** (nothing was mutated). Hidden/locked strokes are skipped.
 - **[ / ]** step the brush width — the Eraser or Smooth width while that
   tool is armed — using the Photoshop tiers in **screen px** converted by
-  zoom (`<10:±1 · 10–50:±5 · 50–100:±10 · >100:±25`). A width circle
-  (solid core + fainter feather ring) tracks the pointer while
-  Brush/Eraser is armed.
+  zoom (`<10:±1 · 10–50:±5 · 50–100:±10 · >100:±25`). An idle width
+  circle (solid core + fainter feather ring) is the cursor while
+  Brush/Eraser is armed; during Alt+right-drag the size circle stays
+  pinned where the right button went down and grows about that point.
 - **Tip HUD** — **Alt+right-drag** (`board.brush.size_hud`: size, and
   softness for Brush, Eraser, and Smooth), **Shift+right-drag**
   (`board.brush.opacity_hud`: opacity, or Eraser / Smooth strength), and

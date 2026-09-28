@@ -1,5 +1,21 @@
 # Canvas command project — change log
 
+## 2026-09-28 — Two brush decisions recorded (user)
+
+- `brush` D03, D05: the Alt+right-drag size circle stays pinned where the
+  user pressed and grows about that point. The user decided this on
+  28 September 2026; the build already did it.
+- `brush` D03: the Shift+drag straight line starts at the end of the
+  user's last mark (the last stroke's end point), not at the press point,
+  in the live preview and the commit alike, and at the press only when
+  there is no previous mark. The user decided this on 28 September 2026;
+  it replaces the review r9 agent proposal for the start after an undo.
+  The build already did it (`brush_line_anchor`, `brush_straight_from`);
+  `chained_brush_shift_presses_do_not_restamp_the_chain` and
+  `brush_shift_after_undo_starts_at_the_strokes_real_end` pin the start
+  at the mark, `brush_shift_drag_previews_and_commits_a_straight_line`
+  the press fallback. New golden path GP6.
+
 ## 2026-09-27 — An eraser band waits only on strokes the board paints (review r20)
 
 - `brush` D11: a band counts as in view only while the board paints its

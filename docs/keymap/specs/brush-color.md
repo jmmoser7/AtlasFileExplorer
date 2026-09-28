@@ -38,8 +38,12 @@ pub struct BoardColors { pub fg: Rgba, pub bg: Rgba }
     matches the InkMesh contract). Stepping shows the circle even mid-air.
 - **Shift+click**: straight segment from the last stroke end to the click
   (PS convention §1). Break the chain when tool re-arms. **Shift+drag**
-  previews the segment and commits on release, in 45° steps; Tab locks its
-  direction (P2.RhinoDraft, 2026-09-27). Shift never steps opacity.
+  starts at the end of the user's last mark (the last stroke's end point),
+  not at the press point, in the live preview and the commit alike, and
+  starts at the press only when there is no previous mark (user,
+  2026-09-28). It previews the segment and commits on release, in 45°
+  steps; Tab locks its direction (P2.RhinoDraft, 2026-09-27). Shift never
+  steps opacity.
 - **Smoothing**: reuse the existing freehand fitter tolerance; expose no UI
   in P1 (default ≈ PS 10% feel).
 - One stroke = one undo step (`Add`, authored).
@@ -78,6 +82,8 @@ pub struct BoardColors { pub fg: Rgba, pub bg: Rgba }
   Alt+right-drag size, Ctrl+right-drag color wheel, Shift+right-drag
   opacity. They write the open-curve create style (P1.curve.create-style).
   No softness: vector strokes are not stamped.
+- The Alt+right-drag size circle stays pinned where the user pressed and
+  grows about that point for the whole hold (user, 2026-09-28).
 - The size circle carries a style row (`board_tip_hud.rs`): textures for
   Brush/Eraser (`Stroke::texture`, `vector_ink::Grain`), and for vector
   curves flat/square, round/round, arrow at the end (`Stroke::arrow_end`),
@@ -160,11 +166,11 @@ pub struct BoardColors { pub fg: Rgba, pub bg: Rgba }
 | X | `board.colors.swap` |
 | [ / ] | `board.brush.width_down` / `width_up` |
 | Shift+[ / Shift+] | `board.brush.softness_up` / `softness_down` (softer / harder) |
-| Alt+right-drag | `board.brush.size_hud` |
+| Alt+right-drag | `board.brush.size_hud` (circle pinned at the press, grows about it) |
 | Shift+right-drag | `board.brush.opacity_hud` (Brush, Eraser strength, curve tools; 0–100%; Ctrl and Alt win) |
 | Ctrl+right-drag | `board.brush.color_wheel` |
 | Alt+click (Brush) | `board.brush.sample` (screen color to fg and recent colors) |
-| Shift+drag (Brush) | straight segment from the last stroke's end, 45° steps; Tab locks its direction |
+| Shift+drag (Brush) | straight segment from the last stroke's end (from the press only when there is no previous mark), 45° steps; Tab locks its direction |
 | Shift+click (Brush) | connects the last stroke's end to the click (never steps opacity) |
 | Alt+click (Eyedropper) | sample to bg |
 | , / . | preset cycling — **P2** (reserved, not bound in P1) |
