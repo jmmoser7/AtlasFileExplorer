@@ -500,16 +500,24 @@ impl BrushTiles {
     }
 
     /// The raster for `lane`'s line job `tag`, once it has landed, or
-    /// [`LineLanded::Lost`] when that job panicked. That lane's results of
-    /// older jobs are dropped.
+    /// [`LineLanded::Lost`] when that job panicked. The brush lane's results
+    /// of older jobs are dropped. An eraser lane can serve two previews of
+    /// one stroke (a pass and the one still settling), each forgetting its
+    /// own jobs.
     pub(crate) fn take_line(&mut self, lane: u64, tag: u64) -> Option<LineLanded> {
         self.drain_finished();
-        self.lines_landed.retain(|r| r.lane != lane || r.tag >= tag);
-        self.lines_lost.retain(|l| l.0 != lane || l.1 >= tag);
-        self.lines_wanted.retain(|w| w.0 != lane || w.1 >= tag);
-        let landed = if let Some(i) = self.lines_landed.iter().position(|r| r.tag == tag) {
+        if lane == BRUSH_LANE {
+            self.lines_landed.retain(|r| r.lane != lane || r.tag >= tag);
+            self.lines_lost.retain(|l| l.0 != lane || l.1 >= tag);
+            self.lines_wanted.retain(|w| w.0 != lane || w.1 >= tag);
+        }
+        let landed = if let Some(i) = self
+            .lines_landed
+            .iter()
+            .position(|r| (r.lane, r.tag) == (lane, tag))
+        {
             LineLanded::Raster(self.lines_landed.swap_remove(i))
-        } else if let Some(i) = self.lines_lost.iter().position(|l| l.1 == tag) {
+        } else if let Some(i) = self.lines_lost.iter().position(|l| *l == (lane, tag)) {
             self.lines_lost.swap_remove(i);
             LineLanded::Lost
         } else {
@@ -527,9 +535,9 @@ impl BrushTiles {
     }
 
     /// Drop landed eraser segment rasters, and any still on the workers,
-    /// except on the lanes in `keep`: their pass is over.
-    pub(crate) fn forget_erase_lines(&mut self, keep: &[u64]) {
-        self.lines_wanted.retain(|w| w.0 == BRUSH_LANE || keep.contains(&w.0));
+    /// except the jobs `(lane, tag)` in `keep`: their pass is over.
+    pub(crate) fn forget_erase_lines(&mut self, keep: &[(u64, u64)]) {
+        self.lines_wanted.retain(|w| w.0 == BRUSH_LANE || keep.contains(w));
         self.drain_finished();
     }
 
@@ -1160,7 +1168,7 @@ pub(super) fn plain_stamp<'a>(
     // exists (`ensure_erase_live`), not before, so it never goes undrawn.
     if app.board_sel.contains(&node.id)
         || app.erase_live.contains_key(&node.id)
-        || app.erase_settle.holds(node.id)
+        || app.erase_settle.holds(app.tab().id, node.id)
     {
         return None;
     }

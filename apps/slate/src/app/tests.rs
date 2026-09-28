@@ -12800,6 +12800,7 @@ fn an_eraser_release_on_a_big_stroke_stamps_nothing_on_the_frame_loop() {
     let (top, bottom) = (c - EVec2::new(0.0, 90.0), c + EVec2::new(0.0, 90.0));
     h.frame_with(pointer_to(top, false));
     let press = board_path::stamps_on_this_thread();
+    let line_texes = board_path::line_tex_allocs_on_this_thread();
     h.frame_with(primary_button(top, true, false));
     for i in 1..=9 {
         h.frame_with(pointer_to(top + (bottom - top) * (i as f32 / 9.0), false));
@@ -12823,6 +12824,12 @@ fn an_eraser_release_on_a_big_stroke_stamps_nothing_on_the_frame_loop() {
         board_path::stamps_on_this_thread(),
         press,
         "the release rasterized on the frame loop"
+    );
+    // Review r12 finding 6: only a straight pass needs a line texture.
+    assert_eq!(
+        board_path::line_tex_allocs_on_this_thread(),
+        line_texes,
+        "the freehand pass allocated a line texture"
     );
     let node = h.app.doc().scene.node(id).expect("the bar survives");
     let slate_doc::scene::NodeKind::Shape(shape) = &node.kind else {
@@ -13009,7 +13016,7 @@ fn eraser_shift_move_frames_stamp_nothing_on_the_frame_loop() {
     h.frame_with(|i| i.modifiers = shift);
     assert_eq!(h.app.erase_band.painted(), 0, "the exact cut replaces the band");
     // Each landed cut goes into the preview's one line texture, allocated
-    // with the preview.
+    // with its first cut.
     assert!(
         h.app.brush_tiles.line_tags_issued() > asks,
         "the moves asked for no cut"
@@ -13197,6 +13204,13 @@ fn assert_never_uncut_after_release(h: &mut Harness, raster: &mut FrameRaster, c
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
     assert!(redness(raster, &xf, far) > lit, "the bar away from the pass went dark");
+    assert_settled_as_committed(h, raster, cross);
+}
+
+/// The settled pixels around world point `cross` are the ones the committed
+/// stroke rasterizes to from scratch.
+fn assert_settled_as_committed(h: &mut Harness, raster: &mut FrameRaster, cross: Pos2) {
+    let xf = h.app.board_xf();
     let settled = raster.px.clone();
     h.app.brush_tiles.clear();
     h.app.brush_stamps.clear();
@@ -13346,6 +13360,396 @@ fn an_eraser_shift_release_with_its_cut_in_flight_keeps_the_preview() {
         assert!(r < 0.42, "the release frame shows the uncut bar at {p:?} ({r:.2})");
     }
     assert_never_uncut_after_release(&mut h, &mut raster, cross);
+}
+
+/// Half the redness of the bar, lit, at `cross` moved 500 world units along
+/// it: above it a point shows the bar, below it the bar is erased there.
+fn half_lit(h: &Harness, raster: &FrameRaster, cross: Pos2) -> f32 {
+    0.5 * redness(raster, &h.app.board_xf(), cross + EVec2::new(500.0, -3.0))
+}
+
+/// Pass 1 of the settle tests on [`eraser_bar_board`]: a smooth Shift pass
+/// down screen x `cx - 300` across the bar, released while its final cut
+/// is held on the workers ([`board_path::EraseSettle::hold`]). Returns the
+/// frame-loop stamp px counted just before the release.
+fn release_a_settling_pass(h: &mut Harness, raster: &mut FrameRaster, id: NodeId) -> u64 {
+    let c = h.app.canvas_rect.center();
+    let press = c + EVec2::new(-300.0, -250.0);
+    let first = c + EVec2::new(-300.0, -120.0);
+    let last = c + EVec2::new(-300.0, 250.0);
+    shot(h, raster, shift_at(press, None));
+    shot(h, raster, shift_at(press, Some(true)));
+    shot(h, raster, shift_at(first, None));
+    let mut waited = 0;
+    while !h.app.erase_live.get(&id).is_some_and(|l| l.line_exact()) {
+        waited += 1;
+        assert!(waited < 2000, "the first cut never landed");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        shot(h, raster, |i| i.modifiers = egui::Modifiers::SHIFT);
+    }
+    shot(h, raster, shift_at(last, None));
+    h.app.erase_settle.hold = true;
+    let px = board_path::stamp_px_on_this_thread();
+    shot(h, raster, shift_at(last, Some(false)));
+    assert_eq!(erase_marks(h.app.doc().scene.node(id).unwrap()).len(), 1, "pass 1 commits");
+    assert!(h.app.erase_settle.holds(h.app.tab().id, id), "pass 1 settles");
+    px
+}
+
+/// One frame of a settling pass: the pass-1 cut around `cross` stays
+/// erased, and the bar away from it stays lit (above `lit`).
+fn shot_settling(
+    h: &mut Harness,
+    raster: &mut FrameRaster,
+    (cross, lit): (Pos2, f32),
+    prepare: impl FnOnce(&mut egui::RawInput),
+    when: &str,
+) {
+    shot(h, raster, prepare);
+    let xf = h.app.board_xf();
+    for p in cut_points(cross) {
+        let r = redness(raster, &xf, p);
+        assert!(r < lit, "{when}: {p:?} shows the uncut bar ({r:.2})");
+    }
+    let far = cross + EVec2::new(500.0, -3.0);
+    let r = redness(raster, &xf, far);
+    assert!(r > lit, "{when}: the bar away from the pass is blank ({r:.2})");
+}
+
+/// Let the held pass-1 cut land, then [`shot_settling`] every frame until
+/// the board settles; nothing stamped on the frame loop since `px`, and the
+/// settled pixels are the committed stroke's own.
+fn settle_watched(h: &mut Harness, raster: &mut FrameRaster, at: (Pos2, f32), px: u64, what: &str) {
+    for k in 0..10 {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        shot_settling(h, raster, at, |_| {}, &format!("{what}: held frame {k}"));
+    }
+    h.app.erase_settle.hold = false;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    // The tiles settle a frame after the settle ends: they take the stroke
+    // back then.
+    let (mut frames, mut ended) = (0, false);
+    while !(ended && h.app.brush_tiles.last.settled) {
+        assert!(std::time::Instant::now() < deadline, "{what}: the bar never settled");
+        ended = !h.app.erase_settling();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        frames += 1;
+        shot_settling(h, raster, at, |_| {}, &format!("{what}: frame {frames} after the cut"));
+    }
+    let spent = board_path::stamp_px_on_this_thread() - px;
+    assert_eq!(spent, 0, "{what}: stamped {spent} px on the frame loop");
+    assert_settled_as_committed(h, raster, at.0);
+}
+
+/// Review r12 finding 1: a second eraser pass over a stroke whose first
+/// pass still settles never shows the first pass's cut un-erased, nor the
+/// stroke blank: (i) a Shift pass released unchanged, over ink the first
+/// erased; (ii) a Shift flick released before its preview exists; (iii) a
+/// pass pressed, then Esc.
+#[test]
+fn a_second_eraser_pass_over_a_settling_stroke_never_shows_the_uncut_stroke() {
+    for variant in ["unchanged", "flick", "escape"] {
+        let (mut h, mut raster, id, cross) =
+            eraser_bar_board(&format!("eraser_settle_second_{variant}"));
+        let at = (cross, half_lit(&h, &raster, cross));
+        if variant == "unchanged" {
+            // A grained pass leaves specks of ink for pass 2 to take.
+            h.app.eraser_texture = slate_doc::scene::BrushTexture::Smooth;
+        }
+        let px = release_a_settling_pass(&mut h, &mut raster, id);
+        let c = h.app.canvas_rect.center();
+        let shift = egui::Modifiers::SHIFT;
+        let mut watch = |h: &mut Harness,
+                         prepare: Box<dyn FnOnce(&mut egui::RawInput)>,
+                         when: &str| {
+            shot_settling(h, &mut raster, at, prepare, &format!("{variant}: {when}"));
+        };
+        let wait = |h: &mut Harness,
+                    watch: &mut dyn FnMut(&mut Harness, Box<dyn FnOnce(&mut egui::RawInput)>, &str),
+                    ready: &dyn Fn(&Harness) -> bool| {
+            let mut waited = 0;
+            while !ready(h) {
+                waited += 1;
+                assert!(waited < 2000, "{variant}: pass 2's preview never came");
+                std::thread::sleep(std::time::Duration::from_millis(5));
+                watch(h, Box::new(move |i| i.modifiers = shift), "pass 2 drag");
+            }
+        };
+        match variant {
+            "unchanged" => {
+                // Narrower, back along pass 1: only ink it erased.
+                h.app.eraser_width = 100.0;
+                let back = c + EVec2::new(-300.0, -250.0);
+                watch(&mut h, Box::new(shift_at(back, None)), "pass 2 hover");
+                watch(&mut h, Box::new(shift_at(back, Some(true))), "pass 2 press");
+                wait(&mut h, &mut watch, &|h| {
+                    h.app.erase_live.get(&id).is_some_and(|l| l.line_exact())
+                });
+                watch(&mut h, Box::new(shift_at(back, Some(false))), "pass 2 release");
+                let node = h.app.doc().scene.node(id).unwrap();
+                assert_eq!(erase_marks(node).len(), 1, "pass 2 changed nothing");
+            }
+            "flick" => {
+                let to = c + EVec2::new(-100.0, -250.0);
+                watch(&mut h, Box::new(shift_at(to, None)), "pass 2 hover");
+                watch(&mut h, Box::new(shift_at(to, Some(true))), "pass 2 press");
+                watch(&mut h, Box::new(shift_at(to, None)), "pass 2 move");
+                // Pass 1's ink check left the stroke's raster ready, so pass
+                // 2's preview started at once: drop it, as when that raster
+                // has not landed yet.
+                if let Some(mut l) = h.app.erase_live.remove(&id) {
+                    l.forget(&mut h.app.brush_tiles, board_path::tiles::erase_lane(id));
+                }
+                watch(&mut h, Box::new(shift_at(to, Some(false))), "pass 2 release");
+                let node = h.app.doc().scene.node(id).unwrap();
+                assert_eq!(erase_marks(node).len(), 2, "pass 2 commits at once");
+            }
+            _ => {
+                let to = c + EVec2::new(-150.0, -250.0);
+                watch(&mut h, Box::new(shift_at(to, None)), "pass 2 hover");
+                watch(&mut h, Box::new(shift_at(to, Some(true))), "pass 2 press");
+                wait(&mut h, &mut watch, &|h| h.app.erase_live.contains_key(&id));
+                let esc = move |i: &mut egui::RawInput| {
+                    i.modifiers = shift;
+                    i.events.push(egui::Event::Key {
+                        key: egui::Key::Escape,
+                        physical_key: None,
+                        pressed: true,
+                        repeat: false,
+                        modifiers: shift,
+                    });
+                };
+                watch(&mut h, Box::new(esc), "Esc");
+                assert!(h.app.board_drag.is_none(), "Esc ends pass 2");
+                let node = h.app.doc().scene.node(id).unwrap();
+                assert_eq!(erase_marks(node).len(), 1, "Esc changed nothing");
+            }
+        }
+        assert!(h.app.erase_settle.holds(h.app.tab().id, id), "{variant}: pass 1 still settles");
+        settle_watched(&mut h, &mut raster, at, px, variant);
+    }
+}
+
+/// The same across a tab switch: another tab for a frame after the
+/// release, then back.
+#[test]
+fn a_tab_switch_during_an_eraser_settle_never_shows_the_uncut_stroke() {
+    let (mut h, mut raster, id, cross) = eraser_bar_board("eraser_settle_tabs");
+    let at = (cross, half_lit(&h, &raster, cross));
+    let px = release_a_settling_pass(&mut h, &mut raster, id);
+    let first = h.app.active_tab;
+    h.app.new_tab();
+    shot(&mut h, &mut raster, |_| {});
+    h.app.switch_tab(first);
+    shot_settling(&mut h, &mut raster, at, |_| {}, "back on the tab");
+    assert!(h.app.erase_settle.holds(h.app.tab().id, id), "the pass still settles");
+    settle_watched(&mut h, &mut raster, at, px, "tab switch");
+}
+
+/// The same when the stroke moves while its pass settles: the preview and
+/// its band move with it.
+#[test]
+fn moving_a_stroke_during_its_eraser_settle_never_shows_the_uncut_stroke() {
+    let (mut h, mut raster, id, cross) = eraser_bar_board("eraser_settle_move");
+    let lit = half_lit(&h, &raster, cross);
+    let px = release_a_settling_pass(&mut h, &mut raster, id);
+    h.app.patch_nodes(&[id], |n| n.rect.x += 60.0);
+    let at = (cross + EVec2::new(60.0, 0.0), lit);
+    shot_settling(&mut h, &mut raster, at, |_| {}, "the move frame");
+    assert!(h.app.erase_settle.holds(h.app.tab().id, id), "the pass still settles");
+    settle_watched(&mut h, &mut raster, at, px, "move");
+}
+
+/// Review r12 note N3: an undo after a settled pass became the stroke's
+/// stand-in paints the restored ink, not the erased stand-in, until the
+/// restored raster lands. Tiles are off so the stroke keeps a bitmap of
+/// its own.
+#[test]
+fn undoing_an_eraser_pass_after_it_settles_paints_the_restored_ink() {
+    let (mut h, mut raster, id, cross) = eraser_bar_board("eraser_settle_undo");
+    h.app.brush_tiles_enabled = false;
+    let before = h.app.doc().scene.node(id).unwrap().clone();
+    let key = board_path::node_stamp_key(&before);
+    settle_captured(&mut h, &mut raster, "the bar's own bitmap", |app| {
+        app.brush_stamps.get(&id).is_some_and(|(k, g)| g.exact && Some(*k) == key)
+    });
+    let lit = half_lit(&h, &raster, cross);
+    release_a_settling_pass(&mut h, &mut raster, id);
+    h.app.erase_settle.hold = false;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while h.app.erase_settle.holds(h.app.tab().id, id) {
+        assert!(std::time::Instant::now() < deadline, "the cut never landed");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        shot(&mut h, &mut raster, |_| {});
+    }
+    let ctrl = egui::Modifiers::CTRL;
+    let mut prepare: Box<dyn FnOnce(&mut egui::RawInput)> = Box::new(move |i| {
+        i.modifiers = ctrl;
+        i.events.push(egui::Event::Key {
+            key: egui::Key::Z,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: ctrl,
+        });
+    });
+    let mut frames = 0;
+    loop {
+        shot(&mut h, &mut raster, std::mem::replace(&mut prepare, Box::new(|_| {})));
+        assert_eq!(h.app.doc().scene.node(id), Some(&before), "Ctrl+Z restores the bar");
+        let xf = h.app.board_xf();
+        for p in cut_points(cross) {
+            let r = redness(&raster, &xf, p);
+            assert!(r > lit, "frame {frames} after undo: {p:?} is still erased ({r:.2})");
+        }
+        let current = h.app.brush_stamps.get(&id).is_some_and(|(k, g)| g.exact && Some(*k) == key);
+        if current && !h.app.erase_settling() {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "the restored bar never settled");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        frames += 1;
+    }
+}
+
+/// Review r12 finding 2 (Art. II): a settling stroke panned out of view
+/// still takes its cut and stops settling; nothing waits on the workers and
+/// the idle board stops repainting.
+#[test]
+fn an_eraser_settle_ends_when_its_stroke_is_panned_away() {
+    let (mut h, mut raster, id, _) = eraser_bar_board("eraser_settle_pan");
+    release_a_settling_pass(&mut h, &mut raster, id);
+    let c = h.app.canvas_rect.center();
+    let out_of_view = |h: &Harness| {
+        let xf = h.app.board_xf();
+        let (lo, hi) = (xf.s2w(h.app.canvas_rect.min), xf.s2w(h.app.canvas_rect.max));
+        let view = slate_doc::scene::WorldRect::new(lo.x, lo.y, hi.x - lo.x, hi.y - lo.y);
+        let r = h.app.doc().scene.node(id).unwrap().rect;
+        let ink = slate_doc::scene::WorldRect::new(r.x - 60.0, r.y - 60.0, r.w + 120.0, r.h + 120.0);
+        !ink.intersects(&view)
+    };
+    let mut notches = 0;
+    while !out_of_view(&h) {
+        notches += 1;
+        assert!(notches < 200, "Shift + wheel never panned the bar away");
+        shot(&mut h, &mut raster, |i| {
+            i.modifiers = egui::Modifiers::SHIFT;
+            i.events.push(egui::Event::PointerMoved(c));
+            i.events.push(egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: EVec2::new(0.0, -600.0),
+                modifiers: egui::Modifiers::SHIFT,
+            });
+        });
+    }
+    h.app.erase_settle.hold = false;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while h.app.erase_settling() || !h.app.brush_tiles.last.settled {
+        assert!(std::time::Instant::now() < deadline, "the panned-away pass never settled");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        h.frame();
+    }
+    assert_eq!(h.app.brush_tiles.lines_wanted_len(), 0, "a cut still waits on the workers");
+    assert_eq!(h.app.brush_tiles.lines_landed_len(), 0, "a landed cut waits in the pool");
+    // The pan's own follow-up repaints end within about 20 frames; a
+    // settle that still asked for frames never would.
+    let quiet = (0..60).any(|_| {
+        let out = h.frame_output(|_| {});
+        !out.viewport_output[&egui::ViewportId::ROOT].repaint_delay.is_zero()
+    });
+    assert!(quiet, "the idle board keeps repainting");
+}
+
+/// Review r12 finding 3: a nested board portal whose stroke has the host
+/// bar's id leaves the host's settle alone.
+#[test]
+fn a_nested_board_portal_does_not_end_the_hosts_eraser_settle() {
+    let (mut h, mut raster, id, cross) = eraser_bar_board("eraser_settle_nested");
+    let wb = h.base.join("child.slate");
+    let mut child = SlateDoc::new("Child");
+    child.scene.nodes.push(h.app.doc().scene.node(id).unwrap().clone());
+    child.save_to(&wb).unwrap();
+    h.app.tab_mut().path = Some(h.base.join("parent.slate"));
+    let c = h.app.canvas_rect.center();
+    let xf = h.app.board_xf();
+    let ctx = h.ctx.clone();
+    h.app
+        .apply_workbook_drop(&ctx, board_slate::WorkbookDropChoice::Insert, wb, xf.s2w(c));
+    let portal = h.app.doc().scene.nodes.last().unwrap().id;
+    assert_ne!(portal, id);
+    let (a, b) = (xf.s2w(c + EVec2::new(150.0, -220.0)), xf.s2w(c + EVec2::new(410.0, -110.0)));
+    h.app.patch_nodes(&[portal], |n| {
+        n.rect = slate_doc::scene::WorldRect::new(a.x, a.y, b.x - a.x, b.y - a.y);
+    });
+    h.app.board_sel.clear();
+    h.app.set_board_tool(board::BoardTool::Eraser);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while h.app.slate_boards_ready() == 0 || !h.app.brush_tiles.last.settled {
+        assert!(std::time::Instant::now() < deadline, "the nested board never loaded");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        shot(&mut h, &mut raster, |_| {});
+    }
+    let at = (cross, half_lit(&h, &raster, cross));
+    let px = release_a_settling_pass(&mut h, &mut raster, id);
+    for k in 0..10 {
+        shot_settling(&mut h, &mut raster, at, |_| {}, &format!("portal frame {k}"));
+        assert!(h.app.erase_settle.holds(h.app.tab().id, id), "frame {k}: the settle ended");
+    }
+    settle_watched(&mut h, &mut raster, at, px, "nested portal");
+}
+
+/// Review r12 finding 4 (Art. II): an eraser pass across a big paint-layer
+/// mark rasterizes nothing on its release frame, as on the board, and the
+/// mark takes the pass.
+#[test]
+fn an_eraser_release_over_a_big_layer_mark_rasterizes_nothing() {
+    let zig = [
+        Pos2::new(40.0, 40.0),
+        Pos2::new(200.0, 560.0),
+        Pos2::new(380.0, 40.0),
+        Pos2::new(560.0, 560.0),
+        Pos2::new(760.0, 40.0),
+    ];
+    let (mut h, image_id) = image_paint_board(
+        "eraser_layer_budget",
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 800.0, 600.0),
+        0.0,
+        &zig,
+    );
+    let before = layer_marks(&h, image_id)[0].clone();
+    assert_eq!(before.len(), 1, "one layer mark");
+    h.app.set_board_tool(board::BoardTool::Eraser);
+    h.app.sync_image_paint_for_tool();
+    h.app.eraser_width = 40.0;
+    h.app.eraser_opacity = 1.0;
+    h.frame();
+    assert!(h.app.image_paint_session().is_some(), "the Eraser paints on the image");
+    let xf = h.app.board_xf();
+    let pass: Vec<Pos2> =
+        [60.0, 300.0, 500.0, 740.0].iter().map(|x| xf.w2s(Pos2::new(*x, 300.0))).collect();
+    h.frame_with(|i| i.events.push(egui::Event::PointerMoved(pass[0])));
+    let button = |pos: Pos2, pressed: bool| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    h.frame_with(|i| i.events.push(button(pass[0], true)));
+    for p in &pass[1..] {
+        h.frame_with(|i| i.events.push(egui::Event::PointerMoved(*p)));
+    }
+    let stamps = board_path::stamps_on_this_thread();
+    let last = *pass.last().unwrap();
+    h.frame_with(|i| i.events.push(button(last, false)));
+    assert_eq!(
+        board_path::stamps_on_this_thread(),
+        stamps,
+        "the release rasterized a stroke"
+    );
+    let after = layer_marks(&h, image_id)[0].clone();
+    assert_eq!(after.len(), 1, "the mark keeps its ink");
+    assert_eq!(after[0].id, before[0].id);
+    assert_eq!(erase_marks(&after[0]).len(), 1, "the mark takes the pass");
 }
 
 /// A painted zigzag across the view at 150 % on a 1.5 px/pt display: too

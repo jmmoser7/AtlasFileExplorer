@@ -146,21 +146,12 @@ fn dist_segment_segment(a0: Pos2, a1: Pos2, b0: Pos2, b1: Pos2) -> f32 {
         .min(dist_point_segment(b1, a0, a1))
 }
 
-pub(crate) fn stamp_erase_mark(
-    before: &Node,
-    points: &[Pos2],
-    span: StrokeSpan,
-) -> Option<(Node, bool)> {
-    let after = with_erase_mark(before, points, span);
-    let (ink, gone) = erased_result(&after);
-    ink.then_some((after, gone))
-}
-
-/// [`stamp_erase_mark`] when `fits` grants its coarse bitmap from the
-/// frame's raster budget. Otherwise nothing rasterizes: the mark is
-/// committed as if the pass touched ink and left some, and the second value
-/// is true.
-fn stamp_erase_mark_within(
+/// `before` with one more erase pass along `points`, and whether that left
+/// it no visible ink (`None` when the pass touched no ink), decided on a
+/// coarse bitmap when `fits` grants it from the frame's raster budget.
+/// Otherwise nothing rasterizes: the mark is committed as if the pass
+/// touched ink and left some, and the second value is true.
+pub(crate) fn stamp_erase_mark_within(
     before: &Node,
     points: &[Pos2],
     span: StrokeSpan,
@@ -1591,7 +1582,7 @@ impl SlateApp {
     /// end of the last pass (or from the press when there is none).
     pub(crate) fn begin_erase(&mut self, world: Pos2, shift: bool) -> super::board::BoardDrag {
         self.erase_live.clear();
-        self.brush_tiles.forget_erase_lines(&self.erase_settle.lanes());
+        self.brush_tiles.forget_erase_lines(&self.erase_settle.jobs());
         let points = if shift {
             let tab = self.tab().id;
             let from = self.eraser_anchor.filter(|(t, _)| *t == tab).map(|(_, p)| p);
@@ -1728,8 +1719,10 @@ impl SlateApp {
         straight: bool,
     ) {
         let mut live = std::mem::take(&mut self.erase_live);
-        for (id, l) in live.iter_mut() {
-            l.take_landed(&mut self.brush_tiles, board_path::tiles::erase_lane(*id));
+        if !self.erase_settle.held() {
+            for (id, l) in live.iter_mut() {
+                l.take_landed(&mut self.brush_tiles, board_path::tiles::erase_lane(*id));
+            }
         }
         self.draft_lock = None;
         if let Some(last) = points.last() {
@@ -1743,8 +1736,12 @@ impl SlateApp {
                 pending.push(*id);
             }
         }
-        let mut keep = self.erase_settle.lanes();
-        keep.extend(pending.iter().map(|id| board_path::tiles::erase_lane(*id)));
+        let mut keep = self.erase_settle.jobs();
+        keep.extend(
+            pending
+                .iter()
+                .filter_map(|id| live[id].job(board_path::tiles::erase_lane(*id))),
+        );
         self.brush_tiles.forget_erase_lines(&keep);
         let span = slate_doc::scene::StrokeSpan {
             width: tip.diameter,
@@ -1820,12 +1817,12 @@ impl SlateApp {
             };
             if !gone && live.contains_key(id) {
                 if pending.contains(id) {
-                    settles.push((*id, board_path::node_stamp_key(&after)));
+                    settles.push(after.clone());
                 } else {
-                    stand_ins.push((*id, after.rect));
+                    stand_ins.push(after.clone());
                 }
             } else if deferred && straight {
-                settles.push((*id, board_path::node_stamp_key(&after)));
+                settles.push(after.clone());
             }
             if deferred {
                 if let Some(key) = board_path::node_stamp_key(&after) {
@@ -1850,7 +1847,7 @@ impl SlateApp {
             }
         }
         let (layer_cmds, _) =
-            self.finish_erase_layer_spot(&spot, &points, span, &live, layer_removes);
+            self.finish_erase_layer_spot(&spot, &points, span, &live, &pending, layer_removes);
         cmds.extend(layer_cmds);
         board_removes.sort_by_key(|(index, _)| std::cmp::Reverse(*index));
         cmds.extend(
@@ -1866,21 +1863,29 @@ impl SlateApp {
                 pass = self.tab().journal.top_token();
             }
         }
-        for (id, rect) in stand_ins {
-            if let Some(l) = live.remove(&id) {
-                let gpu = l.into_stand_in(rect, self.frame_no);
-                self.brush_stamps.insert(id, (0, gpu));
+        // A pass's preview that stands in or settles shows every earlier
+        // pass too, so it replaces what settled for the stroke. A pass that
+        // changed nothing leaves that as it is.
+        let tab = self.tab().id;
+        for after in stand_ins {
+            let id = after.id;
+            let at = board_path::node_stamp_key(&after).zip(board_path::erase_seal(&after));
+            if let (Some(l), Some((key, seal))) = (live.remove(&id), at) {
+                self.erase_settle.release(tab, id, &mut self.brush_tiles);
+                let gpu = l.into_stand_in(after.rect, self.frame_no);
+                board_path::insert_erase_stand_in(self, id, key, seal, gpu);
             }
         }
-        let tab = self.tab().id;
-        let settle = self.erase_settle.here(tab, &mut self.brush_tiles);
-        for (id, key) in settles {
-            let Some(key) = key else {
+        self.erase_settle.here(tab, &mut self.brush_tiles);
+        for after in settles {
+            let Some(key) = board_path::node_stamp_key(&after) else {
                 continue;
             };
-            match live.remove(&id) {
-                Some(l) => settle.hold(id, key, l),
-                None => settle.wait(id, key, &points, tip),
+            match live.remove(&after.id) {
+                Some(l) => self
+                    .erase_settle
+                    .hold(tab, &after, key, l, &mut self.brush_tiles),
+                None => self.erase_settle.wait(tab, &after, key, &points, tip),
             }
         }
         if let Some(token) = pass {
