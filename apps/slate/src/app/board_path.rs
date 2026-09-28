@@ -690,6 +690,17 @@ fn hash_stroke(h: &mut impl Hasher, stroke: &Stroke) {
     3u8.hash(h);
 }
 
+#[cfg(test)]
+thread_local! {
+    static CONTENT_HASHED_HERE: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Stroke contents hashed on this thread so far.
+#[cfg(test)]
+pub(crate) fn content_hashed_on_this_thread() -> u64 {
+    CONTENT_HASHED_HERE.with(|n| n.get())
+}
+
 fn path_content_hash(
     path: &PathData,
     stroke: &Stroke,
@@ -698,6 +709,8 @@ fn path_content_hash(
     corner: slate_doc::scene::Corner,
     bucket: i64,
 ) -> u64 {
+    #[cfg(test)]
+    CONTENT_HASHED_HERE.with(|n| n.set(n.get() + 1));
     let mut h = DefaultHasher::new();
     hash_path_data(&mut h, path);
     hash_stroke(&mut h, stroke);
@@ -2173,8 +2186,12 @@ struct Waiting {
     /// Painted this frame: its pass is applied, and its stroke shows one
     /// of `keys` and is not hidden, or still ghosts out.
     shown: bool,
-    /// In the open document's view this frame, waiting on its raster.
+    /// The stroke's ink is in the open document's view this frame, waiting
+    /// on its raster.
     seen: bool,
+    /// The scene revision the stroke's content key was last read at, and
+    /// that key: it is read again only once the scene changes.
+    checked: Option<((u64, u64), u64)>,
 }
 
 /// A released pass's preview while its final cut is on the workers.
@@ -2200,6 +2217,28 @@ struct Settling {
     shift: [f32; 2],
     /// The stroke is not hidden, or still ghosts out, this frame.
     shown: bool,
+}
+
+impl Settling {
+    /// Its preview's line and each later band, as bands of stroke `id` in
+    /// document `tab` that wait on the stroke's raster.
+    fn take_bands(&mut self, tab: u64, id: NodeId, shown: bool, seen: bool) -> Vec<Waiting> {
+        let mut bands = std::mem::take(&mut self.bands);
+        bands.extend(self.live.line.map(|seg| (seg, self.pass, 0)));
+        bands
+            .into_iter()
+            .map(|(seg, pass, from)| Waiting {
+                tab,
+                id,
+                seg: shift_seg(seg, self.shift),
+                pass,
+                keys: self.keys[from..].to_vec(),
+                shown,
+                seen,
+                checked: None,
+            })
+            .collect()
+    }
 }
 
 fn shift_seg((a, b): Seg, d: [f32; 2]) -> Seg {
@@ -2349,18 +2388,14 @@ impl EraseSettle {
         points: &[Pos2],
         tip: StampStyle,
     ) {
+        self.extend_keys(tab, node.id, key);
         let Some(seg) = straight_seg(points, tip) else {
             return;
         };
         if let Some(s) = self.live.get_mut(&(tab, node.id)) {
-            s.key = key;
-            s.keys.push(key);
             let back = [s.rect.x - node.rect.x, s.rect.y - node.rect.y];
             s.bands.push((shift_seg(seg, back), pass, s.keys.len() - 1));
             return;
-        }
-        for w in self.waiting.iter_mut().filter(|w| (w.tab, w.id) == (tab, node.id)) {
-            w.keys.push(key);
         }
         self.waiting.push(Waiting {
             tab,
@@ -2370,7 +2405,22 @@ impl EraseSettle {
             keys: vec![key],
             shown: true,
             seen: true,
+            checked: None,
         });
+    }
+
+    /// Stroke `id` of document `tab` was committed under content `key` by
+    /// a later eraser pass with no preview, straight or freehand: the
+    /// stroke's settling preview and bands cover that content too.
+    pub(crate) fn extend_keys(&mut self, tab: u64, id: NodeId, key: u64) {
+        if let Some(s) = self.live.get_mut(&(tab, id)) {
+            s.key = key;
+            s.keys.push(key);
+            return;
+        }
+        for w in self.waiting.iter_mut().filter(|w| (w.tab, w.id) == (tab, id)) {
+            w.keys.push(key);
+        }
     }
 
     /// Stop settling stroke `id` of document `tab`: a newer pass's preview
@@ -2418,20 +2468,6 @@ impl EraseSettle {
             .map(|w| (w.seg, w.seg.0, false));
         settling.chain(waiting)
     }
-}
-
-/// Where a band over straight pass `seg` of stroke `node` can show: the
-/// pass's own reach united with the stroke's ink.
-fn band_reach(node: &Node, (a, b): Seg) -> WorldRect {
-    let r = 0.5 * a.tip.diameter.max(b.tip.diameter);
-    let (x0, x1) = (a.pos[0].min(b.pos[0]) - r, a.pos[0].max(b.pos[0]) + r);
-    let (y0, y1) = (a.pos[1].min(b.pos[1]) - r, a.pos[1].max(b.pos[1]) + r);
-    let [ix0, iy0, ix1, iy1] = match &node.kind {
-        NodeKind::Shape(shape) => tiles::ink_rect(node, shape),
-        _ => [x0, y0, x1, y1],
-    };
-    let (x0, y0) = (x0.min(ix0), y0.min(iy0));
-    WorldRect::new(x0, y0, x1.max(ix1) - x0, y1.max(iy1) - y0)
 }
 
 /// Where settling preview `s` paints for stroke `node` of the open
@@ -2484,8 +2520,11 @@ fn paint_settling_erase(
 /// band stays, in view or not, until its stroke shows its raster for its
 /// content in view, the stroke changes other than by an eraser pass, or
 /// its pass is undone and a new edit drops the redo; it paints only where
-/// its stroke paints. Frames are asked for only while this document has a
-/// cut on the workers or a band in view waiting on a raster.
+/// its stroke paints. Undoing a pass that still settles turns its preview's
+/// line and bands into such bands. A band reads its stroke's content only
+/// once the scene changed since it last did. Frames are asked for only
+/// while this document has a cut on the workers or a band waiting on a
+/// raster for a stroke whose ink is in view.
 fn tend_erase_settle(app: &mut SlateApp, painter: &egui::Painter, xf: &BoardXf) {
     if app.erase_settle.is_empty() {
         return;
@@ -2493,9 +2532,8 @@ fn tend_erase_settle(app: &mut SlateApp, painter: &egui::Painter, xf: &BoardXf) 
     let tab = app.tab().id;
     app.erase_settle.here(tab, &mut app.brush_tiles);
     let want = stamp_pixel_for_zoom(xf.z, painter.ctx().pixels_per_point());
-    let clip = painter.clip_rect();
-    let (lo, hi) = (xf.s2w(clip.min), xf.s2w(clip.max));
-    let view = WorldRect::new(lo.x, lo.y, hi.x - lo.x, hi.y - lo.y);
+    let view = app.board_paint_view(painter.clip_rect());
+    let revision = (app.scene_gen, app.doc().scene.scene_gen());
     let open = |app: &SlateApp, t: u64| app.tabs.iter().any(|x| x.id == t);
     let paints = |app: &SlateApp, n: &Node| {
         !n.hidden || app.hide_ghosts.iter().any(|(g, _)| g.id == n.id)
@@ -2507,18 +2545,25 @@ fn tend_erase_settle(app: &mut SlateApp, painter: &egui::Painter, xf: &BoardXf) 
         if w.tab != tab {
             return open(app, w.tab);
         }
-        let Some(n) = app.doc().scene.node(w.id) else {
-            return false;
-        };
         let journal = &app.tab().journal;
         if !journal.is_applied(w.pass) {
             w.shown = false;
             return journal.is_undone(w.pass);
         }
-        let Some(key) = node_stamp_key(n).filter(|k| w.keys.contains(k)) else {
+        let Some(n) = app.doc().scene.node(w.id) else {
             return false;
         };
-        w.seen = !n.hidden && band_reach(n, w.seg).intersects(&view);
+        let key = match w.checked {
+            Some((at, key)) if at == revision => key,
+            _ => match node_stamp_key(n).filter(|k| w.keys.contains(k)) {
+                Some(key) => {
+                    w.checked = Some((revision, key));
+                    key
+                }
+                None => return false,
+            },
+        };
+        w.seen = super::board::paints_in_view(n, &view);
         if w.seen && stroke_raster_current(app, n, key, want) {
             return false;
         }
@@ -2540,6 +2585,10 @@ fn tend_erase_settle(app: &mut SlateApp, painter: &egui::Painter, xf: &BoardXf) 
         };
         let Some(shift) = fit else {
             s.live.forget(&mut app.brush_tiles, lane);
+            if t == tab && app.tab().journal.is_undone(s.pass) {
+                let bands = s.take_bands(t, id, false, false);
+                app.erase_settle.waiting.extend(bands);
+            }
             return false;
         };
         if !held {
@@ -2553,23 +2602,12 @@ fn tend_erase_settle(app: &mut SlateApp, painter: &egui::Painter, xf: &BoardXf) 
     for ((t, id), mut s) in live.extract_if(|_, s| s.live.settled() || s.live.gave_up()) {
         // The tiles take the stroke back on the next frame.
         busy |= t == tab;
-        let mut bands = std::mem::take(&mut s.bands);
-        bands.extend(s.live.line.map(|seg| (seg, s.pass, 0)));
+        let bands = s.take_bands(t, id, s.shown, t == tab);
         s.live.forget(&mut app.brush_tiles, tiles::erase_lane(id));
         let gpu = s.live.into_stand_in(s.rect, app.frame_no);
         let seal = EraseSeal { tab: t, pass: s.pass };
         insert_erase_stand_in(app, id, s.shows, seal, gpu);
-        for (seg, pass, from) in bands {
-            app.erase_settle.waiting.push(Waiting {
-                tab: t,
-                id,
-                seg: shift_seg(seg, s.shift),
-                pass,
-                keys: s.keys[from..].to_vec(),
-                shown: s.shown,
-                seen: t == tab,
-            });
-        }
+        app.erase_settle.waiting.extend(bands);
     }
     app.erase_settle.live = live;
     if busy {
