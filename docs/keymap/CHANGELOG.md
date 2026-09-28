@@ -38,6 +38,20 @@
   Rhino's Shift-inverts-Ortho.
 - No binding changed.
 
+## 2026-09-27 — Brush Shift start follows the journal; Eraser Shift pass off the frame loop
+
+- `brush` D03: the Shift segment's start follows the journal. After an
+  undo, redo, or delete, the next Shift press starts at the end the newest
+  remaining brush mark has now (and extends it), or at the press when no
+  mark is left. Before, an undone segment's end stayed the start and the
+  release added a new node. The anchor holds mark identities only
+  (`board_color::BrushChain`) and resolves against the scene on each press.
+- `brush` D11: the Eraser's Shift pass cuts its segment out of each reached
+  stroke on the raster workers (the brush Shift segment's line jobs, one
+  lane per stroke), newest first. Move frames paint the eraser's band as
+  the stand-in; the release takes in the exact cut. The committed erase
+  mark is unchanged. No binding changed.
+
 ## 2026-09-27 — Agent Stop before the link folder exists
 
 - Agent output Stop writes `cancel.json` even when pressed before a worker

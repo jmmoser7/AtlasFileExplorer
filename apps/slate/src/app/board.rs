@@ -1238,7 +1238,7 @@ impl SlateApp {
         self.desktop_sample = None;
         self.armed_kit_id = None;
         self.brush_straight = None;
-        self.brush_line_anchor = None;
+        self.brush_chain = Default::default();
         self.draft_lock = None;
         if tool != BoardTool::DirectSelect {
             self.direct.node = None;
@@ -4451,6 +4451,7 @@ impl SlateApp {
                                         start: world,
                                         start_screen: pos,
                                         tip: self.tip_now(),
+                                        anchor: self.brush_line_anchor(),
                                     });
                                     self.board_drag = None;
                                 } else if self.board_tool == BoardTool::Brush && modifiers.alt {
@@ -5083,10 +5084,8 @@ impl SlateApp {
         let mut nodes = self.board_paint_nodes(rect);
         // A Shift preview that continues a stroke paints that stroke inside
         // its own canvas, so the scene copy stays out of this frame.
-        if self.brush_straight.is_some() {
-            if let Some(id) = self.brush_line_anchor.and_then(|a| a.node) {
-                nodes.retain(|n| n.id != id);
-            }
+        if let Some((_, _, Some(id))) = self.brush_straight_from() {
+            nodes.retain(|n| n.id != id);
         }
         // Ctrl+F: dim non-matching nodes to ~35% at paint time only — the
         // opacity tweak lives on this per-frame clone, never in the scene
@@ -5561,6 +5560,7 @@ impl SlateApp {
                 }
             }
         }
+        board_path::paint_erase_band(self, &draft_painter, &xf);
         // Wire drag preview (rubber-band bezier, snap ring, modifier glyph).
         if let Some(BoardDrag::Wire(wd)) = &self.board_drag {
             let mods = ui.input(|i| i.modifiers);

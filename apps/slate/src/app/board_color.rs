@@ -718,8 +718,8 @@ impl BrushTip {
     }
 }
 
-/// End of the last brush mark: where the next Shift segment starts, with the
-/// tip it had and the stroke it can extend.
+/// Where the next Shift segment starts, with the tip there and the stroke
+/// it can extend. Resolved from [`BrushChain`] against the scene.
 #[derive(Clone, Copy)]
 pub(crate) struct BrushAnchor {
     pub pos: Pos2,
@@ -727,10 +727,34 @@ pub(crate) struct BrushAnchor {
     pub node: Option<NodeId>,
 }
 
+/// The brush marks this armed Brush drew, newest last, and the bare
+/// Shift+click point a chain may start from. Holds identities only: the
+/// anchor is the newest mark the scene still shows, at its end as it is
+/// now, so undo, redo, and deletes move it with the journal (D03).
+#[derive(Clone, Default)]
+pub(crate) struct BrushChain {
+    marks: Vec<NodeId>,
+    point: Option<(Pos2, BrushTip)>,
+}
+
+const BRUSH_CHAIN_MARKS: usize = 32;
+
 pub(crate) struct BrushStraight {
     pub start: Pos2,
     pub start_screen: Pos2,
     pub tip: BrushTip,
+    /// The anchor as the press found it.
+    pub anchor: Option<BrushAnchor>,
+}
+
+/// A brush mark in world space, on the board or on a paint layer: its path,
+/// the end a Shift segment starts from, and one tip per vertex.
+struct BrushMark {
+    layer: Option<slate_doc::image_paint::LayerNodeRef>,
+    node: Node,
+    bez: BezPath,
+    end: Pos2,
+    tips: Vec<StrokeSpan>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1089,12 +1113,103 @@ impl SlateApp {
         }
     }
 
+    /// Mark `node` as the newest brush mark, or with none start a chain at
+    /// the bare point `pos`.
     fn set_brush_anchor(&mut self, pos: Pos2, node: Option<NodeId>) {
-        self.brush_line_anchor = Some(BrushAnchor {
-            pos,
-            tip: self.tip_now(),
+        let tip = self.tip_now();
+        let chain = &mut self.brush_chain;
+        match node {
+            Some(id) => {
+                chain.marks.retain(|m| *m != id);
+                chain.marks.push(id);
+                if chain.marks.len() > BRUSH_CHAIN_MARKS {
+                    chain.marks.remove(0);
+                }
+            }
+            None => {
+                chain.marks.clear();
+                chain.point = Some((pos, tip));
+            }
+        }
+    }
+
+    /// Where the next Shift segment starts: the end of the newest brush mark
+    /// the scene still shows, else the chain's bare click point.
+    pub(crate) fn brush_line_anchor(&self) -> Option<BrushAnchor> {
+        let chain = &self.brush_chain;
+        chain
+            .marks
+            .iter()
+            .rev()
+            .find_map(|&id| {
+                let mark = self.brush_mark(id)?;
+                let tip = mark.tips.last().map_or(self.tip_now(), |t| BrushTip {
+                    width: t.width,
+                    softness: t.softness,
+                    color: t.color,
+                    texture: t.texture,
+                });
+                Some(BrushAnchor {
+                    pos: mark.end,
+                    tip,
+                    node: Some(id),
+                })
+            })
+            .or_else(|| {
+                chain.point.map(|(pos, tip)| BrushAnchor {
+                    pos,
+                    tip,
+                    node: None,
+                })
+            })
+    }
+
+    /// Brush mark `id` as it is now: a visible path on the board or on an
+    /// image's paint layer.
+    fn brush_mark(&self, id: NodeId) -> Option<BrushMark> {
+        let scene = &self.doc().scene;
+        let layer = slate_doc::image_paint::find_layer_node(scene, id);
+        let node = match layer {
+            None => scene.node(id).cloned(),
+            Some(loc) => scene.node(loc.image).and_then(|host| match &host.kind {
+                NodeKind::Image(img) => img
+                    .paint_layers
+                    .get(loc.layer_index)?
+                    .nodes
+                    .get(loc.node_index)
+                    .map(|local| slate_doc::image_paint::layer_node_to_world(host, img, local)),
+                _ => None,
+            }),
+        }?;
+        if node.hidden {
+            return None;
+        }
+        let NodeKind::Shape(shape) = &node.kind else {
+            return None;
+        };
+        let path = shape.path.as_ref()?;
+        if shape.shape != ShapeKind::Path {
+            return None;
+        }
+        let bez = board_path::path_data_to_world_bez(path, node.rect, node.rotation_deg);
+        let end = match bez.elements().last()? {
+            vector_ink::kurbo::PathEl::MoveTo(p) | vector_ink::kurbo::PathEl::LineTo(p) => *p,
+            vector_ink::kurbo::PathEl::QuadTo(_, p) => *p,
+            vector_ink::kurbo::PathEl::CurveTo(_, _, p) => *p,
+            vector_ink::kurbo::PathEl::ClosePath => return None,
+        };
+        let vertices = 1 + path.segs.len();
+        let mut tips = path.paint_tips(&shape.stroke);
+        if tips.len() != vertices {
+            tips = vec![StrokeSpan::of(&shape.stroke); vertices];
+        }
+        Some(BrushMark {
+            layer,
+            end: Pos2::new(end.x as f32, end.y as f32),
+            bez,
+            tips,
             node,
-        });
+        })
     }
 
     /// Freehand brush release at the brush tip now: same fitter as the Pen,
@@ -1238,53 +1353,28 @@ impl SlateApp {
     /// vertex must be `from`: a board node through `patch_nodes`, a paint
     /// layer node through one journaled layer patch.
     fn extend_brush_chain(&mut self, id: NodeId, from: Pos2, to: Pos2, end: BrushTip) -> bool {
-        let layer = slate_doc::image_paint::find_layer_node(&self.doc().scene, id);
-        let node = match layer {
-            None => self.doc().scene.node(id).cloned(),
-            Some(loc) => self.doc().scene.node(loc.image).and_then(|host| match &host.kind {
-                NodeKind::Image(img) => img
-                    .paint_layers
-                    .get(loc.layer_index)?
-                    .nodes
-                    .get(loc.node_index)
-                    .map(|local| slate_doc::image_paint::layer_node_to_world(host, img, local)),
-                _ => None,
-            }),
-        };
-        let Some(node) = node else {
+        let Some(BrushMark {
+            layer,
+            node,
+            mut bez,
+            end: last,
+            mut tips,
+        }) = self.brush_mark(id)
+        else {
             return false;
         };
-        if node.locked || node.hidden {
-            return false;
-        }
         let NodeKind::Shape(shape) = &node.kind else {
             return false;
         };
         let Some(path) = shape.path.as_ref() else {
             return false;
         };
-        if shape.shape != ShapeKind::Path
-            || !shape.stroke.paints_as_stamp()
-            || path.closed
-            || !path.extra.is_empty()
-        {
+        if node.locked || !shape.stroke.paints_as_stamp() || path.closed || !path.extra.is_empty() {
             return false;
         }
-        let mut bez = board_path::path_data_to_world_bez(path, node.rect, node.rotation_deg);
-        let last = match bez.elements().last() {
-            Some(vector_ink::kurbo::PathEl::MoveTo(p) | vector_ink::kurbo::PathEl::LineTo(p)) => *p,
-            Some(vector_ink::kurbo::PathEl::QuadTo(_, p)) => *p,
-            Some(vector_ink::kurbo::PathEl::CurveTo(_, _, p)) => *p,
-            _ => return false,
-        };
         let slop = 1.0 / self.tab().cam.z.max(0.05);
-        if ((last.x as f32 - from.x).powi(2) + (last.y as f32 - from.y).powi(2)).sqrt() > slop {
+        if (last - from).length() > slop {
             return false;
-        }
-        let vertices = 1 + path.segs.len();
-        let mut tips = path.paint_tips(&shape.stroke);
-        if tips.len() != vertices {
-            tips = vec![slate_doc::scene::StrokeSpan::of(&shape.stroke); vertices];
         }
         tips.push(end.span());
         bez.line_to((to.x as f64, to.y as f64));
@@ -1335,7 +1425,7 @@ impl SlateApp {
     pub(crate) fn brush_straight_from(&self) -> Option<(Pos2, BrushTip, Option<NodeId>)> {
         let g = self.brush_straight.as_ref()?;
         Some(
-            self.brush_line_anchor
+            g.anchor
                 .map_or((g.start, g.tip, None), |a| (a.pos, a.tip, a.node)),
         )
     }
@@ -1378,12 +1468,9 @@ impl SlateApp {
         };
         self.draft_lock = None;
         let travel = end_screen.distance(gesture.start_screen);
-        if travel <= BRUSH_MOD_CLICK_PX && self.brush_line_anchor.is_none() {
-            self.brush_line_anchor = Some(BrushAnchor {
-                pos: end_world,
-                tip: gesture.tip,
-                node: None,
-            });
+        if travel <= BRUSH_MOD_CLICK_PX && gesture.anchor.is_none() {
+            self.brush_chain.marks.clear();
+            self.brush_chain.point = Some((end_world, gesture.tip));
         } else if (end_world - from).length() > 0.5 {
             self.commit_tween_line(from, end_world, tip, node);
         } else {
@@ -1454,6 +1541,7 @@ impl SlateApp {
     /// end of the last pass (or from the press when there is none).
     pub(crate) fn begin_erase(&mut self, world: Pos2, shift: bool) -> super::board::BoardDrag {
         self.erase_live.clear();
+        self.brush_tiles.forget_erase_lines();
         let points = if shift {
             vec![self.eraser_anchor.unwrap_or(world), world]
         } else {
@@ -1575,11 +1663,15 @@ impl SlateApp {
         spot: Vec<NodeId>,
     ) {
         let mut live = std::mem::take(&mut self.erase_live);
+        self.brush_tiles.forget_erase_lines();
         self.draft_lock = None;
         if let Some(last) = points.last() {
             self.eraser_anchor = Some(*last);
         }
         let tip = self.eraser_tip();
+        for l in live.values_mut() {
+            l.settle_line(&points, tip);
+        }
         let span = slate_doc::scene::StrokeSpan {
             width: tip.diameter,
             softness: tip.softness,
