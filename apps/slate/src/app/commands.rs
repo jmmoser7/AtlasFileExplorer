@@ -1264,7 +1264,7 @@ pub static SPECS: &[CommandSpec] = &[
         "board.ortho",
         "Board",
         "Ortho (45° constraint)",
-        "F8 — the constraint applies to drags in a later wave; Shift inverts while held",
+        "F8 — the constraint applies to drags in a later wave; Shift inverts while held, except on Brush and Eraser, where Shift always takes 45° steps",
         Some(Chord::bare(Key::F8)),
         Repeat::Repeatable,
         BOARD,

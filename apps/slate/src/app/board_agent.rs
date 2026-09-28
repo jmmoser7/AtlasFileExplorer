@@ -5402,6 +5402,10 @@ impl SlateApp {
             return false;
         };
         let published = dir == atlas_ai::agent::agent_dir(&ws, &session);
+        if !published && !dir.is_dir() {
+            self.toast("This run's folder has moved; stop it in Cursor.");
+            return false;
+        }
         std::thread::spawn(move || {
             // The workspace link folder is published by a worker; Stop may run
             // first. A bundle's folder is the user's, never recreated here.
@@ -12773,26 +12777,49 @@ To install them by hand, run in PowerShell:\n  cd \"C:\\workspace\\Slate\\docs\\
         );
     }
 
+    fn bundle_at(h: &mut super::super::tests::Harness, tail: NodeId, dir: &std::path::Path) {
+        if let Some(NodeKind::Portal(p)) = h.app.doc_mut().scene.node_mut(tail).map(|n| &mut n.kind)
+        {
+            p.agent.as_mut().unwrap().bundle = Some(slate_doc::SourceUri {
+                locator: super::super::board_portal::source_locator(
+                    None,
+                    &dir.join("session.json"),
+                ),
+            });
+        }
+    }
+
     #[test]
     fn stop_never_recreates_a_missing_bundle_folder() {
         let (mut h, tail, cancel) = streaming_tail("stop_missing_bundle");
         let at = output_circle(&h, tail);
         let gone = cancel.parent().unwrap().with_file_name("moved-bundle");
         let _ = std::fs::remove_dir_all(&gone);
-        if let Some(NodeKind::Portal(p)) = h.app.doc_mut().scene.node_mut(tail).map(|n| &mut n.kind)
-        {
-            p.agent.as_mut().unwrap().bundle = Some(slate_doc::SourceUri {
-                locator: super::super::board_portal::source_locator(
-                    None,
-                    &gone.join("session.json"),
-                ),
-            });
-        }
+        bundle_at(&mut h, tail, &gone);
         press(&mut h, at);
         std::thread::sleep(Duration::from_millis(500));
         assert!(
             !gone.exists(),
             "Stop does not recreate a bundle folder that moved"
+        );
+        assert!(
+            h.app.toasts.iter().any(|(m, _)| m.contains("folder has moved")),
+            "the user is told the run was not stopped"
+        );
+    }
+
+    #[test]
+    fn stop_writes_into_a_bundled_card_folder() {
+        let (mut h, tail, cancel) = streaming_tail("stop_bundle");
+        let at = output_circle(&h, tail);
+        let bundle = cancel.parent().unwrap().with_file_name("bundle");
+        let _ = std::fs::remove_dir_all(&bundle);
+        std::fs::create_dir_all(&bundle).unwrap();
+        bundle_at(&mut h, tail, &bundle);
+        press(&mut h, at);
+        assert!(
+            stop_requested(&bundle.join("cancel.json")),
+            "Stop reaches a bundled card's own folder"
         );
     }
 

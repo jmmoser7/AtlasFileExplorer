@@ -1552,6 +1552,18 @@ mod tests {
     }
 
     #[test]
+    fn a_picked_vertex_brings_a_clear_curve_back() {
+        let mut path = ell();
+        path.tips = vec![tip(2.0, 0), tip(10.0, 0), tip(4.0, 0)];
+        let mut stroke = hard(10.0);
+        let top = set_grip_opacity(&mut path, &mut stroke, UNIT, 0.0, 0.0, &[1], 0.6).unwrap();
+        assert!((top - 0.6).abs() < 1e-6, "the node takes the picked vertex");
+        let painted = |i: usize| top * path.tips[i].color.0[3] as f32 / 255.0;
+        assert!((painted(1) - 0.6).abs() < 0.01);
+        assert!(painted(0) < 0.01 && painted(2) < 0.01, "the rest stay clear");
+    }
+
+    #[test]
     fn vertex_styles_round_trip_and_fall_back_to_the_stroke() {
         let mut old = ell();
         old.corner_amounts = vec![None, Some(6.0), None];

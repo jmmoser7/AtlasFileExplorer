@@ -1,5 +1,18 @@
 # Canvas command project — change log
 
+## 2026-09-27 — Agent-authored D11 sentences marked as proposals
+
+- `brush` D11: the Shift segment's vector-mesh stand-in and worker
+  stamping, and the pointer's return to the last sample after a mid-stroke
+  HUD, are labelled as agent proposals. The user asked for a live preview
+  every frame and no big-stroke raster on the frame loop, not for this
+  particular stand-in.
+- `board.ortho` help: Shift always takes 45° steps on Brush and Eraser,
+  whatever F8 says (`brush` D03/D06).
+- Agent Stop on a bundled card whose folder has moved writes nothing and
+  says so ("stop it in Cursor"), rather than reporting a stop that never
+  reached the run (`docs/agent-link-contract.md`). No binding changed.
+
 ## 2026-09-27 — Tip HUD on brush strokes, painted opacity (review r7)
 
 - `specs/direct-selection.md`, `specs/brush-color.md`, PATTERNS

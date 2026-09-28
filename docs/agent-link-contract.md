@@ -309,7 +309,8 @@ Cursor enumerates the same way through the sidecar `--models` catalog
 choice means Codex default or Cursor `auto`. Stop writes `cancel.json` for the
 in-flight Cursor request id; the sidecar calls `run.cancel()`. Stop may land
 before a worker publishes the workspace link folder, so it creates that folder
-first; a bundled card's folder is never recreated. The portal stores
+first; a bundled card's folder is never recreated, and when it has moved Stop
+writes nothing and tells the user to stop the run in Cursor. The portal stores
 its owned Cursor agent id in `cursor-agent.txt` and resumes only that agent.
 The selected value is journaled on the card and inherited by its continuation.
 Model catalog and conversation refresh run off the UI thread. Refresh never
