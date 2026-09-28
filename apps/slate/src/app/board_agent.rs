@@ -1351,7 +1351,7 @@ impl SlateApp {
                 }
                 return true;
             }
-            if self.board_drag.is_none() && self.board_tool == super::board::BoardTool::Select {
+            if !gesture && self.board_tool == super::board::BoardTool::Select {
                 let picker = self
                     .doc()
                     .scene
@@ -1381,12 +1381,15 @@ impl SlateApp {
                     return true;
                 }
             }
-            if [self.agents.artifact_popup_rect, self.agents.model_menu_rect]
-                .into_iter()
-                .flatten()
-                .any(|r| r.contains(pointer))
+            if !gesture
+                && [self.agents.artifact_popup_rect, self.agents.model_menu_rect]
+                    .into_iter()
+                    .flatten()
+                    .any(|r| r.contains(pointer))
             {
-                self.board_align_eat_press = true;
+                if ui.input(|i| i.pointer.primary_pressed()) {
+                    self.board_align_eat_press = true;
+                }
                 return true;
             }
             let on_dot = self.context_auto_under(pointer, xf);
@@ -4303,6 +4306,18 @@ impl SlateApp {
         self.agents.programs_started = true;
         self.agents.programs_rx = None;
         self.agents.programs = ids.iter().map(|id| atlas_ai::agent::provider_by_id(id)).collect();
+    }
+
+    /// The unbound agent portal's program grid (width, height), once the
+    /// installed programs are known: four tiles a row.
+    pub(crate) fn agent_program_grid_size(&self) -> Option<(f32, f32)> {
+        let count = self.agents.programs.len();
+        (count > 0).then(|| {
+            (
+                count.min(4) as f32 * 112.0 + 48.0,
+                count.div_ceil(4) as f32 * 96.0 + 72.0,
+            )
+        })
     }
 
     fn ensure_agent_programs(&mut self) {
@@ -7995,14 +8010,14 @@ impl SlateApp {
     ) {
         self.ensure_agent_programs();
         let interactive = !self.tab().read_only;
-        if interactive
-            && !_maximized
-            && self.board_drag.is_none()
-            && !self.agents.programs.is_empty()
-        {
-            let count = self.agents.programs.len();
-            let width = count.min(4) as f32 * 112.0 + 48.0;
-            let height = count.div_ceil(4) as f32 * 96.0 + 72.0;
+        // A fit while redo waits would clear it, and Undo could never get
+        // past a fit that landed as its own step.
+        if let Some((width, height)) = self.agent_program_grid_size().filter(|_| {
+            interactive
+                && !_maximized
+                && self.board_drag.is_none()
+                && !self.tab().journal.can_redo()
+        }) {
             let resized = self
                 .doc()
                 .scene
@@ -8010,14 +8025,18 @@ impl SlateApp {
                 .filter(|n| (n.rect.w - width).abs() > 1.0 || (n.rect.h - height).abs() > 1.0)
                 .map(|n| {
                     let mut n = n.clone();
-                    fit_program_grid(&mut n, width, height);
+                    n.rect.w = width;
+                    n.rect.h = height;
                     n
                 });
             if let Some(after) = resized {
                 // Fitting the grid settles the step that placed the portal,
                 // so one Undo still removes it (and a wire placed with it).
                 if !self.fold_into_last_step(&after) {
-                    self.patch_nodes(&[id], |n| fit_program_grid(n, width, height));
+                    self.patch_nodes(&[id], |n| {
+                        n.rect.w = width;
+                        n.rect.h = height;
+                    });
                 }
             }
         }
@@ -10268,15 +10287,6 @@ pub(crate) fn program_card_size(view: atlas_ai::agent::PortalView) -> egui::Vec2
         PortalView::Images => egui::vec2(960.0, 540.0),
         PortalView::Text => egui::vec2(440.0, 320.0),
     }
-}
-
-/// Sizes an unbound agent portal to its program grid about its left edge's
-/// midpoint, where its context input sits, so a wire-drop spawn keeps that
-/// input at the drop point and a click-placed portal stays centered.
-fn fit_program_grid(n: &mut Node, width: f32, height: f32) {
-    n.rect.y += (n.rect.h - height) * 0.5;
-    n.rect.w = width;
-    n.rect.h = height;
 }
 
 /// Bind a program onto an agent portal: provider identity, a fresh session,

@@ -7878,13 +7878,18 @@ impl SlateApp {
         self.add_agent_portal(rect, "placed");
     }
 
-    /// A new agent portal's size. The Agent tool's recipe (`core.slatekit`)
-    /// owns it; the constant stands in only when no kit supplies one.
+    /// A new agent portal's size: its program grid once the installed
+    /// programs are known, so the grid fit never moves a fresh portal off its
+    /// click or drop point. Before that the Agent tool's recipe
+    /// (`core.slatekit`) owns it; the constant stands in only when no kit
+    /// supplies one.
     pub(crate) fn agent_portal_size(&self) -> (f32, f32) {
-        self.kits
-            .recipe_for(BoardTool::AgentPortal)
-            .and_then(|r| r.default_size())
-            .map_or(AGENT_PORTAL_SIZE, |[w, h]| (w, h))
+        self.agent_program_grid_size().unwrap_or_else(|| {
+            self.kits
+                .recipe_for(BoardTool::AgentPortal)
+                .and_then(|r| r.default_size())
+                .map_or(AGENT_PORTAL_SIZE, |[w, h]| (w, h))
+        })
     }
 
     /// Click-to-place default File Atlas lens (960×540, unbound).
