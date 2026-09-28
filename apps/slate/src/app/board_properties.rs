@@ -1553,13 +1553,13 @@ impl SlateApp {
             && !self.shape_properties.nodes.is_empty();
         if live {
             let items = live_property_strip_items(self, &self.shape_properties.nodes);
-            // D13 / D12: a panel whose squircle a vertex pick took off the
+            // D13 / D11: a panel whose squircle a vertex pick took off the
             // strip commits its pending edits and closes.
-            if !self.shape_property_points().is_empty()
-                && self
-                    .shape_properties
-                    .panel
-                    .is_some_and(|panel| !items.contains(&StripItem::Panel(panel)))
+            if self
+                .shape_properties
+                .panel
+                .is_some_and(|panel| !items.contains(&StripItem::Panel(panel)))
+                && !self.shape_property_points().is_empty()
             {
                 self.apply_shape_preview(&ctx, true);
             }

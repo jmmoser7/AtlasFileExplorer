@@ -24918,6 +24918,121 @@ fn a_zoomed_out_grip_pick_commits_the_fill_preview_it_closes() {
     assert_eq!(s.fill.map(|f| [f.0[0], f.0[1], f.0[2]]), Some([200, 40, 40]));
 }
 
+/// Shape-selection-toolbar D11 below the strip's LOD: a whole-curve Stroke
+/// width preview is committed by the grip press itself, before the press
+/// picks the anchor, so every vertex takes the width and the panel stays.
+#[test]
+fn a_zoomed_out_grip_press_commits_a_whole_curve_stroke_preview() {
+    let mut h = bezier_board("grip_press_zoomed_out_stroke");
+    let (id, [_, _, c]) = closed_bezier(&mut h);
+    h.app.shape_properties.panel = Some(board_properties::Panel::Stroke);
+    h.frame();
+    h.frame();
+    assert_eq!(h.app.picked_vertices(), None, "nothing is picked yet");
+    h.app
+        .preview_shape_property(board_properties::Property::StrokeWidth(14.0));
+    h.app.tab_mut().cam.z = 0.3;
+    for _ in 0..3 {
+        h.frame();
+    }
+    let xf = h.app.board_xf();
+    let press = xf.w2s(c);
+    assert!(h.app.canvas_rect.contains(press), "the anchor is on screen");
+    let depth = h.app.tab().journal.undo_depth();
+    h.frame_with(|i| i.events.push(egui::Event::PointerMoved(press)));
+    h.frame_with(|i| {
+        i.events.push(egui::Event::PointerButton {
+            pos: press,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        });
+    });
+    assert_eq!(
+        h.app.tab().journal.undo_depth(),
+        depth + 1,
+        "the press commits the preview as exactly one step"
+    );
+    h.frame_with(|i| {
+        i.events.push(egui::Event::PointerButton {
+            pos: press,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+    });
+    for _ in 0..3 {
+        h.frame();
+    }
+    assert_eq!(h.app.picked_vertices(), Some((id, vec![2])), "the anchor is picked");
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "nothing more");
+    let n = h.app.doc().scene.node(id).unwrap().clone();
+    let NodeKind::Shape(s) = &n.kind else {
+        panic!("a shape");
+    };
+    let tips = slate_doc::vertex_style::grip_tips(
+        s.path.as_ref().unwrap(),
+        &s.stroke,
+        n.rect,
+        n.rotation_deg,
+    )
+    .expect("curve grips");
+    assert_eq!(tips.len(), 3);
+    for (k, tip) in tips.iter().enumerate() {
+        assert_close(tip.width, 14.0, 1e-3, &format!("vertex {k} width"));
+    }
+    assert_eq!(
+        h.app.shape_properties.panel,
+        Some(board_properties::Panel::Stroke),
+        "Stroke is still offered for the picked anchor"
+    );
+}
+
+/// Shape-selection-toolbar D11 below the strip's LOD: a press on empty
+/// canvas commits a pending Fill preview once and closes its panel, and
+/// the board still gets the press, which clears the selection.
+#[test]
+fn a_zoomed_out_click_away_commits_the_fill_preview_and_clears_the_selection() {
+    let mut h = bezier_board("click_away_zoomed_out_fill");
+    let (id, _) = closed_bezier(&mut h);
+    h.app.shape_properties.panel = Some(board_properties::Panel::Fill);
+    h.frame();
+    h.frame();
+    h.app
+        .preview_shape_property(board_properties::Property::FillRgb([200, 40, 40]));
+    h.app.tab_mut().cam.z = 0.3;
+    for _ in 0..3 {
+        h.frame();
+    }
+    let xf = h.app.board_xf();
+    let away = xf.w2s(Pos2::new(-400.0, 400.0));
+    assert!(h.app.canvas_rect.contains(away), "the empty spot is on screen");
+    assert!(
+        h.app.doc().scene.nodes.iter().all(|n| {
+            let r = xf.rect_w2s(n.rect).expand(24.0);
+            !r.contains(away)
+        }),
+        "nothing lies under the press"
+    );
+    let depth = h.app.tab().journal.undo_depth();
+    press_primary(&mut h, away, egui::Modifiers::NONE);
+    for _ in 0..3 {
+        h.frame();
+    }
+    assert_eq!(
+        h.app.tab().journal.undo_depth(),
+        depth + 1,
+        "the pending Fill was committed once"
+    );
+    let (_, s) = only_shape(&h);
+    assert_eq!(s.fill.map(|f| [f.0[0], f.0[1], f.0[2]]), Some([200, 40, 40]));
+    assert_eq!(h.app.shape_properties.panel, None, "Fill closes");
+    assert!(
+        !h.app.board_sel.contains(&id),
+        "the board took the press and cleared the selection"
+    );
+}
+
 /// Shape-selection-toolbar D13: only a vertex pick closes a panel the strip
 /// stops offering. Double-clicking a grouped rectangle edits its text with
 /// the group still selected, and the Text panel stays up.

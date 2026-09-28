@@ -1,5 +1,24 @@
 # Canvas command project — change log
 
+## 2026-09-28 — Below-LOD strip commits recorded and pinned (round 8, fifth review)
+
+- `shape-selection-toolbar` D11 now states the below-LOD rule shipped in
+  the fourth review: with the strip and panel not painted, a grip press
+  commits the pending edits and a click-away commits them and closes the
+  panel, and the press keeps its board meaning (agent decision, awaiting
+  user confirmation). `decisions.json` mirrors it.
+- D13 cites D11 (the commit rule), not D12 (the discard rule), for a
+  panel a vertex pick takes off the strip. The entry below cites
+  "D13 / D12" for the same close; read it as D13 / D11.
+- The stale-panel close checks for an open, off-strip panel before it
+  collects the picked vertices, so an ordinary frame allocates nothing
+  there (Art. II).
+- Tests: `a_zoomed_out_grip_press_commits_a_whole_curve_stroke_preview`,
+  `a_zoomed_out_click_away_commits_the_fill_preview_and_clears_the_selection`.
+  Both fail with the below-LOD branch removed; the earlier
+  `a_zoomed_out_grip_pick_commits_the_fill_preview_it_closes` does not,
+  since the stale-panel close commits Fill on its own.
+
 ## 2026-09-28 — Stale strip panels commit before they close; only vertex picks close them (round 8, fourth review)
 
 - Corrects the entry below on two points. It said the close "loses
