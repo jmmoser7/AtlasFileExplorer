@@ -18845,6 +18845,10 @@ fn tip_colors(h: &Harness, id: NodeId) -> Vec<[u8; 4]> {
 fn ink_color_at(h: &Harness, id: NodeId, p: Pos2) -> [f32; 4] {
     let (n, s) = curve_shape(h, id);
     let mesh = board_path::vector_stroke_ink(&n, &s, s.path.as_ref().unwrap(), 1.0);
+    mesh_color_at(&mesh, p)
+}
+
+fn mesh_color_at(mesh: &vector_ink::InkMesh, p: Pos2) -> [f32; 4] {
     assert_eq!(mesh.colors.len(), mesh.vertices.len(), "a tinted mesh");
     for tri in mesh.indices.chunks(3) {
         let [a, b, c] = [0, 1, 2].map(|k| tri[k] as usize);
@@ -21480,4 +21484,373 @@ fn visual_verification_frames() {
         i.events.push(egui::Event::PointerMoved(Pos2::new(c.x + 330.0, c.y - 200.0)));
     });
     snapshot(&mut h, &mut raster, out, "08-direct-select");
+}
+
+// ---------- vertex picks on closed forms (P1.shape.vertex-style) ----------
+
+/// A stroked rectangle or hexagon in the middle of the canvas, selected,
+/// with its world vertices in vertex order (a rectangle: top-left,
+/// top-right, bottom-right, bottom-left).
+fn closed_form_board(tag: &str, kind: slate_doc::scene::ShapeKind) -> (Harness, NodeId, Vec<Pos2>) {
+    use slate_doc::scene::{Corner, ShapeKind, ShapeNode, Stroke};
+    let mut h = grip_board(tag);
+    h.app.tab_mut().cam.offset = EVec2::ZERO;
+    h.frame();
+    let c = h.app.board_xf().s2w(h.app.canvas_rect.center());
+    let rect = WorldRect::new(c.x - 120.0, c.y - 90.0, 240.0, 180.0);
+    let mut stroke = Stroke::none();
+    stroke.width = 4.0;
+    stroke.color = Rgba([20, 20, 20, 255]);
+    let node = h.app.doc_mut().scene.build_node(
+        rect,
+        NodeKind::Shape(ShapeNode {
+            shape: kind,
+            fill: Some(Rgba([230, 230, 230, 255])),
+            stroke,
+            corner: Corner::Square,
+            sides: 6,
+            phase_deg: 0.0,
+            flip: false,
+            path: None,
+            text: None,
+        }),
+    );
+    let id = h.app.add_nodes(vec![node])[0];
+    h.app.board_sel.clear();
+    h.app.board_sel.insert(id);
+    for _ in 0..3 {
+        h.frame();
+    }
+    let v = match kind {
+        ShapeKind::RegularPolygon => slate_doc::scene::regular_polygon_vertices(rect, 6, 0.0)
+            .into_iter()
+            .map(|[x, y]| Pos2::new(x, y))
+            .collect(),
+        _ => vec![
+            Pos2::new(rect.x, rect.y),
+            Pos2::new(rect.x + rect.w, rect.y),
+            Pos2::new(rect.x + rect.w, rect.y + rect.h),
+            Pos2::new(rect.x, rect.y + rect.h),
+        ],
+    };
+    (h, id, v)
+}
+
+/// Painted width and color at each vertex of closed form `id`, read from
+/// the stored per-vertex tips (the widest paints at the stroke width).
+fn closed_tips(h: &Harness, id: NodeId, n: usize) -> Vec<(f32, [u8; 4])> {
+    let NodeKind::Shape(s) = &h.app.doc().scene.node(id).unwrap().kind else {
+        panic!("a shape")
+    };
+    let tips = s.path.as_ref().map(|p| p.tips.clone()).unwrap_or_default();
+    if tips.len() != n {
+        return vec![(s.stroke.width, s.stroke.color.0); n];
+    }
+    let widest = tips.iter().map(|t| t.width).fold(0.0_f32, f32::max);
+    tips.iter()
+        .map(|t| (t.width * s.stroke.width / widest.max(1e-6), t.color.0))
+        .collect()
+}
+
+fn closed_corner_overrides(h: &Harness, id: NodeId, n: usize) -> Vec<Option<f32>> {
+    let NodeKind::Shape(s) = &h.app.doc().scene.node(id).unwrap().kind else {
+        panic!("a shape")
+    };
+    match s.path.as_ref().map(|p| p.corner_amounts.clone()) {
+        Some(c) if c.len() == n => c,
+        _ => vec![None; n],
+    }
+}
+
+/// The closed form as both interpreters paint it once it stores vertex
+/// style: the path shape `vertex_style::closed_form_paint_shape` derives.
+fn closed_paint_shape(
+    h: &Harness,
+    id: NodeId,
+) -> (slate_doc::scene::Node, slate_doc::scene::ShapeNode) {
+    let n = h.app.doc().scene.node(id).unwrap().clone();
+    let NodeKind::Shape(s) = &n.kind else {
+        panic!("a shape")
+    };
+    let styled = slate_doc::vertex_style::closed_form_paint_shape(s, n.rect)
+        .expect("the closed form paints its vertex style");
+    (n, styled)
+}
+
+/// Full painted stroke width at each vertex of closed form `id`.
+fn closed_painted_widths(h: &Harness, id: NodeId) -> Vec<f32> {
+    let (n, styled) = closed_paint_shape(h, id);
+    let tipped = slate_doc::geom::tipped_stroke(
+        styled.path.as_ref().unwrap(),
+        &styled.stroke,
+        n.rect,
+        n.rotation_deg,
+        styled.corner,
+    )
+    .expect("a per-vertex stroke");
+    tipped.widths
+}
+
+fn shape_kind_of(h: &Harness, id: NodeId) -> slate_doc::scene::ShapeKind {
+    match &h.app.doc().scene.node(id).unwrap().kind {
+        NodeKind::Shape(s) => s.shape,
+        _ => panic!("a shape"),
+    }
+}
+
+/// User (28 September 2026, "alow for vrtex selection on closed forms like
+/// sqares and polygons"): a click without travel on a rectangle corner
+/// picks it; Alt+right-drag then sizes only that corner, blending along
+/// both edges that meet there; one undo step, one redo step.
+#[test]
+fn a_rectangle_corner_click_picks_it_and_alt_sizes_only_that_corner() {
+    use slate_doc::scene::ShapeKind;
+    let (mut h, id, v) = closed_form_board("closed_rect_pick", ShapeKind::Rect);
+    let rect0 = h.app.doc().scene.node(id).unwrap().rect;
+    let depth = h.app.tab().journal.undo_depth();
+    let xf = h.app.board_xf();
+    press_primary(&mut h, xf.w2s(v[1]), egui::Modifiers::NONE);
+    assert_eq!(h.app.picked_vertices(), Some((id, vec![1])), "the click picks corner 1");
+    assert_eq!(h.app.doc().scene.node(id).unwrap().rect, rect0, "a click does not resize");
+    assert_eq!(h.app.tab().journal.undo_depth(), depth, "a pick is not an edit");
+
+    let before = closed_tips(&h, id, 4);
+    let away = xf.w2s(Pos2::new((v[0].x + v[1].x) * 0.5, v[2].y + 160.0));
+    hud_scrub(&mut h, away, EVec2::new(40.0, 0.0), egui::Modifiers::ALT);
+    let tips = closed_tips(&h, id, 4);
+    assert!(tips[1].0 > before[1].0 + 10.0, "corner 1 widens: {tips:?}");
+    for k in [0, 2, 3] {
+        assert_eq!(tips[k], before[k], "corner {k} keeps its width");
+    }
+    assert_eq!(shape_kind_of(&h, id), ShapeKind::Rect, "still a rectangle");
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "one undo step");
+    let widths = closed_painted_widths(&h, id);
+    assert_eq!(widths.len(), 4, "one painted width per corner: {widths:?}");
+    assert!(widths[1] > widths[0] + 10.0, "{widths:?}");
+    assert!(widths[0] == widths[2] && widths[2] == widths[3], "{widths:?}");
+    for mid in [0.5, 1.5] {
+        let w = slate_doc::geom::value_at_param(&widths, mid);
+        assert!(w > widths[0] && w < widths[1], "both edges at corner 1 blend: {w}");
+    }
+    for mid in [2.5, 3.5] {
+        let w = slate_doc::geom::value_at_param(&widths, mid);
+        assert_eq!(w, widths[0], "the far edges stay at the base width");
+    }
+
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    assert_eq!(closed_tips(&h, id, 4), before, "undo");
+    press_key_with(&mut h, egui::Key::Y, egui::Modifiers::CTRL);
+    assert_eq!(closed_tips(&h, id, 4), tips, "redo");
+}
+
+/// A press-drag on a rectangle corner still resizes it (rectangle resize
+/// is approved behavior); only a click without travel picks the corner.
+#[test]
+fn a_rectangle_corner_drag_still_resizes() {
+    use slate_doc::scene::ShapeKind;
+    let (mut h, id, v) = closed_form_board("closed_rect_resize", ShapeKind::Rect);
+    let rect0 = h.app.doc().scene.node(id).unwrap().rect;
+    let xf = h.app.board_xf();
+    let at = xf.w2s(v[2]);
+    crop_pointer(&mut h, at, None);
+    crop_pointer(&mut h, at, Some(true));
+    crop_pointer(&mut h, at + EVec2::new(20.0, 15.0), None);
+    crop_pointer(&mut h, at + EVec2::new(40.0, 30.0), None);
+    crop_pointer(&mut h, at + EVec2::new(40.0, 30.0), Some(false));
+    h.frame();
+    let rect = h.app.doc().scene.node(id).unwrap().rect;
+    assert!((rect.w - (rect0.w + 40.0)).abs() < 1.0, "{rect:?} from {rect0:?}");
+    assert!((rect.h - (rect0.h + 30.0)).abs() < 1.0, "{rect:?} from {rect0:?}");
+    assert_eq!(shape_kind_of(&h, id), ShapeKind::Rect);
+}
+
+/// Two polygon vertices picked (click, then Shift+click): Ctrl+right-drag
+/// colors only those vertices, and the polygon stays a regular polygon.
+#[test]
+fn polygon_vertex_picks_take_the_ctrl_color_only_there() {
+    use slate_doc::scene::ShapeKind;
+    let (mut h, id, v) = closed_form_board("closed_poly_color", ShapeKind::RegularPolygon);
+    let xf = h.app.board_xf();
+    press_primary(&mut h, xf.w2s(v[0]), egui::Modifiers::NONE);
+    press_primary(&mut h, xf.w2s(v[2]), egui::Modifiers::SHIFT);
+    assert_eq!(h.app.picked_vertices(), Some((id, vec![0, 2])), "click, then Shift+click");
+    assert!(h.app.board_sel.contains(&id), "Shift+click on a vertex keeps the polygon selected");
+    assert!(
+        h.app.text_edit.is_none(),
+        "a quick second click on a vertex is a pick, not a double-click into text"
+    );
+    let before = closed_tips(&h, id, 6);
+    let depth = h.app.tab().journal.undo_depth();
+    let away = xf.w2s(Pos2::new(v[0].x, v[3].y + 200.0));
+    hud_open_wheel(&mut h, away);
+    h.app.set_active_rgb([10, 200, 30]);
+    hud_release_wheel(&mut h, away);
+    let tips = closed_tips(&h, id, 6);
+    for k in 0..6 {
+        if k == 0 || k == 2 {
+            assert_eq!(tips[k].1[..3], [10, 200, 30], "vertex {k} takes the color");
+        } else {
+            assert_eq!(tips[k], before[k], "vertex {k} keeps its color");
+        }
+    }
+    assert_eq!(shape_kind_of(&h, id), ShapeKind::RegularPolygon);
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "one undo step");
+    assert_eq!(h.app.picked_vertices(), Some((id, vec![0, 2])), "the picks outlast the HUD");
+    let t = h.ctx.input(|i| i.time);
+    h.frame_with(|i| i.time = Some(t + 1.0));
+    press_primary(&mut h, xf.w2s(v[2]), egui::Modifiers::SHIFT);
+    assert_eq!(h.app.picked_vertices(), Some((id, vec![0])), "Shift+click removes a pick");
+}
+
+/// The strip's Corners amount at one picked rectangle corner rounds that
+/// corner only; the rectangle's own corner stays square.
+#[test]
+fn strip_corner_rounding_at_a_picked_rectangle_corner_sets_only_that_corner() {
+    use slate_doc::scene::{Corner, ShapeKind};
+    let (mut h, id, v) = closed_form_board("closed_rect_corner", ShapeKind::Rect);
+    let xf = h.app.board_xf();
+    press_primary(&mut h, xf.w2s(v[2]), egui::Modifiers::NONE);
+    for _ in 0..3 {
+        h.frame();
+    }
+    assert_eq!(h.app.shape_property_points(), vec![2], "the strip edits the pick");
+    let depth = h.app.tab().journal.undo_depth();
+    h.app
+        .preview_shape_property(board_properties::Property::CornerAmount(12.0));
+    h.app.apply_shape_preview(&h.ctx, true);
+    h.frame();
+    assert_eq!(
+        closed_corner_overrides(&h, id, 4),
+        vec![None, None, Some(12.0), None]
+    );
+    let NodeKind::Shape(s) = &h.app.doc().scene.node(id).unwrap().kind else {
+        panic!("a shape")
+    };
+    assert_eq!(s.corner, Corner::Square, "the shared corner is unchanged");
+    assert_eq!(s.shape, ShapeKind::Rect);
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    assert_eq!(closed_corner_overrides(&h, id, 4), vec![None; 4], "undo");
+}
+
+/// Polygon D13: a click on a vertex picks it, and the hover + / − beside
+/// the vertex still add or remove a side.
+#[test]
+fn polygon_side_glyphs_still_step_sides_beside_a_picked_vertex() {
+    use slate_doc::scene::ShapeKind;
+    let (mut h, id, v) = closed_form_board("closed_poly_glyphs", ShapeKind::RegularPolygon);
+    let xf = h.app.board_xf();
+    press_primary(&mut h, xf.w2s(v[1]), egui::Modifiers::NONE);
+    assert_eq!(h.app.picked_vertices(), Some((id, vec![1])), "a click on the vertex picks it");
+    let sides = |h: &Harness| match &h.app.doc().scene.node(id).unwrap().kind {
+        NodeKind::Shape(s) => s.sides,
+        _ => 0,
+    };
+    assert_eq!(sides(&h), 6, "picking a vertex is not a side step");
+    h.frame_with(|i| i.events.push(egui::Event::PointerMoved(xf.w2s(v[1]))));
+    h.frame();
+    let glyphs = h.app.polygon_sides_glyphs(&xf);
+    let plus = glyphs.iter().find(|g| g.add).expect("a + beside the hovered vertex").center;
+    press_primary(&mut h, plus, egui::Modifiers::NONE);
+    assert_eq!(sides(&h), 7, "+ adds a side");
+    assert_eq!(shape_kind_of(&h, id), ShapeKind::RegularPolygon);
+}
+
+/// Direct Select (A): a closed form's vertices are anchors to pick; the
+/// HUD edits the picked one; an anchor drag does not turn the rectangle
+/// into a path (a rectangle's corners cannot move on their own).
+#[test]
+fn direct_select_picks_closed_form_vertices_as_anchors() {
+    use slate_doc::scene::ShapeKind;
+    let (mut h, id, v) = closed_form_board("closed_rect_direct", ShapeKind::Rect);
+    h.app.set_board_tool(board::BoardTool::DirectSelect);
+    h.frame();
+    let xf = h.app.board_xf();
+    let inside = xf.w2s(Pos2::new((v[0].x + v[1].x) * 0.5, (v[0].y + v[2].y) * 0.5));
+    press_primary(&mut h, inside, egui::Modifiers::NONE);
+    assert_eq!(h.app.direct.node, Some(id), "A targets the rectangle");
+    press_primary(&mut h, xf.w2s(v[3]), egui::Modifiers::NONE);
+    assert_eq!(h.app.picked_vertices(), Some((id, vec![3])), "the anchor is picked");
+    let before = closed_tips(&h, id, 4);
+    let away = xf.w2s(Pos2::new(v[0].x, v[2].y + 160.0));
+    hud_scrub(&mut h, away, EVec2::new(40.0, 0.0), egui::Modifiers::ALT);
+    let tips = closed_tips(&h, id, 4);
+    assert!(tips[3].0 > before[3].0 + 10.0, "{tips:?}");
+    assert_eq!(&tips[..3], &before[..3]);
+
+    let rect0 = h.app.doc().scene.node(id).unwrap().rect;
+    let at = xf.w2s(v[3]);
+    crop_pointer(&mut h, at, None);
+    crop_pointer(&mut h, at, Some(true));
+    crop_pointer(&mut h, at + EVec2::new(-20.0, 20.0), None);
+    crop_pointer(&mut h, at + EVec2::new(-40.0, 40.0), None);
+    crop_pointer(&mut h, at + EVec2::new(-40.0, 40.0), Some(false));
+    h.frame();
+    assert_eq!(shape_kind_of(&h, id), ShapeKind::Rect, "no silent Rect → Path");
+    assert_eq!(h.app.doc().scene.node(id).unwrap().rect, rect0);
+}
+
+/// Per-vertex stroke on a closed form survives save and reload unchanged,
+/// and the HTML export paints the color blend the board paints (Art. IV:
+/// two interpreters of one model).
+#[test]
+fn closed_form_vertex_stroke_round_trips_and_exports_as_the_board_paints() {
+    use slate_doc::scene::ShapeKind;
+    let (mut h, id, v) = closed_form_board("closed_rect_export", ShapeKind::Rect);
+    let xf = h.app.board_xf();
+    press_primary(&mut h, xf.w2s(v[1]), egui::Modifiers::NONE);
+    for _ in 0..3 {
+        h.frame();
+    }
+    assert_eq!(h.app.shape_property_points(), vec![1], "the strip edits the pick");
+    for edit in [
+        board_properties::Property::StrokeWidth(16.0),
+        board_properties::Property::StrokeRgb([255, 0, 0]),
+    ] {
+        h.app.preview_shape_property(edit);
+        h.app.apply_shape_preview(&h.ctx, true);
+        h.frame();
+    }
+    let tips = closed_tips(&h, id, 4);
+    assert_eq!(tips[1].1[..3], [255, 0, 0], "{tips:?}");
+    assert!(tips[1].0 > tips[0].0 + 10.0, "{tips:?}");
+    assert_eq!(tips[0], tips[2], "{tips:?}");
+    assert_eq!(shape_kind_of(&h, id), ShapeKind::Rect);
+
+    let saved = h.base.join("closed.slate");
+    let tab_id = h.app.tab().id;
+    h.app.save_doc_to(tab_id, saved.clone());
+    let mut h2 = Harness::new("closed_rect_export_reload");
+    h2.app.open_doc_at(saved);
+    h2.frame();
+    let reloaded = h2.app.doc().scene.node(id).cloned().expect("the rectangle reloads");
+    assert_eq!(
+        &reloaded,
+        h.app.doc().scene.node(id).unwrap(),
+        "save and load round-trip"
+    );
+
+    let (n, styled) = closed_paint_shape(&h, id);
+    let mesh = board_path::vector_stroke_ink(&n, &styled, styled.path.as_ref().unwrap(), 1.0);
+    let html = slate_artifact::render_html(h2.app.doc(), &slate_artifact::AssetMap::default());
+    assert!(html.contains("<linearGradient"), "the blend exports as gradients");
+    let local = |p: Pos2| [p.x - n.rect.x, p.y - n.rect.y];
+    let along = |a: Pos2, b: Pos2, t: f32| a + (b - a) * t;
+    for p in [
+        along(v[0], v[1], 0.2),
+        along(v[0], v[1], 0.5),
+        along(v[0], v[1], 0.8),
+        along(v[1], v[2], 0.3),
+        along(v[1], v[2], 0.7),
+    ] {
+        let board = mesh_color_at(&mesh, p);
+        let export = export_color_at(&html, local(p))
+            .unwrap_or_else(|| panic!("the export paints {p:?}"));
+        assert_color_close(export, board, 3.0, &format!("export at {p:?}"));
+    }
+    let mid_top = mesh_color_at(&mesh, along(v[0], v[1], 0.5));
+    assert!(
+        mid_top[0] > 60.0 && mid_top[0] < 240.0,
+        "the top edge blends toward the red corner: {mid_top:?}"
+    );
 }

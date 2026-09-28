@@ -59,7 +59,9 @@ impl SlateApp {
         let node = self.doc().scene.node(id)?;
         match &node.kind {
             NodeKind::Shape(s)
-                if matches!(s.shape, ShapeKind::Path | ShapeKind::Line) && !node.locked =>
+                if (matches!(s.shape, ShapeKind::Path | ShapeKind::Line)
+                    || slate_doc::vertex_style::closed_form_vertex_count(s).is_some())
+                    && !node.locked =>
             {
                 Some((id, points))
             }

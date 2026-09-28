@@ -1366,7 +1366,8 @@ pub static SPECS: &[CommandSpec] = &[
         "Delete objects",
         "Delete or Backspace — with curve vertices picked (Direct Select \
          anchors or Select grips), removes those vertices and rejoins the \
-         neighbors; too few left removes the curve",
+         neighbors; too few left removes the curve. Picks on a rectangle or \
+         regular polygon do nothing",
         Some(Chord::bare(Key::Delete)),
         Repeat::Never,
         BOARD_SEL,
@@ -1829,7 +1830,9 @@ pub static SPECS: &[CommandSpec] = &[
         "Select one line, polyline, arc, or Bézier curve (Select tool): drag \
          a vertex, end point, arc through point, or handle to move only that \
          point (object snaps apply; one undo step per drag). Click a point to \
-         pick it; Shift+click adds or removes it",
+         pick it; Shift+click adds or removes it. One selected rectangle or \
+         regular polygon: click a vertex to pick it (Shift+click toggles); a \
+         corner drag still resizes",
         None,
         Repeat::Never,
         BOARD,

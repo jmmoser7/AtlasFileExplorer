@@ -1,6 +1,6 @@
 {
   "_about": "Approved-decision database for interaction contracts (canvas tools and portal subtypes). One entry per contract x dimension. Agents seed future volatile matrices from here: an approved decision that maps onto a new contract (same archetype / object class / portal class) is re-proposed with high confidence. Only verdict:'approved' rows count as precedent; 'proposed' rows are awaiting user confirmation in the volatile canvas. Schema: tools.<name>.family = tool|portal, and tools.<name>.decisions.<D##> = { behavior, source: stated|research|pattern|guess|precedent, confidence: 0-100, verdict: proposed|approved|rejected, decided: date|null }. Each contract answers exactly the dimensions DIMENSIONS.md scopes to its family; `cargo xtask contracts` enforces the parity between this file, the registry, and the contract markdown. Append-only in spirit: superseded decisions are overwritten only by a newer user approval.",
-  "updated": "2026-09-27",
+  "updated": "2026-09-28",
   "tools": {
     "bumper-cars": {
       "status": "shipped",
@@ -2763,25 +2763,25 @@
           "decided": "2026-09-17"
         },
         "D13": {
-          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers. P1.node.corner-grip on every selected rectangle (a multi-selection shows each grip; one drag or typed amount sets every selected host, clamped per host — stated 26 September 2026): a square grip on the top edge at the fillet tangent point (the chamfer cut), at a small inset when square; dragging changes the amount continuously from its press-time value (no jump on grab) while the held grip stays under the pointer, clamped to the edge; idle, the grip rests at the larger of the amount and the inset; a click types the amount.",
+          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers. P1.node.corner-grip on every selected rectangle (a multi-selection shows each grip; one drag or typed amount sets every selected host, clamped per host — stated 26 September 2026): a square grip on the top edge at the fillet tangent point (the chamfer cut), at a small inset when square; dragging changes the amount continuously from its press-time value (no jump on grab) while the held grip stays under the pointer, clamped to the edge; idle, the grip rests at the larger of the amount and the inset; a click types the amount. Vertex picks (user, 28 September 2026: \"alow for vrtex selection on closed forms like sqares and polygons\"): a click without travel on a corner of the one selected rectangle picks it (P1.shape.vertex-style); Shift+click adds or removes a pick; a press-drag on a corner still resizes; under Direct Select (A) the corners are anchors to pick, never to move. Proposals: the corner hit is the nearest corner within 7 screen px (screen-constant like path-edit handles); a click elsewhere clears the picks; a quick second click on a corner is a pick, not a canvas double-click; where the corner grip and a corner overlap, the nearer wins and a tie goes to the corner; the picked corners paint filled and the corner under the pointer hollow; corner order is top-left, top-right, bottom-right, bottom-left.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-09-28"
         },
         "D14": {
-          "behavior": "Fill, Stroke, Corners: three circular icons matching the primary toolbar. Fill opens opacity then RGB/eyedropper upward; Corners opens Fillet/Chamfer and Board units/Percent. Confirmed percent amount = p/100 × min(W,H)/2; 100% makes a square a circle/diamond. See shape-property-editing.md.",
+          "behavior": "Fill, Stroke, Corners: three circular icons matching the primary toolbar. Fill opens opacity then RGB/eyedropper upward; Corners opens Fillet/Chamfer and Board units/Percent. Confirmed percent amount = p/100 × min(W,H)/2; 100% makes a square a circle/diamond. See shape-property-editing.md. Per-vertex properties (user, 28 September 2026: \"for squrcle menue allow for vertex by vertex adjustment of forms properties\"): with corners picked, the tip HUD (Alt width, Ctrl color, Shift opacity) and the strip's stroke width, stroke color, opacity and Corners amount apply to the picked corners only, blending straight along the two edges at each corner (P1.curve.vertex-style); each edit is one journaled patch. The rectangle stays a rectangle: moving one corner alone would make it another kind, so corner moves are not offered; resize stays. Proposal: a picked corner's Corners amount overrides the rectangle's treatment at that corner only and clamps like it.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-28"
         },
         "D15": {
-          "behavior": "P1.shape.properties: no dimensions, independent opacity, or unsupported geometry controls in the strip.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "P1.shape.properties: no dimensions, independent opacity, or unsupported geometry controls in the strip. Picked corners take per-vertex stroke and corner edits (D14; user, 28 September 2026: \"appy similar tooling for closed form vertex selectin\"). No per-vertex fill: a fill blended from vertex to vertex across the interior (user, 28 September 2026: \"including fill which would create gradients acrost he forms interiors\") is not SVG-expressible (Art. IV); see Open questions.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-28"
         },
         "D16": {
           "behavior": "Closed-form create-style memory (P1.shape.style): inherit last closed-shape stroke/fill when the kit recipe is inherit. Open-curve edits do not overwrite rectangle defaults.",
@@ -3283,25 +3283,25 @@
           "decided": "2026-09-25"
         },
         "D13": {
-          "behavior": "Fill / Stroke / Corners squircles when geometry allows. P1.node.corner-grip on every selected polygon (multi-selection: one drag or typed amount sets every selected host, clamped per host — stated 26 September 2026): the grip rides the side from the first vertex toward the next vertex clockwise, at the treatment's tangent point; drag along that side, click to type. Vertex +/− (stated 26 September 2026): hovering a vertex of a selected polygon shows a + outside it and a − inside it, on that vertex's bisector, at the hovered vertex only; both glyphs scale with the canvas (P0.9: canvas_scale::px radius 6 and offset 14 world units). Proposals: offered on every selected, unlocked polygon (multi-selection included) but drawn only at the one hovered vertex; hidden during any drag, in crop mode, and where portal chrome suppresses the cast; dropped (LOD) when the glyph radius is under 4 screen px; a glyph at its limit is omitted (no + at 12, no − at 3); the vertex hover zone is hit_px(10) and each glyph hit_px(6); the corner grip wins where they overlap, and the glyph wins over the resize band only on the glyph itself, where the cursor is a pointing hand; a quick second click on a glyph is not a canvas double-click.",
+          "behavior": "Fill / Stroke / Corners squircles when geometry allows. P1.node.corner-grip on every selected polygon (multi-selection: one drag or typed amount sets every selected host, clamped per host — stated 26 September 2026): the grip rides the side from the first vertex toward the next vertex clockwise, at the treatment's tangent point; drag along that side, click to type. Vertex +/− (stated 26 September 2026): hovering a vertex of a selected polygon shows a + outside it and a − inside it, on that vertex's bisector, at the hovered vertex only; both glyphs scale with the canvas (P0.9: canvas_scale::px radius 6 and offset 14 world units). Proposals: offered on every selected, unlocked polygon (multi-selection included) but drawn only at the one hovered vertex; hidden during any drag, in crop mode, and where portal chrome suppresses the cast; dropped (LOD) when the glyph radius is under 4 screen px; a glyph at its limit is omitted (no + at 12, no − at 3); the vertex hover zone is hit_px(10) and each glyph hit_px(6); the corner grip wins where they overlap, and the glyph wins over the resize band only on the glyph itself, where the cursor is a pointing hand; a quick second click on a glyph is not a canvas double-click. Vertex picks (user, 28 September 2026: \"alow for vrtex selection on closed forms like sqares and polygons\"): a click without travel on a vertex of the one selected polygon picks it (P1.shape.vertex-style); Shift+click adds or removes a pick; under Direct Select (A) the vertices are anchors to pick, never to move. Proposals: the vertex hit is the nearest vertex within 7 screen px (screen-constant like path-edit handles); a click elsewhere clears the picks; a quick second click on a vertex is a pick, not a canvas double-click; the vertex +/− and the pick share the vertex, so each glyph wins on its own hit disc (its press is taken at press time, so it never picks) and a click on the vertex outside both discs picks it; the picked vertices paint filled and the vertex under the pointer hollow, with the glyphs beside it.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-09-28"
         },
         "D14": {
-          "behavior": "Fill, Stroke, Corners. A fillet amount is the arc radius at every vertex and a chamfer is a straight cut, both clamped per vertex so the outline stays inside the drag box with no spikes on the board or in the export. Sides (stated 26 September 2026): clicking + adds a side (max 12) with the new side centered on that vertex; clicking − removes a side (min 3) and keeps a vertex at the removed vertex's position; each is one journaled board.shape.sides patch (undo restores both count and turn). Proposals: the turn is stored as ShapeNode.phase_deg, so the drag box, fillet, and stroke are unchanged and vertices stay on the box's inscribed ellipse; vertex 0 remains the corner-grip anchor, so the grip may move to another side after a step; Property::RegularSides stays as the command-parity setter for agents.",
+          "behavior": "Fill, Stroke, Corners. A fillet amount is the arc radius at every vertex and a chamfer is a straight cut, both clamped per vertex so the outline stays inside the drag box with no spikes on the board or in the export. Sides (stated 26 September 2026): clicking + adds a side (max 12) with the new side centered on that vertex; clicking − removes a side (min 3) and keeps a vertex at the removed vertex's position; each is one journaled board.shape.sides patch (undo restores both count and turn). Proposals: the turn is stored as ShapeNode.phase_deg, so the drag box, fillet, and stroke are unchanged and vertices stay on the box's inscribed ellipse; vertex 0 remains the corner-grip anchor, so the grip may move to another side after a step; Property::RegularSides stays as the command-parity setter for agents. Per-vertex properties (user, 28 September 2026: \"for squrcle menue allow for vertex by vertex adjustment of forms properties\"): with vertices picked, the tip HUD (Alt width, Ctrl color, Shift opacity) and the strip's stroke width, stroke color, opacity and Corners amount apply to the picked vertices only, blending around the closed loop (P1.curve.vertex-style); each edit is one journaled patch. The polygon stays regular: moving one vertex would make it another kind, so vertex moves are not offered. Proposal: a side step carries each vertex's style to the nearest new vertex by angle.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-09-28"
         },
         "D15": {
-          "behavior": "No irregular polygon or per-vertex strip editing in v1.",
+          "behavior": "No star or irregular polygon in this tool. Picked vertices take per-vertex stroke and corner edits (D14; user, 28 September 2026: \"appy similar tooling for closed form vertex selectin\", superseding the v1 exclusion of per-vertex strip editing). No per-vertex fill: a fill blended from vertex to vertex across the interior (user, 28 September 2026: \"including fill which would create gradients acrost he forms interiors\") is not SVG-expressible (Art. IV); see Open questions.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-09-28"
         },
         "D16": {
           "behavior": "Closed-form create-style memory for new regular polygons.",

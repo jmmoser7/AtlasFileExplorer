@@ -4067,7 +4067,17 @@ impl SlateApp {
                 }
             }
             NodeKind::Shape(s) => {
+                let styled = slate_doc::vertex_style::closed_form_paint_shape(s, node.rect);
                 match s.shape {
+                    _ if styled.is_some() => {
+                        if let Some(styled) = &styled {
+                            if let Some(path) = &styled.path {
+                                board_path::paint_path_shape(
+                                    self, painter, xf, node, styled, path, &fade,
+                                );
+                            }
+                        }
+                    }
                     ShapeKind::Rect => {
                         // Corner treatment first, then rotate the outline about
                         // the rect center (screen rotation matches world rotation
@@ -5047,7 +5057,10 @@ impl SlateApp {
                 self.finish_sheet_resize();
             }
         }
-        if resp.double_clicked() && !zoom_tool && !web_capture && !grip_released {
+        let vertex_click = self.board_tool == BoardTool::Select
+            && pointer.is_some_and(|p| self.hovered_vertex(p).is_some());
+        if resp.double_clicked() && !zoom_tool && !web_capture && !grip_released && !vertex_click
+        {
             let on_context = pointer.is_some_and(|p| self.context_auto_under(p, &xf).is_some());
             if !on_context {
                 if let Some(w) = wp {

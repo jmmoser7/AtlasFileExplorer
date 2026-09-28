@@ -369,6 +369,11 @@ Enter, then click.
   Patch. A filleted polyline keeps its authored radius on the new corners.
 - Click a grip to pick that point; Shift+click adds or removes it. Picked
   points paint filled and are never journaled.
+- One selected rectangle or regular polygon takes the same picks on its
+  vertices (P1.shape.vertex-style, user 28 September 2026). A rectangle
+  corner drag still resizes, a polygon side +/− wins on its own glyph, and
+  no vertex moves on its own (the form keeps its kind). Under Direct Select
+  (A) the vertices pick as anchors.
 
 ### Picked vertices (A anchors or Select grips)
 
@@ -383,7 +388,8 @@ User decision, 27 September 2026 (`docs/keymap/specs/direct-selection.md`):
   own anchor. The same applies to a Bézier span being drafted.
 - **Delete / Backspace** (`board.delete`), under any tool, removes the
   picked vertices and rejoins their neighbors. Too few left (fewer than two
-  open, three closed) removes the curve. One Ctrl+Z restores.
+  open, three closed) removes the curve. One Ctrl+Z restores. Picks on a
+  rectangle or regular polygon make Delete do nothing.
 
 ### Scene flags (hidden / locked / groups)
 

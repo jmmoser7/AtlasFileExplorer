@@ -287,6 +287,39 @@ is searchable.
   when the kit recipe is inherit. A stroke-only create does not wipe the
   remembered fill.
 - **P1.shape.aspect** Shift during creation locks aspect (square/circle).
+- **P1.shape.vertex-style** vertex picks and per-vertex style on closed
+  forms (user, 28 September 2026: "alow for vrtex selection on closed forms
+  like sqares and polygons" and "for squrcle menue allow for vertex by
+  vertex adjustment of forms properties"). A single selected rectangle or
+  regular polygon exposes its vertices to the same picked-point set as
+  P1.curve.grips: a click without travel on a vertex picks it, Shift+click
+  toggles, and Direct Selection (A) picks them as anchors. The picks feed
+  P1.curve.vertex-style unchanged: the tip HUD (Alt width, Ctrl color,
+  Shift opacity) and the strip's stroke width, color, opacity and Corners
+  amount act at the picks and blend around the closed loop. Closed
+  polylines and paths are already curves and follow P1.curve.grips. The
+  form keeps its kind: nothing converts a rectangle or polygon to a path,
+  and a vertex never moves on its own (that would be another kind);
+  resize, rotate and polygon sides stay. **Model:** the per-vertex arrays
+  (`tips`, `corner_amounts`, one per vertex, rectangle order top-left,
+  top-right, bottom-right, bottom-left; polygon order from
+  `regular_polygon_vertices`) ride in `ShapeNode.path` with no segments,
+  are `None` when every entry is empty, and serialize only when present.
+  A styled form paints as its derived closed outline on the board and in
+  the artifact (`slate_doc::vertex_style::closed_form_paint_shape`), so
+  both interpreters draw one shape; an unstyled form paints exactly as
+  before. **Proposals:** vertex hit is 7 screen px, screen-constant like
+  path-edit handles; under Select only the picked vertices (filled) and
+  the hovered one (hollow) paint; a quick second click on a vertex is a
+  pick, not a canvas double-click; a polygon side glyph wins on its own
+  disc; the corner grip and a vertex resolve to the nearer, a tie to the
+  vertex; a side step carries each vertex's style to the nearest new
+  vertex by angle; Delete with closed-form picks does nothing (removing
+  a vertex would change the kind) and arrow keys nudge the whole node.
+  **Not in scope:** per-vertex fill blended across the interior is a mesh
+  gradient, which SVG cannot express (Art. IV). The conforming
+  alternative, a linear or radial gradient anchored to picked vertices,
+  is an open question in `rectangle.md` and `polygon.md`.
 
 ### P1.curve — open curves (line, arc, polyline, bezier span, pen, brush ink)
 
