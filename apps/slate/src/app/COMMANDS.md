@@ -86,7 +86,7 @@ drag the address-bar URL or a page link instead.
   closes; non-matches dim to 35 % at paint time) · **Tab / Shift+Tab** cycle
   visible, unlocked objects in reading order with minimal camera nudge.
 - **Tab while drawing a segment** (`board.draft.direction_lock`; Line,
-  Polyline, Arc, Bézier span, and the Brush / Eraser Shift line) locks the
+  Polyline, Arc, Bézier span, and the Pen / Brush / Eraser Shift line) locks the
   direction from the last point toward the pointer, as Rhino does: the
   pointer then changes only the length, and snaps land where they project
   onto that ray. Tab again releases; placing the point, Esc, or a tool
@@ -250,6 +250,13 @@ drag the address-bar URL or a page link instead.
   colors, and releasing Alt paints again. The sampling cursor's swatch is a
   ring, so the hotspot pixel shows the canvas. Select-tool Alt-drag
   duplicate is untouched.
+- **P — Pen Shift line** (`board.pen.line`): with the Pen armed,
+  **Shift+drag** previews a straight segment from the end of the last Pen
+  stroke (else the press) in 45° steps, and the release extends that stroke
+  as one path; **Tab** locks its direction. **Shift+click** connects the
+  last Pen stroke's end to exactly the click point. One undo step each. A
+  stroke that cannot grow (locked, closed, several contours) gets a new
+  Pen path from its end. The Pen stays one-shot.
 - **E — Eraser**: drag or click over ink; only Path/Line shape strokes are
   erasable (images, text, frames, and connectors never are). Painted
   (stamped) brush strokes are spot-erased: the pass erases just the ink it

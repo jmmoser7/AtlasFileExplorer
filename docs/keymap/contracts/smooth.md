@@ -1,6 +1,6 @@
 # Smoothing brush — interaction contract
 
-Status: draft
+Status: agreed
 Family: tool
 Reference: Rhino smoothing brush (subset); Photoshop brush HUD (size/strength chords)
 Command: `board.tool.smooth` · Key: **S** · Palette: Shapes flyout → ink group ("smooth")
@@ -16,7 +16,7 @@ D01–D17 are every tool-scoped dimension. D18–D35 are portal-only and do not 
 | D02 | Stickiness & repeat | Sticky like Brush/Eraser: stays armed after each pass; each drag is one undo group. | stated | 100 |
 | D03 | Gesture grammar | Left-drag sweeps a circular brush over existing marks: every stroke the brush crosses along the drag is picked, and passes run every half radius so a fast drag leaves no gap. Shift+drag is a straight pass (two-point segment) from the end of the last pass; the whole segment is recomputed from the scene as the pointer moves. No paint on empty canvas. | stated | 100 |
 | D04 | Click vs drag | Any drag under the board sampling threshold still runs one smoothing pass at the press point. | guess | 55 |
-| D05 | Modifiers | Shares Brush/Eraser width chords: `[` / `]` size, Shift+[ / ] softness, Alt+right-drag size+softness, Shift+right-drag strength (Smooth/Eraser). Esc cancels an in-progress pass without journal. | stated | 100 |
+| D05 | Modifiers | Shares Brush/Eraser width chords: `[` / `]` size, Shift+[ / ] softness, Alt+right-drag size+softness, Shift+right-drag strength (Smooth/Eraser). Ctrl+right-drag shows no wheel (user pass, 28 September 2026, ts3). Esc cancels an in-progress pass without journal. | stated | 100 |
 | D06 | Constraints & snapping | No object or grid snap on the brush center. | pattern | 85 |
 | D07 | Direction / value locks | n/a | pattern | 85 |
 | D08 | Numeric / manual entry | `[` / `]` screen-px tiers (same as Brush). Strength 0..=1 via Shift+right-drag; a pass applies at least 0.05. | stated | 100 |
@@ -67,13 +67,17 @@ pass instead of flipping sides.
 
 Acceptance: `apps/slate/src/app/tests_ink_fit.rs` (GP1, GP3–GP6, D04, D14,
 D17) and `smooth_pass_increases_stamp_blur_and_undo_restores` in
-`apps/slate/src/app/tests.rs` (GP2). Geometry: `crates/vector-ink/src/smooth.rs`
-tests.
+`apps/slate/src/app/tests.rs` (GP2), and
+`smooth_tip_chords_scrub_size_softness_and_strength_with_no_wheel` (D05).
+Geometry: `crates/vector-ink/src/smooth.rs` tests.
+
+The user's passes ts1–ts3 and so4 (28 September 2026) agreed this
+contract.
 
 ## Open questions
 
-- Corner pinning using the pen fit corner detector (proposed).
-- Localized blur band on stamps (proposed).
+None. Corner pinning with the pen fit corner detector and a localized blur
+band on stamps stay deferred (D15).
 
 Owner: `apps/slate/src/app/board_smooth.rs`, `crates/vector-ink/src/smooth.rs`
 (B-spline fit: `crates/vector-ink/src/bspline.rs`, shared with the pen)

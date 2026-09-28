@@ -614,7 +614,7 @@ pub fn filleted_vertex_path_each(
     chamfer: bool,
     closed: bool,
 ) -> Vec<PathCmd> {
-    filleted_vertex_path_params_each(pts, amounts, chamfer, closed, false)
+    filleted_vertex_path_params_each(pts, amounts, chamfer, closed, 0)
         .into_iter()
         .map(|(cmd, _)| cmd)
         .collect()
@@ -626,23 +626,28 @@ pub fn filleted_vertex_path_params(
     amount: f32,
     chamfer: bool,
     closed: bool,
-    split_arcs: bool,
+    half_pieces: usize,
 ) -> Vec<(PathCmd, f32)> {
-    filleted_vertex_path_params_each(pts, &vec![amount; pts.len()], chamfer, closed, split_arcs)
+    filleted_vertex_path_params_each(pts, &vec![amount; pts.len()], chamfer, closed, half_pieces)
 }
 
 /// [`filleted_vertex_path_each`] with the polyline parameter of each command's end
 /// point: vertex `i` of `pts` is `i`; a point on the edge leaving vertex `i`
 /// is `i` plus its fraction of that edge (a closed polyline's closing edge
-/// runs from `n - 1` to `n`). With `split_arcs`, every fillet arc has an even
-/// number of cubic pieces, so the middle of the arc is a joint at its
-/// corner's own parameter: a per-vertex value keeps its value there.
+/// runs from `n - 1` to `n`). A point on a fillet takes the parameter where
+/// the ray from the fillet's center through it meets the edge of its half,
+/// so the parameter leaves each tangent point at its edge's own rate and a
+/// value blended by it has no kink there. With `half_pieces > 0`, each half
+/// of every fillet arc is cut into that many cubic pieces, so the middle of
+/// the arc is a joint at its corner's own parameter (a per-vertex value
+/// keeps its value there) and a blend carried by the joints follows the
+/// curve.
 pub fn filleted_vertex_path_params_each(
     pts: &[[f32; 2]],
     amounts: &[f32],
     chamfer: bool,
     closed: bool,
-    split_arcs: bool,
+    half_pieces: usize,
 ) -> Vec<(PathCmd, f32)> {
     let total = pts.len();
     let mut kept: Vec<([f32; 2], f32, f32)> = Vec::with_capacity(total);
@@ -726,29 +731,50 @@ pub fn filleted_vertex_path_params_each(
         let radius = t / vc.per_amount;
         let side = (vc.u_in[0] * vc.u_out[1] - vc.u_in[1] * vc.u_out[0]).signum();
         let center = add(a, scale([-vc.u_in[1] * side, vc.u_in[0] * side], radius));
-        let mut pieces = (vc.turn / std::f32::consts::FRAC_PI_2).ceil().max(1.0);
-        if split_arcs && pieces as usize % 2 == 1 {
-            pieces += 1.0;
-        }
-        let sweep = vc.turn / pieces;
-        let handle = 4.0 / 3.0 * (sweep * 0.25).tan() * radius;
+        let half = vc.turn * 0.5;
+        // Angle of joint `k` from `a`. Split halves crowd their joints toward
+        // the middle, where a blend eased between vertices bends hardest.
+        let pieces = if half_pieces > 0 {
+            2 * half_pieces
+        } else {
+            (vc.turn / std::f32::consts::FRAC_PI_2).ceil().max(1.0) as usize
+        };
+        let joint = |k: usize| {
+            if half_pieces == 0 {
+                return vc.turn * k as f32 / pieces as f32;
+            }
+            let crowd = |u: f32| half * u * (2.0 - u);
+            if k <= half_pieces {
+                crowd(k as f32 / half_pieces as f32)
+            } else {
+                vc.turn - crowd((pieces - k) as f32 / half_pieces as f32)
+            }
+        };
+        let half_tan = half.tan();
+        // A closed path's first corner is reached along its closing edge,
+        // whose far end is parameter `n`.
+        let arrive_corner = if i == 0 { param(n) } else { param(i) };
+        let toward = |edge: f32, corner: f32, angle: f32| {
+            edge + (corner - edge) * (angle.tan() / half_tan)
+        };
         let from = sub(a, center);
         let mut p0 = a;
-        let half = pieces * 0.5;
-        for k in 1..=pieces as usize {
-            let angle = side * sweep * k as f32;
-            let p1 = if k == pieces as usize {
+        for k in 1..=pieces {
+            let (a0, a1) = (joint(k - 1), joint(k));
+            let handle = 4.0 / 3.0 * ((a1 - a0) * 0.25).tan() * radius;
+            let p1 = if k == pieces {
                 b
             } else {
-                add(center, rotate_vec(from, angle))
+                add(center, rotate_vec(from, side * a1))
             };
-            let tan0 = rotate_vec(vc.u_in, side * sweep * (k - 1) as f32);
-            let tan1 = rotate_vec(vc.u_in, angle);
-            let f = k as f32;
-            let at = if f <= half {
-                at_a + (param(i) - at_a) * (f / half)
+            let tan0 = rotate_vec(vc.u_in, side * a0);
+            let tan1 = rotate_vec(vc.u_in, side * a1);
+            let at = if a1 == half {
+                param(i)
+            } else if a1 < half {
+                toward(at_a, arrive_corner, a1)
             } else {
-                param(i) + (at_b - param(i)) * ((f - half) / half)
+                toward(at_b, param(i), vc.turn - a1)
             };
             cmds.push((
                 PathCmd::Cubic {

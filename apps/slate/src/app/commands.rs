@@ -1737,6 +1737,16 @@ pub static SPECS: &[CommandSpec] = &[
         &[],
     ),
     spec(
+        "board.pen.line",
+        "Board",
+        "Pen straight line",
+        "Shift+drag with the Pen (45° steps, Tab locks); Shift+click connects",
+        None,
+        Repeat::Never,
+        BOARD,
+        &["straight", "shift line"],
+    ),
+    spec(
         "board.tool.eraser",
         "Board",
         "Eraser tool",

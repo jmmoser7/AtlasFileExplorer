@@ -649,6 +649,11 @@ pub struct SlateApp {
     pub(crate) brush_straight: Option<board_color::BrushStraight>,
     /// The brush marks the next Shift segment may start from.
     pub(crate) brush_chain: board_color::BrushChain,
+    /// Pen Shift+drag straight line (pen D07).
+    pub(crate) pen_straight: Option<board_color::PenStraight>,
+    /// The Pen strokes the next Pen Shift segment may start from. Kept
+    /// across tool changes: the Pen is one-shot (pen D02).
+    pub(crate) pen_chain: board_color::BrushChain<slate_doc::vertex_style::PlacedTip>,
     /// Size, color, and opacity edits undone by Ctrl+Z until another action.
     pub(crate) brush_setting_undo: Vec<board_color::BrushSettingUndo>,
     /// The brush drag's screen-aligned canvas (freehand or Shift preview).
@@ -1001,6 +1006,8 @@ impl SlateApp {
             freehand_resume: false,
             brush_straight: None,
             brush_chain: Default::default(),
+            pen_straight: None,
+            pen_chain: Default::default(),
             brush_setting_undo: Vec::new(),
             brush_live: None,
             draft_ink: Default::default(),
@@ -1699,6 +1706,7 @@ impl SlateApp {
                 self.release_agent_doc(self.active_tab);
                 let tab_id = self.tab().id;
                 self.brush_chain.forget_tab(tab_id);
+                self.pen_chain.forget_tab(tab_id);
                 if self.eraser_anchor.is_some_and(|(t, _)| t == tab_id) {
                     self.eraser_anchor = None;
                 }

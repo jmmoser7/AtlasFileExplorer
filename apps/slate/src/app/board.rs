@@ -1271,6 +1271,7 @@ impl SlateApp {
         self.armed_kit_id = None;
         self.brush_straight = None;
         self.brush_chain = Default::default();
+        self.pen_straight = None;
         self.draft_lock = None;
         if tool != BoardTool::DirectSelect {
             self.direct.node = None;
@@ -4589,6 +4590,12 @@ impl SlateApp {
                                         anchor: self.brush_line_anchor(),
                                     });
                                     self.board_drag = None;
+                                } else if self.board_tool == BoardTool::Pen
+                                    && modifiers.shift
+                                    && !modifiers.alt
+                                {
+                                    self.begin_pen_straight(world, pos);
+                                    self.board_drag = None;
                                 } else if self.board_tool == BoardTool::Brush && modifiers.alt {
                                     self.brush_mod_click =
                                         Some(super::board_color::BrushModClick { origin: pos });
@@ -4607,6 +4614,9 @@ impl SlateApp {
                     egui::Event::PointerMoved(pos) if self.board_drag.is_some() => {
                         self.update_gesture(xf.s2w(pos), ui.input(|i| i.modifiers));
                     }
+                    egui::Event::PointerMoved(pos) if self.pen_straight.is_some() => {
+                        self.update_pen_straight(xf.s2w(pos), ui.input(|i| i.modifiers.shift));
+                    }
                     egui::Event::PointerButton {
                         pos,
                         button: egui::PointerButton::Primary,
@@ -4619,6 +4629,8 @@ impl SlateApp {
                             self.end_gesture(xf.s2w(pos), Some(pos), modifiers);
                         } else if self.brush_straight.is_some() {
                             self.release_brush_straight(pos, xf.s2w(pos), modifiers.shift);
+                        } else if self.pen_straight.is_some() {
+                            self.release_pen_straight(pos, xf.s2w(pos), modifiers.shift);
                         } else if let Some(click) = self.brush_mod_click.take() {
                             if pos.distance(click.origin) <= super::board_color::BRUSH_MOD_CLICK_PX
                             {
@@ -5663,6 +5675,10 @@ impl SlateApp {
             if let Some((a, b, tips)) = self.line_draft_preview() {
                 self.draft_ink.paint_line(&draft_painter, &xf, a, b, tips);
             }
+        }
+        // Pen Shift segment: the same rubber band, from the last Pen stroke.
+        if let Some((a, b, tips)) = self.pen_line_preview() {
+            self.draft_ink.paint_line(&draft_painter, &xf, a, b, tips);
         }
         // The Tab direction lock's padlock beside the pointer, any tool (D10).
         if let (Some(p), true) = (pointer, resp.hovered()) {

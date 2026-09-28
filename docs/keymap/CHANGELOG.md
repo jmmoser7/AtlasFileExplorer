@@ -143,6 +143,41 @@
   `direct_select_handle_drags_take_shift_and_ctrl`,
   `draft_bezier_handles_take_shift_and_ctrl`.
 
+## 2026-09-28 — Pen Shift line, fillet taper without a kink, passes recorded (round 8)
+
+- `pen` D07 (was n/a), D03, D09, GP5: the user asked on 28 September 2026
+  (Pen add-item form) "shift for strate line", "at 45 dgree intervals".
+  Shift+drag with the Pen previews a straight segment from the end of the
+  last Pen stroke (else the press) in 45° steps and the release extends
+  that stroke as one path, one undo step (`board.pen.line`); Tab locks its
+  direction; Shift+click connects to exactly the click point. It reuses
+  the Brush's chain and segment rule (`BrushChain`, `painted_segment_end`,
+  `ink_mark`). The Pen stays one-shot (D02). KEYMAP Tab and F8 rows,
+  PATTERNS P2.RhinoDraft.ortho and COMMANDS.md name it.
+- `polyline` D14, PATTERNS P1.curve.vertex-style: the user reported on
+  28 September 2026 (tp4) "it works but taper produces kink at mid
+  fillet". The width is now C1-continuous through a fillet: a point on
+  the fillet takes the vertex parameter where the ray from the fillet's
+  center meets its half's edge, and each half is cut into pieces whose
+  middle joint sits at the corner's own parameter
+  (`slate_doc::wire::filleted_vertex_path_params_each`). A fillet's middle
+  keeps its corner's width (user pass, tp4). A closed path's first corner
+  now eases from its closing edge.
+- Passes of 28 September 2026 promote agent proposals: `arc` D13 through
+  grip at mid-sweep (pm6), `arc` D14 a tip at every span joint (ta4, ph1),
+  `bezier-span` D14 geometry decides the blend (tn3, ph1), `line` D10 the
+  padlock beside the pointer (tl4; guess 60 → stated), PATTERNS
+  P1.curve.grips mid-sweep grip (pm6) and P1.curve.vertex-style grip drags
+  keep tips, arc joints, and filleted polylines (pm5, ph1, tp4). `pen` D05
+  gains the pointer's return to the last drawn point (tn2), `pen` D13 the
+  grips (tn3).
+- `smooth`: draft → agreed (ts1–ts3, so4). D05 adds "Ctrl+right-drag shows
+  no wheel" (ts3), guarded by
+  `smooth_tip_chords_scrub_size_softness_and_strength_with_no_wheel`.
+- Fix: a stroke released over a crosstalk chip was lost, because the chip
+  captured the pointer mid-drag. Chips now take only presses that start a
+  gesture (`a_stroke_released_on_a_crosstalk_chip_still_commits`).
+
 ## 2026-09-28 — Two brush decisions recorded (user)
 
 - `brush` D03, D05: the Alt+right-drag size circle stays pinned where the

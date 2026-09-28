@@ -1325,8 +1325,12 @@ impl SlateApp {
             return true;
         }
         if let Some(pointer) = ui.ctx().pointer_latest_pos() {
-            // Crosstalk chips and their capsule take their own presses.
-            if self.crosstalk_captures(pointer) {
+            // Crosstalk chips and their capsule take their own presses, not
+            // the moves and release of a gesture that began elsewhere.
+            let gesture = self.board_drag.is_some()
+                || self.brush_straight.is_some()
+                || self.pen_straight.is_some();
+            if !gesture && self.crosstalk_captures(pointer) {
                 self.board_align_eat_press = true;
                 return true;
             }

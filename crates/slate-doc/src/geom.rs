@@ -179,8 +179,13 @@ pub fn tipped_stroke_world_path(
         if amounts.iter().any(|a| *a > 0.0) {
             let world = polyline_world_points(path, rect, rotation_deg);
             if world.len() >= 3 || (world.len() >= 2 && !path.closed) {
-                let tracked =
-                    filleted_vertex_path_params_each(&world, &amounts, chamfer, path.closed, true);
+                let tracked = filleted_vertex_path_params_each(
+                    &world,
+                    &amounts,
+                    chamfer,
+                    path.closed,
+                    FILLETED_TIP_STEPS,
+                );
                 let cmds: Vec<PathCmd> = tracked.iter().map(|(cmd, _)| *cmd).collect();
                 let params = tracked.iter().map(|(_, at)| *at).collect();
                 return (path_cmds_to_bez_world(&cmds), params);
@@ -256,8 +261,9 @@ pub fn tipped_stroke(
     })
 }
 
-/// Pieces each straight edge of a filleted polyline's tipped stroke is cut
-/// into, so a linear blend between them follows the smoothstep.
+/// Pieces each straight edge, and each half of each fillet, of a filleted
+/// polyline's tipped stroke is cut into, so a linear blend between them
+/// follows the smoothstep with no kink at a fillet's middle or ends.
 const FILLETED_TIP_STEPS: usize = 16;
 
 /// `bez` with each line segment cut into `steps` equal pieces, and the
@@ -796,6 +802,121 @@ mod tests {
             tip_ease(&arc),
             vector_ink::TipEase::Linear,
             "an arc tweens along its sweep"
+        );
+    }
+
+    /// User, 28 September 2026 (tp4): "it works but taper produces kink at
+    /// mid fillet". A tapered polyline's width is C1 through each fillet:
+    /// no slope jump at its middle, where the corner's width sits, nor at
+    /// its tangent points.
+    #[test]
+    fn a_filleted_taper_has_no_kink_through_the_fillet() {
+        use vector_ink::kurbo::{ParamCurve, ParamCurveArclen};
+        let tip = |width| crate::scene::StrokeSpan {
+            width,
+            softness: 0.0,
+            color: crate::scene::Rgba::opaque(0, 0, 0),
+            texture: Default::default(),
+        };
+        let path = PathData {
+            start: [0.0, 0.0],
+            segs: vec![
+                PathSeg::Line { to: [1.0, 0.0] },
+                PathSeg::Line { to: [1.0, 1.0] },
+            ],
+            tips: vec![tip(2.0), tip(20.0), tip(4.0)],
+            ..Default::default()
+        };
+        let stroke = crate::scene::Stroke {
+            width: 20.0,
+            ..Default::default()
+        };
+        let rect = WorldRect::new(0.0, 0.0, 100.0, 100.0);
+        let t = tipped_stroke(&path, &stroke, rect, 0.0, Corner::Rounded { radius: 20.0 }).unwrap();
+        assert_eq!(t.ease, vector_ink::TipEase::Linear, "the joints carry the blend");
+        // The painters blend linearly by arc length between joints.
+        let mut joints: Vec<(Point, f64)> = Vec::new();
+        let mut s = 0.0;
+        for seg in t.bez.segments() {
+            if joints.is_empty() {
+                joints.push((seg.eval(0.0), 0.0));
+            }
+            s += seg.arclen(1e-7);
+            joints.push((seg.eval(1.0), s));
+        }
+        assert_eq!(joints.len(), t.widths.len());
+        // Slope of the width along the piece ending at joint `k`.
+        let slope = |k: usize| {
+            (t.widths[k] - t.widths[k - 1]) as f64 / (joints[k].1 - joints[k - 1].1).max(1e-9)
+        };
+        let at = |p: Point| {
+            joints
+                .iter()
+                .position(|(q, _)| (*q - p).hypot() < 1e-3)
+                .unwrap_or_else(|| panic!("{p:?} is a joint"))
+        };
+        let d = std::f64::consts::FRAC_1_SQRT_2;
+        let mid = at(Point::new(80.0 + 20.0 * d, 20.0 - 20.0 * d));
+        assert!(
+            (t.widths[mid] - 20.0).abs() < 1e-4,
+            "the fillet's middle keeps its corner's width: {}",
+            t.widths[mid]
+        );
+        let steepest = (1..joints.len()).map(|k| slope(k).abs()).fold(0.0, f64::max);
+        for (what, k) in [
+            ("tangent point in", at(Point::new(80.0, 0.0))),
+            ("middle", mid),
+            ("tangent point out", at(Point::new(100.0, 20.0))),
+        ] {
+            let (before, after) = (slope(k), slope(k + 1));
+            assert!(
+                (after - before).abs() < 0.1 * steepest,
+                "{what}: slope {before} then {after} (steepest {steepest})"
+            );
+        }
+    }
+
+    /// A closed polyline's first corner is reached by its closing edge: the
+    /// joints of that fillet blend toward the first vertex's width, not
+    /// back across the whole path.
+    #[test]
+    fn a_closed_filleted_taper_keeps_its_first_corner() {
+        let tip = |width| crate::scene::StrokeSpan {
+            width,
+            softness: 0.0,
+            color: crate::scene::Rgba::opaque(0, 0, 0),
+            texture: Default::default(),
+        };
+        let path = PathData {
+            start: [0.0, 0.0],
+            segs: vec![
+                PathSeg::Line { to: [1.0, 0.0] },
+                PathSeg::Line { to: [1.0, 1.0] },
+                PathSeg::Line { to: [0.0, 1.0] },
+            ],
+            closed: true,
+            tips: vec![tip(20.0), tip(2.0), tip(2.0), tip(2.0)],
+            ..Default::default()
+        };
+        let stroke = crate::scene::Stroke {
+            width: 20.0,
+            ..Default::default()
+        };
+        let rect = WorldRect::new(0.0, 0.0, 100.0, 100.0);
+        let t = tipped_stroke(&path, &stroke, rect, 0.0, Corner::Rounded { radius: 20.0 }).unwrap();
+        let near_first: Vec<f32> = t
+            .bez
+            .elements()
+            .iter()
+            .filter_map(|el| el.end_point())
+            .zip(&t.widths)
+            .filter(|(p, _)| p.x < 20.0 + 1e-6 && p.y < 20.0 + 1e-6)
+            .map(|(_, w)| *w)
+            .collect();
+        assert!(near_first.len() > 4, "the first fillet is cut into joints");
+        assert!(
+            near_first.iter().all(|w| *w > 15.0),
+            "the first corner's fillet stays near its width: {near_first:?}"
         );
     }
 

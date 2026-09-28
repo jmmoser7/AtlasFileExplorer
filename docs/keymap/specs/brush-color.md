@@ -228,6 +228,7 @@ pub struct BoardColors { pub fg: Rgba, pub bg: Rgba }
 | Alt+click (Brush) | `board.brush.sample` (screen color to fg and recent colors) |
 | Shift+drag (Brush) | straight segment from the last stroke's end (from the press only when there is no previous mark), 45° steps; Tab locks its direction |
 | Shift+click (Brush) | connects the last stroke's end to the click (never steps opacity) |
+| Shift+drag / Shift+click (Pen) | `board.pen.line`: the same straight segment from the last Pen stroke's end, extending it as one path; 45° steps, Tab locks (pen D07) |
 | Alt+click (Eyedropper) | sample to bg |
 | , / . | preset cycling — **P2** (reserved, not bound in P1) |
 | F6 | color panel — **P2** (chips popover covers P1) |
