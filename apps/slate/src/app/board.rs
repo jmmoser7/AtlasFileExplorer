@@ -1147,6 +1147,25 @@ pub(crate) fn paints_in_view(n: &Node, view: &WorldRect) -> bool {
     visible || n.rotation_deg.abs() > 0.01
 }
 
+/// The broad-phase rect [`SlateApp::board_paint_nodes`] queries the scene
+/// index with for `view`. The index holds centerline bounds and ink reaches
+/// half a stroke width past them, so it is wide enough for the thickest
+/// stroke; [`paints_in_view`] then tests each node's own ink bounds.
+pub(crate) fn paint_query(view: &WorldRect) -> WorldRect {
+    let reach = super::settings::STROKE_WIDTH_MAX * 0.5;
+    WorldRect::new(
+        view.x - reach,
+        view.y - reach,
+        view.w + reach * 2.0,
+        view.h + reach * 2.0,
+    )
+}
+
+/// Node `n` is among the candidates [`paint_query`] returns for `view`.
+pub(crate) fn in_paint_query(n: &Node, view: &WorldRect) -> bool {
+    slate_doc::node_aabb(n).intersects(&paint_query(view))
+}
+
 impl SlateApp {
     pub fn board_xf(&self) -> BoardXf {
         let cam = self.tab().cam;
@@ -1175,19 +1194,9 @@ impl SlateApp {
     /// Nodes whose AABB intersects `screen` (plus a margin for strokes).
     pub(crate) fn board_paint_nodes(&self, screen: Rect) -> Vec<Node> {
         let view = self.board_paint_view(screen);
-        // The index holds centerline bounds. Ink reaches half a stroke width
-        // past them, so query wide enough for the thickest stroke and then
-        // test each node's own ink bounds.
-        let reach = super::settings::STROKE_WIDTH_MAX * 0.5;
-        let world = WorldRect::new(
-            view.x - reach,
-            view.y - reach,
-            view.w + reach * 2.0,
-            view.h + reach * 2.0,
-        );
         self.doc()
             .scene
-            .query_rect(world)
+            .query_rect(paint_query(&view))
             .into_iter()
             .filter_map(|id| {
                 let n = self.doc().scene.node(id)?;
