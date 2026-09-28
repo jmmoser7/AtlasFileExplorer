@@ -391,21 +391,32 @@ is searchable.
   handle. Lines keep their endpoint grips. Every grip is painted and picked
   by the shared path-edit overlay: only painted grips, nearest within 7
   screen px, an anchor wins a tie. One drag moves one point and is one
-  journaled Patch; Alt on a handle breaks symmetry. The dragged point goes
-  through `resolve_point_snap` (P1.node.osnap). An arc is rebuilt through
+  journaled Patch; Esc mid-drag restores. A handle drag takes the Bézier
+  keys (bezier-span D05 / D07): Alt moves only that handle (user pass,
+  28 September 2026, pm3), Shift keeps its direction and changes only its
+  length, Ctrl scales both handles of its anchor by the same ratio (user,
+  28 September 2026). A dragged grip keeps its grab offset. The carried
+  point snaps (user pass, 28 September 2026, pm2) through
+  `resolve_point_snap` (P1.node.osnap). An arc is rebuilt through
   its three points. A filleted or chamfered polyline keeps its authored
   radius and re-applies it to the new corners, clamped per corner by the
   adjacent edges, never by the bounding box (user, 26 September 2026).
   Arcs are recognized by geometry, not tool provenance: an open path of
   cubic spans that stays on one circle within the Arc tool's fitting
   tolerance. **Proposals:** the through grip is the middle of the sweep,
-  so it re-centers after a drag (the AutoCAD arc midpoint grip). A dragged
-  vertex lands on the snapped cursor rather than keeping its press offset.
+  so it re-centers after a drag (the AutoCAD arc midpoint grip).
   Grips win over resize at a bounding-box corner; the visible fillet grip
   wins over a vertex grip. A click or press on a grip picks that point
-  (Shift toggles) into a per-curve picked-point set, painted filled and
-  never journaled, which later per-vertex properties will read. Index
-  order: path vertex order; start, through, end for an arc.
+  into a per-curve picked-point set, painted filled and never journaled,
+  which later per-vertex properties will read; a handle knob picks its
+  anchor. **Shift: click vs drag.** The user flagged Shift+click picking as
+  conflicting with the Shift handle lock (28 September 2026, pp2:
+  "conflicts with above request for shift click function"). Travel
+  resolves it (proposal, awaiting the user's confirmation): a Shift click
+  without travel on an anchor or handle knob adds or removes that pick
+  and moves nothing; a Shift drag on a handle knob locks its direction
+  and picks nothing. Two quick clicks on grips are two picks, never the canvas
+  palette. Index order: path vertex order; start, through, end for an arc.
   Implementation: `board_direct::curve_grip_target`,
   `board_path::arc_grip_points`, `path_edit_overlay::path_edit_hit`,
   `slate_doc::scene::Corner::vertex_effective`.

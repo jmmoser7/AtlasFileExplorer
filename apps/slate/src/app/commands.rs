@@ -1810,7 +1810,8 @@ pub static SPECS: &[CommandSpec] = &[
         "Board",
         "Direct select (anchors)",
         "A — click a path to edit anchors: drag anchors/segments/handles \
-         (Alt breaks handle symmetry; they snap to other anchors on the \
+         (Alt breaks handle symmetry, Shift keeps a handle's direction, Ctrl \
+         scales both handles of the anchor; they snap to other anchors on the \
          curve and to board snaps; a handle snaps its tip, never to its own \
          anchor), double-click toggles corner/smooth, Delete removes the \
          selected anchors and rejoins the neighbors, arrows nudge (Shift \
@@ -1832,11 +1833,25 @@ pub static SPECS: &[CommandSpec] = &[
         "Select one line, polyline, arc, or Bézier curve (Select tool): drag \
          a vertex, end point, arc through point, or handle to move only that \
          point (object snaps apply; one undo step per drag). Click a point to \
-         pick it; Shift+click adds or removes it",
+         pick it; Shift+click (no travel) adds or removes it",
         None,
         Repeat::Never,
         BOARD,
         &["grips", "vertices", "control points", "edit points"],
+    ),
+    spec(
+        "board.curve.handle_scale",
+        "Board",
+        "Lock or scale Bézier handles",
+        "Drag a Bézier or pen handle (Select grips, Direct Select, or while \
+         drawing a span): Shift+drag keeps its direction and changes only its \
+         length; Ctrl+drag scales the anchor's other handle by the same ratio; \
+         Ctrl+Shift+drag does both; Alt+drag moves only the dragged handle. \
+         One undo step per drag; Esc restores",
+        None,
+        Repeat::Never,
+        BOARD,
+        &["handle length", "scale handles", "lock handle angle", "tangent"],
     ),
     spec(
         "board.direct.delete_anchor",

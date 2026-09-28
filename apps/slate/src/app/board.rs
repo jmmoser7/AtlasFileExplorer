@@ -5051,7 +5051,17 @@ impl SlateApp {
                 self.finish_sheet_resize();
             }
         }
-        if resp.double_clicked() && !zoom_tool && !web_capture && !grip_released {
+        // Two quick picks on curve grips are two picks (P1.curve.grips), not
+        // the canvas palette over the grip.
+        let on_curve_grip = || {
+            self.board_tool == BoardTool::Select
+                && ui
+                    .input(|i| i.pointer.press_origin())
+                    .or(pointer)
+                    .is_some_and(|p| self.curve_grip_under(p))
+        };
+        if resp.double_clicked() && !zoom_tool && !web_capture && !grip_released && !on_curve_grip()
+        {
             let on_context = pointer.is_some_and(|p| self.context_auto_under(p, &xf).is_some());
             if !on_context {
                 if let Some(w) = wp {
@@ -6805,7 +6815,7 @@ impl SlateApp {
         }) = &self.board_drag
         {
             let (hit, start, anchors0) = (*hit, *start, anchors0.clone());
-            self.bezier_draft_edit(hit, start, &anchors0, world, mods.alt);
+            self.bezier_draft_edit(hit, start, &anchors0, world, mods);
             return;
         }
         if matches!(self.board_drag, Some(BoardDrag::LineDraw { .. })) {

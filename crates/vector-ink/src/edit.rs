@@ -232,6 +232,58 @@ pub fn move_handle(
     }
 }
 
+/// Modifiers of a handle drag (bezier-span D05 / D07).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct HandleDrag {
+    /// Alt: only the dragged handle moves; the anchor becomes a corner.
+    pub break_symmetry: bool,
+    /// Shift: the dragged handle keeps its direction; only its length
+    /// follows `new_pos`, projected onto the handle's ray.
+    pub lock_direction: bool,
+    /// Ctrl: the opposite handle's length scales by the same ratio as the
+    /// dragged handle's. Ignored with `break_symmetry`.
+    pub scale_both: bool,
+}
+
+/// Drag one handle of anchor `idx` toward `new_pos` from the gesture-start
+/// `anchors`, per [`HandleDrag`]. Without modifiers this is [`move_handle`].
+pub fn drag_handle(
+    anchors: &mut [Anchor],
+    idx: usize,
+    which: HandleEnd,
+    new_pos: Point,
+    mode: HandleDrag,
+) {
+    let Some(a) = anchors.get(idx) else {
+        return;
+    };
+    let origin = a.point;
+    let own = match which {
+        HandleEnd::In => a.handle_in,
+        HandleEnd::Out => a.handle_out,
+    }
+    .map(|h| h - origin)
+    .filter(|v| v.hypot() > EDIT_EPS);
+    let mut pos = new_pos;
+    if let (true, Some(v)) = (mode.lock_direction, own) {
+        let dir = v / v.hypot();
+        pos = origin + dir * (new_pos - origin).dot(dir).max(0.0);
+    }
+    move_handle(anchors, idx, which, pos, mode.break_symmetry);
+    let (true, false, Some(v)) = (mode.scale_both, mode.break_symmetry, own) else {
+        return;
+    };
+    let ratio = (pos - origin).hypot() / v.hypot();
+    let a = &mut anchors[idx];
+    let opposite = match which {
+        HandleEnd::In => &mut a.handle_out,
+        HandleEnd::Out => &mut a.handle_in,
+    };
+    if let Some(op) = opposite {
+        *op = origin + (*op - origin) * ratio;
+    }
+}
+
 /// Drag segment `seg_idx` (joining anchors `seg_idx` and `seg_idx + 1`,
 /// wrapping to 0 for the closing segment of a closed path) by `delta`.
 ///
@@ -643,6 +695,71 @@ mod tests {
         }];
         move_handle(&mut anchors, 0, HandleEnd::Out, pt(10.0, 5.0), true);
         // Opposite handle untouched; anchor demoted to corner-with-handles.
+        assert_pt_eq(anchors[0].handle_in.unwrap(), pt(7.0, 0.0));
+        assert_eq!(anchors[0].kind, AnchorKind::Corner);
+    }
+
+    fn smooth_pair() -> Vec<Anchor> {
+        vec![Anchor {
+            point: pt(10.0, 0.0),
+            handle_in: Some(pt(7.0, 0.0)),
+            handle_out: Some(pt(15.0, 0.0)),
+            kind: AnchorKind::Smooth,
+        }]
+    }
+
+    #[test]
+    fn drag_handle_lock_direction_changes_only_length() {
+        let mut anchors = smooth_pair();
+        let lock = HandleDrag {
+            lock_direction: true,
+            ..HandleDrag::default()
+        };
+        drag_handle(&mut anchors, 0, HandleEnd::Out, pt(22.0, 9.0), lock);
+        assert_pt_eq(anchors[0].handle_out.unwrap(), pt(22.0, 0.0));
+        assert_pt_eq(anchors[0].handle_in.unwrap(), pt(7.0, 0.0));
+        // Past the anchor the knob stops at it rather than flipping.
+        let mut anchors = smooth_pair();
+        drag_handle(&mut anchors, 0, HandleEnd::Out, pt(2.0, 4.0), lock);
+        assert_pt_eq(anchors[0].handle_out.unwrap(), pt(10.0, 0.0));
+    }
+
+    #[test]
+    fn drag_handle_scale_both_scales_the_opposite_length() {
+        let scale = HandleDrag {
+            scale_both: true,
+            ..HandleDrag::default()
+        };
+        let mut anchors = smooth_pair();
+        drag_handle(&mut anchors, 0, HandleEnd::Out, pt(10.0, 10.0), scale);
+        assert_pt_eq(anchors[0].handle_out.unwrap(), pt(10.0, 10.0));
+        assert_pt_eq(anchors[0].handle_in.unwrap(), pt(10.0, -6.0));
+        assert_eq!(anchors[0].kind, AnchorKind::Smooth);
+
+        let mut corner = smooth_pair();
+        corner[0].kind = AnchorKind::Corner;
+        corner[0].handle_in = Some(pt(10.0, 4.0));
+        drag_handle(&mut corner, 0, HandleEnd::Out, pt(20.0, 0.0), scale);
+        assert_pt_eq(corner[0].handle_in.unwrap(), pt(10.0, 8.0));
+
+        let both = HandleDrag {
+            scale_both: true,
+            lock_direction: true,
+            ..HandleDrag::default()
+        };
+        let mut anchors = smooth_pair();
+        drag_handle(&mut anchors, 0, HandleEnd::In, pt(4.0, 3.0), both);
+        assert_pt_eq(anchors[0].handle_in.unwrap(), pt(4.0, 0.0));
+        assert_pt_eq(anchors[0].handle_out.unwrap(), pt(20.0, 0.0));
+
+        // Alt wins: only the dragged handle moves.
+        let alt = HandleDrag {
+            scale_both: true,
+            break_symmetry: true,
+            ..HandleDrag::default()
+        };
+        let mut anchors = smooth_pair();
+        drag_handle(&mut anchors, 0, HandleEnd::Out, pt(20.0, 0.0), alt);
         assert_pt_eq(anchors[0].handle_in.unwrap(), pt(7.0, 0.0));
         assert_eq!(anchors[0].kind, AnchorKind::Corner);
     }

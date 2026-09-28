@@ -3487,11 +3487,11 @@
           "decided": "2026-09-26"
         },
         "D05": {
-          "behavior": "Alt while dragging an outgoing handle breaks symmetry (corner anchor with independent out handle). Alt on an existing handle, while drawing or on a selected span, also breaks symmetry; without Alt a smooth anchor keeps its opposite handle collinear at its own length. Other creation modifiers unchanged. Alt+right-drag scrubs the Bezier tool's own width through the Brush size HUD (board.brush.size_hud, P1.curve.tip-chord), horizontally only: no softness. The color and opacity HUDs reach the Bezier tool too. Mid-draw a chord sets the tip (width, color and opacity) of the anchor being placed and of the anchors after it; placed anchors keep theirs, and the span blends between them by smoothstep (P1.curve.vertex-style; user, 26-27 September 2026). The draft previews that blend in the real colors. Equal tips commit a plain stroke. Proposal: an anchor taken back with Ctrl+Z and put back while drawing keeps its tip.",
+          "behavior": "Alt while pulling a new handle, or on an existing handle (drawing or selected), breaks symmetry. Without Alt a smooth anchor keeps its opposite handle collinear at its own length; Alt breaks that symmetry and moves only the dragged handle (user pass, 28 September 2026, pm3). Ctrl+drag on an existing handle knob (drawing or selected) scales both handles of that anchor about it: the dragged handle follows the pointer as usual, and the opposite handle's length scales by the same ratio while it keeps its own direction (collinear on a smooth anchor). Ctrl+Shift+drag scales both lengths with both directions locked (D07). Alt beats Ctrl. A Ctrl click without travel keeps its meaning (user, 28 September 2026: \"ctrl lmb to scale handels on both sides of controle point\"). P1.node.transform for selected objects. Alt+right-drag scrubs the Bézier tool's own width through the Brush size HUD (board.brush.size_hud, P1.curve.tip-chord; stated 2026-09-25), horizontally only: no softness. The color and opacity HUDs reach the Bézier tool too. Mid-draw a chord sets the tip (width, color and opacity) of the anchor being placed and of the anchors after it; placed anchors keep theirs, and the span blends between them by smoothstep (P1.curve.vertex-style; user, 26–27 September 2026). The draft previews that blend in the real colors. Equal tips commit a plain stroke. Proposal: an anchor taken back with Ctrl+Z and put back while drawing keeps its tip.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-26"
+          "decided": "2026-09-28"
         },
         "D06": {
           "behavior": "P1.node.osnap: one resolved point feeds preview and commit; Alt suspends object snap while dragging handles; F8/Shift ortho constrains draft segments including Bézier outgoing handles.",
@@ -3501,11 +3501,11 @@
           "decided": "2026-09-25"
         },
         "D07": {
-          "behavior": "P2.RhinoDraft.ortho and P2.RhinoDraft.tab (stated 2026-09-27): held Shift inverts ortho, so the next anchor lands on a 45° step from the last placed one (handle-drag ortho is unchanged). Tab locks the direction from the last anchor toward the pointer; the pointer then changes only length, and snaps land where they project onto the ray. Tab again releases; placing the anchor, Esc, or a tool change ends the lock. Numeric property editing is separate from drawing.",
+          "behavior": "P2.RhinoDraft.ortho and P2.RhinoDraft.tab (stated 2026-09-27): held Shift inverts ortho, so the next anchor lands on a 45° step from the last placed one, and pulling out a new anchor's handle keeps ortho (GP5). Shift+drag on an existing handle knob (drawing or selected) instead keeps that handle's direction and changes only its length: the knob slides along its ray, stops at its anchor, and a snap lands where it projects onto the ray (user, 28 September 2026: \"shift lmb to lock direction of grp handel on scaling\"). A Shift click without travel still toggles a pick (P1.curve.grips). Tab locks the direction from the last anchor toward the pointer; the pointer then changes only length, and snaps land where they project onto the ray. Tab again releases; placing the anchor, Esc, or a tool change ends the lock. Numeric property editing is separate from drawing.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-27"
+          "decided": "2026-09-28"
         },
         "D08": {
           "behavior": "An open Bézier shows no dimension stringers (user, 26 September 2026: \"remove the dimension stringers from open curves right now\"). A closed Bézier keeps tight local W/H stringers from actual curve extrema, excluding off-curve handle bounds, scaling anchors and handles together about bounds center.",
@@ -3543,11 +3543,11 @@
           "decided": "2026-09-25"
         },
         "D13": {
-          "behavior": "Decision: automatic edit affordance, not Direct Select only. A single selected Bézier curve, open or closed, shows every anchor and every non-zero handle with the Select tool (extends P1.curve.grips; an arc shows its start, end and through point instead). Each anchor or handle drag is one journaled Patch. A dragged handle keeps its grab offset and snaps its tip, never onto its own anchor (user, 27 September 2026, tip31). Picked vertices (user, 27 September 2026; direct-selection.md): Alt/Ctrl/Shift+right-drag edit only the picked anchors' width, color and opacity (vertex color alpha), or the hovered anchor when none is picked; one journaled Patch per HUD, Esc restores. Delete with anchors picked removes them and rejoins the neighbors; fewer than two (open) or three (closed) left removes the node; one Ctrl+Z restores. P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry.",
+          "behavior": "Decision: automatic edit affordance, not Direct Select only. A single selected Bézier curve, open or closed, shows every anchor and every non-zero handle with the Select tool (extends P1.curve.grips; an arc shows its start, end and through point instead). Each anchor or handle drag is one journaled Patch. A dragged handle keeps its grab offset and snaps its tip, never onto its own anchor (user, 27 September 2026, tip31; user pass, 28 September 2026, pm2). Handle drags take the D05 / D07 keys: Alt moves only that handle, Shift keeps its direction, Ctrl scales both handles of the anchor. Picked vertices (user, 27 September 2026; direct-selection.md): Alt/Ctrl/Shift+right-drag edit only the picked anchors' width, color and opacity (vertex color alpha), or the hovered anchor when none is picked; one journaled Patch per HUD, Esc restores. Delete with anchors picked removes them and rejoins the neighbors; fewer than two (open) or three (closed) left removes the node; one Ctrl+Z restores. P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-26"
+          "decided": "2026-09-28"
         },
         "D14": {
           "behavior": "Circular Stroke and, only for a closed path, Fill. Handle editing is on-canvas through the selected-span grips (D13) and Direct Selection. No rectangle Corners or dimensional toolbar fields. Color editors use the shared desktop sampler. Per-vertex width (P1.curve.vertex-style; user, 26 September 2026): with anchors picked, the Stroke stringer's width edits only those anchors; widths blend between anchors with a smoothstep, zero slope at each anchor, so the stroke has no chines. Proposal: geometry decides the blend, so any curve that is not a circular arc, including a Pen stroke, blends smoothly. Per-vertex color (user, 26 September 2026): picked anchors take the Stroke color, blending by the same smoothstep as widths; with none picked the color sets every anchor.",

@@ -42,8 +42,10 @@ focal tool, Average dialog (P2 — auto-average lands inside Join).
 | Arrow keys | Nudge selected anchors (Shift ×10), journaled coalesced; every vertex keeps its width, color and corner override (P1.curve.vertex-style) |
 | Drag straight segment | Translate both endpoints together |
 | Drag curved segment | Reshape with **handle angles preserved** (Illustrator "constrain path dragging" default ON) |
-| Drag handle dot | Adjust curvature that side; smooth anchors keep the opposite handle collinear |
+| Drag handle dot | Adjust curvature that side; smooth anchors keep the opposite handle collinear at its own length (user pass, 28 September 2026, pm3) |
 | **Alt+drag handle** | Break symmetry — only the dragged handle moves (anchor becomes corner-with-handles) |
+| **Shift+drag handle** | Keep the handle's direction; only its length changes, and a snap projects onto its ray (user, 28 September 2026: "shift lmb to lock direction of grp handel on scaling") |
+| **Ctrl+drag handle** | Scale both handles of the anchor: the opposite length scales by the dragged handle's ratio, keeping its own direction (user, 28 September 2026: "ctrl lmb to scale handels on both sides of controle point"). Ctrl+Shift: both scale, both directions locked. Alt beats Ctrl |
 | Double-click anchor | Toggle corner ↔ smooth (smooth = collinear handles at ⅓ neighbor distance). This replaces Shift+C in P1. |
 
 One drag = one journaled `Patch` on the node (before/after path data), via
@@ -52,9 +54,13 @@ the existing gesture pipeline (`begin_gesture`/`end_gesture`). Nudges use
 
 A dragged handle keeps its offset from the press point. The handle tip, not
 the cursor, snaps (`resolve_point_snap`, then the curve's other anchors);
-the handle's own anchor is never a target. The same holds for Select-tool
-grips and for anchors and handles of a Bézier span still being drafted.
-Handles and anchor squares stay screen-constant (P0.9 path-edit exception).
+the handle's own anchor is never a target (user pass, 28 September 2026,
+pm2). The same holds, Shift and Ctrl included, for Select-tool grips and
+for anchors and handles of a Bézier span still being drafted
+(`board_direct::handle_drag_mode`, `vector_ink::drag_handle`). Shift
+decides by travel: a Shift click without travel toggles a pick, a Shift
+drag on a handle locks its direction (P1.curve.grips). Handles and anchor
+squares stay screen-constant (P0.9 path-edit exception).
 
 ## Picked vertices (Direct Select and Select grips)
 
@@ -192,6 +198,8 @@ the path (direct selection pierces groups — Illustrator behavior).
 | Ctrl+J | `board.path.join` |
 | Double-click anchor (A) | toggle corner/smooth |
 | Alt+drag handle (A) | break handle symmetry |
+| Shift+drag handle | lock the handle's direction (`board.curve.handle_scale`) |
+| Ctrl+drag handle | scale both handles of the anchor (`board.curve.handle_scale`) |
 | Alt/Ctrl/Shift+right-drag with picks or over a vertex | tip HUD on those vertices |
 | Alt/Ctrl/Shift+right-drag elsewhere, one curve selected (Select or A) | tip HUD on the whole curve, relative |
 | Alt/Ctrl/Shift+right-click (no travel), same targets | numeric tip entry (`board.brush.tip_entry`) |
@@ -200,6 +208,9 @@ the path (direct selection pierces groups — Illustrator behavior).
 ## Tests (vector-ink)
 
 - Segment translate keeps neighbor handle angles.
+- Handle drag: Shift keeps direction, Ctrl scales the opposite length, Alt
+  beats Ctrl (`drag_handle_lock_direction_changes_only_length`,
+  `drag_handle_scale_both_scales_the_opposite_length`).
 - Corner↔smooth conversion roundtrip.
 - Join: coincident merge, bridge segment, close-path, two-node join keeps
   first style; all produce invertible command groups.
