@@ -696,10 +696,13 @@ downstream, wired, and runs. The source stays selected for the next variation.
 Pictures and notes an agent makes: selected or hovered, they show typed input
 ports on the left edge (picture: Media, Prompt, Style; note: Image, Prompt)
 and one output port on the right. `portal.agent.spawn` is the modality menu
-(Text, Image). Click the output port, or drop a wire on empty board from any
-media that shows the Agent squircle, then choose Text (a sticky an agent
-writes) or Image (a picture an agent generates). The new wire keeps the grip
-it left from. Generate, Run and Enter in the docked prompt use
+(Text, Image, Agent). Click the output port, or drop a wire on empty board from
+any media that shows the Agent squircle, then choose Text (a sticky an agent
+writes), Image (a picture an agent generates) or Agent (an agent portal in
+chat train presentation, one message per card, with the source wired into its
+midpoint context input as its first input; it shows the program grid until a
+program is picked). Esc closes the menu and adds nothing; one Undo removes
+the new node and its wire. The new wire keeps the grip it left from. Generate, Run and Enter in the docked prompt use
 `portal.agent.send`; Stop uses `portal.agent.stop`. On these media the Agent
 squircle edits the attached agent: model (`set_flow_model`), count, aspect,
 seed and Live apply at once, and Submit runs it again. A click on a square

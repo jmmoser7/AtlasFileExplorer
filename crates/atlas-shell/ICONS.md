@@ -111,11 +111,13 @@ ChatPairs is the ChatWindow card holding one pair: a short message bubble at the
 
 ## Agent portal
 
-`Agent` is the agent-portal tool glyph: a robot face with two side antennae,
-hollow ear loops, a rounded head, two eyes, and a short mouth. Stroke is 1.25
-so those loops and the face stay open at dock size; other glyphs stay at 1.5.
-It is not the Portals family mark (nested rounded openings) and not a provider
-tile. Command mapping: `board.portal.agent` and the Portals flyout row.
+`Agent` is the agent-portal tool glyph: a friendly robot face with a rounded
+head, small ear bumps, soft pill eyes, a gentle smile, and one short antenna
+with a dot (28 September 2026). It is a line glyph at the standard 1.5 stroke,
+like its neighbors, and never an emoji. It is not the Portals family mark
+(nested rounded openings) and not a provider tile. Command mapping:
+`board.portal.agent`, the Portals flyout row, and the wire-drop menu's Agent
+row.
 
 ## Agent provider identity (21 September 2026)
 

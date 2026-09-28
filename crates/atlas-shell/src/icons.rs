@@ -194,22 +194,7 @@ pub fn paint(painter: &egui::Painter, rect: Rect, icon: Icon, color: Color32) {
         if let Some((_, mesh)) = cache.iter().find(|(k, _)| *k == key) {
             return Arc::clone(mesh);
         }
-        let source = &meshes()[icon.name()];
-        let scale = rect.width().min(rect.height()) / 24.0;
-        let origin = rect.center() - egui::vec2(12.0, 12.0) * scale;
-        let mesh = Arc::new(egui::Mesh {
-            indices: source.indices.clone(),
-            vertices: source
-                .vertices
-                .iter()
-                .map(|v| egui::epaint::Vertex {
-                    pos: origin + egui::vec2(v.pos[0], v.pos[1]) * scale,
-                    uv: egui::epaint::WHITE_UV,
-                    color: color.gamma_multiply(v.alpha),
-                })
-                .collect(),
-            ..Default::default()
-        });
+        let mesh = Arc::new(glyph_mesh(icon, rect, color));
         if cache.len() >= 256 {
             cache.remove(0);
         }
@@ -219,9 +204,133 @@ pub fn paint(painter: &egui::Painter, rect: Rect, icon: Icon, color: Color32) {
     painter.add(egui::Shape::Mesh(mesh));
 }
 
+/// The glyph's cached geometry placed in `rect`, as `paint` draws it.
+fn glyph_mesh(icon: Icon, rect: Rect, color: Color32) -> egui::Mesh {
+    let source = &meshes()[icon.name()];
+    let scale = rect.width().min(rect.height()) / 24.0;
+    let origin = rect.center() - egui::vec2(12.0, 12.0) * scale;
+    egui::Mesh {
+        indices: source.indices.clone(),
+        vertices: source
+            .vertices
+            .iter()
+            .map(|v| egui::epaint::Vertex {
+                pos: origin + egui::vec2(v.pos[0], v.pos[1]) * scale,
+                uv: egui::epaint::WHITE_UV,
+                color: color.gamma_multiply(v.alpha),
+            })
+            .collect(),
+        ..Default::default()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Opt-in preview PNGs of the native glyph meshes on the menu's own
+    /// light and dark colors, at menu, 20 and 24 point sizes, 1x and 2x.
+    /// `ATLAS_ICON_PREVIEW_PREFIX` names the set (default `agent`).
+    #[test]
+    #[ignore = "set ATLAS_ICON_PREVIEW_DIR to write PNG previews"]
+    fn write_agent_icon_previews() {
+        let dir = std::path::PathBuf::from(
+            std::env::var("ATLAS_ICON_PREVIEW_DIR").expect("preview output folder"),
+        );
+        let prefix =
+            std::env::var("ATLAS_ICON_PREVIEW_PREFIX").unwrap_or_else(|_| "agent".to_owned());
+        std::fs::create_dir_all(&dir).unwrap();
+        let row = [Icon::Agent, Icon::Image, Icon::TextDoc, Icon::Portals];
+        let sizes = [crate::menu::tokens().icon_size, 20.0, 24.0];
+        for dark in [false, true] {
+            let theme = crate::menu::theme(dark);
+            for ppp in [1u32, 2] {
+                let pad = 8.0;
+                let width = pad + sizes.iter().map(|s| (s + pad) * row.len() as f32).sum::<f32>();
+                let height = pad * 2.0 + sizes[2];
+                let mut meshes = Vec::new();
+                let mut x = pad;
+                for size in sizes {
+                    for icon in row {
+                        let min = egui::pos2(x, pad + (sizes[2] - size) * 0.5);
+                        let rect = Rect::from_min_size(min, egui::vec2(size, size));
+                        meshes.push(glyph_mesh(icon, rect, theme.icon_color()));
+                        x += size + pad;
+                    }
+                }
+                let png = rasterize(&meshes, width, height, ppp as f32, theme.fill_color());
+                let name = format!(
+                    "{prefix}-{}-{ppp}x.png",
+                    if dark { "dark" } else { "light" }
+                );
+                png.save(dir.join(name)).unwrap();
+            }
+        }
+    }
+
+    /// Paints meshes in order onto `background` with 4x4 supersampling and
+    /// premultiplied "over" blending, the way the GPU composites them.
+    fn rasterize(
+        meshes: &[egui::Mesh],
+        width: f32,
+        height: f32,
+        ppp: f32,
+        background: Color32,
+    ) -> image::RgbaImage {
+        const SS: u32 = 4;
+        let (w, h) = ((width * ppp).ceil() as u32, (height * ppp).ceil() as u32);
+        let (sw, sh) = (w * SS, h * SS);
+        let bg = egui::Rgba::from(background);
+        let mut samples = vec![[bg.r(), bg.g(), bg.b(), bg.a()]; (sw * sh) as usize];
+        let scale = ppp * SS as f32;
+        for mesh in meshes {
+            for tri in mesh.indices.as_chunks::<3>().0 {
+                let v = tri.map(|i| &mesh.vertices[i as usize]);
+                let p = v.map(|v| v.pos.to_vec2() * scale);
+                let area = (p[1] - p[0]).x * (p[2] - p[0]).y - (p[1] - p[0]).y * (p[2] - p[0]).x;
+                if area.abs() < 1e-9 {
+                    continue;
+                }
+                let x0 = p.iter().map(|q| q.x).fold(f32::MAX, f32::min).floor().max(0.0) as u32;
+                let y0 = p.iter().map(|q| q.y).fold(f32::MAX, f32::min).floor().max(0.0) as u32;
+                let x1 = (p.iter().map(|q| q.x).fold(f32::MIN, f32::max).ceil() as u32).min(sw);
+                let y1 = (p.iter().map(|q| q.y).fold(f32::MIN, f32::max).ceil() as u32).min(sh);
+                for y in y0..y1 {
+                    for x in x0..x1 {
+                        let c = egui::vec2(x as f32 + 0.5, y as f32 + 0.5);
+                        let edge = |a: egui::Vec2, b: egui::Vec2| {
+                            ((b - a).x * (c - a).y - (b - a).y * (c - a).x) / area
+                        };
+                        let (w0, w1, w2) = (edge(p[1], p[2]), edge(p[2], p[0]), edge(p[0], p[1]));
+                        if w0 < 0.0 || w1 < 0.0 || w2 < 0.0 {
+                            continue;
+                        }
+                        let src = v.map(|v| egui::Rgba::from(v.color));
+                        let s = src[0] * w0 + src[1] * w1 + src[2] * w2;
+                        let dst = &mut samples[(y * sw + x) as usize];
+                        let keep = 1.0 - s.a();
+                        *dst = [
+                            s.r() + dst[0] * keep,
+                            s.g() + dst[1] * keep,
+                            s.b() + dst[2] * keep,
+                            s.a() + dst[3] * keep,
+                        ];
+                    }
+                }
+            }
+        }
+        image::RgbaImage::from_fn(w, h, |x, y| {
+            let mut sum = [0.0f32; 4];
+            for dy in 0..SS {
+                for dx in 0..SS {
+                    let s = samples[((y * SS + dy) * sw + x * SS + dx) as usize];
+                    sum.iter_mut().zip(s).for_each(|(a, b)| *a += b);
+                }
+            }
+            let n = (SS * SS) as f32;
+            let px = egui::Rgba::from_rgba_premultiplied(sum[0] / n, sum[1] / n, sum[2] / n, sum[3] / n);
+            image::Rgba(Color32::from(px).to_srgba_unmultiplied())
+        })
+    }
     /// Opt-in visual audit data from the actual native mesh generator, not SVG.
     #[test]
     #[ignore = "set ATLAS_ICON_AUDIT_JSON to write native mesh evidence"]

@@ -1317,7 +1317,12 @@ impl SlateApp {
     /// Runs before canvas gestures; output handles own their press until release.
     pub(crate) fn agent_spawn_input(&mut self, ui: &egui::Ui, xf: &BoardXf) -> bool {
         if self.flow_input(ui, xf) {
-            self.board_align_eat_press = true;
+            // Hovering the spawn menu only shields this frame. Holding the
+            // press guard until a release would eat the first click after
+            // Esc closes the menu.
+            if ui.input(|i| i.pointer.any_pressed()) {
+                self.board_align_eat_press = true;
+            }
             return true;
         }
         if self.agent_output_drag_input(ui, xf) {
@@ -4257,6 +4262,14 @@ impl SlateApp {
             "Write the alternative message and Send. A new branch will start at this checkpoint.",
         );
         true
+    }
+
+    /// Pins the installed-program list, so tests never probe the machine.
+    #[cfg(test)]
+    pub(crate) fn set_agent_programs_for_test(&mut self, ids: &[&str]) {
+        self.agents.programs_started = true;
+        self.agents.programs_rx = None;
+        self.agents.programs = ids.iter().map(|id| atlas_ai::agent::provider_by_id(id)).collect();
     }
 
     fn ensure_agent_programs(&mut self) {
@@ -7939,16 +7952,31 @@ impl SlateApp {
             let count = self.agents.programs.len();
             let width = count.min(4) as f32 * 112.0 + 48.0;
             let height = count.div_ceil(4) as f32 * 96.0 + 72.0;
-            if self
+            let resized = self
                 .doc()
                 .scene
                 .node(id)
-                .is_some_and(|n| (n.rect.w - width).abs() > 1.0 || (n.rect.h - height).abs() > 1.0)
-            {
-                self.patch_nodes(&[id], |n| {
+                .filter(|n| (n.rect.w - width).abs() > 1.0 || (n.rect.h - height).abs() > 1.0)
+                .map(|n| {
+                    let mut n = n.clone();
                     n.rect.w = width;
                     n.rect.h = height;
+                    n
                 });
+            if let Some(after) = resized {
+                // Fitting the grid settles the step that placed the portal,
+                // so one Undo still removes it (and a wire placed with it).
+                if !self.tab().journal.can_redo() && self.tab_mut().journal.fold_into_last(&after) {
+                    if let Some(node) = self.doc_mut().scene.node_mut(id) {
+                        *node = after;
+                    }
+                    self.note_scene_change();
+                } else {
+                    self.patch_nodes(&[id], |n| {
+                        n.rect.w = width;
+                        n.rect.h = height;
+                    });
+                }
             }
         }
         if let Some(provider) = atlas_ai::ui::program_grid(
@@ -10212,7 +10240,9 @@ pub(crate) fn bind_program(
     a.bundle = binding.bundle.clone();
     a.seed = None;
     a.view = program.view;
-    if program.view == atlas_ai::agent::PortalView::Chat {
+    // New conversations start as message pairs; a card already placed as a
+    // chat train (the wire-drop Agent) keeps its presentation.
+    if program.view == atlas_ai::agent::PortalView::Chat && !a.chat.train {
         a.chat.train = true;
         a.chat.detail = slate_doc::agent_chat::Detail::Pair;
     }

@@ -254,8 +254,9 @@ or an ordinary sticky (`TextNode::agent`), each with typed input ports.
 agent binding on any node, and chat cards stay `PortalKind::Agent` portals.
 The port table lives in `slate_doc::agent_inputs` and `WireHost::ports` reads
 it, so `board_wire.rs` hit-tests and snaps them like any other grip.
-`board_flow.rs` paints the ports and owns `MODALITIES` (the wire-drop menu and
-the editor's mode switch), the `portal.agent.spawn` command, the note's
+`board_flow.rs` paints the ports and owns `MODALITIES` (the editor's mode
+switch) and `SPAWN_CHOICES` (the wire-drop menu: those modalities plus Agent,
+which places a chat-train portal), the `portal.agent.spawn` command, the note's
 docked prompt and reply (`paint_agent_note`) and the Agent squircle editor.
 `board_agent.rs` owns the picture overlay (`paint_agent_picture`), picks
 (`pick_agent_result`) and the shown result (`agent_shown_index`, which reads

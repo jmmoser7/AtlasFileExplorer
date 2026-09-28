@@ -82,49 +82,65 @@ pub(crate) enum SpawnKind {
     Image,
 }
 
-/// One thing an agent can make from media. The wire-drop menu and the agent
-/// editor's mode switch both read [`MODALITIES`]; 3D and video join it when
-/// an engine makes them.
+/// One choice of the output-port and wire-drop menu ([`SPAWN_CHOICES`]).
+/// Text and Image are what an agent can make from media, and the agent
+/// editor's mode switch reads those as [`MODALITIES`]; 3D and video join them
+/// when an engine makes them. Agent makes no media: it opens a chat train.
 pub(crate) struct Modality {
-    pub kind: SpawnKind,
+    /// `None` for Agent.
+    pub kind: Option<SpawnKind>,
     pub id: &'static str,
     pub label: &'static str,
     pub menu: &'static str,
     pub icon: atlas_shell::menu::MenuIcon,
+    /// A catalog glyph painted instead of `icon`.
+    pub glyph: Option<atlas_shell::icons::Icon>,
 }
 
-pub(crate) const MODALITIES: [Modality; 2] = [
-    Modality {
-        kind: SpawnKind::Text,
-        id: "text",
-        label: "Text",
-        menu: "Text · language model",
-        icon: atlas_shell::menu::MenuIcon::Chat,
-    },
-    Modality {
-        kind: SpawnKind::Image,
-        id: "image",
-        label: "Image",
-        menu: "Image · generator",
-        icon: atlas_shell::menu::MenuIcon::Image,
-    },
-];
+const TEXT_CHOICE: Modality = Modality {
+    kind: Some(SpawnKind::Text),
+    id: "text",
+    label: "Text",
+    menu: "Text · language model",
+    icon: atlas_shell::menu::MenuIcon::Chat,
+    glyph: None,
+};
+
+const IMAGE_CHOICE: Modality = Modality {
+    kind: Some(SpawnKind::Image),
+    id: "image",
+    label: "Image",
+    menu: "Image · generator",
+    icon: atlas_shell::menu::MenuIcon::Image,
+    glyph: None,
+};
+
+/// An agent portal in chat train presentation whose first input is the
+/// source (user, 28 September 2026).
+pub(crate) const AGENT_CHOICE: Modality = Modality {
+    kind: None,
+    id: "agent",
+    label: "Agent",
+    menu: "Agent · chat train",
+    icon: atlas_shell::menu::MenuIcon::None,
+    glyph: Some(atlas_shell::icons::Icon::Agent),
+};
+
+pub(crate) const MODALITIES: &[Modality] = &[TEXT_CHOICE, IMAGE_CHOICE];
+
+pub(crate) const SPAWN_CHOICES: &[Modality] = &[TEXT_CHOICE, IMAGE_CHOICE, AGENT_CHOICE];
 
 impl SpawnKind {
     fn modality(self) -> &'static Modality {
-        MODALITIES.iter().find(|m| m.kind == self).unwrap()
-    }
-
-    fn id(self) -> &'static str {
-        self.modality().id
+        MODALITIES.iter().find(|m| m.kind == Some(self)).unwrap()
     }
 
     fn from_id(id: &str) -> Option<Self> {
-        MODALITIES.iter().find(|m| m.id == id).map(|m| m.kind)
+        MODALITIES.iter().find(|m| m.id == id).and_then(|m| m.kind)
     }
 
     fn index(self) -> usize {
-        MODALITIES.iter().position(|m| m.kind == self).unwrap()
+        MODALITIES.iter().position(|m| m.kind == Some(self)).unwrap()
     }
 }
 
@@ -283,9 +299,13 @@ impl SlateApp {
                 |ui| {
                     atlas_shell::menu::heading(ui, "Make with an agent", dark);
                     let mut chosen = None;
-                    for m in &MODALITIES {
-                        if atlas_shell::menu::item(ui, m.icon, m.menu, dark).clicked() {
-                            chosen = Some(m.kind);
+                    for m in SPAWN_CHOICES {
+                        let row = atlas_shell::menu::Row {
+                            glyph: m.glyph,
+                            ..atlas_shell::menu::Row::new(m.icon, m.menu)
+                        };
+                        if atlas_shell::menu::row(ui, row, dark).clicked() {
+                            chosen = Some(m.id);
                         }
                     }
                     chosen
@@ -295,7 +315,7 @@ impl SlateApp {
             if let Some(kind) = shown.inner {
                 let detail = serde_json::json!({
                     "source": menu.source.0,
-                    "kind": kind.id(),
+                    "kind": kind,
                     "at": menu.dropped.then_some([menu.at.x, menu.at.y]),
                     "from": menu.grip,
                 });
@@ -419,12 +439,15 @@ impl SlateApp {
             return false;
         };
         let source = NodeId(spawn.source);
-        let Some(kind) = SpawnKind::from_id(&spawn.kind) else {
-            return false;
-        };
         if !self.is_agent_media(source) {
             return false;
         }
+        if spawn.kind == AGENT_CHOICE.id {
+            return self.spawn_agent_train(source, spawn.at, spawn.from);
+        }
+        let Some(kind) = SpawnKind::from_id(&spawn.kind) else {
+            return false;
+        };
         let doc = self.doc();
         let Some(carries) = agent_inputs::wire_kind(&doc.scene, source, &|id| {
             doc.item(id).map(|item| item.path.as_path())
@@ -567,6 +590,55 @@ impl SlateApp {
                 SpawnKind::Text => self.queue_text_block(id),
             }
         }
+        true
+    }
+
+    /// The menu's Agent: an agent portal showing its program grid, in chat
+    /// train presentation, with `source` wired into its context input as the
+    /// conversation's first input. The portal and the wire are one journal
+    /// step. A dropped wire's end becomes that input.
+    fn spawn_agent_train(
+        &mut self,
+        source: NodeId,
+        at: Option<[f32; 2]>,
+        from: Option<(Side, f32)>,
+    ) -> bool {
+        const CONTEXT_T: f32 = 0.5;
+        let (w, h) = super::board::AGENT_PORTAL_SIZE;
+        let size = egui::vec2(w, h);
+        let drop = at.map(|[x, y]| Pos2::new(x, y - CONTEXT_T * size.y));
+        let zoom = self.tab().cam.z;
+        let Some(rect) = self.agent_spawn_rect(source, drop, size, zoom) else {
+            return false;
+        };
+        let mut node = self.build_agent_portal(rect);
+        if let Some(a) = slate_doc::agent_chat::agent_mut(&mut node) {
+            a.chat.train = true;
+            a.chat.detail = slate_doc::agent_chat::Detail::Summary;
+        }
+        let id = node.id;
+        let (side, t) = from.unwrap_or((Side::Right, OUTPUT_T));
+        let wire = self.build_connector_with(
+            ConnectorEnd::Anchored {
+                node: source,
+                side,
+                t,
+            },
+            ConnectorEnd::Anchored {
+                node: id,
+                side: Side::Left,
+                t: CONTEXT_T,
+            },
+            std::slice::from_ref(&node),
+        );
+        if !matches!(&wire.kind, NodeKind::Connector(c) if c.binding.is_some()) {
+            self.toast("This node has no input for that output.");
+            return false;
+        }
+        if self.add_nodes(vec![node, wire]).is_empty() {
+            return false;
+        }
+        self.board_sel = std::iter::once(id).collect();
         true
     }
 
@@ -1207,7 +1279,7 @@ impl SlateApp {
         if let Some(mode) = out.mode {
             draft.image = MODALITIES
                 .get(mode)
-                .is_some_and(|m| m.kind == SpawnKind::Image);
+                .is_some_and(|m| m.kind == Some(SpawnKind::Image));
             draft.choice = None;
             draft.key = None;
         }

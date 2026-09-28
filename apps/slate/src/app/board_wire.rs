@@ -715,7 +715,7 @@ impl SlateApp {
                     );
                 }
                 None => {
-                    // A generator or text block output offers Text / Image here.
+                    // Agent media offers Text / Image / Agent here.
                     if self.flow_wire_released(from, wd.cursor) {
                         return;
                     }
