@@ -1585,10 +1585,7 @@ mod tests {
             at: 0,
             inputs: serde_json::from_value(json!({"revision": "1", "context": [], "wired": wired}))
                 .unwrap(),
-            history: vec![],
-            image: None,
-            output_dir: None,
-            oneshot: false,
+            ..Default::default()
         }
     }
 

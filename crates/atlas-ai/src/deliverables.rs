@@ -26,8 +26,14 @@ pub fn consume_return(
     }
     let raw = std::fs::read(&request).map_err(|e| format!("Could not read return.json: {e}"))?;
     let manifest = match serde_json::from_slice::<ReturnManifest>(&raw) {
-        Ok(m) if !m.items.is_empty() => m,
-        Ok(_) => return Err(reject(link_dir, &request, "return.json names no items")),
+        Ok(m) if !m.items.is_empty() || m.goal.is_some() => m,
+        Ok(_) => {
+            return Err(reject(
+                link_dir,
+                &request,
+                "return.json names no items and no goal",
+            ))
+        }
         Err(e) => return Err(reject(link_dir, &request, &format!("return.json: {e}"))),
     };
     let mut missing = Vec::new();
@@ -73,6 +79,7 @@ pub fn consume_return(
         title: manifest.title.trim().to_string(),
         items,
         missing,
+        goal: manifest.goal,
     };
     let record = link_dir.join("deliverables.json");
     let mut all = if record.is_file() {
@@ -314,6 +321,46 @@ mod tests {
         std::fs::write(root.join("return.json"), r#"{"id":"x","items":[]}"#).unwrap();
         assert!(consume_return(&root, &session(&[], &[]), &[&root]).is_err());
         assert_eq!(load_deliverables(&root), Deliverables::default());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_goal_verdict_alone_or_with_items_is_a_set() {
+        use atlas_agent::{GoalStatus, GoalVerdict};
+        let root = temp("goal");
+        std::fs::write(root.join("dash.html"), "<html>").unwrap();
+        let s = session(&["user", "assistant", "user"], &[]);
+        std::fs::write(
+            root.join("return.json"),
+            r#"{"id":"verdict","items":[],"goal":{"status":"not_met","reason":"chart is empty"}}"#,
+        )
+        .unwrap();
+        let only = consume_return(&root, &s, &[&root]).unwrap().unwrap();
+        assert!(only.items.is_empty());
+        assert_eq!(only.turn, 3, "attributed like any other set");
+        assert_eq!(
+            only.goal,
+            Some(GoalVerdict {
+                status: GoalStatus::NotMet,
+                reason: "chart is empty".into()
+            })
+        );
+        assert!(!root.join("return.json").exists());
+
+        std::fs::write(
+            root.join("return.json"),
+            r#"{"id":"built","items":[{"path":"dash.html"}],"goal":{"status":"met","reason":"loads"}}"#,
+        )
+        .unwrap();
+        let both = consume_return(&root, &s, &[&root]).unwrap().unwrap();
+        assert_eq!(both.items.len(), 1);
+        assert_eq!(both.goal.as_ref().unwrap().status, GoalStatus::Met);
+        assert_eq!(load_deliverables(&root).sets, vec![only, both]);
+
+        std::fs::write(root.join("return.json"), r#"{"id":"none"}"#).unwrap();
+        let err = consume_return(&root, &s, &[&root]).unwrap_err();
+        assert!(err.contains("no items and no goal"), "{err}");
+        assert_eq!(load_deliverables(&root).sets.len(), 2);
         let _ = std::fs::remove_dir_all(root);
     }
 

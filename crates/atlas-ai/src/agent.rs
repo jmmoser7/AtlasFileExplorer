@@ -827,15 +827,10 @@ mod tests {
         let mut link = FileAgentLink::new();
         assert!(link.tick_write_context_in(&dir, &context()));
         let request = AgentRequest {
-            model: None,
-            history: vec![],
             id: "saved-run".into(),
             prompt: "Continue".into(),
             at: 1,
-            inputs: Default::default(),
-            image: None,
-            output_dir: None,
-            oneshot: false,
+            ..Default::default()
         };
         link.send_request_in(&dir, &request).unwrap();
         let state = AgentSession {
@@ -864,15 +859,10 @@ mod tests {
         let ws = temp_workspace("session");
         let mut link = FileAgentLink::new();
         let req = AgentRequest {
-            model: None,
-            history: vec![],
-            inputs: Default::default(),
             id: "r1".into(),
             prompt: "Summarize".into(),
             at: 1,
-            image: None,
-            output_dir: None,
-            oneshot: false,
+            ..Default::default()
         };
         link.send_request(&ws, "s1", &req).unwrap();
         let text = std::fs::read_to_string(agent_dir(&ws, "s1").join("request.json")).unwrap();

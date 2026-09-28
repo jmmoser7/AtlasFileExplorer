@@ -34,6 +34,31 @@ pub fn spawn_cursor_sidecar_in(
     project_cwd: &Path,
     link_dir: &Path,
 ) -> Result<Child, String> {
+    spawn_cursor_sidecar_with(
+        ai_workspace,
+        session,
+        project_cwd,
+        link_dir,
+        SidecarPolicy::default(),
+    )
+}
+
+/// Tool permissions a sidecar holds for its whole life. The Cursor SDK takes
+/// the tool allowlist when the agent is created or resumed, so changing it
+/// means restarting the sidecar.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SidecarPolicy {
+    pub read_only: bool,
+}
+
+/// [`spawn_cursor_sidecar_in`] under `policy`.
+pub fn spawn_cursor_sidecar_with(
+    ai_workspace: &Path,
+    session: &str,
+    project_cwd: &Path,
+    link_dir: &Path,
+    policy: SidecarPolicy,
+) -> Result<Child, String> {
     let api_key = crate::cursor_key::resolve().ok_or_else(|| {
         "Cursor API key is not set. Get one from the Cursor dashboard, then paste it in this portal."
             .to_string()
@@ -63,9 +88,22 @@ pub fn spawn_cursor_sidecar_in(
         project_cwd,
         link_dir,
         &api_key,
+        access_env(policy, crate::access::granted(session)),
         log_file,
         err_file,
     )
+}
+
+/// A read-only sidecar never carries the full-access grant.
+fn access_env(policy: SidecarPolicy, granted: bool) -> [(&'static str, &'static str); 2] {
+    let flag = |on: bool| if on { "1" } else { "0" };
+    [
+        (
+            "ATLAS_AGENT_FULL_ACCESS",
+            flag(granted && !policy.read_only),
+        ),
+        ("ATLAS_AGENT_READ_ONLY", flag(policy.read_only)),
+    ]
 }
 
 /// Whether a live sidecar already watches this link folder.
@@ -350,6 +388,7 @@ fn spawn_node(
     project_cwd: &Path,
     link_dir: &Path,
     api_key: &str,
+    access: [(&str, &str); 2],
     log_file: File,
     err_file: File,
 ) -> Result<Child, String> {
@@ -361,14 +400,7 @@ fn spawn_node(
         .env("ATLAS_AGENT_CWD", project_cwd)
         .env("ATLAS_AGENT_LINK_DIR", link_dir)
         .env("ATLAS_PARENT_PID", std::process::id().to_string())
-        .env(
-            "ATLAS_AGENT_FULL_ACCESS",
-            if crate::access::granted(session) {
-                "1"
-            } else {
-                "0"
-            },
-        )
+        .envs(access)
         .env("CURSOR_API_KEY", api_key)
         .stdout(log_file)
         .stderr(err_file);
@@ -849,6 +881,58 @@ mod tests {
                 "artifacts.mjs drifted from artifact_guide: {part}"
             );
         }
+    }
+
+    #[test]
+    fn a_read_only_sidecar_never_starts_with_full_access() {
+        let env = |read_only, granted| access_env(SidecarPolicy { read_only }, granted);
+        assert_eq!(
+            env(false, true),
+            [
+                ("ATLAS_AGENT_FULL_ACCESS", "1"),
+                ("ATLAS_AGENT_READ_ONLY", "0")
+            ]
+        );
+        assert_eq!(env(false, false)[0], ("ATLAS_AGENT_FULL_ACCESS", "0"));
+        for granted in [false, true] {
+            assert_eq!(
+                env(true, granted),
+                [
+                    ("ATLAS_AGENT_FULL_ACCESS", "0"),
+                    ("ATLAS_AGENT_READ_ONLY", "1")
+                ],
+                "{granted}"
+            );
+        }
+        assert!(!SidecarPolicy::default().read_only);
+    }
+
+    #[test]
+    fn sidecar_goal_guide_twin_matches_the_rust_guide() {
+        let script = sidecar_script().expect("docs/agent/cursor-sidecar/index.mjs must ship");
+        let js = std::fs::read_to_string(script.with_file_name("artifacts.mjs")).unwrap();
+        for claims in [true, false] {
+            let goal = atlas_agent::GoalTurn {
+                goal: "{GOAL}".into(),
+                claims,
+            };
+            let guide = atlas_agent::goal_guide_in(&goal, None);
+            for part in guide
+                .split(['\n'])
+                .flat_map(|l| l.split("{GOAL}"))
+                .flat_map(|l| l.split("return.json beside session.json"))
+                .filter(|p| !p.is_empty())
+            {
+                assert!(
+                    js.contains(part),
+                    "artifacts.mjs drifted from goal_guide_in: {part}"
+                );
+            }
+        }
+        assert!(js.contains(&format!(
+            "'{}'",
+            atlas_agent::GOAL_MARKER.replace('\n', "\\n")
+        )));
     }
 
     #[test]

@@ -17,6 +17,9 @@ struct Grants {
     version: u32,
     #[serde(default)]
     full: BTreeSet<String>,
+    /// Sessions whose full access also applies to messages another agent wrote.
+    #[serde(default)]
+    relay: BTreeSet<String>,
 }
 
 /// Per-user store beside the other Atlas app data.
@@ -24,13 +27,16 @@ pub fn store_path() -> PathBuf {
     atlas_core::index::data_dir().join("agent-access.json")
 }
 
-/// Sessions granted full access in the store at `path`.
-pub fn load_in(path: &Path) -> BTreeSet<String> {
+fn grants_in(path: &Path) -> Grants {
     std::fs::read(path)
         .ok()
         .and_then(|bytes| serde_json::from_slice::<Grants>(&bytes).ok())
-        .map(|g| g.full)
         .unwrap_or_default()
+}
+
+/// Sessions granted full access in the store at `path`.
+pub fn load_in(path: &Path) -> BTreeSet<String> {
+    grants_in(path).full
 }
 
 pub fn granted_in(path: &Path, session: &str) -> bool {
@@ -42,16 +48,41 @@ pub fn granted(session: &str) -> bool {
     granted_in(&store_path(), session)
 }
 
+pub fn relay_granted_in(path: &Path, session: &str) -> bool {
+    grants_in(path).relay.contains(session)
+}
+
+/// Whether `session`'s full access also covers messages relayed from another
+/// agent. Full access itself is still [`granted`].
+pub fn relay_granted(session: &str) -> bool {
+    relay_granted_in(&store_path(), session)
+}
+
 /// Record or withdraw the grant for one session.
 pub fn set_in(path: &Path, session: &str, on: bool) -> Result<(), String> {
+    update(path, session, on, |g| &mut g.full)
+}
+
+/// Record or withdraw the relay extension of one session's grant.
+pub fn set_relay_in(path: &Path, session: &str, on: bool) -> Result<(), String> {
+    update(path, session, on, |g| &mut g.relay)
+}
+
+fn update(
+    path: &Path,
+    session: &str,
+    on: bool,
+    set: impl FnOnce(&mut Grants) -> &mut BTreeSet<String>,
+) -> Result<(), String> {
     if session.is_empty() {
         return Err("This card has no conversation yet.".into());
     }
-    let mut full = load_in(path);
+    let mut grants = grants_in(path);
+    let sessions = set(&mut grants);
     let changed = if on {
-        full.insert(session.to_string())
+        sessions.insert(session.to_string())
     } else {
-        full.remove(session)
+        sessions.remove(session)
     };
     if !changed {
         return Ok(());
@@ -59,7 +90,8 @@ pub fn set_in(path: &Path, session: &str, on: bool) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("Could not save the grant: {e}"))?;
     }
-    crate::agent::atomic_write_json(path, &Grants { version: 1, full })
+    grants.version = 1;
+    crate::agent::atomic_write_json(path, &grants)
         .map_err(|e| format!("Could not save the grant: {e}"))
 }
 
@@ -101,6 +133,41 @@ mod tests {
         set_in(&path, "agent-a", false).unwrap();
         assert!(!granted_in(&path, "agent-a"));
         assert!(set_in(&path, "", true).is_err());
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn full_and_relay_grants_survive_each_others_writes() {
+        let path = temp_store("relay");
+        assert!(!relay_granted_in(&path, "agent-a"));
+        set_relay_in(&path, "agent-a", true).unwrap();
+        assert!(relay_granted_in(&path, "agent-a"));
+        assert!(
+            !granted_in(&path, "agent-a"),
+            "relay alone is not full access"
+        );
+        set_in(&path, "agent-a", true).unwrap();
+        set_in(&path, "agent-b", true).unwrap();
+        assert!(relay_granted_in(&path, "agent-a"), "set_in keeps relay");
+        set_relay_in(&path, "agent-a", false).unwrap();
+        assert!(!relay_granted_in(&path, "agent-a"));
+        assert!(granted_in(&path, "agent-a"), "set_relay_in keeps full");
+        assert!(granted_in(&path, "agent-b"));
+        set_relay_in(&path, "agent-b", true).unwrap();
+        set_in(&path, "agent-b", false).unwrap();
+        assert!(relay_granted_in(&path, "agent-b"));
+        assert!(!relay_granted_in(&path, "agent-c"));
+        assert!(set_relay_in(&path, "", true).is_err());
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn a_store_written_before_relay_still_reads() {
+        let path = temp_store("legacy");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, r#"{"version":1,"full":["agent-a"]}"#).unwrap();
+        assert!(granted_in(&path, "agent-a"));
+        assert!(!relay_granted_in(&path, "agent-a"));
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 

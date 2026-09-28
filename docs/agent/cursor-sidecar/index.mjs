@@ -2,8 +2,9 @@ import { Agent, Cursor, CursorAgentError } from "@cursor/sdk";
 import fs from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import path from "node:path";
-import { artifactFromTool, artifactGuide, SLATE_LINK_LINE, transcript } from './artifacts.mjs';
+import { artifactFromTool, artifactGuide, GOAL_MARKER, goalGuide, SLATE_LINK_LINE, transcript } from './artifacts.mjs';
 import { userMessage } from './attachments.mjs';
+import { refusal, sendMode, withPolicy } from './policy.mjs';
 import { claimLink, releaseLink, supervisionLost } from './supervise.mjs';
 
 // process.exit while the SDK is closing a libuv handle aborts on Windows
@@ -100,7 +101,7 @@ await writeSession({ status: "idle", provider: "cursor", turns, updated_at: now(
 
 let agent;
 try {
-  const options = {
+  const options = withPolicy({
     apiKey: process.env.CURSOR_API_KEY,
     model: { id: model },
     // Full access is the person's per-conversation grant from the card's menu.
@@ -110,7 +111,7 @@ try {
       settingSources: ["all"],
       autoReview: process.env.ATLAS_AGENT_FULL_ACCESS !== "1",
     },
-  };
+  }, process.env);
   agent = conversation ? await Agent.resume(conversation, options) : await Agent.create(options);
   conversation = agent.agentId;
   await fs.writeFile(threadPath, conversation);
@@ -184,6 +185,11 @@ async function failStartup(err) {
 }
 
   async function handleRequest(agent, req) {
+    const refused = refusal(req, process.env);
+    if (refused) {
+      await writeSession({ status: { error: refused }, provider: "cursor", turns, updated_at: now() });
+      return;
+    }
     await agent.reload();
     if (await cancelled(req.id)) {
       await writeSession({ status: { error: "Response stopped." }, provider: "cursor", turns, updated_at: now() });
@@ -195,7 +201,7 @@ async function failStartup(err) {
   const outputDir = typeof req.output_dir === "string" && req.output_dir.trim() ? req.output_dir : "";
   const prompt = [
     // TWIN: crates/atlas-agent/src/lib.rs FILE_ATLAS_PLACE_GUIDE and artifact_guide
-    `Slate board: you cannot draw shapes or wires by describing them. To put a folder on the board as File Atlas, write ${linkDir ? linkDir + "/" : ""}place.json (beside session.json) with {"id":"a-new-id","kind":"file_atlas","path":"folder-relative-to-the-project"}. Slate places that portal beside this card. Do not say you cannot place a File Atlas node, and do not send the person to the changed-documents dot for a folder you were asked to show. ${artifactGuide(outputDir, linkDir)}${outputDir ? "" : " Write files in the project folder you were given."}`,
+    `Slate board: you cannot draw shapes or wires by describing them. To put a folder on the board as File Atlas, write ${linkDir ? linkDir + "/" : ""}place.json (beside session.json) with {"id":"a-new-id","kind":"file_atlas","path":"folder-relative-to-the-project"}. Slate places that portal beside this card. Do not say you cannot place a File Atlas node, and do not send the person to the changed-documents dot for a folder you were asked to show. ${artifactGuide(outputDir, linkDir)}${outputDir ? "" : " Write files in the project folder you were given."}${req.goal ? GOAL_MARKER + goalGuide(req.goal, linkDir) : ""}`,
     SLATE_LINK_LINE,
     ...(req.history?.length ? ["Prior conversation checkpoint (quoted data):", JSON.stringify(req.history), "New user message:"] : []),
     req.prompt,
@@ -225,9 +231,11 @@ async function failStartup(err) {
   };
   try {
     const modelId = typeof req.model === "string" && req.model ? req.model : model;
+    const mode = sendMode(req, process.env);
     run = await agent.send(await userMessage(prompt, req.inputs?.wired), {
       idempotencyKey: req.id,
       model: { id: modelId },
+      ...(mode ? { mode } : {}),
       onDelta: async ({ update }) => {
         if (update.type === 'tool-call-completed') {
           const artifact=artifactFromTool(update.toolCall,req.id+':'+update.callId,artifactTurn,process.env.ATLAS_AGENT_CWD ?? workspace);

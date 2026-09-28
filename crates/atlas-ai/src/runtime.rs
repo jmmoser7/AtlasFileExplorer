@@ -434,10 +434,13 @@ impl CodexLink {
                             .map_err(|e| e.to_string())?;
                     }
                     if let Some(Engine::Codex(c)) = client.as_mut() {
-                        c.set_full_access(
-                            crate::access::session_of(&dir)
-                                .is_some_and(|s| crate::access::granted(&s)),
-                        );
+                        let session = crate::access::session_of(&dir);
+                        let session = session.as_deref();
+                        c.set_full_access(turn_full_access(
+                            session.is_some_and(crate::access::granted),
+                            session.is_some_and(crate::access::relay_granted),
+                            &request,
+                        ));
                     }
                     // Persist before submission: a crash never silently replays a paid turn.
                     std::fs::write(&ledger, &request.id).map_err(|e| e.to_string())?;
@@ -490,6 +493,44 @@ pub fn launch_codex(workspace: &Path) -> Result<(), String> {
         command.creation_flags(0x08000000);
     }
     command.spawn().map(|_| ()).map_err(|e| e.to_string())
+}
+
+/// Whether one turn runs under the person's full-access grant. A message
+/// another agent wrote also needs the relay grant; a read-only turn never has it.
+pub fn turn_full_access(granted: bool, relay_granted: bool, request: &AgentRequest) -> bool {
+    request.policy.is_default() && granted && (request.relayed_from.is_none() || relay_granted)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use atlas_agent::TurnPolicy;
+
+    #[test]
+    fn relayed_turns_need_the_relay_grant_and_read_only_never_gets_full_access() {
+        let own = AgentRequest::default();
+        let relayed = AgentRequest {
+            relayed_from: Some("Codex · reviewer".into()),
+            ..Default::default()
+        };
+        let read_only = AgentRequest {
+            policy: TurnPolicy::ReadOnly,
+            ..Default::default()
+        };
+        assert!(turn_full_access(true, false, &own));
+        assert!(!turn_full_access(false, true, &own));
+        assert!(!turn_full_access(true, false, &relayed));
+        assert!(turn_full_access(true, true, &relayed));
+        assert!(!turn_full_access(false, true, &relayed));
+        for (granted, relay) in [(true, true), (true, false), (false, false)] {
+            assert!(!turn_full_access(granted, relay, &read_only));
+            let relayed_read_only = AgentRequest {
+                relayed_from: Some("Cursor · builder".into()),
+                ..read_only.clone()
+            };
+            assert!(!turn_full_access(granted, relay, &relayed_read_only));
+        }
+    }
 }
 
 #[cfg(test)]
