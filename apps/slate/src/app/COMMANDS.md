@@ -346,7 +346,8 @@ Enter, then click.
   anchors moves them (ortho/Shift = 45°); dragging a segment translates
   straight segments or reshapes curved ones with **handle angles
   preserved**; dragging a handle adjusts curvature (**Alt breaks
-  symmetry**); double-click an anchor toggles corner ↔ smooth; arrows nudge
+  symmetry**, **Shift** keeps its direction, **Ctrl** scales both handles
+  of the anchor — `board.curve.handle_scale`); double-click an anchor toggles corner ↔ smooth; arrows nudge
   selected anchors (Shift ×10, coalesced). One drag = one journaled Patch.
   Direct edits bake the node's rotation into the path (world shape
   unchanged).
@@ -368,7 +369,17 @@ Enter, then click.
   one moves only that point through object snaps; one drag = one journaled
   Patch. A filleted polyline keeps its authored radius on the new corners.
 - Click a grip to pick that point; Shift+click adds or removes it. Picked
-  points paint filled and are never journaled.
+  points paint filled and are never journaled. Shift decides by travel: a
+  Shift click without travel toggles a pick (a handle knob toggles its
+  anchor); a Shift drag on a handle locks its direction. Two quick clicks
+  on grips are two picks, not the canvas palette.
+- **Handle keys** (`board.curve.handle_scale`, Select grips, Direct Select,
+  and a span being drawn; user, 28 September 2026): **Shift+drag** keeps a
+  handle's direction and changes only its length (snaps project onto its
+  ray); **Ctrl+drag** scales the anchor's other handle by the same ratio,
+  keeping that handle's own direction; **Ctrl+Shift+drag** does both;
+  **Alt+drag** moves only the dragged handle and beats Ctrl. One undo step
+  per drag; Esc restores. A Ctrl click keeps its meaning.
 
 ### Picked vertices (A anchors or Select grips)
 

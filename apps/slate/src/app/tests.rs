@@ -20857,6 +20857,352 @@ fn a_draft_bezier_handle_keeps_its_grab_offset_and_snaps_its_tip() {
     assert!(h.app.doc().scene.nodes.is_empty(), "still drafting");
 }
 
+/// Real frames: press on `from`, drag to `to` with `mods` held, release.
+fn grip_drag(h: &mut Harness, from: Pos2, to: Pos2, mods: egui::Modifiers) {
+    hold_drag(h, from, to, mods);
+    let p = h.app.board_xf().w2s(to);
+    h.frame_with(|i| {
+        i.modifiers = mods;
+        i.events.push(egui::Event::PointerButton {
+            pos: p,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: mods,
+        });
+    });
+    h.frame();
+}
+
+/// World (in, out) handle tips of anchor `idx` of curve `id`.
+fn handle_pair(h: &Harness, id: NodeId, idx: usize) -> (Pos2, Pos2) {
+    let a = h.app.direct_anchors_of(id).unwrap().0[idx];
+    (kpt(a.handle_in.unwrap()), kpt(a.handle_out.unwrap()))
+}
+
+fn near_eps(a: Pos2, b: Pos2, eps: f32) -> bool {
+    (a - b).length() < eps
+}
+
+/// pp2 (user pass, 28 September 2026) against the Shift handle lock (user,
+/// 28 September 2026: "shift lmb to lock direction of grp handel on
+/// scaling"): a Shift click without travel on an anchor or handle knob
+/// toggles the pick and changes no geometry; a Shift drag leaves the picks.
+#[test]
+fn shift_click_toggles_a_grip_pick_and_shift_drag_does_not() {
+    let mut h = bezier_board("shift_click_handle_pick");
+    let (id, [a, b, _]) = handle_bezier(&mut h);
+    let xf = h.app.board_xf();
+    let knob = b + EVec2::new(40.0, 0.0);
+    press_primary(&mut h, xf.w2s(a), egui::Modifiers::NONE);
+    assert_eq!(h.app.picked_vertices(), Some((id, vec![0])));
+    let before = scene_nodes(&h);
+    press_primary(&mut h, xf.w2s(knob), egui::Modifiers::SHIFT);
+    assert_eq!(
+        h.app.picked_vertices(),
+        Some((id, vec![0, 1])),
+        "a Shift+click on a handle knob adds its anchor"
+    );
+    assert!(
+        !h.app.palette_state.open,
+        "two quick grip picks are not a canvas double-click"
+    );
+    press_primary(&mut h, xf.w2s(knob), egui::Modifiers::SHIFT);
+    assert_eq!(
+        h.app.picked_vertices(),
+        Some((id, vec![0])),
+        "a second Shift+click removes it"
+    );
+    press_primary(&mut h, xf.w2s(b), egui::Modifiers::SHIFT);
+    assert_eq!(h.app.picked_vertices(), Some((id, vec![0, 1])));
+    assert_eq!(scene_nodes(&h), before, "picking moves nothing");
+
+    grip_drag(
+        &mut h,
+        knob,
+        knob + EVec2::new(30.0, 20.0),
+        egui::Modifiers::SHIFT,
+    );
+    assert_ne!(scene_nodes(&h), before, "the Shift drag edited the handle");
+    assert_eq!(
+        h.app.picked_vertices(),
+        Some((id, vec![0, 1])),
+        "a Shift drag is not a pick"
+    );
+}
+
+/// User, 28 September 2026: "shift lmb to lock direction of grp handel on
+/// scaling". Shift+drag keeps the handle's angle and changes only its
+/// length; a snap lands where it projects onto the ray. One undo per drag.
+#[test]
+fn shift_drag_of_a_handle_keeps_its_angle_and_changes_only_length() {
+    let mut h = bezier_board("shift_drag_handle_lock");
+    let (id, [_, b, c]) = handle_bezier(&mut h);
+    // Angle the out handle first with a plain drag.
+    grip_drag(
+        &mut h,
+        b + EVec2::new(40.0, 0.0),
+        b + EVec2::new(30.0, 30.0),
+        egui::Modifiers::NONE,
+    );
+    let (in0, out0) = handle_pair(&h, id, 1);
+    assert!(near_eps(out0, b + EVec2::new(30.0, 30.0), 0.01), "{out0:?}");
+    let depth = h.app.tab().journal.undo_depth();
+
+    let grab = EVec2::new(2.0, -1.0);
+    grip_drag(
+        &mut h,
+        out0 + grab,
+        out0 + grab + EVec2::new(25.0, -5.0),
+        egui::Modifiers::SHIFT,
+    );
+    let (in1, out1) = handle_pair(&h, id, 1);
+    let (v0, v1) = (out0 - b, out1 - b);
+    assert!(
+        (v1.angle() - v0.angle()).abs() < 1e-4,
+        "the angle holds: {v0:?} -> {v1:?}"
+    );
+    let want = v0.length() + EVec2::new(25.0, -5.0).dot(v0.normalized());
+    assert!(
+        (v1.length() - want).abs() < 0.01,
+        "only the length follows the pointer: {} != {want}",
+        v1.length()
+    );
+    assert!(
+        near_eps(in1, in0, 0.01),
+        "the opposite handle stays: {in1:?}"
+    );
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "one undo step");
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    assert_eq!(handle_pair(&h, id, 1), (in0, out0), "one Ctrl+Z restores");
+
+    // A horizontal handle snapping at anchor c lands on c's projection.
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    let (_, out) = handle_pair(&h, id, 1);
+    assert!(near_eps(out, b + EVec2::new(40.0, 0.0), 0.01), "{out:?}");
+    let grab = EVec2::new(3.0, 0.0);
+    grip_drag(
+        &mut h,
+        out + grab,
+        c + grab + EVec2::new(2.0, -1.5),
+        egui::Modifiers::SHIFT,
+    );
+    let (_, out) = handle_pair(&h, id, 1);
+    assert!(
+        near_eps(out, Pos2::new(c.x, b.y), 0.01),
+        "the snap to c projects onto the ray: {out:?}"
+    );
+}
+
+/// User, 28 September 2026: "ctrl lmb to scale handels on both sides of
+/// controle point". Ctrl+drag that doubles the dragged handle doubles the
+/// opposite one; it stays collinear on a smooth anchor. Ctrl+Shift also
+/// locks the direction. Esc mid-drag restores.
+#[test]
+fn ctrl_drag_of_a_handle_scales_both_handles_of_its_anchor() {
+    let mut h = bezier_board("ctrl_drag_handle_scale");
+    let (id, [_, b, _]) = handle_bezier(&mut h);
+    let grab = EVec2::new(3.0, 0.0);
+    let knob = b + EVec2::new(40.0, 0.0);
+    let depth = h.app.tab().journal.undo_depth();
+    grip_drag(
+        &mut h,
+        knob + grab,
+        b + EVec2::new(80.0, 0.0) + grab,
+        egui::Modifiers::CTRL,
+    );
+    let (hin, hout) = handle_pair(&h, id, 1);
+    assert!(near_eps(hout, b + EVec2::new(80.0, 0.0), 0.01), "{hout:?}");
+    assert!(
+        near_eps(hin, b - EVec2::new(80.0, 0.0), 0.01),
+        "doubling one handle doubles the other: {hin:?}"
+    );
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "one undo step");
+
+    // Rotating while scaling: the opposite stays collinear at 2x.
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    grip_drag(
+        &mut h,
+        knob + grab,
+        b + EVec2::new(0.0, 80.0) + grab,
+        egui::Modifiers::CTRL,
+    );
+    let (hin, hout) = handle_pair(&h, id, 1);
+    assert!(near_eps(hout, b + EVec2::new(0.0, 80.0), 0.01), "{hout:?}");
+    assert!(near_eps(hin, b - EVec2::new(0.0, 80.0), 0.01), "{hin:?}");
+
+    // Ctrl+Shift: both lengths scale by 1.5, both directions locked.
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    let ctrl_shift = egui::Modifiers::CTRL | egui::Modifiers::SHIFT;
+    grip_drag(
+        &mut h,
+        knob + grab,
+        b + EVec2::new(60.0, 30.0) + grab,
+        ctrl_shift,
+    );
+    let (hin, hout) = handle_pair(&h, id, 1);
+    assert!(near_eps(hout, b + EVec2::new(60.0, 0.0), 0.01), "{hout:?}");
+    assert!(near_eps(hin, b - EVec2::new(60.0, 0.0), 0.01), "{hin:?}");
+
+    // Esc mid-drag puts both handles back and journals nothing.
+    let before = scene_nodes(&h);
+    let depth = h.app.tab().journal.undo_depth();
+    let (_, out) = handle_pair(&h, id, 1);
+    let to = b + EVec2::new(120.0, 0.0);
+    hold_drag(&mut h, out + grab, to + grab, egui::Modifiers::CTRL);
+    assert_ne!(scene_nodes(&h), before, "the drag is live");
+    escape_then_release(&mut h, to + grab, egui::Modifiers::NONE);
+    assert_eq!(scene_nodes(&h), before, "Esc restores both handles");
+    assert_eq!(h.app.tab().journal.undo_depth(), depth);
+}
+
+/// A Ctrl drag on a corner anchor's handle scales the opposite handle
+/// along its own direction.
+#[test]
+fn ctrl_drag_on_a_corner_anchor_keeps_the_opposite_direction() {
+    let mut h = bezier_board("ctrl_drag_corner_handle");
+    let (id, [_, b, _]) = handle_bezier(&mut h);
+    let grab = EVec2::new(3.0, 0.0);
+    // Alt breaks the anchor into a corner with the out handle pointing down.
+    grip_drag(
+        &mut h,
+        b + EVec2::new(40.0, 0.0) + grab,
+        b + EVec2::new(0.0, 40.0) + grab,
+        egui::Modifiers::ALT,
+    );
+    let (hin, hout) = handle_pair(&h, id, 1);
+    assert!(near_eps(hout, b + EVec2::new(0.0, 40.0), 0.01), "{hout:?}");
+    assert!(near_eps(hin, b - EVec2::new(40.0, 0.0), 0.01), "{hin:?}");
+    grip_drag(
+        &mut h,
+        hout + grab,
+        b + EVec2::new(0.0, 20.0) + grab,
+        egui::Modifiers::CTRL,
+    );
+    let (hin, hout) = handle_pair(&h, id, 1);
+    assert!(near_eps(hout, b + EVec2::new(0.0, 20.0), 0.01), "{hout:?}");
+    assert!(
+        near_eps(hin, b - EVec2::new(20.0, 0.0), 0.01),
+        "halved along its own direction: {hin:?}"
+    );
+}
+
+/// pm3 (user pass, 28 September 2026): a plain handle drag mirrors the
+/// opposite handle's direction at its own length; Alt+drag moves only the
+/// dragged handle.
+#[test]
+fn a_plain_handle_drag_mirrors_and_alt_moves_only_the_dragged_handle() {
+    let mut h = bezier_board("handle_mirror_alt");
+    let (id, [_, b, _]) = handle_bezier(&mut h);
+    let grab = EVec2::new(3.0, 0.0);
+    let depth = h.app.tab().journal.undo_depth();
+    grip_drag(
+        &mut h,
+        b + EVec2::new(40.0, 0.0) + grab,
+        b + EVec2::new(0.0, 60.0) + grab,
+        egui::Modifiers::NONE,
+    );
+    let (hin, hout) = handle_pair(&h, id, 1);
+    assert!(near_eps(hout, b + EVec2::new(0.0, 60.0), 0.01), "{hout:?}");
+    assert!(
+        near_eps(hin, b - EVec2::new(0.0, 40.0), 0.01),
+        "mirrored at its own length: {hin:?}"
+    );
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
+
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    grip_drag(
+        &mut h,
+        b + EVec2::new(40.0, 0.0) + grab,
+        b + EVec2::new(0.0, 60.0) + grab,
+        egui::Modifiers::ALT,
+    );
+    let (hin, hout) = handle_pair(&h, id, 1);
+    assert!(near_eps(hout, b + EVec2::new(0.0, 60.0), 0.01), "{hout:?}");
+    assert!(
+        near_eps(hin, b - EVec2::new(40.0, 0.0), 0.01),
+        "Alt leaves the opposite handle: {hin:?}"
+    );
+    let kind = h.app.direct_anchors_of(id).unwrap().0[1].kind;
+    assert_eq!(kind, vector_ink::AnchorKind::Corner, "Alt makes a corner");
+}
+
+/// Direct Select (A) reads the same handle modifiers as the Select grips.
+#[test]
+fn direct_select_handle_drags_take_shift_and_ctrl() {
+    let mut h = bezier_board("direct_handle_modifiers");
+    let (id, [_, b, _]) = handle_bezier(&mut h);
+    h.app.set_board_tool(board::BoardTool::DirectSelect);
+    h.app.direct_set_target(Some(id));
+    h.app.direct.anchors = [1].into_iter().collect();
+    h.frame();
+    let grab = EVec2::new(3.0, 0.0);
+    grip_drag(
+        &mut h,
+        b + EVec2::new(40.0, 0.0) + grab,
+        b + EVec2::new(80.0, 0.0) + grab,
+        egui::Modifiers::CTRL,
+    );
+    let (hin, hout) = handle_pair(&h, id, 1);
+    assert!(near_eps(hout, b + EVec2::new(80.0, 0.0), 0.01), "{hout:?}");
+    assert!(near_eps(hin, b - EVec2::new(80.0, 0.0), 0.01), "{hin:?}");
+    grip_drag(
+        &mut h,
+        hout + grab,
+        b + EVec2::new(50.0, 40.0) + grab,
+        egui::Modifiers::SHIFT,
+    );
+    let (hin, hout) = handle_pair(&h, id, 1);
+    assert!(near_eps(hout, b + EVec2::new(50.0, 0.0), 0.01), "{hout:?}");
+    assert!(near_eps(hin, b - EVec2::new(80.0, 0.0), 0.01), "{hin:?}");
+    assert_eq!(h.app.direct.anchors, [1].into_iter().collect());
+}
+
+/// pm4 × the handle modifiers: a draft handle takes Ctrl (scale both) and
+/// Shift (lock direction) while the span is still being drawn.
+#[test]
+fn draft_bezier_handles_take_shift_and_ctrl() {
+    let mut h = bezier_board("draft_handle_modifiers");
+    bezier_place(&mut h, Pos2::ZERO, Pos2::new(40.0, 0.0));
+    bezier_place(&mut h, Pos2::new(200.0, 80.0), Pos2::new(200.0, 80.0));
+    let grab = EVec2::new(3.0, 0.0);
+    let a = bezier_draft(&h);
+    let in0 = a[0].1.handle_in;
+    assert!(in0.length() > 1.0, "the first anchor has an in handle");
+    press_drag_release(
+        &mut h,
+        &[
+            Pos2::new(40.0, 0.0) + grab,
+            Pos2::new(60.0, 0.0) + grab,
+            Pos2::new(80.0, 0.0) + grab,
+        ],
+        egui::Modifiers::CTRL,
+    );
+    let a = bezier_draft(&h);
+    assert!((a[0].1.handle_out - EVec2::new(80.0, 0.0)).length() < 0.01);
+    assert!(
+        (a[0].1.handle_in - in0 * 2.0).length() < 0.01,
+        "the opposite draft handle doubles: {:?}",
+        a[0].1.handle_in
+    );
+    press_drag_release(
+        &mut h,
+        &[
+            Pos2::new(80.0, 0.0) + grab,
+            Pos2::new(90.0, 20.0) + grab,
+            Pos2::new(100.0, 40.0) + grab,
+        ],
+        egui::Modifiers::SHIFT,
+    );
+    let a = bezier_draft(&h);
+    assert!(
+        (a[0].1.handle_out - EVec2::new(100.0, 0.0)).length() < 0.01,
+        "Shift keeps the draft handle's direction: {:?}",
+        a[0].1.handle_out
+    );
+    assert_eq!(a.len(), 2, "no anchor added");
+    assert!(h.app.doc().scene.nodes.is_empty(), "still drafting");
+}
+
 /// tip32 (user: "selection of single vrtecie and delession delete ful
 /// curve"): Delete with a Select-tool grip pick removes that vertex and
 /// rejoins its neighbors; tip33: too few left removes the curve. One

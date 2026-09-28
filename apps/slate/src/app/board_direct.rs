@@ -22,9 +22,9 @@ use slate_doc::NodeId;
 use std::collections::{BTreeSet, HashSet};
 use vector_ink::kurbo::{BezPath, Point, Vec2 as KVec2};
 use vector_ink::{
-    anchors_from_bezpath, bezpath_from_anchors, join_endpoints, join_endpoints_traced, move_anchor,
-    move_handle, segment_hit, toggle_anchor_kind, translate_segment, Anchor, AnchorKind, HandleEnd,
-    JoinSource,
+    anchors_from_bezpath, bezpath_from_anchors, drag_handle, join_endpoints, join_endpoints_traced,
+    move_anchor, segment_hit, toggle_anchor_kind, translate_segment, Anchor, AnchorKind,
+    HandleDrag, HandleEnd, JoinSource,
 };
 
 /// Segment pick radius (screen px).
@@ -99,8 +99,8 @@ pub enum DirectDrag {
         seg: usize,
         start: Pos2,
     },
-    /// Drag one direction handle (Alt = break symmetry). The handle tip
-    /// keeps its offset from the press point `start`.
+    /// Drag one direction handle (modifiers: [`handle_drag_mode`]). The
+    /// handle tip keeps its offset from the press point `start`.
     Handle {
         node: NodeId,
         before: Node,
@@ -123,6 +123,16 @@ pub enum DirectDrag {
 
 fn to_point(p: Pos2) -> Point {
     Point::new(p.x as f64, p.y as f64)
+}
+
+/// Held keys on a handle-knob drag: Alt breaks symmetry, Shift locks the
+/// direction, Ctrl scales the opposite handle too (bezier-span D05 / D07).
+pub(crate) fn handle_drag_mode(mods: egui::Modifiers) -> HandleDrag {
+    HandleDrag {
+        break_symmetry: mods.alt,
+        lock_direction: mods.shift,
+        scale_both: mods.ctrl || mods.command,
+    }
 }
 
 fn from_point(p: Point) -> Pos2 {
@@ -899,7 +909,13 @@ impl SlateApp {
                 // a target.
                 let carried = tip0 + (world - start);
                 let snapped = self.direct_snap(node, carried, &anchors, &[idx]);
-                move_handle(&mut anchors, idx, end, to_point(snapped), mods.alt);
+                drag_handle(
+                    &mut anchors,
+                    idx,
+                    end,
+                    to_point(snapped),
+                    handle_drag_mode(mods),
+                );
                 self.direct_write_back(node, &anchors, closed);
             }
             DirectDrag::Arc {

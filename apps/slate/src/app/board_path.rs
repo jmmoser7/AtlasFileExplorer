@@ -16,7 +16,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc as Shared;
 use vector_ink::kurbo::{self, Arc, BezPath, PathEl, Point};
 use vector_ink::{
-    bezpath_from_anchors, classify_kind, flatten, flatten_contours, hit_stroke, move_handle,
+    bezpath_from_anchors, classify_kind, drag_handle, flatten, flatten_contours, hit_stroke,
     stamp_segment, stroke_mesh, tipped_contours, Anchor, AnchorKind, Cap, HandleEnd, InkMesh, Join,
     StampStyle, StrokeStyle, TipPoint,
 };
@@ -5593,15 +5593,15 @@ impl SlateApp {
     /// anchors. The dragged point keeps its offset from the press and snaps
     /// itself, not the cursor, to board snaps and the draft's other anchors
     /// (a handle never to its own anchor). Handles follow
-    /// `vector_ink::move_handle`: a smooth anchor keeps its opposite handle
-    /// collinear; Alt breaks symmetry.
+    /// `vector_ink::drag_handle` with the finished curve's modifiers
+    /// (`board_direct::handle_drag_mode`).
     pub(crate) fn bezier_draft_edit(
         &mut self,
         hit: PathEditHit,
         start: Pos2,
         anchors0: &[(Pos2, BezierHandles)],
         world: Pos2,
-        alt: bool,
+        mods: egui::Modifiers,
     ) {
         let (i, point0) = match hit {
             PathEditHit::Anchor(i) => (i, anchors0.get(i).map(|a| a.0)),
@@ -5633,7 +5633,13 @@ impl SlateApp {
             }
             PathEditHit::Handle(i, end) => {
                 let mut ink = bezier_draft_to_ink(anchors0);
-                move_handle(&mut ink, i, end, to_k(snapped), alt);
+                drag_handle(
+                    &mut ink,
+                    i,
+                    end,
+                    to_k(snapped),
+                    super::board_direct::handle_drag_mode(mods),
+                );
                 bezier_draft_from_ink(&ink)
             }
         };

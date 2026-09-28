@@ -131,9 +131,9 @@ pub struct TintPiece {
 pub use blur::gaussian_blur_rgba;
 pub use bspline::{CubicBSpline, SplineFit, DEFAULT_FAIRING};
 pub use edit::{
-    anchor_hit, anchors_from_bezpath, bezpath_from_anchors, classify_kind, join_endpoints,
-    join_endpoints_traced, move_anchor, move_handle, segment_hit, toggle_anchor_kind,
-    translate_segment, Anchor, AnchorKind, HandleEnd, JoinSource,
+    anchor_hit, anchors_from_bezpath, bezpath_from_anchors, classify_kind, drag_handle,
+    join_endpoints, join_endpoints_traced, move_anchor, move_handle, segment_hit,
+    toggle_anchor_kind, translate_segment, Anchor, AnchorKind, HandleDrag, HandleEnd, JoinSource,
 };
 pub use fit::{fit_polyline, fit_polyline_spaced};
 pub use flatten::{flatten, flatten_contours};

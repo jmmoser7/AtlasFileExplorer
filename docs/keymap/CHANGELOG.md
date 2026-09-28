@@ -1,5 +1,35 @@
 # Canvas command project — change log
 
+## 2026-09-28 — Shift and Ctrl on Bézier handles (user)
+
+- `bezier-span` D07: Shift+drag on an existing handle knob, drawing or
+  selected, keeps the handle's direction and changes only its length; a
+  snap lands where it projects onto the ray (user, 28 September 2026:
+  "shift lmb to lock direction of grp handel on scaling"). This replaces
+  "handle-drag ortho is unchanged" for existing handles; pulling out a new
+  anchor's handle keeps ortho (GP5).
+- `bezier-span` D05: Ctrl+drag on a handle knob scales both handles of the
+  anchor by the same ratio; the opposite keeps its own direction;
+  Ctrl+Shift does both; Alt beats Ctrl (user, 28 September 2026: "ctrl lmb
+  to scale handels on both sides of controle point"). The smooth-anchor
+  mirror and Alt's break are relabelled as the user's pm3 pass.
+- `P1.curve.grips`: the user flagged Shift+click picking (pp2) as
+  conflicting with the Shift lock. Travel resolves it, awaiting the user's
+  confirmation: a Shift click without travel toggles a pick, a Shift drag
+  on a handle locks it. Two quick clicks on grips no longer open the canvas
+  palette over the grip. The stale proposal that a dragged vertex lands on
+  the snapped cursor is replaced by the pm2 pass: a dragged grip keeps its
+  grab offset and the carried point snaps.
+- One owner: `vector_ink::drag_handle` + `board_direct::handle_drag_mode`
+  serve Select grips, Direct Select and the draft. New registry row
+  `board.curve.handle_scale`. Tests: `shift_click_toggles_a_grip_pick_and_shift_drag_does_not`,
+  `shift_drag_of_a_handle_keeps_its_angle_and_changes_only_length`,
+  `ctrl_drag_of_a_handle_scales_both_handles_of_its_anchor`,
+  `ctrl_drag_on_a_corner_anchor_keeps_the_opposite_direction`,
+  `a_plain_handle_drag_mirrors_and_alt_moves_only_the_dragged_handle`,
+  `direct_select_handle_drags_take_shift_and_ctrl`,
+  `draft_bezier_handles_take_shift_and_ctrl`.
+
 ## 2026-09-28 — Two brush decisions recorded (user)
 
 - `brush` D03, D05: the Alt+right-drag size circle stays pinned where the
