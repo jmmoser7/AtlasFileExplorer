@@ -1789,6 +1789,9 @@ impl SlateApp {
         let mut settles = Vec::new();
         // Strokes changed past the budget: the workers find out if ink is left.
         let mut checks = Vec::new();
+        // Other strokes the pass changed with no preview, and their new
+        // content keys: an earlier pass's band covers those too.
+        let mut extends = Vec::new();
         for id in &spot {
             // Only strokes the pass visibly changed. The live preview already
             // holds the result, so release reads it instead of stamping the
@@ -1823,6 +1826,8 @@ impl SlateApp {
                 }
             } else if deferred && straight {
                 settles.push(after.clone());
+            } else if !gone && !live.contains_key(id) {
+                extends.extend(board_path::node_stamp_key(&after).map(|key| (*id, key)));
             }
             if deferred {
                 if let Some(key) = board_path::node_stamp_key(&after) {
@@ -1891,6 +1896,11 @@ impl SlateApp {
             }
         }
         self.erase_settle.here(tab, &mut self.brush_tiles);
+        if pass.is_some() {
+            for (id, key) in extends {
+                self.erase_settle.extend_keys(tab, id, key);
+            }
+        }
         for after in settles {
             let (Some(key), Some(pass)) = (board_path::node_stamp_key(&after), pass) else {
                 continue;

@@ -1129,6 +1129,24 @@ mod shape_text_layout {
 
 // ---------- SlateApp: board state helpers ----------
 
+/// Node `n` paints in `view` ([`SlateApp::board_paint_view`]): it is not
+/// hidden, and its ink meets the view or it is rotated.
+pub(crate) fn paints_in_view(n: &Node, view: &WorldRect) -> bool {
+    if n.hidden {
+        return false;
+    }
+    let ink = match &n.kind {
+        NodeKind::Shape(s) if !s.stroke.is_none() => s.stroke.width.max(0.0) * 0.5,
+        _ => 0.0,
+    };
+    let r = n.rect.normalized();
+    let visible = r.x - ink <= view.x + view.w
+        && r.x + r.w + ink >= view.x
+        && r.y - ink <= view.y + view.h
+        && r.y + r.h + ink >= view.y;
+    visible || n.rotation_deg.abs() > 0.01
+}
+
 impl SlateApp {
     pub fn board_xf(&self) -> BoardXf {
         let cam = self.tab().cam;
@@ -1139,18 +1157,24 @@ impl SlateApp {
         }
     }
 
-    /// Nodes whose AABB intersects `screen` (plus a margin for strokes).
-    pub(crate) fn board_paint_nodes(&self, screen: Rect) -> Vec<Node> {
+    /// The world rect [`Self::board_paint_nodes`] culls against for
+    /// `screen`: the view plus a margin for strokes.
+    pub(crate) fn board_paint_view(&self, screen: Rect) -> WorldRect {
         let xf = self.board_xf();
         let a = xf.s2w(screen.min);
         let b = xf.s2w(screen.max);
         let pad = 80.0 / xf.z.max(0.05);
-        let view = WorldRect::new(
+        WorldRect::new(
             a.x.min(b.x) - pad,
             a.y.min(b.y) - pad,
             (a.x - b.x).abs() + pad * 2.0,
             (a.y - b.y).abs() + pad * 2.0,
-        );
+        )
+    }
+
+    /// Nodes whose AABB intersects `screen` (plus a margin for strokes).
+    pub(crate) fn board_paint_nodes(&self, screen: Rect) -> Vec<Node> {
+        let view = self.board_paint_view(screen);
         // The index holds centerline bounds. Ink reaches half a stroke width
         // past them, so query wide enough for the thickest stroke and then
         // test each node's own ink bounds.
@@ -1167,19 +1191,7 @@ impl SlateApp {
             .into_iter()
             .filter_map(|id| {
                 let n = self.doc().scene.node(id)?;
-                if n.hidden {
-                    return None;
-                }
-                let ink = match &n.kind {
-                    NodeKind::Shape(s) if !s.stroke.is_none() => s.stroke.width.max(0.0) * 0.5,
-                    _ => 0.0,
-                };
-                let r = n.rect.normalized();
-                let visible = r.x - ink <= view.x + view.w
-                    && r.x + r.w + ink >= view.x
-                    && r.y - ink <= view.y + view.h
-                    && r.y + r.h + ink >= view.y;
-                (visible || n.rotation_deg.abs() > 0.01).then(|| {
+                paints_in_view(n, &view).then(|| {
                     if let Some(p) = self.smooth_preview.get(&id) {
                         return p.clone();
                     }

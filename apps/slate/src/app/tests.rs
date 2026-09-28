@@ -14080,6 +14080,138 @@ fn a_flicked_band_stays_while_its_stroke_is_panned_away() {
     band_holds_at_the_edge(&mut h, &mut raster, (id, seen), lit, "panned");
 }
 
+/// Review r17 R1: Ctrl+Z while a pass's preview still settles keeps the
+/// pass's band, dormant, so a later Ctrl+Y never paints the un-erased bar
+/// while the redone bar's bitmap is on the workers.
+#[test]
+fn redoing_a_pass_undone_while_it_settles_keeps_the_cut_dark() {
+    let (mut h, mut raster, id, cross) = eraser_bar_board("eraser_settle_undo_redo");
+    h.app.brush_tiles_enabled = false;
+    let before = h.app.doc().scene.node(id).unwrap().clone();
+    let key = board_path::node_stamp_key(&before);
+    let restored = move |app: &SlateApp| {
+        stamp_of_app(app, id).is_some_and(|(k, g)| g.exact && Some(*k) == key)
+    };
+    settle_captured(&mut h, &mut raster, "the bar's own bitmap", restored);
+    let lit = half_lit(&h, &raster, cross);
+    release_a_settling_pass(&mut h, &mut raster, id);
+    let erased = h.app.doc().scene.node(id).unwrap().clone();
+    shot(&mut h, &mut raster, ctrl_key(egui::Key::Z));
+    assert_eq!(h.app.doc().scene.node(id), Some(&before), "Ctrl+Z restores the bar");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while !(restored(&h.app) && !h.app.erase_settling()) {
+        assert!(std::time::Instant::now() < deadline, "the restored bar never settled");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        shot(&mut h, &mut raster, |_| {});
+    }
+    let xf = h.app.board_xf();
+    for p in cut_points(cross) {
+        let r = redness(&raster, &xf, p);
+        assert!(r > lit, "after undo: {p:?} is still erased ({r:.2})");
+    }
+    h.app.brush_tiles.hold_rasters = true;
+    shot(&mut h, &mut raster, ctrl_key(egui::Key::Y));
+    assert_eq!(h.app.doc().scene.node(id), Some(&erased), "Ctrl+Y erases the bar again");
+    let p = cut_points(cross);
+    band_holds_at_the_edge(&mut h, &mut raster, (id, [p[0], p[1], p[2]]), lit, "redo");
+}
+
+/// Review r17 R1: undoing the flick and then the bar's own Add keeps the
+/// flick's dormant band, and redoing both brings it back over the cut.
+#[test]
+fn redoing_an_undone_add_under_a_dormant_band_keeps_it() {
+    let (mut h, mut raster, id, cross) = eraser_bar_board("eraser_band_undo_add");
+    let (seen, lit) = flick_the_bar_unseen(&mut h, &mut raster, id, cross);
+    let erased = h.app.doc().scene.node(id).unwrap().clone();
+    shot(&mut h, &mut raster, ctrl_key(egui::Key::Z));
+    shot(&mut h, &mut raster, ctrl_key(egui::Key::Z));
+    assert!(h.app.doc().scene.node(id).is_none(), "the second Ctrl+Z removes the bar");
+    for _ in 0..3 {
+        shot(&mut h, &mut raster, |_| {});
+    }
+    shot(&mut h, &mut raster, ctrl_key(egui::Key::Y));
+    shot(&mut h, &mut raster, ctrl_key(egui::Key::Y));
+    assert_eq!(h.app.doc().scene.node(id), Some(&erased), "two Ctrl+Y bring the erased bar back");
+    band_holds_at_the_edge(&mut h, &mut raster, (id, seen), lit, "re-added");
+}
+
+/// Review r17 R2 (Art. II): a band that lingers over a hidden stroke
+/// hashes no stroke content per frame while the scene stays as it is.
+#[test]
+fn a_band_over_a_hidden_stroke_hashes_nothing_per_frame() {
+    let (mut h, mut raster, id, cross) = eraser_bar_board("eraser_band_hash");
+    flick_the_bar_unseen(&mut h, &mut raster, id, cross);
+    h.app.board_sel = [id].into_iter().collect();
+    assert_eq!(h.app.cmd_hide_selection(), 1, "Ctrl+H hides the bar");
+    // Past the hide ghost.
+    std::thread::sleep(std::time::Duration::from_millis(250));
+    for _ in 0..3 {
+        shot(&mut h, &mut raster, |_| {});
+    }
+    let hashed = board_path::content_hashed_on_this_thread();
+    for _ in 0..10 {
+        shot(&mut h, &mut raster, |_| {});
+    }
+    let spent = board_path::content_hashed_on_this_thread() - hashed;
+    assert!(spent < 10, "10 idle frames with a band over the hidden bar hashed {spent} stroke contents");
+}
+
+/// Review r17 D1: a freehand eraser pass released before its preview
+/// exists, over the flicked bar's far end, keeps the flick's band.
+#[test]
+fn a_freehand_pass_after_a_flick_keeps_its_band() {
+    let (mut h, mut raster, id, cross) = eraser_bar_board("eraser_band_freehand_after");
+    let (seen, lit) = flick_the_bar_unseen(&mut h, &mut raster, id, cross);
+    let c = h.app.canvas_rect.center();
+    let (a, b) = (c + EVec2::new(250.0, -100.0), c + EVec2::new(250.0, 100.0));
+    let button = |pos: Pos2, pressed: bool| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    shot(&mut h, &mut raster, |i| i.events.push(egui::Event::PointerMoved(a)));
+    shot(&mut h, &mut raster, |i| {
+        i.events.push(egui::Event::PointerMoved(a));
+        i.events.push(button(a, true));
+    });
+    shot(&mut h, &mut raster, |i| {
+        i.events.push(egui::Event::PointerMoved(b));
+        i.events.push(button(b, false));
+    });
+    assert_eq!(erase_marks(h.app.doc().scene.node(id).unwrap()).len(), 2, "the freehand pass commits");
+    band_holds_at_the_edge(&mut h, &mut raster, (id, seen), lit, "freehand after");
+}
+
+/// Review r17 D2 (Art. II): a band whose reach is in view while its
+/// selected stroke's own ink is culled asks for no frames.
+#[test]
+fn a_band_over_a_culled_stroke_stops_asking_for_frames() {
+    let (mut h, mut raster, id, cross) = eraser_bar_board("eraser_band_culled");
+    flick_the_bar_unseen(&mut h, &mut raster, id, cross);
+    h.app.board_sel = [id].into_iter().collect();
+    let r = h.app.doc().scene.node(id).unwrap().rect;
+    let half = h.app.canvas_rect.size() * (0.5 / h.app.tab().cam.z);
+    // The view's lower left corner above the bar's right end: inside the
+    // flick's reach, clear of the bar's ink and the flick's own segment.
+    let corner = Pos2::new(r.x + r.w - 100.0, r.y - 150.0);
+    h.app.tab_mut().cam.offset = EVec2::new(corner.x + half.x, corner.y - half.y);
+    let view = h.app.board_paint_view(h.app.canvas_rect);
+    let node = h.app.doc().scene.node(id).unwrap();
+    assert!(!board::paints_in_view(node, &view), "the bar is culled");
+    assert!(corner.x > cross.x + 400.0, "the flick's segment is out of view");
+    h.app.brush_tiles.hold_rasters = false;
+    for _ in 0..200 {
+        shot(&mut h, &mut raster, |_| {});
+    }
+    assert!(!h.app.erase_settling(), "the band still waits in view");
+    let quiet = (0..60).any(|_| {
+        let out = h.frame_output(|_| {});
+        !out.viewport_output[&egui::ViewportId::ROOT].repaint_delay.is_zero()
+    });
+    assert!(quiet, "the idle board keeps repainting");
+}
+
 /// Review r14 finding 2 (Art. II) and note N1: a nested board portal's
 /// strokes paint without cloning a scene node per frame.
 #[test]
@@ -14242,6 +14374,37 @@ fn a_landed_raster_hashes_no_visible_node_per_frame() {
     let seen = h.app.doc().scene.nodes.iter().filter(in_view).count();
     assert!(seen > 500, "{seen} nodes in view");
     assert!(spent < 500, "10 idle frames over {seen} visible nodes hashed {spent} cache ids");
+}
+
+/// Review r17 note: a late raster of the stroke's own content at another
+/// zoom never replaces the bitmap of that content on top.
+#[test]
+fn a_late_raster_never_replaces_a_bitmap_of_the_same_content() {
+    let (mut h, mut raster, id, _) = eraser_bar_board("eraser_late_raster_same_key");
+    h.app.brush_tiles_enabled = false;
+    let key = board_path::node_stamp_key(h.app.doc().scene.node(id).unwrap());
+    let z = h.app.tab().cam.z;
+    let want = board_path::stamp_pixel_for_zoom(z, h.ctx.pixels_per_point());
+    let on_top = move |app: &SlateApp| {
+        stamp_of_app(app, id).is_some_and(|(k, g)| Some(*k) == key && g.wanted_pixel == want)
+    };
+    settle_captured(&mut h, &mut raster, "the bar's own bitmap", move |app| {
+        on_top(app) && stamp_of_app(app, id).is_some_and(|(_, g)| g.exact)
+    });
+    h.app.brush_tiles.hold_rasters = true;
+    h.app.tab_mut().cam.z = z * 0.5;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while h.app.brush_tiles.stroke_landed_len(false) == 0 {
+        assert!(std::time::Instant::now() < deadline, "the zoomed-out bar's raster never landed");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        shot(&mut h, &mut raster, |_| {});
+    }
+    assert!(on_top(&h.app), "the first zoom's bitmap stays on top while the raster waits");
+    // Zoomed in, the bar is too big to stamp on the frame loop.
+    h.app.tab_mut().cam.z = z * 2.0;
+    h.app.brush_tiles.hold_rasters = false;
+    shot(&mut h, &mut raster, |_| {});
+    assert!(on_top(&h.app), "the late zoomed-out raster replaced the bar's bitmap");
 }
 
 /// Review r12 finding 2 (Art. II): a settling stroke panned out of view

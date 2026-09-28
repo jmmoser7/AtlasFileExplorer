@@ -1,5 +1,21 @@
 # Canvas command project — change log
 
+## 2026-09-27 — An undone eraser band survives settling and re-adds (review r17)
+
+- `brush` D11: undoing an eraser pass while its preview still settles
+  keeps its band, and every later band over that stroke, unpainted. A
+  redo brings them back, so it never paints the un-erased stroke. A band
+  whose pass is undone also stays while the undo takes its stroke out of
+  the scene, so a double redo brings it back.
+- `brush` D11: a later freehand eraser pass released before its preview
+  exists keeps an earlier flick's band, as a straight pass already did.
+- A band over a hidden, off-view, or undone stroke reads the stroke's
+  content only after the scene changed, so it hashes nothing per frame.
+- A band counts as in view, and asks for frames, only while its stroke's
+  own ink meets the view as the board culls strokes. A band whose reach
+  meets the view while its stroke is culled no longer repaints the board
+  forever.
+
 ## 2026-09-27 — An eraser band outlasts hiding, panning and undo (review r16)
 
 - `brush` D11: an eraser band stays while its stroke is hidden or out of
