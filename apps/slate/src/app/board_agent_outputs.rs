@@ -339,7 +339,7 @@ enum Action {
 
 impl SlateApp {
     /// The link folder `agent_pump` polls for this card.
-    fn agent_output_link(&self, id: NodeId) -> Option<PathBuf> {
+    pub(super) fn agent_output_link(&self, id: NodeId) -> Option<PathBuf> {
         let ws = self.ai.config.workspace_dir.clone().unwrap_or_default();
         let agent = self
             .doc()

@@ -670,3 +670,20 @@ Agent train cards (23 September 2026):
 
 A click in a tail card's "Message" area focuses that card's composer on press
 and does not move or select-drag the card.
+
+Agent crosstalk (27 September 2026, contract `portal-agent-crosstalk`). A
+Cursor or Codex chat card has two crosstalk ports, the midpoints of its top and
+bottom edges, revealed near the card and red once wired. None of these has a
+default hotkey; all are in the palette.
+
+| Command | Binding | Effect |
+|---------|---------|--------|
+| `portal.agent.crosstalk.link` | Drag from a crosstalk port onto another conversation's card; or select two chat cards and run it | Draws the deep-red owner wire (one Undo) and opens its editor in the property strip. Released anywhere else, or Esc mid-drag, journals nothing. Drawing sends nothing. |
+| `portal.agent.crosstalk.start` | Start in the wire's editor | Journals each side's transcript length and starts relaying. Refuses a reviewer with Full access, a Cursor builder with Full access unless the trust tick is on, and two different project folders. |
+| `portal.agent.crosstalk.send` | Send to … on the chip | Step mode: the finished reply becomes the other agent's next message, on a new card with a red crosswire, one Undo authored by the sending agent. Long replies offer Send in full / Send the first 30,000. |
+| `portal.agent.crosstalk.skip` | Skip and pause on the chip | The reply stays on its card, unrelayed, and the crosstalk pauses. |
+| `portal.agent.crosstalk.pause` / `.resume` | Pause / Resume on the chip | Derived state; nothing is journaled. A reopened board opens paused. |
+| `portal.agent.crosstalk.stop` | Stop on the chip; Delete on a crosswire | Ends the crosstalk (journaled; Undo restores). A deleted crosswire hides and keeps its message's provenance. |
+| `portal.agent.crosstalk.edit` | Edit… on the chip; the wire's editor | Turns, minutes and goal, from that wire on; "Use inherited rule" clears an override. Roles change only while paused. |
+| `portal.agent.crosstalk.more` | 5 more turns on a stopped chip | Raises the turn limit of the rule in force. |
+| `portal.agent.crosstalk.trust` | The tick in the editor, when the builder has Full access | Lets the builder act on the other agent's messages without asking. Stored per user in `agent-access.json`, never in the workbook. |

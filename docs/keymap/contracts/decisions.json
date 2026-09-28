@@ -5093,7 +5093,7 @@
           "note": "Not individually reviewed: approved under the user's \"looks good, please take it from here\" (27 Sep 2026). Reopen on request."
         },
         "D24": {
-          "behavior": "Crosswires export as ordinary connectors with the same red stroke and curve in both interpreters (Art. IV). The owner wire exports its chain as the wire label (\"Crosstalk · 6 turns\"), read from the scene by `slate_doc::crosstalk::export_label`. The red message treatment is part of each card's host poster. No live controls.",
+          "behavior": "Crosswires export as ordinary connectors with the same red stroke and curve in both interpreters (Art. IV). The owner wire exports its chain as the wire label (\"Crosstalk · 6 turns\"), read from the scene by `slate_doc::crosstalk::export_label`; on the board the chip is that label's live rendering, so a crosswire's label cannot be hand-edited. The red message treatment is part of each card's host poster. No live controls.",
           "source": "precedent",
           "confidence": 80,
           "verdict": "approved",
@@ -5181,7 +5181,7 @@
           "note": "Not individually reviewed: approved under the user's \"looks good, please take it from here\" (27 Sep 2026). Reopen on request."
         },
         "D35": {
-          "behavior": "Every crosstalk control lives on the wire chip and its capsule, or the card's ellipsis menu (\"Crosstalk…\"). Nothing on Document Settings.",
+          "behavior": "Every crosstalk control lives on the wire chip and its capsule, or the card's ellipsis menu (\"Crosstalk…\"). Nothing on Document Settings. The capsule is the selected crosswire's editor in its property strip (`selection_tools::crosstalk_editor`, DRY review 27 September 2026), the same place every wire's editor opens; drawing a crosswire selects it with that editor open.",
           "source": "pattern",
           "confidence": 90,
           "verdict": "approved",

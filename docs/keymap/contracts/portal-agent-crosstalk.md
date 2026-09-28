@@ -54,7 +54,7 @@ reopened.
 | D21 | Regeneration & staleness | A relay fires when the sending card's reply is finished, never on a partial stream. A background refresh that appends messages never relays a turn a crosswire already carries (keyed by session + turn index). A rule edit takes effect at the next relay. | precedent | 75 |
 | D22 | Contents interaction | Red messages are ordinary transcript text: selectable, with Copy. The sender label names its source card. Both composers stay live (X07). | guess | 60 |
 | D23 | Level of detail | Crosswires, ports and chips scale with the board (P0.9). Below legible size the chip text drops and the red wire stays. Collapsed cards keep their ports. | pattern | 85 |
-| D24 | Export serialization | Crosswires export as ordinary connectors with the same red stroke and curve in both interpreters (Art. IV). The owner wire exports its chain as the wire label ("Crosstalk · 6 turns"), read from the scene by `slate_doc::crosstalk::export_label`. The red message treatment is part of each card's host poster. No live controls. | precedent | 80 |
+| D24 | Export serialization | Crosswires export as ordinary connectors with the same red stroke and curve in both interpreters (Art. IV). The owner wire exports its chain as the wire label ("Crosstalk · 6 turns"), read from the scene by `slate_doc::crosstalk::export_label`; on the board the chip is that label's live rendering, so a crosswire's label cannot be hand-edited. The red message treatment is part of each card's host poster. No live controls. | precedent | 80 |
 | D25 | Bake | n/a: relayed messages are already cards, so there is no derived content to bake. | pattern | 80 |
 | D26 | Collaboration & per-peer | Wires, rule and roles sync as document data. Running state is local to the machine running the agents. A peer who opens the board sees it paused and can Resume only with the same conversations connected on their machine. | pattern | 70 |
 | D27 | Agent surface | Answered by X10. | pattern | 60 |
@@ -65,7 +65,7 @@ reopened.
 | D32 | Trust, sandbox & consent | Answered by X12 (roles enforced by provider policy), with Full access inside a crosstalk in X11. A crosstalk grants nothing by itself; permissions stay per user in the Atlas data folder. | research | 55 |
 | D33 | Portal chrome | Cards unchanged. Received-message highlight: deep-red text, a danger fill at `crosstalk.message_tint` = 0.10, a 2-unit left bar, and the sender label in danger where the person's messages have none. F1 keeps it apart from Full access. | guess | 60 |
 | D34 | Portal maximize | n/a: agent cards omit maximize. | precedent | 90 |
-| D35 | Portal-local UI | Every crosstalk control lives on the wire chip and its capsule, or the card's ellipsis menu ("Crosstalk…"). Nothing on Document Settings. | pattern | 90 |
+| D35 | Portal-local UI | Every crosstalk control lives on the wire chip and its capsule, or the card's ellipsis menu ("Crosstalk…"). Nothing on Document Settings. The capsule is the selected crosswire's editor in its property strip (`selection_tools::crosstalk_editor`, DRY review 27 September 2026), the same place every wire's editor opens; drawing a crosswire selects it with that editor open. | pattern | 90 |
 
 Source values follow the tool-contract rubric. Rows answered by the user are
 `stated` at 100; see the crosstalk table below for which.
@@ -105,7 +105,7 @@ D rows above cite them. They are mirrored in `decisions.json` under
 | Token | Meaning | Initial value |
 |-------|---------|---------------|
 | `crosstalk.port_reach` | Crosstalk port hit radius (designed px, scales with zoom) | `7` |
-| `crosstalk.port_radius` | Painted port dot (designed px, scales with zoom) | `4` |
+| `HANDLE_DOT` | Painted port dot, the chat card's shared handle dot (`paint_handle_dot`) | `3.5` |
 | `crosstalk.wire_width` | Crosswire painted width, same as history rails | `4.5` |
 | `crosstalk.wire_alpha` | Crosswire opacity, both themes | `0.85` |
 | `crosstalk.message_tint` | Danger fill behind a received message | `0.10` |
@@ -144,6 +144,31 @@ chip painter in `board_agent/crosstalk.rs`.
 8. **GP8.** Undo after a relay removes that relay's card and wire in one step
    and pauses the crosstalk.
 
+## Build status (27 September 2026)
+
+Built on `feature/agent-crosstalk`, not shipped: relays run in Step mode until
+VIII.1a is ratified, and provider read-only enforcement is unverified live.
+Headless tests cover GP1 (link, Step relays both ways, goal claimed and
+agreed), GP2 (switch to a single window and back), GP3, GP4, GP5, GP6
+(through the autonomous seam), GP7 and GP8, plus Full access refusal, delete
+and undo, and chip scale (P0.9).
+
+Where the build falls short of an approved row (the row stands; the code owes it):
+
+- D09: the owner wire's chip is always shown; it does not hide at rest.
+- D13: selecting the owner wire does not yet highlight its downstream wires.
+- D22: the red sender label does not yet highlight or select its source card.
+- X12: both providers offer Reviews. A Cursor sidecar asked for a read-only
+  turn without read-only tools fails closed, but Slate does not confirm the
+  provider's read-only at startup before offering the role.
+- X13: the goal reaches both sides through the goal line of the transport
+  guide on every turn, not as a visible line of yours on the first relay.
+- X14: elapsed running time restarts at zero when a board reopens (turns used
+  are rebuilt from the wires); `crosstalk.json` is not written.
+- X16: a failed relay pauses with "Paused · <agent> failed" and Resume; the
+  card's own recover actions retry. There is no chip Retry that resends the
+  same relayed message.
+
 ## Open questions
 
 None. The autonomy question is answered (X10); what remains is the user's
@@ -155,7 +180,15 @@ Owner: `slate-doc::crosstalk` for the model and pure rules;
 `board_agent.rs` for relays (a relay calls `send_agent_prompt` with the
 partner's reply as the prompt); `board_wire.rs` for the drag (a crosstalk
 port is one more grip, and the commit branches on it); `atlas-shell::canvas_scale`
-/ `canvas_text` / `selection_tools::capsule` for the chip and capsule.
+/ `canvas_text` / `selection_tools::capsule` for the chip;
+`selection_tools::crosstalk_editor` through `board_properties` `Panel::Crosstalk`
+for the capsule; `board_agent::paint_handle_dot` for the ports (DV-23 closed).
 Crosswires paint through `paint_connector` like every connector.
+
+DRY review (27 September 2026): **extract-first**, applied. The handle dot
+became one function before the ports used it; the Start capsule is a property
+strip panel drawn by atlas-shell, not a second floating editor; Step
+proposals stay derived in the crosstalk runtime rather than going through
+`StageFeed`, which stages agent-proposed scene edits, not human-pressed sends.
 Forbidden forks: a second connector painter, a second send path, a
 crosstalk-only history rail, `board_crosstalk.rs` started from a paste.

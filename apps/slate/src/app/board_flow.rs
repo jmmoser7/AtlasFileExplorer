@@ -833,6 +833,7 @@ impl SlateApp {
             image: None,
             output_dir: self.agent_output_dir(id, &ws, &session),
             oneshot: true,
+            ..Default::default()
         };
         self.enqueue_generation(id, request);
     }

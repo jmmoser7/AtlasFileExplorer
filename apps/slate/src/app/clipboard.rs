@@ -1323,6 +1323,7 @@ mod tests {
         scene.build_node(
             WorldRect::new(0.0, 0.0, 1.0, 1.0),
             NodeKind::Connector(ConnectorNode {
+                crosstalk: None,
                 routing: None,
                 binding: None,
                 a: ConnectorEnd::Anchored {
@@ -1456,6 +1457,7 @@ mod tests {
         let free_wire = scene.build_node(
             WorldRect::new(0.0, 0.0, 1.0, 1.0),
             NodeKind::Connector(ConnectorNode {
+                crosstalk: None,
                 routing: None,
                 binding: None,
                 a: ConnectorEnd::Free { point: [5.0, 6.0] },

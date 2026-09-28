@@ -1,4 +1,4 @@
-﻿//! The Board view — Slate's open-world authored canvas.
+//! The Board view — Slate's open-world authored canvas.
 //!
 //! Frames, shapes, text, and placed images live in `slate_doc::scene`; this
 //! module paints the scene with egui and turns pointer input into invertible
@@ -1438,6 +1438,25 @@ impl SlateApp {
         if self.refuse_read_only_edit() {
             return;
         }
+        // A deleted crosswire ends its crosstalk there but stays, hidden, so
+        // the message it carried keeps its provenance (crosstalk D17).
+        let ended_wires: Vec<NodeId> = ids
+            .iter()
+            .copied()
+            .filter(|id| {
+                self.doc()
+                    .scene
+                    .node(*id)
+                    .and_then(slate_doc::crosstalk::crosstalk)
+                    .is_some()
+            })
+            .collect();
+        let ids: Vec<NodeId> = ids
+            .iter()
+            .copied()
+            .filter(|id| !ended_wires.contains(id))
+            .collect();
+        let ids = &ids[..];
         let mut deleted = slate_doc::agent_chat::subtree(&self.doc().scene, ids);
         // Pocketed context whose every consuming card goes too would be an
         // invisible orphan. It leaves in the same commit, with those wires.
@@ -1457,6 +1476,24 @@ impl SlateApp {
             })
             .collect();
         deleted.extend(orphans);
+        // A crosswire leaves with a card it is anchored to (views only; the
+        // provider keeps the message).
+        let crosswires: Vec<NodeId> = self
+            .doc()
+            .scene
+            .nodes
+            .iter()
+            .filter(|n| slate_doc::crosstalk::crosstalk(n).is_some())
+            .filter(|n| match &n.kind {
+                NodeKind::Connector(c) => [&c.a, &c.b].into_iter().any(|end| {
+                    slate_doc::agent_inputs::endpoint_node(end)
+                        .is_some_and(|id| deleted.contains(&id))
+                }),
+                _ => false,
+            })
+            .map(|n| n.id)
+            .collect();
+        deleted.extend(crosswires);
         let ids: Vec<_> = deleted.iter().copied().collect();
         self.stop_pruned_agent_runs(&ids);
         self.agents.text_output.retire(&ids);
@@ -1497,6 +1534,21 @@ impl SlateApp {
                 });
             }
         }
+        for id in &ended_wires {
+            let Some(before) = self.doc().scene.node(*id).cloned() else {
+                continue;
+            };
+            let mut after = before.clone();
+            after.hidden = true;
+            if let Some(x) = slate_doc::crosstalk::crosstalk_mut(&mut after) {
+                x.ended = true;
+            }
+            cmds.push(SceneCmd::Patch {
+                before: Box::new(before),
+                after: Box::new(after),
+            });
+            self.board_sel.remove(id);
+        }
         // Remove in descending index order so recorded indices stay valid on
         // revert (revert_all replays in reverse).
         let mut idx: Vec<(usize, Node)> = ids
@@ -1507,7 +1559,7 @@ impl SlateApp {
             })
             .collect();
         idx.sort_by_key(|(i, _)| std::cmp::Reverse(*i));
-        if idx.is_empty() {
+        if idx.is_empty() && cmds.is_empty() {
             return;
         }
         cmds.extend(
@@ -4661,6 +4713,45 @@ impl SlateApp {
             }
         }
 
+        // Crosstalk port: press / release like the corner grip. A press
+        // selects the card, which can refit it and move a small port away
+        // before egui's drag threshold fires.
+        if self.board_tool == BoardTool::Select
+            && !space
+            && !panning
+            && !zoom_tool
+            && !web_capture
+            && !self.board_align_eat_press
+            && self.board_drag.is_none()
+            && ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary))
+        {
+            if let Some((card, side)) = pointer.and_then(|p| self.crosstalk_port_under(p, &xf)) {
+                self.board_drag = Some(BoardDrag::Wire(super::board_wire::WireDrag {
+                    mode: super::board_wire::WireMode::Add {
+                        from: (card, side, 0.5),
+                    },
+                    cursor: wp.unwrap_or(Pos2::ZERO),
+                    snap: None,
+                }));
+                self.board_align_eat_press = true;
+            }
+        }
+        if matches!(
+            &self.board_drag,
+            Some(BoardDrag::Wire(wd)) if matches!(wd.mode, super::board_wire::WireMode::Add { from } if self.is_crosstalk_port(from))
+        ) {
+            let mods = ui.input(|i| i.modifiers);
+            if ui.input(|i| i.pointer.button_down(egui::PointerButton::Primary)) {
+                if let Some(w) = wp {
+                    self.update_gesture(w, mods);
+                }
+            }
+            if ui.input(|i| i.pointer.button_released(egui::PointerButton::Primary)) {
+                let w = wp.unwrap_or(Pos2::ZERO);
+                self.end_gesture(w, pointer, mods);
+            }
+        }
+
         // Measure picks: press / release, not drag_started. Each pick is a
         // plain click, which never becomes an egui drag (media D14).
         if self.board_tool == BoardTool::Select
@@ -5196,6 +5287,7 @@ impl SlateApp {
             }
         }
         self.paint_agent_spawn_preview(&painter, &xf);
+        self.paint_crosstalk(ui, &painter, &xf);
         self.paint_trim_preview(&painter, &xf);
         self.paint_align_widget(&painter, &xf, &palette, select_tint);
         if self.board_crop.is_none() {
@@ -5409,26 +5501,28 @@ impl SlateApp {
                 .is_none()
                 .then(|| self.board_point_snap.or(wp))
                 .flatten();
-            let cursor = hover.or_else(|| self.board_osnap_hit.map(|h| h.point)).or_else(|| {
-                if board_snap::effective_ortho(self.board_ortho, self.shift_down) {
-                    let from = match draft {
-                        board_path::BoardPathDraft::Polyline { points, .. } => {
-                            points.last().copied()
+            let cursor = hover
+                .or_else(|| self.board_osnap_hit.map(|h| h.point))
+                .or_else(|| {
+                    if board_snap::effective_ortho(self.board_ortho, self.shift_down) {
+                        let from = match draft {
+                            board_path::BoardPathDraft::Polyline { points, .. } => {
+                                points.last().copied()
+                            }
+                            board_path::BoardPathDraft::Bezier {
+                                anchors, placing, ..
+                            } => anchors
+                                .last()
+                                .map(|(p, _)| *p)
+                                .or_else(|| placing.map(|(p, _)| p)),
+                            _ => None,
+                        };
+                        if let (Some(last), Some(w)) = (from, wp) {
+                            return Some(board_snap::ortho_snap_point(last, w));
                         }
-                        board_path::BoardPathDraft::Bezier {
-                            anchors, placing, ..
-                        } => anchors
-                            .last()
-                            .map(|(p, _)| *p)
-                            .or_else(|| placing.map(|(p, _)| p)),
-                        _ => None,
-                    };
-                    if let (Some(last), Some(w)) = (from, wp) {
-                        return Some(board_snap::ortho_snap_point(last, w));
                     }
-                }
-                wp
-            });
+                    wp
+                });
             let close_first = match draft {
                 board_path::BoardPathDraft::Bezier { anchors, .. } if anchors.len() >= 2 => cursor
                     .is_some_and(|c| {
