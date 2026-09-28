@@ -45,6 +45,7 @@ pub use scene::{
     NodeId, NodeKind, PortalClass, PortalKind, PortalNode, Scene, SceneCmd, SceneJournal,
     SourceUri, WorldRect,
 };
+pub use spatial::node_aabb;
 pub use stage::{
     accept, reject, Proposal, ProposalResult, ProposalStatus, ProposalTarget, StageWatcher,
     StaleReason,

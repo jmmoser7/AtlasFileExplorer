@@ -1,12 +1,27 @@
 # Canvas command project — change log
 
+## 2026-09-27 — An eraser band waits only on strokes the board paints (review r20)
+
+- `brush` D11: a band counts as in view only while the board paints its
+  stroke there, which now includes the paint query: a band over a wide,
+  blurred, rotated stroke whose frame lies past that query no longer
+  makes the board repaint every frame. `band_in_view` and the board's
+  paint pass share one owner of the query rect (`board::paint_query`).
+- `brush` D11 and the review r19 entry below over-claimed: the board
+  paints every rotated node its paint query returns, which takes nodes
+  whose frame lies within half the widest stroke width (200 world units)
+  of the painted view. Ink that reaches farther past its frame, such as a
+  wide stroke's miter spikes, blur, or caps, can still be culled at the
+  view edge, a limit older than review r18.
+
 ## 2026-09-27 — The board paints every rotated node again (review r19)
 
-- `brush` D11: the board again paints every rotated node, as it did
-  before review r18, so a rotated path's miter spikes, blur, square caps
-  and wide tween tips no longer vanish at the view edge. The review r18
-  entry below that said the board stops painting rotated paths outside
-  the view no longer holds.
+- `brush` D11: the board again paints every rotated node that its paint
+  query returns, as it did before review r18, so a rotated path's miter
+  spikes, blur, square caps and wide tween tips within that query's
+  margin no longer vanish at the view edge (narrowed by review r20). The
+  review r18 entry below that said the board stops painting rotated paths
+  outside the view no longer holds.
 - `brush` D11: a band over a rotated stroke counts as in view, and asks
   for frames, only while the stroke's rotated ink box meets the view. That
   box is the one the tiles use for the stroke's ink (`tiles::ink_rect`).

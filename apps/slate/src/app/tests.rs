@@ -14273,6 +14273,46 @@ fn a_band_over_a_rotated_stroke_off_view_asks_for_no_frames() {
     assert!(!h.app.erase_settling(), "the band over the rotated bar out of view asks for frames");
 }
 
+/// Review r20 R1 (Art. II): a band over a wide, blurred, rotated stroke
+/// whose ink box meets the view but whose rotated frame lies past the
+/// board's paint query asks for no frames, since the board never paints
+/// or rasterizes that stroke there.
+#[test]
+fn a_band_over_a_blurred_rotated_stroke_past_the_paint_query_asks_for_no_frames() {
+    let (mut h, mut raster, id, cross) = eraser_bar_board("eraser_band_rotated_blur_query");
+    h.app.patch_nodes(&[id], |n| {
+        n.rotation_deg = 1.0;
+        if let slate_doc::scene::NodeKind::Shape(s) = &mut n.kind {
+            s.stroke.width = 200.0;
+            s.stroke.gaussian_blur = 48.0;
+        }
+    });
+    flick_the_bar_unseen(&mut h, &mut raster, id, cross);
+    let node = h.app.doc().scene.node(id).unwrap().clone();
+    let boxed = node.rect.rotated_bounds(node.rotation_deg);
+    let z = h.app.tab().cam.z;
+    let half = h.app.canvas_rect.size() * (0.5 / z);
+    let top = boxed.y + boxed.h + 225.0;
+    h.app.tab_mut().cam.offset.y = top + 80.0 / z + half.y;
+    let view = h.app.board_paint_view(h.app.canvas_rect);
+    assert!((view.y - top).abs() < 0.5, "the paint view's top is {} not {top}", view.y);
+    // The ink box pads the rotated frame by w/2 + 4 + 3 blur = 248.
+    assert!(boxed.y + boxed.h + 248.0 > view.y, "the camera sits past the bar's ink box");
+    let painted = h.app.board_paint_nodes(h.app.canvas_rect);
+    assert!(!painted.iter().any(|n| n.id == id), "the board paints the bar past its query");
+    h.app.brush_tiles.hold_rasters = false;
+    for _ in 0..200 {
+        shot(&mut h, &mut raster, |_| {});
+    }
+    assert!(!h.app.erase_settling(), "the band over the unpainted rotated bar still asks for frames");
+    let quiet = (0..60).any(|_| {
+        let out = h.frame_output(|_| {});
+        !out.viewport_output[&egui::ViewportId::ROOT].repaint_delay.is_zero()
+    });
+    assert!(quiet, "the idle board keeps repainting");
+    assert!(!board_path::band_in_view(&node, &view), "a band sees a bar the board does not paint");
+}
+
 /// Review r18 R1: a rotated stroke whose rotated ink meets the view
 /// paints, though its unrotated box is out of view, and a band over it
 /// counts as in view only while its rotated ink box meets the view

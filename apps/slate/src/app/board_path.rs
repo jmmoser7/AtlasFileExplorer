@@ -2512,12 +2512,14 @@ fn paint_settling_erase(
     true
 }
 
-/// A band over stroke `n` counts as in `view` while the board paints the
-/// stroke there ([`super::board::paints_in_view`]) and, since the board
-/// paints every rotated node, a rotated stroke's rotated ink box
-/// ([`tiles::ink_rect`]) meets the view.
+/// A band over stroke `n` counts as in `view` only while the board paints
+/// the stroke there: it is a candidate of the paint query
+/// ([`super::board::in_paint_query`]) and passes the paint cull
+/// ([`super::board::paints_in_view`]). Since that cull keeps every rotated
+/// candidate, a rotated stroke also needs its rotated ink box
+/// ([`tiles::ink_rect`]) to meet the view.
 pub(crate) fn band_in_view(n: &Node, view: &WorldRect) -> bool {
-    if !super::board::paints_in_view(n, view) {
+    if !super::board::paints_in_view(n, view) || !super::board::in_paint_query(n, view) {
         return false;
     }
     match &n.kind {
