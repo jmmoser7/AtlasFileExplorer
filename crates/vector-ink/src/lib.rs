@@ -150,8 +150,8 @@ pub use stamp::{
 };
 pub use stroke::{
     stroke_bounds, stroke_mesh, stroke_mesh_ends, stroke_mesh_tinted, stroke_mesh_tipped,
-    stroke_outline,
-    stroke_outline_tipped, stroke_pieces_tinted, stroke_ribbon,
+    stroke_outline, stroke_outline_ends, stroke_outline_tipped, stroke_pieces_tinted,
+    stroke_pieces_tinted_ends, stroke_ribbon,
 };
 pub use tile::{
     composite_stroke, composite_strokes, composite_strokes_tiled, ink_bounds, source_over_region,

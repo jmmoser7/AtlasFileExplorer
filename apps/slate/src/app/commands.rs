@@ -1925,7 +1925,9 @@ pub static SPECS: &[CommandSpec] = &[
          softness (up softer; Brush, Eraser, and Smooth only). Dragging down into the \
          style row under the circle reaches hardest softness, and anywhere in \
          that band size and softness hold while a swatch picks the texture or \
-         curve style. Mid-draw on a curve tool it sets the width of the point \
+         curve style. The row edits the whole curve, except the end conditions: \
+         with an end grip of an open curve picked, it sets that end only (flat, \
+         round, arrow, or narrow). Mid-draw on a curve tool it sets the width of the point \
          being placed, and the curve tweens from the points already placed; \
          mid-stroke the Pen blends into the new width. Esc restores the values \
          from the press.",

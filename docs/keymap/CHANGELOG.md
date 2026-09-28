@@ -91,6 +91,28 @@
   click window: its callers set the color directly with no travel, which
   is now a quick click.
 
+## 2026-09-28 — End conditions per end (user, tl5)
+
+- `line` D14 and `P1.curve.vertex-style`: the Alt+right-drag style row
+  edits the whole curve, except the end conditions: with an end grip
+  picked, it sets that end only (user, 28 September 2026, tl5: "should be
+  able to spesify end condition on a per vertex bass"). The row then offers
+  flat here, round here, arrow here, and narrow here ("at both ends" with
+  both ends picked); the other end keeps its condition. One release is one
+  undo step; Esc before the release restores.
+- es1 is now recorded (user pass, 28 September 2026: "Releasing on one
+  restyles the whole curve, even with points picked"): with no pick or only
+  interior picks the row restyles the whole curve.
+- Model: `Stroke::arrow_start`, `Stroke::cap_start` / `cap_end` (skipped
+  when unset, so older files load unchanged); narrowing one end reuses
+  `WidthProfile::Taper`. The board and the HTML artifact cap the two ends
+  through `vector_ink::stroke_mesh_ends` / `stroke_outline_ends` and draw a
+  head at each arrowed end. Trim and Split pieces keep the conditions of
+  the source ends they still own; a cut end is plain. Join drops the
+  conditions at the joined ends.
+- Open question for the user: an "end condition" on an interior vertex
+  (perhaps a join style per vertex) is not built.
+
 ## 2026-09-28 — Two brush decisions recorded (user)
 
 - `brush` D03, D05: the Alt+right-drag size circle stays pinned where the

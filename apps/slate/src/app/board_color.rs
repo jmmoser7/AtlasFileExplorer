@@ -1039,6 +1039,9 @@ impl SlateApp {
             tween_from: None,
             gaussian_blur: 0.0,
             arrow_end: false,
+            arrow_start: false,
+            cap_start: None,
+            cap_end: None,
             texture: self.brush_texture,
         }
     }

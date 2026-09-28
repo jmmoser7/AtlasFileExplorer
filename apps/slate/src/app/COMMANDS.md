@@ -274,7 +274,9 @@ drag the address-bar URL or a page link instead.
   selected curve under the Select tool or Direct Select (see *Picked
   vertices* below). With a drawing tool armed or a curve targeted,
   Ctrl+right-drag is the color wheel instead of turbo pan; Smooth and the
-  Eraser show no wheel.
+  Eraser show no wheel. The size HUD's style row restyles the whole curve,
+  except that with an end grip of an open curve picked it sets that end's
+  cap, arrowhead, or narrowing only (user, 28 September 2026, tl5).
 - **Alt / Shift / Ctrl + right-click** (`board.brush.tip_entry`): the
   same chord released without travel (within 4 px and 0.8 s) opens that
   HUD's numeric entry (user, 28 September 2026): a small panel beside the

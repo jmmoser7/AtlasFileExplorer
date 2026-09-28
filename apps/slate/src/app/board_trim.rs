@@ -836,8 +836,47 @@ impl SlateApp {
 /// as a piece. A curve with per-vertex tips is cut in curve parameter space
 /// (`vertex_style::cut_curve`), so the piece keeps its curves and paints the
 /// widths and colors its source painted between vertices, not only at
-/// them. Anything else becomes the flattened span.
+/// them. Anything else becomes the flattened span. The piece keeps the end
+/// conditions of the source ends it still owns; a cut end takes the plain
+/// base cap.
 fn open_piece(before: &Node, source: &ShapeNode, span: &[[f32; 2]]) -> (WorldRect, ShapeNode) {
+    let (rect, mut piece) = open_piece_shape(before, source, span);
+    piece.stroke.keep_ends(owned_ends(before, span));
+    (rect, piece)
+}
+
+/// Whether each end of `span` is an end of `before`'s own curve (kept or
+/// extended) rather than a cut point lying on it.
+fn owned_ends(before: &Node, span: &[[f32; 2]]) -> [bool; 2] {
+    let tol = trim_tokens::GEOMETRY_TOLERANCE * 2.0;
+    let src = slate_doc::geom::node_open_polyline(before, trim_tokens::GEOMETRY_TOLERANCE)
+        .unwrap_or_default();
+    let (Some(&a), Some(&b), Some(&s0), Some(&s1)) =
+        (span.first(), span.last(), src.first(), src.last())
+    else {
+        return [true; 2];
+    };
+    let on_seg = |p: [f32; 2], u: [f32; 2], v: [f32; 2]| {
+        let (dx, dy) = (v[0] - u[0], v[1] - u[1]);
+        let len2 = dx * dx + dy * dy;
+        let t = if len2 > 0.0 {
+            (((p[0] - u[0]) * dx + (p[1] - u[1]) * dy) / len2).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        dist(p, [u[0] + dx * t, u[1] + dy * t]) <= tol
+    };
+    let cut = |p: [f32; 2]| {
+        dist(p, s0) > tol && dist(p, s1) > tol && src.windows(2).any(|s| on_seg(p, s[0], s[1]))
+    };
+    [!cut(a), !cut(b)]
+}
+
+fn open_piece_shape(
+    before: &Node,
+    source: &ShapeNode,
+    span: &[[f32; 2]],
+) -> (WorldRect, ShapeNode) {
     let piece = ShapeNode {
         shape: ShapeKind::Path,
         fill: None,
