@@ -5491,7 +5491,7 @@
           "confidence": 100,
           "verdict": "approved",
           "decided": "2026-09-28",
-          "note": "The user's decision, 28 Sep 2026. Ordinary square connectors keep their own lanes; the shared rule could serve them too, left for the user to decide."
+          "note": "The user's decision, 28 Sep 2026. Extended to every square wire by X21 the same day."
         },
         "X20": {
           "behavior": "Permissions change from the next message. Full access can be toggled while a reply runs; the toast says \"…, from the next message. The reply in progress keeps its permissions.\" A Cursor sidecar restart waits until that conversation's reply finishes. Codex turns carry an explicit sandbox and approval policy only when overriding, and the first turn after an override restores the thread's own settings, read from `thread/start` or `thread/resume` (or the provider default), so a reviewer's read-only turn cannot leak into the builder's next turn.",
@@ -5500,6 +5500,14 @@
           "verdict": "approved",
           "decided": "2026-09-28",
           "note": "Fixes the user's report that toggling Full access mid-run failed (28 Sep 2026). Real Codex app-server behavior is unverified."
+        },
+        "X21": {
+          "behavior": "**Yours, 28 September 2026:** \"colission avoidence should be best efort. not absolute. alocate a zone for conection where bundeling wires can spred out but once that space is filled up the packing and bundeling simply densifeies with optimaly sorted incoming wires.\" Every square wire, crosstalk or not, bundles by the one rule (P1.wire.rails): each connection has a bounded zone (`slate_doc::CONNECTION_ZONE`: 96 along the edge, 48 deep); lanes sit 10 apart while they fit, then pack evenly denser inside the same zone down to 3; incoming wires are sorted so they do not cross, and a wire goes around a node body where it can. Best effort: the zone never grows and no wire is rerouted far away. The blister stays on each wire's routed mid-span and the export draws the same path.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-28",
+          "note": "The user's decision, 28 Sep 2026. Also recorded on P1.wire.rails and in specs/connectors.md; File Atlas keeps its own spacing and look."
         },
         "F1": {
           "behavior": "**Altered by you:** \"Same red, different places. Red label for Full access. Red text for inter-agent crosstalk. General interpretation: red is for elevated privileges. A visual cue that this is not a typical chat train.\" Full access keeps its red model-name label; a message another agent wrote shows its body text in red with a red sender label. Promoted as **P1.portal.elevated-red**.",

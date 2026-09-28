@@ -94,6 +94,8 @@ mod tests;
 mod tests_ink_fit;
 #[cfg(test)]
 mod tests_tip_chord;
+#[cfg(test)]
+mod tests_wire_lanes;
 mod ui;
 
 pub use chrome::ChromeConfig;

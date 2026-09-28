@@ -1,5 +1,19 @@
 # Canvas command project — change log
 
+## 2026-09-28 — Square wires bundle in a bounded connection zone (user)
+
+- User, 28 September 2026: "colission avoidence should be best efort. not
+  absolute. alocate a zone for conection where bundeling wires can spred
+  out but once that space is filled up the packing and bundeling simply
+  densifeies with optimaly sorted incoming wires." Every square wire,
+  normal connector or crosstalk, now bundles by the File Atlas nested-rail
+  rule in a bounded zone per connection (`slate_doc::CONNECTION_ZONE`: 96
+  along the edge, 48 deep, lanes 10 apart, packing evenly to 3). The old
+  midpoint rails for normal connectors, which crossed on many-to-one, are
+  gone. `vector_ink::rails` gains `LaneSpacing` and `ConnectionZone`; the
+  folder map passes its own spacing with no floor and looks as before.
+  `P1.wire.rails`, `specs/connectors.md`, `portal-agent-crosstalk` X21.
+
 ## 2026-09-28 — Crosstalk blister and capsule, collapsed cards, square crosswires (user)
 
 - User, 28 September 2026: "everytime a new wire is linked between agents

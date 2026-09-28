@@ -1,10 +1,46 @@
 //! Nested rails: how wires that share one port fan out without crossing.
 //!
-//! The File Atlas leader rule, shared by its folder map and Slate's
-//! crosstalk wires. Each wire's far end sits on one side of the port,
+//! The File Atlas leader rule, shared by its folder map and Slate's square
+//! wires. Each wire's far end sits on one side of the port,
 //! measured along the port edge. Per side, the farthest wire exits
 //! outermost along the edge and turns nearest the port; each nearer wire
 //! exits one step inside and turns one step further out, so no two cross.
+//!
+//! Spacing is best effort (user, 28 September 2026): each connection has a
+//! bounded zone; lanes spread at a preferred spacing while they fit, then
+//! pack evenly denser inside the same zone, down to a floor. The zone never
+//! grows and no wire is sent far away to keep its spacing.
+
+/// How far apart parallel lanes sit.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LaneSpacing {
+    /// Spacing while the lanes fit.
+    pub preferred: f32,
+    /// The densest packing. Past it lanes may leave the room.
+    pub min: f32,
+}
+
+impl LaneSpacing {
+    /// Even spacing for `steps` lane steps inside `room`: `preferred` while
+    /// it fits, then `room / steps`, never below `min`.
+    pub fn fit(&self, steps: usize, room: f32) -> f32 {
+        if steps == 0 {
+            return self.preferred;
+        }
+        self.preferred.min(room / steps as f32).max(self.min)
+    }
+}
+
+/// Where wires arriving at one side of a node spread out.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ConnectionZone {
+    /// Along the edge, centred on the port. Clipped to the edge.
+    pub width: f32,
+    /// Out from the edge: the room trunks turn in, past the clearance.
+    pub depth: f32,
+    /// Lane spacing, both along the edge and out from it.
+    pub spacing: LaneSpacing,
+}
 
 /// One wire's place in its port's fan.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -71,5 +107,17 @@ mod tests {
         assert_eq!(rails[0].unwrap().rank, 0);
         assert_eq!(rails[1].unwrap().rank, 1);
         assert_eq!(nested_rails(&[10.0, -12.0], 12.0), vec![None, None]);
+    }
+
+    #[test]
+    fn lanes_keep_their_spacing_then_pack_evenly_to_the_floor() {
+        let s = LaneSpacing {
+            preferred: 10.0,
+            min: 3.0,
+        };
+        assert_eq!(s.fit(0, 0.0), 10.0, "a lone lane keeps the preferred");
+        assert_eq!(s.fit(3, 48.0), 10.0, "fits: preferred spacing");
+        assert_eq!(s.fit(6, 48.0), 8.0, "full: denser, same room");
+        assert_eq!(s.fit(40, 48.0), 3.0, "never below the floor");
     }
 }

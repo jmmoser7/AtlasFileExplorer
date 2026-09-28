@@ -3142,56 +3142,9 @@ mod tests {
             .fold(f32::INFINITY, f32::min)
     }
 
-    /// Each red wire in the exported HTML, as its path numbers, next to the
-    /// board's drawn path for the same wire; both relative to their start.
+    /// Each red wire in the exported HTML matches the board's drawn path.
     fn export_matches_board(h: &Harness) {
-        use slate_doc::{filleted_polyline, ConnectorPath, PathCmd, ORTHO_CORNER_RADIUS};
-        let relative =
-            |v: Vec<f32>| -> Vec<f32> { v.iter().enumerate().map(|(i, x)| x - v[i % 2]).collect() };
-        let mut board: Vec<Vec<f32>> = Vec::new();
-        let mut css = String::new();
-        for wire in visible_crosswires(h) {
-            let NodeKind::Connector(c) = &h.app.doc().scene.node(wire).unwrap().kind else {
-                unreachable!()
-            };
-            css = c.stroke.color.css();
-            let path = h.app.connector_path_visible(wire, c).unwrap();
-            let (path, _) =
-                super::super::super::board_wire::drawn_connector(&h.app.doc().scene, path, c);
-            let pts: Vec<[f32; 2]> = match &path {
-                ConnectorPath::Bezier(b) => vec![b.p0, b.c1, b.c2, b.p3],
-                ConnectorPath::Orthogonal(pts) => filleted_polyline(pts, ORTHO_CORNER_RADIUS)
-                    .into_iter()
-                    .flat_map(|cmd| match cmd {
-                        PathCmd::Move(p) | PathCmd::Line(p) => vec![p],
-                        PathCmd::Cubic { c1, c2, to } => vec![c1, c2, to],
-                    })
-                    .collect(),
-            };
-            board.push(relative(pts.into_iter().flatten().collect()));
-        }
-        let html = slate_artifact::render_html(h.app.doc(), &slate_artifact::AssetMap::default());
-        let tail = format!("\" fill=\"none\" stroke=\"{css}\"");
-        let exported: Vec<Vec<f32>> = html
-            .match_indices(&tail)
-            .map(|(at, _)| {
-                let d = &html[..at];
-                let d = &d[d.rfind("<path d=\"").unwrap() + 9..];
-                relative(
-                    d.split_whitespace()
-                        .filter_map(|t| t.parse().ok())
-                        .collect(),
-                )
-            })
-            .collect();
-        assert_eq!(exported.len(), board.len(), "every crosswire exports");
-        for want in &board {
-            assert!(
-                exported.iter().any(|got| got.len() == want.len()
-                    && got.iter().zip(want).all(|(g, w)| (g - w).abs() < 0.2)),
-                "the export draws the board's routed path: {want:?} in {exported:?}"
-            );
-        }
+        super::super::super::tests_wire_lanes::export_matches_board(h, &visible_crosswires(h));
     }
 
     /// User, 28 September 2026: crosswires square up like any wire.
@@ -3394,6 +3347,72 @@ mod tests {
                         assert!(!meet, "wires {i} and {j} meet: {p:?} and {q:?}");
                     }
                 }
+            }
+        }
+        export_matches_board(&h);
+    }
+
+    /// Bundled square crosswires keep their blisters on their own routed
+    /// mid-spans (user, 28 September 2026).
+    #[test]
+    fn bundled_square_crosswires_keep_blisters_on_their_routed_midpoints() {
+        let mut h = Harness::new("xt_bundle_blisters");
+        h.app.leave_home();
+        h.app.ensure_work_tab();
+        h.app.doc_mut().view.active_view = slate_doc::ViewKind::Board;
+        h.app.board_wire_routing = slate_doc::WireRouting::Orthogonal;
+        h.frame();
+        let expert = chat(&mut h, Pos2::new(160.0, 1500.0), "codex", "blister-expert");
+        let sources: Vec<NodeId> = [(-700.0, 420.0), (160.0, 270.0), (900.0, 340.0)]
+            .into_iter()
+            .enumerate()
+            .map(|(i, (x, y))| chat(&mut h, Pos2::new(x, y), "cursor", &format!("blister-s{i}")))
+            .collect();
+        settle(&mut h);
+        let partner = session(&h, expert);
+        let mut wires = Vec::new();
+        for (i, from) in sources.iter().enumerate() {
+            let binding = Crosstalk::owner(
+                format!("blister-chain-{i}"),
+                &session(&h, *from),
+                &partner,
+                Role::Builds,
+            );
+            let node = h.app.crosswire_node(*from, expert, binding).unwrap();
+            wires.push(node.id);
+            h.app.add_nodes(vec![node]);
+        }
+        h.app.fit_board();
+        h.frame();
+        h.frame();
+        let xf = h.app.board_xf();
+        let mids: Vec<Pos2> = wires.iter().map(|w| mid_span(&h, *w)).collect();
+        for (w, mid) in wires.iter().zip(&mids) {
+            assert_eq!(routing(&h, *w), slate_doc::WireRouting::Orthogonal);
+            let NodeKind::Connector(c) = &h.app.doc().scene.node(*w).unwrap().kind else {
+                unreachable!()
+            };
+            let Some(slate_doc::ConnectorPath::Orthogonal(world)) =
+                h.app.connector_path_visible(*w, c)
+            else {
+                panic!("square")
+            };
+            let screen: Vec<Pos2> = world
+                .iter()
+                .map(|q| xf.w2s(Pos2::new(q[0], q[1])))
+                .collect();
+            assert!(off_path(&screen, *mid) < 0.5, "on its own square wire");
+            assert!(
+                has_rect_at(&h, tools::blister_rect(*mid, xf.z)),
+                "a blister at {mid:?}"
+            );
+        }
+        for i in 0..mids.len() {
+            for j in i + 1..mids.len() {
+                assert!(
+                    (mids[i] - mids[j]).length() > 1.0,
+                    "each bundled wire has its own blister"
+                );
             }
         }
         export_matches_board(&h);

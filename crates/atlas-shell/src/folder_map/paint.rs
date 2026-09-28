@@ -12,6 +12,7 @@ use eframe::egui::{
 };
 use std::collections::HashSet;
 use std::path::Path;
+use vector_ink::rails::LaneSpacing;
 
 /// File Atlas default LOD buckets (percent × 0.01 → zoom).
 pub const LOD_MID: usize = 6;
@@ -179,6 +180,18 @@ fn matched(args: &PaintArgs<'_>, i: usize) -> bool {
     args.file_match.get(i).copied().unwrap_or(true)
 }
 
+/// Leader fan along the folder card's edge. No floor: the folder map packs
+/// as tight as its room.
+const LEADER_EXITS: LaneSpacing = LaneSpacing {
+    preferred: 4.0,
+    min: 0.0,
+};
+/// Leader turn depth steps out from the card.
+const LEADER_RAILS: LaneSpacing = LaneSpacing {
+    preferred: 8.0,
+    min: 0.0,
+};
+
 fn paint_branch<M: MapMedia>(
     painter: &Painter,
     tree: &Tree,
@@ -243,14 +256,9 @@ fn paint_branch<M: MapMedia>(
                 .map(|(i, _)| depth_of(&targets[i]))
                 .fold(f32::INFINITY, f32::min);
             for (i, rail) in side() {
-                let n = rail.count as f32;
-                let exit_gap = 4.0f32.min(exit_limit / n);
+                let exit_gap = LEADER_EXITS.fit(rail.count, exit_limit);
                 let avail = (min_td - p_d - 16.0 - 14.0).max(0.0);
-                let rail_gap = if n > 1.0 {
-                    8.0f32.min(avail / (n - 1.0))
-                } else {
-                    8.0
-                };
+                let rail_gap = LEADER_RAILS.fit(rail.count - 1, avail);
                 let exit = p_b + rail.exit(exit_gap);
                 let rail = (p_d + 16.0 + rail.rank as f32 * rail_gap)
                     .min(depth_of(&targets[i]) - 12.0)
