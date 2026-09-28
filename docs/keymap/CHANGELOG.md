@@ -1,5 +1,12 @@
 # Canvas command project — change log
 
+## 2026-09-27 — Agent Stop before the link folder exists
+
+- Agent output Stop writes `cancel.json` even when pressed before a worker
+  has published the workspace link folder (it creates the folder first).
+  A bundled card whose folder has moved is not recreated
+  (`docs/agent-link-contract.md`). No binding changed.
+
 ## 2026-09-27 — Tip HUD help, tip-chord wording, Eraser row
 
 - `KEYMAP.md` Ctrl+right-drag: curve tools share the wheel, the disk
