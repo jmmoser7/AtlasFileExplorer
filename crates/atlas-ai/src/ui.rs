@@ -248,7 +248,8 @@ const PROGRAM_CELL: egui::Vec2 = egui::vec2(112.0, 96.0);
 const PROGRAM_COLUMNS: usize = 4;
 
 /// Unzoomed size of the tiles `program_grid` lays out for `count` programs
-/// when its rect is wide enough for a full row.
+/// when its rect is wide enough for a full row. `count` is treated as at
+/// least 1.
 pub fn program_grid_size(count: usize) -> egui::Vec2 {
     egui::vec2(
         count.clamp(1, PROGRAM_COLUMNS) as f32 * PROGRAM_CELL.x,

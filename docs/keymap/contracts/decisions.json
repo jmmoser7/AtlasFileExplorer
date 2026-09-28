@@ -740,7 +740,7 @@
           "decided": "2026-09-25"
         },
         "D04": {
-          "behavior": "Travel > 4 px defines the frame; below it places a 960x540 default portal centered on the click.",
+          "behavior": "Travel > 4 px defines the frame; below it places a portal of `agent.portal.default_size` (its program grid) centered on the click.",
           "source": "precedent",
           "confidence": 85,
           "verdict": "approved",

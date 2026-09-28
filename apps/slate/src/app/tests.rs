@@ -24108,7 +24108,9 @@ fn a_wire_dropped_on_empty_board_offers_an_agent_chat_train() {
     h.app.board_osnap.enabled = false;
     h.app.board_smart_guides = false;
     h.app.board_snap_grid = false;
-    h.app.set_agent_programs_for_test(&["cursor", "codex", "ollama"]);
+    // Two rows of programs, so the grid differs from the kit's size.
+    h.app
+        .set_agent_programs_for_test(&["cursor", "codex", "ollama", "comfy", "openai-text"]);
     h.app.tab_mut().cam.z = 1.0;
     h.app.tab_mut().cam.offset = EVec2::new(240.0, 80.0);
     let path = h.base.join("court.png");
@@ -24180,6 +24182,7 @@ fn a_wire_dropped_on_empty_board_offers_an_agent_chat_train() {
         placed.rect.x > rect.x + rect.w,
         "it lands at the drop, right of the picture"
     );
+    assert_eq!((placed.rect.w, placed.rect.h), (496.0, 264.0), "two rows");
     let dropped = xf.s2w(drop);
     let input = Pos2::new(placed.rect.x, placed.rect.y + 0.5 * placed.rect.h);
     assert!(
