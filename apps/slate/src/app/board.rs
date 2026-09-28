@@ -5758,6 +5758,7 @@ impl SlateApp {
             self.paint_direct_overlay(&painter, &xf);
         }
         if self.board_tool == BoardTool::Select {
+            self.paint_picked_edges(&painter, &xf);
             self.paint_curve_grips(&painter, &xf);
         }
 
@@ -6482,6 +6483,9 @@ impl SlateApp {
                 }
                 // Vertex / handle / arc grips on a selected curve.
                 if let Some(drag) = self.begin_curve_grip_drag(screen, mods) {
+                    return Some(BoardDrag::Direct(drag));
+                }
+                if let Some(drag) = self.begin_picked_edge_drag(world) {
                     return Some(BoardDrag::Direct(drag));
                 }
                 // Wire grip at the press origin beats edge resize. The rest
@@ -8359,6 +8363,15 @@ impl SlateApp {
             }
             BoardTool::Select => {
                 let screen = self.board_xf().w2s(world);
+                // Ctrl+Shift+click on a curve segment picks that edge; on
+                // a grip it adds or removes the point like Shift.
+                if mods.ctrl
+                    && mods.shift
+                    && self.hovered_vertex(screen).is_none()
+                    && self.pick_curve_edge(world)
+                {
+                    return;
+                }
                 if self.pick_curve_grip_point(screen, mods.shift) {
                     return;
                 }

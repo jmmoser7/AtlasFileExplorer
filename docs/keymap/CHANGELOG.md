@@ -1,5 +1,36 @@
 # Canvas command project — change log
 
+## 2026-09-28 — Picked vertices get a vertex strip; edges become picks (user)
+
+- `shape-selection-toolbar` D13, `specs/direct-selection.md` (ed9): with
+  vertices picked the property strip offers only Stroke (width, color,
+  opacity) and Corners where a picked vertex turns a polyline corner.
+  Every other squircle is classified as whole-node in
+  `edits_picked_vertices` and hides. Test
+  `picked_vertices_strip_offers_only_vertex_controls`.
+- `polyline` D13, D14, `shape-selection-toolbar` D13 (ep2): with corners
+  picked the Corners amount reads the first picked corner and writes only
+  those corners' `corner_amounts`, one journaled step per accepted edit;
+  with nothing picked it still sets every corner. This replaces the
+  sentence that the Corners value always sets every corner. Test
+  `picked_corners_take_the_corners_amount_alone`.
+- `specs/direct-selection.md` "Sub-object edges": Ctrl+Shift+click on a
+  segment under the Select tool picks that edge and its two vertices, and
+  more clicks add or toggle edges. It still selects one group member and
+  force-selects a locked node. Dragging a picked edge moves its vertices
+  snapped in one undo step, with Esc restoring. Delete removes the
+  segment through the trim owner (`commit_open_pieces`, extracted from
+  `commit_open_spans`): an open curve becomes two curves and a closed one
+  opens. Tests `ctrl_shift_click_picks_an_edge_and_its_two_vertices`,
+  `a_picked_edge_drags_both_vertices_snapped_in_one_undo_step`,
+  `delete_with_a_picked_edge_removes_that_segment`,
+  `ctrl_shift_click_still_selects_one_group_member`.
+- Help text: `board.direct.delete_anchor` says Delete works under any
+  tool; `board.curve.grips` and the COMMANDS.md curve-grips list include
+  Pen paths; `board.subselect` names edges. Guard test
+  `direct_select_marquee_picks_and_esc_steps_back_picks_target_then_tool`
+  (pp3).
+
 ## 2026-09-28 — Two brush decisions recorded (user)
 
 - `brush` D03, D05: the Alt+right-drag size circle stays pinned where the

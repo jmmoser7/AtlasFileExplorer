@@ -107,6 +107,23 @@ follows `crates/atlas-shell/DYNAMIC_PANELS.md` placement and edge rules, under
 Direct Select and Select alike. Strip edits apply to the picked points
 (`shape_property_points`).
 
+With vertices picked the strip offers only per-vertex controls (user,
+28 September 2026, ed9): Stroke (width, color, opacity) and Corners when a
+picked vertex turns a corner of a line-only polyline. Every other squircle
+edits the whole node and hides while vertices are picked: Fill, Wire,
+Filter, Pages, Formatting, Text, Agent, Bumper cars, Model display,
+Crosstalk, frame actions, agent actions, Measure and Screenshot. End
+points, Bezier anchors, rectangles and regular polygons carry no per-vertex
+corner, so Corners hides for them. `edits_picked_vertices` classifies every
+strip item, so a new squircle must choose. The strip's target stays fixed
+at the press.
+
+With corners picked, the Corners amount reads the first picked corner and
+writes only the picked corners' `corner_amounts`. With nothing picked it
+sets every corner. Each accepted edit is one journaled step (user,
+28 September 2026, ep2). Fillet / Chamfer and the units toggle stay
+whole-curve, since a curve has one corner treatment.
+
 ### Delete
 
 Delete (`board.delete`), under any tool, with picked vertices removes those
@@ -114,7 +131,8 @@ vertices and rejoins their neighbors as one journaled Patch. Every kept
 vertex keeps its width, color and corner override. When fewer than two (open)
 or three (closed) vertices would remain, the node is removed instead. Either
 way, one Ctrl+Z restores it. With nothing picked, Delete removes the selected
-nodes as before.
+nodes as before. With edges picked (below), Delete removes those segments
+instead.
 
 ## Geometry home
 
@@ -152,6 +170,33 @@ radius covers it — research §6 recommendation).
 group; with A active on a path inside a group, plain click already targets
 the path (direct selection pierces groups — Illustrator behavior).
 
+## Sub-object edges (Ctrl+Shift+click)
+
+User, 28 September 2026 ("dig selection"): Ctrl+Shift+click under the
+Select tool on a segment of a line, polyline or path, away from its
+vertices, selects that curve alone and picks the edge with its two end
+vertices. Further Ctrl+Shift+clicks on that curve add edges; a picked edge
+toggles off and drops the vertices no other picked edge holds. The group
+meaning is kept: the click still selects one member of a group. A
+Ctrl+Shift+click on a vertex picks that vertex, as before. A plain click
+drops the edges with the other picks. Direct Select needs no chord: its
+plain segment click already picks the segment's two anchors.
+
+- Picked edges paint a 3 px line in the selection color along each segment.
+  Like the other path-edit adornments, it is screen-constant (P0.9
+  path-edit exception); the curve itself scales.
+- The tip HUD and the property strip edit the edges' vertices, like any
+  other picks.
+- Dragging a picked edge moves every picked vertex by one step, snapped
+  through `resolve_point_snap` (the carried vertex snaps to the curve's
+  other points). The drag is one journaled Patch; Esc restores the curve
+  and journals nothing.
+- Delete removes the picked segments through the trim owner
+  (`commit_open_pieces`): an open curve splits into two curves, a closed
+  curve opens at the edge, and a curve with no segment left is removed.
+  Kept vertices keep their width, color and corner override. One Ctrl+Z
+  restores it.
+
 ## New bindings this spec owns
 
 | Chord | Command |
@@ -162,6 +207,9 @@ the path (direct selection pierces groups — Illustrator behavior).
 | Alt+drag handle (A) | break handle symmetry |
 | Alt/Ctrl/Shift+right-drag with picks or over a vertex | tip HUD on those vertices |
 | Delete with picked vertices (any tool) | remove vertices (`board.delete`) |
+| Ctrl+Shift+click a segment (V) | pick that edge and its two vertices (`board.subselect`) |
+| Drag a picked edge (V) | move its vertices (`board.curve.grips`) |
+| Delete with picked edges (V) | remove those segments (`board.delete`) |
 
 ## Tests (vector-ink)
 

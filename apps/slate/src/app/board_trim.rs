@@ -550,24 +550,34 @@ impl SlateApp {
         before: &Node,
         spans: Vec<Vec<[f32; 2]>>,
     ) -> bool {
+        let style = match &before.kind {
+            NodeKind::Shape(s) => s.clone(),
+            _ => return false,
+        };
+        let pieces = spans
+            .iter()
+            .map(|span| open_piece(before, &style, span))
+            .collect();
+        self.commit_open_pieces(target, before, pieces)
+    }
+
+    /// Replace `target` (`before`) by open `pieces` as one undo step: the
+    /// first takes its place, the rest are added on top, and none removes it.
+    pub(crate) fn commit_open_pieces(
+        &mut self,
+        target: NodeId,
+        before: &Node,
+        pieces: Vec<(WorldRect, ShapeNode)>,
+    ) -> bool {
         if self.refuse_read_only_edit() {
             return false;
         }
         let Some(index) = self.doc().scene.index_of(target) else {
             return false;
         };
-        let style = match &before.kind {
-            NodeKind::Shape(s) => s.clone(),
-            _ => return false,
-        };
         let mut cmds = Vec::new();
-        if spans.is_empty() {
-            cmds.push(SceneCmd::Remove {
-                index,
-                node: before.clone(),
-            });
-        } else {
-            let (rect0, piece0) = open_piece(before, &style, &spans[0]);
+        let mut pieces = pieces.into_iter();
+        if let Some((rect0, piece0)) = pieces.next() {
             let mut after = before.clone();
             after.rect = rect0;
             // The result is already in world space; retaining the old transform
@@ -579,8 +589,7 @@ impl SlateApp {
                 before: Box::new(before.clone()),
                 after: Box::new(after),
             });
-            for span in spans.into_iter().skip(1) {
-                let (rect, piece) = open_piece(before, &style, &span);
+            for (rect, piece) in pieces {
                 let node = self
                     .doc_mut()
                     .scene
@@ -588,6 +597,11 @@ impl SlateApp {
                 let idx = self.doc().scene.nodes.len();
                 cmds.push(SceneCmd::Add { index: idx, node });
             }
+        } else {
+            cmds.push(SceneCmd::Remove {
+                index,
+                node: before.clone(),
+            });
         }
         self.commit_scene(cmds)
     }

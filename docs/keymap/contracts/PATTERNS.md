@@ -402,7 +402,16 @@ is searchable.
   wins over a vertex grip. A click or press on a grip picks that point
   (Shift toggles) into a per-curve picked-point set, painted filled and
   never journaled, which later per-vertex properties will read. Index
-  order: path vertex order; start, through, end for an arc.
+  order: path vertex order; start, through, end for an arc. **Edges**
+  (user, 28 September 2026, "dig selection"): Ctrl+Shift+click on a
+  segment, away from the grips, picks that edge and its two end vertices
+  (Rhino sub-object selection; the group-member and locked meanings stay).
+  More clicks add edges or toggle one off. A picked edge paints a
+  screen-constant line (path-edit exception); dragging it moves every
+  picked vertex as one snapped Patch; Delete removes the picked segments
+  through the trim owner (`commit_open_pieces`), splitting an open curve
+  and opening a closed one. With points picked the property strip shows
+  only per-vertex squircles (shape-selection-toolbar D13).
   Implementation: `board_direct::curve_grip_target`,
   `board_path::arc_grip_points`, `path_edit_overlay::path_edit_hit`,
   `slate_doc::scene::Corner::vertex_effective`.
