@@ -5090,7 +5090,7 @@ impl SlateApp {
             canvas.take_landed(&mut self.brush_tiles);
         }
         if let Some(id) = self.brush_straight_extends() {
-            let key = self.doc().scene.node(id).and_then(board_path::node_stamp_key);
+            let key = || self.doc().scene.node(id).and_then(board_path::node_stamp_key);
             let ppp = ui.ctx().pixels_per_point();
             let covered = self
                 .brush_live
