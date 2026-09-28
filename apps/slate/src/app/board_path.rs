@@ -5,8 +5,8 @@ pub(crate) mod tiles;
 
 use eframe::egui::{self, Color32, Pos2, Shape, Stroke as EStroke, Vec2};
 use slate_doc::scene::{
-    Dash, PathData, PathSeg, Rgba, ShapeKind, ShapeNode, Stroke, StrokeCap, StrokeJoin, StrokeSpan,
-    WidthProfile, WorldRect,
+    Dash, GroupToken, PathData, PathSeg, Rgba, ShapeKind, ShapeNode, Stroke, StrokeCap, StrokeJoin,
+    StrokeSpan, WidthProfile, WorldRect,
 };
 use slate_doc::vertex_style::PlacedTip;
 use slate_doc::{Node, NodeId, NodeKind, StrokeTool};
@@ -2111,7 +2111,8 @@ pub(crate) fn ensure_erase_live(app: &mut SlateApp, painter: &egui::Painter, xf:
 /// with a preview paints that preview; a stroke released before its
 /// preview existed paints as the scene has it until its new raster lands.
 /// The eraser's band covers the part of the pass not cut yet, as during
-/// the drag.
+/// the drag. A stroke any pass changed without knowing whether ink is left
+/// is removed in that pass's undo step once the workers find none.
 #[derive(Default)]
 pub struct EraseSettle {
     tab: Option<u64>,
@@ -2120,11 +2121,30 @@ pub struct EraseSettle {
     live: HashMap<NodeId, (u64, EraseLive)>,
     /// Strokes with no preview: their pass and committed content key.
     waiting: Vec<(NodeId, Seg, u64)>,
+    /// Strokes a pass changed past the frame's raster budget, straight or
+    /// freehand, while the workers find out whether any ink is left: the
+    /// committed content key and the pass's journal group.
+    checks: Vec<(NodeId, u64, GroupToken)>,
 }
 
 impl EraseSettle {
     pub(crate) fn is_empty(&self) -> bool {
-        self.live.is_empty() && self.waiting.is_empty()
+        self.live.is_empty() && self.waiting.is_empty() && self.checks.is_empty()
+    }
+
+    /// Stroke `id`, committed under content `key` by journal group `token`,
+    /// leaves the scene in that group if the workers find no ink left.
+    pub(crate) fn check(&mut self, id: NodeId, key: u64, token: GroupToken) {
+        self.checks.retain(|c| c.0 != id);
+        self.checks.push((id, key, token));
+    }
+
+    pub(crate) fn take_checks(&mut self) -> Vec<(NodeId, u64, GroupToken)> {
+        std::mem::take(&mut self.checks)
+    }
+
+    pub(crate) fn has_checks(&self) -> bool {
+        !self.checks.is_empty()
     }
 
     /// Eraser lanes whose jobs a settling preview still wants.
@@ -2137,7 +2157,8 @@ impl EraseSettle {
         self.live.contains_key(&id)
     }
 
-    /// Start settling for document `tab`, dropping another document's.
+    /// Start settling for document `tab`, dropping another document's
+    /// (its strokes stay as committed).
     pub(crate) fn here(&mut self, tab: u64, tiles: &mut tiles::BrushTiles) -> &mut Self {
         if self.tab != Some(tab) {
             self.clear(tiles);
@@ -2176,6 +2197,9 @@ impl EraseSettle {
             live.forget(tiles, tiles::erase_lane(id));
         }
         self.waiting.clear();
+        for (id, ..) in self.checks.drain(..) {
+            tiles.forget_ink(id);
+        }
     }
 
     /// Each settling stroke's pass and where along it the uncut part starts.

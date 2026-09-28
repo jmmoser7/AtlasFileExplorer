@@ -13250,6 +13250,257 @@ fn an_eraser_shift_release_with_its_cut_in_flight_keeps_the_preview() {
     assert_never_uncut_after_release(&mut h, &mut raster, cross);
 }
 
+/// A painted zigzag across the view at 150 % on a 1.5 px/pt display: too
+/// big for the frame's raster budget even as the eraser's coarse check,
+/// yet inside the band of the user's eraser (207 wide, softness 0.09) run
+/// along its middle. The eraser is smooth: the user's pencil grain leaves
+/// ink after one pass. Its tiles are settled and the Eraser is armed.
+/// Returns it and the screen ends of a pass that covers all of it.
+fn erasable_zigzag(tag: &str) -> (Harness, NodeId, Pos2, Pos2) {
+    let mut h = line_board(tag);
+    h.ctx.set_pixels_per_point(1.5);
+    h.frame_with(|i| i.max_texture_side = Some(8192));
+    h.app.tab_mut().cam.z = 1.5;
+    h.frame();
+    let c = h.app.board_xf().s2w(h.app.canvas_rect.center());
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.brush_width = 20.0;
+    let zig = [(-300.0, -65.0), (-150.0, 65.0), (0.0, -65.0), (150.0, 65.0), (300.0, -65.0)];
+    h.app
+        .finish_freehand_brush(zig.iter().map(|(x, y)| Pos2::new(c.x + x, c.y + y)).collect());
+    let id = h.app.doc().scene.nodes.last().unwrap().id;
+    settle_brush(&mut h, "the zigzag", |app| {
+        !app.brush_tiles.tiles_with(id).is_empty()
+    });
+    h.app.set_board_tool(board::BoardTool::Eraser);
+    h.app.eraser_width = 207.0;
+    h.app.eraser_softness = 0.09;
+    h.app.eraser_texture = Default::default();
+    h.frame();
+    let s = h.app.canvas_rect.center();
+    (h, id, s - EVec2::new(540.0, 0.0), s + EVec2::new(540.0, 0.0))
+}
+
+/// An eraser pass from screen `a` to `b` on consecutive frames (press, one
+/// move, release), with Shift held when `shift`. Stroke `id` has no preview
+/// yet when it is released. Returns the frame-loop stamp px and stamps
+/// counted just before the release frame.
+fn flick_eraser(h: &mut Harness, id: NodeId, a: Pos2, b: Pos2, shift: bool) -> (u64, u64) {
+    let modifiers = if shift {
+        egui::Modifiers::SHIFT
+    } else {
+        egui::Modifiers::NONE
+    };
+    let at = move |s: Pos2, button: Option<bool>| {
+        move |i: &mut egui::RawInput| {
+            i.modifiers = modifiers;
+            i.events.push(egui::Event::PointerMoved(s));
+            if let Some(pressed) = button {
+                i.events.push(egui::Event::PointerButton {
+                    pos: s,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers,
+                });
+            }
+        }
+    };
+    h.frame_with(at(a, None));
+    h.frame_with(at(a, Some(true)));
+    h.frame_with(at(b, None));
+    assert!(
+        !h.app.erase_live.contains_key(&id),
+        "the pass is released before its preview exists"
+    );
+    let counted = (
+        board_path::stamp_px_on_this_thread(),
+        board_path::stamps_on_this_thread(),
+    );
+    h.frame_with(at(b, Some(false)));
+    assert!(h.app.board_drag.is_none(), "the pass is released");
+    counted
+}
+
+/// Grid points over the zigzag where the board picks stroke `id`.
+fn zigzag_picks(h: &Harness, id: NodeId) -> usize {
+    let c = h.app.board_xf().s2w(h.app.canvas_rect.center());
+    let mut picks = 0;
+    for i in -40..=40 {
+        for j in -10..=10 {
+            let (x, y) = (c.x + i as f32 * 8.0, c.y + j as f32 * 8.0);
+            if h.app.board_pick_node(x, y) == Some(id) {
+                picks += 1;
+            }
+        }
+    }
+    picks
+}
+
+/// After an eraser release that left stroke `id` with no ink but could not
+/// tell within the frame's raster budget: the stroke is still in the scene
+/// with the pass's mark, and its erased ink does not pick. Frame by frame
+/// until the workers find no ink left, nothing stamps on the frame loop
+/// (counted from `counted`, before the release frame). Then the stroke is
+/// gone in the pass's own undo step: one Ctrl+Z restores `before`, one
+/// Ctrl+Shift+Z removes it again.
+fn assert_emptied_stroke_leaves_with_its_pass(
+    h: &mut Harness,
+    id: NodeId,
+    before: &slate_doc::Node,
+    depth: usize,
+    counted: (u64, u64),
+) {
+    let node = h.app.doc().scene.node(id).expect("the release defers the check");
+    assert_eq!(erase_marks(node).len(), 1, "the release commits the mark");
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "the pass is one undo step");
+    assert_eq!(zigzag_picks(h, id), 0, "the erased stroke picks");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let mut frames = 0;
+    while h.app.doc().scene.node(id).is_some() {
+        if std::time::Instant::now() > deadline {
+            let gone = board_color::erased_result(h.app.doc().scene.node(id).unwrap()).1;
+            panic!(
+                "the emptied stroke stayed in the scene for {frames} frames \
+                 (the pass left no ink: {gone})"
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        h.frame();
+        frames += 1;
+    }
+    let spent = board_path::stamp_px_on_this_thread() - counted.0;
+    let built = board_path::stamps_on_this_thread() - counted.1;
+    assert_eq!(spent, 0, "release to removal stamped {spent} px on the frame loop");
+    assert_eq!(built, 0, "release to removal rasterized {built} strokes on the frame loop");
+    assert_eq!(
+        h.app.tab().journal.undo_depth(),
+        depth + 1,
+        "the removal joined the pass's undo step"
+    );
+    press_key_with(h, egui::Key::Z, egui::Modifiers::CTRL);
+    assert_eq!(h.app.doc().scene.node(id), Some(before), "one undo restores the stroke");
+    assert_eq!(h.app.tab().journal.undo_depth(), depth);
+    press_key_with(h, egui::Key::Z, egui::Modifiers::CTRL | egui::Modifiers::SHIFT);
+    assert!(h.app.doc().scene.node(id).is_none(), "one redo removes it again");
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
+}
+
+/// Review r11 pushback 1: a Shift eraser pass that erases all of a big
+/// stroke, released before the frame could afford the coarse check, still
+/// removes it ("a stroke with no ink left is removed"): once the workers
+/// find no ink left, in the pass's own undo step, with nothing stamped on
+/// the frame loop.
+#[test]
+fn a_deferred_eraser_pass_that_empties_a_big_stroke_removes_it_in_the_same_undo_step() {
+    let (mut h, id, a, b) = erasable_zigzag("eraser_deferred_empty");
+    assert!(zigzag_picks(&h, id) > 0, "the zigzag picks before the pass");
+    let before = h.app.doc().scene.node(id).unwrap().clone();
+    let depth = h.app.tab().journal.undo_depth();
+    let counted = flick_eraser(&mut h, id, a, b, true);
+    assert_emptied_stroke_leaves_with_its_pass(&mut h, id, &before, depth, counted);
+}
+
+/// The same for a freehand pass that crossed the stroke before its preview
+/// existed.
+#[test]
+fn a_deferred_freehand_eraser_pass_that_empties_a_big_stroke_removes_it_too() {
+    let (mut h, id, a, b) = erasable_zigzag("eraser_deferred_empty_freehand");
+    let before = h.app.doc().scene.node(id).unwrap().clone();
+    let depth = h.app.tab().journal.undo_depth();
+    let counted = flick_eraser(&mut h, id, a, b, false);
+    assert_emptied_stroke_leaves_with_its_pass(&mut h, id, &before, depth, counted);
+}
+
+/// Frames until no eraser pass waits on the workers.
+fn settle_erase(h: &mut Harness) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while h.app.erase_settling() || !h.app.brush_tiles.last.settled {
+        assert!(std::time::Instant::now() < deadline, "the pass never settled");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        h.frame();
+    }
+}
+
+/// Drop what the last pass left, its Shift start and its rasters, so the
+/// next pass over stroke `id` starts at its press and is released before
+/// its preview exists again.
+fn forget_last_pass(h: &mut Harness, id: NodeId) {
+    h.app.eraser_anchor = None;
+    h.app.brush_tiles.clear();
+    h.app.brush_stamps.clear();
+    settle_brush(h, "the stroke", |app| {
+        !app.brush_tiles.tiles_with(id).is_empty()
+    });
+}
+
+/// Undo before the workers answer: the answer removes nothing, and the
+/// stroke is as it was before the pass. The same pass again, left alone,
+/// removes it in its own step.
+#[test]
+fn undoing_a_deferred_eraser_pass_before_its_check_lands_removes_nothing() {
+    let (mut h, id, a, b) = erasable_zigzag("eraser_deferred_undo");
+    let before = h.app.doc().scene.node(id).unwrap().clone();
+    let depth = h.app.tab().journal.undo_depth();
+    flick_eraser(&mut h, id, a, b, true);
+    assert!(h.app.erase_settling(), "the check is on the workers");
+    h.app.board_undo();
+    settle_erase(&mut h);
+    for _ in 0..20 {
+        h.frame();
+    }
+    assert_eq!(h.app.doc().scene.node(id), Some(&before), "undo restored the stroke");
+    assert_eq!(h.app.tab().journal.undo_depth(), depth);
+    assert!(h.app.tab().journal.can_redo(), "the pass waits to be redone");
+
+    forget_last_pass(&mut h, id);
+    let counted = flick_eraser(&mut h, id, a, b, true);
+    assert_emptied_stroke_leaves_with_its_pass(&mut h, id, &before, depth, counted);
+}
+
+/// An edit after the pass, before the workers answer: the pass is no longer
+/// the newest undo step, so its group is not amended. The emptied stroke
+/// stays, fully erased and not picking; Ctrl+Z undoes the edit and leaves
+/// it, a second Ctrl+Z restores it. The same pass again, left alone,
+/// removes it in its own step.
+#[test]
+fn an_edit_after_a_deferred_eraser_pass_keeps_the_emptied_stroke_out_of_its_undo_step() {
+    let (mut h, id, a, b) = erasable_zigzag("eraser_deferred_edit");
+    let c = h.app.board_xf().s2w(h.app.canvas_rect.center());
+    h.app.brush_width = 20.0;
+    h.app.finish_freehand_brush(vec![
+        Pos2::new(c.x, c.y + 200.0),
+        Pos2::new(c.x + 30.0, c.y + 200.0),
+    ]);
+    let other = h.app.doc().scene.nodes.last().unwrap().id;
+    h.app.set_board_tool(board::BoardTool::Eraser);
+    h.frame();
+    let before = h.app.doc().scene.node(id).unwrap().clone();
+    let depth = h.app.tab().journal.undo_depth();
+    flick_eraser(&mut h, id, a, b, true);
+    let erased = h.app.doc().scene.node(id).unwrap().clone();
+    assert!(h.app.erase_settling(), "the check is on the workers");
+    h.app.delete_board_nodes(&[other]);
+    assert!(h.app.doc().scene.node(other).is_none(), "the edit");
+    settle_erase(&mut h);
+    for _ in 0..20 {
+        h.frame();
+    }
+    assert!(board_color::erased_result(&erased).1, "the pass left no ink");
+    assert_eq!(h.app.doc().scene.node(id), Some(&erased), "the stroke stays");
+    assert_eq!(zigzag_picks(&h, id), 0, "the erased stroke picks");
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 2);
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    assert!(h.app.doc().scene.node(other).is_some(), "Ctrl+Z undoes the edit");
+    assert_eq!(h.app.doc().scene.node(id), Some(&erased), "and leaves the pass");
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    assert_eq!(h.app.doc().scene.node(id), Some(&before), "then undoes the pass");
+    assert_eq!(h.app.tab().journal.undo_depth(), depth);
+
+    forget_last_pass(&mut h, id);
+    let counted = flick_eraser(&mut h, id, a, b, true);
+    assert_emptied_stroke_leaves_with_its_pass(&mut h, id, &before, depth, counted);
+}
+
 /// The same holds for a brush release: the live canvas stands in for the
 /// committed stroke, so the commit frame rasterizes nothing.
 #[test]
