@@ -3016,6 +3016,34 @@ mod tests {
         );
     }
 
+    /// A pan press on a blister does not arm the press guard, which only a
+    /// primary release clears, so the next board click still lands.
+    #[test]
+    fn a_pan_press_on_a_blister_does_not_eat_the_next_board_click() {
+        let mut p = linked("xt_pan_guard");
+        escape(&mut p.h);
+        let mid = mid_span(&p.h, owner_wire(&p.h));
+        p.h.frame_with(|i| i.events.push(egui::Event::PointerMoved(mid)));
+        for pressed in [true, false] {
+            p.h.frame_with(|i| {
+                i.events.push(egui::Event::PointerButton {
+                    pos: mid,
+                    button: egui::PointerButton::Middle,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                })
+            });
+        }
+        p.h.frame();
+        p.h.app.board_sel = [p.codex].into_iter().collect();
+        let canvas = p.h.app.canvas_rect;
+        click(&mut p.h, canvas.left_bottom() + egui::vec2(40.0, -40.0));
+        assert!(
+            p.h.app.board_sel.is_empty(),
+            "the click on empty board clears the selection"
+        );
+    }
+
     /// Step mode keeps each hand-off one quiet click beside the newest
     /// wire's blister.
     #[test]

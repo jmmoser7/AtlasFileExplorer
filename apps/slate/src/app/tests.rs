@@ -23957,6 +23957,42 @@ fn visual_verification_frames() {
     snapshot(&mut h, &mut raster, out, "08-direct-select");
 }
 
+/// Review, 28 September 2026: with more programs than one row holds, the grid
+/// fit grows the card about its left edge's midpoint, where a wire-drop
+/// spawn's context input sits, and one Undo still removes the portal.
+#[test]
+fn a_two_row_program_grid_keeps_the_agent_portals_input_in_place() {
+    let mut h = Harness::new("agent_grid_fit_center");
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    h.app
+        .set_agent_programs_for_test(&["cursor", "codex", "ollama", "comfy", "openai-text"]);
+    h.app.tab_mut().cam.z = 1.0;
+    h.frame();
+    h.app.place_agent_portal_at(Pos2::new(300.0, 200.0));
+    let id = *h.app.board_sel.iter().next().expect("the portal is selected");
+    let before = h.app.doc().scene.node(id).unwrap().rect;
+    for _ in 0..4 {
+        h.frame();
+    }
+    let after = h.app.doc().scene.node(id).unwrap().rect;
+    assert!(
+        after.h > before.h,
+        "two rows grow the card: {before:?} -> {after:?}"
+    );
+    assert_eq!(after.x, before.x, "the left edge stays");
+    assert!(
+        (after.y + after.h * 0.5 - (before.y + before.h * 0.5)).abs() < 0.01,
+        "the left edge's midpoint stays: {before:?} -> {after:?}"
+    );
+    h.app.board_undo();
+    assert!(
+        h.app.doc().scene.node(id).is_none(),
+        "one Undo removes the fitted portal"
+    );
+}
+
 /// Wire-drop Agent (user, 28 September 2026). A wire from a picture released
 /// on empty board offers Text, Image and Agent; Esc closes the menu and adds
 /// nothing. Agent places an agent portal in chat train presentation, still

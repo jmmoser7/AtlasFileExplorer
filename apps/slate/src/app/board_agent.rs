@@ -1322,8 +1322,9 @@ impl SlateApp {
         if self.flow_input(ui, xf) {
             // Hovering the spawn menu only shields this frame. Holding the
             // press guard until a release would eat the first click after
-            // Esc closes the menu.
-            if ui.input(|i| i.pointer.any_pressed()) {
+            // Esc closes the menu. Only a primary release clears the guard,
+            // so only a primary press arms it.
+            if ui.input(|i| i.pointer.primary_pressed()) {
                 self.board_align_eat_press = true;
             }
             return true;
@@ -1335,13 +1336,17 @@ impl SlateApp {
         if let Some(pointer) = ui.ctx().pointer_latest_pos() {
             // Blisters, the Send pill, the capsule and its editor take their
             // own presses, not the moves and release of a gesture that began
-            // elsewhere. Only a press arms the guard: a hover that held it
-            // until a release would eat the next board click.
+            // elsewhere. Only a primary press arms the guard: a hover or a
+            // pan press that held it until a primary release would eat the
+            // next board click.
             let gesture = self.board_drag.is_some()
                 || self.brush_straight.is_some()
-                || self.pen_straight.is_some();
+                || self.pen_straight.is_some()
+                || self.agents.spawn_drag.is_some()
+                || self.agents.artifact_drag.is_some()
+                || self.agents.stop_press.is_some();
             if !gesture && self.crosstalk_captures(pointer) {
-                if ui.input(|i| i.pointer.any_pressed()) {
+                if ui.input(|i| i.pointer.primary_pressed()) {
                     self.board_align_eat_press = true;
                 }
                 return true;
@@ -8005,18 +8010,14 @@ impl SlateApp {
                 .filter(|n| (n.rect.w - width).abs() > 1.0 || (n.rect.h - height).abs() > 1.0)
                 .map(|n| {
                     let mut n = n.clone();
-                    n.rect.w = width;
-                    n.rect.h = height;
+                    fit_program_grid(&mut n, width, height);
                     n
                 });
             if let Some(after) = resized {
                 // Fitting the grid settles the step that placed the portal,
                 // so one Undo still removes it (and a wire placed with it).
                 if !self.fold_into_last_step(&after) {
-                    self.patch_nodes(&[id], |n| {
-                        n.rect.w = width;
-                        n.rect.h = height;
-                    });
+                    self.patch_nodes(&[id], |n| fit_program_grid(n, width, height));
                 }
             }
         }
@@ -10267,6 +10268,15 @@ pub(crate) fn program_card_size(view: atlas_ai::agent::PortalView) -> egui::Vec2
         PortalView::Images => egui::vec2(960.0, 540.0),
         PortalView::Text => egui::vec2(440.0, 320.0),
     }
+}
+
+/// Sizes an unbound agent portal to its program grid about its left edge's
+/// midpoint, where its context input sits, so a wire-drop spawn keeps that
+/// input at the drop point and a click-placed portal stays centered.
+fn fit_program_grid(n: &mut Node, width: f32, height: f32) {
+    n.rect.y += (n.rect.h - height) * 0.5;
+    n.rect.w = width;
+    n.rect.h = height;
 }
 
 /// Bind a program onto an agent portal: provider identity, a fresh session,
