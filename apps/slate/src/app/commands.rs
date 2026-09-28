@@ -1861,7 +1861,7 @@ pub static SPECS: &[CommandSpec] = &[
         "Board",
         "Brush / eraser width −",
         "[ — steps by the Photoshop screen-px tiers (<10:1 · 10–50:5 · \
-         50–100:10 · >100:25); adjusts the eraser while E is armed",
+         50–100:10 · >100:25); adjusts the Eraser or Smooth tip while it is armed",
         Some(Chord::bare(Key::OpenBracket)),
         Repeat::Repeatable,
         BOARD,
@@ -1881,7 +1881,7 @@ pub static SPECS: &[CommandSpec] = &[
         "board.brush.softness_up",
         "Board",
         "Brush softness +",
-        "Shift+[ — softer edge, in 25% steps, while Brush or Eraser is armed",
+        "Shift+[ — softer edge, in 25% steps, while Brush, Eraser, or Smooth is armed",
         Some(shift(Key::OpenBracket)),
         Repeat::Repeatable,
         BOARD,
@@ -1891,7 +1891,7 @@ pub static SPECS: &[CommandSpec] = &[
         "board.brush.softness_down",
         "Board",
         "Brush softness −",
-        "Shift+] — harder edge, in 25% steps, while Brush or Eraser is armed",
+        "Shift+] — harder edge, in 25% steps, while Brush, Eraser, or Smooth is armed",
         Some(shift(Key::CloseBracket)),
         Repeat::Repeatable,
         BOARD,
@@ -1910,25 +1910,14 @@ pub static SPECS: &[CommandSpec] = &[
          softness (up softer; Brush, Eraser, and Smooth only). Dragging down into the \
          style row under the circle reaches hardest softness, and anywhere in \
          that band size and softness hold while a swatch picks the texture or \
-         curve style. Esc restores the values from the press.",
+         curve style. Mid-draw on a curve tool it sets the width of the point \
+         being placed, and the curve tweens from the points already placed; \
+         mid-stroke the Pen blends into the new width. Esc restores the values \
+         from the press.",
         None,
         Repeat::Never,
         BOARD,
-        &["hud", "diameter"],
-    ),
-    spec(
-        "board.stroke.width_hud",
-        "Board",
-        "Scrub stroke width",
-        "Alt+right-drag while Pen, Line, Arc, Polyline, or Bezier is armed: \
-         the Brush size HUD, for that tool's own width only (no softness). \
-         Mid-draw it sets the width of the point being placed, and the \
-         curve tweens from the points already placed; mid-stroke the Pen \
-         blends into the new width. Esc restores the width.",
-        None,
-        Repeat::Never,
-        BOARD,
-        &["hud", "width", "thickness"],
+        &["hud", "diameter", "width", "thickness"],
     ),
     spec(
         "board.brush.color_wheel",

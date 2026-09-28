@@ -246,15 +246,19 @@ drag the address-bar URL or a page link instead.
   colors, and releasing Alt paints again. The sampling cursor's swatch is a
   ring, so the hotspot pixel shows the canvas. Select-tool Alt-drag
   duplicate is untouched.
-- **E — Eraser**: drag scrubs across ink; only Path/Line shape strokes are
-  erasable (images, text, frames, and connectors never are). Touched
-  strokes render at 30% until release; release = one journal group of
-  Removes; **Esc cancels** (nothing was mutated). Hidden/locked strokes are
-  skipped.
-- **[ / ]** step the brush width — the eraser width while E is armed —
-  using the Photoshop tiers in **screen px** converted by zoom
-  (`<10:±1 · 10–50:±5 · 50–100:±10 · >100:±25`). A width circle (solid core
-  + fainter feather ring) tracks the pointer while Brush/Eraser is armed.
+- **E — Eraser**: drag or click over ink; only Path/Line shape strokes are
+  erasable (images, text, frames, and connectors never are). Painted
+  (stamped) brush strokes are spot-erased: the pass erases just the ink it
+  covers (soft, partial, and Shift-straight like the Brush) and each
+  reached stroke takes one `Patch` storing the erase mark; a stroke left
+  with no ink is removed. Vector strokes the eraser crosses render at 30%
+  until release and are then removed whole. One pass is one journal group;
+  **Esc cancels** (nothing was mutated). Hidden/locked strokes are skipped.
+- **[ / ]** step the brush width — the Eraser or Smooth width while that
+  tool is armed — using the Photoshop tiers in **screen px** converted by
+  zoom (`<10:±1 · 10–50:±5 · 50–100:±10 · >100:±25`). A width circle
+  (solid core + fainter feather ring) tracks the pointer while
+  Brush/Eraser is armed.
 - **Tip HUD** — **Alt+right-drag** (`board.brush.size_hud`: size, and
   softness for Brush, Eraser, and Smooth), **Shift+right-drag**
   (`board.brush.opacity_hud`: opacity, or Eraser / Smooth strength), and
@@ -263,7 +267,7 @@ drag the address-bar URL or a page link instead.
   and on a committed curve: its picked vertices (Direct Select anchors or
   Select-tool grips), else the vertex under the pointer, else the whole
   curve under Direct Select (see *Picked vertices* below).
-- **Alt+right-drag** (`board.stroke.width_hud`) with Pen, Line, Arc,
+- **Alt+right-drag** (`board.brush.size_hud`) with Pen, Line, Arc,
   Polyline, or Bézier armed opens the Brush size HUD for that tool's own
   width (horizontal only; these strokes are always hard). During a line,
   arc, polyline, or Bézier draft it sets the width of the point being
