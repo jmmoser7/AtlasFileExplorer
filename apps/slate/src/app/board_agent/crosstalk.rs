@@ -1064,7 +1064,10 @@ impl SlateApp {
                 continue;
             }
             let outcome = self.perform_relay(&chain, &owner, &offer, first, tail);
+            let relays = xt::relays(&self.doc().scene, &chain);
             let run = self.agents.crosstalk.runs.get_mut(&chain).unwrap();
+            // An Undo before the next pump must find the wire this one added.
+            run.seen = relays;
             run.offer = None;
             match outcome {
                 Ok(()) => run.waiting = Some((partner, Instant::now())),
@@ -2158,6 +2161,29 @@ mod tests {
         p.h.app.board_undo();
         p.h.frame();
         assert_eq!(crosswires(&p.h).len(), 2, "Undo removes one relay's wire");
+        assert_eq!(status(&p.h), "Paused · a relay was undone");
+    }
+
+    /// Review, 28 September 2026: an Undo before the next pump still pauses.
+    /// The pump that relays counts the wire it just added, so undoing it
+    /// right away cannot bring the offer back.
+    #[test]
+    fn undoing_a_relay_in_the_pump_that_sent_it_pauses_the_run() {
+        let mut p = started("xt_undo_same_pump");
+        p.h.frame();
+        assert_eq!(status(&p.h), "Cursor replied · Send to Codex?");
+        assert!(command(&mut p.h, "portal.agent.crosstalk.send", None));
+        let ctx = p.h.ctx.clone();
+        p.h.app.pump_crosstalk(&ctx);
+        assert_eq!(crosswires(&p.h).len(), 2, "one pump relays");
+        assert!(
+            !p.h.app.agents.dispatched.is_empty(),
+            "the relay reached Codex"
+        );
+
+        p.h.app.board_undo();
+        p.h.frame();
+        assert_eq!(crosswires(&p.h).len(), 1, "Undo removes the relay's wire");
         assert_eq!(status(&p.h), "Paused · a relay was undone");
     }
 
