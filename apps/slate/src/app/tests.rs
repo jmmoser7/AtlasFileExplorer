@@ -742,6 +742,68 @@ fn board_undo_redo_round_trip() {
     h.frame();
 }
 
+/// Review r12 finding 5 (Art. VI): a step that cannot be undone or redone
+/// stays where it was, with its Ctrl+Z mark, and the user is told. The
+/// next attempt fails the same way instead of reaching the step under it.
+#[test]
+fn a_failed_board_undo_or_redo_keeps_its_step_and_says_so() {
+    fn drift(h: &mut Harness, id: NodeId) {
+        let at = h.app.doc().scene.index_of(id).unwrap();
+        h.app.tab_mut().doc.scene.nodes[at].id = NodeId(777);
+    }
+    fn toasted(h: &Harness, msg: &str) -> bool {
+        h.app.toasts.iter().any(|(m, _)| m == msg)
+    }
+
+    // Undo: the frame move fails; the frame added under it must stay.
+    let mut h = Harness::new("board_undo_fails");
+    h.seed();
+    let moved = h.seed_frame(None);
+    let older = h.seed_frame(None);
+    h.app
+        .patch_nodes(&[moved], |n| n.rect = n.rect.translated(100.0, 0.0));
+    drift(&mut h, moved);
+    let (edits, depth) = (h.app.tab().edits.len(), h.app.tab().journal.undo_depth());
+    for attempt in ["first", "second"] {
+        h.app.toasts.clear();
+        h.app.board_undo();
+        let tab = h.app.tab();
+        assert!(tab.doc.scene.node(older).is_some(), "{attempt}: older kept");
+        assert_eq!(tab.edits.len(), edits, "{attempt}: mark stays on edits");
+        assert!(tab.edit_redo.is_empty(), "{attempt}: nothing to redo");
+        assert_eq!(tab.journal.undo_depth(), depth, "{attempt}");
+        assert!(!tab.journal.can_redo(), "{attempt}");
+        assert!(toasted(&h, "Couldn't undo that step"), "{attempt}");
+    }
+    h.frame();
+
+    // Redo: the frame move fails; the frame added after it must not appear.
+    let mut h = Harness::new("board_redo_fails");
+    h.seed();
+    let moved = h.seed_frame(None);
+    h.app
+        .patch_nodes(&[moved], |n| n.rect = n.rect.translated(100.0, 0.0));
+    let newer = h.seed_frame(None);
+    h.app.board_undo();
+    h.app.board_undo();
+    assert!(h.app.doc().scene.node(newer).is_none());
+    drift(&mut h, moved);
+    let (edits, redo) = (h.app.tab().edits.len(), h.app.tab().edit_redo.len());
+    let depth = h.app.tab().journal.undo_depth();
+    for attempt in ["first", "second"] {
+        h.app.toasts.clear();
+        h.app.board_redo();
+        let tab = h.app.tab();
+        assert!(tab.doc.scene.node(newer).is_none(), "{attempt}: unreached");
+        assert_eq!(tab.edits.len(), edits, "{attempt}: nothing moved to edits");
+        assert_eq!(tab.edit_redo.len(), redo, "{attempt}: mark stays on redo");
+        assert_eq!(tab.journal.undo_depth(), depth, "{attempt}");
+        assert!(tab.journal.can_redo(), "{attempt}");
+        assert!(toasted(&h, "Couldn't redo that step"), "{attempt}");
+    }
+    h.frame();
+}
+
 #[test]
 fn duplicate_and_delete_board_nodes() {
     let mut h = Harness::new("board_dup");
@@ -10014,11 +10076,43 @@ fn opening_a_workbook_keeps_an_untitled_board_only_tab() {
     assert_eq!(kept.doc.scene.nodes, vec![mark]);
 }
 
+/// Review r12 note N7: an untitled tab whose board was emptied still holds
+/// its undo history, which may be the only copy of the drawing. Opening a
+/// workbook takes a new tab, and one undo there brings the stroke back.
+#[test]
+fn opening_a_workbook_keeps_an_untitled_tab_with_undo_history() {
+    let mut h = brush_board("open_keeps_undo_history");
+    let freehand = [
+        Pos2::new(40.0, 40.0),
+        Pos2::new(80.0, 60.0),
+        Pos2::new(120.0, 40.0),
+    ];
+    press_drag_release_frames(&mut h, &freehand, egui::Modifiers::NONE, |_| {});
+    let mark = h.app.doc().scene.nodes[0].clone();
+    h.app.delete_board_nodes(&[mark.id]);
+    assert!(h.app.tab().path.is_none());
+    assert!(h.app.doc().scene.nodes.is_empty());
+    assert!(!h.app.tab().is_blank(), "undo history is content");
+    let (drawn_tab, tabs) = (h.app.tab().id, h.app.tabs.len());
+    let depth = h.app.tab().journal.undo_depth();
+    let path = h.base.join("other.slate");
+    SlateDoc::new("Other").save_to(&path).unwrap();
+    h.app.open_doc_at(path.clone());
+    assert_eq!(h.app.tabs.len(), tabs + 1, "the workbook took a new tab");
+    assert_eq!(h.app.tab().path.as_deref(), Some(path.as_path()));
+    let at = h.app.tabs.iter().position(|t| t.id == drawn_tab).unwrap();
+    assert_eq!(h.app.tabs[at].journal.undo_depth(), depth, "history kept");
+    h.app.switch_tab(at);
+    h.frame();
+    h.app.board_undo();
+    assert_eq!(h.app.doc().scene.nodes, vec![mark]);
+}
+
 /// Review r10 finding 1, same tab: opening a workbook reuses a blank tab
 /// under the same tab id, and the loaded document numbers its nodes
-/// afresh. The stroke is deleted first so the tab is blank again while the
-/// chain still names it. A Shift drag there starts at the press and leaves
-/// the loaded node with the mark's number.
+/// afresh. The stroke is deleted and the tab's history dropped, so the tab
+/// is blank again while the chain still names it. A Shift drag there starts
+/// at the press and leaves the loaded node with the mark's number.
 #[test]
 fn brush_shift_after_opening_a_workbook_over_the_tab_starts_at_the_press() {
     let mut h = brush_board("brush_shift_open_over");
@@ -10031,6 +10125,10 @@ fn brush_shift_after_opening_a_workbook_over_the_tab_starts_at_the_press() {
     let mark = h.app.doc().scene.nodes[0].clone();
     let tab_id = h.app.tab().id;
     h.app.delete_board_nodes(&[mark.id]);
+    let tab = h.app.tab_mut();
+    tab.journal = slate_doc::scene::SceneJournal::default();
+    tab.edits.clear();
+    tab.edit_redo.clear();
     assert!(h.app.tab().is_blank());
     let mut other = SlateDoc::new("Other");
     other.view.active_view = ViewKind::Board;

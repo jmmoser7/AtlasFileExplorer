@@ -28,6 +28,17 @@
   the fully erased stroke stays; its erased pixels do not pick. Nothing
   stamps on the frame loop for the check.
 
+## 2026-09-27 — Undo never skips a step; an emptied board keeps its tab (review r12)
+
+- Board undo / redo: a step that cannot be undone stays on the undo stack
+  with its Ctrl+Z mark, the board is left as it was, and a toast says
+  "Couldn't undo that step". The next Ctrl+Z tries the same step again
+  instead of silently undoing the older step under it. Redo keeps a failed
+  step on the redo stack the same way ("Couldn't redo that step").
+- An untitled tab whose board was emptied by delete or undo is not blank
+  while it still has board undo or redo history. Opening a workbook takes
+  a new tab, so that history (possibly the only copy of a drawing) is kept.
+
 ## 2026-09-27 — A board drawing keeps its untitled tab
 
 - An untitled tab whose only content is on its board is no longer treated

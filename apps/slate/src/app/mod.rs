@@ -198,11 +198,15 @@ impl SlateTab {
         title
     }
 
+    /// Nothing to lose: no file, no content, and no board history (an
+    /// emptied board's undo stack may be the only copy of a drawing).
     pub fn is_blank(&self) -> bool {
         self.path.is_none()
             && self.doc.items.is_empty()
             && self.doc.groups.is_empty()
             && self.doc.scene.nodes.is_empty()
+            && !self.journal.can_undo()
+            && !self.journal.can_redo()
     }
 }
 

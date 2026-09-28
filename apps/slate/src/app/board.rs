@@ -1642,6 +1642,11 @@ impl SlateApp {
             Some(BoardMark::Sheet(mark)) => self.revert_sheet_mark(mark, true),
             Some(BoardMark::Scene) => {
                 let depth_before = self.undo_scene_journal();
+                if depth_before.is_none() && self.tab().journal.can_undo() {
+                    self.tab_mut().edits.push(BoardMark::Scene);
+                    self.toast("Couldn't undo that step");
+                    return;
+                }
                 self.tab_mut().edit_redo.push(BoardMark::Scene);
                 if let Some(depth) = depth_before {
                     self.deck.note_scene_undo(depth);
@@ -1651,6 +1656,10 @@ impl SlateApp {
             }
             None => {
                 let depth_before = self.undo_scene_journal();
+                if depth_before.is_none() && self.tab().journal.can_undo() {
+                    self.toast("Couldn't undo that step");
+                    return;
+                }
                 self.tab_mut().edit_redo.clear();
                 if let Some(depth) = depth_before {
                     self.deck.note_scene_undo(depth);
@@ -1676,6 +1685,10 @@ impl SlateApp {
                 if let Some(depth) = self.redo_scene_journal() {
                     self.tab_mut().edits.push(BoardMark::Scene);
                     self.deck.note_scene_redo(depth);
+                } else if self.tab().journal.can_redo() {
+                    self.tab_mut().edit_redo.push(BoardMark::Scene);
+                    self.toast("Couldn't redo that step");
+                    return;
                 } else {
                     self.tab_mut().edits.push(BoardMark::Scene);
                 }
@@ -1685,6 +1698,9 @@ impl SlateApp {
             None => {
                 if let Some(depth) = self.redo_scene_journal() {
                     self.deck.note_scene_redo(depth);
+                } else if self.tab().journal.can_redo() {
+                    self.toast("Couldn't redo that step");
+                    return;
                 }
                 self.last_board_edit = None;
                 self.note_scene_change();
