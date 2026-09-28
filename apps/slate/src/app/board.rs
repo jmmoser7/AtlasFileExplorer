@@ -4163,6 +4163,7 @@ impl SlateApp {
         self.fit_agent_cards(ui.ctx());
         let _span = atlas_core::session_log::span("slate.board.paint");
         brush_prof::lap("paint-start");
+        self.stamp_sync_px = 0.0;
         self.path_mesh_cache.tess_misses = 0;
         self.board_snap_guides.clear();
         self.board_osnap_hit = None;
@@ -4243,12 +4244,16 @@ impl SlateApp {
                 || palette_wheel)
             && !external_capture
         {
-            let scroll = ui.input(|i| i.smooth_scroll_delta.y + i.raw_scroll_delta.y);
+            // egui hands a Shift wheel over as a horizontal delta.
+            let (scroll, shift) = ui.input(|i| {
+                let d = i.smooth_scroll_delta + i.raw_scroll_delta;
+                let shift = i.modifiers.shift;
+                (if shift { d.x + d.y } else { d.y }, shift)
+            });
             if scroll.abs() > 0.0 {
                 // Scroll over an unlocked 3D viewport zooms the model, not
                 // the board (Rhino wheel semantics while live).
                 let live_model = wp.and_then(|w| self.live_model_at(w.x, w.y));
-                let shift = ui.input(|i| i.modifiers.shift);
                 let sheet_scrolled =
                     live_model.is_none() && wp.is_some_and(|w| self.scroll_sheet(w, scroll, shift));
                 if let Some(id) = live_model {
@@ -4270,6 +4275,10 @@ impl SlateApp {
                     ui.ctx().input_mut(|i| {
                         i.smooth_scroll_delta.y = 0.0;
                         i.raw_scroll_delta.y = 0.0;
+                        if shift {
+                            i.smooth_scroll_delta.x = 0.0;
+                            i.raw_scroll_delta.x = 0.0;
+                        }
                     });
                 }
             }
@@ -5079,7 +5088,6 @@ impl SlateApp {
         // Viewport cull uses the spatial index (Art. II); off-screen nodes
         // are not cloned or painted.
         self.begin_agent_paint();
-        self.stamp_sync_px = 0.0;
         let _nodes_span = atlas_core::session_log::span("slate.board.nodes");
         let mut nodes = self.board_paint_nodes(rect);
         // A Shift preview that continues a stroke paints that stroke inside
@@ -7356,9 +7364,10 @@ impl SlateApp {
                 touched,
                 points,
                 spot,
+                straight,
                 ..
             }) => {
-                self.finish_erase(touched, points, spot);
+                self.finish_erase_pass(touched, points, spot, straight);
             }
             Some(drag @ BoardDrag::Smooth { .. }) => {
                 self.finish_smooth(drag);

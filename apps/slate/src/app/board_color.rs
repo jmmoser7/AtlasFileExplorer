@@ -156,6 +156,23 @@ pub(crate) fn stamp_erase_mark(
     ink.then_some((after, gone))
 }
 
+/// [`stamp_erase_mark`] when `fits` grants its coarse bitmap from the
+/// frame's raster budget. Otherwise nothing rasterizes: the mark is
+/// committed as if the pass touched ink and left some, and the second value
+/// is true.
+fn stamp_erase_mark_within(
+    before: &Node,
+    points: &[Pos2],
+    span: StrokeSpan,
+    fits: &mut dyn FnMut(f32) -> bool,
+) -> (Option<(Node, bool)>, bool) {
+    let after = with_erase_mark(before, points, span);
+    match erased_result_within(&after, fits) {
+        Some((ink, gone)) => (ink.then_some((after, gone)), false),
+        None => (Some((after, false)), true),
+    }
+}
+
 /// `before` with one more erase pass along world `points`.
 pub(crate) fn with_erase_mark(before: &Node, points: &[Pos2], span: StrokeSpan) -> Node {
     let mut after = before.clone();
@@ -1564,7 +1581,7 @@ impl SlateApp {
     /// end of the last pass (or from the press when there is none).
     pub(crate) fn begin_erase(&mut self, world: Pos2, shift: bool) -> super::board::BoardDrag {
         self.erase_live.clear();
-        self.brush_tiles.forget_erase_lines();
+        self.brush_tiles.forget_erase_lines(&self.erase_settle.lanes());
         let points = if shift {
             vec![self.eraser_anchor.unwrap_or(world), world]
         } else {
@@ -1676,25 +1693,47 @@ impl SlateApp {
         }
     }
 
-    /// Eraser release. Painted strokes keep an erase pass (one journal group
-    /// of patches); ones left with no visible ink, and vector strokes the
-    /// pass crossed, are removed.
+    /// Eraser release of a freehand pass ([`Self::finish_erase_pass`]).
     pub(crate) fn finish_erase(
         &mut self,
         touched: Vec<NodeId>,
         points: Vec<Pos2>,
         spot: Vec<NodeId>,
     ) {
+        self.finish_erase_pass(touched, points, spot, false);
+    }
+
+    /// Eraser release. Painted strokes keep an erase pass (one journal group
+    /// of patches); ones left with no visible ink, and vector strokes the
+    /// pass crossed, are removed. Nothing big rasterizes here (Art. II): a
+    /// straight pass whose final cut is still on the workers commits its
+    /// mark at once and settles while the cut lands ([`board_path::EraseSettle`]).
+    pub(crate) fn finish_erase_pass(
+        &mut self,
+        touched: Vec<NodeId>,
+        points: Vec<Pos2>,
+        spot: Vec<NodeId>,
+        straight: bool,
+    ) {
         let mut live = std::mem::take(&mut self.erase_live);
-        self.brush_tiles.forget_erase_lines();
+        for (id, l) in live.iter_mut() {
+            l.take_landed(&mut self.brush_tiles, board_path::tiles::erase_lane(*id));
+        }
         self.draft_lock = None;
         if let Some(last) = points.last() {
             self.eraser_anchor = Some(*last);
         }
         let tip = self.eraser_tip();
-        for l in live.values_mut() {
-            l.settle_line(&points, tip);
+        let mut pending = Vec::new();
+        for (id, l) in live.iter_mut() {
+            let fits = &mut |area| board_path::take_sync_budget(self, area);
+            if l.settle_line(&points, tip, fits) == board_path::EraseSettled::Pending {
+                pending.push(*id);
+            }
         }
+        let mut keep = self.erase_settle.lanes();
+        keep.extend(pending.iter().map(|id| board_path::tiles::erase_lane(*id)));
+        self.brush_tiles.forget_erase_lines(&keep);
         let span = slate_doc::scene::StrokeSpan {
             width: tip.diameter,
             softness: tip.softness,
@@ -1737,26 +1776,42 @@ impl SlateApp {
         }
         // Strokes whose preview becomes their stand-in once the patch lands.
         let mut stand_ins = Vec::new();
+        // Strokes whose pass settles after the patch lands.
+        let mut settles = Vec::new();
         for id in &spot {
             // Only strokes the pass visibly changed. The live preview already
             // holds the result, so release reads it instead of stamping the
-            // stroke again on the frame loop. Without one (headless), fall
-            // back to stamping the result.
-            if live.get(id).is_some_and(|l| !l.changed) {
+            // stroke again on the frame loop. Without one, or while its cut
+            // is on the workers, a coarse check decides within the frame's
+            // raster budget; past it the mark commits unseen.
+            let unseen = pending.contains(id) || !live.contains_key(id);
+            if !unseen && live.get(id).is_some_and(|l| !l.changed) {
                 continue;
             }
             let Some(before) = self.doc().scene.node(*id).cloned() else {
                 continue;
             };
-            let result = match live.get(id) {
-                Some(l) => Some((with_erase_mark(&before, &points, span), !l.left_ink())),
-                None => stamp_erase_mark(&before, &points, span),
+            let (result, deferred) = match live.get(id) {
+                Some(l) if !unseen => (
+                    Some((with_erase_mark(&before, &points, span), !l.left_ink())),
+                    false,
+                ),
+                _ => {
+                    let fits = &mut |area| board_path::take_sync_budget(self, area);
+                    stamp_erase_mark_within(&before, &points, span, fits)
+                }
             };
             let Some((after, gone)) = result else {
                 continue;
             };
             if !gone && live.contains_key(id) {
-                stand_ins.push((*id, after.rect));
+                if pending.contains(id) {
+                    settles.push((*id, board_path::node_stamp_key(&after)));
+                } else {
+                    stand_ins.push((*id, after.rect));
+                }
+            } else if deferred && straight {
+                settles.push((*id, board_path::node_stamp_key(&after)));
             }
             if gone {
                 if let Some(index) = self
@@ -1795,12 +1850,34 @@ impl SlateApp {
                 self.brush_stamps.insert(id, (0, gpu));
             }
         }
+        let tab = self.tab().id;
+        let settle = self.erase_settle.here(tab, &mut self.brush_tiles);
+        for (id, key) in settles {
+            let Some(key) = key else {
+                continue;
+            };
+            match live.remove(&id) {
+                Some(l) => settle.hold(id, key, l),
+                None => settle.wait(id, key, &points, tip),
+            }
+        }
+        for (id, mut l) in live {
+            if pending.contains(&id) {
+                l.forget(&mut self.brush_tiles, board_path::tiles::erase_lane(id));
+            }
+        }
         if n > 0 {
             self.push_history(
                 atlas_commands::CommandId("board.eraser.stroke"),
                 Some(format!("{n} stroke(s)")),
             );
         }
+    }
+
+    /// A released straight eraser pass still waits on a cut or a raster.
+    #[cfg(test)]
+    pub(crate) fn erase_settling(&self) -> bool {
+        !self.erase_settle.is_empty()
     }
 
     // ---------- eyedropper (I / Alt while Brush) ----------
@@ -2450,11 +2527,20 @@ fn wheel_ring_mesh(center: Pos2) -> egui::Mesh {
 /// Stamp an erased painted stroke once, as committed (blur included):
 /// `(pass touched ink, nothing left)`.
 pub(crate) fn erased_result(node: &slate_doc::Node) -> (bool, bool) {
+    erased_result_within(node, &mut |_| true).unwrap_or((false, false))
+}
+
+/// [`erased_result`], or `None` with nothing rasterized when `fits`
+/// refuses the pixel count of its coarse bitmap.
+pub(crate) fn erased_result_within(
+    node: &slate_doc::Node,
+    fits: &mut dyn FnMut(f32) -> bool,
+) -> Option<(bool, bool)> {
     let NodeKind::Shape(shape) = &node.kind else {
-        return (false, false);
+        return Some((false, false));
     };
     let Some(path) = shape.path.as_ref() else {
-        return (false, false);
+        return Some((false, false));
     };
     let contours = board_path::stamped_contours(node, shape, path, 0.5);
     let widest = contours
@@ -2463,13 +2549,25 @@ pub(crate) fn erased_result(node: &slate_doc::Node) -> (bool, bool) {
         .map(|p| p.tip.diameter)
         .fold(0.0_f32, f32::max);
     let pixel = (widest / 64.0).max(1.0);
+    let (mut lo, mut hi) = ([f32::MAX; 2], [f32::MIN; 2]);
+    for p in contours.iter().flatten() {
+        for k in 0..2 {
+            lo[k] = lo[k].min(p.pos[k]);
+            hi[k] = hi[k].max(p.pos[k]);
+        }
+    }
+    let pad = widest + 6.0 * shape.stroke.gaussian_blur.max(0.0);
+    let side = |k: usize| ((hi[k] - lo[k]).max(0.0) + pad) / pixel + 1.0;
+    if !fits(side(0) * side(1)) {
+        return None;
+    }
     let marks = board_path::stamped_erase_marks(node, shape, path);
     board_path::note_stamp_on_this_thread();
     let (older, newest) = marks.split_at(marks.len().saturating_sub(1));
     let Some(mut img) =
         vector_ink::stamp_blurred(&contours, older, pixel, shape.stroke.gaussian_blur)
     else {
-        return (false, true);
+        return Some((false, true));
     };
     let before: Vec<u8> = img.rgba.iter().skip(3).step_by(4).copied().collect();
     vector_ink::apply_erase(&mut img, newest);
@@ -2481,7 +2579,7 @@ pub(crate) fn erased_result(node: &slate_doc::Node) -> (bool, bool) {
         .zip(&before)
         .any(|(after, before)| after != before);
     let left = img.rgba.iter().skip(3).step_by(4).any(|a| *a > 8);
-    (touched, !left)
+    Some((touched, !left))
 }
 
 /// World endpoints of a Line shape node (same convention as the painter:

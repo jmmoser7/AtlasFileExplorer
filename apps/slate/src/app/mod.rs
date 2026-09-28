@@ -676,6 +676,8 @@ pub struct SlateApp {
     pub(crate) eraser_anchor: Option<egui::Pos2>,
     /// Painted strokes under the eraser this drag, shown with the pass applied.
     pub(crate) erase_live: HashMap<NodeId, board_path::EraseLive>,
+    /// A released straight eraser pass whose cuts have not all landed.
+    pub(crate) erase_settle: board_path::EraseSettle,
     /// The straight eraser pass's stand-in band.
     pub(crate) erase_band: board_path::SegMeshes,
     /// Tab direction lock of the segment being drawn (unit vector from its
@@ -1005,6 +1007,7 @@ impl SlateApp {
             smooth_preview: HashMap::new(),
             smooth_polylines: HashMap::new(),
             erase_live: HashMap::new(),
+            erase_settle: Default::default(),
             erase_band: Default::default(),
             draft_lock: None,
             board_took_tab: None,
