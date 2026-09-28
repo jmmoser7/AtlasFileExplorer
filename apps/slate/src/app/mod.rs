@@ -675,8 +675,9 @@ pub struct SlateApp {
     pub(crate) smooth_anchor: Option<egui::Pos2>,
     pub(crate) smooth_preview: HashMap<NodeId, slate_doc::scene::Node>,
     pub(crate) smooth_polylines: HashMap<NodeId, board_smooth::SmoothCurve>,
-    /// End of the last eraser pass, where a Shift pass starts.
-    pub(crate) eraser_anchor: Option<egui::Pos2>,
+    /// End of the last eraser pass, where a Shift pass starts, and the tab
+    /// whose document that point belongs to.
+    pub(crate) eraser_anchor: Option<(u64, egui::Pos2)>,
     /// Painted strokes under the eraser this drag, shown with the pass applied.
     pub(crate) erase_live: HashMap<NodeId, board_path::EraseLive>,
     /// The straight eraser pass's stand-in band.
@@ -1680,6 +1681,9 @@ impl SlateApp {
                 self.release_agent_doc(self.active_tab);
                 let tab_id = self.tab().id;
                 self.brush_chain.forget_tab(tab_id);
+                if self.eraser_anchor.is_some_and(|(t, _)| t == tab_id) {
+                    self.eraser_anchor = None;
+                }
                 self.record_recent_workbook(&path, &doc);
                 let (lease, read_only, holder, held_toast) = match Lease::acquire(&path) {
                     Ok(LeaseState::Acquired(lease)) => (Some(lease), false, None, None),

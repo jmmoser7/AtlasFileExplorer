@@ -12373,6 +12373,81 @@ fn an_eraser_release_on_a_big_stroke_stamps_nothing_on_the_frame_loop() {
     );
 }
 
+/// Esc on a Shift eraser pass drops its cuts on the workers too, so no
+/// stroke-sized raster waits in the pool for the next pass.
+#[test]
+fn escaping_an_eraser_shift_pass_drops_its_line_jobs() {
+    let mut h = line_board("eraser_shift_escape");
+    h.frame_with(|i| i.max_texture_side = Some(8192));
+    h.app.tab_mut().cam.z = 1.5;
+    h.frame();
+    let id = big_brush_bar(&mut h);
+    h.app.set_board_tool(board::BoardTool::Eraser);
+    h.app.eraser_width = 207.0;
+    h.frame();
+    let shift = egui::Modifiers::SHIFT;
+    let c = h.app.canvas_rect.center();
+    let press = c + EVec2::new(-300.0, -250.0);
+    let at = |h: &mut Harness, s: Pos2| {
+        h.frame_with(|i| {
+            i.modifiers = shift;
+            i.events.push(egui::Event::PointerMoved(s));
+        });
+    };
+    at(&mut h, press);
+    h.frame_with(|i| {
+        i.modifiers = shift;
+        i.events.push(egui::Event::PointerButton {
+            pos: press,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: shift,
+        });
+    });
+    at(&mut h, c + EVec2::new(-200.0, 150.0));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while !h.app.erase_live.contains_key(&id) {
+        assert!(std::time::Instant::now() < deadline, "no live preview");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        h.frame_with(|i| i.modifiers = shift);
+    }
+    at(&mut h, c + EVec2::new(100.0, 200.0));
+    assert!(h.app.brush_tiles.lines_wanted_len() > 0, "a cut is on the workers");
+    press_key_with(&mut h, egui::Key::Escape, shift);
+    assert!(h.app.board_drag.is_none(), "Esc ends the pass");
+    let before = h.app.doc().scene.node(id).unwrap().clone();
+    for _ in 0..200 {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        h.frame();
+    }
+    assert_eq!(h.app.brush_tiles.lines_wanted_len(), 0);
+    assert_eq!(h.app.brush_tiles.lines_landed_len(), 0);
+    assert_eq!(h.app.doc().scene.node(id).unwrap(), &before, "nothing erased");
+}
+
+/// The Eraser's Shift start is a world point of the document it erased;
+/// another tab starts its pass at the press.
+#[test]
+fn eraser_shift_start_does_not_cross_tabs() {
+    let mut h = brush_board("eraser_anchor_tabs");
+    let anchor = Pos2::new(470.0, 60.0);
+    h.app.eraser_anchor = Some((h.app.tab().id, anchor));
+    let first = h.app.active_tab;
+    let press = Pos2::new(10.0, 20.0);
+    let start = |h: &mut Harness| match h.app.begin_erase(press, true) {
+        board::BoardDrag::Erase { points, .. } => points[0],
+        _ => panic!("erase drag"),
+    };
+    h.app.new_tab();
+    h.frame();
+    h.app.set_board_tool(board::BoardTool::Eraser);
+    assert_eq!(start(&mut h), press, "another tab starts at the press");
+    h.app.erase_live.clear();
+    h.app.switch_tab(first);
+    h.frame();
+    assert_eq!(start(&mut h), anchor, "the erasing tab keeps its start");
+}
+
 /// Art. II at the user's eraser (207 wide, pencil, softness 0.09, 150 %,
 /// 1.5 px/pt): a Shift pass across a big painted stroke stamps nothing on
 /// the frame loop on its move frames, yet the preview follows the pointer
@@ -12720,7 +12795,7 @@ fn eraser_validation_image() {
     h.app.eraser_width = 16.0;
     h.app.eraser_softness = 0.0;
     h.app.eraser_opacity = 1.0;
-    h.app.eraser_anchor = Some(Pos2::new(470.0, 60.0));
+    h.app.eraser_anchor = Some((h.app.tab().id, Pos2::new(470.0, 60.0)));
     pass(
         &mut h.app,
         &[Pos2::new(470.0, 60.0), Pos2::new(520.0, 380.0)],

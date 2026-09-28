@@ -1576,7 +1576,9 @@ impl SlateApp {
         self.erase_live.clear();
         self.brush_tiles.forget_erase_lines();
         let points = if shift {
-            vec![self.eraser_anchor.unwrap_or(world), world]
+            let tab = self.tab().id;
+            let from = self.eraser_anchor.filter(|(t, _)| *t == tab).map(|(_, p)| p);
+            vec![from.unwrap_or(world), world]
         } else {
             vec![world]
         };
@@ -1699,7 +1701,7 @@ impl SlateApp {
         self.brush_tiles.forget_erase_lines();
         self.draft_lock = None;
         if let Some(last) = points.last() {
-            self.eraser_anchor = Some(*last);
+            self.eraser_anchor = Some((self.tab().id, *last));
         }
         let tip = self.eraser_tip();
         for l in live.values_mut() {

@@ -1144,7 +1144,10 @@ impl SlateApp {
                     }
                     // Eraser: nothing was mutated — dropping the drag and its
                     // live preview restores the ink.
-                    _ => self.erase_live.clear(),
+                    _ => {
+                        self.erase_live.clear();
+                        self.brush_tiles.forget_erase_lines();
+                    }
                 }
                 true
             }

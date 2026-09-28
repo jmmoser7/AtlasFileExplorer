@@ -7,6 +7,10 @@
   replacing the drawing, and the tab stays in the strip on Home.
 - `brush` D03: opening a workbook into a new tab no longer empties another
   tab's Shift chain; only a reused tab starts fresh.
+- Eraser: a Shift pass starts from the last pass's end only in the tab that
+  erased it; another tab starts at its press instead of erasing along a
+  line from a point of a different document. Esc on a pass also drops its
+  cuts still on the raster workers (review r11).
 
 ## 2026-09-27 — Shift rebuilds off the frame loop, honest preview (review r10)
 
