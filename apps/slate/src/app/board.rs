@@ -71,7 +71,7 @@ pub(crate) enum BoardMark {
 }
 
 /// The node a scene command adds, removes, or patches.
-fn cmd_node_id(cmd: &SceneCmd) -> NodeId {
+pub(crate) fn cmd_node_id(cmd: &SceneCmd) -> NodeId {
     match cmd {
         SceneCmd::Add { node, .. }
         | SceneCmd::Remove { node, .. }

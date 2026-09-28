@@ -325,6 +325,12 @@ pub(crate) struct BrushTiles {
     /// Stroke bitmaps the workers have built, ever.
     pub stroke_builds: u64,
     pub last: BrushPaintStats,
+    /// Test hook: landed ink checks read as not answered yet.
+    #[cfg(test)]
+    pub(crate) hold_inks: bool,
+    /// Test hook: landed tiles and stroke bitmaps are not taken in.
+    #[cfg(test)]
+    pub(crate) hold_rasters: bool,
 }
 
 impl Default for BrushTiles {
@@ -370,6 +376,10 @@ impl Default for BrushTiles {
                 settled: false,
                 frame: 0,
             },
+            #[cfg(test)]
+            hold_inks: false,
+            #[cfg(test)]
+            hold_rasters: false,
         }
     }
 }
@@ -468,6 +478,10 @@ impl BrushTiles {
     /// The newest bitmap the workers finished for stroke `id`, if any.
     pub(crate) fn take_stroke(&mut self, id: NodeId) -> Option<StrokeRaster> {
         self.drain_finished();
+        #[cfg(test)]
+        if self.hold_rasters {
+            return None;
+        }
         self.stroke_landed.remove(&id)
     }
 
@@ -541,34 +555,48 @@ impl BrushTiles {
         self.drain_finished();
     }
 
-    /// Whether erased stroke `node`, under content `key`, has ink left:
-    /// `Some` once the workers have found out. The first call for a key
-    /// asks them; a check no worker can take reads as ink left.
-    pub(crate) fn ink_left(&mut self, node: &Node, key: u64) -> Option<bool> {
-        self.drain_finished();
+    /// Ask the workers whether erased stroke `node`, under content `key`,
+    /// has ink left ([`Self::ink_answer`]). Asking again for a key is free;
+    /// a check no worker can take reads as ink left.
+    pub(crate) fn ask_ink(&mut self, node: &Node, key: u64) {
         let at = (node.id, key);
-        if let Some(left) = self.inks_landed.remove(&at) {
-            return Some(left);
-        }
-        if self.inks_wanted.contains(&at) {
-            return None;
+        if self.inks_wanted.contains(&at) || self.inks_landed.contains_key(&at) {
+            return;
         }
         self.ensure_pool();
         let sent = self
             .job_tx
             .as_ref()
             .is_some_and(|tx| tx.send(Work::Ink(node.clone(), key)).is_ok());
-        if !sent {
-            return Some(true);
+        if sent {
+            self.inks_wanted.push(at);
+        } else {
+            self.inks_landed.insert(at, true);
         }
-        self.inks_wanted.push(at);
-        None
+    }
+
+    /// Whether stroke `id`, under content `key`, has ink left, once the
+    /// workers have answered [`Self::ask_ink`]. An answer is taken once.
+    pub(crate) fn ink_answer(&mut self, id: NodeId, key: u64) -> Option<bool> {
+        self.drain_finished();
+        #[cfg(test)]
+        if self.hold_inks {
+            return None;
+        }
+        self.inks_landed.remove(&(id, key))
     }
 
     /// Drop stroke `id`'s ink checks, asked or landed.
     pub(crate) fn forget_ink(&mut self, id: NodeId) {
         self.inks_wanted.retain(|w| w.0 != id);
         self.inks_landed.retain(|at, _| at.0 != id);
+    }
+
+    /// An ink check for stroke `id` has landed and waits to be taken.
+    #[cfg(test)]
+    pub(crate) fn ink_landed(&mut self, id: NodeId) -> bool {
+        self.drain_finished();
+        self.inks_landed.keys().any(|at| at.0 == id)
     }
 
     /// Line results landed and not taken yet, lost jobs included.
@@ -709,6 +737,10 @@ impl BrushTiles {
     }
 
     fn upload_some(&mut self, ctx: &egui::Context) {
+        #[cfg(test)]
+        if self.hold_rasters {
+            return;
+        }
         let mut uploaded = 0;
         while uploaded < UPLOADS_PER_FRAME {
             let Some(fin) = self.incoming.pop_front() else {
