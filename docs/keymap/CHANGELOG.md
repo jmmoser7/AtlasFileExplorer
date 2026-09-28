@@ -64,6 +64,33 @@
   was ignored.
 - New golden paths: trim GP10–GP12, split GP7–GP8.
 
+## 2026-09-28 — Quick modifier+right click types tip values (user)
+
+- `brush` D04, D08 (user, 28 September 2026: "ffor alt ctrl and shift hud
+  allow for fast click release to put hud into a mode where the user can
+  select metricks and type value for precise controle"): a modifier+right
+  press released without travel opens numeric entry for that HUD's
+  quantity (size, opacity, color). Without travel is within the 4 px
+  draft threshold and 0.8 s. D08 no longer forbids typing digits into the
+  open numeric HUD; outside it, typing is unchanged.
+- It works wherever the right-drag HUD opens: armed Brush, Eraser,
+  Smooth, Line, Polyline, Arc, Bézier and Pen, mid-draft included, and
+  picked or hovered vertices or a Direct Select whole curve. Alt types
+  size in board units (and softness on stamped ink), Shift opacity or
+  strength, Ctrl hue, saturation and value; Eraser and Smooth take no
+  Ctrl entry (tx4, ts3). Tab moves between fields, Enter applies and
+  closes as the drag's one step (tool memory, or one journaled Patch on a
+  curve), a press away applies, closes and is eaten, Esc restores. A
+  right-drag is unchanged.
+- New command `board.brush.tip_entry`; `specs/brush-color.md` (numeric
+  entry), `specs/direct-selection.md` (HUD table), `KEYMAP.md`,
+  `COMMANDS.md`. The panel is pointer-attached chrome (P2.GhostFollow):
+  screen px, placed by `place_popup`, on `POPUP_ORDER`, wheel claimed
+  (P0.10). Tests: `tip_numeric::*` in `tests.rs`.
+- `hud_release_wheel` (test helper) now releases after a hold past the
+  click window: its callers set the color directly with no travel, which
+  is now a quick click.
+
 ## 2026-09-28 — Two brush decisions recorded (user)
 
 - `brush` D03, D05: the Alt+right-drag size circle stays pinned where the

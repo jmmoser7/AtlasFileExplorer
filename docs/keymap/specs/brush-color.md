@@ -131,6 +131,42 @@ pub struct BoardColors { pub fg: Rgba, pub bg: Rgba }
 - The HUD also works mid-draw: a width, color or opacity chord while a
   curve is being drawn gives the next placed point that tip, and the
   committed curve tweens between them (P1.curve.tip-chord).
+- **Numeric entry** (user, 2026-09-28: "ffor alt ctrl and shift hud allow
+  for fast click release to put hud into a mode where the user can select
+  metricks and type value for precise controle"). A modifier+right press
+  released without travel opens numeric entry for that HUD's quantity
+  (size, opacity, color), in every place the right-drag HUD opens.
+  Without travel means within the 4 px draft threshold
+  (`place_tokens::DRAG_THRESHOLD`) and within 0.8 s (`QUICK_CLICK_SECONDS`);
+  a HUD opened during a freehand Pen or Brush stroke closes and resumes
+  the stroke instead. The HUD stays where it opened (the size circle
+  pinned at the press, the wheel as a live preview) and a small panel
+  opens beside it (`board_tip_hud.rs`, `tip_numeric_ui`):
+  - Alt: Size in board units, plus Softness in percent where the HUD has
+    softness (Brush, Eraser, Smooth, brush strokes). Shift: Opacity, or
+    Strength on the Eraser and Smooth, in percent. Ctrl: Hue in degrees,
+    Saturation and Value in percent. Eraser and Smooth have no wheel, so
+    Ctrl does nothing there (tx4, ts3).
+  - The first row opens with its value selected. Click a row, or Tab /
+    Shift+Tab, to move; leaving a row applies it live. Enter applies and
+    closes. A press anywhere away from the panel applies and closes it and
+    is eaten: it draws, selects, pans and opens nothing (dynamic-panel
+    inline numbers commit on a click outside). Esc restores the values
+    from the press (D12). An entry that does not parse or is out of range
+    is never applied; Enter turns it red and keeps the panel open.
+  - Values apply through the setters the drag writes with
+    (`set_active_tip`, `set_active_rgb`), and closing takes the drag's
+    commit: tool memory for an armed tool, one journaled Patch on a
+    committed curve or its picked vertices.
+  - While it is open the panel owns the keyboard ahead of the global
+    command map, so digits never reach type-to-command or tool letters.
+  - Pointer-attached chrome (P2.GhostFollow, P0.9's named exception):
+    screen px, like the HUD readout. `selection_tools::place_popup` puts it
+    above the HUD and moves it to a side that fits the viewport; it paints
+    on `POPUP_ORDER` above dimension stringers, claims the wheel
+    (P0.10), and reuses `selection_tools::panel` and `inline_number`.
+  - A right-drag is unchanged: it scrubs from the first pixel and commits
+    on release. No chord or quick click pans or opens the context menu.
 - **P2**: segment-split erase (Illustrator path-eraser semantics, research
   §2B) — splits the centerline at crossings, regenerates meshes, journals
   Remove+Add pairs.
@@ -180,6 +216,7 @@ pub struct BoardColors { pub fg: Rgba, pub bg: Rgba }
 | Alt+right-drag | `board.brush.size_hud` (circle pinned at the press, grows about it) |
 | Shift+right-drag | `board.brush.opacity_hud` (Brush, Eraser strength, curve tools; 0–100%; Ctrl and Alt win) |
 | Ctrl+right-drag | `board.brush.color_wheel` |
+| Alt / Shift / Ctrl + right-click (no travel) | `board.brush.tip_entry` (numeric entry for that HUD) |
 | Alt+click (Brush) | `board.brush.sample` (screen color to fg and recent colors) |
 | Shift+drag (Brush) | straight segment from the last stroke's end (from the press only when there is no previous mark), 45° steps; Tab locks its direction |
 | Shift+click (Brush) | connects the last stroke's end to the click (never steps opacity) |
