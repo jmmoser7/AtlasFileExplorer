@@ -102,6 +102,7 @@ pub struct BezierHandles {
 pub const DRAFT_DRAG_THRESHOLD_PX: f32 = 4.0;
 
 #[derive(Default)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
 pub(crate) struct CachedInkMesh {
     vertices: Vec<[f32; 2]>,
     alphas: Vec<f32>,
@@ -3166,26 +3167,37 @@ fn draft_stroke_ink_ends(
 /// Settled Pen samples in each piece of its live preview.
 const PEN_PIECE: usize = 64;
 
-/// A draft mesh and the key of what it was built from.
+/// A draft mesh, the key of what it was built from, and its screen mesh
+/// for the camera it was last painted at.
 struct DraftMesh {
     key: u64,
     mesh: CachedInkMesh,
     color: Color32,
+    screen: Option<(u64, Shared<egui::Mesh>)>,
 }
 
 /// The live draft previews' meshes (Art. II): a frame whose draft, tips,
-/// and zoom are unchanged repaints them without tessellating. A Pen stroke
-/// paints as pieces of [`PEN_PIECE`] settled samples, each built once, then
-/// the piece still being drawn, the only one a pointer move rebuilds.
-/// Pieces meet with butt ends in the middle of a segment, at that point's
-/// tip, so together they cover the stroke as one mesh would.
+/// and zoom are unchanged repaints them without tessellating, and without
+/// allocating while the camera holds still. A Pen stroke paints as pieces
+/// of [`PEN_PIECE`] settled samples, each built once, then the piece still
+/// being drawn, the only one a pointer move rebuilds. Pieces meet with butt
+/// ends in the middle of a segment, at that point's tip, so together they
+/// cover the stroke as one mesh would.
 #[derive(Default)]
 pub(crate) struct DraftInkCache {
     draft: Option<DraftMesh>,
     pen: Vec<Option<DraftMesh>>,
+    /// Pieces below this are settled and built for `pen_stroke`. A live
+    /// stroke only appends samples, so they are painted without hashing.
+    pen_settled: usize,
+    /// The live stroke's first sample, its tip, and the zoom.
+    pen_stroke: u64,
     /// Draft meshes built so far; the board counts each frame's as
     /// tessellation misses.
     pub(crate) builds: u32,
+    /// Pen pieces whose samples were hashed so far.
+    #[cfg(test)]
+    pub(crate) pen_hashes: u32,
 }
 
 fn draft_mesh<'a>(
@@ -3193,7 +3205,7 @@ fn draft_mesh<'a>(
     builds: &mut u32,
     key: u64,
     build: impl FnOnce() -> (InkMesh, Color32),
-) -> &'a DraftMesh {
+) -> &'a mut DraftMesh {
     if slot.as_ref().is_none_or(|m| m.key != key) {
         *builds = builds.wrapping_add(1);
         let (ink, color) = build();
@@ -3201,13 +3213,30 @@ fn draft_mesh<'a>(
             key,
             mesh: ink.into(),
             color,
+            screen: None,
         });
     }
-    slot.as_ref().expect("filled above")
+    slot.as_mut().expect("filled above")
 }
 
-fn paint_draft_mesh(painter: &egui::Painter, xf: &BoardXf, m: &DraftMesh) {
-    painter.add(Shape::mesh(ink_mesh_to_epaint(&m.mesh, xf, m.color, |c| c)));
+fn paint_draft_mesh(painter: &egui::Painter, xf: &BoardXf, m: &mut DraftMesh) {
+    if m.mesh.indices.is_empty() {
+        return;
+    }
+    let mut h = DefaultHasher::new();
+    hash_pos(&mut h, xf.center);
+    hash_xy(&mut h, [xf.offset.x, xf.offset.y]);
+    hash_f32(&mut h, xf.z);
+    let view = h.finish();
+    let screen = match &m.screen {
+        Some((key, mesh)) if *key == view => mesh.clone(),
+        _ => {
+            let mesh = Shared::new(ink_mesh_to_epaint(&m.mesh, xf, m.color, |c| c));
+            m.screen = Some((view, mesh.clone()));
+            mesh
+        }
+    };
+    painter.add(Shape::Mesh(screen));
 }
 
 fn hash_tip(h: &mut impl Hasher, tip: &PlacedTip) {
@@ -3218,6 +3247,54 @@ fn hash_tip(h: &mut impl Hasher, tip: &PlacedTip) {
 
 fn hash_pos(h: &mut impl Hasher, p: Pos2) {
     hash_xy(h, [p.x, p.y]);
+}
+
+fn hash_anchor(h: &mut impl Hasher, (p, handles): &(Pos2, BezierHandles)) {
+    hash_pos(h, *p);
+    hash_xy(h, [handles.handle_in.x, handles.handle_in.y]);
+    hash_xy(h, [handles.handle_out.x, handles.handle_out.y]);
+}
+
+/// Everything [`path_draft_preview`] reads, so the key changes exactly
+/// when the preview can.
+fn hash_path_draft(
+    h: &mut impl Hasher,
+    draft: &BoardPathDraft,
+    cursor: Option<Pos2>,
+    tip: &PlacedTip,
+) {
+    let reads_cursor = match draft {
+        BoardPathDraft::Polyline { points, tips } | BoardPathDraft::Arc { points, tips } => {
+            matches!(draft, BoardPathDraft::Arc { .. }).hash(h);
+            points.iter().for_each(|p| hash_pos(h, *p));
+            tips.iter().for_each(|t| hash_tip(h, t));
+            true
+        }
+        BoardPathDraft::Bezier {
+            anchors,
+            tips,
+            placing,
+            close_hover,
+            ..
+        } => {
+            2u8.hash(h);
+            anchors.iter().for_each(|a| hash_anchor(h, a));
+            tips.iter().for_each(|t| hash_tip(h, t));
+            placing.is_some().hash(h);
+            if let Some(p) = placing {
+                hash_anchor(h, p);
+            }
+            close_hover.ready.hash(h);
+            !close_hover.ready && anchors.len() + usize::from(placing.is_some()) < 2
+        }
+    };
+    hash_tip(h, tip);
+    if reads_cursor {
+        cursor.is_some().hash(h);
+        if let Some(c) = cursor {
+            hash_pos(h, c);
+        }
+    }
 }
 
 /// Piece `index` of a live Pen stroke of `pts` drawn with `tip(i)`: the
@@ -3266,36 +3343,46 @@ fn pen_piece(
 }
 
 impl DraftInkCache {
-    /// Paint a draft stroke along `bez` with `tips` ([`draft_stroke_ink`]).
-    pub(crate) fn paint(
+    /// Paint a path draft's preview ([`path_draft_preview`] with the
+    /// pointer at `cursor` and the tool's tip now `tip`).
+    pub(crate) fn paint_path(
         &mut self,
         painter: &egui::Painter,
         xf: &BoardXf,
-        bez: &BezPath,
-        closed: bool,
-        tips: &[PlacedTip],
+        draft: &BoardPathDraft,
+        cursor: Option<Pos2>,
+        tip: PlacedTip,
     ) {
         let mut h = DefaultHasher::new();
-        for el in bez.elements() {
-            let o = Point::ZERO;
-            let (tag, pts, n) = match *el {
-                PathEl::MoveTo(p) => (0u8, [p, o, o], 1),
-                PathEl::LineTo(p) => (1, [p, o, o], 1),
-                PathEl::QuadTo(a, b) => (2, [a, b, o], 2),
-                PathEl::CurveTo(a, b, c) => (3, [a, b, c], 3),
-                PathEl::ClosePath => (4, [o, o, o], 0),
-            };
-            tag.hash(&mut h);
-            for p in &pts[..n] {
-                p.x.to_bits().hash(&mut h);
-                p.y.to_bits().hash(&mut h);
-            }
-        }
-        closed.hash(&mut h);
+        0u8.hash(&mut h);
+        hash_path_draft(&mut h, draft, cursor, &tip);
+        hash_f32(&mut h, xf.z);
+        let build = || match path_draft_preview(draft, cursor, tip) {
+            Some((bez, closed, tips)) => draft_stroke_ink(&bez, closed, &tips, xf.z),
+            None => (InkMesh::default(), Color32::TRANSPARENT),
+        };
+        let m = draft_mesh(&mut self.draft, &mut self.builds, h.finish(), build);
+        paint_draft_mesh(painter, xf, m);
+    }
+
+    /// Paint the Line tool's rubber band from `a` to `b`, with a tip at
+    /// each end.
+    pub(crate) fn paint_line(
+        &mut self,
+        painter: &egui::Painter,
+        xf: &BoardXf,
+        a: Pos2,
+        b: Pos2,
+        tips: [PlacedTip; 2],
+    ) {
+        let mut h = DefaultHasher::new();
+        1u8.hash(&mut h);
+        hash_pos(&mut h, a);
+        hash_pos(&mut h, b);
         tips.iter().for_each(|t| hash_tip(&mut h, t));
         hash_f32(&mut h, xf.z);
         let m = draft_mesh(&mut self.draft, &mut self.builds, h.finish(), || {
-            draft_stroke_ink(bez, closed, tips, xf.z)
+            draft_stroke_ink(&line_bez(a, b), false, &tips, xf.z)
         });
         paint_draft_mesh(painter, xf, m);
     }
@@ -3312,13 +3399,32 @@ impl DraftInkCache {
         cursor_tip: PlacedTip,
     ) {
         if pts.is_empty() {
-            self.pen.clear();
+            self.forget_pen();
             return;
         }
         let tip = |i: usize| tips.get(i).copied().unwrap_or(cursor_tip);
         let settled = pts.len().saturating_sub(2) / PEN_PIECE;
+        let mut h = DefaultHasher::new();
+        hash_pos(&mut h, pts[0]);
+        hash_tip(&mut h, &tip(0));
+        hash_f32(&mut h, xf.z);
+        let stroke = h.finish();
+        if stroke != self.pen_stroke || settled < self.pen_settled {
+            self.pen_stroke = stroke;
+            self.pen_settled = 0;
+        }
         self.pen.resize_with(settled + 1, || None);
         for (index, slot) in self.pen.iter_mut().enumerate() {
+            if index < self.pen_settled {
+                if let Some(m) = slot {
+                    paint_draft_mesh(painter, xf, m);
+                }
+                continue;
+            }
+            #[cfg(test)]
+            {
+                self.pen_hashes += 1;
+            }
             let is_settled = index < settled;
             let from = index * PEN_PIECE;
             let to = if is_settled {
@@ -3344,17 +3450,32 @@ impl DraftInkCache {
             });
             paint_draft_mesh(painter, xf, m);
         }
+        self.pen_settled = settled;
     }
 
     /// Drop the Pen's pieces once no Pen stroke is live.
     pub(crate) fn forget_pen(&mut self) {
         self.pen.clear();
+        self.pen_settled = 0;
     }
 
     #[cfg(test)]
     pub(crate) fn pen_pieces(&self) -> usize {
         self.pen.len()
     }
+
+    /// The path or Line draft's cached mesh and color.
+    #[cfg(test)]
+    pub(crate) fn draft_mesh(&self) -> Option<(&CachedInkMesh, Color32)> {
+        self.draft.as_ref().map(|m| (&m.mesh, m.color))
+    }
+}
+
+fn line_bez(a: Pos2, b: Pos2) -> BezPath {
+    let mut bez = BezPath::new();
+    bez.move_to(to_k(a));
+    bez.line_to(to_k(b));
+    bez
 }
 
 pub fn paint_path_draft(
@@ -3365,9 +3486,7 @@ pub fn paint_path_draft(
     style: PathDraftPaintStyle,
     ink: &mut DraftInkCache,
 ) {
-    if let Some((bez, closed, tips)) = path_draft_preview(draft, cursor, style.tip) {
-        ink.paint(painter, xf, &bez, closed, &tips);
-    }
+    ink.paint_path(painter, xf, draft, cursor, style.tip);
     if let BoardPathDraft::Bezier {
         anchors, placing, ..
     } = draft

@@ -6,7 +6,7 @@
 use super::board::{BoardDrag, BoardTool};
 use super::board_color::BrushHud;
 use super::board_path;
-use super::tests::Harness;
+use super::tests::{capture_frame, rasterize, FrameRaster, Harness};
 use eframe::egui::{self, Modifiers, Pos2, Vec2};
 use slate_doc::scene::{NodeKind, Rgba, StrokeSpan};
 use slate_doc::vertex_style::PlacedTip;
@@ -593,6 +593,165 @@ fn a_pen_stroke_armed_at_zero_opacity_commits_clear_and_still_picks() {
     assert_clear_and_picked(&mut h, Pos2::new(100.0, 0.0));
 }
 
+/// Hover near `p`, then onto it, then click: separate clicks never pair
+/// into a double-click.
+fn place_point(h: &mut Harness, p: Pos2) {
+    hover(h, p - Vec2::new(0.0, 20.0));
+    hover(h, p);
+    click(h, p);
+}
+
+#[test]
+fn an_arc_armed_at_zero_opacity_commits_clear_and_still_picks() {
+    let mut h = board("zero_arc", BoardTool::Arc);
+    fade_out(&mut h, Pos2::new(300.0, 100.0));
+    assert_eq!(h.app.opacity_for_tool(StrokeTool::Arc), 0.0);
+    for p in [
+        Pos2::new(0.0, 0.0),
+        Pos2::new(200.0, 0.0),
+        Pos2::new(100.0, -100.0),
+    ] {
+        place_point(&mut h, p);
+    }
+    assert!(h.app.board_path_draft.is_none(), "the third click commits");
+    assert_clear_and_picked(&mut h, Pos2::new(100.0, -100.0));
+}
+
+#[test]
+fn a_bezier_span_armed_at_zero_opacity_commits_clear_and_still_picks() {
+    let mut h = board("zero_bezier", BoardTool::BezierSpan);
+    fade_out(&mut h, Pos2::new(300.0, 100.0));
+    assert_eq!(h.app.opacity_for_tool(StrokeTool::Bezier), 0.0);
+    for p in [
+        Pos2::new(0.0, 0.0),
+        Pos2::new(100.0, 0.0),
+        Pos2::new(200.0, 0.0),
+    ] {
+        place_point(&mut h, p);
+    }
+    assert!(h.app.board_path_draft.is_some(), "the span is drawing");
+    enter(&mut h);
+    assert_clear_and_picked(&mut h, Pos2::new(50.0, 0.0));
+}
+
+/// One still frame, 100 ms after the last, drawn into `raster`.
+fn raster_frame(h: &mut Harness, raster: &mut FrameRaster) {
+    let t = h.ctx.input(|i| i.time) + 0.1;
+    let out = capture_frame(h, raster, |i| i.time = Some(t));
+    rasterize(h, raster, out);
+}
+
+/// How far the pixel at `screen` moved from `base`, summed over RGB.
+fn lit(raster: &FrameRaster, base: &[[f32; 4]], screen: Pos2) -> f32 {
+    let i = screen.y as usize * raster.w + screen.x as usize;
+    (0..3).map(|c| (raster.px[i][c] - base[i][c]).abs()).sum()
+}
+
+/// A curve at 0 % paints nothing: its pixels match the empty board, while
+/// the same Line at full opacity lights them.
+#[test]
+fn a_zero_opacity_curve_leaves_its_pixels_unlit() {
+    let mut h = board("zero_raster", BoardTool::Line);
+    let mut raster = FrameRaster::new(1440, 900);
+    let park = Pos2::new(-400.0, 300.0);
+    hover(&mut h, park);
+    raster_frame(&mut h, &mut raster);
+    let base = raster.px.clone();
+    let draw = |h: &mut Harness, y: f32| {
+        place_point(h, Pos2::new(-200.0, y));
+        place_point(h, Pos2::new(200.0, y));
+    };
+    draw(&mut h, -100.0);
+    h.app.set_board_tool(BoardTool::Line);
+    fade_out(&mut h, Pos2::new(350.0, 0.0));
+    assert_eq!(h.app.opacity_for_tool(StrokeTool::Line), 0.0);
+    draw(&mut h, 100.0);
+    assert_eq!(h.app.doc().scene.nodes.len(), 2, "two lines");
+    escape(&mut h);
+    click(&mut h, park);
+    assert!(h.app.board_sel.is_empty(), "nothing selected");
+    raster_frame(&mut h, &mut raster);
+    let band = |raster: &FrameRaster, y: f32| {
+        let mut most = 0.0f32;
+        for x in (-150..=150).step_by(5) {
+            for dy in -6..=6 {
+                let s = screen(&h, Pos2::new(x as f32, y + dy as f32));
+                most = most.max(lit(raster, &base, s));
+            }
+        }
+        most
+    };
+    assert!(band(&raster, -100.0) > 0.2, "the full-opacity line paints");
+    let clear = band(&raster, 100.0);
+    assert!(clear < 1e-3, "the 0 % line paints nothing ({clear})");
+}
+
+/// A translucent Pen stroke drawn in pieces shows no seam: at each joint
+/// between pieces the columns cover as much as their neighbours, where one
+/// side is a plain stroke and the other blends a mid-stroke color change.
+#[test]
+fn a_translucent_pen_stroke_has_no_seam_at_its_piece_joints() {
+    let mut h = board("pen_seams", BoardTool::Pen);
+    let mut raster = FrameRaster::new(1440, 900);
+    let side = screen(&h, Pos2::new(0.0, 250.0));
+    widen(&mut h, side);
+    fade(&mut h, side);
+    let tip = h.app.placed_tip(StrokeTool::Pen);
+    assert!(
+        tip.width > 8.0 && (0.3..0.7).contains(&tip.opacity),
+        "a wide, half-clear tip: {tip:?}"
+    );
+    let park = Pos2::new(0.0, 250.0);
+    hover(&mut h, park);
+    raster_frame(&mut h, &mut raster);
+    let base = raster.px.clone();
+    // Above the empty board's hint text.
+    let at = |i: usize| Pos2::new(-500.0 + 2.0 * i as f32 + 0.25, -150.37);
+    stroke_start(&mut h, at(0));
+    stroke_through(&mut h, (1..=70).map(at));
+    let turn = screen(&h, at(70));
+    recolor(&mut h, turn);
+    stroke_through(&mut h, (71..=400).map(at));
+    let pieces = h.app.draft_ink.pen_pieces();
+    assert!(pieces >= 5, "the stroke paints in pieces ({pieces})");
+    let Some(BoardDrag::FreehandPen { stroke }) = &h.app.board_drag else {
+        panic!("the pen stroke is live");
+    };
+    let pts = stroke.points.clone();
+    let tips = stroke.tips.clone();
+    assert!(
+        tips[64..129].iter().any(|t| *t != tips[64]) && tips[129..].iter().all(|t| *t == tips[129]),
+        "the second piece blends the color change, the rest are plain"
+    );
+    raster_frame(&mut h, &mut raster);
+    let column = |x: i32| -> f32 {
+        let y0 = screen(&h, pts[0]).y as i32;
+        (y0 - 60..=y0 + 60)
+            .map(|y| lit(&raster, &base, Pos2::new(x as f32 + 0.5, y as f32 + 0.5)))
+            .sum()
+    };
+    let mut checked = 0;
+    for k in 1..pieces - 1 {
+        let joint = pts[k * 64].lerp(pts[k * 64 + 1], 0.5);
+        let x = screen(&h, joint).x.floor() as i32;
+        let around = (column(x - 6) + column(x + 6)) / 2.0;
+        assert!(
+            around > 1.0,
+            "joint {k}: the stroke is on screen ({around})"
+        );
+        for dx in -1..=1 {
+            let c = column(x + dx);
+            assert!(
+                (c - around).abs() <= 0.02 * around,
+                "joint {k}, column {}: {c} against {around} beside it",
+                x + dx
+            );
+        }
+        checked += 1;
+    }
+    assert!(checked >= 3, "checked {checked} joints");
+}
+
 /// Art. II: a draft preview repaints its cached mesh on a frame where
 /// nothing changed, rebuilds it once when the pointer moves, and a Pen
 /// stroke's move rebuilds only the piece still being drawn.
@@ -624,6 +783,103 @@ fn an_unchanged_draft_frame_does_not_re_tessellate() {
     hover(&mut h, Pos2::new(120.0, 40.0));
     assert!(h.app.line_draft_preview().is_some(), "the line previews");
     still(&mut h, "line");
+    // A tip chord or a zoom with the pointer held still rebuilds the mesh
+    // once, into the one a fresh build of the same draft makes.
+    let fresh = |h: &Harness, what: &str| {
+        let (a, b, tips) = h.app.line_draft_preview().expect("the line previews");
+        let mut bez = BezPath::new();
+        bez.move_to((a.x as f64, a.y as f64));
+        bez.line_to((b.x as f64, b.y as f64));
+        let (ink, color) = board_path::draft_stroke_ink(&bez, false, &tips, h.app.board_xf().z);
+        let (mesh, cached) = h.app.draft_ink.draft_mesh().expect("a cached mesh");
+        assert_eq!(cached, color, "{what}: the cached color");
+        assert!(
+            *mesh == board_path::CachedInkMesh::from(ink),
+            "{what}: the cached mesh is the fresh one"
+        );
+    };
+    // What the rubber band is built from. It follows the pointer while a
+    // HUD scrubs, so each chord below scrubs across a Tab lock: the end
+    // stays put and only the tip changes.
+    let inputs = |h: &Harness| {
+        let d = h.app.line_draft.as_ref().expect("the line is drawing");
+        let z = h.app.board_xf().z;
+        (d.cursor, d.start_tip, h.app.placed_tip(StrokeTool::Line), z)
+    };
+    // One frame of `events`; returns whether it changed the inputs.
+    let step = |h: &mut Harness, m: Modifiers, ev: Vec<egui::Event>| {
+        let before = inputs(h);
+        events(h, m, ev);
+        inputs(h) != before
+    };
+    let right = egui::PointerButton::Secondary;
+    // Lock the rubber band along `end` from the start, and hover there.
+    let lock = |h: &mut Harness, end: Pos2| {
+        if h.app.draft_lock.is_some() {
+            key(h, egui::Key::Tab);
+        }
+        hover(h, end);
+        key(h, egui::Key::Tab);
+        assert!(h.app.draft_lock.is_some(), "Tab locks the rubber band");
+        hover(h, end);
+        still(h, "locked");
+    };
+    let (down, right_of) = (Pos2::new(0.0, 120.0), Pos2::new(120.0, 0.0));
+    for (what, m, end, across) in [
+        ("Alt+right", ALT, down, Vec2::X * 40.0),
+        ("Ctrl+right", CTRL, down, Vec2::X * -40.0),
+        ("Shift+right", SHIFT, right_of, Vec2::Y * 50.0),
+    ] {
+        lock(&mut h, end);
+        let at = screen(&h, end);
+        let (built, tip) = (h.app.draft_ink.builds, h.app.placed_tip(StrokeTool::Line));
+        let mut changed = 0u32;
+        changed += step(&mut h, m, vec![egui::Event::PointerMoved(at)]) as u32;
+        changed += step(&mut h, m, vec![button(at, right, true, m)]) as u32;
+        assert!(h.app.brush_hud.is_some(), "{what}: the HUD opened");
+        let to = at + across;
+        changed += step(&mut h, m, vec![egui::Event::PointerMoved(to)]) as u32;
+        changed += step(&mut h, m, vec![button(to, right, false, m)]) as u32;
+        changed += step(&mut h, Modifiers::NONE, vec![egui::Event::PointerMoved(at)]) as u32;
+        assert!(h.app.brush_hud.is_none(), "{what}: the HUD closed");
+        assert_ne!(
+            h.app.placed_tip(StrokeTool::Line),
+            tip,
+            "{what}: the tip changed"
+        );
+        assert_eq!(changed, 1, "{what}: only the tip changed, once");
+        assert_eq!(h.app.draft_ink.builds, built + 1, "{what}: one rebuild");
+        fresh(&h, what);
+        still(&mut h, what);
+    }
+    let built = h.app.draft_ink.builds;
+    let mut changed = 0u32;
+    changed += step(
+        &mut h,
+        Modifiers::NONE,
+        vec![egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: Vec2::new(0.0, 60.0),
+            modifiers: Modifiers::NONE,
+        }],
+    ) as u32;
+    let mut steady = 0;
+    while steady < 4 {
+        if step(&mut h, Modifiers::NONE, vec![]) {
+            changed += 1;
+            steady = 0;
+        } else {
+            steady += 1;
+        }
+    }
+    assert!(changed >= 1, "the wheel zooms the board");
+    assert_eq!(
+        h.app.draft_ink.builds - built,
+        changed,
+        "one rebuild for each frame the zoom changed"
+    );
+    fresh(&h, "zoom");
+    still(&mut h, "after the zoom");
 
     let mut h = board("draft_cache_pen", BoardTool::Pen);
     stroke_start(&mut h, Pos2::new(0.0, 0.0));
@@ -633,7 +889,13 @@ fn an_unchanged_draft_frame_does_not_re_tessellate() {
     );
     let pieces = h.app.draft_ink.pen_pieces();
     assert!(pieces >= 4, "a long stroke paints in pieces ({pieces})");
+    let hashed = h.app.draft_ink.pen_hashes;
     still(&mut h, "pen");
+    assert_eq!(
+        h.app.draft_ink.pen_hashes,
+        hashed + 4,
+        "a still frame hashes only the live piece, not all {pieces}"
+    );
     let built = h.app.draft_ink.builds;
     stroke_through(&mut h, [Pos2::new(601.0, 0.0)]);
     h.frame();
