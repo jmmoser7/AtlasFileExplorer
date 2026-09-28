@@ -1,5 +1,34 @@
 # Canvas command project — change log
 
+## 2026-09-28 — Stale strip panels close; line end points and Direct Select knobs win (round 8, third review)
+
+- `shape-selection-toolbar` D13 / D12: a grip press keeps the open panel
+  up, but the pick it makes can narrow the strip to per-vertex controls.
+  A Fill panel on a closed Bézier then stayed open with its squircle gone
+  and edited the whole node; Corners on a polyline stayed open over a
+  picked end point with a slider that did nothing. A strip panel whose
+  squircle the live strip no longer offers now closes. The grip press
+  has already committed its pending edits once, so the close journals
+  nothing and loses nothing. No panel opener (text editing, crosstalk,
+  Pages, Agent, crop, model display) opens a panel its strip does not
+  offer, so the rule is general.
+- `shape-selection-toolbar` D13, `PATTERNS.md` P1.curve.grips: a simple
+  line's end point is a painted path-edit grip (`line` D13), so it now
+  wins a press under a strip button like a curve anchor or handle knob.
+  A rectangle or regular-polygon vertex (P1.shape.vertex-style) still
+  leaves the button its click (agent decision, round 8, awaiting user
+  confirmation). This corrects the entry below, which said a line end
+  point leaves the button its click.
+- P1.curve.grips under Direct Select: a knob Direct Select paints (on a
+  soft or stamped brush stroke, or a multi-contour path, which are not
+  Select grip targets) wins over a strip button again, as it did before
+  round 8's second review. Closed-form vertices keep the button's click.
+- Tests: `a_grip_pick_closes_a_strip_panel_it_no_longer_offers`,
+  `a_grip_pick_keeps_a_stroke_panel_that_is_still_offered`,
+  `a_grip_press_commits_a_pending_stroke_preview_once`,
+  `a_direct_select_knob_on_a_soft_stroke_wins_over_a_strip_button`,
+  `a_line_end_point_under_a_strip_button_drags`.
+
 ## 2026-09-28 — Grips under an open strip panel; style row reads end caps (round 8, second review)
 
 - `shape-selection-toolbar` D13 and `PATTERNS.md` P1.curve.grips: with a
@@ -8,9 +37,10 @@
   strip buttons, and the click-away then ate the press. A press on a
   painted anchor or handle knob of the edited curve now goes to the grip
   with or without a panel open, and is not a click-away, so the panel stays
-  up (as a crop press, D09). Only curve anchors and handle knobs win:
-  a rectangle or polygon vertex or a line end point under a strip button
-  (zoomed out) leaves the button its click, as D13 already said.
+  up (as a crop press, D09). A rectangle or polygon vertex under a strip
+  button (zoomed out) leaves the button its click. (Round 8's third review
+  corrected this entry: a line end point is a painted grip and wins, as
+  `line` D13 says.)
 - `PATTERNS.md` P1.curve.vertex-style: the style row's current choice reads
   the effective end caps. Round set on both ends of a Butt curve reads as
   Round, and narrowing both ends reads as narrow at both ends again (lost
