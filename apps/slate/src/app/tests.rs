@@ -10309,8 +10309,10 @@ fn red_at(raster: &FrameRaster, xf: &board::BoardXf, w: Pos2) -> bool {
 }
 
 /// Start a Shift drag through `pts`, hold it until the live segment shows
-/// its exact stamp, and draw that frame into the raster.
-fn hold_shift_drag(h: &mut Harness, raster: &mut FrameRaster, pts: &[Pos2]) {
+/// its exact stamp, and draw that frame into the raster. Returns the
+/// whole-stroke stamps and segment pixels the press frame rasterized on
+/// the frame thread.
+fn hold_shift_drag(h: &mut Harness, raster: &mut FrameRaster, pts: &[Pos2]) -> (u64, u64) {
     let xf = h.app.board_xf();
     let shift = egui::Modifiers::SHIFT;
     let mut events = vec![
@@ -10323,11 +10325,22 @@ fn hold_shift_drag(h: &mut Harness, raster: &mut FrameRaster, pts: &[Pos2]) {
         }],
     ];
     events.extend(pts[1..].iter().map(|w| vec![egui::Event::PointerMoved(xf.w2s(*w))]));
-    for events in events {
+    let mut press = (0, 0);
+    for (i, events) in events.into_iter().enumerate() {
+        let before = (
+            board_path::stamps_on_this_thread(),
+            board_path::stamp_px_on_this_thread(),
+        );
         capture_frame(h, raster, |inp| {
             inp.modifiers = shift;
             inp.events = events;
         });
+        if i == 1 {
+            press = (
+                board_path::stamps_on_this_thread() - before.0,
+                board_path::stamp_px_on_this_thread() - before.1,
+            );
+        }
     }
     wait_brush_live(h, raster, shift, |c| c.line_exact());
     let out = capture_frame(h, raster, |inp| inp.modifiers = shift);
@@ -10336,6 +10349,7 @@ fn hold_shift_drag(h: &mut Harness, raster: &mut FrameRaster, pts: &[Pos2]) {
         *p = [0.0, 0.0, 0.0, 1.0];
     }
     raster.draw(&prims);
+    press
 }
 
 /// tip18's reuse gate, negative side: undoing the segment changes the
@@ -10363,11 +10377,13 @@ fn brush_shift_after_undo_rebuilds_the_live_canvas() {
         board_path::stamps_on_this_thread(),
         board_path::resumes_on_this_thread(),
     );
-    hold_shift_drag(&mut h, &mut raster, &[p(60.0, 140.0), p(200.0, 100.0), p(300.0, 100.0)]);
+    let press = hold_shift_drag(&mut h, &mut raster, &[p(60.0, 140.0), p(200.0, 100.0), p(300.0, 100.0)]);
     assert_eq!(board_path::resumes_on_this_thread(), resumes, "resumed a stale canvas");
-    assert!(
-        board_path::stamps_on_this_thread() > stamps,
-        "the rebuild must stamp the stroke as it now is"
+    assert_eq!(press, (0, 0), "the rebuild stamped on the frame loop at the press");
+    assert_eq!(
+        board_path::stamps_on_this_thread(),
+        stamps,
+        "the rebuild stamps the stroke as it now is on the raster workers"
     );
     let xf = h.app.board_xf();
     assert!(red_at(&raster, &xf, p(-260.0, -200.0)), "the freehand stroke is missing");
@@ -10438,11 +10454,13 @@ fn brush_shift_after_zooming_away_and_back_rebuilds_the_live_canvas() {
         board_path::stamps_on_this_thread(),
         board_path::resumes_on_this_thread(),
     );
-    hold_shift_drag(&mut h, &mut raster, &[p(60.0, 140.0), p(200.0, 100.0), p(300.0, 100.0)]);
+    let press = hold_shift_drag(&mut h, &mut raster, &[p(60.0, 140.0), p(200.0, 100.0), p(300.0, 100.0)]);
     assert_eq!(board_path::resumes_on_this_thread(), resumes, "resumed a stale canvas");
-    assert!(
-        board_path::stamps_on_this_thread() > stamps,
-        "the rebuild must stamp the chain at the new camera"
+    assert_eq!(press, (0, 0), "the rebuild stamped on the frame loop at the press");
+    assert_eq!(
+        board_path::stamps_on_this_thread(),
+        stamps,
+        "the rebuild stamps the chain at the new camera on the raster workers"
     );
     let xf = h.app.board_xf();
     for w in [p(-260.0, -200.0), p(0.0, -50.0), p(200.0, 100.0)] {
@@ -10735,27 +10753,42 @@ fn brush_shift_chain_frame_times_at_a_big_brush() {
 /// display at 150 %, after one freehand stroke whose end the next Shift
 /// segment continues.
 fn big_brush_board(tag: &str) -> (Harness, Pos2) {
+    let (mut h, c) = big_brush_setup(tag);
+    h.frame();
+    press_drag_release_frames(&mut h, &big_brush_stroke(c), egui::Modifiers::NONE, |_| {});
+    (h, c)
+}
+
+/// [`big_brush_board`] with every frame from the stroke on fed to a raster.
+fn big_brush_raster_board(tag: &str) -> (Harness, FrameRaster, Pos2) {
+    let (mut h, c) = big_brush_setup(tag);
+    let mut raster = FrameRaster::new(1440, 900);
+    capture_frame(&mut h, &mut raster, |_| {});
+    raster_drag(&mut h, &mut raster, egui::Modifiers::NONE, &big_brush_stroke(c), false);
+    (h, raster, c)
+}
+
+/// The user's brush on a red foreground, and the world point at the
+/// window's center.
+fn big_brush_setup(tag: &str) -> (Harness, Pos2) {
     let mut h = brush_board(tag);
     h.ctx.set_pixels_per_point(1.5);
     h.frame_with(|i| i.max_texture_side = Some(8192));
+    h.app.board_colors.fg.0 = [255, 40, 40, 255];
     h.app.brush_width = 207.0;
     h.app.brush_softness = 0.09;
     h.app.brush_texture = slate_doc::scene::BrushTexture::Pencil;
     h.app.tab_mut().cam.z = 1.5;
-    h.frame();
-    let xf = h.app.board_xf();
-    let c = xf.s2w(Pos2::new(720.0, 450.0));
-    press_drag_release_frames(
-        &mut h,
-        &[
-            c + EVec2::new(-300.0, -200.0),
-            c + EVec2::new(-150.0, -150.0),
-            c + EVec2::new(0.0, -200.0),
-        ],
-        egui::Modifiers::NONE,
-        |_| {},
-    );
+    let c = h.app.board_xf().s2w(Pos2::new(720.0, 450.0));
     (h, c)
+}
+
+fn big_brush_stroke(c: Pos2) -> [Pos2; 3] {
+    [
+        c + EVec2::new(-300.0, -200.0),
+        c + EVec2::new(-150.0, -150.0),
+        c + EVec2::new(0.0, -200.0),
+    ]
 }
 
 /// tip18 at the user's brush: a Shift drag's move frames stamp nothing on
@@ -10779,6 +10812,11 @@ fn brush_shift_move_frames_stamp_nothing_on_the_frame_loop() {
     });
     assert!(h.app.brush_straight.is_some());
     let from = h.app.brush_line_anchor().expect("the stroke's end").pos;
+    let (allocs, copies, asks) = (
+        board_path::line_tex_allocs_on_this_thread(),
+        board_path::base_copies_on_this_thread().0,
+        h.app.brush_tiles.line_tags_issued(),
+    );
     for k in 1..=8 {
         let s = press + EVec2::new(45.0 * k as f32, 25.0 * k as f32);
         let before = board_path::stamp_px_on_this_thread();
@@ -10804,6 +10842,19 @@ fn brush_shift_move_frames_stamp_nothing_on_the_frame_loop() {
         std::thread::sleep(std::time::Duration::from_millis(5));
         h.frame_with(|i| i.modifiers = shift);
     }
+    // The preview's pixels go into the one canvas-sized line texture, each
+    // job copying at most its own box of the canvas as its base.
+    assert_eq!(
+        board_path::line_tex_allocs_on_this_thread(),
+        allocs,
+        "a move or a landed stamp allocated a texture"
+    );
+    let asked = h.app.brush_tiles.line_tags_issued() - asks;
+    assert!(asked > 0, "the moves asked for no stamp");
+    assert!(
+        board_path::base_copies_on_this_thread().0 - copies <= asked,
+        "a job copied its base more than once"
+    );
     // The release takes that stamp into the canvas; nothing stamps here.
     let before = board_path::stamp_px_on_this_thread();
     let last = press + EVec2::new(45.0 * 8.0, 25.0 * 8.0);
@@ -10820,6 +10871,203 @@ fn brush_shift_move_frames_stamp_nothing_on_the_frame_loop() {
     assert_eq!(board_path::stamp_px_on_this_thread(), before, "the release stamped");
     let canvas = h.app.brush_live.as_ref().expect("parked canvas");
     assert!(canvas.settled(), "the canvas holds the committed segment");
+}
+
+/// Red, averaged over the 5 × 5 points around world point `w`: grain
+/// leaves single pixels dark in a lit stroke.
+fn red_around(raster: &FrameRaster, xf: &board::BoardXf, w: Pos2) -> bool {
+    let s = xf.w2s(w);
+    let (mut r, mut g) = (0.0, 0.0);
+    for dy in -2..=2 {
+        for dx in -2..=2 {
+            let (x, y) = ((s.x as i64 + dx) as usize, (s.y as i64 + dy) as usize);
+            let p = raster.px[y * raster.w + x];
+            r += p[0];
+            g += p[1];
+        }
+    }
+    r - g > 0.3 * 25.0
+}
+
+/// Tessellate `out` and draw it over black, with no more frames run.
+fn draw_now(h: &Harness, raster: &mut FrameRaster, out: egui::FullOutput) {
+    let prims = h.ctx.tessellate(out.shapes, out.pixels_per_point);
+    for p in raster.px.iter_mut() {
+        *p = [0.0, 0.0, 0.0, 1.0];
+    }
+    raster.draw(&prims);
+}
+
+/// The user's brush after one wheel notch: the camera changed, so the next
+/// Shift press rebuilds the live canvas. The rebuild stamps nothing on the
+/// frame loop (Art. II): the workers stamp the stroke, the scene keeps
+/// painting it until they land, and then the canvas shows the chain.
+#[test]
+fn brush_shift_after_a_wheel_notch_rebuilds_off_the_frame_loop_at_the_users_brush() {
+    let (mut h, mut raster, c) = big_brush_raster_board("r10_wheel_rebuild");
+    let z = h.app.tab().cam.z;
+    capture_frame(&mut h, &mut raster, |inp| {
+        inp.events = vec![
+            egui::Event::PointerMoved(Pos2::new(720.0, 450.0)),
+            egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: EVec2::new(0.0, -120.0),
+                modifiers: egui::Modifiers::NONE,
+            },
+        ];
+    });
+    let out = capture_frame(&mut h, &mut raster, |_| {});
+    rasterize(&mut h, &mut raster, out);
+    assert!((h.app.tab().cam.z - z).abs() > z * 0.01, "the wheel moved the camera");
+    let xf = h.app.board_xf();
+    let chain = [c + EVec2::new(-225.0, -175.0), c + EVec2::new(-75.0, -175.0)];
+    for w in chain {
+        assert!(red_around(&raster, &xf, w), "{w:?}: the stroke is dark before the press");
+    }
+    let shift = egui::Modifiers::SHIFT;
+    let at = xf.w2s(c + EVec2::new(-200.0, 100.0));
+    let (stamps, px) = (
+        board_path::stamps_on_this_thread(),
+        board_path::stamp_px_on_this_thread(),
+    );
+    let t = std::time::Instant::now();
+    let out = capture_frame(&mut h, &mut raster, |inp| {
+        inp.modifiers = shift;
+        inp.events = vec![
+            egui::Event::PointerMoved(at),
+            egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: shift,
+            },
+        ];
+    });
+    let ms = t.elapsed().as_secs_f64() * 1000.0;
+    let press = (
+        board_path::stamps_on_this_thread() - stamps,
+        board_path::stamp_px_on_this_thread() - px,
+    );
+    eprintln!("wheel-notch rebuild: press frame {ms:.1} ms, frame-thread (stamps, px) {press:?}");
+    assert!(h.app.brush_straight.is_some(), "the press started a Shift segment");
+    assert_eq!(press, (0, 0), "the rebuild stamped on the frame loop at the press");
+    draw_now(&h, &mut raster, out);
+    for w in chain {
+        assert!(red_around(&raster, &xf, w), "{w:?}: the stroke vanished at the press");
+    }
+    wait_brush_live(&mut h, &mut raster, shift, |c| c.settled() && c.line_exact());
+    assert_eq!(
+        (board_path::stamps_on_this_thread(), board_path::stamp_px_on_this_thread()),
+        (stamps, px),
+        "the rebuild stamped on the frame loop"
+    );
+    let out = capture_frame(&mut h, &mut raster, |inp| inp.modifiers = shift);
+    draw_now(&h, &mut raster, out);
+    let end = h.app.brush_line_anchor().expect("the stroke's end").pos;
+    let seg = h.app.brush_live.as_ref().and_then(|c| c.live_line_end()).expect("a segment");
+    let mid = Pos2::new((end.x + seg[0]) * 0.5, (end.y + seg[1]) * 0.5);
+    for w in chain.into_iter().chain([mid]) {
+        assert!(red_around(&raster, &xf, w), "{w:?} is dark once the canvas holds the chain");
+    }
+}
+
+/// A line job that panics on its worker is not waited on forever: the live
+/// canvas asks again, and the segment's exact stamp lands.
+#[test]
+fn a_lost_line_job_is_asked_again() {
+    let (mut h, mut raster, _, c) = shift_chain_board("r10_lost_job");
+    let p = |x: f32, y: f32| c + EVec2::new(x, y);
+    h.app.brush_live.as_mut().expect("parked canvas").panic_next = true;
+    let asks = h.app.brush_tiles.line_tags_issued();
+    hold_shift_drag(&mut h, &mut raster, &[p(60.0, 140.0), p(200.0, 100.0), p(300.0, 100.0)]);
+    let canvas = h.app.brush_live.as_ref().expect("live canvas");
+    assert!(!canvas.panic_next, "no job took the panic");
+    assert!(canvas.line_exact(), "the exact stamp landed");
+    assert!(canvas.settled(), "a job is still awaited");
+    assert!(h.app.brush_tiles.line_tags_issued() >= asks + 2, "the lost job was never asked again");
+    assert_eq!(h.app.brush_tiles.lines_wanted_len(), 0);
+    let xf = h.app.board_xf();
+    assert!(red_at(&raster, &xf, p(200.0, 100.0)), "the segment is dark");
+}
+
+/// Soft brush at 50 % opacity: the moving preview mesh starts butt at the
+/// joint with a stamped chain, so nothing behind the joint doubles, and its
+/// edge fades over softness × radius as the stamp's does. It is still an
+/// approximation of the exact stamp that replaces it.
+#[test]
+fn a_soft_translucent_moving_preview_does_not_double_behind_the_joint() {
+    let mut h = brush_board("r10_soft_joint");
+    h.app.board_colors.fg.0 = [255, 40, 40, 255];
+    h.app.brush_opacity = 0.5;
+    h.app.brush_softness = 0.5;
+    h.app.brush_width = 60.0;
+    h.app.brush_texture = slate_doc::scene::BrushTexture::Smooth;
+    let mut raster = FrameRaster::new(1440, 900);
+    capture_frame(&mut h, &mut raster, |_| {});
+    let c = h.app.board_xf().s2w(h.app.canvas_rect.center());
+    let p = |x: f32, y: f32| c + EVec2::new(x, y);
+    let freehand = [p(-300.0, -200.0), p(-200.0, -200.0), p(-100.0, -200.0), p(0.0, -200.0)];
+    raster_drag(&mut h, &mut raster, egui::Modifiers::NONE, &freehand, false);
+    settle_brush_live(&mut h, &mut raster);
+    h.app.brush_live.as_mut().expect("parked canvas").hold_previews = true;
+    let xf = h.app.board_xf();
+    let shift = egui::Modifiers::SHIFT;
+    let mut out = None;
+    for (i, w) in [p(0.0, -200.0), p(0.0, -200.0), p(150.0, -200.0), p(300.0, -200.0)]
+        .into_iter()
+        .enumerate()
+    {
+        let mut events = vec![egui::Event::PointerMoved(xf.w2s(w))];
+        if i == 1 {
+            events.push(egui::Event::PointerButton {
+                pos: xf.w2s(w),
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: shift,
+            });
+        }
+        out = Some(capture_frame(&mut h, &mut raster, |inp| {
+            inp.modifiers = shift;
+            inp.events = events;
+        }));
+    }
+    let canvas = h.app.brush_live.as_ref().expect("live canvas");
+    assert!(canvas.showing_line() && !canvas.line_exact(), "the preview is the moving mesh");
+    draw_now(&h, &mut raster, out.unwrap());
+    // Estimated from red over the board's background.
+    let red = |raster: &FrameRaster, w: Pos2| {
+        let s = xf.w2s(w);
+        raster.px[s.y as usize * raster.w + s.x as usize][0]
+    };
+    let bg = red(&raster, p(0.0, 100.0));
+    let alpha = |raster: &FrameRaster, w: Pos2| (red(raster, w) - bg) / (1.0 - bg);
+    let r = 30.0;
+    let chain = alpha(&raster, p(-150.0, -200.0));
+    let mesh = alpha(&raster, p(150.0, -200.0));
+    assert!((chain - 0.5).abs() < 0.05, "the chain's body is {chain}");
+    assert!((mesh - 0.5).abs() < 0.05, "the moving mesh's body is {mesh}");
+    for back in [2.0, r * 0.5] {
+        let a = alpha(&raster, p(-back, -200.0));
+        assert!(
+            a <= chain + 2.0 / 255.0,
+            "{back} behind the joint the preview is {a}, over the body's {chain}"
+        );
+    }
+    let edge = alpha(&raster, p(150.0, -200.0 + 0.75 * r));
+    assert!(
+        edge > 0.1 * mesh && edge < 0.9 * mesh,
+        "the mesh edge at 0.75 r is {edge}: it does not fade as the stamp does"
+    );
+    let ahead = alpha(&raster, p(r * 0.25, -200.0));
+    eprintln!(
+        "soft joint: chain {chain:.3} mesh {mesh:.3} edge {edge:.3} r/4 ahead of the joint {ahead:.3}"
+    );
+    h.app.brush_live.as_mut().unwrap().hold_previews = false;
+    wait_brush_live(&mut h, &mut raster, shift, |c| c.line_exact());
+    let out = capture_frame(&mut h, &mut raster, |inp| inp.modifiers = shift);
+    draw_now(&h, &mut raster, out);
+    let exact = alpha(&raster, p(r * 0.25, -200.0));
+    assert!(exact <= chain + 2.0 / 255.0, "the exact stamp doubles at the joint: {exact}");
 }
 
 /// tip18 with a stroke selected under the press: its body, corner, and edge

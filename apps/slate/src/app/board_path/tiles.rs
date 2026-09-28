@@ -155,6 +155,14 @@ enum Done {
     Tile(Finished),
     Stroke(NodeId, StrokeRaster),
     Line(LineRaster),
+    /// Line job `(lane, tag)` panicked on its worker.
+    LineLost(u64, u64),
+}
+
+/// What became of a line job: its raster, or nothing because it panicked.
+pub(crate) enum LineLanded {
+    Raster(LineRaster),
+    Lost,
 }
 
 struct Finished {
@@ -298,6 +306,11 @@ pub(crate) struct BrushTiles {
     /// Live Shift segment rasters (brush canvas, eraser previews) landed and
     /// not taken yet.
     lines_landed: Vec<LineRaster>,
+    /// Line jobs `(lane, tag)` that panicked and were not taken yet.
+    lines_lost: Vec<(u64, u64)>,
+    /// Line jobs `(lane, tag)` on the workers whose owner still wants them.
+    /// A raster for any other job is dropped as it lands.
+    lines_wanted: Vec<(u64, u64)>,
     /// The last Shift segment job tag handed out, over every lane.
     line_tag: u64,
     /// Stroke bitmaps the workers have built, ever.
@@ -333,6 +346,8 @@ impl Default for BrushTiles {
             stroke_wants: Arc::new(Mutex::new(HashMap::new())),
             stroke_landed: HashMap::new(),
             lines_landed: Vec::new(),
+            lines_lost: Vec::new(),
+            lines_wanted: Vec::new(),
             line_tag: 0,
             stroke_builds: 0,
             last: BrushPaintStats {
@@ -388,6 +403,8 @@ impl BrushTiles {
         self.incoming.clear();
         self.stroke_landed.clear();
         self.lines_landed.clear();
+        self.lines_lost.clear();
+        self.lines_wanted.clear();
         if let Ok(mut wants) = self.stroke_wants.lock() {
             wants.clear();
         }
@@ -447,6 +464,12 @@ impl BrushTiles {
         self.line_tag
     }
 
+    /// Shift segment jobs asked for, ever.
+    #[cfg(test)]
+    pub(crate) fn line_tags_issued(&self) -> u64 {
+        self.line_tag
+    }
+
     /// Stamp a live Shift segment (brush or eraser) on the raster workers.
     /// Hands the job back when no worker can take it.
     pub(crate) fn request_line(&mut self, job: LineJob) -> Result<(), LineJob> {
@@ -454,25 +477,60 @@ impl BrushTiles {
         let Some(tx) = self.job_tx.as_ref() else {
             return Err(job);
         };
-        tx.send(Work::Line(job)).map_err(|e| match e.0 {
-            Work::Line(job) => job,
-            _ => unreachable!("sent a line job"),
-        })
+        let want = (job.lane, job.tag);
+        tx.send(Work::Line(job))
+            .map(|()| self.lines_wanted.push(want))
+            .map_err(|e| match e.0 {
+                Work::Line(job) => job,
+                _ => unreachable!("sent a line job"),
+            })
     }
 
-    /// The raster for `lane`'s line job `tag`, once it has landed. That
-    /// lane's rasters of older jobs are dropped.
-    pub(crate) fn take_line(&mut self, lane: u64, tag: u64) -> Option<LineRaster> {
+    /// The raster for `lane`'s line job `tag`, once it has landed, or
+    /// [`LineLanded::Lost`] when that job panicked. That lane's results of
+    /// older jobs are dropped.
+    pub(crate) fn take_line(&mut self, lane: u64, tag: u64) -> Option<LineLanded> {
         self.drain_finished();
         self.lines_landed.retain(|r| r.lane != lane || r.tag >= tag);
-        let i = self.lines_landed.iter().position(|r| r.tag == tag)?;
-        Some(self.lines_landed.swap_remove(i))
+        self.lines_lost.retain(|l| l.0 != lane || l.1 >= tag);
+        self.lines_wanted.retain(|w| w.0 != lane || w.1 >= tag);
+        let landed = if let Some(i) = self.lines_landed.iter().position(|r| r.tag == tag) {
+            LineLanded::Raster(self.lines_landed.swap_remove(i))
+        } else if let Some(i) = self.lines_lost.iter().position(|l| l.1 == tag) {
+            self.lines_lost.swap_remove(i);
+            LineLanded::Lost
+        } else {
+            return None;
+        };
+        self.lines_wanted.retain(|w| *w != (lane, tag));
+        Some(landed)
     }
 
-    /// Drop landed eraser segment rasters: their pass is over.
-    pub(crate) fn forget_erase_lines(&mut self) {
+    /// The owner of `lane`'s line job `tag` is gone: drop its result now or
+    /// whenever it lands.
+    pub(crate) fn forget_line(&mut self, lane: u64, tag: u64) {
+        self.lines_wanted.retain(|w| *w != (lane, tag));
         self.drain_finished();
-        self.lines_landed.retain(|r| r.lane == BRUSH_LANE);
+    }
+
+    /// Drop landed eraser segment rasters, and any still on the workers:
+    /// their pass is over.
+    pub(crate) fn forget_erase_lines(&mut self) {
+        self.lines_wanted.retain(|w| w.0 == BRUSH_LANE);
+        self.drain_finished();
+    }
+
+    /// Line results landed and not taken yet, lost jobs included.
+    #[cfg(test)]
+    pub(crate) fn lines_landed_len(&mut self) -> usize {
+        self.drain_finished();
+        self.lines_landed.len() + self.lines_lost.len()
+    }
+
+    /// Line jobs on the workers that an owner still wants.
+    #[cfg(test)]
+    pub(crate) fn lines_wanted_len(&self) -> usize {
+        self.lines_wanted.len()
     }
 
     /// Stroke bitmaps asked for and not landed yet.
@@ -575,9 +633,22 @@ impl BrushTiles {
                     }
                     self.stroke_landed.insert(id, raster);
                 }
-                Done::Line(raster) => self.lines_landed.push(raster),
+                Done::Line(raster) => {
+                    if self.lines_wanted.contains(&(raster.lane, raster.tag)) {
+                        self.lines_landed.push(raster);
+                    }
+                }
+                Done::LineLost(lane, tag) => {
+                    if self.lines_wanted.contains(&(lane, tag)) {
+                        self.lines_lost.push((lane, tag));
+                    }
+                }
             }
         }
+        let wanted = &self.lines_wanted;
+        self.lines_landed
+            .retain(|r| wanted.contains(&(r.lane, r.tag)));
+        self.lines_lost.retain(|l| wanted.contains(l));
     }
 
     fn upload_some(&mut self, ctx: &egui::Context) {
@@ -876,7 +947,14 @@ fn worker(jobs: Arc<Mutex<Receiver<Work>>>, done: Sender<Done>) {
         let sent = match work {
             Work::Tile(job) => rasterize_tile(job, &done),
             Work::Stroke(job) => rasterize_stroke(job, &done),
-            Work::Line(job) => done.send(Done::Line(line_raster(job))).is_ok(),
+            Work::Line(job) => {
+                let (lane, tag) = (job.lane, job.tag);
+                // A panic must not strand the owner waiting on this job.
+                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| line_raster(job))) {
+                    Ok(raster) => done.send(Done::Line(raster)).is_ok(),
+                    Err(_) => done.send(Done::LineLost(lane, tag)).is_ok(),
+                }
+            }
         };
         if !sent {
             break;
@@ -1028,7 +1106,11 @@ pub(super) fn plain_stamp<'a>(
     if app.shape_properties.preview.iter().any(|p| p.id == node.id) {
         return None;
     }
-    if app.brush_live.as_ref().and_then(|c| c.anchor) == Some(node.id) {
+    if app
+        .brush_live
+        .as_ref()
+        .is_some_and(|c| c.holds_anchor(node.id))
+    {
         return None;
     }
     Some((shape, path))
