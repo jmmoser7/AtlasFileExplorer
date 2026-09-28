@@ -5552,11 +5552,13 @@ impl SlateApp {
                         tip: end.stamp(),
                     },
                 );
+                canvas.pump(&mut self.brush_tiles, ui.ctx());
                 canvas.paint(&draft_painter, &xf);
             }
             _ => {
                 if let Some(canvas) = self.brush_live.as_mut() {
                     canvas.park();
+                    canvas.pump(&mut self.brush_tiles, ui.ctx());
                 }
             }
         }
