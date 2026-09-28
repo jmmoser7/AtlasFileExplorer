@@ -10,7 +10,7 @@
 //! strokes still paint above it.
 
 use super::super::board::BoardXf;
-use super::super::board_slate::{stroke_cache_id_in, NESTED_STROKE};
+use super::super::board_slate::NESTED_STROKE;
 use super::super::SlateApp;
 use super::{line_raster, paint_path_shape, path_content_hash, LineJob, LineRaster};
 use eframe::egui::{self, Color32, Pos2};
@@ -122,15 +122,17 @@ struct Job {
 struct StrokeJob {
     /// The stroke's cache id ([`SlateApp::stroke_cache_id`]).
     id: NodeId,
+    /// The open document that asked, nested boards' strokes included.
+    tab: u64,
     node: Node,
     key: u64,
     pixel: f32,
     wanted: Arc<Mutex<StrokeWants>>,
 }
 
-/// The newest `(content key, pixel bits)` asked for each stroke. A job that
-/// is no longer wanted when a worker reaches it is skipped.
-type StrokeWants = HashMap<NodeId, (u64, u32)>;
+/// The newest `(content key, pixel bits, document)` asked for each stroke.
+/// A job that is no longer wanted when a worker reaches it is skipped.
+type StrokeWants = HashMap<NodeId, (u64, u32, u64)>;
 
 /// A stroke bitmap from the raster workers, premultiplied for upload.
 pub(crate) struct StrokeRaster {
@@ -140,7 +142,16 @@ pub(crate) struct StrokeRaster {
     pub rect: slate_doc::WorldRect,
     pub stamp: Option<StampImage>,
     pub image: Option<egui::ColorImage>,
+    /// The document that asked, and the stroke's own node id there.
+    tab: u64,
+    node: NodeId,
+    /// The frame it was taken off the workers.
+    landed: u64,
 }
+
+/// Frames a nested board's landed stroke bitmap waits to be taken. A
+/// portal still on screen asks again.
+const NESTED_LANDED_FRAMES: u64 = 120;
 
 /// The line-job lane of the brush's live canvas.
 pub(crate) const BRUSH_LANE: u64 = 0;
@@ -325,6 +336,11 @@ pub(crate) struct BrushTiles {
     inks_landed: HashMap<(NodeId, u64), bool>,
     /// The last Shift segment job tag handed out, over every lane.
     line_tag: u64,
+    /// Documents closed this session: a stroke bitmap asked for one is
+    /// dropped as it lands.
+    closed: Vec<u64>,
+    /// The frame being painted.
+    now: u64,
     /// Stroke bitmaps the workers have built, ever.
     pub stroke_builds: u64,
     pub last: BrushPaintStats,
@@ -372,6 +388,8 @@ impl Default for BrushTiles {
             inks_wanted: Vec::new(),
             inks_landed: HashMap::new(),
             line_tag: 0,
+            closed: Vec::new(),
+            now: 0,
             stroke_builds: 0,
             last: BrushPaintStats {
                 gpu_bytes: 0,
@@ -445,15 +463,15 @@ impl BrushTiles {
     }
 
     /// Ask the raster workers for stroke `node`'s whole bitmap at `pixel`,
-    /// under its cache id `id` ([`SlateApp::stroke_cache_id`]). Asking
-    /// again for the same key and pixel is free; a newer ask supersedes an
-    /// older one still queued.
-    pub(crate) fn request_stroke(&mut self, id: NodeId, node: &Node, key: u64, pixel: f32) {
-        let want = (key, pixel.to_bits());
+    /// under its cache id `id` ([`SlateApp::stroke_cache_id`]), for open
+    /// document `tab`. Asking again for the same key and pixel is free; a
+    /// newer ask supersedes an older one still queued.
+    pub(crate) fn request_stroke(&mut self, id: NodeId, tab: u64, node: &Node, key: u64, pixel: f32) {
+        let want = (key, pixel.to_bits(), tab);
         if self
             .stroke_landed
             .get(&id)
-            .is_some_and(|r| (r.key, r.pixel.to_bits()) == want)
+            .is_some_and(|r| (r.key, r.pixel.to_bits()) == (key, pixel.to_bits()))
         {
             return;
         }
@@ -470,6 +488,7 @@ impl BrushTiles {
         super::note_node_clone();
         let job = StrokeJob {
             id,
+            tab,
             node: node.clone(),
             key,
             pixel,
@@ -494,6 +513,35 @@ impl BrushTiles {
             return None;
         }
         self.stroke_landed.remove(&id)
+    }
+
+    /// Drop the landed stroke bitmaps nobody takes: a host stroke's once it
+    /// is not among `nodes`, painted this frame for open document `tab`; a
+    /// nested board's once it waited [`NESTED_LANDED_FRAMES`]. Compares ids,
+    /// hashes nothing.
+    pub(crate) fn prune_landed(&mut self, tab: u64, nodes: &[Node]) {
+        if self.stroke_landed.is_empty() {
+            return;
+        }
+        let now = self.now;
+        self.stroke_landed.retain(|id, r| {
+            if id.0 & NESTED_STROKE != 0 {
+                now.saturating_sub(r.landed) <= NESTED_LANDED_FRAMES
+            } else {
+                r.tab == tab && nodes.iter().any(|n| n.id == r.node)
+            }
+        });
+    }
+
+    /// Document `tab` closed: drop its stroke bitmaps, landed or asked for,
+    /// nested boards' included.
+    pub(crate) fn forget_tab(&mut self, tab: u64) {
+        self.drain_finished();
+        self.stroke_landed.retain(|_, r| r.tab != tab);
+        if let Ok(mut wants) = self.stroke_wants.lock() {
+            wants.retain(|_, w| w.2 != tab);
+        }
+        self.closed.push(tab);
     }
 
     /// A fresh Shift segment job tag, never handed out before.
@@ -622,6 +670,17 @@ impl BrushTiles {
         self.lines_landed.len() + self.lines_lost.len()
     }
 
+    /// Stroke bitmaps landed and not taken yet: nested boards' when
+    /// `nested`, the host's otherwise.
+    #[cfg(test)]
+    pub(crate) fn stroke_landed_len(&mut self, nested: bool) -> usize {
+        self.drain_finished();
+        self.stroke_landed
+            .keys()
+            .filter(|id| (id.0 & NESTED_STROKE != 0) == nested)
+            .count()
+    }
+
     /// Line jobs on the workers that an owner still wants.
     #[cfg(test)]
     pub(crate) fn lines_wanted_len(&self) -> usize {
@@ -719,14 +778,18 @@ impl BrushTiles {
         while let Ok(done) = rx.try_recv() {
             match done {
                 Done::Tile(fin) => self.incoming.push_back(fin),
-                Done::Stroke(id, raster) => {
+                Done::Stroke(id, mut raster) => {
                     self.stroke_builds += 1;
                     if let Ok(mut wants) = self.stroke_wants.lock() {
-                        if wants.get(&id) == Some(&(raster.key, raster.pixel.to_bits())) {
+                        let got = (raster.key, raster.pixel.to_bits(), raster.tab);
+                        if wants.get(&id) == Some(&got) {
                             wants.remove(&id);
                         }
                     }
-                    self.stroke_landed.insert(id, raster);
+                    if !self.closed.contains(&raster.tab) {
+                        raster.landed = self.now;
+                        self.stroke_landed.insert(id, raster);
+                    }
                 }
                 Done::Line(raster) => {
                     if self.lines_wanted.contains(&(raster.lane, raster.tag)) {
@@ -1079,7 +1142,7 @@ fn rasterize_stroke(job: StrokeJob, done: &Sender<Done>) -> bool {
     let wanted = job
         .wanted
         .lock()
-        .map(|w| w.get(&job.id) == Some(&(job.key, job.pixel.to_bits())))
+        .map(|w| w.get(&job.id) == Some(&(job.key, job.pixel.to_bits(), job.tab)))
         .unwrap_or(false);
     if !wanted {
         return true;
@@ -1105,6 +1168,9 @@ fn rasterize_stroke(job: StrokeJob, done: &Sender<Done>) -> bool {
             rect: job.node.rect,
             stamp,
             image,
+            tab: job.tab,
+            node: job.node.id,
+            landed: 0,
         },
     ))
     .is_ok()
@@ -1307,6 +1373,7 @@ pub(crate) fn paint_rest(
     screen: egui::Rect,
     nodes: &[Node],
 ) {
+    app.brush_tiles.now = app.frame_no;
     if !app.brush_tiles_enabled {
         for n in nodes
             .iter()
@@ -1314,6 +1381,8 @@ pub(crate) fn paint_rest(
         {
             app.paint_board_node(ui, painter, xf, n, true);
         }
+        // A bitmap nobody painted this frame is for a stroke out of view.
+        app.brush_tiles.prune_landed(app.tab().id, nodes);
         return;
     }
 
@@ -1406,14 +1475,8 @@ pub(crate) fn paint_rest(
     app.brush_tiles.coords = coords;
 
     app.brush_tiles.evict(frame);
-    if !app.brush_tiles.stroke_landed.is_empty() {
-        // A bitmap nobody painted this frame is for a stroke out of view. A
-        // nested board's may land after its portal painted: it stays.
-        let tab = app.tab().id;
-        app.brush_tiles.stroke_landed.retain(|id, _| {
-            id.0 & NESTED_STROKE != 0 || nodes.iter().any(|n| stroke_cache_id_in(tab, n.id) == *id)
-        });
-    }
+    // A bitmap nobody painted this frame is for a stroke out of view.
+    app.brush_tiles.prune_landed(doc, nodes);
     let pending = app.brush_tiles.live_jobs.len()
         + app.brush_tiles.incoming.len()
         + app.brush_tiles.strokes_pending();

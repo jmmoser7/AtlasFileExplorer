@@ -13566,14 +13566,21 @@ fn moving_a_stroke_during_its_eraser_settle_never_shows_the_uncut_stroke() {
 /// its own.
 #[test]
 fn undoing_an_eraser_pass_after_it_settles_paints_the_restored_ink() {
-    undo_a_settled_eraser_pass("eraser_settle_undo", false);
+    undo_a_settled_eraser_pass("eraser_settle_undo", false, false);
 }
 
 /// Review r14 finding 7: Ctrl+Y after that undo paints the erased stroke
 /// again, not the restored ink, until the redone stroke's raster lands.
 #[test]
 fn redoing_an_undone_eraser_pass_paints_the_erased_ink() {
-    undo_a_settled_eraser_pass("eraser_settle_redo", true);
+    undo_a_settled_eraser_pass("eraser_settle_redo", true, false);
+}
+
+/// Review r16 D1: the same when the restored stroke's bitmap was rebuilt
+/// at another zoom between the undo and the redo.
+#[test]
+fn redoing_an_eraser_pass_after_a_zoom_paints_the_erased_ink() {
+    undo_a_settled_eraser_pass("eraser_settle_redo_zoom", true, true);
 }
 
 /// Stroke `id`'s cached bitmap for the open tab.
@@ -13597,9 +13604,10 @@ fn ctrl_key(key: egui::Key) -> Box<dyn FnOnce(&mut egui::RawInput)> {
 }
 
 /// Settle a pass on the bar into its stand-in with the tiles off, undo it
-/// (the restored ink shows every frame), then with `redo` redo it (the cut
+/// (the restored ink shows every frame), with `zoom` halve the zoom until
+/// the restored bar is exact there, then with `redo` redo it (the cut
 /// stays erased every frame, the first five with stroke bitmaps held).
-fn undo_a_settled_eraser_pass(tag: &str, redo: bool) {
+fn undo_a_settled_eraser_pass(tag: &str, redo: bool, zoom: bool) {
     let (mut h, mut raster, id, cross) = eraser_bar_board(tag);
     h.app.brush_tiles_enabled = false;
     let before = h.app.doc().scene.node(id).unwrap().clone();
@@ -13634,6 +13642,28 @@ fn undo_a_settled_eraser_pass(tag: &str, redo: bool) {
         assert!(std::time::Instant::now() < deadline, "the restored bar never settled");
         std::thread::sleep(std::time::Duration::from_millis(5));
         frames += 1;
+    }
+    if zoom {
+        h.app.tab_mut().cam.z *= 0.5;
+        let want =
+            board_path::stamp_pixel_for_zoom(h.app.tab().cam.z, h.ctx.pixels_per_point());
+        let mut frames = 0;
+        loop {
+            shot(&mut h, &mut raster, |_| {});
+            let xf = h.app.board_xf();
+            for p in cut_points(cross) {
+                let r = redness(&raster, &xf, p);
+                assert!(r > lit, "frame {frames} after the zoom: {p:?} is erased ({r:.2})");
+            }
+            let exact = stamp_of(&h, id)
+                .is_some_and(|(k, g)| g.exact && Some(*k) == key && g.wanted_pixel == want);
+            if exact {
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline, "the zoomed bar never settled");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            frames += 1;
+        }
     }
     if !redo {
         return;
@@ -13908,45 +13938,7 @@ fn band_holds_at_the_edge(
 #[test]
 fn a_band_over_a_given_up_cut_stays_at_the_view_edge_and_off_view() {
     let (mut h, mut raster, id, cross) = eraser_bar_board("eraser_band_gave_up");
-    let (seen, lit) = bar_at_the_view_bottom(&mut h, &mut raster, id, cross);
-    let c = h.app.canvas_rect.center();
-    let press = Pos2::new(c.x - 300.0, h.app.canvas_rect.min.y + 80.0);
-    let first = Pos2::new(c.x - 300.0, h.app.canvas_rect.max.y - 60.0);
-    let last = Pos2::new(c.x - 300.0, h.app.canvas_rect.max.y - 4.0);
-    shot(&mut h, &mut raster, shift_at(press, None));
-    shot(&mut h, &mut raster, shift_at(press, Some(true)));
-    shot(&mut h, &mut raster, shift_at(first, None));
-    let mut waited = 0;
-    while !h.app.erase_live.get(&id).is_some_and(|l| l.line_exact()) {
-        waited += 1;
-        assert!(waited < 2000, "the first cut never landed");
-        std::thread::sleep(std::time::Duration::from_millis(5));
-        shot(&mut h, &mut raster, |i| i.modifiers = egui::Modifiers::SHIFT);
-    }
-    h.app.brush_tiles.lose_lines = true;
-    shot(&mut h, &mut raster, shift_at(last, None));
-    h.app.brush_tiles.hold_rasters = true;
-    shot(&mut h, &mut raster, shift_at(last, Some(false)));
-    assert!(h.app.erase_settle.holds(h.app.tab().id, id), "the pass settles");
-    let away = h.app.canvas_rect.min + EVec2::new(200.0, 200.0);
-    shot(&mut h, &mut raster, |i| i.events.push(egui::Event::PointerMoved(away)));
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
-    let mut frames = 0;
-    while h.app.erase_settle.holds(h.app.tab().id, id) {
-        assert!(std::time::Instant::now() < deadline, "the workers never gave up");
-        std::thread::sleep(std::time::Duration::from_millis(5));
-        shot(&mut h, &mut raster, |_| {});
-        frames += 1;
-    }
-    h.app.brush_tiles.lose_lines = false;
-    let xf = h.app.board_xf();
-    for k in 0..4 {
-        shot(&mut h, &mut raster, |_| {});
-        for p in seen {
-            let r = redness(&raster, &xf, p);
-            assert!(r < lit, "frame {k} after giving up ({frames} settling): {p:?} shows the uncut bar ({r:.2})");
-        }
-    }
+    let (seen, lit) = give_up_a_pass_at_the_view_bottom(&mut h, &mut raster, id, cross);
     let home = h.app.tab().cam.offset;
     h.app.tab_mut().cam.offset.y += 3000.0;
     for _ in 0..3 {
@@ -13954,6 +13946,138 @@ fn a_band_over_a_given_up_cut_stays_at_the_view_edge_and_off_view() {
     }
     h.app.tab_mut().cam.offset = home;
     band_holds_at_the_edge(&mut h, &mut raster, (id, seen), lit, "gave up");
+}
+
+/// Review r16 D1: undoing that pass drops nothing a redo needs: Ctrl+Y
+/// brings the uncut stand-in back with its band over the cut.
+#[test]
+fn redoing_a_given_up_eraser_pass_keeps_its_band() {
+    let (mut h, mut raster, id, cross) = eraser_bar_board("eraser_band_gave_up_redo");
+    let (seen, lit) = give_up_a_pass_at_the_view_bottom(&mut h, &mut raster, id, cross);
+    let erased = h.app.doc().scene.node(id).unwrap().clone();
+    shot(&mut h, &mut raster, ctrl_key(egui::Key::Z));
+    assert_ne!(h.app.doc().scene.node(id), Some(&erased), "Ctrl+Z restores the bar");
+    for _ in 0..3 {
+        shot(&mut h, &mut raster, |_| {});
+    }
+    shot(&mut h, &mut raster, ctrl_key(egui::Key::Y));
+    assert_eq!(h.app.doc().scene.node(id), Some(&erased), "Ctrl+Y erases the bar again");
+    band_holds_at_the_edge(&mut h, &mut raster, (id, seen), lit, "redo");
+}
+
+/// [`bar_at_the_view_bottom`], then a Shift pass whose final cut the
+/// workers lose past the retries, released with stroke bitmaps held: the
+/// preview stands in uncut under the band, which holds for four frames.
+/// Returns the points in view along the pass and the redness half lit.
+fn give_up_a_pass_at_the_view_bottom(
+    h: &mut Harness,
+    raster: &mut FrameRaster,
+    id: NodeId,
+    cross: Pos2,
+) -> ([Pos2; 3], f32) {
+    let (seen, lit) = bar_at_the_view_bottom(h, raster, id, cross);
+    let c = h.app.canvas_rect.center();
+    let press = Pos2::new(c.x - 300.0, h.app.canvas_rect.min.y + 80.0);
+    let first = Pos2::new(c.x - 300.0, h.app.canvas_rect.max.y - 60.0);
+    let last = Pos2::new(c.x - 300.0, h.app.canvas_rect.max.y - 4.0);
+    shot(h, raster, shift_at(press, None));
+    shot(h, raster, shift_at(press, Some(true)));
+    shot(h, raster, shift_at(first, None));
+    let mut waited = 0;
+    while !h.app.erase_live.get(&id).is_some_and(|l| l.line_exact()) {
+        waited += 1;
+        assert!(waited < 2000, "the first cut never landed");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        shot(h, raster, |i| i.modifiers = egui::Modifiers::SHIFT);
+    }
+    h.app.brush_tiles.lose_lines = true;
+    shot(h, raster, shift_at(last, None));
+    h.app.brush_tiles.hold_rasters = true;
+    shot(h, raster, shift_at(last, Some(false)));
+    assert!(h.app.erase_settle.holds(h.app.tab().id, id), "the pass settles");
+    let away = h.app.canvas_rect.min + EVec2::new(200.0, 200.0);
+    shot(h, raster, |i| i.events.push(egui::Event::PointerMoved(away)));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let mut frames = 0;
+    while h.app.erase_settle.holds(h.app.tab().id, id) {
+        assert!(std::time::Instant::now() < deadline, "the workers never gave up");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        shot(h, raster, |_| {});
+        frames += 1;
+    }
+    h.app.brush_tiles.lose_lines = false;
+    let xf = h.app.board_xf();
+    for k in 0..4 {
+        shot(h, raster, |_| {});
+        for p in seen {
+            let r = redness(raster, &xf, p);
+            assert!(r < lit, "frame {k} after giving up ({frames} settling): {p:?} shows the uncut bar ({r:.2})");
+        }
+    }
+    (seen, lit)
+}
+
+/// Tiles off and the bar's own bitmap current, then a Shift flick down
+/// screen x `cx - 300` released before its preview exists, with stroke
+/// bitmaps held. Returns points along the cut and the redness half lit.
+fn flick_the_bar_unseen(h: &mut Harness, raster: &mut FrameRaster, id: NodeId, cross: Pos2) -> ([Pos2; 3], f32) {
+    h.app.brush_tiles_enabled = false;
+    let key = board_path::node_stamp_key(h.app.doc().scene.node(id).unwrap());
+    settle_captured(h, raster, "the bar's own bitmap", |app| {
+        stamp_of_app(app, id).is_some_and(|(k, g)| g.exact && Some(*k) == key)
+    });
+    let lit = half_lit(h, raster, cross);
+    h.app.brush_tiles.hold_rasters = true;
+    let c = h.app.canvas_rect.center();
+    let press = c + EVec2::new(-300.0, -250.0);
+    let last = c + EVec2::new(-300.0, 250.0);
+    shot(h, raster, shift_at(press, None));
+    shot(h, raster, shift_at(press, Some(true)));
+    shot(h, raster, shift_at(last, None));
+    assert!(!h.app.erase_live.contains_key(&id), "no preview before the release");
+    shot(h, raster, shift_at(last, Some(false)));
+    assert_eq!(erase_marks(h.app.doc().scene.node(id).unwrap()).len(), 1, "the flick commits");
+    let p = cut_points(cross);
+    ([p[0], p[1], p[2]], lit)
+}
+
+/// Review r16 R1: hiding a stroke whose flick band waits on its raster
+/// keeps the band: the hide ghost and the stroke after Ctrl+Z (unhide)
+/// never paint the un-erased stroke.
+#[test]
+fn hiding_a_flicked_stroke_keeps_its_band() {
+    let (mut h, mut raster, id, cross) = eraser_bar_board("eraser_band_hidden");
+    let (seen, lit) = flick_the_bar_unseen(&mut h, &mut raster, id, cross);
+    let away = h.app.canvas_rect.min + EVec2::new(200.0, 200.0);
+    shot(&mut h, &mut raster, |i| i.events.push(egui::Event::PointerMoved(away)));
+    h.app.board_sel = [id].into_iter().collect();
+    assert_eq!(h.app.cmd_hide_selection(), 1, "Ctrl+H hides the bar");
+    for k in 0..3 {
+        shot(&mut h, &mut raster, |_| {});
+        let xf = h.app.board_xf();
+        for p in seen {
+            let r = redness(&raster, &xf, p);
+            assert!(r < lit, "hide ghost frame {k}: {p:?} shows the uncut bar ({r:.2})");
+        }
+    }
+    shot(&mut h, &mut raster, ctrl_key(egui::Key::Z));
+    assert!(!h.app.doc().scene.node(id).unwrap().hidden, "Ctrl+Z shows the bar again");
+    band_holds_at_the_edge(&mut h, &mut raster, (id, seen), lit, "hidden");
+}
+
+/// Review r16 note: a flick band with no preview stays while its stroke
+/// is panned out of view, and covers the cut when it comes back.
+#[test]
+fn a_flicked_band_stays_while_its_stroke_is_panned_away() {
+    let (mut h, mut raster, id, cross) = eraser_bar_board("eraser_band_panned");
+    let (seen, lit) = flick_the_bar_unseen(&mut h, &mut raster, id, cross);
+    let home = h.app.tab().cam.offset;
+    h.app.tab_mut().cam.offset.y += 3000.0;
+    for _ in 0..3 {
+        shot(&mut h, &mut raster, |_| {});
+    }
+    h.app.tab_mut().cam.offset = home;
+    band_holds_at_the_edge(&mut h, &mut raster, (id, seen), lit, "panned");
 }
 
 /// Review r14 finding 2 (Art. II) and note N1: a nested board portal's
@@ -13999,6 +14123,125 @@ fn nested_bar_portal(h: &mut Harness, raster: &mut FrameRaster, id: NodeId, span
         shot(h, raster, |_| {});
     }
     portal
+}
+
+/// [`nested_bar_portal`] over most of the view, then with stroke bitmaps
+/// held the zoom doubles until the child bar's raster for it lands.
+fn nested_bar_raster_landed(h: &mut Harness, raster: &mut FrameRaster, id: NodeId) -> NodeId {
+    let c = h.app.canvas_rect.center();
+    let portal = nested_bar_portal(h, raster, id, (c - EVec2::new(400.0, 230.0), c + EVec2::new(400.0, 230.0)));
+    h.app.brush_tiles.hold_rasters = true;
+    h.app.tab_mut().cam.z *= 2.0;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while h.app.brush_tiles.stroke_landed_len(true) == 0 {
+        assert!(std::time::Instant::now() < deadline, "the child bar's raster never landed");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        shot(h, raster, |_| {});
+    }
+    portal
+}
+
+/// Review r16 R2: a nested portal deleted while its stroke's raster is on
+/// the workers leaves no landed raster behind.
+#[test]
+fn a_deleted_nested_portal_frees_its_landed_rasters() {
+    let (mut h, mut raster, id, _) = eraser_bar_board("eraser_nested_landed");
+    let portal = nested_bar_raster_landed(&mut h, &mut raster, id);
+    h.app.delete_board_nodes(&[portal]);
+    assert!(h.app.doc().scene.node(portal).is_none(), "the portal is deleted");
+    h.app.brush_tiles.hold_rasters = false;
+    for _ in 0..200 {
+        shot(&mut h, &mut raster, |_| {});
+    }
+    let left = h.app.brush_tiles.stroke_landed_len(true);
+    assert_eq!(left, 0, "{left} nested rasters stay after 200 frames");
+}
+
+/// Review r16 D3: closing a tab frees every cached bitmap of its strokes,
+/// its nested boards' included, and every raster landed for it.
+#[test]
+fn closing_a_tab_frees_every_bitmap_of_its_strokes() {
+    let (mut h, mut raster, id, _) = eraser_bar_board("eraser_close_frees");
+    nested_bar_raster_landed(&mut h, &mut raster, id);
+    assert!(!h.app.brush_stamps.is_empty(), "the child bar has a bitmap");
+    let first = h.app.active_tab;
+    h.app.new_tab();
+    shot(&mut h, &mut raster, |_| {});
+    h.app.force_close_tab(first);
+    assert_eq!(h.app.brush_stamps.len(), 0, "the closed tab's bitmaps stay");
+    let landed = h.app.brush_tiles.stroke_landed_len(true) + h.app.brush_tiles.stroke_landed_len(false);
+    assert_eq!(landed, 0, "the closed tab's landed rasters stay");
+}
+
+/// Review r16 R3 (Art. II): a landed raster nobody takes, for a visible
+/// stroke that is exact again, costs no cache-id hash per visible node
+/// per frame.
+#[test]
+fn a_landed_raster_hashes_no_visible_node_per_frame() {
+    let (mut h, mut raster, first, _) = eraser_bar_board("eraser_landed_hashes");
+    h.app.delete_board_nodes(&[first]);
+    let c = h.app.board_xf().s2w(h.app.canvas_rect.center());
+    let rects: Vec<slate_doc::Node> = (0..500)
+        .map(|i| {
+            use slate_doc::scene::{ShapeKind, ShapeNode};
+            let (x, y) = ((i % 25) as f32 * 20.0 - 250.0, (i / 25) as f32 * 3.0 - 100.0);
+            let rect = slate_doc::scene::WorldRect::new(c.x + x, c.y + y, 20.0, 10.0);
+            h.app.doc_mut().scene.build_node(
+                rect,
+                slate_doc::scene::NodeKind::Shape(ShapeNode {
+                    shape: ShapeKind::Rect,
+                    fill: Some(slate_doc::scene::Rgba::WHITE),
+                    stroke: slate_doc::scene::Stroke::none(),
+                    corner: slate_doc::scene::Corner::Square,
+                    sides: slate_doc::scene::default_regular_sides(),
+                    phase_deg: 0.0,
+                    flip: false,
+                    path: None,
+                    text: None,
+                }),
+            )
+        })
+        .collect();
+    h.app.add_nodes(rects);
+    // Last in paint order, so a search for it passes every other node.
+    let id = big_brush_bar(&mut h);
+    // Selected, the bar paints its own bitmap instead of tiles.
+    h.app.board_sel = [id].into_iter().collect();
+    let key = board_path::node_stamp_key(h.app.doc().scene.node(id).unwrap());
+    let z = h.app.tab().cam.z;
+    let want = board_path::stamp_pixel_for_zoom(z, h.ctx.pixels_per_point());
+    let exact = move |app: &SlateApp| {
+        stamp_of_app(app, id).is_some_and(|(k, g)| g.exact && Some(*k) == key && g.wanted_pixel == want)
+    };
+    settle_captured(&mut h, &mut raster, "the selected bar", exact);
+    h.app.brush_tiles.hold_rasters = true;
+    h.app.tab_mut().cam.z = z * 0.5;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while h.app.brush_tiles.stroke_landed_len(false) == 0 {
+        assert!(std::time::Instant::now() < deadline, "the zoomed bar's raster never landed");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        shot(&mut h, &mut raster, |_| {});
+    }
+    h.app.tab_mut().cam.z = z;
+    h.app.brush_tiles.hold_rasters = false;
+    for _ in 0..3 {
+        shot(&mut h, &mut raster, |_| {});
+    }
+    assert!(exact(&h.app), "back at the old zoom the bar is exact");
+    assert_eq!(h.app.brush_tiles.stroke_landed_len(false), 1, "its landed raster waits");
+    let hashed = board_slate::salted_on_this_thread();
+    for _ in 0..10 {
+        shot(&mut h, &mut raster, |_| {});
+    }
+    let spent = board_slate::salted_on_this_thread() - hashed;
+    let xf = h.app.board_xf();
+    let in_view = |n: &&slate_doc::Node| {
+        let (x, y) = n.rect.center();
+        h.app.canvas_rect.contains(xf.w2s(Pos2::new(x, y)))
+    };
+    let seen = h.app.doc().scene.nodes.iter().filter(in_view).count();
+    assert!(seen > 500, "{seen} nodes in view");
+    assert!(spent < 500, "10 idle frames over {seen} visible nodes hashed {spent} cache ids");
 }
 
 /// Review r12 finding 2 (Art. II): a settling stroke panned out of view

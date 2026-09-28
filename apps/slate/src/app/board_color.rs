@@ -1900,7 +1900,7 @@ impl SlateApp {
                     self.erase_settle
                         .hold(tab, &after, (key, pass), l, &mut self.brush_tiles)
                 }
-                None => self.erase_settle.wait(tab, &after, key, &points, tip),
+                None => self.erase_settle.wait(tab, &after, (key, pass), &points, tip),
             }
         }
         match pass {
@@ -2025,10 +2025,11 @@ impl SlateApp {
         waiting
     }
 
-    /// A released straight eraser pass still waits on a cut or a raster.
+    /// A released straight eraser pass still waits on a cut or an ink
+    /// check, or its band waits in view on a raster.
     #[cfg(test)]
     pub(crate) fn erase_settling(&self) -> bool {
-        !self.erase_settle.is_empty()
+        self.erase_settle.settling()
     }
 
     // ---------- eyedropper (I / Alt while Brush) ----------
