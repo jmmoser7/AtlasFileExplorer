@@ -338,6 +338,9 @@ impl SlateApp {
             let host = self.wire_host(n);
             if let NodeKind::Portal(portal) = &n.kind {
                 if portal.kind == slate_doc::scene::PortalKind::Agent {
+                    if let Some(side) = self.crosstalk_port_at(n, screen, xf) {
+                        return Some((n.id, side, 0.5));
+                    }
                     if let Some(id) = self.agent_manual_context_at(screen, xf) {
                         return Some((id, Side::Left, 0.5));
                     }
@@ -453,6 +456,10 @@ impl SlateApp {
                         continue;
                     };
                     if xf.w2s(p).distance(screen) <= GRIP_HIT_PX {
+                        if conn.crosstalk.is_some() {
+                            self.toast("A crosstalk wire follows its messages; its ends stay put.");
+                            return None;
+                        }
                         if conn.binding.as_ref().is_some_and(|b| b.consumed) {
                             self.toast("This context was already sent. It stays attached.");
                             return None;
@@ -496,7 +503,9 @@ impl SlateApp {
             })
             .collect();
 
-        let mode = if mods.ctrl && mods.shift && !ends.is_empty() {
+        let mode = if self.is_crosstalk_port(from) {
+            WireMode::Add { from }
+        } else if mods.ctrl && mods.shift && !ends.is_empty() {
             WireMode::MoveAll { items: ends }
         } else if mods.ctrl && !mods.shift && !ends.is_empty() {
             // Detach the end nearest the press.
@@ -547,6 +556,9 @@ impl SlateApp {
     ) -> Option<(NodeId, Side, f32)> {
         let z = self.tab().cam.z.max(0.05);
         let snap_w = WIRE_SNAP_PX / z;
+        if let Some(from) = from.filter(|f| self.is_crosstalk_port(*f)) {
+            return self.crosstalk_snap(world, from.0, snap_w);
+        }
         let exclude = from.map(|f| f.0);
         let doc = self.doc();
         let scene = &doc.scene;
@@ -682,6 +694,12 @@ impl SlateApp {
     /// point, drawn the same way a detached end is.
     pub(crate) fn finish_wire_drag(&mut self, wd: WireDrag) {
         match wd.mode {
+            // Released anywhere but a partner, a crosstalk drag journals nothing.
+            WireMode::Add { from } if self.is_crosstalk_port(from) => {
+                if let Some((to, _, _)) = wd.snap {
+                    self.crosstalk_link(from.0, to);
+                }
+            }
             WireMode::Add { from } => match wd.snap {
                 Some((node, side, t)) => {
                     self.add_connector(
@@ -901,6 +919,7 @@ impl SlateApp {
     ) -> slate_doc::Node {
         let stroke = self.default_wire_stroke();
         let mut conn = ConnectorNode {
+            crosstalk: None,
             routing: Some(self.board_wire_routing),
             binding: self.bind_wire(&a, &b, pending),
             a,
@@ -992,14 +1011,16 @@ impl SlateApp {
             if let Some(path) =
                 connector_route_in_scene(scene, None, &a, &b, self.board_wire_routing)
             {
-                let stroke = connector_drawn_stroke(self.default_wire_stroke());
+                let crosstalk = self.is_crosstalk_port(*from);
+                let stroke = connector_drawn_stroke(if crosstalk {
+                    slate_doc::crosstalk::wire_stroke()
+                } else {
+                    self.default_wire_stroke()
+                });
                 let path =
                     retreat_off_hosts(path, &a, &b, scene_wire_hosts(scene), stroke.width * 0.5);
-                let color = rgba32(self.board_colors.fg).gamma_multiply(if wd.snap.is_some() {
-                    1.0
-                } else {
-                    0.55
-                });
+                let color =
+                    rgba32(stroke.color).gamma_multiply(if wd.snap.is_some() { 1.0 } else { 0.55 });
                 paint_route_preview(
                     painter,
                     xf,
@@ -1052,6 +1073,9 @@ impl SlateApp {
         let Some(path) = self.connector_path_visible(node.id, conn) else {
             return;
         };
+        if conn.crosstalk.is_some() && self.crosstalk_duplicate(node.id) {
+            return;
+        }
         let (path, stroke) = drawn_connector(&self.doc().scene, path, conn);
         let opacity = (node.opacity
             * match conn.display {
@@ -1221,6 +1245,16 @@ impl SlateApp {
     // ----- label editing -----
 
     pub(crate) fn open_wire_label_edit(&mut self, id: NodeId) {
+        // A crosswire's label is its chip, derived from the chain.
+        if self
+            .doc()
+            .scene
+            .node(id)
+            .and_then(slate_doc::crosstalk::crosstalk)
+            .is_some()
+        {
+            return;
+        }
         let Some(NodeKind::Connector(conn)) = self.doc().scene.node(id).map(|n| n.kind.clone())
         else {
             return;

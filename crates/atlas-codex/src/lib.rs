@@ -1,6 +1,7 @@
 //! Codex app-server protocol adapter; no renderer or scene dependencies.
 use atlas_agent::{
     AgentArtifact, AgentRequest, AgentSession, AgentStatus, AgentTurn, ArtifactKind, Conversation,
+    TurnPolicy,
 };
 use serde_json::{json, Value};
 use std::{
@@ -51,18 +52,25 @@ pub fn thread_params(cwd: &Path, thread: Option<&str>) -> Value {
 }
 
 /// Without a grant the provider's own approval and sandbox settings apply.
+/// A read-only turn overrides the grant.
 pub fn turn_params(
     thread: &str,
     input: Vec<Value>,
     request: &str,
     model: Option<&str>,
+    policy: TurnPolicy,
     full_access: bool,
 ) -> Value {
     let mut p =
         json!({"threadId":thread,"input":input,"clientUserMessageId":request,"model":model});
-    if full_access {
+    let sandbox = match policy {
+        TurnPolicy::ReadOnly => Some("readOnly"),
+        TurnPolicy::Default if full_access => Some("dangerFullAccess"),
+        TurnPolicy::Default => None,
+    };
+    if let Some(sandbox) = sandbox {
         p["approvalPolicy"] = json!("never");
-        p["sandboxPolicy"] = json!({"type":"dangerFullAccess"});
+        p["sandboxPolicy"] = json!({ "type": sandbox });
     }
     p
 }
@@ -334,6 +342,7 @@ impl Client {
                 input,
                 &request.id,
                 request.model.as_deref(),
+                request.policy,
                 self.full_access,
             ),
         )?;
@@ -810,13 +819,27 @@ mod tests {
 
     #[test]
     fn full_access_is_per_turn_and_absent_without_a_grant() {
-        let asks = turn_params("t", vec![], "r", Some("gpt"), false);
+        let asks = turn_params("t", vec![], "r", Some("gpt"), TurnPolicy::Default, false);
         assert!(asks.get("approvalPolicy").is_none());
         assert!(asks.get("sandboxPolicy").is_none());
-        let full = turn_params("t", vec![], "r", Some("gpt"), true);
+        let full = turn_params("t", vec![], "r", Some("gpt"), TurnPolicy::Default, true);
         assert_eq!(full["approvalPolicy"], "never");
         assert_eq!(full["sandboxPolicy"]["type"], "dangerFullAccess");
         assert_eq!(full["threadId"], "t");
+    }
+
+    #[test]
+    fn a_read_only_turn_is_sandboxed_and_outranks_full_access() {
+        for full_access in [false, true] {
+            let p = turn_params("t", vec![], "r", None, TurnPolicy::ReadOnly, full_access);
+            assert_eq!(p["approvalPolicy"], "never");
+            assert_eq!(
+                p["sandboxPolicy"],
+                json!({"type": "readOnly"}),
+                "{full_access}"
+            );
+            assert_eq!(p["clientUserMessageId"], "r");
+        }
     }
 
     #[test]

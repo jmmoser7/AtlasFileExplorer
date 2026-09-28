@@ -495,6 +495,7 @@ mod tests {
                 })
                 .collect(),
             missing: vec!["gone.md".into()],
+            goal: None,
         }
     }
 

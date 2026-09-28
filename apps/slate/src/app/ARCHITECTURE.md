@@ -284,6 +284,22 @@ with `build_artifact_node`, one frame by the pure `group_layout`, Slate Link
 wires with `build_connector_with`, and one `provenance_wire`, all in one
 `add_nodes` call. Spec: `docs/agent-link-contract.md` ("Spawning artifacts").
 
+### Agent crosstalk (`board_agent/crosstalk.rs`)
+
+A child module of `board_agent.rs` (contract `portal-agent-crosstalk`). Two
+coding chat cards are joined by crosswires: ordinary connectors on their top
+and bottom midpoints whose `ConnectorNode.crosstalk` binding
+(`slate_doc::crosstalk`) names the message each carried and what it became.
+The model owns the stop rule, goal progress, which card shows a turn, and
+`anchor_fixes`, which presentation switches append so a crosswire follows its
+message. The drag is the wire gesture (`board_wire.rs`) with a crosstalk port
+as its grip; a relay is `send_agent_prompt` on the partner's tail with the
+reply as its text, merged into one journal group authored by the sending
+agent (`SceneJournal::merge_since`). Running state is derived in
+`CrosstalkUi`. Relays are Step mode (Send on the wire's chip) until
+amendment VIII.1a is ratified: `CROSSTALK_AUTONOMY_RATIFIED`. The editor is
+`selection_tools::crosstalk_editor` in the selected wire's property strip.
+
 ### Web portals (`board_web.rs`, `board_web_win.rs`)
 
 Live capture tiers follow physical displayed pixels, including monitor DPI,

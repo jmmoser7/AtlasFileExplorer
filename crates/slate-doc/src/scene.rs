@@ -2591,6 +2591,9 @@ pub struct ConnectorNode {
     /// None is a decorative wire. Bound wires use these existing A/B endpoints.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub binding: Option<crate::agent_inputs::WireBinding>,
+    /// A crosswire between two coding conversations (`crate::crosstalk`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub crosstalk: Option<Box<crate::crosstalk::Crosstalk>>,
 }
 
 impl ConnectorNode {
@@ -3712,6 +3715,22 @@ impl SceneJournal {
         false
     }
 
+    /// Coalesces every group committed since `depth` into one group by
+    /// `author`: one act that commits in steps (an agent's relay adds a card,
+    /// then its manifest, then its wire) is one Undo. The coalesced group
+    /// keeps the newest merged group's token, so done groups stay in token
+    /// order. Returns `false` when nothing was committed since.
+    pub fn merge_since(&mut self, depth: usize, author: CmdAuthor) -> bool {
+        if self.done.len() <= depth {
+            return false;
+        }
+        let groups: Vec<CommitGroup> = self.done.drain(depth..).collect();
+        let token = groups.last().expect("at least one group since depth").token;
+        let cmds = groups.into_iter().flat_map(|g| g.cmds).collect();
+        self.done.push(CommitGroup { cmds, author, token });
+        true
+    }
+
     /// Reverts the newest group. A group that fails to revert stays on the
     /// undo stack (the scene is untouched), so the next undo tries it again
     /// instead of reaching the older group beneath it.
@@ -4510,6 +4529,37 @@ mod tests {
         assert!(journal.commit(&mut scene, cmds));
         assert!(!journal.is_undone(tokens[2]), "a commit drops the redo stack");
         assert!(!journal.is_applied(tokens[2]));
+    }
+
+    #[test]
+    fn merge_since_keeps_the_newest_token_and_the_token_order() {
+        let (mut scene, frame_id, img_id) = scene_with_frame_and_image();
+        let mut journal = SceneJournal::default();
+        let cmds = fade(&scene, frame_id, 0.8);
+        assert!(journal.commit(&mut scene, cmds));
+        let before = journal.top_token().unwrap();
+        let depth = journal.undo_depth();
+        let mut merged = Vec::new();
+        for o in [0.6, 0.4] {
+            let cmds = fade(&scene, img_id, o);
+            assert!(journal.commit(&mut scene, cmds));
+            merged.push(journal.top_token().unwrap());
+        }
+        let agent = CmdAuthor::Agent("relay".into());
+        assert!(journal.merge_since(depth, agent.clone()));
+        assert!(!journal.merge_since(journal.undo_depth(), agent));
+        assert_eq!(journal.undo_depth(), depth + 1, "one group for the relay");
+        assert_eq!(journal.top_token(), Some(merged[1]));
+        assert!(journal.is_applied(before) && journal.is_applied(merged[1]));
+
+        assert!(journal.undo(&mut scene), "one undo reverts every merged step");
+        assert_eq!(scene.node(img_id).unwrap().opacity, 1.0);
+        assert!(journal.is_undone(merged[1]) && journal.is_applied(before));
+        let cmds = fade(&scene, frame_id, 0.5);
+        assert!(journal.commit(&mut scene, cmds));
+        let after = journal.top_token().unwrap();
+        assert_ne!(after, merged[1], "a merged token is never handed out again");
+        assert!(journal.is_applied(before) && journal.is_applied(after));
     }
 
     #[test]
@@ -5428,6 +5478,7 @@ mod tests {
 
     fn test_connector(a: ConnectorEnd, b: ConnectorEnd) -> ConnectorNode {
         ConnectorNode {
+            crosstalk: None,
             routing: None,
             binding: None,
             a,

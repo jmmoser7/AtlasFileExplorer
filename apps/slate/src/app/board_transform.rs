@@ -580,6 +580,8 @@ impl SlateApp {
         if self.agent_output_at(screen, &xf).is_some()
             || self.agent_stop_at(screen, &xf).is_some()
             || self.agent_artifact_at(screen, &xf).is_some()
+            || self.crosstalk_port_under(screen, &xf).is_some()
+            || self.crosstalk_captures(screen)
         {
             return None;
         }

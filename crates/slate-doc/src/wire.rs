@@ -2014,6 +2014,7 @@ mod tests {
             clip: None,
             bumper: None,
             kind: NodeKind::Connector(ConnectorNode {
+                crosstalk: None,
                 routing: None,
                 binding: None,
                 a,

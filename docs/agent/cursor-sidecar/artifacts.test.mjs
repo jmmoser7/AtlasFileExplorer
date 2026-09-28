@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import path from 'node:path';
-import { artifactFromTool, artifactGuide, displayPrompt, messageText, SLATE_LINK_LINE, transcript } from './artifacts.mjs';
+import { artifactFromTool, artifactGuide, displayPrompt, GOAL_MARKER, goalGuide, messageText, SLATE_LINK_LINE, transcript } from './artifacts.mjs';
 test('artifacts require successful structured tool output',()=>{
  assert.equal(artifactFromTool({type:'edit',args:{path:'a.rs'},result:{status:'error'}},'x',1,process.cwd()),null);
  assert.equal(artifactFromTool({type:'shell',result:{status:'success',value:'edited a.rs'}},'x',1,process.cwd()),null);
@@ -41,4 +41,15 @@ test('the guide twin matches the Rust guide shape',()=>{
  assert.ok(g.includes('"feeds":"dashboard.html"'));
  assert.ok(!artifactGuide('').includes('deliverables at the top'));
  assert.ok(artifactGuide(undefined).includes('write return.json beside session.json naming'));
+});
+
+test('the goal guide twin names return.json and hides with the preamble',()=>{
+ const claim=goalGuide({goal:' The chart loads the CSV ',claims:true},'C:\\ws\\.atlas-ai\\agent\\s1');
+ assert.ok(claim.startsWith('Goal: The chart loads the CSV\nWhen you believe this goal is met'));
+ assert.ok(claim.includes('"goal":{"status":"met","reason":"one line"} to C:/ws/.atlas-ai/agent/s1/return.json (beside session.json) for this message.'));
+ const judge=goalGuide({goal:'g',claims:false});
+ assert.ok(judge.includes('"status":"met"|"not_met"'));
+ assert.ok(judge.includes('to return.json beside session.json for this message.'));
+ const preamble='Slate board: you cannot draw shapes. '+artifactGuide('')+GOAL_MARKER+claim;
+ assert.equal(displayPrompt([preamble,SLATE_LINK_LINE,'build it'].join('\n')),'build it');
 });

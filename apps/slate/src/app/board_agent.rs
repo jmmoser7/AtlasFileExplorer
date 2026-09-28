@@ -26,6 +26,7 @@ use super::board_portal::resolve_source;
 use super::board_portal_chrome::layout_for_portal;
 use super::{PickerMsg, SlateApp};
 
+pub(crate) mod crosstalk;
 mod life;
 #[path = "board_agent_outputs.rs"]
 mod outputs;
@@ -356,6 +357,8 @@ pub struct AgentRuntime {
     pub(crate) flow: super::board_flow::FlowUi,
     /// The capsule stack on chat cards' output circles.
     pub(crate) outputs: outputs::OutputsUi,
+    /// Relays between two coding conversations and their wire chips.
+    pub(crate) crosstalk: crosstalk::CrosstalkUi,
 }
 
 /// In-flight send. Failure is a named state — never a blank transcript.
@@ -490,6 +493,23 @@ impl AgentRuntime {
     fn remove_pending(&mut self, id: &str) {
         self.pending.retain(|p| p.id != id);
     }
+}
+
+/// Designed radius of a chat card's gray handle dots.
+const HANDLE_DOT: f32 = 3.5;
+
+/// The handle dot of a chat card: the output grip, the context and
+/// changed-document handles, and the crosstalk ports. It scales with the
+/// board (P0.9) and swells a little under the pointer.
+pub(crate) fn paint_handle_dot(
+    painter: &egui::Painter,
+    at: Pos2,
+    z: f32,
+    near: bool,
+    color: Color32,
+) {
+    let grow = if near { 1.12 } else { 1.0 };
+    painter.circle_filled(at, canvas_scale::px(HANDLE_DOT, z) * grow, color);
 }
 
 pub(crate) fn paint_agent_spinner(
@@ -890,6 +910,9 @@ impl SlateApp {
             }
         }
         for after in self.settle_agent_projection(updates) {
+            if self.fold_into_agent_step(&after) {
+                continue;
+            }
             self.patch_nodes(&[after.id], |n| {
                 *n = after.clone();
             });
@@ -1302,6 +1325,11 @@ impl SlateApp {
             return true;
         }
         if let Some(pointer) = ui.ctx().pointer_latest_pos() {
+            // Crosstalk chips and their capsule take their own presses.
+            if self.crosstalk_captures(pointer) {
+                self.board_align_eat_press = true;
+                return true;
+            }
             if self.board_drag.is_none() && self.board_tool == super::board::BoardTool::Select {
                 let picker = self
                     .doc()
@@ -1577,7 +1605,7 @@ impl SlateApp {
                 },
             );
             let near = pointer.is_some_and(|q| q.distance(p) <= 10.0 * xf.z);
-            painter.circle_filled(p, 3.5 * xf.z * if near { 1.12 } else { 1.0 }, color);
+            paint_handle_dot(painter, p, xf.z, near, color);
         }
         if let (Some((id, _)), Some(pos)) = (self.agents.spawn_drag, self.board_point_snap) {
             let count = if self
@@ -1699,6 +1727,13 @@ impl SlateApp {
     pub(crate) fn install_local_grants(&mut self) {
         let path = atlas_ai::access::store_path();
         self.agents.full_access = atlas_ai::access::load_in(&path);
+        self.agents.crosstalk.trust = self
+            .agents
+            .full_access
+            .iter()
+            .filter(|s| atlas_ai::access::relay_granted_in(&path, s))
+            .cloned()
+            .collect();
         self.agents.access_path = Some(path);
         self.web
             .use_consent_file(atlas_core::index::data_dir().join("web-consent.json"));
@@ -1880,6 +1915,7 @@ impl SlateApp {
                 .map(|(index, node)| slate_doc::SceneCmd::Remove { index, node }),
         );
         self.arrange_agent_projection(anchor, &mut commands);
+        self.follow_crosswires(&mut commands);
         if self.commit_scene(commands) {
             let gone: Vec<_> = moved.keys().copied().collect();
             self.forget_deleted_agent_cards(&gone);
@@ -2368,6 +2404,7 @@ impl SlateApp {
             });
         }
         self.arrange_agent_projection(id, &mut commands);
+        self.follow_crosswires(&mut commands);
         self.commit_scene(commands);
         true
     }
@@ -2451,6 +2488,7 @@ impl SlateApp {
                 .map(|(index, node)| slate_doc::SceneCmd::Remove { index, node }),
         );
         self.arrange_agent_projection(anchor, &mut commands);
+        self.follow_crosswires(&mut commands);
         if self.commit_scene(commands) {
             self.absorb_agent_drafts(&absorbed);
             self.agents.projection_settle =
@@ -2664,7 +2702,25 @@ impl SlateApp {
         if !canvas_text::legible(canvas_text::authored_px(13.0, z)) {
             return;
         }
+        // A one-message card whose message another agent wrote reads in red.
+        let first_turn = slate_doc::agent_chat::bundle_entry(&self.doc().scene, node)
+            .and_then(slate_doc::agent_chat::agent)
+            .map_or(agent.chat.start, |a| a.chat.start);
+        let from_agent = agent.chat.end == Some(first_turn + 1)
+            && self
+                .crosstalk_relayed()
+                .contains_key(&(agent.session.clone(), first_turn));
+        let ink = if from_agent {
+            palette.danger
+        } else {
+            palette.ink
+        };
         let key = self.agent_text_key(&painter, z);
+        let key = if from_agent {
+            (key.0, key.1, key.2 ^ (1 << 63))
+        } else {
+            key
+        };
         let mut cache = self.agents.summary_cache.borrow_mut();
         if cache
             .get(&node.id)
@@ -2679,10 +2735,8 @@ impl SlateApp {
             let font = FontId::proportional(13.0 * z);
             let wrap = ((node.rect.w - 24.0) * z).max(1.0);
             let laid = match max_rows {
-                Some(rows) => {
-                    canvas_text::layout_rows(&painter, excerpt, font, palette.ink, wrap, rows)
-                }
-                None => canvas_text::layout(&painter, excerpt, font, palette.ink, wrap),
+                Some(rows) => canvas_text::layout_rows(&painter, excerpt, font, ink, wrap, rows),
+                None => canvas_text::layout(&painter, excerpt, font, ink, wrap),
             };
             cache.insert(
                 node.id,
@@ -2722,11 +2776,22 @@ impl SlateApp {
                 .max_rect(clip),
         );
         text_ui.set_clip_rect(clip);
+        let at = rect.min + egui::vec2(12.0, SUMMARY_TEXT_TOP - offset) * z;
+        if from_agent {
+            let bar = Rect::from_min_size(
+                at - egui::vec2(6.0 * z, 0.0),
+                egui::vec2(
+                    canvas_scale::px(crosstalk::MESSAGE_BAR, z),
+                    laid.size().y.min(clip.bottom() - at.y).max(0.0),
+                ),
+            );
+            painter.rect_filled(bar, 0.0, palette.danger);
+        }
         laid.selectable(
             &text_ui,
             Id::new(("agent-summary-selection", node.id.0)),
-            rect.min + egui::vec2(12.0, SUMMARY_TEXT_TOP - offset) * z,
-            palette.ink,
+            at,
+            ink,
         );
     }
 
@@ -3185,7 +3250,6 @@ impl SlateApp {
         let r = xf.rect_w2s(node.rect);
         let z = xf.z;
         let palette = self.palette();
-        let radius = 3.5 * z;
         let rest = Pos2::new(
             r.left() + slate_doc::agent_chat::PORT_INSET * z,
             r.center().y,
@@ -3226,18 +3290,16 @@ impl SlateApp {
             self.agents.context_auto.insert(node.id, auto);
             if split > 0.02 {
                 self.paint_context_wire_slide(painter, node.id, rest, auto, human, gray, z);
-                painter.circle_filled(
+                paint_handle_dot(
+                    painter,
                     human,
-                    radius * if near(human) { 1.12 } else { 1.0 },
+                    z,
+                    near(human),
                     gray.gamma_multiply(0.8 * split.min(1.0)),
                 );
                 self.agents.context_human.insert(node.id, human);
             }
-            painter.circle_filled(
-                auto,
-                radius * if near(auto) { 1.12 } else { 1.0 },
-                gray.gamma_multiply(0.8),
-            );
+            paint_handle_dot(painter, auto, z, near(auto), gray.gamma_multiply(0.8));
         } else {
             self.agents.context_auto.remove(&node.id);
             let fade = ui.ctx().animate_bool_with_time(
@@ -3248,11 +3310,7 @@ impl SlateApp {
             // A pocket keeps its handle findable at rest, a shade quieter.
             let fade = if pocket { fade.max(0.6) } else { fade };
             if fade > 0.04 {
-                painter.circle_filled(
-                    rest,
-                    radius * if on_rest { 1.12 } else { 1.0 },
-                    gray.gamma_multiply(0.8 * fade),
-                );
+                paint_handle_dot(painter, rest, z, on_rest, gray.gamma_multiply(0.8 * fade));
                 self.agents.context_human.insert(node.id, rest);
             }
         }
@@ -3309,11 +3367,7 @@ impl SlateApp {
             };
             if output {
                 let near = pointer.is_some_and(|p| p.distance(anchor) <= canvas_scale::px(12.0, z));
-                painter.circle_filled(
-                    anchor,
-                    radius * if near { 1.12 } else { 1.0 },
-                    gray.gamma_multiply(0.8),
-                );
+                paint_handle_dot(painter, anchor, z, near, gray.gamma_multiply(0.8));
             }
             let response = ui.interact(
                 Rect::from_center_size(anchor, egui::vec2(16.0, 16.0) * z),
@@ -4594,6 +4648,7 @@ impl SlateApp {
             image,
             output_dir: None,
             oneshot: false,
+            ..Default::default()
         })
     }
 
@@ -6106,6 +6161,7 @@ impl SlateApp {
         self.pump_agent_sessions(ctx, &ws);
         let tail_span = atlas_core::session_log::span("slate.agents.tail");
         self.pump_agent_awaits(ctx, &ws);
+        self.pump_crosstalk(ctx);
         self.pump_comfy_queue();
         self.pump_live_generators();
         if !self.agents.live_settle.is_empty() {
@@ -6382,7 +6438,7 @@ impl SlateApp {
         });
     }
 
-    pub(crate) fn send_agent_prompt(&mut self, portal: NodeId) {
+    pub(crate) fn send_agent_prompt(&mut self, portal: NodeId) -> Option<NodeId> {
         if (self.agents.connection_pending == Some(portal) && !self.agents.connection_background)
             || self.agents.project_picker == Some(portal)
             || self
@@ -6392,21 +6448,21 @@ impl SlateApp {
                 .is_some_and(|p| p.portal == portal)
         {
             self.toast("Choose a project and conversation first.");
-            return;
+            return None;
         }
         if self.agents.connection_background && self.agents.connection_pending == Some(portal) {
             if !self.queue_agent_send(portal) {
                 self.toast("Conversation is refreshing; send again in a moment.");
             }
-            return;
+            return None;
         }
         let Some((_session, provider)) = self.agent_session_for(portal) else {
             self.toast("Select an agent portal first.");
-            return;
+            return None;
         };
         if self.is_text_block(portal) {
             self.queue_text_block(portal);
-            return;
+            return None;
         }
         if !atlas_ai::agent::local_image_engine(&provider)
             && matches!(
@@ -6419,15 +6475,15 @@ impl SlateApp {
             )
         {
             self.toast("Wait for this response before sending another prompt.");
-            return;
+            return None;
         }
         if provider.is_empty() {
             self.toast("Choose a program first.");
-            return;
+            return None;
         }
         if atlas_ai::agent::local_image_engine(&provider) {
             self.queue_generation(portal);
-            return;
+            return None;
         }
         if self.agent_linear(portal) {
             let selected = self
@@ -6445,7 +6501,7 @@ impl SlateApp {
                 if !self.queue_agent_send(portal) {
                     self.toast(life::NOT_CONNECTED);
                 }
-                return;
+                return None;
             }
         }
         if provider == "ollama"
@@ -6457,13 +6513,13 @@ impl SlateApp {
                 .is_some_and(|a| a.model.is_none())
         {
             self.toast("Choose an installed local model in the card title before sending.");
-            return;
+            return None;
         }
         let inputs = match self.agent_input_snapshot(portal) {
             Ok(v) => v,
             Err(e) => {
                 self.fail_agent_await(portal, e);
-                return;
+                return None;
             }
         };
         let mut prompt = self.agents.prompt_mut(portal).trim().to_string();
@@ -6486,7 +6542,7 @@ impl SlateApp {
         }
         if prompt.is_empty() {
             self.toast("Type a prompt or connect a text node first.");
-            return;
+            return None;
         }
         let Some(ws) = self.ai.config.valid_workspace().map(|p| p.to_path_buf()) else {
             self.fail_agent_await(
@@ -6496,12 +6552,12 @@ impl SlateApp {
             self.toast("Set an AI workspace before sending an agent prompt.");
             #[cfg(not(test))]
             self.ai.pick_workspace();
-            return;
+            return None;
         };
         let composer = portal;
         let typing_here = self.agents.composing(composer);
         let Some((portal, history)) = self.prepare_agent_train_send(portal, &ws) else {
-            return;
+            return None;
         };
         self.consume_agent_context(composer);
         // The next message is typed on the new tail. A send that waited to
@@ -6512,7 +6568,7 @@ impl SlateApp {
             self.agent_focus(portal);
         }
         let Some((session, provider)) = self.agent_session_for(portal) else {
-            return;
+            return None;
         };
         let req = AgentRequest {
             model: self
@@ -6529,6 +6585,9 @@ impl SlateApp {
             image: None,
             output_dir: self.agent_output_dir(portal, &ws, &session),
             oneshot: false,
+            policy: self.crosstalk_policy(&session),
+            relayed_from: self.agents.crosstalk.relaying.clone(),
+            goal: self.crosstalk_goal(&session),
         };
         let dir = self
             .agent_link_dir(portal, &ws)
@@ -6548,8 +6607,10 @@ impl SlateApp {
         });
         self.agents.requests.insert(portal, req.id.clone());
         self.agents.bindings.insert(portal, session.clone());
+        let mut sent = None;
         match self.agents.sources.send(&dir, &req) {
             Ok(()) => {
+                sent = Some(portal);
                 let turn = AgentTurn {
                     role: "user".into(),
                     text: req.prompt.clone(),
@@ -6611,16 +6672,23 @@ impl SlateApp {
                     },
                 );
                 if provider == "codex" || provider == "ollama" || provider.starts_with("ollama/") {
-                    let cwd = self.agent_folder_for(portal).unwrap_or_else(|| ws.clone());
-                    let runtime = self.agents.codex.entry(session.clone()).or_insert_with(|| {
-                        atlas_ai::runtime::CodexLink::start_provider(
-                            dir.clone(),
-                            cwd,
-                            provider.clone(),
-                        )
-                    });
-                    if let Err(error) = runtime.send(req.clone()) {
-                        self.fail_agent_await(portal, error);
+                    // No provider runs in tests; the request is recorded instead.
+                    #[cfg(test)]
+                    self.agents.dispatched.push((portal, req.clone()));
+                    #[cfg(not(test))]
+                    {
+                        let cwd = self.agent_folder_for(portal).unwrap_or_else(|| ws.clone());
+                        let runtime =
+                            self.agents.codex.entry(session.clone()).or_insert_with(|| {
+                                atlas_ai::runtime::CodexLink::start_provider(
+                                    dir.clone(),
+                                    cwd,
+                                    provider.clone(),
+                                )
+                            });
+                        if let Err(error) = runtime.send(req.clone()) {
+                            self.fail_agent_await(portal, error);
+                        }
                     }
                 } else {
                     self.ensure_agent_sidecar(portal, &session, &provider, &ws);
@@ -6631,6 +6699,7 @@ impl SlateApp {
                 self.toast(format!("Could not write agent request: {e}"));
             }
         }
+        sent
     }
 
     fn ensure_agent_sidecar(
@@ -6660,6 +6729,9 @@ impl SlateApp {
                 .agent_folder_for(portal)
                 .unwrap_or_else(|| ws.to_path_buf());
             let ws = ws.to_path_buf();
+            let policy = atlas_ai::sidecar::SidecarPolicy {
+                read_only: self.crosstalk_policy(session) == atlas_agent::TurnPolicy::ReadOnly,
+            };
             let session = session.to_string();
             let doc = self.tab().id;
             self.agents.sidecar_booting.insert(session.clone());
@@ -6667,7 +6739,8 @@ impl SlateApp {
             std::thread::spawn(move || {
                 // A sidecar left by an earlier run must not write the same link folder.
                 let _ = atlas_ai::sidecar::stop(&dir);
-                let result = atlas_ai::sidecar::spawn_cursor_sidecar_in(&ws, &session, &cwd, &dir);
+                let result =
+                    atlas_ai::sidecar::spawn_cursor_sidecar_with(&ws, &session, &cwd, &dir, policy);
                 let _ = tx.send(SidecarBoot {
                     doc,
                     portal,
@@ -8461,6 +8534,9 @@ impl SlateApp {
             widget.bg_stroke = egui::Stroke::NONE;
         }
         let full_on = self.agent_full_access(&agent.session);
+        // The menu selects this card first; the editor resolves its crosstalk.
+        let crosstalk =
+            slate_doc::crosstalk::chain_of_session(&self.doc().scene, &agent.session).is_some();
         let schedulable = atlas_ai::runtime::linear_provider(&agent.provider) && !agent.chat.draft;
         let scheduled = schedulable && self.agent_schedule(node.id).is_some();
         let mut command: Option<&str> = None;
@@ -8533,6 +8609,12 @@ impl SlateApp {
                         full_access.enabled(!running),
                         "portal.agent.full_access",
                         atlas_ai::runtime::linear_provider(&agent.provider) && !agent.chat.draft,
+                    ),
+                    (
+                        1,
+                        Row::glyph(Icon::Agent, "Crosstalk…"),
+                        "portal.agent.crosstalk.edit",
+                        crosstalk,
                     ),
                     (
                         1,
@@ -8755,6 +8837,10 @@ impl SlateApp {
             return;
         }
         let turns = self.visible_agent_turns(node.id);
+        let first_turn = slate_doc::agent_chat::bundle_entry(&self.doc().scene, node)
+            .and_then(slate_doc::agent_chat::agent)
+            .map_or(agent.chat.start, |a| a.chat.start);
+        let relayed = self.crosstalk_relayed();
         let awaiting = self.agents.awaiting.get(&node.id).cloned();
         let approval = self
             .agents
@@ -8869,12 +8955,30 @@ impl SlateApp {
                             turn.text.clone()
                         };
                         let user = turn.role == "user";
+                        // Another agent wrote this message (P1.portal.elevated-red).
+                        let from_agent = user
+                            .then(|| relayed.get(&(agent.session.clone(), first_turn + index)))
+                            .flatten();
                         let wrap = (width * if user { 0.78 } else { 0.94 } - 20.0 * z).max(1.0);
                         let ink = if turn.role == "system" {
                             palette.sub
+                        } else if from_agent.is_some() {
+                            palette.danger
                         } else {
                             palette.ink
                         };
+                        let text_key = if from_agent.is_some() {
+                            (text_key.0, text_key.1, text_key.2 ^ (1 << 63))
+                        } else {
+                            text_key
+                        };
+                        if let Some(label) = from_agent {
+                            let (row, _) = ui.allocate_exact_size(
+                                egui::vec2(width, crosstalk::LABEL_PX * 1.4 * z),
+                                Sense::hover(),
+                            );
+                            self.paint_received_label(ui.painter(), row.right_bottom(), label, z);
+                        }
                         let cache_id = (node.id, index);
                         if self
                             .agents
@@ -8920,6 +9024,9 @@ impl SlateApp {
                                 palette.card
                             },
                         );
+                        if from_agent.is_some() {
+                            self.paint_received_mark(ui.painter(), bubble, z);
+                        }
                         laid.selectable(
                             ui,
                             Id::new(("agent-turn-selection", node.id.0, index)),

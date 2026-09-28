@@ -55,7 +55,7 @@ impl Viewport {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct AgentRequest {
     pub id: String,
     pub prompt: String,
@@ -78,10 +78,59 @@ pub struct AgentRequest {
     /// reply replaces the previous one.
     #[serde(default, skip_serializing_if = "is_false")]
     pub oneshot: bool,
+    /// Enforced by the provider's own permissions, never by prompt text.
+    #[serde(default, skip_serializing_if = "TurnPolicy::is_default")]
+    pub policy: TurnPolicy,
+    /// Label of the agent that wrote this message, e.g. "Codex · reviewer".
+    /// Set only on relayed turns.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relayed_from: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal: Option<GoalTurn>,
 }
 
 fn is_false(value: &bool) -> bool {
     !*value
+}
+
+/// The permissions a provider runs one turn under.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TurnPolicy {
+    /// The provider's own settings, plus the person's full-access grant.
+    #[default]
+    Default,
+    /// No edits, commands, or subagents, whatever the grant.
+    ReadOnly,
+}
+
+impl TurnPolicy {
+    pub fn is_default(&self) -> bool {
+        *self == Self::Default
+    }
+}
+
+/// A shared goal two relayed agents work toward.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GoalTurn {
+    pub goal: String,
+    /// true: this side claims the goal (the builder); false: it judges a claim (the reviewer).
+    pub claims: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GoalStatus {
+    Met,
+    NotMet,
+}
+
+/// The `goal` an agent reports in `return.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GoalVerdict {
+    pub status: GoalStatus,
+    #[serde(default)]
+    pub reason: String,
 }
 
 /// Absent fields use the engine's preset.
@@ -269,15 +318,38 @@ pub fn artifact_guide_in(output_dir: Option<&str>, link_dir: Option<&str>) -> St
     if let Some(dir) = output_dir.filter(|d| !d.trim().is_empty()) {
         text.push_str(&format!("Save new files the person did not place in {dir}: deliverables at the top, supporting files in assets/, throwaway files in scratch/. "));
     }
-    let at = match link_dir.filter(|d| !d.trim().is_empty()) {
+    let at = return_at(link_dir);
+    text.push_str(&format!("Edit existing files where they are. When finished, write {at} naming what the person asked for: {{\"id\":\"a-new-id\",\"title\":\"Short title\",\"items\":[{{\"path\":\"file-or-folder\",\"as\":\"auto\"}}]}}. To show a file that already exists, name its path instead of copying it. \"as\" is auto, graphic (render HTML or SVG as a page), text (show the source), images (a folder or several images as a grid), or folder (a File Atlas browser). A CSV or Excel item may add \"feeds\":\"dashboard.html\" to wire it into that dashboard. Slate lists these first and the person spawns them; do not place them yourself. place.json is only for an explicit File Atlas folder browser. If this task took too many steps, or an action was unreachable, also write feedback.json beside session.json as {{\"id\":\"a-new-id\",\"what\":\"one sentence\",\"tried\":\"what you did\",\"missing\":\"the action you could not reach\"}}. No file contents, secrets, or the person's private text."));
+    text
+}
+
+fn return_at(link_dir: Option<&str>) -> String {
+    match link_dir.filter(|d| !d.trim().is_empty()) {
         Some(dir) => format!(
             "{}/return.json (beside session.json)",
             dir.replace('\\', "/").trim_end_matches('/')
         ),
         None => "return.json beside session.json".into(),
+    }
+}
+
+/// Marker stripped from chat display, same as [`ARTIFACT_MARKER`].
+pub const GOAL_MARKER: &str = "\n\nCrosstalk goal:\n";
+
+/// How a relayed agent reports the shared goal in `return.json`. Must begin
+/// with "Goal: " ([`display_prompt`] validates the suffix by it).
+/// TWIN: `docs/agent/cursor-sidecar/artifacts.mjs` `goalGuide`.
+pub fn goal_guide_in(goal: &GoalTurn, link_dir: Option<&str>) -> String {
+    let at = return_at(link_dir);
+    let report = if goal.claims {
+        format!("When you believe this goal is met, add \"goal\":{{\"status\":\"met\",\"reason\":\"one line\"}} to {at} for this message.")
+    } else {
+        format!("Another agent claims this goal is met when its message says so. Judge that claim and add \"goal\":{{\"status\":\"met\"|\"not_met\",\"reason\":\"one line\"}} to {at} for this message.")
     };
-    text.push_str(&format!("Edit existing files where they are. When finished, write {at} naming what the person asked for: {{\"id\":\"a-new-id\",\"title\":\"Short title\",\"items\":[{{\"path\":\"file-or-folder\",\"as\":\"auto\"}}]}}. To show a file that already exists, name its path instead of copying it. \"as\" is auto, graphic (render HTML or SVG as a page), text (show the source), images (a folder or several images as a grid), or folder (a File Atlas browser). A CSV or Excel item may add \"feeds\":\"dashboard.html\" to wire it into that dashboard. Slate lists these first and the person spawns them; do not place them yourself. place.json is only for an explicit File Atlas folder browser. If this task took too many steps, or an action was unreachable, also write feedback.json beside session.json as {{\"id\":\"a-new-id\",\"what\":\"one sentence\",\"tried\":\"what you did\",\"missing\":\"the action you could not reach\"}}. No file contents, secrets, or the person's private text."));
-    text
+    format!(
+        "Goal: {}\n{report} \"items\" may be empty when you only report the goal.",
+        goal.goal.trim()
+    )
 }
 
 /// Script the web host runs in a local dashboard so a wired table is visible.
@@ -309,6 +381,10 @@ impl AgentRequest {
             self.output_dir.as_deref(),
             link.as_deref(),
         ));
+        if let Some(goal) = &self.goal {
+            text.push_str(GOAL_MARKER);
+            text.push_str(&goal_guide_in(goal, link.as_deref()));
+        }
         if !self.inputs.wired.is_empty() {
             text.push_str("\n\nSlate wired attachments (data):\n");
             text.push_str(&serde_json::to_string(&self.inputs.wired).unwrap_or_default());
@@ -343,6 +419,7 @@ fn strip_transport(text: &str) -> &str {
         SLATE_LINK_MARKER,
         FILE_ATLAS_PLACE_MARKER,
         ARTIFACT_MARKER,
+        GOAL_MARKER,
     ] {
         if let Some((prompt, data)) = text.rsplit_once(marker) {
             let valid = if marker == SLATE_LINK_MARKER {
@@ -351,6 +428,8 @@ fn strip_transport(text: &str) -> &str {
                 data.starts_with("To show a folder on the board")
             } else if marker == ARTIFACT_MARKER {
                 data.starts_with("Every file you create or change")
+            } else if marker == GOAL_MARKER {
+                data.starts_with("Goal: ")
             } else if marker.contains("snapshot") {
                 serde_json::from_str::<InputSnapshot>(data).is_ok()
             } else {
@@ -683,6 +762,8 @@ pub struct ReturnManifest {
     pub id: String,
     pub title: String,
     pub items: Vec<ReturnItem>,
+    #[serde(default)]
+    pub goal: Option<GoalVerdict>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -710,6 +791,8 @@ struct RawReturnManifest {
     path: Option<String>,
     #[serde(default)]
     paths: Vec<String>,
+    #[serde(default)]
+    goal: Option<GoalVerdict>,
 }
 
 impl From<RawReturnManifest> for ReturnManifest {
@@ -735,6 +818,7 @@ impl From<RawReturnManifest> for ReturnManifest {
             id: raw.id,
             title: raw.title,
             items,
+            goal: raw.goal,
         }
     }
 }
@@ -767,6 +851,8 @@ pub struct DeliverableSet {
     /// Paths named in the manifest that did not exist, as written.
     #[serde(default)]
     pub missing: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal: Option<GoalVerdict>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -965,8 +1051,8 @@ mod prompt_tests {
     use super::*;
     #[test]
     fn only_explicit_wires_extend_a_prompt_and_transport_is_not_displayed() {
-        let mut req = AgentRequest { id:"r".into(), prompt:"hello".into(), model:None, at:0, image:None, output_dir:None, oneshot:false,
-            inputs: serde_json::from_value(serde_json::json!({"revision":"internal","context":[{"node":4,"text":"ambient","images":[]}],"wired":[]})).unwrap(), history: vec![] };
+        let mut req = AgentRequest { id:"r".into(), prompt:"hello".into(),
+            inputs: serde_json::from_value(serde_json::json!({"revision":"internal","context":[{"node":4,"text":"ambient","images":[]}],"wired":[]})).unwrap(), ..Default::default() };
         let plain = req.input_text();
         assert!(plain.starts_with("hello"));
         assert!(plain.contains("application/slate-link+json"));
@@ -985,14 +1071,79 @@ mod prompt_tests {
         AgentRequest {
             id: "r".into(),
             prompt: "make a chart".into(),
-            model: None,
-            at: 0,
-            image: None,
             output_dir: output_dir.map(Into::into),
-            inputs: Default::default(),
-            history: vec![],
-            oneshot: false,
+            ..Default::default()
         }
+    }
+
+    #[test]
+    fn the_goal_guide_rides_only_on_goal_turns_and_is_not_displayed() {
+        let plain = request(None).input_text();
+        assert!(!plain.contains(GOAL_MARKER));
+        let mut builder = request(None);
+        builder.goal = Some(GoalTurn {
+            goal: " The chart loads the CSV ".into(),
+            claims: true,
+        });
+        builder.inputs.wired = vec![ContextItem {
+            node: 1,
+            text: "wired".into(),
+            images: vec![],
+            outputs: Default::default(),
+            active: None,
+            depth: None,
+            slot: None,
+        }];
+        let link = std::path::Path::new("C:\\ws\\.atlas-ai\\agent\\s1");
+        let text = builder.input_text_in(Some(link));
+        let guide = text.split_once(GOAL_MARKER).unwrap().1;
+        assert!(guide.starts_with("Goal: The chart loads the CSV\nWhen you believe"));
+        assert!(guide.contains(
+            "\"goal\":{\"status\":\"met\",\"reason\":\"one line\"} to C:/ws/.atlas-ai/agent/s1/return.json (beside session.json)"
+        ));
+        assert!(
+            text.find(ARTIFACT_MARKER) < text.find(GOAL_MARKER),
+            "after the artifact guide"
+        );
+        assert_eq!(display_prompt(&text), "make a chart");
+        assert_eq!(
+            display_prompt(&format!(
+                "make a chart{GOAL_MARKER}{}",
+                goal_guide_in(builder.goal.as_ref().unwrap(), None)
+            )),
+            "make a chart"
+        );
+        let forged = format!("make a chart{GOAL_MARKER}not a guide");
+        assert_eq!(display_prompt(&forged), forged);
+
+        let judge = goal_guide_in(
+            &GoalTurn {
+                goal: "g".into(),
+                claims: false,
+            },
+            None,
+        );
+        assert!(judge.contains("\"status\":\"met\"|\"not_met\""));
+        assert!(judge.contains("to return.json beside session.json for this message"));
+    }
+
+    #[test]
+    fn crosstalk_fields_are_absent_from_ordinary_requests() {
+        let text = serde_json::to_string(&request(None)).unwrap();
+        assert!(
+            !text.contains("policy") && !text.contains("relayed_from") && !text.contains("goal")
+        );
+        let relayed: AgentRequest = serde_json::from_str(
+            r#"{"id":"r","prompt":"p","at":0,"policy":"read_only","relayed_from":"Codex · reviewer","goal":{"goal":"g","claims":false}}"#,
+        )
+        .unwrap();
+        assert_eq!(relayed.policy, TurnPolicy::ReadOnly);
+        assert!(!relayed.policy.is_default());
+        assert_eq!(relayed.relayed_from.as_deref(), Some("Codex · reviewer"));
+        assert!(!relayed.goal.as_ref().unwrap().claims);
+        let round: AgentRequest =
+            serde_json::from_str(&serde_json::to_string(&relayed).unwrap()).unwrap();
+        assert_eq!(round, relayed);
     }
 
     #[test]
@@ -1074,6 +1225,34 @@ mod manifest_tests {
         assert!(serde_json::to_string(&m)
             .unwrap()
             .contains("\"as\":\"graphic\""));
+    }
+
+    #[test]
+    fn manifest_reads_a_goal_verdict() {
+        let m: ReturnManifest =
+            serde_json::from_str(r#"{"id":"g","goal":{"status":"not_met","reason":"tests fail"}}"#)
+                .unwrap();
+        assert!(m.items.is_empty());
+        assert_eq!(
+            m.goal,
+            Some(GoalVerdict {
+                status: GoalStatus::NotMet,
+                reason: "tests fail".into()
+            })
+        );
+        let met: ReturnManifest =
+            serde_json::from_str(r#"{"items":[],"goal":{"status":"met"}}"#).unwrap();
+        assert_eq!(met.goal.unwrap().status, GoalStatus::Met);
+        assert!(serde_json::from_str::<ReturnManifest>(r#"{"goal":{"status":"done"}}"#).is_err());
+        let set = DeliverableSet {
+            id: "s".into(),
+            turn: 1,
+            title: String::new(),
+            items: vec![],
+            missing: vec![],
+            goal: None,
+        };
+        assert!(!serde_json::to_string(&set).unwrap().contains("goal"));
     }
 
     #[test]

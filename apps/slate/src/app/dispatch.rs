@@ -567,6 +567,16 @@ impl SlateApp {
             "portal.agent.full_access" => self.agent_toggle_full_access(),
             "portal.agent.schedule" => self.agent_set_schedule(detail.as_deref()),
             "portal.agent.pocket" => self.agent_toggle_pocket(detail.as_deref()),
+            "portal.agent.crosstalk.link" => self.crosstalk_link_selected(detail.as_deref()),
+            "portal.agent.crosstalk.start" => self.crosstalk_start(detail.as_deref()),
+            "portal.agent.crosstalk.pause" => self.crosstalk_pause(detail.as_deref()),
+            "portal.agent.crosstalk.resume" => self.crosstalk_resume(detail.as_deref()),
+            "portal.agent.crosstalk.stop" => self.crosstalk_stop(detail.as_deref()),
+            "portal.agent.crosstalk.edit" => self.crosstalk_edit(detail.as_deref()),
+            "portal.agent.crosstalk.send" => self.crosstalk_send(detail.as_deref()),
+            "portal.agent.crosstalk.skip" => self.crosstalk_skip(detail.as_deref()),
+            "portal.agent.crosstalk.more" => self.crosstalk_more(detail.as_deref()),
+            "portal.agent.crosstalk.trust" => self.crosstalk_trust(detail.as_deref()),
             "portal.agent.identity" => {
                 self.agent_set_detail(slate_doc::agent_chat::Detail::Identity)
             }
