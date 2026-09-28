@@ -471,9 +471,11 @@ const SWATCH_STROKE: f32 = 11.0;
 const TAPER_TIP: f32 = slate_doc::scene::NARROW_TIP;
 
 /// The whole-curve style `stroke` has, or `None` when its two ends were
-/// set apart (P1.curve.vertex-style end conditions).
+/// set apart (P1.curve.vertex-style end conditions). Two equal effective
+/// end caps are the curve's end cap; `cap` itself caps the dash ends.
 pub(crate) fn curve_style_of(stroke: &Stroke) -> Option<CurveStyle> {
-    if stroke.arrow_start || stroke.cap_start.is_some() || stroke.cap_end.is_some() {
+    let [start, end] = stroke.end_caps();
+    if stroke.arrow_start || start != end {
         return None;
     }
     if stroke.arrow_end {
@@ -483,7 +485,7 @@ pub(crate) fn curve_style_of(stroke: &Stroke) -> Option<CurveStyle> {
         [true, false] => CurveStyle::TaperStart,
         [true, true] => CurveStyle::TaperBoth,
         [false, true] => return None,
-        [false, false] if stroke.cap == StrokeCap::Round => CurveStyle::Round,
+        [false, false] if end == StrokeCap::Round => CurveStyle::Round,
         [false, false] => CurveStyle::Square,
     })
 }

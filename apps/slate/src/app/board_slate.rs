@@ -175,6 +175,16 @@ impl SlateApp {
         }
     }
 
+    /// The board being painted, for caches keyed by node id: the open tab,
+    /// or inside a nested board the salt of the portal chain that reached
+    /// it. Reads the salt already on the stack; hashes nothing per node.
+    pub(crate) fn closed_form_scope(&self) -> u64 {
+        self.slate_boards
+            .salts
+            .last()
+            .map_or(self.tab().id, |salt| salt | NESTED_STROKE)
+    }
+
     /// A dropped `.slate` file. A blank board opens it as a tab. A board that
     /// already has nodes asks Open or Insert.
     pub(crate) fn pending_workbook_drops(&self) -> usize {

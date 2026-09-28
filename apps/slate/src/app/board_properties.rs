@@ -1588,7 +1588,7 @@ impl SlateApp {
                 .or(i.pointer.latest_pos())
         });
         let grip_under = live
-            && grip_probe.is_some_and(|p| strip.contains(p) && self.hovered_vertex(p).is_some());
+            && grip_probe.is_some_and(|p| strip.contains(p) && self.curve_knob_under(p));
         for (index, item) in items.iter().enumerate() {
             let r = chrome::strip_button_rect(strip, index, z);
             let (label, icon, active) = match item {
@@ -1919,11 +1919,12 @@ impl SlateApp {
                         });
                     captures |= ctx.pointer_latest_pos().is_some_and(|p| {
                         rect.contains(p) && canvas.contains(p)
-                            || self
-                                .shape_properties
-                                .chrome_hits
-                                .iter()
-                                .any(|hit| hit.contains(p))
+                            || !grip_under
+                                && self
+                                    .shape_properties
+                                    .chrome_hits
+                                    .iter()
+                                    .any(|hit| hit.contains(p))
                     });
                     if live {
                         self.shape_properties.chrome_hits.push(rect);
@@ -1946,7 +1947,9 @@ impl SlateApp {
             });
             // A press on a crop handle or a cropping image is the crop
             // gesture, not a click-away: the Corners panel stays up (D09),
-            // the selection stays whole, and the press is not eaten.
+            // the selection stays whole, and the press is not eaten. A
+            // press on a painted curve grip is likewise the grip's drag
+            // (P1.curve.grips).
             let crop_press = ctx
                 .input(|i| {
                     i.pointer
@@ -1954,7 +1957,7 @@ impl SlateApp {
                         .then(|| i.pointer.press_origin())
                         .flatten()
                 })
-                .is_some_and(|p| self.crop_owns_pointer(p));
+                .is_some_and(|p| self.crop_owns_pointer(p) || self.curve_knob_under(p));
             if overlay_open && !captures && dismiss && crop_press {
                 self.apply_shape_preview(&ctx, false);
             } else if overlay_open && !captures && dismiss {
