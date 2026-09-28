@@ -1097,6 +1097,9 @@ pub(crate) fn render_shape(
     shape: &slate_doc::scene::ShapeNode,
     rel: WorldRect,
 ) {
+    if let Some(styled) = slate_doc::vertex_style::closed_form_paint_shape(shape, node.rect) {
+        return render_path(html, node, &styled, rel);
+    }
     match shape.shape {
         ShapeKind::Line => render_line(html, node, shape, rel),
         ShapeKind::Rect => render_rect_shape(html, node, shape, rel, false),

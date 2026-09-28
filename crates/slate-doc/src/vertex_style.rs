@@ -14,7 +14,10 @@ use vector_ink::kurbo::{
 };
 
 use crate::geom::{arc_grip_points, path_data_to_world_bez, tip_ease};
-use crate::scene::{Corner, PathData, PathSeg, Rgba, Stroke, StrokeSpan, WorldRect};
+use crate::scene::{
+    clamp_regular_sides, regular_polygon_vertices, Corner, PathData, PathSeg, Rgba, ShapeKind,
+    ShapeNode, Stroke, StrokeSpan, WorldRect,
+};
 
 /// `a` blended toward `b` by `t` (0 = `a`, 1 = `b`).
 pub fn lerp_span(a: StrokeSpan, b: StrokeSpan, t: f32) -> StrokeSpan {
@@ -511,6 +514,157 @@ pub fn apply_vertex_styles(path: &mut PathData, stroke: &mut Stroke, styles: &[V
     if crate::geom::path_is_line_polyline(path) && styles.iter().any(|s| s.corner.is_some()) {
         path.corner_amounts = styles.iter().map(|s| s.corner).collect();
     }
+}
+
+/// Vertex count of a closed form (P1.shape.vertex-style): a rectangle's four
+/// corners, a regular polygon's sides. `None` for every other kind.
+pub fn closed_form_vertex_count(shape: &ShapeNode) -> Option<usize> {
+    match shape.shape {
+        ShapeKind::Rect => Some(4),
+        ShapeKind::RegularPolygon => Some(clamp_regular_sides(shape.sides) as usize),
+        _ => None,
+    }
+}
+
+/// A closed form's vertices in its node rect's normalized space: a
+/// rectangle's top-left, top-right, bottom-right and bottom-left corners, or
+/// a regular polygon's vertices in their own order.
+pub fn closed_form_vertices(shape: &ShapeNode) -> Option<Vec<[f32; 2]>> {
+    match shape.shape {
+        ShapeKind::Rect => Some(vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]),
+        ShapeKind::RegularPolygon => Some(regular_polygon_vertices(
+            WorldRect::new(0.0, 0.0, 1.0, 1.0),
+            shape.sides,
+            shape.phase_deg,
+        )),
+        _ => None,
+    }
+}
+
+/// The loop through a closed form's vertices with its stored per-vertex
+/// style: the path every vertex-style edit reads and writes. The form keeps
+/// its own kind; only the style is stored back
+/// ([`store_closed_form_style`]).
+pub fn closed_form_path(shape: &ShapeNode) -> Option<PathData> {
+    let verts = closed_form_vertices(shape)?;
+    let n = verts.len();
+    let stored = shape.path.as_deref();
+    Some(PathData {
+        start: verts[0],
+        segs: verts[1..].iter().map(|&to| PathSeg::Line { to }).collect(),
+        closed: true,
+        tips: stored
+            .map(|p| p.tips.clone())
+            .filter(|t| t.len() == n)
+            .unwrap_or_default(),
+        corner_amounts: stored
+            .map(|p| p.corner_amounts.clone())
+            .filter(|c| c.len() == n)
+            .unwrap_or_default(),
+        ..PathData::default()
+    })
+}
+
+/// The path a vertex-style edit works on: a curve's own, or a closed form's
+/// loop ([`closed_form_path`]). `None` for any other shape.
+pub fn vertex_style_path(shape: &ShapeNode) -> Option<PathData> {
+    match shape.shape {
+        ShapeKind::Path => shape.path.as_deref().cloned(),
+        _ => closed_form_path(shape),
+    }
+}
+
+/// Store an edited [`vertex_style_path`] back on its shape.
+pub fn store_vertex_style_path(shape: &mut ShapeNode, path: PathData) {
+    if closed_form_vertex_count(shape).is_some() {
+        store_closed_form_style(shape, &path);
+    } else {
+        shape.path = Some(std::sync::Arc::new(path));
+    }
+}
+
+/// Store the per-vertex tips and corner overrides of `path` (a
+/// [`closed_form_path`]) on the closed form. Nothing is stored when neither
+/// varies, so the form paints as its own kind again.
+pub fn store_closed_form_style(shape: &mut ShapeNode, path: &PathData) {
+    let corners = if path.corner_amounts.iter().any(Option::is_some) {
+        path.corner_amounts.clone()
+    } else {
+        Vec::new()
+    };
+    shape.path = (!path.tips.is_empty() || !corners.is_empty()).then(|| {
+        std::sync::Arc::new(PathData {
+            tips: path.tips.clone(),
+            corner_amounts: corners,
+            ..PathData::default()
+        })
+    });
+}
+
+/// The path shape a closed form with stored per-vertex style paints as, in
+/// both interpreters: its loop, each vertex rounded by its override or by
+/// the form's own corner clamped to the box as the plain outline clamps it.
+/// `None` without stored style, so the form paints as its own kind.
+pub fn closed_form_paint_shape(shape: &ShapeNode, rect: WorldRect) -> Option<ShapeNode> {
+    shape.path.as_ref()?;
+    let mut path = closed_form_path(shape)?;
+    if path.tips.is_empty() && path.corner_amounts.is_empty() {
+        return None;
+    }
+    let (_, shared) = shape.corner.effective(rect.w, rect.h);
+    path.corner_amounts = (0..=path.segs.len())
+        .map(|i| Some(path.vertex_corner_amount(i, shared)))
+        .collect();
+    Some(ShapeNode {
+        shape: ShapeKind::Path,
+        path: Some(std::sync::Arc::new(path)),
+        ..shape.clone()
+    })
+}
+
+/// Carry a regular polygon's per-vertex style across a side change from
+/// `old_sides` at `old_phase`: each new vertex takes the style of the old
+/// vertex nearest it by angle.
+pub fn reside_closed_form_style(shape: &mut ShapeNode, old_sides: u8, old_phase: f32) {
+    if shape.shape != ShapeKind::RegularPolygon {
+        return;
+    }
+    let Some(stored) = shape.path.clone() else {
+        return;
+    };
+    let (old_n, new_n) = (
+        clamp_regular_sides(old_sides) as usize,
+        clamp_regular_sides(shape.sides) as usize,
+    );
+    let angle = |i: usize, n: usize, phase: f32| phase + i as f32 * 360.0 / n as f32;
+    let apart = |a: f32, b: f32| {
+        let d = (a - b).rem_euclid(360.0);
+        d.min(360.0 - d)
+    };
+    let nearest: Vec<usize> = (0..new_n)
+        .map(|j| {
+            let at = angle(j, new_n, shape.phase_deg);
+            (0..old_n)
+                .min_by(|&a, &b| {
+                    apart(angle(a, old_n, old_phase), at)
+                        .total_cmp(&apart(angle(b, old_n, old_phase), at))
+                })
+                .unwrap_or(0)
+        })
+        .collect();
+    fn carry<T: Copy>(v: &[T], old_n: usize, nearest: &[usize]) -> Vec<T> {
+        if v.len() == old_n {
+            nearest.iter().map(|&i| v[i]).collect()
+        } else {
+            Vec::new()
+        }
+    }
+    let path = PathData {
+        tips: carry(&stored.tips, old_n, &nearest),
+        corner_amounts: carry(&stored.corner_amounts, old_n, &nearest),
+        ..PathData::default()
+    };
+    store_closed_form_style(shape, &path);
 }
 
 /// First vertex, vertex count and closed flag of each contour of `path`, in
@@ -1078,6 +1232,65 @@ fn seg_end(seg: &PathSeg) -> [f32; 2] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn closed_form(shape: ShapeKind, sides: u8) -> ShapeNode {
+        ShapeNode {
+            shape,
+            fill: None,
+            stroke: Stroke {
+                width: 4.0,
+                ..Stroke::none()
+            },
+            corner: Corner::Rounded { radius: 500.0 },
+            sides,
+            phase_deg: 0.0,
+            flip: false,
+            path: None,
+            text: None,
+        }
+    }
+
+    #[test]
+    fn a_closed_form_stores_only_its_vertex_style_and_paints_its_own_corner_clamp() {
+        let mut rect = closed_form(ShapeKind::Rect, 6);
+        assert!(closed_form_paint_shape(&rect, WorldRect::new(0.0, 0.0, 100.0, 40.0)).is_none());
+        let mut path = closed_form_path(&rect).unwrap();
+        assert_eq!((path.segs.len(), path.closed), (3, true));
+        path.corner_amounts = vec![None, Some(3.0), None, None];
+        store_closed_form_style(&mut rect, &path);
+        let stored = rect.path.as_deref().unwrap();
+        assert!(stored.segs.is_empty(), "no geometry is stored");
+        assert_eq!(stored.corner_amounts, path.corner_amounts);
+        assert_eq!(rect.shape, ShapeKind::Rect);
+
+        let painted = closed_form_paint_shape(&rect, WorldRect::new(0.0, 0.0, 100.0, 40.0))
+            .expect("stored style paints");
+        assert_eq!(painted.shape, ShapeKind::Path);
+        let amounts = &painted.path.as_deref().unwrap().corner_amounts;
+        assert_eq!(
+            amounts,
+            &vec![Some(20.0), Some(3.0), Some(20.0), Some(20.0)],
+            "the shared fillet clamps to half the short side, as the plain outline does"
+        );
+
+        path.corner_amounts.clear();
+        store_closed_form_style(&mut rect, &path);
+        assert!(rect.path.is_none(), "no style left, nothing stored");
+    }
+
+    #[test]
+    fn a_side_change_carries_each_vertex_style_to_the_nearest_vertex() {
+        let mut hex = closed_form(ShapeKind::RegularPolygon, 6);
+        let mut path = closed_form_path(&hex).unwrap();
+        path.corner_amounts = vec![Some(1.0), Some(2.0), Some(3.0), Some(4.0), Some(5.0), Some(6.0)];
+        store_closed_form_style(&mut hex, &path);
+        hex.sides = 3;
+        reside_closed_form_style(&mut hex, 6, 0.0);
+        assert_eq!(
+            hex.path.as_deref().unwrap().corner_amounts,
+            vec![Some(1.0), Some(3.0), Some(5.0)]
+        );
+    }
 
     fn triangle(closing_copy: bool) -> PathData {
         let line = |to| PathSeg::Line { to };

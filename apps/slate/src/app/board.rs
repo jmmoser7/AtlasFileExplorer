@@ -4068,7 +4068,17 @@ impl SlateApp {
                 }
             }
             NodeKind::Shape(s) => {
+                let styled = slate_doc::vertex_style::closed_form_paint_shape(s, node.rect);
                 match s.shape {
+                    _ if styled.is_some() => {
+                        if let Some(styled) = &styled {
+                            if let Some(path) = &styled.path {
+                                board_path::paint_path_shape(
+                                    self, painter, xf, node, styled, path, &fade,
+                                );
+                            }
+                        }
+                    }
                     ShapeKind::Rect => {
                         // Corner treatment first, then rotate the outline about
                         // the rect center (screen rotation matches world rotation
@@ -5063,16 +5073,17 @@ impl SlateApp {
                 self.finish_sheet_resize();
             }
         }
-        // Two quick picks on curve grips are two picks (P1.curve.grips), not
-        // the canvas palette over the grip.
-        let on_curve_grip = || {
+        // Two quick picks on curve grips or closed-form vertices are two
+        // picks (P1.curve.grips, P1.shape.vertex-style), not the canvas
+        // palette or text editing.
+        let on_pick_point = || {
             self.board_tool == BoardTool::Select
                 && ui
                     .input(|i| i.pointer.press_origin())
                     .or(pointer)
-                    .is_some_and(|p| self.curve_grip_under(p))
+                    .is_some_and(|p| self.curve_grip_under(p) || self.hovered_vertex(p).is_some())
         };
-        if resp.double_clicked() && !zoom_tool && !web_capture && !grip_released && !on_curve_grip()
+        if resp.double_clicked() && !zoom_tool && !web_capture && !grip_released && !on_pick_point()
         {
             let on_context = pointer.is_some_and(|p| self.context_auto_under(p, &xf).is_some());
             if !on_context {

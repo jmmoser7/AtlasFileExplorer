@@ -266,11 +266,61 @@ fn rebuild_from_world_bez(n: &mut Node, bez: &BezPath, closed: bool, sources: Op
 
 impl SlateApp {
     /// Is this node direct-editable (a Path, or a Line that would promote)?
+    /// A closed form is too, for picking its vertices only
+    /// (P1.shape.vertex-style).
     pub(crate) fn direct_editable(&self, id: NodeId) -> bool {
         matches!(
             self.doc().scene.node(id).map(|n| &n.kind),
             Some(NodeKind::Shape(s)) if matches!(s.shape, ShapeKind::Path | ShapeKind::Line)
+                || vertex_style::closed_form_vertex_count(s).is_some()
         )
+    }
+
+    /// World vertices of closed form `id` (P1.shape.vertex-style): a
+    /// rectangle's corners or a regular polygon's vertices, in vertex order.
+    /// `None` for any other node, or a locked or hidden one.
+    pub(crate) fn closed_form_points(&self, id: NodeId) -> Option<Vec<Pos2>> {
+        let n = self.doc().scene.node(id)?;
+        if n.locked || n.hidden {
+            return None;
+        }
+        let NodeKind::Shape(s) = &n.kind else {
+            return None;
+        };
+        let verts = vertex_style::closed_form_vertices(s)?;
+        Some(
+            verts
+                .into_iter()
+                .map(|p| from_point(slate_doc::geom::world_point(p, n.rect, n.rotation_deg)))
+                .collect(),
+        )
+    }
+
+    /// The Select tool's one selected closed form, with its world vertices.
+    fn closed_form_target(&self) -> Option<(NodeId, Vec<Pos2>)> {
+        if self.board_sel.len() != 1 {
+            return None;
+        }
+        let id = *self.board_sel.iter().next()?;
+        Some((id, self.closed_form_points(id)?))
+    }
+
+    /// Screen adornment for a closed form's vertices, `picked` filled.
+    fn closed_form_overlay(
+        points: &[Pos2],
+        xf: &BoardXf,
+        picked: impl Fn(usize) -> bool,
+    ) -> Vec<PathEditAnchorPaint> {
+        point_overlay(points, xf, picked, |_| false)
+    }
+
+    /// World points Direct Select picks on node `id`: a curve's anchors, or
+    /// a closed form's vertices.
+    fn direct_pick_points(&self, id: NodeId) -> Option<Vec<Pos2>> {
+        match self.direct_anchors_of(id) {
+            Some((anchors, _)) => Some(anchors.iter().map(|a| from_point(a.point)).collect()),
+            None => self.closed_form_points(id),
+        }
     }
 
     /// World-space anchors of a node: Paths lift through `vector_ink::edit`;
@@ -391,6 +441,14 @@ impl SlateApp {
     /// the Select tool's grip picks on its one selected curve. An arc's
     /// remaining grips become a straight segment. One undo step.
     pub(crate) fn delete_picked_vertices(&mut self) -> bool {
+        if let Some((id, _)) = self.picked_vertices() {
+            // A closed form cannot lose a vertex without changing its kind;
+            // Delete with its vertices picked does nothing
+            // (P1.shape.vertex-style).
+            if self.closed_form_points(id).is_some() {
+                return true;
+            }
+        }
         if self.board_tool == super::board::BoardTool::DirectSelect {
             return self.direct_delete_anchors();
         }
@@ -560,22 +618,21 @@ impl SlateApp {
         let direct = self.board_tool == super::board::BoardTool::DirectSelect;
         let (all, picked): (Vec<Pos2>, Vec<usize>) = match self.curve_grips_of(id) {
             _ if direct => {
-                let (anchors, _) = self.direct_anchors_of(id)?;
                 let mut picked: Vec<usize> = self.direct.anchors.iter().copied().collect();
                 picked.sort_unstable();
-                (
-                    anchors.iter().map(|a| from_point(a.point)).collect(),
-                    picked,
-                )
+                (self.direct_pick_points(id)?, picked)
             }
             Some(CurveGrips::Arc(points)) => (points.to_vec(), grips),
             Some(CurveGrips::Anchors { anchors, .. }) => {
                 (anchors.iter().map(|a| from_point(a.point)).collect(), grips)
             }
-            None => {
-                let (a, b) = board_line::line_endpoints(self.doc().scene.node(id)?)?;
-                (vec![a, b], grips)
-            }
+            None => match self.closed_form_points(id) {
+                Some(points) => (points, grips),
+                None => {
+                    let (a, b) = board_line::line_endpoints(self.doc().scene.node(id)?)?;
+                    (vec![a, b], grips)
+                }
+            },
         };
         let points: Vec<Pos2> = picked.iter().filter_map(|&i| all.get(i).copied()).collect();
         (!points.is_empty()).then_some((id, points))
@@ -598,6 +655,10 @@ impl SlateApp {
             super::board::BoardTool::Select => {
                 if let Some((id, grips)) = self.curve_grip_target() {
                     let overlay = self.curve_grip_overlay(id, &grips, &xf);
+                    return path_edit_hit(&overlay, screen).map(|hit| (id, vertex(hit)));
+                }
+                if let Some((id, points)) = self.closed_form_target() {
+                    let overlay = Self::closed_form_overlay(&points, &xf, |_| false);
                     return path_edit_hit(&overlay, screen).map(|hit| (id, vertex(hit)));
                 }
                 if self.board_sel.len() != 1 {
@@ -653,7 +714,12 @@ impl SlateApp {
     /// anchors only.
     fn direct_overlay(&self, xf: &BoardXf) -> Option<Vec<PathEditAnchorPaint>> {
         let id = self.direct.node?;
-        let (anchors, _) = self.direct_anchors_of(id)?;
+        let Some((anchors, _)) = self.direct_anchors_of(id) else {
+            let points = self.closed_form_points(id)?;
+            return Some(Self::closed_form_overlay(&points, xf, |i| {
+                self.direct.anchors.contains(&i)
+            }));
+        };
         Some(anchor_overlay(
             &anchors,
             xf,
@@ -736,14 +802,18 @@ impl SlateApp {
     /// Screen distance from `screen` to the grip of curve `id` a press there
     /// would take, when `id` is the grip target and one is within reach.
     pub(crate) fn curve_grip_distance(&self, id: NodeId, screen: Pos2) -> Option<f32> {
-        let (target, grips) = self.curve_grip_target()?;
-        if target != id {
-            return None;
-        }
-        path_edit_hit_distance(
-            &self.curve_grip_overlay(id, &grips, &self.board_xf()),
-            screen,
-        )
+        let xf = self.board_xf();
+        let overlay = match self.curve_grip_target() {
+            Some((target, grips)) if target == id => self.curve_grip_overlay(id, &grips, &xf),
+            Some(_) => return None,
+            None => match self.closed_form_target() {
+                Some((target, points)) if target == id => {
+                    Self::closed_form_overlay(&points, &xf, |_| false)
+                }
+                _ => return None,
+            },
+        };
+        path_edit_hit_distance(&overlay, screen)
     }
 
     /// Press on a grip of the selected curve: one point or one handle drag,
@@ -924,6 +994,24 @@ impl SlateApp {
 
     pub(crate) fn paint_curve_grips(&self, painter: &egui::Painter, xf: &BoardXf) {
         let Some((id, grips)) = self.curve_grip_target() else {
+            // A closed form's resize handles already mark its corners: only
+            // its picked vertices and the one under the pointer show.
+            if let Some((id, points)) = self.closed_form_target() {
+                let overlay = Self::closed_form_overlay(&points, xf, |i| {
+                    self.direct.grip_points.is_picked(id, i)
+                });
+                let hovered = painter
+                    .ctx()
+                    .pointer_hover_pos()
+                    .and_then(|p| path_edit_hit(&overlay, p));
+                let shown: Vec<PathEditAnchorPaint> = overlay
+                    .into_iter()
+                    .enumerate()
+                    .filter(|(i, a)| a.selected || hovered == Some(PathEditHit::Anchor(*i)))
+                    .map(|(_, a)| a)
+                    .collect();
+                paint_path_edit_anchors(painter, None, &shown, self.path_edit_colors());
+            }
             return;
         };
         paint_path_edit_anchors(
@@ -969,7 +1057,25 @@ impl SlateApp {
         mods: egui::Modifiers,
     ) -> Option<DirectDrag> {
         let xf = self.board_xf();
-        if let Some(id) = self.direct.node {
+        if let Some(id) = self.direct.node.filter(|&id| self.direct_anchors_of(id).is_none()) {
+            // A closed form's vertices pick but never move: moving one would
+            // change the form's kind (P1.shape.vertex-style).
+            if self.closed_form_points(id).is_none() {
+                self.direct_set_target(None);
+                return None;
+            }
+            if let Some(idx) = self.direct_anchor_at(screen, &xf) {
+                if mods.shift {
+                    if !self.direct.anchors.remove(&idx) {
+                        self.direct.anchors.insert(idx);
+                    }
+                } else {
+                    self.direct.anchors.clear();
+                    self.direct.anchors.insert(idx);
+                }
+                return None;
+            }
+        } else if let Some(id) = self.direct.node {
             let Some((anchors, closed)) = self.direct_anchors_of(id) else {
                 self.direct_set_target(None);
                 return None;
@@ -1178,14 +1284,14 @@ impl SlateApp {
                 let xf = self.board_xf();
                 let rect = Rect::from_two_pos(xf.s2w(start_screen), xf.s2w(p));
                 let Some(id) = self.direct.node else { return };
-                let Some((anchors, _)) = self.direct_anchors_of(id) else {
+                let Some(points) = self.direct_pick_points(id) else {
                     return;
                 };
                 if !add {
                     self.direct.anchors.clear();
                 }
-                for (i, a) in anchors.iter().enumerate() {
-                    if rect.contains(from_point(a.point)) {
+                for (i, p) in points.iter().enumerate() {
+                    if rect.contains(*p) {
                         self.direct.anchors.insert(i);
                     }
                 }
@@ -1561,6 +1667,9 @@ impl SlateApp {
     pub(crate) fn paint_direct_overlay(&mut self, painter: &egui::Painter, xf: &BoardXf) {
         let Some(id) = self.direct.node else { return };
         let Some((anchors, closed)) = self.direct_anchors_of(id) else {
+            if let Some(overlay) = self.direct_overlay(xf) {
+                paint_path_edit_anchors(painter, None, &overlay, self.path_edit_colors());
+            }
             return;
         };
         let bez = bezpath_from_anchors(&anchors, closed);

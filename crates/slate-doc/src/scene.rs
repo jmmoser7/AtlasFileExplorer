@@ -2495,6 +2495,9 @@ pub struct ShapeNode {
     pub flip: bool,
     /// Shared so cloning a stroke (paint, journal patch, tile workers) does
     /// not copy its segments. Mutations go through [`Arc::make_mut`].
+    /// On a [`ShapeKind::Rect`] or [`ShapeKind::RegularPolygon`] it holds no
+    /// segments, only per-vertex `tips` and `corner_amounts`, one per vertex
+    /// (P1.shape.vertex-style, `vertex_style::closed_form_path`).
     #[serde(default)]
     pub path: Option<Arc<PathData>>,
     /// In-place text. Absent until a text session or a text-style edit.
@@ -6135,11 +6138,24 @@ pub fn edit_corner(
     set_corner(node, corner);
 }
 
-/// Override one line-polyline vertex's corner amount (P1.node.corner-grip).
+/// Override one line-polyline or closed-form vertex's corner amount
+/// (P1.node.corner-grip, P1.shape.vertex-style).
 pub fn set_vertex_corner_amount(node: &mut Node, vertex: usize, amount: f32) {
     let NodeKind::Shape(s) = &mut node.kind else {
         return;
     };
+    if let Some(mut path) = crate::vertex_style::closed_form_path(s) {
+        let n = path.segs.len() + 1;
+        if vertex >= n || !amount.is_finite() {
+            return;
+        }
+        if path.corner_amounts.len() != n {
+            path.corner_amounts = vec![None; n];
+        }
+        path.corner_amounts[vertex] = Some(amount.max(0.0));
+        crate::vertex_style::store_closed_form_style(s, &path);
+        return;
+    }
     let Some(path) = s.path.as_mut() else {
         return;
     };
@@ -6159,6 +6175,9 @@ pub fn clear_vertex_corner_amounts(node: &mut Node) {
     if let NodeKind::Shape(s) = &mut node.kind {
         if let Some(path) = s.path.as_mut().filter(|p| !p.corner_amounts.is_empty()) {
             Arc::make_mut(path).corner_amounts.clear();
+        }
+        if let Some(path) = crate::vertex_style::closed_form_path(s) {
+            crate::vertex_style::store_closed_form_style(s, &path);
         }
     }
 }

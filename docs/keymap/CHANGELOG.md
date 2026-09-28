@@ -209,6 +209,41 @@
   `direct_select_marquee_picks_and_esc_steps_back_picks_target_then_tool`
   (pp3).
 
+## 2026-09-28 — Vertex picks and per-vertex style on rectangles and polygons (user)
+
+- New pattern **P1.shape.vertex-style**, from the user's words of
+  28 September 2026: "alow for vrtex selection on closed forms like sqares
+  and polygons" and "for squrcle menue allow for vertex by vertex adjustment
+  of forms properties". `rectangle` D13–D15 and `polygon` D13–D15 amended;
+  `polygon` D15 no longer excludes per-vertex strip editing.
+- Select: a click without travel on a vertex of the one selected rectangle
+  or regular polygon picks it, Shift+click toggles; a rectangle corner drag
+  still resizes. Direct Select (A): the vertices pick as anchors and never
+  move (a moved vertex would change the kind). The picks feed the tip HUD
+  (Alt width, Ctrl color, Shift opacity) and the strip's stroke width,
+  color, opacity and Corners amount, blending around the closed loop.
+- The polygon side +/− keeps working beside picks: a glyph wins on its own
+  disc, a vertex click outside both discs picks.
+- The form keeps its kind. The per-vertex values ride in `ShapeNode.path`
+  with no segments, only while one is set; the board and the artifact both
+  paint the styled form as its derived closed outline
+  (`vertex_style::closed_form_paint_shape`). The tip HUD now accepts
+  closed forms (`hud_target`).
+- A quick second click on a vertex is a pick, not a canvas double-click
+  (for curve grips too).
+- Not done, Art. IV: a per-vertex fill blended across the interior ("fill
+  which would create gradients acrost he forms interiors") is a mesh
+  gradient SVG cannot express. The conforming alternative, a gradient
+  anchored to picked vertices, is an open question in `rectangle.md` and
+  `polygon.md`.
+- Tests: `a_rectangle_corner_click_picks_it_and_alt_sizes_only_that_corner`,
+  `a_rectangle_corner_drag_still_resizes`,
+  `polygon_vertex_picks_take_the_ctrl_color_only_there`,
+  `strip_corner_rounding_at_a_picked_rectangle_corner_sets_only_that_corner`,
+  `polygon_side_glyphs_still_step_sides_beside_a_picked_vertex`,
+  `direct_select_picks_closed_form_vertices_as_anchors`,
+  `closed_form_vertex_stroke_round_trips_and_exports_as_the_board_paints`.
+
 ## 2026-09-28 — Two brush decisions recorded (user)
 
 - `brush` D03, D05: the Alt+right-drag size circle stays pinned where the

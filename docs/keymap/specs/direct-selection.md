@@ -15,6 +15,13 @@ focal tool, Average dialog (P2 — auto-average lands inside Join).
 
 - `BoardTool::DirectSelect`, key **A**. Operates on `ShapeKind::Path` nodes
   (and `Line` promoted to a 2-anchor path on first direct edit).
+- Rectangles and regular polygons are **pick-only** targets (user, 28
+  September 2026: "alow for vrtex selection on closed forms like sqares and
+  polygons"; P1.shape.vertex-style). Their vertices show as anchors and pick
+  like anchors (click, Shift+click, marquee), but a press on one never moves
+  it, since that would change the form's kind; there are no segments or
+  handles to drag. Arrow keys nudge the whole node; double-click and Join do
+  not apply.
 - Clicking a Path node with A shows **all its anchors**: hollow squares
   (unselected) / filled squares (selected), screen-constant size (~7 px).
 - Selected **smooth** anchors show their two direction handles (thin line +
@@ -66,8 +73,12 @@ squares stay screen-constant (P0.9 path-edit exception).
 
 "Picked vertices" means Direct Select's selected anchors, or the grips picked
 with the Select tool on a single selected curve (P1.curve.grips). An arc's
-picks are its three grips. Both tools share the behavior below
-(`picked_vertices`, `board_direct.rs`).
+picks are its three grips. A single selected rectangle or regular polygon
+takes picks on its vertices the same way (P1.shape.vertex-style, 28
+September 2026); a press-drag on a rectangle corner under Select still
+resizes. Both tools share the behavior below (`picked_vertices`,
+`board_direct.rs`). On a closed form the per-vertex values are stored beside
+the form, not in a path: the form keeps its kind.
 
 ### Tip HUD on picked vertices
 
@@ -170,7 +181,9 @@ vertex keeps its width, color and corner override. When fewer than two (open)
 or three (closed) vertices would remain, the node is removed instead. Either
 way, one Ctrl+Z restores it. With nothing picked, Delete removes the selected
 nodes as before. With edges picked (below), Delete removes those segments
-instead.
+instead. Picks on a rectangle or regular polygon make Delete do
+nothing (removing a vertex would change the kind); the key is consumed so the
+form is not deleted by surprise.
 
 ## Geometry home
 

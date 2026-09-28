@@ -176,8 +176,10 @@ impl SlateApp {
         };
         let mut after = before.clone();
         if let NodeKind::Shape(s) = &mut after.kind {
+            let (old_sides, old_phase) = (s.sides, s.phase_deg);
             s.sides = sides;
             s.phase_deg = phase;
+            slate_doc::vertex_style::reside_closed_form_style(s, old_sides, old_phase);
         }
         self.commit_scene(vec![scene::SceneCmd::Patch {
             before: Box::new(before),

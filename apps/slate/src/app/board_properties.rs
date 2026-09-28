@@ -174,7 +174,9 @@ impl Property {
             Self::RegularSides(sides) => {
                 if let NodeKind::Shape(s) = &mut node.kind {
                     if s.shape == ShapeKind::RegularPolygon {
+                        let old = s.sides;
                         s.sides = scene::clamp_regular_sides(sides);
+                        slate_doc::vertex_style::reside_closed_form_style(s, old, s.phase_deg);
                     }
                 }
             }
@@ -288,11 +290,17 @@ impl Property {
     }
 }
 
-/// Picked grips of `node` that turn a corner: the turning vertices of a
-/// line polyline (`polyline_vertex_grip_edges`), in pick order.
+/// Picked grips of `node` that turn a corner, in pick order: the turning
+/// vertices of a line polyline (`polyline_vertex_grip_edges`), or any
+/// vertex of a rectangle or regular polygon (P1.shape.vertex-style).
 fn picked_corners(node: &Node, points: &[usize]) -> Vec<usize> {
     if points.is_empty() || !scene::supports_corners(node) {
         return Vec::new();
+    }
+    if let NodeKind::Shape(s) = &node.kind {
+        if let Some(n) = slate_doc::vertex_style::closed_form_vertex_count(s) {
+            return points.iter().copied().filter(|&p| p < n).collect();
+        }
     }
     let chamfer = scene::resolved_corner(node, None).parameters().0;
     let corners: Vec<usize> = slate_doc::geom::polyline_vertex_grip_edges(node, chamfer)
@@ -337,6 +345,12 @@ pub(crate) fn edit_every_tip(node: &mut Node, edit: impl Fn(&mut scene::StrokeSp
         return;
     };
     if s.shape != ShapeKind::Path {
+        if let Some(mut path) = slate_doc::vertex_style::closed_form_path(s) {
+            if !path.tips.is_empty() {
+                slate_doc::vertex_style::edit_every_tip(&mut path, &mut s.stroke, edit);
+                slate_doc::vertex_style::store_closed_form_style(s, &path);
+            }
+        }
         return;
     }
     let Some(path) = s.path.as_mut() else {
@@ -382,21 +396,17 @@ pub(crate) fn scale_stamped_curve(
     )
 }
 
-/// Set the painted opacity of the `points` (grip indices) of a path node
-/// through the share rule (`vertex_style::set_grip_opacity`), node
-/// opacity included.
+/// Set the painted opacity of the `points` (grip indices) of a path node or
+/// closed form through the share rule (`vertex_style::set_grip_opacity`),
+/// node opacity included.
 pub(crate) fn set_vertex_opacity(node: &mut Node, points: &[usize], opacity: f32) -> bool {
     let (rect, rotation, node_opacity) = (node.rect, node.rotation_deg, node.opacity);
     let NodeKind::Shape(s) = &mut node.kind else {
         return false;
     };
-    if s.shape != ShapeKind::Path {
-        return false;
-    }
-    let Some(path) = s.path.as_ref() else {
+    let Some(mut path) = slate_doc::vertex_style::vertex_style_path(s) else {
         return false;
     };
-    let mut path = (**path).clone();
     let mut stroke = s.stroke;
     let Some(top) = slate_doc::vertex_style::set_grip_opacity(
         &mut path,
@@ -409,23 +419,21 @@ pub(crate) fn set_vertex_opacity(node: &mut Node, points: &[usize], opacity: f32
     ) else {
         return false;
     };
-    s.path = Some(path.into());
+    slate_doc::vertex_style::store_vertex_style_path(s, path);
     s.stroke = stroke;
     node.opacity = top;
     true
 }
 
-/// The painted tip at the first of `points` (grip indices) of a path node.
+/// The painted tip at the first of `points` (grip indices) of a path node
+/// or closed form.
 pub(crate) fn picked_tip(node: &Node, points: &[usize]) -> Option<scene::StrokeSpan> {
     let first = *points.first()?;
     let NodeKind::Shape(s) = &node.kind else {
         return None;
     };
-    if s.shape != ShapeKind::Path {
-        return None;
-    }
     let tips = slate_doc::vertex_style::grip_tips(
-        s.path.as_ref()?,
+        &slate_doc::vertex_style::vertex_style_path(s)?,
         &s.stroke,
         node.rect,
         node.rotation_deg,
@@ -433,7 +441,8 @@ pub(crate) fn picked_tip(node: &Node, points: &[usize]) -> Option<scene::StrokeS
     tips.get(first).copied()
 }
 
-/// Edit the stroke tips at `points` (grip indices) of a path node.
+/// Edit the stroke tips at `points` (grip indices) of a path node or closed
+/// form.
 pub(crate) fn edit_vertex_tips(
     node: &mut Node,
     points: &[usize],
@@ -443,13 +452,9 @@ pub(crate) fn edit_vertex_tips(
     let NodeKind::Shape(s) = &mut node.kind else {
         return false;
     };
-    if s.shape != ShapeKind::Path {
-        return false;
-    }
-    let Some(path) = s.path.as_ref() else {
+    let Some(mut path) = slate_doc::vertex_style::vertex_style_path(s) else {
         return false;
     };
-    let mut path = (**path).clone();
     let mut stroke = s.stroke;
     if !slate_doc::vertex_style::edit_grip_tips(
         &mut path,
@@ -461,7 +466,7 @@ pub(crate) fn edit_vertex_tips(
     ) {
         return false;
     }
-    s.path = Some(path.into());
+    slate_doc::vertex_style::store_vertex_style_path(s, path);
     s.stroke = stroke;
     true
 }
