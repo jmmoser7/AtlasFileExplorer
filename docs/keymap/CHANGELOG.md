@@ -1,5 +1,21 @@
 # Canvas command project — change log
 
+## 2026-09-27 — A Shift release before the rebuild lands keeps the segment (review r11)
+
+- `brush` D11: a Shift segment released while the rebuilt live canvas
+  still waits for the stroke's stamp no longer vanishes. The canvas adds
+  the segment as its vector mesh over the stroke as it was, until the
+  extended stroke's own raster lands; nothing stamps on the frame loop.
+  The tile budget and the paint ask the canvas one question.
+- `brush` D11: a stroke's previous bitmap maps onto its current frame only
+  when its placement alone changed; after a content change it paints at
+  its own old place, so an extended stroke is never stretched.
+- `brush` D11: a canvas that gives up on lost line jobs drops its pixels
+  and is never resumed, so the scene's copy of the chain paints once. A
+  release that adds a stroke beside the anchor leaves the canvas standing
+  in for nothing.
+- `brush` D11: the sentences review r10 added are labelled as agent text.
+
 ## 2026-09-27 — A board drawing keeps its untitled tab
 
 - An untitled tab whose only content is on its board is no longer treated

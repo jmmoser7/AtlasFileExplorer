@@ -133,6 +133,8 @@ type StrokeWants = HashMap<NodeId, (u64, u32)>;
 pub(crate) struct StrokeRaster {
     pub key: u64,
     pub pixel: f32,
+    /// The node's rect when the job was asked.
+    pub rect: slate_doc::WorldRect,
     pub stamp: Option<StampImage>,
     pub image: Option<egui::ColorImage>,
 }
@@ -989,6 +991,7 @@ fn rasterize_stroke(job: StrokeJob, done: &Sender<Done>) -> bool {
         StrokeRaster {
             key: job.key,
             pixel: job.pixel,
+            rect: job.node.rect,
             stamp,
             image,
         },
@@ -1594,6 +1597,15 @@ fn stand_in_shows(
             .is_some_and(|s| s.ids.binary_search(&id).is_ok())
 }
 
+/// The live canvas adds a released Shift segment to stroke `id` over the
+/// stroke as it was, so a stand-in that shows `id` still needs the stroke
+/// painted on top.
+fn canvas_adds_to(app: &SlateApp, id: NodeId) -> bool {
+    app.brush_live.as_ref().is_some_and(|c| {
+        c.awaits_anchor() && c.stands_in(id, app.brush_tiles.keys.get(&id).copied())
+    })
+}
+
 /// Paint one planned run in place. A settled coordinate paints the run's
 /// exact tile. An unsettled one paints its stand-in once, then only the
 /// strokes the stand-in does not show yet, clipped to that coordinate.
@@ -1623,7 +1635,7 @@ fn paint_plan(app: &mut SlateApp, pass: &Pass, plan: RunPlan, coords: &mut [Coor
                 };
                 replay(app, pass, key, slot, coords);
                 for id in baked {
-                    if !stand_in_shows(app, coords, slot, key, id) {
+                    if !stand_in_shows(app, coords, slot, key, id) || canvas_adds_to(app, id) {
                         fresh.push((id, slot));
                     }
                 }
@@ -1638,7 +1650,8 @@ fn paint_plan(app: &mut SlateApp, pass: &Pass, plan: RunPlan, coords: &mut [Coor
             } else if app.brush_tiles.shown.contains_key(&key) {
                 replay(app, pass, key, cell.slot, coords);
                 for (id, _) in &cell.desired {
-                    if !stand_in_shows(app, coords, cell.slot, key, *id) {
+                    if !stand_in_shows(app, coords, cell.slot, key, *id) || canvas_adds_to(app, *id)
+                    {
                         fresh.push((*id, cell.slot));
                     }
                 }
@@ -1767,7 +1780,7 @@ fn paint_fresh(
             })
         });
         // A stroke with a stand-in paints it without building anything.
-        if !current && !super::has_stand_in(app, node.id) {
+        if !current && !super::has_stand_in(app, node.id, key) {
             if built >= IMMEDIATE_STROKES {
                 continue;
             }

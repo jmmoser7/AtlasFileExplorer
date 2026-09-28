@@ -2069,10 +2069,15 @@ pub(crate) fn node_stamp_key(node: &Node) -> Option<u64> {
 
 /// A stroke's stamp content key: path, style, and placement.
 fn stamp_key(node: &Node, shape: &ShapeNode, path: &PathData) -> u64 {
+    stamp_key_at(node, shape, path, node.rect)
+}
+
+/// [`stamp_key`] with the stroke placed at `rect`.
+fn stamp_key_at(node: &Node, shape: &ShapeNode, path: &PathData, rect: WorldRect) -> u64 {
     path_content_hash(
         path,
         &shape.stroke,
-        node.rect,
+        rect,
         node.rotation_deg,
         shape.corner,
         0,
@@ -2357,13 +2362,14 @@ pub struct BrushStampGpu {
     pub rect: WorldRect,
 }
 
-/// A stroke has something to paint while its exact bitmap builds.
-pub(crate) fn has_stand_in(app: &SlateApp, id: NodeId) -> bool {
+/// A stroke has something to paint while its exact bitmap builds. `key`
+/// is its content key, when known.
+pub(crate) fn has_stand_in(app: &SlateApp, id: NodeId, key: Option<u64>) -> bool {
     app.brush_stamps.contains_key(&id)
         || app
             .brush_live
             .as_ref()
-            .is_some_and(|c| c.held.is_some_and(|(held, _)| held == id))
+            .is_some_and(|c| c.stands_in(id, key))
 }
 
 fn paint_stamped_stroke(
@@ -2419,7 +2425,7 @@ fn paint_stamped_stroke(
             match r.stamp {
                 Some(stamp) => {
                     let name = format!("brush-stamp-{}", node.id.0);
-                    let mut gpu = upload_stamp(painter, &name, stamp, r.image, r.pixel, node.rect);
+                    let mut gpu = upload_stamp(painter, &name, stamp, r.image, r.pixel, r.rect);
                     gpu.exact = current;
                     app.brush_stamps.insert(node.id, (r.key, gpu));
                     evict_brush_stamps(&mut app.brush_stamps, app.frame_no);
@@ -2451,17 +2457,31 @@ fn paint_stamped_stroke(
             painter.ctx().request_repaint();
         }
     }
-    if !exact(app) {
-        if let Some(canvas) = app.brush_live.as_mut() {
-            if canvas.stands_in_for(node.id, key) {
-                canvas.paint(painter, xf);
-                return;
+    let stand_in = app
+        .brush_live
+        .as_ref()
+        .filter(|c| !exact(app) && c.stands_in(node.id, Some(key)))
+        .map(|c| c.awaits_anchor());
+    if let Some(adds) = stand_in {
+        // A canvas that adds only this drag's segments paints over the
+        // stroke as it was: the tiles show that, or its last bitmap where
+        // it was.
+        if adds && !(app.brush_tiles_enabled && tiles::plain_stamp(app, node).is_some()) {
+            if let Some((_, gpu)) = app.brush_stamps.get_mut(&node.id) {
+                gpu.used = app.frame_no;
+                paint_stamp_quad(painter, xf, gpu, gpu.rect, fade(Color32::WHITE));
             }
         }
+        if let Some(canvas) = app.brush_live.as_mut() {
+            canvas.paint(painter, xf);
+        }
+        return;
     }
-    if let Some((_, gpu)) = app.brush_stamps.get_mut(&node.id) {
+    if let Some((built, gpu)) = app.brush_stamps.get_mut(&node.id) {
         gpu.used = app.frame_no;
-        paint_stamp_quad(painter, xf, gpu, node.rect, fade(Color32::WHITE));
+        let moved = gpu.rect == node.rect || stamp_key_at(node, shape, path, gpu.rect) == *built;
+        let rect = if moved { node.rect } else { gpu.rect };
+        paint_stamp_quad(painter, xf, gpu, rect, fade(Color32::WHITE));
     }
 }
 
@@ -2655,6 +2675,8 @@ fn upload_stamp(
 
 /// Paint a stamp bitmap for a node now at `rect`. A bitmap built for another
 /// rect (a stand-in while the node moves or resizes) maps onto the new one.
+/// When the content changed too, pass the rect it was built at: an appended
+/// path's grown rect would stretch the old stroke over the new bounds.
 fn paint_stamp_quad(
     painter: &egui::Painter,
     xf: &BoardXf,
@@ -2750,9 +2772,15 @@ pub struct BrushLiveCanvas {
     /// Test hook: the next line job panics on its worker.
     #[cfg(test)]
     pub(crate) panic_next: bool,
+    /// Test hook: every line job panics on its worker.
+    #[cfg(test)]
+    pub(crate) panic_always: bool,
     /// Test hook: ask the workers for no preview stamp.
     #[cfg(test)]
     pub(crate) hold_previews: bool,
+    /// Test hook: a landed anchor stamp is not taken in.
+    #[cfg(test)]
+    pub(crate) hold_anchor: bool,
 }
 
 /// Lost line jobs the live canvas asks again before it gives up.
@@ -3112,7 +3140,11 @@ impl BrushLiveCanvas {
                 #[cfg(test)]
                 panic_next: false,
                 #[cfg(test)]
+                panic_always: false,
+                #[cfg(test)]
                 hold_previews: false,
+                #[cfg(test)]
+                hold_anchor: false,
             });
         }
         let canvas = slot.as_mut().expect("canvas just ensured");
@@ -3156,6 +3188,7 @@ impl BrushLiveCanvas {
             && key.is_some()
             && self.idle
             && self.reusable
+            && !self.broken
             && self.view == view
             && self.held == id.map(|id| (id, key))
             && self.anchor_segs.is_empty()
@@ -3169,18 +3202,20 @@ impl BrushLiveCanvas {
     /// A Shift preview continuing stroke `id` (content `key`) under this
     /// camera paints that stroke from this canvas this frame, so the scene
     /// leaves it out. While the workers still stamp it in, the scene paints
-    /// it.
+    /// it. `key` is asked only for a parked canvas holding `id`.
     pub fn covers_anchor(
         &self,
         id: NodeId,
-        key: Option<u64>,
+        key: impl FnOnce() -> Option<u64>,
         xf: &BoardXf,
         screen: egui::Rect,
         ppp: f32,
     ) -> bool {
         let view = view_key(xf, screen, ppp);
-        (!self.idle && self.view == view && self.holds_anchor(id))
-            || self.resumable(view, Some(id), key)
+        if !self.idle {
+            return self.view == view && self.holds_anchor(id);
+        }
+        self.held.is_some_and(|(held, _)| held == id) && self.resumable(view, Some(id), key())
     }
 
     /// Stop previewing. The anchor stroke paints from the scene again.
@@ -3197,11 +3232,17 @@ impl BrushLiveCanvas {
 
     /// The drag on this canvas committed as stroke `id` (content `key`). The
     /// canvas is reusable when it holds nothing else: a new stroke, or a
-    /// Shift segment that continued `id` itself.
+    /// Shift segment that continued `id` itself. A release that added `id`
+    /// beside the anchor instead leaves the anchor in the canvas too, so the
+    /// canvas stands in for nothing.
     pub fn hold(&mut self, id: NodeId, key: Option<u64>) {
-        let alone = !self.idle && self.anchor.is_none_or(|x| x == id);
+        if self.anchor.is_some_and(|x| x != id) {
+            self.held = None;
+            self.reusable = false;
+            return;
+        }
         self.held = Some((id, key));
-        self.reusable = alone && key.is_some();
+        self.reusable = !self.idle && key.is_some() && !self.broken;
     }
 
     /// [`Self::hold`] for the Shift segment `a`–`b`, which the canvas takes
@@ -3209,8 +3250,10 @@ impl BrushLiveCanvas {
     /// may land off the last previewed point), else from the workers.
     pub fn hold_line(&mut self, id: NodeId, key: Option<u64>, a: TipPoint, b: TipPoint) {
         self.hold(id, key);
-        self.commits.push((a, b));
-        self.adopt_exact();
+        if self.held.is_some() {
+            self.commits.push((a, b));
+            self.adopt_exact();
+        }
     }
 
     /// A committed segment the preview stamp already shows goes straight in.
@@ -3227,17 +3270,21 @@ impl BrushLiveCanvas {
         }
     }
 
-    /// This canvas still shows stroke `id` as it is now (content `key`).
-    /// The first ask after the commit records the key; an edit since then
-    /// means the canvas no longer shows the stroke.
-    fn stands_in_for(&mut self, id: NodeId, key: u64) -> bool {
-        if !self.anchor_segs.is_empty() || self.broken {
-            return false;
-        }
-        match &mut self.held {
-            Some((held, seen)) if *held == id => *seen.get_or_insert(key) == key,
-            _ => false,
-        }
+    /// This canvas stands in for stroke `id` as it is now (content `key`,
+    /// when known) until its exact bitmap lands: the tile budget and the
+    /// paint both ask this. An edit since the commit means the canvas no
+    /// longer shows the stroke. While [`Self::awaits_anchor`], the canvas
+    /// shows only what this drag added.
+    pub fn stands_in(&self, id: NodeId, key: Option<u64>) -> bool {
+        !self.broken
+            && self.held.is_some_and(|(held, seen)| {
+                held == id && (seen.is_none() || key.is_none() || seen == key)
+            })
+    }
+
+    /// The workers have not stamped the anchor stroke into the canvas yet.
+    pub fn awaits_anchor(&self) -> bool {
+        !self.anchor_segs.is_empty()
     }
 
     /// Stamp a segment and remember its box for the next reset.
@@ -3381,6 +3428,18 @@ impl BrushLiveCanvas {
         self.commits.is_empty() && self.anchor_segs.is_empty() && self.inflight.is_none()
     }
 
+    /// A line job is out on the workers.
+    #[cfg(test)]
+    pub fn asking(&self) -> bool {
+        self.inflight.is_some()
+    }
+
+    /// The canvas gave up on the workers until its next rebuild.
+    #[cfg(test)]
+    pub fn given_up(&self) -> bool {
+        self.broken
+    }
+
     /// Show one straight segment on top of the canvas. [`Self::pump`]
     /// asks the workers for its stamp.
     pub fn set_line(&mut self, a: TipPoint, b: TipPoint) {
@@ -3394,6 +3453,15 @@ impl BrushLiveCanvas {
         let Some(tag) = self.inflight.as_ref().map(|a| a.tag) else {
             return;
         };
+        #[cfg(test)]
+        if self.hold_anchor
+            && self
+                .inflight
+                .as_ref()
+                .is_some_and(|a| a.kind == AskKind::Anchor)
+        {
+            return;
+        }
         match tiles.take_line(tiles::BRUSH_LANE, tag) {
             None => {}
             Some(tiles::LineLanded::Raster(r)) => {
@@ -3414,8 +3482,10 @@ impl BrushLiveCanvas {
 
     /// The workers keep losing this canvas's jobs: stop asking and stop
     /// standing in for any stroke, so the scene paints the strokes and the
-    /// preview stays the vector stand-in until the next rebuild.
+    /// preview stays the vector stand-in until the next rebuild. The canvas
+    /// drops its pixels, which the scene now paints.
     fn give_up(&mut self) {
+        self.clear_touched();
         self.broken = true;
         self.anchor_segs.clear();
         self.commits.clear();
@@ -3427,11 +3497,17 @@ impl BrushLiveCanvas {
     /// Ask the workers for the next Shift segment raster when none is out:
     /// the anchor stroke first, then committed segments, then the live
     /// segment's preview.
+    ///
+    /// A drag released before its anchor landed asks nothing more: the
+    /// canvas then only adds its segments, as meshes, over the stroke as
+    /// the scene shows it, until the stroke's own raster lands.
     pub fn pump(&mut self, tiles: &mut tiles::BrushTiles, ctx: &egui::Context) {
         if self.inflight.is_none() && !self.broken {
             if !self.anchor_segs.is_empty() {
-                let segs = self.anchor_segs.clone();
-                self.ask(tiles, segs, AskKind::Anchor);
+                if self.held.is_none() {
+                    let segs = self.anchor_segs.clone();
+                    self.ask(tiles, segs, AskKind::Anchor);
+                }
             } else if !self.commits.is_empty() {
                 let segs = self.commits.clone();
                 self.ask(tiles, segs, AskKind::Commit);
@@ -3495,7 +3571,7 @@ impl BrushLiveCanvas {
             segs: segs.clone(),
             cut: None,
             #[cfg(test)]
-            panic: std::mem::take(&mut self.panic_next),
+            panic: std::mem::take(&mut self.panic_next) || self.panic_always,
         };
         let ask = LineAsk {
             tag,
@@ -3521,7 +3597,7 @@ impl BrushLiveCanvas {
         let grain = ask.segs.last().map_or(self.grain, |s| s.0.tip.grain);
         match ask.kind {
             AskKind::Anchor => {
-                if self.anchor_segs == ask.segs {
+                if self.anchor_segs == ask.segs && self.held.is_none() {
                     self.take_in(ask.bx, r.raw, r.image, grain);
                     self.anchor_segs.clear();
                 } else {
