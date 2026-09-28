@@ -2183,8 +2183,8 @@ struct Waiting {
     /// The stroke's committed content keys the band covers: its own
     /// pass's, then each later pass's released over it.
     keys: Vec<u64>,
-    /// Painted this frame: its pass is applied, and its stroke shows one
-    /// of `keys` and is not hidden, or still ghosts out.
+    /// Painted this frame: its pass is applied, and its stroke is in the
+    /// scene, shows one of `keys`, and is not hidden, or still ghosts out.
     shown: bool,
     /// The stroke's ink is in the open document's view this frame, waiting
     /// on its raster.
@@ -2520,11 +2520,13 @@ fn paint_settling_erase(
 /// band stays, in view or not, until its stroke shows its raster for its
 /// content in view, the stroke changes other than by an eraser pass, or
 /// its pass is undone and a new edit drops the redo; it paints only where
-/// its stroke paints. Undoing a pass that still settles turns its preview's
-/// line and bands into such bands. A band reads its stroke's content only
-/// once the scene changed since it last did. Frames are asked for only
-/// while this document has a cut on the workers or a band waiting on a
-/// raster for a stroke whose ink is in view.
+/// its stroke paints. While its stroke is out of the scene and its pass
+/// applied, a band waits unseen. Undoing a pass that still settles, or
+/// removing its stroke, turns its preview's line and bands into such
+/// bands. A band reads its stroke's content only once the scene changed
+/// since it last did. Frames are asked for only while this document has a
+/// cut on the workers or a band waiting on a raster for a stroke whose ink
+/// is in view ([`super::board::paints_in_view`]).
 fn tend_erase_settle(app: &mut SlateApp, painter: &egui::Painter, xf: &BoardXf) {
     if app.erase_settle.is_empty() {
         return;
@@ -2551,7 +2553,8 @@ fn tend_erase_settle(app: &mut SlateApp, painter: &egui::Painter, xf: &BoardXf) 
             return journal.is_undone(w.pass);
         }
         let Some(n) = app.doc().scene.node(w.id) else {
-            return false;
+            w.shown = false;
+            return true;
         };
         let key = match w.checked {
             Some((at, key)) if at == revision => key,
@@ -2576,8 +2579,10 @@ fn tend_erase_settle(app: &mut SlateApp, painter: &egui::Painter, xf: &BoardXf) 
     let mut live = std::mem::take(&mut app.erase_settle.live);
     live.retain(|&(t, id), s| {
         let lane = tiles::erase_lane(id);
+        let mut gone = false;
         let fit = if t == tab {
             let n = app.doc().scene.node(id);
+            gone = n.is_none();
             s.shown = n.is_some_and(|n| paints(app, n));
             n.and_then(|n| settling_fit(n, s, &app.tab().journal))
         } else {
@@ -2585,7 +2590,8 @@ fn tend_erase_settle(app: &mut SlateApp, painter: &egui::Painter, xf: &BoardXf) 
         };
         let Some(shift) = fit else {
             s.live.forget(&mut app.brush_tiles, lane);
-            if t == tab && app.tab().journal.is_undone(s.pass) {
+            let journal = &app.tab().journal;
+            if t == tab && (journal.is_undone(s.pass) || (gone && journal.is_applied(s.pass))) {
                 let bands = s.take_bands(t, id, false, false);
                 app.erase_settle.waiting.extend(bands);
             }

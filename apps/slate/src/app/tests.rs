@@ -14135,6 +14135,53 @@ fn redoing_an_undone_add_under_a_dormant_band_keeps_it() {
     band_holds_at_the_edge(&mut h, &mut raster, (id, seen), lit, "re-added");
 }
 
+/// Review r18 D1: deleting a flicked stroke while its band waits on its
+/// raster keeps the band, dormant, so Ctrl+Z never paints the un-erased
+/// stroke.
+#[test]
+fn undoing_a_delete_under_a_flick_band_keeps_it() {
+    let (mut h, mut raster, id, cross) = eraser_bar_board("eraser_band_undo_delete");
+    let (seen, lit) = flick_the_bar_unseen(&mut h, &mut raster, id, cross);
+    let erased = h.app.doc().scene.node(id).unwrap().clone();
+    h.app.delete_board_nodes(&[id]);
+    assert!(h.app.doc().scene.node(id).is_none(), "Delete removes the bar");
+    for _ in 0..3 {
+        shot(&mut h, &mut raster, |_| {});
+    }
+    assert!(!h.app.erase_settling(), "the band over the deleted bar asks for frames");
+    shot(&mut h, &mut raster, ctrl_key(egui::Key::Z));
+    assert_eq!(h.app.doc().scene.node(id), Some(&erased), "Ctrl+Z brings the erased bar back");
+    band_holds_at_the_edge(&mut h, &mut raster, (id, seen), lit, "undeleted");
+}
+
+/// Review r18 D1: the same when the stroke is deleted while its pass's
+/// preview still settles: the settle turns into its bands.
+#[test]
+fn undoing_a_delete_under_a_settling_pass_keeps_its_band() {
+    let (mut h, mut raster, id, cross) = eraser_bar_board("eraser_settle_undo_delete");
+    h.app.brush_tiles_enabled = false;
+    let key = board_path::node_stamp_key(h.app.doc().scene.node(id).unwrap());
+    settle_captured(&mut h, &mut raster, "the bar's own bitmap", |app| {
+        stamp_of_app(app, id).is_some_and(|(k, g)| g.exact && Some(*k) == key)
+    });
+    let lit = half_lit(&h, &raster, cross);
+    release_a_settling_pass(&mut h, &mut raster, id);
+    let erased = h.app.doc().scene.node(id).unwrap().clone();
+    h.app.delete_board_nodes(&[id]);
+    assert!(h.app.doc().scene.node(id).is_none(), "Delete removes the bar");
+    for _ in 0..3 {
+        shot(&mut h, &mut raster, |_| {});
+    }
+    assert!(!h.app.erase_settle.holds(h.app.tab().id, id), "the settle outlives its stroke");
+    assert!(!h.app.erase_settling(), "the band over the deleted bar asks for frames");
+    h.app.erase_settle.hold = false;
+    h.app.brush_tiles.hold_rasters = true;
+    shot(&mut h, &mut raster, ctrl_key(egui::Key::Z));
+    assert_eq!(h.app.doc().scene.node(id), Some(&erased), "Ctrl+Z brings the erased bar back");
+    let p = cut_points(cross);
+    band_holds_at_the_edge(&mut h, &mut raster, (id, [p[0], p[1], p[2]]), lit, "undeleted settle");
+}
+
 /// Review r17 R2 (Art. II): a band that lingers over a hidden stroke
 /// hashes no stroke content per frame while the scene stays as it is.
 #[test]
@@ -14210,6 +14257,45 @@ fn a_band_over_a_culled_stroke_stops_asking_for_frames() {
         !out.viewport_output[&egui::ViewportId::ROOT].repaint_delay.is_zero()
     });
     assert!(quiet, "the idle board keeps repainting");
+}
+
+/// Review r18 R1 (Art. II): a band over a rotated stroke whose ink is out
+/// of view asks for no frames.
+#[test]
+fn a_band_over_a_rotated_stroke_off_view_asks_for_no_frames() {
+    let (mut h, mut raster, id, cross) = eraser_bar_board("eraser_band_rotated_off_view");
+    h.app.patch_nodes(&[id], |n| n.rotation_deg = 20.0);
+    flick_the_bar_unseen(&mut h, &mut raster, id, cross);
+    h.app.tab_mut().cam.offset.y += 3000.0;
+    for _ in 0..3 {
+        shot(&mut h, &mut raster, |_| {});
+    }
+    assert!(!h.app.erase_settling(), "the band over the rotated bar out of view asks for frames");
+}
+
+/// Review r18 R1: a rotated stroke whose rotated ink meets the view
+/// paints, though its unrotated box is out of view, and half its width
+/// counts past its rotated box.
+#[test]
+fn a_rotated_stroke_partly_in_view_still_paints() {
+    let (mut h, mut raster, id, _) = eraser_bar_board("rotated_stroke_partly_in_view");
+    h.app.patch_nodes(&[id], |n| n.rotation_deg = 90.0);
+    let node = h.app.doc().scene.node(id).unwrap().clone();
+    let upright = node.rect.rotated_bounds(node.rotation_deg);
+    let (cx, cy) = upright.center();
+    h.app.tab_mut().cam.offset = EVec2::new(cx, cy - 500.0);
+    let view = h.app.board_paint_view(h.app.canvas_rect);
+    let flat = node.rect.normalized();
+    assert!(flat.y - 40.0 > view.y + view.h, "the bar's unrotated ink is out of view");
+    assert!(cy - 400.0 > view.y && cy - upright.h * 0.5 > view.y, "the upright bar's top end is in view");
+    assert!(board::paints_in_view(&node, &view), "the upright bar is culled");
+    settle_captured(&mut h, &mut raster, "the upright bar", |_| true);
+    let r = redness(&raster, &h.app.board_xf(), Pos2::new(cx, cy - 400.0));
+    assert!(r > 0.5, "the upright bar is blank in view ({r:.2})");
+    let edge = upright.x + upright.w;
+    let beside = |gap: f32| WorldRect::new(edge + gap, upright.y, 500.0, upright.h);
+    assert!(board::paints_in_view(&node, &beside(30.0)), "the upright bar's ink edge is culled");
+    assert!(!board::paints_in_view(&node, &beside(45.0)), "a view clear of the upright bar's ink keeps it");
 }
 
 /// Review r14 finding 2 (Art. II) and note N1: a nested board portal's

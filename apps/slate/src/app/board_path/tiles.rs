@@ -1314,19 +1314,12 @@ fn stamp_stroke(node: &Node) -> Option<&ShapeNode> {
 
 pub(super) fn ink_rect(node: &Node, shape: &ShapeNode) -> [f32; 4] {
     let pad = shape.stroke.width.max(1.0) * 0.5 + 4.0 + 3.0 * shape.stroke.gaussian_blur.max(0.0);
-    if node.rotation_deg.abs() < 0.01 {
-        let r = node.rect.normalized();
-        return [r.x - pad, r.y - pad, r.x + r.w + pad, r.y + r.h + pad];
-    }
-    let corners = node.rect.corners_rotated(node.rotation_deg);
-    let mut b = [f32::MAX, f32::MAX, f32::MIN, f32::MIN];
-    for (x, y) in corners {
-        b[0] = b[0].min(x);
-        b[1] = b[1].min(y);
-        b[2] = b[2].max(x);
-        b[3] = b[3].max(y);
-    }
-    [b[0] - pad, b[1] - pad, b[2] + pad, b[3] + pad]
+    let r = if node.rotation_deg.abs() < 0.01 {
+        node.rect.normalized()
+    } else {
+        node.rect.rotated_bounds(node.rotation_deg)
+    };
+    [r.x - pad, r.y - pad, r.x + r.w + pad, r.y + r.h + pad]
 }
 
 fn overlaps(a: [f32; 4], b: [f32; 4]) -> bool {
