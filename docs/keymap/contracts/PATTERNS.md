@@ -417,7 +417,16 @@ is searchable.
   without travel on an anchor or handle knob adds or removes that pick
   and moves nothing; a Shift drag on a handle knob locks its direction
   and picks nothing. Two quick clicks on grips are two picks, never the canvas
-  palette. Index order: path vertex order; start, through, end for an arc.
+  palette. Index order: path vertex order; start, through, end for an arc. **Edges**
+  (user, 28 September 2026, "dig selection"): Ctrl+Shift+click on a
+  segment, away from the grips, picks that edge and its two end vertices
+  (Rhino sub-object selection; the group-member and locked meanings stay).
+  More clicks add edges or toggle one off. A picked edge paints a
+  screen-constant line (path-edit exception); dragging it moves every
+  picked vertex as one snapped Patch; Delete removes the picked segments
+  through the trim owner (`commit_open_pieces`), splitting an open curve
+  and opening a closed one. With points picked the property strip shows
+  only per-vertex squircles (shape-selection-toolbar D13).
   Implementation: `board_direct::curve_grip_target`,
   `board_path::arc_grip_points`, `path_edit_overlay::path_edit_hit`,
   `slate_doc::scene::Corner::vertex_effective`.

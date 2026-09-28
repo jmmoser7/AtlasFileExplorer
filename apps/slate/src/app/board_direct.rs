@@ -19,7 +19,7 @@ use eframe::egui::{self, Pos2, Rect};
 use slate_doc::scene::{Node, NodeKind, SceneCmd, ShapeKind, StrokeCap, StrokeEnd, WorldRect};
 use slate_doc::vertex_style::{self, VertexStyle};
 use slate_doc::NodeId;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use vector_ink::kurbo::{BezPath, Point, Vec2 as KVec2};
 use vector_ink::{
     anchors_from_bezpath, bezpath_from_anchors, drag_handle, join_endpoints, join_endpoints_traced,
@@ -48,6 +48,10 @@ pub struct DirectState {
 pub struct GripPoints {
     pub node: Option<NodeId>,
     pub picked: BTreeSet<usize>,
+    /// Edges picked with Ctrl+Shift+click (Rhino sub-object pick), keyed by
+    /// segment (the anchor it leaves) with its two end vertices, which are
+    /// picked too.
+    pub edges: BTreeMap<usize, [usize; 2]>,
 }
 
 impl GripPoints {
@@ -55,19 +59,79 @@ impl GripPoints {
         self.node == Some(id) && self.picked.contains(&idx)
     }
 
-    /// Plain pick replaces the set; `toggle` (Shift) adds or removes one.
-    pub fn pick(&mut self, id: NodeId, idx: usize, toggle: bool) {
+    fn target(&mut self, id: NodeId) {
         if self.node != Some(id) {
             self.node = Some(id);
             self.picked.clear();
+            self.edges.clear();
         }
+    }
+
+    /// Plain pick replaces the set; `toggle` (Shift) adds or removes one.
+    /// A vertex taken off drops the picked edges it ends.
+    pub fn pick(&mut self, id: NodeId, idx: usize, toggle: bool) {
+        self.target(id);
         if !toggle {
             self.picked.clear();
+            self.edges.clear();
             self.picked.insert(idx);
-        } else if !self.picked.remove(&idx) {
+        } else if self.picked.remove(&idx) {
+            self.edges.retain(|_, ends| !ends.contains(&idx));
+        } else {
             self.picked.insert(idx);
         }
     }
+
+    /// Ctrl+Shift+click on segment `seg` of a curve with `anchors` anchors:
+    /// pick the edge and its two end vertices, or take it off again with
+    /// the vertices no other picked edge ends.
+    pub fn toggle_edge(&mut self, id: NodeId, seg: usize, anchors: usize) {
+        self.target(id);
+        if self.edges.remove(&seg).is_some() {
+            for v in [seg, (seg + 1) % anchors] {
+                if !self.edges.values().any(|ends| ends.contains(&v)) {
+                    self.picked.remove(&v);
+                }
+            }
+        } else {
+            let ends = [seg, (seg + 1) % anchors];
+            self.edges.insert(seg, ends);
+            self.picked.extend(ends);
+        }
+    }
+}
+
+/// Anchor runs left when the `gone` segments of a curve with `anchors`
+/// anchors are removed: an open curve splits between them, a closed one
+/// opens after the first. Each run holds at least two anchors.
+pub(crate) fn kept_runs(anchors: usize, closed: bool, gone: &BTreeSet<usize>) -> Vec<Vec<usize>> {
+    let segs = if closed {
+        anchors
+    } else {
+        anchors.saturating_sub(1)
+    };
+    let order: Vec<usize> = match (closed, gone.iter().next()) {
+        (true, Some(&first)) => (1..=segs).map(|k| (first + k) % segs).collect(),
+        _ => (0..segs).collect(),
+    };
+    let mut runs: Vec<Vec<usize>> = Vec::new();
+    let mut run: Vec<usize> = Vec::new();
+    for seg in order {
+        if gone.contains(&seg) {
+            if !run.is_empty() {
+                runs.push(std::mem::take(&mut run));
+            }
+            continue;
+        }
+        if run.is_empty() {
+            run.push(seg);
+        }
+        run.push((seg + 1) % anchors);
+    }
+    if !run.is_empty() {
+        runs.push(run);
+    }
+    runs
 }
 
 /// What the Select tool edits on its single selected curve.
@@ -336,6 +400,9 @@ impl SlateApp {
         if self.doc().scene.node(id).is_none_or(|n| n.locked) {
             return false;
         }
+        if !self.direct.grip_points.edges.is_empty() {
+            return self.delete_picked_edges(id);
+        }
         let (anchors, closed, vertices) = match self.curve_grips_of(id) {
             Some(CurveGrips::Arc(points)) => {
                 let n = self.curve_vertex_count(id).saturating_sub(1) as f32;
@@ -358,6 +425,50 @@ impl SlateApp {
             &gone,
             vertices.as_ref().map(|v| &v[..]),
         )
+    }
+
+    /// Delete with edges picked on curve `id`: those segments go. An open
+    /// curve splits into the runs left between them and a closed one opens
+    /// there; every piece keeps its curves and vertex style, and a piece
+    /// without a segment goes. One undo step through the trim owner.
+    fn delete_picked_edges(&mut self, id: NodeId) -> bool {
+        let Some(before) = self.doc().scene.node(id).cloned() else {
+            return false;
+        };
+        let Some((anchors, closed)) = self.direct_anchors_of(id) else {
+            return false;
+        };
+        let gone: BTreeSet<usize> = self.direct.grip_points.edges.keys().copied().collect();
+        self.direct.grip_points = GripPoints::default();
+        let pieces = kept_runs(anchors.len(), closed, &gone)
+            .into_iter()
+            .filter_map(|run| {
+                let run_anchors: Vec<Anchor> = run.iter().map(|&i| anchors[i]).collect();
+                let sources: Vec<f32> = run.iter().map(|&i| i as f32).collect();
+                let mut piece = before.clone();
+                rebuild_from_world_bez(
+                    &mut piece,
+                    &bezpath_from_anchors(&run_anchors, false),
+                    false,
+                    Some(&sources),
+                );
+                match piece.kind {
+                    NodeKind::Shape(mut s) => {
+                        s.fill = None;
+                        Some((piece.rect, s))
+                    }
+                    _ => None,
+                }
+            })
+            .collect();
+        if !self.commit_open_pieces(id, &before, pieces) {
+            return false;
+        }
+        self.push_history(
+            atlas_commands::CommandId("board.direct.delete_anchor"),
+            Some(format!("{} edge(s)", gone.len())),
+        );
+        true
     }
 
     /// Vertices of curve `id`'s path (a closing copy of the start counts).
@@ -696,6 +807,119 @@ impl SlateApp {
         };
         self.direct.grip_points.pick(id, idx, shift);
         true
+    }
+
+    /// The segment of curve `id` under `world`: a line, or a single-contour
+    /// path whose grips are its anchors (an arc's grips are not, and a
+    /// stamped brush stroke has none). Locked and hidden nodes have none.
+    fn curve_edge_at(&self, id: NodeId, world: Pos2) -> Option<usize> {
+        let n = self.doc().scene.node(id)?;
+        if n.locked || n.hidden {
+            return None;
+        }
+        let line = board_line::line_endpoints(n).is_some();
+        if !line && !matches!(self.curve_grips_of(id), Some(CurveGrips::Anchors { .. })) {
+            return None;
+        }
+        let (anchors, closed) = self.direct_anchors_of(id)?;
+        let bez = bezpath_from_anchors(&anchors, closed);
+        let radius = (SEGMENT_HIT_PX / self.board_xf().z.max(0.05)) as f64;
+        segment_hit(&bez, to_point(world), radius)
+    }
+
+    /// Ctrl+Shift+click with the Select tool on a curve segment (Rhino
+    /// sub-object pick): that curve alone is selected, as the chord already
+    /// selects a group member, and the edge with its two end vertices is
+    /// picked, or taken off again. Returns whether a segment was hit.
+    pub(crate) fn pick_curve_edge(&mut self, world: Pos2) -> bool {
+        let Some(id) = board_path::board_pick_node_routed(
+            &self.doc().scene,
+            world.x,
+            world.y,
+            self.tab().cam.z,
+            true,
+            self.board_wire_routing,
+        ) else {
+            return false;
+        };
+        let Some(seg) = self.curve_edge_at(id, world) else {
+            return false;
+        };
+        let Some((anchors, _)) = self.direct_anchors_of(id) else {
+            return false;
+        };
+        self.board_sel.clear();
+        self.board_sel.insert(id);
+        self.direct.grip_points.toggle_edge(id, seg, anchors.len());
+        true
+    }
+
+    /// Press on a picked edge of the selected curve: the picked vertices
+    /// move together as one direct drag (snapped like a grip drag, one Patch
+    /// on release, Esc restores). A `Line` shape moves whole instead, which
+    /// is the same result.
+    pub(crate) fn begin_picked_edge_drag(&mut self, world: Pos2) -> Option<DirectDrag> {
+        let id = self.direct.grip_points.node?;
+        if self.direct.grip_points.edges.is_empty()
+            || self.board_sel.len() != 1
+            || !self.board_sel.contains(&id)
+        {
+            return None;
+        }
+        let before = self.doc().scene.node(id)?.clone();
+        if matches!(&before.kind, NodeKind::Shape(s) if s.shape == ShapeKind::Line) {
+            return None;
+        }
+        let seg = self.curve_edge_at(id, world)?;
+        if !self.direct.grip_points.edges.contains_key(&seg) {
+            return None;
+        }
+        let (anchors, closed) = self.direct_anchors_of(id)?;
+        let indices: Vec<usize> = self
+            .direct
+            .grip_points
+            .picked
+            .iter()
+            .copied()
+            .filter(|&i| i < anchors.len())
+            .collect();
+        Some(DirectDrag::Anchors {
+            node: id,
+            before,
+            anchors0: anchors,
+            closed,
+            indices,
+            start: world,
+        })
+    }
+
+    /// Picked edges of the selected curve, drawn over it in the path-edit
+    /// select color (path-edit adornment: screen-constant, like the grips).
+    pub(crate) fn paint_picked_edges(&self, painter: &egui::Painter, xf: &BoardXf) {
+        let Some(id) = self.direct.grip_points.node else {
+            return;
+        };
+        if self.direct.grip_points.edges.is_empty() || !self.board_sel.contains(&id) {
+            return;
+        }
+        let Some((anchors, closed)) = self.direct_anchors_of(id) else {
+            return;
+        };
+        let bez = bezpath_from_anchors(&anchors, closed);
+        let color = self.palette().select;
+        for (i, seg) in bez.segments().enumerate() {
+            if !self.direct.grip_points.edges.contains_key(&i) {
+                continue;
+            }
+            let one = vector_ink::kurbo::Shape::to_path(&seg, 0.1);
+            let pts: Vec<Pos2> = vector_ink::flatten(&one, 0.5)
+                .iter()
+                .map(|[x, y]| xf.w2s(Pos2::new(*x, *y)))
+                .collect();
+            if pts.len() >= 2 {
+                painter.add(egui::Shape::line(pts, egui::Stroke::new(3.0_f32, color)));
+            }
+        }
     }
 
     pub(crate) fn paint_curve_grips(&self, painter: &egui::Painter, xf: &BoardXf) {

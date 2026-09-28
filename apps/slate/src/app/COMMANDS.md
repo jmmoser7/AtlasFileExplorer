@@ -392,11 +392,12 @@ Enter, then click.
 
 ### Curve grips with the Select tool (`board.curve.grips`)
 
-- One selected line, polyline (open or closed), arc, or Bézier curve shows
-  its grips through the same path-edit overlay: line end points, polyline
-  vertices, arc start / through / end, Bézier anchors and handles. Dragging
-  one moves only that point through object snaps; one drag = one journaled
-  Patch. A filleted polyline keeps its authored radius on the new corners.
+- One selected line, polyline (open or closed), arc, Bézier curve, or Pen
+  path shows its grips through the same path-edit overlay: line end points,
+  polyline vertices, arc start / through / end, Bézier and Pen anchors and
+  handles. Dragging one moves only that point through object snaps; one
+  drag = one journaled Patch. A filleted polyline keeps its authored radius
+  on the new corners.
 - Click a grip to pick that point; Shift+click adds or removes it. Picked
   points paint filled and are never journaled. Shift decides by travel: a
   Shift click without travel toggles a pick (a handle knob toggles its
@@ -409,6 +410,12 @@ Enter, then click.
   keeping that handle's own direction; **Ctrl+Shift+drag** does both;
   **Alt+drag** moves only the dragged handle and beats Ctrl. One undo step
   per drag; Esc restores. A Ctrl click keeps its meaning.
+- **Ctrl+Shift+click a segment** (`board.subselect`; user, 28 September
+  2026) picks that edge and its two end vertices; more Ctrl+Shift+clicks
+  add edges or toggle one off. Dragging a picked edge moves its vertices
+  through object snaps as one journaled Patch (Esc restores), and
+  **Delete** removes the picked segments: an open curve splits in two, a
+  closed curve opens there. One Ctrl+Z restores.
 
 ### Picked vertices (A anchors or Select grips)
 
@@ -429,6 +436,9 @@ User decision, 27 September 2026 (`docs/keymap/specs/direct-selection.md`):
 - The shape property strip stays absolute: with nothing picked, its width
   scales every vertex and keeps the taper, and its color sets every vertex.
 - The shape property strip sits beside the picked points and edits them.
+  It offers only Stroke (width, color, opacity) and, where a picked vertex
+  turns a polyline corner, Corners, which then writes only the picked
+  corners (user, 28 September 2026).
 - A dragged handle keeps its grab offset and snaps its tip, never onto its
   own anchor. The same applies to a Bézier span being drafted.
 - **Delete / Backspace** (`board.delete`), under any tool, removes the
@@ -449,7 +459,8 @@ The semantics matrix in `docs/keymap/specs/scene-flags.md` is normative:
   one-off edits.
 - **Groups** (Ctrl+G ≥2 nodes / Ctrl+Shift+G): flat GroupKeys. Click any
   member → whole group (Ctrl+click toggles the group); marquee including a
-  member → whole group; **Ctrl+Shift+click → single member**. Group
+  member → whole group; **Ctrl+Shift+click → single member** (on a curve
+  segment it also picks that edge; see Curve grips above). Group
   moves/resizes ride the existing multi-selection machinery via selection
   expansion (`expand_selection_to_groups` — the single source of truth).
   Duplicates (Ctrl+D / Alt-drag / paste) get fresh GroupKeys. Tab cycling

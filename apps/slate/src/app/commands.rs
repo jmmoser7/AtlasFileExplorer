@@ -1840,10 +1840,12 @@ pub static SPECS: &[CommandSpec] = &[
         "board.curve.grips",
         "Board",
         "Edit curve points",
-        "Select one line, polyline, arc, or Bézier curve (Select tool): drag \
-         a vertex, end point, arc through point, or handle to move only that \
-         point (object snaps apply; one undo step per drag). Click a point to \
-         pick it; Shift+click (no travel) adds or removes it",
+        "Select one line, polyline, arc, Bézier curve, or Pen path (Select \
+         tool): drag a vertex, end point, arc through point, or handle to \
+         move only that point (object snaps apply; one undo step per drag). \
+         Click a point to pick it; Shift+click (no travel) adds or removes \
+         it. Drag a picked edge (Ctrl+Shift+click a segment) to move its \
+         vertices",
         None,
         Repeat::Never,
         BOARD,
@@ -1867,8 +1869,10 @@ pub static SPECS: &[CommandSpec] = &[
         "board.direct.delete_anchor",
         "Board",
         "Delete anchor",
-        "Delete with anchors selected in Direct Select: the curve rebuilds \
-         through the remaining neighbors",
+        "Delete with vertices picked, under any tool (Direct Select anchors \
+         or Select grips): the curve rebuilds through the remaining \
+         neighbors. With edges picked (Ctrl+Shift+click a segment), Delete \
+         removes those segments: an open curve splits, a closed one opens",
         None,
         Repeat::Never,
         BOARD,
@@ -2161,7 +2165,9 @@ pub static SPECS: &[CommandSpec] = &[
         "Board",
         "Sub-object select",
         "Ctrl + Shift + click — a single member inside a group, or a locked \
-         object (grayed handles, one-off edit)",
+         object (grayed handles, one-off edit). On a curve segment (Select \
+         tool) it also picks that edge and its two vertices; more clicks add \
+         or toggle edges",
         None,
         Repeat::Never,
         BOARD,

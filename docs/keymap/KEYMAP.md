@@ -179,7 +179,7 @@ canvas search).
 | Alt+scroll / Alt+RMB | Rhino | Pan perspective | — | ⛔ reject | 3D-viewport gesture; our placed `.3dm` viewports already implement Rhino nav internally. |
 | Ctrl+click | Rhino | Remove from selection | Both | ✅ exists | Ctrl+click toggles — removal included. |
 | Ctrl+MMB drag | Rhino | Pan | Board | ✅ exists | Middle-drag pans. |
-| Ctrl+Shift+click | Rhino | **Select sub-object** — member inside a group; also force-selects a locked node | Board | ✅ exists | Landed with groups + direct selection. |
+| Ctrl+Shift+click | Rhino | **Select sub-object** — member inside a group; also force-selects a locked node; on a curve segment (Select tool) picks that edge and its two vertices | Board | ✅ exists | Landed with groups + direct selection. Edges (user, 28 September 2026): more clicks add or toggle edges, dragging a picked edge moves its vertices snapped in one undo step, and Delete removes the segment, splitting an open curve or opening a closed one (`specs/direct-selection.md`). |
 | Drag from edge grip | Grasshopper/Miro | **Draw connector (wire)** | Board | ✅ exists | See connector spec — hover a side-midpoint grip (only that grip previews); drag to another node's grip/edge; release on empty keeps the wire with a free end there. |
 | Ctrl+drag (wire) | Grasshopper | **Remove/redraw a wire** | Board | ✅ exists | Drag an existing wire end off its grip to disconnect; drop elsewhere to rewire (or drag a selected connector's endpoint dot). |
 | Shift+drag (wire) | Grasshopper | **Add wire without erasing** | Board | ✅ exists | Multiple connectors per grip are always legal on a whiteboard; Shift keeps the *gesture grammar* parity so muscle memory transfers. |

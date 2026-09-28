@@ -262,6 +262,10 @@ impl Property {
                     edit_vertex_tips(node, points, |t| t.color.0[..3].copy_from_slice(&rgb))
                 }
                 Self::StrokeAlpha(a) => edit_vertex_tips(node, points, |t| t.color.0[3] = a),
+                Self::CornerAmount(v) => {
+                    set_picked_corner_amounts(node, item_path, points, v);
+                    return;
+                }
                 _ => false,
             };
             if edited {
@@ -281,6 +285,47 @@ impl Property {
             Self::StrokeAlpha(a) => edit_every_tip(node, |t| t.color.0[3] = a),
             _ => {}
         }
+    }
+}
+
+/// Picked grips of `node` that turn a corner: the turning vertices of a
+/// line polyline (`polyline_vertex_grip_edges`), in pick order.
+fn picked_corners(node: &Node, points: &[usize]) -> Vec<usize> {
+    if points.is_empty() || !scene::supports_corners(node) {
+        return Vec::new();
+    }
+    let chamfer = scene::resolved_corner(node, None).parameters().0;
+    let corners: Vec<usize> = slate_doc::geom::polyline_vertex_grip_edges(node, chamfer)
+        .into_iter()
+        .map(|(v, _)| v)
+        .collect();
+    points
+        .iter()
+        .copied()
+        .filter(|p| corners.contains(p))
+        .collect()
+}
+
+/// The Corners amount with corners picked (user, 28 September 2026, ep2):
+/// each picked corner takes `amount` as its own override, in the shape
+/// corner's units (a percentage resolves against the box like the shared
+/// corner); every other corner keeps its amount.
+fn set_picked_corner_amounts(
+    node: &mut Node,
+    item_path: Option<&std::path::Path>,
+    points: &[usize],
+    amount: f32,
+) {
+    let (chamfer, percent, _) = scene::resolved_corner(node, item_path).parameters();
+    let world = if percent {
+        Corner::from_parameters(chamfer, true, amount)
+            .effective(node.rect.w, node.rect.h)
+            .1
+    } else {
+        amount
+    };
+    for v in picked_corners(node, points) {
+        scene::set_vertex_corner_amount(node, v, world);
     }
 }
 
@@ -566,7 +611,50 @@ fn image_has_pages(app: &SlateApp, n: &Node) -> bool {
         .is_some_and(|item| slate_doc::media::has_pages(&item.path))
 }
 
+/// Whether a strip item edits picked vertices. With vertices picked only
+/// these show (user, 28 September 2026, ed9); every other squircle edits
+/// the whole node. A new item must be classified here.
+fn edits_picked_vertices(item: &StripItem) -> bool {
+    match item {
+        // Width, color and opacity per vertex; the corner a vertex turns.
+        StripItem::Panel(Panel::Stroke | Panel::Corners) => true,
+        StripItem::Panel(
+            Panel::Fill
+            | Panel::Wire
+            | Panel::Filter
+            | Panel::Pages
+            | Panel::AtlasFormat
+            | Panel::Text
+            | Panel::Agent
+            | Panel::Bumper
+            | Panel::ModelDisplay
+            | Panel::Crosstalk,
+        )
+        | StripItem::Frame(_)
+        | StripItem::Agent(_)
+        | StripItem::ModelMeasure
+        | StripItem::ModelScreenshot => false,
+    }
+}
+
+/// The strip for `nodes`. With vertices picked on the one curve, only the
+/// per-vertex squircles, and Corners only when a picked vertex turns one.
 fn live_property_strip_items(app: &SlateApp, nodes: &[Node]) -> Vec<StripItem> {
+    let mut items = node_strip_items(app, nodes);
+    let points = app.shape_property_points();
+    if let ([node], false) = (nodes, points.is_empty()) {
+        if app.shape_properties.ids.as_slice() != [node.id] {
+            return items;
+        }
+        let corner = !picked_corners(node, &points).is_empty();
+        items.retain(|item| {
+            edits_picked_vertices(item) && (corner || *item != StripItem::Panel(Panel::Corners))
+        });
+    }
+    items
+}
+
+fn node_strip_items(app: &SlateApp, nodes: &[Node]) -> Vec<StripItem> {
     if nodes.is_empty() {
         return Vec::new();
     }
@@ -1930,6 +2018,28 @@ impl SlateApp {
         scene::resolved_corner(node, self.node_item_path(node))
     }
 
+    /// What the Corners panel shows for `first`: its treatment and units,
+    /// the slider's maximum, and the amount, which is the first picked
+    /// corner's when corners are picked (ep2).
+    fn corners_panel_reading(&self, first: &Node) -> (bool, bool, f32, f32) {
+        let (chamfer, percent, amount) = self.corner_for_editor(first).parameters();
+        let limit = first.rect.w.min(first.rect.h) * 0.5;
+        let maximum = if percent { 100.0 } else { limit };
+        let points = self.shape_property_points();
+        let amount = match picked_corners(first, &points).first() {
+            Some(&v) => {
+                let world = self.node_grip_amount(first, Some(v));
+                match (percent, limit > 0.0) {
+                    (false, _) => world,
+                    (true, true) => (world / limit * 100.0).min(100.0),
+                    (true, false) => 0.0,
+                }
+            }
+            None => amount,
+        };
+        (chamfer, percent, amount, maximum)
+    }
+
     fn shape_property_body(
         &mut self,
         ui: &mut egui::Ui,
@@ -2089,13 +2199,7 @@ impl SlateApp {
             return None;
         }
         if panel == Panel::Corners {
-            let corner = self.corner_for_editor(first);
-            let (chamfer, percent, amount) = corner.parameters();
-            let maximum = if percent {
-                100.0
-            } else {
-                first.rect.w.min(first.rect.h) * 0.5
-            };
+            let (chamfer, percent, amount, maximum) = self.corners_panel_reading(first);
             let crop = self
                 .corners_include_crop()
                 .then(|| self.board_crop.is_some());
@@ -4407,6 +4511,136 @@ mod tests {
             "in a multi-selection the polyline shows its shared grip"
         );
         let _ = other;
+    }
+
+    fn strip_kinds(h: &Harness) -> Vec<&'static str> {
+        let chrome = h.app.shape_properties.last_chrome.as_ref();
+        item_kinds(&chrome.expect("the strip painted").items)
+    }
+
+    /// User (28 September 2026, ed9): "just ad more strict filtering of what
+    /// menue items are apropriat for vetice selection. for instance
+    /// bumpercars makes no sence for individal verticies." With vertices
+    /// picked the strip keeps Stroke (width, color, opacity) and Corners
+    /// where a picked vertex turns a corner, under Select and Direct Select.
+    #[test]
+    fn picked_vertices_strip_offers_only_vertex_controls() {
+        let mut h = board();
+        h.app.settings.optional_bumper_cars = true;
+        let id = u_polyline(&mut h, WorldRect::new(-60.0, -60.0, 120.0, 120.0));
+        for _ in 0..3 {
+            h.frame();
+        }
+        let whole = strip_kinds(&h);
+        assert!(
+            whole.contains(&"bumper") && whole.contains(&"corners"),
+            "the whole curve: {whole:?}"
+        );
+        let xf = h.app.board_xf();
+        click_at(&mut h, xf.w2s(Pos2::new(60.0, -60.0)));
+        h.frame();
+        assert_eq!(h.app.shape_property_points(), vec![1]);
+        assert_eq!(strip_kinds(&h), ["stroke", "corners"], "a picked corner");
+
+        click_at(&mut h, xf.w2s(Pos2::new(-60.0, -60.0)));
+        h.frame();
+        assert_eq!(h.app.shape_property_points(), vec![0]);
+        assert_eq!(strip_kinds(&h), ["stroke"], "an end point turns no corner");
+
+        h.app.set_board_tool(BoardTool::DirectSelect);
+        h.app.direct_set_target(Some(id));
+        h.app.direct.anchors = [2].into_iter().collect();
+        h.frame();
+        h.frame();
+        assert_eq!(strip_kinds(&h), ["stroke", "corners"], "Direct Select");
+    }
+
+    /// Center of the Corners amount handle painted in `out`.
+    fn corner_handle(out: &egui::FullOutput, accent: egui::Color32, z: f32) -> Option<Pos2> {
+        fn walk(shape: &egui::Shape, accent: egui::Color32, size: Vec2) -> Option<Pos2> {
+            match shape {
+                egui::Shape::Rect(r)
+                    if r.fill == accent && (r.rect.size() - size).length() < 0.5 =>
+                {
+                    Some(r.rect.center())
+                }
+                egui::Shape::Vec(v) => v.iter().find_map(|s| walk(s, accent, size)),
+                _ => None,
+            }
+        }
+        let size = Vec2::new(20.0, 11.0) * z;
+        out.shapes.iter().find_map(|c| walk(&c.shape, accent, size))
+    }
+
+    /// User (28 September 2026, ep2): "fillet edits all". With corners
+    /// picked the Corners slider starts at the first picked corner and
+    /// writes only the picked corners, one undo step per accepted edit.
+    #[test]
+    fn picked_corners_take_the_corners_amount_alone() {
+        let mut h = board();
+        let id = u_polyline(&mut h, WorldRect::new(-60.0, -60.0, 120.0, 120.0));
+        h.frame();
+        assert!(h.app.dispatch(
+            &h.ctx,
+            CommandId("board.shape.fillet"),
+            Some(
+                serde_json::to_string(&board_transform::FilletRequest {
+                    ids: vec![id],
+                    radius: 8.0,
+                    vertex: Some(2),
+                })
+                .unwrap()
+            ),
+        ));
+        assert!((vertex_amount(&h, id, 2) - 8.0).abs() < 1e-4);
+        let xf = h.app.board_xf();
+        click_at(&mut h, xf.w2s(Pos2::new(60.0, 60.0)));
+        h.frame();
+        assert_eq!(h.app.shape_property_points(), vec![2]);
+
+        let button = strip_button(&h, Panel::Corners);
+        click_at(&mut h, button.center());
+        h.frame();
+        assert_eq!(h.app.shape_properties.panel, Some(Panel::Corners));
+        assert_eq!(h.app.shape_property_points(), vec![2], "picks survive");
+        let editor = *h.app.shape_properties.chrome_hits.last().unwrap();
+        let z = h.app.board_xf().z;
+        let track = chrome::corner_layout(editor, false, z).track;
+        let rail_w = track.width() - 24.0 * z;
+        let rail_x = |amount: f32| track.center().x - rail_w * 0.5 + rail_w * amount / 60.0;
+        let out = h.frame_output(|_| {});
+        let handle = corner_handle(&out, h.app.palette().accent, z).expect("amount handle");
+        assert!(
+            (handle.x - rail_x(8.0)).abs() < 1.0,
+            "the slider starts at the picked corner's 8, not the shared 20: {handle:?}"
+        );
+
+        let depth = h.app.tab().journal.undo_depth();
+        let to = Pos2::new(rail_x(30.0), handle.y);
+        pointer(&mut h, handle, None);
+        pointer(&mut h, handle, Some(true));
+        pointer(&mut h, handle + (to - handle) * 0.5, None);
+        pointer(&mut h, to, None);
+        pointer(&mut h, to, Some(false));
+        let button = strip_button(&h, Panel::Corners);
+        click_at(&mut h, button.center());
+        h.frame();
+        assert_eq!(h.app.shape_properties.panel, None, "closing accepts");
+        assert!(
+            (vertex_amount(&h, id, 2) - 30.0).abs() < 0.6,
+            "the picked corner takes the amount, got {}",
+            vertex_amount(&h, id, 2)
+        );
+        assert!(
+            (vertex_amount(&h, id, 1) - 20.0).abs() < 1e-4,
+            "the other corner keeps the shared 20, got {}",
+            vertex_amount(&h, id, 1)
+        );
+        assert!((corner_amount(&h, id) - 20.0).abs() < 1e-4);
+        assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "one undo step");
+        h.app.board_undo();
+        assert!((vertex_amount(&h, id, 2) - 8.0).abs() < 1e-4);
+        assert!((vertex_amount(&h, id, 1) - 20.0).abs() < 1e-4);
     }
 
     fn polygon_vertices_world(h: &Harness, id: NodeId) -> Vec<Pos2> {
