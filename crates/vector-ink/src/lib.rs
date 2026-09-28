@@ -160,6 +160,7 @@ pub use tile::{
 pub use trim::{
     boolean_difference, boolean_intersection, boolean_union, boolean_union_all,
     closest_polyline_span, extend_polyline_end, fill_triangles, infinite_line, point_in_mesh,
-    point_in_polygon, slice_closed_by_line, split_closed, split_open_at_cutters,
+    point_in_polygon, slice_closed_by_line, slice_closed_by_path, split_closed,
+    split_open_at_cutters,
     trim_closed_at_click, Cutter, Polygon, SpanHit, TrimPolys,
 };

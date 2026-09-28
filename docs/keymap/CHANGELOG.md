@@ -43,6 +43,27 @@
   `a_whole_curve_hud_color_recolors_vertex_tips` now asserts the shift
   instead of every vertex taking the pick.
 
+## 2026-09-28 — Trim and split between open and closed forms (user)
+
+- `trim` D11, `split` D11, `P2.RhinoTrim.cutters`: "allow triming betwee
+  open and closed forms" (user, 28 September 2026). An open cutter divides
+  a closed target along its whole path. A closed cutter divides an open
+  target. Before, a closed target was sliced one cutter segment at a time,
+  so a curved or multi-segment open cutter (Bézier, arc, pen, polyline)
+  never divided a rectangle, ellipse, polygon or closed path, and Trim
+  deleted the whole target instead. `vector_ink::slice_closed_by_path` now
+  slices along the whole cutter in one pass and keeps the target's holes.
+- A cut closed target stays a closed region: it becomes filled, closed
+  Paths that keep the source fill and stroke (trim D16, user,
+  26 September 2026), with the per-vertex width and color blended at the
+  cut. Two-point line cutters still extend infinitely; a longer open
+  cutter that enters without leaving divides nothing.
+- Closed cutters against closed targets already worked (boolean faces,
+  GP3 and GP7) and are unchanged. When open and closed cutters are picked
+  together, Trim now removes the face both bound; before, the open cutter
+  was ignored.
+- New golden paths: trim GP10–GP12, split GP7–GP8.
+
 ## 2026-09-28 — Two brush decisions recorded (user)
 
 - `brush` D03, D05: the Alt+right-drag size circle stays pinned where the

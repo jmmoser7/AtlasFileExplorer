@@ -1991,7 +1991,9 @@ pub static SPECS: &[CommandSpec] = &[
         "Trim",
         "Ctrl + T — pick cutting objects, Enter, then click the part to \
          delete. Each click is one undo. Shift+click near a curve end \
-         extends it to the cutter. Line cutters extend infinitely.",
+         extends it to the cutter. Line cutters extend infinitely; curved \
+         and polyline cutters cut along their whole path, open and closed \
+         shapes alike.",
         Some(Chord::ctrl(Key::T)),
         Repeat::Repeatable,
         BOARD,
@@ -2003,7 +2005,8 @@ pub static SPECS: &[CommandSpec] = &[
         "Split",
         "Ctrl + Shift + T — pick cutting objects, Enter, then click an \
          object to divide. Every piece stays. Each click is one undo. \
-         Line cutters extend infinitely.",
+         Line cutters extend infinitely; curved and polyline cutters cut \
+         along their whole path, open and closed shapes alike.",
         Some(ctrl_shift(Key::T)),
         Repeat::Repeatable,
         BOARD,

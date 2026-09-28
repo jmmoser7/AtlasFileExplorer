@@ -18,7 +18,11 @@ Inherits: P0.* (all), P1.node, **P2.RhinoTrim** — deviations flagged below.
 > frames are never targets. Primitive outlines are owned by `slate-doc::scene`
 > and shared with painting: rectangle fillets/chamfers (absolute or percentage)
 > and adaptively sampled ellipses. World-space results bake rotation once.
-> Golden paths: `trim_gp1`–`trim_gp9` in
+> Open cutters slice a closed target along their whole path in one pass
+> (`slice_closed_by_path`). Golden paths: `trim_gp1`–`trim_gp9`, plus
+> `trim_curved_bezier_cutter_removes_the_clicked_side_of_a_rect`,
+> `trim_polyline_cutter_crossing_an_ellipse_twice` and
+> `trim_open_line_by_a_closed_cutter` (GP10–GP12), in
 > `apps/slate/src/app/tests.rs`.
 
 ## Behavior matrix
@@ -35,7 +39,7 @@ Inherits: P0.* (all), P1.node, **P2.RhinoTrim** — deviations flagged below.
 | D08 | Numeric / manual entry | n/a (Art. III). No typed options in v1. | guess | 60 |
 | D09 | Preview & readouts | Cutters outlined in accent along their actual geometry, including corner treatment and rotation. Hovered dying span/face fills at `trim.preview_alpha`. Extend hover = ring on the end. No dock readout. | stated | 100 |
 | D10 | Cursor | Crosshair while armed. | guess | 60 |
-| D11 | Commit | Each click is one journal group (P0.2/P0.3). Cutters and targets use their true geometric boundaries, including fillets, chamfers, percentage corners, ellipses and rotation. Curve sampling uses a fixed board-space tolerance, independent of zoom. Open path: remaining spans (0 = delete, 1 = patch, 2+ = patch + adds). Closed shape: rewrite to Path (holes = extra contours, even-odd); world-space results bake rotation once. Text/image: `Node.clip` = remaining region in host-local coordinates. Line cutters extend infinitely (`ExtendCuttingLines` on). | stated | 100 |
+| D11 | Commit | Each click is one journal group (P0.2/P0.3). Cutters and targets use their true geometric boundaries, including fillets, chamfers, percentage corners, ellipses and rotation. Curve sampling uses a fixed board-space tolerance, independent of zoom. An open cutter divides a closed target along its whole path. A closed cutter divides an open target (user, 28 September 2026). Open and closed cutters picked together bound the clicked face together. Open path: remaining spans (0 = delete, 1 = patch, 2+ = patch + adds). Closed shape: rewrite to Path (holes = extra contours, even-odd); a trimmed rectangle, ellipse or polygon is no longer that primitive, and each remaining piece is a closed region that keeps the fill (D16); world-space results bake rotation once. Text/image: `Node.clip` = remaining region in host-local coordinates. Two-point line cutters extend infinitely (`ExtendCuttingLines` on); longer open cutters (polyline, arc, Bézier, pen) cut only where they run, so one that enters a closed target without leaving it does not divide it. | stated | 100 |
 | D12 | Cancel | Esc in TrimParts → PickCutters (Draft). Esc in PickCutters → Select (Mode). Already-committed clicks stay (undo them with Ctrl+Z). | pattern | 85 |
 | D13 | Selected presentation | Unchanged: remaining shapes use path grips; clipped text/images keep their bbox. | pattern | 80 |
 | D14 | Post-edit | Direct Selection on rewritten paths. No Untrim command. | stated | 100 |
@@ -66,6 +70,9 @@ Pinned as `board_trim::trim_tokens` (P0.6).
 7. **GP7 (stroke preservation):** select a rectangular cutter overlapping another rectangle's corner · Ctrl+T · click the overlap → the target becomes a notched path with the original fill, stroke color and uniform width around every edge. One undo restores the original rectangle. Geometry coverage also checks holes, all join styles and both contour directions.
 8. **GP8 (true outlines):** overlapping rounded rectangles → trim the overlap → untouched target corners stay rounded, and the notch follows the cutter's curved corner. Repeat for chamfers, percentage corner amounts and a rotated arrangement. The cutter stays unchanged, the result survives serialization, and one undo restores the original target.
 9. **GP9 (rotated line):** a legacy line rotated 45° crosses a vertical cutter → click its lower-coordinate half → remaining endpoints lie on the painted diagonal, with no second rotation. One undo restores the original line.
+10. **GP10 (curved open cutter, closed target):** a filled rectangle and an open Bézier arch crossing it, the arch preselected · Ctrl+T · click below the arch → the piece below is gone; the cap above remains as a filled closed Path. Ctrl+Z restores the rectangle exactly; Ctrl+Y repeats the trim.
+11. **GP11 (polyline across an ellipse):** a three-segment Polyline enters and leaves a filled ellipse, preselected · Ctrl+T · click the cap it encloses → only that cap is gone. One undo restores the ellipse.
+12. **GP12 (closed cutter, open target):** a filled ellipse preselected over a line · Ctrl+T · click the line outside the ellipse → only that span is gone; the ellipse stays.
 
 ## Open questions
 
