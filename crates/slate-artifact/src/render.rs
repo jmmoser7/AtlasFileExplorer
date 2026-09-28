@@ -2414,7 +2414,14 @@ fn render_connector(
         push_arrow_head(html, conn, local(path.end()), path.end_dir());
     }
 
-    if let Some(label) = conn.label.as_deref().filter(|l| !l.is_empty()) {
+    // The board paints a crosstalk's live chip; the artifact states its count.
+    let crosstalk = slate_doc::crosstalk::export_label(scene, node);
+    if let Some(label) = conn
+        .label
+        .as_deref()
+        .filter(|l| !l.is_empty())
+        .or(crosstalk.as_deref())
+    {
         let (mx, my) = local(path.midpoint());
         html.push_str("<text x=\"");
         html.push_str(&fmt_px(mx));

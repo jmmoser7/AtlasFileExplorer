@@ -2591,6 +2591,9 @@ pub struct ConnectorNode {
     /// None is a decorative wire. Bound wires use these existing A/B endpoints.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub binding: Option<crate::agent_inputs::WireBinding>,
+    /// A crosswire between two coding conversations (`crate::crosstalk`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub crosstalk: Option<Box<crate::crosstalk::Crosstalk>>,
 }
 
 impl ConnectorNode {
@@ -3625,6 +3628,19 @@ impl SceneJournal {
             }
         }
         false
+    }
+
+    /// Coalesces every group committed since `depth` into one group by
+    /// `author`: one act that commits in steps (an agent's relay adds a card,
+    /// then its manifest, then its wire) is one Undo. Returns `false` when
+    /// nothing was committed since.
+    pub fn merge_since(&mut self, depth: usize, author: CmdAuthor) -> bool {
+        if self.done.len() <= depth {
+            return false;
+        }
+        let cmds = self.done.drain(depth..).flat_map(|g| g.cmds).collect();
+        self.done.push(CommitGroup { cmds, author });
+        true
     }
 
     pub fn undo(&mut self, scene: &mut Scene) -> bool {
@@ -4760,6 +4776,7 @@ mod tests {
 
     fn test_connector(a: ConnectorEnd, b: ConnectorEnd) -> ConnectorNode {
         ConnectorNode {
+            crosstalk: None,
             routing: None,
             binding: None,
             a,

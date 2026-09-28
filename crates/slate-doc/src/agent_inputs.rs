@@ -1095,6 +1095,7 @@ mod tests {
         add(
             &mut doc,
             NodeKind::Connector(ConnectorNode {
+                crosstalk: None,
                 a: ConnectorEnd::Anchored {
                     node: shot,
                     side: Side::Right,
@@ -1142,6 +1143,7 @@ mod tests {
         })
         .expect("view wire");
         let conn = ConnectorNode {
+            crosstalk: None,
             a: shot_end,
             b: model_port,
             stroke: Stroke::default(),
@@ -1237,6 +1239,7 @@ mod tests {
 
         let wire = |a: ConnectorEnd, b: ConnectorEnd, display: WireDisplay| {
             NodeKind::Connector(ConnectorNode {
+                crosstalk: None,
                 routing: None,
                 a,
                 b,
@@ -1345,6 +1348,7 @@ mod tests {
         add(
             doc,
             NodeKind::Connector(ConnectorNode {
+                crosstalk: None,
                 routing: None,
                 a,
                 b,
@@ -1832,6 +1836,7 @@ mod tests {
         add(
             &mut doc,
             NodeKind::Connector(ConnectorNode {
+                crosstalk: None,
                 routing: None,
                 a,
                 b,
@@ -1946,6 +1951,7 @@ mod tests {
         let wire = |scene: &Scene, a, b| {
             let binding = infer_binding(scene, &a, &b);
             NodeKind::Connector(ConnectorNode {
+                crosstalk: None,
                 routing: None,
                 a,
                 b,
@@ -2010,6 +2016,7 @@ mod tests {
             };
             let binding = infer_binding(&doc.scene, &a, &b);
             NodeKind::Connector(ConnectorNode {
+                crosstalk: None,
                 routing: None,
                 a,
                 b,
@@ -2058,6 +2065,7 @@ mod tests {
         );
         for source in [generator, block] {
             let wire = NodeKind::Connector(ConnectorNode {
+                crosstalk: None,
                 routing: None,
                 a: ConnectorEnd::Anchored {
                     node: source,

@@ -7,6 +7,7 @@ pub mod agent_chat;
 pub mod agent_inputs;
 pub mod bumper;
 pub mod create_style;
+pub mod crosstalk;
 mod doc;
 mod error;
 pub mod geom;
