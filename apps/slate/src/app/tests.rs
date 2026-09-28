@@ -24180,6 +24180,12 @@ fn a_wire_dropped_on_empty_board_offers_an_agent_chat_train() {
         placed.rect.x > rect.x + rect.w,
         "it lands at the drop, right of the picture"
     );
+    let dropped = xf.s2w(drop);
+    let input = Pos2::new(placed.rect.x, placed.rect.y + 0.5 * placed.rect.h);
+    assert!(
+        (input - dropped).length() < 0.5,
+        "its input sits at the drop after the grid fit: {input:?} vs {dropped:?}"
+    );
     let agent = slate_doc::agent_chat::agent(placed).unwrap();
     assert!(agent.provider.is_empty(), "the program grid shows");
     assert!(

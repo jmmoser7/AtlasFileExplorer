@@ -1,5 +1,14 @@
 # Canvas command project — change log
 
+## 2026-09-28 — Wire-drop and output-port menus offer Agent (user)
+
+- `portal-agent-link` D22: the menu a media output port or a wire dropped
+  on empty board opens (`SPAWN_CHOICES`) offers Agent beside Text and
+  Image. Agent places an agent portal in chat train presentation, showing
+  its program grid, with the media wired into its context input at the
+  drop point; one Undo removes the portal and the wire. Esc closes the menu
+  and adds nothing. A new agent portal starts at its program grid's size.
+
 ## 2026-09-28 — Square wires bundle in a bounded connection zone (user)
 
 - User, 28 September 2026: "colission avoidence should be best efort. not

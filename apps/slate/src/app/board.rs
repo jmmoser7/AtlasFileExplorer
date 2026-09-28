@@ -7880,8 +7880,9 @@ impl SlateApp {
 
     /// A new agent portal's size: its program grid once the installed
     /// programs are known, so the grid fit never moves a fresh portal off its
-    /// click or drop point. Before that the Agent tool's recipe
-    /// (`core.slatekit`) owns it; the constant stands in only when no kit
+    /// click or drop point. Before discovery the Agent tool's recipe
+    /// (`core.slatekit`) owns it, and the fit that follows grows the portal
+    /// from its top-left corner; the constant stands in only when no kit
     /// supplies one.
     pub(crate) fn agent_portal_size(&self) -> (f32, f32) {
         self.agent_program_grid_size().unwrap_or_else(|| {

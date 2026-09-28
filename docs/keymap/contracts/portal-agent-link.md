@@ -68,7 +68,7 @@ The user approved this refinement with “ok go for it!” after reviewing the
 | Token | Meaning | Initial value |
 |-------|---------|---------------|
 | `agent.link.poll_secs` | Minimum read/write poll interval | `1.0` |
-| `agent.portal.default_size` | Click placement size | `960 x 540` |
+| `agent.portal.default_size` | Click placement size | Program grid: up to 4 tiles a row, `112 x 96` each, plus `48 x 72`; before discovery the `core.slatekit` default, `384 x 168` |
 | `agent.portal.turns_painted` | Recent turns painted in chat | `24` |
 | `agent.await.sent_timeout_secs` | Named failure if Send never reaches a live sidecar | `20` |
 

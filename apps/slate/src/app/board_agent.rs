@@ -4308,15 +4308,13 @@ impl SlateApp {
         self.agents.programs = ids.iter().map(|id| atlas_ai::agent::provider_by_id(id)).collect();
     }
 
-    /// The unbound agent portal's program grid (width, height), once the
-    /// installed programs are known: four tiles a row.
+    /// The unbound agent portal's size (width, height) around its program
+    /// grid, once the installed programs are known.
     pub(crate) fn agent_program_grid_size(&self) -> Option<(f32, f32)> {
         let count = self.agents.programs.len();
         (count > 0).then(|| {
-            (
-                count.min(4) as f32 * 112.0 + 48.0,
-                count.div_ceil(4) as f32 * 96.0 + 72.0,
-            )
+            let grid = atlas_ai::ui::program_grid_size(count);
+            (grid.x + 48.0, grid.y + 72.0)
         })
     }
 

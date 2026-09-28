@@ -243,6 +243,19 @@ pub fn ai_body(panel: &mut AiPanel, ui: &mut egui::Ui, theme: SidebarTheme) {
         ui.label(RichText::new(status).small().italics().color(theme.sub));
     }
 }
+
+const PROGRAM_CELL: egui::Vec2 = egui::vec2(112.0, 96.0);
+const PROGRAM_COLUMNS: usize = 4;
+
+/// Unzoomed size of the tiles `program_grid` lays out for `count` programs
+/// when its rect is wide enough for a full row.
+pub fn program_grid_size(count: usize) -> egui::Vec2 {
+    egui::vec2(
+        count.clamp(1, PROGRAM_COLUMNS) as f32 * PROGRAM_CELL.x,
+        count.max(1).div_ceil(PROGRAM_COLUMNS) as f32 * PROGRAM_CELL.y,
+    )
+}
+
 /// Lobby for choosing a program: icons and names only. The host card is the
 /// surface; there are no button wells. The portal supplies focus and
 /// discovery data; this shared AI surface owns its appearance.
@@ -254,9 +267,9 @@ pub fn program_grid(
     interactive: bool,
     zoom: f32,
 ) -> Option<String> {
-    let cell = egui::vec2(112.0, 96.0) * zoom;
+    let cell = PROGRAM_CELL * zoom;
     let columns = ((rect.width() / cell.x).floor() as usize)
-        .clamp(1, 4)
+        .clamp(1, PROGRAM_COLUMNS)
         .min(programs.len().max(1));
     let rows = programs.len().div_ceil(columns);
     let origin = rect.center() - egui::vec2(columns as f32 * cell.x, rows as f32 * cell.y) * 0.5;
