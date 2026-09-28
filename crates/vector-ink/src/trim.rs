@@ -168,26 +168,37 @@ pub fn boolean_union_all(polys: &[Polygon]) -> TrimPolys {
 /// Slice a closed polygon with a (possibly infinite) line. Returns the
 /// pieces on each side.
 pub fn slice_closed_by_line(poly: &Polygon, a: [f32; 2], b: [f32; 2]) -> TrimPolys {
-    if poly.is_empty() || poly[0].len() < 3 {
+    slice_closed_by_path(poly, &[a, b])
+}
+
+/// Slice a closed polygon (holes kept) along the whole of an open
+/// polyline. A path that enters without crossing leaves the polygon whole.
+pub fn slice_closed_by_path(poly: &Polygon, path: &[[f32; 2]]) -> TrimPolys {
+    if poly.is_empty() || poly[0].len() < 3 || path.len() < 2 {
         return Vec::new();
     }
-    let outer = close_ring(&poly[0]);
-    let line = [to_f64(a), to_f64(b)];
-    let raw = outer.slice_by(&line, FillRule::NonZero);
+    let rings: Vec<Vec<[f64; 2]>> = poly
+        .iter()
+        .filter(|r| r.len() >= 3)
+        .map(|r| close_ring(r))
+        .collect();
+    let string: Vec<[f64; 2]> = path.iter().copied().map(to_f64).collect();
+    let raw = rings.slice_by(&string, FillRule::EvenOdd);
     let mut out = shapes_from_overlay(raw);
     let mut sources = poly.clone();
-    sources.push(vec![a, b]);
+    // Each span on its own: the cleaner closes any source of three points.
+    sources.extend(path.windows(2).map(|w| w.to_vec()));
     crate::clean::clean_boolean_result(&mut out, &sources);
     out
 }
 
-fn cutter_as_line(c: &Cutter) -> Option<([f32; 2], [f32; 2])> {
+fn cutter_as_path(c: &Cutter) -> Option<Vec<[f32; 2]>> {
     match c {
-        Cutter::Infinite { origin, dir } => Some((
+        Cutter::Infinite { origin, dir } => Some(vec![
             [origin[0] - dir[0] * INFINITE, origin[1] - dir[1] * INFINITE],
             [origin[0] + dir[0] * INFINITE, origin[1] + dir[1] * INFINITE],
-        )),
-        Cutter::Open(pts) if pts.len() == 2 => Some((pts[0], pts[1])),
+        ]),
+        Cutter::Open(pts) if pts.len() >= 2 => Some(pts.clone()),
         _ => None,
     }
 }
@@ -621,36 +632,27 @@ fn barycentric_inside(a: [f32; 2], b: [f32; 2], c: [f32; 2], p: [f32; 2], slop: 
     u >= -slop && v >= -slop && (u + v) <= 1.0 + slop
 }
 
-/// Closed-target trim: click identifies the arrangement face inside the
-/// target; that face is subtracted. Line cutters slice; area cutters
-/// boolean.
-pub fn trim_closed_at_click(
-    target: &Polygon,
-    cutters: &[Cutter],
-    click: [f32; 2],
-) -> Option<TrimPolys> {
-    if !point_in_polygon(target, click) {
-        return None;
-    }
-    let mut line_cutters = Vec::new();
-    let mut area_cutters = Vec::new();
+/// Open and infinite cutters as paths; closed cutters as regions.
+fn sort_cutters(cutters: &[Cutter]) -> (Vec<Vec<[f32; 2]>>, Vec<Polygon>) {
+    let mut paths = Vec::new();
+    let mut areas = Vec::new();
     for c in cutters {
-        if let Some(ab) = cutter_as_line(c) {
-            line_cutters.push(ab);
+        if let Some(path) = cutter_as_path(c) {
+            paths.push(path);
         } else if let Some(p) = cutter_as_closed(c) {
-            area_cutters.push(p);
-        } else if let Cutter::Open(pts) = c {
-            for w in pts.windows(2) {
-                line_cutters.push((w[0], w[1]));
-            }
+            areas.push(p);
         }
     }
+    (paths, areas)
+}
 
+/// Every piece of `target` after slicing along each open path in turn.
+fn slice_by_paths(target: &Polygon, paths: &[Vec<[f32; 2]>]) -> TrimPolys {
     let mut pieces: TrimPolys = vec![target.clone()];
-    for (a, b) in &line_cutters {
+    for path in paths {
         let mut next = Vec::new();
         for piece in pieces {
-            let sliced = slice_closed_by_line(&piece, *a, *b);
+            let sliced = slice_closed_by_path(&piece, path);
             if sliced.is_empty() {
                 next.push(piece);
             } else {
@@ -659,9 +661,26 @@ pub fn trim_closed_at_click(
         }
         pieces = next;
     }
+    pieces
+}
+
+/// Closed-target trim: click identifies the arrangement face inside the
+/// target; that face is subtracted. Open cutters slice along their whole
+/// path; area cutters boolean.
+pub fn trim_closed_at_click(
+    target: &Polygon,
+    cutters: &[Cutter],
+    click: [f32; 2],
+) -> Option<TrimPolys> {
+    if !point_in_polygon(target, click) {
+        return None;
+    }
+    let (path_cutters, area_cutters) = sort_cutters(cutters);
+    let mut pieces = slice_by_paths(target, &path_cutters);
 
     if !area_cutters.is_empty() {
-        let region = clicked_area_region(target, &area_cutters, click)?;
+        let face = pieces.into_iter().find(|p| point_in_polygon(p, click))?;
+        let region = clicked_area_region(&face, &area_cutters, click)?;
         // XOR, not Difference: the clicked face is already a subset of the
         // target (and may itself be holed). T ⊕ (T−C) = T∩C.
         pieces = boolean_xor(target, &region);
@@ -673,43 +692,19 @@ pub fn trim_closed_at_click(
     Some(pieces)
 }
 
-/// Closed-target split: every arrangement face is kept. Line cutters slice;
-/// area cutters partition into inside ∪ outside. Returns `None` when the
-/// cutters do not actually divide the target.
+/// Closed-target split: every arrangement face is kept. Open cutters slice
+/// along their whole path; area cutters partition into inside ∪ outside.
+/// Returns `None` when the cutters do not actually divide the target.
 pub fn split_closed(target: &Polygon, cutters: &[Cutter]) -> Option<TrimPolys> {
     if target.is_empty() || target[0].len() < 3 {
         return None;
     }
-    let mut line_cutters = Vec::new();
-    let mut area_cutters = Vec::new();
-    for c in cutters {
-        if let Some(ab) = cutter_as_line(c) {
-            line_cutters.push(ab);
-        } else if let Some(p) = cutter_as_closed(c) {
-            area_cutters.push(p);
-        } else if let Cutter::Open(pts) = c {
-            for w in pts.windows(2) {
-                line_cutters.push((w[0], w[1]));
-            }
-        }
-    }
-    if line_cutters.is_empty() && area_cutters.is_empty() {
+    let (path_cutters, area_cutters) = sort_cutters(cutters);
+    if path_cutters.is_empty() && area_cutters.is_empty() {
         return None;
     }
 
-    let mut pieces: TrimPolys = vec![target.clone()];
-    for (a, b) in &line_cutters {
-        let mut next = Vec::new();
-        for piece in pieces {
-            let sliced = slice_closed_by_line(&piece, *a, *b);
-            if sliced.is_empty() {
-                next.push(piece);
-            } else {
-                next.extend(sliced);
-            }
-        }
-        pieces = next;
-    }
+    let mut pieces = slice_by_paths(target, &path_cutters);
     for c in &area_cutters {
         let mut next = Vec::new();
         for piece in pieces {
@@ -1088,5 +1083,132 @@ mod tests {
         let r = rect(0.0, 0.0, 20.0, 20.0);
         let far = Cutter::Closed(rect(80.0, 80.0, 10.0, 10.0));
         assert!(split_closed(&r, &[far]).is_none());
+    }
+
+    /// A finely sampled arch from (-20, 40) over y = 17.5 to (120, 40),
+    /// as a flattened Bézier cutter reaches trim.
+    fn arch() -> Vec<[f32; 2]> {
+        (0..=64)
+            .map(|i| {
+                let t = i as f32 / 64.0;
+                let u = 1.0 - t;
+                let x = u * u * u * -20.0
+                    + 3.0 * u * u * t * 10.0
+                    + 3.0 * u * t * t * 90.0
+                    + t * t * t * 120.0;
+                let y = u * u * u * 40.0
+                    + 3.0 * u * u * t * 10.0
+                    + 3.0 * u * t * t * 10.0
+                    + t * t * t * 40.0;
+                [x, y]
+            })
+            .collect()
+    }
+
+    fn area(poly: &Polygon) -> f32 {
+        poly.iter().map(|r| signed_area(r).abs()).sum::<f32>()
+            - 2.0
+                * poly
+                    .iter()
+                    .skip(1)
+                    .map(|r| signed_area(r).abs())
+                    .sum::<f32>()
+    }
+
+    /// User, 28 September 2026 ("allow triming betwee open and closed
+    /// forms"): an open cutter divides a closed target along its whole path.
+    #[test]
+    fn curved_open_cutter_trims_a_closed_target() {
+        let r = rect(0.0, 0.0, 100.0, 80.0);
+        let out = trim_closed_at_click(&r, &[Cutter::Open(arch())], [50.0, 60.0]).expect("trim");
+        assert_eq!(out.len(), 1, "the cap above the arch remains");
+        assert!(point_in_polygon(&out[0], [50.0, 5.0]));
+        assert!(!point_in_polygon(&out[0], [50.0, 60.0]));
+        assert!(!point_in_polygon(&out[0], [5.0, 60.0]));
+    }
+
+    #[test]
+    fn polyline_cutter_crossing_a_circle_twice_splits_off_a_cap() {
+        let c = circle(50.0, 50.0, 50.0, 96);
+        let u = vec![[30.0, -10.0], [30.0, 40.0], [70.0, 40.0], [70.0, -10.0]];
+        let out = split_closed(&c, &[Cutter::Open(u.clone())]).expect("split");
+        assert_eq!(out.len(), 2);
+        let cap = out
+            .iter()
+            .find(|p| point_in_polygon(p, [50.0, 20.0]))
+            .unwrap();
+        assert!(!point_in_polygon(cap, [50.0, 80.0]));
+        assert!(!point_in_polygon(cap, [20.0, 20.0]));
+        let total: f32 = out.iter().map(area).sum();
+        assert!((total - area(&c)).abs() < 1.0, "pieces tile the circle");
+
+        let trimmed = trim_closed_at_click(&c, &[Cutter::Open(u)], [50.0, 20.0]).unwrap();
+        assert_eq!(trimmed.len(), 1);
+        assert!(point_in_polygon(&trimmed[0], [20.0, 20.0]));
+        assert!(point_in_polygon(&trimmed[0], [50.0, 80.0]));
+        assert!(!point_in_polygon(&trimmed[0], [50.0, 20.0]));
+    }
+
+    #[test]
+    fn zigzag_cutter_crossing_several_times_makes_every_piece() {
+        let r = rect(0.0, 0.0, 100.0, 40.0);
+        // Each of the four legs crosses the rect from edge to edge.
+        let zig = vec![
+            [10.0, -10.0],
+            [30.0, 50.0],
+            [50.0, -10.0],
+            [70.0, 50.0],
+            [90.0, -10.0],
+        ];
+        let out = split_closed(&r, &[Cutter::Open(zig)]).expect("split");
+        assert_eq!(out.len(), 5);
+        let total: f32 = out.iter().map(area).sum();
+        assert!((total - 4000.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn dangling_open_cutter_does_not_divide() {
+        let r = rect(0.0, 0.0, 100.0, 80.0);
+        let stub = vec![[-10.0, 40.0], [20.0, 40.0], [40.0, 50.0]];
+        assert!(split_closed(&r, &[Cutter::Open(stub)]).is_none());
+    }
+
+    #[test]
+    fn open_cutter_keeps_the_target_hole() {
+        let mut holed = rect(0.0, 0.0, 100.0, 100.0);
+        holed.push(rect(40.0, 60.0, 20.0, 20.0).remove(0));
+        let bend = vec![[-10.0, 30.0], [50.0, 40.0], [110.0, 30.0]];
+        let out = split_closed(&holed, &[Cutter::Open(bend)]).expect("split");
+        assert_eq!(out.len(), 2);
+        let lower = out
+            .iter()
+            .find(|p| point_in_polygon(p, [10.0, 90.0]))
+            .unwrap();
+        assert!(!point_in_polygon(lower, [50.0, 70.0]), "the hole survives");
+    }
+
+    /// Open and closed cutters together: the clicked face is bounded by both.
+    #[test]
+    fn mixed_open_and_closed_cutters_bound_the_clicked_face() {
+        let r = rect(0.0, 0.0, 100.0, 100.0);
+        let cutters = [
+            infinite_line([50.0, -10.0], [50.0, 10.0]).unwrap(),
+            Cutter::Closed(circle(50.0, 50.0, 20.0, 64)),
+        ];
+        let out = trim_closed_at_click(&r, &cutters, [40.0, 50.0]).expect("trim");
+        let kept = |p: [f32; 2]| out.iter().any(|piece| point_in_polygon(piece, p));
+        assert!(!kept([40.0, 50.0]), "the clicked half-disk is gone");
+        assert!(kept([60.0, 50.0]), "the other half-disk stays");
+        assert!(kept([10.0, 10.0]) && kept([90.0, 90.0]));
+    }
+
+    /// A closed cutter already divides an open target.
+    #[test]
+    fn closed_cutter_divides_an_open_target() {
+        let c = circle(50.0, 50.0, 30.0, 64);
+        let spans = split_open_at_cutters(&[[0.0, 50.0], [100.0, 50.0]], &[Cutter::Closed(c)]);
+        assert_eq!(spans.len(), 3);
+        assert!((spans[0].last().unwrap()[0] - 20.0).abs() < 0.2);
+        assert!((spans[2][0][0] - 80.0).abs() < 0.2);
     }
 }

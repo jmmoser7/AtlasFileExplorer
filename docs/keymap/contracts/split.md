@@ -13,7 +13,9 @@ deviations flagged below.
 > `split_closed` in `crates/vector-ink`, then the same source-edge snap
 > as Trim. Click keeps every arrangement piece as its own Path node.
 > Text, images, frames, and portals are never targets. Golden paths:
-> `split_gp1`–`split_gp6` in `apps/slate/src/app/tests.rs`.
+> `split_gp1`–`split_gp6`, plus `split_polygon_by_an_open_polyline` and
+> `split_closed_polyline_by_an_open_cutter_keeps_per_vertex_style`
+> (GP7–GP8), in `apps/slate/src/app/tests.rs`.
 
 ## Behavior matrix
 
@@ -29,7 +31,7 @@ deviations flagged below.
 | D08 | Numeric / manual entry | n/a (Art. III). | pattern | 85 |
 | D09 | Preview & readouts | Cutters outlined in accent. Hovered target previews **all** resulting pieces at `trim.preview_alpha`. No dock readout. | guess | 55 |
 | D10 | Cursor | Crosshair while armed. | precedent | 90 |
-| D11 | Commit | Each click is one journal group (P0.2/P0.3). Open path: every span becomes its own Path (1 = no-op). Closed shape: every arrangement face becomes its own filled Path (line cutters infinite; area cutters partition inside ∪ outside). Results selected. Source style copied. | stated | 100 |
+| D11 | Commit | Each click is one journal group (P0.2/P0.3). An open cutter divides a closed target along its whole path. A closed cutter divides an open target (user, 28 September 2026). Open path: every span becomes its own Path (1 = no-op). Closed shape: every arrangement face becomes its own filled, closed Path (two-point line cutters infinite; longer open cutters along their whole path; area cutters partition inside ∪ outside). Results selected. Source style copied. | stated | 100 |
 | D12 | Cancel | Esc in TrimParts → PickCutters. Esc in PickCutters → Select. Already-committed clicks stay (Ctrl+Z). | precedent | 90 |
 | D13 | Selected presentation | Result paths use path grips. | pattern | 80 |
 | D14 | Post-edit | Direct Selection on the new paths. No Unsplit — rewrite, like Trim. | precedent | 90 |
@@ -50,6 +52,8 @@ Shared with Trim (`board_trim::trim_tokens`): `trim.span_slop` 10 px,
 4. **GP4 (chord):** Ctrl+Shift+T arms Split; Ctrl+N still opens a workbook tab.
 5. **GP5 (per-click undo):** two successive splits · Ctrl+Z undoes only the last click.
 6. **GP6 (Esc stack):** arm with no selection · click a cutter · Enter · Esc → PickCutters · Esc → Select.
+7. **GP7 (open cutter, closed target):** a filled regular polygon and a two-leg Polyline crossing it, the polyline preselected · Ctrl+Shift+T · click the polygon → two filled closed Paths, one on each side of the polyline. One undo restores the polygon.
+8. **GP8 (style at the cut):** a closed Polyline with per-vertex widths and colors, cut by an open U-shaped Polyline · Ctrl+Shift+T · click → each piece keeps its source vertices' widths and colors, and the vertices where the cutter crosses the outline take the value the board painted there.
 
 ## Open questions
 

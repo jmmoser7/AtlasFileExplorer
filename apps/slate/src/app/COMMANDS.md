@@ -333,6 +333,11 @@ Enter, then click.
   closed shape becomes one filled Path per face (a circle inside a rect
   yields the disk **and** the holed outer). Text/images/frames/portals are
   not targets. Each click is one undo.
+- Cutters work between open and closed forms both ways: an open cutter
+  (line, polyline, arc, Bézier, pen) divides a closed shape along its whole
+  path, and a closed shape divides an open curve. Only two-point lines
+  extend infinitely. A cut rectangle, ellipse or polygon becomes closed,
+  filled Paths.
 
 ### Direct selection (A) + Join (Ctrl+J)
 

@@ -906,6 +906,10 @@ and **P1.portal.empty-ui**.
   one arrangement face (closed) and journals one undo group.
 - **P2.RhinoTrim.extend** Shift+click near an open end extends that end to
   the cutter. Line cutters are infinite (`ExtendCuttingLines` on).
+- **P2.RhinoTrim.cutters** an open cutter divides a closed target along its
+  whole path; a closed cutter divides an open target (user, 28 September
+  2026). Only two-point line cutters extend; a longer open cutter cuts
+  where it runs. A cut closed target stays a closed, filled region.
 - **P2.RhinoTrim.esc** Esc peels TrimParts → PickCutters → Select.
 - **P2.RhinoTrim.enter** Enter advances PickCutters → TrimParts, or exits
   TrimParts to Select. Already-committed clicks stay.

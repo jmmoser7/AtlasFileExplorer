@@ -1703,11 +1703,11 @@
           "decided": "2026-08-16"
         },
         "D11": {
-          "behavior": "Each click is one journal group (P0.2/P0.3). Cutters and targets use their true geometric boundaries, including fillets, chamfers, percentage corners, ellipses and rotation. Curve sampling uses a fixed board-space tolerance, independent of zoom. Open path: remaining spans (0 = delete, 1 = patch, 2+ = patch + adds). Closed shape: rewrite to Path (holes = extra contours, even-odd); world-space results bake rotation once. Text/image: `Node.clip` = remaining region in host-local coordinates. Line cutters extend infinitely (`ExtendCuttingLines` on).",
+          "behavior": "Each click is one journal group (P0.2/P0.3). Cutters and targets use their true geometric boundaries, including fillets, chamfers, percentage corners, ellipses and rotation. Curve sampling uses a fixed board-space tolerance, independent of zoom. An open cutter divides a closed target along its whole path. A closed cutter divides an open target (user, 28 September 2026). Open and closed cutters picked together bound the clicked face together. Open path: remaining spans (0 = delete, 1 = patch, 2+ = patch + adds). Closed shape: rewrite to Path (holes = extra contours, even-odd); a trimmed rectangle, ellipse or polygon is no longer that primitive, and each remaining piece is a closed region that keeps the fill (D16); world-space results bake rotation once. Text/image: `Node.clip` = remaining region in host-local coordinates. Two-point line cutters extend infinitely (`ExtendCuttingLines` on); longer open cutters (polyline, arc, Bézier, pen) cut only where they run, so one that enters a closed target without leaving it does not divide it.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-28"
         },
         "D12": {
           "behavior": "Esc TrimParts→PickCutters→Select. Committed clicks stay.",
@@ -1968,11 +1968,11 @@
           "decided": "2026-08-16"
         },
         "D11": {
-          "behavior": "Each click one journal group. Open: every span a Path. Closed: every face a filled Path. Line cutters infinite. Results selected.",
+          "behavior": "Each click is one journal group (P0.2/P0.3). An open cutter divides a closed target along its whole path. A closed cutter divides an open target (user, 28 September 2026). Open path: every span becomes its own Path (1 = no-op). Closed shape: every arrangement face becomes its own filled, closed Path (two-point line cutters infinite; longer open cutters along their whole path; area cutters partition inside ∪ outside). Results selected. Source style copied.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-16"
+          "decided": "2026-09-28"
         },
         "D12": {
           "behavior": "Esc TrimParts→PickCutters→Select. Committed clicks stay.",

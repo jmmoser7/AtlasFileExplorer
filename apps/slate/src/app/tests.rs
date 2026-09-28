@@ -8179,6 +8179,271 @@ fn split_gp6_esc_stack() {
     h.frame();
 }
 
+// ---------- trim and split between open and closed forms ----------
+// User, 28 September 2026: "allow triming betwee open and closed forms".
+
+/// An open cubic arch from (-20, 40) over y = 17.5 to (120, 40).
+fn add_bezier_arch(app: &mut SlateApp) -> NodeId {
+    use slate_doc::scene::{ShapeKind, ShapeNode};
+    let mut bez = vector_ink::kurbo::BezPath::new();
+    bez.move_to((-20.0, 40.0));
+    bez.curve_to((10.0, 10.0), (90.0, 10.0), (120.0, 40.0));
+    let (rect, path) = board_path::bezpath_to_path_data(&bez, false);
+    let node = app.doc_mut().scene.build_node(
+        rect,
+        NodeKind::Shape(ShapeNode {
+            shape: ShapeKind::Path,
+            fill: None,
+            stroke: board_path::default_draw_stroke(slate_doc::scene::Rgba::BLACK),
+            corner: slate_doc::scene::Corner::Square,
+            sides: slate_doc::scene::default_regular_sides(),
+            phase_deg: 0.0,
+            flip: false,
+            path: Some(path.into()),
+            text: None,
+        }),
+    );
+    app.add_nodes(vec![node])[0]
+}
+
+/// Select `cutters` only, then arm Trim (Ctrl+T) or Split (Ctrl+Shift+T)
+/// by key event.
+fn arm_slice_by_key(h: &mut Harness, cutters: &[NodeId], split: bool) {
+    select_trim(&mut h.app, cutters);
+    h.frame();
+    let mods = if split {
+        egui::Modifiers::CTRL | egui::Modifiers::SHIFT
+    } else {
+        egui::Modifiers::CTRL
+    };
+    press_key_with(h, egui::Key::T, mods);
+    let want = if split {
+        board::BoardTool::Split
+    } else {
+        board::BoardTool::Trim
+    };
+    assert_eq!(h.app.board_tool, want);
+    let armed = h.app.trim.as_ref().expect("armed");
+    assert_eq!(armed.phase, super::board_trim::TrimPhase::TrimParts);
+    assert_eq!(armed.cutters, cutters);
+}
+
+fn shape_of(app: &SlateApp, id: NodeId) -> slate_doc::scene::ShapeNode {
+    match &app.doc().scene.node(id).expect("node").kind {
+        NodeKind::Shape(s) => s.clone(),
+        other => panic!("expected a shape, got {other:?}"),
+    }
+}
+
+/// A curved open Bézier cutter divides a rectangle along its whole path;
+/// Ctrl+T and a click below the arch remove that piece. One undo restores
+/// the rectangle exactly; redo repeats the trim.
+#[test]
+fn trim_curved_bezier_cutter_removes_the_clicked_side_of_a_rect() {
+    let mut h = grip_board("trim_open_closed_bezier");
+    let rect = add_filled_rect(&mut h.app, 0.0, 0.0, 100.0, 80.0);
+    let arch = add_bezier_arch(&mut h.app);
+    let cutter = h
+        .app
+        .node_open_polyline(h.app.doc().scene.node(arch).unwrap());
+    assert!(
+        cutter.is_some_and(|pts| pts.len() > 2),
+        "the cutter is curved"
+    );
+    let before = h.app.doc().scene.node(rect).unwrap().clone();
+    arm_slice_by_key(&mut h, &[arch], false);
+    click_at(&mut h, Pos2::new(50.0, 60.0), egui::Modifiers::NONE);
+
+    let after = h
+        .app
+        .doc()
+        .scene
+        .node(rect)
+        .expect("the cap remains")
+        .clone();
+    let s = shape_of(&h.app, rect);
+    assert_eq!(s.shape, slate_doc::scene::ShapeKind::Path);
+    assert!(s.path.as_ref().is_some_and(|p| p.closed));
+    assert_eq!(s.fill, Some(slate_doc::scene::Rgba::WHITE), "fill kept");
+    let poly = h.app.node_closed_poly(&after).unwrap();
+    assert!(vector_ink::point_in_polygon(&poly, [50.0, 5.0]));
+    assert!(!vector_ink::point_in_polygon(&poly, [50.0, 60.0]));
+    assert!(!vector_ink::point_in_polygon(&poly, [5.0, 60.0]));
+    assert_eq!(
+        h.app.doc().scene.nodes.len(),
+        2,
+        "one piece plus the cutter"
+    );
+
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    assert_eq!(h.app.doc().scene.node(rect).unwrap(), &before);
+    press_key_with(&mut h, egui::Key::Y, egui::Modifiers::CTRL);
+    assert_eq!(h.app.doc().scene.node(rect).unwrap(), &after);
+}
+
+/// A three-segment Polyline cutter crossing an ellipse twice cuts off the
+/// cap it encloses; the rest of the ellipse stays filled.
+#[test]
+fn trim_polyline_cutter_crossing_an_ellipse_twice() {
+    let mut h = grip_board("trim_open_closed_ellipse");
+    let ellipse = add_filled_ellipse(&mut h.app, 0.0, 0.0, 100.0, 100.0);
+    let before = h.app.doc().scene.node(ellipse).unwrap().clone();
+    let u = commit_polyline(
+        &mut h,
+        &[
+            Pos2::new(30.0, -10.0),
+            Pos2::new(30.0, 40.0),
+            Pos2::new(70.0, 40.0),
+            Pos2::new(70.0, -10.0),
+        ],
+        false,
+    );
+    arm_slice_by_key(&mut h, &[u], false);
+    click_at(&mut h, Pos2::new(50.0, 20.0), egui::Modifiers::NONE);
+
+    let after = h.app.doc().scene.node(ellipse).unwrap().clone();
+    let s = shape_of(&h.app, ellipse);
+    assert_eq!(s.shape, slate_doc::scene::ShapeKind::Path);
+    assert_eq!(s.fill, Some(slate_doc::scene::Rgba::WHITE));
+    let poly = h.app.node_closed_poly(&after).unwrap();
+    assert!(
+        !vector_ink::point_in_polygon(&poly, [50.0, 20.0]),
+        "cap gone"
+    );
+    for keep in [[20.0, 20.0], [80.0, 20.0], [50.0, 80.0], [50.0, 45.0]] {
+        assert!(vector_ink::point_in_polygon(&poly, keep), "{keep:?} stays");
+    }
+    h.app.board_undo();
+    assert_eq!(h.app.doc().scene.node(ellipse).unwrap(), &before);
+}
+
+/// Ctrl+Shift+T: an open two-leg Polyline divides a regular polygon into
+/// two filled pieces; one undo restores the polygon.
+#[test]
+fn split_polygon_by_an_open_polyline() {
+    let mut h = grip_board("split_open_closed_polygon");
+    let hex = add_filled_rect(&mut h.app, 0.0, 0.0, 100.0, 100.0);
+    h.app.patch_nodes(&[hex], |node| {
+        if let NodeKind::Shape(s) = &mut node.kind {
+            s.shape = slate_doc::scene::ShapeKind::RegularPolygon;
+        }
+    });
+    let before = h.app.doc().scene.node(hex).unwrap().clone();
+    let vee = commit_polyline(
+        &mut h,
+        &[
+            Pos2::new(-10.0, 30.0),
+            Pos2::new(50.0, 70.0),
+            Pos2::new(110.0, 30.0),
+        ],
+        false,
+    );
+    let count = h.app.doc().scene.nodes.len();
+    arm_slice_by_key(&mut h, &[vee], true);
+    click_at(&mut h, Pos2::new(50.0, 40.0), egui::Modifiers::NONE);
+
+    assert_eq!(h.app.doc().scene.nodes.len(), count + 1, "two pieces");
+    let upper = h
+        .app
+        .node_closed_poly(h.app.doc().scene.node(hex).unwrap())
+        .unwrap();
+    let rest = h.app.doc().scene.nodes.last().unwrap().clone();
+    let lower = h.app.node_closed_poly(&rest).unwrap();
+    assert!(vector_ink::point_in_polygon(&upper, [50.0, 40.0]));
+    assert!(!vector_ink::point_in_polygon(&upper, [50.0, 90.0]));
+    assert!(vector_ink::point_in_polygon(&lower, [50.0, 90.0]));
+    assert!(!vector_ink::point_in_polygon(&lower, [50.0, 40.0]));
+    for id in [hex, rest.id] {
+        assert_eq!(
+            shape_of(&h.app, id).fill,
+            Some(slate_doc::scene::Rgba::WHITE)
+        );
+    }
+    h.app.board_undo();
+    assert_eq!(h.app.doc().scene.nodes.len(), count);
+    assert_eq!(h.app.doc().scene.node(hex).unwrap(), &before);
+}
+
+/// A closed cutter still divides an open target: Ctrl+T on the line
+/// outside the ellipse removes only that span.
+#[test]
+fn trim_open_line_by_a_closed_cutter() {
+    let mut h = grip_board("trim_closed_cutter_open_target");
+    let ellipse = add_filled_ellipse(&mut h.app, 20.0, 20.0, 60.0, 60.0);
+    let line = add_seg(&mut h.app, Pos2::new(0.0, 50.0), Pos2::new(100.0, 50.0));
+    arm_slice_by_key(&mut h, &[ellipse], false);
+    let count = h.app.doc().scene.nodes.len();
+    click_at(&mut h, Pos2::new(10.0, 50.0), egui::Modifiers::NONE);
+
+    assert_eq!(h.app.doc().scene.nodes.len(), count + 1, "two spans remain");
+    let first = h
+        .app
+        .node_open_polyline(h.app.doc().scene.node(line).unwrap())
+        .unwrap();
+    assert!(
+        (first[0][0] - 20.0).abs() < 0.2,
+        "left span gone: {first:?}"
+    );
+    assert!(
+        h.app.doc().scene.node(ellipse).is_some(),
+        "the cutter stays"
+    );
+    h.app.board_undo();
+    assert_eq!(h.app.doc().scene.nodes.len(), count);
+}
+
+/// Split of a styled closed polyline by an open U cutter: each piece keeps
+/// its source vertices' widths and colors, and the cut vertices on the
+/// outline take the value the board painted there.
+#[test]
+fn split_closed_polyline_by_an_open_cutter_keeps_per_vertex_style() {
+    let mut h = grip_board("split_open_cutter_vertex_style");
+    let pts = [
+        Pos2::new(0.0, 0.0),
+        Pos2::new(100.0, 0.0),
+        Pos2::new(100.0, 100.0),
+        Pos2::new(0.0, 100.0),
+    ];
+    let id = commit_polyline(&mut h, &pts, true);
+    let widths = [2.0, 4.0, 6.0, 8.0];
+    let reds = [0u8, 40, 80, 120];
+    style_vertices(&mut h, id, &widths, &reds, &[None; 4]);
+    let cuts = [Pos2::new(30.0, 0.0), Pos2::new(70.0, 0.0)];
+    let at_cut = cuts.map(|p| ink_sample(&h, id, p));
+    let u = commit_polyline(
+        &mut h,
+        &[
+            Pos2::new(30.0, -10.0),
+            Pos2::new(30.0, 40.0),
+            Pos2::new(70.0, 40.0),
+            Pos2::new(70.0, -10.0),
+        ],
+        false,
+    );
+    let count = h.app.doc().scene.nodes.len();
+    arm_slice_by_key(&mut h, &[u], true);
+    click_at(&mut h, Pos2::new(50.0, 20.0), egui::Modifiers::NONE);
+    assert_eq!(h.app.doc().scene.nodes.len(), count + 1, "two pieces");
+
+    let rest = h.app.doc().scene.nodes.last().unwrap().id;
+    let mut seen = [false; 2];
+    for piece in [id, rest] {
+        let tips = painted_vertex_tips(&h, piece);
+        let at = world_vertices(&h, piece);
+        assert_eq!(tips.len(), at.len());
+        for (k, p) in at.iter().enumerate() {
+            let what = format!("vertex {p:?}");
+            if let Some(i) = pts.iter().position(|q| near(*q, *p)) {
+                assert_vertex(tips[k], widths[i], reds[i] as f32, &what);
+            } else if let Some(c) = cuts.iter().position(|q| near(*q, *p)) {
+                assert_matches_ink(tips[k], at_cut[c], &what);
+                seen[c] = true;
+            }
+        }
+    }
+    assert_eq!(seen, [true, true], "both cut vertices were checked");
+}
+
 #[test]
 fn agent_program_choice_is_journaled_and_undo_restores_picker() {
     let mut h = agent_board("program_choice");

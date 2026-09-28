@@ -140,7 +140,7 @@ typing or presenting (existing convention). "Both" = Slate all views + Atlas.
 | Ctrl+P | Rhino | Print | — | ⛔ defer | Print-faithful sheet/PDF export is **Roadmap Phase 5**; binding reserved until then (Art. III — no real path to use it yet). |
 | Ctrl+R | Photoshop | **Rulers + guides** | Board | 🟡 adopt-P2 | Smart guides + grid cover most alignment today; rulers/guides earn their place with presentation work. |
 | Ctrl+S | Rhino | Save | Slate | ✅ exists | ⛔ for Atlas — no document to save (index persists itself). |
-| Ctrl+T | Rhino | **Trim** — pick cutters, click the part to delete | Board | ✅ exists | 2D Rhino flow. New-tab moved to Ctrl+N only. See `contracts/trim.md`. |
+| Ctrl+T | Rhino | **Trim** — pick cutters, click the part to delete | Board | ✅ exists | 2D Rhino flow. Works between open and closed forms both ways: an open cutter divides a closed shape along its whole path (user, 28 September 2026). New-tab moved to Ctrl+N only. See `contracts/trim.md`. |
 | Ctrl+U | Photoshop | **Hue/Saturation** — adjust popover for selected images | Board | ✅ exists | Opens the existing `ImageAdjust` controls (CSS-filter math already shipped); slider scrubs coalesce in the journal. |
 | Ctrl+V | Rhino | **Paste** (at pointer, offset on repeat) | Board | ✅ exists | Nodes, or a copied image / file list from outside Slate. |
 | Ctrl+W | Rhino | Zoom Window | — | ⛔ reject | Absorbed by `Z`-drag (zoom window). `Ctrl+W` reserved for close-tab. |
@@ -151,7 +151,7 @@ typing or presenting (existing convention). "Both" = Slate all views + Atlas.
 
 | Key | Source | Action here | Scope | Status | Notes |
 |-----|--------|-------------|-------|--------|-------|
-| Ctrl+Shift+T | Rhino | **Split** — pick cutters, click an object; every piece stays | Board | ✅ exists | Same syntax as Trim. See `contracts/split.md`. |
+| Ctrl+Shift+T | Rhino | **Split** — pick cutters, click an object; every piece stays | Board | ✅ exists | Same syntax and cutters as Trim, open and closed forms both ways. See `contracts/split.md`. |
 | Ctrl+Shift+S | Photoshop | Save As | Slate | ✅ exists | |
 | Ctrl+Shift+G | Rhino | **Ungroup** | Board | ✅ exists | |
 | Ctrl+Shift+L | Rhino | **Unlock all** | Board | ✅ exists | Locked nodes aren't click-selectable, so unlock-all is the practical form; one-off unlock via Ctrl+Shift+click force-selection. |
