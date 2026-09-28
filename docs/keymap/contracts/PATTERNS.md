@@ -627,6 +627,15 @@ duplication. New portal contracts reference these and add only deviations.
 - **P1.portal.agent** Placement and bind/refresh/bake commands are
   registry SPECs. Agent-issued frame/source/query mutations stage for
   acceptance (Art. VII.6). Agents never write the source.
+- **P1.portal.elevated-red** Deep red (`palette.danger`) on an agent card
+  means elevated privilege, never decoration (user, 27 September 2026:
+  "red is for elevated privileges, a visual cue that this is not a typical
+  chat train"). Same red, different places, so hue alone never carries the
+  meaning: a red **label** (the model name) marks a conversation with Full
+  access; red **text** with a red sender label marks a message another agent
+  wrote; a red **wire** is a crosstalk. Nothing else on a chat card is red
+  except the Delete card menu row. Promoted from `portal-agent-link` D32 and
+  `portal-agent-crosstalk` F1; the older D32 cell keeps its inline wording.
 - **P1.portal.clip** Contents paint *inside* the frame fillet. Order:
   fill (rounded rect) → contents (textured or vector, clipped to the rounded
   outline) → identity tab (when the kind has one) → stroke last. No kind
