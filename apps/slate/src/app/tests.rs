@@ -16165,6 +16165,296 @@ fn the_swatch_warp_lands_on_the_painted_swatch_center() {
     h.frame_with(ctrl_right(center, Some(false)));
 }
 
+fn alt_right(pos: Pos2, pressed: Option<bool>) -> impl FnOnce(&mut egui::RawInput) {
+    move |input: &mut egui::RawInput| {
+        let modifiers = egui::Modifiers::ALT;
+        input.modifiers = modifiers;
+        input.events.push(egui::Event::PointerMoved(pos));
+        if let Some(pressed) = pressed {
+            input.events.push(egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers,
+            });
+        }
+    }
+}
+
+/// Open the color wheel at `at` through frames; returns its center.
+fn open_wheel_frames(h: &mut Harness, at: Pos2) -> Pos2 {
+    h.frame_with(ctrl_right(at, None));
+    h.frame_with(ctrl_right(at, Some(true)));
+    match h.app.brush_hud {
+        Some(board_color::BrushHud::Wheel { center, .. }) => center,
+        ref other => panic!("Ctrl+right opens the wheel, got {other:?}"),
+    }
+}
+
+/// A point on the wheel's disk well away from its white, black and gray
+/// edges: a saturated, bright color.
+fn bright_on_disk(center: Pos2) -> Pos2 {
+    center + EVec2::new(50.0, -50.0)
+}
+
+/// Review r7 finding 20: a real drag onto the disk's white and black snap
+/// regions lands on exact white and exact black, and the release keeps it.
+#[test]
+fn a_wheel_drag_onto_the_white_and_black_snaps_lands_exactly() {
+    use board_color::{wheel_snaps, WHEEL_SNAP_RADIUS};
+    let mut h = line_board("wheel_snap_drag");
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.set_active_rgb([40, 160, 60]);
+    h.frame();
+    let at = h.app.canvas_rect.center();
+    let center = open_wheel_frames(&mut h, at);
+    let [(white, _), (black, _)] = wheel_snaps();
+    let inside = |at: EVec2| at - at.normalized() * (WHEEL_SNAP_RADIUS * 0.6);
+    h.frame_with(ctrl_right(center + white * 0.6, None));
+    assert_ne!(h.app.active_rgba()[..3], [255, 255, 255], "short of the snap");
+    h.frame_with(ctrl_right(center + inside(white), None));
+    assert_eq!(h.app.active_rgba()[..3], [255, 255, 255], "the white snap");
+    h.frame_with(ctrl_right(center + black * 0.6, None));
+    assert_ne!(h.app.active_rgba()[..3], [0, 0, 0], "short of the snap");
+    let on_black = center + inside(black);
+    h.frame_with(ctrl_right(on_black, None));
+    assert_eq!(h.app.active_rgba()[..3], [0, 0, 0], "the black snap");
+    h.frame_with(ctrl_right(on_black, Some(false)));
+    h.frame();
+    assert!(h.app.brush_hud.is_none());
+    assert_eq!(h.app.active_rgba()[..3], [0, 0, 0], "the release keeps black");
+}
+
+/// Review r7 finding 4 (Art. II): the open wheel repaints the same disk and
+/// ring meshes each frame; a hue change rebuilds the disk only.
+#[test]
+fn the_open_wheel_repaints_its_cached_meshes() {
+    use board_color::{WHEEL_HUE_INNER, WHEEL_HUE_OUTER};
+    /// The meshes centered on the wheel, narrowest (the disk) first.
+    fn meshes(out: &egui::FullOutput, center: Pos2) -> Vec<std::sync::Arc<egui::Mesh>> {
+        fn walk(shape: &egui::Shape, acc: &mut Vec<std::sync::Arc<egui::Mesh>>) {
+            match shape {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, acc)),
+                egui::Shape::Mesh(m) if m.vertices.len() > 100 => acc.push(m.clone()),
+                _ => {}
+            }
+        }
+        let mut acc = Vec::new();
+        for clipped in &out.shapes {
+            walk(&clipped.shape, &mut acc);
+        }
+        acc.retain(|m| (m.calc_bounds().center() - center).length() < 2.0);
+        acc.sort_by(|a, b| a.calc_bounds().width().total_cmp(&b.calc_bounds().width()));
+        acc
+    }
+    let mut h = line_board("wheel_mesh_cache");
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.set_active_rgb([200, 30, 30]);
+    h.frame();
+    let at = h.app.canvas_rect.center();
+    let center = open_wheel_frames(&mut h, at);
+    let a = meshes(&h.frame_output(ctrl_right(at, None)), center);
+    let b = meshes(
+        &h.frame_output(ctrl_right(at + EVec2::new(3.0, 0.0), None)),
+        center,
+    );
+    assert_eq!(a.len(), 2, "the disk and the ring");
+    assert_eq!(b.len(), 2);
+    assert!(std::sync::Arc::ptr_eq(&a[0], &b[0]), "the disk is reused");
+    assert!(std::sync::Arc::ptr_eq(&a[1], &b[1]), "the ring is reused");
+    let ring = center + EVec2::new(0.0, -(WHEEL_HUE_INNER + WHEEL_HUE_OUTER) * 0.5);
+    h.frame_with(ctrl_right(ring, None));
+    let c = meshes(&h.frame_output(ctrl_right(ring, None)), center);
+    assert_eq!(c.len(), 2);
+    assert!(!std::sync::Arc::ptr_eq(&a[0], &c[0]), "a new hue, a new disk");
+    assert!(std::sync::Arc::ptr_eq(&a[1], &c[1]), "the ring never changes");
+    h.frame_with(ctrl_right(ring, Some(false)));
+}
+
+/// Review r7 finding 3 (P1.curve.create-style): a curve tool's wheel pick
+/// sets that tool's color and leaves the brush color where it was.
+#[test]
+fn a_curve_tool_wheel_pick_keeps_the_brush_color() {
+    let mut h = line_board("curve_wheel_own_color");
+    h.frame();
+    let fg = h.app.board_colors.fg;
+    let before = h.app.stroke_for_new_curve().color;
+    let at = h.app.canvas_rect.center();
+    let center = open_wheel_frames(&mut h, at);
+    let target = bright_on_disk(center);
+    h.frame_with(ctrl_right(target, None));
+    h.frame_with(ctrl_right(target, Some(false)));
+    h.frame();
+    assert!(h.app.brush_hud.is_none());
+    let after = h.app.stroke_for_new_curve().color;
+    assert_ne!(after.0[..3], before.0[..3], "the Line tool takes the color");
+    assert_eq!(h.app.board_colors.fg, fg, "the brush color does not move");
+}
+
+/// Review r7 finding 20: `the_style_band_enters_each_texture_hard_and_holds_size`
+/// through real frames. Alt+right on the board, down toward the band
+/// (softness falls), across the band (size and softness hold), release on
+/// a texture.
+#[test]
+fn the_style_band_through_frames_enters_a_texture_hard_and_holds_size() {
+    use board_tip_hud::{palette_band_y, palette_hit, palette_slot};
+    let mut h = brush_board("tip_band_frames");
+    h.app.brush_width = 20.0;
+    h.app.brush_softness = 0.8;
+    h.frame();
+    let press = h.app.canvas_rect.center();
+    h.frame_with(alt_right(press, None));
+    h.frame_with(alt_right(press, Some(true)));
+    assert!(
+        matches!(h.app.brush_hud, Some(board_color::BrushHud::Size { .. })),
+        "Alt+right opens the size HUD"
+    );
+    let r = 10.0;
+    let band = palette_band_y(press, r);
+    h.frame_with(alt_right(
+        Pos2::new(press.x, press.y + (band - press.y) * 0.5),
+        None,
+    ));
+    assert!(h.app.brush_softness <= 0.4 + 1e-4, "{}", h.app.brush_softness);
+    let n = h.app.tip_choices().len();
+    let row: Vec<Pos2> = (0..n).map(|i| palette_slot(press, r, i, n)).collect();
+    for p in [
+        Pos2::new(press.x, band + 1.0),
+        Pos2::new(press.x + 300.0, band + 4.0),
+        row[0] + EVec2::new(-60.0, 0.0),
+        row[1],
+    ] {
+        h.frame_with(alt_right(p, None));
+        assert_eq!(h.app.brush_width, 20.0, "size held in the band at {p:?}");
+        assert_eq!(h.app.brush_softness, 0.0, "hardest in the band at {p:?}");
+    }
+    assert_eq!(palette_hit(press, r, n, row[1]), Some(1));
+    h.frame_with(alt_right(row[1], Some(false)));
+    h.frame();
+    assert!(h.app.brush_hud.is_none());
+    assert_eq!(h.app.brush_width, 20.0);
+    assert_eq!(h.app.brush_softness, 0.0, "the release keeps the hardest edge");
+    assert_eq!(h.app.current_tip_choice(), Some(h.app.tip_choices()[1]));
+}
+
+/// Review r7 finding 7: on painted ink Shift is the straight-line modifier,
+/// so with Ortho (F8) on a Shift drag still takes 45° steps.
+#[test]
+fn brush_shift_drag_keeps_45_degree_steps_with_ortho_on() {
+    let mut h = brush_board("brush_shift_ortho");
+    press_key_with(&mut h, egui::Key::F8, egui::Modifiers::NONE);
+    assert!(h.app.board_ortho, "F8 turns Ortho on");
+    let a = Pos2::new(100.0, 100.0);
+    let end = Pos2::new(260.0, 180.0);
+    press_drag_release_frames(
+        &mut h,
+        &[a, Pos2::new(220.0, 90.0), end],
+        egui::Modifiers::SHIFT,
+        |_| {},
+    );
+    let v = path_vertices(&h.app.doc().scene.nodes[0]);
+    assert_eq!(v.len(), 2, "a straight segment: {v:?}");
+    assert!(on_45(v[0], v[1]), "Ortho did not cancel the steps: {v:?}");
+    assert!(near_px(v[1], board_snap::ortho_snap_point(a, end)), "{v:?}");
+}
+
+/// Review r7 finding 8: a texture change during a live Shift segment
+/// restamps it (each tip's grain is part of the segment's identity).
+#[test]
+fn a_texture_change_restamps_the_live_shift_segment() {
+    let mut h = brush_board("brush_shift_texture");
+    let xf = h.app.board_xf();
+    let (a, b) = (xf.w2s(Pos2::new(100.0, 100.0)), xf.w2s(Pos2::new(260.0, 100.0)));
+    let shift = egui::Modifiers::SHIFT;
+    let button = |pos: Pos2, pressed: bool| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: shift,
+    };
+    let exact = |h: &Harness| h.app.brush_live.as_ref().is_some_and(|c| c.line_exact());
+    let settle = |h: &mut Harness| {
+        for _ in 0..400 {
+            if exact(h) {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            h.frame_with(|i| i.modifiers = shift);
+        }
+        false
+    };
+    h.frame_with(|i| {
+        i.modifiers = shift;
+        i.events.push(egui::Event::PointerMoved(a));
+    });
+    h.frame_with(|i| {
+        i.modifiers = shift;
+        i.events.push(button(a, true));
+    });
+    h.frame_with(|i| {
+        i.modifiers = shift;
+        i.events.push(egui::Event::PointerMoved(b));
+    });
+    assert!(settle(&mut h), "the smooth segment's exact stamp lands");
+    h.frame_with(|i| i.modifiers = shift);
+    assert!(exact(&h), "a still frame keeps the stamp");
+    h.app.brush_texture = slate_doc::scene::BrushTexture::Pencil;
+    h.frame_with(|i| i.modifiers = shift);
+    assert!(!exact(&h), "the new texture makes the old stamp stale");
+    assert!(settle(&mut h), "the segment restamps in the new texture");
+    h.frame_with(|i| {
+        i.modifiers = shift;
+        i.events.push(button(b, false));
+    });
+}
+
+/// Review r7 findings 5 and 13: a Select-tool grip pick takes the Ctrl and
+/// Shift+right chords through frames. A vertex's opacity reads and writes
+/// as the opacity it paints at (node opacity × its alpha): raising one
+/// vertex past the node's opacity lifts the node, and the others keep
+/// painting as before.
+#[test]
+fn a_select_grip_pick_takes_the_wheel_and_painted_opacity_through_frames() {
+    let mut h = grip_board("hud_select_grip_chords");
+    let (id, pts) = hud_polyline(&mut h);
+    h.app.patch_nodes(&[id], |n| n.opacity = 0.5);
+    h.frame();
+    let xf = h.app.board_xf();
+    press_primary(&mut h, xf.w2s(pts[2]), egui::Modifiers::NONE);
+    assert_eq!(h.app.picked_vertices(), Some((id, vec![2])), "the click picks vertex 2");
+    let away = xf.w2s(pts[1] + EVec2::new(0.0, 160.0));
+    h.frame_with(|i| i.events.push(egui::Event::PointerMoved(away)));
+    let (_, _, opacity) = h.app.vector_tip().expect("a readout");
+    assert!((opacity - 0.5).abs() < 1e-3, "the readout is painted opacity: {opacity}");
+    let before = painted_vertex_tips(&h, id);
+    let depth = h.app.tab().journal.undo_depth();
+
+    let center = open_wheel_frames(&mut h, away);
+    let target = bright_on_disk(center);
+    h.frame_with(ctrl_right(target, None));
+    h.frame_with(ctrl_right(target, Some(false)));
+    h.frame();
+    let colored = painted_vertex_tips(&h, id);
+    assert_ne!(colored[2].1[..3], before[2].1[..3], "vertex 2 takes the color");
+    assert_eq!(colored[0], before[0], "vertex 0 keeps its color");
+    assert_eq!(colored[1], before[1], "vertex 1 keeps its color");
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
+
+    hud_scrub(&mut h, away, EVec2::new(0.0, -120.0), egui::Modifiers::SHIFT);
+    let node_opacity = h.app.doc().scene.node(id).unwrap().opacity;
+    assert!((node_opacity - 1.0).abs() < 1e-3, "the node rises to vertex 2: {node_opacity}");
+    let tips = painted_vertex_tips(&h, id);
+    let painted = |k: usize| node_opacity * tips[k].1[3] as f32 / 255.0;
+    assert!((painted(2) - 1.0).abs() < 1e-3, "vertex 2 paints fully opaque");
+    for k in [0, 1] {
+        assert!((painted(k) - 0.5).abs() < 0.01, "vertex {k} still paints at 50 %: {tips:?}");
+    }
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 2);
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    assert_eq!(h.app.doc().scene.node(id).unwrap().opacity, 0.5, "one Ctrl+Z");
+    assert_eq!(painted_vertex_tips(&h, id), colored);
+}
+
 #[test]
 fn direct_select_deletes_an_anchor_and_rejoins_its_neighbors() {
     let mut h = Harness::new("direct_delete");

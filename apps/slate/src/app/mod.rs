@@ -627,8 +627,12 @@ pub struct SlateApp {
     /// Alt primary press waiting for a short click (eyedropper sample).
     pub(crate) brush_mod_click: Option<board_color::BrushModClick>,
     /// Swatch pick: (press point, where that color sits on the wheel). The
-    /// pointer moves; the wheel does not.
+    /// pointer moves; the wheel does not. Also the way back to the last
+    /// sample of a freehand stroke a tip chord paused.
     pub(crate) brush_cursor_warp: Option<(egui::Pos2, egui::Pos2)>,
+    /// A tip chord just closed over a freehand stroke: the pointer is still
+    /// where the scrub left it this frame, so it draws no sample.
+    pub(crate) freehand_resume: bool,
     /// Shift+drag straight line, from the press tip.
     pub(crate) brush_straight: Option<board_color::BrushStraight>,
     /// End of the last brush mark, where the next Shift segment starts.
@@ -975,6 +979,7 @@ impl SlateApp {
             hud_pointer: None,
             brush_mod_click: None,
             brush_cursor_warp: None,
+            freehand_resume: false,
             brush_straight: None,
             brush_line_anchor: None,
             brush_setting_undo: Vec::new(),

@@ -266,32 +266,106 @@ impl Property {
                 return;
             }
         }
+        if let Self::StrokeWidth(v) = *self {
+            if v.is_finite() && scale_stamped_curve(node, None, v.max(0.0), None) {
+                return;
+            }
+        }
         self.apply(node, item_path);
         match *self {
             Self::StrokeRgb(rgb) => {
-                recolor_vertex_tips(node, |c| c.0[..3].copy_from_slice(&rgb));
+                edit_every_tip(node, |t| t.color.0[..3].copy_from_slice(&rgb));
             }
-            Self::StrokeAlpha(a) => recolor_vertex_tips(node, |c| c.0[3] = a),
+            Self::StrokeAlpha(a) => edit_every_tip(node, |t| t.color.0[3] = a),
             _ => {}
         }
     }
 }
 
-/// A whole-curve color edit sets every vertex's color too
-/// (P1.curve.vertex-style).
-fn recolor_vertex_tips(node: &mut Node, recolor: impl Fn(&mut Rgba)) {
+/// A whole-curve color or texture edit sets every vertex's tip too
+/// (P1.curve.vertex-style): stored tips paint over the stroke, on a hard
+/// curve and a stamped brush stroke alike.
+pub(crate) fn edit_every_tip(node: &mut Node, edit: impl Fn(&mut scene::StrokeSpan)) {
     let NodeKind::Shape(s) = &mut node.kind else {
         return;
     };
-    if s.shape != ShapeKind::Path || s.stroke.paints_as_stamp() {
+    if s.shape != ShapeKind::Path {
         return;
     }
-    let Some(path) = s.path.as_mut().filter(|p| !p.tips.is_empty()) else {
+    let Some(path) = s.path.as_mut() else {
         return;
     };
-    for tip in &mut std::sync::Arc::make_mut(path).tips {
-        recolor(&mut tip.color);
+    if path.tips.is_empty() && s.stroke.tween_from.is_none() {
+        return;
     }
+    slate_doc::vertex_style::edit_every_tip(std::sync::Arc::make_mut(path), &mut s.stroke, edit);
+}
+
+/// Whole-curve width (and softness, when given) of a stamped stroke with
+/// stored tips: every tip scales from `base`, else from the curve as it is
+/// (`vertex_style::scale_stamped_tips`). `false` when the node paints one
+/// tip or is not stamped, so the stroke itself takes the edit.
+pub(crate) fn scale_stamped_curve(
+    node: &mut Node,
+    base: Option<&Node>,
+    width: f32,
+    softness: Option<f32>,
+) -> bool {
+    let base = base.and_then(|b| match &b.kind {
+        NodeKind::Shape(s) => Some((s.path.clone()?, s.stroke)),
+        _ => None,
+    });
+    let NodeKind::Shape(s) = &mut node.kind else {
+        return false;
+    };
+    if s.shape != ShapeKind::Path || !s.stroke.paints_as_stamp() {
+        return false;
+    }
+    let Some(path) = s.path.as_mut() else {
+        return false;
+    };
+    let softness = softness
+        .unwrap_or_else(|| slate_doc::vertex_style::curve_tip(Some(&**path), &s.stroke).softness);
+    slate_doc::vertex_style::scale_stamped_tips(
+        std::sync::Arc::make_mut(path),
+        &mut s.stroke,
+        base.as_ref().map(|(p, st)| (&**p, st)),
+        width,
+        softness,
+    )
+}
+
+/// Set the painted opacity of the `points` (grip indices) of a path node
+/// through the share rule (`vertex_style::set_grip_opacity`), node
+/// opacity included.
+pub(crate) fn set_vertex_opacity(node: &mut Node, points: &[usize], opacity: f32) -> bool {
+    let (rect, rotation, node_opacity) = (node.rect, node.rotation_deg, node.opacity);
+    let NodeKind::Shape(s) = &mut node.kind else {
+        return false;
+    };
+    if s.shape != ShapeKind::Path {
+        return false;
+    }
+    let Some(path) = s.path.as_ref() else {
+        return false;
+    };
+    let mut path = (**path).clone();
+    let mut stroke = s.stroke;
+    let Some(top) = slate_doc::vertex_style::set_grip_opacity(
+        &mut path,
+        &mut stroke,
+        rect,
+        rotation,
+        node_opacity,
+        points,
+        opacity,
+    ) else {
+        return false;
+    };
+    s.path = Some(path.into());
+    s.stroke = stroke;
+    node.opacity = top;
+    true
 }
 
 /// The painted tip at the first of `points` (grip indices) of a path node.
@@ -300,7 +374,7 @@ pub(crate) fn picked_tip(node: &Node, points: &[usize]) -> Option<scene::StrokeS
     let NodeKind::Shape(s) = &node.kind else {
         return None;
     };
-    if s.shape != ShapeKind::Path || s.stroke.paints_as_stamp() {
+    if s.shape != ShapeKind::Path {
         return None;
     }
     let tips = slate_doc::vertex_style::grip_tips(
@@ -313,7 +387,7 @@ pub(crate) fn picked_tip(node: &Node, points: &[usize]) -> Option<scene::StrokeS
 }
 
 /// Edit the stroke tips at `points` (grip indices) of a path node.
-fn edit_vertex_tips(
+pub(crate) fn edit_vertex_tips(
     node: &mut Node,
     points: &[usize],
     edit: impl Fn(&mut scene::StrokeSpan),
@@ -322,7 +396,7 @@ fn edit_vertex_tips(
     let NodeKind::Shape(s) = &mut node.kind else {
         return false;
     };
-    if s.shape != ShapeKind::Path || s.stroke.paints_as_stamp() {
+    if s.shape != ShapeKind::Path {
         return false;
     }
     let Some(path) = s.path.as_ref() else {

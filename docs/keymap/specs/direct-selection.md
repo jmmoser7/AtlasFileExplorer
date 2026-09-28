@@ -70,20 +70,32 @@ User decision, 2026-09-26 and 2026-09-27 (supersedes the 2026-09-27
 
 | Action | Behavior |
 |--------|----------|
-| Alt+right-drag | Width of the picked vertices only |
+| Alt+right-drag | Width of the picked vertices only (vertical: softness, on a painted stroke) |
 | Ctrl+right-drag | Color wheel for the picked vertices only |
-| Shift+right-drag | Opacity (vertex color alpha) of the picked vertices only |
+| Shift+right-drag | Opacity the picked vertices paint at, only theirs |
 | The same over a vertex, nothing picked | Edits the hovered vertex |
 | The same elsewhere, nothing picked (Direct Select) | Edits the whole curve, per-vertex tips included |
 
 - The target is fixed at HUD start, so the pointer can wander.
-- Values are written through `Property::apply_at` into `PathData` tips
+- Values are written through `slate_doc::vertex_style` into `PathData` tips
   (P1.curve.vertex-style, Art. XII). A multi-pick edit writes only the
   changed channel, so each vertex keeps its other values.
+- A vertex's opacity reads and writes as the opacity it paints at: node
+  opacity × its alpha. The write uses the `placed_spans` share rule, so
+  raising one vertex past the node's opacity lifts the node and the other
+  vertices keep painting as before (review r7, 2026-09-27).
+- Painted (brush) strokes store one absolute tip per vertex. With nothing
+  picked, the whole-curve size and softness scale every tip in proportion
+  (the widest tip lands on the scrubbed value), color recolors every tip
+  and a texture choice retextures every tip. The readout is the widest,
+  softest tip. Picks on a painted stroke are Direct Select anchors or the
+  hovered anchor; the Select tool shows no grips on painted ink
+  (P1.curve.grips). Review r7, 2026-09-27.
 - A whole-curve color also recolors existing vertex tips, because they paint
   over the stroke color.
 - Art. IV: per-vertex color and opacity export as a `linearGradient` with
-  per-stop `stop-color` / `stop-opacity`.
+  per-stop `stop-color` / `stop-opacity`; a painted stroke exports the
+  bitmap its tips stamp, the same tips the board paints.
 - One journaled Patch per HUD release; one Ctrl+Z reverts it; Esc during the
   HUD restores the curve and journals nothing.
 

@@ -1,5 +1,30 @@
 # Canvas command project — change log
 
+## 2026-09-27 — Tip HUD on brush strokes, painted opacity (review r7)
+
+- `specs/direct-selection.md`, `specs/brush-color.md`, PATTERNS
+  P1.curve.vertex-style: the tip HUD reaches committed brush strokes. With
+  nothing picked, size and softness scale every stamped tip in proportion,
+  color recolors and a texture choice retextures every tip; a picked or
+  hovered anchor edits only its tip (softness included). Picks on painted
+  strokes are Direct Select anchors or hover (the Select tool shows no
+  grips on painted ink). The painter and the HTML export read the same
+  tips (Art. IV).
+- A vertex's opacity reads and writes as the opacity it paints at (node
+  opacity × its alpha), stored by the share rule, so the other vertices
+  keep painting as before.
+- A uniform freehand brush stroke commits the tip it was drawn with, even
+  after a chord that followed its last sample.
+- PATTERNS P1.curve.create-style: a curve tool's wheel no longer moves the
+  brush foreground (no user statement asks for a shared color).
+- PATTERNS P1.curve.tip-chord, `brush` D11: a chord that closes mid-stroke
+  warps the pointer back to the last drawn sample and the stroke resumes
+  there.
+- `brush` D03 and D06, `KEYMAP.md` F8: on painted ink Ortho (F8) never
+  cancels the Shift line's 45° steps (Brush and Eraser). Vector tools keep
+  Rhino's Shift-inverts-Ortho.
+- No binding changed.
+
 ## 2026-09-27 — Agent Stop before the link folder exists
 
 - Agent output Stop writes `cancel.json` even when pressed before a worker

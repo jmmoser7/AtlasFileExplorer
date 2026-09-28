@@ -6250,6 +6250,7 @@ impl SlateApp {
         world: Pos2,
         mods: egui::Modifiers,
     ) -> Option<BoardDrag> {
+        self.freehand_resume = false;
         // A dropped toolbar is a node: press-drag anywhere on it (icons
         // included) moves the strip. Create tools stay armed; they do not
         // start a draw from the toolbar.
@@ -6577,8 +6578,8 @@ impl SlateApp {
             self.board_drag,
             Some(BoardDrag::FreehandPen { .. } | BoardDrag::FreehandBrush { .. })
         ) {
-            // A tip chord's scrub is not ink.
-            if self.brush_hud.is_some() {
+            // A tip chord's scrub is not ink, nor is the frame it closes on.
+            if self.brush_hud.is_some() || std::mem::take(&mut self.freehand_resume) {
                 return;
             }
             let zoom = self.tabs[self.active_tab].cam.z;

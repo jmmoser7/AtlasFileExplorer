@@ -105,7 +105,7 @@ typing or presenting (existing convention). "Both" = Slate all views + Atlas.
 | F3 | Rhino | **Properties** — toggle selection inspector | Both | ✅ exists | Atlas: opens Details for the selected file. Also absorbs Illustrator's F11 Attributes (⛔ — F11 is fullscreen). |
 | F6 | Photoshop | **Color panel** — fg/bg color popover | Board | 🟡 adopt-P2 | Folded into the color-state work; the dock Colors chips cover P1. |
 | F7 | Rhino | **Grid toggle** (alias of `G`) | Board | ✅ exists | |
-| F8 | Rhino | **Toggle Ortho** — persistent 45° constraint on draw/move | Board | ✅ exists | Shift *inverts* the current ortho state while held (Rhino semantics). |
+| F8 | Rhino | **Toggle Ortho** — persistent 45° constraint on draw/move | Board | ✅ exists | Shift *inverts* the current ortho state while held (Rhino semantics). Exception: the Brush and Eraser Shift line is always 45° steps; Ortho never cancels it (`brush` D03). |
 | F9 | Rhino | **Toggle snap-to-grid** | Board | ✅ exists | Dock toggle exists; adds the key. |
 | F11 | Illustrator | Attributes panel | — | ⛔ reject | `F11` hides the bottom readout bar in both apps (registered, shipped; same as the lower-left chevron). Attributes content lives in the `F3` inspector. |
 | F12 | Rhino | DigClick | — | ⛔ reject | Digitizer hardware command; no analog here (Art. III). |

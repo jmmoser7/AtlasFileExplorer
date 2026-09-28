@@ -96,11 +96,21 @@ pub struct BoardColors { pub fg: Rgba, pub bg: Rgba }
   edits only those vertices' width, color and opacity; with none picked, a
   hovered vertex; otherwise Direct Select edits the whole curve, existing
   per-vertex tips included. Per-vertex values live in `PathData` tips
-  (P1.curve.vertex-style); opacity is the alpha of the vertex color. Both
-  interpreters render them (Art. IV): the painter blends along the stroke,
-  and the HTML export writes a `linearGradient` with `stop-opacity`. One
-  journaled Patch per HUD release; Esc restores. See
+  (P1.curve.vertex-style); a vertex's opacity is the opacity it paints at
+  (node opacity × the alpha of its color), written back by the share rule.
+  Committed brush strokes take the HUD too (review r7, 2026-09-27): their
+  stamped tips scale in proportion for whole-curve size and softness, and
+  recolor or retexture together; a picked or hovered anchor edits only its
+  own tip. Both interpreters render them (Art. IV): the painter blends
+  along the stroke, and the HTML export writes a `linearGradient` with
+  `stop-opacity` (vector) or the stamped bitmap of the same tips (brush).
+  One journaled Patch per HUD release; Esc restores. See
   [direct selection](direct-selection.md#tip-hud-on-picked-vertices).
+- A curve tool's wheel sets that tool's color only; the brush color stays
+  where it was (P1.curve.create-style, review r7 finding 3).
+- A chord that closes during a freehand Pen or Brush drag moves the pointer
+  back onto the stroke's last sample (the swatch warp's path), and the
+  stroke continues from there.
 - The HUD also works mid-draw: a width, color or opacity chord while a
   curve is being drawn gives the next placed point that tip, and the
   committed curve tweens between them (P1.curve.tip-chord).

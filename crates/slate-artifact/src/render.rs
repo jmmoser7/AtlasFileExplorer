@@ -2922,6 +2922,82 @@ mod tests {
         out
     }
 
+    /// Review r7 finding 1 (Art. IV): the export stamps a brush stroke's
+    /// tips as the tip HUD leaves them. A whole-curve recolor reaches every
+    /// tip; a picked-vertex resize reaches only its end.
+    #[test]
+    fn a_tip_hud_edited_brush_stroke_exports_its_tips() {
+        use slate_doc::scene::{PathSeg, Rgba, StrokeSpan};
+        use slate_doc::vertex_style::{edit_every_tip, edit_grip_tips, set_vertex_tips};
+        let red = |width| StrokeSpan {
+            width,
+            softness: 0.2,
+            color: Rgba([220, 20, 20, 255]),
+            texture: Default::default(),
+        };
+        let mut path = PathData {
+            start: [0.0, 0.5],
+            segs: vec![
+                PathSeg::Line { to: [0.5, 0.5] },
+                PathSeg::Line { to: [1.0, 0.5] },
+            ],
+            ..PathData::default()
+        };
+        let mut stroke = slate_doc::scene::Stroke {
+            width: 8.0,
+            color: Rgba([220, 20, 20, 255]),
+            softness: 0.2,
+            stamp: true,
+            ..Default::default()
+        };
+        assert!(set_vertex_tips(
+            &mut path,
+            &mut stroke,
+            vec![red(6.0), red(8.0), red(6.0)]
+        ));
+        let rect = WorldRect::new(0.0, 0.0, 300.0, 40.0);
+        edit_every_tip(&mut path, &mut stroke, |t| t.color = Rgba([20, 200, 20, 255]));
+        assert!(edit_grip_tips(&mut path, &mut stroke, rect, 0.0, &[2], |t| {
+            t.width = 30.0
+        }));
+        let shape = slate_doc::scene::ShapeNode {
+            shape: slate_doc::scene::ShapeKind::Path,
+            fill: None,
+            stroke,
+            corner: Corner::Square,
+            sides: slate_doc::scene::default_regular_sides(),
+            phase_deg: 0.0,
+            flip: false,
+            path: Some(path.clone().into()),
+            text: None,
+        };
+        let img = brush_stamp(&shape, &path, rect.w, rect.h, 1.0).expect("a stamp");
+        let px = |x: u32, y: u32| {
+            let i = ((y * img.width + x) * 4) as usize;
+            [img.rgba[i], img.rgba[i + 1], img.rgba[i + 2], img.rgba[i + 3]]
+        };
+        let mut inked = 0;
+        for y in 0..img.height {
+            for x in 0..img.width {
+                let [r, g, b, a] = px(x, y);
+                if a > 64 {
+                    inked += 1;
+                    assert!(g > r && g > b, "every tip exports green: {:?}", px(x, y));
+                }
+            }
+        }
+        assert!(inked > 0, "the stroke inks");
+        let column = |world_x: f32| {
+            let x = (((world_x - img.origin[0]) / img.pixel) as u32).min(img.width - 1);
+            (0..img.height).filter(|&y| px(x, y)[3] > 128).count() as f32 * img.pixel
+        };
+        let (start, end) = (column(30.0), column(270.0));
+        assert!(
+            end > start * 2.0,
+            "only the picked end widens: {start} at the start, {end} at the end"
+        );
+    }
+
     /// A wide, soft, heavily blurred brush dab exports a PNG whose falloff
     /// changes smoothly instead of holding one alpha in rings.
     #[test]

@@ -613,7 +613,7 @@ fn sv_at(local: egui::Vec2) -> (f32, f32) {
 
 /// Wheel-local centers of the pure white and pure black snap regions, and
 /// the saturation/value each returns.
-fn wheel_snaps() -> [(egui::Vec2, [f32; 2]); 2] {
+pub(crate) fn wheel_snaps() -> [(egui::Vec2, [f32; 2]); 2] {
     [
         (sv_offset(0.0, 1.0), [0.0, 1.0]),
         (sv_offset(0.5, 0.0), [0.5, 0.0]),
@@ -1016,13 +1016,16 @@ impl SlateApp {
             return;
         }
         let mut stroke = self.brush_stroke();
-        if let Some(last) = tips.last().copied() {
+        if let (Some(&first), Some(&last)) = (tips.first(), tips.last()) {
+            let uniform = tips.iter().all(|t| *t == first);
             if slate_doc::vertex_style::set_vertex_tips(&mut data, &mut stroke, tips) {
-                stroke.softness = last.softness;
-                stroke.texture = last.texture;
                 if !data.tips.is_empty() {
+                    stroke.softness = last.softness;
+                    stroke.texture = last.texture;
                     stroke.color = last.color;
                 }
+            } else if uniform {
+                slate_doc::vertex_style::set_stroke_tip(&mut stroke, first);
             }
         }
         let node = self.doc_mut().scene.build_node(
@@ -1340,8 +1343,10 @@ impl SlateApp {
     /// The end of a painted straight segment (the Brush or Eraser Shift
     /// line) from `from`, pressed at `press`, with the pointer at `world`.
     /// A click connects to the click point exactly. A drag past the click
-    /// threshold takes the Tab direction lock, else ortho (F8, Shift
-    /// inverts): 45° steps from `from`. Preview and release both read this.
+    /// threshold takes the Tab direction lock, else 45° steps from `from`.
+    /// On painted ink Shift is the straight-line modifier itself, so F8 adds
+    /// the steps but never cancels them (the vector tools keep Rhino's
+    /// Shift-inverts-ortho). Preview and release both read this.
     pub(crate) fn painted_segment_end(
         &self,
         from: Pos2,
@@ -1350,7 +1355,7 @@ impl SlateApp {
         shift: bool,
     ) -> Pos2 {
         let dragged = (world - press).length() * self.tab().cam.z > BRUSH_MOD_CLICK_PX;
-        let ortho = dragged && super::board_snap::effective_ortho(self.board_ortho, shift);
+        let ortho = dragged && (shift || self.board_ortho);
         self.constrain_segment_end(from, world, ortho)
     }
 
@@ -2038,8 +2043,11 @@ impl SlateApp {
                 ..
             } => {
                 let local = pointer - *center;
-                let recents = self.doc().view.recent_colors.clone().unwrap_or_default();
-                let hit = sample_wheel([local.x, local.y], *hsv, &recents);
+                let hit = sample_wheel(
+                    [local.x, local.y],
+                    *hsv,
+                    self.doc().view.recent_colors.as_deref().unwrap_or(&[]),
+                );
                 let entered = match hit {
                     WheelHit::Dot(_, slot) => Some(slot),
                     _ => None,
@@ -2094,6 +2102,22 @@ impl SlateApp {
             self.push_brush_setting_undo(before);
         }
         self.journal_hud_node(node_before);
+        self.resume_freehand_after_hud();
+    }
+
+    /// A tip chord paused a freehand Pen or Brush stroke: move the pointer
+    /// back onto the last drawn sample, through the swatch warp's path, so
+    /// the stroke continues from where it paused instead of drawing a
+    /// straight jump across the scrub.
+    fn resume_freehand_after_hud(&mut self) {
+        let last = match &self.board_drag {
+            Some(super::board::BoardDrag::FreehandPen { stroke }) => stroke.last(),
+            Some(super::board::BoardDrag::FreehandBrush { stroke }) => stroke.last(),
+            _ => return,
+        };
+        let target = self.board_xf().w2s(last);
+        self.brush_cursor_warp = Some((target, target));
+        self.freehand_resume = true;
     }
 
     pub(crate) fn cancel_brush_hud(&mut self) {
@@ -2117,6 +2141,7 @@ impl SlateApp {
             BrushHud::Wheel { fg0, .. } => self.set_active_rgba(fg0),
         }
         self.restore_hud_node(node_before);
+        self.resume_freehand_after_hud();
     }
 
     /// Transient input HUD opened at the right-button press for the life of
@@ -2181,56 +2206,9 @@ impl SlateApp {
             WHEEL_BACKDROP_RADIUS,
             Color32::from_rgba_unmultiplied(18, 18, 20, 235),
         );
-        let rings = 32u32;
-        let slices = 96u32;
-        let mut mesh = egui::Mesh::default();
-        let color_at = |local: egui::Vec2| {
-            let (sat, val) = sv_at(local);
-            let rgb = hsv_to_rgb([hsv[0], sat, val]);
-            Color32::from_rgb(rgb[0], rgb[1], rgb[2])
-        };
-        mesh.colored_vertex(center, color_at(egui::Vec2::ZERO));
-        // The disk ends at its own radius: the gap out to the hue ring is
-        // the backdrop, and picks nothing.
-        for ring in 1..=rings {
-            let dist = WHEEL_SV_RADIUS * ring as f32 / rings as f32;
-            for slice in 0..slices {
-                let angle = slice as f32 / slices as f32 * std::f32::consts::TAU;
-                let local = egui::vec2(angle.cos() * dist, angle.sin() * dist);
-                mesh.colored_vertex(center + local, color_at(local));
-            }
-        }
-        for slice in 0..slices {
-            let a = 1 + slice;
-            let b = 1 + (slice + 1) % slices;
-            mesh.add_triangle(0, a, b);
-        }
-        for ring in 1..rings {
-            let inner = 1 + (ring - 1) * slices;
-            let outer = inner + slices;
-            for slice in 0..slices {
-                let next = (slice + 1) % slices;
-                mesh.add_triangle(inner + slice, outer + slice, outer + next);
-                mesh.add_triangle(inner + slice, outer + next, inner + next);
-            }
-        }
-        painter.add(egui::Shape::mesh(mesh));
-        let hue_steps = 120u32;
-        let mut ring = egui::Mesh::default();
-        for i in 0..hue_steps {
-            let a = i as f32 / hue_steps as f32 * std::f32::consts::TAU;
-            let c = hsv_to_rgb([a / std::f32::consts::TAU, 1.0, 1.0]);
-            let c = Color32::from_rgb(c[0], c[1], c[2]);
-            let dir = egui::vec2(a.cos(), -a.sin());
-            ring.colored_vertex(center + dir * WHEEL_HUE_INNER, c);
-            ring.colored_vertex(center + dir * WHEEL_HUE_OUTER, c);
-        }
-        for i in 0..hue_steps {
-            let (a, b) = (2 * i, 2 * ((i + 1) % hue_steps));
-            ring.add_triangle(a, a + 1, b + 1);
-            ring.add_triangle(a, b + 1, b);
-        }
-        painter.add(egui::Shape::mesh(ring));
+        let (disk, ring) = wheel_meshes(painter.ctx(), center, hsv[0]);
+        painter.add(egui::Shape::Mesh(disk));
+        painter.add(egui::Shape::Mesh(ring));
         for (at, _) in wheel_snaps() {
             let inside = at - at.normalized() * (WHEEL_SNAP_RADIUS * 0.5);
             painter.circle_stroke(
@@ -2239,7 +2217,7 @@ impl SlateApp {
                 EStroke::new(1.0_f32, Color32::from_gray(128)),
             );
         }
-        let recents = self.doc().view.recent_colors.clone().unwrap_or_default();
+        let recents = self.doc().view.recent_colors.as_deref().unwrap_or(&[]);
         let slots = slate_doc::ViewState::WHEEL_COLOR_LIMIT;
         for (index, color) in recents.iter().enumerate().take(slots) {
             let at = wheel_slot_center(center, index);
@@ -2259,6 +2237,97 @@ impl SlateApp {
             );
         painter.circle_stroke(hue_at, 6.0, EStroke::new(2.0_f32, Color32::WHITE));
     }
+}
+
+/// The wheel's saturation/value disk and hue ring at screen `center`,
+/// tessellated when the wheel opens and again only when the hue moves (the
+/// disk) or the wheel does (Art. II). The wheel is screen chrome, so zoom
+/// and pixel density do not change either mesh.
+fn wheel_meshes(
+    ctx: &egui::Context,
+    center: Pos2,
+    hue: f32,
+) -> (std::sync::Arc<egui::Mesh>, std::sync::Arc<egui::Mesh>) {
+    type Cached = ([u32; 3], std::sync::Arc<egui::Mesh>);
+    let at = [center.x.to_bits(), center.y.to_bits()];
+    let disk_key = [at[0], at[1], hue.to_bits()];
+    let ring_key = [at[0], at[1], 0];
+    let (disk_id, ring_id) = (
+        egui::Id::new("slate.wheel_disk"),
+        egui::Id::new("slate.wheel_ring"),
+    );
+    let cached = |id: egui::Id, key: [u32; 3]| {
+        ctx.data(|d| d.get_temp::<Cached>(id))
+            .filter(|(k, _)| *k == key)
+            .map(|(_, mesh)| mesh)
+    };
+    let disk = cached(disk_id, disk_key).unwrap_or_else(|| {
+        let mesh = std::sync::Arc::new(wheel_disk_mesh(center, hue));
+        ctx.data_mut(|d| d.insert_temp(disk_id, (disk_key, mesh.clone())));
+        mesh
+    });
+    let ring = cached(ring_id, ring_key).unwrap_or_else(|| {
+        let mesh = std::sync::Arc::new(wheel_ring_mesh(center));
+        ctx.data_mut(|d| d.insert_temp(ring_id, (ring_key, mesh.clone())));
+        mesh
+    });
+    (disk, ring)
+}
+
+fn wheel_disk_mesh(center: Pos2, hue: f32) -> egui::Mesh {
+    let rings = 32u32;
+    let slices = 96u32;
+    let mut mesh = egui::Mesh::default();
+    let color_at = |local: egui::Vec2| {
+        let (sat, val) = sv_at(local);
+        let rgb = hsv_to_rgb([hue, sat, val]);
+        Color32::from_rgb(rgb[0], rgb[1], rgb[2])
+    };
+    mesh.colored_vertex(center, color_at(egui::Vec2::ZERO));
+    // The disk ends at its own radius: the gap out to the hue ring is
+    // the backdrop, and picks nothing.
+    for ring in 1..=rings {
+        let dist = WHEEL_SV_RADIUS * ring as f32 / rings as f32;
+        for slice in 0..slices {
+            let angle = slice as f32 / slices as f32 * std::f32::consts::TAU;
+            let local = egui::vec2(angle.cos() * dist, angle.sin() * dist);
+            mesh.colored_vertex(center + local, color_at(local));
+        }
+    }
+    for slice in 0..slices {
+        let a = 1 + slice;
+        let b = 1 + (slice + 1) % slices;
+        mesh.add_triangle(0, a, b);
+    }
+    for ring in 1..rings {
+        let inner = 1 + (ring - 1) * slices;
+        let outer = inner + slices;
+        for slice in 0..slices {
+            let next = (slice + 1) % slices;
+            mesh.add_triangle(inner + slice, outer + slice, outer + next);
+            mesh.add_triangle(inner + slice, outer + next, inner + next);
+        }
+    }
+    mesh
+}
+
+fn wheel_ring_mesh(center: Pos2) -> egui::Mesh {
+    let hue_steps = 120u32;
+    let mut ring = egui::Mesh::default();
+    for i in 0..hue_steps {
+        let a = i as f32 / hue_steps as f32 * std::f32::consts::TAU;
+        let c = hsv_to_rgb([a / std::f32::consts::TAU, 1.0, 1.0]);
+        let c = Color32::from_rgb(c[0], c[1], c[2]);
+        let dir = egui::vec2(a.cos(), -a.sin());
+        ring.colored_vertex(center + dir * WHEEL_HUE_INNER, c);
+        ring.colored_vertex(center + dir * WHEEL_HUE_OUTER, c);
+    }
+    for i in 0..hue_steps {
+        let (a, b) = (2 * i, 2 * ((i + 1) % hue_steps));
+        ring.add_triangle(a, a + 1, b + 1);
+        ring.add_triangle(a, b + 1, b);
+    }
+    ring
 }
 
 /// Stamp an erased painted stroke once, as committed (blur included):
