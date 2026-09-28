@@ -314,7 +314,9 @@ is searchable.
   seed every tool from it once. Closed shapes keep one shared memory
   (P1.shape.style). Implementation: `board_style::BoardLastStyle`, updated from
   `patch_nodes` (single target), grip commits, and tool commits; persisted on
-  `ViewState.create_style`. Vector curve tools
+  `ViewState.create_style`. A curve tool's color wheel writes that tool's
+  slot only and never the brush foreground (review r7, 27 September 2026:
+  no user statement asks for a shared color). Vector curve tools
   (pen, line, arc, polyline, Bézier) always commit a hard vector stroke
   (`Stroke::hard_vector`): edge softness, stamp, and Gaussian blur are never
   inherited, not even from an edited brush stroke, and those tools offer no
@@ -354,8 +356,11 @@ is searchable.
   (`slate_doc::geom::tip_ease` on the path as it paints). A stamped stroke
   eases per segment: straight on a line segment, smoothstep on a curve
   (`vector_ink::tipped_contours`). **Freehand:** mid-stroke the Pen and the
-  Brush stop sampling while a HUD is up, so the scrub draws nothing. The
-  samples after it blend from the last drawn tip to the new one by
+  Brush stop sampling while a HUD is up, so the scrub draws nothing. When
+  the HUD closes, the pointer is warped back onto the last drawn sample
+  (the swatch warp's path) and the closing frame draws nothing, so the
+  stroke resumes where it paused instead of jumping across the scrub
+  (review r7, 27 September 2026). The samples after it blend from the last drawn tip to the new one by
   smoothstep over 24 screen px, or the wider of the two tips if that is
   longer (`board_path::FreehandTips`); the live preview draws each sample
   at its own tip. The fit splits at the blend's ends, and each fitted
@@ -425,7 +430,19 @@ is searchable.
   neighbors"): the Stroke color field and opacity rail edit the picked
   vertices and read the first of them, colors blend between vertices by the
   same rule as widths, and a color edit with no grip picked sets every
-  vertex.
+  vertex. A vertex's opacity is the opacity it paints at (node opacity ×
+  its alpha); an edit writes it back through the share rule
+  (`vertex_style::set_grip_opacity` over `placed_spans`), so the others
+  keep painting as before. **Painted strokes** (review r7, 27 September
+  2026): a brush stroke's tips are absolute stamped tips, one per anchor,
+  and take the same edits. Picked anchors edit only their tips (softness
+  too); with none picked, size and softness scale every tip in
+  proportion from the tips at the edit's start
+  (`vertex_style::scale_stamped_tips`), color and texture reach every tip
+  (`vertex_style::edit_every_tip`), and the stroke's width stays its
+  widest tip so the tile padding covers it. Uniform tips collapse onto the
+  stroke. The painter (`board_path::stamped_contours`) and the artifact
+  (`brush_stamp`) both read `PathData::paint_tips`.
   **Proposals:** the widths are the existing `PathData::tips`, one per
   vertex, not a second per-vertex list. The blend is read from the geometry
   (`slate_doc::geom::tip_ease`: any curve that is not a circular arc is

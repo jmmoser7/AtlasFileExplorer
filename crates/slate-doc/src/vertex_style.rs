@@ -41,11 +41,13 @@ enum Grips {
     Arc,
 }
 
-fn grips_of(path: &PathData, world: &BezPath) -> Option<Grips> {
+/// A stamped stroke's grips are its anchors: its tips are absolute, one per
+/// sample vertex, never derived from three arc grips.
+fn grips_of(path: &PathData, world: &BezPath, stamp: bool) -> Option<Grips> {
     if !path.extra.is_empty() || path.is_empty() {
         return None;
     }
-    if !path.closed && arc_grip_points(world).is_some() {
+    if !stamp && !path.closed && arc_grip_points(world).is_some() {
         return Some(Grips::Arc);
     }
     let ends: Vec<Point> = world
@@ -58,9 +60,18 @@ fn grips_of(path: &PathData, world: &BezPath) -> Option<Grips> {
 }
 
 /// One tip per vertex, as the path paints now: stored tips at their painted
-/// width (`PathData::vector_widths`), else the stroke itself everywhere.
+/// width (`PathData::vector_widths`; a stamped stroke's tips as stored),
+/// else the stroke itself everywhere.
 fn painted_tips(path: &PathData, stroke: &Stroke) -> Vec<StrokeSpan> {
     let n = 1 + path.segs.len();
+    if stroke.paints_as_stamp() {
+        let tips = path.paint_tips(stroke);
+        return if tips.len() == n {
+            tips
+        } else {
+            vec![StrokeSpan::of(stroke); n]
+        };
+    }
     match path.vector_widths(stroke) {
         Some(widths) => path
             .tips
@@ -89,7 +100,7 @@ pub fn grip_tips(
 ) -> Option<Vec<StrokeSpan>> {
     let world = path_data_to_world_bez(path, rect, rotation_deg);
     let tips = painted_tips(path, stroke);
-    Some(match grips_of(path, &world)? {
+    Some(match grips_of(path, &world, stroke.paints_as_stamp())? {
         Grips::Anchors { dup } => tips[..tips.len() - usize::from(dup)].to_vec(),
         Grips::Arc => {
             let n = path.segs.len();
@@ -115,7 +126,7 @@ pub fn set_grip_tips(
     grips: &[StrokeSpan],
 ) -> bool {
     let world = path_data_to_world_bez(path, rect, rotation_deg);
-    let Some(model) = grips_of(path, &world) else {
+    let Some(model) = grips_of(path, &world, stroke.paints_as_stamp()) else {
         return false;
     };
     let uniform = grips.iter().all(|g| *g == grips[0]);
@@ -253,6 +264,158 @@ pub fn edit_grip_tips(
         }
     }
     any && set_grip_tips(path, stroke, rect, rotation_deg, &grips)
+}
+
+/// Set the painted opacity (node opacity × tip alpha) at the `picked` grips
+/// to `opacity`; every other grip keeps the opacity it paints at. The result
+/// is stored by the [`placed_spans`] share rule: the node takes the most
+/// opaque grip's opacity and each tip's alpha carries its share of it. The
+/// node opacity to set, or `None` when none of `picked` is a grip.
+pub fn set_grip_opacity(
+    path: &mut PathData,
+    stroke: &mut Stroke,
+    rect: WorldRect,
+    rotation_deg: f32,
+    node_opacity: f32,
+    picked: &[usize],
+    opacity: f32,
+) -> Option<f32> {
+    let mut grips = grip_tips(path, stroke, rect, rotation_deg)?;
+    if !picked.iter().any(|&i| i < grips.len()) {
+        return None;
+    }
+    let placed: Vec<PlacedTip> = grips
+        .iter()
+        .enumerate()
+        .map(|(i, t)| {
+            let [r, g, b, a] = t.color.0;
+            PlacedTip {
+                width: t.width,
+                color: Rgba([r, g, b, 255]),
+                opacity: if picked.contains(&i) {
+                    opacity.clamp(0.0, 1.0)
+                } else {
+                    node_opacity.clamp(0.0, 1.0) * a as f32 / 255.0
+                },
+            }
+        })
+        .collect();
+    let (top, spans) = placed_spans(stroke, &placed);
+    for (tip, span) in grips.iter_mut().zip(&spans) {
+        tip.color.0[3] = span.color.0[3];
+    }
+    set_grip_tips(path, stroke, rect, rotation_deg, &grips).then_some(top)
+}
+
+/// The tip a whole-curve readout shows: a stamped stroke's widest and
+/// softest painted tip (its stored tips paint over the stroke), else the
+/// stroke itself, whose width already scales any relative vector tips.
+pub fn curve_tip(path: Option<&PathData>, stroke: &Stroke) -> StrokeSpan {
+    let own = StrokeSpan::of(stroke);
+    if !stroke.paints_as_stamp() {
+        return own;
+    }
+    let tips = path.map(|p| p.paint_tips(stroke)).unwrap_or_default();
+    if tips.is_empty() {
+        return own;
+    }
+    StrokeSpan {
+        width: tips.iter().map(|t| t.width).fold(0.0_f32, f32::max),
+        softness: tips.iter().map(|t| t.softness).fold(0.0_f32, f32::max),
+        ..own
+    }
+}
+
+/// Whole-curve size on a stamped stroke (P1.curve.vertex-style): every tip's
+/// width and softness scale by one factor each so the widest tip paints at
+/// `width` and the softest at `softness`. The factors apply to `base`, the
+/// curve before the edit began, so a scrub through zero keeps the taper;
+/// colors and textures stay as `path` has them now. `false` for a hard
+/// stroke or a stamped one that paints a single tip.
+pub fn scale_stamped_tips(
+    path: &mut PathData,
+    stroke: &mut Stroke,
+    base: Option<(&PathData, &Stroke)>,
+    width: f32,
+    softness: f32,
+) -> bool {
+    if !stroke.paints_as_stamp() {
+        return false;
+    }
+    let now = path.paint_tips(stroke);
+    if now.is_empty() {
+        return false;
+    }
+    let from = base
+        .map(|(p, s)| p.paint_tips(s))
+        .filter(|b| b.len() == now.len())
+        .unwrap_or_else(|| now.clone());
+    let widest = from.iter().map(|t| t.width).fold(0.0_f32, f32::max);
+    let softest = from.iter().map(|t| t.softness).fold(0.0_f32, f32::max);
+    let (width, softness) = (width.max(0.0), softness.clamp(0.0, 1.0));
+    let tips = now
+        .iter()
+        .zip(&from)
+        .map(|(t, b)| StrokeSpan {
+            width: if widest > 0.0 {
+                b.width * width / widest
+            } else {
+                width
+            },
+            softness: if softest > 0.0 {
+                (b.softness * softness / softest).clamp(0.0, 1.0)
+            } else {
+                softness
+            },
+            ..*t
+        })
+        .collect();
+    stroke.softness = softness;
+    write_paint_tips(path, stroke, tips);
+    true
+}
+
+/// A whole-curve edit of a tip channel (color, alpha, texture): `edit`
+/// applies to every tip the curve paints, because stored tips paint over
+/// the stroke. The caller edits the stroke itself. A hard stroke's tips keep
+/// their relative widths (`PathData::vector_widths`).
+pub fn edit_every_tip(path: &mut PathData, stroke: &mut Stroke, edit: impl Fn(&mut StrokeSpan)) {
+    if !stroke.paints_as_stamp() {
+        for tip in &mut path.tips {
+            let width = tip.width;
+            edit(tip);
+            tip.width = width;
+        }
+        return;
+    }
+    let mut tips = path.paint_tips(stroke);
+    if tips.is_empty() {
+        return;
+    }
+    for tip in &mut tips {
+        edit(tip);
+    }
+    write_paint_tips(path, stroke, tips);
+}
+
+/// Give `stroke` the whole of `tip`: width, softness, color, and texture.
+pub fn set_stroke_tip(stroke: &mut Stroke, tip: StrokeSpan) {
+    stroke.width = tip.width;
+    stroke.softness = tip.softness;
+    stroke.color = tip.color;
+    stroke.texture = tip.texture;
+}
+
+/// Store a stamped stroke's painted tips back where they came from: the
+/// legacy two-tip tween (`Stroke::tween_from`) when that is what painted
+/// them, else one tip per vertex.
+fn write_paint_tips(path: &mut PathData, stroke: &mut Stroke, tips: Vec<StrokeSpan>) {
+    if path.tips.is_empty() && stroke.tween_from.is_some() && tips.len() == 2 {
+        stroke.tween_from = Some(tips[0]);
+        set_stroke_tip(stroke, tips[1]);
+        return;
+    }
+    write_tips(path, stroke, tips);
 }
 
 /// Carry `old`'s tips onto its rebuilt geometry `new` (a grip drag, a
@@ -823,9 +986,21 @@ fn closes_on_start(path: &PathData) -> bool {
         })
 }
 
+/// A stamped stroke's tips are absolute and paint as stored, so equal tips
+/// hand the stroke the whole tip, and the stroke width stays the widest tip
+/// because the raster tiles pad by it.
 fn write_tips(path: &mut PathData, stroke: &mut Stroke, tips: Vec<StrokeSpan>) {
+    let stamp = stroke.paints_as_stamp();
+    if stamp {
+        stroke.stamp = true;
+        stroke.tween_from = None;
+    }
     if tips.iter().all(|t| *t == tips[0]) {
         path.tips.clear();
+        if stamp {
+            set_stroke_tip(stroke, tips[0]);
+            return;
+        }
         stroke.width = tips[0].width;
         stroke.color = tips[0].color;
         return;
@@ -1260,6 +1435,120 @@ mod tests {
             }
         }
         assert!(cut_curve(&curve, &stroke, UNIT, 0.0, 1.0..0.5, tight).is_none());
+    }
+
+    fn stamped(width: f32) -> Stroke {
+        Stroke {
+            stamp: true,
+            softness: 0.5,
+            ..hard(width)
+        }
+    }
+
+    fn soft_tip(width: f32, softness: f32, red: u8) -> StrokeSpan {
+        StrokeSpan {
+            softness,
+            ..tip(width, red)
+        }
+    }
+
+    /// A brush stroke's tips are absolute, one per sample vertex: its grips
+    /// are its anchors, a picked edit rewrites only those tips, and equal
+    /// tips hand the stroke the whole tip.
+    #[test]
+    fn a_stamped_stroke_edits_its_picked_tips_as_stored() {
+        let mut path = ell();
+        path.tips = vec![
+            soft_tip(2.0, 0.2, 0),
+            soft_tip(10.0, 0.4, 200),
+            soft_tip(4.0, 0.1, 100),
+        ];
+        let mut stroke = stamped(10.0);
+        let grips = grip_tips(&path, &stroke, UNIT, 0.0).unwrap();
+        assert_eq!(grips, path.tips, "painted as stored");
+        assert!(edit_grip_tips(&mut path, &mut stroke, UNIT, 0.0, &[2], |t| {
+            t.width = 30.0;
+            t.softness = 0.9;
+        }));
+        assert_eq!(path.tips[2].width, 30.0);
+        assert_eq!(path.tips[2].softness, 0.9);
+        assert_eq!(path.tips[0], soft_tip(2.0, 0.2, 0), "the others keep theirs");
+        assert_eq!(stroke.width, 30.0, "the tiles pad by the widest tip");
+
+        let same = soft_tip(6.0, 0.3, 50);
+        assert!(set_vertex_tips(&mut path, &mut stroke, vec![same; 3]));
+        assert!(path.tips.is_empty());
+        assert_eq!(StrokeSpan::of(&stroke), same, "the stroke takes the whole tip");
+        assert!(stroke.paints_as_stamp());
+    }
+
+    /// Whole-curve size on a brush stroke scales every tip from the curve
+    /// as it was, so a scrub through zero keeps the taper; color and
+    /// texture edits reach every tip.
+    #[test]
+    fn a_whole_curve_edit_reaches_every_stamped_tip() {
+        let mut path = ell();
+        path.tips = vec![
+            soft_tip(2.0, 0.2, 0),
+            soft_tip(10.0, 0.4, 200),
+            soft_tip(4.0, 0.1, 100),
+        ];
+        let mut stroke = stamped(10.0);
+        let base = (path.clone(), stroke);
+        let read = curve_tip(Some(&path), &stroke);
+        assert_eq!((read.width, read.softness), (10.0, 0.4));
+        assert!(scale_stamped_tips(&mut path, &mut stroke, None, 0.0, 0.0));
+        assert!(scale_stamped_tips(
+            &mut path,
+            &mut stroke,
+            Some((&base.0, &base.1)),
+            20.0,
+            0.8
+        ));
+        let near = |got: Vec<f32>, want: [f32; 3]| {
+            assert!(
+                got.iter().zip(want).all(|(g, w)| (g - w).abs() < 1e-5),
+                "{got:?} vs {want:?}"
+            );
+        };
+        near(path.tips.iter().map(|t| t.width).collect(), [4.0, 20.0, 8.0]);
+        near(path.tips.iter().map(|t| t.softness).collect(), [0.4, 0.8, 0.2]);
+        assert!((stroke.width - 20.0).abs() < 1e-5);
+
+        edit_every_tip(&mut path, &mut stroke, |t| {
+            t.color.0[1] = 77;
+            t.texture = crate::scene::BrushTexture::Pencil;
+        });
+        assert!(path
+            .tips
+            .iter()
+            .all(|t| t.color.0[1] == 77 && t.texture == crate::scene::BrushTexture::Pencil));
+        assert_eq!(path.tips[1].width, 20.0, "widths untouched");
+
+        let mut plain = ell();
+        let mut hard_stroke = hard(10.0);
+        assert!(!scale_stamped_tips(&mut plain, &mut hard_stroke, None, 3.0, 0.0));
+    }
+
+    /// A vertex's opacity is node opacity × tip alpha, stored by the share
+    /// rule: the node takes the most opaque vertex, even at 0 %.
+    #[test]
+    fn a_picked_vertex_opacity_writes_through_the_share_rule() {
+        let mut path = ell();
+        path.tips = vec![tip(2.0, 0), tip(10.0, 0), tip(4.0, 0)];
+        path.tips[1].color.0[3] = 128;
+        let mut stroke = hard(10.0);
+        let node = 0.8;
+        let top = set_grip_opacity(&mut path, &mut stroke, UNIT, 0.0, node, &[0], 0.2).unwrap();
+        assert!((top - 0.8).abs() < 1e-6, "vertex 2 is still the most opaque");
+        let painted = |p: &PathData, top: f32, i: usize| top * p.tips[i].color.0[3] as f32 / 255.0;
+        assert!((painted(&path, top, 0) - 0.2).abs() < 0.01);
+        assert!((painted(&path, top, 1) - 0.4).abs() < 0.01, "the others keep theirs");
+        assert!((painted(&path, top, 2) - 0.8).abs() < 0.01);
+
+        let top = set_grip_opacity(&mut path, &mut stroke, UNIT, 0.0, top, &[0, 1, 2], 0.0).unwrap();
+        assert_eq!(top, 0.0, "every vertex at 0 % leaves the node clear");
+        assert!(set_grip_opacity(&mut path, &mut stroke, UNIT, 0.0, 1.0, &[9], 0.5).is_none());
     }
 
     #[test]

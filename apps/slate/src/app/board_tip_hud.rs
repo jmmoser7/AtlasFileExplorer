@@ -129,7 +129,9 @@ impl SlateApp {
     }
 
     /// Width, softness, opacity for a curve tool or the HUD target. On
-    /// vertices: the first one's painted width and its own alpha.
+    /// vertices: the first one's painted width, its softness on a stamped
+    /// stroke, and the opacity it paints at (node opacity × its alpha). On
+    /// the whole curve: a stamped stroke's widest and softest tip.
     pub(crate) fn vector_tip(&self) -> Option<(f32, f32, f32)> {
         if curve_tool(self.board_tool) {
             let s = self.stroke_for_new_curve();
@@ -140,15 +142,22 @@ impl SlateApp {
             return None;
         };
         if let Some(tip) = self.hud_vertex_tip() {
-            return Some((tip.width, 0.0, tip.color.0[3] as f32 / 255.0));
+            let softness = if s.stroke.paints_as_stamp() {
+                tip.softness
+            } else {
+                0.0
+            };
+            let opacity = node.opacity * tip.color.0[3] as f32 / 255.0;
+            return Some((tip.width, softness, opacity));
         }
-        Some((s.stroke.width, s.stroke.softness, node.opacity))
+        let tip = slate_doc::vertex_style::curve_tip(s.path.as_deref(), &s.stroke);
+        Some((tip.width, tip.softness, node.opacity))
     }
 
     /// Write a curve tool's create style, or the HUD target live (journaled
-    /// when the HUD closes). On vertices only what changed is written, so a
-    /// size scrub keeps each vertex's opacity and an opacity scrub keeps
-    /// each width. Returns false for other tools.
+    /// when the HUD closes). Only what changed is written, so a size scrub
+    /// keeps each vertex's opacity and an opacity scrub keeps each width.
+    /// Returns false for other tools.
     pub(crate) fn set_vector_tip(&mut self, width: f32, softness: f32, opacity: f32) -> bool {
         if curve_tool(self.board_tool) {
             let mut s = self.stroke_for_new_curve();
@@ -156,23 +165,49 @@ impl SlateApp {
             self.store_armed_curve_stroke(s, Some(opacity.clamp(0.0, 1.0)));
             return true;
         }
-        let Some(id) = self.hud_node() else {
+        let Some((id, points)) = self.hud_target() else {
             return false;
         };
-        if let Some(tip) = self.hud_vertex_tip() {
-            let mut edits = Vec::new();
-            if (width - tip.width).abs() > f32::EPSILON * width.max(1.0) {
-                edits.push(Property::StrokeWidth(width));
-            }
-            let alpha = (opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
-            if alpha != tip.color.0[3] {
-                edits.push(Property::StrokeAlpha(alpha));
-            }
-            return self.edit_hud_node(&edits);
-        }
+        let Some((w0, s0, o0)) = self.vector_tip() else {
+            return false;
+        };
+        let changed = |a: f32, b: f32| (a - b).abs() > 1e-4 * a.abs().max(1.0);
         let stamped = self.tip_hud_has_softness();
-        if let Some(n) = self.doc_mut().scene.node_mut(id) {
+        let (resize, soften) = (changed(width, w0), stamped && changed(softness, s0));
+        let fade = changed(opacity, o0);
+        let base = self.hud_node_before.clone().filter(|b| b.id == id);
+        let vertices = self.hud_vertex_tip().is_some();
+        let Some(n) = self.doc_mut().scene.node_mut(id) else {
+            return false;
+        };
+        if vertices {
+            let softness = softness.clamp(0.0, 1.0);
+            if resize || soften {
+                super::board_properties::edit_vertex_tips(n, &points, |t| {
+                    if resize {
+                        t.width = width.max(0.0);
+                    }
+                    if soften {
+                        t.softness = softness;
+                    }
+                });
+            }
+            if fade {
+                super::board_properties::set_vertex_opacity(n, &points, opacity);
+            }
+            return true;
+        }
+        if fade {
             n.opacity = opacity.clamp(0.0, 1.0);
+        }
+        if (resize || soften)
+            && !super::board_properties::scale_stamped_curve(
+                n,
+                base.as_ref(),
+                width,
+                Some(softness),
+            )
+        {
             if let NodeKind::Shape(s) = &mut n.kind {
                 s.stroke.width = width;
                 if stamped {
@@ -199,14 +234,13 @@ impl SlateApp {
         self.board_colors.fg.0
     }
 
-    /// Set the armed tool's color. Curve tools also move the foreground so
-    /// the next brush and wire agree with the curve.
+    /// Set the armed tool's color. A curve tool keeps its own color and
+    /// never moves another tool's (P1.curve.create-style).
     pub(crate) fn set_active_rgba(&mut self, rgba: [u8; 4]) {
         if curve_tool(self.board_tool) {
             let mut s = self.stroke_for_new_curve();
             s.color = Rgba(rgba);
             self.store_armed_curve_stroke(s, None);
-            self.board_colors.fg.0[..3].copy_from_slice(&rgba[..3]);
             return;
         }
         // A whole-curve color also recolors per-vertex tips, which paint
@@ -460,6 +494,9 @@ impl SlateApp {
                             TipChoice::Texture(t) => s.stroke.texture = t,
                             TipChoice::Curve(style) => apply_curve_style(&mut s.stroke, style),
                         }
+                    }
+                    if let TipChoice::Texture(t) = choice {
+                        super::board_properties::edit_every_tip(n, |tip| tip.texture = t);
                     }
                 }
             }

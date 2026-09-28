@@ -2,6 +2,7 @@
 //! HUD (size, color, opacity) on Line, Arc, Polyline, Bézier span, Pen and
 //! Brush, driven through real frames. The live preview shows the blend, the
 //! committed curve keeps it per vertex, and one Ctrl+Z removes the curve.
+//! Also the same HUD on a committed brush stroke's stamped tips.
 
 use super::board::{BoardDrag, BoardTool};
 use super::board_color::BrushHud;
@@ -67,6 +68,30 @@ fn events(h: &mut Harness, mods: Modifiers, events: Vec<egui::Event>) {
     });
 }
 
+/// One frame like [`events`]; returns where the app warped the pointer.
+fn events_warped(h: &mut Harness, mods: Modifiers, events: Vec<egui::Event>) -> Option<Pos2> {
+    let t = h.ctx.input(|i| i.time) + 0.1;
+    let out = h.frame_output(|i| {
+        i.time = Some(t);
+        i.modifiers = mods;
+        i.events = events;
+    });
+    out.viewport_output
+        .values()
+        .flat_map(|v| v.commands.iter())
+        .find_map(|c| match c {
+            egui::ViewportCommand::CursorPosition(p) => Some(*p),
+            _ => None,
+        })
+}
+
+/// What the OS does with a warp: the pointer moves there.
+fn follow_warp(h: &mut Harness, warp: Option<Pos2>) {
+    if let Some(p) = warp {
+        events(h, Modifiers::NONE, vec![egui::Event::PointerMoved(p)]);
+    }
+}
+
 fn button(pos: Pos2, button: egui::PointerButton, pressed: bool, m: Modifiers) -> egui::Event {
     egui::Event::PointerButton {
         pos,
@@ -96,6 +121,7 @@ fn click(h: &mut Harness, world: Pos2) {
 }
 
 /// Modifier + right-drag from `at` (screen) through `offsets`, then release.
+/// The pointer stays where the release left it unless the app warps it.
 fn chord(h: &mut Harness, m: Modifiers, at: Pos2, offsets: &[Vec2]) {
     let right = egui::PointerButton::Secondary;
     events(h, m, vec![egui::Event::PointerMoved(at)]);
@@ -105,9 +131,9 @@ fn chord(h: &mut Harness, m: Modifiers, at: Pos2, offsets: &[Vec2]) {
         last = at + *o;
         events(h, m, vec![egui::Event::PointerMoved(last)]);
     }
-    events(h, m, vec![button(last, right, false, m)]);
-    events(h, Modifiers::NONE, vec![egui::Event::PointerMoved(at)]);
+    let warp = events_warped(h, m, vec![button(last, right, false, m)]);
     assert!(h.app.brush_hud.is_none(), "the HUD closed on release");
+    follow_warp(h, warp);
 }
 
 /// Alt+right-drag 40 px to the right: a wider tip.
@@ -125,9 +151,9 @@ fn recolor(h: &mut Harness, at: Pos2) {
     };
     let target = center + Vec2::new(-40.0, 40.0);
     events(h, CTRL, vec![egui::Event::PointerMoved(target)]);
-    events(h, CTRL, vec![button(target, right, false, CTRL)]);
-    events(h, Modifiers::NONE, vec![egui::Event::PointerMoved(at)]);
+    let warp = events_warped(h, CTRL, vec![button(target, right, false, CTRL)]);
     assert!(h.app.brush_hud.is_none(), "the wheel closed on release");
+    follow_warp(h, warp);
 }
 
 /// Shift+right-drag 50 px down: about half opacity.
@@ -487,6 +513,21 @@ fn run(from: f32, to: f32) -> impl Iterator<Item = Pos2> {
     (0..=20).map(move |i| Pos2::new(from + (to - from) * i as f32 / 20.0, 0.0))
 }
 
+/// A chord that closes mid-stroke leaves the pointer on the stroke's last
+/// sample, so the stroke continues from where it paused.
+fn assert_pointer_on_last_sample(h: &Harness) {
+    let last = match &h.app.board_drag {
+        Some(BoardDrag::FreehandPen { stroke }) => stroke.last(),
+        Some(BoardDrag::FreehandBrush { stroke }) => stroke.last(),
+        _ => panic!("the stroke is live"),
+    };
+    let p = h.ctx.input(|i| i.pointer.latest_pos()).expect("a pointer");
+    assert!(
+        (p - screen(h, last)).length() < 0.5,
+        "the pointer resumes on the stroke: {p:?}, last sample {last:?}"
+    );
+}
+
 /// Sep 25: "allowing for mid stroke adjustments in drawing tip diameter";
 /// Sep 27: the same for color, and the committed stroke keeps them.
 #[test]
@@ -496,7 +537,9 @@ fn a_pen_stroke_tweens_width_and_color_changed_mid_stroke() {
     stroke_through(&mut h, run(0.0, 200.0));
     let at = screen(&h, Pos2::new(200.0, 0.0));
     widen(&mut h, at);
+    assert_pointer_on_last_sample(&h);
     recolor(&mut h, at);
+    assert_pointer_on_last_sample(&h);
     stroke_through(&mut h, run(200.0, 400.0));
     let Some(BoardDrag::FreehandPen { stroke }) = &h.app.board_drag else {
         panic!("the pen stroke is live");
@@ -659,13 +702,20 @@ fn a_brush_stroke_tweens_size_color_and_opacity_changed_mid_stroke() {
     stroke_through(&mut h, run(0.0, 200.0));
     let at = screen(&h, Pos2::new(200.0, 0.0));
     widen(&mut h, at);
+    assert_pointer_on_last_sample(&h);
     recolor(&mut h, at);
+    assert_pointer_on_last_sample(&h);
     fade(&mut h, at);
+    assert_pointer_on_last_sample(&h);
     stroke_through(&mut h, run(200.0, 400.0));
     let Some(BoardDrag::FreehandBrush { stroke }) = &h.app.board_drag else {
         panic!("the brush stroke is live");
     };
     assert_freehand_blends(&stroke.tips, |t| t.width);
+    assert!(
+        stroke.points.iter().all(|p| p.y.abs() < 1e-3),
+        "the scrubs drew no ink"
+    );
     let (first, last) = (stroke.tips[0], *stroke.tips.last().unwrap());
     assert_differs(
         first.color,
@@ -699,4 +749,214 @@ fn a_brush_stroke_tweens_size_color_and_opacity_changed_mid_stroke() {
     );
     assert!(h.app.board_drag.is_none());
     undo_removes_the_curve(&mut h);
+}
+
+/// Review r7 finding 12: a brush stroke drawn at one tip commits that tip,
+/// even when a chord changed the brush after its last sample.
+#[test]
+fn a_uniform_brush_stroke_commits_the_tip_it_was_drawn_with() {
+    let mut h = board("brush_uniform_commit", BoardTool::Brush);
+    h.app.brush_width = 8.0;
+    h.app.brush_opacity = 1.0;
+    stroke_start(&mut h, Pos2::new(0.0, 0.0));
+    stroke_through(&mut h, run(0.0, 200.0));
+    let at = screen(&h, Pos2::new(200.0, 0.0));
+    widen(&mut h, at);
+    recolor(&mut h, at);
+    assert!(h.app.brush_width > 40.0, "the chord widened the brush");
+    let Some(BoardDrag::FreehandBrush { stroke }) = &h.app.board_drag else {
+        panic!("the brush stroke is live");
+    };
+    let drawn = stroke.tips[0];
+    assert!(stroke.tips.iter().all(|t| *t == drawn), "drawn at one tip");
+    // Release where the chord left the pointer: no new sample.
+    let p = h.ctx.input(|i| i.pointer.latest_pos()).expect("a pointer");
+    let left = egui::PointerButton::Primary;
+    events(&mut h, Modifiers::NONE, vec![button(p, left, false, Modifiers::NONE)]);
+    assert_eq!(h.app.doc().scene.nodes.len(), 1, "one brush stroke");
+    let NodeKind::Shape(s) = &h.app.doc().scene.nodes[0].kind else {
+        panic!("a shape");
+    };
+    assert!(s.path.as_ref().unwrap().tips.is_empty(), "one tip, stored on the stroke");
+    assert_eq!(s.stroke.width, drawn.width, "the drawn width");
+    assert_eq!(s.stroke.color, drawn.color, "the drawn color");
+    assert_eq!(s.stroke.softness, drawn.softness);
+    assert_eq!(s.stroke.texture, drawn.texture);
+}
+
+// ---------- the tip HUD on a committed brush stroke's stamped tips ----------
+
+/// A soft brush stroke drawn through frames whose size grows mid-stroke,
+/// so it stores one stamped tip per vertex; then Direct Select and a click
+/// on the stroke make it the target. Returns the stroke and its tips.
+fn tipped_brush_target(tag: &str) -> (Harness, slate_doc::NodeId, Vec<StrokeSpan>) {
+    let mut h = board(tag, BoardTool::Brush);
+    h.app.brush_width = 8.0;
+    h.app.brush_softness = 0.5;
+    h.app.brush_opacity = 1.0;
+    stroke_start(&mut h, Pos2::new(0.0, 0.0));
+    stroke_through(&mut h, run(0.0, 200.0));
+    let at = screen(&h, Pos2::new(200.0, 0.0));
+    widen(&mut h, at);
+    stroke_through(&mut h, run(200.0, 400.0));
+    stroke_end(&mut h, Pos2::new(400.0, 0.0));
+    let id = h.app.doc().scene.nodes[0].id;
+    let tips = stamped_tips(&h, id);
+    let n = tips.len();
+    assert!(n >= 4, "a tip per vertex: {tips:?}");
+    assert!(tips[n - 1].width > tips[0].width + 10.0, "{tips:?}");
+    h.app.set_board_tool(BoardTool::DirectSelect);
+    h.frame();
+    click(&mut h, Pos2::new(100.0, 0.0));
+    assert_eq!(h.app.direct.node, Some(id), "the click targets the stroke");
+    assert!(h.app.direct.anchors.is_empty(), "nothing picked yet");
+    (h, id, tips)
+}
+
+/// The stroke's stored stamped tips (absolute width, softness, color).
+fn stamped_tips(h: &Harness, id: slate_doc::NodeId) -> Vec<StrokeSpan> {
+    let node = h.app.doc().scene.node(id).expect("the stroke");
+    let NodeKind::Shape(s) = &node.kind else {
+        panic!("a shape");
+    };
+    assert!(s.stroke.paints_as_stamp(), "a stamped brush stroke");
+    let path = s.path.as_ref().expect("a path");
+    assert_eq!(path.tips.len(), path.segs.len() + 1, "one tip per vertex");
+    path.tips.clone()
+}
+
+fn undo_depth(h: &Harness) -> usize {
+    h.app.tab().journal.undo_depth()
+}
+
+/// Review r7 finding 1: with no vertex picked, Alt, Ctrl and Shift+right on
+/// a brush stroke reach every stamped tip. Size and softness scale them in
+/// proportion, color recolors each, one undo step per HUD, and Esc
+/// restores. Chords run through frames on real events.
+#[test]
+fn the_tip_hud_edits_every_stamped_tip_of_a_whole_brush_stroke() {
+    let (mut h, id, before) = tipped_brush_target("hud_brush_whole");
+    let depth = undo_depth(&h);
+    let away = screen(&h, Pos2::new(200.0, 200.0));
+    let widest = before.iter().map(|t| t.width).fold(0.0, f32::max);
+
+    chord(&mut h, ALT, away, &[Vec2::new(5.0, 0.0), Vec2::new(10.0, 0.0)]);
+    let wider = stamped_tips(&h, id);
+    let k = (widest + 20.0) / widest;
+    for (a, b) in before.iter().zip(&wider) {
+        assert!(
+            (b.width - a.width * k).abs() < 1e-2 * a.width.max(1.0),
+            "every tip scales by {k}: {a:?} → {b:?}"
+        );
+        assert_eq!(a.softness, b.softness, "a horizontal scrub keeps softness");
+        assert_eq!(a.color, b.color);
+    }
+    assert_eq!(undo_depth(&h), depth + 1, "one undo step");
+
+    chord(&mut h, ALT, away, &[Vec2::new(0.0, -10.0), Vec2::new(0.0, -20.0)]);
+    let softer = stamped_tips(&h, id);
+    let s0 = wider.iter().map(|t| t.softness).fold(0.0, f32::max);
+    for (a, b) in wider.iter().zip(&softer) {
+        let want = a.softness * (s0 + 0.2).min(1.0) / s0;
+        assert!((b.softness - want).abs() < 1e-3, "{a:?} → {b:?}");
+        assert!((a.width - b.width).abs() < 1e-3, "a vertical scrub keeps size");
+    }
+    assert_eq!(undo_depth(&h), depth + 2);
+
+    recolor(&mut h, away);
+    let recolored = stamped_tips(&h, id);
+    let rgb = recolored[0].color.0;
+    assert_ne!(rgb[..3], softer[0].color.0[..3], "the wheel picked a color");
+    for (a, b) in softer.iter().zip(&recolored) {
+        assert_eq!(b.color.0[..3], rgb[..3], "every tip takes the color");
+        assert_eq!(b.color.0[3], a.color.0[3], "and keeps its alpha");
+        assert_eq!(a.width, b.width);
+    }
+    assert_eq!(undo_depth(&h), depth + 3);
+    // The board paints what the tips say (the export: slate-artifact
+    // `a_tip_hud_edited_brush_stroke_exports_its_tips`).
+    let node = h.app.doc().scene.node(id).unwrap();
+    let NodeKind::Shape(s) = &node.kind else {
+        panic!("a shape");
+    };
+    let painted = board_path::stamped_contours(node, s, s.path.as_ref().unwrap(), 0.25);
+    let widest_now = recolored.iter().map(|t| t.width).fold(0.0, f32::max);
+    for p in painted.iter().flatten() {
+        assert_eq!(p.tip.rgba[..3], rgb[..3], "the board paints every tip's color");
+        assert!(p.tip.diameter <= widest_now + 1e-3);
+    }
+    let fattest = painted.iter().flatten().map(|p| p.tip.diameter).fold(0.0, f32::max);
+    assert!((fattest - widest_now).abs() < 0.5, "the board paints the scaled size");
+
+    // Esc with the wheel open restores every tip and journals nothing.
+    let right = egui::PointerButton::Secondary;
+    events(&mut h, CTRL, vec![egui::Event::PointerMoved(away)]);
+    events(&mut h, CTRL, vec![button(away, right, true, CTRL)]);
+    let Some(BrushHud::Wheel { center, .. }) = h.app.brush_hud else {
+        panic!("Ctrl+right opens the wheel");
+    };
+    let target = center + Vec2::new(40.0, -40.0);
+    events(&mut h, CTRL, vec![egui::Event::PointerMoved(target)]);
+    assert_ne!(stamped_tips(&h, id), recolored, "the wheel edits live");
+    escape(&mut h);
+    assert!(h.app.brush_hud.is_none(), "Esc closes the wheel");
+    events(&mut h, Modifiers::NONE, vec![button(target, right, false, Modifiers::NONE)]);
+    assert_eq!(stamped_tips(&h, id), recolored, "Esc restores every tip");
+    assert_eq!(undo_depth(&h), depth + 3);
+
+    for want in [&softer, &wider, &before] {
+        ctrl_z(&mut h);
+        assert_eq!(&stamped_tips(&h, id), want, "one Ctrl+Z per HUD");
+    }
+}
+
+/// Review r7 findings 1 and 6: a picked anchor on a brush stroke reads and
+/// edits only its own stamped tip: size, softness, opacity and color.
+#[test]
+fn a_picked_brush_anchor_edits_only_its_stamped_tip() {
+    let (mut h, id, before) = tipped_brush_target("hud_brush_picked");
+    let (anchors, _) = h.app.direct_anchors_of(id).expect("anchors");
+    assert_eq!(anchors.len(), before.len(), "an anchor per tip");
+    let k = anchors.len() / 2;
+    let p = anchors[k].point;
+    click(&mut h, Pos2::new(p.x as f32, p.y as f32));
+    assert_eq!(h.app.picked_vertices(), Some((id, vec![k])), "the click picks anchor {k}");
+    let (w, soft, opacity) = h.app.vector_tip().expect("a readout");
+    assert_eq!(w, before[k].width, "the readout is the picked tip's width");
+    assert_eq!(soft, before[k].softness, "and its softness");
+    assert!(soft > 0.0, "a soft brush stroke");
+    assert_eq!(opacity, 1.0);
+    let depth = undo_depth(&h);
+    let away = screen(&h, Pos2::new(200.0, 200.0));
+    let only_k = |tips: &[StrokeSpan], was: &[StrokeSpan], what: &str| {
+        for (i, (a, b)) in was.iter().zip(tips).enumerate() {
+            if i != k {
+                assert_eq!(a, b, "{what}: tip {i} is untouched");
+            }
+        }
+    };
+
+    chord(&mut h, ALT, away, &[Vec2::new(5.0, 0.0), Vec2::new(10.0, 0.0)]);
+    let wider = stamped_tips(&h, id);
+    assert!((wider[k].width - (before[k].width + 20.0)).abs() < 1e-3, "{wider:?}");
+    only_k(&wider, &before, "size");
+
+    chord(&mut h, ALT, away, &[Vec2::new(0.0, -10.0), Vec2::new(0.0, -20.0)]);
+    let softer = stamped_tips(&h, id);
+    let want = (wider[k].softness + 0.2).min(1.0);
+    assert!((softer[k].softness - want).abs() < 1e-3, "{softer:?}");
+    assert!((softer[k].width - wider[k].width).abs() < 1e-3);
+    only_k(&softer, &wider, "softness");
+
+    fade(&mut h, away);
+    let faded = stamped_tips(&h, id);
+    assert!(alpha(&faded[k]) < 200, "the picked tip fades: {faded:?}");
+    only_k(&faded, &softer, "opacity");
+    assert_eq!(h.app.doc().scene.node(id).unwrap().opacity, 1.0);
+
+    recolor(&mut h, away);
+    let recolored = stamped_tips(&h, id);
+    assert_differs(recolored[k].color, faded[k].color, "the picked tip's color");
+    only_k(&recolored, &faded, "color");
+    assert_eq!(undo_depth(&h), depth + 4, "one undo step per HUD");
 }

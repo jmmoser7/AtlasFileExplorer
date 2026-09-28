@@ -2694,6 +2694,12 @@ impl BrushLiveCanvas {
         !self.idle && self.line_dirty.is_some()
     }
 
+    /// The tips the straight segment on show was stamped with.
+    #[cfg(test)]
+    pub fn line_key(&self) -> Option<u64> {
+        self.line_key
+    }
+
     /// Show one straight segment on top of the base canvas.
     pub fn set_line(&mut self, a: TipPoint, b: TipPoint) {
         let key = {
@@ -2712,6 +2718,8 @@ impl BrushLiveCanvas {
             hash_f32(&mut h, b.tip.softness);
             a.tip.rgba.hash(&mut h);
             b.tip.rgba.hash(&mut h);
+            (a.tip.grain as u8).hash(&mut h);
+            (b.tip.grain as u8).hash(&mut h);
             h.finish()
         };
         if self.line_key == Some(key) {
