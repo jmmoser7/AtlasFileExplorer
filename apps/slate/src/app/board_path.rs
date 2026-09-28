@@ -2512,6 +2512,23 @@ fn paint_settling_erase(
     true
 }
 
+/// A band over stroke `n` counts as in `view` while the board paints the
+/// stroke there ([`super::board::paints_in_view`]) and, since the board
+/// paints every rotated node, a rotated stroke's rotated ink box
+/// ([`tiles::ink_rect`]) meets the view.
+pub(crate) fn band_in_view(n: &Node, view: &WorldRect) -> bool {
+    if !super::board::paints_in_view(n, view) {
+        return false;
+    }
+    match &n.kind {
+        NodeKind::Shape(shape) if n.rotation_deg.abs() > 0.01 => {
+            let r = tiles::ink_rect(n, shape);
+            WorldRect::new(r[0], r[1], r[2] - r[0], r[3] - r[1]).intersects(view)
+        }
+        _ => true,
+    }
+}
+
 /// Pump every settling preview, visible or not, and end the settle of
 /// strokes whose cut or new raster has landed, or whose pass was undone or
 /// that left the scene since the release. A settled preview becomes the
@@ -2526,7 +2543,7 @@ fn paint_settling_erase(
 /// bands. A band reads its stroke's content only once the scene changed
 /// since it last did. Frames are asked for only while this document has a
 /// cut on the workers or a band waiting on a raster for a stroke whose ink
-/// is in view ([`super::board::paints_in_view`]).
+/// is in view ([`band_in_view`]).
 fn tend_erase_settle(app: &mut SlateApp, painter: &egui::Painter, xf: &BoardXf) {
     if app.erase_settle.is_empty() {
         return;
@@ -2566,7 +2583,7 @@ fn tend_erase_settle(app: &mut SlateApp, painter: &egui::Painter, xf: &BoardXf) 
                 None => return false,
             },
         };
-        w.seen = super::board::paints_in_view(n, &view);
+        w.seen = band_in_view(n, &view);
         if w.seen && stroke_raster_current(app, n, key, want) {
             return false;
         }

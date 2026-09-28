@@ -1130,40 +1130,21 @@ mod shape_text_layout {
 // ---------- SlateApp: board state helpers ----------
 
 /// Node `n` paints in `view` ([`SlateApp::board_paint_view`]): it is not
-/// hidden, and its ink meets the view. A rotated path without an arrowhead
-/// or hosted text is judged by its rotated box; any other rotated node
-/// counts as in view.
+/// hidden, and its ink meets the view or it is rotated.
 pub(crate) fn paints_in_view(n: &Node, view: &WorldRect) -> bool {
     if n.hidden {
         return false;
     }
-    let (ink, path) = match &n.kind {
-        NodeKind::Shape(s) => (
-            if s.stroke.is_none() {
-                0.0
-            } else {
-                s.stroke.width.max(0.0) * 0.5
-            },
-            s.shape == ShapeKind::Path
-                && s.path.is_some()
-                && !s.stroke.arrow_end
-                && !slate_doc::scene::shape_hosts_text(s),
-        ),
-        _ => (0.0, false),
+    let ink = match &n.kind {
+        NodeKind::Shape(s) if !s.stroke.is_none() => s.stroke.width.max(0.0) * 0.5,
+        _ => 0.0,
     };
-    let rotated = n.rotation_deg.abs() > 0.01;
-    if rotated && !path {
-        return true;
-    }
-    let r = if rotated {
-        n.rect.rotated_bounds(n.rotation_deg)
-    } else {
-        n.rect.normalized()
-    };
-    r.x - ink <= view.x + view.w
+    let r = n.rect.normalized();
+    let visible = r.x - ink <= view.x + view.w
         && r.x + r.w + ink >= view.x
         && r.y - ink <= view.y + view.h
-        && r.y + r.h + ink >= view.y
+        && r.y + r.h + ink >= view.y;
+    visible || n.rotation_deg.abs() > 0.01
 }
 
 impl SlateApp {
