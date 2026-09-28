@@ -1056,14 +1056,18 @@ impl SlateApp {
         let Some(id) = id else {
             return;
         };
-        let key = self
-            .doc()
-            .scene
-            .node(id)
-            .and_then(board_path::node_stamp_key);
+        let key = self.held_key(id);
         if let Some(canvas) = self.brush_live.as_mut() {
             canvas.hold(id, key);
         }
+    }
+
+    /// The content key the live canvas holds committed stroke `id` under.
+    fn held_key(&self, id: NodeId) -> Option<u64> {
+        self.doc()
+            .scene
+            .node(id)
+            .and_then(board_path::node_stamp_key)
     }
 
     /// [`Self::hold_brush_live`] for a committed Shift segment from `a` to
@@ -1072,11 +1076,7 @@ impl SlateApp {
         let Some(id) = id else {
             return;
         };
-        let key = self
-            .doc()
-            .scene
-            .node(id)
-            .and_then(board_path::node_stamp_key);
+        let key = self.held_key(id);
         if let Some(canvas) = self.brush_live.as_mut() {
             let at = |(p, tip): (Pos2, BrushTip)| vector_ink::TipPoint {
                 pos: [p.x, p.y],
@@ -1232,9 +1232,23 @@ impl SlateApp {
     }
 
     /// Append a straight segment to stamped brush path `id`, whose last
-    /// vertex must be `from`. Journaled through `patch_nodes`.
+    /// vertex must be `from`: a board node through `patch_nodes`, a paint
+    /// layer node through one journaled layer patch.
     fn extend_brush_chain(&mut self, id: NodeId, from: Pos2, to: Pos2, end: BrushTip) -> bool {
-        let Some(node) = self.doc().scene.node(id).cloned() else {
+        let layer = slate_doc::image_paint::find_layer_node(&self.doc().scene, id);
+        let node = match layer {
+            None => self.doc().scene.node(id).cloned(),
+            Some(loc) => self.doc().scene.node(loc.image).and_then(|host| match &host.kind {
+                NodeKind::Image(img) => img
+                    .paint_layers
+                    .get(loc.layer_index)?
+                    .nodes
+                    .get(loc.node_index)
+                    .map(|local| slate_doc::image_paint::layer_node_to_world(host, img, local)),
+                _ => None,
+            }),
+        };
+        let Some(node) = node else {
             return false;
         };
         if node.locked || node.hidden {
@@ -1274,9 +1288,7 @@ impl SlateApp {
         let (rect, mut data) = board_path::bezpath_to_path_data(&bez, false);
         let widest = tips.iter().map(|t| t.width).fold(0.0_f32, f32::max);
         data.tips = tips;
-        // Each Shift segment is its own undo step, not a coalesced edit.
-        self.last_board_edit = None;
-        self.patch_nodes(&[id], |n| {
+        let extend = |n: &mut Node| {
             n.rect = rect;
             n.rotation_deg = 0.0;
             if let NodeKind::Shape(s) = &mut n.kind {
@@ -1286,8 +1298,33 @@ impl SlateApp {
                 s.stroke.color = end.color;
                 s.stroke.tween_from = None;
             }
-        });
-        true
+        };
+        let Some(loc) = layer else {
+            // Each Shift segment is its own undo step, not a coalesced edit.
+            self.last_board_edit = None;
+            self.patch_nodes(&[id], extend);
+            return true;
+        };
+        let Some(host) = self.doc().scene.node(loc.image).cloned() else {
+            return false;
+        };
+        let NodeKind::Image(img) = &host.kind else {
+            return false;
+        };
+        let Some(sheet) = img.paint_layers.get(loc.layer_index) else {
+            return false;
+        };
+        let before = sheet.nodes[loc.node_index].clone();
+        let mut world = node;
+        extend(&mut world);
+        let after = slate_doc::image_paint::layer_node_from_world(&host, img, &world);
+        self.commit_scene(vec![slate_doc::scene::SceneCmd::LayerNodePatch {
+            host: loc.image,
+            layer: sheet.id,
+            index: loc.node_index,
+            before: Box::new(before),
+            after: Box::new(after),
+        }])
     }
 
     /// Where the live Shift segment starts: the end of the last brush mark,

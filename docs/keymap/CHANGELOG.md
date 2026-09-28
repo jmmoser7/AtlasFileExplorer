@@ -23,6 +23,24 @@
   point for the life of the right-drag (P0.9's pointer-attached chrome
   exception), not P2.GhostFollow.
 
+## 2026-09-27 — Brush Shift segment stamps off the frame loop (tip18)
+
+- `brush` D11: the Shift segment's stamp builds on the raster workers,
+  newest request wins. Each move frame paints the segment's tipped vector
+  mesh, the exact stamp replaces it within a few frames of the pointer
+  stopping, and the release keeps that stamp. Move frames used to re-stamp
+  the whole segment on the frame loop: 560 000–980 000 stamp pixels and
+  27–50 ms per move frame at a 207 px brush, 150 % zoom, 1.5 px/pt; now
+  none. An undo, a zoom, or moving the stroke still makes the next Shift
+  press rebuild the canvas.
+- In an image paint session, a Shift segment from the last mark extends
+  that layer mark (one layer patch, one undo step per segment) instead of
+  adding a second mark, so its joint does not double the opacity. D03
+  already said so; the image session did not do it.
+- A brush path's cached stamp is keyed on each tip's texture, and on each
+  erase mark tip's texture, so a texture edit re-stamps it. No binding
+  changed.
+
 ## 2026-09-27 — Tip HUD help, tip-chord wording, Eraser row
 
 - `KEYMAP.md` Ctrl+right-drag: curve tools share the wheel, the disk

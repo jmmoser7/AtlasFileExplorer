@@ -10097,6 +10097,322 @@ fn chained_brush_shift_presses_do_not_restamp_the_chain() {
     assert_eq!(board_path::stamps_on_this_thread(), before);
 }
 
+/// A 60 px opaque red brush board with a freehand stroke and one Shift
+/// segment continuing it (straight down from `c + (0, -200)` to
+/// `c + (0, 100)`), every frame fed to the raster and the live canvas
+/// settled and parked.
+fn shift_chain_board(tag: &str) -> (Harness, FrameRaster, NodeId, Pos2) {
+    let mut h = brush_board(tag);
+    h.app.board_colors.fg.0 = [255, 40, 40, 255];
+    h.app.brush_opacity = 1.0;
+    h.app.brush_softness = 0.0;
+    h.app.brush_width = 60.0;
+    let mut raster = FrameRaster::new(1440, 900);
+    capture_frame(&mut h, &mut raster, |_| {});
+    let c = h.app.board_xf().s2w(h.app.canvas_rect.center());
+    let p = |x: f32, y: f32| c + EVec2::new(x, y);
+    let freehand = [p(-300.0, -200.0), p(-200.0, -225.0), p(-100.0, -175.0), p(0.0, -200.0)];
+    raster_drag(&mut h, &mut raster, egui::Modifiers::NONE, &freehand, false);
+    let id = h.app.doc().scene.nodes[0].id;
+    raster_drag(
+        &mut h,
+        &mut raster,
+        egui::Modifiers::SHIFT,
+        &[p(-60.0, 140.0), p(-30.0, 120.0), p(0.0, 100.0)],
+        true,
+    );
+    assert_eq!(h.app.doc().scene.nodes.len(), 1, "the segment extends the stroke");
+    settle_brush_live(&mut h, &mut raster);
+    (h, raster, id, c)
+}
+
+/// Press at `pts[0]`, move through the rest, and release, one frame each;
+/// `hold` keeps the button down until the live segment shows its exact
+/// stamp before releasing.
+fn raster_drag(
+    h: &mut Harness,
+    raster: &mut FrameRaster,
+    mods: egui::Modifiers,
+    pts: &[Pos2],
+    hold: bool,
+) {
+    let xf = h.app.board_xf();
+    let button = |w: Pos2, pressed: bool| egui::Event::PointerButton {
+        pos: xf.w2s(w),
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: mods,
+    };
+    let mut events = vec![
+        vec![egui::Event::PointerMoved(xf.w2s(pts[0]))],
+        vec![button(pts[0], true)],
+    ];
+    events.extend(pts[1..].iter().map(|w| vec![egui::Event::PointerMoved(xf.w2s(*w))]));
+    for events in events {
+        capture_frame(h, raster, |inp| {
+            inp.modifiers = mods;
+            inp.events = events;
+        });
+    }
+    if hold {
+        wait_brush_live(h, raster, mods, |c| c.line_exact());
+    }
+    let last = *pts.last().unwrap();
+    capture_frame(h, raster, |inp| {
+        inp.modifiers = mods;
+        inp.events = vec![button(last, false)];
+    });
+    capture_frame(h, raster, |inp| inp.modifiers = mods);
+}
+
+/// Run frames (the workers get a moment between them) until `done` holds
+/// for the live canvas.
+fn wait_brush_live(
+    h: &mut Harness,
+    raster: &mut FrameRaster,
+    mods: egui::Modifiers,
+    done: impl Fn(&board_path::BrushLiveCanvas) -> bool,
+) {
+    for _ in 0..400 {
+        if h.app.brush_live.as_ref().is_some_and(&done) {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        capture_frame(h, raster, |inp| inp.modifiers = mods);
+    }
+    panic!("the live canvas never got there");
+}
+
+fn settle_brush_live(h: &mut Harness, raster: &mut FrameRaster) {
+    wait_brush_live(h, raster, egui::Modifiers::NONE, |c| c.settled());
+}
+
+/// A red, opaque brush pixel under world point `w`.
+fn red_at(raster: &FrameRaster, xf: &board::BoardXf, w: Pos2) -> bool {
+    let s = xf.w2s(w);
+    let p = raster.px[s.y as usize * raster.w + s.x as usize];
+    p[0] > 0.6 && p[1] < 0.4
+}
+
+/// Start a Shift drag through `pts`, hold it until the live segment shows
+/// its exact stamp, and draw that frame into the raster.
+fn hold_shift_drag(h: &mut Harness, raster: &mut FrameRaster, pts: &[Pos2]) {
+    let xf = h.app.board_xf();
+    let shift = egui::Modifiers::SHIFT;
+    let mut events = vec![
+        vec![egui::Event::PointerMoved(xf.w2s(pts[0]))],
+        vec![egui::Event::PointerButton {
+            pos: xf.w2s(pts[0]),
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: shift,
+        }],
+    ];
+    events.extend(pts[1..].iter().map(|w| vec![egui::Event::PointerMoved(xf.w2s(*w))]));
+    for events in events {
+        capture_frame(h, raster, |inp| {
+            inp.modifiers = shift;
+            inp.events = events;
+        });
+    }
+    wait_brush_live(h, raster, shift, |c| c.line_exact());
+    let out = capture_frame(h, raster, |inp| inp.modifiers = shift);
+    let prims = h.ctx.tessellate(out.shapes, out.pixels_per_point);
+    for p in raster.px.iter_mut() {
+        *p = [0.0, 0.0, 0.0, 1.0];
+    }
+    raster.draw(&prims);
+}
+
+/// tip18's reuse gate, negative side: undoing the segment changes the
+/// stroke, so the next Shift press rebuilds the canvas from the stroke as
+/// it now is and the undone segment is gone from the screen.
+#[test]
+fn brush_shift_after_undo_rebuilds_the_live_canvas() {
+    let (mut h, mut raster, id, c) = shift_chain_board("tip18_gate_undo");
+    let p = |x: f32, y: f32| c + EVec2::new(x, y);
+    let z = egui::Event::Key {
+        key: egui::Key::Z,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::CTRL,
+    };
+    capture_frame(&mut h, &mut raster, |inp| {
+        inp.modifiers = egui::Modifiers::CTRL;
+        inp.events = vec![z];
+    });
+    capture_frame(&mut h, &mut raster, |_| {});
+    let v = path_vertices(h.app.doc().scene.node(id).unwrap());
+    assert!(near_px(*v.last().unwrap(), p(0.0, -200.0)), "undone: {v:?}");
+    let (stamps, resumes) = (
+        board_path::stamps_on_this_thread(),
+        board_path::resumes_on_this_thread(),
+    );
+    hold_shift_drag(&mut h, &mut raster, &[p(60.0, 140.0), p(200.0, 100.0), p(300.0, 100.0)]);
+    assert_eq!(board_path::resumes_on_this_thread(), resumes, "resumed a stale canvas");
+    assert!(
+        board_path::stamps_on_this_thread() > stamps,
+        "the rebuild must stamp the stroke as it now is"
+    );
+    let xf = h.app.board_xf();
+    assert!(red_at(&raster, &xf, p(-260.0, -200.0)), "the freehand stroke is missing");
+    for w in [p(0.0, -100.0), p(0.0, -50.0), p(0.0, 0.0)] {
+        assert!(!red_at(&raster, &xf, w), "undone segment still on screen at {w:?}");
+    }
+}
+
+/// tip18's reuse gate, negative side: switching to Select drops the
+/// anchor, so after moving the stroke the next Shift press starts fresh
+/// and nothing of the stroke's old place stays on the live canvas.
+#[test]
+fn brush_shift_after_a_select_drag_rebuilds_the_live_canvas() {
+    let (mut h, mut raster, id, c) = shift_chain_board("tip18_gate_select");
+    let p = |x: f32, y: f32| c + EVec2::new(x, y);
+    h.app.set_board_tool(board::BoardTool::Select);
+    raster_drag(
+        &mut h,
+        &mut raster,
+        egui::Modifiers::NONE,
+        &[p(0.0, -50.0), p(0.0, 0.0), p(0.0, 100.0), p(0.0, 200.0)],
+        false,
+    );
+    let v = path_vertices(h.app.doc().scene.node(id).unwrap());
+    assert!(near_px(*v.last().unwrap(), p(0.0, 350.0)), "moved: {v:?}");
+    h.app.set_board_tool(board::BoardTool::Brush);
+    capture_frame(&mut h, &mut raster, |_| {});
+    let resumes = board_path::resumes_on_this_thread();
+    hold_shift_drag(&mut h, &mut raster, &[p(200.0, -100.0), p(300.0, -100.0), p(400.0, -100.0)]);
+    assert_eq!(board_path::resumes_on_this_thread(), resumes, "resumed a stale canvas");
+    let xf = h.app.board_xf();
+    assert!(red_at(&raster, &xf, p(300.0, -100.0)), "the new segment is missing");
+    for w in [p(0.0, -150.0), p(0.0, -50.0), p(-260.0, -200.0)] {
+        assert!(!red_at(&raster, &xf, w), "the stroke's old place still on screen at {w:?}");
+    }
+}
+
+/// tip18's reuse gate, negative side: a wheel zoom in and back out at
+/// another pointer leaves a different camera, so the next Shift press
+/// rebuilds the canvas at that camera and the chain draws where it is now.
+#[test]
+fn brush_shift_after_zooming_away_and_back_rebuilds_the_live_canvas() {
+    let (mut h, mut raster, _, c) = shift_chain_board("tip18_gate_zoom");
+    let p = |x: f32, y: f32| c + EVec2::new(x, y);
+    let before = h.app.board_xf();
+    let z = h.app.tab().cam.z;
+    for (at, dy) in [(Pos2::new(300.0, 450.0), 120.0), (Pos2::new(1100.0, 450.0), -120.0)] {
+        capture_frame(&mut h, &mut raster, |inp| {
+            inp.events = vec![
+                egui::Event::PointerMoved(at),
+                egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: EVec2::new(0.0, dy),
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ];
+        });
+        capture_frame(&mut h, &mut raster, |_| {});
+    }
+    let xf = h.app.board_xf();
+    assert!((h.app.tab().cam.z - z).abs() < z * 0.01, "zoomed back");
+    let old = before.w2s(p(0.0, -50.0));
+    assert!(
+        (xf.w2s(p(0.0, -50.0)) - old).length() > 150.0,
+        "the camera must end somewhere else"
+    );
+    let (stamps, resumes) = (
+        board_path::stamps_on_this_thread(),
+        board_path::resumes_on_this_thread(),
+    );
+    hold_shift_drag(&mut h, &mut raster, &[p(60.0, 140.0), p(200.0, 100.0), p(300.0, 100.0)]);
+    assert_eq!(board_path::resumes_on_this_thread(), resumes, "resumed a stale canvas");
+    assert!(
+        board_path::stamps_on_this_thread() > stamps,
+        "the rebuild must stamp the chain at the new camera"
+    );
+    let xf = h.app.board_xf();
+    for w in [p(-260.0, -200.0), p(0.0, -50.0), p(200.0, 100.0)] {
+        assert!(red_at(&raster, &xf, w), "{w:?} is dark after the zoom");
+    }
+    let stale = xf.s2w(old);
+    assert!(
+        !red_at(&raster, &xf, stale),
+        "the segment is still drawn at its old screen place"
+    );
+}
+
+/// A brush texture picked in the size HUD's style row is tool state: the
+/// chain is unchanged, so the next Shift press may resume the parked
+/// canvas, the chain stays as stamped, and the new segment's end tip takes
+/// the new texture.
+#[test]
+fn brush_shift_after_a_style_row_texture_change_keeps_the_chain() {
+    use board_tip_hud::{palette_band_y, palette_slot};
+    let (mut h, mut raster, id, c) = shift_chain_board("tip18_gate_texture");
+    let p = |x: f32, y: f32| c + EVec2::new(x, y);
+    let key = board_path::node_stamp_key(h.app.doc().scene.node(id).unwrap());
+    h.app.alt_down = true;
+    let press = Pos2::new(700.0, 300.0);
+    assert!(h.app.drive_brush_hud(Some(press), true, true));
+    let r = h.app.active_tip().0 * 0.5;
+    let n = h.app.tip_choices().len();
+    let pencil = (0..n)
+        .find(|i| {
+            h.app.tip_choices()[*i]
+                == board_tip_hud::TipChoice::Texture(slate_doc::scene::BrushTexture::Pencil)
+        })
+        .expect("a pencil slot");
+    let band = palette_band_y(press, r);
+    assert!(h.app.drive_brush_hud(Some(Pos2::new(press.x, band + 1.0)), true, false));
+    let slot = palette_slot(press, r, pencil, n);
+    assert!(h.app.drive_brush_hud(Some(slot), true, false));
+    assert!(h.app.drive_brush_hud(Some(slot), false, false));
+    h.app.alt_down = false;
+    assert_eq!(h.app.brush_texture, slate_doc::scene::BrushTexture::Pencil);
+    assert_eq!(
+        board_path::node_stamp_key(h.app.doc().scene.node(id).unwrap()),
+        key,
+        "the style row changed the committed stroke"
+    );
+    capture_frame(&mut h, &mut raster, |_| {});
+    let (stamps, resumes) = (
+        board_path::stamps_on_this_thread(),
+        board_path::resumes_on_this_thread(),
+    );
+    hold_shift_drag(&mut h, &mut raster, &[p(60.0, 140.0), p(200.0, 100.0), p(300.0, 100.0)]);
+    assert_eq!(board_path::resumes_on_this_thread(), resumes + 1);
+    assert_eq!(board_path::stamps_on_this_thread(), stamps);
+    let xf = h.app.board_xf();
+    for w in [p(-260.0, -200.0), p(0.0, -50.0)] {
+        assert!(red_at(&raster, &xf, w), "{w:?} lost its stamp");
+    }
+    let end = xf.w2s(p(300.0, 100.0));
+    capture_frame(&mut h, &mut raster, |inp| {
+        inp.modifiers = egui::Modifiers::SHIFT;
+        inp.events = vec![egui::Event::PointerButton {
+            pos: end,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::SHIFT,
+        }];
+    });
+    let node = h.app.doc().scene.node(id).unwrap();
+    let NodeKind::Shape(s) = &node.kind else {
+        panic!("a shape")
+    };
+    let tips = &s.path.as_ref().unwrap().tips;
+    assert_eq!(
+        tips.last().map(|t| t.texture),
+        Some(slate_doc::scene::BrushTexture::Pencil),
+        "the new segment ends in the picked texture"
+    );
+    assert_eq!(
+        tips[tips.len() - 2].texture,
+        slate_doc::scene::BrushTexture::Smooth,
+        "the chain keeps its texture"
+    );
+}
+
 /// tip18 on real frames: the Shift preview is visible on screen, both from
 /// the press point and continuing an earlier stroke.
 #[test]
@@ -10301,6 +10617,97 @@ fn brush_shift_chain_frame_times_at_a_big_brush() {
     }
 }
 
+/// The user's brush (207 wide, pencil, softness 0.09) on a 1.5 px/pt
+/// display at 150 %, after one freehand stroke whose end the next Shift
+/// segment continues.
+fn big_brush_board(tag: &str) -> (Harness, Pos2) {
+    let mut h = brush_board(tag);
+    h.ctx.set_pixels_per_point(1.5);
+    h.frame_with(|i| i.max_texture_side = Some(8192));
+    h.app.brush_width = 207.0;
+    h.app.brush_softness = 0.09;
+    h.app.brush_texture = slate_doc::scene::BrushTexture::Pencil;
+    h.app.tab_mut().cam.z = 1.5;
+    h.frame();
+    let xf = h.app.board_xf();
+    let c = xf.s2w(Pos2::new(720.0, 450.0));
+    press_drag_release_frames(
+        &mut h,
+        &[
+            c + EVec2::new(-300.0, -200.0),
+            c + EVec2::new(-150.0, -150.0),
+            c + EVec2::new(0.0, -200.0),
+        ],
+        egui::Modifiers::NONE,
+        |_| {},
+    );
+    (h, c)
+}
+
+/// tip18 at the user's brush: a Shift drag's move frames stamp nothing on
+/// the frame loop (Art. II), whatever the segment's length, yet the
+/// preview follows the pointer on every one of them.
+#[test]
+fn brush_shift_move_frames_stamp_nothing_on_the_frame_loop() {
+    let (mut h, c) = big_brush_board("tip18_budget");
+    let xf = h.app.board_xf();
+    let shift = egui::Modifiers::SHIFT;
+    let press = xf.w2s(c + EVec2::new(-200.0, 100.0));
+    h.frame_with(|i| {
+        i.modifiers = shift;
+        i.events.push(egui::Event::PointerMoved(press));
+        i.events.push(egui::Event::PointerButton {
+            pos: press,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: shift,
+        });
+    });
+    assert!(h.app.brush_straight.is_some());
+    let from = h.app.brush_line_anchor.expect("the stroke's end").pos;
+    for k in 1..=8 {
+        let s = press + EVec2::new(45.0 * k as f32, 25.0 * k as f32);
+        let before = board_path::stamp_px_on_this_thread();
+        h.frame_with(|i| {
+            i.modifiers = shift;
+            i.events.push(egui::Event::PointerMoved(s));
+        });
+        let spent = board_path::stamp_px_on_this_thread() - before;
+        assert_eq!(spent, 0, "move {k} stamped {spent} px on the frame loop");
+        let end = board_snap::ortho_snap_point(from, h.app.board_xf().s2w(s));
+        let canvas = h.app.brush_live.as_ref().expect("live canvas");
+        let shown = canvas.live_line_end().expect("the preview shows a segment");
+        assert!(
+            near_px(Pos2::new(shown[0], shown[1]), end),
+            "move {k}: the preview shows {shown:?}, the pointer asks {end:?}"
+        );
+    }
+    // Once the pointer stops, the preview becomes the exact stamp.
+    let mut waited = 0;
+    while !h.app.brush_live.as_ref().is_some_and(|c| c.line_exact()) {
+        waited += 1;
+        assert!(waited < 400, "the exact stamp never landed");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        h.frame_with(|i| i.modifiers = shift);
+    }
+    // The release takes that stamp into the canvas; nothing stamps here.
+    let before = board_path::stamp_px_on_this_thread();
+    let last = press + EVec2::new(45.0 * 8.0, 25.0 * 8.0);
+    h.frame_with(|i| {
+        i.modifiers = shift;
+        i.events.push(egui::Event::PointerButton {
+            pos: last,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: shift,
+        });
+    });
+    h.frame();
+    assert_eq!(board_path::stamp_px_on_this_thread(), before, "the release stamped");
+    let canvas = h.app.brush_live.as_ref().expect("parked canvas");
+    assert!(canvas.settled(), "the canvas holds the committed segment");
+}
+
 /// tip18 with a stroke selected under the press: its body, corner, and edge
 /// belong to the Shift drag, which previews every frame and extends the
 /// last mark.
@@ -10347,7 +10754,8 @@ fn brush_shift_drag_over_a_selected_stroke_still_previews() {
 }
 
 /// tip18 inside an image-paint session: the Shift drag previews every frame
-/// and commits onto the image's layer.
+/// and extends the last mark on the image's layer as one path (D03), so
+/// the joint keeps the stroke's opacity; each segment is one undo step.
 #[test]
 fn brush_shift_drag_in_an_image_paint_session_previews() {
     let mut h = Harness::new("tip18_img");
@@ -10369,6 +10777,8 @@ fn brush_shift_drag_in_an_image_paint_session_previews() {
     h.app.board_osnap.enabled = false;
     h.app.board_smart_guides = false;
     h.app.board_snap_grid = false;
+    h.app.brush_opacity = 0.5;
+    h.app.brush_softness = 0.0;
     h.frame();
     h.frame();
     assert!(h.app.image_paint_session().is_some());
@@ -10391,21 +10801,46 @@ fn brush_shift_drag_in_an_image_paint_session_previews() {
         _ => 0,
     };
     assert_eq!(layer_nodes(&h), 1);
+    let mark = |h: &Harness| match &h.app.doc().scene.node(image_id).unwrap().kind {
+        slate_doc::scene::NodeKind::Image(img) => img.paint_layers[0].nodes[0].clone(),
+        _ => panic!("the image"),
+    };
+    let drawn = mark(&h);
+    let from = h.app.brush_line_anchor.expect("the mark's end").pos;
+    let raw_end = Pos2::new(300.0, 250.0);
     press_drag_release_frames(
         &mut h,
-        &[
-            Pos2::new(200.0, 200.0),
-            Pos2::new(250.0, 150.0),
-            Pos2::new(300.0, 250.0),
-        ],
+        &[Pos2::new(200.0, 200.0), Pos2::new(250.0, 150.0), raw_end],
         egui::Modifiers::SHIFT,
         |h| {
             assert!(h.app.brush_straight.is_some());
             assert!(h.app.brush_live.as_ref().is_some_and(|c| c.showing_line()));
         },
     );
-    assert_eq!(layer_nodes(&h), 2, "the segment lands on the layer");
+    assert_eq!(layer_nodes(&h), 1, "the segment extends the mark on the layer");
     assert_eq!(h.app.doc().scene.nodes.len(), 1, "and not on the board");
+    let host = h.app.doc().scene.node(image_id).unwrap().clone();
+    let slate_doc::scene::NodeKind::Image(img) = &host.kind else {
+        panic!("the image");
+    };
+    let world = slate_doc::image_paint::layer_node_to_world(&host, img, &mark(&h));
+    let v = path_vertices(&world);
+    let end = board_snap::ortho_snap_point(from, raw_end);
+    assert!(near_px(v[v.len() - 2], from) && near_px(v[v.len() - 1], end), "{v:?}");
+    // One stamp: the joint is no more opaque than the stroke's body.
+    let mut stamps = Default::default();
+    let rgba = slate_artifact::rasterize_paint_layers(&host, img, 400, 300, None, &mut stamps)
+        .expect("the layer rasters");
+    let alpha = |p: Pos2| rgba[(p.y as usize * 400 + p.x as usize) * 4 + 3];
+    let body = alpha(from + (end - from) * 0.5);
+    assert!(body > 100, "the segment paints: {body}");
+    assert!(
+        alpha(from) <= body + 2,
+        "the joint builds past the stroke's opacity: {} over {body}",
+        alpha(from)
+    );
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    assert_eq!(mark(&h), drawn, "one undo takes back just the segment");
 }
 
 #[test]

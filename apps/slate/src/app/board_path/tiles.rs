@@ -11,7 +11,7 @@
 
 use super::super::board::BoardXf;
 use super::super::SlateApp;
-use super::{paint_path_shape, path_content_hash};
+use super::{line_raster, paint_path_shape, path_content_hash, LineJob, LineRaster};
 use eframe::egui::{self, Color32, Pos2};
 use slate_doc::scene::{ShapeKind, ShapeNode};
 use slate_doc::{Node, NodeId, NodeKind};
@@ -140,11 +140,13 @@ pub(crate) struct StrokeRaster {
 enum Work {
     Tile(Job),
     Stroke(StrokeJob),
+    Line(LineJob),
 }
 
 enum Done {
     Tile(Finished),
     Stroke(NodeId, StrokeRaster),
+    Line(LineRaster),
 }
 
 struct Finished {
@@ -285,6 +287,8 @@ pub(crate) struct BrushTiles {
     /// The newest stroke bitmap landed per stroke, current or not: an older
     /// key still stands in better than the bitmap before it.
     stroke_landed: HashMap<NodeId, StrokeRaster>,
+    /// Live brush Shift segment rasters landed and not taken yet.
+    lines_landed: Vec<LineRaster>,
     /// Stroke bitmaps the workers have built, ever.
     pub stroke_builds: u64,
     pub last: BrushPaintStats,
@@ -317,6 +321,7 @@ impl Default for BrushTiles {
             ink: Arc::new(Mutex::new(HashMap::new())),
             stroke_wants: Arc::new(Mutex::new(HashMap::new())),
             stroke_landed: HashMap::new(),
+            lines_landed: Vec::new(),
             stroke_builds: 0,
             last: BrushPaintStats {
                 gpu_bytes: 0,
@@ -370,6 +375,7 @@ impl BrushTiles {
         self.srcs.clear();
         self.incoming.clear();
         self.stroke_landed.clear();
+        self.lines_landed.clear();
         if let Ok(mut wants) = self.stroke_wants.lock() {
             wants.clear();
         }
@@ -421,6 +427,28 @@ impl BrushTiles {
     pub(crate) fn take_stroke(&mut self, id: NodeId) -> Option<StrokeRaster> {
         self.drain_finished();
         self.stroke_landed.remove(&id)
+    }
+
+    /// Stamp a live brush Shift segment on the raster workers. Hands the
+    /// job back when no worker can take it.
+    pub(crate) fn request_line(&mut self, job: LineJob) -> Result<(), LineJob> {
+        self.ensure_pool();
+        let Some(tx) = self.job_tx.as_ref() else {
+            return Err(job);
+        };
+        tx.send(Work::Line(job)).map_err(|e| match e.0 {
+            Work::Line(job) => job,
+            _ => unreachable!("sent a line job"),
+        })
+    }
+
+    /// The raster for line job `tag`, once it has landed. Rasters of older
+    /// jobs are dropped.
+    pub(crate) fn take_line(&mut self, tag: u64) -> Option<LineRaster> {
+        self.drain_finished();
+        self.lines_landed.retain(|r| r.tag >= tag);
+        let i = self.lines_landed.iter().position(|r| r.tag == tag)?;
+        Some(self.lines_landed.swap_remove(i))
     }
 
     /// Stroke bitmaps asked for and not landed yet.
@@ -523,6 +551,7 @@ impl BrushTiles {
                     }
                     self.stroke_landed.insert(id, raster);
                 }
+                Done::Line(raster) => self.lines_landed.push(raster),
             }
         }
     }
@@ -823,6 +852,7 @@ fn worker(jobs: Arc<Mutex<Receiver<Work>>>, done: Sender<Done>) {
         let sent = match work {
             Work::Tile(job) => rasterize_tile(job, &done),
             Work::Stroke(job) => rasterize_stroke(job, &done),
+            Work::Line(job) => done.send(Done::Line(line_raster(job))).is_ok(),
         };
         if !sent {
             break;

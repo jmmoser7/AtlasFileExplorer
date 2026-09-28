@@ -569,6 +569,7 @@ fn hash_path_data(h: &mut impl Hasher, path: &PathData) {
         hash_f32(h, tip.width);
         hash_f32(h, tip.softness);
         tip.color.0.hash(h);
+        (tip.texture as u8).hash(h);
     }
     path.erase.len().hash(h);
     for mark in &path.erase {
@@ -580,6 +581,7 @@ fn hash_path_data(h: &mut impl Hasher, path: &PathData) {
             hash_f32(h, tip.width);
             hash_f32(h, tip.softness);
             tip.color.0.hash(h);
+            (tip.texture as u8).hash(h);
         }
     }
     path.segs.len().hash(h);
@@ -2284,6 +2286,40 @@ pub(crate) fn stamps_on_this_thread() -> u64 {
     STAMPS_HERE.with(|n| n.get())
 }
 
+#[cfg(test)]
+thread_local! {
+    static STAMP_PX_HERE: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static RESUMES_HERE: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Live-canvas resumes (a parked canvas reused without a rebuild) on this
+/// thread so far.
+#[cfg(test)]
+pub(crate) fn resumes_on_this_thread() -> u64 {
+    RESUMES_HERE.with(|n| n.get())
+}
+
+/// Count `px` pixels of live-canvas segment boxes stamped on the calling
+/// thread; on the frame thread that is frame-loop raster work.
+#[cfg(test)]
+fn note_stamp_px(px: u64) {
+    STAMP_PX_HERE.with(|n| n.set(n.get() + px));
+}
+
+#[cfg(not(test))]
+#[inline(always)]
+fn note_stamp_px(_px: u64) {}
+
+/// Live-canvas segment pixels stamped on this thread so far.
+#[cfg(test)]
+pub(crate) fn stamp_px_on_this_thread() -> u64 {
+    STAMP_PX_HERE.with(|n| n.get())
+}
+
+fn box_area(b: [u32; 4]) -> u64 {
+    (b[2] - b[0]) as u64 * (b[3] - b[1]) as u64
+}
+
 fn evict_brush_stamps(cache: &mut HashMap<NodeId, (u64, BrushStampGpu)>, frame: u64) {
     let total: usize = cache.values().map(|(_, g)| g.bytes).sum();
     if total <= STAMP_CACHE_BYTES {
@@ -2382,9 +2418,16 @@ fn paint_stamp_quad(
 
 /// The brush drag's own canvas, aligned to the screen at one physical pixel
 /// per bitmap pixel. Freehand segments are added as they arrive and only the
-/// touched region uploads. A straight preview restores the region it drew
-/// last frame from `base` (the canvas as it was before the preview) and
-/// re-stamps just the live segment, so the frame cost is that segment's area.
+/// touched region uploads.
+///
+/// A Shift segment is never stamped on the frame loop (Art. II): its exact
+/// stamp over the canvas pixels under it builds on the raster workers, one
+/// job at a time, generation-tagged, and the newest landed result shows. A
+/// frame the exact stamp does not cover yet paints the segment's vector
+/// mesh at its tips instead, so the preview follows the pointer every
+/// frame; when the landed stamp is a shorter run of the same segment, it
+/// shows with the mesh only past its end. A committed segment is stamped
+/// into the canvas the same way.
 ///
 /// When a Shift line continues an earlier stroke, that stroke is stamped into
 /// the canvas first and hidden from the scene paint for the drag. The
@@ -2398,15 +2441,11 @@ pub struct BrushLiveCanvas {
     /// Raw coverage and depth; the grain is applied per upload, as the
     /// committed stamp applies it once to the finished stroke.
     img: vector_ink::StampImage,
-    base: Vec<u8>,
-    base_depth: Vec<u8>,
     grain: vector_ink::Grain,
     tex: egui::TextureHandle,
     view: [u32; 6],
     pub anchor: Option<NodeId>,
     freehand_done: usize,
-    line_key: Option<u64>,
-    line_dirty: Option<[u32; 4]>,
     /// Every pixel box drawn since the last reset.
     touched: Option<[u32; 4]>,
     idle: bool,
@@ -2417,6 +2456,163 @@ pub struct BrushLiveCanvas {
     /// The canvas shows the held stroke and nothing else, so the next Shift
     /// segment that continues it starts from these pixels.
     reusable: bool,
+    /// Bumped whenever `img` changes: a raster built on older pixels is
+    /// dropped when it lands.
+    gen: u64,
+    /// The Shift segment the preview shows.
+    line: Option<Seg>,
+    /// Committed Shift segments not stamped into `img` yet, oldest first.
+    commits: Vec<Seg>,
+    /// The newest exact preview stamp the workers returned.
+    exact: Option<LineExact>,
+    inflight: Option<LineAsk>,
+    next_tag: u64,
+    /// Stand-in meshes painted last frame, and this frame's.
+    meshes: Vec<(u64, DraftMesh)>,
+    meshes_next: Vec<(u64, DraftMesh)>,
+    /// Pixel buffers of a dropped raster, reused for the next job's base.
+    spare: (Vec<u8>, Vec<u8>),
+}
+
+/// A straight segment between two tipped ends.
+type Seg = (TipPoint, TipPoint);
+
+/// A preview stamp from the raster workers: `seg` stamped over the canvas
+/// pixels in box `bx` as they were at generation `gen`.
+struct LineExact {
+    seg: Seg,
+    gen: u64,
+    bx: [u32; 4],
+    tex: egui::TextureHandle,
+    raw: vector_ink::StampImage,
+    image: egui::ColorImage,
+}
+
+/// The one Shift segment job on the raster workers.
+struct LineAsk {
+    tag: u64,
+    gen: u64,
+    segs: Vec<Seg>,
+    commit: bool,
+    bx: [u32; 4],
+}
+
+/// Shift segments to stamp over `base`, a copy of the live canvas pixels
+/// under them. Runs on a raster worker ([`line_raster`]).
+pub(crate) struct LineJob {
+    pub tag: u64,
+    base: vector_ink::StampImage,
+    segs: Vec<Seg>,
+}
+
+/// A finished [`LineJob`]: raw coverage and depth for the canvas, and the
+/// grained, premultiplied pixels for upload.
+pub(crate) struct LineRaster {
+    pub tag: u64,
+    raw: vector_ink::StampImage,
+    image: egui::ColorImage,
+}
+
+/// Stamp a [`LineJob`]. Worker threads run it; the frame thread only when
+/// no worker can.
+pub(crate) fn line_raster(job: LineJob) -> LineRaster {
+    let mut img = job.base;
+    for (a, b) in &job.segs {
+        stamp_segment(&mut img, *a, *b);
+    }
+    note_stamp_px(img.width as u64 * img.height as u64);
+    let grain = job.segs.last().map_or(vector_ink::Grain::Smooth, |s| s.0.tip.grain);
+    let rows = vector_ink::finished_region(&img, grain, [0, 0, img.width, img.height]);
+    let image = egui::ColorImage::from_rgba_premultiplied(
+        [img.width as usize, img.height as usize],
+        &premultiplied(&rows),
+    );
+    LineRaster {
+        tag: job.tag,
+        raw: img,
+        image,
+    }
+}
+
+/// Copy of `img`'s pixels in box `b` as its own image on the world, into
+/// the reused buffers `(rgba, depth)`.
+fn copy_region(
+    img: &vector_ink::StampImage,
+    b: [u32; 4],
+    (mut rgba, mut depth): (Vec<u8>, Vec<u8>),
+) -> vector_ink::StampImage {
+    rgba.clear();
+    depth.clear();
+    let w = img.width as usize;
+    for y in b[1] as usize..b[3] as usize {
+        rgba.extend_from_slice(&img.rgba[(y * w + b[0] as usize) * 4..(y * w + b[2] as usize) * 4]);
+        if !img.depth.is_empty() {
+            depth.extend_from_slice(&img.depth[y * w + b[0] as usize..y * w + b[2] as usize]);
+        }
+    }
+    vector_ink::StampImage {
+        width: b[2] - b[0],
+        height: b[3] - b[1],
+        origin: [
+            img.origin[0] + b[0] as f32 * img.pixel,
+            img.origin[1] + b[1] as f32 * img.pixel,
+        ],
+        pixel: img.pixel,
+        rgba,
+        depth,
+    }
+}
+
+/// `new` runs from the same start along the same direction as `old`, at
+/// least as far, with one tip throughout: `old`'s stamp is a prefix of it.
+fn extends(old: Seg, new: Seg) -> bool {
+    let (a, ob, nb) = (old.0, old.1, new.1);
+    if new.0 != a || ob.tip != a.tip || nb.tip != a.tip {
+        return false;
+    }
+    let o = [ob.pos[0] - a.pos[0], ob.pos[1] - a.pos[1]];
+    let n = [nb.pos[0] - a.pos[0], nb.pos[1] - a.pos[1]];
+    let (lo, ln) = (o[0].hypot(o[1]), n[0].hypot(n[1]));
+    let cross = o[0] * n[1] - o[1] * n[0];
+    lo > 0.0 && ln >= lo && cross.abs() <= 1.0e-4 * lo * ln && o[0] * n[0] + o[1] * n[1] > 0.0
+}
+
+fn seg_mesh_key(seg: Seg, ends: [Cap; 2], zoom: f32) -> u64 {
+    let mut h = DefaultHasher::new();
+    for p in [seg.0, seg.1] {
+        hash_xy(&mut h, p.pos);
+        hash_f32(&mut h, p.tip.diameter);
+        p.tip.rgba.hash(&mut h);
+    }
+    (ends[0] == Cap::Round, ends[1] == Cap::Round).hash(&mut h);
+    hash_f32(&mut h, zoom);
+    h.finish()
+}
+
+/// Paint texel box `px` of a `size`-texel texture laid on the world at
+/// `origin`, `pixel` world units per texel.
+fn paint_texels(
+    painter: &egui::Painter,
+    xf: &BoardXf,
+    tex: egui::TextureId,
+    (origin, pixel, size): ([f32; 2], f32, [u32; 2]),
+    px: [u32; 4],
+) {
+    if px[2] <= px[0] || px[3] <= px[1] {
+        return;
+    }
+    let world = |x: u32, y: u32| Pos2::new(origin[0] + x as f32 * pixel, origin[1] + y as f32 * pixel);
+    let (w, h) = (size[0].max(1) as f32, size[1].max(1) as f32);
+    let uv = egui::Rect::from_min_max(
+        Pos2::new(px[0] as f32 / w, px[1] as f32 / h),
+        Pos2::new(px[2] as f32 / w, px[3] as f32 / h),
+    );
+    painter.image(
+        tex,
+        egui::Rect::from_min_max(xf.w2s(world(px[0], px[1])), xf.w2s(world(px[2], px[3]))),
+        uv,
+        Color32::WHITE,
+    );
 }
 
 fn view_key(xf: &BoardXf, screen: egui::Rect, ppp: f32) -> [u32; 6] {
@@ -2462,23 +2658,17 @@ impl BrushLiveCanvas {
                     && c.held == anchor_id.map(|id| (id, anchor_key))
             });
         if resume {
+            // Committed segments still on the workers are part of the canvas.
             let canvas = slot.as_mut().expect("parked canvas");
-            // A line canvas differs from its base only in the last segment.
-            let fresh = if canvas.freehand_done > 0 {
-                canvas.touched
-            } else {
-                canvas.line_dirty
-            };
-            canvas.line_dirty = None;
-            if let Some(b) = fresh {
-                canvas.copy_rows(b, true);
-            }
-            canvas.line_key = None;
             canvas.held = None;
             canvas.reusable = false;
             canvas.anchor = anchor_id;
             canvas.freehand_done = 0;
             canvas.idle = false;
+            canvas.line = None;
+            canvas.exact = None;
+            #[cfg(test)]
+            RESUMES_HERE.with(|n| n.set(n.get() + 1));
             return canvas;
         }
         let w = (screen.width() * ppp).ceil().max(1.0) as u32;
@@ -2487,7 +2677,6 @@ impl BrushLiveCanvas {
             .as_ref()
             .is_some_and(|c| c.img.width == w && c.img.height == h);
         if !fits {
-            let rgba = vec![0u8; (w as usize) * (h as usize) * 4];
             let tex = painter.ctx().load_texture(
                 "brush-live",
                 egui::ColorImage::new([w as usize, h as usize], Color32::TRANSPARENT),
@@ -2499,27 +2688,33 @@ impl BrushLiveCanvas {
                     height: h,
                     origin: [0.0, 0.0],
                     pixel: 1.0,
-                    rgba: rgba.clone(),
+                    rgba: vec![0u8; (w as usize) * (h as usize) * 4],
                     depth: Vec::new(),
                 },
-                base: rgba,
-                base_depth: Vec::new(),
                 grain: vector_ink::Grain::Smooth,
                 tex,
                 view,
                 anchor: None,
                 freehand_done: 0,
-                line_key: None,
-                line_dirty: None,
                 touched: None,
                 idle: true,
                 held: None,
                 reusable: false,
+                gen: 0,
+                line: None,
+                commits: Vec::new(),
+                exact: None,
+                inflight: None,
+                next_tag: 0,
+                meshes: Vec::new(),
+                meshes_next: Vec::new(),
+                spare: (Vec::new(), Vec::new()),
             });
         }
         let canvas = slot.as_mut().expect("canvas just ensured");
         // An empty canvas is empty under any camera, so only the mapping moves.
         canvas.clear_touched();
+        canvas.gen += 1;
         canvas.held = None;
         canvas.reusable = false;
         let origin = xf.s2w(screen.min);
@@ -2528,8 +2723,9 @@ impl BrushLiveCanvas {
         canvas.view = view;
         canvas.anchor = anchor_id;
         canvas.freehand_done = 0;
-        canvas.line_key = None;
-        canvas.line_dirty = None;
+        canvas.line = None;
+        canvas.commits.clear();
+        canvas.exact = None;
         canvas.idle = false;
         if anchor_id.is_some() {
             let contours = anchor_contours();
@@ -2550,7 +2746,6 @@ impl BrushLiveCanvas {
                 }
             }
             if let Some(b) = canvas.touched {
-                canvas.copy_rows(b, true);
                 canvas.upload(b);
             }
         }
@@ -2561,6 +2756,7 @@ impl BrushLiveCanvas {
     pub fn park(&mut self) {
         self.idle = true;
         self.anchor = None;
+        self.line = None;
     }
 
     #[cfg(test)]
@@ -2577,12 +2773,26 @@ impl BrushLiveCanvas {
         self.reusable = alone && key.is_some();
     }
 
-    /// [`Self::hold`] for the Shift segment `a`–`b`.
+    /// [`Self::hold`] for the Shift segment `a`–`b`, which the canvas takes
+    /// in exactly: from the preview stamp when it shows `a`–`b` (the release
+    /// may land off the last previewed point), else from the workers.
     pub fn hold_line(&mut self, id: NodeId, key: Option<u64>, a: TipPoint, b: TipPoint) {
         self.hold(id, key);
-        if self.reusable {
-            // The release may land off the last previewed point.
-            self.set_line(a, b);
+        self.commits.push((a, b));
+        self.adopt_exact();
+    }
+
+    /// A committed segment the preview stamp already shows goes straight in.
+    fn adopt_exact(&mut self) {
+        let ready = self.commits.len() == 1
+            && self
+                .exact
+                .as_ref()
+                .is_some_and(|e| e.seg == self.commits[0] && e.gen == self.gen);
+        if ready {
+            let e = self.exact.take().expect("checked above");
+            self.take_in(e.bx, e.raw, e.image, e.seg.0.tip.grain);
+            self.commits.clear();
         }
     }
 
@@ -2599,56 +2809,66 @@ impl BrushLiveCanvas {
     /// Stamp a segment and remember its box for the next reset.
     fn stamp(&mut self, a: TipPoint, b: TipPoint) -> Option<[u32; 4]> {
         self.grain = a.tip.grain;
+        self.gen += 1;
         stamp_segment(&mut self.img, a, b);
         let bx = self.segment_box(a, b)?;
+        note_stamp_px(box_area(bx));
         self.touched = Some(union_box(self.touched, bx));
         Some(bx)
-    }
-
-    /// Copy `b` between the canvas and `base` (`to_base` = canvas into base).
-    fn copy_rows(&mut self, b: [u32; 4], to_base: bool) {
-        let w = self.img.width as usize;
-        let stride = w * 4;
-        let deep = !self.img.depth.is_empty();
-        if deep && self.base_depth.len() != self.img.depth.len() {
-            self.base_depth = vec![0; self.img.depth.len()];
-        }
-        for y in b[1] as usize..b[3] as usize {
-            let row = y * stride + b[0] as usize * 4..y * stride + b[2] as usize * 4;
-            let drow = y * w + b[0] as usize..y * w + b[2] as usize;
-            if to_base {
-                self.base[row.clone()].copy_from_slice(&self.img.rgba[row]);
-                if deep {
-                    self.base_depth[drow.clone()].copy_from_slice(&self.img.depth[drow]);
-                }
-            } else {
-                self.img.rgba[row.clone()].copy_from_slice(&self.base[row]);
-                if deep {
-                    self.img.depth[drow.clone()].copy_from_slice(&self.base_depth[drow]);
-                }
-            }
-        }
     }
 
     fn clear_touched(&mut self) {
         let Some(b) = self.touched.take() else {
             return;
         };
+        self.gen += 1;
         let w = self.img.width as usize;
         let stride = w * 4;
         for y in b[1] as usize..b[3] as usize {
             let row = y * stride + b[0] as usize * 4..y * stride + b[2] as usize * 4;
-            self.img.rgba[row.clone()].fill(0);
-            self.base[row].fill(0);
+            self.img.rgba[row].fill(0);
             let drow = y * w + b[0] as usize..y * w + b[2] as usize;
             if !self.img.depth.is_empty() {
-                self.img.depth[drow.clone()].fill(0);
-            }
-            if !self.base_depth.is_empty() {
-                self.base_depth[drow].fill(0);
+                self.img.depth[drow].fill(0);
             }
         }
         self.upload(b);
+    }
+
+    fn region(&mut self, b: [u32; 4]) -> vector_ink::StampImage {
+        copy_region(&self.img, b, std::mem::take(&mut self.spare))
+    }
+
+    /// Write a landed raster of box `b` into the canvas and its texture.
+    fn take_in(
+        &mut self,
+        b: [u32; 4],
+        raw: vector_ink::StampImage,
+        image: egui::ColorImage,
+        grain: vector_ink::Grain,
+    ) {
+        let w = self.img.width as usize;
+        let bw = (b[2] - b[0]) as usize;
+        if !raw.depth.is_empty() && self.img.depth.is_empty() {
+            self.img.depth = vec![0; w * self.img.height as usize];
+        }
+        for (i, y) in (b[1] as usize..b[3] as usize).enumerate() {
+            self.img.rgba[(y * w + b[0] as usize) * 4..(y * w + b[2] as usize) * 4]
+                .copy_from_slice(&raw.rgba[i * bw * 4..(i + 1) * bw * 4]);
+            if !raw.depth.is_empty() {
+                self.img.depth[y * w + b[0] as usize..y * w + b[2] as usize]
+                    .copy_from_slice(&raw.depth[i * bw..(i + 1) * bw]);
+            }
+        }
+        self.grain = grain;
+        self.gen += 1;
+        self.touched = Some(union_box(self.touched, b));
+        self.tex.set_partial(
+            [b[0] as usize, b[1] as usize],
+            image,
+            egui::TextureOptions::LINEAR,
+        );
+        self.spare = (raw.rgba, raw.depth);
     }
 
     fn segment_box(&self, a: TipPoint, b: TipPoint) -> Option<[u32; 4]> {
@@ -2692,63 +2912,205 @@ impl BrushLiveCanvas {
 
     #[cfg(test)]
     pub fn showing_line(&self) -> bool {
-        !self.idle && self.line_dirty.is_some()
+        !self.idle && self.line.is_some()
     }
 
-    /// Show one straight segment on top of the base canvas.
+    #[cfg(test)]
+    pub fn live_line_end(&self) -> Option<[f32; 2]> {
+        self.line.filter(|_| !self.idle).map(|(_, b)| b.pos)
+    }
+
+    /// The preview shows the live segment's exact stamp.
+    #[cfg(test)]
+    pub fn line_exact(&self) -> bool {
+        !self.idle
+            && self.commits.is_empty()
+            && self
+                .exact
+                .as_ref()
+                .is_some_and(|e| Some(e.seg) == self.line && e.gen == self.gen)
+    }
+
+    /// Every committed segment is stamped into the canvas.
+    #[cfg(test)]
+    pub fn settled(&self) -> bool {
+        self.commits.is_empty() && self.inflight.is_none()
+    }
+
+    /// Show one straight segment on top of the canvas. [`Self::pump`]
+    /// asks the workers for its stamp.
     pub fn set_line(&mut self, a: TipPoint, b: TipPoint) {
-        let key = {
-            let mut h = DefaultHasher::new();
-            for v in [
-                a.pos[0],
-                a.pos[1],
-                b.pos[0],
-                b.pos[1],
-                a.tip.diameter,
-                b.tip.diameter,
-            ] {
-                hash_f32(&mut h, v);
+        self.line = Some((a, b));
+    }
+
+    /// Take in the Shift segment raster that landed, then ask for the next
+    /// one: committed segments first, then the live segment's preview.
+    pub fn pump(&mut self, tiles: &mut tiles::BrushTiles, ctx: &egui::Context) {
+        if let Some(tag) = self.inflight.as_ref().map(|a| a.tag) {
+            if let Some(r) = tiles.take_line(tag) {
+                let ask = self.inflight.take().expect("checked above");
+                self.land(ask, r, ctx);
             }
-            hash_f32(&mut h, a.tip.softness);
-            hash_f32(&mut h, b.tip.softness);
-            a.tip.rgba.hash(&mut h);
-            b.tip.rgba.hash(&mut h);
-            h.finish()
+        }
+        if self.inflight.is_none() {
+            if !self.commits.is_empty() {
+                let segs = self.commits.clone();
+                self.ask(tiles, segs, true, ctx);
+            } else if let Some(seg) = self.line {
+                let current = self
+                    .exact
+                    .as_ref()
+                    .is_some_and(|e| e.seg == seg && e.gen == self.gen);
+                if !current {
+                    self.ask(tiles, vec![seg], false, ctx);
+                }
+            }
+        }
+        if self.inflight.is_some() {
+            ctx.request_repaint();
+        }
+    }
+
+    fn ask(&mut self, tiles: &mut tiles::BrushTiles, segs: Vec<Seg>, commit: bool, ctx: &egui::Context) {
+        let bx = segs
+            .iter()
+            .filter_map(|(a, b)| self.segment_box(*a, *b))
+            .reduce(|u, b| union_box(Some(u), b));
+        let Some(bx) = bx else {
+            // Off the canvas: nothing to stamp or show.
+            if commit {
+                self.commits.clear();
+            }
+            return;
         };
-        if self.line_key == Some(key) {
+        self.next_tag += 1;
+        let tag = self.next_tag;
+        let job = LineJob {
+            tag,
+            base: self.region(bx),
+            segs: segs.clone(),
+        };
+        let ask = LineAsk {
+            tag,
+            gen: self.gen,
+            segs,
+            commit,
+            bx,
+        };
+        match tiles.request_line(job) {
+            Ok(()) => self.inflight = Some(ask),
+            Err(job) => {
+                let r = line_raster(job);
+                self.land(ask, r, ctx);
+            }
+        }
+    }
+
+    fn land(&mut self, ask: LineAsk, r: LineRaster, ctx: &egui::Context) {
+        if ask.gen != self.gen {
+            self.spare = (r.raw.rgba, r.raw.depth);
             return;
         }
-        self.line_key = Some(key);
-        if let Some(old) = self.line_dirty {
-            self.copy_rows(old, false);
+        if ask.commit {
+            if self.commits.starts_with(&ask.segs) {
+                let grain = ask.segs.last().map_or(self.grain, |s| s.0.tip.grain);
+                self.take_in(ask.bx, r.raw, r.image, grain);
+                self.commits.drain(..ask.segs.len());
+            } else {
+                self.spare = (r.raw.rgba, r.raw.depth);
+            }
+            return;
         }
-        let new_box = self.stamp(a, b);
-        let dirty = match (self.line_dirty, new_box) {
-            (Some(old), Some(new)) => Some(union_box(Some(old), new)),
-            (old, new) => old.or(new),
+        let tex = match self.exact.take() {
+            Some(mut old) => {
+                old.tex.set(r.image.clone(), egui::TextureOptions::LINEAR);
+                self.spare = (old.raw.rgba, old.raw.depth);
+                old.tex
+            }
+            None => ctx.load_texture("brush-live-line", r.image.clone(), egui::TextureOptions::LINEAR),
         };
-        self.line_dirty = new_box;
-        if let Some(d) = dirty {
-            self.upload(d);
+        self.exact = Some(LineExact {
+            seg: ask.segs[0],
+            gen: ask.gen,
+            bx: ask.bx,
+            tex,
+            raw: r.raw,
+            image: r.image,
+        });
+        self.adopt_exact();
+    }
+
+    /// The canvas, the live segment's exact stamp where it has landed, and
+    /// the vector stand-in for any segment the stamps do not cover yet.
+    pub fn paint(&mut self, painter: &egui::Painter, xf: &BoardXf) {
+        let exact = self
+            .exact
+            .as_ref()
+            .filter(|e| self.commits.is_empty() && e.gen == self.gen);
+        let (shown, rest) = match (exact, self.line) {
+            (Some(e), Some(seg)) if e.seg == seg => (Some((e.bx, e.tex.id())), None),
+            (Some(e), Some(seg)) if extends(e.seg, seg) => {
+                (Some((e.bx, e.tex.id())), Some(((e.seg.1, seg.1), [Cap::Butt, Cap::Round])))
+            }
+            (_, line) => (None, line.map(|seg| (seg, [Cap::Round; 2]))),
+        };
+        let img = (self.img.origin, self.img.pixel, [self.img.width, self.img.height]);
+        let (w, h) = (self.img.width, self.img.height);
+        match shown {
+            Some((b, line_tex)) => {
+                for part in [
+                    [0, 0, w, b[1]],
+                    [0, b[3], w, h],
+                    [0, b[1], b[0], b[3]],
+                    [b[2], b[1], w, b[3]],
+                ] {
+                    paint_texels(painter, xf, self.tex.id(), img, part);
+                }
+                let px = self.img.pixel;
+                let origin = [
+                    self.img.origin[0] + b[0] as f32 * px,
+                    self.img.origin[1] + b[1] as f32 * px,
+                ];
+                let size = [b[2] - b[0], b[3] - b[1]];
+                paint_texels(painter, xf, line_tex, (origin, px, size), [0, 0, size[0], size[1]]);
+            }
+            None => paint_texels(painter, xf, self.tex.id(), img, [0, 0, w, h]),
+        }
+        std::mem::swap(&mut self.meshes, &mut self.meshes_next);
+        self.meshes_next.clear();
+        for i in 0..self.commits.len() {
+            self.paint_seg_mesh(painter, xf, self.commits[i], [Cap::Round; 2]);
+        }
+        if let Some((seg, ends)) = rest {
+            self.paint_seg_mesh(painter, xf, seg, ends);
         }
     }
 
-    pub fn paint(&self, painter: &egui::Painter, xf: &BoardXf) {
-        let size = [
-            self.img.width as f32 * self.img.pixel,
-            self.img.height as f32 * self.img.pixel,
-        ];
-        let min = xf.w2s(Pos2::new(self.img.origin[0], self.img.origin[1]));
-        let max = xf.w2s(Pos2::new(
-            self.img.origin[0] + size[0],
-            self.img.origin[1] + size[1],
-        ));
-        painter.image(
-            self.tex.id(),
-            egui::Rect::from_min_max(min, max),
-            egui::Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
-            Color32::WHITE,
-        );
+    /// A segment's vector mesh at its tips, built once per segment and zoom.
+    fn paint_seg_mesh(&mut self, painter: &egui::Painter, xf: &BoardXf, seg: Seg, ends: [Cap; 2]) {
+        let key = seg_mesh_key(seg, ends, xf.z);
+        let mut mesh = match self.meshes.iter().position(|(k, _)| *k == key) {
+            Some(i) => self.meshes.swap_remove(i).1,
+            None => {
+                let tip = |p: TipPoint| PlacedTip {
+                    width: p.tip.diameter,
+                    color: Rgba(p.tip.rgba),
+                    opacity: 1.0,
+                };
+                let mut bez = BezPath::new();
+                bez.move_to((seg.0.pos[0] as f64, seg.0.pos[1] as f64));
+                bez.line_to((seg.1.pos[0] as f64, seg.1.pos[1] as f64));
+                let (ink, color) = draft_stroke_ink_ends(&bez, false, &[tip(seg.0), tip(seg.1)], xf.z, ends);
+                DraftMesh {
+                    key,
+                    mesh: ink.into(),
+                    color,
+                    screen: None,
+                }
+            }
+        };
+        paint_draft_mesh(painter, xf, &mut mesh);
+        self.meshes_next.push((key, mesh));
     }
 }
 
@@ -4043,6 +4405,90 @@ impl SlateApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A Shift segment stamped by a worker over a copy of the canvas pixels
+    /// under it gives the pixels stamping the whole canvas would, so the
+    /// canvas that stands in after release shows the committed segment.
+    #[test]
+    fn a_line_raster_matches_stamping_the_whole_canvas() {
+        let tip = StampStyle {
+            diameter: 90.0,
+            softness: 0.09,
+            rgba: [200, 40, 40, 180],
+            grain: vector_ink::Grain::Pencil,
+        };
+        let at = |x: f32, y: f32| TipPoint { pos: [x, y], tip };
+        let mut full = vector_ink::StampImage {
+            width: 640,
+            height: 480,
+            origin: [123.37, -45.11],
+            pixel: 0.43,
+            rgba: vec![0; 640 * 480 * 4],
+            depth: Vec::new(),
+        };
+        stamp_segment(&mut full, at(150.0, 0.0), at(250.0, 80.0));
+        let (a, b) = (at(250.0, 80.0), at(380.0, 100.0));
+        let bx = segment_box(&full, a, b).expect("on the canvas");
+        let job = LineJob {
+            tag: 1,
+            base: copy_region(&full, bx, (Vec::new(), Vec::new())),
+            segs: vec![(a, b)],
+        };
+        let r = line_raster(job);
+        stamp_segment(&mut full, a, b);
+        let whole = vector_ink::finished_region(&full, tip.grain, bx);
+        let raw = copy_region(&full, bx, (Vec::new(), Vec::new()));
+        let finished = r.image.as_raw();
+        let worst = |x: &[u8], y: &[u8]| x.iter().zip(y).map(|(p, q)| p.abs_diff(*q)).max().unwrap_or(0);
+        assert_eq!(r.raw.rgba.len(), raw.rgba.len());
+        assert!(worst(&r.raw.rgba, &raw.rgba) <= 1, "raw coverage differs");
+        assert_eq!(r.raw.depth.len(), raw.depth.len());
+        assert!(worst(&r.raw.depth, &raw.depth) <= 1, "depth differs");
+        let expect = premultiplied(&whole);
+        assert!(worst(finished, &expect) <= 1, "finished pixels differ");
+    }
+
+    /// Two strokes that differ only in one tip's texture, or one erase mark
+    /// tip's texture, have different stamp keys.
+    #[test]
+    fn a_tip_texture_changes_the_stamp_key() {
+        let mut scene = slate_doc::scene::Scene::default();
+        let (rect, mut path) = points_to_path_data(&[Pos2::ZERO, Pos2::new(80.0, 20.0)], false);
+        let stroke = Stroke {
+            stamp: true,
+            ..default_curve_stroke(Rgba::BLACK)
+        };
+        let span = StrokeSpan::of(&stroke);
+        path.tips = vec![span, span];
+        path.erase = vec![slate_doc::scene::EraseMark {
+            points: vec![[10.0, 5.0], [30.0, 5.0]],
+            tips: vec![span, span],
+        }];
+        let node = |path: PathData, scene: &mut slate_doc::scene::Scene| {
+            scene.build_node(
+                rect,
+                NodeKind::Shape(ShapeNode {
+                    shape: ShapeKind::Path,
+                    fill: None,
+                    stroke: stroke.clone(),
+                    corner: slate_doc::scene::Corner::Square,
+                    sides: slate_doc::scene::default_regular_sides(),
+                    phase_deg: 0.0,
+                    flip: false,
+                    path: Some(path.into()),
+                    text: None,
+                }),
+            )
+        };
+        let key = |n: &Node| node_stamp_key(n).expect("a stamped path");
+        let plain = key(&node(path.clone(), &mut scene));
+        let mut tipped = path.clone();
+        tipped.tips[1].texture = slate_doc::scene::BrushTexture::Pencil;
+        assert_ne!(key(&node(tipped, &mut scene)), plain, "path tip texture");
+        let mut erased = path;
+        erased.erase[0].tips[0].texture = slate_doc::scene::BrushTexture::Pencil;
+        assert_ne!(key(&node(erased, &mut scene)), plain, "erase mark tip texture");
+    }
 
     #[test]
     fn curve_error_stays_subpixel_and_fill_cache_refines_with_zoom() {
