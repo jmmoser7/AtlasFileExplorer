@@ -3645,21 +3645,34 @@ impl SceneJournal {
         false
     }
 
+    /// Reverts the newest group. A group that fails to revert stays on the
+    /// undo stack (the scene is untouched), so the next undo tries it again
+    /// instead of reaching the older group beneath it.
     pub fn undo(&mut self, scene: &mut Scene) -> bool {
         let Some(group) = self.done.pop() else {
             return false;
         };
         let ok = scene.revert_all(&group.cmds);
-        self.undone.push(group);
+        if ok {
+            self.undone.push(group);
+        } else {
+            self.done.push(group);
+        }
         ok
     }
 
+    /// Re-applies the newest undone group. A group that fails stays on the
+    /// redo stack, as a failed undo stays on the undo stack.
     pub fn redo(&mut self, scene: &mut Scene) -> bool {
         let Some(group) = self.undone.pop() else {
             return false;
         };
         let ok = scene.apply_all(&group.cmds);
-        self.done.push(group);
+        if ok {
+            self.done.push(group);
+        } else {
+            self.undone.push(group);
+        }
         ok
     }
 
@@ -4454,6 +4467,89 @@ mod tests {
         let snapshot = scene.clone();
         assert!(!journal.redo(&mut scene));
         assert_scene_unchanged(&scene, &snapshot, "failed redo");
+    }
+
+    /// The group from `a_failed_undo_or_redo_leaves_the_scene_as_it_was`:
+    /// an `Add` at 2 and a frame move.
+    fn add_and_move_frame(scene: &mut Scene, frame_id: NodeId) -> Vec<SceneCmd> {
+        let added = scene.build_node(
+            WorldRect::new(500.0, 0.0, 50.0, 50.0),
+            NodeKind::Image(ImageNode::new(ItemId(2))),
+        );
+        let frame = scene.node(frame_id).unwrap().clone();
+        let mut moved = frame.clone();
+        moved.rect.x += 40.0;
+        vec![
+            SceneCmd::Add {
+                index: 2,
+                node: added,
+            },
+            SceneCmd::Patch {
+                before: Box::new(frame),
+                after: Box::new(moved),
+            },
+        ]
+    }
+
+    fn fade(scene: &Scene, img_id: NodeId) -> Vec<SceneCmd> {
+        let img = scene.node(img_id).unwrap().clone();
+        let mut faded = img.clone();
+        faded.opacity = 0.5;
+        vec![SceneCmd::Patch {
+            before: Box::new(img),
+            after: Box::new(faded),
+        }]
+    }
+
+    #[test]
+    fn a_failed_undo_keeps_its_group_on_the_undo_stack() {
+        let (mut scene, frame_id, img_id) = scene_with_frame_and_image();
+        let mut journal = SceneJournal::default();
+        let older = fade(&scene, img_id);
+        assert!(journal.commit(&mut scene, older));
+        let cmds = add_and_move_frame(&mut scene, frame_id);
+        assert!(journal.commit(&mut scene, cmds));
+        scene.nodes.swap(1, 2);
+        let snapshot = scene.clone();
+
+        for attempt in ["first", "second"] {
+            assert!(!journal.undo(&mut scene), "{attempt} undo fails");
+            assert_scene_unchanged(&scene, &snapshot, attempt);
+            assert_eq!(journal.undo_depth(), 2, "{attempt}: group stays done");
+            assert!(!journal.can_redo(), "{attempt}: nothing to redo");
+        }
+        assert_eq!(
+            scene.node(img_id).unwrap().opacity,
+            0.5,
+            "the older group is never reached"
+        );
+    }
+
+    #[test]
+    fn a_failed_redo_keeps_its_group_on_the_redo_stack() {
+        let (mut scene, frame_id, img_id) = scene_with_frame_and_image();
+        let mut journal = SceneJournal::default();
+        let cmds = add_and_move_frame(&mut scene, frame_id);
+        assert!(journal.commit(&mut scene, cmds));
+        let newer = fade(&scene, img_id);
+        assert!(journal.commit(&mut scene, newer));
+        assert!(journal.undo(&mut scene));
+        assert!(journal.undo(&mut scene));
+        scene.nodes[0].id = NodeId(77);
+        let snapshot = scene.clone();
+
+        for attempt in ["first", "second"] {
+            assert!(!journal.redo(&mut scene), "{attempt} redo fails");
+            assert_scene_unchanged(&scene, &snapshot, attempt);
+            assert_eq!(journal.undo_depth(), 0, "{attempt}: nothing moved to done");
+            assert!(journal.can_redo(), "{attempt}: group stays undone");
+            assert!(!journal.can_undo(), "{attempt}: nothing to undo");
+        }
+        assert_eq!(
+            scene.node(img_id).unwrap().opacity,
+            1.0,
+            "the newer group is never reached"
+        );
     }
 
     #[test]
