@@ -14128,8 +14128,63 @@ fn a_deferred_ink_answer_that_lands_during_the_next_pass_joins_that_pass() {
     two_quick_deferred_passes("eraser_deferred_two_passes_landed", true);
 }
 
+/// A stroke a later pass takes over leaves the selection with the scene,
+/// as it does when its own pass's answer removes it.
+#[test]
+fn a_taken_over_eraser_removal_clears_the_selection() {
+    let (mut h, [a, b], [pass_a, pass_b]) = two_erasable_zigzags("eraser_takeover_selection");
+    h.app.brush_tiles.hold_inks = true;
+    flick_eraser(&mut h, a, pass_a.0, pass_a.1, true);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while !h.app.brush_tiles.ink_landed(a) {
+        assert!(std::time::Instant::now() < deadline, "A's answer never landed");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    h.app.board_sel = std::iter::once(a).collect();
+    h.app.eraser_anchor = None;
+    flick_eraser_then(&mut h, b, pass_b.0, pass_b.1, true, |h| {
+        h.app.brush_tiles.hold_inks = false;
+    });
+    assert!(h.app.doc().scene.node(a).is_none(), "pass 2 took A over");
+    assert!(!h.app.board_sel.contains(&a), "A left the selection with the scene");
+}
+
+/// A pass the tab refuses to commit takes nothing over: the earlier
+/// pass's answer stays with it, and removes the stroke in that pass's
+/// step once the tab accepts edits again.
+#[test]
+fn a_refused_eraser_commit_keeps_the_earlier_passs_ink_answer() {
+    let (mut h, [a, b], [pass_a, pass_b]) = two_erasable_zigzags("eraser_refused_takeover");
+    let before_a = h.app.doc().scene.node(a).unwrap().clone();
+    let depth = h.app.tab().journal.undo_depth();
+    h.app.brush_tiles.hold_inks = true;
+    flick_eraser(&mut h, a, pass_a.0, pass_a.1, true);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while !h.app.brush_tiles.ink_landed(a) {
+        assert!(std::time::Instant::now() < deadline, "A's answer never landed");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    h.app.tab_mut().read_only = true;
+    h.app.eraser_anchor = None;
+    flick_eraser_then(&mut h, b, pass_b.0, pass_b.1, true, |h| {
+        h.app.brush_tiles.hold_inks = false;
+    });
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "pass 2 was refused");
+    h.app.tab_mut().read_only = false;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while h.app.doc().scene.node(a).is_some() {
+        assert!(std::time::Instant::now() < deadline, "A stayed in the scene");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        h.frame();
+    }
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "A left in pass 1's step");
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    assert_eq!(h.app.doc().scene.node(a), Some(&before_a), "one Ctrl+Z restores A");
+}
+
 /// Review r13 finding 2 (Art. II): while a deferred ink check waits for
-/// its answer, frames neither hash nor clone the stroke.
+/// its answer, the check itself neither hashes nor clones the stroke on
+/// any frame. A waiting band's own validity check is separate.
 #[test]
 fn a_pending_ink_check_does_no_stroke_work_per_frame() {
     let (mut h, id, a, b) = erasable_zigzag("eraser_deferred_idle");

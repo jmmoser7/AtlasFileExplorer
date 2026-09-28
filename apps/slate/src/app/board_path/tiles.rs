@@ -1412,7 +1412,8 @@ pub(crate) fn paint_rest(
         settled: pending == 0 && !drew_fallback && individuals == 0,
         frame,
     };
-    if pending > 0 {
+    // An ink check's answer is taken in on a frame; nothing else may come.
+    if pending > 0 || !app.brush_tiles.inks_wanted.is_empty() {
         painter.ctx().request_repaint();
     }
 }

@@ -1,5 +1,19 @@
 # Canvas command project — change log
 
+## 2026-09-27 — A refused eraser pass takes no ink check over (review r14)
+
+- `brush` D11: an eraser pass on a read-only tab no longer takes over an
+  earlier pass's ink check. The earlier pass's answer stays with it and
+  removes the emptied stroke in that pass's undo step once the tab
+  accepts edits.
+- A stroke a later eraser pass removes leaves the selection, as it does
+  when its own pass removes it.
+- The board keeps asking for frames while an ink check waits, so the
+  answer is taken in without further input.
+- `brush` D11: the "nothing is removed" sentence states that answers are
+  taken in only between gestures, and that undoing the earlier pass
+  restores its ink.
+
 ## 2026-09-27 — Quick eraser passes remove every stroke they empty (review r13)
 
 - `brush` D11: an eraser pass that commits while an earlier pass's

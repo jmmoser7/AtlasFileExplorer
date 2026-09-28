@@ -1850,7 +1850,8 @@ impl SlateApp {
             self.finish_erase_layer_spot(&spot, &points, span, &live, &pending, layer_removes);
         cmds.extend(layer_cmds);
         let mut carried = Vec::new();
-        if !cmds.is_empty() || !board_removes.is_empty() {
+        // A read-only tab refuses the commit, and a taken answer would be lost.
+        if (!cmds.is_empty() || !board_removes.is_empty()) && !self.tab().read_only {
             let changed: Vec<NodeId> = cmds
                 .iter()
                 .map(super::board::cmd_node_id)
@@ -1859,6 +1860,7 @@ impl SlateApp {
             carried = self.take_over_erase_checks(&changed, &mut board_removes);
         }
         board_removes.sort_by_key(|(index, _)| std::cmp::Reverse(*index));
+        let removed: Vec<NodeId> = board_removes.iter().map(|(_, node)| node.id).collect();
         cmds.extend(
             board_removes
                 .into_iter()
@@ -1870,6 +1872,9 @@ impl SlateApp {
             self.last_board_edit = None;
             if self.commit_scene(cmds) {
                 pass = self.tab().journal.top_token();
+                for id in &removed {
+                    self.board_sel.remove(id);
+                }
             }
         }
         // A pass's preview that stands in or settles shows every earlier
