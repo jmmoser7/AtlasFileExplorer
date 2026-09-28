@@ -665,26 +665,19 @@ impl SlateApp {
 
     /// Eraser release for paint-layer strokes (active layer only), with
     /// `removes`, the layer's vector marks the pass crossed, in the same
-    /// ordered batch. As on the board, a mark's live preview decides what
-    /// the pass left unless its cut is still `pending`; without one a
-    /// coarse check runs within the frame's raster budget, and past it the
-    /// mark takes the pass unseen (it stays, even when fully erased).
+    /// ordered batch. Layer marks have no live preview: a coarse check runs
+    /// within the frame's raster budget, and past it the mark takes the
+    /// pass unseen (it stays, even when fully erased).
     pub(crate) fn finish_erase_layer_spot(
         &mut self,
         spot: &[NodeId],
         points: &[Pos2],
         span: slate_doc::scene::StrokeSpan,
-        live: &std::collections::HashMap<NodeId, super::board_path::EraseLive>,
-        pending: &[NodeId],
         mut removes: Vec<SceneCmd>,
     ) -> (Vec<SceneCmd>, usize) {
         let mut cmds = Vec::new();
         let mut touched = 0usize;
         for id in spot {
-            let preview = live.get(id).filter(|_| !pending.contains(id));
-            if preview.is_some_and(|l| !l.changed) {
-                continue;
-            }
             let mut world = None;
             self.patch_layer_node_in_world(*id, |w| {
                 world = Some(w.clone());
@@ -693,16 +686,8 @@ impl SlateApp {
             let Some(world) = world else {
                 continue;
             };
-            let result = match preview {
-                Some(l) => Some((
-                    super::board_color::with_erase_mark(&world, points, span),
-                    !l.left_ink(),
-                )),
-                None => {
-                    let fits = &mut |area| super::board_path::take_sync_budget(self, area);
-                    super::board_color::stamp_erase_mark_within(&world, points, span, fits).0
-                }
-            };
+            let fits = &mut |area| super::board_path::take_sync_budget(self, area);
+            let result = super::board_color::stamp_erase_mark_within(&world, points, span, fits).0;
             let cmd = self.patch_layer_node_in_world(*id, |w| match result {
                 None => LayerMarkEdit::Keep,
                 Some((_, true)) => LayerMarkEdit::Remove,

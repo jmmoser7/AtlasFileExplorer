@@ -1438,7 +1438,13 @@ impl SlateApp {
         if let Some(lease) = self.tabs[i].lease.take() {
             lease.release();
         }
-        self.tabs.remove(i);
+        let closed = self.tabs.remove(i);
+        self.erase_settle
+            .forget_tab(closed.id, &mut self.brush_tiles);
+        for node in &closed.doc.scene.nodes {
+            self.brush_stamps
+                .remove(&board_slate::stroke_cache_id_in(closed.id, node.id));
+        }
         if self.tabs.is_empty() {
             self.at_home = true;
             self.active_tab = 0;

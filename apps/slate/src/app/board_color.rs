@@ -1846,8 +1846,7 @@ impl SlateApp {
                 });
             }
         }
-        let (layer_cmds, _) =
-            self.finish_erase_layer_spot(&spot, &points, span, &live, &pending, layer_removes);
+        let (layer_cmds, _) = self.finish_erase_layer_spot(&spot, &points, span, layer_removes);
         cmds.extend(layer_cmds);
         let mut carried = Vec::new();
         if !cmds.is_empty() || !board_removes.is_empty() {
@@ -1874,26 +1873,28 @@ impl SlateApp {
         }
         // A pass's preview that stands in or settles shows every earlier
         // pass too, so it replaces what settled for the stroke. A pass that
-        // changed nothing leaves that as it is.
+        // changed nothing, or did not commit, leaves that as it is.
         let tab = self.tab().id;
         for after in stand_ins {
             let id = after.id;
-            let at = board_path::node_stamp_key(&after).zip(board_path::erase_seal(&after));
-            if let (Some(l), Some((key, seal))) = (live.remove(&id), at) {
+            let at = board_path::node_stamp_key(&after).zip(pass);
+            if let (Some(l), Some((key, pass))) = (live.remove(&id), at) {
                 self.erase_settle.release(tab, id, &mut self.brush_tiles);
                 let gpu = l.into_stand_in(after.rect, self.frame_no);
+                let seal = board_path::EraseSeal { tab, pass };
                 board_path::insert_erase_stand_in(self, id, key, seal, gpu);
             }
         }
         self.erase_settle.here(tab, &mut self.brush_tiles);
         for after in settles {
-            let Some(key) = board_path::node_stamp_key(&after) else {
+            let (Some(key), Some(pass)) = (board_path::node_stamp_key(&after), pass) else {
                 continue;
             };
             match live.remove(&after.id) {
-                Some(l) => self
-                    .erase_settle
-                    .hold(tab, &after, key, l, &mut self.brush_tiles),
+                Some(l) => {
+                    self.erase_settle
+                        .hold(tab, &after, (key, pass), l, &mut self.brush_tiles)
+                }
                 None => self.erase_settle.wait(tab, &after, key, &points, tip),
             }
         }
