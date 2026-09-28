@@ -1976,6 +1976,24 @@ pub static SPECS: &[CommandSpec] = &[
         &["hud", "opacity"],
     ),
     spec(
+        "board.brush.tip_entry",
+        "Board",
+        "Type tip values",
+        "Alt, Shift, or Ctrl + right-click (released within 4 px and 0.8 s) \
+         wherever that right-drag HUD opens: a small panel beside the HUD \
+         types its values. Alt: size in board units, and softness in percent \
+         on Brush, Eraser, Smooth, and brush strokes. Shift: opacity, or \
+         Eraser / Smooth strength, in percent. Ctrl: hue in degrees, \
+         saturation and value in percent (not on Eraser or Smooth). Tab and \
+         Shift+Tab apply the field and move; Enter applies and closes as one \
+         step; a click away applies and closes; Esc restores. Digits go to \
+         the panel, not to type-to-command.",
+        None,
+        Repeat::Never,
+        BOARD,
+        &["hud", "numeric", "type", "width", "opacity", "hex", "hsv"],
+    ),
+    spec(
         "board.tool.trim",
         "Board",
         "Trim",

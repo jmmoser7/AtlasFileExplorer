@@ -75,6 +75,7 @@ User decision, 2026-09-26 and 2026-09-27 (supersedes the 2026-09-27
 | Shift+right-drag | Opacity the picked vertices paint at, only theirs |
 | The same over a vertex, nothing picked | Edits the hovered vertex |
 | The same elsewhere, nothing picked (Direct Select) | Edits the whole curve, per-vertex tips included |
+| Alt/Ctrl/Shift+right-click, released without travel | Numeric entry for that HUD's quantity (size, opacity, color) on the same target (user, 2026-09-28): type width in board units (softness on a painted stroke), opacity in percent, or hue/saturation/value. Enter or a click away is one journaled Patch; Esc restores. See [brush and color](brush-color.md#tip-hud-on-vector-tools-and-committed-curves) |
 
 - The target is fixed at HUD start, so the pointer can wander.
 - Values are written through `slate_doc::vertex_style` into `PathData` tips
@@ -161,6 +162,7 @@ the path (direct selection pierces groups — Illustrator behavior).
 | Double-click anchor (A) | toggle corner/smooth |
 | Alt+drag handle (A) | break handle symmetry |
 | Alt/Ctrl/Shift+right-drag with picks or over a vertex | tip HUD on those vertices |
+| Alt/Ctrl/Shift+right-click (no travel), same targets | numeric tip entry (`board.brush.tip_entry`) |
 | Delete with picked vertices (any tool) | remove vertices (`board.delete`) |
 
 ## Tests (vector-ink)

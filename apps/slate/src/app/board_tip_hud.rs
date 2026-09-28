@@ -10,6 +10,10 @@
 //! P1.curve.vertex-style), and journals one Patch when the HUD closes.
 //! Softness stays brush-only: vector strokes are not stamped, so there is
 //! nothing to blur.
+//!
+//! A chord released without travel opens that HUD's numeric entry instead
+//! (`TipNumeric`): type size, softness, opacity, or hue/saturation/value,
+//! applied through the same setters the drag uses.
 
 use super::board::BoardTool;
 use super::board_properties::{picked_tip, Property};
@@ -674,5 +678,387 @@ fn paint_choice_glyph(painter: &egui::Painter, at: Pos2, choice: TipChoice, ink:
             mesh.indices = ink_mesh.indices;
             painter.add(egui::Shape::mesh(mesh));
         }
+    }
+}
+
+// ---------- numeric entry (a tip chord released without travel) ----------
+
+use super::board::{BoardDrag, BoardXf};
+use super::board_color::{hsv_to_rgb, rgb_to_hsv, BrushHud, WHEEL_BACKDROP_RADIUS};
+use atlas_shell::selection_tools as chrome;
+
+/// Longest right press that still reads as a quick click (egui's click
+/// duration). Travel is `draft.drag_threshold`.
+pub(crate) const QUICK_CLICK_SECONDS: f64 = 0.8;
+/// Panel width, row height and inset, in screen px (P2.GhostFollow).
+const PANEL_WIDTH: f32 = 150.0;
+const PANEL_ROW: f32 = 24.0;
+const PANEL_PAD: f32 = 6.0;
+const PANEL_GAP: f32 = 8.0;
+
+/// One quantity the numeric panel types, in the units it shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TipMetric {
+    /// Board units.
+    Size,
+    /// Percent.
+    Softness,
+    /// Percent: opacity, or strength for the Eraser and Smooth.
+    Opacity,
+    /// Degrees.
+    Hue,
+    /// Percent.
+    Saturation,
+    /// Percent.
+    Value,
+}
+
+impl TipMetric {
+    fn range(self) -> std::ops::RangeInclusive<f32> {
+        match self {
+            TipMetric::Size => {
+                super::settings::STROKE_WIDTH_MIN..=super::settings::STROKE_WIDTH_MAX
+            }
+            TipMetric::Hue => 0.0..=360.0,
+            _ => 0.0..=100.0,
+        }
+    }
+
+    fn suffix(self) -> &'static str {
+        match self {
+            TipMetric::Size => " u",
+            TipMetric::Hue => "°",
+            _ => " %",
+        }
+    }
+}
+
+/// Numeric entry for the tip HUD: the right press it may open from, the
+/// open panel, and the press that closed it.
+#[derive(Default)]
+pub(crate) struct TipNumeric {
+    /// The HUD's right press (screen), when it landed (seconds), and the
+    /// farthest the pointer has travelled from it.
+    press: Option<(Pos2, f64, f32)>,
+    /// The open panel: the metric the keyboard edits, and its text.
+    panel: Option<(usize, Option<chrome::NumberEdit>)>,
+    /// A press away from the panel closed it: the board ignores that press
+    /// until every button is up.
+    eat: bool,
+}
+
+impl TipNumeric {
+    /// The HUD closed (commit or cancel).
+    pub(crate) fn close(&mut self) {
+        self.press = None;
+        self.panel = None;
+    }
+}
+
+impl SlateApp {
+    pub(crate) fn tip_numeric_open(&self) -> bool {
+        self.tip_numeric.panel.is_some()
+    }
+
+    /// A press that closed the panel still belongs to it.
+    pub(crate) fn tip_numeric_eats(&self) -> bool {
+        self.tip_numeric.eat
+    }
+
+    /// The HUD opened on a right press at `at`.
+    pub(crate) fn note_hud_press(&mut self, at: Pos2) {
+        self.tip_numeric.press = Some((at, self.frame_time, 0.0));
+    }
+
+    /// The held HUD saw the pointer at `p`.
+    pub(crate) fn note_hud_travel(&mut self, p: Pos2) {
+        if let Some((at, _, travel)) = &mut self.tip_numeric.press {
+            *travel = travel.max(at.distance(p));
+        }
+    }
+
+    /// The HUD's right button came up as a quick click: short, within the
+    /// draft threshold, and not pausing a freehand stroke (that release
+    /// resumes the stroke instead).
+    pub(crate) fn hud_quick_click(&self) -> bool {
+        let Some((_, t0, travel)) = self.tip_numeric.press else {
+            return false;
+        };
+        let freehand = matches!(
+            self.board_drag,
+            Some(BoardDrag::FreehandPen { .. } | BoardDrag::FreehandBrush { .. })
+        );
+        travel <= super::board_place::place_tokens::DRAG_THRESHOLD
+            && self.frame_time - t0 <= QUICK_CLICK_SECONDS
+            && !freehand
+            && !self.tip_metrics().is_empty()
+    }
+
+    /// Turn the open HUD into numeric entry on its first metric.
+    pub(crate) fn open_tip_numeric(&mut self) {
+        self.tip_numeric.press = None;
+        let Some(&first) = self.tip_metrics().first() else {
+            return;
+        };
+        let edit = chrome::NumberEdit::new(self.tip_metric_shown(first));
+        self.tip_numeric.panel = Some((0, Some(edit)));
+    }
+
+    /// What the open HUD edits, in panel order: Alt size (and softness on
+    /// stamped ink), Shift opacity or strength, Ctrl hue, saturation, value.
+    pub(crate) fn tip_metrics(&self) -> &'static [TipMetric] {
+        use TipMetric::*;
+        match self.brush_hud {
+            Some(BrushHud::Size { .. }) if self.tip_hud_has_softness() => &[Size, Softness],
+            Some(BrushHud::Size { .. }) => &[Size],
+            Some(BrushHud::Opacity { .. }) => &[Opacity],
+            Some(BrushHud::Wheel { .. }) => &[Hue, Saturation, Value],
+            None => &[],
+        }
+    }
+
+    fn tip_metric_label(&self, metric: TipMetric) -> &'static str {
+        match metric {
+            TipMetric::Size => "Size",
+            TipMetric::Softness => "Softness",
+            TipMetric::Opacity
+                if matches!(self.board_tool, BoardTool::Eraser | BoardTool::Smooth) =>
+            {
+                "Strength"
+            }
+            TipMetric::Opacity => "Opacity",
+            TipMetric::Hue => "Hue",
+            TipMetric::Saturation => "Saturation",
+            TipMetric::Value => "Value",
+        }
+    }
+
+    /// The metric's current value as the panel shows it (rounded, so an
+    /// untouched field applies nothing).
+    fn tip_metric_shown(&self, metric: TipMetric) -> f32 {
+        let (width, softness, opacity) = self.active_tip();
+        let hsv = match self.brush_hud {
+            Some(BrushHud::Wheel { hsv, .. }) => hsv,
+            _ => {
+                let c = self.active_rgba();
+                rgb_to_hsv([c[0], c[1], c[2]])
+            }
+        };
+        let (value, step) = match metric {
+            TipMetric::Size => (width, 100.0),
+            TipMetric::Softness => (softness * 100.0, 10.0),
+            TipMetric::Opacity => (opacity * 100.0, 10.0),
+            TipMetric::Hue => (hsv[0] * 360.0, 10.0),
+            TipMetric::Saturation => (hsv[1] * 100.0, 10.0),
+            TipMetric::Value => (hsv[2] * 100.0, 10.0),
+        };
+        (value * step).round() / step
+    }
+
+    /// Apply a typed value through the setters the HUD drag writes with,
+    /// so it lands where a scrub would (tool memory, or the HUD target).
+    fn apply_tip_metric(&mut self, metric: TipMetric, value: f32) {
+        let (width, softness, opacity) = self.active_tip();
+        let channel = match metric {
+            TipMetric::Size => return self.set_active_tip(value, softness, opacity),
+            TipMetric::Softness => return self.set_active_tip(width, value / 100.0, opacity),
+            TipMetric::Opacity => return self.set_active_tip(width, softness, value / 100.0),
+            TipMetric::Hue => 0,
+            TipMetric::Saturation => 1,
+            TipMetric::Value => 2,
+        };
+        let Some(BrushHud::Wheel { hsv, .. }) = &mut self.brush_hud else {
+            return;
+        };
+        hsv[channel] = value / if channel == 0 { 360.0 } else { 100.0 };
+        let rgb = hsv_to_rgb(*hsv);
+        self.set_active_rgb(rgb);
+    }
+
+    /// Apply the field being typed, if it parses and changed. False when
+    /// it does not parse.
+    fn apply_tip_field(&mut self) -> bool {
+        let Some((field, Some(edit))) = &self.tip_numeric.panel else {
+            return true;
+        };
+        let Some(&metric) = self.tip_metrics().get(*field) else {
+            return true;
+        };
+        use atlas_shell::widgets::{typed_number_event, TypedNumber};
+        match typed_number_event(&edit.text, metric.range(), true, false, false, false) {
+            TypedNumber::Commit(v) => {
+                if v != self.tip_metric_shown(metric) {
+                    self.apply_tip_metric(metric, v);
+                }
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Runs before the global command map, like `shape_property_keys`:
+    /// while the panel is open it owns the keyboard, so digits never reach
+    /// type-to-command or tool letters. Esc closes the HUD and restores;
+    /// Tab and Shift+Tab apply the field they leave and move.
+    pub(crate) fn tip_numeric_keys(&mut self, ctx: &egui::Context) -> bool {
+        if self.tip_numeric.panel.is_none() {
+            return false;
+        }
+        if self.brush_hud.is_none() {
+            self.tip_numeric.close();
+            return false;
+        }
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+            ctx.memory_mut(|m| m.stop_text_input());
+            self.cancel_brush_hud();
+            return true;
+        }
+        let back = ctx.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, egui::Key::Tab));
+        let next = !back && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Tab));
+        if (back || next) && self.apply_tip_field() {
+            let n = self.tip_metrics().len().max(1) as i32;
+            let field = self.tip_numeric.panel.as_ref().map_or(0, |(f, _)| *f) as i32;
+            let field = (field + if back { -1 } else { 1 }).rem_euclid(n) as usize;
+            let shown = self.tip_metric_shown(self.tip_metrics()[field]);
+            self.tip_numeric.panel = Some((field, Some(chrome::NumberEdit::new(shown))));
+        }
+        true
+    }
+
+    /// Screen bounds of the open HUD: the size or opacity circle with its
+    /// readout above, or the color wheel.
+    fn tip_hud_bounds(&self, hud: BrushHud, xf: &BoardXf) -> egui::Rect {
+        match hud {
+            BrushHud::Size { origin, .. } | BrushHud::Opacity { origin, .. } => {
+                let o = xf.w2s(origin);
+                let r = (self.active_tip().0 * 0.5 * xf.z).max(1.5);
+                let circle = egui::Rect::from_center_size(o, egui::Vec2::splat(2.0 * r));
+                let readout = egui::Rect::from_min_max(
+                    Pos2::new(o.x - 70.0, o.y - r - 32.0),
+                    Pos2::new(o.x + 70.0, o.y - r),
+                );
+                circle.union(readout)
+            }
+            BrushHud::Wheel { center, .. } => {
+                egui::Rect::from_center_size(center, egui::Vec2::splat(2.0 * WHEEL_BACKDROP_RADIUS))
+            }
+        }
+    }
+
+    /// The open numeric panel: one row per metric, a label and the shared
+    /// inline number. Pointer-attached chrome (P2.GhostFollow), so screen
+    /// px; `place_popup` puts it beside the HUD, on `POPUP_ORDER`. Enter
+    /// applies and closes (one journaled step), a press away from it
+    /// applies, closes, and is eaten (`tip_numeric_eats`). Runs before
+    /// board input; true while the pointer is over it.
+    pub(crate) fn tip_numeric_ui(&mut self, ui: &mut egui::Ui, xf: &BoardXf) -> bool {
+        let ctx = ui.ctx().clone();
+        let (pressed, down, released) = ctx.input(|i| {
+            (
+                i.pointer.any_pressed(),
+                i.pointer.any_down(),
+                i.pointer.any_released(),
+            )
+        });
+        if self.tip_numeric.eat && !pressed && !down && !released {
+            self.tip_numeric.eat = false;
+        }
+        let Some((mut field, mut input)) = self.tip_numeric.panel.take() else {
+            return false;
+        };
+        let Some(hud) = self.brush_hud else {
+            return false;
+        };
+        let metrics = self.tip_metrics();
+        if metrics.is_empty() {
+            return false;
+        }
+        field = field.min(metrics.len() - 1);
+        let anchor = self.tip_hud_bounds(hud, xf);
+        let size = egui::vec2(
+            PANEL_WIDTH,
+            PANEL_PAD * 2.0 + PANEL_ROW * metrics.len() as f32,
+        );
+        let rect = chrome::place_popup(size, anchor, anchor, PANEL_GAP, ui.clip_rect());
+        atlas_shell::menu_wheel::claim(&ctx, rect);
+        let theme = self.palette();
+        let mut typed: Vec<(TipMetric, f32)> = Vec::new();
+        let mut picked = None;
+        chrome::popup_area(&ctx, egui::Id::new("tip_numeric"), ui.layer_id())
+            .fixed_pos(rect.min)
+            .constrain(false)
+            .movable(false)
+            .fade_in(false)
+            .show(&ctx, |ui| {
+                ui.set_min_size(rect.size());
+                chrome::panel(ui, rect, 1.0, theme);
+                for (i, &metric) in metrics.iter().enumerate() {
+                    let y = rect.top() + PANEL_PAD + PANEL_ROW * (i as f32 + 0.5);
+                    atlas_shell::canvas_text::text(
+                        ui.painter(),
+                        Pos2::new(rect.left() + 10.0, y),
+                        egui::Align2::LEFT_CENTER,
+                        self.tip_metric_label(metric),
+                        atlas_shell::canvas_scale::font(12.0, 1.0),
+                        if i == field { theme.ink } else { theme.sub },
+                    );
+                    let mut edit = if i == field { input.take() } else { None };
+                    let result = chrome::inline_number(
+                        ui,
+                        egui::Id::new(("tip_numeric", i)),
+                        Pos2::new(rect.right() - 45.0, y),
+                        0.0,
+                        "",
+                        metric.suffix(),
+                        self.tip_metric_shown(metric),
+                        1.0,
+                        theme,
+                        theme.ink,
+                        &mut edit,
+                        metric.range(),
+                        true,
+                    );
+                    if let Some(v) = result.value {
+                        typed.push((metric, v));
+                    }
+                    if i == field {
+                        input = edit;
+                    } else if edit.is_some() {
+                        picked = Some((i, edit));
+                    }
+                }
+            });
+        for (metric, v) in typed {
+            self.apply_tip_metric(metric, v);
+        }
+        if let Some((i, edit)) = picked {
+            field = i;
+            input = edit;
+        }
+        let enter = ctx.input(|i| i.key_pressed(egui::Key::Enter));
+        let away = pressed && ctx.pointer_latest_pos().is_some_and(|p| !rect.contains(p));
+        if (enter && input.is_none()) || away {
+            ctx.memory_mut(|m| m.stop_text_input());
+            if enter {
+                ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+            }
+            self.commit_brush_hud();
+            if away {
+                self.tip_numeric.eat = true;
+                if ctx.input(|i| i.pointer.primary_pressed()) {
+                    self.board_align_eat_press = true;
+                }
+            }
+            return false;
+        }
+        if input.is_none() {
+            // A press on the panel between fields committed the one being
+            // typed: keep typing into it.
+            input = Some(chrome::NumberEdit::new(
+                self.tip_metric_shown(metrics[field]),
+            ));
+        }
+        self.tip_numeric.panel = Some((field, input));
+        ctx.pointer_latest_pos().is_some_and(|p| rect.contains(p))
     }
 }

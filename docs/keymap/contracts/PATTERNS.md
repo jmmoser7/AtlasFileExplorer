@@ -327,7 +327,10 @@ is searchable.
   tool's own width: horizontal scrub, no softness, Esc restores, release
   saves to the tool's memory. The color and opacity HUDs reach the same
   tools (user, 27 September 2026). The chords take the right button from pan
-  and the context menu like the brush chords. **Mid-draw tips** (user,
+  and the context menu like the brush chords. A chord released without
+  travel opens numeric entry for that HUD's quantity instead, through the
+  same setters and commit (user, 28 September 2026; `brush` D04, D08).
+  **Mid-draw tips** (user,
   27 September 2026: "earlier versions had the ability for the user to
   dynamically change brush properties part way through the drawing process
   and for the drawing preview to update to show the interpolation between

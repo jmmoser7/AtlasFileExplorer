@@ -631,6 +631,8 @@ pub struct SlateApp {
     pub(crate) hud_frozen: Option<(NodeId, Vec<usize>)>,
     /// Pointer this frame, so hovering a curve vertex arms the tip HUD.
     pub(crate) hud_pointer: Option<egui::Pos2>,
+    /// Numeric entry the tip HUD opens on a quick modifier+right click.
+    pub(crate) tip_numeric: board_tip_hud::TipNumeric,
     /// Alt primary press waiting for a short click (eyedropper sample).
     pub(crate) brush_mod_click: Option<board_color::BrushModClick>,
     /// Swatch pick: (press point, where that color sits on the wheel). The
@@ -989,6 +991,7 @@ impl SlateApp {
             hud_node_before: None,
             hud_frozen: None,
             hud_pointer: None,
+            tip_numeric: Default::default(),
             brush_mod_click: None,
             brush_cursor_warp: None,
             freehand_resume: false,
@@ -2444,7 +2447,10 @@ impl SlateApp {
         {
             let _span = atlas_core::session_log::span("slate.input");
             self.desktop_sample_frame(ctx);
-            if !self.shape_property_keys(ctx) && self.desktop_sample.is_none() {
+            if !self.shape_property_keys(ctx)
+                && !self.tip_numeric_keys(ctx)
+                && self.desktop_sample.is_none()
+            {
                 self.hotkeys(ctx);
             }
             self.drop_stale_portal_chrome();

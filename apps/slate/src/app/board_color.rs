@@ -2282,11 +2282,24 @@ impl SlateApp {
         secondary_down: bool,
         secondary_pressed: bool,
     ) -> bool {
+        // A right press that closed the numeric panel opens nothing.
+        if self.tip_numeric_eats() {
+            return true;
+        }
         if self.brush_hud.is_some() {
+            // Released into numeric entry: the panel owns the HUD.
+            if self.tip_numeric_open() {
+                return true;
+            }
             if secondary_down {
                 if let Some(pointer) = pointer {
+                    self.note_hud_travel(pointer);
                     self.update_brush_hud(pointer);
                 }
+                return true;
+            }
+            if self.hud_quick_click() {
+                self.open_tip_numeric();
                 return true;
             }
             self.commit_brush_hud();
@@ -2301,6 +2314,7 @@ impl SlateApp {
         let Some(pointer) = pointer else {
             return false;
         };
+        self.note_hud_press(pointer);
         if self.tip_hud_has_color() && self.ctrl_down {
             let fg = self.active_rgba();
             let hsv = rgb_to_hsv([fg[0], fg[1], fg[2]]);
@@ -2437,6 +2451,7 @@ impl SlateApp {
     }
 
     pub(crate) fn commit_brush_hud(&mut self) {
+        self.tip_numeric.close();
         self.brush_cursor_warp = None;
         let before = self.brush_hud_before.take();
         let node_before = self.hud_node_before.take();
@@ -2477,6 +2492,7 @@ impl SlateApp {
     }
 
     pub(crate) fn cancel_brush_hud(&mut self) {
+        self.tip_numeric.close();
         self.brush_cursor_warp = None;
         self.brush_hud_before = None;
         let node_before = self.hud_node_before.take();
@@ -2501,8 +2517,9 @@ impl SlateApp {
     }
 
     /// Transient input HUD opened at the right-button press for the life of
-    /// the drag. Numbers stay in screen px (P0.9 pointer-attached exception).
-    /// The size and opacity circles stay pinned on the press point.
+    /// the drag, or of its numeric entry. Numbers stay in screen px (P0.9
+    /// pointer-attached exception). The size and opacity circles stay
+    /// pinned on the press point.
     pub(crate) fn paint_brush_hud(&self, painter: &egui::Painter, pointer: Pos2, accent: Color32) {
         match self.brush_hud {
             Some(BrushHud::Size { origin, .. }) => {
@@ -2510,7 +2527,10 @@ impl SlateApp {
                 self.paint_size_hud(painter, o, accent);
                 let z = self.tab().cam.z.max(f32::EPSILON);
                 let r = (self.active_tip().0 * 0.5 * z).max(1.5);
-                self.paint_tip_palette(painter, o, r, pointer, accent);
+                // The style row is picked by the held drag only.
+                if !self.tip_numeric_open() {
+                    self.paint_tip_palette(painter, o, r, pointer, accent);
+                }
             }
             Some(BrushHud::Opacity { origin, .. }) => {
                 self.paint_size_hud(painter, self.board_xf().w2s(origin), accent)

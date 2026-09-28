@@ -268,6 +268,14 @@ drag the address-bar URL or a page link instead.
   and on a committed curve: its picked vertices (Direct Select anchors or
   Select-tool grips), else the vertex under the pointer, else the whole
   curve under Direct Select (see *Picked vertices* below).
+- **Alt / Shift / Ctrl + right-click** (`board.brush.tip_entry`): the
+  same chord released without travel (within 4 px and 0.8 s) opens that
+  HUD's numeric entry (user, 28 September 2026): a small panel beside the
+  HUD with size in board units (and softness), opacity or strength, or
+  hue / saturation / value. Tab and Shift+Tab apply the field and move,
+  Enter applies and closes as one undo step, a click away applies and
+  closes, Esc restores. While it is open, digits go to it rather than to
+  type-to-command. Eraser and Smooth have no Ctrl entry.
 - **Alt+right-drag** (`board.brush.size_hud`) with Pen, Line, Arc,
   Polyline, or Bézier armed opens the Brush size HUD for that tool's own
   width (horizontal only; these strokes are always hard). During a line,

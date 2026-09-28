@@ -4313,6 +4313,7 @@ impl SlateApp {
         let agent_controls_capture = self.agent_spawn_input(ui, &xf);
         let other_toolbar_captures = self.shape_properties_ui(ui, &xf)
             | self.corner_entry_ui(ui, &xf)
+            | self.tip_numeric_ui(ui, &xf)
             | self.image_paint_palette_ui(ui, &xf);
         let shot_captures = self.paint_model_screenshot_popup(ui.ctx());
         let model_toolbar_captures =
@@ -4443,6 +4444,7 @@ impl SlateApp {
         // wheel. Ctrl and Alt beat Shift. Each chord owns the button before
         // turbo pan or a plain right-drag pan.
         let claim_right = self.brush_hud.is_some()
+            || self.tip_numeric_eats()
             || (brush_armed && right_held && self.alt_down)
             || (self.tip_hud_has_color() && right_held && self.ctrl_down)
             || (brush_armed && right_held && self.shift_down && !self.ctrl_down && !self.alt_down);
@@ -4541,6 +4543,7 @@ impl SlateApp {
             && !panning
             && !zoom_tool
             && !model_toolbar_captures
+            && !self.tip_numeric_eats()
             && !over_dock_strip
             && !web_capture
         {
