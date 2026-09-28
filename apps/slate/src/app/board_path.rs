@@ -2155,7 +2155,8 @@ pub(crate) fn ensure_erase_live(app: &mut SlateApp, painter: &egui::Painter, xf:
 /// preview existed paints as the scene has it until its new raster lands.
 /// The eraser's band covers the part of the pass not cut yet, as during
 /// the drag. A stroke any pass changed without knowing whether ink is left
-/// is removed in that pass's undo step once the workers find none.
+/// is removed once the workers find none: in that pass's undo step, or in
+/// the step of a later eraser pass that committed first.
 ///
 /// A settling stroke leaves only to something that shows the same or newer
 /// content: its preview once the cut lands (as its stand-in), a newer
@@ -2219,6 +2220,25 @@ impl EraseSettle {
 
     pub(crate) fn take_checks(&mut self) -> Vec<(NodeId, u64, GroupToken)> {
         std::mem::take(&mut self.checks)
+    }
+
+    /// Take out the checks the workers have answered: stroke, committed
+    /// content key, pass, and whether ink is left. The others stay as they
+    /// are, and cost nothing while they wait.
+    pub(crate) fn take_answered(
+        &mut self,
+        tiles: &mut tiles::BrushTiles,
+    ) -> Vec<(NodeId, u64, GroupToken, bool)> {
+        let mut answered = Vec::new();
+        self.checks
+            .retain(|&(id, key, token)| match tiles.ink_answer(id, key) {
+                Some(left) => {
+                    answered.push((id, key, token, left));
+                    false
+                }
+                None => true,
+            });
+        answered
     }
 
     pub(crate) fn has_checks(&self) -> bool {
@@ -2575,8 +2595,9 @@ pub struct BrushStampGpu {
     /// not exact (an older key, the eraser preview at release) only stands
     /// in while the exact one builds.
     pub exact: bool,
-    /// The node's rect when this bitmap was built. A stand-in follows the
-    /// node's current rect.
+    /// The node's rect when this bitmap was built. A stand-in maps onto the
+    /// node's current rect when only its placement changed since (its key
+    /// holds at this rect), and paints here otherwise.
     pub rect: WorldRect,
     /// An eraser preview standing in: it shows these erase passes, so it
     /// paints only for a stroke that still has them.

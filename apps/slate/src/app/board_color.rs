@@ -1849,6 +1849,15 @@ impl SlateApp {
         let (layer_cmds, _) =
             self.finish_erase_layer_spot(&spot, &points, span, &live, &pending, layer_removes);
         cmds.extend(layer_cmds);
+        let mut carried = Vec::new();
+        if !cmds.is_empty() || !board_removes.is_empty() {
+            let changed: Vec<NodeId> = cmds
+                .iter()
+                .map(super::board::cmd_node_id)
+                .chain(board_removes.iter().map(|(_, node)| node.id))
+                .collect();
+            carried = self.take_over_erase_checks(&changed, &mut board_removes);
+        }
         board_removes.sort_by_key(|(index, _)| std::cmp::Reverse(*index));
         cmds.extend(
             board_removes
@@ -1888,9 +1897,18 @@ impl SlateApp {
                 None => self.erase_settle.wait(tab, &after, key, &points, tip),
             }
         }
-        if let Some(token) = pass {
-            for (id, key, after) in checks {
-                if self.brush_tiles.ink_left(&after, key) != Some(true) {
+        match pass {
+            Some(token) => {
+                for (id, key, _) in carried {
+                    self.erase_settle.check(id, key, token);
+                }
+                for (id, key, after) in checks {
+                    self.brush_tiles.ask_ink(&after, key);
+                    self.erase_settle.check(id, key, token);
+                }
+            }
+            None => {
+                for (id, key, token) in carried {
                     self.erase_settle.check(id, key, token);
                 }
             }
@@ -1910,35 +1928,30 @@ impl SlateApp {
 
     /// Strokes a pass changed past the frame's raster budget leave the scene
     /// in that pass's undo step once the workers find no ink left
-    /// ([`board_path::EraseSettle::check`]). A stroke that changed or left
-    /// the scene since, or whose pass is no longer the board's newest undo
-    /// step, stays as committed: fully erased, and erased pixels do not
-    /// pick. Nothing is decided while a gesture is in progress.
+    /// ([`board_path::EraseSettle::check`]); a later eraser pass takes the
+    /// check over ([`Self::take_over_erase_checks`]). A stroke that changed
+    /// or left the scene since, or whose pass is no longer the board's
+    /// newest undo step, stays as committed: fully erased, and erased
+    /// pixels do not pick. Nothing is decided while a gesture is in
+    /// progress, and a check still waiting for its answer costs nothing.
     pub(crate) fn settle_erase_checks(&mut self) {
         if !self.erase_settle.has_checks() || self.board_drag.is_some() {
             return;
         }
         let tab = self.tab().id;
-        let checks = self
+        let answered = self
             .erase_settle
             .here(tab, &mut self.brush_tiles)
-            .take_checks();
+            .take_answered(&mut self.brush_tiles);
         let mut empty = Vec::new();
-        for (id, key, token) in checks {
-            let node = self
-                .doc()
-                .scene
-                .node(id)
-                .filter(|n| board_path::node_stamp_key(n) == Some(key))
-                .cloned();
-            let Some(node) = node else {
-                self.brush_tiles.forget_ink(id);
+        for (id, key, token, left) in answered {
+            if left {
                 continue;
-            };
-            match self.brush_tiles.ink_left(&node, key) {
-                None => self.erase_settle.check(id, key, token),
-                Some(true) => {}
-                Some(false) => empty.push((token, id)),
+            }
+            note_settle_work();
+            let scene = &self.doc().scene;
+            if scene.node(id).and_then(board_path::node_stamp_key) == Some(key) {
+                empty.push((token, id));
             }
         }
         while let Some(&(token, _)) = empty.first() {
@@ -1947,7 +1960,10 @@ impl SlateApp {
             let scene = &self.doc().scene;
             let mut removes: Vec<(usize, Node)> = pass
                 .iter()
-                .filter_map(|(_, id)| Some((scene.index_of(*id)?, scene.node(*id)?.clone())))
+                .filter_map(|(_, id)| {
+                    note_settle_work();
+                    Some((scene.index_of(*id)?, scene.node(*id)?.clone()))
+                })
                 .collect();
             removes.sort_by_key(|(index, _)| std::cmp::Reverse(*index));
             let ids: Vec<NodeId> = removes.iter().map(|(_, n)| n.id).collect();
@@ -1961,6 +1977,46 @@ impl SlateApp {
                 }
             }
         }
+    }
+
+    /// An eraser pass about to commit takes over the ink checks earlier
+    /// passes left waiting: their passes are no longer the newest undo step
+    /// once it commits. A stroke that still has its committed content and
+    /// whose answer came back "no ink" is added to `removes`, to leave in
+    /// this pass's step; the checks still waiting are returned, to wait for
+    /// this pass instead. Strokes this pass `changed` are its own to decide.
+    fn take_over_erase_checks(
+        &mut self,
+        changed: &[NodeId],
+        removes: &mut Vec<(usize, Node)>,
+    ) -> Vec<(NodeId, u64, slate_doc::scene::GroupToken)> {
+        let tab = self.tab().id;
+        let checks = self
+            .erase_settle
+            .here(tab, &mut self.brush_tiles)
+            .take_checks();
+        let mut waiting = Vec::new();
+        for (id, key, token) in checks {
+            let scene = &self.doc().scene;
+            let index = scene.index_of(id).filter(|_| {
+                !changed.contains(&id)
+                    && scene.node(id).and_then(board_path::node_stamp_key) == Some(key)
+            });
+            let Some(index) = index else {
+                self.brush_tiles.forget_ink(id);
+                continue;
+            };
+            match self.brush_tiles.ink_answer(id, key) {
+                Some(false) => {
+                    if let Some(node) = self.doc().scene.node(id) {
+                        removes.push((index, node.clone()));
+                    }
+                }
+                Some(true) => {}
+                None => waiting.push((id, key, token)),
+            }
+        }
+        waiting
     }
 
     /// A released straight eraser pass still waits on a cut or a raster.
@@ -2611,6 +2667,27 @@ fn wheel_ring_mesh(center: Pos2) -> egui::Mesh {
         ring.add_triangle(a, b + 1, b);
     }
     ring
+}
+
+#[cfg(test)]
+thread_local! {
+    static SETTLE_WORK_HERE: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Count a stroke hashed or cloned while ink checks settle.
+#[cfg(test)]
+fn note_settle_work() {
+    SETTLE_WORK_HERE.with(|n| n.set(n.get() + 1));
+}
+
+#[cfg(not(test))]
+#[inline(always)]
+fn note_settle_work() {}
+
+/// Strokes hashed or cloned on this thread while ink checks settled.
+#[cfg(test)]
+pub(crate) fn settle_work_on_this_thread() -> u64 {
+    SETTLE_WORK_HERE.with(|n| n.get())
 }
 
 /// Stamp an erased painted stroke once, as committed (blur included):

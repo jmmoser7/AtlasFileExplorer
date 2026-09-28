@@ -1,5 +1,19 @@
 # Canvas command project — change log
 
+## 2026-09-27 — Quick eraser passes remove every stroke they empty (review r13)
+
+- `brush` D11: an eraser pass that commits while an earlier pass's
+  "is any ink left?" check is still out takes that check over. A stroke
+  the earlier pass emptied now leaves in the later pass's undo step
+  instead of staying in the scene, invisible. Undoing the later pass
+  brings it back as the earlier pass left it, fully erased; undoing the
+  earlier pass restores its ink.
+- A waiting ink check no longer costs anything per frame; the stroke is
+  checked once, when the answer lands.
+- An eraser preview standing in for a big stroke follows the stroke when
+  it is moved before the new bitmap lands (already true since review
+  r12; now covered by a test).
+
 ## 2026-09-27 — A settling eraser preview leaves only to a newer one (review r12)
 
 - `brush` D11: a released Shift eraser pass whose cut is still on the

@@ -13788,6 +13788,19 @@ fn erasable_zigzag(tag: &str) -> (Harness, NodeId, Pos2, Pos2) {
 /// yet when it is released. Returns the frame-loop stamp px and stamps
 /// counted just before the release frame.
 fn flick_eraser(h: &mut Harness, id: NodeId, a: Pos2, b: Pos2, shift: bool) -> (u64, u64) {
+    flick_eraser_then(h, id, a, b, shift, |_| {})
+}
+
+/// [`flick_eraser`], running `before_release` just before the release
+/// frame.
+fn flick_eraser_then(
+    h: &mut Harness,
+    id: NodeId,
+    a: Pos2,
+    b: Pos2,
+    shift: bool,
+    before_release: impl FnOnce(&mut Harness),
+) -> (u64, u64) {
     let modifiers = if shift {
         egui::Modifiers::SHIFT
     } else {
@@ -13814,6 +13827,7 @@ fn flick_eraser(h: &mut Harness, id: NodeId, a: Pos2, b: Pos2, shift: bool) -> (
         !h.app.erase_live.contains_key(&id),
         "the pass is released before its preview exists"
     );
+    before_release(h);
     let counted = (
         board_path::stamp_px_on_this_thread(),
         board_path::stamps_on_this_thread(),
@@ -14001,6 +14015,214 @@ fn an_edit_after_a_deferred_eraser_pass_keeps_the_emptied_stroke_out_of_its_undo
     forget_last_pass(&mut h, id);
     let counted = flick_eraser(&mut h, id, a, b, true);
     assert_emptied_stroke_leaves_with_its_pass(&mut h, id, &before, depth, counted);
+}
+
+/// [`erasable_zigzag`] moved 110 world units up, and a second zigzag like
+/// it 110 below the view's middle, both settled. Returns them and the
+/// screen ends of a pass along each that leaves the other alone.
+fn two_erasable_zigzags(tag: &str) -> (Harness, [NodeId; 2], [(Pos2, Pos2); 2]) {
+    let (mut h, a, s0, s1) = erasable_zigzag(tag);
+    h.app.patch_nodes(&[a], |n| n.rect = n.rect.translated(0.0, -110.0));
+    let c = h.app.board_xf().s2w(h.app.canvas_rect.center());
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.brush_width = 20.0;
+    let zig = [(-300.0, -65.0), (-150.0, 65.0), (0.0, -65.0), (150.0, 65.0), (300.0, -65.0)];
+    h.app.finish_freehand_brush(
+        zig.iter().map(|(x, y)| Pos2::new(c.x + x, c.y + 110.0 + y)).collect(),
+    );
+    let b = h.app.doc().scene.nodes.last().unwrap().id;
+    settle_brush(&mut h, "the zigzags", |app| {
+        !app.brush_tiles.tiles_with(a).is_empty() && !app.brush_tiles.tiles_with(b).is_empty()
+    });
+    h.app.set_board_tool(board::BoardTool::Eraser);
+    h.frame();
+    let dy = EVec2::new(0.0, 110.0 * h.app.tab().cam.z);
+    (h, [a, b], [(s0 - dy, s1 - dy), (s0 + dy, s1 + dy)])
+}
+
+/// Review r13 finding 1: pass 1 empties big stroke A, then pass 2 empties
+/// stroke B before A's ink check is taken in. Both leave the scene in pass
+/// 2's undo step, with nothing stamped on the frame loop. With `landed`,
+/// A's answer lands during pass 2's drag and joins pass 2 at its release;
+/// otherwise it is still held then, and joins once it lands. The first
+/// Ctrl+Z brings B back as it was and A as pass 1 left it, with no ink;
+/// the second restores A's ink.
+fn two_quick_deferred_passes(tag: &str, landed: bool) {
+    let (mut h, [a, b], [pass_a, pass_b]) = two_erasable_zigzags(tag);
+    let before_a = h.app.doc().scene.node(a).unwrap().clone();
+    let before_b = h.app.doc().scene.node(b).unwrap().clone();
+    let depth = h.app.tab().journal.undo_depth();
+    h.app.brush_tiles.hold_inks = true;
+    let counted = flick_eraser(&mut h, a, pass_a.0, pass_a.1, true);
+    let erased_a = h.app.doc().scene.node(a).expect("pass 1 defers A's check").clone();
+    assert_eq!(erase_marks(&erased_a).len(), 1, "pass 1 commits its mark");
+    assert_eq!(h.app.doc().scene.node(b), Some(&before_b), "pass 1 leaves B alone");
+    if landed {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while !h.app.brush_tiles.ink_landed(a) {
+            assert!(std::time::Instant::now() < deadline, "A's answer never landed");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+    h.app.eraser_anchor = None;
+    flick_eraser_then(&mut h, b, pass_b.0, pass_b.1, true, |h| {
+        if landed {
+            h.app.brush_tiles.hold_inks = false;
+        }
+    });
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 2, "each pass is one undo step");
+    let node_b = h.app.doc().scene.node(b).expect("pass 2 defers B's check");
+    assert_eq!(erase_marks(node_b).len(), 1, "pass 2 commits its mark");
+    assert_eq!(
+        h.app.doc().scene.node(a).is_none(),
+        landed,
+        "A leaves at pass 2's release exactly when its answer had landed"
+    );
+    h.app.brush_tiles.hold_inks = false;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let mut frames = 0;
+    while h.app.doc().scene.node(a).is_some() || h.app.doc().scene.node(b).is_some() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "after {frames} frames the emptied strokes are still in the scene: A {}, B {}",
+            h.app.doc().scene.node(a).is_some(),
+            h.app.doc().scene.node(b).is_some()
+        );
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        h.frame();
+        frames += 1;
+    }
+    let spent = board_path::stamp_px_on_this_thread() - counted.0;
+    let built = board_path::stamps_on_this_thread() - counted.1;
+    assert_eq!(spent, 0, "the passes stamped {spent} px on the frame loop");
+    assert_eq!(built, 0, "the passes rasterized {built} strokes on the frame loop");
+    assert_eq!(
+        h.app.tab().journal.undo_depth(),
+        depth + 2,
+        "the removals joined pass 2's undo step"
+    );
+    assert!(board_color::erased_result(&erased_a).1, "pass 1 left A no ink");
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    assert_eq!(h.app.doc().scene.node(b), Some(&before_b), "Ctrl+Z brings B back");
+    assert_eq!(
+        h.app.doc().scene.node(a),
+        Some(&erased_a),
+        "and A as pass 1 left it, with no ink"
+    );
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    assert_eq!(h.app.doc().scene.node(a), Some(&before_a), "the second Ctrl+Z restores A");
+    assert_eq!(h.app.doc().scene.node(b), Some(&before_b));
+    assert_eq!(h.app.tab().journal.undo_depth(), depth);
+}
+
+#[test]
+fn two_quick_deferred_eraser_passes_remove_both_emptied_strokes() {
+    two_quick_deferred_passes("eraser_deferred_two_passes", false);
+}
+
+/// The same when pass 1's answer lands while pass 2 is drawn: it joins
+/// pass 2 at its release.
+#[test]
+fn a_deferred_ink_answer_that_lands_during_the_next_pass_joins_that_pass() {
+    two_quick_deferred_passes("eraser_deferred_two_passes_landed", true);
+}
+
+/// Review r13 finding 2 (Art. II): while a deferred ink check waits for
+/// its answer, frames neither hash nor clone the stroke.
+#[test]
+fn a_pending_ink_check_does_no_stroke_work_per_frame() {
+    let (mut h, id, a, b) = erasable_zigzag("eraser_deferred_idle");
+    h.app.brush_tiles.hold_inks = true;
+    flick_eraser(&mut h, id, a, b, true);
+    assert!(h.app.erase_settling(), "the check waits for its answer");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while !h.app.brush_tiles.ink_landed(id) {
+        assert!(std::time::Instant::now() < deadline, "the answer never landed");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let work = board_color::settle_work_on_this_thread();
+    for _ in 0..10 {
+        h.frame();
+    }
+    let spent = board_color::settle_work_on_this_thread() - work;
+    assert_eq!(spent, 0, "10 frames hashed or cloned the waiting stroke {spent} times");
+    h.app.brush_tiles.hold_inks = false;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while h.app.doc().scene.node(id).is_some() {
+        assert!(std::time::Instant::now() < deadline, "the emptied stroke stayed");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        h.frame();
+    }
+}
+
+/// Review r13 finding 3: an eraser pass's preview standing in for a big
+/// stroke until its new bitmap lands follows the stroke when it is nudged
+/// first: at the new place the cut stays erased and the ink left is lit,
+/// and nothing stays behind at the old place. Nothing stamps on the frame
+/// loop. With the tiles on and off.
+#[test]
+fn an_erased_stand_in_follows_a_nudge_before_its_bitmap_lands() {
+    for tiled in [true, false] {
+        let (mut h, mut raster, id, cross) =
+            eraser_bar_board(&format!("eraser_stand_in_nudge_{tiled}"));
+        h.app.brush_tiles_enabled = tiled;
+        let key = board_path::node_stamp_key(h.app.doc().scene.node(id).unwrap());
+        settle_captured(&mut h, &mut raster, "the bar", |app| {
+            tiled || app.brush_stamps.get(&id).is_some_and(|(k, g)| g.exact && Some(*k) == key)
+        });
+        let lit = half_lit(&h, &raster, cross);
+        let c = h.app.canvas_rect.center();
+        let press = c + EVec2::new(-300.0, -250.0);
+        let last = c + EVec2::new(-300.0, 250.0);
+        shot(&mut h, &mut raster, shift_at(press, None));
+        shot(&mut h, &mut raster, shift_at(press, Some(true)));
+        shot(&mut h, &mut raster, shift_at(last, None));
+        let mut waited = 0;
+        while !h.app.erase_live.get(&id).is_some_and(|l| l.line_exact()) {
+            waited += 1;
+            assert!(waited < 2000, "the cut never landed");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            shot(&mut h, &mut raster, |i| i.modifiers = egui::Modifiers::SHIFT);
+        }
+        h.app.brush_tiles.hold_rasters = true;
+        let counted = (
+            board_path::stamp_px_on_this_thread(),
+            board_path::stamps_on_this_thread(),
+        );
+        shot(&mut h, &mut raster, shift_at(last, Some(false)));
+        assert!(
+            h.app.brush_stamps.get(&id).is_some_and(|(_, g)| !g.exact && g.seal.is_some()),
+            "tiles {tiled}: the preview stands in"
+        );
+        h.app.patch_nodes(&[id], |n| n.rect = n.rect.translated(0.0, 200.0));
+        let moved = cross + EVec2::new(0.0, 200.0);
+        let xf = h.app.board_xf();
+        assert!(
+            h.app.canvas_rect.contains(xf.w2s(moved + EVec2::new(0.0, 60.0))),
+            "the nudged bar is in view"
+        );
+        for k in 0..6 {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            shot(&mut h, &mut raster, |_| {});
+            let when = format!("tiles {tiled}, frame {k} after the nudge");
+            for p in cut_points(moved) {
+                let r = redness(&raster, &xf, p);
+                assert!(r < lit, "{when}: the cut at the new place shows ink at {p:?} ({r:.2})");
+            }
+            let r = redness(&raster, &xf, moved + EVec2::new(500.0, -3.0));
+            assert!(r > lit, "{when}: the ink left at the new place is dark ({r:.2})");
+            for p in [cross + EVec2::new(500.0, -3.0), cross - EVec2::new(150.0, 0.0)] {
+                let r = redness(&raster, &xf, p);
+                assert!(r < lit, "{when}: ink stayed behind at the old place {p:?} ({r:.2})");
+            }
+        }
+        let spent = board_path::stamp_px_on_this_thread() - counted.0;
+        let built = board_path::stamps_on_this_thread() - counted.1;
+        assert_eq!(spent, 0, "tiles {tiled}: stamped {spent} px on the frame loop");
+        assert_eq!(built, 0, "tiles {tiled}: rasterized {built} strokes on the frame loop");
+        h.app.brush_tiles.hold_rasters = false;
+    }
 }
 
 /// The same holds for a brush release: the live canvas stands in for the
