@@ -234,9 +234,12 @@ Ctrl+Shift+click on a vertex picks that vertex, as before. A plain click
 drops the edges with the other picks. Direct Select needs no chord: its
 plain segment click already picks the segment's two anchors.
 
-- Picked edges paint a 3 px line in the selection color along each segment.
-  Like the other path-edit adornments, it is screen-constant (P0.9
-  path-edit exception); the curve itself scales.
+- Picked edges paint a line in the selection color along each segment. The
+  highlight is a canvas object, not a path-edit handle, so it scales with
+  the canvas like the curve (P0.9: `canvas_scale::px(3, z)`) and is dropped
+  below one screen pixel rather than floored. It is flattened at the zoom
+  bucket's curve tolerance and cached until the curve, the zoom bucket or
+  the picked edges change (review round 8).
 - The tip HUD and the property strip edit the edges' vertices, like any
   other picks.
 - Dragging a picked edge moves every picked vertex by one step, snapped

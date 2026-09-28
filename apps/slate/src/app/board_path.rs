@@ -17,7 +17,7 @@ use std::sync::Arc as Shared;
 use vector_ink::kurbo::{self, Arc, BezPath, PathEl, Point};
 use vector_ink::{
     bezpath_from_anchors, classify_kind, drag_handle, flatten, flatten_contours, hit_stroke,
-    stamp_segment, stroke_mesh, tipped_contours, Anchor, AnchorKind, Cap, HandleEnd, InkMesh, Join,
+    stamp_segment, tipped_contours, Anchor, AnchorKind, Cap, HandleEnd, InkMesh, Join,
     StampStyle, StrokeStyle, TipPoint,
 };
 
@@ -608,6 +608,21 @@ fn hash_f32(h: &mut impl Hasher, v: f32) {
 fn hash_xy(h: &mut impl Hasher, p: [f32; 2]) {
     hash_f32(h, p[0]);
     hash_f32(h, p[1]);
+}
+
+/// Where a shape's outline lies in the world: its path, frame, rotation,
+/// and flip. Keys caches of anything derived from that outline alone.
+pub(crate) fn hash_shape_geometry(h: &mut impl Hasher, node: &slate_doc::Node, shape: &ShapeNode) {
+    std::mem::discriminant(&shape.shape).hash(h);
+    shape.flip.hash(h);
+    if let Some(path) = &shape.path {
+        hash_path_data(h, path);
+    }
+    hash_f32(h, node.rect.x);
+    hash_f32(h, node.rect.y);
+    hash_f32(h, node.rect.w);
+    hash_f32(h, node.rect.h);
+    hash_f32(h, node.rotation_deg);
 }
 
 fn hash_path_data(h: &mut impl Hasher, path: &PathData) {
@@ -5958,6 +5973,7 @@ impl SlateApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vector_ink::stroke_mesh;
 
     /// A Shift segment stamped by a worker over a copy of the canvas pixels
     /// under it gives the pixels stamping the whole canvas would, so the

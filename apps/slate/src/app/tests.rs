@@ -23246,6 +23246,101 @@ fn ctrl_shift_click_still_selects_one_group_member() {
     assert_eq!(h.app.picked_vertices(), Some((id, vec![1, 2])), "and its edge");
 }
 
+/// Open paths painted in `color` (the picked-edge highlight).
+fn painted_paths_in(out: &egui::FullOutput, color: egui::Color32) -> Vec<egui::epaint::PathShape> {
+    fn walk(shape: &egui::Shape, color: egui::Color32, out: &mut Vec<egui::epaint::PathShape>) {
+        match shape {
+            egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, color, out)),
+            egui::Shape::Path(p)
+                if !p.closed
+                    && p.points.len() >= 2
+                    && p.stroke.color == egui::epaint::ColorMode::Solid(color) =>
+            {
+                out.push(p.clone())
+            }
+            _ => {}
+        }
+    }
+    let mut paths = Vec::new();
+    for clipped in &out.shapes {
+        walk(&clipped.shape, color, &mut paths);
+    }
+    paths
+}
+
+/// Review round 8: a picked edge is a canvas object (P0.9), not a path-edit
+/// handle. At 8x its highlight is `canvas_scale::px(3, 8)` wide and follows
+/// the curve to within a screen pixel.
+#[test]
+fn a_picked_edge_highlight_scales_and_hugs_the_curve_at_high_zoom() {
+    use vector_ink::kurbo::{ParamCurveNearest, Point};
+    let mut h = grip_board("edge_highlight_zoom");
+    let id = add_bezier_arch(&mut h.app);
+    h.app.board_sel.clear();
+    h.app.tab_mut().cam.z = 8.0;
+    h.app.tab_mut().cam.offset = EVec2::new(50.0, 17.5);
+    h.frame();
+    let xf = h.app.board_xf();
+    press_primary(&mut h, xf.w2s(Pos2::new(50.0, 17.5)), SUB_OBJECT);
+    assert_eq!(h.app.picked_vertices(), Some((id, vec![0, 1])), "the arch's edge");
+    // The selection silhouette shares the color: the highlight is what the
+    // picked edge adds to the same selection.
+    let select = h.app.palette().select;
+    let picks = std::mem::take(&mut h.app.direct.grip_points);
+    let unpicked = painted_paths_in(&h.frame_output(|_| {}), select);
+    h.app.direct.grip_points = picks;
+    let paths: Vec<_> = painted_paths_in(&h.frame_output(|_| {}), select)
+        .into_iter()
+        .filter(|p| !unpicked.contains(p))
+        .collect();
+    assert!(!paths.is_empty(), "the picked edge is highlighted");
+    let (anchors, closed) = h.app.direct_anchors_of(id).unwrap();
+    let bez = vector_ink::bezpath_from_anchors(&anchors, closed);
+    let seg = bez.segments().next().unwrap();
+    let want = atlas_shell::canvas_scale::px(3.0, 8.0);
+    let mut worst = 0.0_f64;
+    for p in &paths {
+        assert!((p.stroke.width - want).abs() < 1e-3, "width {} scales", p.stroke.width);
+        for pair in p.points.windows(2) {
+            for q in [pair[0], mid(pair[0], pair[1])] {
+                let w = xf.s2w(q);
+                let d = seg
+                    .nearest(Point::new(w.x as f64, w.y as f64), 1e-9)
+                    .distance_sq
+                    .sqrt();
+                worst = worst.max(d * 8.0);
+            }
+        }
+    }
+    assert!(worst <= 1.0, "the highlight strays {worst:.2} screen px off the curve");
+}
+
+/// A steady frame with an edge picked reuses the flattened highlight.
+#[test]
+fn a_picked_edge_highlight_does_not_reflatten_on_a_steady_frame() {
+    let mut h = grip_board("edge_highlight_cache");
+    let (id, pts) = edge_polyline(&mut h);
+    let xf = h.app.board_xf();
+    press_primary(&mut h, xf.w2s(mid(pts[1], pts[2])), SUB_OBJECT);
+    assert_eq!(h.app.picked_vertices(), Some((id, vec![1, 2])));
+    h.frame();
+    let before = super::board_direct::picked_edges_flattened_on_this_thread();
+    for _ in 0..3 {
+        h.frame();
+    }
+    assert_eq!(
+        super::board_direct::picked_edges_flattened_on_this_thread(),
+        before,
+        "steady frames re-flattened the highlight"
+    );
+    h.app.tab_mut().cam.z = 2.0;
+    h.frame();
+    assert!(
+        super::board_direct::picked_edges_flattened_on_this_thread() > before,
+        "a new zoom bucket refines it"
+    );
+}
+
 #[test]
 #[ignore]
 fn texture_and_pen_style_validation_image() {
@@ -24101,6 +24196,43 @@ mod tip_numeric {
         );
         type_text(&mut h, "5");
         assert!(h.app.brush_hud.is_none());
+    }
+
+    /// Review round 8: a quick Alt+right click away from the grips of a
+    /// curve selected with the Select tool (nothing picked or hovered) types
+    /// the whole curve's size. The target freezes at the press, so the
+    /// typed size scales every tip by one factor, in one undo step.
+    #[test]
+    fn a_quick_alt_right_click_types_a_whole_selected_curves_size() {
+        let (mut h, id, _, away) = whole_curve_board("numeric_select_whole");
+        let before = painted_vertex_tips(&h, id);
+        assert_eq!(before[1].0, 8.0, "the widest tip is the curve's size");
+        let depth = undo_depth(&h);
+        let offset = h.app.tab().cam.offset;
+
+        quick_click(&mut h, ALT, away);
+        assert!(
+            matches!(h.app.brush_hud, Some(board_color::BrushHud::Size { .. })),
+            "numeric entry on the whole curve, got {:?}",
+            h.app.brush_hud
+        );
+        assert_no_menu_no_pan(&h, offset);
+        type_text(&mut h, "16");
+        key(&mut h, Key::Enter);
+        assert!(h.app.brush_hud.is_none(), "Enter closes the HUD");
+        let tips = painted_vertex_tips(&h, id);
+        for (k, (tip, was)) in tips.iter().zip(&before).enumerate() {
+            assert!(
+                (tip.0 - was.0 * 2.0).abs() < 1e-3,
+                "vertex {k} doubles with the curve: {tips:?}"
+            );
+            assert_eq!(tip.1, was.1, "vertex {k} keeps its color");
+        }
+        assert!(h.app.board_sel.contains(&id), "the curve stays selected");
+        assert_eq!(h.app.picked_vertices(), None, "nothing got picked");
+        assert_eq!(undo_depth(&h), depth + 1, "one undo step");
+        key_with(&mut h, Key::Z, CTRL);
+        assert_eq!(painted_vertex_tips(&h, id), before, "one Ctrl+Z restores");
     }
 }
 

@@ -484,9 +484,6 @@ impl Stroke {
         self.profile = self.profile.with_narrow_ends(narrow);
         let mut caps = self.end_caps();
         caps[i] = end.cap;
-        if caps[0] == caps[1] {
-            self.cap = caps[0];
-        }
         self.cap_start = (caps[0] != self.cap).then_some(caps[0]);
         self.cap_end = (caps[1] != self.cap).then_some(caps[1]);
     }
@@ -3953,6 +3950,35 @@ mod tests {
                 narrow: false,
             },
             "a cut end is plain"
+        );
+    }
+
+    /// `cap` still caps the dash ends in between, so giving both ends the
+    /// same cap must not rewrite it.
+    #[test]
+    fn matching_end_caps_leave_the_dash_cap_alone() {
+        let mut s = Stroke {
+            width: 4.0,
+            cap: StrokeCap::Butt,
+            dash: Dash::Dashed,
+            ..Stroke::default()
+        };
+        for i in 0..2 {
+            let mut end = s.end(i);
+            end.cap = StrokeCap::Round;
+            s.set_end(i, end);
+        }
+        assert_eq!(s.cap, StrokeCap::Butt, "dash ends keep their cap");
+        assert_eq!(s.end_caps(), [StrokeCap::Round; 2]);
+        for i in 0..2 {
+            let mut end = s.end(i);
+            end.cap = StrokeCap::Butt;
+            s.set_end(i, end);
+        }
+        assert_eq!(
+            (s.cap_start, s.cap_end),
+            (None, None),
+            "an end equal to `cap` stores nothing"
         );
     }
 

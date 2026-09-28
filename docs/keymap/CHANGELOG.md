@@ -29,6 +29,30 @@
   `a_handle_knob_under_the_property_strip_still_drags`,
   `a_styled_rectangle_derives_its_paint_path_once`.
 
+## 2026-09-28 — Round 8 review fixes: end caps, edge highlight, brush D15
+
+- `Stroke::set_end` no longer rewrites `cap` when both ends end up with
+  the same cap: `cap` still caps the dash ends in between, so picking Round
+  on each end of a dashed Butt curve used to round every dash (Art. VI,
+  smallest changed property). An end equal to `cap` stores nothing.
+  `PATTERNS.md` P1.curve.vertex-style follows.
+- The picked-edge highlight (Ctrl+Shift+click) is a canvas object, not a
+  path-edit handle: its width is `canvas_scale::px(3, z)` (dropped below one
+  screen pixel), it flattens at the zoom bucket's curve tolerance instead of
+  0.5 world units (which put it about 3 px off the curve at 8x), and the
+  flattened polyline is cached until the curve, the zoom bucket or the
+  picked edges change (Art. II). The earlier "path-edit exception" wording
+  was an agent's, never ratified. `PATTERNS.md` P1.curve.grips and
+  `specs/direct-selection.md` follow.
+- `brush` D15 now agrees with D08: typed opacity lives only in the numeric
+  HUD; still no flow, airbrush or preset cycling.
+- Tests: `matching_end_caps_leave_the_dash_cap_alone`,
+  `a_picked_edge_highlight_scales_and_hugs_the_curve_at_high_zoom`,
+  `a_picked_edge_highlight_does_not_reflatten_on_a_steady_frame`,
+  `a_quick_alt_right_click_types_a_whole_selected_curves_size` (coverage:
+  numeric entry on a whole curve selected with the Select tool already
+  worked).
+
 ## 2026-09-28 — Whole-curve tip HUD under Select, relative edits (user)
 
 - User, 28 September 2026 (checklist ed1, applying to ed1–ed3 and eb1):

@@ -3817,7 +3817,7 @@
           "decided": "2026-09-22"
         },
         "D15": {
-          "behavior": "The selection strip gains no size or softness control. This pass adds no opacity digits, flow, airbrush, or brush-preset cycling on comma/period. The color wheel has no Space-to-jump between hue and saturation.",
+          "behavior": "The selection strip gains no size or softness control. Typed opacity lives only in the numeric HUD (D08); digits typed outside it enter no opacity. There is no flow, airbrush, or brush-preset cycling on comma/period. The color wheel has no Space-to-jump between hue and saturation.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
