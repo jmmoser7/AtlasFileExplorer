@@ -1527,11 +1527,22 @@ impl SlateApp {
                     && self.text_edit.is_none()))
             && !self.shape_properties.nodes.is_empty();
         if live {
+            let items = live_property_strip_items(self, &self.shape_properties.nodes);
+            // D13 / D12: a panel whose squircle the strip no longer offers
+            // (a grip pick narrowed it to per-vertex controls) closes. The
+            // grip press already committed its pending edits.
+            if self
+                .shape_properties
+                .panel
+                .is_some_and(|panel| !items.contains(&StripItem::Panel(panel)))
+            {
+                self.shape_properties.preview.clear();
+                self.shape_properties.edits.clear();
+                self.shape_properties.panel = None;
+                self.shape_properties.color = Default::default();
+            }
             if let Some(bounds) = vertex_bounds.or(self.shape_properties.bounds) {
-                self.shape_properties.last_chrome = Some(LastChrome {
-                    bounds,
-                    items: live_property_strip_items(self, &self.shape_properties.nodes),
-                });
+                self.shape_properties.last_chrome = Some(LastChrome { bounds, items });
             }
         }
         let fade = chrome::strip_fade(&ctx, Id::new("selection_property_strip"), live);

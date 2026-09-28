@@ -24712,9 +24712,10 @@ fn a_nested_styled_rectangle_with_the_host_id_keeps_its_own_paint_path() {
     );
 }
 
-/// Shape-selection-toolbar D13: only an anchor or a handle knob of the
-/// selected curve wins a press under a strip button. A rectangle corner
-/// under the strip's bottom edge (zoomed out) leaves the button its click.
+/// Shape-selection-toolbar D13: only a painted path-edit grip (a curve
+/// anchor, a handle knob, or a line end point) wins a press under a strip
+/// button. A rectangle corner under the strip's bottom edge (zoomed out)
+/// leaves the button its click.
 #[test]
 fn a_strip_button_over_a_rectangle_corner_keeps_its_click() {
     use slate_doc::scene::ShapeKind;
@@ -24748,6 +24749,238 @@ fn a_strip_button_over_a_rectangle_corner_keeps_its_click() {
     assert!(h.app.shape_properties.panel.is_some(), "the button opened its panel");
     assert_eq!(h.app.picked_vertices(), None, "the corner was not picked");
     assert_eq!(h.app.tab().journal.undo_depth(), depth);
+}
+
+/// A closed three-anchor Bézier, selected under the Select tool.
+fn closed_bezier(h: &mut Harness) -> (NodeId, [Pos2; 3]) {
+    bezier_loop(h, EVec2::new(0.0, -40.0));
+    let t = h.ctx.input(|i| i.time);
+    bezier_hover(h, Pos2::ZERO, t + 0.1, 0.4);
+    bezier_click(h, Pos2::ZERO);
+    let (id, s) = only_shape(h);
+    assert!(s.path.as_ref().unwrap().closed, "a closed path");
+    h.app.board_sel = std::iter::once(id).collect();
+    for _ in 0..3 {
+        h.frame();
+    }
+    (
+        id,
+        [Pos2::ZERO, Pos2::new(200.0, 0.0), Pos2::new(100.0, 150.0)],
+    )
+}
+
+/// Shape-selection-toolbar D13 / D12: a grip press that picks an anchor
+/// narrows the strip to per-vertex controls, so an open Fill panel, whose
+/// squircle is no longer offered, closes. The press commits the pending
+/// Fill preview once; the close journals nothing more.
+#[test]
+fn a_grip_pick_closes_a_strip_panel_it_no_longer_offers() {
+    let mut h = bezier_board("grip_pick_closes_fill");
+    let (id, [_, _, c]) = closed_bezier(&mut h);
+    h.app.shape_properties.panel = Some(board_properties::Panel::Fill);
+    h.frame();
+    h.frame();
+    assert_eq!(
+        h.app.shape_properties.panel,
+        Some(board_properties::Panel::Fill),
+        "Fill is offered while nothing is picked"
+    );
+    h.app
+        .preview_shape_property(board_properties::Property::FillRgb([200, 40, 40]));
+    let xf = h.app.board_xf();
+    let press = xf.w2s(c);
+    assert!(
+        !h.app
+            .shape_properties
+            .chrome_hits
+            .iter()
+            .any(|r| r.contains(press)),
+        "the anchor lies outside the strip and its panel"
+    );
+    let depth = h.app.tab().journal.undo_depth();
+    press_primary(&mut h, press, egui::Modifiers::NONE);
+    for _ in 0..3 {
+        h.frame();
+    }
+    assert_eq!(h.app.picked_vertices(), Some((id, vec![2])), "the anchor is picked");
+    assert_ne!(
+        h.app.shape_properties.panel,
+        Some(board_properties::Panel::Fill),
+        "Fill is not offered with an anchor picked, so its panel closes"
+    );
+    assert_eq!(
+        h.app.tab().journal.undo_depth(),
+        depth + 1,
+        "the pending Fill was committed once"
+    );
+    let (_, s) = only_shape(&h);
+    assert_eq!(s.fill.map(|f| [f.0[0], f.0[1], f.0[2]]), Some([200, 40, 40]));
+}
+
+/// Shape-selection-toolbar D13: Stroke stays offered for a picked anchor, so
+/// a press on another anchor keeps the Stroke panel up and picks it.
+#[test]
+fn a_grip_pick_keeps_a_stroke_panel_that_is_still_offered() {
+    let mut h = bezier_board("grip_pick_keeps_stroke");
+    let (id, [_, b, c]) = closed_bezier(&mut h);
+    let xf = h.app.board_xf();
+    press_primary(&mut h, xf.w2s(b), egui::Modifiers::NONE);
+    assert_eq!(h.app.picked_vertices(), Some((id, vec![1])));
+    h.app.shape_properties.panel = Some(board_properties::Panel::Stroke);
+    h.frame();
+    h.frame();
+    let press = xf.w2s(c);
+    assert!(
+        !h.app
+            .shape_properties
+            .chrome_hits
+            .iter()
+            .any(|r| r.contains(press)),
+        "the other anchor lies outside the strip and its panel"
+    );
+    press_primary(&mut h, press, egui::Modifiers::NONE);
+    for _ in 0..3 {
+        h.frame();
+    }
+    assert_eq!(h.app.picked_vertices(), Some((id, vec![2])));
+    assert_eq!(
+        h.app.shape_properties.panel,
+        Some(board_properties::Panel::Stroke),
+        "a grip press is not a click-away and Stroke is still offered"
+    );
+}
+
+/// Shape-selection-toolbar D11 / D13: a pending per-vertex Stroke preview is
+/// committed by the next grip press as exactly one journaled step, on the
+/// vertex that was picked when it was made.
+#[test]
+fn a_grip_press_commits_a_pending_stroke_preview_once() {
+    let mut h = bezier_board("grip_press_commits_stroke");
+    let (id, [_, b, c]) = closed_bezier(&mut h);
+    let xf = h.app.board_xf();
+    press_primary(&mut h, xf.w2s(b), egui::Modifiers::NONE);
+    assert_eq!(h.app.picked_vertices(), Some((id, vec![1])));
+    h.app.shape_properties.panel = Some(board_properties::Panel::Stroke);
+    h.frame();
+    h.frame();
+    let before = scene_nodes(&h);
+    let depth = h.app.tab().journal.undo_depth();
+    h.app
+        .preview_shape_property(board_properties::Property::StrokeWidth(14.0));
+    press_primary(&mut h, xf.w2s(c), egui::Modifiers::NONE);
+    for _ in 0..3 {
+        h.frame();
+    }
+    assert_eq!(h.app.picked_vertices(), Some((id, vec![2])));
+    assert_eq!(
+        h.app.tab().journal.undo_depth(),
+        depth + 1,
+        "the preview journals exactly one step"
+    );
+    assert_ne!(scene_nodes(&h), before, "the width landed");
+    press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
+    assert_eq!(scene_nodes(&h), before, "one Ctrl+Z restores");
+}
+
+/// P1.curve.grips under Direct Select: a soft brush stroke is not a Select
+/// grip target, but Direct Select paints its anchors and handle knobs, so a
+/// knob under a strip button still drags.
+#[test]
+fn a_direct_select_knob_on_a_soft_stroke_wins_over_a_strip_button() {
+    let mut h = bezier_board("direct_knob_soft_stroke");
+    let (id, [_, b, _]) = handle_bezier(&mut h);
+    grip_drag(
+        &mut h,
+        b + EVec2::new(40.0, 0.0),
+        b + EVec2::new(0.0, -25.0),
+        egui::Modifiers::NONE,
+    );
+    let (_, out0) = handle_pair(&h, id, 1);
+    h.app.patch_nodes(&[id], |n| {
+        if let NodeKind::Shape(s) = &mut n.kind {
+            s.stroke.softness = 0.5;
+        }
+    });
+    assert!(h.app.curve_grips_of(id).is_none(), "not a Select grip target");
+    h.app.set_board_tool(board::BoardTool::DirectSelect);
+    h.frame();
+    let xf = h.app.board_xf();
+    // The first press targets the curve; the second, past the
+    // double-click interval, picks the anchor.
+    press_primary(&mut h, xf.w2s(b), egui::Modifiers::NONE);
+    let t = h.ctx.input(|i| i.time);
+    h.frame_with(|i| i.time = Some(t + 1.0));
+    press_primary(&mut h, xf.w2s(b), egui::Modifiers::NONE);
+    for _ in 0..8 {
+        h.frame();
+    }
+    assert_eq!(h.app.picked_vertices(), Some((id, vec![1])), "b is picked");
+    let knob = xf.w2s(out0);
+    let press = h
+        .app
+        .shape_properties
+        .chrome_hits
+        .iter()
+        .map(|r| r.shrink(0.5).clamp(knob))
+        .find(|p| p.distance(knob) < 5.0)
+        .expect("a strip button covers the knob");
+    assert_eq!(h.app.hovered_vertex(press), Some((id, 1)));
+    let depth = h.app.tab().journal.undo_depth();
+    let from = xf.s2w(press);
+    grip_drag(&mut h, from, from + EVec2::new(0.0, -20.0), egui::Modifiers::NONE);
+    assert_eq!(h.app.shape_properties.panel, None, "no strip panel opened");
+    let (_, out1) = handle_pair(&h, id, 1);
+    assert!(
+        near_eps(out1, out0 + EVec2::new(0.0, -20.0), 0.5),
+        "the handle follows the drag: {out0:?} -> {out1:?}"
+    );
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "one undo step");
+}
+
+/// Shape-selection-toolbar D13, line D13: a simple line's end point is a
+/// painted path-edit grip (P1.curve.grips), so where a strip button covers
+/// it (zoomed out) the press drags the end point and the button stays idle.
+#[test]
+fn a_line_end_point_under_a_strip_button_drags() {
+    let mut h = grip_board("line_end_under_strip");
+    h.app.tab_mut().cam.offset = EVec2::ZERO;
+    h.app.tab_mut().cam.z = 0.4;
+    h.frame();
+    let c = h.app.board_xf().s2w(h.app.canvas_rect.center());
+    let (top, bottom) = (c + EVec2::new(0.0, -90.0), c + EVec2::new(0.0, 90.0));
+    let id = commit_polyline(&mut h, &[top, bottom], false);
+    for _ in 0..10 {
+        h.frame();
+    }
+    let ends = |h: &Harness| board_line::line_endpoints(h.app.doc().scene.node(id).unwrap());
+    assert!(ends(&h).is_some(), "a simple line");
+    let xf = h.app.board_xf();
+    let grip = xf.w2s(top);
+    let press = h
+        .app
+        .shape_properties
+        .chrome_hits
+        .iter()
+        .map(|r| r.shrink(0.5).clamp(grip))
+        .find(|p| p.distance(grip) < 6.5)
+        .expect("a strip button reaches the end point");
+    assert_eq!(
+        h.app.hovered_vertex(press),
+        Some((id, 0)),
+        "the press is within the end point's hit radius"
+    );
+    let before = ends(&h).unwrap();
+    let depth = h.app.tab().journal.undo_depth();
+    let from = xf.s2w(press);
+    grip_drag(&mut h, from, from + EVec2::new(-60.0, -40.0), egui::Modifiers::NONE);
+    assert_eq!(h.app.shape_properties.panel, None, "the button did not fire");
+    let after = ends(&h).unwrap();
+    assert!(
+        (after.0 - before.0).length() > 30.0,
+        "the end point moved: {before:?} -> {after:?}"
+    );
+    assert!(near_eps(after.1, before.1, 0.01), "the other end stays");
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "one undo step");
 }
 
 /// Polygon D13: a click on a vertex picks it, and the hover + / − beside

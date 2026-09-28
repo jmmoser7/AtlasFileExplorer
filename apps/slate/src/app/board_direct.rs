@@ -820,16 +820,24 @@ impl SlateApp {
         .is_some()
     }
 
-    /// A painted anchor square or handle knob of the edited curve under
-    /// `screen`: the Select tool's grip target, or Direct Select's curve.
-    /// Closed-form vertices and simple-line end points do not count.
+    /// A painted path-edit grip under `screen` (P1.curve.grips): an anchor
+    /// square or handle knob of the Select tool's grip target, an end point
+    /// of the selected simple line, or any anchor or knob Direct Select
+    /// paints on its target. Closed-form vertices (P1.shape.vertex-style)
+    /// do not count.
     pub(crate) fn curve_knob_under(&self, screen: Pos2) -> bool {
         match self.board_tool {
-            super::board::BoardTool::Select => self.curve_grip_under(screen),
+            super::board::BoardTool::Select => {
+                self.curve_grip_under(screen)
+                    || (self.board_sel.len() == 1
+                        && self.board_sel.iter().next().is_some_and(|&id| {
+                            self.line_grip_at(id, screen, &self.board_xf()).is_some()
+                        }))
+            }
             super::board::BoardTool::DirectSelect => {
                 self.direct
                     .node
-                    .is_some_and(|id| self.curve_grips_of(id).is_some())
+                    .is_some_and(|id| self.direct_anchors_of(id).is_some())
                     && self.hovered_vertex(screen).is_some()
             }
             _ => false,
