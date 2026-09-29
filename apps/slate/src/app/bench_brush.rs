@@ -369,7 +369,12 @@ fn drag_release(h: &mut Harness, path: &[Pos2]) -> (f32, f32, f32, f32) {
         moves.push(timed(h, pointer_at(end)));
     }
     let (release, next) = release_frames(h, end);
-    (press, moves.iter().cloned().fold(0.0, f32::max), release, next)
+    (
+        press,
+        moves.iter().cloned().fold(0.0, f32::max),
+        release,
+        next,
+    )
 }
 
 /// Frame cost of committing an erase, a brush stroke, and a smooth pass on

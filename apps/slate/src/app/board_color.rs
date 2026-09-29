@@ -1629,7 +1629,12 @@ impl SlateApp {
         Some(self.painted_segment_end(from, g.start, world, shift))
     }
 
-    pub(crate) fn release_brush_straight(&mut self, end_screen: Pos2, end_world: Pos2, shift: bool) {
+    pub(crate) fn release_brush_straight(
+        &mut self,
+        end_screen: Pos2,
+        end_world: Pos2,
+        shift: bool,
+    ) {
         let (Some(end_world), Some((from, tip, node))) = (
             self.brush_straight_end(end_world, shift),
             self.brush_straight_from(),
@@ -1669,14 +1674,14 @@ impl SlateApp {
         marks
             .find_map(|id| {
                 let mark = self.ink_mark(id, false)?;
-                let tip = mark.tips.last().map_or(
-                    self.placed_tip(slate_doc::StrokeTool::Pen),
-                    |t| PlacedTip {
-                        width: t.width,
-                        color: t.color,
-                        opacity: mark.opacity,
-                    },
-                );
+                let tip =
+                    mark.tips
+                        .last()
+                        .map_or(self.placed_tip(slate_doc::StrokeTool::Pen), |t| PlacedTip {
+                            width: t.width,
+                            color: t.color,
+                            opacity: mark.opacity,
+                        });
                 Some((mark.end, tip, mark.extendable.then_some(id)))
             })
             .or_else(|| point.map(|&(pos, tip)| (pos, tip, None)))
@@ -1823,10 +1828,14 @@ impl SlateApp {
     /// end of the last pass (or from the press when there is none).
     pub(crate) fn begin_erase(&mut self, world: Pos2, shift: bool) -> super::board::BoardDrag {
         self.erase_live.clear();
-        self.brush_tiles.forget_erase_lines(&self.erase_settle.jobs());
+        self.brush_tiles
+            .forget_erase_lines(&self.erase_settle.jobs());
         let points = if shift {
             let tab = self.tab().id;
-            let from = self.eraser_anchor.filter(|(t, _)| *t == tab).map(|(_, p)| p);
+            let from = self
+                .eraser_anchor
+                .filter(|(t, _)| *t == tab)
+                .map(|(_, p)| p);
             vec![from.unwrap_or(world), world]
         } else {
             vec![world]
@@ -2153,7 +2162,9 @@ impl SlateApp {
                     self.erase_settle
                         .hold(tab, &after, (key, pass), l, &mut self.brush_tiles)
                 }
-                None => self.erase_settle.wait(tab, &after, (key, pass), &points, tip),
+                None => self
+                    .erase_settle
+                    .wait(tab, &after, (key, pass), &points, tip),
             }
         }
         match pass {
@@ -3249,16 +3260,28 @@ mod tests {
         for k in 0..36 {
             let a = k as f32 / 36.0 * std::f32::consts::TAU;
             let at = |r: f32| [a.cos() * r, a.sin() * r];
-            assert!(matches!(sample_wheel(at(WHEEL_SV_RADIUS - 0.5), hsv, &[]), WheelHit::Field(..)));
-            assert!(matches!(sample_wheel(at(WHEEL_SV_RADIUS + 0.5), hsv, &[]), WheelHit::Keep));
-            assert!(matches!(sample_wheel(at(WHEEL_HUE_INNER - 0.5), hsv, &[]), WheelHit::Keep));
+            assert!(matches!(
+                sample_wheel(at(WHEEL_SV_RADIUS - 0.5), hsv, &[]),
+                WheelHit::Field(..)
+            ));
+            assert!(matches!(
+                sample_wheel(at(WHEEL_SV_RADIUS + 0.5), hsv, &[]),
+                WheelHit::Keep
+            ));
+            assert!(matches!(
+                sample_wheel(at(WHEEL_HUE_INNER - 0.5), hsv, &[]),
+                WheelHit::Keep
+            ));
             match sample_wheel(at(WHEEL_HUE_INNER + 0.5), hsv, &[]) {
                 WheelHit::Field(_, next) => {
                     assert_eq!(next[1..], hsv[1..], "the ring changes hue only")
                 }
                 other => panic!("ring at {a}: {other:?}"),
             }
-            assert!(matches!(sample_wheel(at(WHEEL_BACKDROP_RADIUS + 1.0), hsv, &[]), WheelHit::Outside));
+            assert!(matches!(
+                sample_wheel(at(WHEEL_BACKDROP_RADIUS + 1.0), hsv, &[]),
+                WheelHit::Outside
+            ));
         }
     }
 
@@ -3266,7 +3289,11 @@ mod tests {
     fn the_wheel_snaps_to_exact_white_and_black() {
         let [(white, _), (black, _)] = wheel_snaps();
         for hue in [0.0, 0.33, 0.8] {
-            for nudge in [egui::Vec2::ZERO, egui::vec2(3.0, -2.0), egui::vec2(-4.0, 5.0)] {
+            for nudge in [
+                egui::Vec2::ZERO,
+                egui::vec2(3.0, -2.0),
+                egui::vec2(-4.0, 5.0),
+            ] {
                 let p = white + nudge;
                 match sample_wheel([p.x, p.y], [hue, 0.7, 0.4], &[]) {
                     WheelHit::Field(rgb, _) => assert_eq!(rgb, [255, 255, 255]),
@@ -3291,7 +3318,10 @@ mod tests {
             let at = sv_offset(s, v);
             assert!(at.length() <= WHEEL_SV_RADIUS + 1e-3, "({s},{v}) at {at:?}");
             let (s2, v2) = sv_at(at);
-            assert!((s2 - s).abs() < 1e-3 && (v2 - v).abs() < 1e-3, "({s},{v}) -> ({s2},{v2})");
+            assert!(
+                (s2 - s).abs() < 1e-3 && (v2 - v).abs() < 1e-3,
+                "({s},{v}) -> ({s2},{v2})"
+            );
         }
         // Pure white sits on the rim, reachable without the snap.
         let (s, v) = sv_at(sv_offset(0.0, 1.0));

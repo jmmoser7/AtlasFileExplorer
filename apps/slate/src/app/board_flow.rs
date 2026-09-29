@@ -140,7 +140,10 @@ impl SpawnKind {
     }
 
     fn index(self) -> usize {
-        MODALITIES.iter().position(|m| m.kind == Some(self)).unwrap()
+        MODALITIES
+            .iter()
+            .position(|m| m.kind == Some(self))
+            .unwrap()
     }
 }
 

@@ -735,7 +735,10 @@ impl SlateApp {
 /// A short stroke of `texture`, stamped once in white at three raster
 /// pixels per screen px and kept in egui memory, so the row does no
 /// rasterizing per frame. The rect is relative to the swatch center.
-fn texture_swatch(ctx: &egui::Context, texture: BrushTexture) -> Option<(egui::TextureId, egui::Rect)> {
+fn texture_swatch(
+    ctx: &egui::Context,
+    texture: BrushTexture,
+) -> Option<(egui::TextureId, egui::Rect)> {
     type Swatch = (egui::TextureHandle, egui::Rect);
     let id = egui::Id::new(("slate.tip_swatch", texture.label()));
     if let Some((tex, rect)) = ctx.data(|d| d.get_temp::<Swatch>(id)) {

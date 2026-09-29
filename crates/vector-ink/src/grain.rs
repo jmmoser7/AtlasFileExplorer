@@ -79,8 +79,8 @@ fn bake(octaves: &[(f32, f32, u32)]) -> Field {
         let per_texel = cells as f32 / SIDE as f32;
         for y in 0..SIDE {
             for x in 0..SIDE {
-                raw[y * SIDE + x] +=
-                    weight * periodic_noise(x as f32 * per_texel, y as f32 * per_texel, cells, seed);
+                raw[y * SIDE + x] += weight
+                    * periodic_noise(x as f32 * per_texel, y as f32 * per_texel, cells, seed);
             }
         }
     }

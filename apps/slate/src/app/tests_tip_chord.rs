@@ -932,11 +932,18 @@ fn an_unchanged_draft_frame_does_not_re_tessellate() {
     h.app.tab_mut().cam.offset += Vec2::new(40.0, -25.0);
     h.frame();
     assert_eq!(inputs(&h), before, "the pan changed only the camera");
-    assert_eq!(h.app.draft_ink.builds, built, "a pan rebuilds no draft mesh");
+    assert_eq!(
+        h.app.draft_ink.builds, built,
+        "a pan rebuilds no draft mesh"
+    );
     let xf = h.app.board_xf();
     let (mesh, color) = h.app.draft_ink.draft_mesh().expect("a cached mesh");
     let want = board_path::ink_mesh_to_epaint(mesh, &xf, color, |c| c);
-    let screen = h.app.draft_ink.draft_screen_mesh().expect("a painted screen mesh");
+    let screen = h
+        .app
+        .draft_ink
+        .draft_screen_mesh()
+        .expect("a painted screen mesh");
     assert_eq!(screen.vertices.len(), want.vertices.len());
     for (s, w) in screen.vertices.iter().zip(&want.vertices) {
         assert!(
@@ -1057,12 +1064,19 @@ fn a_uniform_brush_stroke_commits_the_tip_it_was_drawn_with() {
     // Release where the chord left the pointer: no new sample.
     let p = h.ctx.input(|i| i.pointer.latest_pos()).expect("a pointer");
     let left = egui::PointerButton::Primary;
-    events(&mut h, Modifiers::NONE, vec![button(p, left, false, Modifiers::NONE)]);
+    events(
+        &mut h,
+        Modifiers::NONE,
+        vec![button(p, left, false, Modifiers::NONE)],
+    );
     assert_eq!(h.app.doc().scene.nodes.len(), 1, "one brush stroke");
     let NodeKind::Shape(s) = &h.app.doc().scene.nodes[0].kind else {
         panic!("a shape");
     };
-    assert!(s.path.as_ref().unwrap().tips.is_empty(), "one tip, stored on the stroke");
+    assert!(
+        s.path.as_ref().unwrap().tips.is_empty(),
+        "one tip, stored on the stroke"
+    );
     assert_eq!(s.stroke.width, drawn.width, "the drawn width");
     assert_eq!(s.stroke.color, drawn.color, "the drawn color");
     assert_eq!(s.stroke.softness, drawn.softness);
@@ -1125,7 +1139,12 @@ fn the_tip_hud_edits_every_stamped_tip_of_a_whole_brush_stroke() {
     let away = screen(&h, Pos2::new(200.0, 200.0));
     let widest = before.iter().map(|t| t.width).fold(0.0, f32::max);
 
-    chord(&mut h, ALT, away, &[Vec2::new(5.0, 0.0), Vec2::new(10.0, 0.0)]);
+    chord(
+        &mut h,
+        ALT,
+        away,
+        &[Vec2::new(5.0, 0.0), Vec2::new(10.0, 0.0)],
+    );
     let wider = stamped_tips(&h, id);
     let k = (widest + 20.0) / widest;
     for (a, b) in before.iter().zip(&wider) {
@@ -1138,13 +1157,21 @@ fn the_tip_hud_edits_every_stamped_tip_of_a_whole_brush_stroke() {
     }
     assert_eq!(undo_depth(&h), depth + 1, "one undo step");
 
-    chord(&mut h, ALT, away, &[Vec2::new(0.0, -10.0), Vec2::new(0.0, -20.0)]);
+    chord(
+        &mut h,
+        ALT,
+        away,
+        &[Vec2::new(0.0, -10.0), Vec2::new(0.0, -20.0)],
+    );
     let softer = stamped_tips(&h, id);
     let s0 = wider.iter().map(|t| t.softness).fold(0.0, f32::max);
     for (a, b) in wider.iter().zip(&softer) {
         let want = a.softness * (s0 + 0.2).min(1.0) / s0;
         assert!((b.softness - want).abs() < 1e-3, "{a:?} → {b:?}");
-        assert!((a.width - b.width).abs() < 1e-3, "a vertical scrub keeps size");
+        assert!(
+            (a.width - b.width).abs() < 1e-3,
+            "a vertical scrub keeps size"
+        );
     }
     assert_eq!(undo_depth(&h), depth + 2);
 
@@ -1167,11 +1194,22 @@ fn the_tip_hud_edits_every_stamped_tip_of_a_whole_brush_stroke() {
     let painted = board_path::stamped_contours(node, s, s.path.as_ref().unwrap(), 0.25);
     let widest_now = recolored.iter().map(|t| t.width).fold(0.0, f32::max);
     for p in painted.iter().flatten() {
-        assert_eq!(p.tip.rgba[..3], rgb[..3], "the board paints every tip's color");
+        assert_eq!(
+            p.tip.rgba[..3],
+            rgb[..3],
+            "the board paints every tip's color"
+        );
         assert!(p.tip.diameter <= widest_now + 1e-3);
     }
-    let fattest = painted.iter().flatten().map(|p| p.tip.diameter).fold(0.0, f32::max);
-    assert!((fattest - widest_now).abs() < 0.5, "the board paints the scaled size");
+    let fattest = painted
+        .iter()
+        .flatten()
+        .map(|p| p.tip.diameter)
+        .fold(0.0, f32::max);
+    assert!(
+        (fattest - widest_now).abs() < 0.5,
+        "the board paints the scaled size"
+    );
 
     // Esc with the wheel open restores every tip and journals nothing.
     let right = egui::PointerButton::Secondary;
@@ -1185,7 +1223,11 @@ fn the_tip_hud_edits_every_stamped_tip_of_a_whole_brush_stroke() {
     assert_ne!(stamped_tips(&h, id), recolored, "the wheel edits live");
     escape(&mut h);
     assert!(h.app.brush_hud.is_none(), "Esc closes the wheel");
-    events(&mut h, Modifiers::NONE, vec![button(target, right, false, Modifiers::NONE)]);
+    events(
+        &mut h,
+        Modifiers::NONE,
+        vec![button(target, right, false, Modifiers::NONE)],
+    );
     assert_eq!(stamped_tips(&h, id), recolored, "Esc restores every tip");
     assert_eq!(undo_depth(&h), depth + 3);
 
@@ -1205,7 +1247,11 @@ fn a_picked_brush_anchor_edits_only_its_stamped_tip() {
     let k = anchors.len() / 2;
     let p = anchors[k].point;
     click(&mut h, Pos2::new(p.x as f32, p.y as f32));
-    assert_eq!(h.app.picked_vertices(), Some((id, vec![k])), "the click picks anchor {k}");
+    assert_eq!(
+        h.app.picked_vertices(),
+        Some((id, vec![k])),
+        "the click picks anchor {k}"
+    );
     let (w, soft, opacity) = h.app.vector_tip().expect("a readout");
     assert_eq!(w, before[k].width, "the readout is the picked tip's width");
     assert_eq!(soft, before[k].softness, "and its softness");
@@ -1221,12 +1267,25 @@ fn a_picked_brush_anchor_edits_only_its_stamped_tip() {
         }
     };
 
-    chord(&mut h, ALT, away, &[Vec2::new(5.0, 0.0), Vec2::new(10.0, 0.0)]);
+    chord(
+        &mut h,
+        ALT,
+        away,
+        &[Vec2::new(5.0, 0.0), Vec2::new(10.0, 0.0)],
+    );
     let wider = stamped_tips(&h, id);
-    assert!((wider[k].width - (before[k].width + 20.0)).abs() < 1e-3, "{wider:?}");
+    assert!(
+        (wider[k].width - (before[k].width + 20.0)).abs() < 1e-3,
+        "{wider:?}"
+    );
     only_k(&wider, &before, "size");
 
-    chord(&mut h, ALT, away, &[Vec2::new(0.0, -10.0), Vec2::new(0.0, -20.0)]);
+    chord(
+        &mut h,
+        ALT,
+        away,
+        &[Vec2::new(0.0, -10.0), Vec2::new(0.0, -20.0)],
+    );
     let softer = stamped_tips(&h, id);
     let want = (wider[k].softness + 0.2).min(1.0);
     assert!((softer[k].softness - want).abs() < 1e-3, "{softer:?}");

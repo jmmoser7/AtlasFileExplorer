@@ -245,7 +245,11 @@ mod tests {
             let theme = crate::menu::theme(dark);
             for ppp in [1u32, 2] {
                 let pad = 8.0;
-                let width = pad + sizes.iter().map(|s| (s + pad) * row.len() as f32).sum::<f32>();
+                let width = pad
+                    + sizes
+                        .iter()
+                        .map(|s| (s + pad) * row.len() as f32)
+                        .sum::<f32>();
                 let height = pad * 2.0 + sizes[2];
                 let mut meshes = Vec::new();
                 let mut x = pad;
@@ -290,8 +294,18 @@ mod tests {
                 if area.abs() < 1e-9 {
                     continue;
                 }
-                let x0 = p.iter().map(|q| q.x).fold(f32::MAX, f32::min).floor().max(0.0) as u32;
-                let y0 = p.iter().map(|q| q.y).fold(f32::MAX, f32::min).floor().max(0.0) as u32;
+                let x0 = p
+                    .iter()
+                    .map(|q| q.x)
+                    .fold(f32::MAX, f32::min)
+                    .floor()
+                    .max(0.0) as u32;
+                let y0 = p
+                    .iter()
+                    .map(|q| q.y)
+                    .fold(f32::MAX, f32::min)
+                    .floor()
+                    .max(0.0) as u32;
                 let x1 = (p.iter().map(|q| q.x).fold(f32::MIN, f32::max).ceil() as u32).min(sw);
                 let y1 = (p.iter().map(|q| q.y).fold(f32::MIN, f32::max).ceil() as u32).min(sh);
                 for y in y0..y1 {
@@ -327,7 +341,8 @@ mod tests {
                 }
             }
             let n = (SS * SS) as f32;
-            let px = egui::Rgba::from_rgba_premultiplied(sum[0] / n, sum[1] / n, sum[2] / n, sum[3] / n);
+            let px =
+                egui::Rgba::from_rgba_premultiplied(sum[0] / n, sum[1] / n, sum[2] / n, sum[3] / n);
             image::Rgba(Color32::from(px).to_srgba_unmultiplied())
         })
     }

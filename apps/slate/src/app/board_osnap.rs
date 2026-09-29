@@ -102,7 +102,9 @@ impl SlateApp {
             BoardTool::Polyline | BoardTool::Arc | BoardTool::BezierSpan => {
                 match &self.board_path_draft {
                     Some(board_path::BoardPathDraft::Polyline { points, .. })
-                    | Some(board_path::BoardPathDraft::Arc { points, .. }) => points.last().copied(),
+                    | Some(board_path::BoardPathDraft::Arc { points, .. }) => {
+                        points.last().copied()
+                    }
                     Some(board_path::BoardPathDraft::Bezier { anchors, .. }) => {
                         anchors.last().map(|(p, _)| *p)
                     }

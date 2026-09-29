@@ -203,8 +203,14 @@ fn sample_swell(sub: &mut SubPath) {
     }
     let n = sub.points.len();
     let mut points = Vec::with_capacity(n + SWELL_STATIONS as usize);
-    let mut widths = sub.widths.as_ref().map(|_| Vec::with_capacity(points.capacity()));
-    let mut colors = sub.colors.as_ref().map(|_| Vec::with_capacity(points.capacity()));
+    let mut widths = sub
+        .widths
+        .as_ref()
+        .map(|_| Vec::with_capacity(points.capacity()));
+    let mut colors = sub
+        .colors
+        .as_ref()
+        .map(|_| Vec::with_capacity(points.capacity()));
     for i in 0..n {
         if i > 0 {
             let (a, b) = (sub.points[i - 1], sub.points[i]);

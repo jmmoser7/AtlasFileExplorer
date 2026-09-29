@@ -5738,7 +5738,10 @@ fn shift_wheel_pans_the_board_sideways() {
     notch(&mut h, egui::Modifiers::SHIFT);
     let cam = h.app.tab().cam;
     assert_eq!(cam.z, z, "Shift + wheel zoomed");
-    assert_eq!(cam.offset.y, offset.y, "Shift + wheel moved the board up or down");
+    assert_eq!(
+        cam.offset.y, offset.y,
+        "Shift + wheel moved the board up or down"
+    );
     assert!(
         cam.offset.x - offset.x > 10.0 / z,
         "Shift + wheel did not pan: offset {:?} -> {:?}",
@@ -9998,16 +10001,16 @@ fn path_vertices(node: &slate_doc::Node) -> Vec<Pos2> {
     let NodeKind::Shape(s) = &node.kind else {
         panic!("a shape")
     };
-    let bez = board_path::path_data_to_world_bez(s.path.as_ref().unwrap(), node.rect, node.rotation_deg);
+    let bez =
+        board_path::path_data_to_world_bez(s.path.as_ref().unwrap(), node.rect, node.rotation_deg);
     bez.elements()
         .iter()
         .filter_map(|el| match el {
             vector_ink::kurbo::PathEl::MoveTo(p) | vector_ink::kurbo::PathEl::LineTo(p) => {
                 Some(kpt(*p))
             }
-            vector_ink::kurbo::PathEl::CurveTo(_, _, p) | vector_ink::kurbo::PathEl::QuadTo(_, p) => {
-                Some(kpt(*p))
-            }
+            vector_ink::kurbo::PathEl::CurveTo(_, _, p)
+            | vector_ink::kurbo::PathEl::QuadTo(_, p) => Some(kpt(*p)),
             vector_ink::kurbo::PathEl::ClosePath => None,
         })
         .collect()
@@ -10025,7 +10028,10 @@ fn brush_shift_drag_previews_and_commits_a_straight_line() {
         &[a, Pos2::new(140.0, 160.0), Pos2::new(220.0, 90.0), end],
         egui::Modifiers::SHIFT,
         |h| {
-            assert!(h.app.brush_straight.is_some(), "the Shift press owns the drag");
+            assert!(
+                h.app.brush_straight.is_some(),
+                "the Shift press owns the drag"
+            );
             assert!(
                 h.app.brush_live.as_ref().is_some_and(|c| c.showing_line()),
                 "the live canvas shows the straight segment"
@@ -10047,21 +10053,36 @@ fn brush_shift_drag_previews_and_commits_a_straight_line() {
 #[test]
 fn brush_shift_after_undo_starts_at_the_strokes_real_end() {
     let mut h = brush_board("brush_shift_undo_anchor");
-    let freehand = [Pos2::new(40.0, 40.0), Pos2::new(80.0, 60.0), Pos2::new(120.0, 40.0)];
+    let freehand = [
+        Pos2::new(40.0, 40.0),
+        Pos2::new(80.0, 60.0),
+        Pos2::new(120.0, 40.0),
+    ];
     press_drag_release_frames(&mut h, &freehand, egui::Modifiers::NONE, |_| {});
     let id = h.app.doc().scene.nodes[0].id;
     let drawn = path_vertices(h.app.doc().scene.node(id).unwrap());
     let end = *drawn.last().unwrap();
     press_drag_release_frames(
         &mut h,
-        &[Pos2::new(200.0, 200.0), Pos2::new(260.0, 200.0), Pos2::new(300.0, 200.0)],
+        &[
+            Pos2::new(200.0, 200.0),
+            Pos2::new(260.0, 200.0),
+            Pos2::new(300.0, 200.0),
+        ],
         egui::Modifiers::SHIFT,
         |_| {},
     );
     assert_eq!(h.app.doc().scene.nodes.len(), 1);
-    assert_eq!(path_vertices(h.app.doc().scene.node(id).unwrap()).len(), drawn.len() + 1);
+    assert_eq!(
+        path_vertices(h.app.doc().scene.node(id).unwrap()).len(),
+        drawn.len() + 1
+    );
     press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
-    assert_eq!(path_vertices(h.app.doc().scene.node(id).unwrap()), drawn, "undone");
+    assert_eq!(
+        path_vertices(h.app.doc().scene.node(id).unwrap()),
+        drawn,
+        "undone"
+    );
     let raw = Pos2::new(420.0, 330.0);
     press_drag_release_frames(
         &mut h,
@@ -10081,10 +10102,17 @@ fn brush_shift_after_undo_starts_at_the_strokes_real_end() {
             );
         },
     );
-    assert_eq!(h.app.doc().scene.nodes.len(), 1, "the segment extends the stroke");
+    assert_eq!(
+        h.app.doc().scene.nodes.len(),
+        1,
+        "the segment extends the stroke"
+    );
     let v = path_vertices(h.app.doc().scene.node(id).unwrap());
     assert_eq!(v.len(), drawn.len() + 1, "{v:?}");
-    assert!(near_px(v[v.len() - 1], board_snap::ortho_snap_point(end, raw)), "{v:?}");
+    assert!(
+        near_px(v[v.len() - 1], board_snap::ortho_snap_point(end, raw)),
+        "{v:?}"
+    );
     press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
     assert_eq!(
         path_vertices(h.app.doc().scene.node(id).unwrap()),
@@ -10098,11 +10126,19 @@ fn brush_shift_after_undo_starts_at_the_strokes_real_end() {
 #[test]
 fn brush_shift_after_undoing_the_whole_stroke_starts_at_the_press() {
     let mut h = brush_board("brush_shift_undo_all");
-    let freehand = [Pos2::new(40.0, 40.0), Pos2::new(80.0, 60.0), Pos2::new(120.0, 40.0)];
+    let freehand = [
+        Pos2::new(40.0, 40.0),
+        Pos2::new(80.0, 60.0),
+        Pos2::new(120.0, 40.0),
+    ];
     press_drag_release_frames(&mut h, &freehand, egui::Modifiers::NONE, |_| {});
     press_drag_release_frames(
         &mut h,
-        &[Pos2::new(200.0, 200.0), Pos2::new(260.0, 200.0), Pos2::new(300.0, 200.0)],
+        &[
+            Pos2::new(200.0, 200.0),
+            Pos2::new(260.0, 200.0),
+            Pos2::new(300.0, 200.0),
+        ],
         egui::Modifiers::SHIFT,
         |_| {},
     );
@@ -10116,7 +10152,10 @@ fn brush_shift_after_undoing_the_whole_stroke_starts_at_the_press() {
         egui::Modifiers::SHIFT,
         |h| {
             let (from, _, node) = h.app.brush_straight_from().expect("a Shift drag");
-            assert!(near_px(from, press), "the preview starts at {from:?}, not the press");
+            assert!(
+                near_px(from, press),
+                "the preview starts at {from:?}, not the press"
+            );
             assert_eq!(node, None);
         },
     );
@@ -10124,7 +10163,10 @@ fn brush_shift_after_undoing_the_whole_stroke_starts_at_the_press() {
     let v = path_vertices(&h.app.doc().scene.nodes[0]);
     assert_eq!(v.len(), 2, "{v:?}");
     assert!(near_px(v[0], press), "{v:?}");
-    assert!(near_px(v[1], board_snap::ortho_snap_point(press, raw)), "{v:?}");
+    assert!(
+        near_px(v[1], board_snap::ortho_snap_point(press, raw)),
+        "{v:?}"
+    );
 }
 
 /// D03 across marks: undoing the newest stroke leaves the one before it as
@@ -10132,18 +10174,30 @@ fn brush_shift_after_undoing_the_whole_stroke_starts_at_the_press() {
 #[test]
 fn brush_shift_after_undoing_the_newest_mark_continues_the_one_before() {
     let mut h = brush_board("brush_shift_undo_newest");
-    let first = [Pos2::new(40.0, 40.0), Pos2::new(80.0, 60.0), Pos2::new(120.0, 40.0)];
+    let first = [
+        Pos2::new(40.0, 40.0),
+        Pos2::new(80.0, 60.0),
+        Pos2::new(120.0, 40.0),
+    ];
     press_drag_release_frames(&mut h, &first, egui::Modifiers::NONE, |_| {});
     let id = h.app.doc().scene.nodes[0].id;
     let drawn = path_vertices(h.app.doc().scene.node(id).unwrap());
-    let second = [Pos2::new(40.0, 160.0), Pos2::new(80.0, 180.0), Pos2::new(120.0, 160.0)];
+    let second = [
+        Pos2::new(40.0, 160.0),
+        Pos2::new(80.0, 180.0),
+        Pos2::new(120.0, 160.0),
+    ];
     press_drag_release_frames(&mut h, &second, egui::Modifiers::NONE, |_| {});
     assert_eq!(h.app.doc().scene.nodes.len(), 2);
     press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
     assert_eq!(h.app.doc().scene.nodes.len(), 1);
     press_drag_release_frames(
         &mut h,
-        &[Pos2::new(300.0, 320.0), Pos2::new(360.0, 330.0), Pos2::new(420.0, 330.0)],
+        &[
+            Pos2::new(300.0, 320.0),
+            Pos2::new(360.0, 330.0),
+            Pos2::new(420.0, 330.0),
+        ],
         egui::Modifiers::SHIFT,
         |h| {
             let (from, _, node) = h.app.brush_straight_from().expect("a Shift drag");
@@ -10151,8 +10205,15 @@ fn brush_shift_after_undoing_the_newest_mark_continues_the_one_before() {
             assert_eq!(node, Some(id));
         },
     );
-    assert_eq!(h.app.doc().scene.nodes.len(), 1, "the segment extends the first stroke");
-    assert_eq!(path_vertices(h.app.doc().scene.node(id).unwrap()).len(), drawn.len() + 1);
+    assert_eq!(
+        h.app.doc().scene.nodes.len(),
+        1,
+        "the segment extends the first stroke"
+    );
+    assert_eq!(
+        path_vertices(h.app.doc().scene.node(id).unwrap()).len(),
+        drawn.len() + 1
+    );
 }
 
 /// D03 after a redo: Ctrl+Z takes a Shift segment back and Ctrl+Y restores
@@ -10604,7 +10665,10 @@ fn shift_places_the_next_vertex_on_a_45_degree_step() {
         click_at(&mut h, raw, egui::Modifiers::SHIFT);
         let v = last_vertex(&h).expect("a draft");
         assert!(on_45(a, v), "{tool:?}: {v:?}");
-        assert!(!near_px(v, raw), "{tool:?}: the raw pointer was constrained");
+        assert!(
+            !near_px(v, raw),
+            "{tool:?}: the raw pointer was constrained"
+        );
     }
     // Line: its second point, the committed end.
     let mut h = draft_board("shift_45_line", board::BoardTool::Line);
@@ -10625,19 +10689,33 @@ fn tab_locks_the_segment_direction_on_every_vector_draft_tool() {
         click_at(&mut h, Pos2::ZERO, egui::Modifiers::NONE);
         hover_at(&mut h, Pos2::new(30.0, 40.0), egui::Modifiers::NONE);
         press_key_with(&mut h, egui::Key::Tab, egui::Modifiers::NONE);
-        let lock = h.app.draft_lock.unwrap_or_else(|| panic!("{tool:?}: Tab locks"));
+        let lock = h
+            .app
+            .draft_lock
+            .unwrap_or_else(|| panic!("{tool:?}: Tab locks"));
         assert!((lock - dir).length() < 1.0e-3, "{tool:?}: {lock:?}");
         let off = Pos2::new(500.0, -20.0);
         hover_at(&mut h, off, egui::Modifiers::NONE);
-        assert!(h.app.draft_lock.is_some(), "{tool:?}: the lock holds while hovering");
+        assert!(
+            h.app.draft_lock.is_some(),
+            "{tool:?}: the lock holds while hovering"
+        );
         click_at(&mut h, off, egui::Modifiers::NONE);
         let v = if tool == board::BoardTool::Line {
-            board_line::line_endpoints(&h.app.doc().scene.nodes[0]).unwrap().1
+            board_line::line_endpoints(&h.app.doc().scene.nodes[0])
+                .unwrap()
+                .1
         } else {
             last_vertex(&h).expect("a draft")
         };
-        assert!(on_ray(Pos2::ZERO, dir, v), "{tool:?}: {v:?} stays on the locked ray");
-        assert!(h.app.draft_lock.is_none(), "{tool:?}: placing the point ends the lock");
+        assert!(
+            on_ray(Pos2::ZERO, dir, v),
+            "{tool:?}: {v:?} stays on the locked ray"
+        );
+        assert!(
+            h.app.draft_lock.is_none(),
+            "{tool:?}: placing the point ends the lock"
+        );
     }
 }
 
@@ -10650,14 +10728,20 @@ fn tab_again_or_escape_releases_the_segment_lock() {
         hover_at(&mut h, Pos2::new(30.0, 40.0), egui::Modifiers::NONE);
         press_key_with(&mut h, egui::Key::Tab, egui::Modifiers::NONE);
         assert!(h.app.draft_lock.is_some(), "{tool:?}");
-        assert!(!h.ctx.wants_keyboard_input(), "{tool:?}: the board kept the Tab");
+        assert!(
+            !h.ctx.wants_keyboard_input(),
+            "{tool:?}: the board kept the Tab"
+        );
         press_key_with(&mut h, egui::Key::Tab, egui::Modifiers::NONE);
         assert!(h.app.draft_lock.is_none(), "{tool:?}: Tab again releases");
         let off = Pos2::new(500.0, -20.0);
         hover_at(&mut h, off, egui::Modifiers::NONE);
         if tool != board::BoardTool::Line {
             click_at(&mut h, off, egui::Modifiers::NONE);
-            assert!(near_px(last_vertex(&h).unwrap(), off), "{tool:?}: free again");
+            assert!(
+                near_px(last_vertex(&h).unwrap(), off),
+                "{tool:?}: free again"
+            );
         }
         hover_at(&mut h, Pos2::new(600.0, 100.0), egui::Modifiers::NONE);
         press_key_with(&mut h, egui::Key::Tab, egui::Modifiers::NONE);
@@ -10675,7 +10759,11 @@ fn brush_shift_click_connects_and_shift_drag_takes_45_degree_steps() {
     h.app.brush_opacity = 0.7;
     press_drag_release_frames(
         &mut h,
-        &[Pos2::new(40.0, 40.0), Pos2::new(80.0, 60.0), Pos2::new(120.0, 40.0)],
+        &[
+            Pos2::new(40.0, 40.0),
+            Pos2::new(80.0, 60.0),
+            Pos2::new(120.0, 40.0),
+        ],
         egui::Modifiers::NONE,
         |_| {},
     );
@@ -10683,9 +10771,15 @@ fn brush_shift_click_connects_and_shift_drag_takes_45_degree_steps() {
     let from = h.app.brush_line_anchor().expect("anchor").pos;
     let click = Pos2::new(230.0, 83.0);
     click_at(&mut h, click, egui::Modifiers::SHIFT);
-    assert!((h.app.brush_opacity - 0.7).abs() < 1.0e-6, "Shift never steps opacity");
+    assert!(
+        (h.app.brush_opacity - 0.7).abs() < 1.0e-6,
+        "Shift never steps opacity"
+    );
     let v = path_vertices(h.app.doc().scene.node(first).unwrap());
-    assert!(near_px(v[v.len() - 2], from) && near_px(v[v.len() - 1], click), "{v:?}");
+    assert!(
+        near_px(v[v.len() - 2], from) && near_px(v[v.len() - 1], click),
+        "{v:?}"
+    );
 
     // Shift drag from the new end: 45° steps, and the same stroke grows.
     let from = click;
@@ -10699,7 +10793,10 @@ fn brush_shift_click_connects_and_shift_drag_takes_45_degree_steps() {
     let v = path_vertices(h.app.doc().scene.node(first).unwrap());
     let end = v[v.len() - 1];
     assert!(on_45(from, end), "{end:?}");
-    assert!(near_px(end, board_snap::ortho_snap_point(from, raw)), "{end:?}");
+    assert!(
+        near_px(end, board_snap::ortho_snap_point(from, raw)),
+        "{end:?}"
+    );
     assert_eq!(h.app.doc().scene.nodes.len(), 1);
 }
 
@@ -10759,7 +10856,11 @@ fn pen_board(tag: &str) -> Harness {
 /// Re-arm the Pen after a stroke (Pen D02: one-shot). A bare P waits out
 /// the type-to-command hold window, so the harness arms it directly.
 fn arm_pen(h: &mut Harness) {
-    assert_eq!(h.app.board_tool, board::BoardTool::Select, "the Pen is one-shot");
+    assert_eq!(
+        h.app.board_tool,
+        board::BoardTool::Select,
+        "the Pen is one-shot"
+    );
     h.app.set_board_tool(board::BoardTool::Pen);
     h.frame();
 }
@@ -10772,7 +10873,11 @@ fn arm_pen(h: &mut Harness) {
 #[test]
 fn pen_shift_drag_extends_the_last_pen_stroke_in_45_degree_steps() {
     let mut h = pen_board("pen_shift_drag");
-    let freehand = [Pos2::new(40.0, 40.0), Pos2::new(80.0, 60.0), Pos2::new(120.0, 40.0)];
+    let freehand = [
+        Pos2::new(40.0, 40.0),
+        Pos2::new(80.0, 60.0),
+        Pos2::new(120.0, 40.0),
+    ];
     press_drag_release_frames(&mut h, &freehand, egui::Modifiers::NONE, |_| {});
     assert_eq!(h.app.doc().scene.nodes.len(), 1, "one Pen stroke");
     let id = h.app.doc().scene.nodes[0].id;
@@ -10787,24 +10892,40 @@ fn pen_shift_drag_extends_the_last_pen_stroke_in_45_degree_steps() {
         egui::Modifiers::SHIFT,
         |h| {
             let (from, to, _) = h.app.pen_line_preview().expect("a live straight segment");
-            assert!(near_px(from, end), "the preview starts at {from:?}, the stroke ends at {end:?}");
+            assert!(
+                near_px(from, end),
+                "the preview starts at {from:?}, the stroke ends at {end:?}"
+            );
             assert!(on_45(from, to), "the preview takes 45° steps: {to:?}");
             previewed += 1;
         },
     );
     assert_eq!(previewed, 2, "every move frame previews the segment");
-    assert!(h.app.pen_line_preview().is_none(), "the release ends the preview");
-    assert_eq!(h.app.doc().scene.nodes.len(), 1, "the segment extends the stroke");
+    assert!(
+        h.app.pen_line_preview().is_none(),
+        "the release ends the preview"
+    );
+    assert_eq!(
+        h.app.doc().scene.nodes.len(),
+        1,
+        "the segment extends the stroke"
+    );
     let v = path_vertices(h.app.doc().scene.node(id).unwrap());
     assert_eq!(v.len(), drawn.len() + 1, "{v:?}");
     let last = v[v.len() - 1];
     assert!(on_45(end, last), "{last:?}");
-    assert!(near_px(last, board_snap::ortho_snap_point(end, raw)), "{last:?}");
+    assert!(
+        near_px(last, board_snap::ortho_snap_point(end, raw)),
+        "{last:?}"
+    );
     let node = h.app.doc().scene.node(id).unwrap();
     let NodeKind::Shape(s) = &node.kind else {
         panic!("a shape");
     };
-    assert!(!s.stroke.paints_as_stamp(), "the Pen stays a hard vector stroke");
+    assert!(
+        !s.stroke.paints_as_stamp(),
+        "the Pen stays a hard vector stroke"
+    );
     press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
     assert_eq!(
         path_vertices(h.app.doc().scene.node(id).unwrap()),
@@ -10833,12 +10954,19 @@ fn pen_shift_starts_at_the_press_without_a_stroke_and_shift_click_connects() {
     let id = h.app.doc().scene.nodes[0].id;
     let v = path_vertices(h.app.doc().scene.node(id).unwrap());
     let end = board_snap::ortho_snap_point(press, raw);
-    assert!(v.len() == 2 && near_px(v[0], press) && near_px(v[1], end), "{v:?}");
+    assert!(
+        v.len() == 2 && near_px(v[0], press) && near_px(v[1], end),
+        "{v:?}"
+    );
 
     arm_pen(&mut h);
     let click = Pos2::new(230.0, 83.0);
     click_at(&mut h, click, egui::Modifiers::SHIFT);
-    assert_eq!(h.app.doc().scene.nodes.len(), 1, "the click extends the stroke");
+    assert_eq!(
+        h.app.doc().scene.nodes.len(),
+        1,
+        "the click extends the stroke"
+    );
     let v = path_vertices(h.app.doc().scene.node(id).unwrap());
     assert_eq!(v.len(), 3, "{v:?}");
     assert!(near_px(v[1], end) && near_px(v[2], click), "{v:?}");
@@ -10910,7 +11038,10 @@ fn eraser_shift_pass_takes_45_degree_steps_and_tab_locks_it() {
     assert!(on_45(a, last(&h)), "{:?}", last(&h));
     h.app.shift_down = false;
     h.app.update_erase(Pos2::new(30.0, 40.0));
-    assert!(near(last(&h), Pos2::new(30.0, 40.0)), "Shift released: free");
+    assert!(
+        near(last(&h), Pos2::new(30.0, 40.0)),
+        "Shift released: free"
+    );
     assert!(h.app.toggle_segment_lock(Some(Pos2::new(30.0, 40.0))));
     h.app.update_erase(Pos2::new(500.0, -20.0));
     assert!(on_ray(a, EVec2::new(0.6, 0.8), last(&h)), "{:?}", last(&h));
@@ -10918,13 +11049,19 @@ fn eraser_shift_pass_takes_45_degree_steps_and_tab_locks_it() {
     assert!(h.app.draft_lock.is_none(), "Tab again releases");
     assert!(h.app.toggle_segment_lock(Some(Pos2::new(30.0, 40.0))));
     let Some(board::BoardDrag::Erase {
-        touched, points, spot, ..
+        touched,
+        points,
+        spot,
+        ..
     }) = h.app.board_drag.take()
     else {
         panic!("erase drag");
     };
     h.app.finish_erase(touched, points, spot);
-    assert!(h.app.draft_lock.is_none(), "the end of the pass clears the lock");
+    assert!(
+        h.app.draft_lock.is_none(),
+        "the end of the pass clears the lock"
+    );
 }
 
 /// The same Eraser Shift pass and Tab lock, driven through real frames:
@@ -10999,7 +11136,11 @@ fn brush_shift_drag_after_a_stroke_continues_it() {
     let mut h = brush_board("brush_shift_drag_chain");
     press_drag_release_frames(
         &mut h,
-        &[Pos2::new(40.0, 40.0), Pos2::new(80.0, 60.0), Pos2::new(120.0, 40.0)],
+        &[
+            Pos2::new(40.0, 40.0),
+            Pos2::new(80.0, 60.0),
+            Pos2::new(120.0, 40.0),
+        ],
         egui::Modifiers::NONE,
         |_| {},
     );
@@ -11016,10 +11157,17 @@ fn brush_shift_drag_after_a_stroke_continues_it() {
             assert!(h.app.brush_live.as_ref().is_some_and(|c| c.showing_line()));
         },
     );
-    assert_eq!(h.app.doc().scene.nodes.len(), 1, "the segment extends the stroke");
+    assert_eq!(
+        h.app.doc().scene.nodes.len(),
+        1,
+        "the segment extends the stroke"
+    );
     let v = path_vertices(h.app.doc().scene.node(first).unwrap());
     let end = board_snap::ortho_snap_point(from, end);
-    assert!(near_px(v[v.len() - 2], from) && near_px(v[v.len() - 1], end), "{v:?}");
+    assert!(
+        near_px(v[v.len() - 2], from) && near_px(v[v.len() - 1], end),
+        "{v:?}"
+    );
 }
 
 /// tip18 with a big brush: a Shift press starts from the canvas the last
@@ -11159,7 +11307,12 @@ fn shift_chain_board(tag: &str) -> (Harness, FrameRaster, NodeId, Pos2) {
     capture_frame(&mut h, &mut raster, |_| {});
     let c = h.app.board_xf().s2w(h.app.canvas_rect.center());
     let p = |x: f32, y: f32| c + EVec2::new(x, y);
-    let freehand = [p(-300.0, -200.0), p(-200.0, -225.0), p(-100.0, -175.0), p(0.0, -200.0)];
+    let freehand = [
+        p(-300.0, -200.0),
+        p(-200.0, -225.0),
+        p(-100.0, -175.0),
+        p(0.0, -200.0),
+    ];
     raster_drag(&mut h, &mut raster, egui::Modifiers::NONE, &freehand, false);
     let id = h.app.doc().scene.nodes[0].id;
     raster_drag(
@@ -11169,7 +11322,11 @@ fn shift_chain_board(tag: &str) -> (Harness, FrameRaster, NodeId, Pos2) {
         &[p(-60.0, 140.0), p(-30.0, 120.0), p(0.0, 100.0)],
         true,
     );
-    assert_eq!(h.app.doc().scene.nodes.len(), 1, "the segment extends the stroke");
+    assert_eq!(
+        h.app.doc().scene.nodes.len(),
+        1,
+        "the segment extends the stroke"
+    );
     settle_brush_live(&mut h, &mut raster);
     (h, raster, id, c)
 }
@@ -11195,7 +11352,11 @@ fn raster_drag(
         vec![egui::Event::PointerMoved(xf.w2s(pts[0]))],
         vec![button(pts[0], true)],
     ];
-    events.extend(pts[1..].iter().map(|w| vec![egui::Event::PointerMoved(xf.w2s(*w))]));
+    events.extend(
+        pts[1..]
+            .iter()
+            .map(|w| vec![egui::Event::PointerMoved(xf.w2s(*w))]),
+    );
     for events in events {
         capture_frame(h, raster, |inp| {
             inp.modifiers = mods;
@@ -11258,7 +11419,11 @@ fn hold_shift_drag(h: &mut Harness, raster: &mut FrameRaster, pts: &[Pos2]) -> (
             modifiers: shift,
         }],
     ];
-    events.extend(pts[1..].iter().map(|w| vec![egui::Event::PointerMoved(xf.w2s(*w))]));
+    events.extend(
+        pts[1..]
+            .iter()
+            .map(|w| vec![egui::Event::PointerMoved(xf.w2s(*w))]),
+    );
     let mut press = (0, 0);
     for (i, events) in events.into_iter().enumerate() {
         let before = (
@@ -11290,7 +11455,11 @@ fn hold_shift_drag(h: &mut Harness, raster: &mut FrameRaster, pts: &[Pos2]) -> (
 /// canvas to paint.
 fn canvas_covers(h: &Harness, id: NodeId) -> bool {
     let key = board_path::node_stamp_key(h.app.doc().scene.node(id).unwrap());
-    let (xf, screen, ppp) = (h.app.board_xf(), h.app.canvas_rect, h.ctx.pixels_per_point());
+    let (xf, screen, ppp) = (
+        h.app.board_xf(),
+        h.app.canvas_rect,
+        h.ctx.pixels_per_point(),
+    );
     h.app
         .brush_live
         .as_ref()
@@ -11323,23 +11492,44 @@ fn brush_shift_after_undo_rebuilds_the_live_canvas() {
         board_path::resumes_on_this_thread(),
         h.app.brush_tiles.line_tags_issued(),
     );
-    let press = hold_shift_drag(&mut h, &mut raster, &[p(60.0, 140.0), p(200.0, 100.0), p(300.0, 100.0)]);
-    assert_eq!(board_path::resumes_on_this_thread(), resumes, "resumed a stale canvas");
-    assert_eq!(press, (0, 0), "the rebuild stamped on the frame loop at the press");
+    let press = hold_shift_drag(
+        &mut h,
+        &mut raster,
+        &[p(60.0, 140.0), p(200.0, 100.0), p(300.0, 100.0)],
+    );
+    assert_eq!(
+        board_path::resumes_on_this_thread(),
+        resumes,
+        "resumed a stale canvas"
+    );
+    assert_eq!(
+        press,
+        (0, 0),
+        "the rebuild stamped on the frame loop at the press"
+    );
     assert_eq!(
         board_path::stamps_on_this_thread(),
         stamps,
         "the rebuild stamps the stroke as it now is on the raster workers"
     );
-    assert!(canvas_covers(&h, id), "the canvas does not hold the stroke in the scene's place");
+    assert!(
+        canvas_covers(&h, id),
+        "the canvas does not hold the stroke in the scene's place"
+    );
     assert!(
         h.app.brush_tiles.line_tags_issued() >= asks + 2,
         "the workers were not asked for the stroke and the segment"
     );
     let xf = h.app.board_xf();
-    assert!(red_at(&raster, &xf, p(-260.0, -200.0)), "the freehand stroke is missing");
+    assert!(
+        red_at(&raster, &xf, p(-260.0, -200.0)),
+        "the freehand stroke is missing"
+    );
     for w in [p(0.0, -100.0), p(0.0, -50.0), p(0.0, 0.0)] {
-        assert!(!red_at(&raster, &xf, w), "undone segment still on screen at {w:?}");
+        assert!(
+            !red_at(&raster, &xf, w),
+            "undone segment still on screen at {w:?}"
+        );
     }
 }
 
@@ -11363,12 +11553,26 @@ fn brush_shift_after_a_select_drag_rebuilds_the_live_canvas() {
     h.app.set_board_tool(board::BoardTool::Brush);
     capture_frame(&mut h, &mut raster, |_| {});
     let resumes = board_path::resumes_on_this_thread();
-    hold_shift_drag(&mut h, &mut raster, &[p(200.0, -100.0), p(300.0, -100.0), p(400.0, -100.0)]);
-    assert_eq!(board_path::resumes_on_this_thread(), resumes, "resumed a stale canvas");
+    hold_shift_drag(
+        &mut h,
+        &mut raster,
+        &[p(200.0, -100.0), p(300.0, -100.0), p(400.0, -100.0)],
+    );
+    assert_eq!(
+        board_path::resumes_on_this_thread(),
+        resumes,
+        "resumed a stale canvas"
+    );
     let xf = h.app.board_xf();
-    assert!(red_at(&raster, &xf, p(300.0, -100.0)), "the new segment is missing");
+    assert!(
+        red_at(&raster, &xf, p(300.0, -100.0)),
+        "the new segment is missing"
+    );
     for w in [p(0.0, -150.0), p(0.0, -50.0), p(-260.0, -200.0)] {
-        assert!(!red_at(&raster, &xf, w), "the stroke's old place still on screen at {w:?}");
+        assert!(
+            !red_at(&raster, &xf, w),
+            "the stroke's old place still on screen at {w:?}"
+        );
     }
 }
 
@@ -11381,7 +11585,10 @@ fn brush_shift_after_zooming_away_and_back_rebuilds_the_live_canvas() {
     let p = |x: f32, y: f32| c + EVec2::new(x, y);
     let before = h.app.board_xf();
     let z = h.app.tab().cam.z;
-    for (at, dy) in [(Pos2::new(300.0, 450.0), 120.0), (Pos2::new(1100.0, 450.0), -120.0)] {
+    for (at, dy) in [
+        (Pos2::new(300.0, 450.0), 120.0),
+        (Pos2::new(1100.0, 450.0), -120.0),
+    ] {
         capture_frame(&mut h, &mut raster, |inp| {
             inp.events = vec![
                 egui::Event::PointerMoved(at),
@@ -11406,15 +11613,30 @@ fn brush_shift_after_zooming_away_and_back_rebuilds_the_live_canvas() {
         board_path::resumes_on_this_thread(),
         h.app.brush_tiles.line_tags_issued(),
     );
-    let press = hold_shift_drag(&mut h, &mut raster, &[p(60.0, 140.0), p(200.0, 100.0), p(300.0, 100.0)]);
-    assert_eq!(board_path::resumes_on_this_thread(), resumes, "resumed a stale canvas");
-    assert_eq!(press, (0, 0), "the rebuild stamped on the frame loop at the press");
+    let press = hold_shift_drag(
+        &mut h,
+        &mut raster,
+        &[p(60.0, 140.0), p(200.0, 100.0), p(300.0, 100.0)],
+    );
+    assert_eq!(
+        board_path::resumes_on_this_thread(),
+        resumes,
+        "resumed a stale canvas"
+    );
+    assert_eq!(
+        press,
+        (0, 0),
+        "the rebuild stamped on the frame loop at the press"
+    );
     assert_eq!(
         board_path::stamps_on_this_thread(),
         stamps,
         "the rebuild stamps the chain at the new camera on the raster workers"
     );
-    assert!(canvas_covers(&h, id), "the canvas does not hold the chain in the scene's place");
+    assert!(
+        canvas_covers(&h, id),
+        "the canvas does not hold the chain in the scene's place"
+    );
     assert!(
         h.app.brush_tiles.line_tags_issued() >= asks + 2,
         "the workers were not asked for the chain and the segment"
@@ -11452,7 +11674,9 @@ fn brush_shift_after_a_style_row_texture_change_keeps_the_chain() {
         })
         .expect("a pencil slot");
     let band = palette_band_y(press, r);
-    assert!(h.app.drive_brush_hud(Some(Pos2::new(press.x, band + 1.0)), true, false));
+    assert!(h
+        .app
+        .drive_brush_hud(Some(Pos2::new(press.x, band + 1.0)), true, false));
     let slot = palette_slot(press, r, pencil, n);
     assert!(h.app.drive_brush_hud(Some(slot), true, false));
     assert!(h.app.drive_brush_hud(Some(slot), false, false));
@@ -11468,7 +11692,11 @@ fn brush_shift_after_a_style_row_texture_change_keeps_the_chain() {
         board_path::stamps_on_this_thread(),
         board_path::resumes_on_this_thread(),
     );
-    hold_shift_drag(&mut h, &mut raster, &[p(60.0, 140.0), p(200.0, 100.0), p(300.0, 100.0)]);
+    hold_shift_drag(
+        &mut h,
+        &mut raster,
+        &[p(60.0, 140.0), p(200.0, 100.0), p(300.0, 100.0)],
+    );
     assert_eq!(board_path::resumes_on_this_thread(), resumes + 1);
     assert_eq!(board_path::stamps_on_this_thread(), stamps);
     let xf = h.app.board_xf();
@@ -11522,7 +11750,11 @@ fn pick_style_row(h: &mut Harness, press: Pos2, choice: board_tip_hud::TipChoice
     h.frame_with(pointer_to(slot, true));
     h.frame_with(right_button(slot, false, true));
     h.frame_with(|i| i.modifiers = egui::Modifiers::NONE);
-    assert_eq!(h.app.current_tip_choice(), Some(choice), "the style row picked");
+    assert_eq!(
+        h.app.current_tip_choice(),
+        Some(choice),
+        "the style row picked"
+    );
 }
 
 /// Stroke `n` with every tip, and the stroke itself, in texture `t`.
@@ -11556,7 +11788,12 @@ fn stamp_px(img: &vector_ink::StampImage, w: Pos2) -> [u8; 4] {
         return [0; 4];
     }
     let i = (y as usize * img.width as usize + x as usize) * 4;
-    [img.rgba[i], img.rgba[i + 1], img.rgba[i + 2], img.rgba[i + 3]]
+    [
+        img.rgba[i],
+        img.rgba[i + 1],
+        img.rgba[i + 2],
+        img.rgba[i + 3],
+    ]
 }
 
 /// World points on a 1-unit grid within `half` of `w`.
@@ -11593,7 +11830,11 @@ fn a_shift_segment_paints_the_texture_armed_for_it() {
     let c = h.app.board_xf().s2w(h.app.canvas_rect.center());
     let p = |x: f32, y: f32| c + EVec2::new(x, y);
     let hud = h.app.board_xf().w2s(p(0.0, 150.0));
-    pick_style_row(&mut h, hud, board_tip_hud::TipChoice::Texture(BrushTexture::Graphite));
+    pick_style_row(
+        &mut h,
+        hud,
+        board_tip_hud::TipChoice::Texture(BrushTexture::Graphite),
+    );
     press_drag_release_frames(
         &mut h,
         &dense(&[p(-300.0, -100.0), p(-100.0, -100.0)]),
@@ -11601,26 +11842,46 @@ fn a_shift_segment_paints_the_texture_armed_for_it() {
         |_| {},
     );
     let id = h.app.doc().scene.nodes.last().expect("the stroke").id;
-    pick_style_row(&mut h, hud, board_tip_hud::TipChoice::Texture(BrushTexture::Watercolor));
+    pick_style_row(
+        &mut h,
+        hud,
+        board_tip_hud::TipChoice::Texture(BrushTexture::Watercolor),
+    );
     press_drag_release_frames(
         &mut h,
-        &[p(-60.0, 60.0), p(0.0, 20.0), p(60.0, -20.0), p(100.0, -98.0)],
+        &[
+            p(-60.0, 60.0),
+            p(0.0, 20.0),
+            p(60.0, -20.0),
+            p(100.0, -98.0),
+        ],
         egui::Modifiers::SHIFT,
         |_| {},
     );
-    assert_eq!(h.app.doc().scene.nodes.len(), 1, "the segment extends the stroke");
+    assert_eq!(
+        h.app.doc().scene.nodes.len(),
+        1,
+        "the segment extends the stroke"
+    );
     let node = h.app.doc().scene.node(id).unwrap().clone();
     let NodeKind::Shape(s) = &node.kind else {
         panic!("a shape")
     };
     let tips = &s.path.as_ref().unwrap().tips;
-    assert_eq!(tips.last().map(|t| t.texture), Some(BrushTexture::Watercolor));
+    assert_eq!(
+        tips.last().map(|t| t.texture),
+        Some(BrushTexture::Watercolor)
+    );
     assert_eq!(tips[tips.len() - 2].texture, BrushTexture::Graphite);
     let mixed = stamp_at_one(&node);
     let wet = stamp_at_one(&with_texture(&node, BrushTexture::Watercolor));
     let dry = stamp_at_one(&with_texture(&node, BrushTexture::Graphite));
     for w in around(p(20.0, -100.0), 6) {
-        assert_eq!(stamp_px(&mixed, w), stamp_px(&wet, w), "the segment at {w:?}");
+        assert_eq!(
+            stamp_px(&mixed, w),
+            stamp_px(&wet, w),
+            "the segment at {w:?}"
+        );
     }
     for w in around(p(-220.0, -100.0), 6) {
         assert_eq!(stamp_px(&mixed, w), stamp_px(&dry, w), "the body at {w:?}");
@@ -11651,7 +11912,11 @@ fn one_watercolor_stroke_builds_where_it_crosses_itself() {
     let c = Pos2::new(c.x.round(), c.y.round() - 200.0);
     let p = |x: f32, y: f32| c + EVec2::new(x, y);
     let hud = h.app.board_xf().w2s(p(-300.0, 150.0));
-    pick_style_row(&mut h, hud, board_tip_hud::TipChoice::Texture(BrushTexture::Watercolor));
+    pick_style_row(
+        &mut h,
+        hud,
+        board_tip_hud::TipChoice::Texture(BrushTexture::Watercolor),
+    );
     let first = [p(-150.0, 0.0), p(100.0, 0.0), p(100.0, 80.0), p(0.0, 80.0)];
     let second = [p(0.0, 80.0), p(0.0, -80.0)];
     let one: Vec<Pos2> = first.iter().chain(&second[1..]).copied().collect();
@@ -11663,7 +11928,11 @@ fn one_watercolor_stroke_builds_where_it_crosses_itself() {
     }
     let nodes = &h.app.doc().scene.nodes;
     assert_eq!(nodes.len(), 3, "one crossing stroke and a pair");
-    let (whole, a, b) = (stamp_at_one(&nodes[0]), stamp_at_one(&nodes[1]), stamp_at_one(&nodes[2]));
+    let (whole, a, b) = (
+        stamp_at_one(&nodes[0]),
+        stamp_at_one(&nodes[1]),
+        stamp_at_one(&nodes[2]),
+    );
     let mut built = 0;
     for w in around(p(0.0, 0.0), 3) {
         let one = stamp_px(&whole, w)[3] as i32;
@@ -11676,7 +11945,10 @@ fn one_watercolor_stroke_builds_where_it_crosses_itself() {
         );
         built += (pair - single >= 25) as usize;
     }
-    assert!(built >= 25, "two strokes do not build at the crossing ({built} px)");
+    assert!(
+        built >= 25,
+        "two strokes do not build at the crossing ({built} px)"
+    );
 }
 
 /// tx1 on the board: the eraser shows the vector curves it crosses at 30 %
@@ -11688,7 +11960,8 @@ fn the_eraser_dims_crossed_curves_and_removes_them_whole() {
     h.app.set_board_tool(board::BoardTool::Pen);
     let c = h.app.board_xf().s2w(h.app.canvas_rect.center());
     let p = |x: f32, y: f32| c + EVec2::new(x, y);
-    h.app.finish_freehand_pen(vec![p(-300.0, 0.0), p(300.0, 0.0)]);
+    h.app
+        .finish_freehand_pen(vec![p(-300.0, 0.0), p(300.0, 0.0)]);
     let id = h.app.doc().scene.nodes.last().expect("the curve").id;
     let before = h.app.doc().scene.node(id).unwrap().clone();
     let NodeKind::Shape(s) = &before.kind else {
@@ -11722,18 +11995,35 @@ fn the_eraser_dims_crossed_curves_and_removes_them_whole() {
         shot(&mut h, &mut raster, pointer_to(*at, false));
     }
     let dim = (bright(&raster, on) - bright(&raster, off)) / lit;
-    assert!((dim - 0.3).abs() < 0.06, "the crossed curve shows at {dim:.2} of its ink");
-    assert!(h.app.doc().scene.node(id).is_some(), "nothing is removed before release");
+    assert!(
+        (dim - 0.3).abs() < 0.06,
+        "the crossed curve shows at {dim:.2} of its ink"
+    );
+    assert!(
+        h.app.doc().scene.node(id).is_some(),
+        "nothing is removed before release"
+    );
     shot(&mut h, &mut raster, primary_button(s[3], false, false));
     shot(&mut h, &mut raster, |_| {});
-    assert!(h.app.doc().scene.node(id).is_none(), "the release removes the curve whole");
+    assert!(
+        h.app.doc().scene.node(id).is_none(),
+        "the release removes the curve whole"
+    );
     assert!(
         (bright(&raster, on) - bright(&raster, off)).abs() < 0.05,
         "the removed curve still paints"
     );
-    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "the pass is one undo step");
+    assert_eq!(
+        h.app.tab().journal.undo_depth(),
+        depth + 1,
+        "the pass is one undo step"
+    );
     press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
-    assert_eq!(h.app.doc().scene.node(id), Some(&before), "one undo restores the curve");
+    assert_eq!(
+        h.app.doc().scene.node(id),
+        Some(&before),
+        "one undo restores the curve"
+    );
 }
 
 /// A 24-wide, opaque, smooth red brush stroke across the middle of the
@@ -11756,13 +12046,19 @@ fn pencil_eraser_board(tag: &str) -> (Harness, NodeId, Pos2) {
         |_| {},
     );
     let id = h.app.doc().scene.nodes.last().expect("the stroke").id;
-    settle_brush(&mut h, "the stroke", |app| !app.brush_tiles.tiles_with(id).is_empty());
+    settle_brush(&mut h, "the stroke", |app| {
+        !app.brush_tiles.tiles_with(id).is_empty()
+    });
     h.app.set_board_tool(board::BoardTool::Eraser);
     h.app.eraser_width = 80.0;
     h.app.eraser_softness = 0.0;
     h.app.eraser_opacity = 1.0;
     let hud = h.app.board_xf().w2s(p(0.0, 200.0));
-    pick_style_row(&mut h, hud, board_tip_hud::TipChoice::Texture(BrushTexture::Pencil));
+    pick_style_row(
+        &mut h,
+        hud,
+        board_tip_hud::TipChoice::Texture(BrushTexture::Pencil),
+    );
     (h, id, c)
 }
 
@@ -11778,7 +12074,10 @@ fn a_full_pencil_eraser_pass_removes_the_stroke() {
     let before = h.app.doc().scene.node(id).unwrap().clone();
     let depth = h.app.tab().journal.undo_depth();
     let xf = h.app.board_xf();
-    let pass: Vec<Pos2> = dense(&[p(-140.0, 0.0), p(140.0, 0.0)]).iter().map(|w| xf.w2s(*w)).collect();
+    let pass: Vec<Pos2> = dense(&[p(-140.0, 0.0), p(140.0, 0.0)])
+        .iter()
+        .map(|w| xf.w2s(*w))
+        .collect();
     h.frame_with(pointer_to(pass[0], false));
     h.frame_with(primary_button(pass[0], true, false));
     for s in &pass[1..] {
@@ -11796,9 +12095,17 @@ fn a_full_pencil_eraser_pass_removes_the_stroke() {
         h.app.doc().scene.node(id).is_none(),
         "the fully erased stroke stayed: grain residue kept it"
     );
-    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "the pass is one undo step");
+    assert_eq!(
+        h.app.tab().journal.undo_depth(),
+        depth + 1,
+        "the pass is one undo step"
+    );
     press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
-    assert_eq!(h.app.doc().scene.node(id), Some(&before), "one undo restores the stroke");
+    assert_eq!(
+        h.app.doc().scene.node(id),
+        Some(&before),
+        "one undo restores the stroke"
+    );
 }
 
 /// r7-10 past the frame's raster budget: the user's Pencil eraser over
@@ -11811,7 +12118,11 @@ fn a_deferred_pencil_eraser_pass_that_empties_a_big_stroke_removes_it() {
     let (mut h, id, a, b) = erasable_zigzag("r7_10_pencil_deferred");
     let hud = Pos2::new(a.x + 200.0, a.y + 300.0);
     h.app.eraser_width = 20.0;
-    pick_style_row(&mut h, hud, board_tip_hud::TipChoice::Texture(BrushTexture::Pencil));
+    pick_style_row(
+        &mut h,
+        hud,
+        board_tip_hud::TipChoice::Texture(BrushTexture::Pencil),
+    );
     h.app.eraser_width = 207.0;
     h.frame();
     let before = h.app.doc().scene.node(id).unwrap().clone();
@@ -11862,18 +12173,26 @@ fn brush_shift_drag_preview_reaches_the_screen() {
         });
         capture_frame(&mut h, &mut raster, |i| {
             i.modifiers = shift;
-            i.events.push(egui::Event::PointerMoved(sa + (sb - sa) * 0.5));
+            i.events
+                .push(egui::Event::PointerMoved(sa + (sb - sa) * 0.5));
         });
         let out = capture_frame(&mut h, &mut raster, |i| {
             i.modifiers = shift;
             i.events.push(egui::Event::PointerMoved(sb));
         });
         snapshot(&mut h, &mut raster, out, &format!("shift-preview-{round}"));
-        let from = if round == 0 { a } else { Pos2::new(300.0, 100.0) };
+        let from = if round == 0 {
+            a
+        } else {
+            Pos2::new(300.0, 100.0)
+        };
         // A Shift drag takes 45° steps from where the segment starts.
         let (from, end) = (xf.w2s(from), xf.w2s(board_snap::ortho_snap_point(from, b)));
         let mid = from + (end - from) * 0.5;
-        assert!(lit(&raster, mid), "round {round}: the preview is on screen at {mid:?}");
+        assert!(
+            lit(&raster, mid),
+            "round {round}: the preview is on screen at {mid:?}"
+        );
         capture_frame(&mut h, &mut raster, |i| {
             i.modifiers = shift;
             i.events.push(egui::Event::PointerButton {
@@ -11935,7 +12254,11 @@ fn brush_shift_drag_frame_times_on_a_busy_board() {
     );
     for k in 1..=5 {
         let p = a + EVec2::new(30.0 * k as f32, 10.0 * k as f32);
-        timed(&format!("move {k}"), &mut h, vec![egui::Event::PointerMoved(p)]);
+        timed(
+            &format!("move {k}"),
+            &mut h,
+            vec![egui::Event::PointerMoved(p)],
+        );
     }
     let end = a + EVec2::new(150.0, 50.0);
     timed(
@@ -12039,7 +12362,13 @@ fn big_brush_raster_board(tag: &str) -> (Harness, FrameRaster, Pos2) {
     let (mut h, c) = big_brush_setup(tag);
     let mut raster = FrameRaster::new(1440, 900);
     capture_frame(&mut h, &mut raster, |_| {});
-    raster_drag(&mut h, &mut raster, egui::Modifiers::NONE, &big_brush_stroke(c), false);
+    raster_drag(
+        &mut h,
+        &mut raster,
+        egui::Modifiers::NONE,
+        &big_brush_stroke(c),
+        false,
+    );
     (h, raster, c)
 }
 
@@ -12143,7 +12472,11 @@ fn brush_shift_move_frames_stamp_nothing_on_the_frame_loop() {
         });
     });
     h.frame();
-    assert_eq!(board_path::stamp_px_on_this_thread(), before, "the release stamped");
+    assert_eq!(
+        board_path::stamp_px_on_this_thread(),
+        before,
+        "the release stamped"
+    );
     let canvas = h.app.brush_live.as_ref().expect("parked canvas");
     assert!(canvas.settled(), "the canvas holds the committed segment");
 }
@@ -12193,11 +12526,20 @@ fn brush_shift_after_a_wheel_notch_rebuilds_off_the_frame_loop_at_the_users_brus
     });
     let out = capture_frame(&mut h, &mut raster, |_| {});
     rasterize(&mut h, &mut raster, out);
-    assert!((h.app.tab().cam.z - z).abs() > z * 0.01, "the wheel moved the camera");
+    assert!(
+        (h.app.tab().cam.z - z).abs() > z * 0.01,
+        "the wheel moved the camera"
+    );
     let xf = h.app.board_xf();
-    let chain = [c + EVec2::new(-225.0, -175.0), c + EVec2::new(-75.0, -175.0)];
+    let chain = [
+        c + EVec2::new(-225.0, -175.0),
+        c + EVec2::new(-75.0, -175.0),
+    ];
     for w in chain {
-        assert!(red_around(&raster, &xf, w), "{w:?}: the stroke is dark before the press");
+        assert!(
+            red_around(&raster, &xf, w),
+            "{w:?}: the stroke is dark before the press"
+        );
     }
     let shift = egui::Modifiers::SHIFT;
     let at = xf.w2s(c + EVec2::new(-200.0, 100.0));
@@ -12225,20 +12567,38 @@ fn brush_shift_after_a_wheel_notch_rebuilds_off_the_frame_loop_at_the_users_brus
         board_path::stamp_px_on_this_thread() - px,
     );
     eprintln!("wheel-notch rebuild: press frame {ms:.1} ms, frame-thread (stamps, px) {press:?}");
-    assert!(h.app.brush_straight.is_some(), "the press started a Shift segment");
-    assert_eq!(press, (0, 0), "the rebuild stamped on the frame loop at the press");
+    assert!(
+        h.app.brush_straight.is_some(),
+        "the press started a Shift segment"
+    );
+    assert_eq!(
+        press,
+        (0, 0),
+        "the rebuild stamped on the frame loop at the press"
+    );
     draw_now(&h, &mut raster, out);
     for w in chain {
-        assert!(red_around(&raster, &xf, w), "{w:?}: the stroke vanished at the press");
+        assert!(
+            red_around(&raster, &xf, w),
+            "{w:?}: the stroke vanished at the press"
+        );
     }
-    wait_brush_live(&mut h, &mut raster, shift, |c| c.settled() && c.line_exact());
+    wait_brush_live(&mut h, &mut raster, shift, |c| {
+        c.settled() && c.line_exact()
+    });
     assert_eq!(
-        (board_path::stamps_on_this_thread(), board_path::stamp_px_on_this_thread()),
+        (
+            board_path::stamps_on_this_thread(),
+            board_path::stamp_px_on_this_thread()
+        ),
         (stamps, px),
         "the rebuild stamped on the frame loop"
     );
     let id = h.app.doc().scene.nodes[0].id;
-    assert!(canvas_covers(&h, id), "the canvas does not hold the stroke in the scene's place");
+    assert!(
+        canvas_covers(&h, id),
+        "the canvas does not hold the stroke in the scene's place"
+    );
     assert!(
         h.app.brush_tiles.line_tags_issued() >= asks + 2,
         "the workers were not asked for the stroke and the segment"
@@ -12246,10 +12606,18 @@ fn brush_shift_after_a_wheel_notch_rebuilds_off_the_frame_loop_at_the_users_brus
     let out = capture_frame(&mut h, &mut raster, |inp| inp.modifiers = shift);
     draw_now(&h, &mut raster, out);
     let end = h.app.brush_line_anchor().expect("the stroke's end").pos;
-    let seg = h.app.brush_live.as_ref().and_then(|c| c.live_line_end()).expect("a segment");
+    let seg = h
+        .app
+        .brush_live
+        .as_ref()
+        .and_then(|c| c.live_line_end())
+        .expect("a segment");
     let mid = Pos2::new((end.x + seg[0]) * 0.5, (end.y + seg[1]) * 0.5);
     for w in chain.into_iter().chain([mid]) {
-        assert!(red_around(&raster, &xf, w), "{w:?} is dark once the canvas holds the chain");
+        assert!(
+            red_around(&raster, &xf, w),
+            "{w:?} is dark once the canvas holds the chain"
+        );
     }
 }
 
@@ -12264,7 +12632,13 @@ fn brush_shift_after_a_wheel_notch_at_half_opacity_paints_the_chain_once() {
     h.app.brush_texture = slate_doc::scene::BrushTexture::Smooth;
     let mut raster = FrameRaster::new(1440, 900);
     capture_frame(&mut h, &mut raster, |_| {});
-    raster_drag(&mut h, &mut raster, egui::Modifiers::NONE, &big_brush_stroke(c), false);
+    raster_drag(
+        &mut h,
+        &mut raster,
+        egui::Modifiers::NONE,
+        &big_brush_stroke(c),
+        false,
+    );
     settle_brush_live(&mut h, &mut raster);
     wheel_notch(&mut h, &mut raster);
     let p = |x: f32, y: f32| c + EVec2::new(x, y);
@@ -12284,8 +12658,13 @@ fn brush_shift_after_a_wheel_notch_at_half_opacity_paints_the_chain_once() {
             },
         ];
     });
-    wait_brush_live(&mut h, &mut raster, shift, |c| c.settled() && c.line_exact());
-    assert!(canvas_covers(&h, id), "the canvas does not hold the stroke in the scene's place");
+    wait_brush_live(&mut h, &mut raster, shift, |c| {
+        c.settled() && c.line_exact()
+    });
+    assert!(
+        canvas_covers(&h, id),
+        "the canvas does not hold the stroke in the scene's place"
+    );
     // Give a scene copy the stroke's own raster would paint time to land.
     for _ in 0..40 {
         std::thread::sleep(std::time::Duration::from_millis(5));
@@ -12323,7 +12702,10 @@ fn wheel_notch(h: &mut Harness, raster: &mut FrameRaster) {
     });
     let out = capture_frame(h, raster, |_| {});
     rasterize(h, raster, out);
-    assert!((h.app.tab().cam.z - z).abs() > z * 0.01, "the wheel moved the camera");
+    assert!(
+        (h.app.tab().cam.z - z).abs() > z * 0.01,
+        "the wheel moved the camera"
+    );
 }
 
 /// D11: committing a stroke never blanks earlier strokes. A Shift segment
@@ -12364,7 +12746,11 @@ fn release_before_the_anchor_lands(tag: &str, tiled: bool) {
     let p = |x: f32, y: f32| c + EVec2::new(x, y);
     let xf = h.app.board_xf();
     let id = h.app.doc().scene.nodes[0].id;
-    h.app.brush_live.as_mut().expect("parked canvas").hold_anchor = true;
+    h.app
+        .brush_live
+        .as_mut()
+        .expect("parked canvas")
+        .hold_anchor = true;
     let shift = egui::Modifiers::SHIFT;
     let (press, to) = (xf.w2s(p(-200.0, 100.0)), xf.w2s(p(300.0, 100.0)));
     let button = |pos: Pos2, pressed: bool| egui::Event::PointerButton {
@@ -12400,7 +12786,10 @@ fn release_before_the_anchor_lands(tag: &str, tiled: bool) {
             assert!(red_around(raster, &xf, w), "{when}: {w:?} is dark");
         }
         for w in dark {
-            assert!(!red_around(raster, &xf, w), "{when}: {w:?} is lit (a stretched copy)");
+            assert!(
+                !red_around(raster, &xf, w),
+                "{when}: {w:?} is lit (a stretched copy)"
+            );
         }
     };
     let out = capture_frame(&mut h, &mut raster, |inp| {
@@ -12408,7 +12797,10 @@ fn release_before_the_anchor_lands(tag: &str, tiled: bool) {
         inp.events = vec![button(to, false)];
     });
     let v = path_vertices(h.app.doc().scene.node(id).unwrap());
-    assert!(near_px(*v.last().unwrap(), p(300.0, 100.0)), "the segment extends the stroke: {v:?}");
+    assert!(
+        near_px(*v.last().unwrap(), p(300.0, 100.0)),
+        "the segment extends the stroke: {v:?}"
+    );
     check(&h, &mut raster, out, "release frame");
     for i in 0..6 {
         std::thread::sleep(std::time::Duration::from_millis(5));
@@ -12420,7 +12812,12 @@ fn release_before_the_anchor_lands(tag: &str, tiled: bool) {
     loop {
         std::thread::sleep(std::time::Duration::from_millis(5));
         let out = capture_frame(&mut h, &mut raster, |_| {});
-        check(&h, &mut raster, out, &format!("after the hold, frame {frames}"));
+        check(
+            &h,
+            &mut raster,
+            out,
+            &format!("after the hold, frame {frames}"),
+        );
         let key = board_path::node_stamp_key(h.app.doc().scene.node(id).unwrap());
         let landed = if tiled {
             h.app.brush_tiles.last.pending_jobs == 0
@@ -12437,7 +12834,10 @@ fn release_before_the_anchor_lands(tag: &str, tiled: bool) {
     let out = capture_frame(&mut h, &mut raster, |_| {});
     check(&h, &mut raster, out, "settled");
     assert_eq!(
-        (board_path::stamps_on_this_thread(), board_path::stamp_px_on_this_thread()),
+        (
+            board_path::stamps_on_this_thread(),
+            board_path::stamp_px_on_this_thread()
+        ),
         stamps,
         "the release stamped on the frame loop"
     );
@@ -12451,12 +12851,19 @@ fn a_lost_line_job_is_asked_again() {
     let p = |x: f32, y: f32| c + EVec2::new(x, y);
     h.app.brush_live.as_mut().expect("parked canvas").panic_next = true;
     let asks = h.app.brush_tiles.line_tags_issued();
-    hold_shift_drag(&mut h, &mut raster, &[p(60.0, 140.0), p(200.0, 100.0), p(300.0, 100.0)]);
+    hold_shift_drag(
+        &mut h,
+        &mut raster,
+        &[p(60.0, 140.0), p(200.0, 100.0), p(300.0, 100.0)],
+    );
     let canvas = h.app.brush_live.as_ref().expect("live canvas");
     assert!(!canvas.panic_next, "no job took the panic");
     assert!(canvas.line_exact(), "the exact stamp landed");
     assert!(canvas.settled(), "a job is still awaited");
-    assert!(h.app.brush_tiles.line_tags_issued() >= asks + 2, "the lost job was never asked again");
+    assert!(
+        h.app.brush_tiles.line_tags_issued() >= asks + 2,
+        "the lost job was never asked again"
+    );
     assert_eq!(h.app.brush_tiles.lines_wanted_len(), 0);
     let xf = h.app.board_xf();
     assert!(red_at(&raster, &xf, p(200.0, 100.0)), "the segment is dark");
@@ -12469,8 +12876,16 @@ fn a_lost_line_job_is_asked_again() {
 fn a_shift_release_that_adds_a_stroke_beside_the_anchor_holds_no_stand_in() {
     let (mut h, mut raster, id, c) = shift_chain_board("r12_slop_hold");
     let p = |x: f32, y: f32| c + EVec2::new(x, y);
-    hold_shift_drag(&mut h, &mut raster, &[p(60.0, 140.0), p(200.0, 100.0), p(300.0, 100.0)]);
-    assert!(h.app.brush_live.as_ref().is_some_and(|c| c.anchor == Some(id)));
+    hold_shift_drag(
+        &mut h,
+        &mut raster,
+        &[p(60.0, 140.0), p(200.0, 100.0), p(300.0, 100.0)],
+    );
+    assert!(h
+        .app
+        .brush_live
+        .as_ref()
+        .is_some_and(|c| c.anchor == Some(id)));
     h.app.board_undo();
     let v = path_vertices(h.app.doc().scene.node(id).unwrap());
     assert!(near_px(*v.last().unwrap(), p(0.0, -200.0)), "undone: {v:?}");
@@ -12491,7 +12906,10 @@ fn a_shift_release_that_adds_a_stroke_beside_the_anchor_holds_no_stand_in() {
     let key = board_path::node_stamp_key(added);
     let canvas = h.app.brush_live.as_ref().expect("live canvas");
     assert!(canvas.held.is_none(), "the canvas holds {:?}", canvas.held);
-    assert!(!canvas.stands_in(added.id, key), "the canvas stands in for the added stroke");
+    assert!(
+        !canvas.stands_in(added.id, key),
+        "the canvas stands in for the added stroke"
+    );
 }
 
 /// Coverage of the red brush over the black board, averaged over the 5 × 5
@@ -12522,7 +12940,12 @@ fn translucent_chain_board(tag: &str) -> (Harness, FrameRaster, NodeId, Pos2) {
     capture_frame(&mut h, &mut raster, |_| {});
     let c = h.app.board_xf().s2w(h.app.canvas_rect.center());
     let p = |x: f32, y: f32| c + EVec2::new(x, y);
-    let freehand = [p(-300.0, -200.0), p(-200.0, -200.0), p(-100.0, -200.0), p(0.0, -200.0)];
+    let freehand = [
+        p(-300.0, -200.0),
+        p(-200.0, -200.0),
+        p(-100.0, -200.0),
+        p(0.0, -200.0),
+    ];
     raster_drag(&mut h, &mut raster, egui::Modifiers::NONE, &freehand, false);
     settle_brush_live(&mut h, &mut raster);
     let id = h.app.doc().scene.nodes[0].id;
@@ -12557,7 +12980,9 @@ fn a_canvas_that_gives_up_paints_the_chain_once_and_is_not_resumed() {
         })
     };
     press(&mut h, &mut raster);
-    wait_brush_live(&mut h, &mut raster, shift, |c| c.holds_anchor(id) && c.line_exact());
+    wait_brush_live(&mut h, &mut raster, shift, |c| {
+        c.holds_anchor(id) && c.line_exact()
+    });
     h.app.brush_live.as_mut().unwrap().panic_always = true;
     capture_frame(&mut h, &mut raster, |inp| {
         inp.modifiers = shift;
@@ -12572,7 +12997,10 @@ fn a_canvas_that_gives_up_paints_the_chain_once_and_is_not_resumed() {
     };
     for w in [p(-250.0, -200.0), p(-150.0, -200.0)] {
         let a = red_alpha(&raster, &xf, w, bg);
-        assert!((a - 0.5).abs() < 0.06, "{w:?}: the chain's body is {a} after the give-up");
+        assert!(
+            (a - 0.5).abs() < 0.06,
+            "{w:?}: the chain's body is {a} after the give-up"
+        );
     }
     capture_frame(&mut h, &mut raster, |inp| {
         inp.modifiers = shift;
@@ -12583,11 +13011,18 @@ fn a_canvas_that_gives_up_paints_the_chain_once_and_is_not_resumed() {
     h.app.brush_live.as_mut().unwrap().panic_always = false;
     let resumes = board_path::resumes_on_this_thread();
     let out = press(&mut h, &mut raster);
-    assert_eq!(board_path::resumes_on_this_thread(), resumes, "resumed a canvas that gave up");
+    assert_eq!(
+        board_path::resumes_on_this_thread(),
+        resumes,
+        "resumed a canvas that gave up"
+    );
     draw_now(&h, &mut raster, out);
     for w in [p(-250.0, -200.0), p(-150.0, -200.0)] {
         let a = red_alpha(&raster, &xf, w, bg);
-        assert!(a > 0.4, "{w:?}: the chain's body is {a} on the next press frame");
+        assert!(
+            a > 0.4,
+            "{w:?}: the chain's body is {a} on the next press frame"
+        );
     }
 }
 
@@ -12607,16 +13042,30 @@ fn a_soft_translucent_moving_preview_does_not_double_behind_the_joint() {
     capture_frame(&mut h, &mut raster, |_| {});
     let c = h.app.board_xf().s2w(h.app.canvas_rect.center());
     let p = |x: f32, y: f32| c + EVec2::new(x, y);
-    let freehand = [p(-300.0, -200.0), p(-200.0, -200.0), p(-100.0, -200.0), p(0.0, -200.0)];
+    let freehand = [
+        p(-300.0, -200.0),
+        p(-200.0, -200.0),
+        p(-100.0, -200.0),
+        p(0.0, -200.0),
+    ];
     raster_drag(&mut h, &mut raster, egui::Modifiers::NONE, &freehand, false);
     settle_brush_live(&mut h, &mut raster);
-    h.app.brush_live.as_mut().expect("parked canvas").hold_previews = true;
+    h.app
+        .brush_live
+        .as_mut()
+        .expect("parked canvas")
+        .hold_previews = true;
     let xf = h.app.board_xf();
     let shift = egui::Modifiers::SHIFT;
     let mut out = None;
-    for (i, w) in [p(0.0, -200.0), p(0.0, -200.0), p(150.0, -200.0), p(300.0, -200.0)]
-        .into_iter()
-        .enumerate()
+    for (i, w) in [
+        p(0.0, -200.0),
+        p(0.0, -200.0),
+        p(150.0, -200.0),
+        p(300.0, -200.0),
+    ]
+    .into_iter()
+    .enumerate()
     {
         let mut events = vec![egui::Event::PointerMoved(xf.w2s(w))];
         if i == 1 {
@@ -12633,7 +13082,10 @@ fn a_soft_translucent_moving_preview_does_not_double_behind_the_joint() {
         }));
     }
     let canvas = h.app.brush_live.as_ref().expect("live canvas");
-    assert!(canvas.showing_line() && !canvas.line_exact(), "the preview is the moving mesh");
+    assert!(
+        canvas.showing_line() && !canvas.line_exact(),
+        "the preview is the moving mesh"
+    );
     draw_now(&h, &mut raster, out.unwrap());
     // Estimated from red over the board's background.
     let red = |raster: &FrameRaster, w: Pos2| {
@@ -12646,7 +13098,10 @@ fn a_soft_translucent_moving_preview_does_not_double_behind_the_joint() {
     let chain = alpha(&raster, p(-150.0, -200.0));
     let mesh = alpha(&raster, p(150.0, -200.0));
     assert!((chain - 0.5).abs() < 0.05, "the chain's body is {chain}");
-    assert!((mesh - 0.5).abs() < 0.05, "the moving mesh's body is {mesh}");
+    assert!(
+        (mesh - 0.5).abs() < 0.05,
+        "the moving mesh's body is {mesh}"
+    );
     for back in [2.0, r * 0.5] {
         let a = alpha(&raster, p(-back, -200.0));
         assert!(
@@ -12668,7 +13123,10 @@ fn a_soft_translucent_moving_preview_does_not_double_behind_the_joint() {
     let out = capture_frame(&mut h, &mut raster, |inp| inp.modifiers = shift);
     draw_now(&h, &mut raster, out);
     let exact = alpha(&raster, p(r * 0.25, -200.0));
-    assert!(exact <= chain + 2.0 / 255.0, "the exact stamp doubles at the joint: {exact}");
+    assert!(
+        exact <= chain + 2.0 / 255.0,
+        "the exact stamp doubles at the joint: {exact}"
+    );
 }
 
 /// tip18 with a stroke selected under the press: its body, corner, and edge
@@ -12780,7 +13238,11 @@ fn brush_shift_drag_in_an_image_paint_session_previews() {
             assert!(h.app.brush_live.as_ref().is_some_and(|c| c.showing_line()));
         },
     );
-    assert_eq!(layer_nodes(&h), 1, "the segment extends the mark on the layer");
+    assert_eq!(
+        layer_nodes(&h),
+        1,
+        "the segment extends the mark on the layer"
+    );
     assert_eq!(h.app.doc().scene.nodes.len(), 1, "and not on the board");
     let host = h.app.doc().scene.node(image_id).unwrap().clone();
     let slate_doc::scene::NodeKind::Image(img) = &host.kind else {
@@ -12789,7 +13251,10 @@ fn brush_shift_drag_in_an_image_paint_session_previews() {
     let world = slate_doc::image_paint::layer_node_to_world(&host, img, &mark(&h));
     let v = path_vertices(&world);
     let end = board_snap::ortho_snap_point(from, raw_end);
-    assert!(near_px(v[v.len() - 2], from) && near_px(v[v.len() - 1], end), "{v:?}");
+    assert!(
+        near_px(v[v.len() - 2], from) && near_px(v[v.len() - 1], end),
+        "{v:?}"
+    );
     // One stamp: the joint is no more opaque than the stroke's body.
     let mut stamps = Default::default();
     let rgba = slate_artifact::rasterize_paint_layers(&host, img, 400, 300, None, &mut stamps)
@@ -12896,8 +13361,16 @@ fn brush_shift_after_the_paint_session_ends_leaves_the_layer_mark() {
             );
         },
     );
-    assert_eq!(layer_marks(&h, image_id), drawn, "the layer mark is unchanged");
-    assert_eq!(h.app.doc().scene.nodes.len(), 2, "the segment is a board node");
+    assert_eq!(
+        layer_marks(&h, image_id),
+        drawn,
+        "the layer mark is unchanged"
+    );
+    assert_eq!(
+        h.app.doc().scene.nodes.len(),
+        2,
+        "the segment is a board node"
+    );
     let v = path_vertices(&h.app.doc().scene.nodes[1]);
     assert!(
         near_px(v[0], end),
@@ -12937,7 +13410,11 @@ fn brush_shift_after_switching_layers_leaves_the_other_layer() {
     );
     let marks = layer_marks(&h, image_id);
     assert_eq!(marks[0], drawn, "the first layer's mark is unchanged");
-    assert_eq!(marks[1].len(), 1, "the segment is a new mark on the active layer");
+    assert_eq!(
+        marks[1].len(),
+        1,
+        "the segment is a new mark on the active layer"
+    );
     assert_eq!(h.app.doc().scene.nodes.len(), 1, "and not on the board");
 }
 
@@ -12958,7 +13435,11 @@ fn brush_shift_segments_on_a_rotated_image_undo_and_redo_one_at_a_time() {
     );
     let mark = |h: &Harness| {
         let marks = layer_marks(h, image_id);
-        assert_eq!(marks.iter().map(Vec::len).sum::<usize>(), 1, "one layer mark");
+        assert_eq!(
+            marks.iter().map(Vec::len).sum::<usize>(),
+            1,
+            "one layer mark"
+        );
         marks[0][0].clone()
     };
     let world_end = |h: &Harness| {
@@ -12986,19 +13467,34 @@ fn brush_shift_segments_on_a_rotated_image_undo_and_redo_one_at_a_time() {
             egui::Modifiers::SHIFT,
             |_| {},
         );
-        assert_eq!(h.app.doc().scene.nodes.len(), 1, "segment {k} stays on the layer");
+        assert_eq!(
+            h.app.doc().scene.nodes.len(),
+            1,
+            "segment {k} stays on the layer"
+        );
         let end = board_snap::ortho_snap_point(from, raw_end);
         let (a, b, len) = world_end(&h);
-        assert!(near_px(a, from) && near_px(b, end), "segment {k}: {a:?} {b:?}");
+        assert!(
+            near_px(a, from) && near_px(b, end),
+            "segment {k}: {a:?} {b:?}"
+        );
         assert_eq!(len, drawn_len + k + 1, "segment {k} adds one vertex");
         marks.push(mark(&h));
     }
     press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
-    assert_eq!(mark(&h), marks[1], "the first undo takes back the second segment");
+    assert_eq!(
+        mark(&h),
+        marks[1],
+        "the first undo takes back the second segment"
+    );
     press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
     assert_eq!(mark(&h), marks[0], "the second undo takes back the first");
     press_key_with(&mut h, egui::Key::Y, egui::Modifiers::CTRL);
-    assert_eq!(mark(&h), marks[1], "the first redo restores the first segment");
+    assert_eq!(
+        mark(&h),
+        marks[1],
+        "the first redo restores the first segment"
+    );
     press_key_with(&mut h, egui::Key::Y, egui::Modifiers::CTRL);
     assert_eq!(mark(&h), marks[2], "the second redo restores the second");
 }
@@ -13620,7 +14116,11 @@ fn an_eraser_release_on_a_big_stroke_stamps_nothing_on_the_frame_loop() {
     let slate_doc::scene::NodeKind::Shape(shape) = &node.kind else {
         panic!("path");
     };
-    assert_eq!(shape.path.as_ref().unwrap().erase.len(), 1, "pass committed");
+    assert_eq!(
+        shape.path.as_ref().unwrap().erase.len(),
+        1,
+        "pass committed"
+    );
     for (when, out) in [("release", &released), ("next frame", &next)] {
         let painted = painted_textures(out);
         assert!(
@@ -13687,7 +14187,10 @@ fn escaping_an_eraser_shift_pass_drops_its_line_jobs() {
         h.frame_with(|i| i.modifiers = shift);
     }
     at(&mut h, c + EVec2::new(100.0, 200.0));
-    assert!(h.app.brush_tiles.lines_wanted_len() > 0, "a cut is on the workers");
+    assert!(
+        h.app.brush_tiles.lines_wanted_len() > 0,
+        "a cut is on the workers"
+    );
     press_key_with(&mut h, egui::Key::Escape, shift);
     assert!(h.app.board_drag.is_none(), "Esc ends the pass");
     let before = h.app.doc().scene.node(id).unwrap().clone();
@@ -13697,7 +14200,11 @@ fn escaping_an_eraser_shift_pass_drops_its_line_jobs() {
     }
     assert_eq!(h.app.brush_tiles.lines_wanted_len(), 0);
     assert_eq!(h.app.brush_tiles.lines_landed_len(), 0);
-    assert_eq!(h.app.doc().scene.node(id).unwrap(), &before, "nothing erased");
+    assert_eq!(
+        h.app.doc().scene.node(id).unwrap(),
+        &before,
+        "nothing erased"
+    );
 }
 
 /// The Eraser's Shift start is a world point of the document it erased;
@@ -13780,12 +14287,18 @@ fn eraser_shift_move_frames_stamp_nothing_on_the_frame_loop() {
         at(&mut h, s);
         spent_per_move.push(board_path::stamp_px_on_this_thread() - before);
         let end = board_snap::ortho_snap_point(from, h.app.board_xf().s2w(s));
-        let shown = h.app.erase_live[&id].live_line_end().expect("the preview shows the pass");
+        let shown = h.app.erase_live[&id]
+            .live_line_end()
+            .expect("the preview shows the pass");
         assert!(
             near_px(Pos2::new(shown[0], shown[1]), end),
             "move {k}: the preview shows {shown:?}, the pointer asks {end:?}"
         );
-        assert_eq!(h.app.erase_band.painted(), 1, "move {k}: the band stands in");
+        assert_eq!(
+            h.app.erase_band.painted(),
+            1,
+            "move {k}: the band stands in"
+        );
     }
     assert!(
         spent_per_move.iter().all(|px| *px == 0),
@@ -13799,7 +14312,11 @@ fn eraser_shift_move_frames_stamp_nothing_on_the_frame_loop() {
         h.frame_with(|i| i.modifiers = shift);
     }
     h.frame_with(|i| i.modifiers = shift);
-    assert_eq!(h.app.erase_band.painted(), 0, "the exact cut replaces the band");
+    assert_eq!(
+        h.app.erase_band.painted(),
+        0,
+        "the exact cut replaces the band"
+    );
     // Each landed cut goes into the preview's one line texture, allocated
     // with its first cut.
     assert!(
@@ -13836,8 +14353,16 @@ fn eraser_shift_move_frames_stamp_nothing_on_the_frame_loop() {
         });
     });
     h.frame();
-    assert_eq!(board_path::stamp_px_on_this_thread(), before, "the release stamped");
-    assert_eq!(board_path::stamps_on_this_thread(), stamps, "the release rasterized");
+    assert_eq!(
+        board_path::stamp_px_on_this_thread(),
+        before,
+        "the release stamped"
+    );
+    assert_eq!(
+        board_path::stamps_on_this_thread(),
+        stamps,
+        "the release rasterized"
+    );
     let erase = |n: &slate_doc::Node| match &n.kind {
         slate_doc::scene::NodeKind::Shape(s) => s.path.as_ref().unwrap().erase.clone(),
         _ => panic!("a path"),
@@ -13868,7 +14393,11 @@ fn eraser_bar_board(tag: &str) -> (Harness, FrameRaster, NodeId, Pos2) {
     h.app.eraser_softness = 0.09;
     h.app.eraser_texture = slate_doc::scene::BrushTexture::Pencil;
     capture_frame(&mut h, &mut raster, |_| {});
-    let x = h.app.board_xf().s2w(h.app.canvas_rect.center() - EVec2::new(300.0, 0.0)).x;
+    let x = h
+        .app
+        .board_xf()
+        .s2w(h.app.canvas_rect.center() - EVec2::new(300.0, 0.0))
+        .x;
     let cross = Pos2::new(x, cw.y + 4.0 * (1.0 - (cw.x - x) / 650.0));
     (h, raster, id, cross)
 }
@@ -13980,15 +14509,24 @@ fn assert_never_uncut_after_release(h: &mut Harness, raster: &mut FrameRaster, c
         frames += 1;
         for p in cut_points(cross) {
             let r = redness(raster, &xf, p);
-            assert!(r < lit, "frame {frames} after release: {p:?} shows the uncut bar ({r:.2})");
+            assert!(
+                r < lit,
+                "frame {frames} after release: {p:?} shows the uncut bar ({r:.2})"
+            );
         }
         if h.app.brush_tiles.last.settled && !h.app.erase_settling() {
             break;
         }
-        assert!(std::time::Instant::now() < deadline, "the erased bar never settled");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the erased bar never settled"
+        );
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
-    assert!(redness(raster, &xf, far) > lit, "the bar away from the pass went dark");
+    assert!(
+        redness(raster, &xf, far) > lit,
+        "the bar away from the pass went dark"
+    );
     assert_settled_as_committed(h, raster, cross);
 }
 
@@ -14039,10 +14577,16 @@ fn eraser_shift_release_takes_the_cut_that_landed_since_the_last_paint() {
     let t = std::time::Instant::now();
     h.frame_with(shift_at(last, None));
     let move_ms = t.elapsed().as_secs_f64() * 1.0e3;
-    assert!(!h.app.erase_live[&id].line_exact(), "the move asked for a new cut");
+    assert!(
+        !h.app.erase_live[&id].line_exact(),
+        "the move asked for a new cut"
+    );
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
     while h.app.brush_tiles.lines_landed_len() == 0 {
-        assert!(std::time::Instant::now() < deadline, "the new cut never landed");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the new cut never landed"
+        );
         std::thread::sleep(std::time::Duration::from_millis(2));
     }
     let expected = erase_after_pass(&h, id);
@@ -14056,7 +14600,11 @@ fn eraser_shift_release_takes_the_cut_that_landed_since_the_last_paint() {
     let spent = board_path::stamp_px_on_this_thread() - px;
     eprintln!("landed-cut release frame: {ms:.1} ms (move {move_ms:.1} ms), {spent} px stamped");
     assert_eq!(spent, 0, "the release stamped {spent} px on the frame loop");
-    assert_eq!(board_path::stamps_on_this_thread(), stamps, "the release rasterized a stroke");
+    assert_eq!(
+        board_path::stamps_on_this_thread(),
+        stamps,
+        "the release rasterized a stroke"
+    );
     let node = h.app.doc().scene.node(id).expect("the bar survives");
     assert_eq!(erase_marks(node), expected, "the committed erase mark");
 }
@@ -14092,10 +14640,17 @@ fn an_eraser_shift_flick_stamps_nothing_on_release_and_never_shows_the_uncut_str
     assert_eq!(spent, 0, "the release stamped {spent} px on the frame loop");
     assert_eq!(built, 0, "the release rasterized a stroke");
     let node = h.app.doc().scene.node(id).expect("the bar survives");
-    assert_eq!(erase_marks(node), expected, "the release commits the erase mark at once");
+    assert_eq!(
+        erase_marks(node),
+        expected,
+        "the release commits the erase mark at once"
+    );
     for p in cut_points(cross) {
         let r = redness(&raster, &xf, p);
-        assert!(r < 0.42, "the release frame shows the uncut bar at {p:?} ({r:.2})");
+        assert!(
+            r < 0.42,
+            "the release frame shows the uncut bar at {p:?} ({r:.2})"
+        );
     }
     assert_never_uncut_after_release(&mut h, &mut raster, cross);
 }
@@ -14118,7 +14673,9 @@ fn an_eraser_shift_release_with_its_cut_in_flight_keeps_the_preview() {
         waited += 1;
         assert!(waited < 2000, "the first cut never landed");
         std::thread::sleep(std::time::Duration::from_millis(5));
-        capture_frame(&mut h, &mut raster, |i| i.modifiers = egui::Modifiers::SHIFT);
+        capture_frame(&mut h, &mut raster, |i| {
+            i.modifiers = egui::Modifiers::SHIFT
+        });
     }
     let t = std::time::Instant::now();
     let out = capture_frame(&mut h, &mut raster, shift_at(last, None));
@@ -14136,13 +14693,20 @@ fn an_eraser_shift_release_with_its_cut_in_flight_keeps_the_preview() {
     let spent = board_path::stamp_px_on_this_thread() - px;
     eprintln!("in-flight release frame: {ms:.1} ms (move {move_ms:.1} ms), {spent} px stamped");
     assert_eq!(spent, 0, "the release stamped {spent} px on the frame loop");
-    assert_eq!(board_path::stamps_on_this_thread(), stamps, "the release rasterized a stroke");
+    assert_eq!(
+        board_path::stamps_on_this_thread(),
+        stamps,
+        "the release rasterized a stroke"
+    );
     let node = h.app.doc().scene.node(id).expect("the bar survives");
     assert_eq!(erase_marks(node), expected, "the committed erase mark");
     let xf = h.app.board_xf();
     for p in cut_points(cross) {
         let r = redness(&raster, &xf, p);
-        assert!(r < 0.42, "the release frame shows the uncut bar at {p:?} ({r:.2})");
+        assert!(
+            r < 0.42,
+            "the release frame shows the uncut bar at {p:?} ({r:.2})"
+        );
     }
     assert_never_uncut_after_release(&mut h, &mut raster, cross);
 }
@@ -14176,8 +14740,15 @@ fn release_a_settling_pass(h: &mut Harness, raster: &mut FrameRaster, id: NodeId
     h.app.erase_settle.hold = true;
     let px = board_path::stamp_px_on_this_thread();
     shot(h, raster, shift_at(last, Some(false)));
-    assert_eq!(erase_marks(h.app.doc().scene.node(id).unwrap()).len(), 1, "pass 1 commits");
-    assert!(h.app.erase_settle.holds(h.app.tab().id, id), "pass 1 settles");
+    assert_eq!(
+        erase_marks(h.app.doc().scene.node(id).unwrap()).len(),
+        1,
+        "pass 1 commits"
+    );
+    assert!(
+        h.app.erase_settle.holds(h.app.tab().id, id),
+        "pass 1 settles"
+    );
     px
 }
 
@@ -14198,7 +14769,10 @@ fn shot_settling(
     }
     let far = cross + EVec2::new(500.0, -3.0);
     let r = redness(raster, &xf, far);
-    assert!(r > lit, "{when}: the bar away from the pass is blank ({r:.2})");
+    assert!(
+        r > lit,
+        "{when}: the bar away from the pass is blank ({r:.2})"
+    );
 }
 
 /// Let the held pass-1 cut land, then [`shot_settling`] every frame until
@@ -14215,11 +14789,20 @@ fn settle_watched(h: &mut Harness, raster: &mut FrameRaster, at: (Pos2, f32), px
     // back then.
     let (mut frames, mut ended) = (0, false);
     while !(ended && h.app.brush_tiles.last.settled) {
-        assert!(std::time::Instant::now() < deadline, "{what}: the bar never settled");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "{what}: the bar never settled"
+        );
         ended = !h.app.erase_settling();
         std::thread::sleep(std::time::Duration::from_millis(5));
         frames += 1;
-        shot_settling(h, raster, at, |_| {}, &format!("{what}: frame {frames} after the cut"));
+        shot_settling(
+            h,
+            raster,
+            at,
+            |_| {},
+            &format!("{what}: frame {frames} after the cut"),
+        );
     }
     let spent = board_path::stamp_px_on_this_thread() - px;
     assert_eq!(spent, 0, "{what}: stamped {spent} px on the frame loop");
@@ -14244,22 +14827,22 @@ fn a_second_eraser_pass_over_a_settling_stroke_never_shows_the_uncut_stroke() {
         let px = release_a_settling_pass(&mut h, &mut raster, id);
         let c = h.app.canvas_rect.center();
         let shift = egui::Modifiers::SHIFT;
-        let mut watch = |h: &mut Harness,
-                         prepare: Box<dyn FnOnce(&mut egui::RawInput)>,
-                         when: &str| {
-            shot_settling(h, &mut raster, at, prepare, &format!("{variant}: {when}"));
-        };
-        let wait = |h: &mut Harness,
-                    watch: &mut dyn FnMut(&mut Harness, Box<dyn FnOnce(&mut egui::RawInput)>, &str),
-                    ready: &dyn Fn(&Harness) -> bool| {
-            let mut waited = 0;
-            while !ready(h) {
-                waited += 1;
-                assert!(waited < 2000, "{variant}: pass 2's preview never came");
-                std::thread::sleep(std::time::Duration::from_millis(5));
-                watch(h, Box::new(move |i| i.modifiers = shift), "pass 2 drag");
-            }
-        };
+        let mut watch =
+            |h: &mut Harness, prepare: Box<dyn FnOnce(&mut egui::RawInput)>, when: &str| {
+                shot_settling(h, &mut raster, at, prepare, &format!("{variant}: {when}"));
+            };
+        let wait =
+            |h: &mut Harness,
+             watch: &mut dyn FnMut(&mut Harness, Box<dyn FnOnce(&mut egui::RawInput)>, &str),
+             ready: &dyn Fn(&Harness) -> bool| {
+                let mut waited = 0;
+                while !ready(h) {
+                    waited += 1;
+                    assert!(waited < 2000, "{variant}: pass 2's preview never came");
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                    watch(h, Box::new(move |i| i.modifiers = shift), "pass 2 drag");
+                }
+            };
         match variant {
             "unchanged" => {
                 // Narrower, back along pass 1: only ink it erased.
@@ -14270,7 +14853,11 @@ fn a_second_eraser_pass_over_a_settling_stroke_never_shows_the_uncut_stroke() {
                 wait(&mut h, &mut watch, &|h| {
                     h.app.erase_live.get(&id).is_some_and(|l| l.line_exact())
                 });
-                watch(&mut h, Box::new(shift_at(back, Some(false))), "pass 2 release");
+                watch(
+                    &mut h,
+                    Box::new(shift_at(back, Some(false))),
+                    "pass 2 release",
+                );
                 let node = h.app.doc().scene.node(id).unwrap();
                 assert_eq!(erase_marks(node).len(), 1, "pass 2 changed nothing");
             }
@@ -14285,7 +14872,11 @@ fn a_second_eraser_pass_over_a_settling_stroke_never_shows_the_uncut_stroke() {
                 if let Some(mut l) = h.app.erase_live.remove(&id) {
                     l.forget(&mut h.app.brush_tiles, board_path::tiles::erase_lane(id));
                 }
-                watch(&mut h, Box::new(shift_at(to, Some(false))), "pass 2 release");
+                watch(
+                    &mut h,
+                    Box::new(shift_at(to, Some(false))),
+                    "pass 2 release",
+                );
                 let node = h.app.doc().scene.node(id).unwrap();
                 assert_eq!(erase_marks(node).len(), 2, "pass 2 commits at once");
             }
@@ -14310,7 +14901,10 @@ fn a_second_eraser_pass_over_a_settling_stroke_never_shows_the_uncut_stroke() {
                 assert_eq!(erase_marks(node).len(), 1, "Esc changed nothing");
             }
         }
-        assert!(h.app.erase_settle.holds(h.app.tab().id, id), "{variant}: pass 1 still settles");
+        assert!(
+            h.app.erase_settle.holds(h.app.tab().id, id),
+            "{variant}: pass 1 still settles"
+        );
         settle_watched(&mut h, &mut raster, at, px, variant);
     }
 }
@@ -14327,7 +14921,10 @@ fn a_tab_switch_during_an_eraser_settle_never_shows_the_uncut_stroke() {
     shot(&mut h, &mut raster, |_| {});
     h.app.switch_tab(first);
     shot_settling(&mut h, &mut raster, at, |_| {}, "back on the tab");
-    assert!(h.app.erase_settle.holds(h.app.tab().id, id), "the pass still settles");
+    assert!(
+        h.app.erase_settle.holds(h.app.tab().id, id),
+        "the pass still settles"
+    );
     settle_watched(&mut h, &mut raster, at, px, "tab switch");
 }
 
@@ -14341,7 +14938,10 @@ fn moving_a_stroke_during_its_eraser_settle_never_shows_the_uncut_stroke() {
     h.app.patch_nodes(&[id], |n| n.rect.x += 60.0);
     let at = (cross + EVec2::new(60.0, 0.0), lit);
     shot_settling(&mut h, &mut raster, at, |_| {}, "the move frame");
-    assert!(h.app.erase_settle.holds(h.app.tab().id, id), "the pass still settles");
+    assert!(
+        h.app.erase_settle.holds(h.app.tab().id, id),
+        "the pass still settles"
+    );
     settle_watched(&mut h, &mut raster, at, px, "move");
 }
 
@@ -14413,39 +15013,58 @@ fn undo_a_settled_eraser_pass(tag: &str, redo: bool, zoom: bool) {
     let mut prepare = ctrl_key(egui::Key::Z);
     let mut frames = 0;
     loop {
-        shot(&mut h, &mut raster, std::mem::replace(&mut prepare, Box::new(|_| {})));
-        assert_eq!(h.app.doc().scene.node(id), Some(&before), "Ctrl+Z restores the bar");
+        shot(
+            &mut h,
+            &mut raster,
+            std::mem::replace(&mut prepare, Box::new(|_| {})),
+        );
+        assert_eq!(
+            h.app.doc().scene.node(id),
+            Some(&before),
+            "Ctrl+Z restores the bar"
+        );
         let xf = h.app.board_xf();
         for p in cut_points(cross) {
             let r = redness(&raster, &xf, p);
-            assert!(r > lit, "frame {frames} after undo: {p:?} is still erased ({r:.2})");
+            assert!(
+                r > lit,
+                "frame {frames} after undo: {p:?} is still erased ({r:.2})"
+            );
         }
         let current = stamp_of(&h, id).is_some_and(|(k, g)| g.exact && Some(*k) == key);
         if current && !h.app.erase_settling() {
             break;
         }
-        assert!(std::time::Instant::now() < deadline, "the restored bar never settled");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the restored bar never settled"
+        );
         std::thread::sleep(std::time::Duration::from_millis(5));
         frames += 1;
     }
     if zoom {
         h.app.tab_mut().cam.z *= 0.5;
-        let want =
-            board_path::stamp_pixel_for_zoom(h.app.tab().cam.z, h.ctx.pixels_per_point());
+        let want = board_path::stamp_pixel_for_zoom(h.app.tab().cam.z, h.ctx.pixels_per_point());
         let mut frames = 0;
         loop {
             shot(&mut h, &mut raster, |_| {});
             let xf = h.app.board_xf();
             for p in cut_points(cross) {
                 let r = redness(&raster, &xf, p);
-                assert!(r > lit, "frame {frames} after the zoom: {p:?} is erased ({r:.2})");
+                assert!(
+                    r > lit,
+                    "frame {frames} after the zoom: {p:?} is erased ({r:.2})"
+                );
             }
             let exact = stamp_of(&h, id)
                 .is_some_and(|(k, g)| g.exact && Some(*k) == key && g.wanted_pixel == want);
             if exact {
                 break;
             }
-            assert!(std::time::Instant::now() < deadline, "the zoomed bar never settled");
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the zoomed bar never settled"
+            );
             std::thread::sleep(std::time::Duration::from_millis(5));
             frames += 1;
         }
@@ -14461,18 +15080,32 @@ fn undo_a_settled_eraser_pass(tag: &str, redo: bool, zoom: bool) {
         if frames == 5 {
             h.app.brush_tiles.hold_rasters = false;
         }
-        shot(&mut h, &mut raster, std::mem::replace(&mut prepare, Box::new(|_| {})));
-        assert_eq!(h.app.doc().scene.node(id), Some(&erased), "Ctrl+Y erases the bar again");
+        shot(
+            &mut h,
+            &mut raster,
+            std::mem::replace(&mut prepare, Box::new(|_| {})),
+        );
+        assert_eq!(
+            h.app.doc().scene.node(id),
+            Some(&erased),
+            "Ctrl+Y erases the bar again"
+        );
         let xf = h.app.board_xf();
         for p in cut_points(cross) {
             let r = redness(&raster, &xf, p);
-            assert!(r < lit, "frame {frames} after redo: {p:?} shows the uncut bar ({r:.2})");
+            assert!(
+                r < lit,
+                "frame {frames} after redo: {p:?} shows the uncut bar ({r:.2})"
+            );
         }
         let current = stamp_of(&h, id).is_some_and(|(k, g)| g.exact && Some(*k) == key);
         if frames >= 5 && current {
             break;
         }
-        assert!(std::time::Instant::now() < deadline, "the redone bar never settled");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the redone bar never settled"
+        );
         std::thread::sleep(std::time::Duration::from_millis(5));
         frames += 1;
     }
@@ -14503,7 +15136,10 @@ fn deleting_a_vertex_before_an_erased_bitmap_lands_never_paints_the_uncut_stroke
     h.app.direct.grip_points = Default::default();
     let end = world_anchor_points(&h, id).len() - 1;
     h.app.direct.grip_points.pick(id, end, false);
-    assert!(h.app.delete_picked_vertices(), "Delete takes the end vertex");
+    assert!(
+        h.app.delete_picked_vertices(),
+        "Delete takes the end vertex"
+    );
     h.app.board_sel.clear();
     let key = board_path::node_stamp_key(h.app.doc().scene.node(id).expect("the bar stays"));
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
@@ -14521,13 +15157,19 @@ fn deleting_a_vertex_before_an_erased_bitmap_lands_never_paints_the_uncut_stroke
         let xf = h.app.board_xf();
         for p in cut_points(cross) {
             let r = redness(&raster, &xf, p);
-            assert!(r < lit, "frame {frames} after the delete: {p:?} shows the uncut bar ({r:.2})");
+            assert!(
+                r < lit,
+                "frame {frames} after the delete: {p:?} shows the uncut bar ({r:.2})"
+            );
         }
         let current = stamp_of(&h, id).is_some_and(|(k, g)| g.exact && Some(*k) == key);
         if frames >= 6 && current && !h.app.erase_settling() {
             break;
         }
-        assert!(std::time::Instant::now() < deadline, "the edited bar never settled");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the edited bar never settled"
+        );
         std::thread::sleep(std::time::Duration::from_millis(5));
         frames += 1;
     }
@@ -14595,13 +15237,19 @@ fn another_tabs_stroke_with_the_same_id_never_takes_the_eraser_stand_in() {
         let xf = h.app.board_xf();
         for p in cut_points(cross) {
             let r = redness(&raster, &xf, p);
-            assert!(r < lit, "frame {frames} back on the tab: {p:?} shows the uncut bar ({r:.2})");
+            assert!(
+                r < lit,
+                "frame {frames} back on the tab: {p:?} shows the uncut bar ({r:.2})"
+            );
         }
         let current = stamp_of(&h, id).is_some_and(|(k, g)| g.exact && Some(*k) == key);
         if frames >= 6 && current {
             break;
         }
-        assert!(std::time::Instant::now() < deadline, "the erased bar never settled");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the erased bar never settled"
+        );
         std::thread::sleep(std::time::Duration::from_millis(5));
         frames += 1;
     }
@@ -14617,8 +15265,15 @@ fn closing_a_tab_during_an_eraser_settle_frees_it() {
     h.app.new_tab();
     shot(&mut h, &mut raster, |_| {});
     h.app.force_close_tab(first);
-    assert!(h.app.erase_settle.is_empty(), "the closed tab's settle is kept");
-    assert_eq!(h.app.brush_tiles.lines_wanted_len(), 0, "the closed tab's cut still waits on the workers");
+    assert!(
+        h.app.erase_settle.is_empty(),
+        "the closed tab's settle is kept"
+    );
+    assert_eq!(
+        h.app.brush_tiles.lines_wanted_len(),
+        0,
+        "the closed tab's cut still waits on the workers"
+    );
 }
 
 /// Put the bar's centerline just below the view with its ink still in it,
@@ -14641,7 +15296,10 @@ fn bar_at_the_view_bottom(
     let lit = 0.5 * redness(raster, &xf, seen[0] + EVec2::new(500.0, 0.0));
     for p in seen {
         let r = redness(raster, &xf, p);
-        assert!(r > lit, "the bar's ink shows at {p:?} before the pass ({r:.2})");
+        assert!(
+            r > lit,
+            "the bar's ink shows at {p:?} before the pass ({r:.2})"
+        );
     }
     (seen, lit)
 }
@@ -14655,7 +15313,11 @@ fn place_bar_at_the_view_bottom(h: &mut Harness, id: NodeId, cross: Pos2) -> [Po
     let view = xf.s2w(h.app.canvas_rect.max);
     assert!(r.y > view.y, "the bar's centerline is out of view");
     let up = EVec2::new(0.0, -20.0);
-    let seen = [cross + up, cross + up + EVec2::new(45.0, 0.0), cross + up - EVec2::new(45.0, 0.0)];
+    let seen = [
+        cross + up,
+        cross + up + EVec2::new(45.0, 0.0),
+        cross + up - EVec2::new(45.0, 0.0),
+    ];
     for p in seen {
         assert!(h.app.canvas_rect.contains(xf.w2s(p)), "{p:?} is in view");
     }
@@ -14676,9 +15338,16 @@ fn a_band_at_the_view_edge_stays_while_its_ink_shows() {
     shot(&mut h, &mut raster, shift_at(press, None));
     shot(&mut h, &mut raster, shift_at(press, Some(true)));
     shot(&mut h, &mut raster, shift_at(last, None));
-    assert!(!h.app.erase_live.contains_key(&id), "no preview before the release");
+    assert!(
+        !h.app.erase_live.contains_key(&id),
+        "no preview before the release"
+    );
     shot(&mut h, &mut raster, shift_at(last, Some(false)));
-    assert_eq!(erase_marks(h.app.doc().scene.node(id).unwrap()).len(), 1, "the flick commits");
+    assert_eq!(
+        erase_marks(h.app.doc().scene.node(id).unwrap()).len(),
+        1,
+        "the flick commits"
+    );
     band_holds_at_the_edge(&mut h, &mut raster, (id, seen), lit, "flick");
 }
 
@@ -14694,7 +15363,9 @@ fn band_holds_at_the_edge(
     let key = board_path::node_stamp_key(h.app.doc().scene.node(id).unwrap());
     // The eraser's cursor would cover the points.
     let away = h.app.canvas_rect.min + EVec2::new(200.0, 200.0);
-    shot(h, raster, |i| i.events.push(egui::Event::PointerMoved(away)));
+    shot(h, raster, |i| {
+        i.events.push(egui::Event::PointerMoved(away))
+    });
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
     let mut frames = 0;
     loop {
@@ -14705,13 +15376,19 @@ fn band_holds_at_the_edge(
         let xf = h.app.board_xf();
         for p in seen {
             let r = redness(raster, &xf, p);
-            assert!(r < lit, "{what}: frame {frames} after release: {p:?} shows the uncut bar ({r:.2})");
+            assert!(
+                r < lit,
+                "{what}: frame {frames} after release: {p:?} shows the uncut bar ({r:.2})"
+            );
         }
         let current = stamp_of(h, id).is_some_and(|(k, g)| g.exact && Some(*k) == key);
         if frames >= 6 && current && !h.app.erase_settling() {
             break;
         }
-        assert!(std::time::Instant::now() < deadline, "{what}: the erased bar never settled");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "{what}: the erased bar never settled"
+        );
         std::thread::sleep(std::time::Duration::from_millis(5));
         frames += 1;
     }
@@ -14741,12 +15418,20 @@ fn redoing_a_given_up_eraser_pass_keeps_its_band() {
     let (seen, lit) = give_up_a_pass_at_the_view_bottom(&mut h, &mut raster, id, cross);
     let erased = h.app.doc().scene.node(id).unwrap().clone();
     shot(&mut h, &mut raster, ctrl_key(egui::Key::Z));
-    assert_ne!(h.app.doc().scene.node(id), Some(&erased), "Ctrl+Z restores the bar");
+    assert_ne!(
+        h.app.doc().scene.node(id),
+        Some(&erased),
+        "Ctrl+Z restores the bar"
+    );
     for _ in 0..3 {
         shot(&mut h, &mut raster, |_| {});
     }
     shot(&mut h, &mut raster, ctrl_key(egui::Key::Y));
-    assert_eq!(h.app.doc().scene.node(id), Some(&erased), "Ctrl+Y erases the bar again");
+    assert_eq!(
+        h.app.doc().scene.node(id),
+        Some(&erased),
+        "Ctrl+Y erases the bar again"
+    );
     band_holds_at_the_edge(&mut h, &mut raster, (id, seen), lit, "redo");
 }
 
@@ -14779,13 +15464,21 @@ fn give_up_a_pass_at_the_view_bottom(
     shot(h, raster, shift_at(last, None));
     h.app.brush_tiles.hold_rasters = true;
     shot(h, raster, shift_at(last, Some(false)));
-    assert!(h.app.erase_settle.holds(h.app.tab().id, id), "the pass settles");
+    assert!(
+        h.app.erase_settle.holds(h.app.tab().id, id),
+        "the pass settles"
+    );
     let away = h.app.canvas_rect.min + EVec2::new(200.0, 200.0);
-    shot(h, raster, |i| i.events.push(egui::Event::PointerMoved(away)));
+    shot(h, raster, |i| {
+        i.events.push(egui::Event::PointerMoved(away))
+    });
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
     let mut frames = 0;
     while h.app.erase_settle.holds(h.app.tab().id, id) {
-        assert!(std::time::Instant::now() < deadline, "the workers never gave up");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the workers never gave up"
+        );
         std::thread::sleep(std::time::Duration::from_millis(5));
         shot(h, raster, |_| {});
         frames += 1;
@@ -14796,7 +15489,10 @@ fn give_up_a_pass_at_the_view_bottom(
         shot(h, raster, |_| {});
         for p in seen {
             let r = redness(raster, &xf, p);
-            assert!(r < lit, "frame {k} after giving up ({frames} settling): {p:?} shows the uncut bar ({r:.2})");
+            assert!(
+                r < lit,
+                "frame {k} after giving up ({frames} settling): {p:?} shows the uncut bar ({r:.2})"
+            );
         }
     }
     (seen, lit)
@@ -14805,7 +15501,12 @@ fn give_up_a_pass_at_the_view_bottom(
 /// Tiles off and the bar's own bitmap current, then a Shift flick down
 /// screen x `cx - 300` released before its preview exists, with stroke
 /// bitmaps held. Returns points along the cut and the redness half lit.
-fn flick_the_bar_unseen(h: &mut Harness, raster: &mut FrameRaster, id: NodeId, cross: Pos2) -> ([Pos2; 3], f32) {
+fn flick_the_bar_unseen(
+    h: &mut Harness,
+    raster: &mut FrameRaster,
+    id: NodeId,
+    cross: Pos2,
+) -> ([Pos2; 3], f32) {
     h.app.brush_tiles_enabled = false;
     let key = board_path::node_stamp_key(h.app.doc().scene.node(id).unwrap());
     settle_captured(h, raster, "the bar's own bitmap", |app| {
@@ -14819,9 +15520,16 @@ fn flick_the_bar_unseen(h: &mut Harness, raster: &mut FrameRaster, id: NodeId, c
     shot(h, raster, shift_at(press, None));
     shot(h, raster, shift_at(press, Some(true)));
     shot(h, raster, shift_at(last, None));
-    assert!(!h.app.erase_live.contains_key(&id), "no preview before the release");
+    assert!(
+        !h.app.erase_live.contains_key(&id),
+        "no preview before the release"
+    );
     shot(h, raster, shift_at(last, Some(false)));
-    assert_eq!(erase_marks(h.app.doc().scene.node(id).unwrap()).len(), 1, "the flick commits");
+    assert_eq!(
+        erase_marks(h.app.doc().scene.node(id).unwrap()).len(),
+        1,
+        "the flick commits"
+    );
     let p = cut_points(cross);
     ([p[0], p[1], p[2]], lit)
 }
@@ -14834,7 +15542,9 @@ fn hiding_a_flicked_stroke_keeps_its_band() {
     let (mut h, mut raster, id, cross) = eraser_bar_board("eraser_band_hidden");
     let (seen, lit) = flick_the_bar_unseen(&mut h, &mut raster, id, cross);
     let away = h.app.canvas_rect.min + EVec2::new(200.0, 200.0);
-    shot(&mut h, &mut raster, |i| i.events.push(egui::Event::PointerMoved(away)));
+    shot(&mut h, &mut raster, |i| {
+        i.events.push(egui::Event::PointerMoved(away))
+    });
     h.app.board_sel = [id].into_iter().collect();
     assert_eq!(h.app.cmd_hide_selection(), 1, "Ctrl+H hides the bar");
     for k in 0..3 {
@@ -14842,11 +15552,17 @@ fn hiding_a_flicked_stroke_keeps_its_band() {
         let xf = h.app.board_xf();
         for p in seen {
             let r = redness(&raster, &xf, p);
-            assert!(r < lit, "hide ghost frame {k}: {p:?} shows the uncut bar ({r:.2})");
+            assert!(
+                r < lit,
+                "hide ghost frame {k}: {p:?} shows the uncut bar ({r:.2})"
+            );
         }
     }
     shot(&mut h, &mut raster, ctrl_key(egui::Key::Z));
-    assert!(!h.app.doc().scene.node(id).unwrap().hidden, "Ctrl+Z shows the bar again");
+    assert!(
+        !h.app.doc().scene.node(id).unwrap().hidden,
+        "Ctrl+Z shows the bar again"
+    );
     band_holds_at_the_edge(&mut h, &mut raster, (id, seen), lit, "hidden");
 }
 
@@ -14882,10 +15598,17 @@ fn redoing_a_pass_undone_while_it_settles_keeps_the_cut_dark() {
     release_a_settling_pass(&mut h, &mut raster, id);
     let erased = h.app.doc().scene.node(id).unwrap().clone();
     shot(&mut h, &mut raster, ctrl_key(egui::Key::Z));
-    assert_eq!(h.app.doc().scene.node(id), Some(&before), "Ctrl+Z restores the bar");
+    assert_eq!(
+        h.app.doc().scene.node(id),
+        Some(&before),
+        "Ctrl+Z restores the bar"
+    );
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
     while !(restored(&h.app) && !h.app.erase_settling()) {
-        assert!(std::time::Instant::now() < deadline, "the restored bar never settled");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the restored bar never settled"
+        );
         std::thread::sleep(std::time::Duration::from_millis(5));
         shot(&mut h, &mut raster, |_| {});
     }
@@ -14896,7 +15619,11 @@ fn redoing_a_pass_undone_while_it_settles_keeps_the_cut_dark() {
     }
     h.app.brush_tiles.hold_rasters = true;
     shot(&mut h, &mut raster, ctrl_key(egui::Key::Y));
-    assert_eq!(h.app.doc().scene.node(id), Some(&erased), "Ctrl+Y erases the bar again");
+    assert_eq!(
+        h.app.doc().scene.node(id),
+        Some(&erased),
+        "Ctrl+Y erases the bar again"
+    );
     let p = cut_points(cross);
     band_holds_at_the_edge(&mut h, &mut raster, (id, [p[0], p[1], p[2]]), lit, "redo");
 }
@@ -14910,13 +15637,20 @@ fn redoing_an_undone_add_under_a_dormant_band_keeps_it() {
     let erased = h.app.doc().scene.node(id).unwrap().clone();
     shot(&mut h, &mut raster, ctrl_key(egui::Key::Z));
     shot(&mut h, &mut raster, ctrl_key(egui::Key::Z));
-    assert!(h.app.doc().scene.node(id).is_none(), "the second Ctrl+Z removes the bar");
+    assert!(
+        h.app.doc().scene.node(id).is_none(),
+        "the second Ctrl+Z removes the bar"
+    );
     for _ in 0..3 {
         shot(&mut h, &mut raster, |_| {});
     }
     shot(&mut h, &mut raster, ctrl_key(egui::Key::Y));
     shot(&mut h, &mut raster, ctrl_key(egui::Key::Y));
-    assert_eq!(h.app.doc().scene.node(id), Some(&erased), "two Ctrl+Y bring the erased bar back");
+    assert_eq!(
+        h.app.doc().scene.node(id),
+        Some(&erased),
+        "two Ctrl+Y bring the erased bar back"
+    );
     band_holds_at_the_edge(&mut h, &mut raster, (id, seen), lit, "re-added");
 }
 
@@ -14929,13 +15663,23 @@ fn undoing_a_delete_under_a_flick_band_keeps_it() {
     let (seen, lit) = flick_the_bar_unseen(&mut h, &mut raster, id, cross);
     let erased = h.app.doc().scene.node(id).unwrap().clone();
     h.app.delete_board_nodes(&[id]);
-    assert!(h.app.doc().scene.node(id).is_none(), "Delete removes the bar");
+    assert!(
+        h.app.doc().scene.node(id).is_none(),
+        "Delete removes the bar"
+    );
     for _ in 0..3 {
         shot(&mut h, &mut raster, |_| {});
     }
-    assert!(!h.app.erase_settling(), "the band over the deleted bar asks for frames");
+    assert!(
+        !h.app.erase_settling(),
+        "the band over the deleted bar asks for frames"
+    );
     shot(&mut h, &mut raster, ctrl_key(egui::Key::Z));
-    assert_eq!(h.app.doc().scene.node(id), Some(&erased), "Ctrl+Z brings the erased bar back");
+    assert_eq!(
+        h.app.doc().scene.node(id),
+        Some(&erased),
+        "Ctrl+Z brings the erased bar back"
+    );
     band_holds_at_the_edge(&mut h, &mut raster, (id, seen), lit, "undeleted");
 }
 
@@ -14953,18 +15697,37 @@ fn undoing_a_delete_under_a_settling_pass_keeps_its_band() {
     release_a_settling_pass(&mut h, &mut raster, id);
     let erased = h.app.doc().scene.node(id).unwrap().clone();
     h.app.delete_board_nodes(&[id]);
-    assert!(h.app.doc().scene.node(id).is_none(), "Delete removes the bar");
+    assert!(
+        h.app.doc().scene.node(id).is_none(),
+        "Delete removes the bar"
+    );
     for _ in 0..3 {
         shot(&mut h, &mut raster, |_| {});
     }
-    assert!(!h.app.erase_settle.holds(h.app.tab().id, id), "the settle outlives its stroke");
-    assert!(!h.app.erase_settling(), "the band over the deleted bar asks for frames");
+    assert!(
+        !h.app.erase_settle.holds(h.app.tab().id, id),
+        "the settle outlives its stroke"
+    );
+    assert!(
+        !h.app.erase_settling(),
+        "the band over the deleted bar asks for frames"
+    );
     h.app.erase_settle.hold = false;
     h.app.brush_tiles.hold_rasters = true;
     shot(&mut h, &mut raster, ctrl_key(egui::Key::Z));
-    assert_eq!(h.app.doc().scene.node(id), Some(&erased), "Ctrl+Z brings the erased bar back");
+    assert_eq!(
+        h.app.doc().scene.node(id),
+        Some(&erased),
+        "Ctrl+Z brings the erased bar back"
+    );
     let p = cut_points(cross);
-    band_holds_at_the_edge(&mut h, &mut raster, (id, [p[0], p[1], p[2]]), lit, "undeleted settle");
+    band_holds_at_the_edge(
+        &mut h,
+        &mut raster,
+        (id, [p[0], p[1], p[2]]),
+        lit,
+        "undeleted settle",
+    );
 }
 
 /// Review r17 R2 (Art. II): a band that lingers over a hidden stroke
@@ -14985,7 +15748,10 @@ fn a_band_over_a_hidden_stroke_hashes_nothing_per_frame() {
         shot(&mut h, &mut raster, |_| {});
     }
     let spent = board_path::content_hashed_on_this_thread() - hashed;
-    assert!(spent < 10, "10 idle frames with a band over the hidden bar hashed {spent} stroke contents");
+    assert!(
+        spent < 10,
+        "10 idle frames with a band over the hidden bar hashed {spent} stroke contents"
+    );
 }
 
 /// Review r17 D1: a freehand eraser pass released before its preview
@@ -15002,7 +15768,9 @@ fn a_freehand_pass_after_a_flick_keeps_its_band() {
         pressed,
         modifiers: egui::Modifiers::NONE,
     };
-    shot(&mut h, &mut raster, |i| i.events.push(egui::Event::PointerMoved(a)));
+    shot(&mut h, &mut raster, |i| {
+        i.events.push(egui::Event::PointerMoved(a))
+    });
     shot(&mut h, &mut raster, |i| {
         i.events.push(egui::Event::PointerMoved(a));
         i.events.push(button(a, true));
@@ -15011,7 +15779,11 @@ fn a_freehand_pass_after_a_flick_keeps_its_band() {
         i.events.push(egui::Event::PointerMoved(b));
         i.events.push(button(b, false));
     });
-    assert_eq!(erase_marks(h.app.doc().scene.node(id).unwrap()).len(), 2, "the freehand pass commits");
+    assert_eq!(
+        erase_marks(h.app.doc().scene.node(id).unwrap()).len(),
+        2,
+        "the freehand pass commits"
+    );
     band_holds_at_the_edge(&mut h, &mut raster, (id, seen), lit, "freehand after");
 }
 
@@ -15031,7 +15803,10 @@ fn a_band_over_a_culled_stroke_stops_asking_for_frames() {
     let view = h.app.board_paint_view(h.app.canvas_rect);
     let node = h.app.doc().scene.node(id).unwrap();
     assert!(!board::paints_in_view(node, &view), "the bar is culled");
-    assert!(corner.x > cross.x + 400.0, "the flick's segment is out of view");
+    assert!(
+        corner.x > cross.x + 400.0,
+        "the flick's segment is out of view"
+    );
     h.app.brush_tiles.hold_rasters = false;
     for _ in 0..200 {
         shot(&mut h, &mut raster, |_| {});
@@ -15039,7 +15814,9 @@ fn a_band_over_a_culled_stroke_stops_asking_for_frames() {
     assert!(!h.app.erase_settling(), "the band still waits in view");
     let quiet = (0..60).any(|_| {
         let out = h.frame_output(|_| {});
-        !out.viewport_output[&egui::ViewportId::ROOT].repaint_delay.is_zero()
+        !out.viewport_output[&egui::ViewportId::ROOT]
+            .repaint_delay
+            .is_zero()
     });
     assert!(quiet, "the idle board keeps repainting");
 }
@@ -15055,7 +15832,10 @@ fn a_band_over_a_rotated_stroke_off_view_asks_for_no_frames() {
     for _ in 0..3 {
         shot(&mut h, &mut raster, |_| {});
     }
-    assert!(!h.app.erase_settling(), "the band over the rotated bar out of view asks for frames");
+    assert!(
+        !h.app.erase_settling(),
+        "the band over the rotated bar out of view asks for frames"
+    );
 }
 
 /// Review r20 R1 (Art. II): a band over a wide, blurred, rotated stroke
@@ -15080,22 +15860,40 @@ fn a_band_over_a_blurred_rotated_stroke_past_the_paint_query_asks_for_no_frames(
     let top = boxed.y + boxed.h + 225.0;
     h.app.tab_mut().cam.offset.y = top + 80.0 / z + half.y;
     let view = h.app.board_paint_view(h.app.canvas_rect);
-    assert!((view.y - top).abs() < 0.5, "the paint view's top is {} not {top}", view.y);
+    assert!(
+        (view.y - top).abs() < 0.5,
+        "the paint view's top is {} not {top}",
+        view.y
+    );
     // The ink box pads the rotated frame by w/2 + 4 + 3 blur = 248.
-    assert!(boxed.y + boxed.h + 248.0 > view.y, "the camera sits past the bar's ink box");
+    assert!(
+        boxed.y + boxed.h + 248.0 > view.y,
+        "the camera sits past the bar's ink box"
+    );
     let painted = h.app.board_paint_nodes(h.app.canvas_rect);
-    assert!(!painted.iter().any(|n| n.id == id), "the board paints the bar past its query");
+    assert!(
+        !painted.iter().any(|n| n.id == id),
+        "the board paints the bar past its query"
+    );
     h.app.brush_tiles.hold_rasters = false;
     for _ in 0..200 {
         shot(&mut h, &mut raster, |_| {});
     }
-    assert!(!h.app.erase_settling(), "the band over the unpainted rotated bar still asks for frames");
+    assert!(
+        !h.app.erase_settling(),
+        "the band over the unpainted rotated bar still asks for frames"
+    );
     let quiet = (0..60).any(|_| {
         let out = h.frame_output(|_| {});
-        !out.viewport_output[&egui::ViewportId::ROOT].repaint_delay.is_zero()
+        !out.viewport_output[&egui::ViewportId::ROOT]
+            .repaint_delay
+            .is_zero()
     });
     assert!(quiet, "the idle board keeps repainting");
-    assert!(!board_path::band_in_view(&node, &view), "a band sees a bar the board does not paint");
+    assert!(
+        !board_path::band_in_view(&node, &view),
+        "a band sees a bar the board does not paint"
+    );
 }
 
 /// Review r18 R1: a rotated stroke whose rotated ink meets the view
@@ -15112,16 +15910,31 @@ fn a_rotated_stroke_partly_in_view_still_paints() {
     h.app.tab_mut().cam.offset = EVec2::new(cx, cy - 500.0);
     let view = h.app.board_paint_view(h.app.canvas_rect);
     let flat = node.rect.normalized();
-    assert!(flat.y - 40.0 > view.y + view.h, "the bar's unrotated ink is out of view");
-    assert!(cy - 400.0 > view.y && cy - upright.h * 0.5 > view.y, "the upright bar's top end is in view");
-    assert!(board::paints_in_view(&node, &view), "the upright bar is culled");
+    assert!(
+        flat.y - 40.0 > view.y + view.h,
+        "the bar's unrotated ink is out of view"
+    );
+    assert!(
+        cy - 400.0 > view.y && cy - upright.h * 0.5 > view.y,
+        "the upright bar's top end is in view"
+    );
+    assert!(
+        board::paints_in_view(&node, &view),
+        "the upright bar is culled"
+    );
     settle_captured(&mut h, &mut raster, "the upright bar", |_| true);
     let r = redness(&raster, &h.app.board_xf(), Pos2::new(cx, cy - 400.0));
     assert!(r > 0.5, "the upright bar is blank in view ({r:.2})");
     let edge = upright.x + upright.w;
     let beside = |gap: f32| WorldRect::new(edge + gap, upright.y, 500.0, upright.h);
-    assert!(board_path::band_in_view(&node, &beside(30.0)), "a band misses the upright bar's ink edge");
-    assert!(!board_path::band_in_view(&node, &beside(45.0)), "a band sees a view clear of the upright bar's ink");
+    assert!(
+        board_path::band_in_view(&node, &beside(30.0)),
+        "a band misses the upright bar's ink edge"
+    );
+    assert!(
+        !board_path::band_in_view(&node, &beside(45.0)),
+        "a band sees a view clear of the upright bar's ink"
+    );
 }
 
 /// Review r19 R1: a rotated polyline whose miter spike alone reaches into
@@ -15148,7 +15961,10 @@ fn a_rotated_path_miter_spike_at_the_view_edge_still_paints() {
             flip: false,
             path: Some(std::sync::Arc::new(PathData {
                 start: [0.0, 0.0],
-                segs: vec![PathSeg::Line { to: [0.5, 1.0] }, PathSeg::Line { to: [1.0, 0.0] }],
+                segs: vec![
+                    PathSeg::Line { to: [0.5, 1.0] },
+                    PathSeg::Line { to: [1.0, 0.0] },
+                ],
                 closed: false,
                 ..Default::default()
             })),
@@ -15168,15 +15984,24 @@ fn a_rotated_path_miter_spike_at_the_view_edge_still_paints() {
     let half = h.app.canvas_rect.size() * (0.5 / 4.0);
     h.app.tab_mut().cam.offset = EVec2::new(spike.x, 460.0 + half.y);
     let xf = h.app.board_xf();
-    assert!(h.app.canvas_rect.shrink(4.0).contains(xf.w2s(spike)), "the spike is off screen");
+    assert!(
+        h.app.canvas_rect.shrink(4.0).contains(xf.w2s(spike)),
+        "the spike is off screen"
+    );
     let view = h.app.board_paint_view(h.app.canvas_rect);
     let boxed = node.rect.rotated_bounds(node.rotation_deg);
-    assert!(boxed.y + boxed.h + 30.0 < view.y, "the rotated box's half-width pad reaches the view");
+    assert!(
+        boxed.y + boxed.h + 30.0 < view.y,
+        "the rotated box's half-width pad reaches the view"
+    );
     for _ in 0..3 {
         shot(&mut h, &mut raster, |_| {});
     }
     let r = redness(&raster, &h.app.board_xf(), spike);
-    assert!(r > 0.5, "the rotated polyline's miter spike is blank in view ({r:.2})");
+    assert!(
+        r > 0.5,
+        "the rotated polyline's miter spike is blank in view ({r:.2})"
+    );
 }
 
 /// Review r14 finding 2 (Art. II) and note N1: a nested board portal's
@@ -15185,21 +16010,37 @@ fn a_rotated_path_miter_spike_at_the_view_edge_still_paints() {
 fn nested_board_strokes_clone_no_node_per_frame() {
     let (mut h, mut raster, id, _) = eraser_bar_board("eraser_nested_clones");
     let c = h.app.canvas_rect.center();
-    nested_bar_portal(&mut h, &mut raster, id, (c + EVec2::new(150.0, -220.0), c + EVec2::new(410.0, -110.0)));
+    nested_bar_portal(
+        &mut h,
+        &mut raster,
+        id,
+        (c + EVec2::new(150.0, -220.0), c + EVec2::new(410.0, -110.0)),
+    );
     let clones = board_path::node_clones_on_this_thread();
     for _ in 0..10 {
         shot(&mut h, &mut raster, |_| {});
     }
     let cloned = board_path::node_clones_on_this_thread() - clones;
-    assert_eq!(cloned, 0, "10 frames with a nested board cloned {cloned} nodes");
+    assert_eq!(
+        cloned, 0,
+        "10 frames with a nested board cloned {cloned} nodes"
+    );
 }
 
 /// A nested board portal over screen corners `span` whose child workbook
 /// holds a clone of stroke `id` (same node id), loaded and painted.
-fn nested_bar_portal(h: &mut Harness, raster: &mut FrameRaster, id: NodeId, span: (Pos2, Pos2)) -> NodeId {
+fn nested_bar_portal(
+    h: &mut Harness,
+    raster: &mut FrameRaster,
+    id: NodeId,
+    span: (Pos2, Pos2),
+) -> NodeId {
     let wb = h.base.join("child.slate");
     let mut child = SlateDoc::new("Child");
-    child.scene.nodes.push(h.app.doc().scene.node(id).unwrap().clone());
+    child
+        .scene
+        .nodes
+        .push(h.app.doc().scene.node(id).unwrap().clone());
     child.save_to(&wb).unwrap();
     h.app.tab_mut().path = Some(h.base.join("parent.slate"));
     let c = h.app.canvas_rect.center();
@@ -15217,7 +16058,10 @@ fn nested_bar_portal(h: &mut Harness, raster: &mut FrameRaster, id: NodeId, span
     h.app.set_board_tool(board::BoardTool::Eraser);
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
     while h.app.slate_boards_ready() == 0 || !h.app.brush_tiles.last.settled {
-        assert!(std::time::Instant::now() < deadline, "the nested board never loaded");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the nested board never loaded"
+        );
         std::thread::sleep(std::time::Duration::from_millis(5));
         shot(h, raster, |_| {});
     }
@@ -15228,12 +16072,20 @@ fn nested_bar_portal(h: &mut Harness, raster: &mut FrameRaster, id: NodeId, span
 /// held the zoom doubles until the child bar's raster for it lands.
 fn nested_bar_raster_landed(h: &mut Harness, raster: &mut FrameRaster, id: NodeId) -> NodeId {
     let c = h.app.canvas_rect.center();
-    let portal = nested_bar_portal(h, raster, id, (c - EVec2::new(400.0, 230.0), c + EVec2::new(400.0, 230.0)));
+    let portal = nested_bar_portal(
+        h,
+        raster,
+        id,
+        (c - EVec2::new(400.0, 230.0), c + EVec2::new(400.0, 230.0)),
+    );
     h.app.brush_tiles.hold_rasters = true;
     h.app.tab_mut().cam.z *= 2.0;
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
     while h.app.brush_tiles.stroke_landed_len(true) == 0 {
-        assert!(std::time::Instant::now() < deadline, "the child bar's raster never landed");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the child bar's raster never landed"
+        );
         std::thread::sleep(std::time::Duration::from_millis(5));
         shot(h, raster, |_| {});
     }
@@ -15247,7 +16099,10 @@ fn a_deleted_nested_portal_frees_its_landed_rasters() {
     let (mut h, mut raster, id, _) = eraser_bar_board("eraser_nested_landed");
     let portal = nested_bar_raster_landed(&mut h, &mut raster, id);
     h.app.delete_board_nodes(&[portal]);
-    assert!(h.app.doc().scene.node(portal).is_none(), "the portal is deleted");
+    assert!(
+        h.app.doc().scene.node(portal).is_none(),
+        "the portal is deleted"
+    );
     h.app.brush_tiles.hold_rasters = false;
     for _ in 0..200 {
         shot(&mut h, &mut raster, |_| {});
@@ -15268,7 +16123,8 @@ fn closing_a_tab_frees_every_bitmap_of_its_strokes() {
     shot(&mut h, &mut raster, |_| {});
     h.app.force_close_tab(first);
     assert_eq!(h.app.brush_stamps.len(), 0, "the closed tab's bitmaps stay");
-    let landed = h.app.brush_tiles.stroke_landed_len(true) + h.app.brush_tiles.stroke_landed_len(false);
+    let landed =
+        h.app.brush_tiles.stroke_landed_len(true) + h.app.brush_tiles.stroke_landed_len(false);
     assert_eq!(landed, 0, "the closed tab's landed rasters stay");
 }
 
@@ -15283,7 +16139,10 @@ fn a_landed_raster_hashes_no_visible_node_per_frame() {
     let rects: Vec<slate_doc::Node> = (0..500)
         .map(|i| {
             use slate_doc::scene::{ShapeKind, ShapeNode};
-            let (x, y) = ((i % 25) as f32 * 20.0 - 250.0, (i / 25) as f32 * 3.0 - 100.0);
+            let (x, y) = (
+                (i % 25) as f32 * 20.0 - 250.0,
+                (i / 25) as f32 * 3.0 - 100.0,
+            );
             let rect = slate_doc::scene::WorldRect::new(c.x + x, c.y + y, 20.0, 10.0);
             h.app.doc_mut().scene.build_node(
                 rect,
@@ -15310,14 +16169,18 @@ fn a_landed_raster_hashes_no_visible_node_per_frame() {
     let z = h.app.tab().cam.z;
     let want = board_path::stamp_pixel_for_zoom(z, h.ctx.pixels_per_point());
     let exact = move |app: &SlateApp| {
-        stamp_of_app(app, id).is_some_and(|(k, g)| g.exact && Some(*k) == key && g.wanted_pixel == want)
+        stamp_of_app(app, id)
+            .is_some_and(|(k, g)| g.exact && Some(*k) == key && g.wanted_pixel == want)
     };
     settle_captured(&mut h, &mut raster, "the selected bar", exact);
     h.app.brush_tiles.hold_rasters = true;
     h.app.tab_mut().cam.z = z * 0.5;
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
     while h.app.brush_tiles.stroke_landed_len(false) == 0 {
-        assert!(std::time::Instant::now() < deadline, "the zoomed bar's raster never landed");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the zoomed bar's raster never landed"
+        );
         std::thread::sleep(std::time::Duration::from_millis(5));
         shot(&mut h, &mut raster, |_| {});
     }
@@ -15327,7 +16190,11 @@ fn a_landed_raster_hashes_no_visible_node_per_frame() {
         shot(&mut h, &mut raster, |_| {});
     }
     assert!(exact(&h.app), "back at the old zoom the bar is exact");
-    assert_eq!(h.app.brush_tiles.stroke_landed_len(false), 1, "its landed raster waits");
+    assert_eq!(
+        h.app.brush_tiles.stroke_landed_len(false),
+        1,
+        "its landed raster waits"
+    );
     let hashed = board_slate::salted_on_this_thread();
     for _ in 0..10 {
         shot(&mut h, &mut raster, |_| {});
@@ -15340,7 +16207,10 @@ fn a_landed_raster_hashes_no_visible_node_per_frame() {
     };
     let seen = h.app.doc().scene.nodes.iter().filter(in_view).count();
     assert!(seen > 500, "{seen} nodes in view");
-    assert!(spent < 500, "10 idle frames over {seen} visible nodes hashed {spent} cache ids");
+    assert!(
+        spent < 500,
+        "10 idle frames over {seen} visible nodes hashed {spent} cache ids"
+    );
 }
 
 /// Review r17 note: a late raster of the stroke's own content at another
@@ -15362,16 +16232,25 @@ fn a_late_raster_never_replaces_a_bitmap_of_the_same_content() {
     h.app.tab_mut().cam.z = z * 0.5;
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
     while h.app.brush_tiles.stroke_landed_len(false) == 0 {
-        assert!(std::time::Instant::now() < deadline, "the zoomed-out bar's raster never landed");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the zoomed-out bar's raster never landed"
+        );
         std::thread::sleep(std::time::Duration::from_millis(5));
         shot(&mut h, &mut raster, |_| {});
     }
-    assert!(on_top(&h.app), "the first zoom's bitmap stays on top while the raster waits");
+    assert!(
+        on_top(&h.app),
+        "the first zoom's bitmap stays on top while the raster waits"
+    );
     // Zoomed in, the bar is too big to stamp on the frame loop.
     h.app.tab_mut().cam.z = z * 2.0;
     h.app.brush_tiles.hold_rasters = false;
     shot(&mut h, &mut raster, |_| {});
-    assert!(on_top(&h.app), "the late zoomed-out raster replaced the bar's bitmap");
+    assert!(
+        on_top(&h.app),
+        "the late zoomed-out raster replaced the bar's bitmap"
+    );
 }
 
 /// Review r12 finding 2 (Art. II): a settling stroke panned out of view
@@ -15387,7 +16266,8 @@ fn an_eraser_settle_ends_when_its_stroke_is_panned_away() {
         let (lo, hi) = (xf.s2w(h.app.canvas_rect.min), xf.s2w(h.app.canvas_rect.max));
         let view = slate_doc::scene::WorldRect::new(lo.x, lo.y, hi.x - lo.x, hi.y - lo.y);
         let r = h.app.doc().scene.node(id).unwrap().rect;
-        let ink = slate_doc::scene::WorldRect::new(r.x - 60.0, r.y - 60.0, r.w + 120.0, r.h + 120.0);
+        let ink =
+            slate_doc::scene::WorldRect::new(r.x - 60.0, r.y - 60.0, r.w + 120.0, r.h + 120.0);
         !ink.intersects(&view)
     };
     let mut notches = 0;
@@ -15407,17 +16287,30 @@ fn an_eraser_settle_ends_when_its_stroke_is_panned_away() {
     h.app.erase_settle.hold = false;
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
     while h.app.erase_settling() || !h.app.brush_tiles.last.settled {
-        assert!(std::time::Instant::now() < deadline, "the panned-away pass never settled");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the panned-away pass never settled"
+        );
         std::thread::sleep(std::time::Duration::from_millis(5));
         h.frame();
     }
-    assert_eq!(h.app.brush_tiles.lines_wanted_len(), 0, "a cut still waits on the workers");
-    assert_eq!(h.app.brush_tiles.lines_landed_len(), 0, "a landed cut waits in the pool");
+    assert_eq!(
+        h.app.brush_tiles.lines_wanted_len(),
+        0,
+        "a cut still waits on the workers"
+    );
+    assert_eq!(
+        h.app.brush_tiles.lines_landed_len(),
+        0,
+        "a landed cut waits in the pool"
+    );
     // The pan's own follow-up repaints end within about 20 frames; a
     // settle that still asked for frames never would.
     let quiet = (0..60).any(|_| {
         let out = h.frame_output(|_| {});
-        !out.viewport_output[&egui::ViewportId::ROOT].repaint_delay.is_zero()
+        !out.viewport_output[&egui::ViewportId::ROOT]
+            .repaint_delay
+            .is_zero()
     });
     assert!(quiet, "the idle board keeps repainting");
 }
@@ -15428,12 +16321,26 @@ fn an_eraser_settle_ends_when_its_stroke_is_panned_away() {
 fn a_nested_board_portal_does_not_end_the_hosts_eraser_settle() {
     let (mut h, mut raster, id, cross) = eraser_bar_board("eraser_settle_nested");
     let c = h.app.canvas_rect.center();
-    nested_bar_portal(&mut h, &mut raster, id, (c + EVec2::new(150.0, -220.0), c + EVec2::new(410.0, -110.0)));
+    nested_bar_portal(
+        &mut h,
+        &mut raster,
+        id,
+        (c + EVec2::new(150.0, -220.0), c + EVec2::new(410.0, -110.0)),
+    );
     let at = (cross, half_lit(&h, &raster, cross));
     let px = release_a_settling_pass(&mut h, &mut raster, id);
     for k in 0..10 {
-        shot_settling(&mut h, &mut raster, at, |_| {}, &format!("portal frame {k}"));
-        assert!(h.app.erase_settle.holds(h.app.tab().id, id), "frame {k}: the settle ended");
+        shot_settling(
+            &mut h,
+            &mut raster,
+            at,
+            |_| {},
+            &format!("portal frame {k}"),
+        );
+        assert!(
+            h.app.erase_settle.holds(h.app.tab().id, id),
+            "frame {k}: the settle ended"
+        );
     }
     settle_watched(&mut h, &mut raster, at, px, "nested portal");
 }
@@ -15465,10 +16372,15 @@ fn an_eraser_release_over_a_big_layer_mark_rasterizes_nothing() {
     h.app.eraser_width = 40.0;
     h.app.eraser_opacity = 1.0;
     h.frame();
-    assert!(h.app.image_paint_session().is_some(), "the Eraser paints on the image");
+    assert!(
+        h.app.image_paint_session().is_some(),
+        "the Eraser paints on the image"
+    );
     let xf = h.app.board_xf();
-    let pass: Vec<Pos2> =
-        [60.0, 300.0, 500.0, 740.0].iter().map(|x| xf.w2s(Pos2::new(*x, 300.0))).collect();
+    let pass: Vec<Pos2> = [60.0, 300.0, 500.0, 740.0]
+        .iter()
+        .map(|x| xf.w2s(Pos2::new(*x, 300.0)))
+        .collect();
     h.frame_with(|i| i.events.push(egui::Event::PointerMoved(pass[0])));
     let button = |pos: Pos2, pressed: bool| egui::Event::PointerButton {
         pos,
@@ -15509,9 +16421,18 @@ fn erasable_zigzag(tag: &str) -> (Harness, NodeId, Pos2, Pos2) {
     let c = h.app.board_xf().s2w(h.app.canvas_rect.center());
     h.app.set_board_tool(board::BoardTool::Brush);
     h.app.brush_width = 20.0;
-    let zig = [(-300.0, -65.0), (-150.0, 65.0), (0.0, -65.0), (150.0, 65.0), (300.0, -65.0)];
-    h.app
-        .finish_freehand_brush(zig.iter().map(|(x, y)| Pos2::new(c.x + x, c.y + y)).collect());
+    let zig = [
+        (-300.0, -65.0),
+        (-150.0, 65.0),
+        (0.0, -65.0),
+        (150.0, 65.0),
+        (300.0, -65.0),
+    ];
+    h.app.finish_freehand_brush(
+        zig.iter()
+            .map(|(x, y)| Pos2::new(c.x + x, c.y + y))
+            .collect(),
+    );
     let id = h.app.doc().scene.nodes.last().unwrap().id;
     settle_brush(&mut h, "the zigzag", |app| {
         !app.brush_tiles.tiles_with(id).is_empty()
@@ -15522,7 +16443,12 @@ fn erasable_zigzag(tag: &str) -> (Harness, NodeId, Pos2, Pos2) {
     h.app.eraser_texture = Default::default();
     h.frame();
     let s = h.app.canvas_rect.center();
-    (h, id, s - EVec2::new(540.0, 0.0), s + EVec2::new(540.0, 0.0))
+    (
+        h,
+        id,
+        s - EVec2::new(540.0, 0.0),
+        s + EVec2::new(540.0, 0.0),
+    )
 }
 
 /// An eraser pass from screen `a` to `b` on consecutive frames (press, one
@@ -15608,9 +16534,18 @@ fn assert_emptied_stroke_leaves_with_its_pass(
     depth: usize,
     counted: (u64, u64),
 ) {
-    let node = h.app.doc().scene.node(id).expect("the release defers the check");
+    let node = h
+        .app
+        .doc()
+        .scene
+        .node(id)
+        .expect("the release defers the check");
     assert_eq!(erase_marks(node).len(), 1, "the release commits the mark");
-    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "the pass is one undo step");
+    assert_eq!(
+        h.app.tab().journal.undo_depth(),
+        depth + 1,
+        "the pass is one undo step"
+    );
     assert_eq!(zigzag_picks(h, id), 0, "the erased stroke picks");
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
     let mut frames = 0;
@@ -15628,18 +16563,35 @@ fn assert_emptied_stroke_leaves_with_its_pass(
     }
     let spent = board_path::stamp_px_on_this_thread() - counted.0;
     let built = board_path::stamps_on_this_thread() - counted.1;
-    assert_eq!(spent, 0, "release to removal stamped {spent} px on the frame loop");
-    assert_eq!(built, 0, "release to removal rasterized {built} strokes on the frame loop");
+    assert_eq!(
+        spent, 0,
+        "release to removal stamped {spent} px on the frame loop"
+    );
+    assert_eq!(
+        built, 0,
+        "release to removal rasterized {built} strokes on the frame loop"
+    );
     assert_eq!(
         h.app.tab().journal.undo_depth(),
         depth + 1,
         "the removal joined the pass's undo step"
     );
     press_key_with(h, egui::Key::Z, egui::Modifiers::CTRL);
-    assert_eq!(h.app.doc().scene.node(id), Some(before), "one undo restores the stroke");
+    assert_eq!(
+        h.app.doc().scene.node(id),
+        Some(before),
+        "one undo restores the stroke"
+    );
     assert_eq!(h.app.tab().journal.undo_depth(), depth);
-    press_key_with(h, egui::Key::Z, egui::Modifiers::CTRL | egui::Modifiers::SHIFT);
-    assert!(h.app.doc().scene.node(id).is_none(), "one redo removes it again");
+    press_key_with(
+        h,
+        egui::Key::Z,
+        egui::Modifiers::CTRL | egui::Modifiers::SHIFT,
+    );
+    assert!(
+        h.app.doc().scene.node(id).is_none(),
+        "one redo removes it again"
+    );
     assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
 }
 
@@ -15673,7 +16625,10 @@ fn a_deferred_freehand_eraser_pass_that_empties_a_big_stroke_removes_it_too() {
 fn settle_erase(h: &mut Harness) {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
     while h.app.erase_settling() || !h.app.brush_tiles.last.settled {
-        assert!(std::time::Instant::now() < deadline, "the pass never settled");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the pass never settled"
+        );
         std::thread::sleep(std::time::Duration::from_millis(5));
         h.frame();
     }
@@ -15706,9 +16661,16 @@ fn undoing_a_deferred_eraser_pass_before_its_check_lands_removes_nothing() {
     for _ in 0..20 {
         h.frame();
     }
-    assert_eq!(h.app.doc().scene.node(id), Some(&before), "undo restored the stroke");
+    assert_eq!(
+        h.app.doc().scene.node(id),
+        Some(&before),
+        "undo restored the stroke"
+    );
     assert_eq!(h.app.tab().journal.undo_depth(), depth);
-    assert!(h.app.tab().journal.can_redo(), "the pass waits to be redone");
+    assert!(
+        h.app.tab().journal.can_redo(),
+        "the pass waits to be redone"
+    );
 
     forget_last_pass(&mut h, id);
     let counted = flick_eraser(&mut h, id, a, b, true);
@@ -15743,15 +16705,33 @@ fn an_edit_after_a_deferred_eraser_pass_keeps_the_emptied_stroke_out_of_its_undo
     for _ in 0..20 {
         h.frame();
     }
-    assert!(board_color::erased_result(&erased).1, "the pass left no ink");
-    assert_eq!(h.app.doc().scene.node(id), Some(&erased), "the stroke stays");
+    assert!(
+        board_color::erased_result(&erased).1,
+        "the pass left no ink"
+    );
+    assert_eq!(
+        h.app.doc().scene.node(id),
+        Some(&erased),
+        "the stroke stays"
+    );
     assert_eq!(zigzag_picks(&h, id), 0, "the erased stroke picks");
     assert_eq!(h.app.tab().journal.undo_depth(), depth + 2);
     press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
-    assert!(h.app.doc().scene.node(other).is_some(), "Ctrl+Z undoes the edit");
-    assert_eq!(h.app.doc().scene.node(id), Some(&erased), "and leaves the pass");
+    assert!(
+        h.app.doc().scene.node(other).is_some(),
+        "Ctrl+Z undoes the edit"
+    );
+    assert_eq!(
+        h.app.doc().scene.node(id),
+        Some(&erased),
+        "and leaves the pass"
+    );
     press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
-    assert_eq!(h.app.doc().scene.node(id), Some(&before), "then undoes the pass");
+    assert_eq!(
+        h.app.doc().scene.node(id),
+        Some(&before),
+        "then undoes the pass"
+    );
     assert_eq!(h.app.tab().journal.undo_depth(), depth);
 
     forget_last_pass(&mut h, id);
@@ -15764,13 +16744,22 @@ fn an_edit_after_a_deferred_eraser_pass_keeps_the_emptied_stroke_out_of_its_undo
 /// screen ends of a pass along each that leaves the other alone.
 fn two_erasable_zigzags(tag: &str) -> (Harness, [NodeId; 2], [(Pos2, Pos2); 2]) {
     let (mut h, a, s0, s1) = erasable_zigzag(tag);
-    h.app.patch_nodes(&[a], |n| n.rect = n.rect.translated(0.0, -110.0));
+    h.app
+        .patch_nodes(&[a], |n| n.rect = n.rect.translated(0.0, -110.0));
     let c = h.app.board_xf().s2w(h.app.canvas_rect.center());
     h.app.set_board_tool(board::BoardTool::Brush);
     h.app.brush_width = 20.0;
-    let zig = [(-300.0, -65.0), (-150.0, 65.0), (0.0, -65.0), (150.0, 65.0), (300.0, -65.0)];
+    let zig = [
+        (-300.0, -65.0),
+        (-150.0, 65.0),
+        (0.0, -65.0),
+        (150.0, 65.0),
+        (300.0, -65.0),
+    ];
     h.app.finish_freehand_brush(
-        zig.iter().map(|(x, y)| Pos2::new(c.x + x, c.y + 110.0 + y)).collect(),
+        zig.iter()
+            .map(|(x, y)| Pos2::new(c.x + x, c.y + 110.0 + y))
+            .collect(),
     );
     let b = h.app.doc().scene.nodes.last().unwrap().id;
     settle_brush(&mut h, "the zigzags", |app| {
@@ -15796,13 +16785,26 @@ fn two_quick_deferred_passes(tag: &str, landed: bool) {
     let depth = h.app.tab().journal.undo_depth();
     h.app.brush_tiles.hold_inks = true;
     let counted = flick_eraser(&mut h, a, pass_a.0, pass_a.1, true);
-    let erased_a = h.app.doc().scene.node(a).expect("pass 1 defers A's check").clone();
+    let erased_a = h
+        .app
+        .doc()
+        .scene
+        .node(a)
+        .expect("pass 1 defers A's check")
+        .clone();
     assert_eq!(erase_marks(&erased_a).len(), 1, "pass 1 commits its mark");
-    assert_eq!(h.app.doc().scene.node(b), Some(&before_b), "pass 1 leaves B alone");
+    assert_eq!(
+        h.app.doc().scene.node(b),
+        Some(&before_b),
+        "pass 1 leaves B alone"
+    );
     if landed {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
         while !h.app.brush_tiles.ink_landed(a) {
-            assert!(std::time::Instant::now() < deadline, "A's answer never landed");
+            assert!(
+                std::time::Instant::now() < deadline,
+                "A's answer never landed"
+            );
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
     }
@@ -15812,7 +16814,11 @@ fn two_quick_deferred_passes(tag: &str, landed: bool) {
             h.app.brush_tiles.hold_inks = false;
         }
     });
-    assert_eq!(h.app.tab().journal.undo_depth(), depth + 2, "each pass is one undo step");
+    assert_eq!(
+        h.app.tab().journal.undo_depth(),
+        depth + 2,
+        "each pass is one undo step"
+    );
     let node_b = h.app.doc().scene.node(b).expect("pass 2 defers B's check");
     assert_eq!(erase_marks(node_b).len(), 1, "pass 2 commits its mark");
     assert_eq!(
@@ -15837,15 +16843,25 @@ fn two_quick_deferred_passes(tag: &str, landed: bool) {
     let spent = board_path::stamp_px_on_this_thread() - counted.0;
     let built = board_path::stamps_on_this_thread() - counted.1;
     assert_eq!(spent, 0, "the passes stamped {spent} px on the frame loop");
-    assert_eq!(built, 0, "the passes rasterized {built} strokes on the frame loop");
+    assert_eq!(
+        built, 0,
+        "the passes rasterized {built} strokes on the frame loop"
+    );
     assert_eq!(
         h.app.tab().journal.undo_depth(),
         depth + 2,
         "the removals joined pass 2's undo step"
     );
-    assert!(board_color::erased_result(&erased_a).1, "pass 1 left A no ink");
+    assert!(
+        board_color::erased_result(&erased_a).1,
+        "pass 1 left A no ink"
+    );
     press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
-    assert_eq!(h.app.doc().scene.node(b), Some(&before_b), "Ctrl+Z brings B back");
+    assert_eq!(
+        h.app.doc().scene.node(b),
+        Some(&before_b),
+        "Ctrl+Z brings B back"
+    );
     assert_eq!(
         h.app.doc().scene.node(a),
         Some(&erased_a),
@@ -15853,7 +16869,11 @@ fn two_quick_deferred_passes(tag: &str, landed: bool) {
     );
     assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
     press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
-    assert_eq!(h.app.doc().scene.node(a), Some(&before_a), "the second Ctrl+Z restores A");
+    assert_eq!(
+        h.app.doc().scene.node(a),
+        Some(&before_a),
+        "the second Ctrl+Z restores A"
+    );
     assert_eq!(h.app.doc().scene.node(b), Some(&before_b));
     assert_eq!(h.app.tab().journal.undo_depth(), depth);
 }
@@ -15879,7 +16899,10 @@ fn a_taken_over_eraser_removal_clears_the_selection() {
     flick_eraser(&mut h, a, pass_a.0, pass_a.1, true);
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
     while !h.app.brush_tiles.ink_landed(a) {
-        assert!(std::time::Instant::now() < deadline, "A's answer never landed");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "A's answer never landed"
+        );
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
     h.app.board_sel = std::iter::once(a).collect();
@@ -15888,7 +16911,10 @@ fn a_taken_over_eraser_removal_clears_the_selection() {
         h.app.brush_tiles.hold_inks = false;
     });
     assert!(h.app.doc().scene.node(a).is_none(), "pass 2 took A over");
-    assert!(!h.app.board_sel.contains(&a), "A left the selection with the scene");
+    assert!(
+        !h.app.board_sel.contains(&a),
+        "A left the selection with the scene"
+    );
 }
 
 /// A pass the tab refuses to commit takes nothing over: the earlier
@@ -15903,7 +16929,10 @@ fn a_refused_eraser_commit_keeps_the_earlier_passs_ink_answer() {
     flick_eraser(&mut h, a, pass_a.0, pass_a.1, true);
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
     while !h.app.brush_tiles.ink_landed(a) {
-        assert!(std::time::Instant::now() < deadline, "A's answer never landed");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "A's answer never landed"
+        );
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
     h.app.tab_mut().read_only = true;
@@ -15911,17 +16940,32 @@ fn a_refused_eraser_commit_keeps_the_earlier_passs_ink_answer() {
     flick_eraser_then(&mut h, b, pass_b.0, pass_b.1, true, |h| {
         h.app.brush_tiles.hold_inks = false;
     });
-    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "pass 2 was refused");
+    assert_eq!(
+        h.app.tab().journal.undo_depth(),
+        depth + 1,
+        "pass 2 was refused"
+    );
     h.app.tab_mut().read_only = false;
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
     while h.app.doc().scene.node(a).is_some() {
-        assert!(std::time::Instant::now() < deadline, "A stayed in the scene");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "A stayed in the scene"
+        );
         std::thread::sleep(std::time::Duration::from_millis(5));
         h.frame();
     }
-    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "A left in pass 1's step");
+    assert_eq!(
+        h.app.tab().journal.undo_depth(),
+        depth + 1,
+        "A left in pass 1's step"
+    );
     press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
-    assert_eq!(h.app.doc().scene.node(a), Some(&before_a), "one Ctrl+Z restores A");
+    assert_eq!(
+        h.app.doc().scene.node(a),
+        Some(&before_a),
+        "one Ctrl+Z restores A"
+    );
 }
 
 /// Review r13 finding 2 (Art. II): while a deferred ink check waits for
@@ -15935,7 +16979,10 @@ fn a_pending_ink_check_does_no_stroke_work_per_frame() {
     assert!(h.app.erase_settling(), "the check waits for its answer");
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
     while !h.app.brush_tiles.ink_landed(id) {
-        assert!(std::time::Instant::now() < deadline, "the answer never landed");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the answer never landed"
+        );
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
     let work = board_color::settle_work_on_this_thread();
@@ -15943,11 +16990,17 @@ fn a_pending_ink_check_does_no_stroke_work_per_frame() {
         h.frame();
     }
     let spent = board_color::settle_work_on_this_thread() - work;
-    assert_eq!(spent, 0, "10 frames hashed or cloned the waiting stroke {spent} times");
+    assert_eq!(
+        spent, 0,
+        "10 frames hashed or cloned the waiting stroke {spent} times"
+    );
     h.app.brush_tiles.hold_inks = false;
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
     while h.app.doc().scene.node(id).is_some() {
-        assert!(std::time::Instant::now() < deadline, "the emptied stroke stayed");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the emptied stroke stayed"
+        );
         std::thread::sleep(std::time::Duration::from_millis(5));
         h.frame();
     }
@@ -15980,7 +17033,9 @@ fn an_erased_stand_in_follows_a_nudge_before_its_bitmap_lands() {
             waited += 1;
             assert!(waited < 2000, "the cut never landed");
             std::thread::sleep(std::time::Duration::from_millis(5));
-            shot(&mut h, &mut raster, |i| i.modifiers = egui::Modifiers::SHIFT);
+            shot(&mut h, &mut raster, |i| {
+                i.modifiers = egui::Modifiers::SHIFT
+            });
         }
         h.app.brush_tiles.hold_rasters = true;
         let counted = (
@@ -15992,11 +17047,14 @@ fn an_erased_stand_in_follows_a_nudge_before_its_bitmap_lands() {
             stamp_of(&h, id).is_some_and(|(_, g)| !g.exact && g.seal.is_some()),
             "tiles {tiled}: the preview stands in"
         );
-        h.app.patch_nodes(&[id], |n| n.rect = n.rect.translated(0.0, 200.0));
+        h.app
+            .patch_nodes(&[id], |n| n.rect = n.rect.translated(0.0, 200.0));
         let moved = cross + EVec2::new(0.0, 200.0);
         let xf = h.app.board_xf();
         assert!(
-            h.app.canvas_rect.contains(xf.w2s(moved + EVec2::new(0.0, 60.0))),
+            h.app
+                .canvas_rect
+                .contains(xf.w2s(moved + EVec2::new(0.0, 60.0))),
             "the nudged bar is in view"
         );
         for k in 0..6 {
@@ -16005,19 +17063,37 @@ fn an_erased_stand_in_follows_a_nudge_before_its_bitmap_lands() {
             let when = format!("tiles {tiled}, frame {k} after the nudge");
             for p in cut_points(moved) {
                 let r = redness(&raster, &xf, p);
-                assert!(r < lit, "{when}: the cut at the new place shows ink at {p:?} ({r:.2})");
+                assert!(
+                    r < lit,
+                    "{when}: the cut at the new place shows ink at {p:?} ({r:.2})"
+                );
             }
             let r = redness(&raster, &xf, moved + EVec2::new(500.0, -3.0));
-            assert!(r > lit, "{when}: the ink left at the new place is dark ({r:.2})");
-            for p in [cross + EVec2::new(500.0, -3.0), cross - EVec2::new(150.0, 0.0)] {
+            assert!(
+                r > lit,
+                "{when}: the ink left at the new place is dark ({r:.2})"
+            );
+            for p in [
+                cross + EVec2::new(500.0, -3.0),
+                cross - EVec2::new(150.0, 0.0),
+            ] {
                 let r = redness(&raster, &xf, p);
-                assert!(r < lit, "{when}: ink stayed behind at the old place {p:?} ({r:.2})");
+                assert!(
+                    r < lit,
+                    "{when}: ink stayed behind at the old place {p:?} ({r:.2})"
+                );
             }
         }
         let spent = board_path::stamp_px_on_this_thread() - counted.0;
         let built = board_path::stamps_on_this_thread() - counted.1;
-        assert_eq!(spent, 0, "tiles {tiled}: stamped {spent} px on the frame loop");
-        assert_eq!(built, 0, "tiles {tiled}: rasterized {built} strokes on the frame loop");
+        assert_eq!(
+            spent, 0,
+            "tiles {tiled}: stamped {spent} px on the frame loop"
+        );
+        assert_eq!(
+            built, 0,
+            "tiles {tiled}: rasterized {built} strokes on the frame loop"
+        );
         h.app.brush_tiles.hold_rasters = false;
     }
 }
@@ -16106,7 +17182,10 @@ fn a_smooth_pass_on_a_big_stroke_stamps_nothing_on_the_frame_loop() {
     let slate_doc::scene::NodeKind::Shape(shape) = &node.kind else {
         panic!("path");
     };
-    assert!(shape.stroke.gaussian_blur > 0.0, "the pass smoothed the bar");
+    assert!(
+        shape.stroke.gaussian_blur > 0.0,
+        "the pass smoothed the bar"
+    );
     assert_eq!(
         stamp_of(&h, other).map(|(_, g)| g.tex.id()),
         Some(kept),
@@ -16149,7 +17228,11 @@ fn the_wheel_gap_keeps_the_color_and_only_outside_samples() {
     let hsv = [0.3, 0.5, 0.5];
     // Between the saturation/value disc and the hue ring: a dead strip that
     // keeps the value and never reaches for the eyedropper.
-    for r in [WHEEL_SV_RADIUS + 0.5, WHEEL_SV_RADIUS + 4.0, WHEEL_HUE_INNER - 0.5] {
+    for r in [
+        WHEEL_SV_RADIUS + 0.5,
+        WHEEL_SV_RADIUS + 4.0,
+        WHEEL_HUE_INNER - 0.5,
+    ] {
         for a in [0.0_f32, 1.3, 2.9, 4.4] {
             assert!(matches!(
                 sample_wheel([a.cos() * r, a.sin() * r], hsv, &[]),
@@ -19546,7 +20629,12 @@ fn a_filleted_taper_paints_no_kink_at_the_fillet_middle() {
         let normal = EVec2::new(a.cos(), a.sin());
         ink_half_width_at(&h, id, center + normal * r, normal, zoom)
     };
-    assert_close(half_at(0.0), 10.0, 0.05, "the middle keeps the corner width");
+    assert_close(
+        half_at(0.0),
+        10.0,
+        0.05,
+        "the middle keeps the corner width",
+    );
     // One-sided slopes at the middle, extrapolated from 2 and 4 units so the
     // width's curvature cancels and only a kink would remain.
     let one_sided = |dir: f32| {
@@ -20541,32 +21629,66 @@ fn smooth_tip_chords_scrub_size_softness_and_strength_with_no_wheel() {
             h.app.brush_hud
         );
     });
-    assert!(h.app.smooth_width > 40.0 + 10.0, "size grew: {}", h.app.smooth_width);
-    assert!(h.app.smooth_softness > 0.5, "softness rose: {}", h.app.smooth_softness);
-    assert!((h.app.smooth_strength - 0.5).abs() < 1e-6, "strength untouched");
+    assert!(
+        h.app.smooth_width > 40.0 + 10.0,
+        "size grew: {}",
+        h.app.smooth_width
+    );
+    assert!(
+        h.app.smooth_softness > 0.5,
+        "softness rose: {}",
+        h.app.smooth_softness
+    );
+    assert!(
+        (h.app.smooth_strength - 0.5).abs() < 1e-6,
+        "strength untouched"
+    );
 
     let (width, softness) = (h.app.smooth_width, h.app.smooth_softness);
-    right_chord(&mut h, press, EVec2::new(0.0, -30.0), egui::Modifiers::SHIFT, |h| {
-        assert!(
-            matches!(h.app.brush_hud, Some(board_color::BrushHud::Opacity { .. })),
-            "Shift+right-drag opens the strength HUD: {:?}",
-            h.app.brush_hud
-        );
-    });
-    assert!(h.app.smooth_strength > 0.6, "strength rose: {}", h.app.smooth_strength);
-    assert_eq!((h.app.smooth_width, h.app.smooth_softness), (width, softness));
+    right_chord(
+        &mut h,
+        press,
+        EVec2::new(0.0, -30.0),
+        egui::Modifiers::SHIFT,
+        |h| {
+            assert!(
+                matches!(h.app.brush_hud, Some(board_color::BrushHud::Opacity { .. })),
+                "Shift+right-drag opens the strength HUD: {:?}",
+                h.app.brush_hud
+            );
+        },
+    );
+    assert!(
+        h.app.smooth_strength > 0.6,
+        "strength rose: {}",
+        h.app.smooth_strength
+    );
+    assert_eq!(
+        (h.app.smooth_width, h.app.smooth_softness),
+        (width, softness)
+    );
 
     let fg = h.app.board_colors.fg;
     let strength = h.app.smooth_strength;
-    right_chord(&mut h, press, EVec2::new(40.0, 20.0), egui::Modifiers::CTRL, |h| {
-        assert!(
-            !matches!(h.app.brush_hud, Some(board_color::BrushHud::Wheel { .. })),
-            "Ctrl+right-drag shows no color wheel for Smooth"
-        );
-    });
+    right_chord(
+        &mut h,
+        press,
+        EVec2::new(40.0, 20.0),
+        egui::Modifiers::CTRL,
+        |h| {
+            assert!(
+                !matches!(h.app.brush_hud, Some(board_color::BrushHud::Wheel { .. })),
+                "Ctrl+right-drag shows no color wheel for Smooth"
+            );
+        },
+    );
     assert_eq!(h.app.board_colors.fg, fg, "no color was picked");
     assert_eq!(
-        (h.app.smooth_width, h.app.smooth_softness, h.app.smooth_strength),
+        (
+            h.app.smooth_width,
+            h.app.smooth_softness,
+            h.app.smooth_strength
+        ),
         (width, softness, strength)
     );
 }
@@ -20670,7 +21792,11 @@ fn the_style_band_enters_each_texture_hard_and_holds_size() {
     // Halfway down to the band: already harder than a plain scrub.
     let mid = Pos2::new(press.x, press.y + (band - press.y) * 0.5);
     assert!(h.app.drive_brush_hud(Some(mid), true, false));
-    assert!(h.app.brush_softness <= 0.4 + 1e-4, "{}", h.app.brush_softness);
+    assert!(
+        h.app.brush_softness <= 0.4 + 1e-4,
+        "{}",
+        h.app.brush_softness
+    );
     let n = h.app.tip_choices().len();
     let row: Vec<Pos2> = (0..n).map(|i| palette_slot(press, r, i, n)).collect();
     for p in [
@@ -20690,7 +21816,10 @@ fn the_style_band_enters_each_texture_hard_and_holds_size() {
     }
     assert_eq!(palette_hit(press, r, n, row[1]), Some(1));
     assert!(h.app.drive_brush_hud(Some(row[1]), false, false));
-    assert_eq!(h.app.brush_softness, 0.0, "the release keeps the hardest edge");
+    assert_eq!(
+        h.app.brush_softness, 0.0,
+        "the release keeps the hardest edge"
+    );
     assert_eq!(h.app.current_tip_choice(), Some(h.app.tip_choices()[1]));
 }
 
@@ -20703,8 +21832,12 @@ fn opacity_reaches_zero_and_a_clear_stroke_still_picks() {
     h.app.brush_opacity = 0.3;
     h.app.shift_down = true;
     assert!(h.app.drive_brush_hud(Some(Pos2::new(0.0, 0.0)), true, true));
-    assert!(h.app.drive_brush_hud(Some(Pos2::new(0.0, 400.0)), true, false));
-    assert!(h.app.drive_brush_hud(Some(Pos2::new(0.0, 400.0)), false, false));
+    assert!(h
+        .app
+        .drive_brush_hud(Some(Pos2::new(0.0, 400.0)), true, false));
+    assert!(h
+        .app
+        .drive_brush_hud(Some(Pos2::new(0.0, 400.0)), false, false));
     assert_eq!(h.app.brush_opacity, 0.0);
     h.app.shift_down = false;
     h.app.brush_width = 12.0;
@@ -20767,7 +21900,10 @@ fn a_committed_arrow_curve_has_its_head_on_board_and_in_export() {
         .windows(2)
         .map(|w| board_color::dist_point_segment(base, w[0], w[1]))
         .fold(f32::MAX, f32::min);
-    assert!(near_curve < 1.5, "the head's base sits {near_curve} off the curve");
+    assert!(
+        near_curve < 1.5,
+        "the head's base sits {near_curve} off the curve"
+    );
 
     let ink = board_path::vector_stroke_ink(&node, shape, path, 1.0);
     let n = ink.vertices.len();
@@ -20791,7 +21927,9 @@ fn a_committed_arrow_curve_has_its_head_on_board_and_in_export() {
 
     let html = slate_artifact::render_html(h.app.doc(), &slate_artifact::AssetMap::default());
     let want = format!("M {:.1} {:.1} L", tip[0], tip[1]);
-    let at = html.find(&want).unwrap_or_else(|| panic!("export head {want}"));
+    let at = html
+        .find(&want)
+        .unwrap_or_else(|| panic!("export head {want}"));
     let nums: Vec<f32> = html[at..]
         .split(|c: char| c == 'Z')
         .next()
@@ -20801,7 +21939,10 @@ fn a_committed_arrow_curve_has_its_head_on_board_and_in_export() {
         .collect();
     assert_eq!(nums.len(), 6, "a triangle");
     let emid = Pos2::new((nums[2] + nums[4]) * 0.5, (nums[3] + nums[5]) * 0.5);
-    assert!(emid.distance(base) < 0.2, "export head base {emid:?} vs {base:?}");
+    assert!(
+        emid.distance(base) < 0.2,
+        "export head base {emid:?} vs {base:?}"
+    );
 }
 
 /// A taper-both straight Line swells to full width in the middle instead of
@@ -20811,7 +21952,8 @@ fn a_taper_both_line_swells_in_the_middle() {
     use board_tip_hud::{CurveStyle, TipChoice};
     let mut h = Harness::new("taper_line");
     h.app.set_board_tool(board::BoardTool::Line);
-    h.app.apply_tip_choice(TipChoice::Curve(CurveStyle::TaperBoth));
+    h.app
+        .apply_tip_choice(TipChoice::Curve(CurveStyle::TaperBoth));
     h.app.set_vector_tip(20.0, 0.0, 1.0);
     let (rect, data) =
         board_path::points_to_path_data(&[Pos2::new(0.0, 0.0), Pos2::new(300.0, 0.0)], false);
@@ -20831,9 +21973,21 @@ fn a_taper_both_line_swells_in_the_middle() {
             .fold(0.0_f32, f32::max)
     };
     let w = shape.stroke.width;
-    assert!(half_at(140.0, 160.0) > w * 0.4, "middle half-width {}", half_at(140.0, 160.0));
-    assert!(half_at(0.0, 3.0) < w * 0.3, "start tapers, {}", half_at(0.0, 3.0));
-    assert!(half_at(297.0, 300.0) < w * 0.3, "end tapers, {}", half_at(297.0, 300.0));
+    assert!(
+        half_at(140.0, 160.0) > w * 0.4,
+        "middle half-width {}",
+        half_at(140.0, 160.0)
+    );
+    assert!(
+        half_at(0.0, 3.0) < w * 0.3,
+        "start tapers, {}",
+        half_at(0.0, 3.0)
+    );
+    assert!(
+        half_at(297.0, 300.0) < w * 0.3,
+        "end tapers, {}",
+        half_at(297.0, 300.0)
+    );
 }
 
 fn ctrl_right(pos: Pos2, pressed: Option<bool>) -> impl FnOnce(&mut egui::RawInput) {
@@ -20875,11 +22029,23 @@ fn a_wheel_drag_across_the_gap_keeps_the_color_until_the_ring() {
     let rgb0 = h.app.active_rgba();
     let steps = 6;
     for k in 0..=steps {
-        let d = WHEEL_SV_RADIUS + 0.5 + (WHEEL_HUE_INNER - WHEEL_SV_RADIUS - 1.0) * k as f32 / steps as f32;
+        let d = WHEEL_SV_RADIUS
+            + 0.5
+            + (WHEEL_HUE_INNER - WHEEL_SV_RADIUS - 1.0) * k as f32 / steps as f32;
         h.frame_with(ctrl_right(center + EVec2::new(0.0, -d), None));
-        assert_eq!(h.app.active_rgba(), rgb0, "the gap at {d} changed the color");
+        assert_eq!(
+            h.app.active_rgba(),
+            rgb0,
+            "the gap at {d} changed the color"
+        );
         assert!(
-            matches!(h.app.brush_hud, Some(BrushHud::Wheel { sampling: false, .. })),
+            matches!(
+                h.app.brush_hud,
+                Some(BrushHud::Wheel {
+                    sampling: false,
+                    ..
+                })
+            ),
             "the gap at {d} reached for the eyedropper"
         );
     }
@@ -20889,7 +22055,11 @@ fn a_wheel_drag_across_the_gap_keeps_the_color_until_the_ring() {
     let Some(BrushHud::Wheel { hsv, .. }) = h.app.brush_hud else {
         panic!("wheel stays open");
     };
-    assert!((hsv[0] - 0.25).abs() < 0.02, "straight up is a quarter turn, hue {}", hsv[0]);
+    assert!(
+        (hsv[0] - 0.25).abs() < 0.02,
+        "straight up is a quarter turn, hue {}",
+        hsv[0]
+    );
     h.frame_with(ctrl_right(center + EVec2::new(0.0, -ring), Some(false)));
 }
 
@@ -20945,10 +22115,10 @@ fn the_swatch_warp_lands_on_the_painted_swatch_center() {
         );
         // Once there, the swatch does not pull again.
         let out = h.frame_output(ctrl_right(want, None));
-        assert!(out
-            .viewport_output
-            .values()
-            .all(|v| !v.commands.iter().any(|c| matches!(c, egui::ViewportCommand::CursorPosition(_)))));
+        assert!(out.viewport_output.values().all(|v| !v
+            .commands
+            .iter()
+            .any(|c| matches!(c, egui::ViewportCommand::CursorPosition(_)))));
         h.frame_with(ctrl_right(center, None));
     }
     h.frame_with(ctrl_right(center, Some(false)));
@@ -21000,7 +22170,11 @@ fn a_wheel_drag_onto_the_white_and_black_snaps_lands_exactly() {
     let [(white, _), (black, _)] = wheel_snaps();
     let inside = |at: EVec2| at - at.normalized() * (WHEEL_SNAP_RADIUS * 0.6);
     h.frame_with(ctrl_right(center + white * 0.6, None));
-    assert_ne!(h.app.active_rgba()[..3], [255, 255, 255], "short of the snap");
+    assert_ne!(
+        h.app.active_rgba()[..3],
+        [255, 255, 255],
+        "short of the snap"
+    );
     h.frame_with(ctrl_right(center + inside(white), None));
     assert_eq!(h.app.active_rgba()[..3], [255, 255, 255], "the white snap");
     h.frame_with(ctrl_right(center + black * 0.6, None));
@@ -21011,7 +22185,11 @@ fn a_wheel_drag_onto_the_white_and_black_snaps_lands_exactly() {
     h.frame_with(ctrl_right(on_black, Some(false)));
     h.frame();
     assert!(h.app.brush_hud.is_none());
-    assert_eq!(h.app.active_rgba()[..3], [0, 0, 0], "the release keeps black");
+    assert_eq!(
+        h.app.active_rgba()[..3],
+        [0, 0, 0],
+        "the release keeps black"
+    );
 }
 
 /// Review r7 finding 4 (Art. II): the open wheel repaints the same disk and
@@ -21055,8 +22233,14 @@ fn the_open_wheel_repaints_its_cached_meshes() {
     h.frame_with(ctrl_right(ring, None));
     let c = meshes(&h.frame_output(ctrl_right(ring, None)), center);
     assert_eq!(c.len(), 2);
-    assert!(!std::sync::Arc::ptr_eq(&a[0], &c[0]), "a new hue, a new disk");
-    assert!(std::sync::Arc::ptr_eq(&a[1], &c[1]), "the ring never changes");
+    assert!(
+        !std::sync::Arc::ptr_eq(&a[0], &c[0]),
+        "a new hue, a new disk"
+    );
+    assert!(
+        std::sync::Arc::ptr_eq(&a[1], &c[1]),
+        "the ring never changes"
+    );
     h.frame_with(ctrl_right(ring, Some(false)));
 }
 
@@ -21104,7 +22288,11 @@ fn the_style_band_through_frames_enters_a_texture_hard_and_holds_size() {
         Pos2::new(press.x, press.y + (band - press.y) * 0.5),
         None,
     ));
-    assert!(h.app.brush_softness <= 0.4 + 1e-4, "{}", h.app.brush_softness);
+    assert!(
+        h.app.brush_softness <= 0.4 + 1e-4,
+        "{}",
+        h.app.brush_softness
+    );
     let n = h.app.tip_choices().len();
     let row: Vec<Pos2> = (0..n).map(|i| palette_slot(press, r, i, n)).collect();
     for p in [
@@ -21122,7 +22310,10 @@ fn the_style_band_through_frames_enters_a_texture_hard_and_holds_size() {
     h.frame();
     assert!(h.app.brush_hud.is_none());
     assert_eq!(h.app.brush_width, 20.0);
-    assert_eq!(h.app.brush_softness, 0.0, "the release keeps the hardest edge");
+    assert_eq!(
+        h.app.brush_softness, 0.0,
+        "the release keeps the hardest edge"
+    );
     assert_eq!(h.app.current_tip_choice(), Some(h.app.tip_choices()[1]));
 }
 
@@ -21153,7 +22344,10 @@ fn brush_shift_drag_keeps_45_degree_steps_with_ortho_on() {
 fn a_texture_change_restamps_the_live_shift_segment() {
     let mut h = brush_board("brush_shift_texture");
     let xf = h.app.board_xf();
-    let (a, b) = (xf.w2s(Pos2::new(100.0, 100.0)), xf.w2s(Pos2::new(260.0, 100.0)));
+    let (a, b) = (
+        xf.w2s(Pos2::new(100.0, 100.0)),
+        xf.w2s(Pos2::new(260.0, 100.0)),
+    );
     let shift = egui::Modifiers::SHIFT;
     let button = |pos: Pos2, pressed: bool| egui::Event::PointerButton {
         pos,
@@ -21210,11 +22404,18 @@ fn a_select_grip_pick_takes_the_wheel_and_painted_opacity_through_frames() {
     h.frame();
     let xf = h.app.board_xf();
     press_primary(&mut h, xf.w2s(pts[2]), egui::Modifiers::NONE);
-    assert_eq!(h.app.picked_vertices(), Some((id, vec![2])), "the click picks vertex 2");
+    assert_eq!(
+        h.app.picked_vertices(),
+        Some((id, vec![2])),
+        "the click picks vertex 2"
+    );
     let away = xf.w2s(pts[1] + EVec2::new(0.0, 160.0));
     h.frame_with(|i| i.events.push(egui::Event::PointerMoved(away)));
     let (_, _, opacity) = h.app.vector_tip().expect("a readout");
-    assert!((opacity - 0.5).abs() < 1e-3, "the readout is painted opacity: {opacity}");
+    assert!(
+        (opacity - 0.5).abs() < 1e-3,
+        "the readout is painted opacity: {opacity}"
+    );
     let before = painted_vertex_tips(&h, id);
     let depth = h.app.tab().journal.undo_depth();
 
@@ -21224,23 +22425,45 @@ fn a_select_grip_pick_takes_the_wheel_and_painted_opacity_through_frames() {
     h.frame_with(ctrl_right(target, Some(false)));
     h.frame();
     let colored = painted_vertex_tips(&h, id);
-    assert_ne!(colored[2].1[..3], before[2].1[..3], "vertex 2 takes the color");
+    assert_ne!(
+        colored[2].1[..3],
+        before[2].1[..3],
+        "vertex 2 takes the color"
+    );
     assert_eq!(colored[0], before[0], "vertex 0 keeps its color");
     assert_eq!(colored[1], before[1], "vertex 1 keeps its color");
     assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
 
-    hud_scrub(&mut h, away, EVec2::new(0.0, -120.0), egui::Modifiers::SHIFT);
+    hud_scrub(
+        &mut h,
+        away,
+        EVec2::new(0.0, -120.0),
+        egui::Modifiers::SHIFT,
+    );
     let node_opacity = h.app.doc().scene.node(id).unwrap().opacity;
-    assert!((node_opacity - 1.0).abs() < 1e-3, "the node rises to vertex 2: {node_opacity}");
+    assert!(
+        (node_opacity - 1.0).abs() < 1e-3,
+        "the node rises to vertex 2: {node_opacity}"
+    );
     let tips = painted_vertex_tips(&h, id);
     let painted = |k: usize| node_opacity * tips[k].1[3] as f32 / 255.0;
-    assert!((painted(2) - 1.0).abs() < 1e-3, "vertex 2 paints fully opaque");
+    assert!(
+        (painted(2) - 1.0).abs() < 1e-3,
+        "vertex 2 paints fully opaque"
+    );
     for k in [0, 1] {
-        assert!((painted(k) - 0.5).abs() < 0.01, "vertex {k} still paints at 50 %: {tips:?}");
+        assert!(
+            (painted(k) - 0.5).abs() < 0.01,
+            "vertex {k} still paints at 50 %: {tips:?}"
+        );
     }
     assert_eq!(h.app.tab().journal.undo_depth(), depth + 2);
     press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
-    assert_eq!(h.app.doc().scene.node(id).unwrap().opacity, 0.5, "one Ctrl+Z");
+    assert_eq!(
+        h.app.doc().scene.node(id).unwrap().opacity,
+        0.5,
+        "one Ctrl+Z"
+    );
     assert_eq!(painted_vertex_tips(&h, id), colored);
 }
 
@@ -21301,7 +22524,10 @@ fn select_tool_alt_right_drag_scales_the_whole_selected_curve() {
     assert!(tips[1].0 > before[1].0 + 10.0, "the curve widens: {tips:?}");
     for k in [0, 2] {
         let ratio = tips[k].0 / tips[1].0;
-        assert!((ratio - 0.5).abs() < 1e-3, "vertex {k} keeps the taper: {tips:?}");
+        assert!(
+            (ratio - 0.5).abs() < 1e-3,
+            "vertex {k} keeps the taper: {tips:?}"
+        );
         assert_eq!(tips[k].1, before[k].1, "vertex {k} keeps its color");
     }
     assert!(h.app.board_sel.contains(&id), "the curve stays selected");
@@ -21325,7 +22551,11 @@ fn select_tool_ctrl_right_drag_shifts_the_whole_curve_color() {
     let center = open_wheel_frames(&mut h, away);
     match h.app.brush_hud {
         Some(board_color::BrushHud::Wheel { fg0, .. }) => {
-            assert_eq!(fg0[..3], [200, 40, 40], "the wheel opens on the curve's color")
+            assert_eq!(
+                fg0[..3],
+                [200, 40, 40],
+                "the wheel opens on the curve's color"
+            )
         }
         ref other => panic!("the wheel, got {other:?}"),
     }
@@ -21344,8 +22574,14 @@ fn select_tool_ctrl_right_drag_shifts_the_whole_curve_color() {
         assert_eq!(tip.0, before[k].0, "vertex {k} keeps its width");
     }
     let hue = |c: [u8; 4]| board_color::rgb_to_hsv(rgb(c))[0];
-    assert!((hue(tips[1].1) - 1.0 / 3.0).abs() < 0.02, "green stays green: {tips:?}");
-    assert!((hue(tips[2].1) - 2.0 / 3.0).abs() < 0.02, "blue stays blue: {tips:?}");
+    assert!(
+        (hue(tips[1].1) - 1.0 / 3.0).abs() < 0.02,
+        "green stays green: {tips:?}"
+    );
+    assert!(
+        (hue(tips[2].1) - 2.0 / 3.0).abs() < 0.02,
+        "blue stays blue: {tips:?}"
+    );
     assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "one undo step");
     press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
     assert_eq!(painted_vertex_tips(&h, id), before);
@@ -21372,7 +22608,10 @@ fn select_tool_whole_curve_hud_reaches_lines_and_bezier_spans() {
     h.frame();
     let c = h.app.board_xf().s2w(h.app.canvas_rect.center());
     for (press, handle) in [
-        (c + EVec2::new(-150.0, -150.0), c + EVec2::new(-150.0, -150.0)),
+        (
+            c + EVec2::new(-150.0, -150.0),
+            c + EVec2::new(-150.0, -150.0),
+        ),
         (c + EVec2::new(0.0, -150.0), c + EVec2::new(40.0, -150.0)),
         (c + EVec2::new(150.0, -100.0), c + EVec2::new(150.0, -100.0)),
     ] {
@@ -21407,12 +22646,24 @@ fn select_tool_whole_curve_hud_reaches_lines_and_bezier_spans() {
 fn a_relative_color_shift_rotates_every_hue_together() {
     use board_color::shift_hsv;
     let (red, green, blue) = ([200, 40, 40], [40, 200, 40], [40, 40, 200]);
-    assert_eq!(shift_hsv(red, red, [10, 200, 30]), [10, 200, 30], "the press color lands on the pick");
+    assert_eq!(
+        shift_hsv(red, red, [10, 200, 30]),
+        [10, 200, 30],
+        "the press color lands on the pick"
+    );
     assert_eq!(shift_hsv(green, red, green), blue, "a third of a turn");
     assert_eq!(shift_hsv(blue, red, green), red);
-    assert_eq!(shift_hsv(green, [128, 128, 128], [128, 128, 128]), green, "no change, no shift");
+    assert_eq!(
+        shift_hsv(green, [128, 128, 128], [128, 128, 128]),
+        green,
+        "no change, no shift"
+    );
     let gray = [100, 100, 100];
-    assert_eq!(shift_hsv(gray, red, [40, 40, 200]), gray, "same saturation: a gray stays gray");
+    assert_eq!(
+        shift_hsv(gray, red, [40, 40, 200]),
+        gray,
+        "same saturation: a gray stays gray"
+    );
     let tinted = shift_hsv(gray, [200, 100, 100], [200, 40, 200]);
     assert!(
         tinted[0] == tinted[2] && tinted[0] > tinted[1],
@@ -21436,21 +22687,38 @@ fn select_tool_shift_right_drag_fades_the_whole_curve_relatively() {
     let depth = h.app.tab().journal.undo_depth();
     hud_scrub(&mut h, away, EVec2::new(0.0, 50.0), egui::Modifiers::SHIFT);
     let node_opacity = h.app.doc().scene.node(id).unwrap().opacity;
-    assert!(node_opacity < 0.9 && node_opacity > 0.0, "down fades: {node_opacity}");
-    assert_eq!(painted_vertex_tips(&h, id), before, "each vertex keeps its share");
+    assert!(
+        node_opacity < 0.9 && node_opacity > 0.0,
+        "down fades: {node_opacity}"
+    );
+    assert_eq!(
+        painted_vertex_tips(&h, id),
+        before,
+        "each vertex keeps its share"
+    );
     assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
     hud_scrub(&mut h, away, EVec2::new(0.0, 400.0), egui::Modifiers::SHIFT);
-    assert_eq!(h.app.doc().scene.node(id).unwrap().opacity, 0.0, "down to 0 %");
+    assert_eq!(
+        h.app.doc().scene.node(id).unwrap().opacity,
+        0.0,
+        "down to 0 %"
+    );
     assert_eq!(h.app.tab().journal.undo_depth(), depth + 2);
 
     let xf = h.app.board_xf();
     let empty = xf.w2s(pts[1] + EVec2::new(0.0, -300.0));
     press_primary(&mut h, empty, egui::Modifiers::NONE);
-    assert!(h.app.board_sel.is_empty(), "a click on empty board deselects");
+    assert!(
+        h.app.board_sel.is_empty(),
+        "a click on empty board deselects"
+    );
     pause(&mut h);
     let on_line = xf.w2s(pts[0].lerp(pts[1], 0.5));
     press_primary(&mut h, on_line, egui::Modifiers::NONE);
-    assert!(h.app.board_sel.contains(&id), "a 0 % curve still selects on its line");
+    assert!(
+        h.app.board_sel.contains(&id),
+        "a 0 % curve still selects on its line"
+    );
 }
 
 /// eb1 (user, 28 September 2026): a painted stroke selected with the Select
@@ -21514,17 +22782,26 @@ fn select_tool_alt_right_drag_scales_a_whole_brush_stroke() {
     let shown = h.app.active_tip().0;
     let during = stamp_tips(&h);
     let widest = during.iter().map(|t| t.width).fold(0.0_f32, f32::max);
-    assert!((widest - shown).abs() < 1e-3, "the widest tip is the value shown");
+    assert!(
+        (widest - shown).abs() < 1e-3,
+        "the widest tip is the value shown"
+    );
     assert!(widest > 12.0 + 10.0, "the stroke widens: {widest}");
     for (t, b) in during.iter().zip(&before) {
-        assert!((t.width / widest - b.width / 12.0).abs() < 1e-3, "in proportion");
+        assert!(
+            (t.width / widest - b.width / 12.0).abs() < 1e-3,
+            "in proportion"
+        );
     }
     h.frame_with(alt_right(away + EVec2::new(30.0, -40.0), None));
     let softer = stamp_tips(&h);
     let softest = softer.iter().map(|t| t.softness).fold(0.0_f32, f32::max);
     assert!(softest > 0.4 + 0.05, "up softens: {softest}");
     for (t, b) in softer.iter().zip(&before) {
-        assert!((t.softness / softest - b.softness / 0.4).abs() < 1e-3, "softness in proportion");
+        assert!(
+            (t.softness / softest - b.softness / 0.4).abs() < 1e-3,
+            "softness in proportion"
+        );
     }
     h.frame_with(alt_right(away + EVec2::new(30.0, -40.0), Some(false)));
     h.frame();
@@ -21542,14 +22819,13 @@ fn a_late_modifier_on_the_whole_curve_hud_neither_pans_nor_opens_a_menu() {
         let (mut h, id, _, away) = whole_curve_board("hud_select_whole_late");
         let before = painted_vertex_tips(&h, id);
         let cam = h.app.tab().cam.offset;
-        let button = |pos: Pos2, pressed: bool, modifiers: egui::Modifiers| {
-            egui::Event::PointerButton {
+        let button =
+            |pos: Pos2, pressed: bool, modifiers: egui::Modifiers| egui::Event::PointerButton {
                 pos,
                 button: egui::PointerButton::Secondary,
                 pressed,
                 modifiers,
-            }
-        };
+            };
         let end = away + EVec2::new(40.0, 0.0);
         h.frame_with(|i| i.events.push(egui::Event::PointerMoved(away)));
         h.frame_with(|i| {
@@ -21560,7 +22836,10 @@ fn a_late_modifier_on_the_whole_curve_hud_neither_pans_nor_opens_a_menu() {
             i.modifiers = mods;
             i.events.push(egui::Event::PointerMoved(away));
         });
-        assert!(h.app.brush_hud.is_some(), "{mods:?}: the late modifier opens the HUD");
+        assert!(
+            h.app.brush_hud.is_some(),
+            "{mods:?}: the late modifier opens the HUD"
+        );
         h.frame_with(|i| {
             i.modifiers = mods;
             i.events.push(egui::Event::PointerMoved(end));
@@ -21573,9 +22852,15 @@ fn a_late_modifier_on_the_whole_curve_hud_neither_pans_nor_opens_a_menu() {
         assert!(h.app.brush_hud.is_none());
         assert_eq!(h.app.tab().cam.offset, cam, "{mods:?}: no pan");
         assert!(h.app.board_menu.is_none(), "{mods:?}: no context menu");
-        assert!(h.app.board_empty_menu.is_none(), "{mods:?}: no context menu");
+        assert!(
+            h.app.board_empty_menu.is_none(),
+            "{mods:?}: no context menu"
+        );
         if mods.alt {
-            assert!(painted_vertex_tips(&h, id)[1].0 > before[1].0, "the drag sized the curve");
+            assert!(
+                painted_vertex_tips(&h, id)[1].0 > before[1].0,
+                "the drag sized the curve"
+            );
         }
     }
 }
@@ -21590,7 +22875,10 @@ fn select_tool_style_row_restyles_the_whole_selected_curve() {
     let width = curve_shape(&h, id).1.stroke.width;
     h.frame_with(alt_right(away, None));
     h.frame_with(alt_right(away, Some(true)));
-    assert!(matches!(h.app.brush_hud, Some(board_color::BrushHud::Size { .. })));
+    assert!(matches!(
+        h.app.brush_hud,
+        Some(board_color::BrushHud::Size { .. })
+    ));
     let n = h.app.tip_choices().len();
     assert_eq!(n, 5, "the curve style row");
     let r = (h.app.active_tip().0 * 0.5 * h.app.tab().cam.z).max(1.5);
@@ -21645,7 +22933,10 @@ fn a_held_tool_letter_never_opens_command_entry() {
     for _ in 0..3 {
         auto_repeat(&mut h);
         assert!(!h.app.palette_state.open, "a repeat after the hold window");
-        assert!(h.app.bare_letter_hold.is_none(), "a repeat starts no new hold");
+        assert!(
+            h.app.bare_letter_hold.is_none(),
+            "a repeat starts no new hold"
+        );
     }
     h.frame_with(|i| i.events.push(key(egui::Key::A, false, false)));
     h.frame_with(|i| {
@@ -21656,7 +22947,10 @@ fn a_held_tool_letter_never_opens_command_entry() {
         i.events.push(key(egui::Key::E, true, false));
         i.events.push(egui::Event::Text("e".into()));
     });
-    assert!(h.app.palette_state.open, "typed letters still open command entry");
+    assert!(
+        h.app.palette_state.open,
+        "typed letters still open command entry"
+    );
     assert_eq!(h.app.palette_state.query, "re");
 }
 
@@ -22087,7 +23381,10 @@ fn hud_row_release(h: &mut Harness, at: Pos2, slot: usize) {
     let r = (h.app.active_tip().0 * 0.5 * h.app.tab().cam.z).max(1.5);
     let n = h.app.tip_choices().len();
     let target = palette_slot(at, r, slot, n);
-    h.frame_with(alt_right(Pos2::new(at.x, palette_band_y(at, r) + 1.0), None));
+    h.frame_with(alt_right(
+        Pos2::new(at.x, palette_band_y(at, r) + 1.0),
+        None,
+    ));
     h.frame_with(alt_right(target, None));
     h.frame_with(alt_right(target, Some(false)));
     h.frame();
@@ -22145,25 +23442,48 @@ fn a_picked_end_grip_takes_its_own_end_condition() {
     assert_eq!(h.app.picked_vertices(), Some((id, vec![0])), "start picked");
     hud_row_release(&mut h, away, 2);
     let arrow = end_reach(&h, id, pts);
-    assert!(arrow.side[0] > 2.0 * half, "a head at the start: {:?}", arrow.side);
-    assert!(arrow.side[1] < half + 1.5, "the end stays plain: {:?}", arrow.side);
+    assert!(
+        arrow.side[0] > 2.0 * half,
+        "a head at the start: {:?}",
+        arrow.side
+    );
+    assert!(
+        arrow.side[1] < half + 1.5,
+        "the end stays plain: {:?}",
+        arrow.side
+    );
     assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "one undo step");
 
     press_primary(&mut h, xf.w2s(pts[1]), egui::Modifiers::NONE);
     assert_eq!(h.app.picked_vertices(), Some((id, vec![1])), "end picked");
     hud_row_release(&mut h, away, 1);
     let round = end_reach(&h, id, pts);
-    assert!(round.side[0] > 2.0 * half, "the start keeps its head: {:?}", round.side);
-    assert!(round.past[1] > half * 0.8, "a round cap past the end: {:?}", round.past);
+    assert!(
+        round.side[0] > 2.0 * half,
+        "the start keeps its head: {:?}",
+        round.side
+    );
+    assert!(
+        round.past[1] > half * 0.8,
+        "a round cap past the end: {:?}",
+        round.past
+    );
     assert!(round.side[1] < half + 1.5, "{:?}", round.side);
     assert_eq!(h.app.tab().journal.undo_depth(), depth + 2);
 
     press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
     let undone = end_reach(&h, id, pts);
-    assert!(undone.past[1] < 1.5, "undo flattens the end: {:?}", undone.past);
+    assert!(
+        undone.past[1] < 1.5,
+        "undo flattens the end: {:?}",
+        undone.past
+    );
     assert!(undone.side[0] > 2.0 * half, "and keeps the start's head");
     press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
-    assert!(end_reach(&h, id, pts).side[0] < half + 1.5, "undo drops the head");
+    assert!(
+        end_reach(&h, id, pts).side[0] < half + 1.5,
+        "undo drops the head"
+    );
     press_key_with(&mut h, egui::Key::Y, egui::Modifiers::CTRL);
     press_key_with(&mut h, egui::Key::Y, egui::Modifiers::CTRL);
     let redone = end_reach(&h, id, pts);
@@ -22187,9 +23507,15 @@ fn escape_restores_a_picked_end_condition() {
     let r = (h.app.active_tip().0 * 0.5 * h.app.tab().cam.z).max(1.5);
     let n = h.app.tip_choices().len();
     let slot = palette_slot(away, r, 2, n);
-    h.frame_with(alt_right(Pos2::new(away.x, palette_band_y(away, r) + 1.0), None));
+    h.frame_with(alt_right(
+        Pos2::new(away.x, palette_band_y(away, r) + 1.0),
+        None,
+    ));
     h.frame_with(alt_right(slot, None));
-    assert!(end_reach(&h, id, pts).side[0] > 8.0, "the hovered choice previews");
+    assert!(
+        end_reach(&h, id, pts).side[0] > 8.0,
+        "the hovered choice previews"
+    );
     h.frame_with(|i| {
         i.modifiers = egui::Modifiers::ALT;
         i.events.push(egui::Event::Key {
@@ -22239,7 +23565,11 @@ fn both_picked_ends_take_the_condition_and_survive_save() {
     assert_eq!(h.app.picked_vertices(), Some((id, vec![0, 1])));
     hud_row_release(&mut h, away, 3);
     let s = stroke_of(&h, id);
-    assert!(matches!(s.profile, WidthProfile::Ends { .. }), "{:?}", s.profile);
+    assert!(
+        matches!(s.profile, WidthProfile::Ends { .. }),
+        "{:?}",
+        s.profile
+    );
     assert_eq!(s.end_caps(), [StrokeCap::Round; 2]);
     hud_row_release(&mut h, away, 2);
     let s = stroke_of(&h, id);
@@ -22304,7 +23634,11 @@ fn trimming_keeps_the_far_ends_arrow() {
     let s = stroke_of(&h, horiz);
     assert_eq!(s.arrows(), [false, true], "the far end keeps its arrow");
     assert_eq!(s.end_caps(), [StrokeCap::Round, StrokeCap::Butt]);
-    assert_eq!(s.profile.narrow_ends(), [false, false], "the cut end is plain");
+    assert_eq!(
+        s.profile.narrow_ends(),
+        [false, false],
+        "the cut end is plain"
+    );
     h.app.board_undo();
 
     select_trim(&mut h.app, &[horiz, vert]);
@@ -22391,7 +23725,11 @@ fn curve_style_reads_two_equal_end_caps_as_the_curves_cap() {
     assert_eq!(curve_style_of(&s), None, "the ends were set apart");
     s.set_end(1, round);
     assert_eq!(s.cap, StrokeCap::Butt, "the reader never rewrites cap");
-    assert_eq!(curve_style_of(&s), Some(CurveStyle::Round), "Round on both ends");
+    assert_eq!(
+        curve_style_of(&s),
+        Some(CurveStyle::Round),
+        "Round on both ends"
+    );
 
     let narrow = StrokeEnd {
         cap: StrokeCap::Round,
@@ -22403,7 +23741,11 @@ fn curve_style_reads_two_equal_end_caps_as_the_curves_cap() {
     s.cap = StrokeCap::Butt;
     s.set_end(0, narrow);
     s.set_end(1, narrow);
-    assert_eq!(curve_style_of(&s), Some(CurveStyle::TaperBoth), "narrow at both ends");
+    assert_eq!(
+        curve_style_of(&s),
+        Some(CurveStyle::TaperBoth),
+        "narrow at both ends"
+    );
     assert_eq!(s.cap, StrokeCap::Butt);
 }
 
@@ -22773,7 +24115,12 @@ fn a_handle_knob_under_the_property_strip_still_drags() {
     );
     let depth = h.app.tab().journal.undo_depth();
     let from = xf.s2w(press);
-    grip_drag(&mut h, from, from + EVec2::new(0.0, -20.0), egui::Modifiers::SHIFT);
+    grip_drag(
+        &mut h,
+        from,
+        from + EVec2::new(0.0, -20.0),
+        egui::Modifiers::SHIFT,
+    );
     assert_eq!(h.app.shape_properties.panel, None, "no strip panel opened");
     let (_, out1) = handle_pair(&h, id, 1);
     let (v0, v1) = (out0 - b, out1 - b);
@@ -22822,7 +24169,12 @@ fn a_handle_knob_under_the_property_strip_drags_with_a_panel_open() {
     assert_eq!(h.app.hovered_vertex(press), Some((id, 1)));
     let depth = h.app.tab().journal.undo_depth();
     let from = xf.s2w(press);
-    grip_drag(&mut h, from, from + EVec2::new(0.0, -20.0), egui::Modifiers::SHIFT);
+    grip_drag(
+        &mut h,
+        from,
+        from + EVec2::new(0.0, -20.0),
+        egui::Modifiers::SHIFT,
+    );
     let (_, out1) = handle_pair(&h, id, 1);
     let (v0, v1) = (out0 - b, out1 - b);
     assert!(
@@ -23165,7 +24517,11 @@ fn direct_select_marquee_picks_and_esc_steps_back_picks_target_then_tool() {
     h.frame();
     assert_eq!(h.app.board_tool, board::BoardTool::DirectSelect);
     let xf = h.app.board_xf();
-    press_primary(&mut h, xf.w2s(pts[0] + EVec2::new(75.0, 0.0)), egui::Modifiers::NONE);
+    press_primary(
+        &mut h,
+        xf.w2s(pts[0] + EVec2::new(75.0, 0.0)),
+        egui::Modifiers::NONE,
+    );
     assert_eq!(h.app.direct.node, Some(id), "a click targets the curve");
     assert!(h.app.direct.anchors.is_empty());
 
@@ -23180,7 +24536,11 @@ fn direct_select_marquee_picks_and_esc_steps_back_picks_target_then_tool() {
         |_| {},
     );
     h.frame();
-    assert_eq!(h.app.picked_vertices(), Some((id, vec![1, 2])), "the marquee picks");
+    assert_eq!(
+        h.app.picked_vertices(),
+        Some((id, vec![1, 2])),
+        "the marquee picks"
+    );
 
     press_key_with(&mut h, egui::Key::Escape, egui::Modifiers::NONE);
     assert!(h.app.direct.anchors.is_empty(), "Esc drops the picks first");
@@ -23249,7 +24609,11 @@ fn ctrl_shift_click_picks_an_edge_and_its_two_vertices() {
     let (id, pts) = edge_polyline(&mut h);
     let xf = h.app.board_xf();
     press_primary(&mut h, xf.w2s(mid(pts[1], pts[2])), SUB_OBJECT);
-    assert_eq!(h.app.board_sel, [id].into_iter().collect(), "the curve alone");
+    assert_eq!(
+        h.app.board_sel,
+        [id].into_iter().collect(),
+        "the curve alone"
+    );
     assert_eq!(h.app.picked_vertices(), Some((id, vec![1, 2])), "edge 1");
 
     pause(&mut h);
@@ -23263,7 +24627,11 @@ fn ctrl_shift_click_picks_an_edge_and_its_two_vertices() {
         "toggles off; vertex 2 still ends edge 1"
     );
     h.frame();
-    assert_eq!(h.app.shape_property_points(), vec![1, 2], "the strip edits them");
+    assert_eq!(
+        h.app.shape_property_points(),
+        vec![1, 2],
+        "the strip edits them"
+    );
 
     // A plain click on the curve away from the grips targets it whole again.
     pause(&mut h);
@@ -23286,11 +24654,22 @@ fn a_picked_edge_drags_both_vertices_snapped_in_one_undo_step() {
 
     // Carry vertex 1 to just off vertex 4: it lands on it exactly.
     let step = pts[4] - pts[1];
-    drag_screen(&mut h, xf.w2s(grab), xf.w2s(grab + step + EVec2::new(3.0, 2.0)), false);
+    drag_screen(
+        &mut h,
+        xf.w2s(grab),
+        xf.w2s(grab + step + EVec2::new(3.0, 2.0)),
+        false,
+    );
     let got = world_anchor_points(&h, id);
     assert_eq!(got.len(), 5, "{got:?}");
-    assert!(near(got[1], pts[4]), "vertex 1 snaps onto vertex 4: {got:?}");
-    assert!(near(got[2], pts[2] + step), "vertex 2 moves with it: {got:?}");
+    assert!(
+        near(got[1], pts[4]),
+        "vertex 1 snaps onto vertex 4: {got:?}"
+    );
+    assert!(
+        near(got[2], pts[2] + step),
+        "vertex 2 moves with it: {got:?}"
+    );
     for k in [0, 3, 4] {
         assert!(near(got[k], pts[k]), "vertex {k} stays: {got:?}");
     }
@@ -23303,7 +24682,12 @@ fn a_picked_edge_drags_both_vertices_snapped_in_one_undo_step() {
     press_primary(&mut h, xf.w2s(grab), SUB_OBJECT);
     assert_eq!(h.app.picked_vertices(), Some((id, vec![1, 2])));
     let before = h.app.doc().scene.node(id).unwrap().clone();
-    drag_screen(&mut h, xf.w2s(grab), xf.w2s(grab + EVec2::new(40.0, 25.0)), true);
+    drag_screen(
+        &mut h,
+        xf.w2s(grab),
+        xf.w2s(grab + EVec2::new(40.0, 25.0)),
+        true,
+    );
     assert_eq!(h.app.doc().scene.node(id).unwrap(), &before, "Esc restores");
     assert_eq!(h.app.tab().journal.undo_depth(), depth);
 }
@@ -23347,7 +24731,10 @@ fn delete_with_a_picked_edge_removes_that_segment() {
     let got: Vec<Pos2> = anchors.iter().map(|a| kpt(a.point)).collect();
     assert_eq!(got, vec![sq[2], sq[3], sq[0], sq[1]]);
     press_key_with(&mut h, egui::Key::Z, egui::Modifiers::CTRL);
-    assert!(h.app.direct_anchors_of(sq_id).unwrap().1, "one Ctrl+Z closes it");
+    assert!(
+        h.app.direct_anchors_of(sq_id).unwrap().1,
+        "one Ctrl+Z closes it"
+    );
 
     // A two-point line has one edge.
     let line = [c + EVec2::new(300.0, 0.0), c + EVec2::new(420.0, 60.0)];
@@ -23382,11 +24769,23 @@ fn ctrl_shift_click_still_selects_one_group_member() {
         xf.w2s(Pos2::new(pts[0].x + 40.0, pts[0].y + 230.0)),
         SUB_OBJECT,
     );
-    assert_eq!(h.app.board_sel, [rect].into_iter().collect(), "the member alone");
+    assert_eq!(
+        h.app.board_sel,
+        [rect].into_iter().collect(),
+        "the member alone"
+    );
     assert_eq!(h.app.picked_vertices(), None);
     press_primary(&mut h, xf.w2s(mid(pts[1], pts[2])), SUB_OBJECT);
-    assert_eq!(h.app.board_sel, [id].into_iter().collect(), "the member curve");
-    assert_eq!(h.app.picked_vertices(), Some((id, vec![1, 2])), "and its edge");
+    assert_eq!(
+        h.app.board_sel,
+        [id].into_iter().collect(),
+        "the member curve"
+    );
+    assert_eq!(
+        h.app.picked_vertices(),
+        Some((id, vec![1, 2])),
+        "and its edge"
+    );
 }
 
 /// Open paths painted in `color` (the picked-edge highlight).
@@ -23425,7 +24824,11 @@ fn a_picked_edge_highlight_scales_and_hugs_the_curve_at_high_zoom() {
     h.frame();
     let xf = h.app.board_xf();
     press_primary(&mut h, xf.w2s(Pos2::new(50.0, 17.5)), SUB_OBJECT);
-    assert_eq!(h.app.picked_vertices(), Some((id, vec![0, 1])), "the arch's edge");
+    assert_eq!(
+        h.app.picked_vertices(),
+        Some((id, vec![0, 1])),
+        "the arch's edge"
+    );
     // The selection silhouette shares the color: the highlight is what the
     // picked edge adds to the same selection.
     let select = h.app.palette().select;
@@ -23443,7 +24846,11 @@ fn a_picked_edge_highlight_scales_and_hugs_the_curve_at_high_zoom() {
     let want = atlas_shell::canvas_scale::px(3.0, 8.0);
     let mut worst = 0.0_f64;
     for p in &paths {
-        assert!((p.stroke.width - want).abs() < 1e-3, "width {} scales", p.stroke.width);
+        assert!(
+            (p.stroke.width - want).abs() < 1e-3,
+            "width {} scales",
+            p.stroke.width
+        );
         for pair in p.points.windows(2) {
             for q in [pair[0], mid(pair[0], pair[1])] {
                 let w = xf.s2w(q);
@@ -23455,7 +24862,10 @@ fn a_picked_edge_highlight_scales_and_hugs_the_curve_at_high_zoom() {
             }
         }
     }
-    assert!(worst <= 1.0, "the highlight strays {worst:.2} screen px off the curve");
+    assert!(
+        worst <= 1.0,
+        "the highlight strays {worst:.2} screen px off the curve"
+    );
 }
 
 /// A steady frame with an edge picked reuses the flattened highlight.
@@ -23596,7 +25006,11 @@ fn curve_style_visual_frames() {
         let tip = h.app.active_tip();
         h.app.set_active_tip(10.0, tip.1, 1.0);
     };
-    let styles = [CurveStyle::Arrow, CurveStyle::TaperStart, CurveStyle::TaperBoth];
+    let styles = [
+        CurveStyle::Arrow,
+        CurveStyle::TaperStart,
+        CurveStyle::TaperBoth,
+    ];
     for (row, style) in styles.iter().enumerate() {
         let y = -300.0 + row as f32 * 220.0;
         // Freehand pen: a hand that slows down and hooks a little at the end.
@@ -23622,7 +25036,10 @@ fn curve_style_visual_frames() {
         }
         // Bezier with dragged handles.
         arm(&mut h, board::BoardTool::BezierSpan, *style);
-        for (a, b) in [((220.0, y + 30.0), (260.0, y - 40.0)), ((420.0, y), (470.0, y + 50.0))] {
+        for (a, b) in [
+            ((220.0, y + 30.0), (260.0, y - 40.0)),
+            ((420.0, y), (470.0, y + 50.0)),
+        ] {
             let press = w(a.0, a.1);
             h.app.bezier_anchor_press(press);
             h.app.bezier_anchor_release(press, w(b.0, b.1), false);
@@ -23639,7 +25056,8 @@ fn curve_style_visual_frames() {
     h.app.board_sel.clear();
     let out = capture_frame(&mut h, &mut raster, |_| {});
     snapshot(&mut h, &mut raster, out, "10-curve-styles");
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/brush-validate/frames");
+    let dir =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/brush-validate/frames");
     let full = image::open(dir.join("10-curve-styles.png")).unwrap();
     for (row, name) in ["arrow", "taper-start", "taper-both"].iter().enumerate() {
         let y = (c.y - 360.0 + row as f32 * 220.0).max(0.0) as u32;
@@ -23652,7 +25070,8 @@ fn curve_style_visual_frames() {
             .unwrap();
     }
     let html = slate_artifact::render_html(h.app.doc(), &slate_artifact::AssetMap::default());
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/brush-validate/frames");
+    let dir =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/brush-validate/frames");
     std::fs::write(dir.join("10-curve-styles.html"), html).unwrap();
 }
 
@@ -23710,7 +25129,12 @@ impl FrameRaster {
         let (tx, ty) = (fx - x0 as f32, fy - y0 as f32);
         let get = |x: usize, y: usize| {
             let c = px[y * w + x];
-            [c.r() as f32 / 255.0, c.g() as f32 / 255.0, c.b() as f32 / 255.0, c.a() as f32 / 255.0]
+            [
+                c.r() as f32 / 255.0,
+                c.g() as f32 / 255.0,
+                c.b() as f32 / 255.0,
+                c.a() as f32 / 255.0,
+            ]
         };
         let (a, b, c, d) = (get(x0, y0), get(x1, y0), get(x0, y1), get(x1, y1));
         let mut out = [0.0; 4];
@@ -23740,9 +25164,19 @@ impl FrameRaster {
                     continue;
                 }
                 let minx = p0.x.min(p1.x).min(p2.x).max(clip.min.x).max(0.0).floor() as i64;
-                let maxx = p0.x.max(p1.x).max(p2.x).min(clip.max.x).min(self.w as f32).ceil() as i64;
+                let maxx =
+                    p0.x.max(p1.x)
+                        .max(p2.x)
+                        .min(clip.max.x)
+                        .min(self.w as f32)
+                        .ceil() as i64;
                 let miny = p0.y.min(p1.y).min(p2.y).max(clip.min.y).max(0.0).floor() as i64;
-                let maxy = p0.y.max(p1.y).max(p2.y).min(clip.max.y).min(self.h as f32).ceil() as i64;
+                let maxy =
+                    p0.y.max(p1.y)
+                        .max(p2.y)
+                        .min(clip.max.y)
+                        .min(self.h as f32)
+                        .ceil() as i64;
                 for y in miny..maxy {
                     for x in minx..maxx {
                         let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
@@ -23761,8 +25195,14 @@ impl FrameRaster {
                             lerp(&|q| q.color.b() as f32 / 255.0),
                             lerp(&|q| q.color.a() as f32 / 255.0),
                         ];
-                        let tex = self.sample(mesh.texture_id, lerp(&|q| q.uv.x), lerp(&|q| q.uv.y));
-                        let src = [col[0] * tex[0], col[1] * tex[1], col[2] * tex[2], col[3] * tex[3]];
+                        let tex =
+                            self.sample(mesh.texture_id, lerp(&|q| q.uv.x), lerp(&|q| q.uv.y));
+                        let src = [
+                            col[0] * tex[0],
+                            col[1] * tex[1],
+                            col[2] * tex[2],
+                            col[3] * tex[3],
+                        ];
                         let dst = &mut self.px[y as usize * self.w + x as usize];
                         for k in 0..4 {
                             dst[k] = src[k] + dst[k] * (1.0 - src[3]);
@@ -23777,7 +25217,11 @@ impl FrameRaster {
         let mut img = image::RgbImage::new(self.w as u32, self.h as u32);
         for (i, p) in self.px.iter().enumerate() {
             let q = |c: f32| (c.clamp(0.0, 1.0) * 255.0).round() as u8;
-            img.put_pixel((i % self.w) as u32, (i / self.w) as u32, image::Rgb([q(p[0]), q(p[1]), q(p[2])]));
+            img.put_pixel(
+                (i % self.w) as u32,
+                (i / self.w) as u32,
+                image::Rgb([q(p[0]), q(p[1]), q(p[2])]),
+            );
         }
         img.save(path).unwrap();
     }
@@ -23803,7 +25247,8 @@ pub(super) fn capture_frame(
 
 fn snapshot(h: &mut Harness, raster: &mut FrameRaster, out: egui::FullOutput, name: &str) {
     rasterize(h, raster, out);
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/brush-validate/frames");
+    let dir =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/brush-validate/frames");
     std::fs::create_dir_all(&dir).unwrap();
     raster.save(&dir.join(format!("{name}.png")));
 }
@@ -23864,9 +25309,16 @@ fn visual_verification_frames() {
     h.app.eraser_opacity = 1.0;
     h.app.board_drag = Some(h.app.begin_erase(w(-470.0, -360.0), false));
     for k in 1..=12 {
-        h.app.update_erase(w(-470.0 + k as f32 * 2.0, -360.0 + k as f32 * 12.0));
+        h.app
+            .update_erase(w(-470.0 + k as f32 * 2.0, -360.0 + k as f32 * 12.0));
     }
-    if let Some(board::BoardDrag::Erase { touched, points, spot, .. }) = h.app.board_drag.take() {
+    if let Some(board::BoardDrag::Erase {
+        touched,
+        points,
+        spot,
+        ..
+    }) = h.app.board_drag.take()
+    {
         h.app.finish_erase(touched, points, spot);
     }
     // Five pen curves, one per style.
@@ -23885,9 +25337,14 @@ fn visual_verification_frames() {
         let width = h.app.active_tip();
         h.app.set_active_tip(12.0 / xf.z, width.1, 1.0);
         let y0 = -330.0 + i as f32 * 60.0;
-        let pts = [w(200.0, y0 + 20.0), w(330.0, y0 - 15.0), w(470.0, y0 + 20.0)];
+        let pts = [
+            w(200.0, y0 + 20.0),
+            w(330.0, y0 - 15.0),
+            w(470.0, y0 + 20.0),
+        ];
         let (rect, data) = board_path::points_to_path_data(&pts, false);
-        h.app.commit_path_node(slate_doc::StrokeTool::Pen, rect, data, false);
+        h.app
+            .commit_path_node(slate_doc::StrokeTool::Pen, rect, data, false);
         if *s == CurveStyle::Arrow {
             arrow_id = h.app.doc().scene.nodes.last().map(|n| n.id);
         }
@@ -23898,8 +25355,15 @@ fn visual_verification_frames() {
     // Brush: Alt+right-drag size circle with the texture row.
     h.app.set_board_tool(board::BoardTool::Brush);
     h.app.brush_texture = slate_doc::scene::BrushTexture::Pencil;
-    let alt = egui::Modifiers { alt: true, ..Default::default() };
-    let ctrl = egui::Modifiers { ctrl: true, command: true, ..Default::default() };
+    let alt = egui::Modifiers {
+        alt: true,
+        ..Default::default()
+    };
+    let ctrl = egui::Modifiers {
+        ctrl: true,
+        command: true,
+        ..Default::default()
+    };
     let press = Pos2::new(c.x - 350.0, c.y + 180.0);
     let rmb = |pos: Pos2, down: bool, m: egui::Modifiers| egui::Event::PointerButton {
         pos,
@@ -23965,8 +25429,14 @@ fn visual_verification_frames() {
     };
     for (name, p) in [
         ("04-wheel", wp + egui::vec2(3.0, 2.0)),
-        ("05-wheel-gap", center + egui::vec2(0.0, -(board_color::WHEEL_HUE_OUTER + 8.0))),
-        ("06-wheel-outside", center + egui::vec2(0.0, -(board_color::WHEEL_BACKDROP_RADIUS + 30.0))),
+        (
+            "05-wheel-gap",
+            center + egui::vec2(0.0, -(board_color::WHEEL_HUE_OUTER + 8.0)),
+        ),
+        (
+            "06-wheel-outside",
+            center + egui::vec2(0.0, -(board_color::WHEEL_BACKDROP_RADIUS + 30.0)),
+        ),
     ] {
         capture_frame(&mut h, &mut raster, |i| {
             i.modifiers = ctrl;
@@ -24007,7 +25477,10 @@ fn visual_verification_frames() {
     h.app.direct_set_target(arrow_id);
     h.app.direct.anchors.insert(1);
     let out = capture_frame(&mut h, &mut raster, |i| {
-        i.events.push(egui::Event::PointerMoved(Pos2::new(c.x + 330.0, c.y - 200.0)));
+        i.events.push(egui::Event::PointerMoved(Pos2::new(
+            c.x + 330.0,
+            c.y - 200.0,
+        )));
     });
     snapshot(&mut h, &mut raster, out, "08-direct-select");
 }
@@ -24028,7 +25501,12 @@ fn a_new_agent_portal_starts_at_its_program_grid_size() {
     h.frame();
     let center = Pos2::new(300.0, 200.0);
     h.app.place_agent_portal_at(center);
-    let id = *h.app.board_sel.iter().next().expect("the portal is selected");
+    let id = *h
+        .app
+        .board_sel
+        .iter()
+        .next()
+        .expect("the portal is selected");
     for _ in 0..4 {
         h.frame();
     }
@@ -24060,7 +25538,10 @@ fn a_new_agent_portal_starts_at_its_program_grid_size() {
         h.app.doc().scene.node(other).is_some(),
         "the fit was its own step"
     );
-    assert!(h.app.tab().journal.can_redo(), "redo survives the next paint");
+    assert!(
+        h.app.tab().journal.can_redo(),
+        "redo survives the next paint"
+    );
 }
 
 /// Wire-drop Agent (user, 28 September 2026). A wire from a picture released
@@ -24199,7 +25680,11 @@ fn a_wire_dropped_on_empty_board_offers_an_agent_chat_train() {
             "the menu offers {row}: {shown:?}"
         );
     }
-    assert_eq!(h.app.doc().scene.nodes.len(), nodes, "the menu adds nothing");
+    assert_eq!(
+        h.app.doc().scene.nodes.len(),
+        nodes,
+        "the menu adds nothing"
+    );
 
     key(&mut h, egui::Key::Escape, none);
     let after = painted(&mut h);
@@ -24234,7 +25719,12 @@ fn a_wire_dropped_on_empty_board_offers_an_agent_chat_train() {
         );
     }
     assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "one undo step");
-    let card = *h.app.board_sel.iter().next().expect("the portal is selected");
+    let card = *h
+        .app
+        .board_sel
+        .iter()
+        .next()
+        .expect("the portal is selected");
     let placed = h.app.doc().scene.node(card).unwrap();
     assert!(matches!(&placed.kind, NodeKind::Portal(p) if p.kind == PortalKind::Agent));
     assert!(
@@ -24282,7 +25772,11 @@ fn a_wire_dropped_on_empty_board_offers_an_agent_chat_train() {
         ..Default::default()
     };
     key(&mut h, egui::Key::Z, ctrl);
-    assert_eq!(h.app.doc().scene.nodes.len(), nodes, "one Undo removes both");
+    assert_eq!(
+        h.app.doc().scene.nodes.len(),
+        nodes,
+        "one Undo removes both"
+    );
     assert!(h.app.doc().scene.node(card).is_none());
     assert!(wires_into(&h, card).is_empty());
 
@@ -24789,9 +26283,21 @@ fn a_rectangle_corner_click_picks_it_and_alt_sizes_only_that_corner() {
     let depth = h.app.tab().journal.undo_depth();
     let xf = h.app.board_xf();
     press_primary(&mut h, xf.w2s(v[1]), egui::Modifiers::NONE);
-    assert_eq!(h.app.picked_vertices(), Some((id, vec![1])), "the click picks corner 1");
-    assert_eq!(h.app.doc().scene.node(id).unwrap().rect, rect0, "a click does not resize");
-    assert_eq!(h.app.tab().journal.undo_depth(), depth, "a pick is not an edit");
+    assert_eq!(
+        h.app.picked_vertices(),
+        Some((id, vec![1])),
+        "the click picks corner 1"
+    );
+    assert_eq!(
+        h.app.doc().scene.node(id).unwrap().rect,
+        rect0,
+        "a click does not resize"
+    );
+    assert_eq!(
+        h.app.tab().journal.undo_depth(),
+        depth,
+        "a pick is not an edit"
+    );
 
     let before = closed_tips(&h, id, 4);
     let away = xf.w2s(Pos2::new((v[0].x + v[1].x) * 0.5, v[2].y + 160.0));
@@ -24806,10 +26312,16 @@ fn a_rectangle_corner_click_picks_it_and_alt_sizes_only_that_corner() {
     let widths = closed_painted_widths(&h, id);
     assert_eq!(widths.len(), 4, "one painted width per corner: {widths:?}");
     assert!(widths[1] > widths[0] + 10.0, "{widths:?}");
-    assert!(widths[0] == widths[2] && widths[2] == widths[3], "{widths:?}");
+    assert!(
+        widths[0] == widths[2] && widths[2] == widths[3],
+        "{widths:?}"
+    );
     for mid in [0.5, 1.5] {
         let w = slate_doc::geom::value_at_param(&widths, mid);
-        assert!(w > widths[0] && w < widths[1], "both edges at corner 1 blend: {w}");
+        assert!(
+            w > widths[0] && w < widths[1],
+            "both edges at corner 1 blend: {w}"
+        );
     }
     for mid in [2.5, 3.5] {
         let w = slate_doc::geom::value_at_param(&widths, mid);
@@ -24838,8 +26350,14 @@ fn a_rectangle_corner_drag_still_resizes() {
     crop_pointer(&mut h, at + EVec2::new(40.0, 30.0), Some(false));
     h.frame();
     let rect = h.app.doc().scene.node(id).unwrap().rect;
-    assert!((rect.w - (rect0.w + 40.0)).abs() < 1.0, "{rect:?} from {rect0:?}");
-    assert!((rect.h - (rect0.h + 30.0)).abs() < 1.0, "{rect:?} from {rect0:?}");
+    assert!(
+        (rect.w - (rect0.w + 40.0)).abs() < 1.0,
+        "{rect:?} from {rect0:?}"
+    );
+    assert!(
+        (rect.h - (rect0.h + 30.0)).abs() < 1.0,
+        "{rect:?} from {rect0:?}"
+    );
     assert_eq!(shape_kind_of(&h, id), ShapeKind::Rect);
 }
 
@@ -24852,8 +26370,15 @@ fn polygon_vertex_picks_take_the_ctrl_color_only_there() {
     let xf = h.app.board_xf();
     press_primary(&mut h, xf.w2s(v[0]), egui::Modifiers::NONE);
     press_primary(&mut h, xf.w2s(v[2]), egui::Modifiers::SHIFT);
-    assert_eq!(h.app.picked_vertices(), Some((id, vec![0, 2])), "click, then Shift+click");
-    assert!(h.app.board_sel.contains(&id), "Shift+click on a vertex keeps the polygon selected");
+    assert_eq!(
+        h.app.picked_vertices(),
+        Some((id, vec![0, 2])),
+        "click, then Shift+click"
+    );
+    assert!(
+        h.app.board_sel.contains(&id),
+        "Shift+click on a vertex keeps the polygon selected"
+    );
     assert!(
         h.app.text_edit.is_none(),
         "a quick second click on a vertex is a pick, not a double-click into text"
@@ -24874,11 +26399,19 @@ fn polygon_vertex_picks_take_the_ctrl_color_only_there() {
     }
     assert_eq!(shape_kind_of(&h, id), ShapeKind::RegularPolygon);
     assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "one undo step");
-    assert_eq!(h.app.picked_vertices(), Some((id, vec![0, 2])), "the picks outlast the HUD");
+    assert_eq!(
+        h.app.picked_vertices(),
+        Some((id, vec![0, 2])),
+        "the picks outlast the HUD"
+    );
     let t = h.ctx.input(|i| i.time);
     h.frame_with(|i| i.time = Some(t + 1.0));
     press_primary(&mut h, xf.w2s(v[2]), egui::Modifiers::SHIFT);
-    assert_eq!(h.app.picked_vertices(), Some((id, vec![0])), "Shift+click removes a pick");
+    assert_eq!(
+        h.app.picked_vertices(),
+        Some((id, vec![0])),
+        "Shift+click removes a pick"
+    );
 }
 
 /// The strip's Corners amount at one picked rectangle corner rounds that
@@ -24892,7 +26425,11 @@ fn strip_corner_rounding_at_a_picked_rectangle_corner_sets_only_that_corner() {
     for _ in 0..3 {
         h.frame();
     }
-    assert_eq!(h.app.shape_property_points(), vec![2], "the strip edits the pick");
+    assert_eq!(
+        h.app.shape_property_points(),
+        vec![2],
+        "the strip edits the pick"
+    );
     let depth = h.app.tab().journal.undo_depth();
     h.app
         .preview_shape_property(board_properties::Property::CornerAmount(12.0));
@@ -24933,7 +26470,11 @@ fn corners_panel_reads_a_picked_closed_form_corner_override() {
             .preview_shape_property(board_properties::Property::CornerAmount(12.0));
         h.app.apply_shape_preview(&h.ctx, true);
         h.frame();
-        assert_eq!(closed_corner_overrides(&h, id, n)[2], Some(12.0), "{kind:?}");
+        assert_eq!(
+            closed_corner_overrides(&h, id, n)[2],
+            Some(12.0),
+            "{kind:?}"
+        );
         let node = h.app.doc().scene.node(id).unwrap().clone();
         assert_eq!(
             h.app.corners_panel_reading(&node).2,
@@ -25033,7 +26574,10 @@ fn a_nested_styled_rectangle_with_the_host_id_keeps_its_own_paint_path() {
     let host_warm = board_path::closed_form_derives_on_this_thread();
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
     while h.app.slate_boards_ready() == 0 {
-        assert!(std::time::Instant::now() < deadline, "the nested board never loaded");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the nested board never loaded"
+        );
         std::thread::sleep(std::time::Duration::from_millis(5));
         h.frame();
     }
@@ -25087,7 +26631,10 @@ fn a_strip_button_over_a_rectangle_corner_keeps_its_click() {
     );
     let depth = h.app.tab().journal.undo_depth();
     press_primary(&mut h, press, egui::Modifiers::NONE);
-    assert!(h.app.shape_properties.panel.is_some(), "the button opened its panel");
+    assert!(
+        h.app.shape_properties.panel.is_some(),
+        "the button opened its panel"
+    );
     assert_eq!(h.app.picked_vertices(), None, "the corner was not picked");
     assert_eq!(h.app.tab().journal.undo_depth(), depth);
 }
@@ -25143,7 +26690,11 @@ fn a_grip_pick_closes_a_strip_panel_it_no_longer_offers() {
     for _ in 0..3 {
         h.frame();
     }
-    assert_eq!(h.app.picked_vertices(), Some((id, vec![2])), "the anchor is picked");
+    assert_eq!(
+        h.app.picked_vertices(),
+        Some((id, vec![2])),
+        "the anchor is picked"
+    );
     assert_ne!(
         h.app.shape_properties.panel,
         Some(board_properties::Panel::Fill),
@@ -25155,7 +26706,10 @@ fn a_grip_pick_closes_a_strip_panel_it_no_longer_offers() {
         "the pending Fill was committed once"
     );
     let (_, s) = only_shape(&h);
-    assert_eq!(s.fill.map(|f| [f.0[0], f.0[1], f.0[2]]), Some([200, 40, 40]));
+    assert_eq!(
+        s.fill.map(|f| [f.0[0], f.0[1], f.0[2]]),
+        Some([200, 40, 40])
+    );
 }
 
 /// Shape-selection-toolbar D13: Stroke stays offered for a picked anchor, so
@@ -25248,7 +26802,11 @@ fn a_zoomed_out_grip_pick_commits_the_fill_preview_it_closes() {
     for _ in 0..3 {
         h.frame();
     }
-    assert_eq!(h.app.picked_vertices(), Some((id, vec![2])), "the anchor is picked");
+    assert_eq!(
+        h.app.picked_vertices(),
+        Some((id, vec![2])),
+        "the anchor is picked"
+    );
     assert_eq!(h.app.shape_properties.panel, None, "Fill closes");
     assert_eq!(
         h.app.tab().journal.undo_depth(),
@@ -25256,7 +26814,10 @@ fn a_zoomed_out_grip_pick_commits_the_fill_preview_it_closes() {
         "the pending Fill was committed once"
     );
     let (_, s) = only_shape(&h);
-    assert_eq!(s.fill.map(|f| [f.0[0], f.0[1], f.0[2]]), Some([200, 40, 40]));
+    assert_eq!(
+        s.fill.map(|f| [f.0[0], f.0[1], f.0[2]]),
+        Some([200, 40, 40])
+    );
 }
 
 /// Shape-selection-toolbar D11 below the strip's LOD: a whole-curve Stroke
@@ -25305,7 +26866,11 @@ fn a_zoomed_out_grip_press_commits_a_whole_curve_stroke_preview() {
     for _ in 0..3 {
         h.frame();
     }
-    assert_eq!(h.app.picked_vertices(), Some((id, vec![2])), "the anchor is picked");
+    assert_eq!(
+        h.app.picked_vertices(),
+        Some((id, vec![2])),
+        "the anchor is picked"
+    );
     assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "nothing more");
     let n = h.app.doc().scene.node(id).unwrap().clone();
     let NodeKind::Shape(s) = &n.kind else {
@@ -25347,7 +26912,10 @@ fn a_zoomed_out_click_away_commits_the_fill_preview_and_clears_the_selection() {
     }
     let xf = h.app.board_xf();
     let away = xf.w2s(Pos2::new(-400.0, 400.0));
-    assert!(h.app.canvas_rect.contains(away), "the empty spot is on screen");
+    assert!(
+        h.app.canvas_rect.contains(away),
+        "the empty spot is on screen"
+    );
     assert!(
         h.app.doc().scene.nodes.iter().all(|n| {
             let r = xf.rect_w2s(n.rect).expand(24.0);
@@ -25366,7 +26934,10 @@ fn a_zoomed_out_click_away_commits_the_fill_preview_and_clears_the_selection() {
         "the pending Fill was committed once"
     );
     let (_, s) = only_shape(&h);
-    assert_eq!(s.fill.map(|f| [f.0[0], f.0[1], f.0[2]]), Some([200, 40, 40]));
+    assert_eq!(
+        s.fill.map(|f| [f.0[0], f.0[1], f.0[2]]),
+        Some([200, 40, 40])
+    );
     assert_eq!(h.app.shape_properties.panel, None, "Fill closes");
     assert!(
         !h.app.board_sel.contains(&id),
@@ -25408,7 +26979,11 @@ fn text_editing_a_grouped_shape_keeps_the_text_panel() {
         h.app.text_edit.as_ref().is_some_and(|(id, _)| *id == a),
         "the double-click edits the member's text"
     );
-    assert_eq!(h.app.board_sel, [a, b].into_iter().collect(), "still the group");
+    assert_eq!(
+        h.app.board_sel,
+        [a, b].into_iter().collect(),
+        "still the group"
+    );
     assert_eq!(
         h.app.shape_properties.panel,
         Some(board_properties::Panel::Text),
@@ -25435,7 +27010,10 @@ fn a_direct_select_knob_on_a_soft_stroke_wins_over_a_strip_button() {
             s.stroke.softness = 0.5;
         }
     });
-    assert!(h.app.curve_grips_of(id).is_none(), "not a Select grip target");
+    assert!(
+        h.app.curve_grips_of(id).is_none(),
+        "not a Select grip target"
+    );
     h.app.set_board_tool(board::BoardTool::DirectSelect);
     h.frame();
     let xf = h.app.board_xf();
@@ -25461,7 +27039,12 @@ fn a_direct_select_knob_on_a_soft_stroke_wins_over_a_strip_button() {
     assert_eq!(h.app.hovered_vertex(press), Some((id, 1)));
     let depth = h.app.tab().journal.undo_depth();
     let from = xf.s2w(press);
-    grip_drag(&mut h, from, from + EVec2::new(0.0, -20.0), egui::Modifiers::NONE);
+    grip_drag(
+        &mut h,
+        from,
+        from + EVec2::new(0.0, -20.0),
+        egui::Modifiers::NONE,
+    );
     assert_eq!(h.app.shape_properties.panel, None, "no strip panel opened");
     let (_, out1) = handle_pair(&h, id, 1);
     assert!(
@@ -25506,8 +27089,16 @@ fn a_line_end_point_under_a_strip_button_drags() {
     let before = ends(&h).unwrap();
     let depth = h.app.tab().journal.undo_depth();
     let from = xf.s2w(press);
-    grip_drag(&mut h, from, from + EVec2::new(-60.0, -40.0), egui::Modifiers::NONE);
-    assert_eq!(h.app.shape_properties.panel, None, "the button did not fire");
+    grip_drag(
+        &mut h,
+        from,
+        from + EVec2::new(-60.0, -40.0),
+        egui::Modifiers::NONE,
+    );
+    assert_eq!(
+        h.app.shape_properties.panel, None,
+        "the button did not fire"
+    );
     let after = ends(&h).unwrap();
     assert!(
         (after.0 - before.0).length() > 30.0,
@@ -25525,7 +27116,11 @@ fn polygon_side_glyphs_still_step_sides_beside_a_picked_vertex() {
     let (mut h, id, v) = closed_form_board("closed_poly_glyphs", ShapeKind::RegularPolygon);
     let xf = h.app.board_xf();
     press_primary(&mut h, xf.w2s(v[1]), egui::Modifiers::NONE);
-    assert_eq!(h.app.picked_vertices(), Some((id, vec![1])), "a click on the vertex picks it");
+    assert_eq!(
+        h.app.picked_vertices(),
+        Some((id, vec![1])),
+        "a click on the vertex picks it"
+    );
     let sides = |h: &Harness| match &h.app.doc().scene.node(id).unwrap().kind {
         NodeKind::Shape(s) => s.sides,
         _ => 0,
@@ -25534,7 +27129,11 @@ fn polygon_side_glyphs_still_step_sides_beside_a_picked_vertex() {
     h.frame_with(|i| i.events.push(egui::Event::PointerMoved(xf.w2s(v[1]))));
     h.frame();
     let glyphs = h.app.polygon_sides_glyphs(&xf);
-    let plus = glyphs.iter().find(|g| g.add).expect("a + beside the hovered vertex").center;
+    let plus = glyphs
+        .iter()
+        .find(|g| g.add)
+        .expect("a + beside the hovered vertex")
+        .center;
     press_primary(&mut h, plus, egui::Modifiers::NONE);
     assert_eq!(sides(&h), 7, "+ adds a side");
     assert_eq!(shape_kind_of(&h, id), ShapeKind::RegularPolygon);
@@ -25554,7 +27153,11 @@ fn direct_select_picks_closed_form_vertices_as_anchors() {
     press_primary(&mut h, inside, egui::Modifiers::NONE);
     assert_eq!(h.app.direct.node, Some(id), "A targets the rectangle");
     press_primary(&mut h, xf.w2s(v[3]), egui::Modifiers::NONE);
-    assert_eq!(h.app.picked_vertices(), Some((id, vec![3])), "the anchor is picked");
+    assert_eq!(
+        h.app.picked_vertices(),
+        Some((id, vec![3])),
+        "the anchor is picked"
+    );
     let before = closed_tips(&h, id, 4);
     let away = xf.w2s(Pos2::new(v[0].x, v[2].y + 160.0));
     hud_scrub(&mut h, away, EVec2::new(40.0, 0.0), egui::Modifiers::ALT);
@@ -25570,7 +27173,11 @@ fn direct_select_picks_closed_form_vertices_as_anchors() {
     crop_pointer(&mut h, at + EVec2::new(-40.0, 40.0), None);
     crop_pointer(&mut h, at + EVec2::new(-40.0, 40.0), Some(false));
     h.frame();
-    assert_eq!(shape_kind_of(&h, id), ShapeKind::Rect, "no silent Rect → Path");
+    assert_eq!(
+        shape_kind_of(&h, id),
+        ShapeKind::Rect,
+        "no silent Rect → Path"
+    );
     assert_eq!(h.app.doc().scene.node(id).unwrap().rect, rect0);
 }
 
@@ -25586,7 +27193,11 @@ fn closed_form_vertex_stroke_round_trips_and_exports_as_the_board_paints() {
     for _ in 0..3 {
         h.frame();
     }
-    assert_eq!(h.app.shape_property_points(), vec![1], "the strip edits the pick");
+    assert_eq!(
+        h.app.shape_property_points(),
+        vec![1],
+        "the strip edits the pick"
+    );
     for edit in [
         board_properties::Property::StrokeWidth(16.0),
         board_properties::Property::StrokeRgb([255, 0, 0]),
@@ -25607,7 +27218,13 @@ fn closed_form_vertex_stroke_round_trips_and_exports_as_the_board_paints() {
     let mut h2 = Harness::new("closed_rect_export_reload");
     h2.app.open_doc_at(saved);
     h2.frame();
-    let reloaded = h2.app.doc().scene.node(id).cloned().expect("the rectangle reloads");
+    let reloaded = h2
+        .app
+        .doc()
+        .scene
+        .node(id)
+        .cloned()
+        .expect("the rectangle reloads");
     assert_eq!(
         &reloaded,
         h.app.doc().scene.node(id).unwrap(),
@@ -25617,7 +27234,10 @@ fn closed_form_vertex_stroke_round_trips_and_exports_as_the_board_paints() {
     let (n, styled) = closed_paint_shape(&h, id);
     let mesh = board_path::vector_stroke_ink(&n, &styled, styled.path.as_ref().unwrap(), 1.0);
     let html = slate_artifact::render_html(h2.app.doc(), &slate_artifact::AssetMap::default());
-    assert!(html.contains("<linearGradient"), "the blend exports as gradients");
+    assert!(
+        html.contains("<linearGradient"),
+        "the blend exports as gradients"
+    );
     let local = |p: Pos2| [p.x - n.rect.x, p.y - n.rect.y];
     let along = |a: Pos2, b: Pos2, t: f32| a + (b - a) * t;
     for p in [
@@ -25628,8 +27248,8 @@ fn closed_form_vertex_stroke_round_trips_and_exports_as_the_board_paints() {
         along(v[1], v[2], 0.7),
     ] {
         let board = mesh_color_at(&mesh, p);
-        let export = export_color_at(&html, local(p))
-            .unwrap_or_else(|| panic!("the export paints {p:?}"));
+        let export =
+            export_color_at(&html, local(p)).unwrap_or_else(|| panic!("the export paints {p:?}"));
         assert_color_close(export, board, 3.0, &format!("export at {p:?}"));
     }
     let mid_top = mesh_color_at(&mesh, along(v[0], v[1], 0.5));

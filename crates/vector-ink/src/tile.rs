@@ -286,7 +286,9 @@ mod tests {
             StrokeInk {
                 contours: vec![[(6.0, 52.0), (40.0, 44.0), (70.0, 56.0), (90.0, 40.0)]
                     .iter()
-                    .map(|&(x, y)| grained(tip(x, y, 18.0, 0.0, [90, 30, 160, 230]), Grain::Watercolor))
+                    .map(|&(x, y)| {
+                        grained(tip(x, y, 18.0, 0.0, [90, 30, 160, 230]), Grain::Watercolor)
+                    })
                     .collect()],
                 erase: vec![vec![grained(
                     tip(60.0, 50.0, 10.0, 0.0, [0, 0, 0, 255]),

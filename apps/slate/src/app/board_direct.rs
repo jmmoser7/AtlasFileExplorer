@@ -1037,7 +1037,9 @@ impl SlateApp {
                     return;
                 };
                 let built = std::sync::Arc::new(built);
-                painter.ctx().data_mut(|d| d.insert_temp(cache, built.clone()));
+                painter
+                    .ctx()
+                    .data_mut(|d| d.insert_temp(cache, built.clone()));
                 built
             }
         };
@@ -1152,7 +1154,11 @@ impl SlateApp {
         mods: egui::Modifiers,
     ) -> Option<DirectDrag> {
         let xf = self.board_xf();
-        if let Some(id) = self.direct.node.filter(|&id| self.direct_anchors_of(id).is_none()) {
+        if let Some(id) = self
+            .direct
+            .node
+            .filter(|&id| self.direct_anchors_of(id).is_none())
+        {
             // A closed form's vertices pick but never move: moving one would
             // change the form's kind (P1.shape.vertex-style).
             if self.closed_form_points(id).is_none() {

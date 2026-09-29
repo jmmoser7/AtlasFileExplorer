@@ -1506,9 +1506,9 @@ impl SlateApp {
             )
         });
         match primary {
-            Some(origin) => Some(
-                origin.is_some_and(|p| self.crop_owns_pointer(p) || self.curve_knob_under(p)),
-            ),
+            Some(origin) => {
+                Some(origin.is_some_and(|p| self.crop_owns_pointer(p) || self.curve_knob_under(p)))
+            }
             None => click.then_some(false),
         }
     }
@@ -1623,8 +1623,8 @@ impl SlateApp {
                 .filter(|_| held)
                 .or(i.pointer.latest_pos())
         });
-        let grip_under = live
-            && grip_probe.is_some_and(|p| strip.contains(p) && self.curve_knob_under(p));
+        let grip_under =
+            live && grip_probe.is_some_and(|p| strip.contains(p) && self.curve_knob_under(p));
         for (index, item) in items.iter().enumerate() {
             let r = chrome::strip_button_rect(strip, index, z);
             let (label, icon, active) = match item {

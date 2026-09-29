@@ -4,8 +4,8 @@ use slate_doc::media::{ext_badge, media_kind, web_safe_video, MediaKind};
 use slate_doc::scene::{
     connector_drawn_stroke, web_origin, ConnectorNode, Corner, Dash, DockStripNode, Node, NodeId,
     NodeKind, PathData, PathFillRule, PathSeg, PortalKind, PortalNode, Rgba, Scene, ShapeKind,
-    SheetLayout, StrokeCap, StrokeJoin, TextAlign, WebExport, WebSourceKind,
-    WireDisplay, WorldRect,
+    SheetLayout, StrokeCap, StrokeJoin, TextAlign, WebExport, WebSourceKind, WireDisplay,
+    WorldRect,
 };
 use slate_doc::wire::{
     connector_route_in_scene, filleted_polyline, retreat_off_hosts, scene_wire_hosts,
@@ -1854,8 +1854,15 @@ fn render_vector_path_d(
                 .map_or_else(|| path_data_to_bez(path, w, h), |t| t.bez.clone());
             for end in (0..2).filter(|&i| arrows[i]) {
                 let at = |t: &slate_doc::geom::TippedStroke| {
-                    let i = if end == 0 { 0 } else { t.widths.len().saturating_sub(1) };
-                    (t.widths.get(i).copied(), t.colors.as_ref().and_then(|c| c.get(i).copied()))
+                    let i = if end == 0 {
+                        0
+                    } else {
+                        t.widths.len().saturating_sub(1)
+                    };
+                    (
+                        t.widths.get(i).copied(),
+                        t.colors.as_ref().and_then(|c| c.get(i).copied()),
+                    )
                 };
                 let (head, color) = tipped.as_ref().map_or((None, None), at);
                 let head = head.unwrap_or(shape.stroke.width);
@@ -2987,10 +2994,17 @@ mod tests {
             vec![red(6.0), red(8.0), red(6.0)]
         ));
         let rect = WorldRect::new(0.0, 0.0, 300.0, 40.0);
-        edit_every_tip(&mut path, &mut stroke, |t| t.color = Rgba([20, 200, 20, 255]));
-        assert!(edit_grip_tips(&mut path, &mut stroke, rect, 0.0, &[2], |t| {
-            t.width = 30.0
-        }));
+        edit_every_tip(&mut path, &mut stroke, |t| {
+            t.color = Rgba([20, 200, 20, 255])
+        });
+        assert!(edit_grip_tips(
+            &mut path,
+            &mut stroke,
+            rect,
+            0.0,
+            &[2],
+            |t| { t.width = 30.0 }
+        ));
         let shape = slate_doc::scene::ShapeNode {
             shape: slate_doc::scene::ShapeKind::Path,
             fill: None,
@@ -3005,7 +3019,12 @@ mod tests {
         let img = brush_stamp(&shape, &path, rect.w, rect.h, 1.0).expect("a stamp");
         let px = |x: u32, y: u32| {
             let i = ((y * img.width + x) * 4) as usize;
-            [img.rgba[i], img.rgba[i + 1], img.rgba[i + 2], img.rgba[i + 3]]
+            [
+                img.rgba[i],
+                img.rgba[i + 1],
+                img.rgba[i + 2],
+                img.rgba[i + 3],
+            ]
         };
         let mut inked = 0;
         for y in 0..img.height {
@@ -3085,26 +3104,47 @@ mod tests {
         for y in 54..=66 {
             for x in 254..=266 {
                 let (x, y) = (x as f32 + 0.5, y as f32 + 0.5);
-                assert_eq!(alpha(&mixed, x, y), alpha(&wet, x, y), "the segment at {x}, {y}");
+                assert_eq!(
+                    alpha(&mixed, x, y),
+                    alpha(&wet, x, y),
+                    "the segment at {x}, {y}"
+                );
                 differs |= alpha(&mixed, x, y) != alpha(&dry, x, y);
             }
             for x in 74..=86 {
                 let (x, y) = (x as f32 + 0.5, y as f32 + 0.5);
-                assert_eq!(alpha(&mixed, x, y), alpha(&dry, x, y), "the body at {x}, {y}");
+                assert_eq!(
+                    alpha(&mixed, x, y),
+                    alpha(&dry, x, y),
+                    "the body at {x}, {y}"
+                );
             }
         }
         assert!(differs, "the segment exports Graphite");
 
-        let first = [n(50.0, 100.0), n(300.0, 100.0), n(300.0, 180.0), n(200.0, 180.0)];
+        let first = [
+            n(50.0, 100.0),
+            n(300.0, 100.0),
+            n(300.0, 180.0),
+            n(200.0, 180.0),
+        ];
         let second = [n(200.0, 180.0), n(200.0, 20.0)];
         let whole: Vec<[f32; 2]> = first.iter().chain(&second[1..]).copied().collect();
         let one = stamp_of(&whole, &[Watercolor; 5]);
-        let (a, b) = (stamp_of(&first, &[Watercolor; 4]), stamp_of(&second, &[Watercolor; 2]));
+        let (a, b) = (
+            stamp_of(&first, &[Watercolor; 4]),
+            stamp_of(&second, &[Watercolor; 2]),
+        );
         let px = |img: &vector_ink::StampImage, x: f32, y: f32| {
             let px = ((x - img.origin[0]) / img.pixel).floor() as u32;
             let py = ((y - img.origin[1]) / img.pixel).floor() as u32;
             let i = ((py * img.width + px) * 4) as usize;
-            [img.rgba[i], img.rgba[i + 1], img.rgba[i + 2], img.rgba[i + 3]]
+            [
+                img.rgba[i],
+                img.rgba[i + 1],
+                img.rgba[i + 2],
+                img.rgba[i + 3],
+            ]
         };
         let mut built = 0;
         for y in 97..=103 {
@@ -3119,7 +3159,10 @@ mod tests {
                 built += (pair - alpha(&a, x, y) as i32 >= 25) as usize;
             }
         }
-        assert!(built >= 25, "two strokes do not build at the crossing ({built} px)");
+        assert!(
+            built >= 25,
+            "two strokes do not build at the crossing ({built} px)"
+        );
     }
 
     /// A wide, soft, heavily blurred brush dab exports a PNG whose falloff

@@ -466,7 +466,14 @@ impl BrushTiles {
     /// under its cache id `id` ([`SlateApp::stroke_cache_id`]), for open
     /// document `tab`. Asking again for the same key and pixel is free; a
     /// newer ask supersedes an older one still queued.
-    pub(crate) fn request_stroke(&mut self, id: NodeId, tab: u64, node: &Node, key: u64, pixel: f32) {
+    pub(crate) fn request_stroke(
+        &mut self,
+        id: NodeId,
+        tab: u64,
+        node: &Node,
+        key: u64,
+        pixel: f32,
+    ) {
         let want = (key, pixel.to_bits(), tab);
         if self
             .stroke_landed
@@ -615,7 +622,8 @@ impl BrushTiles {
     /// Drop landed eraser segment rasters, and any still on the workers,
     /// except the jobs `(lane, tag)` in `keep`: their pass is over.
     pub(crate) fn forget_erase_lines(&mut self, keep: &[(u64, u64)]) {
-        self.lines_wanted.retain(|w| w.0 == BRUSH_LANE || keep.contains(w));
+        self.lines_wanted
+            .retain(|w| w.0 == BRUSH_LANE || keep.contains(w));
         self.drain_finished();
     }
 

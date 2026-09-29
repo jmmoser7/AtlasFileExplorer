@@ -892,7 +892,11 @@ fn a_blurred_dab_stays_put_while_strokes_follow() {
         std::thread::sleep(Duration::from_millis(2));
     }
     assert!(b.app.brush_tiles.last.settled, "tiles did not settle");
-    let tex = b.app.brush_stamps.get(&b.app.stroke_cache_id(id)).map(|(_, g)| g.tex.id());
+    let tex = b
+        .app
+        .brush_stamps
+        .get(&b.app.stroke_cache_id(id))
+        .map(|(_, g)| g.tex.id());
     assert!(tex.is_some(), "the blurred dab has no raster of its own");
 
     for i in 0..12 {
@@ -903,7 +907,10 @@ fn a_blurred_dab_stays_put_while_strokes_follow() {
             let faults = coverage_faults(&b, [id]);
             assert!(faults.is_empty(), "stroke {i} frame {f}: {faults:?}");
             assert_eq!(
-                b.app.brush_stamps.get(&b.app.stroke_cache_id(id)).map(|(_, g)| g.tex.id()),
+                b.app
+                    .brush_stamps
+                    .get(&b.app.stroke_cache_id(id))
+                    .map(|(_, g)| g.tex.id()),
                 tex,
                 "stroke {i} frame {f}: the dab's pixels changed"
             );

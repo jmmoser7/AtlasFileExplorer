@@ -152,7 +152,14 @@ impl StampSide {
     pub fn paste(&mut self, width: u32, height: u32, b: [u32; 4], src: &StampSide) {
         let (w, pixels) = (width as usize, width as usize * height as usize);
         let bw = (b[2] - b[0]) as usize;
-        fn put<T: Copy + Default>(dst: &mut Vec<T>, src: &[T], pixels: usize, w: usize, bw: usize, b: [u32; 4]) {
+        fn put<T: Copy + Default>(
+            dst: &mut Vec<T>,
+            src: &[T],
+            pixels: usize,
+            w: usize,
+            bw: usize,
+            b: [u32; 4],
+        ) {
             if src.is_empty() && dst.is_empty() {
                 return;
             }
@@ -377,18 +384,39 @@ impl Paper {
         let wx = self.origin[0] + (x as f32 + 0.5) * self.pixel;
         let wy = self.origin[1] + (y as f32 + 0.5) * self.pixel;
         let f = grain_factor(grain, depth as f32 / 255.0, wx, wy);
-        crate::dither::quantize(a as f32 * f, self.grid[0] + x as i64, self.grid[1] + y as i64)
+        crate::dither::quantize(
+            a as f32 * f,
+            self.grid[0] + x as i64,
+            self.grid[1] + y as i64,
+        )
     }
 
     /// Raw pixel `px` (index `p`, at `x`, `y`) of `img` as it finishes: its
     /// texture's grain, over the earlier visits a Watercolor stroke left.
-    fn finished(&self, img: &StampImage, grain: Grain, px: [u8; 4], p: usize, x: u32, y: u32) -> [u8; 4] {
+    fn finished(
+        &self,
+        img: &StampImage,
+        grain: Grain,
+        px: [u8; 4],
+        p: usize,
+        x: u32,
+        y: u32,
+    ) -> [u8; 4] {
         self.finish_px(img, grain, px, p, img.depth[p], x, y)
     }
 
     /// [`Self::finished`] with the pixel's `depth` already read.
     #[allow(clippy::too_many_arguments)]
-    fn finish_px(&self, img: &StampImage, grain: Grain, px: [u8; 4], p: usize, depth: u8, x: u32, y: u32) -> [u8; 4] {
+    fn finish_px(
+        &self,
+        img: &StampImage,
+        grain: Grain,
+        px: [u8; 4],
+        p: usize,
+        depth: u8,
+        x: u32,
+        y: u32,
+    ) -> [u8; 4] {
         let mut out = px;
         let g = img.side.grain.get(p).map_or(grain, |c| Grain::of_code(*c));
         if out[3] != 0 && g != Grain::Smooth {
@@ -754,7 +782,11 @@ pub fn apply_erase(img: &mut StampImage, marks: &[Vec<TipPoint>]) {
             mask.rgba = vec![0u8; img.rgba.len()];
         }
         stamp_polyline(&mut mask, mark);
-        finish_grain(&mut mask, stroke_grain(std::slice::from_ref(mark)), Some(region));
+        finish_grain(
+            &mut mask,
+            stroke_grain(std::slice::from_ref(mark)),
+            Some(region),
+        );
         multiply_by_mask(&mut img.rgba, &mask.rgba, img.width, Some(region));
         let stride = img.width as usize * 4;
         let [x0, y0, x1, y1] = region;
@@ -1270,7 +1302,10 @@ mod tests {
             };
             let body = mean(0.0);
             let rim = (14..20).map(|d| mean(d as f32)).fold(0.0, f32::max);
-            assert!(rim > body + 0.04, "{g:?} has no wet edge: rim {rim}, body {body}");
+            assert!(
+                rim > body + 0.04,
+                "{g:?} has no wet edge: rim {rim}, body {body}"
+            );
         }
     }
 
@@ -1293,8 +1328,12 @@ mod tests {
             };
             let at = |x: f32| TipPoint { pos: [x, 0.0], tip };
             let one = stamp_tipped(&[vec![at(0.0), at(120.0)]], 1.0).unwrap();
-            let many = stamp_tipped(&[(0..=40).map(|i| at(i as f32 * 3.0)).collect()], 1.0).unwrap();
-            assert_eq!((one.width, one.height, one.origin), (many.width, many.height, many.origin));
+            let many =
+                stamp_tipped(&[(0..=40).map(|i| at(i as f32 * 3.0)).collect()], 1.0).unwrap();
+            assert_eq!(
+                (one.width, one.height, one.origin),
+                (many.width, many.height, many.origin)
+            );
             let worst = one
                 .rgba
                 .iter()
@@ -1347,17 +1386,31 @@ mod tests {
     /// what a stroke that never builds paints.
     #[test]
     fn watercolor_joints_and_neighbouring_dabs_do_not_build() {
-        let dense: Vec<(f32, f32)> = (0..=80).map(|i| (i as f32 * 2.5, (i as f32 * 0.2).sin() * 30.0)).collect();
+        let dense: Vec<(f32, f32)> = (0..=80)
+            .map(|i| (i as f32 * 2.5, (i as f32 * 0.2).sin() * 30.0))
+            .collect();
         for points in [
             dense,
             vec![(0.0, 0.0), (100.0, 0.0), (100.0, 100.0)],
             vec![(0.0, 0.0), (120.0, 0.0), (60.0, 60.0)],
-            vec![(0.0, 0.0), (60.0, 0.0), (60.0, 60.0), (0.0, 60.0), (0.0, 110.0)],
+            vec![
+                (0.0, 0.0),
+                (60.0, 0.0),
+                (60.0, 60.0),
+                (0.0, 60.0),
+                (0.0, 110.0),
+            ],
         ] {
             let chain = wet_chain(&points, 200);
             let wet = finished(&chain, true);
             let dry = finished(&chain, false);
-            let worst = wet.rgba.iter().zip(&dry.rgba).map(|(a, b)| a.abs_diff(*b)).max().unwrap();
+            let worst = wet
+                .rgba
+                .iter()
+                .zip(&dry.rgba)
+                .map(|(a, b)| a.abs_diff(*b))
+                .max()
+                .unwrap();
             assert_eq!(worst, 0, "{points:?} built by {worst}");
         }
     }
@@ -1368,26 +1421,42 @@ mod tests {
     fn a_self_crossing_watercolor_erase_pass_never_exceeds_its_strength() {
         let mut img = finished(&wet_chain(&[(0.0, 0.0), (200.0, 0.0)], 255), true);
         let solid = img.rgba.clone();
-        let pass = wet_chain(&[(100.0, -40.0), (100.0, 40.0), (60.0, 40.0), (140.0, -40.0)], 128);
+        let pass = wet_chain(
+            &[(100.0, -40.0), (100.0, 40.0), (60.0, 40.0), (140.0, -40.0)],
+            128,
+        );
         let mut once = img.clone();
         apply_erase(&mut img, &pass);
         apply_erase(&mut once, &[pass[0][..2].to_vec()]);
         let at = |i: &StampImage| alpha_at(i, 100.0, 0.0);
         assert!(at(&img) < solid[((150 * 360 + 180) * 4 + 3) as usize]);
-        assert_eq!(at(&img), at(&once), "the pass built where it crossed itself");
+        assert_eq!(
+            at(&img),
+            at(&once),
+            "the pass built where it crossed itself"
+        );
     }
 
     /// The side records are gone once a stroke finishes, so a reused layer
     /// starts the next stroke clean.
     #[test]
     fn finishing_clears_the_side_records() {
-        let path = [(0.0, 0.0), (200.0, 0.0), (200.0, 100.0), (100.0, 100.0), (100.0, -100.0)];
+        let path = [
+            (0.0, 0.0),
+            (200.0, 0.0),
+            (200.0, 100.0),
+            (100.0, 100.0),
+            (100.0, -100.0),
+        ];
         let img = finished(&wet_chain(&path, 200), true);
         assert!(img.depth.iter().all(|d| *d == 0));
         assert!(img.side.grain.iter().all(|g| *g == 0));
         assert!(img.side.arc.iter().all(|a| *a == 0));
         assert!(img.side.prev.iter().all(|p| *p == [0; 4]));
-        assert!(img.side.prev.len() == img.depth.len(), "the crossing kept no earlier visit");
+        assert!(
+            img.side.prev.len() == img.depth.len(),
+            "the crossing kept no earlier visit"
+        );
         assert_eq!(img.side.run, 0.0);
     }
 

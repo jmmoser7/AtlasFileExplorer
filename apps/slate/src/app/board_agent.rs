@@ -4305,7 +4305,10 @@ impl SlateApp {
     pub(crate) fn set_agent_programs_for_test(&mut self, ids: &[&str]) {
         self.agents.programs_started = true;
         self.agents.programs_rx = None;
-        self.agents.programs = ids.iter().map(|id| atlas_ai::agent::provider_by_id(id)).collect();
+        self.agents.programs = ids
+            .iter()
+            .map(|id| atlas_ai::agent::provider_by_id(id))
+            .collect();
     }
 
     /// The unbound agent portal's size (width, height) around its program

@@ -1297,14 +1297,25 @@ mod tests {
         path.corner_amounts = vec![None, Some(3.0), None, None];
         store_closed_form_style(&mut rect, &path);
         assert_eq!(vertex_corner_amount(&rect, 1, 7.0), 3.0, "the override");
-        assert_eq!(vertex_corner_amount(&rect, 2, 7.0), 7.0, "the shared amount");
+        assert_eq!(
+            vertex_corner_amount(&rect, 2, 7.0),
+            7.0,
+            "the shared amount"
+        );
     }
 
     #[test]
     fn a_side_change_carries_each_vertex_style_to_the_nearest_vertex() {
         let mut hex = closed_form(ShapeKind::RegularPolygon, 6);
         let mut path = closed_form_path(&hex).unwrap();
-        path.corner_amounts = vec![Some(1.0), Some(2.0), Some(3.0), Some(4.0), Some(5.0), Some(6.0)];
+        path.corner_amounts = vec![
+            Some(1.0),
+            Some(2.0),
+            Some(3.0),
+            Some(4.0),
+            Some(5.0),
+            Some(6.0),
+        ];
         store_closed_form_style(&mut hex, &path);
         hex.sides = 3;
         reside_closed_form_style(&mut hex, 6, 0.0);
@@ -1701,19 +1712,34 @@ mod tests {
         let mut stroke = stamped(10.0);
         let grips = grip_tips(&path, &stroke, UNIT, 0.0).unwrap();
         assert_eq!(grips, path.tips, "painted as stored");
-        assert!(edit_grip_tips(&mut path, &mut stroke, UNIT, 0.0, &[2], |t| {
-            t.width = 30.0;
-            t.softness = 0.9;
-        }));
+        assert!(edit_grip_tips(
+            &mut path,
+            &mut stroke,
+            UNIT,
+            0.0,
+            &[2],
+            |t| {
+                t.width = 30.0;
+                t.softness = 0.9;
+            }
+        ));
         assert_eq!(path.tips[2].width, 30.0);
         assert_eq!(path.tips[2].softness, 0.9);
-        assert_eq!(path.tips[0], soft_tip(2.0, 0.2, 0), "the others keep theirs");
+        assert_eq!(
+            path.tips[0],
+            soft_tip(2.0, 0.2, 0),
+            "the others keep theirs"
+        );
         assert_eq!(stroke.width, 30.0, "the tiles pad by the widest tip");
 
         let same = soft_tip(6.0, 0.3, 50);
         assert!(set_vertex_tips(&mut path, &mut stroke, vec![same; 3]));
         assert!(path.tips.is_empty());
-        assert_eq!(StrokeSpan::of(&stroke), same, "the stroke takes the whole tip");
+        assert_eq!(
+            StrokeSpan::of(&stroke),
+            same,
+            "the stroke takes the whole tip"
+        );
         assert!(stroke.paints_as_stamp());
     }
 
@@ -1746,8 +1772,14 @@ mod tests {
                 "{got:?} vs {want:?}"
             );
         };
-        near(path.tips.iter().map(|t| t.width).collect(), [4.0, 20.0, 8.0]);
-        near(path.tips.iter().map(|t| t.softness).collect(), [0.4, 0.8, 0.2]);
+        near(
+            path.tips.iter().map(|t| t.width).collect(),
+            [4.0, 20.0, 8.0],
+        );
+        near(
+            path.tips.iter().map(|t| t.softness).collect(),
+            [0.4, 0.8, 0.2],
+        );
         assert!((stroke.width - 20.0).abs() < 1e-5);
 
         edit_every_tip(&mut path, &mut stroke, |t| {
@@ -1762,7 +1794,13 @@ mod tests {
 
         let mut plain = ell();
         let mut hard_stroke = hard(10.0);
-        assert!(!scale_stamped_tips(&mut plain, &mut hard_stroke, None, 3.0, 0.0));
+        assert!(!scale_stamped_tips(
+            &mut plain,
+            &mut hard_stroke,
+            None,
+            3.0,
+            0.0
+        ));
     }
 
     /// A vertex's opacity is node opacity × tip alpha, stored by the share
@@ -1775,13 +1813,20 @@ mod tests {
         let mut stroke = hard(10.0);
         let node = 0.8;
         let top = set_grip_opacity(&mut path, &mut stroke, UNIT, 0.0, node, &[0], 0.2).unwrap();
-        assert!((top - 0.8).abs() < 1e-6, "vertex 2 is still the most opaque");
+        assert!(
+            (top - 0.8).abs() < 1e-6,
+            "vertex 2 is still the most opaque"
+        );
         let painted = |p: &PathData, top: f32, i: usize| top * p.tips[i].color.0[3] as f32 / 255.0;
         assert!((painted(&path, top, 0) - 0.2).abs() < 0.01);
-        assert!((painted(&path, top, 1) - 0.4).abs() < 0.01, "the others keep theirs");
+        assert!(
+            (painted(&path, top, 1) - 0.4).abs() < 0.01,
+            "the others keep theirs"
+        );
         assert!((painted(&path, top, 2) - 0.8).abs() < 0.01);
 
-        let top = set_grip_opacity(&mut path, &mut stroke, UNIT, 0.0, top, &[0, 1, 2], 0.0).unwrap();
+        let top =
+            set_grip_opacity(&mut path, &mut stroke, UNIT, 0.0, top, &[0, 1, 2], 0.0).unwrap();
         assert_eq!(top, 0.0, "every vertex at 0 % leaves the node clear");
         assert!(set_grip_opacity(&mut path, &mut stroke, UNIT, 0.0, 1.0, &[9], 0.5).is_none());
     }
@@ -1795,7 +1840,10 @@ mod tests {
         assert!((top - 0.6).abs() < 1e-6, "the node takes the picked vertex");
         let painted = |i: usize| top * path.tips[i].color.0[3] as f32 / 255.0;
         assert!((painted(1) - 0.6).abs() < 0.01);
-        assert!(painted(0) < 0.01 && painted(2) < 0.01, "the rest stay clear");
+        assert!(
+            painted(0) < 0.01 && painted(2) < 0.01,
+            "the rest stay clear"
+        );
     }
 
     #[test]

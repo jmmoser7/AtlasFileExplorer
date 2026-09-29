@@ -17,8 +17,8 @@ use std::sync::Arc as Shared;
 use vector_ink::kurbo::{self, Arc, BezPath, PathEl, Point};
 use vector_ink::{
     bezpath_from_anchors, classify_kind, drag_handle, flatten, flatten_contours, hit_stroke,
-    stamp_segment, tipped_contours, Anchor, AnchorKind, Cap, HandleEnd, InkMesh, Join,
-    StampStyle, StrokeStyle, TipPoint,
+    stamp_segment, tipped_contours, Anchor, AnchorKind, Cap, HandleEnd, InkMesh, Join, StampStyle,
+    StrokeStyle, TipPoint,
 };
 
 use super::board::{rgba32, BoardXf};
@@ -849,11 +849,7 @@ pub(crate) fn ink_mesh_to_epaint(
     let tinted = cached.colors.len() == cached.vertices.len();
     for (i, (pos, alpha)) in cached.vertices.iter().zip(cached.alphas.iter()).enumerate() {
         let sp = xf.w2s(Pos2::new(pos[0], pos[1]));
-        let base = if tinted {
-            cached.colors[i]
-        } else {
-            base_color
-        };
+        let base = if tinted { cached.colors[i] } else { base_color };
         let c = fade(base.gamma_multiply(*alpha));
         mesh.vertices.push(Vertex {
             pos: sp,
@@ -984,8 +980,8 @@ pub(crate) fn world_to_node_norm(p: Pos2, rect: WorldRect, rotation_deg: f32) ->
 /// transparent stroke as no stroke.
 fn stroke_picks(shape: &ShapeNode) -> bool {
     let stroke = &shape.stroke;
-    let filled = shape.fill.is_some_and(|f| f.0[3] > 0)
-        && shape.path.as_ref().is_some_and(|p| p.closed);
+    let filled =
+        shape.fill.is_some_and(|f| f.0[3] > 0) && shape.path.as_ref().is_some_and(|p| p.closed);
     stroke.width > 0.0 && (!stroke.is_none() || stroke.paints_as_stamp() || !filled)
 }
 
@@ -1750,7 +1746,8 @@ pub(crate) fn push_arrow_ink(
     };
     let first = ink.vertices.len() as u32;
     for p in tri {
-        ink.vertices.push(vector_ink::InkVertex { pos: p, alpha: 1.0 });
+        ink.vertices
+            .push(vector_ink::InkVertex { pos: p, alpha: 1.0 });
     }
     for i in 0..3 {
         let p = tri[i];
@@ -1768,10 +1765,13 @@ pub(crate) fn push_arrow_ink(
     for i in 0..3u32 {
         let j = (i + 1) % 3;
         ink.indices.extend([first + i, first + j, first + 3 + j]);
-        ink.indices.extend([first + i, first + 3 + j, first + 3 + i]);
+        ink.indices
+            .extend([first + i, first + 3 + j, first + 3 + i]);
     }
     if !ink.colors.is_empty() {
-        let c = color.or_else(|| ink.colors.last().copied()).unwrap_or([1.0; 4]);
+        let c = color
+            .or_else(|| ink.colors.last().copied())
+            .unwrap_or([1.0; 4]);
         ink.colors.resize(ink.vertices.len(), c);
     }
 }
@@ -1853,9 +1853,10 @@ fn vector_stroke_ink_for(
             for end in (0..2).filter(|&i| arrows[i]) {
                 let pick = |v: &[f32]| if end == 0 { v.first() } else { v.last() }.copied();
                 let head = pick(&t.widths).unwrap_or(shape.stroke.width);
-                let color = t.colors.as_ref().and_then(|c| {
-                    if end == 0 { c.first() } else { c.last() }.copied()
-                });
+                let color = t
+                    .colors
+                    .as_ref()
+                    .and_then(|c| if end == 0 { c.first() } else { c.last() }.copied());
                 push_arrow_ink(&mut ink, &t.bez, end, head, feather, color);
             }
             ink
@@ -2512,7 +2513,11 @@ impl EraseSettle {
             s.keys.push(key);
             return;
         }
-        for w in self.waiting.iter_mut().filter(|w| (w.tab, w.id) == (tab, id)) {
+        for w in self
+            .waiting
+            .iter_mut()
+            .filter(|w| (w.tab, w.id) == (tab, id))
+        {
             w.keys.push(key);
         }
     }
@@ -2584,7 +2589,11 @@ fn settling_fit(
     let moved = (r.x, r.y) != (o.x, o.y)
         && (r.w, r.h) == (o.w, o.h)
         && stamp_key_at(node, shape, path, o) == s.key;
-    Some(if moved { [r.x - o.x, r.y - o.y] } else { [0.0; 2] })
+    Some(if moved {
+        [r.x - o.x, r.y - o.y]
+    } else {
+        [0.0; 2]
+    })
 }
 
 /// Stroke `node` while its released straight pass waits for the final cut:
@@ -2650,9 +2659,8 @@ fn tend_erase_settle(app: &mut SlateApp, painter: &egui::Painter, xf: &BoardXf) 
     let view = app.board_paint_view(painter.clip_rect());
     let revision = (app.scene_gen, app.doc().scene.scene_gen());
     let open = |app: &SlateApp, t: u64| app.tabs.iter().any(|x| x.id == t);
-    let paints = |app: &SlateApp, n: &Node| {
-        !n.hidden || app.hide_ghosts.iter().any(|(g, _)| g.id == n.id)
-    };
+    let paints =
+        |app: &SlateApp, n: &Node| !n.hidden || app.hide_ghosts.iter().any(|(g, _)| g.id == n.id);
     let mut busy = false;
     let mut waiting = std::mem::take(&mut app.erase_settle.waiting);
     waiting.retain_mut(|w| {
@@ -2724,7 +2732,10 @@ fn tend_erase_settle(app: &mut SlateApp, painter: &egui::Painter, xf: &BoardXf) 
         let bands = s.take_bands(t, id, s.shown, t == tab);
         s.live.forget(&mut app.brush_tiles, tiles::erase_lane(id));
         let gpu = s.live.into_stand_in(s.rect, app.frame_no);
-        let seal = EraseSeal { tab: t, pass: s.pass };
+        let seal = EraseSeal {
+            tab: t,
+            pass: s.pass,
+        };
         insert_erase_stand_in(app, id, s.shows, seal, gpu);
         app.erase_settle.waiting.extend(bands);
     }
@@ -2762,7 +2773,12 @@ pub(crate) fn paint_erase_band(app: &mut SlateApp, painter: &egui::Painter, xf: 
             ..p
         };
         let start = if cut { Cap::Butt } else { Cap::Round };
-        band.paint(painter, xf, (shade(from), shade(seg.1)), [start, Cap::Round]);
+        band.paint(
+            painter,
+            xf,
+            (shade(from), shade(seg.1)),
+            [start, Cap::Round],
+        );
     };
     if let Some(super::board::BoardDrag::Erase {
         points,
@@ -2893,7 +2909,11 @@ pub(crate) fn insert_erase_stand_in(
 /// an eraser stand-in started a chain, the bitmaps of other contents stay
 /// behind the new one, two deep, so an undo or a redo of that pass finds
 /// them; a lone bitmap goes.
-fn stand_in_fallback(app: &mut SlateApp, id: NodeId, key: u64) -> Option<Box<(u64, BrushStampGpu)>> {
+fn stand_in_fallback(
+    app: &mut SlateApp,
+    id: NodeId,
+    key: u64,
+) -> Option<Box<(u64, BrushStampGpu)>> {
     let (k, top) = app.brush_stamps.remove(&id)?;
     if top.seal.is_none() && top.fallback.is_none() {
         return None;
@@ -2927,10 +2947,8 @@ fn promote_stamp_fallback(app: &mut SlateApp, id: NodeId, key: u64) {
     if top_ok && *k == key {
         return;
     }
-    let behind = || {
-        std::iter::successors(top.fallback.as_deref(), |(_, g)| g.fallback.as_deref())
-            .zip(1..)
-    };
+    let behind =
+        || std::iter::successors(top.fallback.as_deref(), |(_, g)| g.fallback.as_deref()).zip(1..);
     let pick = behind()
         .find(|((k, g), _)| *k == key && !undone(g))
         .or_else(|| behind().find(|((_, g), _)| !top_ok && !undone(g)))
@@ -3025,9 +3043,10 @@ fn paint_stamped_stroke(
             let current = r.key == key && r.pixel == want;
             // A stale bitmap replaces neither an eraser stand-in whose pass
             // is applied nor a bitmap of this very content.
-            let shown = app.brush_stamps.get(&cache).is_some_and(|(k, g)| {
-                *k == key || g.seal.is_some_and(|s| !s.undone(app))
-            });
+            let shown = app
+                .brush_stamps
+                .get(&cache)
+                .is_some_and(|(k, g)| *k == key || g.seal.is_some_and(|s| !s.undone(app)));
             match r.stamp {
                 Some(stamp) if current || !shown => {
                     let name = format!("brush-stamp-{}", cache.0);
@@ -3325,8 +3344,16 @@ fn paint_stamp_quad(
     let (mut origin, mut size) = (gpu.origin, gpu.size);
     if rect != gpu.rect {
         let (old, new) = (gpu.rect, rect);
-        let sx = if old.w.abs() > 1.0e-3 { new.w / old.w } else { 1.0 };
-        let sy = if old.h.abs() > 1.0e-3 { new.h / old.h } else { 1.0 };
+        let sx = if old.w.abs() > 1.0e-3 {
+            new.w / old.w
+        } else {
+            1.0
+        };
+        let sy = if old.h.abs() > 1.0e-3 {
+            new.h / old.h
+        } else {
+            1.0
+        };
         origin = [
             new.x + (origin[0] - old.x) * sx,
             new.y + (origin[1] - old.y) * sy,
@@ -3639,7 +3666,8 @@ fn paint_texels(
     if px[2] <= px[0] || px[3] <= px[1] {
         return;
     }
-    let world = |x: u32, y: u32| Pos2::new(origin[0] + x as f32 * pixel, origin[1] + y as f32 * pixel);
+    let world =
+        |x: u32, y: u32| Pos2::new(origin[0] + x as f32 * pixel, origin[1] + y as f32 * pixel);
     let (w, h) = (size[0].max(1) as f32, size[1].max(1) as f32);
     let uv = egui::Rect::from_min_max(
         Pos2::new(px[0] as f32 / w, px[1] as f32 / h),
@@ -3751,7 +3779,8 @@ impl BrushLiveCanvas {
             let blank = || egui::ColorImage::new([w as usize, h as usize], Color32::TRANSPARENT);
             let ctx = painter.ctx();
             let tex = ctx.load_texture("brush-live", blank(), egui::TextureOptions::LINEAR);
-            let line_tex = ctx.load_texture("brush-live-line", blank(), egui::TextureOptions::LINEAR);
+            let line_tex =
+                ctx.load_texture("brush-live-line", blank(), egui::TextureOptions::LINEAR);
             note_line_tex_alloc();
             *slot = Some(BrushLiveCanvas {
                 img: vector_ink::StampImage {
@@ -4184,9 +4213,9 @@ impl BrushLiveCanvas {
         };
         // Pixels outside everything drawn since the last reset are clear, so
         // such a box goes to the workers as a clear base, not a copy.
-        let clear = self.touched.is_none_or(|t| {
-            t[0] >= bx[2] || bx[0] >= t[2] || t[1] >= bx[3] || bx[1] >= t[3]
-        });
+        let clear = self
+            .touched
+            .is_none_or(|t| t[0] >= bx[2] || bx[0] >= t[2] || t[1] >= bx[3] || bx[1] >= t[3]);
         let base = if clear {
             let px = self.img.pixel;
             vector_ink::StampImage {
@@ -4291,12 +4320,17 @@ impl BrushLiveCanvas {
         };
         let (shown, rest) = match (exact, self.line) {
             (Some(e), Some(seg)) if e.seg == seg => (Some(e.bx), None),
-            (Some(e), Some(seg)) if extends(e.seg, seg) => {
-                (Some(e.bx), Some(((e.seg.1, seg.1), [Cap::Butt, Cap::Round])))
-            }
+            (Some(e), Some(seg)) if extends(e.seg, seg) => (
+                Some(e.bx),
+                Some(((e.seg.1, seg.1), [Cap::Butt, Cap::Round])),
+            ),
             (_, line) => (None, line.map(|seg| (seg, [start, Cap::Round]))),
         };
-        let img = (self.img.origin, self.img.pixel, [self.img.width, self.img.height]);
+        let img = (
+            self.img.origin,
+            self.img.pixel,
+            [self.img.width, self.img.height],
+        );
         let (w, h) = (self.img.width, self.img.height);
         let white = Color32::WHITE;
         match shown {
@@ -6016,7 +6050,13 @@ mod tests {
         let whole = vector_ink::finished_region(&full, tip.grain, bx);
         let raw = copy_region(&full, bx, Default::default());
         let finished = r.image.as_raw();
-        let worst = |x: &[u8], y: &[u8]| x.iter().zip(y).map(|(p, q)| p.abs_diff(*q)).max().unwrap_or(0);
+        let worst = |x: &[u8], y: &[u8]| {
+            x.iter()
+                .zip(y)
+                .map(|(p, q)| p.abs_diff(*q))
+                .max()
+                .unwrap_or(0)
+        };
         assert_eq!(r.raw.rgba.len(), raw.rgba.len());
         assert!(worst(&r.raw.rgba, &raw.rgba) <= 1, "raw coverage differs");
         assert_eq!(r.raw.depth.len(), raw.depth.len());
@@ -6053,15 +6093,16 @@ mod tests {
         };
         let screen = |w: f32, h: f32| egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(w, h));
         let frame = |slot: &mut Option<BrushLiveCanvas>,
-                         tiles: &mut tiles::BrushTiles,
-                         size: egui::Rect,
-                         seg: Seg| {
+                     tiles: &mut tiles::BrushTiles,
+                     size: egui::Rect,
+                     seg: Seg| {
             let _ = ctx.run(egui::RawInput::default(), |ctx| {
                 let painter = ctx.layer_painter(egui::LayerId::background());
                 if let Some(c) = slot.as_mut() {
                     c.take_landed(tiles);
                 }
-                let c = BrushLiveCanvas::ensure(slot, tiles, &painter, &xf, size, None, None, Vec::new);
+                let c =
+                    BrushLiveCanvas::ensure(slot, tiles, &painter, &xf, size, None, None, Vec::new);
                 c.set_line(seg.0, seg.1);
                 c.pump(tiles, ctx);
             });
@@ -6087,12 +6128,19 @@ mod tests {
         let e = c.exact.as_ref().expect("canvas B's stamp landed");
         assert_eq!(e.seg, short, "canvas B shows its own segment");
         assert_eq!(Some(e.bx), c.segment_box(short.0, short.1));
-        assert!(fits_box(&e.raw, e.bx), "canvas B took a raster of another size");
+        assert!(
+            fits_box(&e.raw, e.bx),
+            "canvas B took a raster of another size"
+        );
         assert_eq!(tiles.lines_wanted_len(), 0, "a job is still awaited");
         // Canvas A's job lands in this window; its raster must not stay.
         for _ in 0..200 {
             std::thread::sleep(std::time::Duration::from_millis(10));
-            assert_eq!(tiles.lines_landed_len(), 0, "canvas A's raster waits in the pool");
+            assert_eq!(
+                tiles.lines_landed_len(),
+                0,
+                "canvas A's raster waits in the pool"
+            );
         }
 
         // A raster of the wrong size is never written in.
@@ -6114,7 +6162,11 @@ mod tests {
             bx: b.segment_box(long.0, long.1).unwrap(),
         };
         b.land(ask, wrong);
-        assert_eq!(b.exact.as_ref().map(|e| e.bx), before, "a wrong-sized raster showed");
+        assert_eq!(
+            b.exact.as_ref().map(|e| e.bx),
+            before,
+            "a wrong-sized raster showed"
+        );
     }
 
     /// An eraser segment cut by a worker out of the ink under it gives the
@@ -6236,7 +6288,11 @@ mod tests {
         assert_ne!(key(&node(tipped, &mut scene)), plain, "path tip texture");
         let mut erased = path;
         erased.erase[0].tips[0].texture = slate_doc::scene::BrushTexture::Pencil;
-        assert_ne!(key(&node(erased, &mut scene)), plain, "erase mark tip texture");
+        assert_ne!(
+            key(&node(erased, &mut scene)),
+            plain,
+            "erase mark tip texture"
+        );
     }
 
     #[test]

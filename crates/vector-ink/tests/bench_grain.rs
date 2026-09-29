@@ -9,7 +9,8 @@
 
 use std::time::Instant;
 use vector_ink::{
-    composite_strokes_tiled, finish_grain, stamp_blurred, Grain, StampImage, StampStyle, StrokeInk, TipPoint,
+    composite_strokes_tiled, finish_grain, stamp_blurred, Grain, StampImage, StampStyle, StrokeInk,
+    TipPoint,
 };
 
 const GRAINS: [Grain; 5] = [
@@ -32,7 +33,10 @@ fn wave(grain: Grain, diameter: f32, softness: f32) -> Vec<Vec<TipPoint>> {
         .map(|i| {
             let x = i as f32 * 2.0;
             TipPoint {
-                pos: [x, 120.0 + (x * 0.02).sin() * 60.0 + (x * 0.071).sin() * 12.0],
+                pos: [
+                    x,
+                    120.0 + (x * 0.02).sin() * 60.0 + (x * 0.071).sin() * 12.0,
+                ],
                 tip,
             }
         })

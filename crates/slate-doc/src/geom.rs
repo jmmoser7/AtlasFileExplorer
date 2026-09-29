@@ -833,7 +833,11 @@ mod tests {
         };
         let rect = WorldRect::new(0.0, 0.0, 100.0, 100.0);
         let t = tipped_stroke(&path, &stroke, rect, 0.0, Corner::Rounded { radius: 20.0 }).unwrap();
-        assert_eq!(t.ease, vector_ink::TipEase::Linear, "the joints carry the blend");
+        assert_eq!(
+            t.ease,
+            vector_ink::TipEase::Linear,
+            "the joints carry the blend"
+        );
         // The painters blend linearly by arc length between joints.
         let mut joints: Vec<(Point, f64)> = Vec::new();
         let mut s = 0.0;
@@ -862,7 +866,9 @@ mod tests {
             "the fillet's middle keeps its corner's width: {}",
             t.widths[mid]
         );
-        let steepest = (1..joints.len()).map(|k| slope(k).abs()).fold(0.0, f64::max);
+        let steepest = (1..joints.len())
+            .map(|k| slope(k).abs())
+            .fold(0.0, f64::max);
         for (what, k) in [
             ("tangent point in", at(Point::new(80.0, 0.0))),
             ("middle", mid),
@@ -1514,7 +1520,12 @@ pub fn path_end_arrow(bez: &BezPath, stroke_width: f32) -> Option<([f32; 2], [f3
 /// to trim: a closed or too-short path, or `by <= 0`.
 fn trim_end_parts(bez: &BezPath, by: f64) -> Option<(BezPath, usize, f32)> {
     use vector_ink::kurbo::{ParamCurve, ParamCurveArclen, PathEl, PathSeg};
-    if !(by > 0.0) || bez.elements().iter().any(|e| matches!(e, PathEl::ClosePath)) {
+    if !(by > 0.0)
+        || bez
+            .elements()
+            .iter()
+            .any(|e| matches!(e, PathEl::ClosePath))
+    {
         return None;
     }
     let segs: Vec<PathSeg> = bez.segments().collect();
@@ -1549,7 +1560,11 @@ fn trim_end_parts(bez: &BezPath, by: f64) -> Option<(BezPath, usize, f32)> {
             }
         }
     }
-    let frac = if lens[cut] > 1e-9 { keep / lens[cut] } else { 0.0 };
+    let frac = if lens[cut] > 1e-9 {
+        keep / lens[cut]
+    } else {
+        0.0
+    };
     Some((out, segs.len() - 1 - cut, frac as f32))
 }
 
@@ -1689,7 +1704,10 @@ mod arrow_tests {
         assert!(into[0] < -0.99, "points back along the run, got {into:?}");
         let [_, b, c] = arrow_head(tip, into, 10.0);
         let base = [(b[0] + c[0]) * 0.5, (b[1] + c[1]) * 0.5];
-        assert!(base[1].abs() < 3.0, "the base sits on the curve, got {base:?}");
+        assert!(
+            base[1].abs() < 3.0,
+            "the base sits on the curve, got {base:?}"
+        );
     }
 
     #[test]
@@ -1716,9 +1734,15 @@ mod arrow_tests {
         let trimmed = trim_end(&bez, by);
         let before: f64 = bez.segments().map(|s| s.arclen(1e-3)).sum();
         let after: f64 = trimmed.segments().map(|s| s.arclen(1e-3)).sum();
-        assert!((before - after - by).abs() < 1e-2, "{before} - {after} vs {by}");
+        assert!(
+            (before - after - by).abs() < 1e-2,
+            "{before} - {after} vs {by}"
+        );
         let end = trimmed.segments().last().unwrap().eval(1.0);
-        assert!(end.x < 200.0 - by * 0.5, "the body ends under the head, at {end:?}");
+        assert!(
+            end.x < 200.0 - by * 0.5,
+            "the body ends under the head, at {end:?}"
+        );
     }
 
     #[test]

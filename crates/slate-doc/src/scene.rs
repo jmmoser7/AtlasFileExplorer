@@ -2383,12 +2383,7 @@ impl PathData {
             return None;
         }
         let scale = stroke.width.max(0.0) / widest;
-        Some(
-            self.tips
-                .iter()
-                .map(|t| t.width.max(0.0) * scale)
-                .collect(),
-        )
+        Some(self.tips.iter().map(|t| t.width.max(0.0) * scale).collect())
     }
 
     /// Per-vertex colors for a hard vector stroke (P1.curve.vertex-style):
@@ -3849,7 +3844,11 @@ impl SceneJournal {
         let groups: Vec<CommitGroup> = self.done.drain(depth..).collect();
         let token = groups.last().expect("at least one group since depth").token;
         let cmds = groups.into_iter().flat_map(|g| g.cmds).collect();
-        self.done.push(CommitGroup { cmds, author, token });
+        self.done.push(CommitGroup {
+            cmds,
+            author,
+            token,
+        });
         true
     }
 
@@ -4750,7 +4749,10 @@ mod tests {
         assert!(journal.is_undone(tokens[2]));
         let cmds = fade(&scene, frame_id, 0.9);
         assert!(journal.commit(&mut scene, cmds));
-        assert!(!journal.is_undone(tokens[2]), "a commit drops the redo stack");
+        assert!(
+            !journal.is_undone(tokens[2]),
+            "a commit drops the redo stack"
+        );
         assert!(!journal.is_applied(tokens[2]));
     }
 
@@ -4775,7 +4777,10 @@ mod tests {
         assert_eq!(journal.top_token(), Some(merged[1]));
         assert!(journal.is_applied(before) && journal.is_applied(merged[1]));
 
-        assert!(journal.undo(&mut scene), "one undo reverts every merged step");
+        assert!(
+            journal.undo(&mut scene),
+            "one undo reverts every merged step"
+        );
         assert_eq!(scene.node(img_id).unwrap().opacity, 1.0);
         assert!(journal.is_undone(merged[1]) && journal.is_applied(before));
         let cmds = fade(&scene, frame_id, 0.5);
