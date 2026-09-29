@@ -9,6 +9,7 @@
 
 use std::collections::HashMap;
 
+use atlas_agent::{DataMapping, InputSlot};
 use atlas_ai::agent::{AgentRequest, PortalView};
 use atlas_shell::{canvas_scale, canvas_text};
 use eframe::egui::{self, Align2, Color32, Id, Pos2, Rect};
@@ -759,6 +760,15 @@ impl SlateApp {
                         color,
                     );
                 }
+                if matches!(
+                    slate_doc::agent_chat::agent(node).map(|a| a.view),
+                    Some(PortalView::Images)
+                ) {
+                    let mapping = slate_doc::agent_chat::agent(node)
+                        .map(|a| a.mapping.of(port.slot))
+                        .unwrap_or_default();
+                    Self::paint_mapping_mark(painter, center, radius, z, color, mapping);
+                }
             }
             if let Some(out) = sites.last() {
                 let center = xf.w2s(Pos2::new(out.point[0], out.point[1]));
@@ -793,6 +803,165 @@ impl SlateApp {
                 );
             }
         }
+    }
+
+    /// Grasshopper's flatten mark (a pressed stack) or graft mark (a fork),
+    /// drawn inside the card beside the port. Absent when the input is plain.
+    fn paint_mapping_mark(
+        painter: &egui::Painter,
+        center: Pos2,
+        radius: f32,
+        zoom: f32,
+        color: Color32,
+        mapping: DataMapping,
+    ) {
+        if mapping == DataMapping::None {
+            return;
+        }
+        let mark = canvas_scale::px(8.0, zoom);
+        if canvas_scale::too_small(mark) {
+            return;
+        }
+        let origin = center + egui::vec2(radius + mark * 0.9, 0.0);
+        let stroke = egui::Stroke::new(canvas_scale::px(1.25, zoom), color);
+        match mapping {
+            DataMapping::Flatten => {
+                for i in -1..=1 {
+                    let y = origin.y + i as f32 * mark * 0.28;
+                    painter.line_segment(
+                        [
+                            Pos2::new(origin.x - mark * 0.45, y),
+                            Pos2::new(origin.x + mark * 0.45, y),
+                        ],
+                        stroke,
+                    );
+                }
+            }
+            DataMapping::Graft => {
+                let foot = Pos2::new(origin.x, origin.y + mark * 0.4);
+                let fork = Pos2::new(origin.x, origin.y - mark * 0.05);
+                painter.line_segment([foot, fork], stroke);
+                painter.line_segment(
+                    [
+                        fork,
+                        Pos2::new(origin.x - mark * 0.42, origin.y - mark * 0.42),
+                    ],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        fork,
+                        Pos2::new(origin.x + mark * 0.42, origin.y - mark * 0.42),
+                    ],
+                    stroke,
+                );
+            }
+            DataMapping::None => {}
+        }
+    }
+
+    /// Image or Style port under a right-click, on an image generator.
+    pub(crate) fn mapping_port_at(&self, screen: Pos2) -> Option<(NodeId, InputSlot)> {
+        let xf = self.board_xf();
+        let (id, side, t) = self.wire_grip_at(screen, &xf)?;
+        if side != Side::Left || !agent_inputs::is_image_generator(&self.doc().scene, id) {
+            return None;
+        }
+        let slot = agent_inputs::input_ports(&self.doc().scene, id)
+            .iter()
+            .find(|port| (port.t - t).abs() < 0.001)
+            .map(|port| port.slot)?;
+        matches!(slot, InputSlot::Media | InputSlot::Style).then_some((id, slot))
+    }
+
+    /// Flatten and Graft, one of them, on the port that was right-clicked.
+    pub(crate) fn port_mapping_menu(&mut self, ctx: &egui::Context) {
+        let Some((id, slot, pos)) = self.port_menu else {
+            return;
+        };
+        let current = self
+            .doc()
+            .scene
+            .node(id)
+            .and_then(slate_doc::agent_chat::agent)
+            .map(|agent| agent.mapping.of(slot))
+            .unwrap_or_default();
+        let title = agent_inputs::input_ports(&self.doc().scene, id)
+            .iter()
+            .find(|port| port.slot == slot)
+            .map(|port| port.label)
+            .unwrap_or(if slot == InputSlot::Style {
+                "Style"
+            } else {
+                "Image"
+            });
+        let dark = self.dark_mode;
+        let mut chosen = None;
+        let mut dismiss = false;
+        let menu_rect = egui::Area::new(egui::Id::new("slate_port_mapping"))
+            .fixed_pos(pos)
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                atlas_shell::menu::frame(dark).show(ui, |ui| {
+                    ui.set_min_width(atlas_shell::menu::tokens().min_width);
+                    atlas_shell::menu::heading(ui, title, dark);
+                    atlas_shell::menu::separator(ui, dark);
+                    if atlas_shell::menu::toggle(
+                        ui,
+                        current == DataMapping::Flatten,
+                        "Flatten",
+                        dark,
+                    )
+                    .clicked()
+                    {
+                        chosen = Some(DataMapping::Flatten);
+                    }
+                    if atlas_shell::menu::toggle(ui, current == DataMapping::Graft, "Graft", dark)
+                        .clicked()
+                    {
+                        chosen = Some(DataMapping::Graft);
+                    }
+                });
+            })
+            .response
+            .rect;
+        ctx.input(|input| {
+            if input.pointer.any_pressed() {
+                if let Some(p) = input.pointer.interact_pos() {
+                    if !menu_rect.expand(8.0).contains(p) {
+                        dismiss = true;
+                    }
+                }
+            }
+        });
+        if let Some(choice) = chosen {
+            self.choose_port_mapping(id, slot, choice);
+            self.port_menu = None;
+        } else if dismiss {
+            self.port_menu = None;
+        }
+    }
+
+    fn choose_port_mapping(&mut self, id: NodeId, slot: InputSlot, choice: DataMapping) {
+        self.patch_nodes(&[id], |node| {
+            let Some(agent) = slate_doc::agent_chat::agent_mut(node) else {
+                return;
+            };
+            let next = if agent.mapping.of(slot) == choice {
+                DataMapping::None
+            } else {
+                choice
+            };
+            agent.mapping.set(slot, next);
+        });
+        self.push_history(
+            atlas_commands::CommandId("portal.agent.graft"),
+            Some(match slot {
+                InputSlot::Style => "Style".into(),
+                InputSlot::Media => "Media".into(),
+                _ => "Input".into(),
+            }),
+        );
     }
 
     /// Placeholder the text block's composer shows while it is empty.

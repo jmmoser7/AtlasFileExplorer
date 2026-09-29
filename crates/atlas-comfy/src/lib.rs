@@ -412,7 +412,10 @@ pub fn sources(request: &AgentRequest) -> Result<Sources, String> {
         .filter(|(_, image)| !image.is_empty())
         .collect();
     if styles.len() > 1 {
-        return Err("Style reads one picture. Disconnect the extra style wire.".into());
+        return Err(
+            "Style reads one picture per run. Graft the Style input to make one image per reference."
+                .into(),
+        );
     }
     let wired: Vec<_> = request.inputs.on(InputSlot::Media).collect();
     let mut found = media(&wired)?;
@@ -449,7 +452,7 @@ fn media(wired: &[&atlas_agent::ContextItem]) -> Result<Sources, String> {
         .collect();
     if images.len() > 1 {
         return Err(format!(
-            "This generator uses one source image. Disconnect {} extra image{}.",
+            "This generator uses one source image per run. Graft the Image input to make one image per source. Disconnect {} extra image{}.",
             images.len() - 1,
             if images.len() == 2 { "" } else { "s" }
         ));
@@ -1286,10 +1289,15 @@ impl Client {
         if self.output_dir.as_os_str().is_empty() {
             return Err("This image portal has no output folder.".into());
         }
-        let prompt = request.prompt.trim();
+        let prompt = atlas_agent::image_runs::compose(
+            request.prompt.trim(),
+            &request.inputs,
+            atlas_agent::image_runs::Voice::Local,
+        );
         if prompt.is_empty() {
             return Err("Connect a note with a prompt, or type one.".into());
         }
+        let prompt = prompt.as_str();
         let sources = sources(request)?;
         let catalog = self.catalog()?;
         let plan = plan(&catalog, request.model.as_deref(), &sources)?;

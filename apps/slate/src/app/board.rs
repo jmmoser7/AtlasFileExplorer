@@ -5222,9 +5222,15 @@ impl SlateApp {
         self.turbo_pan.acknowledge_context_menu();
         if secondary {
             if let (Some(p), Some(w)) = (pointer, wp) {
-                if let Some(id) = self.board_pick_node(w.x, w.y) {
+                if let Some((id, slot)) = self.mapping_port_at(p) {
+                    self.port_menu = Some((id, slot, p));
+                    self.board_menu = None;
+                    self.board_empty_menu = None;
+                } else if let Some(id) = self.board_pick_node(w.x, w.y) {
                     self.board_menu = Some((id, p));
+                    self.port_menu = None;
                 } else {
+                    self.port_menu = None;
                     // Empty canvas: show/unlock-all discoverability menu
                     // (only when there is something to reveal).
                     let (hidden, locked) = self.hidden_locked_counts();
@@ -5970,6 +5976,7 @@ impl SlateApp {
         self.text_edit_overlay(ui.ctx(), &xf);
         self.wire_label_overlay(ui.ctx(), &xf);
         self.board_action_menu(ui.ctx());
+        self.port_mapping_menu(ui.ctx());
         self.board_empty_canvas_menu(ui.ctx());
 
         brush_prof::lap("tail");

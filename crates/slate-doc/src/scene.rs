@@ -1412,6 +1412,10 @@ pub struct AgentPortalRef {
     /// How a generator's runs are shaped: pictures per run, aspect, seed lock.
     #[serde(default, skip_serializing_if = "ImageSettings::is_default")]
     pub image: ImageSettings,
+    /// Flatten or graft on the Image and Style ports. Grasshopper's input
+    /// mapping: flatten is one list, graft is one branch per picture.
+    #[serde(default, skip_serializing_if = "atlas_agent::InputMapping::is_default")]
+    pub mapping: atlas_agent::InputMapping,
 }
 
 /// Journaled image-agent settings (D20). A locked seed makes runs repeatable.
@@ -1798,6 +1802,7 @@ impl PortalNode {
                 live: false,
                 instruction: String::new(),
                 image: ImageSettings::default(),
+                mapping: atlas_agent::InputMapping::default(),
             })),
             web: None,
             atlas: AtlasPortalQuery::default(),

@@ -637,6 +637,16 @@ pub fn image_turn(request: &AgentRequest) -> String {
         (false, true) => "The attached image is a style reference only: follow its look, not its subject. ",
         (false, false) => "",
     };
+    let written = request.prompt.trim();
+    let body = if written.is_empty() {
+        atlas_agent::image_runs::compose(
+            written,
+            &request.inputs,
+            atlas_agent::image_runs::Voice::Agent,
+        )
+    } else {
+        written.to_string()
+    };
     let plural = if count == 1 { "" } else { "s" };
     let variants = if count > 1 {
         ", each a distinct variation"
@@ -644,8 +654,7 @@ pub fn image_turn(request: &AgentRequest) -> String {
         ""
     };
     format!(
-        "Create {count} image{plural} with your built-in image_gen tool, one image_gen call per image{variants}. Shape: {shape}. {roles}Do not run commands, read or write files, or ask questions: Slate collects the images from Codex's generated images folder. When done, reply with one short line.\n\nImage prompt:\n{}",
-        request.prompt.trim()
+        "Create {count} image{plural} with your built-in image_gen tool, one image_gen call per image{variants}. Shape: {shape}. {roles}Do not run commands, read or write files, or ask questions: Slate collects the images from Codex's generated images folder. When done, reply with one short line.\n\nImage prompt:\n{body}"
     )
 }
 

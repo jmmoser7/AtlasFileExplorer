@@ -258,6 +258,19 @@ safetensors header, so Auto never pairs weights from different families. Live
 reruns on any wired change with one seed per generator; Keep keeps the shown
 frame. A focused live generator flies its wired model.
 
+Right-click the Image or Style port for Flatten or Graft, the same two input
+modifiers Grasshopper puts on a parameter. They are mutually exclusive; neither
+is the plain list. Flatten keeps every picture on that port in one run. Graft
+puts each picture on its own branch, and the branches match by longest list, so
+the other port repeats. One base and three grafted styles is three runs. Three
+grafted bases and one style is three runs. Grafting both zips them and repeats
+the last picture of the shorter side. A style picture with an empty prompt
+sends a stand-in instruction: one sentence for GPT Image 2.5 and later, an
+explicit keep-the-subject line for earlier GPT Image models and for Codex, and
+a short quality line with no image numbers for a local diffusion checkpoint.
+ComfyUI still takes one style picture per run, so several styles are grafted
+rather than flattened into one graph.
+
 Validation: the library suites for atlas-comfy (6), atlas-agent (4), atlas-ai
 (23), atlas-shell (129, one ignored), slate-doc (157, one ignored) and
 slate-artifact (43) pass, with the document migration and artifact export

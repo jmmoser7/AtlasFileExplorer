@@ -448,6 +448,8 @@ pub struct SlateApp {
     sheet_scroll: HashMap<NodeId, Vec2>,
     /// Board right-click menu: (node, screen position).
     pub board_menu: Option<(NodeId, egui::Pos2)>,
+    /// Right-click on an image generator's Image or Style port.
+    port_menu: Option<(NodeId, atlas_agent::InputSlot, egui::Pos2)>,
     pub presenting: Option<present::Present>,
     /// Retained source pixels for board images (needed to apply filters).
     pub thumb_pixels: HashMap<String, egui::ColorImage>,
@@ -913,6 +915,7 @@ impl SlateApp {
             sheet_resize: None,
             sheet_scroll: HashMap::new(),
             board_menu: None,
+            port_menu: None,
             presenting: None,
             thumb_pixels: HashMap::new(),
             snippets: HashMap::new(),

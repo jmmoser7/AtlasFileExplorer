@@ -1,8 +1,12 @@
 //! Renderer- and provider-independent contracts for agent sidecars.
+pub mod image_runs;
+
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
+
+pub use image_runs::{DataMapping, InputMapping};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentContext {

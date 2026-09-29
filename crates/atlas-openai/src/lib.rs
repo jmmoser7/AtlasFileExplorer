@@ -39,30 +39,30 @@ pub fn size(model: &str, aspect: Aspect, source_ratio: Option<f32>) -> &'static 
     }
 }
 
-/// What a run reads: the Media picture it edits and a Style picture it follows.
-fn pictures(request: &AgentRequest) -> (Option<&str>, Option<&str>) {
-    let first = |slot| {
-        request
-            .inputs
-            .on(slot)
-            .flat_map(|i| i.images.iter())
-            .map(String::as_str)
-            .find(|p| !p.is_empty())
-    };
-    (first(InputSlot::Media), first(InputSlot::Style))
+/// Pictures on one port, in wire order.
+fn paths(request: &AgentRequest, slot: InputSlot) -> Vec<&str> {
+    request
+        .inputs
+        .on(slot)
+        .flat_map(|item| item.images.iter())
+        .map(String::as_str)
+        .filter(|path| !path.is_empty())
+        .collect()
 }
 
-/// The prompt the API reads. Attached pictures are named by role.
+/// The prompt the API reads. Roles and an empty-prompt stand-in come from
+/// the shared image-run owner, tuned to this model.
 pub fn prompt(request: &AgentRequest) -> String {
-    let (source, style) = pictures(request);
-    let mut text = request.prompt.trim().to_string();
-    match (source.is_some(), style.is_some()) {
-        (true, true) => text.push_str("\n\nThe first image is the source to transform. Keep its composition. The second image is a style reference only: follow its look, not its subject."),
-        (true, false) => text.push_str("\n\nTransform the attached image. Keep its composition."),
-        (false, true) => text.push_str("\n\nThe attached image is a style reference only: follow its look, not its subject."),
-        (false, false) => {}
-    }
-    text
+    let model = request
+        .model
+        .as_deref()
+        .filter(|model| !model.is_empty())
+        .unwrap_or(DEFAULT_MODEL);
+    atlas_agent::image_runs::compose(
+        &request.prompt,
+        &request.inputs,
+        atlas_agent::image_runs::voice_for_model(model),
+    )
 }
 
 fn api_error(failure: Failure) -> String {
@@ -190,22 +190,23 @@ impl Client {
             .filter(|m| !m.is_empty())
             .unwrap_or(DEFAULT_MODEL);
         let params = request.image.clone().unwrap_or_default();
-        let (source, style) = pictures(request);
+        let sources = paths(request, InputSlot::Media);
+        let styles = paths(request, InputSlot::Style);
         let size = size(
             model,
             params.aspect,
-            source.and_then(|p| picture_ratio(Path::new(p))),
+            sources.first().and_then(|p| picture_ratio(Path::new(p))),
         );
         let text = prompt(request);
         let auth = format!("Bearer {}", self.key);
-        let built = if source.is_some() || style.is_some() {
+        let built = if !sources.is_empty() || !styles.is_empty() {
             let mut fields = vec![
                 ("model".to_string(), Field::Text(model.into())),
                 ("prompt".to_string(), Field::Text(text)),
                 ("n".to_string(), Field::Text(count.to_string())),
                 ("size".to_string(), Field::Text(size.into())),
             ];
-            for path in source.into_iter().chain(style) {
+            for path in sources.into_iter().chain(styles) {
                 fields.push((
                     "image[]".to_string(),
                     Field::File {
@@ -236,7 +237,7 @@ impl Client {
         if self.key.trim().is_empty() {
             return Err("Add an OpenAI API key to use OpenAI models.".into());
         }
-        if request.prompt.trim().is_empty() {
+        if prompt(request).trim().is_empty() {
             return Err("Write a prompt for the agent.".into());
         }
         if request.image.is_none() {
@@ -268,7 +269,11 @@ impl Client {
                 request: request.id.clone(),
                 prompt: request.prompt.clone(),
                 model: model.clone(),
-                task: if pictures(request).0.is_some() {
+                task: if request
+                    .inputs
+                    .on(InputSlot::Media)
+                    .any(|item| item.images.iter().any(|path| !path.is_empty()))
+                {
                     "vary"
                 } else {
                     "generate"

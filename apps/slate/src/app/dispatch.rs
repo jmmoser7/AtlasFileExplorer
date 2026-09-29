@@ -1205,6 +1205,7 @@ impl SlateApp {
             }
             Some(CancelLayer::Chrome) => {
                 self.board_menu = None;
+                self.port_menu = None;
                 self.board_empty_menu = None;
                 self.adjust_popover_open = false;
                 self.new_tag_edit = None;

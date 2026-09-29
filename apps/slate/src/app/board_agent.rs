@@ -4678,22 +4678,25 @@ impl SlateApp {
             .unwrap_or_default()
     }
 
-    fn generation_request(&mut self, id: NodeId, live: bool) -> Result<AgentRequest, String> {
+    fn generation_requests(&mut self, id: NodeId, live: bool) -> Result<Vec<AgentRequest>, String> {
         if let Some(error) = self.generator_view(id).error.clone() {
             return Err(error);
         }
         let prompt = self.generator_prompt(id);
-        if prompt.is_empty() {
+        let inputs = self.agent_input_snapshot(id)?;
+        // A style picture can stand in for a written prompt. The adapter
+        // fills a model-specific instruction when this string is empty.
+        if prompt.is_empty() && inputs.on(atlas_agent::InputSlot::Style).next().is_none() {
             return Err("Connect a note with a prompt to this generator.".into());
         }
-        let inputs = self.agent_input_snapshot(id)?;
-        let (model, session, settings) = self
+        let (model, session, settings, mapping) = self
             .doc()
             .scene
             .node(id)
             .and_then(slate_doc::agent_chat::agent)
-            .map(|a| (a.model.clone(), a.session.clone(), a.image))
+            .map(|a| (a.model.clone(), a.session.clone(), a.image, a.mapping))
             .unwrap_or_default();
+        let batches = atlas_ai::agent::image_runs::split(&inputs, mapping);
         let live_run = live.then(|| {
             self.agents
                 .live_run
@@ -4712,28 +4715,53 @@ impl SlateApp {
             aspect: settings.aspect,
             count: settings.count,
         });
-        Ok(AgentRequest {
-            id: atlas_ai::agent::request_id(),
-            prompt,
-            model,
-            at: atlas_ai::context::now_secs(),
-            inputs,
-            history: vec![],
-            image,
-            output_dir: None,
-            oneshot: false,
-            ..Default::default()
-        })
+        let at = atlas_ai::context::now_secs();
+        Ok(batches
+            .into_iter()
+            .map(|inputs| AgentRequest {
+                id: atlas_ai::agent::request_id(),
+                prompt: prompt.clone(),
+                model: model.clone(),
+                at,
+                inputs,
+                history: vec![],
+                image: image.clone(),
+                output_dir: None,
+                oneshot: false,
+                ..Default::default()
+            })
+            .collect())
     }
 
     /// Every press is accepted. One generation runs per note at a time.
     pub(crate) fn queue_generation(&mut self, id: NodeId) {
-        match self.generation_request(id, false) {
-            Ok(request) => self.enqueue_generation(id, request),
+        match self.generation_requests(id, false) {
+            Ok(requests) => self.enqueue_generations(id, requests),
             Err(error) => {
                 self.toast(error.clone());
                 self.fail_agent_await(id, error);
             }
+        }
+    }
+
+    /// One press may be several runs when an input is grafted.
+    fn enqueue_generations(&mut self, id: NodeId, requests: Vec<AgentRequest>) {
+        let room = GENERATION_QUEUE.saturating_sub(self.generations_waiting(id));
+        if requests.len() > room {
+            let error = if room == 0 {
+                "Eight generations are already waiting on this generator.".to_string()
+            } else {
+                format!(
+                    "Graft needs {} runs and this generator can wait for {room} more.",
+                    requests.len()
+                )
+            };
+            self.toast(error.clone());
+            self.fail_agent_await(id, error);
+            return;
+        }
+        for request in requests {
+            self.enqueue_generation(id, request);
         }
     }
 
@@ -4973,7 +5001,7 @@ impl SlateApp {
                 .scene
                 .node(id)
                 .and_then(slate_doc::agent_chat::agent)
-                .map(|a| a.model.clone())
+                .map(|a| (a.model.clone(), a.mapping))
                 .hash(&mut hasher);
             if let Some(model) = view.geometry() {
                 let Some(pose) = self.model_pose_hash(model) else {
@@ -5007,8 +5035,8 @@ impl SlateApp {
             }
             self.agents.live_settle.remove(&id);
             self.agents.live_sent.insert(id, signature);
-            match self.generation_request(id, true) {
-                Ok(request) => self.enqueue_generation(id, request),
+            match self.generation_requests(id, true) {
+                Ok(requests) => self.enqueue_generations(id, requests),
                 Err(error) => self.fail_agent_await(id, error),
             }
         }
@@ -10694,8 +10722,11 @@ mod agent_await_tests {
         assert!(view.error.is_none());
 
         h.app.set_generator_live(id, true);
-        let first = h.app.generation_request(id, true).unwrap();
-        let second = h.app.generation_request(id, true).unwrap();
+        let mut live = h.app.generation_requests(id, true).unwrap();
+        assert_eq!(live.len(), 1);
+        let first = live.remove(0);
+        let mut again = h.app.generation_requests(id, true).unwrap();
+        let second = again.remove(0);
         assert_eq!(
             first.prompt, note,
             "the note is the prompt, never a stand-in"
@@ -10704,7 +10735,7 @@ mod agent_await_tests {
         assert_eq!(a.seed, b.seed, "live frames repeat one seed");
         assert_eq!(a.live, b.live);
         assert!(a.live.is_some());
-        let still = h.app.generation_request(id, false).unwrap();
+        let still = h.app.generation_requests(id, false).unwrap().remove(0);
         let still = still.image.unwrap();
         assert!(still.seed.is_none(), "a pressed Render varies its seed");
         assert!(still.live.is_none());

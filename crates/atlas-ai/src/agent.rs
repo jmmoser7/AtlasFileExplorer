@@ -83,6 +83,7 @@ pub fn launch_provider(provider: &str, workspace: &Path) -> Result<(), String> {
     }
 }
 
+pub use atlas_agent::image_runs;
 pub use atlas_agent::*;
 
 enum LinkWork {
