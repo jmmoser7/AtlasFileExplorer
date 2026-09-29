@@ -289,7 +289,6 @@ impl SlateApp {
         match action {
             Some("cancel") => {
                 self.agents.schedule_dialog = None;
-                return;
             }
             Some(kind) => {
                 let detail = if kind == "stop" {

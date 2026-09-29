@@ -20,7 +20,9 @@ use slate_doc::wire::{
     scene_wire_hosts, scene_wire_obstacles, ConnectorPath, OrthoLane, PathCmd, WireRouting,
     ORTHO_CORNER_RADIUS,
 };
-use slate_doc::{connector_anchor_on, NodeId, WireHost};
+#[cfg(test)]
+use slate_doc::WireHost;
+use slate_doc::{connector_anchor_on, NodeId};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use vector_ink::kurbo::BezPath;

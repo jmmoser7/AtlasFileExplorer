@@ -407,6 +407,7 @@ mod platform {
         }
     }
 
+    #[cfg_attr(test, allow(dead_code))] // Tests use the deterministic stub.
     pub fn sample_cursor() -> Option<[u8; 3]> {
         unsafe {
             let mut p = POINT::default();

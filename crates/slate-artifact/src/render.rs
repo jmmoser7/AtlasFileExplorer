@@ -379,6 +379,7 @@ fn render_node(
     }
 }
 
+#[allow(clippy::too_many_arguments)] // Interpreter inputs are kept explicit.
 fn render_portal(
     html: &mut String,
     _doc: &SlateDoc,
@@ -1667,6 +1668,7 @@ fn render_path(
     );
 }
 
+#[allow(clippy::too_many_arguments)] // Interpreter inputs are kept explicit.
 fn render_vector_path_d(
     html: &mut String,
     node: &Node,

@@ -1634,8 +1634,8 @@ impl SlateApp {
         }
         // Per chain: relaying, the reply waiting for Send, and the newest
         // wire, which carries the Send pill beside its blister.
-        let mut chains: HashMap<String, (bool, Option<(String, bool)>, NodeId, u32)> =
-            HashMap::new();
+        type Chain = (bool, Option<(String, bool)>, NodeId, u32);
+        let mut chains: HashMap<String, Chain> = HashMap::new();
         for b in &blisters {
             match chains.get_mut(&b.chain) {
                 Some(entry) if b.seq >= entry.3 => {

@@ -127,7 +127,11 @@ pub(super) fn check() -> Result<Event, String> {
         }
         _ => None,
     };
-    Ok(Event::Checked(version, config.channel, release))
+    Ok(Event::Checked(
+        version,
+        config.channel,
+        release.map(Box::new),
+    ))
 }
 
 fn feed_url(channel: &str) -> Result<&'static str, String> {

@@ -265,7 +265,7 @@ impl<H: std::hash::Hasher> Write for HashWriter<'_, H> {
 }
 
 fn premultiply(mut rgba: Vec<u8>) -> Vec<u8> {
-    for p in rgba.chunks_exact_mut(4) {
+    for p in rgba.as_chunks_mut::<4>().0 {
         let a = p[3] as u16;
         for c in &mut p[..3] {
             *c = ((*c as u16 * a + 127) / 255) as u8;
@@ -357,7 +357,12 @@ fn blend_over(dst: &mut tiny_skia::Pixmap, src: &tiny_skia::Pixmap, x: i32, y: i
         let so = ((sy0 + row) * sw + sx0) * 4;
         let doff = ((dy0 + row) * dw + dx0) * 4;
         let (srow, drow) = (&s[so..so + cols * 4], &mut d[doff..doff + cols * 4]);
-        for (sp, dp) in srow.chunks_exact(4).zip(drow.chunks_exact_mut(4)) {
+        for (sp, dp) in srow
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(drow.as_chunks_mut::<4>().0)
+        {
             if sp[3] == 0 {
                 continue;
             }
@@ -412,6 +417,42 @@ fn image_data_uri(doc: &SlateDoc, img: &ImageNode) -> Option<String> {
         "data:{mime};base64,{}",
         crate::assets::base64_encode(&bytes)
     ))
+}
+
+/// Rasterize to straight-alpha RGBA8 for `image` crate blending.
+pub fn rasterize_paint_layers_svg(svg: &str, w: u32, h: u32) -> Option<Vec<u8>> {
+    let w = w.max(1);
+    let h = h.max(1);
+    let tree = usvg::Tree::from_data(svg.as_bytes(), svg_options()).ok()?;
+    let mut pixmap = tiny_skia::Pixmap::new(w, h)?;
+    pixmap.fill(tiny_skia::Color::TRANSPARENT);
+    let transform = tiny_skia::Transform::identity();
+    resvg::render(&tree, transform, &mut pixmap.as_mut());
+    Some(unpremultiply(pixmap))
+}
+
+fn svg_options() -> &'static usvg::Options<'static> {
+    static OPTIONS: OnceLock<usvg::Options<'static>> = OnceLock::new();
+    OPTIONS.get_or_init(|| {
+        let mut opt = usvg::Options::default();
+        opt.fontdb_mut().load_system_fonts();
+        opt
+    })
+}
+
+fn unpremultiply(pixmap: tiny_skia::Pixmap) -> Vec<u8> {
+    let mut rgba = pixmap.take();
+    for pixel in rgba.as_chunks_mut::<4>().0 {
+        let alpha = pixel[3] as u16;
+        if alpha == 0 {
+            pixel[..3].fill(0);
+            continue;
+        }
+        for channel in &mut pixel[..3] {
+            *channel = ((*channel as u16 * 255 + alpha / 2) / alpha).min(255) as u8;
+        }
+    }
+    rgba
 }
 
 #[cfg(test)]
@@ -698,7 +739,7 @@ mod tests {
         };
         let svg = paint_layers_svg(&host, &img, 100, 100);
         let rgba = rasterize_paint_layers_svg(&svg, 100, 100).unwrap();
-        assert!(rgba.chunks_exact(4).any(|pixel| pixel[3] != 0));
+        assert!(rgba.as_chunks::<4>().0.iter().any(|pixel| pixel[3] != 0));
     }
 
     #[test]
@@ -734,43 +775,9 @@ mod tests {
         let svg = paint_layers_svg_with_doc(&host, &img, 8, 8, &doc);
         let rgba = rasterize_paint_layers_svg(&svg, 8, 8).unwrap();
         assert!(rgba
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .any(|pixel| { pixel[0] > 200 && pixel[1] < 30 && pixel[2] < 40 && pixel[3] > 200 }));
     }
-}
-
-/// Rasterize to straight-alpha RGBA8 for `image` crate blending.
-pub fn rasterize_paint_layers_svg(svg: &str, w: u32, h: u32) -> Option<Vec<u8>> {
-    let w = w.max(1);
-    let h = h.max(1);
-    let tree = usvg::Tree::from_data(svg.as_bytes(), svg_options()).ok()?;
-    let mut pixmap = tiny_skia::Pixmap::new(w, h)?;
-    pixmap.fill(tiny_skia::Color::TRANSPARENT);
-    let transform = tiny_skia::Transform::identity();
-    resvg::render(&tree, transform, &mut pixmap.as_mut());
-    Some(unpremultiply(pixmap))
-}
-
-fn svg_options() -> &'static usvg::Options<'static> {
-    static OPTIONS: OnceLock<usvg::Options<'static>> = OnceLock::new();
-    OPTIONS.get_or_init(|| {
-        let mut opt = usvg::Options::default();
-        opt.fontdb_mut().load_system_fonts();
-        opt
-    })
-}
-
-fn unpremultiply(pixmap: tiny_skia::Pixmap) -> Vec<u8> {
-    let mut rgba = pixmap.take();
-    for pixel in rgba.chunks_exact_mut(4) {
-        let alpha = pixel[3] as u16;
-        if alpha == 0 {
-            pixel[..3].fill(0);
-            continue;
-        }
-        for channel in &mut pixel[..3] {
-            *channel = ((*channel as u16 * 255 + alpha / 2) / alpha).min(255) as u8;
-        }
-    }
-    rgba
 }

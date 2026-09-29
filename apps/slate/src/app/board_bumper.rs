@@ -350,6 +350,20 @@ impl SlateApp {
     }
 }
 
+/// World units per second over the release window; zero when the pointer
+/// had stopped before release.
+fn throw_velocity(samples: &VecDeque<(Instant, [f32; 2])>) -> [f32; 2] {
+    let (Some((t0, p0)), Some((t1, p1))) = (samples.front(), samples.back()) else {
+        return [0.0, 0.0];
+    };
+    let span = t1.duration_since(*t0).as_secs_f32();
+    let idle = t1.elapsed().as_secs_f64();
+    if span <= 0.0 || idle > bumper::tokens::RELEASE_WINDOW {
+        return [0.0, 0.0];
+    }
+    [(p1[0] - p0[0]) / span, (p1[1] - p0[1]) / span]
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::board::BoardTool;
@@ -473,18 +487,4 @@ mod tests {
         assert_eq!((x_of(&h, a), x_of(&h, b)), (0.0, 100.0));
         assert_eq!(h.app.tab().journal.undo_depth(), depth);
     }
-}
-
-/// World units per second over the release window; zero when the pointer
-/// had stopped before release.
-fn throw_velocity(samples: &VecDeque<(Instant, [f32; 2])>) -> [f32; 2] {
-    let (Some((t0, p0)), Some((t1, p1))) = (samples.front(), samples.back()) else {
-        return [0.0, 0.0];
-    };
-    let span = t1.duration_since(*t0).as_secs_f32();
-    let idle = t1.elapsed().as_secs_f64();
-    if span <= 0.0 || idle > bumper::tokens::RELEASE_WINDOW {
-        return [0.0, 0.0];
-    }
-    [(p1[0] - p0[0]) / span, (p1[1] - p0[1]) / span]
 }

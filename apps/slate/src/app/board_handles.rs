@@ -7,6 +7,7 @@ use slate_doc::geom::CornerGripEdge;
 use slate_doc::scene::WorldRect;
 
 /// Screen-px half-size of resize handles (matches board.rs).
+#[cfg(test)]
 pub const HANDLE_PX: f32 = 5.0;
 /// Painted half-size of the live-corner fillet grip (square, same family as
 /// resize handles).
@@ -207,6 +208,7 @@ pub fn paint_crop_handles(
     }
 }
 
+#[cfg(test)]
 fn handle_rects(geom: &SelectionGeom) -> [(ResizeHandle, Rect); 8] {
     let h = Vec2::splat(canvas_scale::px(HANDLE_PX, geom.zoom));
     [
@@ -247,6 +249,7 @@ fn handle_rects(geom: &SelectionGeom) -> [(ResizeHandle, Rect); 8] {
 
 /// Square handle hit (no rotate zones, no edge bands). Crop blisters use
 /// their own midpoint test; this remains the tight square.
+#[cfg(test)]
 pub fn hit_test_resize_handles(screen: Pos2, geom: &SelectionGeom) -> Option<ResizeHandle> {
     handle_rects(geom)
         .into_iter()

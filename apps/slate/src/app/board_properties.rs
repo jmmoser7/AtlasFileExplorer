@@ -1252,7 +1252,7 @@ impl SlateApp {
             self.filter_swatch_tex.clear();
         }
         let mut out = none;
-        for i in 0..6 {
+        for (i, slot) in out.iter_mut().enumerate() {
             let adjust = photo_filter_adjust(i, amount);
             let hash = adjust.cache_hash();
             let cache_key = (key.clone(), hash);
@@ -1265,7 +1265,7 @@ impl SlateApp {
                 );
                 self.filter_swatch_tex.insert(cache_key.clone(), tex);
             }
-            out[i] = Some(self.filter_swatch_tex[&cache_key].id());
+            *slot = Some(self.filter_swatch_tex[&cache_key].id());
         }
         out
     }
@@ -2561,7 +2561,7 @@ mod tests {
         let mut h = board();
         h.app.place_agent_portal_at(egui::Pos2::ZERO);
         let n = h.app.doc().scene.nodes[0].clone();
-        let items = live_property_strip_items(&h.app, &[n.clone()]);
+        let items = live_property_strip_items(&h.app, std::slice::from_ref(&n));
         assert!(items.contains(&StripItem::Panel(Panel::Fill)));
         assert!(items.contains(&StripItem::Panel(Panel::Stroke)));
         assert_eq!(scene::stroke_of(&n).unwrap().width, 0.0);

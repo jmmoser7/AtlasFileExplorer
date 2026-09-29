@@ -100,7 +100,7 @@ pub fn time_at(u: f32, start: f32, end: f32) -> f32 {
 /// Where a time sits in the trim window, 0 at the in-point and 1 at the out-point.
 pub fn fraction_at(time: f32, start: f32, end: f32) -> f32 {
     let span = end - start;
-    if !(span > 1.0e-4) || !time.is_finite() {
+    if span.is_nan() || span <= 1.0e-4 || !time.is_finite() {
         return 0.0;
     }
     ((time - start) / span).clamp(0.0, 1.0)
@@ -303,6 +303,7 @@ impl VideoPool {
         });
     }
 
+    #[allow(clippy::too_many_arguments)] // One playback request, sent as one job.
     pub fn play(
         &self,
         id: u64,
@@ -612,7 +613,7 @@ mod mf {
         if slot.as_ref().is_some_and(|open| open.path == path) {
             return slot.as_mut();
         }
-        *slot = Open::open(path).ok();
+        *slot = Open::from_path(path).ok();
         slot.as_mut()
     }
 
@@ -630,7 +631,7 @@ mod mf {
     }
 
     impl Open {
-        fn open(path: &Path) -> Result<Self, ()> {
+        fn from_path(path: &Path) -> Result<Self, ()> {
             let wide = wide_path(path);
             let reader = unsafe {
                 MFCreateSourceReaderFromURL(PCWSTR(wide.as_ptr()), None::<&IMFAttributes>)

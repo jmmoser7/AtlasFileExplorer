@@ -1005,14 +1005,16 @@ unsafe fn hbitmap_to_rgba(hbmp: HBITMAP) -> Option<(u32, u32, Vec<u8>)> {
     }
     let (w, h) = (bm.bmWidth as u32, bm.bmHeight as u32);
 
-    let mut bmi = BITMAPINFO::default();
-    bmi.bmiHeader = BITMAPINFOHEADER {
-        biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-        biWidth: bm.bmWidth,
-        biHeight: -bm.bmHeight, // top-down
-        biPlanes: 1,
-        biBitCount: 32,
-        biCompression: BI_RGB.0,
+    let mut bmi = BITMAPINFO {
+        bmiHeader: BITMAPINFOHEADER {
+            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: bm.bmWidth,
+            biHeight: -bm.bmHeight, // top-down
+            biPlanes: 1,
+            biBitCount: 32,
+            biCompression: BI_RGB.0,
+            ..Default::default()
+        },
         ..Default::default()
     };
 
@@ -1035,14 +1037,14 @@ unsafe fn hbitmap_to_rgba(hbmp: HBITMAP) -> Option<(u32, u32, Vec<u8>)> {
 
     // BGRA -> RGBA; if the bitmap carries no alpha at all, treat as opaque.
     let mut any_alpha = false;
-    for px in buf.chunks_exact_mut(4) {
+    for px in buf.as_chunks_mut::<4>().0 {
         px.swap(0, 2);
         if px[3] != 0 {
             any_alpha = true;
         }
     }
     if !any_alpha {
-        for px in buf.chunks_exact_mut(4) {
+        for px in buf.as_chunks_mut::<4>().0 {
             px[3] = 255;
         }
     }

@@ -72,6 +72,7 @@ pub enum BoardPathDraft {
 /// tool's tip everywhere), one per grip, or one per vertex.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum DrawnTips<'a> {
+    #[allow(dead_code)] // No caller draws without tips yet.
     None,
     Grips(&'a [PlacedTip]),
     Vertices(&'a [PlacedTip]),
@@ -1226,7 +1227,7 @@ fn flattened_inside(bez: &BezPath, marquee: WorldRect) -> bool {
     for contour in flatten_contours(bez, 0.25) {
         for p in contour {
             any = true;
-            if !marquee.contains(p[0] as f32, p[1] as f32) {
+            if !marquee.contains(p[0], p[1]) {
                 return false;
             }
         }
@@ -3520,8 +3521,10 @@ impl InkCut {
                 .extend_from_slice(&self.ink[(y * w + x0 as usize) * 4..(y * w + x1 as usize) * 4]);
         }
         let changed = shown
-            .chunks_exact(4)
-            .zip(raw.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(raw.as_chunks::<4>().0)
             .any(|(i, m)| i[3] > 0 && m[3] > 0);
         vector_ink::multiply_by_mask(&mut shown, mask, bw as u32, None);
         (shown, changed)
@@ -4950,6 +4953,7 @@ pub struct PathDraftPaintStyle {
     /// The tip the point being placed takes: the tool's tip now.
     pub tip: PlacedTip,
     pub overlay: PathEditAnchorColors,
+    #[allow(dead_code)] // Set by callers; not read yet.
     pub zoom: f32,
     /// When true, the first committed anchor draws hollow (close-path hover).
     pub close_first_anchor: bool,
@@ -5281,8 +5285,8 @@ fn pen_piece(
     bez.move_to(to_k(start.0));
     let mut tips = Vec::with_capacity(to - from + 2);
     tips.push(start.1);
-    for i in from + 1..=to {
-        bez.line_to(to_k(pts[i]));
+    for (i, &p) in pts.iter().enumerate().take(to + 1).skip(from + 1) {
+        bez.line_to(to_k(p));
         tips.push(tip(i));
     }
     bez.line_to(to_k(end.0));
@@ -5386,8 +5390,8 @@ impl DraftInkCache {
             };
             let mut h = DefaultHasher::new();
             (index == 0, is_settled).hash(&mut h);
-            for i in from..=to {
-                hash_pos(&mut h, pts[i]);
+            for (i, &p) in pts.iter().enumerate().take(to + 1).skip(from) {
+                hash_pos(&mut h, p);
                 hash_tip(&mut h, &tip(i));
             }
             if !is_settled {
@@ -5500,6 +5504,7 @@ impl SlateApp {
         true
     }
 
+    #[cfg(test)]
     pub(crate) fn commit_path_node(
         &mut self,
         tool: StrokeTool,
@@ -6271,7 +6276,7 @@ mod tests {
                 NodeKind::Shape(ShapeNode {
                     shape: ShapeKind::Path,
                     fill: None,
-                    stroke: stroke.clone(),
+                    stroke,
                     corner: slate_doc::scene::Corner::Square,
                     sides: slate_doc::scene::default_regular_sides(),
                     phase_deg: 0.0,
@@ -6546,7 +6551,7 @@ mod tests {
 
     #[test]
     fn bezier_rubber_band_needs_one_anchor_and_cursor() {
-        let anchors = vec![(Pos2::ZERO, BezierHandles::default())];
+        let anchors = [(Pos2::ZERO, BezierHandles::default())];
         let mut bez = BezPath::new();
         let last = anchors[0].0;
         let c = Pos2::new(40.0, 10.0);

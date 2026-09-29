@@ -274,6 +274,9 @@ pub enum ThumbState {
     Failed,
 }
 
+/// Family name and font file bytes, read off the UI thread.
+type SystemFonts = Vec<(String, Vec<u8>)>;
+
 pub struct SlateApp {
     pub(crate) updater: atlas_update::Updater,
     pub thumbs: ThumbPool,
@@ -293,7 +296,7 @@ pub struct SlateApp {
     /// Off-thread existence check for the MRU. Entries stay until it answers.
     recent_prune_rx: Option<std::sync::mpsc::Receiver<Vec<PathBuf>>>,
     /// System font bytes, read off the UI thread and installed once.
-    font_rx: Option<std::sync::mpsc::Receiver<Vec<(String, Vec<u8>)>>>,
+    font_rx: Option<std::sync::mpsc::Receiver<SystemFonts>>,
     /// WebView2 host is created on the first frame that has a web portal.
     web_host_ready: bool,
     /// Shared home surface (shelf focus + cover textures) from `atlas-shell`.
@@ -422,7 +425,7 @@ pub struct SlateApp {
     /// Inline text editing: (node, live buffer).
     pub text_edit: Option<(NodeId, String)>,
     /// Click/drag text-box compose before the first journaled add.
-    pub text_box_draft: Option<board::TextBoxDraft>,
+    pub(crate) text_box_draft: Option<board::TextBoxDraft>,
     /// Typing into a blank linked text document (`"` / `'` then Enter).
     pub(crate) text_doc_edit: Option<board::TextDocEdit>,
     /// Fitted sticky font sizes. Derived from text and box; not journaled.
@@ -755,7 +758,7 @@ impl SlateApp {
         let RawWindowHandle::Win32(win32) = handle.as_raw() else {
             return;
         };
-        self.frame_hwnd = win32.hwnd.get() as isize;
+        self.frame_hwnd = win32.hwnd.get();
     }
 
     #[cfg(not(windows))]
@@ -2264,10 +2267,8 @@ impl SlateApp {
                 tab_id,
                 node,
                 path: Some(path),
-            } => {
-                if !self.at_home && self.tab().id == tab_id {
-                    self.finish_model_screenshot_save(node, path);
-                }
+            } if !self.at_home && self.tab().id == tab_id => {
+                self.finish_model_screenshot_save(node, path);
             }
             _ => {}
         }

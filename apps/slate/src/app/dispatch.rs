@@ -609,7 +609,7 @@ impl SlateApp {
                 true
             }
             "board.brush.width_down" | "board.brush.width_up" => {
-                let (w, eraser) = self.step_active_width(id.0 == "board.brush.width_up");
+                let (w, _eraser) = self.step_active_width(id.0 == "board.brush.width_up");
                 let label = match self.board_tool {
                     board::BoardTool::Eraser => "eraser",
                     board::BoardTool::Smooth => "smooth",

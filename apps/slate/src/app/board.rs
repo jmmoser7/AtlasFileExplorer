@@ -944,6 +944,7 @@ fn offset_text_row(row: &mut egui::epaint::text::Row, dx: f32, dy: f32) {
 
 /// Move the text block to the vertical middle of `box_h` without moving the
 /// galley origin, so caret hit-testing stays aligned with the glyphs.
+#[allow(clippy::too_many_arguments)]
 fn measure_sticky_font(
     fonts: &egui::epaint::text::Fonts,
     text: &str,
@@ -2495,6 +2496,7 @@ pub(crate) fn portal_content_outline(frame: Rect, body: Rect, corner: Corner, z:
 /// Square-corner leftovers outside a rounded rect. Painted in the frame fill
 /// after contents so a square `clip_rect` cannot oversail the fillet
 /// (P1.portal.clip). Fan-triangulate from the outer corner.
+#[allow(dead_code)] // No caller yet.
 pub(crate) fn fillet_overhangs(rect: Rect, radius: f32) -> [Vec<Pos2>; 4] {
     let half = rect.width().min(rect.height()) * 0.5;
     let r = radius.clamp(0.0, half);
@@ -2609,6 +2611,7 @@ pub(crate) fn frame_label_placement(
     (center, angle)
 }
 
+#[allow(dead_code)] // No caller yet.
 pub(crate) fn paint_fillet_masks(painter: &egui::Painter, frame: Rect, radius: f32, fill: Color32) {
     if radius < 0.5 || fill.a() == 0 {
         return;
@@ -2841,6 +2844,7 @@ fn paint_clipped_galley(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn textured_polygon_world(
     painter: &egui::Painter,
     tex: &egui::TextureHandle,
@@ -3059,6 +3063,7 @@ impl SlateApp {
 
     /// Paper-like card with the file's opening lines — the board twin of the
     /// artifact's `.textcard`.
+    #[allow(clippy::too_many_arguments)]
     fn paint_text_snippet_card(
         &mut self,
         painter: &egui::Painter,
@@ -3130,6 +3135,7 @@ impl SlateApp {
     /// CSV / Excel card. The grid is the card: fixed cell size, full bleed,
     /// hairline dividers. A larger card shows more cells; the rest scroll.
     /// The file name appears on hover. + sits beside the header, also on hover.
+    #[allow(clippy::too_many_arguments)]
     fn paint_sheet_card(
         &mut self,
         painter: &egui::Painter,
@@ -3275,11 +3281,11 @@ impl SlateApp {
                 );
             }
         }
-        for ri in first_row..last_row {
+        for (ri, &ry) in row_y.iter().enumerate().take(last_row).skip(first_row) {
             if ri == 0 {
                 continue;
             }
-            let y = grid.min.y + row_y[ri] - scroll_y;
+            let y = grid.min.y + ry - scroll_y;
             if y > grid.min.y && y < grid.max.y {
                 clip.line_segment([Pos2::new(grid.min.x, y), Pos2::new(grid.max.x, y)], hair);
                 if open {
@@ -3296,11 +3302,11 @@ impl SlateApp {
                 }
             }
         }
-        for ci in first_col..last_col {
+        for (ci, &cx) in col_x.iter().enumerate().take(last_col).skip(first_col) {
             if ci == 0 {
                 continue;
             }
-            let x = grid.min.x + col_x[ci] - scroll_x;
+            let x = grid.min.x + cx - scroll_x;
             if x > grid.min.x && x < grid.max.x {
                 clip.line_segment([Pos2::new(x, grid.min.y), Pos2::new(x, grid.max.y)], hair);
                 if open {
@@ -3658,6 +3664,7 @@ impl SlateApp {
     }
 
     /// Authored size is the ceiling. A long note shrinks until the block fits.
+    #[allow(clippy::too_many_arguments)]
     fn sticky_font_size(
         &mut self,
         painter: &egui::Painter,
@@ -3680,6 +3687,7 @@ impl SlateApp {
         fitted
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn sticky_font_size_fonts(
         &mut self,
         ctx: &egui::Context,
@@ -3702,6 +3710,7 @@ impl SlateApp {
         fitted
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn sticky_fit_hit(
         &self,
         id: NodeId,
@@ -3722,6 +3731,7 @@ impl SlateApp {
             .then_some(hit.fitted)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn store_sticky_fit(
         &mut self,
         id: NodeId,
@@ -4063,7 +4073,7 @@ impl SlateApp {
                     if !self.video_hides_badge(node.id) {
                         paint_play_badge(painter, srect, z);
                     }
-                    self.paint_video_chrome(painter, &xf, node);
+                    self.paint_video_chrome(painter, xf, node);
                 }
                 // A 3D model card is kept as clean as a picture: its render,
                 // or its gap message, says what it is.
@@ -4079,9 +4089,9 @@ impl SlateApp {
                         .as_ref()
                         .is_some_and(|a| a.view == atlas_ai::agent::PortalView::Text);
                     if text_agent {
-                        self.paint_agent_text_window(ui, painter, &xf, node, srect);
+                        self.paint_agent_text_window(ui, painter, xf, node, srect);
                     } else {
-                        self.paint_agent_picture(ui, painter, &xf, node, srect);
+                        self.paint_agent_picture(ui, painter, xf, node, srect);
                     }
                 }
             }
@@ -5564,7 +5574,7 @@ impl SlateApp {
         // Smart guides: forcefield pulse from the impact, then fade.
         let guide_color = palette.accent;
         let now = ui.input(|i| i.time);
-        let ff = atlas_shell::tokens::current().board_forcefield.clone();
+        let ff = atlas_shell::tokens::current().board_forcefield;
         if atlas_shell::tuning::forcefield_preview_locked() {
             let world = xf.s2w(rect.center());
             board_forcefield::sync_preview(&mut self.board_forcefield, world, now, ff);
@@ -5868,7 +5878,7 @@ impl SlateApp {
             let r = Rect::from_two_pos(start_screen, p);
             let node_marquee = matches!(self.board_drag, Some(BoardDrag::Marquee { .. }));
             let crossing = node_marquee && p.x < start_screen.x;
-            let tokens = atlas_shell::tokens::current().board_marquee.clone();
+            let tokens = atlas_shell::tokens::current().board_marquee;
             let color = if crossing {
                 tokens.crossing_color(palette.dark_mode)
             } else {

@@ -35,7 +35,7 @@ pub struct Updater {
 
 enum Event {
     #[cfg(windows)]
-    Checked(String, String, Option<windows::Release>),
+    Checked(String, String, Option<Box<windows::Release>>),
     #[cfg(windows)]
     Downloaded,
     #[cfg(windows)]
@@ -87,7 +87,7 @@ impl Updater {
                     None => State::Current,
                 };
                 self.visible |= release.is_some();
-                self.release = release;
+                self.release = release.map(|r| *r);
             }
             #[cfg(windows)]
             Event::Downloaded => {

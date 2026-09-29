@@ -70,7 +70,9 @@ pub fn composite_rgba(
     let color_img = ColorImage {
         size: [cw as usize, ch as usize],
         pixels: rgba
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|p| eframe::egui::Color32::from_rgba_unmultiplied(p[0], p[1], p[2], p[3]))
             .collect(),
     };
@@ -132,22 +134,6 @@ fn path_key(path: &Path) -> u64 {
     hasher.finish()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::blend_rgba;
-    use image::RgbaImage;
-
-    #[test]
-    fn blend_applies_layer_alpha() {
-        let mut base = RgbaImage::from_pixel(1, 1, image::Rgba([0, 0, 0, 255]));
-        let top = [255u8, 0, 0, 128];
-        blend_rgba(&mut base, &top, 1, 1);
-        let p = base.get_pixel(0, 0);
-        assert!(p[0] > 100 && p[0] < 200, "red={}", p[0]);
-        assert_eq!(p[3], 255);
-    }
-}
-
 /// Source-over blend of straight-alpha RGBA8 pixels.
 fn blend_rgba(base: &mut RgbaImage, top: &[u8], w: u32, h: u32) {
     let len = (w * h * 4) as usize;
@@ -168,5 +154,21 @@ fn blend_rgba(base: &mut RgbaImage, top: &[u8], w: u32, h: u32) {
         }
         let ba = base.as_mut()[o + 3] as f32 / 255.0;
         base.as_mut()[o + 3] = ((ba + a - ba * a) * 255.0).round().clamp(0.0, 255.0) as u8;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::blend_rgba;
+    use image::RgbaImage;
+
+    #[test]
+    fn blend_applies_layer_alpha() {
+        let mut base = RgbaImage::from_pixel(1, 1, image::Rgba([0, 0, 0, 255]));
+        let top = [255u8, 0, 0, 128];
+        blend_rgba(&mut base, &top, 1, 1);
+        let p = base.get_pixel(0, 0);
+        assert!(p[0] > 100 && p[0] < 200, "red={}", p[0]);
+        assert_eq!(p[3], 255);
     }
 }

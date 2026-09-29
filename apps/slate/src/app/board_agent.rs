@@ -182,18 +182,33 @@ impl PublishClips {
     }
 }
 
+type ConnectionResult = (NodeId, String, Result<AgentSession, String>);
+type ModelsResult = (String, Result<Vec<atlas_ai::agent::AgentModel>, String>);
+type FitRevision = (
+    u64,
+    u64,
+    u64,
+    u64,
+    Option<NodeId>,
+    Option<NodeId>,
+    Option<NodeId>,
+    u64,
+);
+type CachedGalley = (u64, u64, u64, std::sync::Arc<egui::Galley>, f32);
+type ChatsResult = (String, PathBuf, Result<Vec<CursorChat>, String>);
+
 #[derive(Default)]
 pub struct AgentRuntime {
     sources: atlas_ai::agent::AgentSources,
     publish_clips: std::cell::RefCell<PublishClips>,
     project_picker: Option<NodeId>,
     catalog_error: Option<String>,
-    connection_rx: Option<Receiver<(NodeId, String, Result<AgentSession, String>)>>,
+    connection_rx: Option<Receiver<ConnectionResult>>,
     connection_pending: Option<NodeId>,
     connection_tick: Option<Instant>,
     connection_background: bool,
     models: HashMap<String, Vec<atlas_ai::agent::AgentModel>>,
-    models_rx: Option<Receiver<(String, Result<Vec<atlas_ai::agent::AgentModel>, String>)>>,
+    models_rx: Option<Receiver<ModelsResult>>,
     models_started: HashSet<String>,
     /// Catalogs an open agent editor lists before any card uses them.
     models_wanted: HashSet<String>,
@@ -254,16 +269,7 @@ pub struct AgentRuntime {
     artifact_drag: Option<(NodeId, Pos2)>,
     composer_focus: Option<NodeId>,
     pub(crate) prompt_epoch: u64,
-    fit_revision: Option<(
-        u64,
-        u64,
-        u64,
-        u64,
-        Option<NodeId>,
-        Option<NodeId>,
-        Option<NodeId>,
-        u64,
-    )>,
+    fit_revision: Option<FitRevision>,
     fit_keys: HashMap<NodeId, u64>,
     title_widths: HashMap<NodeId, f32>,
     rail_cache: std::cell::RefCell<((u64, u64), Vec<slate_doc::agent_chat::HistoryRail>)>,
@@ -277,10 +283,9 @@ pub struct AgentRuntime {
     programs_started: bool,
     output_epoch: u64,
     image_cache: std::cell::RefCell<HashMap<NodeId, CachedImages>>,
-    summary_cache:
-        std::cell::RefCell<HashMap<NodeId, (u64, u64, u64, std::sync::Arc<egui::Galley>, f32)>>,
+    summary_cache: std::cell::RefCell<HashMap<NodeId, CachedGalley>>,
 
-    transcript_cache: HashMap<(NodeId, usize), (u64, u64, u64, std::sync::Arc<egui::Galley>, f32)>,
+    transcript_cache: HashMap<(NodeId, usize), CachedGalley>,
     transcript_scroll: HashMap<NodeId, f32>,
     /// Chooser list scroll, in world units so zoom never shifts the rows.
     pick_scroll: HashMap<NodeId, f32>,
@@ -335,7 +340,7 @@ pub struct AgentRuntime {
     ide_inflight: bool,
     ide_next: Option<Instant>,
     chats: HashMap<(String, PathBuf), Vec<CursorChat>>,
-    chats_rx: Option<Receiver<(String, PathBuf, Result<Vec<CursorChat>, String>)>>,
+    chats_rx: Option<Receiver<ChatsResult>>,
     chats_inflight: HashMap<PathBuf, Instant>,
     pending_chat_pick: Option<NodeId>,
     pub chat_picker: Option<ChatPicker>,
@@ -558,12 +563,14 @@ fn tracked_galley(
     tracking: f32,
     max_width: f32,
 ) -> std::sync::Arc<egui::Galley> {
-    let mut job = egui::text::LayoutJob::default();
-    job.wrap = egui::text::TextWrapping {
-        max_width,
-        max_rows: 1,
-        break_anywhere: false,
-        overflow_character: Some('…'),
+    let mut job = egui::text::LayoutJob {
+        wrap: egui::text::TextWrapping {
+            max_width,
+            max_rows: 1,
+            break_anywhere: false,
+            overflow_character: Some('…'),
+        },
+        ..Default::default()
     };
     job.append(
         text,
@@ -3669,6 +3676,7 @@ impl SlateApp {
 
     /// Short screen stub so a provenance wire follows the raised context mark,
     /// and a human context wire follows the lower mark. The cached curve stays put.
+    #[allow(clippy::too_many_arguments)]
     fn paint_context_wire_slide(
         &self,
         painter: &egui::Painter,
@@ -6637,9 +6645,7 @@ impl SlateApp {
         };
         let composer = portal;
         let typing_here = self.agents.composing(composer);
-        let Some((portal, history)) = self.prepare_agent_train_send(portal, &ws) else {
-            return None;
-        };
+        let (portal, history) = self.prepare_agent_train_send(portal, &ws)?;
         self.consume_agent_context(composer);
         // The next message is typed on the new tail. A send that waited to
         // connect leaves the caret wherever the person has moved since.
@@ -6648,9 +6654,7 @@ impl SlateApp {
             self.agents.composer_focus = Some(portal);
             self.agent_focus(portal);
         }
-        let Some((session, provider)) = self.agent_session_for(portal) else {
-            return None;
-        };
+        let (session, provider) = self.agent_session_for(portal)?;
         let req = AgentRequest {
             model: self
                 .doc()
@@ -8457,7 +8461,8 @@ impl SlateApp {
             header.spacing_mut().button_padding = egui::vec2(0.0, 2.0 * z);
             header.spacing_mut().interact_size.y = 24.0 * z;
             header.spacing_mut().item_spacing.x = 4.0 * z;
-            for widget in [&mut header.style_mut().visuals.widgets.inactive] {
+            {
+                let widget = &mut header.style_mut().visuals.widgets.inactive;
                 widget.bg_fill = Color32::TRANSPARENT;
                 widget.weak_bg_fill = Color32::TRANSPARENT;
                 widget.bg_stroke = egui::Stroke::NONE;
@@ -8867,6 +8872,7 @@ impl SlateApp {
         response.clicked()
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn paint_agent_bound(
         &mut self,
         ui: &egui::Ui,
@@ -11676,7 +11682,7 @@ To install them by hand, run in PowerShell:\n  cd \"C:\\workspace\\Slate\\docs\\
         h.app.agents.key_entry = Some(id);
         h.app.agents.key_draft = "cursor_test_key".into();
         let saved = h.app.save_cursor_api_key(Some(id));
-        let cleared = h.app.agents.awaiting.get(&id).is_none();
+        let cleared = !h.app.agents.awaiting.contains_key(&id);
         let ready = h.app.agents.composer_focus == Some(id);
         let quiet = h
             .app

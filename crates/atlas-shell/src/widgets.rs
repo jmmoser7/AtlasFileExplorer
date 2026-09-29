@@ -300,6 +300,7 @@ pub struct SliderFieldOut {
 /// Inline number for every slider readout. `begin` is a click on the handle.
 /// The field replaces the numeric preview. Enter or a click outside commits
 /// (clamped); Escape cancels. The value is selected so typing replaces it.
+#[allow(clippy::too_many_arguments)]
 pub fn slider_value_field(
     ui: &mut Ui,
     id: Id,

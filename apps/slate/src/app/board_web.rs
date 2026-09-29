@@ -2198,6 +2198,7 @@ impl SlateApp {
 
     /// `portal.web.source` for a multi-file dashboard: the folder holding the
     /// entry file.
+    #[allow(dead_code)] // No caller yet.
     pub(crate) fn web_pick_folder_for_selection(&mut self) -> bool {
         let Some(portal) = self.selected_web_portal() else {
             return false;

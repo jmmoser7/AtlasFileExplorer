@@ -12233,7 +12233,7 @@ fn brush_shift_drag_frame_times_on_a_busy_board() {
     let xf = h.app.board_xf();
     let shift = egui::Modifiers::SHIFT;
     let a = xf.w2s(Pos2::new(0.0, 0.0));
-    let mut timed = |label: &str, h: &mut Harness, ev: Vec<egui::Event>| {
+    let timed = |label: &str, h: &mut Harness, ev: Vec<egui::Event>| {
         let t = std::time::Instant::now();
         h.frame_with(|i| {
             i.modifiers = shift;
@@ -14831,18 +14831,18 @@ fn a_second_eraser_pass_over_a_settling_stroke_never_shows_the_uncut_stroke() {
             |h: &mut Harness, prepare: Box<dyn FnOnce(&mut egui::RawInput)>, when: &str| {
                 shot_settling(h, &mut raster, at, prepare, &format!("{variant}: {when}"));
             };
-        let wait =
-            |h: &mut Harness,
-             watch: &mut dyn FnMut(&mut Harness, Box<dyn FnOnce(&mut egui::RawInput)>, &str),
-             ready: &dyn Fn(&Harness) -> bool| {
-                let mut waited = 0;
-                while !ready(h) {
-                    waited += 1;
-                    assert!(waited < 2000, "{variant}: pass 2's preview never came");
-                    std::thread::sleep(std::time::Duration::from_millis(5));
-                    watch(h, Box::new(move |i| i.modifiers = shift), "pass 2 drag");
-                }
-            };
+        type Prepare = Box<dyn FnOnce(&mut egui::RawInput)>;
+        let wait = |h: &mut Harness,
+                    watch: &mut dyn FnMut(&mut Harness, Prepare, &str),
+                    ready: &dyn Fn(&Harness) -> bool| {
+            let mut waited = 0;
+            while !ready(h) {
+                waited += 1;
+                assert!(waited < 2000, "{variant}: pass 2's preview never came");
+                std::thread::sleep(std::time::Duration::from_millis(5));
+                watch(h, Box::new(move |i| i.modifiers = shift), "pass 2 drag");
+            }
+        };
         match variant {
             "unchanged" => {
                 // Narrower, back along pass 1: only ink it erased.
@@ -17307,7 +17307,7 @@ fn eraser_validation_image() {
         h.app.finish_freehand_brush(pts);
     }
     h.app.set_board_tool(board::BoardTool::Eraser);
-    let mut pass = |app: &mut SlateApp, pts: &[Pos2], shift: bool| {
+    let pass = |app: &mut SlateApp, pts: &[Pos2], shift: bool| {
         app.board_drag = Some(app.begin_erase(pts[0], shift));
         for p in &pts[1..] {
             app.update_erase(*p);
@@ -21931,7 +21931,7 @@ fn a_committed_arrow_curve_has_its_head_on_board_and_in_export() {
         .find(&want)
         .unwrap_or_else(|| panic!("export head {want}"));
     let nums: Vec<f32> = html[at..]
-        .split(|c: char| c == 'Z')
+        .split('Z')
         .next()
         .unwrap()
         .split_whitespace()
@@ -22110,7 +22110,7 @@ fn the_swatch_warp_lands_on_the_painted_swatch_center() {
             walk(&clipped.shape, &mut painted);
         }
         assert!(
-            painted.iter().any(|p| *p == want),
+            painted.contains(&want),
             "slot {slot}: warp {want:?} is not a painted swatch center {painted:?}"
         );
         // Once there, the swatch does not pull again.
@@ -24906,8 +24906,8 @@ fn texture_and_pen_style_validation_image() {
             return;
         }
         let p = img.get_pixel_mut(x, y);
-        for c in 0..3 {
-            p.0[c] = (rgb[c] as f32 * a + p.0[c] as f32 * (1.0 - a)).round() as u8;
+        for (c, &v) in rgb.iter().enumerate() {
+            p.0[c] = (v as f32 * a + p.0[c] as f32 * (1.0 - a)).round() as u8;
         }
     };
     // Brush textures: one wavy stroke each, same size and softness.
@@ -25152,7 +25152,7 @@ impl FrameRaster {
                 continue;
             };
             let clip = prim.clip_rect;
-            for tri in mesh.indices.chunks_exact(3) {
+            for tri in mesh.indices.as_chunks::<3>().0 {
                 let v = [
                     &mesh.vertices[tri[0] as usize],
                     &mesh.vertices[tri[1] as usize],

@@ -189,7 +189,6 @@ pub fn parse_xmp_packet(xmp: &str) -> Result<ViewMetaParsed, ViewMetaError> {
         return Err(ViewMetaError::InvalidPath);
     }
     let display = display
-        .as_deref()
         .and_then(ModelDisplay::from_key)
         .unwrap_or(ModelDisplay::Shaded);
     Ok(ViewMetaParsed {
@@ -422,13 +421,9 @@ mod tests {
         }
     }
 
-    fn round_trip_format(
-        write: fn(&Path, &[u8], u32, u32, &str) -> Result<(), ViewMetaError>,
-        rgba: &[u8],
-        w: u32,
-        h: u32,
-        ext: &str,
-    ) {
+    type WriteWithXmp = fn(&Path, &[u8], u32, u32, &str) -> Result<(), ViewMetaError>;
+
+    fn round_trip_format(write: WriteWithXmp, rgba: &[u8], w: u32, h: u32, ext: &str) {
         let input = sample_input();
         let xmp = build_xmp_packet(&input).unwrap();
         assert!(!path_looks_absolute(&input.model_path));
@@ -455,13 +450,7 @@ mod tests {
             rgba.extend_from_slice(&[v, v / 2, 255 - v, 255]);
         }
         let rgb: Vec<u8> = rgba.chunks(4).flat_map(|p| [p[0], p[1], p[2]]).collect();
-        round_trip_format(
-            |p, rgba, w, h, xmp| write_png_with_xmp(p, rgba, w, h, xmp),
-            &rgba,
-            w,
-            h,
-            "png",
-        );
+        round_trip_format(write_png_with_xmp, &rgba, w, h, "png");
         round_trip_format(
             |p, rgb, w, h, xmp| write_jpeg_with_xmp(p, rgb, w, h, 90, xmp),
             &rgb,
@@ -469,13 +458,7 @@ mod tests {
             h,
             "jpg",
         );
-        round_trip_format(
-            |p, rgba, w, h, xmp| write_webp_with_xmp(p, rgba, w, h, xmp),
-            &rgba,
-            w,
-            h,
-            "webp",
-        );
+        round_trip_format(write_webp_with_xmp, &rgba, w, h, "webp");
     }
 
     #[test]

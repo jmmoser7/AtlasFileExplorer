@@ -87,7 +87,9 @@ pub fn resting_line() -> &'static str {
 }
 
 pub struct Live {
+    #[allow(dead_code)] // Identifies the session; not read yet.
     pub node: NodeId,
+    #[allow(dead_code)] // Identifies the session; not read yet.
     pub cache_key: String,
     pub since: Instant,
     #[cfg(windows)]
@@ -238,8 +240,10 @@ fn spawn(path: &Path) -> Result<OsSession, LaunchError> {
     let application = wide_path(path);
     let mut command = wide(&format!("\"{}\"", path.display()));
     let directory = path.parent().map(wide_path).unwrap_or_else(|| wide("."));
-    let mut startup = STARTUPINFOW::default();
-    startup.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
+    let startup = STARTUPINFOW {
+        cb: std::mem::size_of::<STARTUPINFOW>() as u32,
+        ..Default::default()
+    };
     let mut info = PROCESS_INFORMATION::default();
     let created = unsafe {
         CreateProcessW(
@@ -424,14 +428,16 @@ fn capture_hwnd(hwnd: windows::Win32::Foundation::HWND) -> Option<(u32, u32, Vec
             return None;
         }
         let mem = CreateCompatibleDC(Some(window_dc));
-        let mut info = BITMAPINFO::default();
-        info.bmiHeader = BITMAPINFOHEADER {
-            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-            biWidth: w as i32,
-            biHeight: h as i32,
-            biPlanes: 1,
-            biBitCount: 32,
-            biCompression: BI_RGB.0,
+        let info = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: w as i32,
+                biHeight: h as i32,
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
+            },
             ..Default::default()
         };
         let mut bits: *mut core::ffi::c_void = std::ptr::null_mut();

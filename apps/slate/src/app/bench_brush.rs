@@ -81,7 +81,7 @@ fn stamp_stroke(i: usize) -> (WorldRect, ShapeNode) {
             cap: StrokeCap::Round,
             join: StrokeJoin::Round,
             profile: WidthProfile::Uniform,
-            softness: if i % 4 == 0 { 0.35 } else { 0.0 },
+            softness: if i.is_multiple_of(4) { 0.35 } else { 0.0 },
             stamp: true,
             tween_from: None,
             gaussian_blur: 0.0,

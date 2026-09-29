@@ -48,7 +48,7 @@ enum SlateMsg {
         key: String,
         path: PathBuf,
         mtime: Option<SystemTime>,
-        result: Result<SlateDoc, SlateLoadError>,
+        result: Result<Box<SlateDoc>, SlateLoadError>,
     },
     Stale(String),
     Gone(String),
@@ -187,10 +187,12 @@ impl SlateApp {
 
     /// A dropped `.slate` file. A blank board opens it as a tab. A board that
     /// already has nodes asks Open or Insert.
+    #[cfg(test)]
     pub(crate) fn pending_workbook_drops(&self) -> usize {
         self.slate_boards.pending.len()
     }
 
+    #[cfg(test)]
     pub(crate) fn pop_workbook_drop(&mut self) -> Option<(PathBuf, Pos2)> {
         self.slate_boards
             .pending
@@ -343,13 +345,13 @@ impl SlateApp {
                     {
                         continue;
                     }
+                    #[allow(clippy::arc_with_non_send_sync)] // Shared on the UI thread only.
                     let state = match result {
-                        Ok(doc) => ChildState::Ready(Arc::new(doc)),
-                        Err(SlateLoadError::Io { source, .. })
-                            if source == std::io::ErrorKind::NotFound =>
-                        {
-                            ChildState::Missing
-                        }
+                        Ok(doc) => ChildState::Ready(Arc::new(*doc)),
+                        Err(SlateLoadError::Io {
+                            source: std::io::ErrorKind::NotFound,
+                            ..
+                        }) => ChildState::Missing,
                         Err(err) => ChildState::Failed(err.to_string()),
                     };
                     let scene_gen = match &state {
@@ -415,6 +417,7 @@ impl SlateApp {
                 .get(&key)
                 .is_none_or(|cached| !cached.live || cached.scene_gen != gen);
             if refresh {
+                #[allow(clippy::arc_with_non_send_sync)] // Shared on the UI thread only.
                 let doc = Arc::new(tab.doc.clone());
                 self.slate_boards.cache.insert(
                     key,
@@ -486,7 +489,7 @@ impl SlateApp {
             let mtime = std::fs::metadata(&path)
                 .and_then(|meta| meta.modified())
                 .ok();
-            let result = SlateDoc::load_from(&path);
+            let result = SlateDoc::load_from(&path).map(Box::new);
             let _ = tx.send(SlateMsg::Loaded {
                 key,
                 path,

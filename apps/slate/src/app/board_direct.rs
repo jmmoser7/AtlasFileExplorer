@@ -1619,7 +1619,8 @@ impl SlateApp {
 
     fn join_nodes(&mut self, ids: &[NodeId]) -> bool {
         let radius = self.board_snap_threshold_pub() as f64;
-        let mut acc: Option<(Vec<Anchor>, NodeId, Vec<VertexStyle>, [StrokeEnd; 2])> = None;
+        type Joined = (Vec<Anchor>, NodeId, Vec<VertexStyle>, [StrokeEnd; 2]);
+        let mut acc: Option<Joined> = None;
         let mut base_cap = StrokeCap::default();
         let mut styled = false;
         for id in ids {

@@ -762,7 +762,9 @@ fn texture_swatch(
     let img = vector_ink::stamp_tipped(&[points], 1.0 / 3.0)?;
     let pixels = img
         .rgba
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|p| Color32::from_white_alpha(p[3]))
         .collect();
     let image = egui::ColorImage {

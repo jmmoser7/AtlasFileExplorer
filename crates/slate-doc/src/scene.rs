@@ -3447,11 +3447,11 @@ impl SceneCmd {
     }
 }
 
-fn paint_layer_slot<'a>(
-    nodes: &'a mut [Node],
+fn paint_layer_slot(
+    nodes: &mut [Node],
     host: NodeId,
     layer: crate::image_paint::PaintLayerId,
-) -> Option<&'a mut crate::image_paint::PaintLayer> {
+) -> Option<&mut crate::image_paint::PaintLayer> {
     let idx = nodes.iter().position(|n| n.id == host)?;
     let NodeKind::Image(img) = &mut nodes[idx].kind else {
         return None;

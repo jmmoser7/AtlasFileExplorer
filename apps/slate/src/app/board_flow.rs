@@ -14,7 +14,6 @@ use atlas_shell::{canvas_scale, canvas_text};
 use eframe::egui::{self, Align2, Color32, Id, Pos2, Rect};
 use slate_doc::agent_inputs::{self, InputKind, OUTPUT_T};
 use slate_doc::scene::{ConnectorEnd, NodeId, NodeKind, PortalNode, SceneCmd, Side};
-use slate_doc::WireHost;
 
 use super::board::{BoardDrag, BoardXf};
 use super::board_agent::{bind_program, paint_overlay_pill, program_card_size, InputRole};

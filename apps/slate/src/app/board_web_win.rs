@@ -220,6 +220,7 @@ struct View {
     next_copy: usize,
     scale: f64,
     size: (u32, u32),
+    #[allow(dead_code)] // Set on create; not read yet.
     target: String,
     /// Origin profile requested when this view was created. A different
     /// authored origin rebuilds the webview so cookies do not cross sites.
@@ -1032,6 +1033,7 @@ fn wheel_data(delta: f32) -> u32 {
 
 /// Wire a freshly created composition controller to our visual and point it at
 /// the page. Runs inside the WebView2 completion callback.
+#[allow(clippy::too_many_arguments)]
 fn attach(
     comp: &ICoreWebView2CompositionController,
     visual: &ContainerVisual,
@@ -1963,7 +1965,9 @@ fn bgra_to_color_image(mapped: &D3D11_MAPPED_SUBRESOURCE, w: usize, h: usize) ->
     for y in 0..h {
         let row = unsafe { std::slice::from_raw_parts(base.add(y * pitch), w * 4) };
         pixels.extend(
-            row.chunks_exact(4)
+            row.as_chunks::<4>()
+                .0
+                .iter()
                 .map(|p| egui::Color32::from_rgba_premultiplied(p[2], p[1], p[0], p[3])),
         );
     }

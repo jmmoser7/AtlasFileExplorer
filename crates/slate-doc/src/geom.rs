@@ -1505,7 +1505,7 @@ pub fn path_end_arrow(bez: &BezPath, stroke_width: f32) -> Option<([f32; 2], [f3
     }
     let d = back - tip;
     let len = d.hypot();
-    if !(len > 1e-9) {
+    if len.is_nan() || len <= 1e-9 {
         return None;
     }
     Some((
@@ -1520,7 +1520,8 @@ pub fn path_end_arrow(bez: &BezPath, stroke_width: f32) -> Option<([f32; 2], [f3
 /// to trim: a closed or too-short path, or `by <= 0`.
 fn trim_end_parts(bez: &BezPath, by: f64) -> Option<(BezPath, usize, f32)> {
     use vector_ink::kurbo::{ParamCurve, ParamCurveArclen, PathEl, PathSeg};
-    if !(by > 0.0)
+    if by.is_nan()
+        || by <= 0.0
         || bez
             .elements()
             .iter()

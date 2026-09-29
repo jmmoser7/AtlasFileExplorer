@@ -980,7 +980,7 @@ pub fn color_editor(
             width_display,
             0.0..=10_000.0,
             " u",
-            |v| width_fraction(v),
+            width_fraction,
             |v| format!("{} u", number(fraction_width(v))),
             zoom,
             theme,
@@ -1519,7 +1519,7 @@ pub fn wire_editor(
         wire_display,
         0.0..=10_000.0,
         " u",
-        |v| width_fraction(v),
+        width_fraction,
         |v| format!("{} u", number(fraction_width(v))),
         zoom,
         theme,
@@ -2521,6 +2521,7 @@ pub fn filter_editor(
 
 /// Shared circle-chip capsule. [`FilterCapsuleStyle::ChipsOnly`] omits the
 /// intensity track; [`FilterCapsuleStyle::WithIntensity`] keeps it.
+#[allow(clippy::too_many_arguments)]
 pub fn filter_capsule(
     ui: &mut egui::Ui,
     rect: Rect,
@@ -3050,6 +3051,7 @@ pub struct TextFormatEdit {
 
 /// Typeface capsule, justification, and text-height capsule. The caller
 /// paints the shared color editor in the rect below this row.
+#[allow(clippy::too_many_arguments)]
 pub fn text_format_editor(
     ui: &mut egui::Ui,
     rect: Rect,
@@ -3134,6 +3136,7 @@ struct CapsuleMenu {
 }
 
 /// Rounded capsule whose menu arrow sits in a circle at the end.
+#[allow(clippy::too_many_arguments)]
 fn capsule_menu(
     ui: &mut egui::Ui,
     id: Id,

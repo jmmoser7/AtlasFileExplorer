@@ -1120,6 +1120,7 @@ impl ModelSpace {
         engine.render(&gpu.model, cam, w, h, adjust)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn render_capture_image(
         &mut self,
         gl: &Arc<glow::Context>,
@@ -2259,10 +2260,10 @@ impl SlateApp {
         };
         #[cfg(windows)]
         {
-            return match &session.phase {
+            match &session.phase {
                 EnscapePhase::Starting { since, .. } => since.elapsed(),
                 EnscapePhase::Ready(live) => live.since.elapsed(),
-            };
+            }
         }
         #[cfg(not(windows))]
         {
@@ -2400,9 +2401,7 @@ impl SlateApp {
                 }
             }
         };
-        let Some(session) = self.model3d.enscape.as_mut() else {
-            return None;
-        };
+        let session = self.model3d.enscape.as_mut()?;
         match incoming {
             Some(Ok(live)) => {
                 session.phase = EnscapePhase::Ready(live);
@@ -3278,6 +3277,7 @@ impl ModelEngine {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn render_pass(
         &self,
         model: &GpuModel,

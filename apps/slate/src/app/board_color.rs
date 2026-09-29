@@ -300,6 +300,7 @@ impl SlateApp {
             },
         );
     }
+    #[allow(dead_code)] // No caller yet.
     pub(crate) fn start_node_desktop_sample(
         &mut self,
         ids: &[NodeId],
@@ -972,6 +973,7 @@ impl SlateApp {
 
     /// True when Alt+right-drag sizes the armed tool: the brush, eraser,
     /// and smooth tips, and the pen, line, arc, polyline, and Bézier widths.
+    #[cfg(test)]
     pub(crate) fn board_tool_takes_width_chord(&self) -> bool {
         matches!(
             self.board_tool,
@@ -1348,6 +1350,7 @@ impl SlateApp {
 
     /// Freehand brush release at the brush tip now: same fitter as the Pen,
     /// expressive defaults.
+    #[cfg(test)]
     pub(crate) fn finish_freehand_brush(&mut self, points: Vec<Pos2>) {
         let Some(&first) = points.first() else {
             return;
@@ -1947,6 +1950,7 @@ impl SlateApp {
     }
 
     /// Eraser release of a freehand pass ([`Self::finish_erase_pass`]).
+    #[cfg(test)]
     pub(crate) fn finish_erase(
         &mut self,
         touched: Vec<NodeId>,
@@ -3255,7 +3259,7 @@ mod tests {
 
     #[test]
     fn the_wheel_zones_leave_a_dead_strip_between_disk_and_ring() {
-        assert!(WHEEL_HUE_INNER - WHEEL_SV_RADIUS >= 6.0);
+        const { assert!(WHEEL_HUE_INNER - WHEEL_SV_RADIUS >= 6.0) };
         let hsv = [0.6, 0.4, 0.7];
         for k in 0..36 {
             let a = k as f32 / 36.0 * std::f32::consts::TAU;

@@ -163,9 +163,7 @@ fn model_view_binding<'a>(
     let NodeKind::Image(img) = &target_node.kind else {
         return None;
     };
-    let Some(path) = item_path(img.item) else {
-        return None;
-    };
+    let path = item_path(img.item)?;
     if !image_model_view_port(path) {
         return None;
     }
@@ -1254,7 +1252,7 @@ mod tests {
         // An unbound wire saved by an older build still feeds the generator.
         add(
             &mut doc,
-            wire(from.clone(), off_midpoint(target), WireDisplay::Default),
+            wire(from, off_midpoint(target), WireDisplay::Default),
             0.0,
         );
         let input = snapshot(
@@ -2121,7 +2119,7 @@ mod tests {
         assert!(snap.wired.iter().any(|w| w.text == "A calm harbour."));
 
         let picked = doc.add_item("C:/out/run-1.png".into(), "run-1.png", 1, 1, "k");
-        let (g, b) = (
+        let (g, _b) = (
             doc.scene.index_of(generator).unwrap(),
             doc.scene.index_of(block).unwrap(),
         );

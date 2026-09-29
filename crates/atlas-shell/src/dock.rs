@@ -2989,6 +2989,7 @@ pub fn dock_pointer_nav(ctx: &egui::Context) -> DockPointerNav {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn floating_dock(
     ctx: &egui::Context,
     id: impl std::hash::Hash,

@@ -933,7 +933,7 @@ pub fn model_label(name: &str) -> &str {
         ("terra", "Terra"),
         ("luna", "Luna"),
     ] {
-        if name.to_ascii_lowercase().split(['-', ' ']).last() == Some(suffix) {
+        if name.to_ascii_lowercase().split(['-', ' ']).next_back() == Some(suffix) {
             return label;
         }
     }

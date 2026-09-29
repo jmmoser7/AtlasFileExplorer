@@ -193,6 +193,7 @@ pub(crate) fn step_pan_latch(
     }
 }
 
+#[allow(clippy::too_many_arguments)] // One flag per input the pan gate reads.
 pub(crate) fn pan_delta_through_chrome(
     pass: bool,
     pointer_in_canvas: bool,

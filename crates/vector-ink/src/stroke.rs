@@ -198,7 +198,7 @@ const SWELL_STATIONS: f32 = 48.0;
 fn sample_swell(sub: &mut SubPath) {
     let total: f32 = sub.points.windows(2).map(|w| dist(w[0], w[1])).sum();
     let step = total / SWELL_STATIONS;
-    if sub.closed || !(step > EPS) {
+    if sub.closed || step.is_nan() || step <= EPS {
         return;
     }
     let n = sub.points.len();

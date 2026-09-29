@@ -895,7 +895,7 @@ impl SlateApp {
             }
             let edge = down && !self.paste_chord_down;
             self.paste_chord_down = down;
-            return edge.then(|| held.unwrap_or(false));
+            edge.then(|| held.unwrap_or(false))
         }
         #[cfg(not(windows))]
         {
@@ -1128,7 +1128,7 @@ pub(crate) fn decode_clipboard_bitmap(data: &[u8]) -> Option<Vec<u8>> {
     // 32-bit screenshots store unused alpha as zero. A PNG with real
     // transparency arrives as PNG bytes and never takes this path.
     if bpp == 4 && masks.is_none() && !any_alpha {
-        for px in rgba.chunks_exact_mut(4) {
+        for px in rgba.as_chunks_mut::<4>().0 {
             px[3] = 255;
         }
     }

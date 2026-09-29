@@ -179,6 +179,7 @@ enum Done {
 }
 
 /// What became of a line job: its raster, or nothing because it panicked.
+#[allow(clippy::large_enum_variant)] // Boxing would allocate per live brush segment.
 pub(crate) enum LineLanded {
     Raster(LineRaster),
     Lost,
@@ -565,6 +566,7 @@ impl BrushTiles {
 
     /// Stamp a live Shift segment (brush or eraser) on the raster workers.
     /// Hands the job back when no worker can take it.
+    #[allow(clippy::result_large_err)] // The job is handed back unboxed, off the heap.
     pub(crate) fn request_line(&mut self, job: LineJob) -> Result<(), LineJob> {
         #[cfg(test)]
         let job = LineJob {
@@ -602,11 +604,10 @@ impl BrushTiles {
             .position(|r| (r.lane, r.tag) == (lane, tag))
         {
             LineLanded::Raster(self.lines_landed.swap_remove(i))
-        } else if let Some(i) = self.lines_lost.iter().position(|l| *l == (lane, tag)) {
+        } else {
+            let i = self.lines_lost.iter().position(|l| *l == (lane, tag))?;
             self.lines_lost.swap_remove(i);
             LineLanded::Lost
-        } else {
-            return None;
         };
         self.lines_wanted.retain(|w| *w != (lane, tag));
         Some(landed)
