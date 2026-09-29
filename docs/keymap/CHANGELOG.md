@@ -1,5 +1,12 @@
 # Canvas command project — change log
 
+## 2026-09-28 — Right-click inside a live web page belongs to the page (user)
+
+- `portal-web-embed` D17/D22: a right press over a live page's content rect
+  focuses and reaches the page, on the board and maximized; the board opens
+  no menu, tip HUD chord, or right-drag pan there. The tab, reveal strip,
+  and border band keep the Slate portal menu (`board_web::page_owns_point`).
+
 ## 2026-09-28 — Wire-drop and output-port menus offer Agent (user)
 
 - `portal-agent-link` D22: the menu a media output port or a wire dropped

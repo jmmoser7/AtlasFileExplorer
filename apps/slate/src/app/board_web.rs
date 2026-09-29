@@ -2443,6 +2443,7 @@ impl SlateApp {
         xf: &BoardXf,
         pointer: Option<Pos2>,
     ) -> bool {
+        self.web_focus_on_secondary(ui, xf, pointer);
         let Some(id) = self.web.focused else {
             return false;
         };
@@ -2473,13 +2474,50 @@ impl SlateApp {
         }
         if ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary)) {
             if let Some(p) = pointer {
-                if srect.contains(p) {
+                if srect.contains(p) && !page_owns_point(&layout, p) {
                     self.board_menu = Some((id, p));
                     return true;
                 }
             }
         }
         self.web_input_in_layout(ui, id, &node, portal, &layout)
+    }
+
+    /// A right press on a live page's content is the page's (D22), so it
+    /// takes input focus there first and the press is routed to the page.
+    fn web_focus_on_secondary(&mut self, ui: &egui::Ui, xf: &BoardXf, pointer: Option<Pos2>) {
+        if !ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary)) {
+            return;
+        }
+        let Some(p) = pointer else {
+            return;
+        };
+        let w = xf.s2w(p);
+        let Some(id) = self.board_pick_node(w.x, w.y) else {
+            return;
+        };
+        if self.web.focused == Some(id)
+            || !self.web.is_live(id)
+            || self.portal_chrome.maximized == Some(id)
+        {
+            return;
+        }
+        let Some(node) = self.doc().scene.node(id).cloned() else {
+            return;
+        };
+        if !matches!(&node.kind, NodeKind::Portal(portal) if portal.kind == PortalKind::Web) {
+            return;
+        }
+        let layout = layout_portal_chrome(
+            xf.rect_w2s(node.rect),
+            self.portal_chrome_collapsed(id),
+            false,
+            self.node_resolved_corner(&node),
+            xf.z,
+        );
+        if !layout.pointer_on_chrome(p) && page_owns_point(&layout, p) {
+            self.web_focus(id);
+        }
     }
 
     /// Pointer/keyboard for a focused page whose screen layout is already known.
@@ -2498,7 +2536,7 @@ impl SlateApp {
         }
         if ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary)) {
             if let Some(p) = pointer {
-                if layout.frame.contains(p) {
+                if layout.frame.contains(p) && !page_owns_point(layout, p) {
                     self.board_menu = Some((id, p));
                     return true;
                 }
@@ -2526,18 +2564,8 @@ impl SlateApp {
         layout: &PortalChromeLayout,
         pointer: Option<Pos2>,
     ) -> bool {
-        // UVs follow the painted body, not the inset frame hit band. Keep
-        // native scrollbar tracks reachable where they overlap that band.
         let page = layout.body;
-        let scrollbar_width = atlas_shell::tabs::portal_scrollbar_width(
-            layout.bar.or(layout.reveal).map_or(0.0, |r| r.height()),
-        );
-        let inside = pointer.is_some_and(|p| {
-            layout.page.contains(p)
-                || (page.contains(p)
-                    && (p.x >= page.right() - scrollbar_width
-                        || p.y >= page.bottom() - scrollbar_width))
-        });
+        let inside = pointer.is_some_and(|p| page_owns_point(layout, p));
         let dragging = self.web.pointer_down != 0;
         if !inside && !dragging {
             if ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary)) {
@@ -2564,6 +2592,7 @@ impl SlateApp {
         ui.input(|i| {
             for (button, bit) in [
                 (egui::PointerButton::Primary, 1u8),
+                (egui::PointerButton::Secondary, 2),
                 (egui::PointerButton::Middle, 4),
             ] {
                 if i.pointer.button_pressed(button) {
@@ -2576,6 +2605,7 @@ impl SlateApp {
             events.push(WebInput::Move { x, y, buttons });
             for (button, code) in [
                 (egui::PointerButton::Primary, 0u8),
+                (egui::PointerButton::Secondary, 1),
                 (egui::PointerButton::Middle, 2),
             ] {
                 if i.pointer.button_pressed(button) {
@@ -2975,6 +3005,20 @@ pub fn css_size(web: &WebPortalRef, rect: slate_doc::scene::WorldRect) -> (u32, 
             (w, ((w as f32) * aspect).round().max(1.0) as u32)
         }
     }
+}
+
+/// Whether a screen point belongs to the live page rather than Slate's frame
+/// band or chrome (D17/D22). Every pointer button over this area is the page's.
+/// UVs follow the painted body, not the inset frame hit band; native scrollbar
+/// tracks stay reachable where they overlap that band.
+pub(crate) fn page_owns_point(layout: &PortalChromeLayout, p: Pos2) -> bool {
+    let page = layout.body;
+    let scrollbar_width = atlas_shell::tabs::portal_scrollbar_width(
+        layout.bar.or(layout.reveal).map_or(0.0, |r| r.height()),
+    );
+    layout.page.contains(p)
+        || (page.contains(p)
+            && (p.x >= page.right() - scrollbar_width || p.y >= page.bottom() - scrollbar_width))
 }
 
 fn page_input_is_interactive(event: &WebInput) -> bool {

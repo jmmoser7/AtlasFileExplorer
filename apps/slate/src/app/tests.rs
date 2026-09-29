@@ -5839,6 +5839,61 @@ fn primary_click_outside_a_focused_page_releases_focus() {
     );
 }
 
+/// Right-click inside a live page is the page's: no board menu, tip HUD, or
+/// pan. The frame band around it still opens the Slate portal menu (D17/D22).
+#[test]
+fn right_click_inside_a_live_page_belongs_to_the_page() {
+    let (mut h, id, host) = focused_page("web_rmb_page");
+    let cam_before = h.app.tab().cam.offset;
+    let right = |pos: Pos2, pressed: bool| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Secondary,
+        pressed,
+        modifiers: egui::Modifiers::default(),
+    };
+    h.frame_with(|input| {
+        input.events.push(egui::Event::PointerMoved(center()));
+        input.events.push(right(center(), true));
+    });
+    assert!(!h.app.hud_right_held, "no tip HUD on a page right press");
+    h.frame_with(|input| {
+        input
+            .events
+            .push(egui::Event::PointerMoved(center() + EVec2::new(40.0, 10.0)));
+    });
+    h.frame_with(|input| {
+        input
+            .events
+            .push(right(center() + EVec2::new(40.0, 10.0), false));
+    });
+
+    assert!(h.app.board_menu.is_none(), "the board menu stays shut");
+    assert!(h.app.brush_hud.is_none());
+    assert_eq!(h.app.tab().cam.offset, cam_before, "no right-drag pan");
+    let downs: Vec<u8> = host.sent(|i| match i {
+        board_web::WebInput::Down { button, .. } => Some(*button),
+        _ => None,
+    });
+    assert!(
+        downs.contains(&1),
+        "the page hears the right button: {downs:?}"
+    );
+
+    let xf = h.app.board_xf();
+    let frame = xf.rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
+    let band = Pos2::new(frame.left() + 1.0, frame.center().y);
+    h.frame_with(|input| {
+        input.events.push(egui::Event::PointerMoved(band));
+        input.events.push(right(band, true));
+    });
+    h.frame_with(|input| input.events.push(right(band, false)));
+    assert_eq!(
+        h.app.board_menu.map(|(n, _)| n),
+        Some(id),
+        "the frame band keeps the Slate portal menu"
+    );
+}
+
 /// A drag inside the page selects text there rather than moving the node or
 /// panning the board.
 #[test]

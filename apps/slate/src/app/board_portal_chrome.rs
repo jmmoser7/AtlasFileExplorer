@@ -860,7 +860,10 @@ impl SlateApp {
 
         if ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary)) {
             if let Some(p) = pointer {
-                if layout.frame.contains(p) {
+                let page_owns = portal.kind == PortalKind::Web
+                    && !layout.pointer_on_chrome(p)
+                    && super::board_web::page_owns_point(&layout, p);
+                if layout.frame.contains(p) && !page_owns {
                     self.board_menu = Some((id, p));
                 }
             }

@@ -4363,8 +4363,8 @@ impl SlateApp {
         self.peel_contents_focus_if_clicked_outside(ui, &xf, pointer);
         self.peel_sheet(ui, &xf, pointer);
         let agent_capture = self.agent_shelf_captures(&xf, pointer);
-        let external_capture =
-            self.web_input_frame(ui, &xf, pointer) || self.atlas_input_frame(ui, &xf, pointer);
+        let page_capture = self.web_input_frame(ui, &xf, pointer);
+        let external_capture = page_capture || self.atlas_input_frame(ui, &xf, pointer);
         // The shelf still receives the wheel. A drag moves the train card
         // unless a text field is the action under the pointer.
         let web_capture = external_capture || self.agent_text_editing_captures(&xf, pointer);
@@ -4440,10 +4440,12 @@ impl SlateApp {
         }
         let space = ui.input(|i| i.key_down(egui::Key::Space));
         let hand_pan = self.board_tool == BoardTool::Pan;
+        // A live page that took the pointer owns the right button too (D22):
+        // no tip HUD chord, turbo pan, right-drag pan, or board menu.
         let (secondary_down, secondary_pressed) = ui.input(|i| {
             (
-                i.pointer.button_down(egui::PointerButton::Secondary),
-                i.pointer.button_pressed(egui::PointerButton::Secondary),
+                i.pointer.button_down(egui::PointerButton::Secondary) && !page_capture,
+                i.pointer.button_pressed(egui::PointerButton::Secondary) && !page_capture,
             )
         });
         // The right-button chord has to see the modifiers on the press
@@ -4483,7 +4485,7 @@ impl SlateApp {
             || (brush_armed && right_held && self.shift_down && !self.ctrl_down && !self.alt_down);
         let mut cam_offset_tmp = self.tab().cam.offset;
         let ctx2 = ui.ctx().clone();
-        let turbo_pan_active = if claim_right {
+        let turbo_pan_active = if claim_right || page_capture {
             false
         } else {
             self.turbo_pan
@@ -5204,6 +5206,7 @@ impl SlateApp {
             }
         }
         let secondary = resp.secondary_clicked()
+            && !page_capture
             && !self.turbo_pan.should_suppress_context_menu()
             && !hold_right;
         self.turbo_pan.acknowledge_context_menu();
