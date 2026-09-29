@@ -41,3 +41,12 @@ docs/agent/cursor-sidecar/node_modules/
 
 # Workbook leases (holder pid + heartbeat, rewritten while a board is open)
 *.slate.lock
+
+# Local demo workspaces and agent outputs (not source). Tracked
+# `.atlas-ai` fixtures under the demo workspace stay tracked.
+/program-board/
+/slate-outputs/
+/random_10x10.csv
+/demo-ai-workspace/*
+!/demo-ai-workspace/.atlas-ai/
+/docs/agent/cursor-sidecar/demo-ai-workspace/
