@@ -61,6 +61,9 @@ a shared one returns stale test results across checkouts.
 After audit blocks clear, require successful exit codes from the build and tests.
 For the release artifacts above, run `cargo test --locked --release --workspace`
 to reuse the same profile, then `scripts/install-shortcuts.ps1 -Configuration Release`.
+The same refresh applies after any successful build of `slate.exe` or
+`native-file-atlas.exe`, Debug or Release: see Desktop shortcuts in
+`docs/dev-loop.md`. That is what keeps the Windows icons on the latest build.
 Launch the actual release executable with the repository as its working directory
 so `vendor/pdfium.dll` can be found. Verify the window opens and stays responsive;
 do not equate compilation, a process ID, or a shortcut with a successful GUI test.

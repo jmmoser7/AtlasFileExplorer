@@ -1,0 +1,21 @@
+---
+description: Point Windows icons at the latest Slate and File Atlas build when a task finishes
+alwaysApply: true
+---
+
+# Windows icons follow the latest build
+
+Before finishing a task that built `slate.exe` or `native-file-atlas.exe`,
+refresh Desktop, Start, and existing pins so those icons launch that build.
+
+```powershell
+.\scripts\install-shortcuts.ps1 -Configuration Debug    # after a debug build
+.\scripts\install-shortcuts.ps1 -Configuration Release  # after a release build
+```
+
+Use the configuration just built. If both profiles were built, use the newer
+executable. Skip this when the session did not build either app.
+
+`scripts/build-release.ps1` and `scripts/run-both-dev.ps1` already do this.
+The procedure lives in `docs/dev-loop.md` (Desktop shortcuts); do not invent
+a second shortcut writer.

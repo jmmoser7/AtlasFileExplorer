@@ -113,6 +113,19 @@ shortcuts, and an existing taskbar or Start pin whose target is `slate.exe` or
 `native-file-atlas.exe` are repointed at that build. The scripts do not add,
 remove, or reorder pins.
 
+Any other build of those two executables must refresh the same launchers
+before the task is finished, or the desktop and taskbar icons keep opening
+the previous binary:
+
+```powershell
+.\scripts\install-shortcuts.ps1 -Configuration Debug    # target\debug
+.\scripts\install-shortcuts.ps1 -Configuration Release  # target\release
+```
+
+Pass the configuration that was just built. When both exist, pass the one
+whose executable is newer. Skip the script when this session did not build
+either app. `build-release.ps1` and `run-both-dev.ps1` already call it.
+
 ## Chrome visual tuning (already live)
 
 For spacing/colors/geometry of shared chrome, keep using the existing
