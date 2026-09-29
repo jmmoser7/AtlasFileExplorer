@@ -680,7 +680,6 @@ mod tests {
         assert_eq!(s.node(b).unwrap().id, b);
     }
     #[test]
-    #[test]
     fn paste_train_fork_detects_train_cards() {
         let mut s = Scene::default();
         let root = card(&mut s, None, 0);
@@ -694,6 +693,7 @@ mod tests {
         assert!(!paste_is_train_fork(&[plain]));
     }
 
+    #[test]
     fn journal_refuses_rewiring_and_orphaning_history() {
         let mut s = Scene::default();
         let a = card(&mut s, None, 0);
