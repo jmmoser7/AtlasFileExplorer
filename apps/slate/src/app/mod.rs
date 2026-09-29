@@ -2665,6 +2665,7 @@ impl SlateApp {
         let session_log = self.session_log.log_path();
         let session_latest = self.session_log.latest_path();
         let last_stall_app_ms = self.session_log.last_stall_app_ms();
+        let crash_log = self.session_log.crash_log_path();
         self.ai.update_context(move || atlas_ai::AiAppContext {
             app: "slate",
             title,
@@ -2676,6 +2677,7 @@ impl SlateApp {
             session_log,
             session_latest,
             last_stall_app_ms,
+            crash_log,
         });
     }
 

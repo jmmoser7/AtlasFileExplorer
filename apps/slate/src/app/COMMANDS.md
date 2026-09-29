@@ -80,7 +80,8 @@ drag the address-bar URL or a page link instead.
   **Ctrl+N** = new tab · **Ctrl+T** = Trim (Board) ·
   **Ctrl+Shift+T** = Split (Board).
   Advanced → Session log shows the path and last stall; open the folder
-  from there (`%LOCALAPPDATA%\NativeFileAtlas\session-log\`).
+  from there (`%LOCALAPPDATA%\NativeFileAtlas\session-log\`). Crashes append
+  to `slate-crash.log` in that folder.
 - **M** minimap (all views; pinned state persists in chrome prefs) ·
   **Ctrl+F** canvas search (Enter / Shift+Enter cycle + camera fly, Esc
   closes; non-matches dim to 35 % at paint time) · **Tab / Shift+Tab** cycle

@@ -2,6 +2,7 @@
 
 fn main() -> eframe::Result {
     atlas_core::session_log::note_process_start();
+    atlas_core::session_log::install_crash_log("slate");
     // Task Scheduler runs a conversation's repeating message with no window.
     let args: Vec<String> = std::env::args().collect();
     if let Some(at) = args.iter().position(|a| a == "--scheduled-run") {

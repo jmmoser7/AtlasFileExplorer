@@ -250,9 +250,12 @@ interval ≥ 50 ms) write a snapshot of what was on the stack — scan ingest,
 tree rebuild, scene commit, board paint, tessellation misses. **F4** drops a
 bookmark at the moment the user felt the hitch. When diagnosing "Atlas locked
 up while loading" or "Slate hitch after editing a large board", read
-`*-latest.json` first, then the tail of the jsonl. Do not ask the user to
-reconstruct the timeline. `ATLAS_SESSION_LOG=0` disables disk writes. The AI
-context beacon includes the log paths and last stall when a workspace is set.
+`*-latest.json` first, then the tail of the jsonl. A crash appends a block to
+`<app>-crash.log` in that folder (panic message, location, backtrace, and on
+Windows the native exception code) before the process dies; read that file
+first when the process actually exited. `ATLAS_SESSION_LOG=0` disables disk
+writes, including the crash log. The AI context beacon includes the log paths
+and last stall when a workspace is set.
 
 ## Linked sessions (Slate ⇄ Atlas)
 

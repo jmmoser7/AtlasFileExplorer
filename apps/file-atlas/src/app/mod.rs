@@ -7687,6 +7687,7 @@ impl AtlasApp {
         let session_log = self.session_log.log_path();
         let session_latest = self.session_log.latest_path();
         let last_stall_app_ms = self.session_log.last_stall_app_ms();
+        let crash_log = self.session_log.crash_log_path();
         self.ai.update_context(|| {
             let title = root
                 .as_deref()
@@ -7724,6 +7725,7 @@ impl AtlasApp {
                 session_log,
                 session_latest,
                 last_stall_app_ms,
+                crash_log,
             }
         });
     }

@@ -40,6 +40,9 @@ pub struct AiAppContext {
     /// App time of the most recent stall, milliseconds, if any this run.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_stall_app_ms: Option<f32>,
+    /// Panic / native-exception log (`data_dir()/session-log/<app>-crash.log`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub crash_log: Option<PathBuf>,
 }
 
 impl AiAppContext {
@@ -55,6 +58,7 @@ impl AiAppContext {
         self.session_log.hash(&mut h);
         self.session_latest.hash(&mut h);
         self.last_stall_app_ms.map(|ms| ms.to_bits()).hash(&mut h);
+        self.crash_log.hash(&mut h);
         h.finish()
     }
 }
@@ -105,6 +109,7 @@ mod tests {
             session_log: None,
             session_latest: None,
             last_stall_app_ms: None,
+            crash_log: None,
         };
         let fp = ctx.fingerprint();
         // Timestamp changes must not change the fingerprint…

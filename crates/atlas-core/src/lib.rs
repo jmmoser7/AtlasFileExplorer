@@ -7,6 +7,7 @@
 //! crate; app-specific state and chrome never live here.
 
 pub mod cloud;
+mod crash_log;
 pub mod dirmeta;
 pub mod display;
 pub mod export;

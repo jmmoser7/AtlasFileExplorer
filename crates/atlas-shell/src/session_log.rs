@@ -65,7 +65,8 @@ pub fn section(ui: &mut egui::Ui, log: &SessionLog, palette: &Palette) -> Sessio
         RichText::new(
             "Records frame stalls and named work while you use the app, so a \
              later debug session can read what happened instead of reconstructing \
-             it. F4 marks this moment.",
+             it. A crash appends a panic or native exception to the crash log \
+             in this folder. F4 marks this moment.",
         )
         .small()
         .color(palette.sub),
@@ -80,6 +81,13 @@ pub fn section(ui: &mut egui::Ui, log: &SessionLog, palette: &Palette) -> Sessio
     ui.label(RichText::new(recording).small().color(palette.sub));
 
     if let Some(path) = log.log_path() {
+        ui.label(
+            RichText::new(path.display().to_string())
+                .small()
+                .color(palette.sub),
+        );
+    }
+    if let Some(path) = log.crash_log_path() {
         ui.label(
             RichText::new(path.display().to_string())
                 .small()

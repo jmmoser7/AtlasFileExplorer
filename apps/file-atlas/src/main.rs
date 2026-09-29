@@ -2,6 +2,7 @@
 
 fn main() -> eframe::Result {
     atlas_core::session_log::note_process_start();
+    atlas_core::session_log::install_crash_log("file-atlas");
     let _install_guard = match atlas_update::startup() {
         Ok(guard) => guard,
         Err(error) => {

@@ -9,6 +9,8 @@
 //! Files land in `data_dir()/session-log/`:
 //! - `<app>.jsonl` — append-only events
 //! - `<app>-latest.json` — small snapshot agents should read first
+//! - `<app>-crash.log` — panic or native-exception record, written by
+//!   [`install_crash_log`] before the process dies
 //!
 //! Call [`SessionLog::attach`] at the start of each UI frame so [`span`] /
 //! [`count`] / [`event`] / [`mark`] can record without plumbing a handle
@@ -136,6 +138,16 @@ static PROCESS_START: OnceLock<Instant> = OnceLock::new();
 /// Capture process start. The first call wins; later calls are ignored.
 pub fn note_process_start() {
     let _ = PROCESS_START.set(Instant::now());
+}
+
+/// Record panics and, on Windows, unhandled native exceptions to
+/// `data_dir()/session-log/<app>-crash.log`.
+///
+/// Call at the top of `main`, next to [`note_process_start`]. A second call
+/// (from [`SessionLog::new`]) does not replace the panic hook; it only
+/// re-asserts the Windows filter. `ATLAS_SESSION_LOG=0` skips installation.
+pub fn install_crash_log(app: &'static str) {
+    crate::crash_log::install(app);
 }
 
 pub fn process_start() -> Instant {
@@ -274,7 +286,12 @@ struct StallFile {
 
 impl SessionLog {
     /// Persist under `data_dir()/session-log`, unless `ATLAS_SESSION_LOG=0`.
+    ///
+    /// Also re-asserts the crash recorder. `main` installs it first so a
+    /// death during startup is recorded; this second call puts the Windows
+    /// unhandled-exception filter back after libraries loaded in between.
     pub fn new(app: &'static str) -> Self {
+        install_crash_log(app);
         if env_off() {
             Self::memory(app)
         } else {
@@ -363,6 +380,16 @@ impl SessionLog {
             } else {
                 Some(g.log_path.clone())
             }
+        })
+    }
+
+    /// `<app>-crash.log` next to the activity log, when this run is writing.
+    pub fn crash_log_path(&self) -> Option<PathBuf> {
+        self.inner.lock().ok().and_then(|g| {
+            if !g.persist {
+                return None;
+            }
+            Some(g.log_path.with_file_name(format!("{}-crash.log", g.app)))
         })
     }
 
@@ -491,14 +518,14 @@ fn with_current(f: impl FnOnce(&mut Inner)) {
     });
 }
 
-fn env_off() -> bool {
+pub(crate) fn env_off() -> bool {
     matches!(
         std::env::var("ATLAS_SESSION_LOG").as_deref(),
         Ok("0") | Ok("off") | Ok("false") | Ok("OFF")
     )
 }
 
-fn now_unix_ms() -> u64 {
+pub(crate) fn now_unix_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
@@ -618,6 +645,7 @@ impl Inner {
         wake: FrameWake,
         repaint: Option<&str>,
     ) {
+        crate::crash_log::reassert_seh();
         let app_ms = app_time.as_secs_f32() * 1000.0;
         let delivered_ms = delivered * 1000.0;
         self.delivered[self.next] = delivered_ms;
