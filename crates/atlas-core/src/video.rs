@@ -244,6 +244,7 @@ fn row_offset(stride: i32, y: u32, h: u32) -> Option<usize> {
     }
 }
 
+#[cfg_attr(not(windows), allow(dead_code))] // Only the Windows decoder reads clip fields.
 enum Job {
     Strip {
         id: u64,

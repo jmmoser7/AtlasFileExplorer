@@ -435,9 +435,33 @@ fn svg_options() -> &'static usvg::Options<'static> {
     static OPTIONS: OnceLock<usvg::Options<'static>> = OnceLock::new();
     OPTIONS.get_or_init(|| {
         let mut opt = usvg::Options::default();
-        opt.fontdb_mut().load_system_fonts();
+        let db = opt.fontdb_mut();
+        db.load_system_fonts();
+        use_installed_sans_serif(db);
         opt
     })
+}
+
+/// usvg resolves `sans-serif` to Arial. Where Arial is not installed (most
+/// Linux machines) no family in the text stack matches and the text is
+/// dropped, so point `sans-serif` at a sans face that is installed.
+fn use_installed_sans_serif(db: &mut usvg::fontdb::Database) {
+    let installed = |db: &usvg::fontdb::Database, name: &str| {
+        db.query(&usvg::fontdb::Query {
+            families: &[usvg::fontdb::Family::Name(name)],
+            ..Default::default()
+        })
+        .is_some()
+    };
+    if installed(db, "Arial") {
+        return;
+    }
+    let fallback = ["Helvetica", "Liberation Sans", "DejaVu Sans", "Noto Sans"]
+        .into_iter()
+        .find(|name| installed(db, name));
+    if let Some(name) = fallback {
+        db.set_sans_serif_family(name);
+    }
 }
 
 fn unpremultiply(pixmap: tiny_skia::Pixmap) -> Vec<u8> {

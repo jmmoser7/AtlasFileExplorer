@@ -6016,6 +6016,7 @@ impl SlateApp {
     /// Keep a running Enscape window matched to its card. A click outside
     /// the card, or Escape, parks it: the process stays up and the card
     /// shows the last frame until the next double-click.
+    #[cfg_attr(not(windows), allow(clippy::needless_return))] // The placement block follows.
     fn place_enscape_window(&mut self, ui: &egui::Ui, xf: &BoardXf) {
         let Some(node) = self.enscape_shown_node() else {
             return;

@@ -37,7 +37,9 @@ use std::sync::Arc;
 
 /// Clipboard bitmaps larger than this are refused. A paste is one user
 /// action, not a frame, but it still must not allocate a runaway buffer.
+#[cfg(any(windows, test))]
 const MAX_PASTE_PIXELS: u64 = 64 * 1024 * 1024;
+#[cfg(windows)]
 const MAX_PASTE_PNG_BYTES: usize = 80 * 1024 * 1024;
 
 /// A copied bitmap is scaled down past this many pixels or this side length.
@@ -245,6 +247,7 @@ pub(crate) fn clipboard_text_fallback(
 
 /// Everything one copy puts on the OS clipboard, written in one open.
 #[derive(Debug, Clone, Default)]
+#[cfg_attr(not(windows), allow(dead_code))] // Only the Windows writer reads every format.
 pub(crate) struct ClipboardWrite {
     /// Slate's own format: the node payload JSON.
     pub(crate) nodes_json: String,
@@ -996,6 +999,7 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+#[cfg(windows)]
 fn png_within_limits(bytes: &[u8]) -> bool {
     if bytes.len() < 24 || bytes.len() > MAX_PASTE_PNG_BYTES || &bytes[..8] != b"\x89PNG\r\n\x1a\n"
     {
@@ -1014,6 +1018,7 @@ fn png_within_limits(bytes: &[u8]) -> bool {
 /// Turn a clipboard DIB, DIBV5, or BMP file into a PNG. 24- and 32-bit
 /// uncompressed bitmaps only — that is what screenshots and "Copy image"
 /// actually put on the clipboard.
+#[cfg(any(windows, test))]
 pub(crate) fn decode_clipboard_bitmap(data: &[u8]) -> Option<Vec<u8>> {
     const BI_RGB: u32 = 0;
     const BI_BITFIELDS: u32 = 3;
@@ -1135,12 +1140,14 @@ pub(crate) fn decode_clipboard_bitmap(data: &[u8]) -> Option<Vec<u8>> {
     encode_png(width, height, &rgba)
 }
 
+#[cfg(any(windows, test))]
 fn dib_fits(data: &[u8], off: usize, rows: usize, stride: usize) -> bool {
     rows.checked_mul(stride)
         .and_then(|n| off.checked_add(n))
         .is_some_and(|end| end <= data.len())
 }
 
+#[cfg(any(windows, test))]
 fn mask_channel(pixel: u32, mask: u32) -> u8 {
     if mask == 0 {
         return 0;

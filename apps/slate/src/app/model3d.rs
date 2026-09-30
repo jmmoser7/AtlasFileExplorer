@@ -753,6 +753,7 @@ enum EnscapePhase {
     #[cfg(windows)]
     Ready(super::enscape_host::Live),
     #[cfg(not(windows))]
+    #[allow(dead_code)] // No Enscape session starts off Windows.
     Absent,
 }
 
@@ -761,6 +762,7 @@ pub(crate) struct EnscapeSession {
     node: NodeId,
     /// Window is on the card. False keeps the process and shows the grab.
     shown: bool,
+    #[cfg_attr(not(windows), allow(dead_code))] // No Enscape session starts off Windows.
     phase: EnscapePhase,
 }
 
@@ -2140,6 +2142,7 @@ impl SlateApp {
     /// Show this Enscape card. The first time starts the program off the UI
     /// thread. Clicking away only hides it; the same session shows the window
     /// again. A different Enscape file replaces the one kept on standby.
+    #[cfg_attr(not(windows), allow(clippy::needless_return))] // The launch block follows.
     pub(crate) fn open_enscape_node(&mut self, id: NodeId) {
         let Some(info) = self.model_node_info(id) else {
             return;
@@ -2272,15 +2275,13 @@ impl SlateApp {
         }
     }
 
+    #[cfg(windows)]
     pub(crate) fn place_active_enscape(&self, rect: Option<(i32, i32, i32, i32)>) {
-        #[cfg(windows)]
         if let Some(session) = self.model3d.enscape.as_ref().filter(|s| s.shown) {
             if let EnscapePhase::Ready(live) = &session.phase {
                 super::enscape_host::place(live, rect);
             }
         }
-        #[cfg(not(windows))]
-        let _ = rect;
     }
 
     /// End the standby process. Used when another file replaces it, the card
@@ -2344,6 +2345,7 @@ impl SlateApp {
             return;
         };
         let node = session.node;
+        #[cfg(windows)]
         let key = session.key.clone();
         let left = self.doc().view.active_view != slate_doc::ViewKind::Board
             || self.model_node_info(node).is_none();

@@ -8,7 +8,9 @@
 //! rotated card, or an executable built for a different Windows system —
 //! gets a fixed sentence on the card and in a toast. Those sentences are
 //! the contract; tests lock the wording.
+#![cfg_attr(not(windows), allow(dead_code))] // Off Windows only the refusal path is live.
 
+#[cfg(windows)]
 use std::path::Path;
 use std::time::{Duration, Instant};
 
