@@ -40,7 +40,17 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Tests
-        run: cargo test --locked --workspace --no-fail-fast
+        run: |
+          set -o pipefail
+          cargo test --locked --workspace --no-fail-fast 2>&1 | tee test-output.log
+
+      # Job logs need a signed-in account; annotations are public.
+      - name: Name failing tests
+        if: failure()
+        run: |
+          sed 's/\x1b\[[0-9;]*[A-Za-z]//g' test-output.log > test-plain.log || true
+          grep -E ' \.\.\. FAILED$|^error: could not compile' test-plain.log | head -n 5 | sed 's/^/::error::/' || true
+          grep -A 2 -E 'panicked at ' test-plain.log | grep -v '^--$' | head -n 5 | sed 's/^/::error::/' || true
 
   lint:
     name: clippy (linux)
