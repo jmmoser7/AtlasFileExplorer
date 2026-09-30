@@ -1358,16 +1358,21 @@ fn right_drag_pans_even_when_it_starts_on_a_card() {
     h.pump_until_idle();
     h.frame();
 
-    // Background work can still move the layout or camera after the load goes
-    // idle, so aim at the card as laid out on the frame that hovers it.
+    // Directory order differs between file systems, so the first card can sit
+    // under the bottom readouts; aim at one whose centre is on the canvas, as
+    // laid out on the frame that hovers it.
     let deadline = Instant::now() + Duration::from_secs(10);
     let start = loop {
         let tree = h.app.tree.as_ref().expect("tree");
+        let canvas = h.app.canvas_rect.shrink(80.0);
         let card = tree
             .file_pos
             .iter()
-            .position(|p| p.place != atlas_core::tree::FilePlace::Hidden)
-            .expect("something is laid out");
+            .position(|p| {
+                p.place != atlas_core::tree::FilePlace::Hidden
+                    && canvas.contains(h.app.w2s(p.rect().center()))
+            })
+            .expect("a card is on the canvas");
         let start = h.app.w2s(tree.file_pos[card].rect().center());
         h.frame_with_events(vec![egui::Event::PointerMoved(start)]);
         if h.app.hovered_file == Some(card as u32) {

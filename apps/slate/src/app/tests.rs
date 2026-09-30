@@ -26546,6 +26546,10 @@ fn a_nested_styled_rectangle_with_the_host_id_keeps_its_own_paint_path() {
         .preview_shape_property(board_properties::Property::CornerAmount(12.0));
     h.app.apply_shape_preview(&h.ctx, true);
     assert_eq!(closed_corner_overrides(&h, id, 4)[2], Some(12.0));
+    // The nested load starts on a worker at the drop and can land on the
+    // very next frame, so paint the host's edit and count before the drop.
+    h.frame();
+    let host_warm = board_path::closed_form_derives_on_this_thread();
 
     let mut nested = h.app.doc().scene.node(id).unwrap().clone();
     if let NodeKind::Shape(s) = &mut nested.kind {
@@ -26571,7 +26575,6 @@ fn a_nested_styled_rectangle_with_the_host_id_keeps_its_own_paint_path() {
     });
     h.app.board_sel.clear();
     h.frame();
-    let host_warm = board_path::closed_form_derives_on_this_thread();
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
     while h.app.slate_boards_ready() == 0 {
         assert!(
