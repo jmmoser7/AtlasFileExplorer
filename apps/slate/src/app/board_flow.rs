@@ -741,6 +741,7 @@ impl SlateApp {
         }
         let radius = canvas_scale::px(PORT_RADIUS, z);
         let palette = self.palette();
+        let roles = palette.agent_roles();
         let pointer = painter.ctx().pointer_latest_pos();
         let wiring = matches!(self.board_drag, Some(BoardDrag::Wire(_)));
         let font = canvas_scale::font(PORT_LABEL_PX, z);
@@ -763,7 +764,7 @@ impl SlateApp {
             let sites = self.wire_host(node).ports();
             for (port, site) in ports.iter().zip(&sites) {
                 let center = xf.w2s(Pos2::new(site.point[0], site.point[1]));
-                let (_, color) = InputRole::of_slot(port.slot).look();
+                let (_, color) = InputRole::of_slot(port.slot).look(&roles);
                 if bound.contains(&port.slot) {
                     painter.circle_filled(center, radius, color);
                 } else {
@@ -1675,7 +1676,7 @@ impl SlateApp {
                 Pos2::new(x.max(track.left()), track.top()),
                 Pos2::new((x + span).min(track.right()), track.bottom()),
             );
-            painter.rect_filled(bar, 0.0, Color32::from_rgb(92, 204, 170));
+            painter.rect_filled(bar, 0.0, self.palette().accent);
         }
     }
 

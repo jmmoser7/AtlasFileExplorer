@@ -4,11 +4,11 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use xtask::{
-    audit_contracts, audit_kits, collect, render_contract_audit, render_kit_audit,
-    verify_workspace_root, write_artifacts,
+    audit_contracts, audit_kits, audit_theme, collect, render_contract_audit, render_kit_audit,
+    render_theme_audit, verify_workspace_root, write_artifacts,
 };
 
-const USAGE: &str = "usage: cargo xtask <metrics | contracts | kits [dir]>";
+const USAGE: &str = "usage: cargo xtask <metrics | contracts | kits [dir] | theme>";
 
 fn main() -> ExitCode {
     match run() {
@@ -26,6 +26,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         Some("metrics") => metrics(),
         Some("contracts") => contracts(),
         Some("kits") => kits(std::env::args().nth(2)),
+        Some("theme") => theme(),
         Some(other) => Err(format!("unknown command `{other}`\n{USAGE}").into()),
         None => Err(USAGE.into()),
     }
@@ -57,6 +58,19 @@ fn kits(dir: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
 /// Checks `docs/keymap/contracts/` against itself: every in-scope dimension
 /// answered, every matrix row mirrored in `decisions.json`, and no contract
 /// claiming to be settled while a row is still proposed.
+fn theme() -> Result<(), Box<dyn std::error::Error>> {
+    let root: PathBuf = std::env::current_dir()?;
+    verify_workspace_root(&root)?;
+
+    let audit = audit_theme(&root)?;
+    print!("{}", render_theme_audit(&audit));
+    if audit.findings.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("{} theme finding(s)", audit.findings.len()).into())
+    }
+}
+
 fn contracts() -> Result<(), Box<dyn std::error::Error>> {
     let root: PathBuf = std::env::current_dir()?;
     verify_workspace_root(&root)?;

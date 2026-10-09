@@ -14,6 +14,7 @@ pub mod ledger;
 pub mod model;
 pub mod report;
 pub mod rust_parse;
+pub mod theme;
 
 use std::fmt;
 use std::io;
@@ -28,6 +29,7 @@ pub use model::{
     Totals,
 };
 pub use report::{load_history, render_readme, snapshot_json};
+pub use theme::{audit as audit_theme, render as render_theme_audit, ThemeAudit, ThemeFinding};
 
 /// Everything that can stop an xtask run. Every variant carries the file it
 /// came from: a metric that silently reads zero is worse than no metric, and

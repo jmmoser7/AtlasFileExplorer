@@ -2409,7 +2409,11 @@ impl SlateApp {
                 xf.z,
                 g.add,
                 select_tint,
-                hot,
+                if hot {
+                    self.palette().select_fill
+                } else {
+                    Color32::WHITE
+                },
             );
         }
     }
@@ -2433,7 +2437,14 @@ impl SlateApp {
                     Some(BoardDrag::FilletRadius { id, vertex: held, .. })
                         if id == n.id && held == vertex
                 );
-            board_handles::paint_fillet_grip(painter, grip, xf.z, select_tint, hot);
+            board_handles::paint_fillet_grip(
+                painter,
+                grip,
+                xf.z,
+                select_tint,
+                hot,
+                self.palette().select_fill,
+            );
         }
     }
 
@@ -6528,7 +6539,7 @@ impl SlateApp {
                 .as_ref()
                 .filter(|(hot_id, ..)| *hot_id == id)
                 .map(|(_, handle, _)| *handle);
-            board_handles::paint_crop_handles(painter, &geom, hot);
+            board_handles::paint_crop_handles(painter, &geom, hot, self.palette().select_fill);
             hint_at = Some((geom.edges[2], geom.zoom));
         }
         if let Some((at, z)) = hint_at {

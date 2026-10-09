@@ -693,6 +693,7 @@ impl SlateApp {
         let current = self.current_tip_choice();
         let both = self.hud_end_picks() == Some([true, true]);
         let hovered = palette_hit(o, r, choices.len(), pointer);
+        let chrome = self.palette();
         // Full-strength ink so a faint tip still shows its style.
         let ink = if self.board_tool == BoardTool::Eraser {
             self.eraser_preview_color().to_opaque()
@@ -706,14 +707,14 @@ impl SlateApp {
             painter.circle_filled(
                 at,
                 PALETTE_ICON_R,
-                Color32::from_rgba_unmultiplied(18, 18, 20, 235),
+                atlas_shell::theme::Palette::alpha(chrome.extreme_bg, 235),
             );
             let ring = if hovered == Some(i) {
                 EStroke::new(2.5_f32, accent)
             } else if selected {
                 EStroke::new(2.0_f32, accent.gamma_multiply(0.8))
             } else {
-                EStroke::new(1.0_f32, Color32::from_gray(110))
+                EStroke::new(1.0_f32, chrome.line)
             };
             paint_choice_glyph(painter, at, *choice, both, ink);
             painter.circle_stroke(at, PALETTE_ICON_R, ring);
@@ -726,7 +727,7 @@ impl SlateApp {
                 egui::Align2::CENTER_TOP,
                 choice_label(choices[i], both),
                 egui::FontId::proportional(13.0),
-                Color32::WHITE,
+                chrome.ink,
             );
         }
     }

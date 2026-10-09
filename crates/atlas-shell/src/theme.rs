@@ -60,6 +60,8 @@ pub struct Palette {
     pub select_fill: Color32,
     /// `Visuals::selection.stroke.color`.
     pub select_stroke: Color32,
+    pub link: Color32,
+    pub link_hover: Color32,
 }
 
 impl Palette {
@@ -121,6 +123,16 @@ impl Palette {
         tokens::current().board_overlay.ink(self.dark_mode)
     }
 
+    /// Agent port-role chip colours (`[board_agent]`).
+    pub fn agent_roles(&self) -> tokens::AgentRoleInk {
+        tokens::current().board_agent.roles(self.dark_mode)
+    }
+
+    /// Same RGB as `color` with an explicit alpha byte.
+    pub fn alpha(color: Color32, a: u8) -> Color32 {
+        Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), a)
+    }
+
     /// Theme subset used by the sidebar layout primitives.
     pub fn sidebar_theme(&self) -> SidebarTheme {
         SidebarTheme {
@@ -165,6 +177,8 @@ impl Palette {
             extreme_bg: slots.extreme_bg.color(),
             select_fill: slots.select_fill.color(),
             select_stroke: slots.select_stroke.color(),
+            link: slots.link.color(),
+            link_hover: slots.link_hover.color(),
         }
     }
 }

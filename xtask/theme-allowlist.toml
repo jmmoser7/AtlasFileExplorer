@@ -1,0 +1,75 @@
+# One row per allowed Color32 constructor in scoped app UI paths.
+# `contains` is a fragment of the code line (comments and strings blanked).
+# A row that matches nothing fails the lint, so retire rows with the code.
+# Only authored, document, generated, or decoded pixel colour belongs here;
+# chrome reads `atlas_shell::theme::Palette`.
+
+[[entry]]
+file = "apps/file-atlas/src/app/mod.rs"
+contains = ".map(|[r, g, b]| Color32::from_rgb(r, g, b))"
+reason = "Slate tag colour from session data"
+
+[[entry]]
+file = "apps/file-atlas/src/app/mod.rs"
+contains = "Color32::from_rgb(tag.color[0], tag.color[1], tag.color[2])"
+reason = "workbook tag chip colour from document"
+
+[[entry]]
+file = "apps/file-atlas/src/app/mod.rs"
+contains = "Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), 90)"
+reason = "chip fill derived from its tag colour with alpha"
+
+[[entry]]
+file = "apps/slate/src/app/board_atlas.rs"
+contains = "vec![Color32::from_rgb(22, 26, 32); w * h]"
+reason = "generated mosaic poster pixels (texture, not chrome)"
+
+[[entry]]
+file = "apps/slate/src/app/board_atlas.rs"
+contains = "let color = Color32::from_rgb("
+reason = "generated mosaic tile colour from folder hash"
+
+[[entry]]
+file = "apps/slate/src/app/board_color.rs"
+contains = "Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3])"
+reason = "authored rgba to Color32 (brush preview, brush disc)"
+
+[[entry]]
+file = "apps/slate/src/app/board_color.rs"
+contains = "Color32::from_rgb(color[0], color[1], color[2])"
+reason = "recent-colour swatch from document wheel history"
+
+[[entry]]
+file = "apps/slate/src/app/board_color.rs"
+contains = "Color32::from_rgb(rgb[0], rgb[1], rgb[2])"
+reason = "HSV wheel disk tessellation samples"
+
+[[entry]]
+file = "apps/slate/src/app/board_color.rs"
+contains = "let c = Color32::from_rgb(c[0], c[1], c[2]);"
+reason = "HSV hue ring tessellation samples"
+
+[[entry]]
+file = "apps/slate/src/app/board_path.rs"
+contains = "Color32::from_rgba_unmultiplied(r, g, b, a)"
+reason = "authored stroke rgba from scene path"
+
+[[entry]]
+file = "apps/slate/src/app/board_path.rs"
+contains = "Color32::from_rgba_premultiplied(r, g, b, a)"
+reason = "ink mesh premultiplied colour math"
+
+[[entry]]
+file = "apps/slate/src/app/board_tip_hud.rs"
+contains = "Color32::from_rgb(c[0], c[1], c[2])"
+reason = "active brush colour preview on tip palette"
+
+[[entry]]
+file = "apps/slate/src/app/board_web_win.rs"
+contains = "Color32::from_rgba_premultiplied(p[2], p[1], p[0], p[3])"
+reason = "Win32 BGRA pixel decode"
+
+[[entry]]
+file = "apps/slate/src/app/ui/inspector.rs"
+contains = "Color32::from_rgba_unmultiplied(c.0[0], c.0[1], c.0[2], c.0[3])"
+reason = "scene rgba to Color32 for inspector swatch"

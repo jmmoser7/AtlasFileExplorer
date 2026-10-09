@@ -2429,7 +2429,7 @@ impl SlateApp {
         let ink = match self.board_tool {
             BoardTool::Brush => self.brush_preview_color(),
             BoardTool::Eraser => self.eraser_preview_color(),
-            BoardTool::Smooth => Color32::from_gray(160).gamma_multiply(strength.clamp(0.0, 1.0)),
+            BoardTool::Smooth => self.palette().sub.gamma_multiply(strength.clamp(0.0, 1.0)),
             BoardTool::Pen => {
                 super::board::rgba32(self.stroke_for_tool(slate_doc::StrokeTool::Pen).color)
             }
@@ -2477,11 +2477,7 @@ impl SlateApp {
                 EStroke::new(4.0_f32, super::board::rgba32(c)),
             );
         } else {
-            painter.circle_stroke(
-                pointer,
-                11.0,
-                EStroke::new(1.2_f32, Color32::from_gray(150)),
-            );
+            painter.circle_stroke(pointer, 11.0, EStroke::new(1.2_f32, self.palette().sub));
         }
         // The sample reads the screen pixel under the hotspot, so the
         // foreground swatch is a ring that leaves that pixel showing the canvas.
@@ -2835,21 +2831,18 @@ impl SlateApp {
     }
 
     fn paint_color_wheel(&self, painter: &egui::Painter, center: Pos2, hsv: [f32; 3]) {
+        let chrome = self.palette();
         painter.circle_filled(
             center,
             WHEEL_BACKDROP_RADIUS,
-            Color32::from_rgba_unmultiplied(18, 18, 20, 235),
+            atlas_shell::theme::Palette::alpha(chrome.extreme_bg, 235),
         );
         let (disk, ring) = wheel_meshes(painter.ctx(), center, hsv[0]);
         painter.add(egui::Shape::Mesh(disk));
         painter.add(egui::Shape::Mesh(ring));
         for (at, _) in wheel_snaps() {
             let inside = at - at.normalized() * (WHEEL_SNAP_RADIUS * 0.5);
-            painter.circle_stroke(
-                center + inside,
-                2.5,
-                EStroke::new(1.0_f32, Color32::from_gray(128)),
-            );
+            painter.circle_stroke(center + inside, 2.5, EStroke::new(1.0_f32, chrome.line));
         }
         let recents = self.doc().view.recent_colors.as_deref().unwrap_or(&[]);
         let slots = slate_doc::ViewState::WHEEL_COLOR_LIMIT;
