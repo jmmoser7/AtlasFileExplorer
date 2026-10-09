@@ -85,6 +85,28 @@
 //! card's edge, ignores yaw, and re-layouts every frame. Do **not** blit
 //! the whole title to a texture and project that — photos hide the affine
 //! error; type does not. The Cover Flow title-face is the reference.
+//!
+//! # Line breaks are not a function of zoom
+//!
+//! [`layout`] wraps at the on-screen width. egui rounds every glyph advance
+//! to a physical pixel, so the same word can cross the line's capacity when
+//! the camera moves and the raster size changes. Authored text must not do
+//! that: a line break is a property of the text, the typeface, the world
+//! font size, and the world wrap width.
+//!
+//! [`world_layout`] shapes once at a fixed 64-physical-pixel reference and
+//! caches the breaks. [`zoom_galley`] paints those lines through the same
+//! ladder as [`layout_no_wrap`], each line at its world position times the
+//! zoom, so only the rasterization changes with the camera.
+//!
+//! The HTML artifact does not share this cache. It writes the same world
+//! font size and the same box — shape text keeps its 8px padding — as CSS
+//! `white-space: pre-wrap; line-height: 1.3`, and the browser breaks the
+//! lines. Those breaks can differ from egui's: another line breaker, and a
+//! line-height of 1.3 against the font's own row height. Sticky shrink-to-fit
+//! on the board is this egui block height in world units; the artifact's
+//! `fitStickies` binary-searches the browser's `scrollHeight`. Scaling the
+//! slide does not reflow either side.
 
 /// Feel constants for canvas text (P0.6 — named, not inline magic numbers).
 pub mod consts {
@@ -147,6 +169,9 @@ use eframe::egui::{
     self, emath::TSTransform, epaint::TextShape, Align2, Color32, FontId, Galley, Painter, Pos2,
     Rect, Shape, Vec2,
 };
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 /// Ladder step, as a fraction of an octave. Four steps per doubling is a 19%
@@ -353,10 +378,444 @@ pub fn text(
 
 /// Split a wanted font size into the nearest ladder size and the residual scale.
 fn on_ladder(painter: &Painter, font: FontId) -> (FontId, f32) {
-    let ppp = painter.ctx().pixels_per_point().max(0.01);
+    ladder_font(painter.ctx().pixels_per_point(), font)
+}
+
+fn ladder_font(pixels_per_point: f32, font: FontId) -> (FontId, f32) {
+    let ppp = pixels_per_point.max(0.01);
     let wanted = (font.size * ppp).max(1.0);
     let raster = raster_px(wanted);
     (FontId::new(raster / ppp, font.family), wanted / raster)
+}
+
+// ---------------------------------------------------------------------------
+// World-space line breaks
+// ---------------------------------------------------------------------------
+
+/// Physical pixels of the one raster a line break is shaped at.
+///
+/// High enough that a one-pixel advance round is a small fraction of a word,
+/// and independent of the camera. The world font size only scales the wrap
+/// width into this raster and the resulting rows back out.
+const REFERENCE_PX: f32 = 64.0;
+
+/// How many world layouts are kept. A camera move does not add a key; an
+/// edit does. Past this, the least recently used entry is dropped.
+const WORLD_CACHE_CAP: usize = 256;
+
+/// One wrapped line, in the same units as the font size and wrap width
+/// (world units, for board text).
+#[derive(Clone, Debug)]
+pub struct WorldLine {
+    /// Bytes of the source this line paints. Excludes a trailing newline.
+    pub bytes: std::ops::Range<usize>,
+    /// Glyph left edge after alignment.
+    pub x: f32,
+    /// Top of the line box.
+    pub y: f32,
+    /// Advance width of the glyphs.
+    pub width: f32,
+    /// Line box height.
+    pub height: f32,
+    /// This row ended on a `\n` in the source. The last row of a galley never
+    /// does — a trailing newline is its own empty row after this one.
+    pub ends_with_newline: bool,
+}
+
+/// Line breaks for one string at one world size and wrap width.
+#[derive(Clone, Debug)]
+pub struct WorldLayout {
+    pub lines: Vec<WorldLine>,
+    /// Wrap width, or the widest row when the wrap is unbounded.
+    pub width: f32,
+    /// Block height. The first line starts at y = 0.
+    pub height: f32,
+}
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+enum FamilyKey {
+    Proportional,
+    Monospace,
+    Name(Arc<str>),
+}
+
+struct Slot {
+    text: String,
+    family: FamilyKey,
+    size_bits: u32,
+    wrap_bits: u32,
+    align: u8,
+    ppp_bits: u32,
+    layout: Arc<WorldLayout>,
+    used: u64,
+}
+
+struct WorldCache {
+    buckets: HashMap<u64, Vec<Slot>>,
+    len: usize,
+    clock: u64,
+    shapes: u64,
+}
+
+impl WorldCache {
+    fn new() -> Self {
+        Self {
+            buckets: HashMap::new(),
+            len: 0,
+            clock: 0,
+            shapes: 0,
+        }
+    }
+}
+
+thread_local! {
+    static WORLD_CACHE: RefCell<WorldCache> = RefCell::new(WorldCache::new());
+}
+
+fn family_key(family: &egui::FontFamily) -> FamilyKey {
+    match family {
+        egui::FontFamily::Proportional => FamilyKey::Proportional,
+        egui::FontFamily::Monospace => FamilyKey::Monospace,
+        egui::FontFamily::Name(name) => FamilyKey::Name(Arc::clone(name)),
+    }
+}
+
+fn align_tag(align: egui::Align) -> u8 {
+    match align {
+        egui::Align::Center => 1,
+        egui::Align::Max => 2,
+        egui::Align::Min => 0,
+    }
+}
+
+fn cache_hash(
+    text: &str,
+    family: &FamilyKey,
+    size_bits: u32,
+    wrap_bits: u32,
+    align: u8,
+    ppp_bits: u32,
+) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    text.hash(&mut hasher);
+    family.hash(&mut hasher);
+    size_bits.hash(&mut hasher);
+    wrap_bits.hash(&mut hasher);
+    align.hash(&mut hasher);
+    ppp_bits.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// How many times line breaking has shaped text on this thread.
+///
+/// A cache hit does not increment it. Painting a cached layout at another
+/// zoom goes through [`zoom_galley`] and does not either — that path only
+/// rasterizes the lines already chosen.
+pub fn world_layout_shapes() -> u64 {
+    WORLD_CACHE.with(|cache| cache.borrow().shapes)
+}
+
+/// Drop cached line breaks. The next layout of the same text shapes again.
+pub fn clear_world_layout_cache() {
+    WORLD_CACHE.with(|cache| *cache.borrow_mut() = WorldCache::new());
+}
+
+/// Break `text` in world units. Zoom is not an input.
+///
+/// `font.size` and `wrap_width` share one unit system. An unbounded wrap
+/// (`f32::INFINITY`) keeps each paragraph on one line. The same key returns
+/// the cached breaks and does not shape again.
+pub fn world_layout(
+    ctx: &egui::Context,
+    text: &str,
+    font: FontId,
+    wrap_width: f32,
+    align: egui::Align,
+) -> Arc<WorldLayout> {
+    let wrap = if wrap_width.is_finite() {
+        wrap_width.max(0.0)
+    } else {
+        f32::INFINITY
+    };
+    let size = font.size.max(1.0e-3);
+    let family = family_key(&font.family);
+    let size_bits = size.to_bits();
+    let wrap_bits = wrap.to_bits();
+    let align_bits = align_tag(align);
+    let ppp_bits = ctx.pixels_per_point().to_bits();
+    let hash = cache_hash(text, &family, size_bits, wrap_bits, align_bits, ppp_bits);
+
+    if let Some(hit) = WORLD_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        cache.clock = cache.clock.wrapping_add(1);
+        let used = cache.clock;
+        let slot = cache.buckets.get_mut(&hash).and_then(|slots| {
+            slots.iter_mut().find(|slot| {
+                slot.text == text
+                    && slot.family == family
+                    && slot.size_bits == size_bits
+                    && slot.wrap_bits == wrap_bits
+                    && slot.align == align_bits
+                    && slot.ppp_bits == ppp_bits
+            })
+        })?;
+        slot.used = used;
+        Some(Arc::clone(&slot.layout))
+    }) {
+        return hit;
+    }
+
+    let layout = Arc::new(shape_world(ctx, text, font, size, wrap, align));
+    WORLD_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        cache.shapes += 1;
+        cache.clock += 1;
+        let used = cache.clock;
+        cache.buckets.entry(hash).or_default().push(Slot {
+            text: text.to_owned(),
+            family,
+            size_bits,
+            wrap_bits,
+            align: align_bits,
+            ppp_bits,
+            layout: Arc::clone(&layout),
+            used,
+        });
+        cache.len += 1;
+        if cache.len > WORLD_CACHE_CAP {
+            evict_oldest(&mut cache);
+        }
+    });
+    layout
+}
+
+fn evict_oldest(cache: &mut WorldCache) {
+    let mut oldest: Option<(u64, usize, u64)> = None;
+    for (hash, slots) in &cache.buckets {
+        for (index, slot) in slots.iter().enumerate() {
+            let replace = oldest.is_none_or(|(_, _, used)| slot.used < used);
+            if replace {
+                oldest = Some((*hash, index, slot.used));
+            }
+        }
+    }
+    if let Some((hash, index, _)) = oldest {
+        if let Some(slots) = cache.buckets.get_mut(&hash) {
+            slots.swap_remove(index);
+            if slots.is_empty() {
+                cache.buckets.remove(&hash);
+            }
+            cache.len = cache.len.saturating_sub(1);
+        }
+    }
+}
+
+fn shape_world(
+    ctx: &egui::Context,
+    text: &str,
+    font: FontId,
+    world_size: f32,
+    wrap: f32,
+    align: egui::Align,
+) -> WorldLayout {
+    let ppp = ctx.pixels_per_point().max(0.01);
+    let logical = REFERENCE_PX / ppp;
+    let to_world = world_size / logical;
+    let wrap_logical = if wrap.is_finite() {
+        wrap / to_world
+    } else {
+        f32::INFINITY
+    };
+    let mut job = egui::text::LayoutJob::default();
+    job.wrap.max_width = wrap_logical;
+    job.halign = egui::Align::LEFT;
+    job.append(
+        text,
+        0.0,
+        egui::TextFormat {
+            font_id: FontId::new(logical, font.family.clone()),
+            color: Color32::PLACEHOLDER,
+            ..Default::default()
+        },
+    );
+    let galley = ctx.fonts(|fonts| fonts.layout_job(job));
+
+    let mut byte = 0;
+    let mut lines = Vec::with_capacity(galley.rows.len());
+    for row in &galley.rows {
+        let start = byte;
+        for glyph in &row.glyphs {
+            let Some(ch) = text[byte..].chars().next() else {
+                break;
+            };
+            debug_assert_eq!(ch, glyph.chr, "shaper glyph diverged from the source");
+            byte += ch.len_utf8();
+        }
+        let end = byte;
+        if row.ends_with_newline && text[byte..].starts_with('\n') {
+            byte += 1;
+        }
+        let glyph_w = row.rect.width() * to_world;
+        let glyph_left = row.rect.min.x * to_world;
+        lines.push(WorldLine {
+            bytes: start..end,
+            x: glyph_left,
+            y: row.rect.min.y * to_world,
+            width: glyph_w,
+            height: row.rect.height() * to_world,
+            ends_with_newline: row.ends_with_newline,
+        });
+    }
+    debug_assert!(
+        byte == text.len() || text[byte..].chars().all(|ch| ch == '\n'),
+        "line breaks did not cover the source"
+    );
+
+    let content_w = lines.iter().map(|line| line.width).fold(0.0, f32::max);
+    let box_w = if wrap.is_finite() { wrap } else { content_w };
+    for line in &mut lines {
+        let dx = match align {
+            egui::Align::Center => (box_w - line.width) * 0.5,
+            egui::Align::Max => box_w - line.width,
+            egui::Align::Min => 0.0,
+        };
+        line.x += dx;
+    }
+    let height = galley.rect.height() * to_world;
+    WorldLayout {
+        lines,
+        width: box_w,
+        height,
+    }
+}
+
+/// A screen-space galley of `layout`'s lines.
+///
+/// Each line is rasterized on the ladder at `screen_font` and placed at
+/// `world position × zoom`. The row text is `layout`'s; zoom does not
+/// rebreak it. Glyph positions and the mesh are the same geometry, so a
+/// caret hit-tested against this galley sits on the ink.
+pub fn zoom_galley(
+    ctx: &egui::Context,
+    text: &str,
+    layout: &WorldLayout,
+    screen_font: FontId,
+    color: Color32,
+    zoom: f32,
+) -> Arc<Galley> {
+    let zoom = if zoom.is_finite() { zoom.max(0.0) } else { 0.0 };
+    let (ladder_font, scale) = ladder_font(ctx.pixels_per_point(), screen_font.clone());
+    let mut rows = Vec::with_capacity(layout.lines.len());
+    let mut mesh_bounds = Rect::NOTHING;
+    let mut num_vertices = 0;
+    let mut num_indices = 0;
+
+    ctx.fonts(|fonts| {
+        for line in &layout.lines {
+            let slice = text.get(line.bytes.clone()).unwrap_or("");
+            if slice.is_empty() {
+                rows.push(empty_row(line, zoom, line.ends_with_newline));
+                continue;
+            }
+            let laid =
+                fonts.layout_no_wrap(slice.to_owned(), ladder_font.clone(), Color32::PLACEHOLDER);
+            let Some(src) = laid.rows.first() else {
+                rows.push(empty_row(line, zoom, line.ends_with_newline));
+                continue;
+            };
+            let origin = egui::vec2(line.x, line.y) * zoom;
+            let translate = origin - src.rect.min.to_vec2() * scale;
+            let mut glyphs = Vec::with_capacity(src.glyphs.len());
+            for glyph in &src.glyphs {
+                let mut glyph = *glyph;
+                glyph.pos = (glyph.pos.to_vec2() * scale + translate).to_pos2();
+                glyph.advance_width *= scale;
+                glyph.line_height *= scale;
+                glyph.font_ascent *= scale;
+                glyph.font_height *= scale;
+                glyph.font_impl_ascent *= scale;
+                glyph.font_impl_height *= scale;
+                glyphs.push(glyph);
+            }
+            let mut mesh = src.visuals.mesh.clone();
+            for vertex in &mut mesh.vertices {
+                vertex.pos = (vertex.pos.to_vec2() * scale + translate).to_pos2();
+                vertex.color = color;
+            }
+            let row_mesh_bounds = if mesh.vertices.is_empty() {
+                Rect::NOTHING
+            } else {
+                mesh.calc_bounds()
+            };
+            mesh_bounds = mesh_bounds.union(row_mesh_bounds);
+            num_vertices += mesh.vertices.len();
+            num_indices += mesh.indices.len();
+            let rect = Rect::from_min_size(
+                egui::pos2(line.x * zoom, line.y * zoom),
+                egui::vec2(src.rect.width() * scale, line.height * zoom),
+            );
+            rows.push(egui::epaint::text::Row {
+                section_index_at_start: src.section_index_at_start,
+                glyphs,
+                rect,
+                visuals: egui::epaint::text::RowVisuals {
+                    mesh,
+                    mesh_bounds: row_mesh_bounds,
+                    glyph_index_start: src.visuals.glyph_index_start,
+                    glyph_vertex_range: src.visuals.glyph_vertex_range.clone(),
+                },
+                ends_with_newline: line.ends_with_newline,
+            });
+        }
+    });
+
+    if rows.is_empty() {
+        rows.push(empty_row(
+            &WorldLine {
+                bytes: 0..0,
+                x: 0.0,
+                y: 0.0,
+                width: 0.0,
+                height: screen_font.size.max(0.0),
+                ends_with_newline: false,
+            },
+            1.0,
+            false,
+        ));
+    }
+
+    let job = egui::text::LayoutJob::simple(
+        text.to_owned(),
+        screen_font,
+        Color32::PLACEHOLDER,
+        (layout.width * zoom).max(0.0),
+    );
+    Arc::new(Galley {
+        job: Arc::new(job),
+        rows,
+        elided: false,
+        rect: Rect::from_min_size(
+            Pos2::ZERO,
+            egui::vec2(layout.width * zoom, layout.height * zoom),
+        ),
+        mesh_bounds,
+        num_vertices,
+        num_indices,
+        pixels_per_point: ctx.pixels_per_point(),
+    })
+}
+
+fn empty_row(line: &WorldLine, zoom: f32, ends_with_newline: bool) -> egui::epaint::text::Row {
+    egui::epaint::text::Row {
+        section_index_at_start: 0,
+        glyphs: Vec::new(),
+        rect: Rect::from_min_size(
+            egui::pos2(line.x * zoom, line.y * zoom),
+            egui::vec2(0.0, line.height * zoom),
+        ),
+        visuals: Default::default(),
+        ends_with_newline,
+    }
 }
 
 #[cfg(test)]
@@ -580,5 +1039,165 @@ mod tests {
             "{} rasterized sizes over the zoom range is atlas churn",
             sizes.len()
         );
+    }
+
+    const ZOOM_SWEEP: [f32; 10] = [0.1, 0.25, 0.37, 0.5, 0.73, 1.0, 1.5, 2.3, 4.0, 8.0];
+
+    fn with_ctx(mut body: impl FnMut(&egui::Context)) {
+        let ctx = egui::Context::default();
+        let _ = ctx.run(egui::RawInput::default(), |ctx| body(ctx));
+    }
+
+    fn row_text(galley: &Galley) -> Vec<String> {
+        galley.rows.iter().map(|row| row.text()).collect()
+    }
+
+    fn breaks_at(
+        ctx: &egui::Context,
+        text: &str,
+        size: f32,
+        wrap: f32,
+        align: egui::Align,
+        zoom: f32,
+    ) -> Vec<String> {
+        let font = FontId::proportional(size);
+        let layout = world_layout(ctx, text, font.clone(), wrap, align);
+        let screen = FontId::new(size * zoom, font.family);
+        let galley = zoom_galley(ctx, text, &layout, screen, Color32::WHITE, zoom);
+        let chars: usize = galley
+            .rows
+            .iter()
+            .map(|row| row.char_count_including_newline())
+            .sum();
+        assert_eq!(chars, text.chars().count(), "caret map dropped a character");
+        row_text(&galley)
+    }
+
+    #[test]
+    fn line_breaks_do_not_change_with_zoom() {
+        let samples = [
+            (
+                "Short.\n\nA longer paragraph with several words that need to wrap inside a narrow column of the board.\nsupercalifragilisticexpialidocious\n尾声",
+                11.0,
+                160.0,
+            ),
+            (
+                "看板文字在缩放时不得改换行位置即使是连续汉字也一样保持稳定",
+                18.0,
+                140.0,
+            ),
+            (
+                "alpha bravo charlie delta echo foxtrot golf hotel india\n\nsecond paragraph stays put while the camera moves",
+                24.0,
+                220.0,
+            ),
+            ("one two three four five six seven eight nine ten", 8.0, 70.0),
+            ("Title that is wider than its box", 48.0, 180.0),
+        ];
+        with_ctx(|ctx| {
+            for (text, size, wrap) in samples {
+                for align in [egui::Align::LEFT, egui::Align::Center, egui::Align::RIGHT] {
+                    let expected = breaks_at(ctx, text, size, wrap, align, 1.0);
+                    let cjk = text.chars().any(|ch| ch > '\u{2E80}');
+                    if !cjk {
+                        assert!(expected.len() > 1, "sample did not wrap: {text}");
+                    }
+                    for zoom in ZOOM_SWEEP {
+                        let got = breaks_at(ctx, text, size, wrap, align, zoom);
+                        assert_eq!(
+                            got, expected,
+                            "breaks changed at zoom {zoom} size {size} align {align:?}\n{text}"
+                        );
+                    }
+                }
+            }
+            let mono = "fn main() {\n    println!(\"hi\");\n}\n";
+            let expected = {
+                let font = FontId::monospace(13.0);
+                let layout = world_layout(ctx, mono, font.clone(), 90.0, egui::Align::LEFT);
+                let galley = zoom_galley(
+                    ctx,
+                    mono,
+                    &layout,
+                    FontId::monospace(13.0),
+                    Color32::WHITE,
+                    1.0,
+                );
+                row_text(&galley)
+            };
+            for zoom in ZOOM_SWEEP {
+                let font = FontId::monospace(13.0);
+                let layout = world_layout(ctx, mono, font.clone(), 90.0, egui::Align::LEFT);
+                let galley = zoom_galley(
+                    ctx,
+                    mono,
+                    &layout,
+                    FontId::new(13.0 * zoom, font.family),
+                    Color32::WHITE,
+                    zoom,
+                );
+                assert_eq!(row_text(&galley), expected);
+            }
+        });
+    }
+
+    #[test]
+    fn a_world_point_stays_on_the_same_line() {
+        let text = "alpha bravo charlie delta echo foxtrot golf\nsecond paragraph stays put";
+        with_ctx(|ctx| {
+            let layout = world_layout(
+                ctx,
+                text,
+                FontId::proportional(16.0),
+                150.0,
+                egui::Align::LEFT,
+            );
+            assert!(
+                layout.lines.len() >= 2,
+                "expected a wrapped first paragraph"
+            );
+            let line = &layout.lines[1];
+            let world = egui::vec2(line.x + 2.0, line.y + line.height * 0.5);
+            for zoom in ZOOM_SWEEP {
+                let galley = zoom_galley(
+                    ctx,
+                    text,
+                    &layout,
+                    FontId::proportional(16.0 * zoom),
+                    Color32::WHITE,
+                    zoom,
+                );
+                let cursor = galley.cursor_from_pos(world * zoom);
+                assert_eq!(cursor.rcursor.row, 1, "caret left its line at zoom {zoom}");
+            }
+        });
+    }
+
+    #[test]
+    fn zoom_and_pan_do_not_reshape() {
+        let text = "cached paragraph that wraps more than once across the column";
+        with_ctx(|ctx| {
+            clear_world_layout_cache();
+            let before = world_layout_shapes();
+            let font = FontId::proportional(20.0);
+            let layout = world_layout(ctx, text, font.clone(), 120.0, egui::Align::LEFT);
+            assert_eq!(world_layout_shapes(), before + 1);
+            for zoom in ZOOM_SWEEP {
+                let _ = world_layout(ctx, text, font.clone(), 120.0, egui::Align::LEFT);
+                let _ = zoom_galley(
+                    ctx,
+                    text,
+                    &layout,
+                    FontId::proportional(20.0 * zoom),
+                    Color32::WHITE,
+                    zoom,
+                );
+            }
+            assert_eq!(
+                world_layout_shapes(),
+                before + 1,
+                "pure zoom reshaped the paragraph"
+            );
+        });
     }
 }
