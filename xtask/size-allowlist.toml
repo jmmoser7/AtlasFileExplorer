@@ -1,7 +1,8 @@
-# Ratcheting allowlist: one row per .rs file still over 500 physical lines.
-# ceiling is the max line count allowed until the file is split below the cap.
-# Remove rows when a file shrinks to ≤500 lines. cargo xtask size --update-ceilings lowers
-# ceilings to current counts (never raises). Lines = physical rows (split('\n').count()).
+# Ratcheting allowlist: one row per `.rs` file still over 500 physical lines.
+# `ceiling` is the max line count allowed until the file is split below the cap.
+# Remove rows when a file shrinks to ≤500 lines. `cargo xtask size --update-ceilings` lowers
+# ceilings to current counts (never raises). Lines = physical rows (`split('\n').count()`).
+
 [[entry]]
 file = "apps/file-atlas/src/app/commands.rs"
 ceiling = 825
@@ -44,7 +45,7 @@ reason = "Slate app; extract one concern per module"
 
 [[entry]]
 file = "apps/slate/src/app/board.rs"
-ceiling = 10743
+ceiling = 3058
 reason = "Slate board interpreter; split on banner seams"
 
 [[entry]]
@@ -218,13 +219,13 @@ ceiling = 2888
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
-file = "apps/slate/src/app/model_screenshot.rs"
-ceiling = 1339
+file = "apps/slate/src/app/model3d.rs"
+ceiling = 5077
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
-file = "apps/slate/src/app/model3d.rs"
-ceiling = 5077
+file = "apps/slate/src/app/model_screenshot.rs"
+ceiling = 1339
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
