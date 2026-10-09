@@ -100,6 +100,7 @@ impl MediaGroup {
                 .chain(CODE)
                 .chain(PLAIN)
                 .copied()
+                .chain(["msg"])
                 .collect(),
             Self::Model => MODEL_EXTENSIONS.to_vec(),
             Self::Video => VIDEOS.to_vec(),
@@ -126,7 +127,9 @@ pub fn structured_text_package(path: &Path) -> bool {
         return false;
     };
     // CSV and TSV are spreadsheets whose bytes are already the text.
-    WORD.contains(&ext.as_str()) || (SHEETS.contains(&ext.as_str()) && ext != "csv" && ext != "tsv")
+    WORD.contains(&ext.as_str())
+        || (SHEETS.contains(&ext.as_str()) && ext != "csv" && ext != "tsv")
+        || ext == "msg"
 }
 
 fn extension_lc(path: &Path) -> Option<String> {
@@ -136,7 +139,11 @@ fn extension_lc(path: &Path) -> Option<String> {
 }
 
 fn text_document_ext(ext: &str) -> bool {
-    WORD.contains(&ext) || SHEETS.contains(&ext) || CODE.contains(&ext) || PLAIN.contains(&ext)
+    WORD.contains(&ext)
+        || SHEETS.contains(&ext)
+        || CODE.contains(&ext)
+        || PLAIN.contains(&ext)
+        || ext == "msg"
 }
 
 pub fn is_powerpoint(path: &Path) -> bool {
@@ -145,8 +152,14 @@ pub fn is_powerpoint(path: &Path) -> bool {
         .is_some_and(|s| POWERPOINT.contains(&s.to_ascii_lowercase().as_str()))
 }
 
+/// Word documents that unbundle into pages. The card stays a text excerpt
+/// until unbundle; `.doc` and `.docx` are the formats Word can print to PDF.
+pub fn is_word_document(path: &Path) -> bool {
+    matches!(extension_lc(path).as_deref(), Some("doc") | Some("docx"))
+}
+
 pub fn has_pages(path: &Path) -> bool {
-    media_kind(path) == MediaKind::Pdf || is_powerpoint(path)
+    media_kind(path) == MediaKind::Pdf || is_powerpoint(path) || is_word_document(path)
 }
 
 #[cfg(test)]
@@ -169,17 +182,23 @@ mod picker_tests {
             assert!(MediaGroup::Image.accepts(Path::new(file)));
         }
         assert!(has_pages(Path::new("deck.PPTX")));
+        assert!(has_pages(Path::new("essay.DOCX")));
+        assert!(has_pages(Path::new("legacy.doc")));
         assert!(!has_pages(Path::new("photo.jpg")));
+        assert!(!has_pages(Path::new("mail.msg")));
+        assert!(!has_pages(Path::new("budget.xlsx")));
         assert!(MediaGroup::Text.accepts(Path::new("essay.DOCX")));
         assert!(MediaGroup::Text.accepts(Path::new("budget.xlsx")));
         assert!(MediaGroup::Text.accepts(Path::new("rows.csv")));
         assert!(MediaGroup::Text.accepts(Path::new("main.rs")));
+        assert!(MediaGroup::Text.accepts(Path::new("mail.msg")));
         assert!(!MediaGroup::Image.accepts(Path::new("essay.docx")));
         assert!(!MediaGroup::Image.accepts(Path::new("rows.csv")));
         assert!(!MediaGroup::Text.accepts(Path::new("deck.pptx")));
         assert!(!MediaGroup::Text.accepts(Path::new("photo.jpg")));
         assert!(structured_text_package(Path::new("essay.docx")));
         assert!(structured_text_package(Path::new("budget.xlsx")));
+        assert!(structured_text_package(Path::new("mail.msg")));
         assert!(!structured_text_package(Path::new("rows.csv")));
         assert!(!structured_text_package(Path::new("main.rs")));
         use crate::scene::Corner;
@@ -226,9 +245,9 @@ pub enum MediaKind {
     /// exports the frozen-camera poster, linking to the copied original.
     Model,
     Pdf,
-    /// Plain text, source code, CSV, and Word / spreadsheet files. An excerpt
-    /// is shown when the file can be read; a package with no excerpt falls
-    /// back to the document card.
+    /// Plain text, source code, CSV, Word / spreadsheet files, and Outlook
+    /// messages. An excerpt is shown when the file can be read; a package
+    /// with no excerpt falls back to the document card.
     Text,
     /// Print and design files that render as a thumbnail card (PowerPoint,
     /// Photoshop, Illustrator, InDesign).
@@ -396,6 +415,7 @@ mod tests {
             ("budget.XLS", MediaKind::Text),
             ("rows.csv", MediaKind::Text),
             ("main.rs", MediaKind::Text),
+            ("mail.msg", MediaKind::Text),
             ("page.html", MediaKind::Text),
             ("layout.psd", MediaKind::Doc),
             ("deck.pptx", MediaKind::Doc),

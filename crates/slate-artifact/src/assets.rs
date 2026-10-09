@@ -357,8 +357,8 @@ fn data_uri(path: &Path) -> io::Result<String> {
 }
 
 /// First ~[`SNIPPET_MAX_CHARS`] chars / [`SNIPPET_MAX_LINES`] lines of a text
-/// file. Word, Excel, OpenDocument, and RTF are extracted first; their raw
-/// bytes are not the excerpt. `None` if unreadable or empty. Public so the
+/// file. Word, Excel, OpenDocument, RTF, and Outlook messages are extracted
+/// first; their raw bytes are not the excerpt. `None` if unreadable or empty. Public so the
 /// live board renders the *same* excerpt the artifact will.
 pub fn read_snippet(path: &Path) -> Option<String> {
     if slate_doc::media::structured_text_package(path) {

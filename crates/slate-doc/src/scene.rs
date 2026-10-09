@@ -983,7 +983,7 @@ fn channel_amount(current: f32, identity: f32, target: f32) -> ChannelMatch {
         }
     } else {
         let t = (current - identity) / span;
-        if t < -0.02 || t > 1.02 {
+        if !(-0.02..=1.02).contains(&t) {
             ChannelMatch::Mismatch
         } else {
             ChannelMatch::Amount(t.clamp(0.0, 1.0))

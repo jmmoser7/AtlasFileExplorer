@@ -557,6 +557,7 @@ pub struct SlateApp {
 
     /// Cached PDF page counts keyed by absolute path string.
     documents: pdf::documents::Documents,
+    queued_unbundles: Vec<pdf::QueuedUnbundle>,
 
     frame_no: u64,
     /// `ctx.input.time` snapshot for this frame (camera fades, repeat taps).
@@ -965,6 +966,7 @@ impl SlateApp {
             path_mesh_cache: board_path::PathMeshCache::default(),
             pending_workbooks: Vec::new(),
             documents: pdf::documents::Documents::default(),
+            queued_unbundles: Vec::new(),
             frame_no: 0,
             frame_time: 0.0,
             session_log: if cfg!(test) {
@@ -1914,10 +1916,12 @@ impl SlateApp {
     /// Open an item's file: workbooks open in Slate as a tab, everything
     /// else goes to the OS handler.
     pub(crate) fn open_item_path(&mut self, path: &std::path::Path) {
-        if slate_doc::media_kind(path) == slate_doc::MediaKind::Workbook {
-            self.open_doc_at(path.to_path_buf());
+        let path =
+            slate_doc::scene::resolve_source(self.tab().path.as_deref(), &path.to_string_lossy());
+        if slate_doc::media_kind(&path) == slate_doc::MediaKind::Workbook {
+            self.open_doc_at(path);
         } else {
-            Self::open_path(path);
+            Self::open_path(&path);
         }
     }
 
@@ -2149,8 +2153,12 @@ impl SlateApp {
             wire_routing: self.board_wire_routing,
             ..Default::default()
         };
-        let doc = self.doc().clone();
         let workbook = self.tab().path.clone();
+        let mut doc = self.doc().clone();
+        for item in &mut doc.items {
+            item.path =
+                slate_doc::scene::resolve_source(workbook.as_deref(), &item.path.to_string_lossy());
+        }
         let (tx, rx) = crossbeam_channel::bounded(1);
         self.export_rx = Some(rx);
         self.toast("Exporting artifact…");
@@ -2365,7 +2373,10 @@ impl SlateApp {
             let _span = atlas_core::session_log::span("slate.pumps");
             self.drain_pickers(ctx);
             self.resume_unsaved_close_if_ready(ctx);
-            self.documents.poll(ctx);
+            self.pump_document_jobs(ctx);
+            if !self.queued_unbundles.is_empty() {
+                ctx.request_repaint_after(Duration::from_millis(50));
+            }
             self.poll_artifact_export(ctx);
             self.heartbeat_active_lease();
             self.note_engine_failure();

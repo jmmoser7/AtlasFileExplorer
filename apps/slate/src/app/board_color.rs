@@ -2032,7 +2032,7 @@ impl SlateApp {
                 .nodes
                 .iter()
                 .position(|node| node.id == id)
-                .and_then(|index| self.doc().scene.node(id).cloned().map(|node| (index, node)))
+                .zip(self.doc().scene.node(id).cloned())
             {
                 board_removes.push((index, node));
             }
