@@ -538,6 +538,7 @@ pub fn connector(
         a,
         b,
         stroke: wire_stroke(),
+        color: Some(wire_stroke().color),
         routing: Some(crate::wire::WireRouting::Bezier),
         arrow_a: false,
         arrow_b: false,

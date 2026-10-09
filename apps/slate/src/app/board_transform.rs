@@ -796,7 +796,9 @@ impl SlateApp {
         if self.wire_grip_at(screen, &xf).is_some() {
             return None;
         }
-        let (node, hit) = self.transform_hit_at(screen)?;
+        let Some((node, hit)) = self.transform_hit_at(screen) else {
+            return self.move_selection_in_bounds(world);
+        };
         match (node, hit) {
             (None, board_handles::BoardHitTarget::Resize(h)) => {
                 let gb = self.board_group_bounds()?;
@@ -894,6 +896,33 @@ impl SlateApp {
             (_, board_handles::BoardHitTarget::Body) => None,
             (_, board_handles::BoardHitTarget::FilletRadius) => None,
         }
+    }
+
+    /// Gap inside a multi-selection's box: nothing was picked, so the press
+    /// moves the group instead of starting a marquee.
+    fn move_selection_in_bounds(&self, world: Pos2) -> Option<BoardDrag> {
+        if !self.selection_bounds_claim_press(world) {
+            return None;
+        }
+        if self.board_pick_node(world.x, world.y).is_some() {
+            return None;
+        }
+        let selected: Vec<NodeId> = self.board_sel.iter().copied().collect();
+        let expanded = self.expand_with_members(&selected);
+        let before: Vec<Node> = expanded
+            .iter()
+            .filter_map(|id| self.doc().scene.node(*id).cloned())
+            .collect();
+        if before.is_empty() {
+            return None;
+        }
+        let ids = before.iter().map(|n| n.id).collect();
+        Some(BoardDrag::Move {
+            ids,
+            before,
+            start_world: world,
+            dup: self.alt_down,
+        })
     }
 }
 

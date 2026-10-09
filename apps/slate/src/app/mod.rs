@@ -2151,6 +2151,7 @@ impl SlateApp {
             web_sources,
             web_posters,
             wire_routing: self.board_wire_routing,
+            wire_theme: Some(board::to_rgba(self.palette().wire)),
             ..Default::default()
         };
         let workbook = self.tab().path.clone();

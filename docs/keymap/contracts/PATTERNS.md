@@ -637,8 +637,29 @@ is searchable.
   future silhouette / vertex facet) — it does not special-case a file
   format. Geometry is derived at resolve time (Art. VI.3); the journal
   stores only `Side` + `t` + node id. Both interpreters call
-  `connector_route` with that host pose (Art. IV). Implementation:
+  `connector_route` with that host pose (Art. IV).   Implementation:
   `crates/slate-doc/src/wire_host.rs`.
+- **P1.wire.hit** The port press target is a pointer hit, not painted
+  geometry, so P0.9 does not apply; painted discs still go through
+  `canvas_scale::px`. At zoom ≥ 1 the inner disk is 8 screen px and the
+  outward half-plane is six times that. Below zoom 1 the inner disk
+  grows as `8 * zoom^-0.35`, capped at 14 screen px, and the outward
+  reach stays six times the inner disk. A port whose painted radius is
+  below 1.5 screen px is not drawn and is not hittable. A press inside
+  any node's body does not start a wire from another node's port, unless
+  that body also holds the port (a slide frame around the card). A
+  press inside a multi-selection's bounding box moves that selection.
+- **P1.wire.drag** While a wire is dragged from a port, the free end's
+  tangent stays on the source side's axis, reversed (horizontal for
+  left/right, vertical for top/bottom), matching a wire into a facing
+  port. The leader drawn to the flow action menu uses that same curve.
+- **P1.wire.color** A connector's color is optional (`ConnectorNode::color`).
+  `None` paints `Palette::wire`, a medium gray with a light-mode and a
+  dark-mode value, read from the active theme each frame, on the board and
+  in the export. A picked color is `Some` and is kept, whatever it is.
+  Files saved before the field read a stroke equal to the old board ink
+  (light `#1b1e22` or dark `#dde2e8`) as `None`; that load migration is
+  the only place the ink is compared.
 - **P1.wire.rails** orthogonal wires that share a source or destination
   **fan along the port** and run on **parallel mid-span rails** (File
   Atlas nested-rail / PCB-trace treatment) so they do not stack. The

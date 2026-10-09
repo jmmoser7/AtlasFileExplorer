@@ -369,6 +369,7 @@ fn render_node(
             origin_x,
             origin_y,
             opts.wire_routing,
+            opts.wire_theme,
         ),
         NodeKind::Frame(_) => {}
         NodeKind::DockStrip(s) => render_dock_strip(html, node, s, rel),
@@ -2354,6 +2355,9 @@ fn stroke_dash_ink(stroke: &slate_doc::scene::Stroke) -> Option<(Vec<f32>, f32)>
 
 /// Faint wires render at 40% opacity in both interpreters.
 const FAINT_OPACITY: f32 = 0.4;
+/// Unauthored wire color when the caller passes no theme: the light `wire`
+/// slot in `atlas-shell/ui-tokens.toml`.
+const WIRE_FALLBACK: slate_doc::scene::Rgba = slate_doc::scene::Rgba([0x6e, 0x76, 0x80, 255]);
 /// Connector label font size (world units) — labels have no size in the
 /// model yet, so both interpreters pin the same constant.
 const CONNECTOR_LABEL_SIZE: f32 = 14.0;
@@ -2366,6 +2370,7 @@ fn render_connector(
     origin_x: f32,
     origin_y: f32,
     routing: WireRouting,
+    theme_wire: Option<slate_doc::scene::Rgba>,
 ) {
     // Geometry is derived from the *current* rects of anchored nodes.
     // Hidden anchor nodes resolve to nothing: the wire is skipped until the
@@ -2379,6 +2384,8 @@ fn render_connector(
     ) else {
         return;
     };
+    let color = conn.paint_color(theme_wire.unwrap_or(WIRE_FALLBACK));
+    let color_css = color.css();
     let drawn = connector_drawn_stroke(conn.stroke);
     let path = retreat_off_hosts(
         path,
@@ -2425,7 +2432,7 @@ fn render_connector(
     let d = svg_d_for_path(&path, &local);
     push_path_open(html, &d, "none", PathFillRule::NonZero);
     html.push_str(" stroke=\"");
-    html.push_str(&conn.stroke.color.css());
+    html.push_str(&color_css);
     html.push_str("\" stroke-width=\"");
     html.push_str(&fmt_px(drawn.width));
     html.push_str("\" stroke-linecap=\"");
@@ -2441,10 +2448,16 @@ fn render_connector(
     // Arrowheads: small filled triangles oriented to the end tangents,
     // computed inline (the writer builds elements directly).
     if conn.arrow_a {
-        push_arrow_head(html, conn, local(path.start()), path.start_dir());
+        push_arrow_head(
+            html,
+            conn,
+            local(path.start()),
+            path.start_dir(),
+            &color_css,
+        );
     }
     if conn.arrow_b {
-        push_arrow_head(html, conn, local(path.end()), path.end_dir());
+        push_arrow_head(html, conn, local(path.end()), path.end_dir(), &color_css);
     }
 
     // The board paints a crosstalk's live chip; the artifact states its count.
@@ -2461,7 +2474,7 @@ fn render_connector(
         html.push_str("\" y=\"");
         html.push_str(&fmt_px(my));
         html.push_str("\" text-anchor=\"middle\" dominant-baseline=\"middle\" fill=\"");
-        html.push_str(&conn.stroke.color.css());
+        html.push_str(&color_css);
         html.push_str("\" style=\"font:");
         html.push_str(&fmt_px(CONNECTOR_LABEL_SIZE));
         html.push_str("px ");
@@ -2533,13 +2546,19 @@ fn arrow_len(stroke: &slate_doc::scene::Stroke) -> f32 {
 
 /// One filled triangle: tip at the endpoint, base back along `into_curve`
 /// (the unit tangent pointing from the endpoint into the curve).
-fn push_arrow_head(html: &mut String, conn: &ConnectorNode, tip: (f32, f32), into_curve: [f32; 2]) {
+fn push_arrow_head(
+    html: &mut String,
+    conn: &ConnectorNode,
+    tip: (f32, f32),
+    into_curve: [f32; 2],
+    color_css: &str,
+) {
     push_arrow_triangle(
         html,
         [tip.0, tip.1],
         into_curve,
         connector_drawn_stroke(conn.stroke).width,
-        &conn.stroke.color.css(),
+        color_css,
     );
 }
 

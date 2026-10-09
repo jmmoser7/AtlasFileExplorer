@@ -2067,7 +2067,7 @@ impl SlateApp {
     /// locked members stay put, and connectors never ride along (their
     /// geometry is derived from their endpoints — frame membership does not
     /// apply to them).
-    fn expand_with_members(&self, ids: &[NodeId]) -> Vec<NodeId> {
+    pub(crate) fn expand_with_members(&self, ids: &[NodeId]) -> Vec<NodeId> {
         let mut out: Vec<NodeId> = ids.to_vec();
         for id in ids {
             if self.doc().scene.node(*id).map(|n| n.is_frame()) == Some(true) {
