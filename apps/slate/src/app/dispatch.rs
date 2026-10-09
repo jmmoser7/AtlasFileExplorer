@@ -69,6 +69,7 @@ impl SlateApp {
     /// Record an executed command (keyboard, palette, menu, dock, or mouse
     /// site). The history is the intent log (Art. VI) and the repeat source.
     pub(crate) fn push_history(&mut self, id: CommandId, detail: Option<String>) {
+        self.feedback.on_history(id.0);
         let Some(spec) = self.registry.by_id(id) else {
             return;
         };
@@ -86,6 +87,18 @@ impl SlateApp {
     /// pre-registry implementations, one history push per execution.
     /// Returns whether the command ran.
     pub(crate) fn dispatch(
+        &mut self,
+        ctx: &egui::Context,
+        id: CommandId,
+        detail: Option<String>,
+    ) -> bool {
+        self.feedback.enter_command(id.0);
+        let ran = self.dispatch_inner(ctx, id, detail);
+        self.feedback.exit_command();
+        ran
+    }
+
+    fn dispatch_inner(
         &mut self,
         ctx: &egui::Context,
         id: CommandId,
@@ -301,6 +314,15 @@ impl SlateApp {
             }
             "app.fullscreen" => {
                 self.toggle_canvas_fullscreen();
+                true
+            }
+            "app.feedback.open" => {
+                self.feedback.open_picker();
+                true
+            }
+            "app.feedback.finish_recording" => {
+                self.feedback.finish_recording();
+                self.feedback.phase = self.feedback.form_after_recording();
                 true
             }
             "app.help" => {

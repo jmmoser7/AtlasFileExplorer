@@ -50,6 +50,7 @@ pub mod commands;
 pub mod covers;
 pub mod dock;
 mod dock_advanced;
+pub mod feedback;
 pub mod file_picker;
 pub mod folder_map;
 pub mod grid_fade;

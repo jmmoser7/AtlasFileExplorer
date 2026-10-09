@@ -991,6 +991,7 @@ pub struct AtlasApp {
     ai: atlas_ai::AiPanel,
     /// Frame/activity recorder shared with Slate. Test builds stay in memory.
     pub(crate) session_log: atlas_core::session_log::SessionLog,
+    pub(crate) feedback: atlas_shell::feedback::FeedbackHub,
     boot: Option<atlas_core::session_log::Startup>,
 
     // organizing state
@@ -1400,6 +1401,11 @@ impl AtlasApp {
                 atlas_core::session_log::SessionLog::memory("file-atlas")
             } else {
                 atlas_core::session_log::SessionLog::new("file-atlas")
+            },
+            feedback: {
+                let mut hub = atlas_shell::feedback::FeedbackHub::default();
+                hub.prefs = atlas_shell::feedback::FeedbackPrefs::load("file-atlas");
+                hub
             },
             boot: None,
             assign_state: AssignState {
@@ -5127,6 +5133,23 @@ impl AtlasApp {
             let _span = atlas_core::session_log::span("atlas.overlays");
             self.draw_toasts(ctx);
         }
+        if self.feedback.recording() {
+            atlas_shell::feedback::paint_recording_chrome(ctx, self.canvas_rect, &palette);
+        }
+        let fb = atlas_shell::feedback::dialogs(
+            ctx,
+            &palette,
+            &mut self.feedback,
+            "file-atlas",
+            &self.updater.version,
+            &self.session_log,
+        );
+        if let Some(msg) = fb.toast {
+            self.toast(&msg);
+        }
+        if let Some(cmd) = fb.command {
+            self.dispatch_command(ctx, CommandId(cmd));
+        }
         {
             let _span = atlas_core::session_log::span("atlas.evict");
             self.evict_textures();
@@ -5443,6 +5466,12 @@ impl AtlasApp {
     /// handler body records its own (undo/redo/assign) or the command is a
     /// pure navigation step.
     fn dispatch_command(&mut self, ctx: &egui::Context, id: CommandId) {
+        self.feedback.enter_command(id.0);
+        self.dispatch_command_inner(ctx, id);
+        self.feedback.exit_command();
+    }
+
+    fn dispatch_command_inner(&mut self, ctx: &egui::Context, id: CommandId) {
         let mut detail: Option<String> = None;
         match id.0 {
             "app.updates.check" => self.updater.check(true),
@@ -5485,6 +5514,13 @@ impl AtlasApp {
                 atlas_shell::dock::set_bar_collapsed(ctx, "file_atlas_tools", !on);
                 self.dock_bar_collapsed = !on;
                 self.save_chrome_prefs();
+            }
+            "app.feedback.open" => {
+                self.feedback.open_picker();
+            }
+            "app.feedback.finish_recording" => {
+                self.feedback.finish_recording();
+                self.feedback.phase = self.feedback.form_after_recording();
             }
             "app.help" | "app.preferences" => {
                 self.active_chrome_mut().advanced_open = true;
@@ -5644,6 +5680,7 @@ impl AtlasApp {
 
     /// Record an executed command in the intent log (Art. VI: authored).
     fn push_history(&mut self, id: &'static str, detail: Option<String>) {
+        self.feedback.on_history(id);
         let Some(spec) = commands::REGISTRY.by_id(CommandId(id)) else {
             debug_assert!(false, "history push for unregistered command `{id}`");
             return;
@@ -7067,6 +7104,13 @@ impl AtlasApp {
     fn zoom_controls(&mut self, ui: &mut egui::Ui, rect: Rect) {
         use atlas_shell::widgets::{canvas_mini_menu, MiniMenuAction, MiniMenuModel};
         let palette = self.palette();
+        let _ = atlas_shell::feedback::suggestion_button(
+            ui.ctx(),
+            &palette,
+            "atlas",
+            rect,
+            &mut self.feedback,
+        );
         let action = canvas_mini_menu(
             ui.ctx(),
             &palette,

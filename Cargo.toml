@@ -54,6 +54,7 @@ png = "0.18"
 sha2 = "0.10"
 roxmltree = "0.21"
 image-webp = "0.2"
+clipboard-win = "5.4"
 # Scaled (DCT-domain) JPEG decoding, which `image`'s zune-jpeg backend does not
 # expose. `rayon` is off on purpose: thumbnails are already parallel across
 # files, so a second pool inside each decode only oversubscribes.

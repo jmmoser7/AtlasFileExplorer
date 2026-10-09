@@ -109,6 +109,13 @@ ChatTrain uses two separated linked cards; ChatWindow uses a single tall transcr
 
 ChatPairs is the ChatWindow card holding one pair: a short message bubble at the upper right and two reply lines below it. Stop is an open rounded square, the outline form of the composer's stop button. The chat card's ellipsis menu gives every row a glyph through `menu::Row::glyph`: ChatWindow, ChatTrain, ChatPairs, TextDoc (full conversation), Agent (choose program), Stop, Fit, with the menu family's Lock and Trash for full access and deletion.
 
+## Suggestion box
+
+`Feedback` is the suggestion-box button left of the readout chevron in both
+apps: a speech bubble with a tail at the lower left and two message lines.
+It shares the 24-unit outline catalog and stroke weight so it sits beside
+the chevron as one family, instead of the emoji it replaces (9 October 2026).
+
 ## Agent portal
 
 `Agent` is the agent-portal tool glyph: a friendly robot face with a rounded

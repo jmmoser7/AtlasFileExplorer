@@ -19,6 +19,9 @@ cfb = { workspace = true }
 pdfium-render = { workspace = true }
 resvg = { workspace = true }
 
+[target.'cfg(windows)'.dependencies]
+clipboard-win = { workspace = true }
+
 [target.'cfg(windows)'.dependencies.windows]
 version = "0.61"
 features = [

@@ -49,4 +49,7 @@ docs/agent/cursor-sidecar/node_modules/
 /random_10x10.csv
 /demo-ai-workspace/*
 !/demo-ai-workspace/.atlas-ai/
+
+# Suggestion-box report bundles written by dev builds (user content).
+/feedback/client/
 /docs/agent/cursor-sidecar/demo-ai-workspace/

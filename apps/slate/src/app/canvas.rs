@@ -179,6 +179,13 @@ impl SlateApp {
     pub(crate) fn mini_menu(&mut self, ctx: &egui::Context, rect: Rect, fit_bounds: Option<Rect>) {
         use atlas_shell::widgets::{canvas_mini_menu, MiniMenuAction, MiniMenuModel};
         let palette = self.palette();
+        let _ = atlas_shell::feedback::suggestion_button(
+            ctx,
+            &palette,
+            "slate",
+            rect,
+            &mut self.feedback,
+        );
         let action = canvas_mini_menu(
             ctx,
             &palette,

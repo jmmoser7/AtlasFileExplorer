@@ -463,6 +463,7 @@ name = "atlas-core"
 version = "1.0.0"
 dependencies = [
  "cfb",
+ "clipboard-win",
  "crossbeam-channel",
  "dirs",
  "eframe",
@@ -517,6 +518,7 @@ version = "1.0.0"
 dependencies = [
  "atlas-core",
  "atlas-update",
+ "chrono",
  "crossbeam-channel",
  "eframe",
  "image",

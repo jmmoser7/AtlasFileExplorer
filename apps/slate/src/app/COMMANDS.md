@@ -200,6 +200,13 @@ drag the address-bar URL or a page link instead.
   Dragging a bumper node pushes other bumper nodes (`board.bumper.push`);
   Alt passes through, Esc mid-drag restores everything, and the release
   glide plus every push is one undo. No new key.
+- **Suggestion box** (`app.feedback.open`) — the speech-bubble button left
+  of the readout chevron opens a bug / feature form that writes a local
+  report folder (no network). Dropped or pasted images attach while the
+  form is open and do not land on the board. **Enter** ends a Reproduce
+  recording (`app.feedback.finish_recording`); recording also stops itself
+  after 60 s. Steps are dispatched command ids only, never their text or
+  paths. Shared with File Atlas through `atlas_shell::feedback`.
 - **Arrows with nothing selected** pan the board canvas (Shift = faster);
   nudge with a selection is unchanged.
 - **Agent portal** commands:

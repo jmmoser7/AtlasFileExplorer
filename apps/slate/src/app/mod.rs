@@ -564,6 +564,7 @@ pub struct SlateApp {
     pub(crate) frame_time: f64,
     /// Frame/activity recorder shared with File Atlas. Test builds stay in memory.
     pub(crate) session_log: atlas_core::session_log::SessionLog,
+    pub(crate) feedback: atlas_shell::feedback::FeedbackHub,
     /// Process-start phases, flushed at the end of the first frame.
     boot: Option<atlas_core::session_log::Startup>,
 
@@ -973,6 +974,11 @@ impl SlateApp {
                 atlas_core::session_log::SessionLog::memory("slate")
             } else {
                 atlas_core::session_log::SessionLog::new("slate")
+            },
+            feedback: {
+                let mut hub = atlas_shell::feedback::FeedbackHub::default();
+                hub.prefs = atlas_shell::feedback::FeedbackPrefs::load("slate");
+                hub
             },
             boot: None,
             theme_stamp: None,
@@ -2431,7 +2437,17 @@ impl SlateApp {
         // board they're also placed at the drop point; landing on a tagged
         // frame assigns its tags.
         let _drop_span = atlas_core::session_log::span("slate.drop");
-        let native_drop = self.external_drop.pop();
+        let mut native_drop = self.external_drop.pop();
+        if self.feedback.owns_drops() {
+            if let Some(external_drop::DropEvent {
+                payload: external_drop::Payload::Files(paths),
+                ..
+            }) = native_drop.take()
+            {
+                self.feedback.attach_dropped(&paths);
+                ctx.request_repaint();
+            }
+        }
         let mut drop_at = None;
         let mut drop_alt = None;
         let mut dropped: Vec<PathBuf> = ctx.input(|i| {
@@ -2441,6 +2457,9 @@ impl SlateApp {
                 .filter_map(|f| f.path.clone())
                 .collect()
         });
+        if self.feedback.owns_drops() {
+            dropped.clear();
+        }
         if native_drop.is_some() || !dropped.is_empty() {
             // Dragged out of the open dialog instead of picked: the drop is
             // the answer, so the dialog goes away as if cancelled.
@@ -2616,6 +2635,24 @@ impl SlateApp {
                 Some(id) if Some(id) != before => m.surrender_focus(id),
                 _ => {}
             });
+        }
+        if self.feedback.recording() {
+            atlas_shell::feedback::paint_recording_chrome(ctx, self.canvas_rect, &self.palette());
+        }
+        let palette = self.palette();
+        let fb = atlas_shell::feedback::dialogs(
+            ctx,
+            &palette,
+            &mut self.feedback,
+            "slate",
+            &self.updater.version,
+            &self.session_log,
+        );
+        if let Some(msg) = fb.toast {
+            self.toast(&msg);
+        }
+        if let Some(cmd) = fb.command {
+            self.dispatch(ctx, atlas_commands::CommandId(cmd), None);
         }
         self.debug_screenshot(ctx);
     }

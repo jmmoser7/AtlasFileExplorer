@@ -20043,9 +20043,11 @@ fn copied_bitmap(h: &Harness) -> image::RgbaImage {
     let png = write.png.as_ref().expect("a PNG on the clipboard");
     let from_png = image::load_from_memory(png).unwrap().to_rgba8();
     let dib = write.dibv5.as_ref().expect("a DIBV5 on the clipboard");
-    let from_dib = image::load_from_memory(&clipboard::decode_clipboard_bitmap(dib).unwrap())
-        .unwrap()
-        .to_rgba8();
+    let from_dib = image::load_from_memory(
+        &atlas_core::clipboard_image::decode_clipboard_bitmap(dib).unwrap(),
+    )
+    .unwrap()
+    .to_rgba8();
     assert_eq!(from_png, from_dib, "PNG and DIBV5 carry the same pixels");
     from_png
 }
