@@ -116,8 +116,9 @@ is searchable.
   consider objects in the current view, in the same row or column, and
   not behind a closer neighbor. Reach (Tight / Nearby / Wide) is a
   Document Settings session preference. The forcefield pulse is the
-  guide. Curve endpoints and corner-scale handles use the same point
-  snap as drafts.
+  guide. Curve endpoints use the same point snap as drafts. A corner
+  scale snaps its scaled corner to a neighbour edge (nearer axis when
+  aspect is locked, both when free). Alt suspends.
 - **P1.node.osnap** every live board point — hover, press, drag end, grip,
   corner handle, GhostFollow hotspot — goes through `resolve_point_snap`
   (or `resolve_draw_rect` for DragScale). Preview and commit consume that
@@ -144,8 +145,12 @@ is searchable.
   gets a diagonal, not an axis arrow. Corner drag scales
   proportionally by default;
   `Shift` frees aspect; edge+`Shift` locks aspect; `Ctrl` resizes about
-  center. The opposite handle is the scale origin for every corner and
-  edge — all four corners are the same rule, not four special cases.
+  center. A corner scale snaps that corner to a neighbouring edge within
+  the smart-guide threshold: aspect lock keeps the nearer axis and derives
+  the other; free aspect snaps both. Guide lines show while snapped. Alt
+  suspends, and preview and commit use that rect. The opposite handle is
+  the scale origin for every corner and edge — all four corners are the
+  same rule, not four special cases.
   A rotated resize pins that origin in world space so the grabbed edge
   is the one that moves (local AABB math alone walks the far edge once
   rotation is about the live center; most visible at 180°).

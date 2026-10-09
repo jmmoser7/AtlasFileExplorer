@@ -20,7 +20,7 @@ use super::board_snap;
 use super::SlateApp;
 
 /// `osnap.radius` — screen px the cursor must be within for a snap to fire.
-pub const OSNAP_RADIUS_PX: f32 = 8.0;
+pub const OSNAP_RADIUS_PX: f32 = 12.0;
 /// `osnap.marker` — screen-space marker size.
 pub const OSNAP_MARKER_PX: f32 = 7.0;
 
@@ -220,6 +220,68 @@ impl SlateApp {
             let g = board_snap::GRID_WORLD;
             return Pos2::new((world.x / g).round() * g, (world.y / g).round() * g);
         }
+        world
+    }
+
+    /// Corner-scale resolution. Object snap wins, then an aspect-aware snap
+    /// of the scaled corner onto neighbouring edges, then grid. The caller
+    /// suspends this while Alt is held. Preview and commit both consume
+    /// the returned pointer through `resize_from_handle`.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn resolve_corner_scale(
+        &mut self,
+        world: Pos2,
+        before: WorldRect,
+        proposed: WorldRect,
+        handle: u8,
+        min_size: f32,
+        lock_aspect: bool,
+        from_center: bool,
+        exclude: &[NodeId],
+    ) -> Pos2 {
+        let set = self.board_osnap;
+        let radius = self.osnap_radius_world();
+        if let Some(hit) = pick(
+            &self.doc().scene,
+            world,
+            radius,
+            set,
+            exclude,
+            None,
+            self.board_wire_routing,
+        ) {
+            self.board_osnap_hit = Some(hit);
+            self.board_snap_guides.clear();
+            self.board_point_snap = Some(hit.point);
+            return hit.point;
+        }
+        self.board_osnap_hit = None;
+        if self.board_smart_guides {
+            let all = self.board_node_rects();
+            if let Some((pointer, guides)) = board_snap::snap_scaled_corner(
+                before,
+                proposed,
+                handle,
+                min_size,
+                lock_aspect,
+                from_center,
+                exclude,
+                &all,
+                self.snap_scope(),
+            ) {
+                self.board_snap_guides = guides;
+                self.board_point_snap = Some(pointer);
+                return pointer;
+            }
+        }
+        self.board_snap_guides.clear();
+        if self.board_snap_grid {
+            let g = board_snap::GRID_WORLD;
+            let p = Pos2::new((world.x / g).round() * g, (world.y / g).round() * g);
+            self.board_point_snap = Some(p);
+            return p;
+        }
+        self.board_point_snap = Some(world);
         world
     }
 
