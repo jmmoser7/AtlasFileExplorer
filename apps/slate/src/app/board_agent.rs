@@ -4785,7 +4785,14 @@ impl SlateApp {
             else {
                 continue;
             };
-            match self.capture_generator_inputs(id, &mut request) {
+            let since = self
+                .agents
+                .capture_wait
+                .get(&id)
+                .copied()
+                .unwrap_or_else(Instant::now);
+            let allow_stale = since.elapsed() > CAPTURE_TIMEOUT;
+            match self.capture_generator_inputs(id, &mut request, allow_stale) {
                 Ok(true) => {}
                 Ok(false) => {
                     let since = *self
@@ -4823,6 +4830,7 @@ impl SlateApp {
         &mut self,
         id: NodeId,
         request: &mut AgentRequest,
+        allow_stale: bool,
     ) -> Result<bool, String> {
         let session = self
             .agent_session_for(id)
@@ -4840,6 +4848,13 @@ impl SlateApp {
             {
                 match self.read_web_text(node)? {
                     Some(text) => item.text = text,
+                    None if allow_stale => {
+                        if let Some(text) = self.stale_web_text(node) {
+                            item.text = text;
+                        } else {
+                            return Ok(false);
+                        }
+                    }
                     None => return Ok(false),
                 }
                 continue;
@@ -4851,6 +4866,13 @@ impl SlateApp {
             {
                 match self.capture_web_page(node, &dir)? {
                     Some(page) => item.images = vec![page.to_string_lossy().into_owned()],
+                    None if allow_stale => {
+                        if let Some(page) = self.stale_web_image(node, &dir)? {
+                            item.images = vec![page.to_string_lossy().into_owned()];
+                        } else {
+                            return Ok(false);
+                        }
+                    }
                     None => return Ok(false),
                 }
                 continue;

@@ -30,6 +30,8 @@ mod bench_brush;
 mod bench_brush_tiles;
 #[cfg(test)]
 mod bench_model3d;
+#[cfg(test)]
+mod bench_web;
 pub mod board;
 mod board_agent;
 mod board_align;
@@ -63,6 +65,7 @@ mod board_transform;
 mod board_trim;
 mod board_video;
 pub mod board_web;
+mod board_web_stills;
 #[cfg(windows)]
 mod board_web_win;
 mod board_wire;
@@ -86,6 +89,8 @@ mod path_edit_overlay;
 pub mod pdf;
 pub mod present;
 pub mod preview;
+#[cfg(all(test, windows))]
+mod probe_web;
 pub mod session;
 pub mod settings;
 #[cfg(test)]

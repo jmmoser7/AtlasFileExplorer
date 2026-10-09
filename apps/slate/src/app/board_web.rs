@@ -76,6 +76,24 @@ pub const INTERACTIVE_FPS: f32 = 60.0;
 pub const INTERACTIVE_HOLD_SECS: f32 = 0.18;
 /// Contents textures uploaded per frame; the rest wait in the backlog.
 pub const UPLOADS_PER_FRAME: usize = atlas_core::display::WEB_UPLOADS_PER_FRAME;
+/// GPU readbacks issued on one frame. Matches the upload budget (D29).
+pub const READS_PER_FRAME: usize = UPLOADS_PER_FRAME;
+/// Browsers a zoomed-out board may borrow to photograph cards. The scheduler
+/// that spends them is separate from the disk still; GP8 still fills the pool.
+pub const WARM_SLOTS: usize = 1;
+/// Slots held back from live pages for that photographer. Zero, so a full
+/// board still runs [`LIVE_POOL`] webviews.
+pub const WARM_RESERVE: usize = 0;
+/// Demoted browsers kept past losing their slot. Not spent by this build.
+pub const LINGER_MAX: usize = 2;
+pub const EVICT_LINGER_SECS: f32 = 0.45;
+pub const OPEN_MIN_GAP_SECS: f32 = 0.0;
+pub const POOL_CHANGE_MIN_SECS: f32 = 0.35;
+
+/// `ATLAS_BENCH_LEGACY=1` is the unbudgeted comparison the load benches use.
+pub fn bench_legacy() -> bool {
+    std::env::var_os("ATLAS_BENCH_LEGACY").is_some()
+}
 /// Border band that stays a Slate target while a portal holds input focus.
 pub const BORDER_HIT_PX: f32 = 6.0;
 /// Floor on how often a local source's mtime is checked, on a worker.
@@ -110,7 +128,7 @@ pub enum WebState {
     Budgeted,
     /// Stale by construction, and the age is stated.
     Poster {
-        captured: Instant,
+        age: Duration,
     },
     Missing {
         locator: String,
@@ -134,7 +152,7 @@ impl WebState {
             WebState::Loading => "loading…".into(),
             WebState::Live => "live".into(),
             WebState::Budgeted => "budgeted".into(),
-            WebState::Poster { captured } => format!("poster · {}", ago(captured.elapsed())),
+            WebState::Poster { age } => format!("poster · {}", ago(*age)),
             WebState::Missing { .. } => "missing".into(),
             WebState::Refused { reason } => format!("refused · {reason}"),
             WebState::NoRuntime => "no WebView2 runtime".into(),
@@ -423,6 +441,22 @@ struct WebView {
     state: WebState,
     poster: Option<egui::TextureHandle>,
     poster_at: Option<Instant>,
+    /// Wall clock of the pixels, so a still from a previous session can say so.
+    poster_wall: Option<SystemTime>,
+    poster_bytes: usize,
+    poster_size: [usize; 2],
+    /// Accepted from the host this session. A disk still is not fresh.
+    poster_fresh: bool,
+    /// CPU copy of the poster, so an agent run can fall back without a readback.
+    poster_image: Option<WebFrame>,
+    /// Locator hash for the disk still. Empty when the portal has no source.
+    /// Never includes a profile name or cookie.
+    still_key: String,
+    cached_text: Option<String>,
+    cached_text_at: Option<SystemTime>,
+    text_miss: bool,
+    still_requested: bool,
+    text_requested: bool,
     /// Physical on-screen size last frame; 0 when not yet painted.
     width_px: f32,
     height_px: f32,
@@ -458,6 +492,17 @@ impl WebView {
             state: WebState::Unknown,
             poster: None,
             poster_at: None,
+            poster_wall: None,
+            poster_bytes: 0,
+            poster_size: [0, 0],
+            poster_fresh: false,
+            poster_image: None,
+            still_key: String::new(),
+            cached_text: None,
+            cached_text_at: None,
+            text_miss: false,
+            still_requested: false,
+            text_requested: false,
             width_px: 0.0,
             height_px: 0.0,
             area_px: 0.0,
@@ -533,6 +578,17 @@ pub struct WebRuntime {
     link_cache: HashMap<std::path::PathBuf, (std::time::Instant, i64, u64, serde_json::Value)>,
     /// Pages whose text an agent run is waiting on.
     text_pending: HashSet<NodeId>,
+    /// Disk stills and the visible-text cache. Derived, per-user, off the
+    /// frame loop. Disabled under `cfg(test)` unless a test installs one.
+    stills: super::board_web_stills::StillCache,
+    still_inbox: Vec<super::board_web_stills::Loaded>,
+    restored: usize,
+    /// Webviews the host currently holds.
+    host_open: HashSet<NodeId>,
+    /// `(when, opened)` transitions, for the probe's churn window.
+    host_events: Vec<(Instant, bool)>,
+    pixel_ms: f32,
+    host_ms: f32,
 }
 
 impl Default for WebRuntime {
@@ -557,6 +613,13 @@ impl Default for WebRuntime {
             poll_rx,
             link_cache: HashMap::new(),
             text_pending: HashSet::new(),
+            stills: super::board_web_stills::StillCache::default(),
+            still_inbox: Vec::new(),
+            restored: 0,
+            host_open: HashSet::new(),
+            host_events: Vec::new(),
+            pixel_ms: 0.0,
+            host_ms: 0.0,
         }
     }
 }
@@ -581,15 +644,96 @@ impl WebRuntime {
         }
     }
 
+    pub fn set_stills(&mut self, cache: super::board_web_stills::StillCache) {
+        self.stills = cache;
+        self.still_inbox.clear();
+        for view in self.views.values_mut() {
+            view.still_requested = false;
+            view.text_requested = false;
+            view.text_miss = false;
+        }
+    }
+
+    pub fn has_still(&self, id: NodeId) -> bool {
+        self.views.get(&id).is_some_and(|v| v.poster.is_some())
+    }
+
+    pub fn poster_at(&self, id: NodeId) -> Option<Instant> {
+        self.views.get(&id).and_then(|v| v.poster_at)
+    }
+
+    pub fn open_count(&self) -> usize {
+        self.host_open.len()
+    }
+
+    pub fn host_views(&self) -> usize {
+        self.host_open.len()
+    }
+
+    pub fn lingering(&self) -> usize {
+        0
+    }
+
+    pub fn restored_count(&self) -> usize {
+        self.restored
+    }
+
+    pub fn poster_bytes(&self) -> usize {
+        self.views.values().map(|v| v.poster_bytes).sum()
+    }
+
+    pub fn poster_size(&self, id: NodeId) -> Option<[usize; 2]> {
+        let view = self.views.get(&id)?;
+        (view.poster.is_some()).then_some(view.poster_size)
+    }
+
+    pub fn pool_closes_in(&self, window: Duration) -> usize {
+        self.host_events
+            .iter()
+            .filter(|(at, opened)| !opened && at.elapsed() <= window)
+            .count()
+    }
+
+    pub fn churn_in(&self, window: Duration) -> usize {
+        self.host_events
+            .iter()
+            .filter(|(at, _)| at.elapsed() <= window)
+            .count()
+    }
+
+    pub fn host_ms(&self) -> f32 {
+        self.host_ms
+    }
+
+    pub fn pixel_ms(&self) -> f32 {
+        self.pixel_ms
+    }
+
+    fn note_host(&mut self, id: NodeId, open: bool) {
+        let changed = if open {
+            self.host_open.insert(id)
+        } else {
+            self.host_open.remove(&id)
+        };
+        if !changed {
+            return;
+        }
+        self.host_events.push((Instant::now(), open));
+        let keep = Duration::from_secs(30);
+        self.host_events.retain(|(at, _)| at.elapsed() <= keep);
+    }
+
     /// Replace the pixel backend. The app installs the platform host at
     /// startup; tests install a fake to drive the pool without a browser.
     pub fn set_host(&mut self, host: Box<dyn WebHost>) {
         for id in self.views.keys().copied().collect::<Vec<_>>() {
             self.host.evict(id);
+            self.note_host(id, false);
             if let Some(v) = self.views.get_mut(&id) {
                 v.live = false;
             }
         }
+        self.host_open.clear();
         self.host = host;
     }
 
@@ -1066,13 +1210,17 @@ impl SlateApp {
             });
         }
         self.web.uploads_this_frame = 0;
+        self.web.pixel_ms = 0.0;
+        self.web.host_ms = 0.0;
         self.drain_source_polls();
+        self.drain_web_stills(ctx);
         let portals = self.web_portals();
         if portals.is_empty() {
             if !self.web.views.is_empty() {
                 let stale: Vec<NodeId> = self.web.views.keys().copied().collect();
                 for id in stale {
                     self.web.host.evict(id);
+                    self.web.note_host(id, false);
                     self.web.views.remove(&id);
                 }
                 self.web_blur();
@@ -1090,6 +1238,7 @@ impl SlateApp {
             .collect();
         for id in dropped {
             self.web.host.evict(id);
+            self.web.note_host(id, false);
             self.web.views.remove(&id);
         }
         if self.web.focused.is_some_and(|id| !live_ids.contains(&id)) {
@@ -1123,15 +1272,47 @@ impl SlateApp {
                 let mut view = WebView::new(key);
                 view.generation = generation;
                 view.resume_url = resume;
+                view.still_key = still_key_for(locator);
                 // Viewport changes restart the host, not the last good image.
                 // A different source must never inherit another page's poster.
                 if let Some(old) = self.web.views.get_mut(id) {
                     if old.key.starts_with(&format!("{locator}|")) {
                         view.poster = old.poster.take();
                         view.poster_at = old.poster_at;
+                        view.poster_wall = old.poster_wall;
+                        view.poster_bytes = old.poster_bytes;
+                        view.poster_size = old.poster_size;
+                        view.poster_fresh = old.poster_fresh;
+                        view.poster_image = old.poster_image.take();
+                        view.cached_text = old.cached_text.take();
+                        view.cached_text_at = old.cached_text_at;
+                        view.text_miss = old.text_miss;
                     }
                 }
                 self.web.views.insert(*id, view);
+            }
+            if !self.web.stills.is_off() {
+                if self.web.views.get(id).is_some_and(|v| {
+                    v.poster.is_none() && !v.still_requested && !v.still_key.is_empty()
+                }) {
+                    let key = self.web.views[id].still_key.clone();
+                    self.web.stills.request(*id, &key);
+                    if let Some(v) = self.web.views.get_mut(id) {
+                        v.still_requested = true;
+                    }
+                }
+                if self.web.views.get(id).is_some_and(|v| {
+                    v.cached_text.is_none()
+                        && !v.text_miss
+                        && !v.text_requested
+                        && !v.still_key.is_empty()
+                }) {
+                    let key = self.web.views[id].still_key.clone();
+                    self.web.stills.request_text(*id, &key);
+                    if let Some(v) = self.web.views.get_mut(id) {
+                        v.text_requested = true;
+                    }
+                }
             }
             if self.portal_chrome.maximized == Some(*id) {
                 let screen = ctx.screen_rect();
@@ -1175,6 +1356,7 @@ impl SlateApp {
 
         let admitted = admit(&candidates, LIVE_POOL);
         let admitted_set: HashSet<NodeId> = admitted.iter().copied().collect();
+        let host_started = Instant::now();
         for (id, portal, rect) in &portals {
             let want_live = admitted_set.contains(id);
             let was_live = self.web.views.get(id).is_some_and(|v| v.live);
@@ -1188,6 +1370,7 @@ impl SlateApp {
                     self.web_request(ctx, *id, portal, workbook.as_deref(), layout_rect)
                 {
                     self.web.host.admit(*id, &req);
+                    self.web.note_host(*id, true);
                     if let Some(v) = self.web.views.get_mut(id) {
                         v.live = true;
                         if std::mem::take(&mut v.reload_pending) {
@@ -1203,11 +1386,13 @@ impl SlateApp {
                 // The existing texture already owns the last accepted frame.
                 // Do not replace it with a teardown capture or an unbudgeted upload.
                 self.web.host.evict(*id);
+                self.web.note_host(*id, false);
                 if let Some(v) = self.web.views.get_mut(id) {
                     v.live = false;
                 }
             }
         }
+        self.web.host_ms += host_started.elapsed().as_secs_f32() * 1000.0;
 
         // Spend the upload budget, newest-first, carrying the rest forward.
         let mut pending: Vec<NodeId> = std::mem::take(&mut self.web.backlog);
@@ -1224,9 +1409,10 @@ impl SlateApp {
         }
         let mut carried = Vec::new();
         let mut next_upload_due: Option<Duration> = None;
+        let mut reads = 0usize;
         let now = Instant::now();
         for id in pending {
-            if self.web.uploads_this_frame >= UPLOADS_PER_FRAME {
+            if self.web.uploads_this_frame >= UPLOADS_PER_FRAME || reads >= READS_PER_FRAME {
                 carried.push(id);
                 next_upload_due = Some(Duration::ZERO);
                 continue;
@@ -1253,7 +1439,11 @@ impl SlateApp {
             }
             view.last_frame_probe = Some(now);
             let _ = view;
-            if let Some(img) = self.web.host.take_frame(id) {
+            reads += 1;
+            let read_at = Instant::now();
+            let frame = self.web.host.take_frame(id);
+            self.web.pixel_ms += read_at.elapsed().as_secs_f32() * 1000.0;
+            if let Some(img) = frame {
                 self.upload_poster(ctx, id, img);
                 self.web.uploads_this_frame += 1;
             } else if self.web.views.get(&id).is_some_and(|v| v.live) {
@@ -1287,21 +1477,108 @@ impl SlateApp {
     }
 
     fn upload_poster(&mut self, ctx: &egui::Context, id: NodeId, img: impl Into<WebFrame>) {
-        let img: WebFrame = img.into();
-        if !web_frame_has_content(&img) {
+        self.install_poster(ctx, id, img.into(), true);
+    }
+
+    /// Put pixels on the card. A live frame may replace the poster and is
+    /// written to disk once per locator this session. A disk still fills an
+    /// empty card only, and is not written back.
+    fn install_poster(&mut self, ctx: &egui::Context, id: NodeId, img: WebFrame, live: bool) {
+        let has_poster = self.web.views.get(&id).is_some_and(|v| v.poster.is_some());
+        let choice = choose_still(has_poster, web_frame_has_content(&img), !live);
+        if choice != StillChoice::Incoming && choice != StillChoice::Disk {
             return;
         }
-        if let Some(v) = self.web.views.get_mut(&id) {
-            if let Some(tex) = &mut v.poster {
-                tex.set(img, egui::TextureOptions::LINEAR);
-            } else {
-                v.poster = Some(ctx.load_texture(
-                    format!("slate-web-{}", id.0),
-                    img,
-                    egui::TextureOptions::LINEAR,
-                ));
+        if live && choice != StillChoice::Incoming {
+            return;
+        }
+        let key = self
+            .web
+            .views
+            .get(&id)
+            .map(|v| v.still_key.clone())
+            .unwrap_or_default();
+        let bytes = img.pixels.len() * 4;
+        let size = img.size;
+        let Some(v) = self.web.views.get_mut(&id) else {
+            return;
+        };
+        v.poster_bytes = bytes;
+        v.poster_size = size;
+        v.poster_at = Some(Instant::now());
+        v.poster_image = Some(std::sync::Arc::clone(&img));
+        if live {
+            v.poster_fresh = true;
+            v.poster_wall = Some(SystemTime::now());
+        } else if v.poster_wall.is_none() {
+            v.poster_wall = Some(SystemTime::now());
+        }
+        if let Some(tex) = &mut v.poster {
+            tex.set(std::sync::Arc::clone(&img), egui::TextureOptions::LINEAR);
+        } else {
+            v.poster = Some(ctx.load_texture(
+                format!("slate-web-{}", id.0),
+                std::sync::Arc::clone(&img),
+                egui::TextureOptions::LINEAR,
+            ));
+        }
+        if live && !key.is_empty() {
+            self.web.stills.store(&key, img);
+        }
+    }
+
+    /// Disk stills and cached page text. Never blocks: the worker already
+    /// finished the read, and uploads share the per-frame budget.
+    fn drain_web_stills(&mut self, ctx: &egui::Context) {
+        self.web.still_inbox.extend(self.web.stills.drain());
+        let pending = std::mem::take(&mut self.web.still_inbox);
+        let mut later = Vec::new();
+        for item in pending {
+            if self.web.uploads_this_frame >= UPLOADS_PER_FRAME {
+                later.push(item);
+                continue;
             }
-            v.poster_at = Some(Instant::now());
+            let Some(view) = self.web.views.get(&item.id) else {
+                continue;
+            };
+            if view.still_key != item.key || view.poster.is_some() {
+                continue;
+            }
+            let wall = SystemTime::now().checked_sub(item.age);
+            if let Some(v) = self.web.views.get_mut(&item.id) {
+                v.poster_wall = wall;
+                v.poster_fresh = false;
+            }
+            self.install_poster(ctx, item.id, item.img, false);
+            if self
+                .web
+                .views
+                .get(&item.id)
+                .is_some_and(|v| v.poster.is_some())
+            {
+                self.web.uploads_this_frame += 1;
+                self.web.restored += 1;
+            }
+        }
+        self.web.still_inbox = later;
+
+        for item in self.web.stills.drain_text() {
+            let Some(view) = self.web.views.get_mut(&item.id) else {
+                continue;
+            };
+            if view.still_key != item.key {
+                continue;
+            }
+            match item.text {
+                Some(text) => {
+                    if view.cached_text.is_none() {
+                        view.cached_text = Some(text);
+                        view.cached_text_at = item.captured;
+                    }
+                    view.text_miss = false;
+                }
+                None => view.text_miss = view.cached_text.is_none(),
+            }
         }
     }
 
@@ -1320,7 +1597,6 @@ impl SlateApp {
             let changed = v.source_mtime.is_some() && v.source_mtime != poll.mtime;
             v.source_mtime = poll.mtime;
             if changed {
-                v.poster_at = None;
                 v.reload_pending = true;
             }
         }
@@ -1415,10 +1691,9 @@ impl SlateApp {
             return (WebState::Missing { locator: err }, true);
         }
         if !portal.web_ref().interactive_allowed {
-            let captured = view.and_then(|v| v.poster_at);
+            let age = view.and_then(|v| v.poster_at.map(|_| poster_age(v)));
             return (
-                captured
-                    .map(|captured| WebState::Poster { captured })
+                age.map(|age| WebState::Poster { age })
                     .unwrap_or(WebState::Loading),
                 false,
             );
@@ -1429,21 +1704,26 @@ impl SlateApp {
             let state = if height > 0.0 && height < LIVE_MIN_PX && on_screen {
                 WebState::TooSmall
             } else {
-                view.and_then(|v| v.poster_at)
-                    .map(|captured| WebState::Poster { captured })
+                view.and_then(|v| v.poster_at.map(|_| poster_age(v)))
+                    .map(|age| WebState::Poster { age })
                     .unwrap_or(WebState::Unknown)
             };
             return (state, true);
         }
         let live = view.is_some_and(|v| v.live);
         let has_pixels = view.and_then(|v| v.poster_at).is_some();
+        let fresh = view.is_some_and(|v| v.poster_fresh);
         // Eligible but unpooled reads as `Budgeted` whether or not it has a
         // last frame to show: the state is about the slot, and the poster the
-        // card paints is a separate question.
-        let state = match (live, has_pixels) {
-            (true, true) => WebState::Live,
-            (true, false) => WebState::Loading,
-            (false, _) => WebState::Budgeted,
+        // card paints is a separate question. A browser that has not painted
+        // yet keeps the disk still and says `poster` rather than `live`.
+        let state = match (live, has_pixels, fresh) {
+            (true, true, true) => WebState::Live,
+            (true, true, false) => WebState::Poster {
+                age: view.map(poster_age).unwrap_or_default(),
+            },
+            (true, false, _) => WebState::Loading,
+            (false, _, _) => WebState::Budgeted,
         };
         (state, true)
     }
@@ -1848,8 +2128,7 @@ impl SlateApp {
             v.resume_url = None;
         }
         if !self.web.host.navigate(id, &locator) {
-            self.web.host.evict(id);
-            self.web.views.remove(&id);
+            self.release_web_host(id);
         }
         true
     }
@@ -1912,6 +2191,7 @@ impl SlateApp {
             // from disk, where nobody has said yet that these pages may run.
             self.grant_web_consent(&locator);
             self.web.host.evict(id);
+            self.web.note_host(id, false);
             self.web.views.remove(&id);
         }
         committed
@@ -1921,6 +2201,24 @@ impl SlateApp {
     /// files have no origin and need no consent.
     pub(crate) fn grant_web_consent(&mut self, locator: &str) {
         if let Some(origin) = web_origin(locator) {
+            self.web.grant_consent(origin);
+        }
+    }
+
+    /// Probe helper: permit every remote origin already on the board.
+    #[cfg(test)]
+    pub(crate) fn web_allow_all_origins_on_board(&mut self) {
+        let origins: Vec<String> = self
+            .web_portals()
+            .iter()
+            .filter_map(|(_, portal, _)| {
+                portal
+                    .source
+                    .as_ref()
+                    .and_then(|source| web_origin(&source.locator))
+            })
+            .collect();
+        for origin in origins {
             self.web.grant_consent(origin);
         }
     }
@@ -1940,69 +2238,251 @@ impl SlateApp {
     }
 
     /// Request another capture while retaining the last good poster (D21).
+    pub(crate) fn web_recapture(&mut self, id: NodeId) {
+        if let Some(v) = self.web.views.get_mut(&id) {
+            v.last_frame_probe = None;
+        }
+    }
+
     /// The page a web portal shows, as a picture for an agent run: the newest
-    /// frame, else a one-off capture. Pixels only; the page's DOM, cookies and
-    /// storage stay out of reach (D15, D27). `Ok(None)` while nothing is
-    /// captured yet.
+    /// frame, else the last capture kept for this user. Pixels only (D15, D27).
+    /// `Ok(None)` while a read is still in flight.
     pub(crate) fn capture_web_page(
         &mut self,
         id: NodeId,
         dir: &std::path::Path,
     ) -> Result<Option<PathBuf>, String> {
-        let frame = self
+        self.absorb_cached_captures();
+        let live = self
             .web
             .host
             .last_frame(id)
-            .or_else(|| self.web.host.capture_poster(id));
-        let Some(frame) = frame else {
-            if !self.web.host.available() {
-                return Err(
-                    "This page cannot be captured: the WebView2 runtime is not available.".into(),
-                );
+            .or_else(|| self.web.host.capture_poster(id))
+            .filter(|img| web_frame_has_content(img));
+        if let Some(frame) = live {
+            self.remember_live_pixels(id, &frame);
+            return self.write_page_png(dir, id, &frame).map(Some);
+        }
+        if let Some(frame) = self.cached_page_image(id) {
+            let fresh = self.web.views.get(&id).is_some_and(|v| v.poster_fresh);
+            let path = self.write_page_png(dir, id, &frame)?;
+            if !fresh {
+                self.note_stale_capture(id);
             }
-            return Ok(None);
-        };
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-        let path = dir.join(format!("web-{}.png", id.0));
-        super::model3d::write_fast_png(&path, &frame, false)?;
-        Ok(Some(path))
+            return Ok(Some(path));
+        }
+        self.request_cached_still(id);
+        if !self.web.host.available() && self.web.stills.is_off() {
+            return Err(
+                "This page cannot be captured: the WebView2 runtime is not available.".into(),
+            );
+        }
+        Ok(None)
     }
 
-    /// The page's visible text for an agent run the human started, read once
-    /// and read-only (D15 / D27 amendment). `Ok(None)` while it is being read.
+    /// Visible text for an agent run the human started (D15 / D27). `Ok(None)`
+    /// while the live read or the disk cache is still in flight. A cold session
+    /// or a failed read returns the last capture, marked stale.
     pub(crate) fn read_web_text(&mut self, id: NodeId) -> Result<Option<String>, String> {
-        /// Enough for a long article; a local model's context is the limit.
         const MAX_CHARS: usize = 30_000;
+        self.absorb_cached_captures();
         if let Some(read) = self.web.host.take_text(id) {
             self.web.text_pending.remove(&id);
-            let text = read?;
-            let text = text.trim();
-            if text.is_empty() {
-                return Err("The page shows no text to read.".into());
+            match read {
+                Ok(text) => {
+                    let text = text.trim();
+                    if text.is_empty() {
+                        return self.stale_text_or(id, "The page shows no text to read.".into());
+                    }
+                    let mut out: String = text.chars().take(MAX_CHARS).collect();
+                    if text.chars().count() > MAX_CHARS {
+                        out.push_str("\n\n[The page continues; the rest was left out.]");
+                    }
+                    self.remember_page_text(id, &out);
+                    return Ok(Some(out));
+                }
+                Err(error) => return self.stale_text_or(id, error),
             }
-            let mut out: String = text.chars().take(MAX_CHARS).collect();
-            if text.chars().count() > MAX_CHARS {
-                out.push_str("\n\n[The page continues; the rest was left out.]");
-            }
-            return Ok(Some(out));
         }
         if self.web.text_pending.contains(&id) {
             return Ok(None);
         }
-        if !self.web.host.available() {
-            return Err("This page cannot be read: the WebView2 runtime is not available.".into());
+        self.request_cached_text(id);
+        if self.web.host.available() && self.web.host.request_text(id) {
+            self.web.text_pending.insert(id);
+            return Ok(None);
         }
-        if !self.web.host.request_text(id) {
-            return Err("Bring the page on screen so it loads, then run again.".into());
-        }
-        self.web.text_pending.insert(id);
-        Ok(None)
+        let error = if self.web.host.available() {
+            "Bring the page on screen so it loads, then run again.".to_string()
+        } else {
+            "This page cannot be read: the WebView2 runtime is not available.".to_string()
+        };
+        self.stale_text_or(id, error)
     }
 
-    pub(crate) fn web_recapture(&mut self, id: NodeId) {
+    /// Last cached text, already marked stale. Used when a live read has waited
+    /// out its budget.
+    pub(crate) fn stale_web_text(&mut self, id: NodeId) -> Option<String> {
+        self.absorb_cached_captures();
+        self.stale_text_or(id, String::new()).ok().flatten()
+    }
+
+    /// Last cached picture, written for the agent run and marked stale.
+    pub(crate) fn stale_web_image(
+        &mut self,
+        id: NodeId,
+        dir: &std::path::Path,
+    ) -> Result<Option<PathBuf>, String> {
+        self.absorb_cached_captures();
+        let Some(frame) = self.cached_page_image(id) else {
+            return Ok(None);
+        };
+        let path = self.write_page_png(dir, id, &frame)?;
+        self.note_stale_capture(id);
+        Ok(Some(path))
+    }
+
+    fn remember_page_text(&mut self, id: NodeId, text: &str) {
+        let key = self
+            .web
+            .views
+            .get(&id)
+            .map(|v| v.still_key.clone())
+            .unwrap_or_default();
         if let Some(v) = self.web.views.get_mut(&id) {
-            v.last_frame_probe = None;
+            v.cached_text = Some(text.to_string());
+            v.cached_text_at = Some(SystemTime::now());
+            v.text_miss = false;
         }
+        if !key.is_empty() {
+            self.web.stills.store_text(&key, text);
+        }
+    }
+
+    fn remember_live_pixels(&mut self, id: NodeId, frame: &WebFrame) {
+        let key = self
+            .web
+            .views
+            .get(&id)
+            .map(|v| v.still_key.clone())
+            .unwrap_or_default();
+        if let Some(v) = self.web.views.get_mut(&id) {
+            v.poster_image = Some(std::sync::Arc::clone(frame));
+            v.poster_fresh = true;
+            v.poster_wall = Some(SystemTime::now());
+        }
+        if !key.is_empty() {
+            self.web
+                .stills
+                .store_fresh(&key, std::sync::Arc::clone(frame));
+        }
+    }
+
+    fn stale_text_or(&mut self, id: NodeId, error: String) -> Result<Option<String>, String> {
+        self.absorb_cached_captures();
+        let cached = self.web.views.get(&id).and_then(|v| v.cached_text.clone());
+        let at = self
+            .web
+            .views
+            .get(&id)
+            .and_then(|v| v.cached_text_at)
+            .unwrap_or_else(SystemTime::now);
+        if let Some(text) = cached {
+            self.note_stale_capture(id);
+            return Ok(Some(format!("{}\n\n{text}", stale_capture_line(at))));
+        }
+        let waiting = self
+            .web
+            .views
+            .get(&id)
+            .is_some_and(|v| !v.text_miss && !v.still_key.is_empty())
+            && !self.web.stills.is_off();
+        if waiting || error.is_empty() {
+            return Ok(None);
+        }
+        Err(error)
+    }
+
+    fn note_stale_capture(&mut self, id: NodeId) {
+        let at = self
+            .web
+            .views
+            .get(&id)
+            .and_then(|v| v.cached_text_at.or(v.poster_wall))
+            .unwrap_or_else(SystemTime::now);
+        self.toast(stale_capture_line(at));
+    }
+
+    fn cached_page_image(&self, id: NodeId) -> Option<WebFrame> {
+        if let Some(img) = self.web.views.get(&id).and_then(|v| v.poster_image.clone()) {
+            return Some(img);
+        }
+        let key = self.web.views.get(&id)?.still_key.clone();
+        self.web
+            .still_inbox
+            .iter()
+            .find(|item| item.id == id && item.key == key)
+            .map(|item| std::sync::Arc::clone(&item.img))
+    }
+
+    fn request_cached_still(&mut self, id: NodeId) {
+        let Some(key) = self
+            .web
+            .views
+            .get(&id)
+            .filter(|v| !v.still_key.is_empty())
+            .map(|v| v.still_key.clone())
+        else {
+            return;
+        };
+        self.web.stills.request(id, &key);
+    }
+
+    fn request_cached_text(&mut self, id: NodeId) {
+        let Some(key) = self
+            .web
+            .views
+            .get(&id)
+            .filter(|v| !v.still_key.is_empty() && v.cached_text.is_none() && !v.text_miss)
+            .map(|v| v.still_key.clone())
+        else {
+            return;
+        };
+        self.web.stills.request_text(id, &key);
+    }
+
+    fn absorb_cached_captures(&mut self) {
+        self.web.still_inbox.extend(self.web.stills.drain());
+        for item in self.web.stills.drain_text() {
+            let Some(view) = self.web.views.get_mut(&item.id) else {
+                continue;
+            };
+            if view.still_key != item.key {
+                continue;
+            }
+            match item.text {
+                Some(text) => {
+                    if view.cached_text.is_none() {
+                        view.cached_text = Some(text);
+                        view.cached_text_at = item.captured;
+                    }
+                    view.text_miss = false;
+                }
+                None => view.text_miss = view.cached_text.is_none(),
+            }
+        }
+    }
+
+    fn write_page_png(
+        &self,
+        dir: &std::path::Path,
+        id: NodeId,
+        frame: &WebFrame,
+    ) -> Result<PathBuf, String> {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        let path = dir.join(format!("web-{}.png", id.0));
+        super::model3d::write_fast_png(&path, frame, false)?;
+        Ok(path)
     }
 
     /// Split a drop into "these become web portals" and "these stay ordinary
@@ -2237,10 +2717,23 @@ impl SlateApp {
         // Reload in place where the host can; otherwise drop the view and let
         // the next admission rebuild it.
         if !self.web.host.reload(id) {
-            self.web.host.evict(id);
-            self.web.views.remove(&id);
+            // The browser is gone, the picture is not. The next admission
+            // opens a new view over the same poster.
+            self.release_web_host(id);
         }
         true
+    }
+
+    /// Tear down the browser and keep the poster. Reload and Home use this
+    /// when the in-place call cannot run; rebind does not — a new locator
+    /// must not keep the previous page's picture.
+    fn release_web_host(&mut self, id: NodeId) {
+        self.web.host.evict(id);
+        self.web.note_host(id, false);
+        if let Some(v) = self.web.views.get_mut(&id) {
+            v.live = false;
+            v.reload_pending = true;
+        }
     }
 
     /// `portal.web.recapture`.
@@ -2972,19 +3465,127 @@ fn view_key(portal: &PortalNode, web: &WebPortalRef) -> String {
     format!("{locator}|{}|{}|{zoom}", web.entry, web.viewport.width_css)
 }
 
-/// Empty compositor/startup frames must never replace a useful still. Treat
-/// fully transparent and uniform black/white clears as unavailable captures.
-/// Other solid colours remain valid (including the native capture test page).
+/// Which picture a card may show. A content frame from the host wins. A clear
+/// frame never replaces a poster. A disk still fills an empty card only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StillChoice {
+    Incoming,
+    Existing,
+    Disk,
+    None,
+}
+
+pub fn choose_still(has_poster: bool, incoming_ok: bool, from_disk: bool) -> StillChoice {
+    if incoming_ok && !from_disk {
+        StillChoice::Incoming
+    } else if has_poster {
+        StillChoice::Existing
+    } else if incoming_ok && from_disk {
+        StillChoice::Disk
+    } else {
+        StillChoice::None
+    }
+}
+
+/// `stale - captured <time>`, UTC, for a capture that did not come from the
+/// live page.
+pub fn stale_capture_line(at: SystemTime) -> String {
+    format!("stale - captured {}", capture_stamp(at))
+}
+
+fn capture_stamp(at: SystemTime) -> String {
+    let secs = at
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let days = secs / 86_400;
+    let tod = secs % 86_400;
+    let (y, m, d) = civil_from_days(days as i64);
+    format!(
+        "{y:04}-{m:02}-{d:02} {:02}:{:02} UTC",
+        tod / 3600,
+        (tod % 3600) / 60
+    )
+}
+
+fn poster_age(view: &WebView) -> Duration {
+    view.poster_wall
+        .and_then(|t| SystemTime::now().duration_since(t).ok())
+        .unwrap_or_else(|| view.poster_at.map(|t| t.elapsed()).unwrap_or_default())
+}
+
+fn still_key_for(locator: &str) -> String {
+    if locator.is_empty() {
+        String::new()
+    } else {
+        super::board_web_stills::StillCache::key(locator)
+    }
+}
+
+/// Empty compositor/startup frames must never replace a useful still. Fully
+/// transparent frames and near-uniform black/white clears (the resize and
+/// wake frames WebView2 hands back, which are not always exactly #000 or
+/// #fff) are unavailable. Other solid colours remain valid.
 pub(super) fn web_frame_has_content(image: &egui::ColorImage) -> bool {
-    if image.size[0] == 0 || image.size[1] == 0 || image.pixels.is_empty() {
+    let n = image.pixels.len();
+    if image.size[0] == 0 || image.size[1] == 0 || n == 0 {
         return false;
     }
-    let first = image.pixels[0];
-    let clear = first == Color32::BLACK || first == Color32::WHITE;
-    image
+    let step = (n / 50_000).max(1);
+    let mut min_r = 255u8;
+    let mut min_g = 255u8;
+    let mut min_b = 255u8;
+    let mut max_r = 0u8;
+    let mut max_g = 0u8;
+    let mut max_b = 0u8;
+    let mut opaque = false;
+    let mut i = 0;
+    while i < n {
+        let p = image.pixels[i];
+        if p.a() > 16 {
+            opaque = true;
+            min_r = min_r.min(p.r());
+            min_g = min_g.min(p.g());
+            min_b = min_b.min(p.b());
+            max_r = max_r.max(p.r());
+            max_g = max_g.max(p.g());
+            max_b = max_b.max(p.b());
+        }
+        i += step;
+    }
+    if step > 1 {
+        for idx in [0, n / 2, n - 1] {
+            let p = image.pixels[idx];
+            if p.a() > 16 {
+                opaque = true;
+                min_r = min_r.min(p.r());
+                min_g = min_g.min(p.g());
+                min_b = min_b.min(p.b());
+                max_r = max_r.max(p.r());
+                max_g = max_g.max(p.g());
+                max_b = max_b.max(p.b());
+            }
+        }
+    }
+    if !opaque {
+        return false;
+    }
+    let span = max_r
+        .abs_diff(min_r)
+        .max(max_g.abs_diff(min_g))
+        .max(max_b.abs_diff(min_b));
+    if span > 8 {
+        return true;
+    }
+    let p = image
         .pixels
         .iter()
-        .any(|p| p.a() != 0 && (!clear || *p != first))
+        .find(|p| p.a() > 16)
+        .copied()
+        .unwrap_or(Color32::TRANSPARENT);
+    let near_black = p.r() < 12 && p.g() < 12 && p.b() < 12;
+    let near_white = p.r() > 243 && p.g() > 243 && p.b() > 243;
+    !(near_black || near_white)
 }
 
 /// The CSS viewport a page is laid out at. `Auto` hands the frame's own size to
@@ -3238,6 +3839,172 @@ mod tests {
         app.upload_poster(&ctx, id, page);
         assert_eq!(app.web.views[&id].poster.as_ref().unwrap().id(), texture);
         assert!(app.web.views[&id].poster_at > captured);
+    }
+
+    #[test]
+    fn near_clear_frames_are_not_content_and_do_not_replace_a_poster() {
+        assert!(!web_frame_has_content(&egui::ColorImage::new(
+            [4, 4],
+            Color32::from_rgb(2, 2, 2),
+        )));
+        assert!(!web_frame_has_content(&egui::ColorImage::new(
+            [4, 4],
+            Color32::from_rgb(250, 250, 250),
+        )));
+        assert!(web_frame_has_content(&egui::ColorImage::new(
+            [4, 4],
+            Color32::from_rgb(30, 90, 160),
+        )));
+        let ctx = egui::Context::default();
+        let mut app = SlateApp::with_ctx(&ctx, None);
+        let id = NodeId(3);
+        app.web.views.insert(id, WebView::new("k".into()));
+        app.upload_poster(&ctx, id, egui::ColorImage::new([4, 4], Color32::RED));
+        let captured = app.web.views[&id].poster_at;
+        app.upload_poster(
+            &ctx,
+            id,
+            egui::ColorImage::new([4, 4], Color32::from_rgb(1, 1, 1)),
+        );
+        assert_eq!(app.web.views[&id].poster_at, captured);
+    }
+
+    #[test]
+    fn still_choice_prefers_a_live_frame_then_the_poster_then_disk() {
+        assert_eq!(
+            choose_still(true, true, false),
+            StillChoice::Incoming,
+            "a content frame replaces the card"
+        );
+        assert_eq!(
+            choose_still(true, false, false),
+            StillChoice::Existing,
+            "a clear frame leaves the poster"
+        );
+        assert_eq!(
+            choose_still(true, true, true),
+            StillChoice::Existing,
+            "disk does not cover a poster already showing"
+        );
+        assert_eq!(choose_still(false, true, true), StillChoice::Disk);
+        assert_eq!(choose_still(false, false, false), StillChoice::None);
+    }
+
+    #[test]
+    fn a_disk_still_paints_before_the_browser_and_a_clear_frame_cannot_cover_it() {
+        let dir = std::env::temp_dir().join(format!(
+            "slate-web-still-boot-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let locator = "https://example.com/kept";
+        let key = super::super::board_web_stills::StillCache::key(locator);
+        {
+            let mut cache = super::super::board_web_stills::StillCache::new(dir.clone());
+            cache.store(
+                &key,
+                std::sync::Arc::new(egui::ColorImage::new(
+                    [8, 8],
+                    Color32::from_rgb(40, 90, 160),
+                )),
+            );
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            while !dir.join(format!("{key}.jpg")).exists() && std::time::Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+        let ctx = egui::Context::default();
+        let mut app = SlateApp::with_ctx(&ctx, None);
+        app.leave_home();
+        app.ensure_work_tab();
+        app.web
+            .set_stills(super::super::board_web_stills::StillCache::new(dir.clone()));
+        app.paste_web_url(locator, Pos2::ZERO);
+        let id = app.doc().scene.nodes.last().unwrap().id;
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while !app.web.has_still(id) && std::time::Instant::now() < deadline {
+            app.web_pump(&ctx);
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(
+            app.web.has_still(id),
+            "the previous session's picture is on the card"
+        );
+        assert!(!app.web.views[&id].poster_fresh);
+        let captured = app.web.poster_at(id);
+        app.upload_poster(&ctx, id, egui::ColorImage::new([8, 8], Color32::BLACK));
+        assert_eq!(app.web.poster_at(id), captured);
+        app.upload_poster(&ctx, id, egui::ColorImage::new([8, 8], Color32::RED));
+        assert!(app.web.poster_at(id) > captured);
+        assert!(app.web.views[&id].poster_fresh);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_cold_page_read_uses_the_cached_text_and_says_it_is_stale() {
+        let dir = std::env::temp_dir().join(format!(
+            "slate-web-text-boot-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let locator = "https://example.com/article";
+        let key = super::super::board_web_stills::StillCache::key(locator);
+        {
+            let mut cache = super::super::board_web_stills::StillCache::new(dir.clone());
+            cache.store_text(&key, "Visible article.");
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            while !dir.join(format!("{key}.txt")).exists() && std::time::Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+        let ctx = egui::Context::default();
+        let mut app = SlateApp::with_ctx(&ctx, None);
+        app.leave_home();
+        app.ensure_work_tab();
+        app.web
+            .set_stills(super::super::board_web_stills::StillCache::new(dir.clone()));
+        app.paste_web_url(locator, Pos2::ZERO);
+        let id = app.doc().scene.nodes.last().unwrap().id;
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let mut text = None;
+        while text.is_none() && std::time::Instant::now() < deadline {
+            app.web_pump(&ctx);
+            match app.read_web_text(id) {
+                Ok(Some(got)) => text = Some(got),
+                Ok(None) => std::thread::sleep(Duration::from_millis(10)),
+                Err(error) => panic!("{error}"),
+            }
+        }
+        let text = text.expect("cached text");
+        assert!(
+            text.starts_with("stale - captured "),
+            "the run must say the capture is old, got {text}"
+        );
+        assert!(text.contains("Visible article."));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reload_keeps_the_poster_when_the_host_cannot_reload_in_place() {
+        let ctx = egui::Context::default();
+        let mut app = SlateApp::with_ctx(&ctx, None);
+        app.leave_home();
+        app.ensure_work_tab();
+        app.paste_web_url("https://example.com/reload", Pos2::ZERO);
+        app.web_pump(&ctx);
+        let id = app.doc().scene.nodes.last().unwrap().id;
+        app.upload_poster(&ctx, id, egui::ColorImage::new([4, 4], Color32::RED));
+        let texture = app.web.views[&id].poster.as_ref().unwrap().id();
+        app.board_sel.insert(id);
+        assert!(app.web_reload_selected());
+        app.web_pump(&ctx);
+        assert_eq!(app.web.views[&id].poster.as_ref().unwrap().id(), texture);
     }
 
     #[test]

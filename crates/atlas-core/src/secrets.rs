@@ -49,6 +49,8 @@ fn is_private_component(name: &str) -> bool {
         || name.eq_ignore_ascii_case("cursor-api-key")
         || name.eq_ignore_ascii_case("web-consent.json")
         || name.eq_ignore_ascii_case("agent-access.json")
+        || name.eq_ignore_ascii_case("web-stills")
+        || name.eq_ignore_ascii_case("web-captures")
 }
 
 /// Read a secret. `None` means this user does not have one.
@@ -311,6 +313,8 @@ mod tests {
             &root.join("secrets").join("cursor-api-key")
         ));
         assert!(is_machine_private(&root.join("cursor-api-key")));
+        assert!(is_machine_private(&root.join("web-stills").join("a.jpg")));
+        assert!(is_machine_private(&root.join("web-captures").join("a.txt")));
         assert!(!is_machine_private(&root.join("thumbs").join("a.jpg")));
         assert!(!is_machine_private(elsewhere));
     }
