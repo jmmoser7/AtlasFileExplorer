@@ -174,11 +174,16 @@ command that cannot be applied is surfaced, never silently dropped.
 
 **VI.3 — Derived state is not a mutation.** Journaled state is authored
 intent. State reproducible from authored intent plus elapsed time — portal
-contents, simulated transforms, playheads, trails, presence — is derived, and
-is never journaled. Turning derived state into authored content is an explicit
-*bake* command, which is journaled like any other mutation. Where derived
-state is shared between participants it must be deterministic, so that peers
-reproduce it from the journal rather than receiving it over a wire.
+contents, simulated transforms, playheads, trails — is derived, and is never
+journaled. Ephemeral presence (Article VIII.5) is derived and is never
+journaled, but is not reproducible from authored intent alone. Turning derived
+state into authored content is an explicit *bake* command, which is journaled
+like any other mutation. Where derived state is a function of authored intent
+— portal contents, simulated transforms, playheads, trails — peers reproduce it
+from the journal rather than receiving it over a wire. Ephemeral presence
+(Article VIII.5) is the exception: it is broadcast because it is not a
+function of the journal, and it is still never journaled, never exported, and
+never restored.
 
 *Rationale:* generalizes the board's `SceneCmd` rule app-wide. Undo/redo,
 agent accountability, and the eventual collaboration story are all the same
@@ -361,6 +366,9 @@ on `slate-doc` or either app.
 
 ## Amendment log
 
+- **2026-10-08 — Article VI.3 (presence exception).** Amended to resolve the
+  conflict with VIII.5: presence is broadcast, never journaled. Ratified by
+  the owner.
 - **2026-09-21 — Explicit agent inputs.** At the user's explicit direction,
   VIII.1 now requires user-authored input wires for additional canvas context.
   Ordinary messages no longer carry automatic selection/viewport snapshots or

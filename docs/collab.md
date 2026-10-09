@@ -1,8 +1,9 @@
 # Live collaboration
 
-**Status: design for review.** Nothing here is implemented. Nothing here amends
-`CONSTITUTION.md`. The paste-ready clauses at the end are proposals; only an
-explicit edit to the constitution ratifies them.
+**Status: design for review.** Nothing here is implemented. Article VI.3 was
+amended on 2026-10-08 to align derived-state sync with ephemeral presence
+(Article VIII.5); see the amendment log in `CONSTITUTION.md`. This document
+does not propose further constitutional changes.
 
 This is the protocol document Wave 4 was gated on (`docs/workplan/tasks/spikes.md`
 S3, `docs/workplan/tasks/wave-3-plus.md` WI-9). The workplan's working title
@@ -36,8 +37,9 @@ requires. It does not wait for a new document model.
 - Each machine resolves links itself. A file that machine does not have is
   `Missing`. Nobody downloads a folder to paint someone else's cards
   (Article IX).
-- Agents in the session still propose, and a human still accepts
-  (Article VII.6).
+- Agents can join a live session as named peers with their own presence; their
+  commits apply when autonomy allows, otherwise they stage for a human in the
+  room to accept (Article VII.6).
 
 ## Non-goals
 
@@ -676,27 +678,34 @@ journal entry.
 
 ## Agents
 
-An agent does not open a relay connection. The human's Slate is the only
-client (Article VII: one command surface, no parallel mutation path).
+Agents use the same command surface as humans (Article VII). In a shared
+session an agent is a **named peer**: it has a display identity, broadcasts
+the same ephemeral presence as a person (cursor, viewport, selection, focused
+text node — Article VIII.5, never journaled), and every commit it makes
+carries `CmdAuthor::Agent(name)` on the wire together with the participant id
+of the human or automation endpoint that hosts it.
 
-Proposals stay in the staging layer they already use
-(`crates/slate-doc/src/stage.rs`, applied from `apps/slate/src/app/board_agent.rs`).
-The proposal files live in the AI workspace, which is per machine. Other
-participants do not see a pending proposal. Reject stays local.
+**Autonomy granted.** If the workspace has an explicit autonomy grant for that
+agent (Article VII.6), its command groups go to the relay like any
+participant's edits. Everyone sees ordinary ops labeled with the agent name.
+There is no separate mutation path.
 
-Accept is a human action. It commits the proposal's commands through the
-relay as one group whose author is that agent, attributed to the participant
-who accepted. Everyone then sees ordinary ops, labeled with the agent name.
-A proposal that no longer applies is already `Stale` locally; the relay
-never receives it.
+**Proposal by default.** Without that grant, agent mutations stay in the
+staging layer they already use
+(`crates/slate-doc/src/stage.rs`, applied from
+`apps/slate/src/app/board_agent.rs`). Proposal files may live in the AI
+workspace on the hosting machine; other participants do not see a pending
+proposal until someone accepts it. Reject stays local to the host. **Accept**
+is a human action in the session: it commits the proposal's commands through
+the relay as one group whose author is the agent, attributed to the
+participant who accepted. A proposal that no longer applies is already
+`Stale` locally; the relay never receives it. Any human in the room may
+accept; the roster shows who did.
 
-Solo autonomy ("this agent may commit without asking") does not extend into
-a shared session. The room has other people in it, and an unattended agent
-committing at machine speed is the failure WI-9d already flags. While a
-session is connected, acceptance is required even if the workspace grant is
-on. The optional Article VII.6 policy draft below is the honest way to record
-that narrowing if it becomes law. Until then, the implementation should still
-stage in a connected session.
+Whether the agent's runtime is in-process on one participant's Slate or a
+future out-of-process server (Article VII.8), only connected clients speak
+to the relay. The agent does not open a second wire protocol beside the
+session.
 
 Agent portals sync authored fields (instruction, model, view). They do not
 sync `channel`, `session`, or the live runtime, as the snapshot rules above
@@ -811,8 +820,7 @@ Each phase is done only when its acceptance lines are true. Later phases do
 not start early to "save a rewrite."
 
 **Gate, before Phase 2 code.** User has ratified this document, including the
-asset-streaming deferral, the Article VI.3 presence draft if desired, and
-the optional Article VII.6 shared-session draft if desired. T1.1a–c
+asset-streaming deferral. T1.1a–c
 have closed DV-01 and DV-08. Item save persists a relative locator when the
 file is under the workbook (DV-03 for the fields a flush writes). `PropKey`
 lives in `slate-doc`.
@@ -864,53 +872,17 @@ this document is the recommendation and can be reviewed as written.
    queued. Confirm that matches the product expectation.
 5. **Text.** The whole string is one register, with an "is editing" presence
    mark. Confirm that a character CRDT is out of scope.
-6. **Agent autonomy.** A connected session always stages, even when the
-   workspace has a solo autonomy grant. Ratify the optional Article VII.6
-   draft below if that narrowing should be law rather than implementation
-   policy.
-7. **Article VI.3 draft** below, so presence is allowed on the wire without
-   a later "fix" that journals cursors. Ratify, edit, or reject it.
-8. **Defaults to confirm:** grace window 15 minutes, autosave 30 seconds,
+6. **Defaults to confirm:** grace window 15 minutes, autosave 30 seconds,
    compaction at 2,000 groups, join cap 32 with a design target of 20,
    cursor presence at 10 Hz.
 
-## Amendment drafts
+## Constitutional status
 
-Unratified. Not applied to `CONSTITUTION.md`.
-
-### Draft — Article VI.3, presence exception
-
-This draft fixes the real contradiction between Article VI.3 and Article
-VIII.5. Article VI.3 ends: "Where derived state is shared between
-participants it must be deterministic, so that peers reproduce it from the
-journal rather than receiving it over a wire." Article VIII.5 says cursors,
-viewports, selections, and membership are broadcast and never journaled.
-Those two sentences disagree. Presence is shared, derived, and not a
-function of the journal. Portal contents, simulated motion, playheads, and
-trails are.
-
-Replace the last sentence of VI.3 with:
-
-> Where derived state is a function of authored intent — portal contents,
-> simulated transforms, playheads, trails — peers reproduce it from the
-> journal rather than receiving it over a wire. Ephemeral presence
-> (Article VIII.5) is the exception: it is broadcast because it is not a
-> function of the journal, and it is still never journaled, never exported,
-> and never restored.
-
-This supersedes only that sentence. It does not move presence into the
-document.
-
-### Draft — Article VII.6, shared sessions stage (optional policy choice)
-
-Article VII.6 allows an explicit autonomy grant to skip human acceptance.
-A live room makes that grant surprising: the other participants did not
-grant it. This draft is optional policy: the product can stage in connected
-sessions without ratifying it, but ratifying makes the narrowing explicit.
-
-Add to VII.6:
-
-> A connected multi-person session suspends autonomy for that workspace.
-> Agent mutations in the session enter the staging layer and require a
-> human in the session to accept them. The grant resumes when the session
-> ends.
+- **2026-10-08 — Article VI.3** amended in `CONSTITUTION.md`: derived state
+  that follows from authored intent is reproduced from the journal; ephemeral
+  presence (VIII.5) is the exception and is broadcast, never journaled,
+  never exported, never restored. Ratified by the owner. Applied.
+- **Article VII.6** unchanged. Agents in a shared session commit like any
+  participant when autonomy is granted; otherwise they stage for a human in
+  the room to accept. No further amendment is required for multi-user agent
+  collaboration.
