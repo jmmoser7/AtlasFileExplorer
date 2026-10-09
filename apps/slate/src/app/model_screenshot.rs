@@ -1221,10 +1221,15 @@ mod tests {
         let NodeKind::Image(img) = &placed.kind else {
             panic!("an image node");
         };
-        let path = h.app.doc().item(img.item).unwrap().path.clone();
+        let stored = h.app.doc().item(img.item).unwrap().path.clone();
+        let path = slate_doc::scene::resolve_source(
+            h.app.tab().path.as_deref(),
+            &stored.to_string_lossy(),
+        );
         assert!(
             path.starts_with(h.base.join("assets")),
-            "{}",
+            "stored {} resolved {}",
+            stored.display(),
             path.display()
         );
         let files: Vec<_> = std::fs::read_dir(h.base.join("assets")).unwrap().collect();
