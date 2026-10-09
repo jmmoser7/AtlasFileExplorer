@@ -176,6 +176,7 @@ mod tests {
 
     fn session(turns: &[&str], artifact_turns: &[usize]) -> AgentSession {
         AgentSession {
+            usage: None,
             approval: None,
             conversation: String::new(),
             artifacts: artifact_turns

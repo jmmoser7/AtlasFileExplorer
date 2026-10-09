@@ -390,6 +390,7 @@ mod tests {
         let cancel = AtomicBool::new(false);
         let mut client = Client::start(None, &cancel).unwrap();
         let mut session = AgentSession {
+            usage: None,
             approval: None,
             conversation: String::new(),
             artifacts: vec![],

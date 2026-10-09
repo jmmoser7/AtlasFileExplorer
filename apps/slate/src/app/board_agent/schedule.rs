@@ -16,9 +16,13 @@ pub(crate) struct ScheduleDialog {
     pub time: String,
     pub repeat: Repeat,
     pub prompt: String,
+    /// When the task must stop. Empty until the person picks a preset or types a date.
+    pub end: String,
     pub error: Option<String>,
     /// The card already has a schedule; the dialog offers Stop.
     pub existing: bool,
+    /// Saved before an end was required. Left in place until the person sets one.
+    pub open_ended: bool,
 }
 
 impl SlateApp {
@@ -102,6 +106,14 @@ impl SlateApp {
             .and_then(|v| v.as_str())
             .map(str::to_string)
             .unwrap_or_else(|| self.schedule_prompt(id));
+        let Some(end) = value
+            .get("end")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+        else {
+            self.toast("Choose when this task stops.");
+            return false;
+        };
         let schedule = AgentSchedule {
             start: start.to_string(),
             repeat,
@@ -119,6 +131,7 @@ impl SlateApp {
                 .node(id)
                 .and_then(slate_doc::agent_chat::agent)
                 .and_then(|a| a.model.clone()),
+            end: Some(end.to_string()),
         };
         let Ok(exe) = std::env::current_exe() else {
             self.toast("Could not find Slate to schedule it.");
@@ -146,7 +159,7 @@ impl SlateApp {
 
     fn open_schedule_dialog(&mut self, id: NodeId) {
         let existing = self.agent_schedule(id);
-        let (date, time, repeat, prompt) = match &existing {
+        let (date, time, repeat, prompt, end) = match &existing {
             Some(s) => {
                 let t = s.start_time().unwrap_or_else(plan::now_local);
                 (
@@ -154,6 +167,9 @@ impl SlateApp {
                     t.format("%-I:%M %p").to_string(),
                     s.repeat,
                     s.prompt.clone(),
+                    s.end_time()
+                        .map(|e| e.format("%Y-%m-%d").to_string())
+                        .unwrap_or_default(),
                 )
             }
             None => (
@@ -161,6 +177,7 @@ impl SlateApp {
                 "1:00 AM".into(),
                 Repeat::Once,
                 self.schedule_prompt(id),
+                String::new(),
             ),
         };
         self.agents.schedule_dialog = Some(ScheduleDialog {
@@ -169,8 +186,10 @@ impl SlateApp {
             time,
             repeat,
             prompt,
+            end,
             error: None,
             existing: existing.is_some(),
+            open_ended: existing.as_ref().is_some_and(|s| s.open_ended()),
         });
     }
 
@@ -238,9 +257,38 @@ impl SlateApp {
                             }
                         });
                         ui.end_row();
+                        ui.label("End");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut dialog.end)
+                                .hint_text("2026-11-09, or a preset"),
+                        );
+                        ui.end_row();
                     });
                 ui.add_space(6.0);
+                if let Ok(start) = &parsed {
+                    ui.horizontal(|ui| {
+                        let (month, year) = plan::end_presets(*start);
+                        if ui.button("Until next month").clicked() {
+                            dialog.end = month.format("%Y-%m-%d").to_string();
+                        }
+                        if ui.button("Until next year").clicked() {
+                            dialog.end = year.format("%Y-%m-%d").to_string();
+                        }
+                    });
+                    ui.add_space(6.0);
+                }
+                let ended = parsed.as_ref().ok().and_then(|start| {
+                    plan::parse_end(*start, &dialog.end, &dialog.time).ok()
+                });
                 let palette = self.palette();
+                if dialog.open_ended && dialog.end.trim().is_empty() {
+                    ui.label(
+                        egui::RichText::new(
+                            "This schedule has no end. Choose when it stops. It keeps running until you do.",
+                        )
+                        .color(palette.danger),
+                    );
+                }
                 match &parsed {
                     Ok(t) => {
                         let preview = AgentSchedule {
@@ -251,6 +299,7 @@ impl SlateApp {
                             cwd: String::new(),
                             ai_workspace: String::new(),
                             model: None,
+                            end: ended.map(plan::format_start),
                         };
                         ui.label(egui::RichText::new(preview.describe()).color(palette.sub));
                     }
@@ -270,7 +319,8 @@ impl SlateApp {
                 );
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    let ready = parsed.is_ok() && !dialog.prompt.trim().is_empty();
+                    let ready =
+                        parsed.is_ok() && ended.is_some() && !dialog.prompt.trim().is_empty();
                     if ui.add_enabled(ready, egui::Button::new("Schedule")).clicked() {
                         action = Some("schedule");
                     }
@@ -286,6 +336,11 @@ impl SlateApp {
             action = Some("cancel");
         }
         let portal = dialog.portal;
+        let parsed = plan::parse_when(&dialog.date, &dialog.time, now);
+        let ended = parsed
+            .as_ref()
+            .ok()
+            .and_then(|start| plan::parse_end(*start, &dialog.end, &dialog.time).ok());
         match action {
             Some("cancel") => {
                 self.agents.schedule_dialog = None;
@@ -293,9 +348,10 @@ impl SlateApp {
             Some(kind) => {
                 let detail = if kind == "stop" {
                     serde_json::json!({"stop": true})
-                } else if let Ok(t) = &parsed {
+                } else if let (Ok(t), Some(end)) = (&parsed, &ended) {
                     serde_json::json!({
                         "start": plan::format_start(*t),
+                        "end": plan::format_start(*end),
                         "repeat": dialog.repeat,
                         "prompt": dialog.prompt,
                     })

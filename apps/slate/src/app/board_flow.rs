@@ -595,10 +595,9 @@ impl SlateApp {
         true
     }
 
-    /// The menu's Agent: an agent portal showing its program grid, in chat
-    /// train presentation, with `source` wired into its context input as the
-    /// conversation's first input. The portal and the wire are one journal
-    /// step. A dropped wire's end becomes that input.
+    /// The menu's Agent: a local chat train already bound to the workbook's
+    /// `assets/agent` folder, with a new chat and `source` wired into its
+    /// context input. The portal and the wire are one journal step.
     fn spawn_agent_train(
         &mut self,
         source: NodeId,
@@ -614,9 +613,28 @@ impl SlateApp {
             return false;
         };
         let mut node = self.build_agent_portal(rect);
+        let saved = node.rect;
         if let Some(a) = slate_doc::agent_chat::agent_mut(&mut node) {
             a.chat.train = true;
             a.chat.detail = slate_doc::agent_chat::Detail::Summary;
+        }
+        let (dir, fallback) = self.agent_build_folder();
+        if let Err(err) = std::fs::create_dir_all(&dir) {
+            self.toast(format!("Could not create the agent folder: {err}"));
+            return false;
+        }
+        let program = atlas_ai::agent::provider_by_id("local");
+        let mut binding = self.program_binding(None);
+        binding.set_locator(super::board_portal::source_locator(
+            self.tab().path.as_deref(),
+            &dir,
+        ));
+        bind_program(&mut node, &program, &binding);
+        node.rect = saved;
+        if let Some(a) = slate_doc::agent_chat::agent_mut(&mut node) {
+            a.chat.train = true;
+            a.chat.detail = slate_doc::agent_chat::Detail::Summary;
+            a.channel = None;
         }
         let id = node.id;
         let (side, t) = from.unwrap_or((Side::Right, OUTPUT_T));
@@ -641,6 +659,12 @@ impl SlateApp {
             return false;
         }
         self.board_sel = std::iter::once(id).collect();
+        if fallback {
+            self.toast(format!(
+                "This workbook isn't saved yet, so the agent is using {}.",
+                dir.display()
+            ));
+        }
         true
     }
 
@@ -2153,6 +2177,7 @@ pub(crate) mod tests {
         let second = h.base.join("hall-2.png");
         image::RgbImage::new(8, 8).save(&second).unwrap();
         let session = atlas_ai::agent::AgentSession {
+            usage: None,
             approval: None,
             conversation: String::new(),
             artifacts: vec![],
@@ -2250,6 +2275,7 @@ pub(crate) mod tests {
             .clone();
         assert_eq!(slate_doc::media_kind(&path), slate_doc::MediaKind::Text);
         let session = atlas_ai::agent::AgentSession {
+            usage: None,
             approval: None,
             conversation: String::new(),
             artifacts: vec![],

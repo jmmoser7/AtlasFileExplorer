@@ -1565,8 +1565,8 @@ impl SlateApp {
             Some(super::super::board::BoardDrag::Wire(wd))
                 if matches!(wd.mode, super::super::board_wire::WireMode::Add { from } if self.is_crosstalk_port(from))
         );
-        // Ports: quiet at rest, revealed near the card or during a crosstalk
-        // drag, filled red once wired.
+        // Ports: quiet at rest, revealed within PORT_REVEAL of the circle
+        // itself or during a crosstalk drag, filled red once wired.
         let scene = &self.doc().scene;
         let mut wired: HashSet<(NodeId, Side)> = HashSet::new();
         for n in scene.nodes.iter().filter(|n| !n.hidden) {
@@ -1586,14 +1586,11 @@ impl SlateApp {
             if self.agent_in_choose_phase(n.id) {
                 continue;
             }
-            let near = pointer.is_some_and(|p| {
-                xf.rect_w2s(n.rect)
-                    .expand(canvas_scale::px(PORT_REVEAL, z))
-                    .contains(p)
-            });
             for side in [Side::Top, Side::Bottom] {
                 let w = slate_doc::connector_anchor_on(n, side, 0.5);
                 let at = xf.w2s(Pos2::new(w[0], w[1]));
+                let near =
+                    pointer.is_some_and(|p| p.distance(at) <= canvas_scale::px(PORT_REVEAL, z));
                 let hot =
                     pointer.is_some_and(|p| p.distance(at) <= canvas_scale::px(PORT_REACH, z));
                 if wired.contains(&(n.id, side)) {
@@ -1998,6 +1995,7 @@ mod tests {
     ) {
         std::fs::create_dir_all(dir).unwrap();
         let state = AgentSession {
+            usage: None,
             approval: None,
             conversation: conversation.into(),
             artifacts: vec![],

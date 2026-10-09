@@ -54,6 +54,10 @@ pub struct ChatView {
     /// Three-line capsule: the header, the first three lines, and the tail's composer.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub collapsed: bool,
+    /// Twice the capsule, scrolling. The chevron's one-level open, and the
+    /// height a collapsed card takes while a reply is streaming.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub partial: bool,
     /// World size a person gave the card by resizing it. Text rewraps and scrolls inside.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub size: Option<[f32; 2]>,

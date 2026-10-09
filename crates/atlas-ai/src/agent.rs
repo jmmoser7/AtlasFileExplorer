@@ -206,6 +206,7 @@ impl AgentLink {
                         link.send_request_in(&dir, &req)
                             .err()
                             .map(|e| AgentSession {
+                                usage: None,
                                 approval: None,
                                 conversation: String::new(),
                                 artifacts: Vec::new(),
@@ -433,7 +434,7 @@ impl FileAgentLink {
         }
         if metadata.len() > 16 * 1024 * 1024 {
             self.last_session_mtime = Some(mtime);
-            return Some(AgentSession { approval:None, conversation: String::new(), artifacts: Vec::new(),request:String::new(),provider:String::new(),turns:vec![],updated_at:0,bundle:Default::default(),status:AgentStatus::Error("The sidecar session exceeds 16 MB. Archive its older turns in the source program.".into())});
+            return Some(AgentSession { usage: None, approval:None, conversation: String::new(), artifacts: Vec::new(),request:String::new(),provider:String::new(),turns:vec![],updated_at:0,bundle:Default::default(),status:AgentStatus::Error("The sidecar session exceeds 16 MB. Archive its older turns in the source program.".into())});
         }
         let text = std::fs::read_to_string(path).ok()?;
         let session = serde_json::from_str::<AgentSession>(&text).ok()?;
@@ -628,6 +629,7 @@ mod tests {
             at,
         };
         let state = |turns: Vec<AgentTurn>| AgentSession {
+            usage: None,
             approval: None,
             conversation: "c".into(),
             artifacts: Vec::new(),
@@ -692,6 +694,7 @@ mod tests {
     fn streaming_snapshots_arrive_before_completion_without_fast_idle_polling() {
         let (tx, rx) = crossbeam_channel::bounded(8);
         let session = AgentSession {
+            usage: None,
             approval: None,
             conversation: String::new(),
             artifacts: Vec::new(),
@@ -727,6 +730,7 @@ mod tests {
         link.tick_read_session_file(path);
         assert!(matches!(rx.try_recv(), Ok(LinkWork::Read(_))));
         *latest.lock().unwrap() = Some(AgentSession {
+            usage: None,
             approval: None,
             conversation: String::new(),
             artifacts: Vec::new(),
@@ -745,6 +749,7 @@ mod tests {
         link.streaming = true;
         link.awaited = Some("r2".into());
         *latest.lock().unwrap() = Some(AgentSession {
+            usage: None,
             status: AgentStatus::Idle,
             ..session.clone()
         });
@@ -834,6 +839,7 @@ mod tests {
         };
         link.send_request_in(&dir, &request).unwrap();
         let state = AgentSession {
+            usage: None,
             approval: None,
             conversation: String::new(),
             artifacts: Vec::new(),
@@ -869,6 +875,7 @@ mod tests {
         assert!(text.contains("Summarize"));
 
         let session = AgentSession {
+            usage: None,
             approval: None,
             conversation: String::new(),
             artifacts: Vec::new(),

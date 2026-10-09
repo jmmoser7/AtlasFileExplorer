@@ -542,6 +542,48 @@ pub struct AgentSession {
     pub bundle: ImageBundle,
     #[serde(default)]
     pub request: String,
+    /// Provider-reported token total, when the session file carries one
+    /// (`usage` as a number, or `usage.total_tokens` / input + output).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "de_usage"
+    )]
+    pub usage: Option<u64>,
+}
+
+fn de_usage<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<u64>, D::Error> {
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(usage_number(&value))
+}
+
+/// A token total written by a provider: a bare number, or an object with
+/// `total_tokens` or input plus output.
+pub fn usage_number(value: &serde_json::Value) -> Option<u64> {
+    if let Some(n) = value.as_u64() {
+        return Some(n);
+    }
+    if let Some(n) = value.as_i64().filter(|n| *n >= 0) {
+        return Some(n as u64);
+    }
+    if let Some(n) = value.as_f64().filter(|n| n.is_finite() && *n >= 0.0) {
+        return Some(n as u64);
+    }
+    let obj = value.as_object()?;
+    if let Some(n) = obj.get("total_tokens").and_then(usage_number) {
+        return Some(n);
+    }
+    let input = obj
+        .get("input_tokens")
+        .or_else(|| obj.get("prompt_tokens"))
+        .and_then(usage_number)
+        .unwrap_or(0);
+    let output = obj
+        .get("output_tokens")
+        .or_else(|| obj.get("completion_tokens"))
+        .and_then(usage_number)
+        .unwrap_or(0);
+    (input + output > 0).then_some(input + output)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -962,6 +1004,7 @@ mod tests {
     }
     fn session(conversation: &str, turns: &[(&str, &str, u64)]) -> AgentSession {
         AgentSession {
+            usage: None,
             approval: None,
             conversation: conversation.into(),
             artifacts: Vec::new(),

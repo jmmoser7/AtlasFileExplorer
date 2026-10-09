@@ -261,6 +261,7 @@ mod tests {
 
     fn session(roles: &[&str], status: AgentStatus, artifacts: Vec<AgentArtifact>) -> AgentSession {
         AgentSession {
+            usage: None,
             approval: None,
             conversation: String::new(),
             artifacts,
