@@ -50,5 +50,5 @@ Rules:
 Do not hand-edit; `cargo xtask metrics` rewrites the block below.
 
 <!-- metrics:deviations:begin -->
-open: 22 · accepted: 0 · closed: 8
+open: 21 · accepted: 0 · closed: 9
 <!-- metrics:deviations:end -->
