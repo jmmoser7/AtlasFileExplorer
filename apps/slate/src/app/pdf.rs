@@ -707,19 +707,22 @@ fn document_stem(file_name: &str) -> String {
     }
 }
 
+/// Two documents with the same name in different folders must not share a
+/// folder: the second unbundle would overwrite the first one's linked pages.
 fn page_image_dir(workbook: Option<&Path>, stem: &str, source: &Path) -> PathBuf {
-    if let Some(dir) = workbook.and_then(|path| path.parent()) {
-        return dir.join("assets").join("documents").join(stem);
-    }
     let hash = source
         .to_string_lossy()
         .bytes()
         .fold(0xcbf29ce4u32, |hash, byte| {
             hash.wrapping_mul(0x01000193) ^ u32::from(byte)
         });
+    let name = format!("{stem}-{hash:08x}");
+    if let Some(dir) = workbook.and_then(|path| path.parent()) {
+        return dir.join("assets").join("documents").join(name);
+    }
     atlas_core::index::data_dir()
         .join("document-pages")
-        .join(format!("{stem}-{hash:08x}"))
+        .join(name)
 }
 
 fn write_word_pages(

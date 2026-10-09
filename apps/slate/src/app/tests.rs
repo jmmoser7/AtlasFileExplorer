@@ -647,11 +647,12 @@ fn unbundle_word_writes_page_images_beside_a_saved_workbook() {
         _ => panic!("page"),
     };
     let stored = h.app.doc().item(focus).unwrap().path.clone();
-    assert_eq!(
-        stored.to_string_lossy().replace('\\', "/"),
-        "assets/documents/Essay/page-1.png"
+    let locator = stored.to_string_lossy().replace('\\', "/");
+    assert!(
+        locator.starts_with("assets/documents/Essay-") && locator.ends_with("/page-1.png"),
+        "{locator}"
     );
-    let absolute = h.base.join("assets/documents/Essay/page-1.png");
+    let absolute = h.base.join(&stored);
     let bytes = std::fs::read(&absolute).unwrap();
     assert!(bytes.starts_with(b"\x89PNG"), "page image was not a png");
     assert_eq!(

@@ -248,14 +248,18 @@ fn html_to_text(html: &str) -> String {
     html_to_text_plain(&restored)
 }
 
+/// Outlook HTML bodies carry large `<style>` blocks in `<head>`; their text is
+/// not the message.
 fn html_to_text_plain(html: &str) -> String {
     let mut out = String::new();
     let mut tag = String::new();
     let mut in_tag = false;
+    let mut hidden: Option<String> = None;
     for c in html.chars() {
         if in_tag {
             if c == '>' {
                 in_tag = false;
+                let closing = tag.trim_start().starts_with('/');
                 let name = tag
                     .trim()
                     .trim_start_matches('/')
@@ -263,6 +267,17 @@ fn html_to_text_plain(html: &str) -> String {
                     .next()
                     .unwrap_or("")
                     .to_ascii_lowercase();
+                tag.clear();
+                if let Some(open) = &hidden {
+                    if closing && *open == name {
+                        hidden = None;
+                    }
+                    continue;
+                }
+                if !closing && matches!(name.as_str(), "style" | "script" | "head" | "title") {
+                    hidden = Some(name);
+                    continue;
+                }
                 if matches!(
                     name.as_str(),
                     "br" | "p" | "div" | "tr" | "li" | "h1" | "h2" | "h3"
@@ -270,7 +285,6 @@ fn html_to_text_plain(html: &str) -> String {
                 {
                     out.push('\n');
                 }
-                tag.clear();
             } else {
                 tag.push(c);
             }
@@ -280,7 +294,9 @@ fn html_to_text_plain(html: &str) -> String {
             in_tag = true;
             continue;
         }
-        out.push(c);
+        if hidden.is_none() {
+            out.push(c);
+        }
     }
     collapse(&out)
 }
@@ -485,13 +501,18 @@ mod tests {
         let path = temp_msg("html.msg");
         let mut comp = cfb::create(&path).unwrap();
         put(&mut comp, "/__substg1.0_0037001F", &utf16("Hello"));
-        let html = b"<p>Hello <b>there</b> &amp; welcome</p>";
+        let html = b"<html><head><style>p.MsoNormal { margin: 0 }</style></head>\
+<body><p>Hello <b>there</b> &amp; welcome</p></body></html>";
         put(&mut comp, "/__substg1.0_10130102", html);
         drop(comp);
         let text = message_excerpt(&path).unwrap();
         assert!(text.contains("Subject: Hello"), "{text}");
         assert!(text.contains("Hello there & welcome"), "{text}");
         assert!(!text.contains("<b>"), "{text}");
+        assert!(
+            !text.contains("MsoNormal"),
+            "style text is not the body: {text}"
+        );
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 

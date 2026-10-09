@@ -674,7 +674,8 @@ text writer, not the journal. Esc or click-away finishes typing.
 PowerPoint stays linked to its source and renders a derived PDF locally using
 installed PowerPoint. Word (`.doc`, `.docx`) does the same through Word, and
 Unbundle writes those page images beside a saved workbook under
-`assets/documents/<stem>/` (or the Atlas data directory when unsaved). Until
+`assets/documents/<stem>-<hash>/`, one folder per source path (or the Atlas
+data directory when unsaved). Until
 Unbundle, Word stays a text excerpt. Conversion and PDF page counting run on
 bounded workers; an Unbundle click while that work is still running finishes
 when the preview arrives. Cloud-only files are not downloaded. A selected PDF,

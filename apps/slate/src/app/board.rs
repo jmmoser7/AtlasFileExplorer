@@ -3043,12 +3043,14 @@ impl SlateApp {
     /// artifact's `read_snippet`, so board and export show identical text).
     pub(crate) fn snippet_for(&mut self, item: ItemId, path: &std::path::Path) -> Option<String> {
         let _span = atlas_core::session_log::span("slate.snippet");
+        if let Some(cached) = self.snippets.get(&item) {
+            return cached.clone();
+        }
         let path =
             slate_doc::scene::resolve_source(self.tab().path.as_deref(), &path.to_string_lossy());
-        self.snippets
-            .entry(item)
-            .or_insert_with(|| slate_artifact::read_snippet(&path))
-            .clone()
+        let snippet = slate_artifact::read_snippet(&path);
+        self.snippets.insert(item, snippet.clone());
+        snippet
     }
 
     fn sheet_for(
