@@ -168,9 +168,9 @@ pub(crate) fn token_readout(reported: Option<u64>, chars: usize) -> String {
 /// `<workbook dir>/assets/agent/`, or the same path under the per-user data
 /// directory when the workbook has not been saved. The bool is that fallback.
 pub(crate) fn agent_build_dir(workbook: Option<&Path>, data_dir: &Path) -> (PathBuf, bool) {
-    match workbook.and_then(|path| path.parent()) {
-        Some(dir) => (dir.join("assets").join("agent"), false),
-        None => (data_dir.join("assets").join("agent"), true),
+    match workbook.filter(|path| path.parent().is_some()) {
+        Some(workbook) => (atlas_core::workbook_assets::agent_dir(workbook), false),
+        None => (atlas_core::workbook_assets::unsaved_agent_dir(data_dir), true),
     }
 }
 
