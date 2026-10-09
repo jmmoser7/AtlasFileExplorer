@@ -238,11 +238,6 @@ ceiling = 772
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
-file = "apps/slate/src/app/tests.rs"
-ceiling = 28167
-reason = "integration tests; split by module under test"
-
-[[entry]]
 file = "apps/slate/src/app/tests_ink_fit.rs"
 ceiling = 805
 reason = "Slate app; extract one concern per module"
