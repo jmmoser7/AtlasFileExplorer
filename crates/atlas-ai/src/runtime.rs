@@ -371,6 +371,7 @@ impl CodexLink {
                 .ok()
                 .and_then(|v| serde_json::from_slice::<AgentSession>(&v).ok())
                 .unwrap_or(AgentSession {
+                    usage: None,
                     approval: None,
                     conversation: String::new(),
                     artifacts: Vec::new(),

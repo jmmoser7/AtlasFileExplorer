@@ -100,6 +100,7 @@ impl OutputWatch {
 /// turns, without message text.
 pub fn skeleton(session: Option<&AgentSession>) -> AgentSession {
     AgentSession {
+        usage: None,
         approval: None,
         conversation: String::new(),
         artifacts: session.map(|s| s.artifacts.clone()).unwrap_or_default(),
@@ -451,6 +452,7 @@ mod tests {
 
     fn session(artifacts: Vec<(usize, ArtifactKind, &str)>) -> AgentSession {
         AgentSession {
+            usage: None,
             approval: None,
             conversation: String::new(),
             artifacts: artifacts

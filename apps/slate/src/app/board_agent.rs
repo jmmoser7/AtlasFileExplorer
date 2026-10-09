@@ -31,6 +31,7 @@ mod life;
 #[path = "board_agent_outputs.rs"]
 mod outputs;
 mod schedule;
+mod train_ux;
 
 /// Persisted MRU of folders the human bound to an agent portal.
 const AGENT_RECENTS_KEY: &str = "slate-agent-projects";
@@ -247,6 +248,14 @@ pub struct AgentRuntime {
     composer_editing: Option<NodeId>,
     /// Scroll range of user-sized cards whose content overflows, in world units.
     card_overflow: HashMap<NodeId, f32>,
+    /// Streaming transcript follow, in world units. Absent means follow the bottom.
+    follow: HashMap<NodeId, train_ux::FollowScroll>,
+    /// Collapsed cards shown at twice the capsule while a reply streams.
+    /// Display only (Art. VI.3): the card stays collapsed in the document and
+    /// returns to the capsule when streaming ends, unless the person folds it.
+    stream_open: HashSet<NodeId>,
+    /// Laid-out Responding labels of streaming cards.
+    responding: HashMap<NodeId, RespondingLabel>,
     /// Laid-out transcript height per card as (card width, height, content
     /// signature), in world units. Train cards fit to what paint drew, so
     /// bubbles, rules and status rows are never estimated twice. Zoom only ever
@@ -649,7 +658,158 @@ pub(crate) fn record_agent_resize(node: &mut Node) -> bool {
     }
     a.chat.size = Some(size);
     a.chat.collapsed = false;
+    a.chat.partial = false;
     true
+}
+
+/// `streaming` is the display-only open of a collapsed card ([`AgentRuntime::stream_open`]).
+fn card_fold(chat: &slate_doc::agent_chat::ChatView, streaming: bool) -> train_ux::CardFold {
+    if chat.collapsed && streaming {
+        train_ux::CardFold::Partial
+    } else if chat.collapsed {
+        train_ux::CardFold::Collapsed
+    } else if chat.partial {
+        train_ux::CardFold::Partial
+    } else {
+        train_ux::CardFold::Open
+    }
+}
+
+/// Picker blue stays local until the theme sweep.
+fn paint_pick_button(ui: &egui::Ui, rect: Rect, label: &str, z: f32, radius: f32, id: Id) -> bool {
+    let resp = ui.interact(rect, id, Sense::click());
+    let blue = if resp.hovered() {
+        Color32::from_rgb(55, 117, 250)
+    } else {
+        Color32::from_rgb(37, 99, 235)
+    };
+    ui.painter().rect_filled(rect, radius, blue);
+    let galley = tracked_galley(
+        ui,
+        label,
+        canvas_text::authored_px(14.0, z),
+        Color32::WHITE,
+        canvas_scale::px(0.15, z),
+        rect.width() - canvas_scale::px(24.0, z),
+    );
+    let pos = Pos2::new(
+        rect.center().x - galley.size().x * 0.5,
+        rect.center().y - galley.size().y * 0.5,
+    );
+    ui.painter().galley(pos, galley, Color32::WHITE);
+    resp.clicked()
+}
+
+/// "Responding" and its token readout, laid out once per font size and count,
+/// so the wave repaints without allocating.
+#[derive(Default)]
+pub(crate) struct RespondingLabel {
+    font_bits: u32,
+    wave: Option<std::sync::Arc<egui::Galley>>,
+    count_key: Option<(Option<u64>, usize)>,
+    count: Option<std::sync::Arc<egui::Galley>>,
+}
+
+/// The opacity wave runs glyph by glyph over one cached galley: each glyph
+/// is the same galley clipped to its advance, tinted by its phase.
+fn paint_responding(
+    ui: &mut egui::Ui,
+    label: &mut RespondingLabel,
+    font: &FontId,
+    colors: (Color32, Color32),
+    reported: Option<u64>,
+    turns: &[AgentTurn],
+) {
+    let (accent, sub) = colors;
+    if label.font_bits != font.size.to_bits() || label.wave.is_none() {
+        label.font_bits = font.size.to_bits();
+        label.wave = Some(ui.painter().layout_no_wrap(
+            "Responding".to_owned(),
+            font.clone(),
+            Color32::WHITE,
+        ));
+        label.count_key = None;
+    }
+    // Byte length moves whenever text arrives; characters are counted only then.
+    let bytes: usize = turns.iter().map(|t| t.text.len()).sum();
+    if label.count_key != Some((reported, bytes)) {
+        label.count_key = Some((reported, bytes));
+        let chars = turns.iter().map(|t| t.text.chars().count()).sum();
+        label.count = Some(ui.painter().layout_no_wrap(
+            train_ux::token_readout(reported, chars),
+            font.clone(),
+            Color32::WHITE,
+        ));
+    }
+    let (Some(wave), Some(count)) = (label.wave.clone(), label.count.clone()) else {
+        return;
+    };
+    let gap = ui.spacing().item_spacing.x;
+    let size = egui::vec2(
+        wave.size().x + gap + count.size().x,
+        wave.size().y.max(count.size().y),
+    );
+    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+    let painter = ui.painter();
+    let time = ui.input(|i| i.time) as f32;
+    if let Some(row) = wave.rows.first() {
+        for (i, glyph) in row.glyphs.iter().enumerate() {
+            let phase = ((time * 2.2 - i as f32 * 0.35).sin() + 1.0) * 0.5;
+            let left = rect.left() + glyph.pos.x;
+            let clip = Rect::from_x_y_ranges(left..=left + glyph.advance_width, rect.y_range())
+                .intersect(painter.clip_rect());
+            painter
+                .with_clip_rect(clip)
+                .galley_with_override_text_color(
+                    rect.min,
+                    wave.clone(),
+                    accent.gamma_multiply(0.35 + 0.65 * phase),
+                );
+        }
+    }
+    painter.galley_with_override_text_color(
+        Pos2::new(rect.left() + wave.size().x + gap, rect.top()),
+        count,
+        sub,
+    );
+}
+
+fn paint_chevron_glyph(painter: &egui::Painter, center: Pos2, z: f32, up: bool, ink: Color32) {
+    let half = canvas_scale::px(3.0, z);
+    let rise = canvas_scale::px(1.6, z) * if up { -1.0 } else { 1.0 };
+    let stroke = egui::Stroke::new(canvas_scale::px(1.3, z), ink);
+    painter.line_segment(
+        [
+            center + egui::vec2(-half, -rise),
+            center + egui::vec2(0.0, rise),
+        ],
+        stroke,
+    );
+    painter.line_segment(
+        [
+            center + egui::vec2(0.0, rise),
+            center + egui::vec2(half, -rise),
+        ],
+        stroke,
+    );
+}
+
+fn write_fold(chat: &mut slate_doc::agent_chat::ChatView, fold: train_ux::CardFold) {
+    match fold {
+        train_ux::CardFold::Collapsed => {
+            chat.collapsed = true;
+            chat.partial = false;
+        }
+        train_ux::CardFold::Partial => {
+            chat.collapsed = false;
+            chat.partial = true;
+        }
+        train_ux::CardFold::Open => {
+            chat.collapsed = false;
+            chat.partial = false;
+            chat.size = None;
+        }
+    }
 }
 
 /// The presentation rows of a chat card's ellipsis menu: command, and
@@ -804,6 +964,7 @@ impl SlateApp {
     /// coalescing journal path, so typing/streaming cannot bypass undo.
     pub(crate) fn fit_agent_cards(&mut self, ctx: &egui::Context) {
         use std::hash::{Hash, Hasher};
+        self.settle_stream_open();
         if self.tab().read_only || self.board_drag.is_some() {
             return;
         }
@@ -885,6 +1046,8 @@ impl SlateApp {
                 .hash(&mut hash);
             (
                 a.chat.collapsed,
+                a.chat.partial,
+                self.agents.stream_open.contains(&node.id),
                 a.chat.size.map(|s| [s[0].to_bits(), s[1].to_bits()]),
                 self.agent_has_child(node.id),
             )
@@ -1040,28 +1203,31 @@ impl SlateApp {
                 let prompt_h =
                     composer_text_height(ctx, &prompt, composer_wrap(after.rect.w), 14.0);
                 after.rect.h = hugging_composer_card(prompt_h);
-            } else if a.chat.collapsed || a.chat.size.is_some() {
-                // Collapse owns the height; a person's size owns the rest.
+            } else if a.chat.collapsed || a.chat.partial || a.chat.size.is_some() {
+                // Collapse owns the height; a partial open is twice that capsule;
+                // a person's size owns the rest.
+                let partial = matches!(
+                    card_fold(&a.chat, self.agents.stream_open.contains(&node.id)),
+                    train_ux::CardFold::Partial
+                );
                 after.rect.w = a.chat.size.map_or(node.rect.w, |s| s[0]);
-                after.rect.h = match a.chat.size {
-                    Some(size) if !a.chat.collapsed => size[1],
-                    _ => {
-                        let text = turns
-                            .iter()
-                            .map(|t| t.text.as_str())
-                            .collect::<Vec<_>>()
-                            .join("\n\n");
-                        let mut h = collapsed_card_height(ctx, text, after.rect.w);
-                        if !self.agent_has_child(node.id) {
-                            h += composer_text_height(
-                                ctx,
-                                &prompt,
-                                composer_wrap(after.rect.w),
-                                14.0,
-                            ) + COMPOSER_BOTTOM;
-                        }
-                        h
+                after.rect.h = if !a.chat.collapsed && !a.chat.partial {
+                    a.chat.size.map(|s| s[1]).unwrap_or(node.rect.h)
+                } else {
+                    let text = turns
+                        .iter()
+                        .map(|t| t.text.as_str())
+                        .collect::<Vec<_>>()
+                        .join("\n\n");
+                    let mut h = collapsed_card_height(ctx, text, after.rect.w);
+                    if partial {
+                        h = train_ux::stream_card_height(h);
                     }
+                    if !self.agent_has_child(node.id) {
+                        h += composer_text_height(ctx, &prompt, composer_wrap(after.rect.w), 14.0)
+                            + COMPOSER_BOTTOM;
+                    }
+                    h
                 };
             } else if a.chat.train {
                 let text = turns
@@ -1498,9 +1664,23 @@ impl SlateApp {
                         self.agents.spawn_drag = None;
                         self.board_sel.clear();
                         self.board_sel.insert(id);
+                        let fork = moving
+                            && self
+                                .doc()
+                                .scene
+                                .node(id)
+                                .and_then(slate_doc::agent_chat::agent)
+                                .is_some_and(|a| {
+                                    !a.chat.linear
+                                        && !atlas_ai::runtime::linear_provider(&a.provider)
+                                });
                         self.dispatch(
                             ui.ctx(),
-                            atlas_commands::CommandId("portal.agent.continue"),
+                            atlas_commands::CommandId(if fork {
+                                "portal.agent.fork"
+                            } else {
+                                "portal.agent.continue"
+                            }),
                             Some(serde_json::to_string(&[rect.x, rect.y]).unwrap()),
                         );
                     }
@@ -1639,19 +1819,8 @@ impl SlateApp {
             paint_handle_dot(painter, p, xf.z, near, color);
         }
         if let (Some((id, _)), Some(pos)) = (self.agents.spawn_drag, self.board_point_snap) {
-            let count = if self
-                .doc()
-                .scene
-                .node(id)
-                .and_then(slate_doc::agent_chat::agent)
-                .is_some_and(|a| {
-                    !atlas_ai::runtime::linear_provider(&a.provider) && a.chat.forks_on_output()
-                }) {
-                2
-            } else {
-                1
-            };
-            for lane in 0..count {
+            {
+                let lane = 0;
                 let rect = slate_doc::WorldRect::new(
                     pos.x,
                     pos.y
@@ -1750,7 +1919,81 @@ impl SlateApp {
                 .and_then(slate_doc::agent_chat::agent)
                 .is_some_and(|a| !a.chat.collapsed)
         });
-        self.refit_agent_cards(ctx, &ids, |chat| chat.collapsed = collapse)
+        let released = self.release_stream_open(&ids);
+        self.refit_agent_cards(ctx, &ids, |chat| {
+            chat.collapsed = collapse;
+            chat.partial = false;
+        }) || released
+    }
+
+    /// Chevron zones. A missing detail keeps the keyboard toggle. Folding a
+    /// card that is open only for streaming starts from what the person sees
+    /// and makes that fold theirs.
+    pub(crate) fn agent_fold(&mut self, ctx: &egui::Context, detail: Option<&str>) -> bool {
+        let Some(zone) = detail.and_then(train_ux::ChevronZone::parse) else {
+            return self.agent_toggle_collapse(ctx);
+        };
+        let ids = self.selected_chat_cards();
+        let streaming: HashSet<NodeId> = ids
+            .iter()
+            .copied()
+            .filter(|id| self.agents.stream_open.contains(id))
+            .collect();
+        let released = self.release_stream_open(&ids);
+        self.refit_agent_cards_by(ctx, &ids, |id, chat| {
+            let fold = card_fold(chat, streaming.contains(&id));
+            write_fold(chat, train_ux::apply_chevron(fold, zone));
+        }) || released
+    }
+
+    /// A collapsed card shows twice the capsule while a reply streams. The
+    /// fold is display state, not a person's edit: the card stays collapsed,
+    /// its rect follows the ordinary auto-fit, and the capsule returns when
+    /// the stream ends ([`Self::settle_stream_open`]).
+    fn open_streaming_card(&mut self, id: NodeId) {
+        let open = self
+            .doc()
+            .scene
+            .node(id)
+            .and_then(slate_doc::agent_chat::agent)
+            .is_some_and(|a| {
+                a.chat.collapsed && !a.chat.draft && !(a.chat.train && !a.chat.bundled.is_empty())
+            });
+        if open && self.agents.stream_open.insert(id) {
+            self.agents.fit_revision = None;
+        }
+    }
+
+    /// Drop streaming opens whose reply is no longer streaming, so the card
+    /// refits to its capsule. Cheap when nothing is open.
+    pub(crate) fn settle_stream_open(&mut self) {
+        let awaiting = &self.agents.awaiting;
+        if !self.agents.responding.is_empty() {
+            self.agents
+                .responding
+                .retain(|id, _| matches!(awaiting.get(id), Some(AgentAwait::Responding { .. })));
+        }
+        if self.agents.stream_open.is_empty() {
+            return;
+        }
+        let before = self.agents.stream_open.len();
+        self.agents
+            .stream_open
+            .retain(|id| matches!(awaiting.get(id), Some(AgentAwait::Responding { .. })));
+        if self.agents.stream_open.len() != before {
+            self.agents.fit_revision = None;
+        }
+    }
+
+    fn release_stream_open(&mut self, ids: &[NodeId]) -> bool {
+        let mut released = false;
+        for id in ids {
+            released |= self.agents.stream_open.remove(id);
+        }
+        if released {
+            self.agents.fit_revision = None;
+        }
+        released
     }
 
     /// Per-user grants that must survive a relaunch and never ride in a
@@ -1832,7 +2075,10 @@ impl SlateApp {
     /// Forget the size a person gave these cards; they hug their text again.
     pub(crate) fn agent_fit_to_text(&mut self, ctx: &egui::Context) -> bool {
         let ids = self.selected_chat_cards();
-        self.refit_agent_cards(ctx, &ids, |chat| chat.size = None)
+        self.refit_agent_cards(ctx, &ids, |chat| {
+            chat.size = None;
+            chat.partial = false;
+        })
     }
 
     /// Edit each card's view and refit its rect in the same journal step, so
@@ -1843,6 +2089,15 @@ impl SlateApp {
         ids: &[NodeId],
         edit: impl Fn(&mut slate_doc::agent_chat::ChatView),
     ) -> bool {
+        self.refit_agent_cards_by(ctx, ids, |_, chat| edit(chat))
+    }
+
+    fn refit_agent_cards_by(
+        &mut self,
+        ctx: &egui::Context,
+        ids: &[NodeId],
+        edit: impl Fn(NodeId, &mut slate_doc::agent_chat::ChatView),
+    ) -> bool {
         let mut commands = Vec::new();
         for id in ids {
             let Some(before) = self.doc().scene.node(*id).cloned() else {
@@ -1851,7 +2106,7 @@ impl SlateApp {
             let mut edited = before.clone();
             if let NodeKind::Portal(p) = &mut edited.kind {
                 if let Some(a) = &mut p.agent {
-                    edit(&mut a.chat);
+                    edit(*id, &mut a.chat);
                 }
             }
             if edited == before {
@@ -4278,7 +4533,7 @@ impl SlateApp {
             .and_then(slate_doc::agent_chat::agent)
             .is_some_and(|a| a.chat.linear || atlas_ai::runtime::linear_provider(&a.provider))
     }
-    pub(crate) fn agent_fork_selected(&mut self) -> bool {
+    pub(crate) fn agent_fork_selected(&mut self, detail: Option<&str>) -> bool {
         let Some(id) = self.selected_agent_portal() else {
             return false;
         };
@@ -4290,22 +4545,80 @@ impl SlateApp {
             self.toast("Wait for a completed checkpoint before forking.");
             return true;
         }
-        if self
-            .doc()
-            .scene
-            .node(id)
-            .and_then(slate_doc::agent_chat::agent)
-            .is_some_and(|a| !a.chat.train)
-        {
-            self.toast("Choose Chat train, then select the message to fork.");
+        let Some(original) = self.doc().scene.node(id).cloned() else {
+            return false;
+        };
+        let Some(binding) = slate_doc::agent_chat::agent(&original).cloned() else {
+            return false;
+        };
+        if binding.chat.draft || (binding.chat.train && !binding.chat.bundled.is_empty()) {
+            return false;
+        }
+        let turns = self.agent_all_turns(id);
+        let end = binding.chat.end.unwrap_or(turns.len());
+        if atlas_ai::agent::checkpoint(&turns, Some(end)).is_err() {
+            self.toast("Wait for this history to load.");
             return true;
         }
-        self.agent_focus(id);
-        self.agent_set_detail(slate_doc::agent_chat::Detail::Full);
-        self.toast(
-            "Write the alternative message and Send. A new branch will start at this checkpoint.",
+        let position = detail
+            .and_then(|s| serde_json::from_str::<[f32; 2]>(s).ok())
+            .filter(|p| p.iter().all(|v| v.is_finite()))
+            .unwrap_or_else(|| self.next_fork_origin(id));
+        let mut next = self.doc_mut().scene.build_duplicate(&original, 0.0, 0.0);
+        next.rect = slate_doc::WorldRect::new(
+            position[0],
+            position[1],
+            self.agent_draft_width(id),
+            slate_doc::agent_chat::DRAFT_HEIGHT,
         );
+        if let NodeKind::Portal(p) = &mut next.kind {
+            if let Some(a) = &mut p.agent {
+                a.chat = slate_doc::agent_chat::ChatView {
+                    linear: false,
+                    train: true,
+                    parent: Some(id),
+                    start: end,
+                    end: Some(end),
+                    detail: binding.chat.detail,
+                    custom_fill: binding.chat.custom_fill,
+                    stroke: binding.chat.stroke,
+                    draft: true,
+                    ..Default::default()
+                };
+            }
+        }
+        let next_id = next.id;
+        if self.add_nodes(vec![next]).is_empty() {
+            return false;
+        }
+        if let Some(turns) = self.agents.local_turns.get(&id).cloned() {
+            self.agents.local_turns.insert(next_id, turns);
+        } else if let Some(session) = self.agents.sessions.get(&id).cloned() {
+            self.agents.sessions.insert(next_id, session);
+        }
+        self.board_sel.clear();
+        self.board_sel.insert(next_id);
+        self.agent_focus(next_id);
+        self.agents.composer_focus = Some(next_id);
         true
+    }
+
+    fn next_fork_origin(&self, id: NodeId) -> [f32; 2] {
+        let Some(node) = self.doc().scene.node(id) else {
+            return [0.0, 0.0];
+        };
+        let below = self
+            .doc()
+            .scene
+            .nodes
+            .iter()
+            .filter(|n| slate_doc::agent_chat::agent(n).is_some_and(|a| a.chat.parent == Some(id)))
+            .count() as f32;
+        [
+            node.rect.x + node.rect.w + slate_doc::agent_chat::CARD_GAP,
+            node.rect.y
+                + below * (slate_doc::agent_chat::DRAFT_HEIGHT + slate_doc::agent_chat::LANE_GAP),
+        ]
     }
 
     /// Pins the installed-program list, so tests never probe the machine.
@@ -7116,6 +7429,7 @@ impl SlateApp {
                     AgentAwait::Sent { req_at, .. } | AgentAwait::Thinking { req_at },
                     Some(AgentStatus::Thinking),
                 ) if has_new => {
+                    self.open_streaming_card(id);
                     self.agents
                         .awaiting
                         .insert(id, AgentAwait::Responding { req_at: *req_at });
@@ -7812,6 +8126,30 @@ impl SlateApp {
         true
     }
 
+    pub(crate) fn agent_build_folder(&self) -> (std::path::PathBuf, bool) {
+        train_ux::agent_build_dir(self.tab().path.as_deref(), &atlas_core::index::data_dir())
+    }
+
+    /// Bind Cursor or Codex to `<workbook>/assets/agent/` and start a new chat.
+    pub(crate) fn agent_just_build(&mut self, portal: NodeId) {
+        let (dir, fallback) = self.agent_build_folder();
+        if let Err(err) = std::fs::create_dir_all(&dir) {
+            self.toast(format!("Could not create the agent folder: {err}"));
+            return;
+        }
+        if fallback {
+            self.toast(format!(
+                "This workbook isn't saved yet, so the agent is using {}.",
+                dir.display()
+            ));
+        }
+        self.agents.project_picker = None;
+        self.agents.chat_picker = None;
+        self.agents.pending_chat_pick = None;
+        self.bind_portal_source(portal, dir);
+        self.set_agent_channel(portal, None);
+    }
+
     pub(crate) fn bind_agent_project(&mut self, portal: NodeId, path: PathBuf) {
         if self.agent_linear(portal)
             && (self
@@ -7984,13 +8322,20 @@ impl SlateApp {
             self.paint_agent_bundle(painter, xf, node, portal);
         } else if !maximized
             && !self.agent_in_choose_phase(node.id)
-            && portal
-                .agent
-                .as_ref()
-                .is_some_and(|a| a.chat.collapsed && !a.chat.draft)
+            && portal.agent.as_ref().is_some_and(|a| {
+                a.chat.collapsed && !a.chat.draft && !self.agents.stream_open.contains(&node.id)
+            })
         {
             self.paint_agent_summary(ui, painter, xf, node, portal, Some(COLLAPSED_ROWS));
             self.paint_collapsed_composer(ui, &layout, node, xf.z);
+        } else if !maximized
+            && portal.agent.as_ref().is_some_and(|a| {
+                !a.chat.draft
+                    && card_fold(&a.chat, self.agents.stream_open.contains(&node.id))
+                        == train_ux::CardFold::Partial
+            })
+        {
+            self.paint_agent_bound(ui, painter, xf, &layout, node, portal, maximized);
         } else if !maximized
             && portal.agent.as_ref().is_some_and(|a| {
                 a.chat.train
@@ -8119,7 +8464,7 @@ impl SlateApp {
         };
         let visible = chats.len().min(6) as f32;
         // Capsules are 70% of the previous 40px row. Chrome shrinks with the button.
-        let desired_h = 156.0 + visible * 34.0;
+        let desired_h = 156.0 + visible * 34.0 + if projects { 34.0 } else { 0.0 };
         if !self.tab().read_only
             && self.board_drag.is_none()
             && ((node.rect.h - desired_h).abs() > 1.0 || node.rect.w < 380.0)
@@ -8152,13 +8497,31 @@ impl SlateApp {
             Pos2::new(body.left() + pad, div_y + canvas_scale::px(10.0, z)),
             Pos2::new(body.right() - pad, div_y + canvas_scale::px(36.0, z)),
         );
-        let button = Rect::from_min_max(
-            Pos2::new(body.left() + pad, body.bottom() - pad - button_h),
-            Pos2::new(body.right() - pad, body.bottom() - pad),
+        let stack_bottom = body.bottom() - pad;
+        let action_h = if projects {
+            button_h * 2.0 + gap
+        } else {
+            button_h
+        };
+        let choose_button = Rect::from_min_max(
+            Pos2::new(body.left() + pad, stack_bottom - action_h),
+            Pos2::new(body.right() - pad, stack_bottom - action_h + button_h),
         );
+        let just_build_button = projects.then(|| {
+            Rect::from_min_max(
+                Pos2::new(body.left() + pad, stack_bottom - button_h),
+                Pos2::new(body.right() - pad, stack_bottom),
+            )
+        });
+        let buttons_max = just_build_button
+            .map(|r| r.max)
+            .unwrap_or(choose_button.max);
         let list = Rect::from_min_max(
             Pos2::new(heading.left(), heading.bottom() + canvas_scale::px(4.0, z)),
-            Pos2::new(heading.right(), button.top() - canvas_scale::px(10.0, z)),
+            Pos2::new(
+                heading.right(),
+                choose_button.top() - canvas_scale::px(10.0, z),
+            ),
         );
         if list.height() < 8.0 {
             return;
@@ -8174,6 +8537,7 @@ impl SlateApp {
             "New conversation"
         };
         let mut chosen: Option<Option<String>> = None;
+        let mut just_build = false;
         let mut scrolled = None;
         if interactive && canvas_text::legible(row_px) {
             egui::Area::new(Id::new(("agent-pick-list", node.id.0)))
@@ -8181,7 +8545,7 @@ impl SlateApp {
                 .constrain(false)
                 .order(egui::Order::Middle)
                 .show(ui.ctx(), |ui| {
-                    let stack = Rect::from_min_max(heading.min, button.max);
+                    let stack = Rect::from_min_max(heading.min, buttons_max);
                     ui.set_min_size(stack.size());
                     ui.set_max_size(stack.size());
                     ui.set_clip_rect(stack.intersect(ui.ctx().screen_rect()));
@@ -8310,33 +8674,27 @@ impl SlateApp {
                             }
                         });
                     scrolled = Some(out.state.offset.y / z);
-                    let resp = ui.interact(
-                        button,
-                        Id::new(("agent-pick-new", node.id.0)),
-                        Sense::click(),
-                    );
-                    let blue = if resp.hovered() {
-                        Color32::from_rgb(55, 117, 250)
-                    } else {
-                        Color32::from_rgb(37, 99, 235)
-                    };
-                    ui.painter().rect_filled(button, radius, blue);
-                    let label = format!("+  {action}");
-                    let galley = tracked_galley(
+                    if paint_pick_button(
                         ui,
-                        &label,
-                        canvas_text::authored_px(14.0, z),
-                        Color32::WHITE,
-                        canvas_scale::px(0.15, z),
-                        button.width() - canvas_scale::px(24.0, z),
-                    );
-                    let pos = Pos2::new(
-                        button.center().x - galley.size().x * 0.5,
-                        button.center().y - galley.size().y * 0.5,
-                    );
-                    ui.painter().galley(pos, galley, Color32::WHITE);
-                    if resp.clicked() {
+                        choose_button,
+                        &format!("+  {action}"),
+                        z,
+                        radius,
+                        Id::new(("agent-pick-new", node.id.0)),
+                    ) {
                         chosen = Some(None);
+                    }
+                    if let Some(build) = just_build_button {
+                        if paint_pick_button(
+                            ui,
+                            build,
+                            "Just build",
+                            z,
+                            radius,
+                            Id::new(("agent-just-build", node.id.0)),
+                        ) {
+                            just_build = true;
+                        }
                     }
                 });
         } else if canvas_text::legible(row_px) {
@@ -8357,7 +8715,9 @@ impl SlateApp {
         if let Some(offset) = scrolled {
             self.agents.pick_scroll.insert(node.id, offset);
         }
-        if let Some(channel) = chosen {
+        if just_build {
+            self.agent_just_build(node.id);
+        } else if let Some(channel) = chosen {
             if projects {
                 if let Some(path) = channel {
                     self.bind_agent_project(node.id, PathBuf::from(path));
@@ -8398,14 +8758,17 @@ impl SlateApp {
                 slate_doc::agent_chat::PORT_INSET * z,
                 slate_doc::agent_chat::RAIL_INSET * z,
             );
-        let (_status_color, status_label, pulse) = agent_status_chip(
+        let (status_color, status_label, pulse) = agent_status_chip(
             &agent.provider,
             self.agents.ide,
             self.agents.session(node.id).map(|s| &s.status),
             self.agents.awaiting.get(&node.id),
+            palette.accent,
+            palette.sub,
+            palette.danger,
         );
         {
-            painter.circle_filled(anchor, 3.5 * z, palette.sub.gamma_multiply(0.55));
+            painter.circle_filled(anchor, 3.5 * z, status_color.gamma_multiply(0.85));
             ui.interact(
                 Rect::from_center_size(anchor, egui::vec2(16.0 * z, 16.0 * z)),
                 Id::new(("agent-status", node.id.0)),
@@ -8728,6 +9091,16 @@ impl SlateApp {
                     ),
                     (
                         1,
+                        Row::glyph(Icon::ChatTrain, "Fork chat here"),
+                        "portal.agent.fork",
+                        !running
+                            && !agent.chat.draft
+                            && agent.chat.bundled.is_empty()
+                            && !atlas_ai::runtime::linear_provider(&agent.provider)
+                            && !agent.chat.linear,
+                    ),
+                    (
+                        1,
                         full_access,
                         "portal.agent.full_access",
                         atlas_ai::runtime::linear_provider(&agent.provider) && !agent.chat.draft,
@@ -8804,17 +9177,27 @@ impl SlateApp {
                 }
             },
         );
+        let dots_hot = ui
+            .ctx()
+            .pointer_hover_pos()
+            .is_some_and(|p| menu_rect.contains(p));
+        let grow =
+            ui.ctx()
+                .animate_bool_with_time(Id::new(("agent-dots", node.id.0)), dots_hot, 0.12);
         for i in 0..3 {
             ui.painter().circle_filled(
                 Pos2::new(menu_rect.left() + pitch * (i as f32 + 0.5), dot_cy),
-                dot_r,
-                palette.ink.gamma_multiply(0.82),
+                dot_r * (1.0 + 0.22 * grow),
+                palette.ink.gamma_multiply(0.55 + 0.40 * grow),
             );
         }
-        if !(agent.chat.train && !agent.chat.bundled.is_empty())
-            && self.paint_agent_collapse_toggle(ui, node, rect, menu_rect.left(), dot_cy, z)
-        {
-            command = Some("portal.agent.collapse");
+        if !(agent.chat.train && !agent.chat.bundled.is_empty()) {
+            if let Some(detail) =
+                self.paint_agent_collapse_toggle(ui, node, rect, menu_rect.left(), dot_cy, z)
+            {
+                command = Some("portal.agent.collapse");
+                command_detail = Some(detail);
+            }
         }
         if schedulable && self.paint_agent_clock(ui, node.id, menu_rect.left(), dot_cy, z) {
             command = Some("portal.agent.schedule");
@@ -8833,7 +9216,8 @@ impl SlateApp {
         }
     }
 
-    /// Chevron just left of the ellipsis. Quiet at rest; the card's hover reveals it.
+    /// Chevron just left of the ellipsis. Dead center steps one level; the
+    /// bands above and below jump. Returns the zone's command detail.
     fn paint_agent_collapse_toggle(
         &self,
         ui: &egui::Ui,
@@ -8842,20 +9226,34 @@ impl SlateApp {
         menu_left: f32,
         cy: f32,
         z: f32,
-    ) -> bool {
-        let collapsed = slate_doc::agent_chat::agent(node).is_some_and(|a| a.chat.collapsed);
+    ) -> Option<&'static str> {
+        let fold = slate_doc::agent_chat::agent(node)
+            .map(|a| card_fold(&a.chat, self.agents.stream_open.contains(&node.id)))
+            .unwrap_or(train_ux::CardFold::Open);
         let center = Pos2::new(menu_left - canvas_scale::px(8.0, z), cy);
-        let response = ui
-            .interact(
-                Rect::from_center_size(center, egui::Vec2::splat(canvas_scale::px(12.0, z))),
-                Id::new(("agent-collapse", node.id.0)),
-                Sense::click(),
-            )
-            .on_hover_text(if collapsed {
-                "Expand card"
-            } else {
-                "Collapse to three lines"
-            });
+        let hit = Rect::from_center_size(
+            center,
+            egui::vec2(canvas_scale::px(14.0, z), canvas_scale::px(22.0, z)),
+        );
+        let response = ui.interact(hit, Id::new(("agent-collapse", node.id.0)), Sense::click());
+        let dy = ui
+            .ctx()
+            .pointer_hover_pos()
+            .filter(|_| response.hovered())
+            .map(|p| p.y - center.y);
+        let zone = dy
+            .map(|dy| train_ux::chevron_zone(dy, z))
+            .unwrap_or(train_ux::ChevronZone::OneStep);
+        let response = response.on_hover_text(match zone {
+            train_ux::ChevronZone::OneStep => match fold {
+                train_ux::CardFold::Collapsed => "Expand one level",
+                train_ux::CardFold::Partial => "Expand",
+                train_ux::CardFold::Open => "Open",
+            },
+            train_ux::ChevronZone::FullExpand => "Expand fully",
+            train_ux::ChevronZone::PartialCollapse => "Collapse one level",
+            train_ux::ChevronZone::FullCollapse => "Collapse",
+        });
         let card = self.board_sel.contains(&node.id)
             || ui
                 .ctx()
@@ -8871,27 +9269,23 @@ impl SlateApp {
         } else {
             0.18 + 0.64 * reveal
         };
-        let half = canvas_scale::px(3.0, z);
-        let rise = canvas_scale::px(1.6, z) * if collapsed { 1.0 } else { -1.0 };
-        let stroke = egui::Stroke::new(
-            canvas_scale::px(1.3, z),
-            self.palette().ink.gamma_multiply(alpha),
-        );
-        ui.painter().line_segment(
-            [
-                center + egui::vec2(-half, -rise),
-                center + egui::vec2(0.0, rise),
-            ],
-            stroke,
-        );
-        ui.painter().line_segment(
-            [
-                center + egui::vec2(0.0, rise),
-                center + egui::vec2(half, -rise),
-            ],
-            stroke,
-        );
-        response.clicked()
+        let (up, double) = train_ux::chevron_glyph(zone, fold);
+        let bob = if response.hovered() && matches!(zone, train_ux::ChevronZone::FullExpand) {
+            ui.ctx().request_repaint();
+            (ui.input(|i| i.time) as f32).sin() * canvas_scale::px(0.8, z)
+        } else {
+            0.0
+        };
+        let gap = canvas_scale::px(3.2, z);
+        let ink = self.palette().ink.gamma_multiply(alpha);
+        let paint = |at: Pos2| paint_chevron_glyph(ui.painter(), at, z, up, ink);
+        if double {
+            paint(center + egui::vec2(0.0, -gap * 0.5 + bob));
+            paint(center + egui::vec2(0.0, gap * 0.5 + bob));
+        } else {
+            paint(center);
+        }
+        response.clicked().then_some(zone.detail())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -9039,20 +9433,39 @@ impl SlateApp {
             chat_ui.style_mut().override_font_id = Some(font.clone());
             chat_ui.spacing_mut().item_spacing = egui::vec2(8.0 * z, 12.0 * z);
             let text_key = self.agent_text_key(painter, z);
+            let responding = matches!(
+                self.agents.awaiting.get(&node.id),
+                Some(AgentAwait::Responding { .. })
+            );
+            let follow = self
+                .agents
+                .follow
+                .get(&node.id)
+                .copied()
+                .unwrap_or_default();
+            let known = self
+                .agents
+                .content_heights
+                .get(&node.id)
+                .map(|(_, h, _)| *h)
+                .unwrap_or(0.0);
+            let view = transcript.height() / z.max(0.01);
+            let requested = if responding {
+                train_ux::requested_offset(&follow, known, view)
+            } else {
+                self.agents
+                    .transcript_scroll
+                    .get(&node.id)
+                    .copied()
+                    .unwrap_or(0.0)
+            };
             let scroll = egui::ScrollArea::vertical()
                 .id_salt(("agent-history-scroll", node.id.0))
                 .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
-                .vertical_scroll_offset(
-                    self.agents
-                        .transcript_scroll
-                        .get(&node.id)
-                        .copied()
-                        .unwrap_or(0.0)
-                        * z,
-                )
+                .vertical_scroll_offset(requested * z)
+                .stick_to_bottom(!responding || follow.follow)
                 .max_height(transcript.height())
                 .auto_shrink([false, false])
-                .stick_to_bottom(true)
                 .show(&mut chat_ui, |ui| {
                     for (index, turn) in turns.iter().enumerate() {
                         let width = transcript.width();
@@ -9180,7 +9593,17 @@ impl SlateApp {
                             ui.label("Thinking…");
                         }
                         Some(AgentAwait::Responding { .. }) => {
-                            ui.label("Responding…");
+                            let reported = self.agents.session(node.id).and_then(|s| s.usage);
+                            let label = self.agents.responding.entry(node.id).or_default();
+                            paint_responding(
+                                ui,
+                                label,
+                                &font,
+                                (palette.accent, palette.sub),
+                                reported,
+                                &turns,
+                            );
+                            ui.ctx().request_repaint();
                         }
                         Some(AgentAwait::Failed { reason, actions }) => {
                             ui.label(egui::RichText::new(reason).color(palette.sub));
@@ -9201,9 +9624,16 @@ impl SlateApp {
                         ui.add_space(COMPOSER_GAP * z);
                     }
                 });
-            self.agents
-                .transcript_scroll
-                .insert(node.id, scroll.state.offset.y / z);
+            let got = scroll.state.offset.y / z.max(0.01);
+            let content = scroll.content_size.y / z.max(0.01);
+            if responding {
+                let mut state = follow;
+                train_ux::settle_follow(&mut state, requested, got, content, view);
+                self.agents.transcript_scroll.insert(node.id, state.offset);
+                self.agents.follow.insert(node.id, state);
+            } else {
+                self.agents.transcript_scroll.insert(node.id, got);
+            }
             let content = scroll.content_size.y / z;
             let signature = self.transcript_signature(node.id, &turns);
             let width = node.rect.w;
@@ -9935,6 +10365,7 @@ impl SlateApp {
             let dir = atlas_ai::agent::agent_dir(&ws, &new_session);
             let _ = std::fs::create_dir_all(&dir);
             let session = atlas_ai::agent::AgentSession {
+                usage: None,
                 approval: None,
                 conversation: String::new(),
                 artifacts: vec![],
@@ -10228,20 +10659,23 @@ fn agent_status_chip(
     ide: CursorIdeStatus,
     sidecar: Option<&AgentStatus>,
     awaiting: Option<&AgentAwait>,
+    accent: Color32,
+    sub: Color32,
+    danger: Color32,
 ) -> (Color32, &'static str, bool) {
     match awaiting {
         Some(AgentAwait::Failed { .. }) => {
-            return (Color32::from_rgb(230, 90, 90), "Unreachable", false);
+            return (danger, "Unreachable", false);
         }
         Some(AgentAwait::Responding { .. }) => {
-            return (Color32::from_rgb(61, 156, 245), "Responding", true);
+            return (accent, "Responding", true);
         }
         Some(AgentAwait::Sent { .. } | AgentAwait::Thinking { .. }) => {
-            return (Color32::from_rgb(61, 156, 245), "Thinking", true);
+            return (accent, "Thinking", true);
         }
         None => {}
     }
-    let (color, label) = agent_live_chip(provider, ide, sidecar);
+    let (color, label) = agent_live_chip(provider, ide, sidecar, accent, sub, danger);
     let pulse = matches!(sidecar, Some(AgentStatus::Thinking));
     (color, label, pulse)
 }
@@ -10250,13 +10684,16 @@ fn agent_live_chip(
     provider: &str,
     ide: CursorIdeStatus,
     sidecar: Option<&AgentStatus>,
+    accent: Color32,
+    sub: Color32,
+    danger: Color32,
 ) -> (Color32, &'static str) {
     let _ = (provider, ide);
     match sidecar {
-        Some(AgentStatus::Thinking) => (Color32::from_rgb(61, 156, 245), "Working"),
-        Some(AgentStatus::Idle) => (Color32::from_rgb(160, 168, 180), "Ready"),
-        Some(AgentStatus::Error(_)) => (Color32::from_rgb(230, 90, 90), "Error"),
-        _ => (Color32::from_rgb(120, 128, 140), "Not connected"),
+        Some(AgentStatus::Thinking) => (accent, "Working"),
+        Some(AgentStatus::Idle) => (sub, "Ready"),
+        Some(AgentStatus::Error(_)) => (danger, "Error"),
+        _ => (sub.gamma_multiply(0.75), "Not connected"),
     }
 }
 
@@ -10306,6 +10743,12 @@ pub(crate) struct ProgramBinding {
     session: String,
     bundle: Option<slate_doc::SourceUri>,
     locator: Option<String>,
+}
+
+impl ProgramBinding {
+    pub(crate) fn set_locator(&mut self, locator: String) {
+        self.locator = Some(locator);
+    }
 }
 
 /// The size a freshly bound program's card takes.
@@ -11583,6 +12026,9 @@ mod agent_await_tests {
             CursorIdeStatus::Running,
             Some(&AgentStatus::Idle),
             Some(&waiting),
+            Color32::WHITE,
+            Color32::GRAY,
+            Color32::RED,
         );
         assert_eq!(label, "Unreachable");
         assert!(!pulse);
@@ -11676,8 +12122,15 @@ To install them by hand, run in PowerShell:\n  cd \"C:\\workspace\\Slate\\docs\\
             at: Instant::now(),
             req_at: 1,
         };
-        let (_, label, pulse) =
-            agent_status_chip("cursor", CursorIdeStatus::Running, None, Some(&waiting));
+        let (_, label, pulse) = agent_status_chip(
+            "cursor",
+            CursorIdeStatus::Running,
+            None,
+            Some(&waiting),
+            Color32::WHITE,
+            Color32::GRAY,
+            Color32::RED,
+        );
         assert_eq!(label, "Thinking");
         assert!(pulse);
     }
@@ -11726,6 +12179,109 @@ To install them by hand, run in PowerShell:\n  cd \"C:\\workspace\\Slate\\docs\\
         h.app.ensure_work_tab();
         h.app.doc_mut().view.active_view = slate_doc::ViewKind::Board;
         h
+    }
+
+    #[test]
+    fn fork_is_one_undo_and_coding_agents_stay_linear() {
+        let mut h = board("fork_chat");
+        let id = train(&mut h, Pos2::ZERO, "ollama");
+        h.app.agents.local_turns.insert(
+            id,
+            vec![AgentTurn {
+                role: "user".into(),
+                text: "hi".into(),
+                at: 1,
+            }],
+        );
+        h.app.board_sel.insert(id);
+        let before = h.app.doc().scene.nodes.len();
+        assert!(h.app.agent_fork_selected(None));
+        assert_eq!(h.app.doc().scene.nodes.len(), before + 1);
+        let child = h.app.doc().scene.nodes.last().unwrap().id;
+        let chat = slate_doc::agent_chat::agent(h.app.doc().scene.node(child).unwrap())
+            .unwrap()
+            .chat
+            .clone();
+        assert_eq!(chat.parent, Some(id));
+        assert!(chat.draft);
+        assert!(slate_doc::agent_chat::history_rails(&h.app.doc().scene)
+            .iter()
+            .any(|rail| rail.from == id && rail.to == child));
+        h.app.board_undo();
+        assert_eq!(h.app.doc().scene.nodes.len(), before);
+        h.app.board_redo();
+        assert_eq!(h.app.doc().scene.nodes.len(), before + 1);
+
+        h.app.board_sel.clear();
+        h.app.board_sel.insert(id);
+        assert!(h.app.agent_fork_selected(Some("[40,200]")));
+        h.app.board_sel.clear();
+        h.app.board_sel.insert(id);
+        assert!(h.app.agent_fork_selected(Some("[40,400]")));
+        let forks = h
+            .app
+            .doc()
+            .scene
+            .nodes
+            .iter()
+            .filter(|n| slate_doc::agent_chat::agent(n).is_some_and(|a| a.chat.parent == Some(id)))
+            .count();
+        assert_eq!(forks, 3);
+
+        let linear = train(&mut h, Pos2::new(800.0, 0.0), "cursor");
+        let count = h.app.doc().scene.nodes.len();
+        h.app.board_sel.clear();
+        h.app.board_sel.insert(linear);
+        assert!(h.app.agent_fork_selected(None));
+        assert_eq!(h.app.doc().scene.nodes.len(), count);
+    }
+
+    /// Streaming opens a collapsed card for display only: the document keeps
+    /// it collapsed and the capsule returns when the reply ends. A fold the
+    /// person makes meanwhile is theirs and stays.
+    #[test]
+    fn a_streaming_open_is_display_state_unless_the_person_folds_it() {
+        let mut h = board("stream_open");
+        let id = train(&mut h, Pos2::ZERO, "ollama");
+        h.frame();
+        let ctx = h.ctx.clone();
+        let collapsed = |h: &super::super::tests::Harness| {
+            slate_doc::agent_chat::agent(h.app.doc().scene.node(id).unwrap())
+                .unwrap()
+                .chat
+                .collapsed
+        };
+        h.app.board_sel.clear();
+        h.app.board_sel.insert(id);
+        if !collapsed(&h) {
+            assert!(h.app.agent_toggle_collapse(&ctx));
+        }
+        assert!(collapsed(&h));
+        let responding = || AgentAwait::Responding { req_at: 1 };
+
+        h.app.agents.awaiting.insert(id, responding());
+        h.app.open_streaming_card(id);
+        assert!(h.app.agents.stream_open.contains(&id));
+        assert!(collapsed(&h), "the document keeps the card collapsed");
+        h.app.agents.awaiting.remove(&id);
+        h.app.settle_stream_open();
+        assert!(h.app.agents.stream_open.is_empty(), "the capsule returns");
+        assert!(collapsed(&h));
+
+        h.app.agents.awaiting.insert(id, responding());
+        h.app.open_streaming_card(id);
+        assert!(h.app.agent_fold(&ctx, Some("one")));
+        assert!(h.app.agents.stream_open.is_empty());
+        assert!(
+            !collapsed(&h),
+            "one step up from the shown partial opens fully"
+        );
+        h.app.agents.awaiting.remove(&id);
+        h.app.settle_stream_open();
+        assert!(
+            !collapsed(&h),
+            "the person's fold survives the stream ending"
+        );
     }
 
     /// A local train's first card at `at`.
@@ -13159,6 +13715,7 @@ To install them by hand, run in PowerShell:\n  cd \"C:\\workspace\\Slate\\docs\\
             let dir = atlas_ai::agent::agent_dir(&ws, &session);
             std::fs::create_dir_all(&dir).unwrap();
             let state = atlas_ai::agent::AgentSession {
+                usage: None,
                 approval: None,
                 conversation: String::new(),
                 artifacts: vec![],

@@ -11,7 +11,7 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 use atlas_agent::{AgentRequest, AgentSession, AgentStatus};
-use chrono::{Datelike, Local, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
+use chrono::{Datelike, Local, Months, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use serde::{Deserialize, Serialize};
 
 /// A single run may take at most this long before it is stopped.
@@ -57,6 +57,10 @@ pub struct AgentSchedule {
     pub ai_workspace: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// Last moment a run may start, local time. Absent only on schedules saved
+    /// before an end was required; those stay registered until a person sets one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end: Option<String>,
 }
 
 impl AgentSchedule {
@@ -64,25 +68,68 @@ impl AgentSchedule {
         NaiveDateTime::parse_from_str(&self.start, START).ok()
     }
 
-    /// Whether a run is still ahead at `now`.
+    pub fn end_time(&self) -> Option<NaiveDateTime> {
+        self.end
+            .as_deref()
+            .and_then(|end| NaiveDateTime::parse_from_str(end, START).ok())
+    }
+
+    /// Saved before an end was required. Still registered; the dialog asks for one.
+    pub fn open_ended(&self) -> bool {
+        self.end_time().is_none()
+    }
+
+    /// Whether a run is still ahead at `now`. An open-ended repeat stays pending
+    /// so the clock can ask for an end; it is not removed.
     pub fn pending(&self, now: NaiveDateTime) -> bool {
+        if self.end_time().is_some_and(|end| now >= end) {
+            return false;
+        }
         self.repeat != Repeat::Once || self.start_time().is_some_and(|t| t > now)
     }
 
-    /// One line for the clock's hover: "Once on Wed Oct 1 at 4:55 AM".
+    /// One line for the clock's hover: "Once on Wed Oct 1 at 4:55 AM, until …".
     pub fn describe(&self) -> String {
         let Some(t) = self.start_time() else {
             return "Scheduled".into();
         };
         let at = t.format("%-I:%M %p");
         let day = t.format("%a %b %-d");
-        match self.repeat {
+        let base = match self.repeat {
             Repeat::Once => format!("Once on {day} at {at}"),
             Repeat::Hourly => format!("Every hour from {day} at {at}"),
             Repeat::Daily => format!("Every day at {at}, from {day}"),
             Repeat::Weekly => format!("Every {} at {at}, from {day}", t.format("%A")),
+        };
+        match self.end_time() {
+            Some(end) => format!("{base}, until {}", end.format("%a %b %-d %-I:%M %p")),
+            None => format!("{base} · no end date"),
         }
     }
+}
+
+/// The same clock time one month and one year after `start`.
+pub fn end_presets(start: NaiveDateTime) -> (NaiveDateTime, NaiveDateTime) {
+    (months_after(start, 1), months_after(start, 12))
+}
+
+fn months_after(t: NaiveDateTime, months: u32) -> NaiveDateTime {
+    t.date()
+        .checked_add_months(Months::new(months))
+        .map(|d| d.and_time(t.time()))
+        .unwrap_or(t)
+}
+
+/// `end` must fall after `start`. An empty date is refused.
+pub fn parse_end(start: NaiveDateTime, date: &str, time: &str) -> Result<NaiveDateTime, String> {
+    if date.trim().is_empty() {
+        return Err("Choose when this task stops.".into());
+    }
+    let end = parse_when(date, time, start)?;
+    if end <= start {
+        return Err("The end has to be after the first run.".into());
+    }
+    Ok(end)
 }
 
 pub fn now_local() -> NaiveDateTime {
@@ -231,13 +278,20 @@ pub fn task_xml(schedule: &AgentSchedule, exe: &Path, link_dir: &Path) -> Result
     let start = schedule
         .start_time()
         .ok_or("Choose a date and time for the first run.")?;
+    let end = schedule
+        .end_time()
+        .ok_or("Choose when this task stops. It will not be registered without an end.")?;
+    if end <= start {
+        return Err("The end has to be after the first run.".into());
+    }
     let boundary = format!("{}:00", format_start(start));
+    let end_boundary = format!("{}:00", format_start(end));
     let trigger = match schedule.repeat {
-        Repeat::Once => format!("<TimeTrigger><StartBoundary>{boundary}</StartBoundary><Enabled>true</Enabled></TimeTrigger>"),
-        Repeat::Hourly => format!("<TimeTrigger><Repetition><Interval>PT1H</Interval><StopAtDurationEnd>false</StopAtDurationEnd></Repetition><StartBoundary>{boundary}</StartBoundary><Enabled>true</Enabled></TimeTrigger>"),
-        Repeat::Daily => format!("<CalendarTrigger><StartBoundary>{boundary}</StartBoundary><Enabled>true</Enabled><ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay></CalendarTrigger>"),
+        Repeat::Once => format!("<TimeTrigger><StartBoundary>{boundary}</StartBoundary><EndBoundary>{end_boundary}</EndBoundary><Enabled>true</Enabled></TimeTrigger>"),
+        Repeat::Hourly => format!("<TimeTrigger><Repetition><Interval>PT1H</Interval><StopAtDurationEnd>false</StopAtDurationEnd></Repetition><StartBoundary>{boundary}</StartBoundary><EndBoundary>{end_boundary}</EndBoundary><Enabled>true</Enabled></TimeTrigger>"),
+        Repeat::Daily => format!("<CalendarTrigger><StartBoundary>{boundary}</StartBoundary><EndBoundary>{end_boundary}</EndBoundary><Enabled>true</Enabled><ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay></CalendarTrigger>"),
         Repeat::Weekly => format!(
-            "<CalendarTrigger><StartBoundary>{boundary}</StartBoundary><Enabled>true</Enabled><ScheduleByWeek><WeeksInterval>1</WeeksInterval><DaysOfWeek><{day} /></DaysOfWeek></ScheduleByWeek></CalendarTrigger>",
+            "<CalendarTrigger><StartBoundary>{boundary}</StartBoundary><EndBoundary>{end_boundary}</EndBoundary><Enabled>true</Enabled><ScheduleByWeek><WeeksInterval>1</WeeksInterval><DaysOfWeek><{day} /></DaysOfWeek></ScheduleByWeek></CalendarTrigger>",
             day = start.format("%A")
         ),
     };
@@ -468,8 +522,9 @@ mod tests {
             cwd: String::new(),
             ai_workspace: String::new(),
             model: None,
+            end: None,
         };
-        assert_eq!(s.describe(), "Once on Thu Oct 1 at 4:55 AM");
+        assert_eq!(s.describe(), "Once on Thu Oct 1 at 4:55 AM · no end date");
         assert!(s.pending(at("2026-09-30T12:00")));
         assert!(
             !s.pending(at("2026-10-02T00:00")),
@@ -480,7 +535,10 @@ mod tests {
             ..s
         };
         assert!(daily.pending(at("2027-01-01T00:00")));
-        assert_eq!(daily.describe(), "Every day at 4:55 AM, from Thu Oct 1");
+        assert_eq!(
+            daily.describe(),
+            "Every day at 4:55 AM, from Thu Oct 1 · no end date"
+        );
     }
 
     /// Registers real tasks with Windows Task Scheduler, then removes them.
@@ -502,6 +560,7 @@ mod tests {
                 cwd: String::new(),
                 ai_workspace: String::new(),
                 model: None,
+                end: Some(format_start(hours_from(now_local(), 24 * 60))),
             };
             register(&link, &s, Path::new("C:/Windows/System32/cmd.exe")).unwrap();
             assert!(load(&link).is_some());
@@ -526,11 +585,31 @@ mod tests {
             cwd: String::new(),
             ai_workspace: String::new(),
             model: None,
+            end: Some("2027-10-01T04:55".into()),
         };
         let xml = task_xml(&s, Path::new("C:/Slate/slate.exe"), Path::new("C:/ws/a&b")).unwrap();
         assert!(xml.contains("<StartBoundary>2026-10-01T04:55:00</StartBoundary>"));
+        assert!(xml.contains("<EndBoundary>2027-10-01T04:55:00</EndBoundary>"));
         assert!(xml.contains("<Thursday />"));
         assert!(xml.contains("a&amp;b"));
         assert!(xml.contains("<StartWhenAvailable>true</StartWhenAvailable>"));
+        let open = AgentSchedule { end: None, ..s };
+        assert!(task_xml(&open, Path::new("C:/Slate/slate.exe"), Path::new("C:/ws")).is_err());
+    }
+
+    #[test]
+    fn end_presets_keep_the_clock_time() {
+        let start = NaiveDateTime::parse_from_str("2026-10-09T04:55", START).unwrap();
+        let (month, year) = end_presets(start);
+        assert_eq!(
+            month,
+            NaiveDateTime::parse_from_str("2026-11-09T04:55", START).unwrap()
+        );
+        assert_eq!(
+            year,
+            NaiveDateTime::parse_from_str("2027-10-09T04:55", START).unwrap()
+        );
+        assert!(parse_end(start, "2026-11-09", "4:55 am").is_ok());
+        assert!(parse_end(start, "", "4:55 am").is_err());
     }
 }

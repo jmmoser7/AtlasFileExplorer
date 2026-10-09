@@ -767,6 +767,7 @@ fn picture_files(dir: &Path) -> Vec<std::path::PathBuf> {
 
 pub fn session_from_thread(thread: &Value) -> AgentSession {
     let mut session = AgentSession {
+        usage: None,
         approval: None,
         conversation: thread["id"].as_str().unwrap_or_default().into(),
         artifacts: vec![],

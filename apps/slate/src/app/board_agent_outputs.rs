@@ -1295,6 +1295,7 @@ mod tests {
 
     fn session(prompts: &[&str], artifacts: &[(usize, ArtifactKind, &Path)]) -> AgentSession {
         AgentSession {
+            usage: None,
             approval: None,
             conversation: String::new(),
             artifacts: artifacts
