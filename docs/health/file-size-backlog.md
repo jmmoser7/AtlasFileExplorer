@@ -5,17 +5,18 @@ Split work is **behavior-preserving moves only**: one module per concern, named 
 (Art. XII), `cargo test --workspace` and clippy green, no public API churn beyond
 `pub(crate)` re-exports.
 
-> **Health-check seams (in progress):** branch `health/2026-10-09` report
-> `docs/health/reports/2026-10-09.md` will propose detailed seams for
-> `board.rs`, `board_agent.rs`, and `tests.rs` — merge those rows here when it lands.
+Proposed modules for `board.rs`, `board_agent.rs`, and `tests.rs` are in
+**Proposed seams** below (health run 2026-10-09, tree `eb3a207`). Line
+numbers are that commit. Each module is a behavior-preserving move,
+re-exported from the parent, and stays under 500 physical lines.
 
 ## Top ten — likely seams
 
 | File | Lines | Seams (banner / module, line ranges) |
 |------|------:|--------------------------------------|
-| `apps/slate/src/app/tests.rs` | 28,167 | board canvas L1221; media/guards L1450; lazy previews L1741; keymap wave 2b L1873; line GP L2772; object snap L3370; kits L3607; tool arming L4479; web portal L4930; align L7579; trim/join/split L8155–9046; Bézier L18698+ |
-| `apps/slate/src/app/board_agent.rs` | 14,333 | submodules `crosstalk`, `life`, `outputs`, `schedule`, `train_ux` (L29–34); remainder = session pump, card paint, generator (await health report) |
-| `apps/slate/src/app/board.rs` | 10,743 | tools & gestures L279; state helpers L1153; outline geometry L2509; painting L3093; nested `shape_text_layout` mod L996 |
+| `apps/slate/src/app/tests.rs` | 28,167 | `app/tests/` slices in Proposed seams. One function is 606 lines and needs a helper extract first |
+| `apps/slate/src/app/board_agent.rs` | 14,333 | existing submodules stay; parent body splits into `board_agent/*` in Proposed seams |
+| `apps/slate/src/app/board.rs` | 10,743 | facade plus the `board_*` modules in Proposed seams. Crop paint calls `board_crop`; do not grow `board_place` |
 | `apps/file-atlas/src/app/mod.rs` | 8,650 | UI section L5182; extract load/scan, tree, session, panels into `app/*` modules |
 | `apps/slate/src/app/board_path.rs` | 7,174 | `board_path/tiles.rs` already split; extract stroke mesh, eraser, ink fit, commit paths |
 | `crates/slate-doc/src/scene.rs` | 6,841 | geometry L29; style vocab L179; nodes L1264; connectors L2632; derived connector L2817; scene L3142; commands/journal L3463 |
@@ -23,6 +24,174 @@ Split work is **behavior-preserving moves only**: one module per concern, named 
 | `crates/atlas-shell/src/dock.rs` | 5,336 | palette chrome vs dock layout vs interaction |
 | `apps/slate/src/app/model3d.rs` | 5,077 | preview host vs material/lighting vs capture |
 | `crates/atlas-shell/src/selection_tools.rs` | 4,693 | capsule menus vs property strips vs shared widgets |
+
+## Proposed seams (2026-10-09, `eb3a207`)
+
+Measured sizes: `board.rs` 10,742, `board_agent.rs` 14,332, `tests.rs` 28,166.
+Ranges are inclusive. A slice is cut on a `fn` boundary (or on a `// ---`
+banner) so the moved text is under 480 lines, leaving room for the `use`
+block the new file will need. `board.rs` after the move is the preamble
+(1–278) plus `mod` lines; re-measure it, and extract types if that facade
+crosses 500. Same for `board_agent.rs` (the `mod` list at 29–34 stays).
+
+Do not merge into an owner that is already near the cap. `board_crop.rs`
+is pure math; crop pointer and overlay go to `board_crop_ui.rs` and call
+it. `board_place.rs` is already about 509 lines; place-commit stays
+`board_place_commit.rs` and calls `board_place`. Dry-review before any
+new function. Three functions sit on the cap after a pure move
+(`paint_board_node` 499, the eraser half of `update_gesture` 499,
+`paint_agent_chat_header` 485). The builder stops rather than adding to them.
+
+### `board.rs` → facade + modules
+
+| Module | Lines | Concern |
+|---|---|---|
+| `board_tools.rs` | 279–754 | `FramePreset`, `BoardTool`: label, grammar, hotkey |
+| `board_drag.rs` | 755–995 | `BoardDrag`, `BoardXf` camera math |
+| `shape_text_layout.rs` | 996–1152 | lift the nested mod already at 996 |
+| `board_view.rs` | 1153–1350 | camera, fit, tool arm, active recipe |
+| `board_mutate.rs` | 1351–1648 | journaled patch, add, delete (banner at 1351) |
+| `board_history.rs` | 1649–2132 | undo/redo, duplicate, place items into frames |
+| `board_textures.rs` | 2133–2453 | texture lookup, selection glyphs (banner at 2130) |
+| `board_outline.rs` | 2454–2880 | `node_screen_outline` through the centroid-clip comment |
+| `board_outline_clip.rs` | 2881–3092 | clipped triangles. The "outline geometry" banner at 2509 sits inside `node_screen_outline`; the clip comment is the seam |
+| `board_cards.rs` | 3098–3501 | snippet card and sheet card |
+| `board_model_view.rs` | 3502–3678 | model viewport paint |
+| `board_sticky.rs` | 3679–3867 | sticky fit and image-draft painter |
+| `board_node_paint.rs` | 3868–4366 | `paint_board_node` (499 lines — do not grow) |
+| `board_input.rs` | 4369–4770 | `board_canvas` head: wheel ownership, camera, pan, zoom (banners at 4448, 4979, 5363) |
+| `board_input_place.rs` | 4771–4978 | DragRect, deck, corner grip, crosstalk port, measure |
+| `board_input_gesture.rs` | 4979–5362 | gesture start / update / end, clicks, cursors |
+| `board_paint_scene.rs` | 5363–5644 | scene paint, cull, selection adornment |
+| `board_paint_preview.rs` | 5645–6032 | guides, rubber bands, brush, wire, minimap |
+| `board_model_hud.rs` | 6033–6226 | model status, Enscape window, measurements |
+| `board_crop_ui.rs` | 6227–6559 | crop pointer and overlay. Calls `board_crop`; does not join it |
+| `board_gesture.rs` | 6562–6961 | `begin_gesture`, pick, `update_gesture` until the eraser comment at 6962 |
+| `board_gesture_eraser.rs` | 6962–7460 | eraser scrub through the end of `update_gesture` (499 — do not grow) |
+| `board_gesture_end.rs` | 7461–7775 | `end_gesture` |
+| `board_place_commit.rs` | 7776–8082 | draw-rect resolve and `place_*`. Calls `board_place` |
+| `board_text_place.rs` | 8083–8463 | text drafts, `finish_draw`, portal builders |
+| `board_pick.rs` | 8464–8757 | click and double-click |
+| `board_sheet.rs` | 8761–9262 | frame dialog and sheet edit, through the resize comment at 9263 |
+| `board_sheet_resize.rs` | 9263–9430 | sheet resize grips |
+| `board_text_overlay.rs` | 9431–9843 | text compose overlays |
+| `board_menu.rs` | 9844–10251 | action menu (banner "overlays" at 8758, "dialogs" at 10289) |
+| `board_dialogs.rs` | 10252–10355 | z-order, add-to-frame, export |
+| `board_tests.rs` | 10356–10742 | the `mod tests` at the bottom of `board.rs` |
+
+`board_canvas` (4369–6032, 1,664 lines) is one function. The four input/paint
+modules are extracted phases it calls. That extract is the hard card
+(gesture state crosses the function). The banner moves above it are easy.
+
+### `board_agent.rs` → modules under `board_agent/`
+
+`crosstalk`, `life`, `outputs`, `schedule`, and `train_ux` stay. The parent
+file's body:
+
+| Module | Lines | Concern |
+|---|---|---|
+| `runtime.rs` | 36–513 | `LivePreview`, `InputRole`, `GeneratorView`, `PublishClips`, `AgentRuntime` |
+| `card_metrics.rs` | 514–956 | handle dot, responding label, composer height |
+| `card_fit.rs` | 958–1335 | fit cards to the transcript |
+| `spawn.rs` | 1336–1782 | spawn command and spawn-input hit targets |
+| `spawn_chrome.rs` | 1783–2154 | spawn preview, rename, collapse, full-access grant |
+| `train.rs` | 2155–2650 | projection, rechunk, retarget wires |
+| `bundle.rs` | 2651–3115 | bundle, history rails, summary |
+| `composer.rs` | 3116–3509 | collapsed composer and context blurbs |
+| `artifacts.rs` | 3510–3991 | artifact paint and hit-test |
+| `artifacts_open.rs` | 3992–4285 | open, build, provenance wires |
+| `context.rs` | 4286–4637 | pocket, retract, fork |
+| `programs.rs` | 4638–4863 | program grid and binding |
+| `generator.rs` | 4864–5095 | generator view and request |
+| `generator_pump.rs` | 5096–5476 | Comfy queue, live pump, steer |
+| `inputs.rs` | 5477–5763 | input snapshots and export |
+| `results.rs` | 5764–6239 | place results, stop, model menu |
+| `picture.rs` | 6240–6557 | generation preview and agent picture |
+| `session.rs` | 6558–6878 | `agent_pump`, session pump |
+| `prompt.rs` | 6879–7367 | send prompt, sidecar boot |
+| `awaits.rs` | 7368–7701 | awaits, provider launch, atlas place |
+| `stage.rs` | 7702–7878 | accept and reject proposals |
+| `focus.rs` | 7879–8294 | wheel capture, focus, bind project |
+| `portal_unbound.rs` | 8295–8443 | unbound portal paint |
+| `portal_picker.rs` | 8444–8753 | project and chat pick list |
+| `portal_header.rs` | 8754–9238 | `paint_agent_chat_header` (485 lines, one function — do not grow) |
+| `portal_bound.rs` | 9239–9683 | collapse toggle and bound-card paint |
+| `portal_composer.rs` | 9684–10076 | key entry, composer, stop, channel load |
+| `models.rs` | 10077–10279 | model list and live toggle |
+| `connection.rs` | 10280–10532 | connection pump, fork payload, chat pump |
+| `cursor_ide.rs` | 10533–10765 | Cursor IDE pump (`pump_cursor_ide` is 234 lines) |
+| `await_tests.rs` | 10821–11295 | generator, provider, live-frame tests |
+| `train_tests.rs` | 11296–11754 | hover chips, trains, bundles |
+| `history_tests.rs` | 11755–12202 | history cache, failures, harness `board` |
+| `fork_tests.rs` | 12203–12678 | fork, collapse, streaming tail |
+| `picker_tests.rs` | 12679–13146 | resize, pocket, model-list zoom |
+| `stop_tests.rs` | 13147–13606 | picker wheel, stop square |
+| `present_tests.rs` | 13607–14049 | stop folder, presentation switches |
+| `draft_tests.rs` | 14050–14332 | drafts across presentation switches |
+
+`ProgramBinding` (10766–10820, 55 lines) stays on the `board_agent.rs` facade.
+
+### `tests.rs` → `apps/slate/src/app/tests/`
+
+Banner sections already under 500 stay one module. Larger banners are cut
+on a `fn` boundary. The region 9046–18697 has banners only at its start
+(open/closed trim) and then interleaves brush, eraser, sheet, and image
+paint; those slices stay in source order so helpers do not have to move
+twice. A later card may regroup them by name.
+
+| Module | Lines | Concern |
+|---|---|---|
+| `harness.rs` | 1–440 | clock, drops, media menu, pdf fixtures |
+| `unbundle.rs` | 441–917 | unbundle and asset collect |
+| `app_smoke.rs` | 918–1220 | invariants, tabs, save/reopen |
+| `board_canvas.rs` | 1221–1449 | authored canvas (banner at 1221) |
+| `media_guards.rs` | 1450–1740 | workbook guards, video trim (banner at 1450) |
+| `previews.rs` | 1741–1872 | lazy full-resolution previews |
+| `keymap.rs` | 1873–2331 | keymap wave 2b, strokes and sticky |
+| `text_draft.rs` | 2332–2771 | text-box draft |
+| `line_gp.rs` | 2772–3237 | line golden paths |
+| `line_hit.rs` | 3238–3369 | closed-polyline pick |
+| `osnap.rs` | 3370–3606 | object snaps |
+| `kits.rs` | 3607–4082 | kit recipes and deck prefix |
+| `kits_atlas.rs` | 4083–4478 | deck skip and atlas lens focus |
+| `arming.rs` | 4479–4929 | tool-arming preview |
+| `web_portal.rs` | 4930–5400 | web portal golden paths (banner at 4930) |
+| `web_agent.rs` | 5401–5824 | agent send failures inside the web section |
+| `web_keys.rs` | 5825–6221 | maximize, escape, file walk |
+| `page_focus.rs` | 6222–6697 | focused page (banner at 6222) |
+| `wire_grips.rs` | 6698–7157 | wire grips and edge scale |
+| `bbox_chrome.rs` | 7158–7578 | live bbox chrome, portals do not rotate |
+| `align.rs` | 7579–8058 | align widget golden paths |
+| `align_rotate.rs` | 8059–8154 | rotated resize and the group-box corner |
+| `trim.rs` | 8155–8593 | trim golden paths |
+| `join.rs` | 8594–8891 | join golden paths |
+| `split_gp.rs` | 8892–9045 | split golden paths |
+| `ink_01.rs` … `ink_21.rs` | 9046–18697 | source-order slices, each ≤478 lines: 9046–9516, 9517–9975, 9976–10449, 10450–10927, 10928–11402, 11403–11870, 11871–12340, 12341–12758, 12759–13202, 13203–13676, 13677–14123, 14124–14554, 14555–15013, 15014–15462, 15463–15924, 15925–16388, 16389–16832, 16833–17309, 17310–17775, 17776–18253, 18254–18697 |
+| `bezier.rs` | 18698–19177 | Bézier span drafting |
+| `curve_grips.rs` | 19178–19483 | parametric grips |
+| `bezier_close.rs` | 19484–19619 | close on the start anchor |
+| `crop.rs` | 19620–20004 | image crop |
+| `crop_scale.rs` | 20005–20459 | corner scale and neighbour edges |
+| `crop_copy.rs` | 20460–20928 | copied picture, eraser preview color |
+| `crop_vertex.rs` | 20929–21276 | vertex drag, alt-copy |
+| `vertex_width.rs` | 21277–21638 | per-vertex stroke width |
+| `vertex_color.rs` | 21639–21845 | per-vertex stroke color |
+| `vertex_style.rs` | 21846–22303 | style survives trim, split, join |
+| `vertex_join.rs` | 22304–22773 | object join and seam merge |
+| `vertex_arrow.rs` | 22774–23249 | arrow head, opacity |
+| `vertex_texture.rs` | 23250–23375 | texture restamp |
+| `tip_hud.rs` | 23376–23806 | whole-curve tip HUD |
+| `tip_anchor.rs` | 23807–24278 | anchor delete and command entry |
+| `tip_scrub.rs` | 24279–24756 | HUD scrub |
+| `tip_handle.rs` | 24757–25236 | handle drag |
+| `tip_direct.rs` | 25237–25460 | direct-select modifiers |
+| `subobject.rs` | 25461–25895 | sub-object edges |
+| `curve_style_frames.rs` | 25896–26182 | `curve_style_visual_frames` |
+| `visual_frames.rs` | 26183–26458 | `visual_verification_frames` |
+| `wire_drop.rs` | 26459–27064 | **not a pure move.** `a_wire_dropped_on_empty_board_offers_an_agent_chat_train` is 606 lines. Extract helpers until the test file is under 500, then move |
+| `closed_form.rs` | 27065–27510 | vertex picks on closed forms |
+| `closed_form_strip.rs` | 27511–27966 | strip buttons over corners |
+| `closed_form_line.rs` | 27967–28166 | line end point under a strip button |
 
 ## Waves (one agent per file)
 
