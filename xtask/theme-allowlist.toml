@@ -1,0 +1,122 @@
+# One row per allowed Color32 literal in scoped app UI paths.
+# Format: file = "relative/path", line = N, reason = "why"
+
+[[entry]]
+file = "apps/slate/src/app/board.rs"
+line = 837
+reason = "scene-authored rgba → Color32 bridge"
+
+[[entry]]
+file = "apps/slate/src/app/board.rs"
+line = 3293
+reason = "user-authored sticky / shape fill from document"
+
+[[entry]]
+file = "apps/slate/src/app/board.rs"
+line = 3321
+reason = "user-authored stroke colour from document"
+
+[[entry]]
+file = "apps/slate/src/app/board.rs"
+line = 10182
+reason = "live colour-picker sample from active rgba"
+
+[[entry]]
+file = "apps/slate/src/app/board_color.rs"
+line = 1140
+reason = "authored rgba → Color32 for brush preview"
+
+[[entry]]
+file = "apps/slate/src/app/board_color.rs"
+line = 2432
+reason = "smooth-tool strength preview uses neutral gray mix"
+
+[[entry]]
+file = "apps/slate/src/app/board_color.rs"
+line = 2483
+reason = "smooth-tool neutral guide stroke"
+
+[[entry]]
+file = "apps/slate/src/app/board_color.rs"
+line = 2822
+reason = "authored rgba with opacity for brush disc"
+
+[[entry]]
+file = "apps/slate/src/app/board_color.rs"
+line = 2858
+reason = "recent-colour swatch from document wheel history"
+
+[[entry]]
+file = "apps/slate/src/app/board_color.rs"
+line = 2915
+reason = "HSV wheel disk tessellation samples"
+
+[[entry]]
+file = "apps/slate/src/app/board_color.rs"
+line = 2951
+reason = "HSV hue ring tessellation samples"
+
+[[entry]]
+file = "apps/slate/src/app/board_tip_hud.rs"
+line = 702
+reason = "active brush colour preview on tip palette"
+
+[[entry]]
+file = "apps/slate/src/app/board_path.rs"
+line = 127
+reason = "authored stroke rgba from scene path"
+
+[[entry]]
+file = "apps/slate/src/app/board_path.rs"
+line = 3294
+reason = "ink mesh premultiplied colour math"
+
+[[entry]]
+file = "apps/slate/src/app/board_properties.rs"
+line = 3793
+reason = "property-panel test fixture red stroke"
+
+[[entry]]
+file = "apps/slate/src/app/board_web_stills.rs"
+line = 492
+reason = "poster placeholder gray ramp from luminance"
+
+[[entry]]
+file = "apps/slate/src/app/board_web_win.rs"
+line = 1971
+reason = "Win32 BGRA pixel decode, not theme chrome"
+
+[[entry]]
+file = "apps/slate/src/app/board_atlas.rs"
+line = 1836
+reason = "generated mosaic tile fill from folder hash"
+
+[[entry]]
+file = "apps/slate/src/app/board_atlas.rs"
+line = 1844
+reason = "generated mosaic accent from folder hash"
+
+[[entry]]
+file = "apps/slate/src/app/ui/inspector.rs"
+line = 13
+reason = "scene rgba → Color32 for inspector swatch"
+
+[[entry]]
+file = "apps/file-atlas/src/app/mod.rs"
+line = 7009
+reason = "Slate tag colour from session data"
+
+[[entry]]
+file = "apps/file-atlas/src/app/mod.rs"
+line = 7038
+reason = "Slate tag colour from session data"
+
+[[entry]]
+file = "apps/file-atlas/src/app/mod.rs"
+line = 7867
+reason = "workbook tag chip colour from document"
+
+[[entry]]
+file = "apps/file-atlas/src/app/mod.rs"
+line = 8340
+reason = "chip button fill derived from tag base with alpha"
