@@ -59,8 +59,20 @@ pub struct LoadedText {
     pub captured: Option<SystemTime>,
 }
 
+/// A still read for an agent run, including a miss. Separate from [`Loaded`] so
+/// the card painter never consumes it.
+pub struct Fetched {
+    pub id: NodeId,
+    pub key: String,
+    pub still: Option<(Arc<egui::ColorImage>, Duration)>,
+}
+
 enum Job {
     Load {
+        id: NodeId,
+        key: String,
+    },
+    Fetch {
         id: NodeId,
         key: String,
     },
@@ -89,10 +101,13 @@ pub struct StillCache {
     jobs: crossbeam_channel::Sender<Job>,
     done: crossbeam_channel::Receiver<Loaded>,
     text_done: crossbeam_channel::Receiver<LoadedText>,
+    fetched: crossbeam_channel::Receiver<Fetched>,
     /// Keys asked for this session, so a card is fetched once however many
     /// frames it takes to arrive.
     asked: HashSet<String>,
     asked_text: HashSet<String>,
+    /// Agent fetches in flight, so a waiting run asks once per answer.
+    fetching: HashSet<String>,
     /// Keys written this session. A page that recaptures five times a second
     /// must not write five files a second.
     stored: HashSet<String>,
@@ -135,6 +150,7 @@ impl StillCache {
         let (jobs, job_rx) = crossbeam_channel::unbounded::<Job>();
         let (done_tx, done) = crossbeam_channel::unbounded();
         let (text_tx, text_done) = crossbeam_channel::unbounded();
+        let (fetch_tx, fetched) = crossbeam_channel::unbounded();
         let worker_dir = dir.clone();
         std::thread::Builder::new()
             .name("slate-web-stills".into())
@@ -146,6 +162,10 @@ impl StillCache {
                             if let Some((img, age)) = read(&worker_dir, &key) {
                                 let _ = done_tx.send(Loaded { id, key, age, img });
                             }
+                        }
+                        Job::Fetch { id, key } => {
+                            let still = read(&worker_dir, &key);
+                            let _ = fetch_tx.send(Fetched { id, key, still });
                         }
                         Job::Save { key, img } => write(&worker_dir, &key, &img),
                         Job::SaveText { key, text } => write_text(&worker_dir, &key, &text),
@@ -169,8 +189,10 @@ impl StillCache {
             jobs,
             done,
             text_done,
+            fetched,
             asked: HashSet::new(),
             asked_text: HashSet::new(),
+            fetching: HashSet::new(),
             stored: HashSet::new(),
             hits: 0,
             off: false,
@@ -182,13 +204,16 @@ impl StillCache {
         let (jobs, _) = crossbeam_channel::unbounded::<Job>();
         let (_, done) = crossbeam_channel::unbounded();
         let (_, text_done) = crossbeam_channel::unbounded();
+        let (_, fetched) = crossbeam_channel::unbounded();
         StillCache {
             dir: PathBuf::new(),
             jobs,
             done,
             text_done,
+            fetched,
             asked: HashSet::new(),
             asked_text: HashSet::new(),
+            fetching: HashSet::new(),
             stored: HashSet::new(),
             hits: 0,
             off: true,
@@ -287,6 +312,28 @@ impl StillCache {
             id,
             key: key.to_owned(),
         });
+    }
+
+    /// Read the stored picture again for an agent run. Unlike [`request`], this
+    /// is not once per session: the file may have been rewritten since. One
+    /// read in flight per key.
+    pub fn fetch(&mut self, id: NodeId, key: &str) {
+        if self.off || key.is_empty() || !self.fetching.insert(key.to_owned()) {
+            return;
+        }
+        let _ = self.jobs.send(Job::Fetch {
+            id,
+            key: key.to_owned(),
+        });
+    }
+
+    /// Agent fetches that have finished since the last call, including misses.
+    pub fn drain_fetched(&mut self) -> Vec<Fetched> {
+        let got: Vec<Fetched> = self.fetched.try_iter().collect();
+        for item in &got {
+            self.fetching.remove(&item.key);
+        }
+        got
     }
 
     /// Text reads that have finished since the last call, including misses.
