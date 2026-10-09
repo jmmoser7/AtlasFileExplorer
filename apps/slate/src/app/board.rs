@@ -71,6 +71,8 @@ pub(crate) const AGENT_PORTAL_SIZE: (f32, f32) = (384.0, 168.0);
 pub(crate) enum BoardMark {
     Scene,
     Sheet(SheetMark),
+    /// Pasted and generated image locators moved into the workbook folder.
+    Locators(slate_doc::RewriteLocators),
 }
 
 /// The node a scene command adds, removes, or patches.
@@ -1733,6 +1735,7 @@ impl SlateApp {
         self.sheet_edit = None;
         match self.tab_mut().edits.pop() {
             Some(BoardMark::Sheet(mark)) => self.revert_sheet_mark(mark, true),
+            Some(BoardMark::Locators(mark)) => self.revert_locator_mark(mark, true),
             Some(BoardMark::Scene) => {
                 let depth_before = self.undo_scene_journal();
                 if depth_before.is_none() && self.tab().journal.can_undo() {
@@ -1774,6 +1777,7 @@ impl SlateApp {
         self.sheet_edit = None;
         match self.tab_mut().edit_redo.pop() {
             Some(BoardMark::Sheet(mark)) => self.revert_sheet_mark(mark, false),
+            Some(BoardMark::Locators(mark)) => self.revert_locator_mark(mark, false),
             Some(BoardMark::Scene) => {
                 if let Some(depth) = self.redo_scene_journal() {
                     self.tab_mut().edits.push(BoardMark::Scene);
@@ -1822,6 +1826,28 @@ impl SlateApp {
         } else {
             tab.edits.push(BoardMark::Sheet(inverted));
         }
+    }
+
+    fn revert_locator_mark(&mut self, mark: slate_doc::RewriteLocators, to_redo: bool) {
+        let inverse = mark.inverted();
+        if !inverse.apply(self.doc_mut()) {
+            self.toast("Couldn't restore those asset links");
+            let tab = self.tab_mut();
+            if to_redo {
+                tab.edits.push(BoardMark::Locators(mark));
+            } else {
+                tab.edit_redo.push(BoardMark::Locators(mark));
+            }
+            return;
+        }
+        let tab = self.tab_mut();
+        tab.dirty = true;
+        if to_redo {
+            tab.edit_redo.push(BoardMark::Locators(inverse));
+        } else {
+            tab.edits.push(BoardMark::Locators(inverse));
+        }
+        self.note_scene_change();
     }
 
     /// Duplicate nodes in place with a small offset; selects the copies.

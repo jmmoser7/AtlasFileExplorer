@@ -146,6 +146,7 @@ impl SlateApp {
                 self.save_doc_as_dialog();
                 true
             }
+            "board.assets.collect" => self.collect_assets_into_workbook(),
             "app.new_tab" => {
                 self.new_tab();
                 true

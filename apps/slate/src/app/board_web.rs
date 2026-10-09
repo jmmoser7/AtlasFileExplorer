@@ -2856,7 +2856,7 @@ impl SlateApp {
             .tab()
             .path
             .as_ref()
-            .and_then(|p| p.parent().map(|d| d.join("assets")))
+            .map(|p| atlas_core::workbook_assets::assets_root(p))
             .unwrap_or_else(std::env::temp_dir);
         std::fs::create_dir_all(&dir).ok()?;
         let path = dir.join(format!("web-poster-{}.png", id.0));
@@ -2898,7 +2898,24 @@ impl SlateApp {
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| "page".into());
-        let dest_dir = workbook_dir.join("assets").join("web").join(&name);
+        if atlas_core::secrets::is_machine_private(&source) {
+            self.toast("That page stays on this machine and is not copied into the workbook.");
+            return true;
+        }
+        if atlas_core::cloud::is_dehydrated(&source)
+            || atlas_core::cloud::copy_cloud_cost(std::slice::from_ref(&source)).files > 0
+        {
+            self.toast(
+                "That page is a cloud placeholder. Make it available locally before packaging.",
+            );
+            return true;
+        }
+        let workbook_file = self
+            .tab()
+            .path
+            .clone()
+            .unwrap_or(workbook_dir.join("workbook.slate"));
+        let dest_dir = atlas_core::workbook_assets::web_package_dir(&workbook_file, &name);
         let result = if source.is_dir() {
             copy_tree(&source, &dest_dir).map(|_| dest_dir.clone())
         } else {

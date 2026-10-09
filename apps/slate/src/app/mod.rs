@@ -102,6 +102,7 @@ mod tests_tip_chord;
 #[cfg(test)]
 mod tests_wire_lanes;
 mod ui;
+mod workbook_assets;
 
 pub use chrome::ChromeConfig;
 
@@ -145,7 +146,7 @@ pub struct SlateTab {
     pub doc: SlateDoc,
     /// Derived link health shared by every view; no filesystem access in paint.
     pub(crate) link_health: slate_doc::LinkHealthCache,
-    link_health_revision: Option<(u64, usize)>,
+    link_health_revision: Option<(u64, usize, Option<PathBuf>)>,
     pub dirty: bool,
     /// Write lease for `path`, when this process owns it.
     pub lease: Option<Lease>,
@@ -357,6 +358,7 @@ pub struct SlateApp {
     pub dialogs: DialogGate,
     pub picker: FilePicker<PickerMsg>,
     export_rx: Option<Receiver<(PathBuf, Result<slate_artifact::ExportReport, String>)>>,
+    collect_rx: Option<Receiver<workbook_assets::CollectJob>>,
     unsaved_close: Option<UnsavedClose>,
     pub toasts: Vec<(String, Instant)>,
     /// Rate-limit for the read-only edit refusal toast (one per second).
@@ -872,6 +874,7 @@ impl SlateApp {
             settings: settings::SlateSettings::load(),
             picker: dialogs.picker(),
             export_rx: None,
+            collect_rx: None,
             unsaved_close: None,
             toasts: Vec::new(),
             last_read_only_toast: None,
@@ -1774,6 +1777,15 @@ impl SlateApp {
         let Some(tab_idx) = self.tabs.iter().position(|t| t.id == tab_id) else {
             return;
         };
+        let edits_before = self.tabs[tab_idx].edits.len();
+        let asset_note = {
+            let outcome = self.migrate_assets_for_save(tab_idx, &path);
+            if outcome.collected.is_empty() && outcome.refused.is_empty() {
+                String::new()
+            } else {
+                format!(" · {}", outcome.summary())
+            }
+        };
         if tab_idx == self.active_tab {
             self.lock_all_models();
         }
@@ -1792,6 +1804,16 @@ impl SlateApp {
             self.flush_create_style_to_doc();
         }
         if let Err(e) = self.tabs[tab_idx].doc.save_to(&path) {
+            if self.tabs[tab_idx].edits.len() > edits_before {
+                if let Some(board::BoardMark::Locators(mark)) = self.tabs[tab_idx].edits.pop() {
+                    let inverse = mark.inverted();
+                    if !inverse.apply(&mut self.tabs[tab_idx].doc) {
+                        self.tabs[tab_idx]
+                            .edits
+                            .push(board::BoardMark::Locators(mark));
+                    }
+                }
+            }
             self.toast(format!("Save failed: {e}"));
             return;
         }
@@ -1802,7 +1824,7 @@ impl SlateApp {
         // Save-as (or first save of an untitled): take the lease on the new
         // path and clear read-only. Same-path save keeps the lease we hold.
         if !need_lease {
-            self.toast("Workbook saved");
+            self.toast(format!("Workbook saved{asset_note}"));
             return;
         }
         if let Some(old) = self.tabs[tab_idx].lease.take() {
@@ -1814,14 +1836,14 @@ impl SlateApp {
                 tab.lease = Some(lease);
                 tab.read_only = false;
                 tab.lease_holder = None;
-                "Workbook saved".to_string()
+                format!("Workbook saved{asset_note}")
             }
             Ok(LeaseState::Held(info)) => {
                 let tab = &mut self.tabs[tab_idx];
                 tab.read_only = true;
                 tab.lease_holder = Some(info.clone());
                 format!(
-                    "Saved, but open read-only — {} has it open",
+                    "Saved, but open read-only — {} has it open{asset_note}",
                     info.describe()
                 )
             }
@@ -1829,7 +1851,7 @@ impl SlateApp {
                 let tab = &mut self.tabs[tab_idx];
                 tab.read_only = true;
                 tab.lease_holder = Some(LeaseInfo::unknown());
-                format!("Saved, but could not take write lease ({e})")
+                format!("Saved, but could not take write lease ({e}){asset_note}")
             }
         };
         self.toast(toast);
@@ -1876,10 +1898,13 @@ impl SlateApp {
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
         let key = cache_key(&path.to_string_lossy(), size, mtime);
-        Some(
-            self.doc_mut()
-                .add_item(path.to_path_buf(), name, size, mtime, key),
-        )
+        let locator = slate_doc::scene::source_locator(self.tab().path.as_deref(), path);
+        let stored = if locator.starts_with("assets/") {
+            PathBuf::from(locator)
+        } else {
+            path.to_path_buf()
+        };
+        Some(self.doc_mut().add_item(stored, name, size, mtime, key))
     }
 
     pub fn add_paths(&mut self, paths: &[PathBuf]) -> Vec<ItemId> {
@@ -2331,10 +2356,26 @@ impl SlateApp {
         }
         let _span = atlas_core::session_log::span("slate.link_health");
         let tab = self.tab_mut();
-        let revision = (tab.doc.item_paths_revision(), tab.doc.items.len());
-        if tab.link_health_revision != Some(revision) {
+        let workbook = tab.path.clone();
+        let revision = (
+            tab.doc.item_paths_revision(),
+            tab.doc.items.len(),
+            workbook.clone(),
+        );
+        if tab.link_health_revision != Some(revision.clone()) {
+            let paths: Vec<PathBuf> = tab
+                .doc
+                .items
+                .iter()
+                .map(|item| {
+                    slate_doc::scene::resolve_source(
+                        workbook.as_deref(),
+                        &item.path.to_string_lossy(),
+                    )
+                })
+                .collect();
             tab.link_health
-                .sync_paths(tab.doc.items.iter().map(|item| item.path.as_path()));
+                .sync_paths(paths.iter().map(|path| path.as_path()));
             tab.link_health_revision = Some(revision);
         }
         let pending = tab.link_health.tick();
@@ -2346,7 +2387,7 @@ impl SlateApp {
     pub(crate) fn update_close_blocked(&self) -> Option<&'static str> {
         if self.tabs.iter().any(|tab| tab.dirty) {
             Some("Save all open workbooks before restarting.")
-        } else if self.export_rx.is_some() || self.dialogs.any_open() {
+        } else if self.export_rx.is_some() || self.collect_rx.is_some() || self.dialogs.any_open() {
             Some("Finish the open file dialog or export before restarting.")
         } else {
             self.atlas
@@ -2378,6 +2419,7 @@ impl SlateApp {
                 ctx.request_repaint_after(Duration::from_millis(50));
             }
             self.poll_artifact_export(ctx);
+            self.poll_collect_assets(ctx);
             self.heartbeat_active_lease();
             self.note_engine_failure();
         }

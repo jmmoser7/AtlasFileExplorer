@@ -4953,8 +4953,9 @@ impl SlateApp {
         #[cfg(not(test))]
         {
             let cwd = self.agent_folder_for(id).unwrap_or_else(|| ws.clone());
+            let workbook = self.tab().path.clone();
             let runtime = self.agents.codex.entry(session).or_insert_with(|| {
-                atlas_ai::runtime::CodexLink::start_provider(dir, cwd, provider)
+                atlas_ai::runtime::CodexLink::start_beside(dir, cwd, provider, workbook)
             });
             if let Err(error) = runtime.send(request) {
                 self.fail_agent_await(id, error);
@@ -6785,12 +6786,14 @@ impl SlateApp {
                     #[cfg(not(test))]
                     {
                         let cwd = self.agent_folder_for(portal).unwrap_or_else(|| ws.clone());
+                        let workbook = self.tab().path.clone();
                         let runtime =
                             self.agents.codex.entry(session.clone()).or_insert_with(|| {
-                                atlas_ai::runtime::CodexLink::start_provider(
+                                atlas_ai::runtime::CodexLink::start_beside(
                                     dir.clone(),
                                     cwd,
                                     provider.clone(),
+                                    workbook,
                                 )
                             });
                         if let Err(error) = runtime.send(req.clone()) {

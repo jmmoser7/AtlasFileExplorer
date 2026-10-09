@@ -413,8 +413,8 @@ impl SlateApp {
 
     fn model_screenshot_output_path(&self, node: NodeId, ext: &str) -> Result<PathBuf, String> {
         if let Some(workbook) = self.tab().path.as_ref() {
-            if let Some(parent) = workbook.parent() {
-                let dir = parent.join("assets");
+            if workbook.parent().is_some() {
+                let dir = atlas_core::workbook_assets::assets_root(workbook);
                 std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
                 let stamp = SystemTime::now()
                     .duration_since(UNIX_EPOCH)

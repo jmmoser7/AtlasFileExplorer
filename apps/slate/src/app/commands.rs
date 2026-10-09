@@ -331,6 +331,16 @@ pub static SPECS: &[CommandSpec] = &[
         GLOBAL,
         &[],
     ),
+    spec(
+        "board.assets.collect",
+        "Workbook",
+        "Collect assets into workbook folder",
+        "Copies pasted and generated images out of app data into assets/ beside this workbook. Undo restores the old links; the copies stay.",
+        None,
+        Repeat::Never,
+        BOARD,
+        &["collect assets", "gather images", "workbook assets"],
+    ),
     // ----- Board --------------------------------------------------------------
     spec(
         "board.tool.select",

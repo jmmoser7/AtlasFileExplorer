@@ -62,6 +62,27 @@ None. Proposed defaults approved by the user on 2026-09-15.
 - Rhino and Video share placement with the other media families. Video scrub and playback live in `atlas_core::video` (decode) and `apps/slate/src/app/board_video.rs` (the playhead). The playhead is not journaled. Cloud placeholders are not opened.
 - Text documents reuse the existing snippet card. `atlas-core::office` extracts a capped excerpt from docx, xlsx, odt, ods, rtf, and Outlook .msg (headers, plain text, or HTML/RTF fallback, plus attachment names). CSV and source files are read as text. Legacy binary `.doc` / `.xls` with no excerpt use the linked document card. `.doc` and `.docx` unbundle through Word the same way PowerPoint unbundles through its PDF adapter; the page images land beside a saved workbook under `assets/documents/<stem>-<hash>/`, one folder per source path (a relative locator) or in the Atlas data directory when the workbook is unsaved. Unbundle requested before the page count is ready is queued and completed when the preview arrives.
 
+## Workbook asset folder
+
+Pictures the board itself creates travel beside a saved workbook. The layout owner is `atlas_core::workbook_assets`; every writer asks it for the folder instead of joining `assets` on its own.
+
+```
+<folder>/Board.slate
+<folder>/assets/pasted/                          clipboard images (`paste-<stamp>.png`)
+<folder>/assets/generated/<provider>/<yyyy-mm>/  AI images plus `<id>.json` (prompt, model, seed, params, created, source run — no API keys)
+<folder>/assets/web/                             packaged local pages
+<folder>/assets/documents/<stem>-<hash>/         unbundled Word / document pages
+<folder>/assets/agent/                           reserved for a chat train's Just build
+```
+
+An unsaved workbook keeps clipboard images in the Atlas data directory (`pasted/`) and generator output in `<data dir>/<provider>/<session>/`. The first Save or Save As copies those placed images into the layout and rewrites their locators in one undo step. Save As to another folder copies only the assets this workbook already references from its own `assets/` tree. It does not copy arbitrary linked user files (that would be packaging, Article IX.4).
+
+Older `assets/paste-<stamp>.png` locators stay valid. They are already workbook-relative; Collect does not move them.
+
+`board.assets.collect` copies generated and pasted images that still live under the Atlas data directory into this layout and rewrites those locators to workbook-relative paths. It refuses paths outside that directory, machine-private folders (WebView profile, secret store, web stills), and cloud placeholders (`cloud::is_dehydrated` / `copy_cloud_cost`) without reading their bytes. Copies run off the frame loop. Undo restores the old locators; the copied files may remain. The `assets` folder is not machine-private, and a machine-private folder is never copied into it.
+
+Opening the workbook from another directory resolves `assets/...` against that directory, the same way `resolve_source` already joins every other relative locator.
+
 ## Validation — 2026-09-15
 
 - Release compilation passed. The updated executable is installed at `target/release/slate.exe`; the previous executable was retained beside it.

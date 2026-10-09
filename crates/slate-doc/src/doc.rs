@@ -336,7 +336,9 @@ impl SlateDoc {
         temp_name.push(".tmp");
         let temp_path = parent.join(temp_name);
 
-        let json = serde_json::to_string_pretty(self).map_err(io::Error::other)?;
+        let mut stored = self.clone();
+        crate::locators::persist_asset_locators(&mut stored, path);
+        let json = serde_json::to_string_pretty(&stored).map_err(io::Error::other)?;
         std::fs::write(&temp_path, json)?;
         std::fs::rename(temp_path, path)?;
         Ok(())
@@ -393,6 +395,20 @@ impl SlateDoc {
         };
         item.path = new_path;
         item.file_name = file_name;
+        self.mark_item_paths_changed();
+        true
+    }
+
+    /// Changes only the stored locator. The display name stays, so a page
+    /// titled "Essay — page 1" does not become `page-1.png`.
+    pub fn set_item_locator(&mut self, id: ItemId, path: PathBuf) -> bool {
+        let Some(item) = self.item_mut(id) else {
+            return false;
+        };
+        if item.path == path {
+            return true;
+        }
+        item.path = path;
         self.mark_item_paths_changed();
         true
     }

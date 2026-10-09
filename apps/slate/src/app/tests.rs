@@ -701,6 +701,150 @@ fn unbundle_word_of_an_unsaved_workbook_writes_into_the_data_dir() {
 }
 
 #[test]
+fn saving_files_data_dir_images_beside_the_workbook_and_undo_restores_locators() {
+    let mut h = Harness::new("asset_save");
+    h.app.ensure_work_tab();
+    let data = atlas_core::index::data_dir().join("pasted");
+    std::fs::create_dir_all(&data).unwrap();
+    let src = data.join(format!("paste-asset-{}.png", now_nanos()));
+    std::fs::write(&src, b"png-bytes").unwrap();
+    let id = h
+        .app
+        .doc_mut()
+        .add_item(src.clone(), "paste.png", 9, 1, "k");
+    let user = h.base.join("holiday.png");
+    std::fs::write(&user, b"user-bytes").unwrap();
+    let user_id = h
+        .app
+        .doc_mut()
+        .add_item(user.clone(), "holiday.png", 10, 1, "u");
+    let dest = h.base.join("Board.slate");
+    h.app.save_doc_to(h.app.tab().id, dest.clone());
+    let stored = h.app.doc().item(id).unwrap().path.clone();
+    let locator = stored.to_string_lossy().replace('\\', "/");
+    assert!(
+        locator.starts_with("assets/pasted/paste-asset-"),
+        "{locator}"
+    );
+    assert_eq!(std::fs::read(h.base.join(&stored)).unwrap(), b"png-bytes");
+    assert_eq!(h.app.doc().item(user_id).unwrap().path, user);
+    let on_disk = slate_doc::SlateDoc::load_from(&dest).unwrap();
+    assert!(on_disk
+        .items
+        .iter()
+        .any(|item| { item.path.to_string_lossy().replace('\\', "/") == locator }));
+    let elsewhere = std::env::temp_dir().join(format!("slate-moved-{}", now_nanos()));
+    copy_dir(&h.base, &elsewhere);
+    let moved = slate_doc::SlateDoc::load_from(&elsewhere.join("Board.slate")).unwrap();
+    let resolved = slate_doc::scene::resolve_source(
+        Some(&elsewhere.join("Board.slate")),
+        &moved
+            .items
+            .iter()
+            .find(|item| item.file_name == "paste.png")
+            .unwrap()
+            .path
+            .to_string_lossy(),
+    );
+    assert_eq!(std::fs::read(resolved).unwrap(), b"png-bytes");
+    h.app.board_undo();
+    assert_eq!(h.app.doc().item(id).unwrap().path, src);
+    assert!(h.base.join(&locator).is_file());
+    let _ = std::fs::remove_file(&src);
+    let _ = std::fs::remove_dir_all(&elsewhere);
+}
+
+#[test]
+fn collect_assets_rewrites_data_dir_images_and_refuses_user_files() {
+    let mut h = Harness::new("asset_collect");
+    h.app.ensure_work_tab();
+    h.app.leave_home();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    assert!(h.app.dispatch(
+        &h.ctx,
+        atlas_commands::CommandId("board.assets.collect"),
+        None
+    ));
+    assert!(
+        toast_text(&h.app).contains("Save the workbook first"),
+        "{}",
+        toast_text(&h.app)
+    );
+    h.app.tab_mut().path = Some(h.base.join("Board.slate"));
+    let gen_dir = atlas_core::index::data_dir()
+        .join("openai-image")
+        .join(format!("sess-{}", now_nanos()));
+    std::fs::create_dir_all(&gen_dir).unwrap();
+    let src = gen_dir.join("req-1.png");
+    std::fs::write(&src, b"generated").unwrap();
+    std::fs::write(
+        src.with_extension("json"),
+        br#"{"prompt":"barn","model":"gpt","api_key":"sk-no"}"#,
+    )
+    .unwrap();
+    let user = h.base.join("holiday.png");
+    std::fs::write(&user, b"user").unwrap();
+    let gen_id = h
+        .app
+        .doc_mut()
+        .add_item(src.clone(), "req-1.png", 9, 1, "g");
+    let user_id = h
+        .app
+        .doc_mut()
+        .add_item(user.clone(), "holiday.png", 4, 1, "u");
+    assert!(h.app.dispatch(
+        &h.ctx,
+        atlas_commands::CommandId("board.assets.collect"),
+        None
+    ));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while std::time::Instant::now() < deadline {
+        h.app.poll_collect_assets(&h.ctx);
+        if h.app.collect_rx.is_none() && h.app.doc().item(gen_id).unwrap().path != src {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let locator = h
+        .app
+        .doc()
+        .item(gen_id)
+        .unwrap()
+        .path
+        .to_string_lossy()
+        .replace('\\', "/");
+    assert!(
+        locator.starts_with("assets/generated/openai-image/") && locator.ends_with("/req-1.png"),
+        "{locator}"
+    );
+    assert_eq!(std::fs::read(h.base.join(&locator)).unwrap(), b"generated");
+    let sidecar = std::fs::read_to_string(h.base.join(&locator).with_extension("json")).unwrap();
+    assert!(sidecar.contains("barn"));
+    assert!(!sidecar.contains("sk-no"));
+    assert_eq!(h.app.doc().item(user_id).unwrap().path, user);
+    assert!(
+        toast_text(&h.app).contains("outside the app data folder")
+            || toast_text(&h.app).contains("Filed")
+    );
+    h.app.board_undo();
+    assert_eq!(h.app.doc().item(gen_id).unwrap().path, src);
+    let _ = std::fs::remove_dir_all(&gen_dir);
+}
+
+fn copy_dir(from: &std::path::Path, to: &std::path::Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let dest = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_dir(&entry.path(), &dest);
+        } else {
+            std::fs::copy(entry.path(), dest).unwrap();
+        }
+    }
+}
+
+#[test]
 fn media_page_command_preserves_grid_and_venn_item_selection() {
     let mut h = Harness::new("media_grid_page");
     h.app.ensure_work_tab();

@@ -38,3 +38,4 @@ pub mod tree;
 pub mod types;
 pub mod video;
 pub mod watcher;
+pub mod workbook_assets;

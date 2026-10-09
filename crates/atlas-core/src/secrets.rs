@@ -316,5 +316,23 @@ mod tests {
         assert!(is_machine_private(&root.join("web-stills").join("a.txt")));
         assert!(!is_machine_private(&root.join("thumbs").join("a.jpg")));
         assert!(!is_machine_private(elsewhere));
+        // A workbook saved under the Atlas data directory still owns its
+        // assets folder. Those bytes travel with the .slate; they are not
+        // the WebView profile or the secret store.
+        assert!(!is_machine_private(
+            &root.join("assets").join("pasted").join("a.png")
+        ));
+        assert!(!is_machine_private(
+            &root
+                .join("assets")
+                .join("generated")
+                .join("openai")
+                .join("2026-10")
+                .join("a.png")
+        ));
+        assert!(!is_machine_private(
+            &root.join("assets").join("web").join("index.html")
+        ));
+        assert!(!is_machine_private(&root.join("assets").join("agent")));
     }
 }
