@@ -250,6 +250,12 @@ pub struct AgentRuntime {
     card_overflow: HashMap<NodeId, f32>,
     /// Streaming transcript follow, in world units. Absent means follow the bottom.
     follow: HashMap<NodeId, train_ux::FollowScroll>,
+    /// Collapsed cards shown at twice the capsule while a reply streams.
+    /// Display only (Art. VI.3): the card stays collapsed in the document and
+    /// returns to the capsule when streaming ends, unless the person folds it.
+    stream_open: HashSet<NodeId>,
+    /// Laid-out Responding labels of streaming cards.
+    responding: HashMap<NodeId, RespondingLabel>,
     /// Laid-out transcript height per card as (card width, height, content
     /// signature), in world units. Train cards fit to what paint drew, so
     /// bubbles, rules and status rows are never estimated twice. Zoom only ever
@@ -656,8 +662,11 @@ pub(crate) fn record_agent_resize(node: &mut Node) -> bool {
     true
 }
 
-fn card_fold(chat: &slate_doc::agent_chat::ChatView) -> train_ux::CardFold {
-    if chat.collapsed {
+/// `streaming` is the display-only open of a collapsed card ([`AgentRuntime::stream_open`]).
+fn card_fold(chat: &slate_doc::agent_chat::ChatView, streaming: bool) -> train_ux::CardFold {
+    if chat.collapsed && streaming {
+        train_ux::CardFold::Partial
+    } else if chat.collapsed {
         train_ux::CardFold::Collapsed
     } else if chat.partial {
         train_ux::CardFold::Partial
@@ -691,21 +700,78 @@ fn paint_pick_button(ui: &egui::Ui, rect: Rect, label: &str, z: f32, radius: f32
     resp.clicked()
 }
 
-fn responding_wave(text: &str, color: Color32, time: f64) -> egui::WidgetText {
-    let time = time as f32;
-    let mut job = egui::text::LayoutJob::default();
-    for (i, ch) in text.chars().enumerate() {
-        let wave = ((time * 2.2 - i as f32 * 0.35).sin() + 1.0) * 0.5;
-        job.append(
-            &ch.to_string(),
-            0.0,
-            egui::TextFormat {
-                color: color.gamma_multiply(0.35 + 0.65 * wave),
-                ..Default::default()
-            },
-        );
+/// "Responding" and its token readout, laid out once per font size and count,
+/// so the wave repaints without allocating.
+#[derive(Default)]
+pub(crate) struct RespondingLabel {
+    font_bits: u32,
+    wave: Option<std::sync::Arc<egui::Galley>>,
+    count_key: Option<(Option<u64>, usize)>,
+    count: Option<std::sync::Arc<egui::Galley>>,
+}
+
+/// The opacity wave runs glyph by glyph over one cached galley: each glyph
+/// is the same galley clipped to its advance, tinted by its phase.
+fn paint_responding(
+    ui: &mut egui::Ui,
+    label: &mut RespondingLabel,
+    font: &FontId,
+    colors: (Color32, Color32),
+    reported: Option<u64>,
+    turns: &[AgentTurn],
+) {
+    let (accent, sub) = colors;
+    if label.font_bits != font.size.to_bits() || label.wave.is_none() {
+        label.font_bits = font.size.to_bits();
+        label.wave = Some(ui.painter().layout_no_wrap(
+            "Responding".to_owned(),
+            font.clone(),
+            Color32::WHITE,
+        ));
+        label.count_key = None;
     }
-    job.into()
+    // Byte length moves whenever text arrives; characters are counted only then.
+    let bytes: usize = turns.iter().map(|t| t.text.len()).sum();
+    if label.count_key != Some((reported, bytes)) {
+        label.count_key = Some((reported, bytes));
+        let chars = turns.iter().map(|t| t.text.chars().count()).sum();
+        label.count = Some(ui.painter().layout_no_wrap(
+            train_ux::token_readout(reported, chars),
+            font.clone(),
+            Color32::WHITE,
+        ));
+    }
+    let (Some(wave), Some(count)) = (label.wave.clone(), label.count.clone()) else {
+        return;
+    };
+    let gap = ui.spacing().item_spacing.x;
+    let size = egui::vec2(
+        wave.size().x + gap + count.size().x,
+        wave.size().y.max(count.size().y),
+    );
+    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+    let painter = ui.painter();
+    let time = ui.input(|i| i.time) as f32;
+    if let Some(row) = wave.rows.first() {
+        for (i, glyph) in row.glyphs.iter().enumerate() {
+            let phase = ((time * 2.2 - i as f32 * 0.35).sin() + 1.0) * 0.5;
+            let left = rect.left() + glyph.pos.x;
+            let clip = Rect::from_x_y_ranges(left..=left + glyph.advance_width, rect.y_range())
+                .intersect(painter.clip_rect());
+            painter
+                .with_clip_rect(clip)
+                .galley_with_override_text_color(
+                    rect.min,
+                    wave.clone(),
+                    accent.gamma_multiply(0.35 + 0.65 * phase),
+                );
+        }
+    }
+    painter.galley_with_override_text_color(
+        Pos2::new(rect.left() + wave.size().x + gap, rect.top()),
+        count,
+        sub,
+    );
 }
 
 fn paint_chevron_glyph(painter: &egui::Painter, center: Pos2, z: f32, up: bool, ink: Color32) {
@@ -898,6 +964,7 @@ impl SlateApp {
     /// coalescing journal path, so typing/streaming cannot bypass undo.
     pub(crate) fn fit_agent_cards(&mut self, ctx: &egui::Context) {
         use std::hash::{Hash, Hasher};
+        self.settle_stream_open();
         if self.tab().read_only || self.board_drag.is_some() {
             return;
         }
@@ -980,6 +1047,7 @@ impl SlateApp {
             (
                 a.chat.collapsed,
                 a.chat.partial,
+                self.agents.stream_open.contains(&node.id),
                 a.chat.size.map(|s| [s[0].to_bits(), s[1].to_bits()]),
                 self.agent_has_child(node.id),
             )
@@ -1138,6 +1206,10 @@ impl SlateApp {
             } else if a.chat.collapsed || a.chat.partial || a.chat.size.is_some() {
                 // Collapse owns the height; a partial open is twice that capsule;
                 // a person's size owns the rest.
+                let partial = matches!(
+                    card_fold(&a.chat, self.agents.stream_open.contains(&node.id)),
+                    train_ux::CardFold::Partial
+                );
                 after.rect.w = a.chat.size.map_or(node.rect.w, |s| s[0]);
                 after.rect.h = if !a.chat.collapsed && !a.chat.partial {
                     a.chat.size.map(|s| s[1]).unwrap_or(node.rect.h)
@@ -1148,7 +1220,7 @@ impl SlateApp {
                         .collect::<Vec<_>>()
                         .join("\n\n");
                     let mut h = collapsed_card_height(ctx, text, after.rect.w);
-                    if a.chat.partial {
+                    if partial {
                         h = train_ux::stream_card_height(h);
                     }
                     if !self.agent_has_child(node.id) {
@@ -1847,26 +1919,38 @@ impl SlateApp {
                 .and_then(slate_doc::agent_chat::agent)
                 .is_some_and(|a| !a.chat.collapsed)
         });
+        let released = self.release_stream_open(&ids);
         self.refit_agent_cards(ctx, &ids, |chat| {
             chat.collapsed = collapse;
             chat.partial = false;
-        })
+        }) || released
     }
 
-    /// Chevron zones. A missing detail keeps the keyboard toggle.
+    /// Chevron zones. A missing detail keeps the keyboard toggle. Folding a
+    /// card that is open only for streaming starts from what the person sees
+    /// and makes that fold theirs.
     pub(crate) fn agent_fold(&mut self, ctx: &egui::Context, detail: Option<&str>) -> bool {
         let Some(zone) = detail.and_then(train_ux::ChevronZone::parse) else {
             return self.agent_toggle_collapse(ctx);
         };
         let ids = self.selected_chat_cards();
-        self.refit_agent_cards(ctx, &ids, |chat| {
-            let fold = card_fold(chat);
+        let streaming: HashSet<NodeId> = ids
+            .iter()
+            .copied()
+            .filter(|id| self.agents.stream_open.contains(id))
+            .collect();
+        let released = self.release_stream_open(&ids);
+        self.refit_agent_cards_by(ctx, &ids, |id, chat| {
+            let fold = card_fold(chat, streaming.contains(&id));
             write_fold(chat, train_ux::apply_chevron(fold, zone));
-        })
+        }) || released
     }
 
-    /// A collapsed card opens to twice the capsule when a reply starts streaming.
-    fn open_streaming_card(&mut self, ctx: &egui::Context, id: NodeId) {
+    /// A collapsed card shows twice the capsule while a reply streams. The
+    /// fold is display state, not a person's edit: the card stays collapsed,
+    /// its rect follows the ordinary auto-fit, and the capsule returns when
+    /// the stream ends ([`Self::settle_stream_open`]).
+    fn open_streaming_card(&mut self, id: NodeId) {
         let open = self
             .doc()
             .scene
@@ -1875,13 +1959,41 @@ impl SlateApp {
             .is_some_and(|a| {
                 a.chat.collapsed && !a.chat.draft && !(a.chat.train && !a.chat.bundled.is_empty())
             });
-        if !open {
+        if open && self.agents.stream_open.insert(id) {
+            self.agents.fit_revision = None;
+        }
+    }
+
+    /// Drop streaming opens whose reply is no longer streaming, so the card
+    /// refits to its capsule. Cheap when nothing is open.
+    pub(crate) fn settle_stream_open(&mut self) {
+        let awaiting = &self.agents.awaiting;
+        if !self.agents.responding.is_empty() {
+            self.agents
+                .responding
+                .retain(|id, _| matches!(awaiting.get(id), Some(AgentAwait::Responding { .. })));
+        }
+        if self.agents.stream_open.is_empty() {
             return;
         }
-        self.refit_agent_cards(ctx, &[id], |chat| {
-            chat.collapsed = false;
-            chat.partial = true;
-        });
+        let before = self.agents.stream_open.len();
+        self.agents
+            .stream_open
+            .retain(|id| matches!(awaiting.get(id), Some(AgentAwait::Responding { .. })));
+        if self.agents.stream_open.len() != before {
+            self.agents.fit_revision = None;
+        }
+    }
+
+    fn release_stream_open(&mut self, ids: &[NodeId]) -> bool {
+        let mut released = false;
+        for id in ids {
+            released |= self.agents.stream_open.remove(id);
+        }
+        if released {
+            self.agents.fit_revision = None;
+        }
+        released
     }
 
     /// Per-user grants that must survive a relaunch and never ride in a
@@ -1977,6 +2089,15 @@ impl SlateApp {
         ids: &[NodeId],
         edit: impl Fn(&mut slate_doc::agent_chat::ChatView),
     ) -> bool {
+        self.refit_agent_cards_by(ctx, ids, |_, chat| edit(chat))
+    }
+
+    fn refit_agent_cards_by(
+        &mut self,
+        ctx: &egui::Context,
+        ids: &[NodeId],
+        edit: impl Fn(NodeId, &mut slate_doc::agent_chat::ChatView),
+    ) -> bool {
         let mut commands = Vec::new();
         for id in ids {
             let Some(before) = self.doc().scene.node(*id).cloned() else {
@@ -1985,7 +2106,7 @@ impl SlateApp {
             let mut edited = before.clone();
             if let NodeKind::Portal(p) = &mut edited.kind {
                 if let Some(a) = &mut p.agent {
-                    edit(&mut a.chat);
+                    edit(*id, &mut a.chat);
                 }
             }
             if edited == before {
@@ -7308,7 +7429,7 @@ impl SlateApp {
                     AgentAwait::Sent { req_at, .. } | AgentAwait::Thinking { req_at },
                     Some(AgentStatus::Thinking),
                 ) if has_new => {
-                    self.open_streaming_card(ctx, id);
+                    self.open_streaming_card(id);
                     self.agents
                         .awaiting
                         .insert(id, AgentAwait::Responding { req_at: *req_at });
@@ -8201,18 +8322,18 @@ impl SlateApp {
             self.paint_agent_bundle(painter, xf, node, portal);
         } else if !maximized
             && !self.agent_in_choose_phase(node.id)
-            && portal
-                .agent
-                .as_ref()
-                .is_some_and(|a| a.chat.collapsed && !a.chat.draft)
+            && portal.agent.as_ref().is_some_and(|a| {
+                a.chat.collapsed && !a.chat.draft && !self.agents.stream_open.contains(&node.id)
+            })
         {
             self.paint_agent_summary(ui, painter, xf, node, portal, Some(COLLAPSED_ROWS));
             self.paint_collapsed_composer(ui, &layout, node, xf.z);
         } else if !maximized
-            && portal
-                .agent
-                .as_ref()
-                .is_some_and(|a| a.chat.partial && !a.chat.collapsed && !a.chat.draft)
+            && portal.agent.as_ref().is_some_and(|a| {
+                !a.chat.draft
+                    && card_fold(&a.chat, self.agents.stream_open.contains(&node.id))
+                        == train_ux::CardFold::Partial
+            })
         {
             self.paint_agent_bound(ui, painter, xf, &layout, node, portal, maximized);
         } else if !maximized
@@ -9107,7 +9228,7 @@ impl SlateApp {
         z: f32,
     ) -> Option<&'static str> {
         let fold = slate_doc::agent_chat::agent(node)
-            .map(|a| card_fold(&a.chat))
+            .map(|a| card_fold(&a.chat, self.agents.stream_open.contains(&node.id)))
             .unwrap_or(train_ux::CardFold::Open);
         let center = Pos2::new(menu_left - canvas_scale::px(8.0, z), cy);
         let hit = Rect::from_center_size(
@@ -9472,17 +9593,16 @@ impl SlateApp {
                             ui.label("Thinking…");
                         }
                         Some(AgentAwait::Responding { .. }) => {
-                            let chars = turns.iter().map(|t| t.text.chars().count()).sum();
                             let reported = self.agents.session(node.id).and_then(|s| s.usage);
-                            let readout = train_ux::token_readout(reported, chars);
-                            ui.horizontal(|ui| {
-                                ui.label(responding_wave(
-                                    "Responding",
-                                    palette.accent,
-                                    ui.input(|i| i.time),
-                                ));
-                                ui.label(egui::RichText::new(readout).color(palette.sub));
-                            });
+                            let label = self.agents.responding.entry(node.id).or_default();
+                            paint_responding(
+                                ui,
+                                label,
+                                &font,
+                                (palette.accent, palette.sub),
+                                reported,
+                                &turns,
+                            );
                             ui.ctx().request_repaint();
                         }
                         Some(AgentAwait::Failed { reason, actions }) => {
@@ -12114,6 +12234,54 @@ To install them by hand, run in PowerShell:\n  cd \"C:\\workspace\\Slate\\docs\\
         h.app.board_sel.insert(linear);
         assert!(h.app.agent_fork_selected(None));
         assert_eq!(h.app.doc().scene.nodes.len(), count);
+    }
+
+    /// Streaming opens a collapsed card for display only: the document keeps
+    /// it collapsed and the capsule returns when the reply ends. A fold the
+    /// person makes meanwhile is theirs and stays.
+    #[test]
+    fn a_streaming_open_is_display_state_unless_the_person_folds_it() {
+        let mut h = board("stream_open");
+        let id = train(&mut h, Pos2::ZERO, "ollama");
+        h.frame();
+        let ctx = h.ctx.clone();
+        let collapsed = |h: &super::super::tests::Harness| {
+            slate_doc::agent_chat::agent(h.app.doc().scene.node(id).unwrap())
+                .unwrap()
+                .chat
+                .collapsed
+        };
+        h.app.board_sel.clear();
+        h.app.board_sel.insert(id);
+        if !collapsed(&h) {
+            assert!(h.app.agent_toggle_collapse(&ctx));
+        }
+        assert!(collapsed(&h));
+        let responding = || AgentAwait::Responding { req_at: 1 };
+
+        h.app.agents.awaiting.insert(id, responding());
+        h.app.open_streaming_card(id);
+        assert!(h.app.agents.stream_open.contains(&id));
+        assert!(collapsed(&h), "the document keeps the card collapsed");
+        h.app.agents.awaiting.remove(&id);
+        h.app.settle_stream_open();
+        assert!(h.app.agents.stream_open.is_empty(), "the capsule returns");
+        assert!(collapsed(&h));
+
+        h.app.agents.awaiting.insert(id, responding());
+        h.app.open_streaming_card(id);
+        assert!(h.app.agent_fold(&ctx, Some("one")));
+        assert!(h.app.agents.stream_open.is_empty());
+        assert!(
+            !collapsed(&h),
+            "one step up from the shown partial opens fully"
+        );
+        h.app.agents.awaiting.remove(&id);
+        h.app.settle_stream_open();
+        assert!(
+            !collapsed(&h),
+            "the person's fold survives the stream ending"
+        );
     }
 
     /// A local train's first card at `at`.
