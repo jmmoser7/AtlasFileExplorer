@@ -200,11 +200,12 @@ pub fn dialogs(
                                 hub.recorded_steps.remove(i);
                             }
                         }
-                        if hub.reproduce_wanted && hub.recorded_steps.is_empty() {
-                            if ui.button("Start recording").clicked() {
-                                hub.start_recording();
-                                close_after = true;
-                            }
+                        if hub.reproduce_wanted
+                            && hub.recorded_steps.is_empty()
+                            && ui.button("Start recording").clicked()
+                        {
+                            hub.start_recording();
+                            close_after = true;
                         }
                     }
                     ui.add_space(8.0);
@@ -247,13 +248,8 @@ pub fn dialogs(
             if close_after {
                 open = false;
             }
-            if !open && hub.phase != FeedbackPhase::Recording {
-                if matches!(
-                    hub.phase,
-                    FeedbackPhase::BugForm | FeedbackPhase::FeatureForm
-                ) {
-                    hub.phase = FeedbackPhase::Closed;
-                }
+            if !open && hub.owns_drops() {
+                hub.phase = FeedbackPhase::Closed;
             }
         }
     }

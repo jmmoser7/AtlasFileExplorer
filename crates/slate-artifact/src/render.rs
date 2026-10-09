@@ -2362,6 +2362,7 @@ const WIRE_FALLBACK: slate_doc::scene::Rgba = slate_doc::scene::Rgba([0x6e, 0x76
 /// model yet, so both interpreters pin the same constant.
 const CONNECTOR_LABEL_SIZE: f32 = 14.0;
 
+#[allow(clippy::too_many_arguments)] // Interpreter inputs are kept explicit.
 fn render_connector(
     html: &mut String,
     scene: &Scene,
