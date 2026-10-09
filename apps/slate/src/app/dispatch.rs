@@ -69,6 +69,9 @@ impl SlateApp {
     /// Record an executed command (keyboard, palette, menu, dock, or mouse
     /// site). The history is the intent log (Art. VI) and the repeat source.
     pub(crate) fn push_history(&mut self, id: CommandId, detail: Option<String>) {
+        if self.feedback.recording() {
+            self.feedback.on_command(id.0, detail.as_deref());
+        }
         let Some(spec) = self.registry.by_id(id) else {
             return;
         };
@@ -301,6 +304,15 @@ impl SlateApp {
             }
             "app.fullscreen" => {
                 self.toggle_canvas_fullscreen();
+                true
+            }
+            "app.feedback.open" => {
+                self.feedback.open_picker();
+                true
+            }
+            "app.feedback.finish_recording" => {
+                self.feedback.finish_recording();
+                self.feedback.phase = self.feedback.form_after_recording();
                 true
             }
             "app.help" => {

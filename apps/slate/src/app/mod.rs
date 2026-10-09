@@ -563,6 +563,7 @@ pub struct SlateApp {
     pub(crate) frame_time: f64,
     /// Frame/activity recorder shared with File Atlas. Test builds stay in memory.
     pub(crate) session_log: atlas_core::session_log::SessionLog,
+    pub(crate) feedback: atlas_shell::feedback::FeedbackHub,
     /// Process-start phases, flushed at the end of the first frame.
     boot: Option<atlas_core::session_log::Startup>,
 
@@ -971,6 +972,11 @@ impl SlateApp {
                 atlas_core::session_log::SessionLog::memory("slate")
             } else {
                 atlas_core::session_log::SessionLog::new("slate")
+            },
+            feedback: {
+                let mut hub = atlas_shell::feedback::FeedbackHub::default();
+                hub.prefs = atlas_shell::feedback::FeedbackPrefs::load("slate");
+                hub
             },
             boot: None,
             theme_stamp: None,
@@ -2604,6 +2610,24 @@ impl SlateApp {
                 Some(id) if Some(id) != before => m.surrender_focus(id),
                 _ => {}
             });
+        }
+        if self.feedback.recording() {
+            atlas_shell::feedback::paint_recording_chrome(ctx, self.canvas_rect, &self.palette());
+        }
+        let palette = self.palette();
+        let fb = atlas_shell::feedback::dialogs(
+            ctx,
+            &palette,
+            &mut self.feedback,
+            "slate",
+            &self.updater.version,
+            &self.session_log,
+        );
+        if let Some(msg) = fb.toast {
+            self.toast(&msg);
+        }
+        if let Some(cmd) = fb.command {
+            self.dispatch(ctx, atlas_commands::CommandId(cmd), None);
         }
         self.debug_screenshot(ctx);
     }

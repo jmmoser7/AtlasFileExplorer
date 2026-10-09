@@ -516,6 +516,7 @@ version = "1.0.0"
 dependencies = [
  "atlas-core",
  "atlas-update",
+ "chrono",
  "crossbeam-channel",
  "eframe",
  "image",
