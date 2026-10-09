@@ -2198,7 +2198,8 @@ fn text_box_click_draft_stays_finite_for_long_text() {
 
 #[test]
 fn text_box_click_draft_stays_finite_at_extreme_zoom() {
-    for z in [0.05_f32, 20.0] {
+    let mut size = None;
+    for z in [0.05_f32, 1.0, 20.0] {
         let mut h = text_draft_board("text-autowidth-zoom");
         h.app.tab_mut().cam.z = z;
         let world = h.app.board_xf().s2w(Pos2::new(600.0, 400.0));
@@ -2206,7 +2207,18 @@ fn text_box_click_draft_stays_finite_at_extreme_zoom() {
         type_into_draft(&mut h, "hello world");
         assert_eq!(h.app.board_xf().z, z, "typed at the requested zoom");
         assert_eq!(h.app.text_box_draft.as_ref().unwrap().buffer, "hello world");
-        assert_draft_rect_sane(&h);
+        let rect = assert_draft_rect_sane(&h);
+        match size {
+            None => size = Some((rect.w, rect.h)),
+            Some((w, hgt)) => {
+                assert!(
+                    (rect.w - w).abs() < 0.5 && (rect.h - hgt).abs() < 0.5,
+                    "draft size moved with zoom {z}: {w}x{hgt} vs {}x{}",
+                    rect.w,
+                    rect.h
+                );
+            }
+        }
     }
 }
 

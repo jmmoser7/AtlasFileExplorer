@@ -853,55 +853,29 @@ fn typeface_font(face: Typeface, size: f32) -> FontId {
     }
 }
 
-/// Lay out shape text with the origin at the top-left of the wrap width.
-/// egui's text editor hit-tests against that origin, so per-line alignment is
-/// baked into the galley instead of shifting the whole block.
-fn layout_shape_galley(
-    fonts: &egui::epaint::text::Fonts,
+fn egui_align(align: TextAlign) -> egui::Align {
+    match align {
+        TextAlign::Left => egui::Align::LEFT,
+        TextAlign::Center => egui::Align::Center,
+        TextAlign::Right => egui::Align::RIGHT,
+    }
+}
+
+/// Screen galley for authored text. `font.size` and `world_wrap` are world
+/// units; line breaks come from [`canvas_text::world_layout`] and do not
+/// depend on `zoom`. The caret hit-tests this same galley.
+fn zoom_text_galley(
+    ctx: &egui::Context,
     text: &str,
     font: FontId,
-    color: Color32,
-    wrap: f32,
+    world_wrap: f32,
     align: TextAlign,
+    color: Color32,
+    zoom: f32,
 ) -> std::sync::Arc<egui::Galley> {
-    let mut job = egui::text::LayoutJob::default();
-    job.wrap.max_width = wrap;
-    job.halign = egui::Align::LEFT;
-    job.append(
-        text,
-        0.0,
-        egui::TextFormat {
-            font_id: font,
-            color,
-            ..Default::default()
-        },
-    );
-    let laid = fonts.layout_job(job);
-    let mut galley = std::sync::Arc::try_unwrap(laid).unwrap_or_else(|arc| (*arc).clone());
-    // An unbounded wrap (auto-width text) measures to its widest row.
-    let width = if wrap.is_finite() {
-        wrap
-    } else {
-        galley
-            .rows
-            .iter()
-            .map(|row| row.rect.width())
-            .fold(0.0, f32::max)
-    };
-    for row in &mut galley.rows {
-        let dx = match align {
-            TextAlign::Left => 0.0,
-            TextAlign::Center => (width - row.rect.width()) * 0.5,
-            TextAlign::Right => width - row.rect.width(),
-        };
-        offset_text_row(row, dx, 0.0);
-    }
-    galley.rect.min = egui::pos2(0.0, 0.0);
-    galley.rect.max.x = width;
-    galley.mesh_bounds = galley.rows.iter().fold(Rect::NOTHING, |bounds, row| {
-        bounds.union(row.visuals.mesh_bounds)
-    });
-    std::sync::Arc::new(galley)
+    let layout = canvas_text::world_layout(ctx, text, font.clone(), world_wrap, egui_align(align));
+    let screen = FontId::new(font.size * zoom, font.family);
+    canvas_text::zoom_galley(ctx, text, &layout, screen, color, zoom)
 }
 
 /// Excerpt type size on a text document card, in world units.
@@ -944,32 +918,31 @@ fn offset_text_row(row: &mut egui::epaint::text::Row, dx: f32, dy: f32) {
 
 /// Move the text block to the vertical middle of `box_h` without moving the
 /// galley origin, so caret hit-testing stays aligned with the glyphs.
-#[allow(clippy::too_many_arguments)]
+///
+/// The fit is a world-space size. The camera is not an input: a zoom must
+/// not pick a different size, or the note would reflow as it scales.
 fn measure_sticky_font(
-    fonts: &egui::epaint::text::Fonts,
+    ctx: &egui::Context,
     text: &str,
     family: Typeface,
     max_size: f32,
     box_w: f32,
     box_h: f32,
     align: TextAlign,
-    z: f32,
 ) -> f32 {
     if text.trim().is_empty() {
         return max_size.max(slate_doc::scene::STICKY_FIT_MIN);
     }
-    let wrap = (box_w * z).max(8.0);
-    let limit = box_h * z;
+    let wrap = box_w.max(0.0);
     fit_sticky_font(max_size, |size| {
-        let galley = layout_shape_galley(
-            fonts,
+        let layout = canvas_text::world_layout(
+            ctx,
             text,
-            typeface_font(family, size * z),
-            Color32::BLACK,
+            typeface_font(family, size),
             wrap,
-            align,
+            egui_align(align),
         );
-        galley.rect.height() <= limit + 0.5
+        layout.height <= box_h + 0.5
     })
 }
 
@@ -1026,20 +999,15 @@ mod shape_text_layout {
         let ctx = egui::Context::default();
         let mut glyph_x = None;
         let _ = ctx.run(egui::RawInput::default(), |ctx| {
-            let painter = ctx.layer_painter(egui::LayerId::new(
-                egui::Order::Background,
-                egui::Id::new("shape-text-layout"),
-            ));
-            let galley = painter.fonts(|fonts| {
-                layout_shape_galley(
-                    fonts,
-                    "Hi",
-                    FontId::proportional(24.0),
-                    Color32::WHITE,
-                    200.0,
-                    TextAlign::Center,
-                )
-            });
+            let galley = zoom_text_galley(
+                ctx,
+                "Hi",
+                FontId::proportional(24.0),
+                200.0,
+                TextAlign::Center,
+                Color32::WHITE,
+                1.0,
+            );
             glyph_x = galley
                 .rows
                 .first()
@@ -1054,24 +1022,18 @@ mod shape_text_layout {
         let ctx = egui::Context::default();
         let mut caret = None;
         let _ = ctx.run(egui::RawInput::default(), |ctx| {
-            let painter = ctx.layer_painter(egui::LayerId::new(
-                egui::Order::Background,
-                egui::Id::new("sticky-caret-layout"),
-            ));
-            let galley = painter.fonts(|fonts| {
-                let laid = layout_shape_galley(
-                    fonts,
-                    "",
-                    FontId::proportional(24.0),
-                    Color32::BLACK,
-                    200.0,
-                    TextAlign::Center,
-                );
-                let mut owned =
-                    std::sync::Arc::try_unwrap(laid).unwrap_or_else(|arc| (*arc).clone());
-                center_galley_vertically(&mut owned, 200.0);
-                std::sync::Arc::new(owned)
-            });
+            let laid = zoom_text_galley(
+                ctx,
+                "",
+                FontId::proportional(24.0),
+                200.0,
+                TextAlign::Center,
+                Color32::BLACK,
+                1.0,
+            );
+            let mut owned = std::sync::Arc::try_unwrap(laid).unwrap_or_else(|arc| (*arc).clone());
+            center_galley_vertically(&mut owned, 200.0);
+            let galley = std::sync::Arc::new(owned);
             caret = galley.rows.first().map(|row| row.rect.center());
         });
         let caret = caret.expect("caret row");
@@ -1096,38 +1058,93 @@ mod shape_text_layout {
         let ctx = egui::Context::default();
         let mut sizes = None;
         let _ = ctx.run(egui::RawInput::default(), |ctx| {
-            let painter = ctx.layer_painter(egui::LayerId::new(
-                egui::Order::Background,
-                egui::Id::new("sticky-fit"),
-            ));
-            sizes = Some(painter.fonts(|fonts| {
-                let short = measure_sticky_font(
-                    fonts,
-                    "Hi",
-                    Typeface::Sans,
-                    24.0,
-                    200.0,
-                    200.0,
-                    TextAlign::Center,
-                    1.0,
-                );
-                let long = measure_sticky_font(
-                    fonts,
-                    &"word ".repeat(80),
-                    Typeface::Sans,
-                    24.0,
-                    200.0,
-                    200.0,
-                    TextAlign::Center,
-                    1.0,
-                );
-                (short, long)
-            }));
+            let short = measure_sticky_font(
+                ctx,
+                "Hi",
+                Typeface::Sans,
+                24.0,
+                200.0,
+                200.0,
+                TextAlign::Center,
+            );
+            let long = measure_sticky_font(
+                ctx,
+                &"word ".repeat(80),
+                Typeface::Sans,
+                24.0,
+                200.0,
+                200.0,
+                TextAlign::Center,
+            );
+            sizes = Some((short, long));
         });
         let (short, long) = sizes.expect("sizes");
         assert!((short - 24.0).abs() < 0.1, "short was {short}");
         assert!(long < short, "long {long} did not shrink below {short}");
         assert!(long >= slate_doc::scene::STICKY_FIT_MIN - 0.1);
+    }
+
+    #[test]
+    fn sticky_fit_is_the_same_world_size_at_every_zoom() {
+        let zooms = [0.1_f32, 0.25, 0.37, 0.5, 0.73, 1.0, 1.5, 2.3, 4.0, 8.0];
+        let text = "a note that has to shrink so the words stay inside the card";
+        let ctx = egui::Context::default();
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            canvas_text::clear_world_layout_cache();
+            let before = canvas_text::world_layout_shapes();
+            let fitted = measure_sticky_font(
+                ctx,
+                text,
+                Typeface::Sans,
+                24.0,
+                160.0,
+                90.0,
+                TextAlign::Center,
+            );
+            let shaped = canvas_text::world_layout_shapes() - before;
+            assert!(shaped >= 1, "fitting never shaped the note");
+            let mut rows = None;
+            for zoom in zooms {
+                let again = measure_sticky_font(
+                    ctx,
+                    text,
+                    Typeface::Sans,
+                    24.0,
+                    160.0,
+                    90.0,
+                    TextAlign::Center,
+                );
+                assert!(
+                    (again - fitted).abs() < 1.0e-4,
+                    "fit {again} != {fitted} at zoom {zoom}"
+                );
+                let layout = canvas_text::world_layout(
+                    ctx,
+                    text,
+                    typeface_font(Typeface::Sans, fitted),
+                    160.0,
+                    egui::Align::Center,
+                );
+                let galley = canvas_text::zoom_galley(
+                    ctx,
+                    text,
+                    &layout,
+                    typeface_font(Typeface::Sans, fitted * zoom),
+                    Color32::BLACK,
+                    zoom,
+                );
+                let got: Vec<String> = galley.rows.iter().map(|row| row.text()).collect();
+                match &rows {
+                    None => rows = Some(got),
+                    Some(expected) => assert_eq!(&got, expected, "breaks moved at zoom {zoom}"),
+                }
+            }
+            assert_eq!(
+                canvas_text::world_layout_shapes() - before,
+                shaped,
+                "zooming reshaped the fitted note"
+            );
+        });
     }
 }
 
@@ -3099,14 +3116,18 @@ impl SlateApp {
                 let clip = painter.with_clip_rect(inner);
                 let body = canvas_scale::px(TEXT_CARD_BODY_PX, z);
                 if canvas_text::legible(body) {
-                    let laid = canvas_text::layout(
-                        &clip,
-                        snippet,
-                        FontId::monospace(body),
+                    // World wrap is the card's inner width. The browser export
+                    // wraps the same excerpt with CSS pre-wrap; see canvas_text.
+                    let galley = zoom_text_galley(
+                        clip.ctx(),
+                        &snippet,
+                        FontId::monospace(TEXT_CARD_BODY_PX),
+                        inner.width() / z.max(1.0e-4),
+                        TextAlign::Left,
                         palette.ink,
-                        inner.width().max(1.0),
+                        z,
                     );
-                    laid.paint(&clip, inner.min, Color32::WHITE);
+                    clip.galley(inner.min, galley, palette.ink);
                 }
                 let caption = canvas_scale::px(8.5, z);
                 if pointer.is_some_and(|p| srect.contains(p)) && canvas_text::legible(caption) {
@@ -3645,20 +3666,22 @@ impl SlateApp {
             return;
         };
         let z = xf.z;
-        let inset = canvas_scale::px(8.0, z);
-        let wrap = (srect.width() - inset * 2.0).max(8.0);
-        let galley = painter.fonts(|fonts| {
-            layout_shape_galley(
-                fonts,
-                &text.body,
-                typeface_font(text.family, (text.size * z).max(4.0)),
-                fade(rgba32(text.color)),
-                wrap,
-                text.align,
-            )
-        });
+        if !canvas_text::legible(canvas_text::authored_px(text.size, z)) {
+            return;
+        }
+        // 8 world units: the artifact's `padding:8px` on shape text.
+        let inset = 8.0;
+        let galley = zoom_text_galley(
+            painter.ctx(),
+            &text.body,
+            typeface_font(text.family, text.size),
+            (node.rect.w - inset * 2.0).max(0.0),
+            text.align,
+            fade(rgba32(text.color)),
+            z,
+        );
         let pos = Pos2::new(
-            srect.left() + inset,
+            srect.left() + canvas_scale::px(inset, z),
             srect.center().y - galley.size().y * 0.5,
         );
         let pos = rotate_points(&[pos], srect.center(), node.rotation_deg)[0];
@@ -3668,31 +3691,9 @@ impl SlateApp {
     }
 
     /// Authored size is the ceiling. A long note shrinks until the block fits.
+    /// The chosen size is in world units and does not depend on the camera.
     #[allow(clippy::too_many_arguments)]
     fn sticky_font_size(
-        &mut self,
-        painter: &egui::Painter,
-        id: NodeId,
-        text: &str,
-        family: Typeface,
-        max_size: f32,
-        box_w: f32,
-        box_h: f32,
-        align: TextAlign,
-        z: f32,
-    ) -> f32 {
-        if let Some(hit) = self.sticky_fit_hit(id, text, box_w, box_h, max_size, family, align) {
-            return hit;
-        }
-        let fitted = painter.fonts(|fonts| {
-            measure_sticky_font(fonts, text, family, max_size, box_w, box_h, align, z)
-        });
-        self.store_sticky_fit(id, text, box_w, box_h, max_size, family, align, fitted);
-        fitted
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn sticky_font_size_fonts(
         &mut self,
         ctx: &egui::Context,
         id: NodeId,
@@ -3702,14 +3703,11 @@ impl SlateApp {
         box_w: f32,
         box_h: f32,
         align: TextAlign,
-        z: f32,
     ) -> f32 {
         if let Some(hit) = self.sticky_fit_hit(id, text, box_w, box_h, max_size, family, align) {
             return hit;
         }
-        let fitted = ctx.fonts(|fonts| {
-            measure_sticky_font(fonts, text, family, max_size, box_w, box_h, align, z)
-        });
+        let fitted = measure_sticky_font(ctx, text, family, max_size, box_w, box_h, align);
         self.store_sticky_fit(id, text, box_w, box_h, max_size, family, align, fitted);
         fitted
     }
@@ -4242,11 +4240,10 @@ impl SlateApp {
                 // A note an agent writes shows its reply until it is edited.
                 let reply = self.agent_note_reply(node.id);
                 let shown = reply.as_deref().unwrap_or(&t.text);
-                let wrap = (node.rect.w * z).max(8.0);
                 let sticky = t.fill.is_some();
                 let draw_size = if sticky {
                     self.sticky_font_size(
-                        painter,
+                        painter.ctx(),
                         node.id,
                         shown,
                         t.family,
@@ -4254,37 +4251,45 @@ impl SlateApp {
                         node.rect.w,
                         node.rect.h,
                         t.align,
-                        z,
                     )
                 } else {
                     t.size
                 };
-                let galley = painter.fonts(|fonts| {
-                    let laid = layout_shape_galley(
-                        fonts,
+                // Drop the words when they are too small to read. Do not
+                // clamp the size up — that would hold a screen constant.
+                if canvas_text::legible(canvas_text::authored_px(draw_size, z)) {
+                    let laid = zoom_text_galley(
+                        painter.ctx(),
                         shown,
-                        typeface_font(t.family, (draw_size * z).max(4.0)),
-                        fade(rgba32(t.color)),
-                        wrap,
+                        typeface_font(t.family, draw_size),
+                        node.rect.w.max(0.0),
                         t.align,
+                        fade(rgba32(t.color)),
+                        z,
                     );
-                    if !sticky {
-                        return laid;
+                    // A sticky centers its block by moving where the cached
+                    // galley paints, as `center_galley_vertically` does for the editor.
+                    let dy = if sticky {
+                        let dy = (srect.height() - laid.rect.height()) * 0.5;
+                        if dy > 0.5 {
+                            dy
+                        } else {
+                            0.0
+                        }
+                    } else {
+                        0.0
+                    };
+                    let galley = laid;
+                    let text_pos = srect.min + egui::vec2(0.0, dy);
+                    if let Some(clip) = &node.clip {
+                        paint_clipped_galley(painter, xf, node, clip, text_pos, &galley);
+                    } else {
+                        painter.with_clip_rect(srect.expand(2.0)).galley(
+                            text_pos,
+                            galley,
+                            Color32::WHITE,
+                        );
                     }
-                    let mut owned =
-                        std::sync::Arc::try_unwrap(laid).unwrap_or_else(|arc| (*arc).clone());
-                    center_galley_vertically(&mut owned, srect.height());
-                    std::sync::Arc::new(owned)
-                });
-                let text_pos = srect.min;
-                if let Some(clip) = &node.clip {
-                    paint_clipped_galley(painter, xf, node, clip, text_pos, &galley);
-                } else {
-                    painter.with_clip_rect(srect.expand(2.0)).galley(
-                        text_pos,
-                        galley,
-                        Color32::WHITE,
-                    );
                 }
                 if t.agent.is_some() && !self.slate_nesting() {
                     self.paint_agent_note(ui, painter, xf, node, srect);
@@ -8215,27 +8220,22 @@ impl SlateApp {
     fn refresh_text_box_draft_rect(
         &mut self,
         ctx: &egui::Context,
-        xf: &BoardXf,
+        _xf: &BoardXf,
         draft: &TextBoxDraft,
     ) {
         if draft.fixed_width || draft.buffer.is_empty() {
             return;
         }
-        let font = typeface_font(draft.family, (draft.size * xf.z).max(4.0));
-        let color32 = rgba32(draft.color);
-        let galley = ctx.fonts(|fonts| {
-            layout_shape_galley(
-                fonts,
-                &draft.buffer,
-                font,
-                color32,
-                f32::INFINITY,
-                draft.align,
-            )
-        });
-        let pad = canvas_scale::px(2.0, xf.z);
-        let w = (galley.size().x / xf.z + pad * 2.0 / xf.z).max(MIN_DRAW.max(2.0));
-        let h = (galley.size().y / xf.z + pad * 2.0 / xf.z).max(TEXT_BOX_DEFAULT_SIZE * 1.25);
+        let layout = canvas_text::world_layout(
+            ctx,
+            &draft.buffer,
+            typeface_font(draft.family, draft.size),
+            f32::INFINITY,
+            egui_align(draft.align),
+        );
+        // Two points of padding on each side, in world units.
+        let w = (layout.width + 4.0).max(MIN_DRAW.max(2.0));
+        let h = (layout.height + 4.0).max(TEXT_BOX_DEFAULT_SIZE * 1.25);
         if !(w.is_finite() && h.is_finite()) {
             debug_assert!(false, "text draft measured a non-finite size: {w} x {h}");
             return;
@@ -9444,7 +9444,8 @@ impl SlateApp {
         let Some(mut draft) = self.text_box_draft.clone() else {
             return;
         };
-        let font = typeface_font(draft.family, (draft.size * xf.z).max(4.0));
+        let world_font = typeface_font(draft.family, draft.size);
+        let screen_font = typeface_font(draft.family, draft.size * xf.z);
         let sr = xf.rect_w2s(draft.rect);
         if !editor_rect_ok(sr) {
             return;
@@ -9467,11 +9468,22 @@ impl SlateApp {
                 ui.visuals_mut().text_cursor.blink = true;
                 let color32 = ink;
                 let align = draft.align;
-                let mut layouter = |ui: &egui::Ui, text: &str, wrap_w: f32| {
-                    let wrap = if fixed_width { wrap_w } else { f32::INFINITY };
-                    ui.fonts(|fonts| {
-                        layout_shape_galley(fonts, text, font.clone(), color32, wrap, align)
-                    })
+                let world_wrap = if fixed_width {
+                    draft.rect.w.max(0.0)
+                } else {
+                    f32::INFINITY
+                };
+                let zoom = xf.z;
+                let mut layouter = |ui: &egui::Ui, text: &str, _wrap: f32| {
+                    zoom_text_galley(
+                        ui.ctx(),
+                        text,
+                        world_font.clone(),
+                        world_wrap,
+                        align,
+                        color32,
+                        zoom,
+                    )
                 };
                 let resp = ui.add(
                     egui::TextEdit::multiline(&mut draft.buffer)
@@ -9479,7 +9491,7 @@ impl SlateApp {
                         .frame(false)
                         .clip_text(true)
                         .margin(egui::Margin::ZERO)
-                        .font(font.clone())
+                        .font(screen_font)
                         .horizontal_align(egui::Align::LEFT)
                         .vertical_align(egui::Align::TOP)
                         .layouter(&mut layouter),
@@ -9531,7 +9543,10 @@ impl SlateApp {
         if !editor_rect_ok(inner) {
             return;
         }
-        let font = FontId::monospace(canvas_scale::px(TEXT_CARD_BODY_PX, xf.z));
+        let screen_font = FontId::monospace(canvas_scale::px(TEXT_CARD_BODY_PX, xf.z));
+        let world_font = FontId::monospace(TEXT_CARD_BODY_PX);
+        let world_wrap = inner.width() / xf.z.max(1.0e-4);
+        let zoom = xf.z;
         let ink = self.palette().ink;
         let mut changed = false;
         let mut commit = false;
@@ -9545,13 +9560,25 @@ impl SlateApp {
                 ui.visuals_mut().override_text_color = Some(ink);
                 ui.visuals_mut().text_cursor.stroke.color = ink;
                 ui.visuals_mut().text_cursor.blink = true;
+                let mut layouter = |ui: &egui::Ui, text: &str, _wrap: f32| {
+                    zoom_text_galley(
+                        ui.ctx(),
+                        text,
+                        world_font.clone(),
+                        world_wrap,
+                        TextAlign::Left,
+                        ink,
+                        zoom,
+                    )
+                };
                 let resp = ui.add(
                     egui::TextEdit::multiline(&mut edit.buffer)
                         .desired_width(inner.width())
                         .desired_rows(1)
                         .frame(false)
                         .margin(egui::Margin::ZERO)
-                        .font(font),
+                        .font(screen_font)
+                        .layouter(&mut layouter),
                 );
                 let keep_focus = ui.memory(|m| m.focused().is_none_or(|fid| fid == resp.id));
                 if keep_focus || edit.claim_focus {
@@ -9614,7 +9641,7 @@ impl SlateApp {
                     .unwrap_or_else(|| t.clone());
                 let draw_size = if t.fill.is_some() {
                     let text = buf.clone();
-                    self.sticky_font_size_fonts(
+                    self.sticky_font_size(
                         ctx,
                         id,
                         &text,
@@ -9623,13 +9650,12 @@ impl SlateApp {
                         node.rect.w,
                         node.rect.h,
                         live.align,
-                        xf.z,
                     )
                 } else {
                     live.size
                 };
                 Some((
-                    typeface_font(live.family, (draw_size * xf.z).max(4.0)),
+                    typeface_font(live.family, draw_size),
                     live.color,
                     live.align,
                     t.fill.is_some(),
@@ -9652,7 +9678,7 @@ impl SlateApp {
                         slate_doc::scene::ShapeText::new(slate_doc::scene::shape_text_ink(fill))
                     });
                 Some((
-                    typeface_font(block.family, (block.size * xf.z).max(4.0)),
+                    typeface_font(block.family, block.size),
                     block.color,
                     block.align,
                     true,
@@ -9692,10 +9718,22 @@ impl SlateApp {
                     ui.visuals_mut().text_cursor.blink = true;
                 }
                 let color32 = rgba32(color);
-                let mut layouter = |ui: &egui::Ui, text: &str, wrap: f32| {
-                    let laid = ui.fonts(|fonts| {
-                        layout_shape_galley(fonts, text, font.clone(), color32, wrap, align)
-                    });
+                let world_wrap = if shape_host {
+                    (node.rect.w - 16.0).max(0.0)
+                } else {
+                    node.rect.w.max(0.0)
+                };
+                let zoom = xf.z;
+                let mut layouter = |ui: &egui::Ui, text: &str, _wrap: f32| {
+                    let laid = zoom_text_galley(
+                        ui.ctx(),
+                        text,
+                        font.clone(),
+                        world_wrap,
+                        align,
+                        color32,
+                        zoom,
+                    );
                     let mut owned =
                         std::sync::Arc::try_unwrap(laid).unwrap_or_else(|arc| (*arc).clone());
                     if center_block {
@@ -9703,13 +9741,14 @@ impl SlateApp {
                     }
                     std::sync::Arc::new(owned)
                 };
+                let screen_font = FontId::new(font.size * zoom, font.family.clone());
                 let resp = ui.add(
                     egui::TextEdit::multiline(&mut buf)
                         .desired_width(box_w)
                         .frame(false)
                         .clip_text(true)
                         .margin(egui::Margin::ZERO)
-                        .font(font.clone())
+                        .font(screen_font)
                         .horizontal_align(egui::Align::LEFT)
                         .vertical_align(egui::Align::TOP)
                         .layouter(&mut layouter),
