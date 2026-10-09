@@ -178,6 +178,25 @@ impl SlateApp {
         shift: bool,
         allow_ortho: bool,
     ) -> Pos2 {
+        self.resolve_point_snap_with(world, exclude, from, shift, allow_ortho, |all, scope| {
+            board_snap::snap_point(world, exclude, all, scope)
+        })
+    }
+
+    /// The one resolution order. `smart` is the smart-guide step: a point
+    /// snap for picks, a scaled-corner snap for corner resize.
+    fn resolve_point_snap_with(
+        &mut self,
+        world: Pos2,
+        exclude: &[NodeId],
+        from: Option<Pos2>,
+        shift: bool,
+        allow_ortho: bool,
+        smart: impl FnOnce(
+            &[(NodeId, WorldRect)],
+            board_snap::SnapScope,
+        ) -> (Pos2, Vec<board_snap::SnapGuide>),
+    ) -> Pos2 {
         if self.alt_down {
             self.board_osnap_hit = None;
             return world;
@@ -210,7 +229,7 @@ impl SlateApp {
         self.board_osnap_hit = None;
         if self.board_smart_guides {
             let all = self.board_node_rects();
-            let (p, guides) = board_snap::snap_point(world, exclude, &all, self.snap_scope());
+            let (p, guides) = smart(&all, self.snap_scope());
             if !guides.is_empty() {
                 self.board_snap_guides = guides;
                 return p;
@@ -223,10 +242,10 @@ impl SlateApp {
         world
     }
 
-    /// Corner-scale resolution. Object snap wins, then an aspect-aware snap
-    /// of the scaled corner onto neighbouring edges, then grid. The caller
-    /// suspends this while Alt is held. Preview and commit both consume
-    /// the returned pointer through `resize_from_handle`.
+    /// Corner-scale resolution: [`Self::resolve_point_snap`]'s order, with
+    /// the smart-guide step snapping the scaled corner onto neighbouring
+    /// edges (aspect-aware). Preview and commit both consume the returned
+    /// pointer through `resize_from_handle`.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn resolve_corner_scale(
         &mut self,
@@ -239,26 +258,9 @@ impl SlateApp {
         from_center: bool,
         exclude: &[NodeId],
     ) -> Pos2 {
-        let set = self.board_osnap;
-        let radius = self.osnap_radius_world();
-        if let Some(hit) = pick(
-            &self.doc().scene,
-            world,
-            radius,
-            set,
-            exclude,
-            None,
-            self.board_wire_routing,
-        ) {
-            self.board_osnap_hit = Some(hit);
-            self.board_snap_guides.clear();
-            self.board_point_snap = Some(hit.point);
-            return hit.point;
-        }
-        self.board_osnap_hit = None;
-        if self.board_smart_guides {
-            let all = self.board_node_rects();
-            if let Some((pointer, guides)) = board_snap::snap_scaled_corner(
+        self.board_snap_guides.clear();
+        let p = self.resolve_point_snap_with(world, exclude, None, false, false, |all, scope| {
+            board_snap::snap_scaled_corner(
                 before,
                 proposed,
                 handle,
@@ -266,23 +268,13 @@ impl SlateApp {
                 lock_aspect,
                 from_center,
                 exclude,
-                &all,
-                self.snap_scope(),
-            ) {
-                self.board_snap_guides = guides;
-                self.board_point_snap = Some(pointer);
-                return pointer;
-            }
-        }
-        self.board_snap_guides.clear();
-        if self.board_snap_grid {
-            let g = board_snap::GRID_WORLD;
-            let p = Pos2::new((world.x / g).round() * g, (world.y / g).round() * g);
-            self.board_point_snap = Some(p);
-            return p;
-        }
-        self.board_point_snap = Some(world);
-        world
+                all,
+                scope,
+            )
+            .unwrap_or((world, Vec::new()))
+        });
+        self.board_point_snap = Some(p);
+        p
     }
 
     /// Last resolved hover/gesture point for live previews. Prefers the

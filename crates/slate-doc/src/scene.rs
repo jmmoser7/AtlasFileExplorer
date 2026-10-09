@@ -2454,7 +2454,7 @@ pub fn regular_polygon_vertices(rect: WorldRect, sides: u8, phase_deg: f32) -> V
 /// Side count and phase after adding (`add`) or removing one side at
 /// vertex `k` (P1.shape.polygon-sides). Removing keeps a vertex exactly at
 /// vertex `k`: the new vertex 0 takes its angle. Adding keeps vertex `k`
-/// at that same angle; the new edge appears opposite it. `None` at the
+/// at that same angle and re-spaces the others around it. `None` at the
 /// 3 / 12 limits.
 pub fn regular_polygon_resided(
     sides: u8,

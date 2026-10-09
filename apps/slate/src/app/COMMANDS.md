@@ -148,8 +148,8 @@ drag the address-bar URL or a page link instead.
   still sets every corner.
 - **Polygon sides** (`board.shape.sides`) — hover a vertex of a selected
   regular polygon: a **+** shows outside it and a **−** inside it. Click +
-  to add a side (up to 12) while that vertex stays put, the new edge
-  appearing opposite it; click − to remove one (down to 3) and keep a
+  to add a side (up to 12) while that vertex stays put and the others
+  re-space around it; click − to remove one (down to 3) and keep a
   vertex where it was. Each click is one undo step.
   The glyphs grow and shrink with the board zoom and drop when too small.
   This replaces the Corners panel's Sides number.
