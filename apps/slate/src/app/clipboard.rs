@@ -866,12 +866,10 @@ impl SlateApp {
         if png.is_empty() || !atlas_core::clipboard_image::png_within_limits(png) {
             return None;
         }
-        let dir = self
-            .tab()
-            .path
-            .as_ref()
-            .and_then(|p| p.parent().map(|d| d.join("assets")))
-            .unwrap_or_else(|| atlas_core::index::data_dir().join("pasted"));
+        let dir = atlas_core::workbook_assets::paste_dir(
+            self.tab().path.as_deref(),
+            &atlas_core::index::data_dir(),
+        );
         std::fs::create_dir_all(&dir).ok()?;
         let path = unique_paste_path(&dir);
         std::fs::write(&path, png).ok()?;

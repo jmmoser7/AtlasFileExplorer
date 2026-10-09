@@ -16,6 +16,7 @@ pub mod image_paint;
 mod item;
 pub mod lease;
 mod link;
+pub mod locators;
 pub mod media;
 pub mod mirror;
 pub mod osnap;
@@ -36,6 +37,7 @@ pub use image_paint::{PaintLayer, PaintLayerId};
 pub use item::SlateItem;
 pub use lease::{Lease, LeaseInfo, LeaseState, LEASE_HEARTBEAT_SECS, LEASE_STALE_SECS};
 pub use link::{link_status, LinkHealthCache, LinkHealthCounts, LinkStatus};
+pub use locators::{LocatorChange, RewriteLocators};
 pub use media::{media_kind, MediaKind};
 pub use osnap::{
     discrete_anchors, node_facets, ObjectSnapSet, RejectedSnap, SnapAnchor, SnapFacet, SnapKind,

@@ -154,14 +154,60 @@ enum Engine {
     OpenAi(atlas_openai::Client),
 }
 
-/// Pictures stay on this machine; the synced link folder holds only the
-/// manifest. One folder per generator session, per engine.
-fn image_output_dir(provider: &str, link: &Path) -> (PathBuf, String) {
+/// Where a generator writes pictures. A saved workbook files them under
+/// `assets/generated/<provider>/<yyyy-mm>` so they travel with the `.slate`.
+/// An unsaved workbook keeps one folder per session under the Atlas data
+/// directory until Save or Collect assets copies the ones placed on the board.
+pub(crate) fn image_output_dir(
+    workbook: Option<&Path>,
+    provider: &str,
+    link: &Path,
+) -> (PathBuf, String) {
     let tag = link
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    (atlas_core::index::data_dir().join(provider).join(&tag), tag)
+    let month = atlas_core::workbook_assets::year_month(crate::context::now_secs());
+    (
+        atlas_core::workbook_assets::generated_output_dir(
+            workbook,
+            &atlas_core::index::data_dir(),
+            provider,
+            &tag,
+            &month,
+        ),
+        tag,
+    )
+}
+
+fn record_image_sidecars(session: &AgentSession, request: &AgentRequest) {
+    let Some(params) = request.image.as_ref() else {
+        return;
+    };
+    let created = crate::context::now_secs();
+    for image in &session.bundle.images {
+        let path = Path::new(&image.source);
+        if image.source.is_empty() {
+            continue;
+        }
+        let mut sidecar_params = std::collections::BTreeMap::new();
+        if !image.task.is_empty() {
+            sidecar_params.insert("task".into(), image.task.clone());
+        }
+        sidecar_params.insert("aspect".into(), params.aspect.label().into());
+        if params.count > 1 {
+            sidecar_params.insert("count".into(), params.count.to_string());
+        }
+        let sidecar = atlas_core::workbook_assets::GeneratedSidecar {
+            prompt: image.prompt.clone(),
+            model: image.model.clone(),
+            seed: params.seed,
+            params: sidecar_params,
+            created,
+            source_run: request.id.clone(),
+        };
+        let _ = atlas_core::workbook_assets::write_generated_sidecar(path, &sidecar);
+    }
 }
 
 /// Credential Manager slot for the person's OpenAI API key.
@@ -300,12 +346,13 @@ impl Engine {
         cwd: &Path,
         cancel: &AtomicBool,
         preview: &atlas_comfy::PreviewSink,
+        workbook: Option<&Path>,
     ) -> Result<Self, String> {
         if provider == "ollama" || provider.starts_with("ollama/") {
             return atlas_ollama::Client::start(provider.strip_prefix("ollama/"), cancel)
                 .map(Self::Ollama);
         }
-        let (images, tag) = image_output_dir(provider, dir);
+        let (images, tag) = image_output_dir(workbook, provider, dir);
         if provider == "comfy" {
             let mut client = atlas_comfy::Client::start(cancel)?;
             client.set_output_dir(images, &tag);
@@ -360,6 +407,16 @@ impl CodexLink {
         Self::start_provider(dir, cwd, "codex".into())
     }
     pub fn start_provider(dir: PathBuf, cwd: PathBuf, provider: String) -> Self {
+        Self::start_beside(dir, cwd, provider, None)
+    }
+    /// `workbook` is the `.slate` path when it has been saved. Generators then
+    /// write under `assets/generated`. `None` keeps the data-directory folder.
+    pub fn start_beside(
+        dir: PathBuf,
+        cwd: PathBuf,
+        provider: String,
+        workbook: Option<PathBuf>,
+    ) -> Self {
         let (tx, rx) = bounded::<AgentRequest>(1);
         let cancel = Arc::new(AtomicBool::new(false));
         let stop = cancel.clone();
@@ -428,7 +485,14 @@ impl CodexLink {
                         );
                     }
                     if client.is_none() {
-                        client = Some(Engine::start(&provider, &dir, &cwd, &stop, &frames)?);
+                        client = Some(Engine::start(
+                            &provider,
+                            &dir,
+                            &cwd,
+                            &stop,
+                            &frames,
+                            workbook.as_deref(),
+                        )?);
                     }
                     if !request.history.is_empty() && !dir.join("checkpoint.json").exists() {
                         atomic_write_json(&dir.join("checkpoint.json"), &request.history)
@@ -450,7 +514,9 @@ impl CodexLink {
                         .unwrap()
                         .run(&request, &mut session, &stop, |state| {
                             let _ = atomic_write_json(&dir.join("session.json"), state);
-                        })
+                        })?;
+                    record_image_sidecars(&session, &request);
+                    Ok(())
                 })();
                 if let Err(error) = result {
                     session.approval = None;
@@ -506,6 +572,21 @@ pub fn turn_full_access(granted: bool, relay_granted: bool, request: &AgentReque
 mod tests {
     use super::*;
     use atlas_agent::TurnPolicy;
+
+    #[test]
+    fn a_saved_workbook_receives_generated_images_beside_it() {
+        let workbook = Path::new("/boards/deck/Board.slate");
+        let link = Path::new("/links/session-a");
+        let (dir, _) = image_output_dir(Some(workbook), "openai-image", link);
+        let text = dir.to_string_lossy().replace('\\', "/");
+        assert!(
+            text.contains("/boards/deck/assets/generated/openai-image/"),
+            "{text}"
+        );
+        let (unsaved, tag) = image_output_dir(None, "openai-image", link);
+        assert_eq!(tag, "session-a");
+        assert!(unsaved.ends_with(Path::new("openai-image").join("session-a")));
+    }
 
     #[test]
     fn relayed_turns_need_the_relay_grant_and_read_only_never_gets_full_access() {

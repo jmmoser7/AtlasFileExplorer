@@ -1655,7 +1655,7 @@ impl SlateApp {
             .tab()
             .path
             .as_ref()
-            .and_then(|p| p.parent().map(|d| d.join("assets")))
+            .map(|p| atlas_core::workbook_assets::assets_root(p))
             .unwrap_or_else(std::env::temp_dir);
         std::fs::create_dir_all(&dir).ok()?;
         let path = dir.join(format!("atlas-poster-{}.png", id.0));

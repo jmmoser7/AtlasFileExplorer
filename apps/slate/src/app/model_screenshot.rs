@@ -413,8 +413,8 @@ impl SlateApp {
 
     fn model_screenshot_output_path(&self, node: NodeId, ext: &str) -> Result<PathBuf, String> {
         if let Some(workbook) = self.tab().path.as_ref() {
-            if let Some(parent) = workbook.parent() {
-                let dir = parent.join("assets");
+            if workbook.parent().is_some() {
+                let dir = atlas_core::workbook_assets::assets_root(workbook);
                 std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
                 let stamp = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
@@ -1221,10 +1221,15 @@ mod tests {
         let NodeKind::Image(img) = &placed.kind else {
             panic!("an image node");
         };
-        let path = h.app.doc().item(img.item).unwrap().path.clone();
+        let stored = h.app.doc().item(img.item).unwrap().path.clone();
+        let path = slate_doc::scene::resolve_source(
+            h.app.tab().path.as_deref(),
+            &stored.to_string_lossy(),
+        );
         assert!(
             path.starts_with(h.base.join("assets")),
-            "{}",
+            "stored {} resolved {}",
+            stored.display(),
             path.display()
         );
         let files: Vec<_> = std::fs::read_dir(h.base.join("assets")).unwrap().collect();

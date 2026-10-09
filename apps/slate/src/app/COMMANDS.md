@@ -694,6 +694,17 @@ onto the board as a selected grid in one journal group. Without PowerPoint or
 Word, place an exported PDF. Outlook `.msg` files are text excerpts.
 See `docs/keymap/contracts/media.md`.
 
+`board.assets.collect` (Collect assets into workbook folder) copies pasted and
+generated images that still live in the Atlas data directory into
+`assets/pasted` and `assets/generated/<provider>/<yyyy-mm>` beside the saved
+workbook, and rewrites those links to workbook-relative locators in one undo
+step. It leaves user-linked files outside that data directory alone, refuses
+machine-private folders and cloud placeholders, and reports what it filed.
+The folder layout is `atlas_core::workbook_assets`, described in
+`docs/keymap/contracts/media.md`. Save and Save As run the same filing for
+images placed before the workbook had a folder, and Save As also copies the
+assets this workbook already keeps under its own `assets/` tree.
+
 
 Selection strip: squircle Fill/Stroke/Corners/Filters/Pages/Formatting (and wire) controls dispatch `board.shape.edit` / `board.wire.edit` / `portal.atlas.fit` for any node those scene helpers support — shapes, frames, text fills, portals, images and wires. File Atlas Formatting is the Display squircle and the filter+fit editor in `selection_tools`. Image Filters is the photo-filter capsule (low-resolution filtered thumbnails, hover preview, intensity slider). A 3D model's Viewport display and Measure squircles dispatch `board.model_display` / `board.model_measure`. Frame deck/tags/images/present actions share that strip. External dimension stringers dispatch `board.shape.dimension`. Palette previews commit on icon change/outside click; an empty-canvas click also deselects. Esc cancels. Numeric dimensions edit directly in their rotated stringers and commit on Enter/outside click. RGB percentages also edit in place; slider metrics appear only during adjustment. All eyedroppers use `board.color.desktop` / the shared desktop sampler (RGB only; existing alpha preserved). The color editor's eyedropper has two modes: click it, move, and click the color; or press it, drag to the color, and release to commit (the magnifier shows a live swatch; Escape cancels). Polyline, Arc and Bezier are also discoverable as `board.tool.polyline`, `board.tool.arc`, and `board.tool.bezier`, without new default shortcuts.
 
