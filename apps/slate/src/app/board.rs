@@ -4267,15 +4267,20 @@ impl SlateApp {
                         fade(rgba32(t.color)),
                         z,
                     );
-                    let galley = if sticky {
-                        let mut owned =
-                            std::sync::Arc::try_unwrap(laid).unwrap_or_else(|arc| (*arc).clone());
-                        center_galley_vertically(&mut owned, srect.height());
-                        std::sync::Arc::new(owned)
+                    // A sticky centers its block by moving where the cached
+                    // galley paints, as `center_galley_vertically` does for the editor.
+                    let dy = if sticky {
+                        let dy = (srect.height() - laid.rect.height()) * 0.5;
+                        if dy > 0.5 {
+                            dy
+                        } else {
+                            0.0
+                        }
                     } else {
-                        laid
+                        0.0
                     };
-                    let text_pos = srect.min;
+                    let galley = laid;
+                    let text_pos = srect.min + egui::vec2(0.0, dy);
                     if let Some(clip) = &node.clip {
                         paint_clipped_galley(painter, xf, node, clip, text_pos, &galley);
                     } else {

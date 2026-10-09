@@ -518,6 +518,7 @@ pub fn world_layout_shapes() -> u64 {
 /// Drop cached line breaks. The next layout of the same text shapes again.
 pub fn clear_world_layout_cache() {
     WORLD_CACHE.with(|cache| *cache.borrow_mut() = WorldCache::new());
+    ZOOM_CACHE.with(|cache| *cache.borrow_mut() = ZoomCache::default());
 }
 
 /// Break `text` in world units. Zoom is not an input.
@@ -695,7 +696,137 @@ fn shape_world(
 /// `world position × zoom`. The row text is `layout`'s; zoom does not
 /// rebreak it. Glyph positions and the mesh are the same geometry, so a
 /// caret hit-tested against this galley sits on the ink.
+///
+/// Cached by layout identity, text, font, color, zoom and pixels per point:
+/// a repaint with the camera still returns the same `Arc` without
+/// allocating. A zoom gesture misses once per frame per visible text, and
+/// those entries age out of the bounded cache.
 pub fn zoom_galley(
+    ctx: &egui::Context,
+    text: &str,
+    layout: &Arc<WorldLayout>,
+    screen_font: FontId,
+    color: Color32,
+    zoom: f32,
+) -> Arc<Galley> {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    text.hash(&mut hasher);
+    let text_hash = hasher.finish();
+    let family = family_key(&screen_font.family);
+    let size_bits = screen_font.size.to_bits();
+    let zoom_bits = zoom.to_bits();
+    let ppp_bits = ctx.pixels_per_point().to_bits();
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    (
+        Arc::as_ptr(layout) as usize,
+        text_hash,
+        size_bits,
+        zoom_bits,
+    )
+        .hash(&mut hasher);
+    (ppp_bits, color.to_array(), &family).hash(&mut hasher);
+    let key = hasher.finish();
+    let hit = ZOOM_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        cache.clock = cache.clock.wrapping_add(1);
+        let used = cache.clock;
+        let slot = cache.buckets.get_mut(&key).and_then(|slots| {
+            slots.iter_mut().find(|slot| {
+                Arc::ptr_eq(&slot.layout, layout)
+                    && slot.text_hash == text_hash
+                    && slot.text_len == text.len()
+                    && slot.size_bits == size_bits
+                    && slot.zoom_bits == zoom_bits
+                    && slot.ppp_bits == ppp_bits
+                    && slot.color == color
+                    && slot.family == family
+            })
+        })?;
+        slot.used = used;
+        Some(Arc::clone(&slot.galley))
+    });
+    if let Some(galley) = hit {
+        return galley;
+    }
+    let galley = build_zoom_galley(ctx, text, layout, screen_font, color, zoom);
+    ZOOM_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        cache.builds += 1;
+        let used = cache.clock;
+        cache.buckets.entry(key).or_default().push(ZoomSlot {
+            layout: Arc::clone(layout),
+            text_hash,
+            text_len: text.len(),
+            family,
+            size_bits,
+            color,
+            zoom_bits,
+            ppp_bits,
+            galley: Arc::clone(&galley),
+            used,
+        });
+        cache.len += 1;
+        if cache.len > ZOOM_CACHE_CAP {
+            let oldest = cache
+                .buckets
+                .iter()
+                .flat_map(|(key, slots)| {
+                    slots
+                        .iter()
+                        .enumerate()
+                        .map(move |(index, slot)| (*key, index, slot.used))
+                })
+                .min_by_key(|(_, _, used)| *used);
+            if let Some((key, index, _)) = oldest {
+                if let Some(slots) = cache.buckets.get_mut(&key) {
+                    slots.swap_remove(index);
+                    if slots.is_empty() {
+                        cache.buckets.remove(&key);
+                    }
+                }
+                cache.len -= 1;
+            }
+        }
+    });
+    galley
+}
+
+/// How many screen galleys [`zoom_galley`] has built on this thread. A
+/// repaint at the same zoom does not increment it.
+pub fn zoom_galley_builds() -> u64 {
+    ZOOM_CACHE.with(|cache| cache.borrow().builds)
+}
+
+/// Most screen galleys [`zoom_galley`] keeps.
+const ZOOM_CACHE_CAP: usize = 512;
+
+struct ZoomSlot {
+    /// Held so the layout's address cannot be reused while this entry lives.
+    layout: Arc<WorldLayout>,
+    text_hash: u64,
+    text_len: usize,
+    family: FamilyKey,
+    size_bits: u32,
+    color: Color32,
+    zoom_bits: u32,
+    ppp_bits: u32,
+    galley: Arc<Galley>,
+    used: u64,
+}
+
+#[derive(Default)]
+struct ZoomCache {
+    buckets: HashMap<u64, Vec<ZoomSlot>>,
+    len: usize,
+    clock: u64,
+    builds: u64,
+}
+
+thread_local! {
+    static ZOOM_CACHE: RefCell<ZoomCache> = RefCell::new(ZoomCache::default());
+}
+
+fn build_zoom_galley(
     ctx: &egui::Context,
     text: &str,
     layout: &WorldLayout,
@@ -1198,6 +1329,39 @@ mod tests {
                 before + 1,
                 "pure zoom reshaped the paragraph"
             );
+        });
+    }
+
+    #[test]
+    fn a_still_camera_reuses_the_screen_galley() {
+        let text = "a note that repaints every frame while nothing moves";
+        with_ctx(|ctx| {
+            clear_world_layout_cache();
+            let font = FontId::proportional(18.0);
+            let paint = |text: &str, zoom: f32| {
+                let layout = world_layout(ctx, text, font.clone(), 140.0, egui::Align::LEFT);
+                zoom_galley(
+                    ctx,
+                    text,
+                    &layout,
+                    FontId::proportional(18.0 * zoom),
+                    Color32::WHITE,
+                    zoom,
+                )
+            };
+            let first = paint(text, 1.5);
+            let builds = zoom_galley_builds();
+            let again = paint(text, 1.5);
+            assert!(Arc::ptr_eq(&first, &again), "a repaint rebuilt the galley");
+            assert_eq!(zoom_galley_builds(), builds);
+            let _ = paint(text, 2.0);
+            assert_eq!(zoom_galley_builds(), builds + 1, "a new zoom must rebuild");
+            let edited = paint("a note that was edited", 1.5);
+            assert!(!Arc::ptr_eq(&first, &edited));
+            for i in 0..(ZOOM_CACHE_CAP + 8) {
+                let _ = paint(text, 1.0 + i as f32 * 0.001);
+            }
+            ZOOM_CACHE.with(|cache| assert!(cache.borrow().len <= ZOOM_CACHE_CAP));
         });
     }
 }
