@@ -71,6 +71,12 @@ When you add or change any user-facing input binding:
 - **F4** — mark this moment in the session activity log (`app.session.mark`).
   Advanced → Session log shows the path and last stall; **Open log folder**
   reveals `%LOCALAPPDATA%\NativeFileAtlas\session-log\`.
+- **Suggestion box** (`app.feedback.open`) — the speech-bubble button left
+  of the readout chevron opens a bug / feature form that writes a local
+  report folder (no network). **Enter** ends a Reproduce recording
+  (`app.feedback.finish_recording`); recording also stops itself after
+  60 s. Steps are dispatched command ids only, never their text or paths.
+  Shared with Slate through `atlas_shell::feedback`.
 - **Mode dock → View / Edit** — View is the default safe browsing mode. Edit
   enables human-directed filesystem rename, move, copy, new-folder, and delete
   operations for the active tab.

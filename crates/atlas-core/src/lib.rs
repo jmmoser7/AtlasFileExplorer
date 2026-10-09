@@ -6,6 +6,7 @@
 //! copy-only exporter. Both `apps/file-atlas` and `apps/slate` build on this
 //! crate; app-specific state and chrome never live here.
 
+pub mod clipboard_image;
 pub mod cloud;
 pub mod dirmeta;
 pub mod display;

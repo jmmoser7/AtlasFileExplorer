@@ -5466,6 +5466,12 @@ impl AtlasApp {
     /// handler body records its own (undo/redo/assign) or the command is a
     /// pure navigation step.
     fn dispatch_command(&mut self, ctx: &egui::Context, id: CommandId) {
+        self.feedback.enter_command(id.0);
+        self.dispatch_command_inner(ctx, id);
+        self.feedback.exit_command();
+    }
+
+    fn dispatch_command_inner(&mut self, ctx: &egui::Context, id: CommandId) {
         let mut detail: Option<String> = None;
         match id.0 {
             "app.updates.check" => self.updater.check(true),
@@ -5674,9 +5680,7 @@ impl AtlasApp {
 
     /// Record an executed command in the intent log (Art. VI: authored).
     fn push_history(&mut self, id: &'static str, detail: Option<String>) {
-        if self.feedback.recording() {
-            self.feedback.on_command(id, detail.as_deref());
-        }
+        self.feedback.on_history(id);
         let Some(spec) = commands::REGISTRY.by_id(CommandId(id)) else {
             debug_assert!(false, "history push for unregistered command `{id}`");
             return;

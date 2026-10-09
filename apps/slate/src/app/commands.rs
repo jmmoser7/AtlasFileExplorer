@@ -2279,7 +2279,7 @@ pub static SPECS: &[CommandSpec] = &[
         "app.feedback.open",
         "Commands",
         "Suggestion box",
-        "Lower-left 💬 on the canvas",
+        "Speech-bubble button left of the readout chevron",
         None,
         Repeat::Never,
         GLOBAL,

@@ -71,8 +71,13 @@ pub struct FeedbackHub {
     pub(crate) recorder: Option<Recorder>,
     pub screenshot_pending: bool,
     pub last_bundle_dir: PathBuf,
+    pub attach_note: Option<String>,
     form_return: FeedbackPhase,
+    dispatch_depth: u32,
 }
+
+/// Largest dropped image read into a report.
+const MAX_ATTACHMENT_BYTES: u64 = 32 * 1024 * 1024;
 
 impl Default for FeedbackHub {
     fn default() -> Self {
@@ -88,7 +93,9 @@ impl Default for FeedbackHub {
             recorder: None,
             screenshot_pending: false,
             last_bundle_dir: PathBuf::new(),
+            attach_note: None,
             form_return: FeedbackPhase::BugForm,
+            dispatch_depth: 0,
         }
     }
 }
@@ -110,13 +117,80 @@ impl FeedbackHub {
         self.phase == FeedbackPhase::Recording
     }
 
-    pub fn on_command(&mut self, id: &str, detail: Option<&str>) {
-        if let Some(rec) = self.recorder.as_mut() {
-            rec.record_command(id, detail);
+    /// Called by the app's single command dispatch entry. Nested dispatches
+    /// (a command that dispatches another) record only the outer id.
+    pub fn enter_command(&mut self, id: &str) {
+        if self.dispatch_depth == 0 {
+            if let Some(rec) = self.recorder.as_mut() {
+                rec.record_command(id);
+            }
+        }
+        self.dispatch_depth += 1;
+    }
+
+    pub fn exit_command(&mut self) {
+        self.dispatch_depth = self.dispatch_depth.saturating_sub(1);
+    }
+
+    /// History entries that did not come through dispatch (direct gestures
+    /// on the canvas). Inside a dispatch the outer command already counts.
+    pub fn on_history(&mut self, id: &str) {
+        if self.dispatch_depth == 0 {
+            if let Some(rec) = self.recorder.as_mut() {
+                rec.record_command(id);
+            }
         }
     }
 
-    pub fn start_recording(&mut self, _session_log: &atlas_core::session_log::SessionLog) {
+    /// True while a report form is open: file drops belong to the form, not
+    /// to the canvas underneath.
+    pub fn owns_drops(&self) -> bool {
+        matches!(
+            self.phase,
+            FeedbackPhase::BugForm | FeedbackPhase::FeatureForm
+        )
+    }
+
+    /// Attach dropped image files. A cloud placeholder is refused before
+    /// any byte is read, so a drop never hydrates a OneDrive file.
+    pub fn attach_dropped(&mut self, paths: &[PathBuf]) {
+        for path in paths {
+            if self.attachments.iter().any(|(p, _)| p == path) {
+                continue;
+            }
+            if atlas_core::cloud::is_dehydrated(path) {
+                self.attach_note =
+                    Some("Cloud-only file skipped — make it available offline first.".into());
+                continue;
+            }
+            let fits = std::fs::metadata(path)
+                .is_ok_and(|m| m.is_file() && m.len() <= MAX_ATTACHMENT_BYTES);
+            match fits.then(|| std::fs::read(path).ok()).flatten() {
+                Some(bytes) if image::guess_format(&bytes).is_ok() => {
+                    self.attachments.push((path.clone(), bytes));
+                    self.attach_note = None;
+                }
+                _ => {
+                    self.attach_note = Some("Only image files up to 32 MB can be attached.".into())
+                }
+            }
+        }
+    }
+
+    /// Attach the clipboard picture through the shared clipboard-image owner.
+    pub fn attach_clipboard_image(&mut self) {
+        match atlas_core::clipboard_image::read_png() {
+            Some(png) => {
+                let n = self.attachments.len() + 1;
+                self.attachments
+                    .push((PathBuf::from(format!("pasted-{n}.png")), png));
+                self.attach_note = None;
+            }
+            None => self.attach_note = Some("The clipboard holds no image.".into()),
+        }
+    }
+
+    pub fn start_recording(&mut self) {
         self.form_return = self.phase;
         self.phase = FeedbackPhase::Recording;
         self.recorder = Some(Recorder::start(now_ms()));
@@ -144,6 +218,7 @@ impl FeedbackHub {
         self.reproduce_wanted = false;
         self.recorded_steps.clear();
         self.attachments.clear();
+        self.attach_note = None;
         self.kind = None;
     }
 
@@ -186,4 +261,45 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn labels(hub: &FeedbackHub) -> Vec<String> {
+        hub.recorder
+            .as_ref()
+            .unwrap()
+            .steps
+            .iter()
+            .map(|s| s.label.clone())
+            .collect()
+    }
+
+    #[test]
+    fn a_dispatched_command_records_once_even_when_it_pushes_history() {
+        let mut hub = FeedbackHub::default();
+        hub.begin_form(FeedbackKind::Bug);
+        hub.start_recording();
+        hub.enter_command("board.align.left");
+        hub.on_history("board.align.left");
+        hub.enter_command("board.nested");
+        hub.exit_command();
+        hub.exit_command();
+        hub.on_history("board.drag");
+        hub.enter_command("app.feedback.finish_recording");
+        hub.exit_command();
+        assert_eq!(labels(&hub), ["board.align.left", "board.drag"]);
+    }
+
+    #[test]
+    fn nothing_records_outside_a_recording() {
+        let mut hub = FeedbackHub::default();
+        hub.enter_command("board.align.left");
+        hub.exit_command();
+        hub.on_history("board.drag");
+        assert!(hub.recorder.is_none());
+        assert_eq!(hub.dispatch_depth, 0);
+    }
 }

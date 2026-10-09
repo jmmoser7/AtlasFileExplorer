@@ -30,5 +30,6 @@ Installed builds without a repo root use
 `%LOCALAPPDATA%\NativeFileAtlas\feedback\` unless overridden in
 **Advanced → Suggestion box**.
 
-No network or account is required. Use **Email…** to open a `mailto:` summary;
-attach files from the bundle folder manually.
+No network or account is required. **Email…** saves the report folder first,
+then opens a `mailto:` summary naming it; attach files from that folder
+manually. `feedback/client/` is gitignored: bundles are user content.

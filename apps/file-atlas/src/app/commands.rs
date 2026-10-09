@@ -606,7 +606,7 @@ pub const SPECS: &[CommandSpec] = &[
         "app.feedback.open",
         "Suggestion box",
         "Workflow",
-        "Lower-left 💬 on the canvas",
+        "Speech-bubble button left of the readout chevron",
         None,
         Repeat::Never,
         GLOBAL,

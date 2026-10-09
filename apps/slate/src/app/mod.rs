@@ -2437,7 +2437,17 @@ impl SlateApp {
         // board they're also placed at the drop point; landing on a tagged
         // frame assigns its tags.
         let _drop_span = atlas_core::session_log::span("slate.drop");
-        let native_drop = self.external_drop.pop();
+        let mut native_drop = self.external_drop.pop();
+        if self.feedback.owns_drops() {
+            if let Some(external_drop::DropEvent {
+                payload: external_drop::Payload::Files(paths),
+                ..
+            }) = native_drop.take()
+            {
+                self.feedback.attach_dropped(&paths);
+                ctx.request_repaint();
+            }
+        }
         let mut drop_at = None;
         let mut drop_alt = None;
         let mut dropped: Vec<PathBuf> = ctx.input(|i| {
@@ -2447,6 +2457,9 @@ impl SlateApp {
                 .filter_map(|f| f.path.clone())
                 .collect()
         });
+        if self.feedback.owns_drops() {
+            dropped.clear();
+        }
         if native_drop.is_some() || !dropped.is_empty() {
             // Dragged out of the open dialog instead of picked: the drop is
             // the answer, so the dialog goes away as if cancelled.
