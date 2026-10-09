@@ -38,6 +38,9 @@ pub struct Palette {
     pub ink: Color32,
     pub sub: Color32,
     pub line: Color32,
+    /// Default connector stroke. Medium gray, one value per mode. A wire
+    /// with no authored color reads this from the active theme each frame.
+    pub wire: Color32,
     pub accent: Color32,
     pub portal: Color32,
     pub thumb_bg: Color32,
@@ -150,6 +153,7 @@ impl Palette {
             ink: slots.ink.color(),
             sub: slots.sub.color(),
             line: slots.line.color(),
+            wire: slots.wire.color(),
             accent: slots.accent.color(),
             portal: slots.portal.color(),
             thumb_bg: slots.thumb_bg.color(),
@@ -281,6 +285,7 @@ mod tests {
         assert_eq!(light.ink, Color32::from_rgb(0x1b, 0x1e, 0x22));
         assert_eq!(light.sub, Color32::from_rgb(0x87, 0x8e, 0x96));
         assert_eq!(light.line, Color32::from_rgb(0xcb, 0xd1, 0xd8));
+        assert_eq!(light.wire, Color32::from_rgb(0x6e, 0x76, 0x80));
         assert_eq!(light.accent, Color32::from_rgb(0x0f, 0x76, 0x6e));
         assert_eq!(light.portal, Color32::from_rgb(0x8b, 0x5c, 0xf6));
         assert_eq!(light.thumb_bg, Color32::from_rgb(0xee, 0xf0, 0xf2));
@@ -297,6 +302,7 @@ mod tests {
         assert_eq!(dark.ink, Color32::from_rgb(0xdd, 0xe2, 0xe8));
         assert_eq!(dark.sub, Color32::from_rgb(0x87, 0x8e, 0x96));
         assert_eq!(dark.line, Color32::from_rgb(0x3a, 0x41, 0x4a));
+        assert_eq!(dark.wire, Color32::from_rgb(0x9a, 0xa3, 0xac));
         assert_eq!(dark.accent, Color32::from_rgb(0x2d, 0xd4, 0xbf));
         assert_eq!(dark.portal, Color32::from_rgb(0xa7, 0x8b, 0xfa));
         assert_eq!(dark.thumb_bg, Color32::from_rgb(0x15, 0x18, 0x1c));

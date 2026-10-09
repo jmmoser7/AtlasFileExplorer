@@ -20,7 +20,7 @@ use super::board_snap;
 use super::SlateApp;
 
 /// `osnap.radius` — screen px the cursor must be within for a snap to fire.
-pub const OSNAP_RADIUS_PX: f32 = 8.0;
+pub const OSNAP_RADIUS_PX: f32 = 12.0;
 /// `osnap.marker` — screen-space marker size.
 pub const OSNAP_MARKER_PX: f32 = 7.0;
 
@@ -178,6 +178,25 @@ impl SlateApp {
         shift: bool,
         allow_ortho: bool,
     ) -> Pos2 {
+        self.resolve_point_snap_with(world, exclude, from, shift, allow_ortho, |all, scope| {
+            board_snap::snap_point(world, exclude, all, scope)
+        })
+    }
+
+    /// The one resolution order. `smart` is the smart-guide step: a point
+    /// snap for picks, a scaled-corner snap for corner resize.
+    fn resolve_point_snap_with(
+        &mut self,
+        world: Pos2,
+        exclude: &[NodeId],
+        from: Option<Pos2>,
+        shift: bool,
+        allow_ortho: bool,
+        smart: impl FnOnce(
+            &[(NodeId, WorldRect)],
+            board_snap::SnapScope,
+        ) -> (Pos2, Vec<board_snap::SnapGuide>),
+    ) -> Pos2 {
         if self.alt_down {
             self.board_osnap_hit = None;
             return world;
@@ -210,7 +229,7 @@ impl SlateApp {
         self.board_osnap_hit = None;
         if self.board_smart_guides {
             let all = self.board_node_rects();
-            let (p, guides) = board_snap::snap_point(world, exclude, &all, self.snap_scope());
+            let (p, guides) = smart(&all, self.snap_scope());
             if !guides.is_empty() {
                 self.board_snap_guides = guides;
                 return p;
@@ -221,6 +240,41 @@ impl SlateApp {
             return Pos2::new((world.x / g).round() * g, (world.y / g).round() * g);
         }
         world
+    }
+
+    /// Corner-scale resolution: [`Self::resolve_point_snap`]'s order, with
+    /// the smart-guide step snapping the scaled corner onto neighbouring
+    /// edges (aspect-aware). Preview and commit both consume the returned
+    /// pointer through `resize_from_handle`.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn resolve_corner_scale(
+        &mut self,
+        world: Pos2,
+        before: WorldRect,
+        proposed: WorldRect,
+        handle: u8,
+        min_size: f32,
+        lock_aspect: bool,
+        from_center: bool,
+        exclude: &[NodeId],
+    ) -> Pos2 {
+        self.board_snap_guides.clear();
+        let p = self.resolve_point_snap_with(world, exclude, None, false, false, |all, scope| {
+            board_snap::snap_scaled_corner(
+                before,
+                proposed,
+                handle,
+                min_size,
+                lock_aspect,
+                from_center,
+                exclude,
+                all,
+                scope,
+            )
+            .unwrap_or((world, Vec::new()))
+        });
+        self.board_point_snap = Some(p);
+        p
     }
 
     /// Last resolved hover/gesture point for live previews. Prefers the

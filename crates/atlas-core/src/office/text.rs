@@ -11,7 +11,7 @@ use std::path::Path;
 /// files (see `slate-doc::media`) must treat every one of these as a
 /// structured text package, so a failed extract does not surface zip bytes.
 pub const EXCERPT_EXTENSIONS: &[&str] = &[
-    "docx", "docm", "dotx", "dotm", "xlsx", "xlsm", "xltx", "xltm", "odt", "ods", "rtf",
+    "docx", "docm", "dotx", "dotm", "xlsx", "xlsm", "xltx", "xltm", "odt", "ods", "rtf", "msg",
 ];
 
 const CHAR_CAP: usize = 2000;
@@ -34,6 +34,7 @@ pub fn document_excerpt(path: &Path) -> Option<String> {
         "odt" => odf_excerpt(path, false)?,
         "ods" => odf_excerpt(path, true)?,
         "rtf" => rtf_excerpt(path)?,
+        "msg" => super::outlook::message_excerpt(path)?,
         _ => return None,
     };
     let text = text.trim();
@@ -509,7 +510,7 @@ fn ods_grid(xml: &str) -> String {
     out.finish()
 }
 
-fn rtf_text(bytes: &[u8]) -> Option<String> {
+pub(crate) fn rtf_text(bytes: &[u8]) -> Option<String> {
     let text = String::from_utf8_lossy(bytes);
     let trimmed = text.trim_start_matches('\u{feff}').trim_start();
     if !trimmed.starts_with("{\\rtf") {

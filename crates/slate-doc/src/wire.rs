@@ -10,8 +10,8 @@
 //! right-hand path, then the bottom path (screen axes: +x right, +y down).
 
 use crate::scene::{
-    connector_bezier_from_dirs, ConnectorBezier, ConnectorEnd, ConnectorNode, Node, NodeKind,
-    Scene, ShapeKind, Side, WorldRect,
+    connector_bezier_from_dirs, connector_end_dirs, ConnectorBezier, ConnectorEnd, ConnectorNode,
+    Node, NodeKind, Scene, ShapeKind, Side, WorldRect,
 };
 use crate::wire_host::WireHost;
 use crate::NodeId;
@@ -427,12 +427,8 @@ fn connector_bezier_hosted(
     let (p0, dir_a) = resolve_end(a, &host_of)?;
     let (p3, dir_b) = resolve_end(b, &host_of)?;
     let chord = sub(p3, p0);
-    Some(connector_bezier_from_dirs(
-        p0,
-        dir_a.unwrap_or(chord),
-        p3,
-        dir_b.unwrap_or([-chord[0], -chord[1]]),
-    ))
+    let (dir_a, dir_b) = connector_end_dirs(dir_a, dir_b, chord);
+    Some(connector_bezier_from_dirs(p0, dir_a, p3, dir_b))
 }
 
 /// AABB of the derived route (connector `Node.rect` stays equal to this).
@@ -1841,7 +1837,34 @@ fn nearly(a: [f32; 2], b: [f32; 2]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scene::Side;
+    use crate::scene::{Side, WorldRect};
+
+    #[test]
+    fn hosted_drag_free_end_mirrors_the_source_axis() {
+        let host = WireHost::from_rect(WorldRect::new(0.0, 0.0, 100.0, 40.0));
+        let from = ConnectorEnd::Anchored {
+            node: NodeId(1),
+            side: Side::Bottom,
+            t: 0.5,
+        };
+        let to = ConnectorEnd::Free {
+            point: [160.0, 200.0],
+        };
+        let path = connector_route(
+            &from,
+            &to,
+            |_| Some(host.clone()),
+            WireRouting::Bezier,
+            &[],
+            OrthoLane::default(),
+        )
+        .unwrap();
+        let ConnectorPath::Bezier(bez) = path else {
+            panic!("drag preview is a bezier");
+        };
+        assert_eq!(bez.start_dir(), [0.0, 1.0]);
+        assert_eq!(bez.end_dir(), [0.0, -1.0]);
+    }
 
     #[test]
     fn retreat_moves_an_anchored_end_outside_the_host() {
@@ -2097,6 +2120,7 @@ mod tests {
                 a,
                 b,
                 stroke: Stroke::default(),
+                color: None,
                 arrow_a: false,
                 arrow_b: false,
                 label: None,

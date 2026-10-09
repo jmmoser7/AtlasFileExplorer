@@ -55,7 +55,7 @@ below is approved in `decisions.json` and is precedent for future tools.
 | `draft.drag_threshold` | px of travel that flips click grammar to drag grammar | 4.0 |
 | `draft.grip_radius` | endpoint grip hit radius (screen px): the shared `path_edit_overlay::HIT_PX` | 7.0 |
 | `draft.readout_alpha` | length/angle readout opacity | 0.85 |
-| `draft.osnap_radius` | endpoint object-snap radius (screen px, D06) | 8.0 |
+| `draft.osnap_radius` | endpoint object-snap radius (screen px, D06) | 12.0 |
 | `pick.slop` | stroke pick tolerance beyond half-width (screen px, D17) | 4.0 |
 
 Pinned as the named-constants block `board_line::draft_tokens` (P0.6 allows

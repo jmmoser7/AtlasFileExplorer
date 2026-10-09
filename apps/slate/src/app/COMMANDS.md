@@ -148,8 +148,9 @@ drag the address-bar URL or a page link instead.
   still sets every corner.
 - **Polygon sides** (`board.shape.sides`) — hover a vertex of a selected
   regular polygon: a **+** shows outside it and a **−** inside it. Click +
-  to add a side (up to 12) centered on that vertex; click − to remove one
-  (down to 3) and keep a vertex where it was. Each click is one undo step.
+  to add a side (up to 12) while that vertex stays put and the others
+  re-space around it; click − to remove one (down to 3) and keep a
+  vertex where it was. Each click is one undo step.
   The glyphs grow and shrink with the board zoom and drop when too small.
   This replaces the Corners panel's Sides number.
 - **Align widget** (Grasshopper): with the Select tool and 2+ nodes selected,
@@ -672,12 +673,18 @@ with the caret in it. Typed words go to that file through the off-thread
 text writer, not the journal. Esc or click-away finishes typing.
 
 PowerPoint stays linked to its source and renders a derived PDF locally using
-installed PowerPoint. Conversion and PDF page counting run on bounded workers;
-cloud-only files are not downloaded. A selected PDF or deck shows a Pages
-squircle on the shared property strip. That control opens a thin Cover Flow
-album pallet over the document (`board.media.page`) and Unbundle
-(`board.media.unbundle`) spreads every page onto the board as a selected grid
-in one journal group. Without PowerPoint, place an exported PDF.
+installed PowerPoint. Word (`.doc`, `.docx`) does the same through Word, and
+Unbundle writes those page images beside a saved workbook under
+`assets/documents/<stem>-<hash>/`, one folder per source path (or the Atlas
+data directory when unsaved). Until
+Unbundle, Word stays a text excerpt. Conversion and PDF page counting run on
+bounded workers; an Unbundle click while that work is still running finishes
+when the preview arrives. Cloud-only files are not downloaded. A selected PDF,
+deck, or Word document shows a Pages squircle on the shared property strip.
+That control opens a thin Cover Flow album pallet over the document
+(`board.media.page`) and Unbundle (`board.media.unbundle`) spreads every page
+onto the board as a selected grid in one journal group. Without PowerPoint or
+Word, place an exported PDF. Outlook `.msg` files are text excerpts.
 See `docs/keymap/contracts/media.md`.
 
 

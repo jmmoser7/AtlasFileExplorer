@@ -563,6 +563,7 @@ impl SlateApp {
         let mut node = self.build_connector(a, b);
         if let NodeKind::Connector(c) = &mut node.kind {
             c.stroke = xt::wire_stroke();
+            c.set_color(Some(c.stroke.color));
             if routing.is_some() {
                 c.routing = routing;
             }

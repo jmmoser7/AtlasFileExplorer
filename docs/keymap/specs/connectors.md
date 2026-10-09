@@ -41,9 +41,13 @@ Rules:
   retain the session fallback until explicitly edited:
   - **Bezier** (default): a cubic leaving each anchored end along the
     host's outward (rotated local-edge normal, or the stroke tangent at
-    start/end / left-normal at mid). Handle length matches Grasshopper's
-    `GH_Painter.ConnectionPathBezier`: `max(0.5·|Δx|, 0.75·|Δy|)`, shared
-    by both handles, with no floor or ceiling.
+    start/end / left-normal at mid). A free end opposite an anchor stays
+    on that same axis, reversed (horizontal for a left/right port,
+    vertical for a top/bottom port), matching a wire into a facing port.
+    Two free ends still aim along the chord. Handle length matches
+    Grasshopper's `GH_Painter.ConnectionPathBezier`:
+    `max(0.5·|Δx|, 0.75·|Δy|)`, shared by both handles, with no floor
+    or ceiling.
   - **Orthogonal** (**P1.wire.rails**): leaves each end along the host's
     true outward (so a rotated edge does not immediately re-enter), then
     takes a **50/50 three-leg** through the midpoint when that corridor
@@ -93,12 +97,18 @@ Ports sit on **object features**, not the world AABB (**P1.wire.ports**):
 - Connectors themselves have no ports.
 
 With the **Select tool**, a grip previews when the pointer is within
-8 px of **that port**, or within 48 px on the **outside** of the node
-(500% larger than the inner radius, outward half-plane only — the
-enlargement does not reach into the body). An edge or stroke between
-ports is inert for preview — it does not reveal the others. A press
-on a port starts a wire and **beats** the edge-resize band (hit-test
-the press origin, not the live hover cache). Snap radius while dragging a wire:
+the inner hit of **that port**, or in the outward half-plane out to
+six times that radius (at zoom ≥ 1: 8 px and 48 px). Zooming out grows
+the inner radius as `8 * zoom^-0.35` screen px, capped at 14; the
+outward reach stays six times the inner one. This is a pointer hit,
+not painted geometry. A port whose painted disc is below 1.5 screen px
+is not drawn and is not hittable. A press inside any node's body does
+not start a wire from another node's port, unless that body also holds
+the port (a slide frame around the card). A press inside a
+multi-selection's bounding box moves that selection. An edge or stroke
+between ports is inert for preview — it does not reveal the others. A
+press on a port starts a wire and **beats** the edge-resize band
+(hit-test the press origin, not the live hover cache). Snap radius while dragging a wire:
 **14 px screen space** to a port; anywhere on a local edge or open
 stroke snaps to the projected site (`t` along the edge, or arclength
 on `Mid`).
@@ -110,7 +120,7 @@ on `Mid`).
 
 | Gesture | Behavior |
 |---------|----------|
-| **Drag from grip** | Rubber-band bezier preview from the grip. Near a valid target grip/edge: preview snaps and renders solid. Release on target → `Add` connector. Release on empty canvas → `Add` with a `Free` end at that point, drawn the same way a detached end is. The canvas palette does not open. Esc during drag cancels. |
+| **Drag from grip** | Rubber-band bezier preview from the grip. The free end's tangent stays on the source side's axis, reversed, the same easing as a wire into a facing port on an adjacent node. Near a valid target grip/edge: preview snaps and renders solid. Release on target → `Add` connector. Release on empty canvas → `Add` with a `Free` end at that point, drawn the same way a detached end is. The leader to a flow action menu uses that same curve. The canvas palette does not open. Esc during drag cancels. |
 | **Plain drag** (no modifier) | Adds; whiteboard default is additive (research §9: "add default"). Existing connectors on the grip are untouched. |
 | **Shift+drag** | Identical to plain add in P1 (kept so Grasshopper muscle memory does nothing surprising). Cursor shows a small `+`. |
 | **Ctrl+drag from a grip with wires** | **Detach**: grabs the nearest existing connector end off the grip; it follows the cursor. Release on another grip/edge → `Patch` (rewired). Release on empty → the end becomes `Free` there (`Patch`). Cursor shows `−`. |

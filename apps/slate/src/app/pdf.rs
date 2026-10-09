@@ -10,6 +10,21 @@ use std::path::{Path, PathBuf};
 
 use super::THUMB_GENERATION;
 
+pub(crate) struct QueuedUnbundle {
+    tab: u64,
+    node: slate_doc::NodeId,
+    focus: Option<u16>,
+    source: PathBuf,
+    writing: Option<crossbeam_channel::Receiver<Result<Vec<PageFile>, String>>>,
+}
+
+struct PageFile {
+    locator: PathBuf,
+    bytes: u64,
+    mtime: i64,
+    name: String,
+}
+
 /// Thumbnail cache key for an item, accounting for PDF poster page.
 pub fn item_thumb_key(item: &slate_doc::SlateItem) -> String {
     if item.pdf_page == 0 {
@@ -31,9 +46,12 @@ impl SlateApp {
         item_id: ItemId,
     ) -> Option<(String, PathBuf, u64, Option<u16>)> {
         let item = self.doc().item(item_id)?.clone();
+        let fs_path = slate_doc::scene::resolve_source(
+            self.tab().path.as_deref(),
+            &item.path.to_string_lossy(),
+        );
         if slate_doc::media::has_pages(&item.path) {
-            self.documents
-                .request(&item.path, slate_doc::media::is_powerpoint(&item.path));
+            self.documents.request(&item.path);
         }
         if let Some(preview) = self.documents.ready(&item.path) {
             return Some((
@@ -45,7 +63,7 @@ impl SlateApp {
         }
         Some((
             item_thumb_key(&item),
-            item.path,
+            fs_path,
             item.size,
             (item.pdf_page > 0).then_some(item.pdf_page),
         ))
@@ -59,8 +77,7 @@ impl SlateApp {
     }
 
     pub(crate) fn pdf_page_count(&mut self, path: &Path) -> u16 {
-        self.documents
-            .request(path, slate_doc::media::is_powerpoint(path));
+        self.documents.request(path);
         self.documents.ready(path).map_or(0, |p| p.pages)
     }
 
@@ -156,8 +173,9 @@ impl SlateApp {
         self.request_thumb(new_item);
     }
 
-    /// Spread every page of a selected PDF/PowerPoint onto the board as a grid.
-    /// The focused page keeps the original node id (wires and style survive).
+    /// Spread every page of a selected PDF, PowerPoint, or Word document onto
+    /// the board as a grid. The focused page keeps the original node id.
+    /// A preview that is still rendering is queued and finished when it arrives.
     pub fn unbundle_paged_media(&mut self, node_id: slate_doc::NodeId, focus: Option<u16>) -> bool {
         if self.tab().read_only {
             return false;
@@ -177,27 +195,176 @@ impl SlateApp {
         if !slate_doc::media::has_pages(&item.path) {
             return false;
         }
+        let tab = self.tab().id;
+        if self
+            .queued_unbundles
+            .iter()
+            .any(|job| job.tab == tab && job.node == node_id)
+        {
+            return true;
+        }
+        let failed = self
+            .documents
+            .error(&item.path)
+            .map(str::to_string)
+            .filter(|_| self.documents.ready(&item.path).is_none());
+        if let Some(error) = failed {
+            self.toast(error);
+            return false;
+        }
         let count = self.pdf_page_count(&item.path);
         if count == 0 {
-            self.toast(
-                self.documents
-                    .error(&item.path)
-                    .unwrap_or("Document pages are still loading. Try again shortly.")
-                    .to_string(),
-            );
-            return false;
+            self.queued_unbundles.push(QueuedUnbundle {
+                tab,
+                node: node_id,
+                focus,
+                source: item.path,
+                writing: None,
+            });
+            return true;
         }
         if count <= 1 {
             self.toast("Document has only one page");
             return false;
         }
-        let style = img.clone();
+        if slate_doc::media::is_word_document(&item.path) {
+            self.begin_word_pages(QueuedUnbundle {
+                tab,
+                node: node_id,
+                focus,
+                source: item.path,
+                writing: None,
+            });
+            true
+        } else {
+            self.place_pdf_pages(node_id, focus)
+        }
+    }
+
+    pub(crate) fn pump_document_jobs(&mut self, ctx: &eframe::egui::Context) {
+        self.documents.poll(ctx);
+        self.complete_queued_unbundles();
+    }
+
+    pub(crate) fn complete_queued_unbundles(&mut self) {
+        let jobs = std::mem::take(&mut self.queued_unbundles);
+        for job in jobs {
+            self.advance_unbundle(job);
+        }
+    }
+
+    fn advance_unbundle(&mut self, mut job: QueuedUnbundle) {
+        if !self.tabs.iter().any(|tab| tab.id == job.tab) {
+            return;
+        }
+        if self.tab().id != job.tab {
+            self.queued_unbundles.push(job);
+            return;
+        }
+        if let Some(rx) = job.writing.take() {
+            match rx.try_recv() {
+                Ok(Ok(pages)) => {
+                    self.place_word_pages(job.node, job.focus, &pages);
+                }
+                Ok(Err(error)) => self.toast(error),
+                Err(crossbeam_channel::TryRecvError::Empty) => {
+                    job.writing = Some(rx);
+                    self.queued_unbundles.push(job);
+                }
+                Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                    self.toast("Document page render stopped.");
+                }
+            }
+            return;
+        }
+        let failed = self
+            .documents
+            .error(&job.source)
+            .map(str::to_string)
+            .filter(|_| self.documents.ready(&job.source).is_none());
+        if let Some(error) = failed {
+            self.toast(error);
+            return;
+        }
+        let count = self.pdf_page_count(&job.source);
+        if count == 0 {
+            self.queued_unbundles.push(job);
+            return;
+        }
+        if count <= 1 {
+            self.toast("Document has only one page");
+            return;
+        }
+        if slate_doc::media::is_word_document(&job.source) {
+            self.begin_word_pages(job);
+        } else {
+            self.place_pdf_pages(job.node, job.focus);
+        }
+    }
+
+    fn begin_word_pages(&mut self, job: QueuedUnbundle) {
+        let Some(preview) = self.documents.ready(&job.source).cloned() else {
+            self.queued_unbundles.push(job);
+            return;
+        };
+        let Some(node) = self.doc().scene.node(job.node).cloned() else {
+            return;
+        };
+        let slate_doc::NodeKind::Image(img) = &node.kind else {
+            return;
+        };
+        let Some(item) = self.doc().item(img.item).cloned() else {
+            return;
+        };
+        if item.path != job.source {
+            return;
+        }
+        let stem = document_stem(&item.file_name);
+        let workbook = self.tab().path.clone();
+        let dir = page_image_dir(workbook.as_deref(), &stem, &job.source);
+        let wake = self.documents.ui_ctx();
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        std::thread::spawn(move || {
+            let result = write_word_pages(
+                &preview.path,
+                preview.pages,
+                &dir,
+                workbook.as_deref(),
+                &stem,
+            );
+            let _ = tx.send(result);
+            wake.request_repaint();
+        });
+        self.queued_unbundles.push(QueuedUnbundle {
+            writing: Some(rx),
+            ..job
+        });
+    }
+
+    fn place_pdf_pages(&mut self, node_id: slate_doc::NodeId, focus: Option<u16>) -> bool {
+        let Some(node) = self.doc().scene.node(node_id).cloned() else {
+            return false;
+        };
+        if node.locked {
+            return false;
+        }
+        let slate_doc::NodeKind::Image(img) = &node.kind else {
+            return false;
+        };
+        let Some(item) = self.doc().item(img.item).cloned() else {
+            return false;
+        };
+        let count = self
+            .documents
+            .ready(&item.path)
+            .map(|preview| preview.pages)
+            .unwrap_or(0);
+        if count <= 1 {
+            return false;
+        }
         let active = focus.unwrap_or(item.pdf_page).min(count - 1);
         let assignments = item.assignments.clone();
-        let stem = Path::new(&item.file_name)
-            .file_stem()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_else(|| item.file_name.clone());
+        let stem = document_stem(&item.file_name);
         let mut page_items = Vec::with_capacity(count as usize);
         for page in 0..count {
             let key = cache_key_page(
@@ -220,7 +387,72 @@ impl SlateApp {
             }
             page_items.push(id);
         }
-        let sizes = vec![(node.rect.w, node.rect.h); count as usize];
+        self.layout_page_nodes(node_id, active, &page_items)
+    }
+
+    fn place_word_pages(
+        &mut self,
+        node_id: slate_doc::NodeId,
+        focus: Option<u16>,
+        pages: &[PageFile],
+    ) {
+        if pages.len() <= 1 {
+            self.toast("Document has only one page");
+            return;
+        }
+        let Some(node) = self.doc().scene.node(node_id).cloned() else {
+            return;
+        };
+        let slate_doc::NodeKind::Image(img) = &node.kind else {
+            return;
+        };
+        let Some(source_item) = self.doc().item(img.item).cloned() else {
+            return;
+        };
+        let active = focus.unwrap_or(0).min(pages.len() as u16 - 1);
+        let assignments = source_item.assignments.clone();
+        let mut page_items = Vec::with_capacity(pages.len());
+        for page in pages {
+            let key = atlas_core::thumbs::cache_key(
+                &page.locator.to_string_lossy(),
+                page.bytes,
+                page.mtime,
+            );
+            let id = self.doc_mut().add_item(
+                page.locator.clone(),
+                page.name.clone(),
+                page.bytes,
+                page.mtime,
+                key,
+            );
+            for tag in assignments.values() {
+                self.doc_mut().assign(id, *tag);
+            }
+            page_items.push(id);
+        }
+        self.layout_page_nodes(node_id, active, &page_items);
+    }
+
+    fn layout_page_nodes(
+        &mut self,
+        node_id: slate_doc::NodeId,
+        active: u16,
+        page_items: &[slate_doc::ItemId],
+    ) -> bool {
+        let Some(node) = self.doc().scene.node(node_id).cloned() else {
+            return false;
+        };
+        if node.locked {
+            return false;
+        }
+        let slate_doc::NodeKind::Image(img) = &node.kind else {
+            return false;
+        };
+        if page_items.is_empty() || active as usize >= page_items.len() {
+            return false;
+        }
+        let style = img.clone();
+        let sizes = vec![(node.rect.w, node.rect.h); page_items.len()];
         let center = eframe::egui::Pos2::new(
             node.rect.x + node.rect.w * 0.5,
             node.rect.y + node.rect.h * 0.5,
@@ -238,15 +470,15 @@ impl SlateApp {
         });
         let mut ids = vec![node_id];
         let mut insertion = self.doc().scene.nodes.len();
-        for page in 0..count {
-            if page == active {
+        for (page, item) in page_items.iter().copied().enumerate() {
+            if page == active as usize {
                 continue;
             }
             let kind = slate_doc::NodeKind::Image(slate_doc::scene::ImageNode {
-                item: page_items[page as usize],
+                item,
                 ..style.clone()
             });
-            let mut child = self.doc_mut().scene.build_node(rects[page as usize], kind);
+            let mut child = self.doc_mut().scene.build_node(rects[page], kind);
             child.rotation_deg = node.rotation_deg;
             child.opacity = node.opacity;
             child.clip = node.clip.clone();
@@ -261,7 +493,7 @@ impl SlateApp {
             return false;
         }
         self.board_sel = ids.iter().copied().collect();
-        for item_id in &page_items {
+        for item_id in page_items {
             self.request_thumb(*item_id);
         }
         self.inherit_frame_tags_after_move(&ids);
@@ -450,6 +682,83 @@ pub(crate) struct PagesAlbumOutcome {
     pub commit_page: bool,
     pub unbundle: bool,
     pub hover: bool,
+}
+
+fn document_stem(file_name: &str) -> String {
+    let stem = Path::new(file_name)
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| file_name.to_string());
+    let cleaned: String = stem
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == ' ' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let cleaned = cleaned.trim().trim_matches('.').to_string();
+    if cleaned.is_empty() {
+        "document".into()
+    } else {
+        cleaned
+    }
+}
+
+/// Two documents with the same name in different folders must not share a
+/// folder: the second unbundle would overwrite the first one's linked pages.
+fn page_image_dir(workbook: Option<&Path>, stem: &str, source: &Path) -> PathBuf {
+    let hash = source
+        .to_string_lossy()
+        .bytes()
+        .fold(0xcbf29ce4u32, |hash, byte| {
+            hash.wrapping_mul(0x01000193) ^ u32::from(byte)
+        });
+    let name = format!("{stem}-{hash:08x}");
+    if let Some(dir) = workbook.and_then(|path| path.parent()) {
+        return dir.join("assets").join("documents").join(name);
+    }
+    atlas_core::index::data_dir()
+        .join("document-pages")
+        .join(name)
+}
+
+fn write_word_pages(
+    pdf: &Path,
+    pages: u16,
+    dir: &Path,
+    workbook: Option<&Path>,
+    stem: &str,
+) -> Result<Vec<PageFile>, String> {
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let mut written: Vec<PageFile> = Vec::with_capacity(pages as usize);
+    for page in 0..pages {
+        let absolute = dir.join(format!("page-{}.png", page + 1));
+        if let Err(error) = atlas_core::pdf::write_page_png(pdf, page, &absolute) {
+            for file in &written {
+                let path =
+                    slate_doc::scene::resolve_source(workbook, &file.locator.to_string_lossy());
+                let _ = std::fs::remove_file(path);
+            }
+            return Err(error);
+        }
+        let meta = std::fs::metadata(&absolute).map_err(|e| e.to_string())?;
+        let mtime = meta
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|elapsed| elapsed.as_secs() as i64)
+            .unwrap_or(0);
+        written.push(PageFile {
+            locator: PathBuf::from(slate_doc::scene::source_locator(workbook, &absolute)),
+            bytes: meta.len(),
+            mtime,
+            name: format!("{stem} — page {}", page + 1),
+        });
+    }
+    Ok(written)
 }
 
 #[cfg(test)]

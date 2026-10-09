@@ -347,6 +347,359 @@ fn media_unbundle_places_a_selected_page_grid_and_undoes() {
     assert!(!h.app.unbundle_paged_media(node, Some(0)));
 }
 
+fn fixture_pdf(pages: u16) -> Vec<u8> {
+    let mut kids = String::new();
+    let mut body = String::new();
+    for index in 0..pages {
+        let id = 3 + index;
+        if index > 0 {
+            kids.push(' ');
+        }
+        kids.push_str(&format!("{id} 0 R"));
+        body.push_str(&format!(
+            "{id} 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] >> endobj\n"
+        ));
+    }
+    format!(
+        "%PDF-1.4\n\
+1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n\
+2 0 obj << /Type /Pages /Kids [{kids}] /Count {pages} >> endobj\n\
+{body}\
+trailer << /Root 1 0 R >>\n\
+%%EOF"
+    )
+    .into_bytes()
+}
+
+fn render_pdf_pages(pages: u16, dest: &std::path::Path) -> Result<(), String> {
+    std::fs::write(dest, fixture_pdf(pages)).map_err(|e| e.to_string())
+}
+
+fn render_two_page_pdf(_: &std::path::Path, dest: &std::path::Path) -> Result<(), String> {
+    render_pdf_pages(2, dest)
+}
+
+fn render_three_page_pdf(_: &std::path::Path, dest: &std::path::Path) -> Result<(), String> {
+    render_pdf_pages(3, dest)
+}
+
+fn render_office_missing(_: &std::path::Path, _: &std::path::Path) -> Result<(), String> {
+    Err("PowerPoint is not installed.".into())
+}
+
+fn render_office_slow(source: &std::path::Path, dest: &std::path::Path) -> Result<(), String> {
+    std::thread::sleep(std::time::Duration::from_millis(400));
+    render_three_page_pdf(source, dest)
+}
+
+fn render_must_not_run(_: &std::path::Path, _: &std::path::Path) -> Result<(), String> {
+    Err("RENDERED".into())
+}
+
+fn install_office(
+    h: &mut Harness,
+    powerpoint: pdf::documents::OfficeRender,
+    word: pdf::documents::OfficeRender,
+) {
+    h.app
+        .documents
+        .set_office_renderers(pdf::documents::OfficeRenderers { powerpoint, word });
+}
+
+fn place_linked(h: &mut Harness, name: &str, bytes: &[u8]) -> (std::path::PathBuf, NodeId) {
+    h.app.ensure_work_tab();
+    h.app.leave_home();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    let source = h.base.join(name);
+    std::fs::write(&source, bytes).unwrap();
+    let ids = h.app.add_paths(std::slice::from_ref(&source));
+    h.app.place_items_on_board(&ids, Pos2::new(120.0, 100.0));
+    (source, h.app.doc().scene.nodes[0].id)
+}
+
+fn pump_until(h: &mut Harness, mut done: impl FnMut(&SlateApp) -> bool) -> bool {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while std::time::Instant::now() < deadline {
+        h.app.pump_document_jobs(&h.ctx);
+        if done(&h.app) {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    false
+}
+
+fn toast_text(app: &SlateApp) -> String {
+    app.toasts
+        .iter()
+        .map(|(text, _)| text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn unbundle_pdf_places_pages_through_dispatch_and_undoes_in_one_step() {
+    let mut h = Harness::new("unbundle_pdf_e2e");
+    install_office(&mut h, render_must_not_run, render_must_not_run);
+    let (source, node) = place_linked(&mut h, "notes.pdf", &fixture_pdf(2));
+    let before = h.app.doc().scene.node(node).unwrap().rect;
+    let original = match &h.app.doc().scene.node(node).unwrap().kind {
+        slate_doc::NodeKind::Image(image) => image.item,
+        _ => panic!("placed file"),
+    };
+    let depth = h.app.tab().journal.undo_depth();
+    assert!(h.app.dispatch(
+        &h.ctx,
+        atlas_commands::CommandId("board.media.unbundle"),
+        Some(format!("{node}:1", node = node.0))
+    ));
+    assert!(
+        pump_until(&mut h, |app| app.doc().scene.nodes.len() == 2),
+        "pdf unbundle did not finish: {}",
+        toast_text(&h.app)
+    );
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
+    assert_eq!(h.app.board_sel.len(), 2);
+    let page_item = match &h.app.doc().scene.node(node).unwrap().kind {
+        slate_doc::NodeKind::Image(image) => image.item,
+        _ => panic!("focus page"),
+    };
+    assert_eq!(h.app.doc().item(page_item).unwrap().pdf_page, 1);
+    assert_eq!(h.app.doc().item(page_item).unwrap().path, source);
+    let xs: Vec<f32> = h.app.doc().scene.nodes.iter().map(|n| n.rect.x).collect();
+    assert!(xs.iter().any(|x| (*x - xs[0]).abs() > 1.0));
+    assert_eq!(std::fs::read(&source).unwrap(), fixture_pdf(2));
+    h.app.board_undo();
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
+    assert_eq!(h.app.doc().scene.nodes[0].id, node);
+    assert_eq!(h.app.doc().scene.node(node).unwrap().rect, before);
+    assert!(matches!(
+        &h.app.doc().scene.node(node).unwrap().kind,
+        slate_doc::NodeKind::Image(image) if image.item == original
+    ));
+}
+
+#[test]
+fn unbundle_while_the_preview_is_pending_finishes_instead_of_failing() {
+    let mut h = Harness::new("unbundle_pending");
+    install_office(&mut h, render_office_slow, render_must_not_run);
+    let (source, node) = place_linked(&mut h, "deck.pptx", b"source remains linked");
+    assert!(h.app.dispatch(
+        &h.ctx,
+        atlas_commands::CommandId("board.media.unbundle"),
+        Some(node.0.to_string())
+    ));
+    assert_eq!(
+        h.app.doc().scene.nodes.len(),
+        1,
+        "pending unbundle must not fail closed"
+    );
+    assert!(
+        !toast_text(&h.app).contains("still loading"),
+        "{}",
+        toast_text(&h.app)
+    );
+    assert!(
+        pump_until(&mut h, |app| app.doc().scene.nodes.len() == 3),
+        "{}",
+        toast_text(&h.app)
+    );
+    assert_eq!(h.app.board_sel.len(), 3);
+    assert_eq!(std::fs::read(&source).unwrap(), b"source remains linked");
+    h.app.board_undo();
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
+}
+
+#[test]
+fn unbundle_pptx_and_legacy_ppt_when_office_can_render() {
+    for name in ["deck.pptx", "legacy.ppt"] {
+        let mut h = Harness::new(&format!("unbundle_{name}"));
+        install_office(&mut h, render_three_page_pdf, render_must_not_run);
+        let (source, node) = place_linked(&mut h, name, b"source remains linked");
+        let depth = h.app.tab().journal.undo_depth();
+        assert!(h.app.dispatch(
+            &h.ctx,
+            atlas_commands::CommandId("board.media.unbundle"),
+            Some(format!("{node}:0", node = node.0))
+        ));
+        assert!(
+            pump_until(&mut h, |app| app.doc().scene.nodes.len() == 3),
+            "{name}: {}",
+            toast_text(&h.app)
+        );
+        assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
+        let pages: Vec<u16> = h
+            .app
+            .doc()
+            .scene
+            .nodes
+            .iter()
+            .map(|node| match &node.kind {
+                slate_doc::NodeKind::Image(image) => h.app.doc().item(image.item).unwrap().pdf_page,
+                _ => panic!("page image"),
+            })
+            .collect();
+        assert!(pages.contains(&0) && pages.contains(&1) && pages.contains(&2));
+        assert_eq!(std::fs::read(&source).unwrap(), b"source remains linked");
+        h.app.board_undo();
+        assert_eq!(h.app.doc().scene.nodes.len(), 1);
+    }
+}
+
+#[test]
+fn unbundle_reports_when_office_is_not_installed() {
+    let mut h = Harness::new("unbundle_no_office");
+    install_office(&mut h, render_office_missing, render_office_missing);
+    let (source, node) = place_linked(&mut h, "deck.pptx", b"source remains linked");
+    assert!(h.app.dispatch(
+        &h.ctx,
+        atlas_commands::CommandId("board.media.unbundle"),
+        Some(node.0.to_string())
+    ));
+    assert!(
+        pump_until(&mut h, |app| toast_text(app).contains("not installed")),
+        "{}",
+        toast_text(&h.app)
+    );
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
+    assert_eq!(std::fs::read(&source).unwrap(), b"source remains linked");
+}
+
+#[test]
+fn unbundle_refuses_a_dehydrated_document_without_rendering_it() {
+    let mut h = Harness::new("unbundle_cloud");
+    install_office(&mut h, render_must_not_run, render_must_not_run);
+    let (source, node) = place_linked(&mut h, "cloud.pptx", b"source remains linked");
+    if !cfg!(windows) {
+        return;
+    }
+    assert!(
+        atlas_core::cloud::mark_offline(&source),
+        "Windows should be able to mark a temp file offline"
+    );
+    assert!(h.app.dispatch(
+        &h.ctx,
+        atlas_commands::CommandId("board.media.unbundle"),
+        Some(node.0.to_string())
+    ));
+    assert!(
+        pump_until(&mut h, |app| toast_text(app).contains("cloud-only")),
+        "{}",
+        toast_text(&h.app)
+    );
+    assert!(
+        !toast_text(&h.app).contains("RENDERED"),
+        "{}",
+        toast_text(&h.app)
+    );
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
+    assert_eq!(std::fs::read(&source).unwrap(), b"source remains linked");
+    let _ = atlas_core::cloud::clear_offline(&source);
+}
+
+#[test]
+fn unbundle_of_a_single_page_does_not_place_a_grid() {
+    let mut h = Harness::new("unbundle_one_page");
+    install_office(&mut h, render_must_not_run, render_must_not_run);
+    let (_, node) = place_linked(&mut h, "one.pdf", &fixture_pdf(1));
+    assert!(h.app.dispatch(
+        &h.ctx,
+        atlas_commands::CommandId("board.media.unbundle"),
+        Some(node.0.to_string())
+    ));
+    assert!(
+        pump_until(&mut h, |app| toast_text(app).contains("only one page")),
+        "{}",
+        toast_text(&h.app)
+    );
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
+}
+
+#[test]
+fn unbundle_word_writes_page_images_beside_a_saved_workbook() {
+    let mut h = Harness::new("unbundle_word_saved");
+    install_office(&mut h, render_must_not_run, render_two_page_pdf);
+    let (source, node) = place_linked(&mut h, "Essay.docx", b"source remains linked");
+    let original = match &h.app.doc().scene.node(node).unwrap().kind {
+        slate_doc::NodeKind::Image(image) => image.item,
+        _ => panic!("word card"),
+    };
+    assert_eq!(
+        slate_doc::media_kind(&source),
+        slate_doc::MediaKind::Text,
+        "an unbundled Word file still classifies as text"
+    );
+    h.app.tab_mut().path = Some(h.base.join("Book.slate"));
+    let depth = h.app.tab().journal.undo_depth();
+    assert!(h.app.dispatch(
+        &h.ctx,
+        atlas_commands::CommandId("board.media.unbundle"),
+        Some(node.0.to_string())
+    ));
+    assert!(
+        pump_until(&mut h, |app| app.doc().scene.nodes.len() == 2),
+        "{}",
+        toast_text(&h.app)
+    );
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
+    let focus = match &h.app.doc().scene.node(node).unwrap().kind {
+        slate_doc::NodeKind::Image(image) => image.item,
+        _ => panic!("page"),
+    };
+    let stored = h.app.doc().item(focus).unwrap().path.clone();
+    let locator = stored.to_string_lossy().replace('\\', "/");
+    assert!(
+        locator.starts_with("assets/documents/Essay-") && locator.ends_with("/page-1.png"),
+        "{locator}"
+    );
+    let absolute = h.base.join(&stored);
+    let bytes = std::fs::read(&absolute).unwrap();
+    assert!(bytes.starts_with(b"\x89PNG"), "page image was not a png");
+    assert_eq!(
+        slate_doc::scene::source_locator(h.app.tab().path.as_deref(), &absolute),
+        stored.to_string_lossy().replace('\\', "/")
+    );
+    assert_eq!(std::fs::read(&source).unwrap(), b"source remains linked");
+    h.app.board_undo();
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
+    assert!(matches!(
+        &h.app.doc().scene.node(node).unwrap().kind,
+        slate_doc::NodeKind::Image(image) if image.item == original
+    ));
+}
+
+#[test]
+fn unbundle_word_of_an_unsaved_workbook_writes_into_the_data_dir() {
+    let mut h = Harness::new("unbundle_word_unsaved");
+    install_office(&mut h, render_must_not_run, render_two_page_pdf);
+    let (_, node) = place_linked(&mut h, "Letter.docx", b"source remains linked");
+    assert!(h.app.tab().path.is_none());
+    assert!(h.app.dispatch(
+        &h.ctx,
+        atlas_commands::CommandId("board.media.unbundle"),
+        Some(node.0.to_string())
+    ));
+    assert!(
+        pump_until(&mut h, |app| app.doc().scene.nodes.len() == 2),
+        "{}",
+        toast_text(&h.app)
+    );
+    let focus = match &h.app.doc().scene.node(node).unwrap().kind {
+        slate_doc::NodeKind::Image(image) => image.item,
+        _ => panic!("page"),
+    };
+    let stored = h.app.doc().item(focus).unwrap().path.clone();
+    assert!(
+        stored.starts_with(atlas_core::index::data_dir().join("document-pages")),
+        "{}",
+        stored.display()
+    );
+    assert!(stored.is_file());
+    if let Some(dir) = stored.parent() {
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
 #[test]
 fn media_page_command_preserves_grid_and_venn_item_selection() {
     let mut h = Harness::new("media_grid_page");
@@ -6183,6 +6536,227 @@ fn wire_grip_press_beats_edge_resize() {
         matches!(edge_drag, Some(board::BoardDrag::Resize { .. })),
         "the rest of the edge must still resize"
     );
+}
+
+fn add_image_card(app: &mut SlateApp, x: f32, y: f32) -> NodeId {
+    let rect = slate_doc::scene::WorldRect::new(x, y, 80.0, 60.0);
+    let node = app.doc_mut().scene.build_node(
+        rect,
+        slate_doc::scene::NodeKind::Image(slate_doc::scene::ImageNode::new(
+            slate_doc::ItemId::NONE,
+        )),
+    );
+    app.add_nodes(vec![node])[0]
+}
+
+/// The inner hit grows past 8 px once the camera pulls back, and stays 8 px
+/// when zoomed in. Painted discs still use canvas scale.
+#[test]
+fn wire_grip_hit_grows_when_zoomed_out() {
+    let mut h = web_board("wire_hit_zoom");
+    let id = add_rect(&mut h.app, 0.0, 0.0);
+    h.app.board_sel.clear();
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.app.tab_mut().cam.z = 1.0;
+    h.frame();
+
+    let rect = h.app.doc().scene.node(id).unwrap().rect;
+    let grip_w = board_wire::grip_point(rect, slate_doc::scene::Side::Top);
+    let xf = h.app.board_xf();
+    let inside = xf.w2s(grip_w) + EVec2::new(0.0, 9.0);
+    assert!(
+        h.app.wire_grip_at(inside, &xf).is_none(),
+        "9 px inside the edge is past the zoom-1 disk"
+    );
+
+    h.app.tab_mut().cam.z = 0.55;
+    let xf = h.app.board_xf();
+    let inside = xf.w2s(grip_w) + EVec2::new(0.0, 9.0);
+    assert_eq!(
+        h.app.wire_grip_at(inside, &xf).map(|(_, side, _)| side),
+        Some(slate_doc::scene::Side::Top),
+        "the same 9 px reaches the grown hit"
+    );
+}
+
+/// A port the painter has dropped is not a press target.
+#[test]
+fn wire_ports_below_the_lod_are_not_hittable() {
+    let mut h = web_board("wire_port_lod");
+    let id = add_rect(&mut h.app, 0.0, 0.0);
+    h.app.board_sel.clear();
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.app.tab_mut().cam.z = 0.2;
+    h.frame();
+
+    let xf = h.app.board_xf();
+    let rect = h.app.doc().scene.node(id).unwrap().rect;
+    let grip = xf.w2s(board_wire::grip_point(rect, slate_doc::scene::Side::Right));
+    assert!(
+        h.app.wire_grip_at(grip, &xf).is_none(),
+        "a disc below 1.5 px is not a grip"
+    );
+}
+
+/// A neighbor's enlarged port must not steal a press that landed in this body.
+#[test]
+fn a_press_inside_a_node_does_not_start_a_neighbors_wire() {
+    let mut h = web_board("wire_neighbor_body");
+    let a = add_rect(&mut h.app, 0.0, 0.0);
+    let _b = add_rect(&mut h.app, 84.0, 0.0);
+    h.app.board_sel.clear();
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.app.tab_mut().cam.z = 1.0;
+    h.frame();
+
+    let xf = h.app.board_xf();
+    let rect = h.app.doc().scene.node(a).unwrap().rect;
+    let world = Pos2::new(rect.x + rect.w * 0.5, rect.y + rect.h * 0.5);
+    let screen = xf.w2s(world);
+    assert!(
+        h.app.wire_grip_at(screen, &xf).is_none(),
+        "the neighbor's outward hit stops at this body"
+    );
+    let drag = h
+        .app
+        .begin_gesture_for_test(screen, world, egui::Modifiers::NONE);
+    assert!(
+        matches!(drag, Some(board::BoardDrag::Move { .. })),
+        "the press moves the node"
+    );
+}
+
+/// A slide frame around a card holds both the press and the port, so it
+/// does not count as another body: the card's port still starts a wire.
+#[test]
+fn a_port_inside_a_slide_frame_still_starts_a_wire() {
+    let mut h = web_board("wire_port_in_frame");
+    h.seed_frame(None);
+    let id = add_rect(&mut h.app, 200.0, 200.0);
+    h.app.board_sel.clear();
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.app.tab_mut().cam.z = 1.0;
+    h.frame();
+
+    let xf = h.app.board_xf();
+    let rect = h.app.doc().scene.node(id).unwrap().rect;
+    let grip = board_wire::grip_point(rect, slate_doc::scene::Side::Right);
+    let press = xf.w2s(grip) + EVec2::new(12.0, 0.0);
+    assert_eq!(
+        h.app.wire_grip_at(press, &xf),
+        Some((id, slate_doc::scene::Side::Right, 0.5)),
+        "the outward hit over the frame still reaches the card's port"
+    );
+}
+
+/// Zoomed out, a packed multi-selection drags as a group. Overlapping port
+/// hits must not start a wire. Images share the area-port hit with these cards.
+#[test]
+fn zoomed_out_packed_selection_moves_instead_of_starting_a_wire() {
+    let mut h = web_board("wire_packed_sel");
+    let mut ids = Vec::new();
+    for row in 0..3 {
+        for col in 0..3 {
+            ids.push(add_image_card(
+                &mut h.app,
+                col as f32 * 84.0,
+                row as f32 * 64.0,
+            ));
+        }
+    }
+    let middle = ids[4];
+    h.app.board_sel = ids.into_iter().collect();
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.app.tab_mut().cam.z = 0.55;
+    h.frame();
+
+    let xf = h.app.board_xf();
+    let rect = h.app.doc().scene.node(middle).unwrap().rect;
+    let world = Pos2::new(rect.x + rect.w * 0.5, rect.y + rect.h * 0.5);
+    let screen = xf.w2s(world);
+    assert!(
+        h.app.wire_grip_at(screen, &xf).is_none(),
+        "a press inside the selection is not a port"
+    );
+    let drag = h
+        .app
+        .begin_gesture_for_test(screen, world, egui::Modifiers::NONE);
+    assert!(
+        matches!(drag, Some(board::BoardDrag::Move { .. })),
+        "the group moves"
+    );
+}
+
+/// The gap inside a multi-selection's box moves the selection.
+#[test]
+fn a_press_in_the_selection_gap_moves_the_group() {
+    let mut h = web_board("wire_sel_gap");
+    let a = add_rect(&mut h.app, 0.0, 0.0);
+    let b = add_rect(&mut h.app, 100.0, 0.0);
+    h.app.board_sel = [a, b].into_iter().collect();
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.app.tab_mut().cam.z = 1.0;
+    h.frame();
+
+    let xf = h.app.board_xf();
+    let world = Pos2::new(90.0, 30.0);
+    let screen = xf.w2s(world);
+    assert!(h.app.wire_grip_at(screen, &xf).is_none());
+    let drag = h
+        .app
+        .begin_gesture_for_test(screen, world, egui::Modifiers::NONE);
+    assert!(
+        matches!(drag, Some(board::BoardDrag::Move { .. })),
+        "the gap moves the selection"
+    );
+}
+
+/// New wires store no color, so they paint the active theme's wire gray.
+/// A picked color is kept, even when it is the old default ink.
+#[test]
+fn default_wire_color_follows_the_theme() {
+    let mut h = web_board("wire_theme_color");
+    let a = add_rect(&mut h.app, 0.0, 0.0);
+    let b = add_rect(&mut h.app, 240.0, 0.0);
+    h.frame();
+    let wire = h.app.build_connector(
+        slate_doc::scene::ConnectorEnd::Anchored {
+            node: a,
+            side: slate_doc::scene::Side::Right,
+            t: 0.5,
+        },
+        slate_doc::scene::ConnectorEnd::Anchored {
+            node: b,
+            side: slate_doc::scene::Side::Left,
+            t: 0.5,
+        },
+    );
+    let id = h.app.add_nodes(vec![wire])[0];
+    let conn = |h: &Harness| match &h.app.doc().scene.node(id).unwrap().kind {
+        slate_doc::scene::NodeKind::Connector(c) => c.clone(),
+        _ => panic!("connector"),
+    };
+    assert_eq!(conn(&h).color, None);
+    h.app.dark_mode = false;
+    let light = board::to_rgba(h.app.palette().wire);
+    h.app.dark_mode = true;
+    let dark = board::to_rgba(h.app.palette().wire);
+    assert_ne!(light, dark);
+    assert_eq!(conn(&h).paint_color(light), light);
+    assert_eq!(conn(&h).paint_color(dark), dark);
+
+    let ink = slate_doc::scene::WIRE_LEGACY_INK_LIGHT;
+    let rgb = [ink.0[0], ink.0[1], ink.0[2]];
+    h.app.board_sel = [id].into_iter().collect();
+    h.app.patch_nodes(&[id], |n| {
+        board_properties::Property::StrokeRgb(rgb).apply(n, None)
+    });
+    assert_eq!(conn(&h).color, Some(ink), "picking the old ink keeps it");
+    assert_eq!(conn(&h).paint_color(dark), ink);
+    h.app.patch_nodes(&[id], |n| {
+        board_properties::Property::StrokeWidth(5.0).apply(n, None)
+    });
+    assert_eq!(conn(&h).color, Some(ink), "a width edit keeps the color");
 }
 
 /// Dropping a new wire on empty canvas commits a free end there.
@@ -19196,6 +19770,109 @@ fn picture_flips(h: &Harness, id: NodeId) -> (bool, bool) {
         slate_doc::NodeKind::Image(img) => (img.flip_x, img.flip_y),
         _ => panic!("image"),
     }
+}
+
+/// Corner-scaling an image near a neighbour's edge lands on that edge and
+/// keeps the aspect. Preview and commit share that rect. Alt does not snap.
+#[test]
+fn corner_scale_of_an_image_lands_on_a_neighbour_edge() {
+    let mut h = web_board("corner_edge_snap");
+    let id = add_picture(
+        &mut h,
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 100.0, 50.0),
+    );
+    let _neighbour = add_picture(
+        &mut h,
+        slate_doc::scene::WorldRect::new(220.0, 0.0, 40.0, 80.0),
+    );
+    h.app.board_sel = std::iter::once(id).collect();
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.frame();
+    h.app.tab_mut().cam.z = 1.0;
+    h.app.tab_mut().cam.offset = EVec2::ZERO;
+    h.app.board_osnap.enabled = false;
+    h.app.board_snap_grid = false;
+    h.app.board_smart_guides = true;
+
+    let xf = h.app.board_xf();
+    let node = h.app.doc().scene.node(id).unwrap().clone();
+    let se = xf.w2s(Pos2::new(
+        node.rect.x + node.rect.w,
+        node.rect.y + node.rect.h,
+    ));
+    let alt = egui::Modifiers {
+        alt: true,
+        ..Default::default()
+    };
+    h.app.board_drag = h
+        .app
+        .begin_gesture_for_test(se, xf.s2w(se), egui::Modifiers::NONE);
+    assert!(
+        matches!(
+            h.app.board_drag,
+            Some(board::BoardDrag::Resize { handle: 4, .. })
+        ),
+        "SE corner starts a resize"
+    );
+    let raw = Pos2::new(214.0, 107.0);
+    h.app.update_gesture_for_test(raw, alt);
+    let held = h.app.doc().scene.node(id).unwrap().rect;
+    assert!(
+        (held.x + held.w - 220.0).abs() > 1.0,
+        "alt suspends, right={}",
+        held.x + held.w
+    );
+    h.app.end_gesture_for_test(raw, Some(xf.w2s(raw)), alt);
+    h.app.board_undo();
+    assert!(
+        (h.app.doc().scene.node(id).unwrap().rect.w - 100.0).abs() < 0.01,
+        "undo restores the image"
+    );
+
+    let xf = h.app.board_xf();
+    let node = h.app.doc().scene.node(id).unwrap().clone();
+    let se = xf.w2s(Pos2::new(
+        node.rect.x + node.rect.w,
+        node.rect.y + node.rect.h,
+    ));
+    let mods = egui::Modifiers::NONE;
+    h.app.board_drag = h.app.begin_gesture_for_test(se, xf.s2w(se), mods);
+    assert!(
+        matches!(
+            h.app.board_drag,
+            Some(board::BoardDrag::Resize { handle: 4, .. })
+        ),
+        "SE corner starts a resize"
+    );
+    let target = Pos2::new(214.0, 107.0);
+    h.app.update_gesture_for_test(target, mods);
+    let live = h.app.doc().scene.node(id).unwrap().rect;
+    assert!(
+        (live.x + live.w - 220.0).abs() < 0.01,
+        "live right {}",
+        live.x + live.w
+    );
+    assert!(
+        (live.w / live.h - 2.0).abs() < 1e-3,
+        "aspect {}",
+        live.w / live.h
+    );
+    assert!(
+        h.app
+            .board_snap_guides
+            .iter()
+            .any(|g| g.axis == board_snap::GuideAxis::Vertical && (g.pos - 220.0).abs() < 0.01),
+        "guide while snapped: {:?}",
+        h.app.board_snap_guides
+    );
+    h.app
+        .end_gesture_for_test(target, Some(xf.w2s(target)), mods);
+    let committed = h.app.doc().scene.node(id).unwrap().rect;
+    assert!(
+        (committed.x - live.x).abs() < 0.01 && (committed.w - live.w).abs() < 0.01,
+        "commit matches preview"
+    );
+    assert!((committed.w / committed.h - 2.0).abs() < 1e-3);
 }
 
 /// Dragging a picture's right edge past its left edge mirrors it: the width

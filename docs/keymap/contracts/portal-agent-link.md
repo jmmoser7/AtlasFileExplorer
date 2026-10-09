@@ -366,7 +366,9 @@ picture. The user asked for the ComfyUI back end to be configured to match.
 
 Port positions have one owner: `slate_doc::agent_inputs` holds the table and
 `WireHost::ports` reads it, so hit-testing, snapping and painting share one
-list. A wire's slot is derived from its receiving anchor, and
+list. A wire dropped on empty board draws the same bezier as the drag
+preview — the free end stays on the source port's axis — up to the action
+menu. Ports whose painted radius is below 1.5 screen px are not hittable. A wire's slot is derived from its receiving anchor, and
 `ContextItem::port` / `InputSnapshot::on` is the single rule for older wires
 without one. ComfyUI's Style port runs core nodes only (`CLIPVisionLoader`,
 `CLIPVisionEncode`, `StyleModelLoader`, `StyleModelApply`) with the TencentARC

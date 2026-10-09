@@ -1,9 +1,9 @@
 //! PDF first-page thumbnails via pdfium (Chrome's PDF engine).
 //!
-//! pdfium.dll is loaded dynamically from next to the exe (or a `vendor/`
-//! folder during development). If the DLL is missing the binding simply
-//! stays `None` and PDF previews fall back to whatever shell handler the
-//! machine has — the app never fails because of it.
+//! pdfium.dll is loaded dynamically from next to the exe, or, for a source
+//! build under `target/`, from the checkout's `vendor/`. If the DLL is missing the
+//! binding simply stays `None` and PDF previews fall back to whatever shell
+//! handler the machine has — the app never fails because of it.
 //!
 //! Pdfium is not thread-safe and must not be initialized once per worker
 //! thread. A single dedicated render thread owns the only `Pdfium` instance;
@@ -121,14 +121,13 @@ fn pdf_worker_loop(job_rx: Receiver<PdfJob>) {
 }
 
 fn init_pdfium() -> Option<Pdfium> {
-    let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+    let mut candidates: Vec<PathBuf> = Vec::new();
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             candidates.push(dir.to_path_buf());
+            candidates.extend(source_vendor_dir(dir));
         }
     }
-    candidates.push(std::path::PathBuf::from("vendor"));
-    candidates.push(std::path::PathBuf::from("."));
     for dir in candidates {
         let lib = Pdfium::pdfium_platform_library_name_at_path(&dir);
         if let Ok(bindings) = Pdfium::bind_to_library(&lib) {
@@ -142,6 +141,19 @@ fn init_pdfium() -> Option<Pdfium> {
             None
         }
     }
+}
+
+/// `vendor/` of the source checkout a dev or test binary runs from: the
+/// nearest ancestor of the exe folder (within `target/<profile>/deps`) that
+/// holds a `Cargo.toml`. Never the working directory, so a share or synced
+/// folder the app is started from cannot supply the DLL.
+fn source_vendor_dir(exe_dir: &Path) -> Option<PathBuf> {
+    exe_dir
+        .ancestors()
+        .skip(1)
+        .take(4)
+        .find(|dir| dir.join("Cargo.toml").is_file())
+        .map(|dir| dir.join("vendor"))
 }
 
 fn read_pdf_bytes(path: &Path) -> Option<Vec<u8>> {
@@ -166,6 +178,9 @@ fn read_pdf_bytes(path: &Path) -> Option<Vec<u8>> {
 }
 
 fn read_pdf_bytes_inner(path: &Path) -> Option<Vec<u8>> {
+    if crate::cloud::is_dehydrated(path) {
+        return None;
+    }
     let meta = std::fs::metadata(path).ok()?;
     if meta.len() > MAX_PDF_BYTES {
         eprintln!(
@@ -279,8 +294,46 @@ pub fn page_count(path: &Path) -> Option<u16> {
     }
 }
 
+/// Write one PDF page as a PNG. Cloud placeholders are refused before any
+/// byte is read. Runs on a worker: pdfium is not safe to call on the frame loop.
+pub fn write_page_png(path: &Path, page: u16, dest: &Path) -> Result<(), String> {
+    if crate::cloud::is_dehydrated(path) {
+        return Err("File is cloud-only. Make it available locally to preview its pages.".into());
+    }
+    let (w, h, rgba) = thumbnail_page(path, page, 1440)
+        .ok_or_else(|| "Could not render this document page.".to_string())?;
+    let image = image::RgbaImage::from_raw(w, h, rgba)
+        .ok_or_else(|| "Could not render this document page.".to_string())?;
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    image.save(dest).map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn pdfium_comes_from_the_checkout_above_target_only() {
+        let root = std::env::temp_dir().join(format!("nfa_pdfium_dir_{}", std::process::id()));
+        let deps = root.join("target").join("debug").join("deps");
+        std::fs::create_dir_all(&deps).unwrap();
+        assert_eq!(
+            super::source_vendor_dir(&deps),
+            None,
+            "no checkout, no vendor"
+        );
+        std::fs::write(root.join("Cargo.toml"), "[workspace]\n").unwrap();
+        assert_eq!(super::source_vendor_dir(&deps), Some(root.join("vendor")));
+        let installed = root.join("a").join("b").join("c").join("d").join("e");
+        std::fs::create_dir_all(&installed).unwrap();
+        assert_eq!(
+            super::source_vendor_dir(&installed),
+            None,
+            "the walk stops inside a target layout's depth"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
     #[test]
     fn renders_minimal_pdf_first_page() {
         // pdfium tolerates the sloppy xref: it rebuilds the table by scanning.

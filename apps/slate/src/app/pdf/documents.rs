@@ -15,6 +15,40 @@ const ERROR_RECHECK: Duration = Duration::from_secs(60);
 // invalidate the entire Atlas thumbnail corpus.
 const RENDER_VERSION: u32 = 1;
 
+pub(crate) type OfficeRender = fn(&std::path::Path, &std::path::Path) -> Result<(), String>;
+
+#[derive(Clone, Copy)]
+pub(crate) struct OfficeRenderers {
+    pub powerpoint: OfficeRender,
+    pub word: OfficeRender,
+}
+
+impl Default for OfficeRenderers {
+    fn default() -> Self {
+        Self {
+            powerpoint: atlas_core::office::powerpoint::render_pdf,
+            word: atlas_core::office::word::render_pdf,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PrepKind {
+    Pdf,
+    PowerPoint,
+    Word,
+}
+
+fn prep_kind(source: &Path) -> PrepKind {
+    if slate_doc::media::is_word_document(source) {
+        PrepKind::Word
+    } else if slate_doc::media::is_powerpoint(source) {
+        PrepKind::PowerPoint
+    } else {
+        PrepKind::Pdf
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct DocumentPreview {
     pub path: PathBuf,
@@ -46,10 +80,11 @@ struct Entry {
 pub(crate) struct Documents {
     entries: HashMap<PathBuf, Entry>,
     wake: eframe::egui::Context,
+    renders: OfficeRenderers,
 }
 
 impl Documents {
-    pub fn request(&mut self, source: &Path, powerpoint: bool) {
+    pub fn request(&mut self, source: &Path) {
         let now = Instant::now();
         if let Some(entry) = self.entries.get_mut(source) {
             entry.used = now;
@@ -87,12 +122,14 @@ impl Documents {
         });
         let previous = entry.ready.clone();
         let source = source.to_path_buf();
+        let kind = prep_kind(&source);
+        let renders = self.renders;
         let (tx, rx) = bounded(1);
         let wake = self.wake.clone();
         entry.rx = Some(rx);
         entry.checked = now;
         std::thread::spawn(move || {
-            let result = prepare(&source, powerpoint, previous.as_ref());
+            let result = prepare(&source, kind, previous.as_ref(), renders);
             let _ = tx.send(result);
             wake.request_repaint();
         });
@@ -138,6 +175,15 @@ impl Documents {
     }
 
     #[cfg(test)]
+    pub(crate) fn set_office_renderers(&mut self, renders: OfficeRenderers) {
+        self.renders = renders;
+    }
+
+    pub(crate) fn ui_ctx(&self) -> eframe::egui::Context {
+        self.wake.clone()
+    }
+
+    #[cfg(test)]
     pub(crate) fn seed(&mut self, source: PathBuf, preview: DocumentPreview) {
         let now = Instant::now();
         self.entries.insert(
@@ -168,8 +214,9 @@ fn revision(source: &Path) -> Result<String, String> {
 
 fn prepare(
     source: &Path,
-    powerpoint: bool,
+    kind: PrepKind,
     previous: Option<&DocumentPreview>,
+    renders: OfficeRenderers,
 ) -> Result<DocumentPreview, String> {
     let rev = revision(source)?;
     if atlas_core::cloud::is_dehydrated(source) {
@@ -178,33 +225,10 @@ fn prepare(
     if let Some(previous) = previous.filter(|p| p.revision == rev && p.path.is_file()) {
         return Ok(previous.clone());
     }
-    let path = if powerpoint {
-        let dir = atlas_core::index::data_dir().join("document-previews");
-        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        let output = dir.join(format!("{rev}.pdf"));
-        if !output.is_file() {
-            let temporary = dir.join(format!("{rev}-{}.partial.pdf", std::process::id()));
-            if let Err(error) = atlas_core::office::powerpoint::render_pdf(source, &temporary) {
-                let _ = std::fs::remove_file(&temporary);
-                return Err(error);
-            }
-            if atlas_core::pdf::page_count(&temporary).is_none_or(|n| n == 0) {
-                let _ = std::fs::remove_file(&temporary);
-                return Err(
-                    "PowerPoint did not produce a readable PDF. Check the PDF preview runtime."
-                        .into(),
-                );
-            }
-            // Do not publish a conversion of an obsolete source revision.
-            if revision(source)? != rev {
-                let _ = std::fs::remove_file(&temporary);
-                return Err("The deck changed during rendering. Retrying its new version.".into());
-            }
-            std::fs::rename(&temporary, &output).map_err(|e| e.to_string())?;
-        }
-        output
-    } else {
-        source.to_path_buf()
+    let path = match kind {
+        PrepKind::PowerPoint => convert_office(source, &rev, renders.powerpoint, "PowerPoint")?,
+        PrepKind::Word => convert_office(source, &rev, renders.word, "Word")?,
+        PrepKind::Pdf => source.to_path_buf(),
     };
     let pages = atlas_core::pdf::page_count(&path)
         .filter(|n| *n > 0)
@@ -221,6 +245,36 @@ fn prepare(
         pages,
         bytes,
     })
+}
+
+fn convert_office(
+    source: &Path,
+    rev: &str,
+    render: OfficeRender,
+    label: &str,
+) -> Result<PathBuf, String> {
+    let dir = atlas_core::index::data_dir().join("document-previews");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let output = dir.join(format!("{rev}.pdf"));
+    if !output.is_file() {
+        let temporary = dir.join(format!("{rev}-{}.partial.pdf", std::process::id()));
+        if let Err(error) = render(source, &temporary) {
+            let _ = std::fs::remove_file(&temporary);
+            return Err(error);
+        }
+        if atlas_core::pdf::page_count(&temporary).is_none_or(|n| n == 0) {
+            let _ = std::fs::remove_file(&temporary);
+            return Err(format!(
+                "{label} did not produce a readable PDF. Check the PDF preview runtime."
+            ));
+        }
+        if revision(source)? != rev {
+            let _ = std::fs::remove_file(&temporary);
+            return Err("The document changed during rendering. Retrying its new version.".into());
+        }
+        std::fs::rename(&temporary, &output).map_err(|e| e.to_string())?;
+    }
+    Ok(output)
 }
 
 #[cfg(test)]
@@ -245,7 +299,7 @@ mod tests {
     fn requests_are_bounded_and_results_cannot_mutate_a_workbook() {
         let mut docs = Documents::default();
         for i in 0..100 {
-            docs.request(Path::new(&format!("missing-{i}.pdf")), false);
+            docs.request(Path::new(&format!("missing-{i}.pdf")));
         }
         assert!(docs.entries.len() <= MAX_WORKERS);
         assert!(docs.entries.values().all(|e| e.rx.is_some()));

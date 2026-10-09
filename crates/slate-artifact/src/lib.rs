@@ -1,4 +1,4 @@
-﻿//! HTML artifact writer for Slate boards.
+//! HTML artifact writer for Slate boards.
 //!
 //! The native output format of a Slate presentation is HTML+CSS (+ a tiny
 //! self-contained JS runtime for slide navigation). Because the scene model
@@ -54,6 +54,9 @@ pub struct ExportOptions {
     pub web_posters: BTreeMap<slate_doc::NodeId, PathBuf>,
     /// Routing fallback for legacy wires; authored per-wire choices take precedence.
     pub wire_routing: WireRouting,
+    /// Active theme's wire gray, painted by connectors with no authored
+    /// color. Absent uses the light theme's gray.
+    pub wire_theme: Option<slate_doc::scene::Rgba>,
     /// Nested workbook boards keyed by [`slate_doc::scene::workbook_key`].
     pub slate_boards: BTreeMap<String, ExportedBoard>,
     /// The workbook file this export was made from, for resolving child locators.
@@ -757,6 +760,7 @@ mod tests {
                 dash: Dash::Solid,
                 ..Default::default()
             },
+            color: Some(Rgba::opaque(30, 30, 30)),
             arrow_a: false,
             arrow_b: true,
             label: Some("flows".into()),
@@ -824,6 +828,42 @@ mod tests {
         // Label centered at the curve midpoint.
         assert!(html.contains("text-anchor=\"middle\""));
         assert!(html.contains(">flows</text>"));
+    }
+
+    /// Art. IV: the export paints an unauthored wire in the theme's gray, as
+    /// the board does, and keeps a picked color even when it is the old ink.
+    #[test]
+    fn unauthored_wires_export_in_the_theme_gray() {
+        let mut doc = SlateDoc::new("Wire theme");
+        add_frame(&mut doc.scene, 0, WorldRect::new(0.0, 0.0, 800.0, 450.0));
+        let ink = slate_doc::scene::WIRE_LEGACY_INK_LIGHT;
+        for (y, color) in [(50.0, None), (150.0, Some(ink))] {
+            let mut kind = wire(
+                ConnectorEnd::Free { point: [50.0, y] },
+                ConnectorEnd::Free { point: [300.0, y] },
+                WireDisplay::Default,
+            );
+            if let NodeKind::Connector(c) = &mut kind {
+                c.set_color(color);
+            }
+            let node = doc
+                .scene
+                .build_node(WorldRect::new(0.0, 0.0, 1.0, 1.0), kind);
+            let index = doc.scene.nodes.len();
+            doc.scene.apply(&SceneCmd::Add { index, node });
+        }
+        let dark_gray = Rgba::opaque(0x9a, 0xa3, 0xac);
+        let opts = ExportOptions {
+            wire_theme: Some(dark_gray),
+            ..Default::default()
+        };
+        let html = render::render_html_routed(&doc, &AssetMap::default(), &opts);
+        let stroke = |c: Rgba| format!("stroke=\"{}\"", c.css());
+        assert_eq!(html.matches(&stroke(dark_gray)).count(), 1, "{html}");
+        assert_eq!(html.matches(&stroke(ink)).count(), 1, "{html}");
+
+        let fallback = render_html(&doc, &AssetMap::default());
+        assert!(fallback.contains(&stroke(Rgba::opaque(0x6e, 0x76, 0x80))));
     }
 
     #[test]

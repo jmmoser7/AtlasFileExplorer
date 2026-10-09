@@ -451,8 +451,6 @@ struct WebView {
     poster_size: [usize; 2],
     /// Accepted from the host this session. A disk still is not fresh.
     poster_fresh: bool,
-    /// CPU copy of the poster, so an agent run can fall back without a readback.
-    poster_image: Option<WebFrame>,
     /// Locator hash for the disk still. Empty when the portal has no source.
     /// Never includes a profile name or cookie.
     still_key: String,
@@ -499,7 +497,6 @@ impl WebView {
             poster_bytes: 0,
             poster_size: [0, 0],
             poster_fresh: false,
-            poster_image: None,
             still_key: String::new(),
             cached_text: None,
             cached_text_at: None,
@@ -584,6 +581,9 @@ pub struct WebRuntime {
     /// frame loop. Disabled under `cfg(test)` unless a test installs one.
     stills: super::board_web_stills::StillCache,
     still_inbox: Vec<super::board_web_stills::Loaded>,
+    /// Stills read back for a waiting agent run, held only until that run
+    /// takes them. Cards keep no CPU copy of their poster.
+    agent_stills: HashMap<NodeId, (Instant, super::board_web_stills::Fetched)>,
     restored: usize,
     /// Webviews the host currently holds.
     host_open: HashSet<NodeId>,
@@ -617,6 +617,7 @@ impl Default for WebRuntime {
             text_pending: HashSet::new(),
             stills: super::board_web_stills::StillCache::default(),
             still_inbox: Vec::new(),
+            agent_stills: HashMap::new(),
             restored: 0,
             host_open: HashSet::new(),
             host_events: Vec::new(),
@@ -1285,7 +1286,6 @@ impl SlateApp {
                         view.poster_bytes = old.poster_bytes;
                         view.poster_size = old.poster_size;
                         view.poster_fresh = old.poster_fresh;
-                        view.poster_image = old.poster_image.take();
                         view.cached_text = old.cached_text.take();
                         view.cached_text_at = old.cached_text_at;
                         view.text_miss = old.text_miss;
@@ -1496,7 +1496,6 @@ impl SlateApp {
         v.poster_bytes = bytes;
         v.poster_size = size;
         v.poster_at = Some(Instant::now());
-        v.poster_image = Some(std::sync::Arc::clone(&img));
         if live {
             v.poster_fresh = true;
             v.poster_wall = Some(SystemTime::now());
@@ -2234,12 +2233,9 @@ impl SlateApp {
             self.remember_live_pixels(id, &frame);
             return self.write_page_png(dir, id, &frame).map(Some);
         }
-        if let Some(frame) = self.cached_page_image(id) {
-            let fresh = self.web.views.get(&id).is_some_and(|v| v.poster_fresh);
+        if let Some((frame, at)) = self.take_cached_page_image(id) {
             let path = self.write_page_png(dir, id, &frame)?;
-            if !fresh {
-                self.note_stale_capture(id);
-            }
+            self.toast(stale_capture_line(at));
             return Ok(Some(path));
         }
         self.request_cached_still(id);
@@ -2305,11 +2301,11 @@ impl SlateApp {
         dir: &std::path::Path,
     ) -> Result<Option<PathBuf>, String> {
         self.absorb_cached_captures();
-        let Some(frame) = self.cached_page_image(id) else {
+        let Some((frame, at)) = self.take_cached_page_image(id) else {
             return Ok(None);
         };
         let path = self.write_page_png(dir, id, &frame)?;
-        self.note_stale_capture(id);
+        self.toast(stale_capture_line(at));
         Ok(Some(path))
     }
 
@@ -2338,7 +2334,6 @@ impl SlateApp {
             .map(|v| v.still_key.clone())
             .unwrap_or_default();
         if let Some(v) = self.web.views.get_mut(&id) {
-            v.poster_image = Some(std::sync::Arc::clone(frame));
             v.poster_fresh = true;
             v.poster_wall = Some(SystemTime::now());
         }
@@ -2384,19 +2379,35 @@ impl SlateApp {
         self.toast(stale_capture_line(at));
     }
 
-    fn cached_page_image(&self, id: NodeId) -> Option<WebFrame> {
-        if let Some(img) = self.web.views.get(&id).and_then(|v| v.poster_image.clone()) {
-            return Some(img);
-        }
+    /// The kept still for an agent run, with when it was captured. Taking it
+    /// drops the CPU copy; the next run reads the file again.
+    fn take_cached_page_image(&mut self, id: NodeId) -> Option<(WebFrame, SystemTime)> {
         let key = self.web.views.get(&id)?.still_key.clone();
-        self.web
-            .still_inbox
-            .iter()
-            .find(|item| item.id == id && item.key == key)
-            .map(|item| std::sync::Arc::clone(&item.img))
+        let fetched = self
+            .web
+            .agent_stills
+            .get(&id)
+            .is_some_and(|(_, f)| f.key == key && f.still.is_some());
+        let (img, age) = if fetched {
+            let (_, item) = self.web.agent_stills.remove(&id)?;
+            item.still?
+        } else {
+            self.web
+                .still_inbox
+                .iter()
+                .find(|item| item.id == id && item.key == key)
+                .map(|item| (std::sync::Arc::clone(&item.img), item.age))?
+        };
+        let at = SystemTime::now()
+            .checked_sub(age)
+            .unwrap_or_else(SystemTime::now);
+        Some((img, at))
     }
 
+    /// Ask the worker for the kept still. A miss is not asked again for a few
+    /// seconds, so a waiting run never reads the folder every frame.
     fn request_cached_still(&mut self, id: NodeId) {
+        const MISS_RETRY: Duration = Duration::from_secs(5);
         let Some(key) = self
             .web
             .views
@@ -2406,7 +2417,14 @@ impl SlateApp {
         else {
             return;
         };
-        self.web.stills.request(id, &key);
+        let recent_miss = self
+            .web
+            .agent_stills
+            .get(&id)
+            .is_some_and(|(at, f)| f.key == key && at.elapsed() < MISS_RETRY);
+        if !recent_miss {
+            self.web.stills.fetch(id, &key);
+        }
     }
 
     fn request_cached_text(&mut self, id: NodeId) {
@@ -2424,6 +2442,18 @@ impl SlateApp {
 
     fn absorb_cached_captures(&mut self) {
         self.web.still_inbox.extend(self.web.stills.drain());
+        for item in self.web.stills.drain_fetched() {
+            self.web
+                .agent_stills
+                .insert(item.id, (Instant::now(), item));
+        }
+        if !self.web.agent_stills.is_empty() {
+            let views = &self.web.views;
+            self.web.agent_stills.retain(|id, (at, f)| {
+                at.elapsed() < Duration::from_secs(60)
+                    && views.get(id).is_some_and(|v| v.still_key == f.key)
+            });
+        }
         for item in self.web.stills.drain_text() {
             let Some(view) = self.web.views.get_mut(&item.id) else {
                 continue;
@@ -3958,6 +3988,68 @@ mod tests {
             "the run must say the capture is old, got {text}"
         );
         assert!(text.contains("Visible article."));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_agent_picture_falls_back_to_the_kept_still_without_a_cpu_copy_per_card() {
+        let dir = std::env::temp_dir().join(format!(
+            "slate-web-agent-still-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let locator = "https://example.com/agent-still";
+        let key = super::super::board_web_stills::StillCache::key(locator);
+        {
+            let mut cache = super::super::board_web_stills::StillCache::new(dir.clone());
+            cache.store(
+                &key,
+                std::sync::Arc::new(egui::ColorImage::new(
+                    [8, 8],
+                    Color32::from_rgb(40, 90, 160),
+                )),
+            );
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            while !dir.join(format!("{key}.jpg")).exists() && std::time::Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+        let ctx = egui::Context::default();
+        let mut app = SlateApp::with_ctx(&ctx, None);
+        app.leave_home();
+        app.ensure_work_tab();
+        app.web
+            .set_stills(super::super::board_web_stills::StillCache::new(dir.clone()));
+        app.paste_web_url(locator, Pos2::ZERO);
+        let id = app.doc().scene.nodes.last().unwrap().id;
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while !app.web.has_still(id) && std::time::Instant::now() < deadline {
+            app.web_pump(&ctx);
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(app.web.has_still(id), "the card painted the kept still");
+        assert!(
+            app.web.agent_stills.is_empty() && app.web.still_inbox.is_empty(),
+            "a painted card keeps only its texture"
+        );
+
+        let out = dir.join("agent-out");
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let mut page = None;
+        while page.is_none() && std::time::Instant::now() < deadline {
+            app.web_pump(&ctx);
+            page = app.capture_web_page(id, &out).expect("no hard failure");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let page = page.expect("the run got the kept picture");
+        assert!(page.exists());
+        assert!(
+            app.web.agent_stills.is_empty(),
+            "the run's copy is released once it is written"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

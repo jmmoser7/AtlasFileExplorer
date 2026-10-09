@@ -14,6 +14,7 @@ use atlas_shell::{canvas_scale, canvas_text};
 use eframe::egui::{self, Align2, Color32, Id, Pos2, Rect};
 use slate_doc::agent_inputs::{self, InputKind, OUTPUT_T};
 use slate_doc::scene::{ConnectorEnd, NodeId, NodeKind, PortalNode, SceneCmd, Side};
+use slate_doc::wire::connector_route_in_scene;
 
 use super::board::{BoardDrag, BoardXf};
 use super::board_agent::{bind_program, paint_overlay_pill, program_card_size, InputRole};
@@ -22,7 +23,7 @@ use super::SlateApp;
 /// Designed width of a picture an agent generates.
 const AGENT_PICTURE_W: f32 = 480.0;
 /// Designed port radius; it scales with the board like the card does.
-const PORT_RADIUS: f32 = 5.0;
+pub(crate) const PORT_RADIUS: f32 = 5.0;
 /// Designed size of port labels and the text block's type.
 const PORT_LABEL_PX: f32 = 11.0;
 const BLOCK_TEXT_PX: f32 = 14.0;
@@ -711,10 +712,10 @@ impl SlateApp {
     /// while a wire is being drawn.
     pub(crate) fn paint_flow_ports(&self, painter: &egui::Painter, xf: &BoardXf) {
         let z = xf.z;
-        let radius = canvas_scale::px(PORT_RADIUS, z);
-        if radius < 1.5 {
+        if !super::board_wire::port_disc_visible(PORT_RADIUS, z) {
             return;
         }
+        let radius = canvas_scale::px(PORT_RADIUS, z);
         let palette = self.palette();
         let pointer = painter.ctx().pointer_latest_pos();
         let wiring = matches!(self.board_drag, Some(BoardDrag::Wire(_)));
@@ -786,11 +787,27 @@ impl SlateApp {
         if let Some(menu) = self.agents.flow.menu.as_ref().filter(|m| m.dropped) {
             if let Some(source) = scene.node(menu.source) {
                 let (side, t) = menu.grip.unwrap_or((Side::Right, OUTPUT_T));
-                let from = self.wire_host(source).anchor(side, t);
-                painter.line_segment(
-                    [xf.w2s(Pos2::new(from[0], from[1])), xf.w2s(menu.at)],
-                    egui::Stroke::new(canvas_scale::px(1.5, z), palette.sub.gamma_multiply(0.6)),
-                );
+                let from = ConnectorEnd::Anchored {
+                    node: source.id,
+                    side,
+                    t,
+                };
+                let to = ConnectorEnd::Free {
+                    point: [menu.at.x, menu.at.y],
+                };
+                if let Some(path) =
+                    connector_route_in_scene(scene, None, &from, &to, self.board_wire_routing)
+                {
+                    super::board_wire::paint_route_preview(
+                        painter,
+                        xf,
+                        &path,
+                        egui::Stroke::new(
+                            canvas_scale::px(1.5, z),
+                            palette.sub.gamma_multiply(0.6),
+                        ),
+                    );
+                }
             }
         }
     }

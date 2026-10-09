@@ -240,6 +240,11 @@ impl Property {
                     _ => {}
                 }
                 scene::set_stroke(node, s);
+                if matches!(*self, Self::StrokeRgb(_) | Self::StrokeAlpha(_)) {
+                    if let NodeKind::Connector(c) = &mut node.kind {
+                        c.set_color(Some(s.color));
+                    }
+                }
             }
         }
     }
@@ -1882,8 +1887,7 @@ impl SlateApp {
                             if let Some(path) =
                                 self.node_pdf_item(node_id).map(|item| item.path.clone())
                             {
-                                self.documents
-                                    .request(&path, slate_doc::media::is_powerpoint(&path));
+                                self.documents.request(&path);
                             }
                             let host = xf.rect_w2s(node.rect);
                             let album = self.paint_pages_album(
@@ -2304,6 +2308,8 @@ impl SlateApp {
                 } else {
                     scene::stroke_of(n).unwrap().color
                 }
+            } else if let NodeKind::Connector(c) = &n.kind {
+                c.paint_color(super::board::to_rgba(theme.wire))
             } else {
                 scene::stroke_of(n).unwrap().color
             }
@@ -4781,7 +4787,7 @@ mod tests {
     }
 
     #[test]
-    fn polygon_plus_centers_a_new_side_on_the_vertex_and_minus_keeps_one_there() {
+    fn polygon_plus_keeps_the_vertex_and_minus_keeps_one_there() {
         let mut h = board();
         let rect = WorldRect::new(-80.0, -50.0, 160.0, 100.0);
         let id = polygon(&mut h, rect, Corner::Square);
@@ -4791,14 +4797,11 @@ mod tests {
         click_at(&mut h, plus);
         assert_eq!(sides_of(&h, id).0, 7, "+ adds a side");
         let after = polygon_vertices_world(&h, id);
-        let mid = Pos2::new(
-            (after[0].x + after[1].x) * 0.5,
-            (after[0].y + after[1].y) * 0.5,
-        );
-        let d = (180.0f32 / 7.0).to_radians().cos();
         assert!(
-            mid.distance(Pos2::ZERO + before[2].to_vec2() * d) < 1e-3,
-            "the new side is centered on vertex 2: {mid:?}"
+            after[2].distance(before[2]) < 1e-3,
+            "vertex 2 stays put: {:?} vs {:?}",
+            after[2],
+            before[2]
         );
         assert_eq!(h.app.board_sel, [id].into_iter().collect());
         h.app.board_undo();
