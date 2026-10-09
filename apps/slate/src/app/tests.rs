@@ -25545,12 +25545,11 @@ fn a_new_agent_portal_starts_at_its_program_grid_size() {
     );
 }
 
-/// Wire-drop Agent (user, 28 September 2026). A wire from a picture released
-/// on empty board offers Text, Image and Agent; Esc closes the menu and adds
-/// nothing. Agent places an agent portal in chat train presentation, still
-/// showing its program grid, with the picture wired in as its first input.
-/// One Undo removes the portal and the wire, and picking a program keeps the
-/// chat train. Driven by real frames.
+/// Wire-drop Agent. A wire from a picture released on empty board offers
+/// Text, Image and Agent; Esc closes the menu and adds nothing. Agent places
+/// a local chat train already bound to the workbook's assets/agent folder,
+/// with a new chat and the picture wired in as its first input. One Undo
+/// removes the portal and the wire. Driven by real frames.
 #[test]
 fn a_wire_dropped_on_empty_board_offers_an_agent_chat_train() {
     use slate_doc::agent_chat::Detail;
@@ -25645,6 +25644,7 @@ fn a_wire_dropped_on_empty_board_offers_an_agent_chat_train() {
     let mut h = Harness::new("wire_drop_agent");
     h.app.leave_home();
     h.app.ensure_work_tab();
+    h.app.tab_mut().path = Some(h.base.join("wire.slate"));
     h.app.doc_mut().view.active_view = ViewKind::Board;
     h.app.board_osnap.enabled = false;
     h.app.board_smart_guides = false;
@@ -25706,19 +25706,11 @@ fn a_wire_dropped_on_empty_board_offers_an_agent_chat_train() {
     step(&mut h, none, vec![egui::Event::PointerMoved(row)]);
     step(&mut h, none, vec![button(row, true)]);
     step(&mut h, none, vec![button(row, false)]);
-    let shown = painted(&mut h);
-
     assert_eq!(
         h.app.doc().scene.nodes.len(),
         nodes + 2,
         "a portal and its wire"
     );
-    for program in ["Cursor", "Codex", "Ollama"] {
-        assert!(
-            shown.iter().any(|(t, _)| t == program),
-            "the program grid offers {program}: {shown:?}"
-        );
-    }
     assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "one undo step");
     let card = *h
         .app
@@ -25740,7 +25732,12 @@ fn a_wire_dropped_on_empty_board_offers_an_agent_chat_train() {
         "its input sits at the drop after the grid fit: {input:?} vs {dropped:?}"
     );
     let agent = slate_doc::agent_chat::agent(placed).unwrap();
-    assert!(agent.provider.is_empty(), "the program grid shows");
+    assert_eq!(agent.provider, "local");
+    assert!(agent.channel.is_none(), "a new chat");
+    assert!(
+        h.base.join("assets").join("agent").is_dir(),
+        "Just build created the workbook agent folder"
+    );
     assert!(
         agent.chat.train && agent.chat.detail == Detail::Summary,
         "a chat train, not message pairs"
