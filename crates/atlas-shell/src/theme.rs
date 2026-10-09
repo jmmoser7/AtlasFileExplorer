@@ -60,10 +60,8 @@ pub struct Palette {
     pub select_fill: Color32,
     /// `Visuals::selection.stroke.color`.
     pub select_stroke: Color32,
-    pub handle_hot: Color32,
     pub link: Color32,
     pub link_hover: Color32,
-    pub success: Color32,
 }
 
 impl Palette {
@@ -179,10 +177,8 @@ impl Palette {
             extreme_bg: slots.extreme_bg.color(),
             select_fill: slots.select_fill.color(),
             select_stroke: slots.select_stroke.color(),
-            handle_hot: slots.handle_hot.color(),
             link: slots.link.color(),
             link_hover: slots.link_hover.color(),
-            success: slots.success.color(),
         }
     }
 }

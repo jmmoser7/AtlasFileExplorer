@@ -500,17 +500,23 @@ pub struct BoardAgentRoleTokens {
 }
 
 impl BoardAgentRoleTokens {
+    /// The dark hues deepened to at least 3:1 on the light board.
     fn light() -> Self {
+        Self {
+            prompt: Hex::rgb(0xb7, 0x79, 0x1f),
+            geometry: Hex::rgb(0x13, 0x8a, 0x72),
+            image: Hex::rgb(0x2f, 0x6f, 0xdf),
+            style: Hex::rgb(0x8b, 0x5c, 0xd6),
+        }
+    }
+
+    fn dark() -> Self {
         Self {
             prompt: Hex::rgb(0xf0, 0xc4, 0x5c),
             geometry: Hex::rgb(0x5c, 0xcc, 0xaa),
             image: Hex::rgb(0x78, 0xaa, 0xfa),
             style: Hex::rgb(0xc4, 0x92, 0xfa),
         }
-    }
-
-    fn dark() -> Self {
-        Self::light()
     }
 }
 
@@ -2690,13 +2696,9 @@ pub struct ThemeSlots {
     pub select_fill: Hex,
     /// `Visuals::selection.stroke.color`.
     pub select_stroke: Hex,
-    /// Hover fill for fillet grips and crop handles.
-    pub handle_hot: Hex,
     /// Primary canvas action control (picker buttons, links).
     pub link: Hex,
     pub link_hover: Hex,
-    /// Success / progress accent (agent run bars, journal applied dot).
-    pub success: Hex,
 }
 
 impl ThemeSlots {
@@ -2724,10 +2726,8 @@ impl ThemeSlots {
         "extreme_bg",
         "select_fill",
         "select_stroke",
-        "handle_hot",
         "link",
         "link_hover",
-        "success",
     ];
 
     pub fn light() -> Self {
@@ -2754,10 +2754,8 @@ impl ThemeSlots {
             extreme_bg: Hex::rgb(0xee, 0xf0, 0xf2),
             select_fill: Hex::rgb(0xd7, 0xe8, 0xff),
             select_stroke: Hex::rgb(0x1f, 0x6f, 0xb2),
-            handle_hot: Hex::rgb(0xd2, 0xe6, 0xff),
             link: Hex::rgb(0x25, 0x63, 0xeb),
             link_hover: Hex::rgb(0x37, 0x75, 0xfa),
-            success: Hex::rgb(0x5c, 0xcc, 0xaa),
         }
     }
 
@@ -2787,10 +2785,8 @@ impl ThemeSlots {
             // egui's own dark default, which `dark_visuals` used to inherit
             // silently while the light theme overrode it.
             select_stroke: Hex::rgb(0xc0, 0xde, 0xff),
-            handle_hot: Hex::rgb(0x4a, 0x60, 0x80),
             link: Hex::rgb(0x37, 0x75, 0xfa),
             link_hover: Hex::rgb(0x6f, 0xb7, 0xff),
-            success: Hex::rgb(0x5c, 0xcc, 0xaa),
         }
     }
 
@@ -2818,10 +2814,8 @@ impl ThemeSlots {
             "extreme_bg" => &mut self.extreme_bg,
             "select_fill" => &mut self.select_fill,
             "select_stroke" => &mut self.select_stroke,
-            "handle_hot" => &mut self.handle_hot,
             "link" => &mut self.link,
             "link_hover" => &mut self.link_hover,
-            "success" => &mut self.success,
             _ => return None,
         })
     }

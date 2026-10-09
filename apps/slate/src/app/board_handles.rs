@@ -364,10 +364,8 @@ pub fn paint_sides_glyph(
     zoom: f32,
     add: bool,
     ink: Color32,
-    hot: bool,
-    handle_hot: Color32,
+    fill: Color32,
 ) {
-    let fill = if hot { handle_hot } else { Color32::WHITE };
     painter.circle(
         center,
         radius,

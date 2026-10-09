@@ -5984,13 +5984,10 @@ impl AtlasApp {
                         let applied = i < cursor;
                         let color = if applied { palette.ink } else { palette.sub };
                         ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new(if applied { "●" } else { "○" }).color(
-                                if applied {
-                                    palette.success
-                                } else {
-                                    palette.sub
-                                },
-                            ));
+                            ui.label(
+                                egui::RichText::new(if applied { "●" } else { "○" })
+                                    .color(if applied { palette.accent } else { palette.sub }),
+                            );
                             ui.vertical(|ui| {
                                 ui.label(egui::RichText::new(&entry.label).color(color));
                                 ui.label(
@@ -6410,7 +6407,7 @@ impl AtlasApp {
                         let p = Pos2::new(x, y);
                         match t.hit_test(self.s2w(p)) {
                             Some(Hit::File(_)) => {
-                                painter.circle_filled(p, 2.0, palette.success);
+                                painter.circle_filled(p, 2.0, palette.accent);
                             }
                             Some(Hit::Dir(_)) => {
                                 painter.circle_filled(p, 2.0, palette.select);

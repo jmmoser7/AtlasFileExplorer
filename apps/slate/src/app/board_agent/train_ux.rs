@@ -170,7 +170,10 @@ pub(crate) fn token_readout(reported: Option<u64>, chars: usize) -> String {
 pub(crate) fn agent_build_dir(workbook: Option<&Path>, data_dir: &Path) -> (PathBuf, bool) {
     match workbook.filter(|path| path.parent().is_some()) {
         Some(workbook) => (atlas_core::workbook_assets::agent_dir(workbook), false),
-        None => (atlas_core::workbook_assets::unsaved_agent_dir(data_dir), true),
+        None => (
+            atlas_core::workbook_assets::unsaved_agent_dir(data_dir),
+            true,
+        ),
     }
 }
 

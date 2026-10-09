@@ -342,7 +342,8 @@ fn seg_intersect(a: [f32; 2], b: [f32; 2], c: [f32; 2], d: [f32; 2]) -> Option<(
     let qp = [c[0] - a[0], c[1] - a[1]];
     let t = (qp[0] * s[1] - qp[1] * s[0]) / den;
     let u = (qp[0] * r[1] - qp[1] * r[0]) / den;
-    if t < -1e-5 || t > 1.0 + 1e-5 || u < -1e-5 || u > 1.0 + 1e-5 {
+    let span = -1e-5..=1.0 + 1e-5;
+    if !span.contains(&t) || !span.contains(&u) {
         return None;
     }
     Some((t.clamp(0.0, 1.0), [a[0] + t * r[0], a[1] + t * r[1]]))

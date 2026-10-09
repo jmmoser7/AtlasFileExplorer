@@ -1676,7 +1676,7 @@ impl SlateApp {
                 Pos2::new(x.max(track.left()), track.top()),
                 Pos2::new((x + span).min(track.right()), track.bottom()),
             );
-            painter.rect_filled(bar, 0.0, self.palette().success);
+            painter.rect_filled(bar, 0.0, self.palette().accent);
         }
     }
 

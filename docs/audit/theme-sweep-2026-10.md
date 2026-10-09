@@ -9,14 +9,19 @@ semantic colours from `atlas-shell` in both light and dark mode.
 
 | Slot | Role |
 |------|------|
-| `handle_hot` | Fillet grip and crop-handle hover fill |
 | `link` / `link_hover` | Agent picker primary buttons |
-| `success` | Agent/flow progress bars, live dot, Atlas journal applied marker |
+
+Review folded two proposed slots into existing ones: grip and crop-handle
+hover use `select_fill` (light `handle_hot` was #d2e6ff against #d7e8ff), and
+progress bars, the live dot, and Atlas's journal applied marker use `accent`
+(`success` #5cccaa was dark `accent` in all but name and read at about 1.9:1 on
+the light board).
 
 ### `[board_agent.light]` / `[board_agent.dark]`
 
 Port-role chip colours: `prompt`, `geometry`, `image`, `style` (via
-`Palette::agent_roles()`).
+`Palette::agent_roles()`). Dark keeps the original hues; light deepens each
+to at least 3:1 on the light board.
 
 ### Helpers
 
@@ -28,11 +33,11 @@ Port-role chip colours: `prompt`, `geometry`, `image`, `style` (via
 | Area | Change |
 |------|--------|
 | `board_agent.rs` | Port roles, picker buttons, progress/live dot, pick-list rows, agent shell border |
-| `board_handles.rs` | Grip hover via `palette.handle_hot` passed into paint helpers |
+| `board_handles.rs` | Grip hover via `palette.select_fill` passed into paint helpers |
 | `board_flow.rs` | Indeterminate progress sweep |
 | `board_web.rs` | Focused/unfocused portal border; empty-state headline/detail |
 | `board_tip_hud.rs` | Tip palette backdrop, idle ring, label ink |
-| `board_color.rs` | Colour-wheel backdrop and snap ring |
+| `board_color.rs` | Colour-wheel backdrop and snap ring; Smooth cursor disc; eyedropper ring |
 | `present.rs` | Letterbox fill and slide chrome text |
 | `ui/readouts.rs` | Missing-link warning |
 | `file-atlas/mod.rs` | Staging chips, journal dot, rubber/zoom marquee fill, hit-debug harness |
@@ -49,10 +54,14 @@ not chrome:
 - Colour-wheel HSV tessellation and recent swatches
 - Tag colours from Slate session / workbook
 - File Atlas chip fill derived from tag base + alpha
-- Atlas portal mosaic hashes, web Win32 BGRA decode, web still luminance ramp
-- Property-panel test fixture stroke
+- Atlas portal mosaic pixels and hashes, web Win32 BGRA decode
 
-Unit tests under `mod tests { … }` are skipped by the linter.
+Rows name a code fragment, not a line number, so edits elsewhere in a file do
+not invalidate them; a row that matches nothing fails the lint. The linter
+blanks comments and string / char literals and skips any `#[cfg(test)]` item
+(any module name, nested braces). Scope: Slate and File Atlas `board_*.rs`,
+`board_*/`, `present.rs`, `ui/`, and File Atlas `app/mod.rs`. The Smooth-tool
+cursor disc and eyedropper ring were chrome, so they read `Palette::sub`.
 
 ## Guard
 
@@ -74,6 +83,6 @@ Unit tests under `mod tests { … }` are skipped by the linter.
 
 **Dark mode**
 
-- Same surfaces; confirm handle_hot and link blues read on `#0e1013` board paper
+- Same surfaces; confirm grip hover (`select_fill`) and link blues read on `#0e1013` board paper
 - Agent pick-list row hover/fill
 - Web portal unfocused border (sub @ 150 alpha)

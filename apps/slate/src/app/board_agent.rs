@@ -5992,8 +5992,8 @@ impl SlateApp {
         let dot = canvas_scale::px(3.5, z);
         let ink = self.palette().overlay();
         let mut picked = None;
+        let roles = self.palette().agent_roles();
         for (i, input) in view.inputs.iter().enumerate().take(6) {
-            let roles = self.palette().agent_roles();
             let (role, color) = input.role.look(&roles);
             let text = canvas_text::layout_no_wrap(
                 painter,
@@ -6229,7 +6229,7 @@ impl SlateApp {
                 egui::pos2(rect.left(), rect.bottom() - h),
                 egui::vec2(rect.width() * t, h),
             );
-            painter.rect_filled(bar, 0.0, self.palette().success);
+            painter.rect_filled(bar, 0.0, self.palette().accent);
         }
     }
 
@@ -6360,7 +6360,7 @@ impl SlateApp {
                 body.left_bottom()
                     + egui::vec2(canvas_scale::px(14.0, z), canvas_scale::px(-14.0, z)),
                 canvas_scale::px(4.5, z),
-                self.palette().success,
+                self.palette().accent,
             );
         }
         // Before its first result the picture is a prompt: type, or wire a note.
