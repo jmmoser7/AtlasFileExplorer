@@ -59,9 +59,9 @@ These are the other ninety percent. They stay out until a weekly use appears.
   only has to deliver the flushed file and the `assets/` tree.
 - Collaborative editing of the tag taxonomy, the Lens root, or brush-wheel
   memory. The board is live. Those are snapshot or per-machine.
-- Offline branching. A dropped socket is a short blip with a queued rebase.
-  A laptop that edited for an afternoon while disconnected does not merge back
-  by timestamp.
+- Co-editing while the relay connection is down. A dropped socket is
+  read-only until reconnect; the client does not queue scene commits for a
+  later merge.
 - More than twenty simultaneous editors as a supported mode. The relay may
   accept up to 32 and then refuse the join. It does not degrade into a
   spectator protocol.
@@ -227,13 +227,16 @@ rooms/<room_id>/snapshot.seq
 rooms/<room_id>/ops.log
 ```
 
-`ops.log` is length-prefixed frames. Presence is not in it. The README that
-ships with the binary states, in one screen: the relay stores scene
-operations and snapshots for the life of the session; it stores no accounts;
-it deletes the room directory when the last peer has been gone for the grace
-window (default 15 minutes, `--grace-secs`); an operator can read the log
-because they hold the disk; do not point `--data` at a backup that outlives
-that window if the board is sensitive.
+`ops.log` is length-prefixed frames. Presence is not in it. The log is not
+a document: it exists only so connected peers can catch up, it is deleted
+when the room directory goes away after the grace window, and Slate never
+opens it as a workbook (Article IX.1 already forbids a second store of
+record). The README that ships with the binary states, in one screen: the
+relay stores scene operations and snapshots for the life of the session; it
+stores no accounts; it deletes the room directory when the last peer has
+been gone for the grace window (default 15 minutes, `--grace-secs`); an
+operator can read the log because they hold the disk; do not point `--data`
+at a backup that outlives that window if the board is sensitive.
 
 ### Messages
 
@@ -396,9 +399,9 @@ protocol revision. The relay never matches on it.
 Id blocks: on join, and whenever a peer is down to 16 unused ids, the peer
 asks for a block of 256 from `next_node_id`, `next_item_id`, and
 `next_group_key`. The relay is the allocator, which is the one counter it
-is allowed to understand. Each peer keeps a spare block so a short
-disconnect can still create nodes. An empty spare fails the create with a
-toast and does not invent an id locally. Existing workbooks keep their
+is allowed to understand. While the socket is up, creates draw from the
+local block; an exhausted block fails the create with a toast until `Alloc`
+succeeds, and no client invents an id locally. Existing workbooks keep their
 small ids. New session ids continue the same `u64` sequence. No client bits
 are packed into `NodeId`.
 
@@ -483,30 +486,36 @@ A foreign undo never rolls back someone else's work, because the inverse is
 just a `SetProp` of the earlier value, and it is rejected when the register
 has moved on.
 
-### Offline and rejoin
+### Disconnect and rejoin
 
-A dropped socket keeps the local scene and queues groups the user makes
-during the blip. The UI says the session is reconnecting. On reconnect the
-client sends `Hello` with the last sequence it applied. The relay replies
-with a snapshot only if the client's sequence is at or below a compacted
-prefix, then the ops after that.
+A co-edited workbook lives on a share or cloud folder the team already uses.
+If the network fails, link resolution fails with it; a purely local `.slate`
+was never in the room to begin with. So a dropped relay connection is not
+an invitation to keep editing alone and merge later.
 
-Queued groups are not ordered by their old Lamport clock against the
-meeting. Each one is submitted only if every register it writes still sits
-at the sequence the user edited from. A register that moved is left as the
-room left it, and the group is listed back to the user as not applied. A
-laptop that was asleep through the review cannot clobber the review by
-rejoining. That is stricter than last-writer-wins, and it applies only to
-the queued blip. Two people connected at the same time still resolve by
-sequence, as above.
+When the socket drops, the tab goes read-only immediately. The UI shows a
+clear **Reconnecting - view only** state. Scene commits, undo-as-commit, and
+`Alloc` do not run until the relay is back; nothing is queued on the client,
+so there is nothing to reconcile against the meeting when connectivity
+returns.
 
-The spare id block covers creates during the blip. An exhausted block
-refuses creates until `Alloc` succeeds.
+On reconnect the client sends `Hello` with the last sequence it applied.
+The relay sends a snapshot when the client's sequence is at or below a
+compacted prefix, then the ops after that sequence. The client applies them
+in order, editing resumes, and connected peers still resolve conflicts by
+relay sequence as above.
 
 If the grace window has expired, the relay has deleted the room. The client
-loads the `.slate` from disk, discards the dead queue with a clear notice,
-and may start or join a new room. There is no silent stitch of the dead log
+reloads the `.slate` from disk with a notice that the live session ended,
+and may start or join a new room. There is no silent stitch of a dead log
 onto the file.
+
+The one real offline case is different. OneDrive, Dropbox, and Box keep a
+local copy that opens without the relay. Editing that copy outside a session
+is a normal solo edit on the synced file. If two people edit separate
+synced copies while disconnected from each other, the sync client produces
+its own conflict copy. Slate does not merge those; that matches Article IX
+(Slate is a linker, not a database).
 
 ### Who writes the file
 
@@ -685,10 +694,9 @@ Solo autonomy ("this agent may commit without asking") does not extend into
 a shared session. The room has other people in it, and an unattended agent
 committing at machine speed is the failure WI-9d already flags. While a
 session is connected, acceptance is required even if the workspace grant is
-on. That narrowing of Article VII.6 is one of the amendment drafts below.
-Until it is ratified, the implementation should still stage, and the draft
-is the honest way to avoid quietly shrinking a grant the constitution
-allows.
+on. The optional Article VII.6 policy draft below is the honest way to record
+that narrowing if it becomes law. Until then, the implementation should still
+stage in a connected session.
 
 Agent portals sync authored fields (instruction, model, view). They do not
 sync `channel`, `session`, or the live runtime, as the snapshot rules above
@@ -781,8 +789,8 @@ Named tests, all in-process, many clients, one simulated relay:
   and the serialized `SlateDoc` are unchanged.
 - `undo_own_group_when_still_last_writer` and
   `undo_refused_after_a_foreign_write`.
-- `offline_queue_drops_a_register_that_moved` and
-  `offline_queue_keeps_a_register_nobody_touched`.
+- `disconnect_refuses_commits_until_catch_up` and
+  `reconnect_applies_snapshot_then_tail`.
 - `late_joiner_applies_snapshot_then_tail`.
 - `only_the_lease_holder_writes_the_file` — a second client commit changes
   its scene and does not call `save_to`.
@@ -803,7 +811,8 @@ Each phase is done only when its acceptance lines are true. Later phases do
 not start early to "save a rewrite."
 
 **Gate, before Phase 2 code.** User has ratified this document, including the
-asset-streaming deferral and whichever amendment drafts they want. T1.1a–c
+asset-streaming deferral, the Article VI.3 presence draft if desired, and
+the optional Article VII.6 shared-session draft if desired. T1.1a–c
 have closed DV-01 and DV-08. Item save persists a relative locator when the
 file is under the workbook (DV-03 for the fields a flush writes). `PropKey`
 lives in `slate-doc`.
@@ -823,9 +832,10 @@ node both stick. A same-property race keeps the later sequence and tells the
 loser. Undo reverts only the undoer's last untouched group. A late joiner
 matches without the original holder connected, as long as a snapshot exists.
 Only the lease holder creates the temp file `save_to` uses. After the holder
-disconnects and grace expires, a cold open shows the last autosave, and a
-queued edit from a sleeping client is reported as not applied rather than
-merged by timestamp. A file that is not on the second machine is `Missing`.
+disconnects and grace expires, a cold open shows the last autosave. A client
+that lost the relay mid-session reloads from disk when the room is gone and
+does not apply stale local edits over the file. A file that is not on the
+second machine is `Missing`.
 A file under `assets/` with a relative locator resolves on the second
 machine once the bytes are there. An agent proposal is invisible to the
 other clients until accepted, and the accepted group carries the agent name.
@@ -849,17 +859,17 @@ this document is the recommendation and can be reviewed as written.
    `Missing`. Confirm that the weekly hybrid meeting actually has the
    folder, or say that streaming is still on the critical path and Phase 2
    must include the narrow preview service.
-4. **Offline policy.** Connected conflicts are last-writer-wins by relay
-   sequence. A reconnect queue drops any register that moved while the peer
-   was gone. Confirm that a longer offline merge is out of scope.
+4. **Disconnect policy.** Connected conflicts are last-writer-wins by relay
+   sequence. While disconnected, the board is read-only and commits are not
+   queued. Confirm that matches the product expectation.
 5. **Text.** The whole string is one register, with an "is editing" presence
    mark. Confirm that a character CRDT is out of scope.
 6. **Agent autonomy.** A connected session always stages, even when the
-   workspace has a solo autonomy grant. That needs the Article VII.6 draft
-   below if it is going to be law rather than a quiet narrowing.
+   workspace has a solo autonomy grant. Ratify the optional Article VII.6
+   draft below if that narrowing should be law rather than implementation
+   policy.
 7. **Article VI.3 draft** below, so presence is allowed on the wire without
-   a later "fix" that journals cursors. Article IX.6 draft, so a session log
-   cannot grow into a second database. Ratify, edit, or reject each one.
+   a later "fix" that journals cursors. Ratify, edit, or reject it.
 8. **Defaults to confirm:** grace window 15 minutes, autosave 30 seconds,
    compaction at 2,000 groups, join cap 32 with a design target of 20,
    cursor presence at 10 Hz.
@@ -870,12 +880,14 @@ Unratified. Not applied to `CONSTITUTION.md`.
 
 ### Draft — Article VI.3, presence exception
 
-Article VI.3 ends: "Where derived state is shared between participants it
-must be deterministic, so that peers reproduce it from the journal rather
-than receiving it over a wire." Article VIII.5 says cursors, viewports,
-selections, and membership are broadcast and never journaled. Those two
-sentences disagree. Presence is shared, derived, and not a function of the
-journal. Portal contents, simulated motion, playheads, and trails are.
+This draft fixes the real contradiction between Article VI.3 and Article
+VIII.5. Article VI.3 ends: "Where derived state is shared between
+participants it must be deterministic, so that peers reproduce it from the
+journal rather than receiving it over a wire." Article VIII.5 says cursors,
+viewports, selections, and membership are broadcast and never journaled.
+Those two sentences disagree. Presence is shared, derived, and not a
+function of the journal. Portal contents, simulated motion, playheads, and
+trails are.
 
 Replace the last sentence of VI.3 with:
 
@@ -889,11 +901,12 @@ Replace the last sentence of VI.3 with:
 This supersedes only that sentence. It does not move presence into the
 document.
 
-### Draft — Article VII.6, shared sessions stage
+### Draft — Article VII.6, shared sessions stage (optional policy choice)
 
 Article VII.6 allows an explicit autonomy grant to skip human acceptance.
 A live room makes that grant surprising: the other participants did not
-grant it.
+grant it. This draft is optional policy: the product can stage in connected
+sessions without ratifying it, but ratifying makes the narrowing explicit.
 
 Add to VII.6:
 
@@ -901,18 +914,3 @@ Add to VII.6:
 > Agent mutations in the session enter the staging layer and require a
 > human in the session to accept them. The grant resumes when the session
 > ends.
-
-### Draft — Article IX.6, the session log is not a document
-
-Article IX.1 forbids Slate from quietly becoming a database. A relay that
-stores ops for a grace window is easy to "improve" into the store of record.
-
-> **IX.6 — A session log is not a document.** A relay may store a session's
-> operation log and snapshots so a peer can catch up. That store is deleted
-> with the session, after a bounded grace window. It is not a second copy of
-> the workbook, it is not opened as a workbook, and it does not outrank the
-> `.slate` file the user saved. No capability may require the log to exist
-> in order to open, edit, or export a workbook.
-
-This records decision D18 as law. It does not require a relay for local use,
-which Article I.4 already protects.
