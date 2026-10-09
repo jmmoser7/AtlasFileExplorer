@@ -375,4 +375,8 @@ When working in the cloud:
 
 Each agent should use its **own branch** (`feature/...`) and a separate PR.
 
+Agent context and file size: `.cursor/rules/reading.mdc` (search, then windowed
+reads) and `.cursor/rules/file-size.mdc` (500-line cap); `cargo xtask size`
+runs inside `cargo test --workspace`.
+
 Periodic codebase health checks: `.cursor/agents/health-check.md`, procedure in `docs/health/README.md`.

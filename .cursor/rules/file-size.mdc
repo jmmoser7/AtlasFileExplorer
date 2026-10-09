@@ -1,0 +1,20 @@
+---
+description: Rust sources stay under 500 physical lines (xtask size lint)
+alwaysApply: true
+---
+
+# File size (500 lines)
+
+Law: new or edited `.rs` under `crates/`, `apps/`, and `xtask/` stay **under
+500 physical lines**. The `cargo xtask size` lint (in `cargo test
+--workspace`) enforces it; oversized legacy files ratchet via
+`xtask/size-allowlist.toml`.
+
+Before a change would exceed the cap, **split on a seam first** — one module,
+one concern, named owner (Art. XII). Never grow an allowlisted file; shrink
+the allowlist by splitting.
+
+```text
+// BAD — append 200 lines to board.rs
+// GOOD — extract `board_paint_selection.rs`, re-export from `board`
+```

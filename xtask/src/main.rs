@@ -4,11 +4,13 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use xtask::{
-    audit_contracts, audit_kits, audit_theme, collect, render_contract_audit, render_kit_audit,
-    render_theme_audit, verify_workspace_root, write_artifacts,
+    audit_contracts, audit_kits, audit_size, audit_theme, collect, render_contract_audit,
+    render_kit_audit, render_size_audit, render_theme_audit, update_size_ceilings,
+    verify_workspace_root, write_artifacts,
 };
 
-const USAGE: &str = "usage: cargo xtask <metrics | contracts | kits [dir] | theme>";
+const USAGE: &str =
+    "usage: cargo xtask <metrics | contracts | kits [dir] | theme | size [--update-ceilings]>";
 
 fn main() -> ExitCode {
     match run() {
@@ -27,6 +29,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         Some("contracts") => contracts(),
         Some("kits") => kits(std::env::args().nth(2)),
         Some("theme") => theme(),
+        Some("size") => size(),
         Some(other) => Err(format!("unknown command `{other}`\n{USAGE}").into()),
         None => Err(USAGE.into()),
     }
@@ -58,6 +61,23 @@ fn kits(dir: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
 /// Checks `docs/keymap/contracts/` against itself: every in-scope dimension
 /// answered, every matrix row mirrored in `decisions.json`, and no contract
 /// claiming to be settled while a row is still proposed.
+fn size() -> Result<(), Box<dyn std::error::Error>> {
+    let root: PathBuf = std::env::current_dir()?;
+    verify_workspace_root(&root)?;
+    if std::env::args().any(|a| a == "--update-ceilings") {
+        update_size_ceilings(&root)?;
+        println!("size lint: updated xtask/size-allowlist.toml ceilings (lowered only)");
+        return Ok(());
+    }
+    let audit = audit_size(&root)?;
+    print!("{}", render_size_audit(&audit));
+    if audit.findings.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("{} size finding(s)", audit.findings.len()).into())
+    }
+}
+
 fn theme() -> Result<(), Box<dyn std::error::Error>> {
     let root: PathBuf = std::env::current_dir()?;
     verify_workspace_root(&root)?;
