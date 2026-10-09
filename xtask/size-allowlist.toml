@@ -1,0 +1,598 @@
+# Ratcheting allowlist: one row per .rs file still over 500 physical lines.
+# ceiling is the max line count allowed until the file is split below the cap.
+# Remove rows when a file shrinks to ≤500 lines. cargo xtask size --update-ceilings lowers
+# ceilings to current counts (never raises). Lines = physical rows (split('\n').count()).
+[[entry]]
+file = "apps/file-atlas/src/app/commands.rs"
+ceiling = 825
+reason = "File Atlas app; extract one concern per module"
+
+[[entry]]
+file = "apps/file-atlas/src/app/mod.rs"
+ceiling = 8650
+reason = "File Atlas app; extract one concern per module"
+
+[[entry]]
+file = "apps/file-atlas/src/app/tests.rs"
+ceiling = 1717
+reason = "integration tests; split by module under test"
+
+[[entry]]
+file = "apps/file-atlas/src/app/ui/tools.rs"
+ceiling = 1007
+reason = "File Atlas app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/bench_brush.rs"
+ceiling = 574
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/bench_brush_tiles.rs"
+ceiling = 1091
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/bench_model3d.rs"
+ceiling = 798
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/bench_web.rs"
+ceiling = 908
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/board.rs"
+ceiling = 10743
+reason = "Slate board interpreter; split on banner seams"
+
+[[entry]]
+file = "apps/slate/src/app/board_agent.rs"
+ceiling = 14333
+reason = "agent session UI; continue existing submodules"
+
+[[entry]]
+file = "apps/slate/src/app/board_agent/crosstalk.rs"
+ceiling = 3482
+reason = "agent session UI; continue existing submodules"
+
+[[entry]]
+file = "apps/slate/src/app/board_agent/life.rs"
+ceiling = 1483
+reason = "agent session UI; continue existing submodules"
+
+[[entry]]
+file = "apps/slate/src/app/board_agent_outputs.rs"
+ceiling = 1734
+reason = "agent session UI; continue existing submodules"
+
+[[entry]]
+file = "apps/slate/src/app/board_align.rs"
+ceiling = 713
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/board_atlas.rs"
+ceiling = 2474
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/board_color.rs"
+ceiling = 3328
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/board_direct.rs"
+ceiling = 1874
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/board_flow.rs"
+ceiling = 2808
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/board_handles.rs"
+ceiling = 910
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/board_image_layers.rs"
+ceiling = 1258
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/board_osnap.rs"
+ceiling = 941
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/board_path.rs"
+ceiling = 7174
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/board_path/tiles.rs"
+ceiling = 2365
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/board_place.rs"
+ceiling = 509
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/board_portal_chrome.rs"
+ceiling = 1236
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/board_properties.rs"
+ceiling = 5457
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/board_slate.rs"
+ceiling = 891
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/board_snap.rs"
+ceiling = 2094
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/board_tip_hud.rs"
+ceiling = 1279
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/board_transform.rs"
+ceiling = 953
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/board_trim.rs"
+ceiling = 1163
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/board_video.rs"
+ceiling = 803
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/board_web.rs"
+ceiling = 4459
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/board_web_stills.rs"
+ceiling = 587
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/board_web_win.rs"
+ceiling = 2492
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/board_wire.rs"
+ceiling = 1595
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/clipboard.rs"
+ceiling = 1427
+reason = "Slate board interpreter; split on banner seams"
+
+[[entry]]
+file = "apps/slate/src/app/commands.rs"
+ceiling = 2462
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/dispatch.rs"
+ceiling = 1979
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/enscape_host.rs"
+ceiling = 562
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/image_layer_tests.rs"
+ceiling = 635
+reason = "integration tests; split by module under test"
+
+[[entry]]
+file = "apps/slate/src/app/imagefx.rs"
+ceiling = 552
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/mod.rs"
+ceiling = 2888
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/model_screenshot.rs"
+ceiling = 1339
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/model3d.rs"
+ceiling = 5077
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/overlays.rs"
+ceiling = 670
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/pdf.rs"
+ceiling = 772
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/tests.rs"
+ceiling = 28167
+reason = "integration tests; split by module under test"
+
+[[entry]]
+file = "apps/slate/src/app/tests_ink_fit.rs"
+ceiling = 805
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/tests_tip_chord.rs"
+ceiling = 1307
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "apps/slate/src/app/ui/tools.rs"
+ceiling = 1017
+reason = "Slate app; extract one concern per module"
+
+[[entry]]
+file = "crates/atlas-agent/src/lib.rs"
+ceiling = 1402
+reason = "oversized; split along module seam"
+
+[[entry]]
+file = "crates/atlas-ai/src/agent.rs"
+ceiling = 971
+reason = "oversized; split along module seam"
+
+[[entry]]
+file = "crates/atlas-ai/src/outputs.rs"
+ceiling = 764
+reason = "oversized; split along module seam"
+
+[[entry]]
+file = "crates/atlas-ai/src/runtime.rs"
+ceiling = 682
+reason = "oversized; split along module seam"
+
+[[entry]]
+file = "crates/atlas-ai/src/schedule.rs"
+ceiling = 616
+reason = "oversized; split along module seam"
+
+[[entry]]
+file = "crates/atlas-ai/src/sidecar.rs"
+ceiling = 960
+reason = "oversized; split along module seam"
+
+[[entry]]
+file = "crates/atlas-codex/src/lib.rs"
+ceiling = 1100
+reason = "oversized; split along module seam"
+
+[[entry]]
+file = "crates/atlas-comfy/src/lib.rs"
+ceiling = 1898
+reason = "oversized; split along module seam"
+
+[[entry]]
+file = "crates/atlas-core/src/office/outlook.rs"
+ceiling = 561
+reason = "core backend; atlas-core owner"
+
+[[entry]]
+file = "crates/atlas-core/src/office/text.rs"
+ceiling = 1332
+reason = "core backend; atlas-core owner"
+
+[[entry]]
+file = "crates/atlas-core/src/rasterthumb.rs"
+ceiling = 627
+reason = "core backend; atlas-core owner"
+
+[[entry]]
+file = "crates/atlas-core/src/session_log.rs"
+ceiling = 1098
+reason = "core backend; atlas-core owner"
+
+[[entry]]
+file = "crates/atlas-core/src/thumbs.rs"
+ceiling = 1350
+reason = "core backend; atlas-core owner"
+
+[[entry]]
+file = "crates/atlas-core/src/tree.rs"
+ceiling = 1252
+reason = "core backend; atlas-core owner"
+
+[[entry]]
+file = "crates/atlas-core/src/types.rs"
+ceiling = 745
+reason = "core backend; atlas-core owner"
+
+[[entry]]
+file = "crates/atlas-core/src/video.rs"
+ceiling = 890
+reason = "core backend; atlas-core owner"
+
+[[entry]]
+file = "crates/atlas-core/src/workbook_assets.rs"
+ceiling = 925
+reason = "core backend; atlas-core owner"
+
+[[entry]]
+file = "crates/atlas-openai/src/lib.rs"
+ceiling = 594
+reason = "oversized; split along module seam"
+
+[[entry]]
+file = "crates/atlas-shell/examples/shape_palettes.rs"
+ceiling = 560
+reason = "shared chrome/canvas; Art. X owner atlas-shell"
+
+[[entry]]
+file = "crates/atlas-shell/src/canvas_text.rs"
+ceiling = 1368
+reason = "shared chrome/canvas; Art. X owner atlas-shell"
+
+[[entry]]
+file = "crates/atlas-shell/src/covers.rs"
+ceiling = 620
+reason = "shared chrome/canvas; Art. X owner atlas-shell"
+
+[[entry]]
+file = "crates/atlas-shell/src/desktop_color.rs"
+ceiling = 671
+reason = "shared chrome/canvas; Art. X owner atlas-shell"
+
+[[entry]]
+file = "crates/atlas-shell/src/dock.rs"
+ceiling = 5336
+reason = "shared chrome/canvas; Art. X owner atlas-shell"
+
+[[entry]]
+file = "crates/atlas-shell/src/dock_advanced.rs"
+ceiling = 1351
+reason = "shared chrome/canvas; Art. X owner atlas-shell"
+
+[[entry]]
+file = "crates/atlas-shell/src/feedback/ui.rs"
+ceiling = 558
+reason = "shared chrome/canvas; Art. X owner atlas-shell"
+
+[[entry]]
+file = "crates/atlas-shell/src/file_picker.rs"
+ceiling = 1177
+reason = "shared chrome/canvas; Art. X owner atlas-shell"
+
+[[entry]]
+file = "crates/atlas-shell/src/folder_map/paint.rs"
+ceiling = 1222
+reason = "shared chrome/canvas; Art. X owner atlas-shell"
+
+[[entry]]
+file = "crates/atlas-shell/src/home.rs"
+ceiling = 2616
+reason = "shared chrome/canvas; Art. X owner atlas-shell"
+
+[[entry]]
+file = "crates/atlas-shell/src/menu.rs"
+ceiling = 959
+reason = "shared chrome/canvas; Art. X owner atlas-shell"
+
+[[entry]]
+file = "crates/atlas-shell/src/menubar.rs"
+ceiling = 696
+reason = "shared chrome/canvas; Art. X owner atlas-shell"
+
+[[entry]]
+file = "crates/atlas-shell/src/selection_tools.rs"
+ceiling = 4693
+reason = "shared chrome/canvas; Art. X owner atlas-shell"
+
+[[entry]]
+file = "crates/atlas-shell/src/sidebar.rs"
+ceiling = 775
+reason = "shared chrome/canvas; Art. X owner atlas-shell"
+
+[[entry]]
+file = "crates/atlas-shell/src/tabs.rs"
+ceiling = 901
+reason = "shared chrome/canvas; Art. X owner atlas-shell"
+
+[[entry]]
+file = "crates/atlas-shell/src/timeline.rs"
+ceiling = 1582
+reason = "shared chrome/canvas; Art. X owner atlas-shell"
+
+[[entry]]
+file = "crates/atlas-shell/src/tokens.rs"
+ceiling = 3047
+reason = "shared chrome/canvas; Art. X owner atlas-shell"
+
+[[entry]]
+file = "crates/atlas-shell/src/tuning.rs"
+ceiling = 1827
+reason = "shared chrome/canvas; Art. X owner atlas-shell"
+
+[[entry]]
+file = "crates/atlas-shell/src/widgets.rs"
+ceiling = 1060
+reason = "shared chrome/canvas; Art. X owner atlas-shell"
+
+[[entry]]
+file = "crates/circle-pack/src/venn.rs"
+ceiling = 642
+reason = "oversized; split along module seam"
+
+[[entry]]
+file = "crates/code-lens/src/layout.rs"
+ceiling = 1151
+reason = "oversized; split along module seam"
+
+[[entry]]
+file = "crates/code-lens/src/model.rs"
+ceiling = 555
+reason = "oversized; split along module seam"
+
+[[entry]]
+file = "crates/collage/tests/layout.rs"
+ceiling = 598
+reason = "oversized; split along module seam"
+
+[[entry]]
+file = "crates/slate-artifact/src/assets.rs"
+ceiling = 618
+reason = "HTML export interpreter; slate-artifact"
+
+[[entry]]
+file = "crates/slate-artifact/src/lib.rs"
+ceiling = 1944
+reason = "HTML export interpreter; slate-artifact"
+
+[[entry]]
+file = "crates/slate-artifact/src/paint_layers.rs"
+ceiling = 808
+reason = "HTML export interpreter; slate-artifact"
+
+[[entry]]
+file = "crates/slate-artifact/src/render.rs"
+ceiling = 3282
+reason = "HTML export interpreter; slate-artifact"
+
+[[entry]]
+file = "crates/slate-doc/src/agent_chat.rs"
+ceiling = 784
+reason = "document model; slate-doc owner"
+
+[[entry]]
+file = "crates/slate-doc/src/agent_inputs.rs"
+ceiling = 2159
+reason = "document model; slate-doc owner"
+
+[[entry]]
+file = "crates/slate-doc/src/bumper.rs"
+ceiling = 688
+reason = "document model; slate-doc owner"
+
+[[entry]]
+file = "crates/slate-doc/src/crosstalk.rs"
+ceiling = 884
+reason = "document model; slate-doc owner"
+
+[[entry]]
+file = "crates/slate-doc/src/doc.rs"
+ceiling = 840
+reason = "document model; slate-doc owner"
+
+[[entry]]
+file = "crates/slate-doc/src/geom.rs"
+ceiling = 1768
+reason = "document model; slate-doc owner"
+
+[[entry]]
+file = "crates/slate-doc/src/osnap.rs"
+ceiling = 992
+reason = "document model; slate-doc owner"
+
+[[entry]]
+file = "crates/slate-doc/src/scene.rs"
+ceiling = 6841
+reason = "document model; slate-doc owner"
+
+[[entry]]
+file = "crates/slate-doc/src/stage.rs"
+ceiling = 978
+reason = "document model; slate-doc owner"
+
+[[entry]]
+file = "crates/slate-doc/src/vertex_style.rs"
+ceiling = 1878
+reason = "document model; slate-doc owner"
+
+[[entry]]
+file = "crates/slate-doc/src/wire.rs"
+ceiling = 2497
+reason = "document model; slate-doc owner"
+
+[[entry]]
+file = "crates/slate-doc/src/wire_host.rs"
+ceiling = 860
+reason = "document model; slate-doc owner"
+
+[[entry]]
+file = "crates/slate-doc/tests/migration.rs"
+ceiling = 623
+reason = "document model; slate-doc owner"
+
+[[entry]]
+file = "crates/slate-kit/src/recipe.rs"
+ceiling = 639
+reason = "oversized; split along module seam"
+
+[[entry]]
+file = "crates/slate-kit/src/resolve.rs"
+ceiling = 557
+reason = "oversized; split along module seam"
+
+[[entry]]
+file = "crates/vector-ink/src/bspline.rs"
+ceiling = 715
+reason = "geometry engine; vector-ink owner"
+
+[[entry]]
+file = "crates/vector-ink/src/collide.rs"
+ceiling = 522
+reason = "geometry engine; vector-ink owner"
+
+[[entry]]
+file = "crates/vector-ink/src/edit.rs"
+ceiling = 949
+reason = "geometry engine; vector-ink owner"
+
+[[entry]]
+file = "crates/vector-ink/src/mesh.rs"
+ceiling = 680
+reason = "geometry engine; vector-ink owner"
+
+[[entry]]
+file = "crates/vector-ink/src/stamp.rs"
+ceiling = 1693
+reason = "geometry engine; vector-ink owner"
+
+[[entry]]
+file = "crates/vector-ink/src/stroke.rs"
+ceiling = 1196
+reason = "geometry engine; vector-ink owner"
+
+[[entry]]
+file = "crates/vector-ink/src/trim.rs"
+ceiling = 1216
+reason = "geometry engine; vector-ink owner"
+
+[[entry]]
+file = "xtask/src/contracts.rs"
+ceiling = 857
+reason = "workspace automation; split audits"

@@ -84,7 +84,8 @@ cell stays blank.
 | Always-on context | `AGENTS.md` + `alwaysApply: true` rules, chars/4 | **≤ ~3,000** tokens |
 | Test wall time | `Measure-Command { cargo test --workspace }` | **Under 15 minutes** on the reference Windows machine, default threads. Revise only with the owner's approval if an honest run is slower |
 | Flaky tests | Failed once, passed on one retry; plus known wall-clock waits | **Zero** tests whose pass/fail depends on the wall clock |
-| Allowlist entries | `[[entry]]` in each `xtask/*allowlist*.toml` | Must not rise between reports without a named reason. A new lint starts at the count of its first green run |
+| Allowlist entries | `[[entry]]` in each `xtask/*allowlist*.toml` | Must not rise between reports without a named reason. A new lint starts at the count of its first green run. **`xtask/size-allowlist.toml` row count must trend down** as god files split |
+| Reading discipline | Spot-check transcripts for full-file reads vs `.cursor/rules/reading.mdc` | Exploration reads trend down; compliance reviewed each run |
 | Clippy warnings | `cargo clippy --workspace --all-targets` | **0** |
 | Duplicate helpers | Until a lint exists: open Article XII rows in `docs/audit/deviations.md`. Then: the lint's finding count | Findings trend to **0**. Allowlist rows are counted above |
 | Open deviations | Status column of `docs/audit/deviations.md` | Trend down. A new row names its closing milestone. Rows are closed, never deleted |
@@ -94,8 +95,9 @@ cell stays blank.
 `xtask` is a workspace member, so `cargo test --workspace` runs its audits.
 `.cargo/config.toml` maps `cargo xtask` to `cargo run -p xtask --`. On
 `main` at the 2026-10-09 baseline the commands are `metrics`, `contracts`,
-and `kits`. `theme` (hardcoded `Color32` constructors) is the same shape —
-library audit, command, `xtask/tests/` assertion — on `feature/theme-sweep`.
+and `kits`. `theme` (hardcoded `Color32` constructors) and `size` (500-line
+physical line cap, `xtask/size-allowlist.toml`) follow the same shape —
+library audit, command, `xtask/tests/` assertion.
 
 ## Backlog
 

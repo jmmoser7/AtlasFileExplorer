@@ -14,6 +14,7 @@ pub mod ledger;
 pub mod model;
 pub mod report;
 pub mod rust_parse;
+pub mod size;
 pub mod theme;
 
 use std::fmt;
@@ -29,6 +30,11 @@ pub use model::{
     Totals,
 };
 pub use report::{load_history, render_readme, snapshot_json};
+pub use size::{
+    audit as audit_size, audit_allowlist as audit_size_allowlist, render as render_size_audit,
+    update_ceilings as update_size_ceilings, SizeAudit, SizeFinding, SizeFindingKind,
+    LIMIT as SIZE_LIMIT,
+};
 pub use theme::{audit as audit_theme, render as render_theme_audit, ThemeAudit, ThemeFinding};
 
 /// Everything that can stop an xtask run. Every variant carries the file it

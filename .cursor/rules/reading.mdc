@@ -1,0 +1,24 @@
+---
+description: Search first, read windows — keep agent context small
+alwaysApply: true
+---
+
+# Context discipline
+
+Law: agent spend is dominated by re-sent reads. Navigation is by **search**,
+then **windows**, not whole files.
+
+**Search before read.** `grep` with line numbers or semantic search. Open only
+~150 lines around the hit (`offset`/`limit`). Never read a file over ~300
+lines or any doc in full unless the task is to edit that whole file. Prefer
+the named owner's section (e.g. `TOPBAR.md`, `ARCHITECTURE.md` §) over the
+whole doc. Put known `path:line` targets in subagent prompts. Delegate
+open-ended “where is X?” to a cheap scout that returns **file:line only**.
+
+```text
+// BAD — 10k-line board.rs loaded because the question was vague
+Read board.rs (full)
+
+// GOOD — hit then window
+Grep "finish_draw" apps/slate/src/app/board.rs → Read offset 6400 limit 150
+```
