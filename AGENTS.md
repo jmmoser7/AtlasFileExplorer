@@ -374,3 +374,5 @@ When working in the cloud:
   paint path unless the PR is explicitly dual-app.
 
 Each agent should use its **own branch** (`feature/...`) and a separate PR.
+
+Periodic codebase health checks: `.cursor/agents/health-check.md`, procedure in `docs/health/README.md`.
