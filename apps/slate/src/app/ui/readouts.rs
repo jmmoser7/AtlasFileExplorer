@@ -110,8 +110,7 @@ pub fn status_bar(app: &mut SlateApp, ctx: &egui::Context) {
                 let missing = health.missing;
                 if missing > 0 {
                     ui.label(
-                        RichText::new(format!("· {missing} missing link(s)"))
-                            .color(egui::Color32::from_rgb(0xe0, 0x6c, 0x5c)),
+                        RichText::new(format!("· {missing} missing link(s)")).color(palette.danger),
                     )
                     .on_hover_text(
                         "Some linked files no longer exist at their saved path. \

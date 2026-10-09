@@ -19,8 +19,6 @@ pub const FILLET_GRIP_HIT_PX: f32 = 4.0;
 /// World-unit inset of the corner grip along its edge while the corner is
 /// square (and the floor of its resting travel).
 pub const FILLET_GRIP_MIN_INSET_WORLD: f32 = 10.0;
-/// Hover fill shared by the live fillet grip and crop handles.
-pub const GRIP_HANDLE_HOT: Color32 = Color32::from_rgb(210, 230, 255);
 /// Windows-style corner hit (diagonal resize).
 pub const CORNER_HIT_PX: f32 = 12.0;
 /// Windows-style edge-band hit (axis resize).
@@ -150,6 +148,7 @@ pub fn paint_crop_handles(
     painter: &egui::Painter,
     geom: &SelectionGeom,
     hot: Option<ResizeHandle>,
+    handle_hot: Color32,
 ) {
     let z = geom.zoom;
     let arm = canvas_scale::px(CROP_ARM_PX, z);
@@ -172,7 +171,7 @@ pub fn paint_crop_handles(
             ResizeHandle::Sw,
         ][i];
         let color = if hot == Some(handle) {
-            GRIP_HANDLE_HOT
+            handle_hot
         } else {
             white
         };
@@ -195,11 +194,7 @@ pub fn paint_crop_handles(
             ResizeHandle::S,
             ResizeHandle::W,
         ][i];
-        let fill = if hot == Some(edge) {
-            GRIP_HANDLE_HOT
-        } else {
-            white
-        };
+        let fill = if hot == Some(edge) { handle_hot } else { white };
         painter.add(egui::Shape::convex_polygon(
             bar,
             fill,
@@ -335,9 +330,16 @@ pub fn hit_test_fillet_grip(screen: Pos2, geom: &SelectionGeom, grip: Pos2) -> b
     Rect::from_center_size(grip, Vec2::splat(half * 2.0)).contains(screen)
 }
 
-pub fn paint_fillet_grip(painter: &egui::Painter, grip: Pos2, zoom: f32, ink: Color32, hot: bool) {
+pub fn paint_fillet_grip(
+    painter: &egui::Painter,
+    grip: Pos2,
+    zoom: f32,
+    ink: Color32,
+    hot: bool,
+    handle_hot: Color32,
+) {
     let half = canvas_scale::px(FILLET_GRIP_PX, zoom);
-    let fill = if hot { GRIP_HANDLE_HOT } else { Color32::WHITE };
+    let fill = if hot { handle_hot } else { Color32::WHITE };
     painter.rect(
         Rect::from_center_size(grip, Vec2::splat(half * 2.0)),
         0.0,
@@ -363,8 +365,9 @@ pub fn paint_sides_glyph(
     add: bool,
     ink: Color32,
     hot: bool,
+    handle_hot: Color32,
 ) {
-    let fill = if hot { GRIP_HANDLE_HOT } else { Color32::WHITE };
+    let fill = if hot { handle_hot } else { Color32::WHITE };
     painter.circle(
         center,
         radius,

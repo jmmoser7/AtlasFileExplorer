@@ -2835,21 +2835,18 @@ impl SlateApp {
     }
 
     fn paint_color_wheel(&self, painter: &egui::Painter, center: Pos2, hsv: [f32; 3]) {
+        let chrome = self.palette();
         painter.circle_filled(
             center,
             WHEEL_BACKDROP_RADIUS,
-            Color32::from_rgba_unmultiplied(18, 18, 20, 235),
+            atlas_shell::theme::Palette::alpha(chrome.extreme_bg, 235),
         );
         let (disk, ring) = wheel_meshes(painter.ctx(), center, hsv[0]);
         painter.add(egui::Shape::Mesh(disk));
         painter.add(egui::Shape::Mesh(ring));
         for (at, _) in wheel_snaps() {
             let inside = at - at.normalized() * (WHEEL_SNAP_RADIUS * 0.5);
-            painter.circle_stroke(
-                center + inside,
-                2.5,
-                EStroke::new(1.0_f32, Color32::from_gray(128)),
-            );
+            painter.circle_stroke(center + inside, 2.5, EStroke::new(1.0_f32, chrome.line));
         }
         let recents = self.doc().view.recent_colors.as_deref().unwrap_or(&[]);
         let slots = slate_doc::ViewState::WHEEL_COLOR_LIMIT;

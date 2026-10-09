@@ -70,12 +70,12 @@ impl InputRole {
     }
 
     /// Chip name and the colour a chip dot and its port share.
-    pub fn look(self) -> (&'static str, Color32) {
+    pub fn look(self, roles: &atlas_shell::tokens::AgentRoleInk) -> (&'static str, Color32) {
         match self {
-            Self::Prompt => ("Prompt", Color32::from_rgb(240, 196, 92)),
-            Self::Geometry => ("Geometry", Color32::from_rgb(92, 204, 170)),
-            Self::Image => ("Image", Color32::from_rgb(120, 170, 250)),
-            Self::Style => ("Style", Color32::from_rgb(196, 146, 250)),
+            Self::Prompt => ("Prompt", roles.prompt),
+            Self::Geometry => ("Geometry", roles.geometry),
+            Self::Image => ("Image", roles.image),
+            Self::Style => ("Style", roles.style),
         }
     }
 }
@@ -675,20 +675,32 @@ fn card_fold(chat: &slate_doc::agent_chat::ChatView, streaming: bool) -> train_u
     }
 }
 
-/// Picker blue stays local until the theme sweep.
-fn paint_pick_button(ui: &egui::Ui, rect: Rect, label: &str, z: f32, radius: f32, id: Id) -> bool {
+fn paint_pick_button(
+    ui: &egui::Ui,
+    rect: Rect,
+    label: &str,
+    z: f32,
+    radius: f32,
+    id: Id,
+    palette: &atlas_shell::theme::Palette,
+) -> bool {
     let resp = ui.interact(rect, id, Sense::click());
-    let blue = if resp.hovered() {
-        Color32::from_rgb(55, 117, 250)
+    let fill = if resp.hovered() {
+        palette.link_hover
     } else {
-        Color32::from_rgb(37, 99, 235)
+        palette.link
     };
-    ui.painter().rect_filled(rect, radius, blue);
+    ui.painter().rect_filled(rect, radius, fill);
+    let on_link = if palette.dark_mode {
+        palette.ink
+    } else {
+        palette.window
+    };
     let galley = tracked_galley(
         ui,
         label,
         canvas_text::authored_px(14.0, z),
-        Color32::WHITE,
+        on_link,
         canvas_scale::px(0.15, z),
         rect.width() - canvas_scale::px(24.0, z),
     );
@@ -696,7 +708,7 @@ fn paint_pick_button(ui: &egui::Ui, rect: Rect, label: &str, z: f32, radius: f32
         rect.center().x - galley.size().x * 0.5,
         rect.center().y - galley.size().y * 0.5,
     );
-    ui.painter().galley(pos, galley, Color32::WHITE);
+    ui.painter().galley(pos, galley, on_link);
     resp.clicked()
 }
 
@@ -5981,7 +5993,8 @@ impl SlateApp {
         let ink = self.palette().overlay();
         let mut picked = None;
         for (i, input) in view.inputs.iter().enumerate().take(6) {
-            let (role, color) = input.role.look();
+            let roles = self.palette().agent_roles();
+            let (role, color) = input.role.look(&roles);
             let text = canvas_text::layout_no_wrap(
                 painter,
                 format!("{role} · {}", input.label),
@@ -6216,7 +6229,7 @@ impl SlateApp {
                 egui::pos2(rect.left(), rect.bottom() - h),
                 egui::vec2(rect.width() * t, h),
             );
-            painter.rect_filled(bar, 0.0, Color32::from_rgb(92, 204, 170));
+            painter.rect_filled(bar, 0.0, self.palette().success);
         }
     }
 
@@ -6347,7 +6360,7 @@ impl SlateApp {
                 body.left_bottom()
                     + egui::vec2(canvas_scale::px(14.0, z), canvas_scale::px(-14.0, z)),
                 canvas_scale::px(4.5, z),
-                Color32::from_rgb(92, 204, 170),
+                self.palette().success,
             );
         }
         // Before its first result the picture is a prompt: type, or wire a note.
@@ -8368,7 +8381,7 @@ impl SlateApp {
                 node.id,
                 portal,
                 None,
-                Color32::from_rgba_unmultiplied(150, 180, 230, 150),
+                atlas_shell::theme::Palette::alpha(self.palette().sub, 150),
                 false,
                 xf.z,
             );
@@ -8570,16 +8583,16 @@ impl SlateApp {
                         ui.painter().galley(pos, galley, palette.ink);
                     }
                     ui.add_space(heading.height());
-                    let row_fill = if palette.dark_mode {
-                        Color32::from_rgba_unmultiplied(255, 255, 255, 16)
+                    let row_fill = palette.ink.gamma_multiply(if palette.dark_mode {
+                        0.06
                     } else {
-                        Color32::from_rgba_unmultiplied(15, 23, 32, 14)
-                    };
-                    let row_hover = if palette.dark_mode {
-                        Color32::from_rgba_unmultiplied(255, 255, 255, 28)
+                        0.05
+                    });
+                    let row_hover = palette.ink.gamma_multiply(if palette.dark_mode {
+                        0.11
                     } else {
-                        Color32::from_rgba_unmultiplied(15, 23, 32, 24)
-                    };
+                        0.09
+                    });
                     let bar = canvas_scale::px(PICK_BAR_RESERVE, z);
                     let scroll = &mut ui.spacing_mut().scroll;
                     scroll.floating = true;
@@ -8684,6 +8697,7 @@ impl SlateApp {
                         z,
                         radius,
                         Id::new(("agent-pick-new", node.id.0)),
+                        &palette,
                     ) {
                         chosen = Some(None);
                     }
@@ -8695,6 +8709,7 @@ impl SlateApp {
                             z,
                             radius,
                             Id::new(("agent-just-build", node.id.0)),
+                            &palette,
                         ) {
                             just_build = true;
                         }

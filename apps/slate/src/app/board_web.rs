@@ -3216,10 +3216,11 @@ impl SlateApp {
         let visiting = self.web_visiting_label(node.id, portal);
         let focused = self.web.focused == Some(node.id);
         let alpha = node.opacity.clamp(0.0, 1.0);
+        let palette = self.palette();
         let border = if focused {
-            Color32::from_rgb(120, 170, 255)
+            palette.select
         } else {
-            Color32::from_rgba_unmultiplied(140, 150, 175, 150)
+            atlas_shell::theme::Palette::alpha(palette.sub, 150)
         };
         self.paint_portal_shell_finish(
             ui,
@@ -3341,7 +3342,7 @@ impl SlateApp {
                 Align2::CENTER_CENTER,
                 headline,
                 FontId::proportional(head),
-                fade(Color32::from_rgb(198, 208, 224)),
+                fade(self.palette().ink.gamma_multiply(0.85)),
             );
         }
         if !detail.is_empty() {
@@ -3353,7 +3354,7 @@ impl SlateApp {
                     Align2::CENTER_CENTER,
                     detail,
                     FontId::proportional(sub),
-                    fade(Color32::from_rgb(150, 162, 182)),
+                    fade(self.palette().sub),
                 );
             }
         }

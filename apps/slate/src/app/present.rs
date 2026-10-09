@@ -7,7 +7,7 @@
 
 use super::board::BoardXf;
 use super::SlateApp;
-use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Vec2};
+use eframe::egui::{self, Align2, FontId, Pos2, Rect, Vec2};
 use slate_doc::scene::WorldRect;
 use slate_doc::NodeId;
 use std::time::Instant;
@@ -175,7 +175,8 @@ impl SlateApp {
             egui::Order::Foreground,
             egui::Id::new("slate_present"),
         ));
-        painter.rect_filled(screen, 0.0, Color32::from_rgb(0x11, 0x11, 0x13));
+        let palette = self.palette();
+        painter.rect_filled(screen, 0.0, palette.extreme_bg);
 
         let frame_node = self.doc().scene.node(frame_id).cloned();
         // Hidden members are excluded. Connectors ignore frame membership
@@ -233,7 +234,7 @@ impl SlateApp {
                 Align2::RIGHT_BOTTOM,
                 format!("{} / {}", idx + 1, frames.len()),
                 FontId::monospace(13.0),
-                Color32::from_gray(140),
+                palette.sub,
             );
         }
         painter.text(
@@ -241,7 +242,7 @@ impl SlateApp {
             Align2::LEFT_BOTTOM,
             "Esc to exit · ←/→ to navigate",
             FontId::proportional(11.5),
-            Color32::from_gray(90),
+            palette.sub.gamma_multiply(0.85),
         );
     }
 }

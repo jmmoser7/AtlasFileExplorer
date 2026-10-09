@@ -5912,12 +5912,7 @@ impl AtlasApp {
                 }
                 let mut assign_to: Option<String> = None;
                 for (dest, count) in &groups {
-                    let resp = chip(
-                        ui,
-                        &format!("{dest} ({count})"),
-                        false,
-                        Color32::from_rgb(0x6b, 0x4f, 0x24),
-                    );
+                    let resp = chip(ui, &format!("{dest} ({count})"), false, palette.staged);
                     if resp.drag_started() {
                         self.drag_chip = Some(DragChip::Dest(dest.clone()));
                     }
@@ -5991,7 +5986,7 @@ impl AtlasApp {
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new(if applied { "●" } else { "○" }).color(
                                 if applied {
-                                    Color32::from_rgb(0x7a, 0xc7, 0x8a)
+                                    palette.success
                                 } else {
                                     palette.sub
                                 },
@@ -6415,10 +6410,10 @@ impl AtlasApp {
                         let p = Pos2::new(x, y);
                         match t.hit_test(self.s2w(p)) {
                             Some(Hit::File(_)) => {
-                                painter.circle_filled(p, 2.0, Color32::from_rgb(0, 220, 90));
+                                painter.circle_filled(p, 2.0, palette.success);
                             }
                             Some(Hit::Dir(_)) => {
-                                painter.circle_filled(p, 2.0, Color32::from_rgb(70, 130, 255));
+                                painter.circle_filled(p, 2.0, palette.select);
                             }
                             None => {}
                         }
@@ -6435,7 +6430,7 @@ impl AtlasApp {
             painter.rect_filled(
                 r,
                 CornerRadius::ZERO,
-                Color32::from_rgba_unmultiplied(0x4f, 0x9c, 0xf0, 28),
+                atlas_shell::theme::Palette::alpha(palette.select, 28),
             );
             painter.rect_stroke(
                 r,
@@ -6451,7 +6446,7 @@ impl AtlasApp {
             painter.rect_filled(
                 r,
                 CornerRadius::ZERO,
-                Color32::from_rgba_unmultiplied(0x4f, 0x9c, 0xf0, 18),
+                atlas_shell::theme::Palette::alpha(palette.select, 18),
             );
             painter.rect_stroke(
                 r,
