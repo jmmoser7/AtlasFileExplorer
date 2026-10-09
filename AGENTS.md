@@ -379,4 +379,4 @@ Agent context and file size: `.cursor/rules/reading.mdc` (search, then windowed
 reads) and `.cursor/rules/file-size.mdc` (500-line cap); `cargo xtask size`
 runs inside `cargo test --workspace`.
 
-Periodic codebase health checks: `.cursor/agents/health-check.md`, procedure in `docs/health/README.md`.
+Periodic codebase health checks: `.cursor/agents/health-check.md`, procedure in `docs/health/README.md`. Cheap location lookups: `.cursor/agents/scout.md`.

@@ -8,7 +8,8 @@ alwaysApply: true
 Law: agent spend is dominated by re-sent reads. Navigation is by **search**,
 then **windows**, not whole files.
 
-**Search before read.** `grep` with line numbers or semantic search. Open only
+**Search before read.** For “where/how is X handled”, try Cursor semantic
+search before `grep`; grep exact symbols with line numbers. Open only
 ~150 lines around the hit (`offset`/`limit`). Never read a file over ~300
 lines or any doc in full unless the task is to edit that whole file. Prefer
 the named owner's section (e.g. `TOPBAR.md`, `ARCHITECTURE.md` §) over the
