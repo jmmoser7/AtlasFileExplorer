@@ -43,6 +43,7 @@ fn render_local(source: &Path, destination: &Path) -> Result<(), String> {
             ("SLATE_POWERPOINT_SOURCE", source),
             ("SLATE_POWERPOINT_PDF", destination),
         ],
+        "POWERPNT.EXE",
         Duration::from_secs(180),
     ) {
         Ok(()) => Ok(()),

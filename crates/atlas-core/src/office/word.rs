@@ -37,6 +37,7 @@ fn render_local(source: &Path, destination: &Path) -> Result<(), String> {
             ("SLATE_WORD_SOURCE", source),
             ("SLATE_WORD_PDF", destination),
         ],
+        "WINWORD.EXE",
         Duration::from_secs(180),
     ) {
         Ok(()) => Ok(()),
