@@ -2,8 +2,8 @@
 //!
 //! The folder layout lives in `atlas_core::workbook_assets`. This module
 //! applies that plan to the open document through one invertible locator
-//! rewrite. File copies for Collect run on a worker; Save uses the same
-//! planner and refuses a cloud placeholder before reading it.
+//! rewrite. File copies for Collect and Save run on a worker; the planner
+//! refuses a cloud placeholder before reading it.
 
 use super::board::BoardMark;
 use super::SlateApp;
@@ -16,6 +16,16 @@ use std::path::{Path, PathBuf};
 pub(crate) struct CollectJob {
     pub tab: u64,
     pub outcome: CollectOutcome,
+}
+
+/// Copies a Save started. `generation` is the tab's save count when it
+/// started; `interim` is the absolute rewrite Save pushed before writing.
+pub(crate) struct SaveAssetsJob {
+    tab: u64,
+    generation: u64,
+    dest: PathBuf,
+    interim: Option<RewriteLocators>,
+    outcome: CollectOutcome,
 }
 
 impl SlateApp {
@@ -80,38 +90,157 @@ impl SlateApp {
         self.toast(job.outcome.summary());
     }
 
-    /// Copy data-dir images and this workbook's own `assets/` into `dest`
-    /// before the file is written. Locator changes are one undo step.
-    pub(crate) fn migrate_assets_for_save(
+    /// Before Save writes `dest`: when the workbook moves, links into the old
+    /// folder's `assets/` become absolute so the written file resolves before
+    /// the copies land. No I/O. Returns the change it pushed as an undo step.
+    pub(crate) fn prepare_asset_save(
         &mut self,
         tab_idx: usize,
         dest: &Path,
-    ) -> CollectOutcome {
-        let old = self.tabs[tab_idx].path.clone();
-        let sources = resolved_paths(old.as_deref(), &self.tabs[tab_idx].doc);
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        let mut outcome = atlas_core::workbook_assets::collect_data_dir_assets(
-            &atlas_core::index::data_dir(),
-            dest,
-            &sources,
-            now,
-        );
-        if let Some(from) = old.as_deref() {
-            let copied = atlas_core::workbook_assets::copy_referenced_assets(from, dest, &sources);
-            outcome.collected.extend(copied.collected);
-            outcome.refused.extend(copied.refused);
+    ) -> Option<RewriteLocators> {
+        let tab = &self.tabs[tab_idx];
+        let old = tab.path.as_deref()?;
+        if atlas_core::workbook_assets::same_path(old, dest) {
+            return None;
         }
-        // Ordinary user links are not assets. Collect reports them; Save leaves
-        // them alone without a toast for every photo on the board.
-        outcome
-            .refused
-            .retain(|item| item.reason != "outside the app data folder");
-        let workbook = Some(dest.to_path_buf());
-        self.apply_collected_on_tab(tab_idx, workbook.as_deref(), &outcome);
-        outcome
+        let changes: Vec<LocatorChange> = tab
+            .doc
+            .items
+            .iter()
+            .filter(|item| {
+                let text = item.path.to_string_lossy().replace('\\', "/");
+                item.path.is_relative() && text.starts_with("assets/")
+            })
+            .map(|item| LocatorChange {
+                item: item.id,
+                before: item.path.clone(),
+                after: resolve_source(Some(old), &item.path.to_string_lossy()),
+            })
+            .collect();
+        let cmd = RewriteLocators { changes };
+        if !cmd.apply(&mut self.tabs[tab_idx].doc) {
+            return None;
+        }
+        let tab = &mut self.tabs[tab_idx];
+        tab.edits.push(BoardMark::Locators(cmd.clone()));
+        tab.edit_redo.clear();
+        Some(cmd)
+    }
+
+    /// After Save wrote `dest`: copy data-dir images and the old workbook's
+    /// own `assets/` beside it on a worker. [`Self::poll_asset_saves`] applies
+    /// the locator rewrite when the copies finish.
+    pub(crate) fn spawn_asset_save(
+        &mut self,
+        tab_idx: usize,
+        old: Option<PathBuf>,
+        dest: &Path,
+        interim: Option<RewriteLocators>,
+    ) {
+        let tab = self.tabs[tab_idx].id;
+        let sources = resolved_paths(Some(dest), &self.tabs[tab_idx].doc);
+        let generation = {
+            let generation = self.asset_save_generation.entry(tab).or_default();
+            *generation += 1;
+            *generation
+        };
+        let data_dir = atlas_core::index::data_dir();
+        let dest = dest.to_path_buf();
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        self.asset_save_rx.push(rx);
+        std::thread::spawn(move || {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let mut outcome = atlas_core::workbook_assets::collect_data_dir_assets(
+                &data_dir, &dest, &sources, now,
+            );
+            if let Some(from) = old.as_deref() {
+                let copied =
+                    atlas_core::workbook_assets::copy_referenced_assets(from, &dest, &sources);
+                outcome.collected.extend(copied.collected);
+                outcome.refused.extend(copied.refused);
+            }
+            // Ordinary user links are not assets. Collect reports them; Save
+            // leaves them alone without a toast for every photo on the board.
+            outcome
+                .refused
+                .retain(|item| item.reason != "outside the app data folder");
+            let _ = tx.send(SaveAssetsJob {
+                tab,
+                generation,
+                dest,
+                interim,
+                outcome,
+            });
+        });
+    }
+
+    pub(crate) fn poll_asset_saves(&mut self, ctx: &egui::Context) {
+        if self.asset_save_rx.is_empty() {
+            return;
+        }
+        let mut done = Vec::new();
+        self.asset_save_rx.retain(|rx| match rx.try_recv() {
+            Ok(job) => {
+                done.push(job);
+                false
+            }
+            Err(crossbeam_channel::TryRecvError::Empty) => true,
+            Err(crossbeam_channel::TryRecvError::Disconnected) => false,
+        });
+        for job in done {
+            self.finish_asset_save(job);
+        }
+        if !self.asset_save_rx.is_empty() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(150));
+        }
+    }
+
+    fn finish_asset_save(&mut self, job: SaveAssetsJob) {
+        let Some(tab_idx) = self.tabs.iter().position(|t| t.id == job.tab) else {
+            return;
+        };
+        // A later save of this tab owns the result.
+        if self.asset_save_generation.get(&job.tab) != Some(&job.generation) {
+            return;
+        }
+        let at_dest = self.tabs[tab_idx]
+            .path
+            .as_deref()
+            .is_some_and(|path| atlas_core::workbook_assets::same_path(path, &job.dest));
+        if !at_dest {
+            return;
+        }
+        let changes = locator_changes(
+            &self.tabs[tab_idx].doc,
+            Some(&job.dest),
+            &job.outcome.collected,
+        );
+        let cmd = RewriteLocators { changes };
+        if cmd.apply(&mut self.tabs[tab_idx].doc) {
+            let tab = &mut self.tabs[tab_idx];
+            let merged = match (&job.interim, tab.edits.last()) {
+                (Some(interim), Some(BoardMark::Locators(top))) if top == interim => {
+                    tab.edits.pop();
+                    compose(interim.clone(), cmd)
+                }
+                _ => cmd,
+            };
+            if !merged.changes.is_empty() {
+                tab.edits.push(BoardMark::Locators(merged));
+                tab.edit_redo.clear();
+            }
+            // Unchanged since Save: write again so the file on disk holds the
+            // relative locators. Otherwise the next save carries them.
+            if !tab.dirty && tab.doc.save_to(&job.dest).is_err() {
+                tab.dirty = true;
+            }
+        }
+        if !job.outcome.collected.is_empty() || !job.outcome.refused.is_empty() {
+            self.toast(job.outcome.summary());
+        }
     }
 
     fn apply_collected(&mut self, workbook: Option<&Path>, outcome: &CollectOutcome) -> usize {
@@ -154,6 +283,20 @@ fn resolved_paths(workbook: Option<&Path>, doc: &slate_doc::SlateDoc) -> Vec<Pat
         .iter()
         .map(|item| resolve_source(workbook, &item.path.to_string_lossy()))
         .collect()
+}
+
+/// `first` then `then` as one undo step, from `first`'s starting locators.
+fn compose(first: RewriteLocators, then: RewriteLocators) -> RewriteLocators {
+    let mut changes = first.changes;
+    for change in then.changes {
+        if let Some(prev) = changes.iter_mut().find(|prev| prev.item == change.item) {
+            prev.after = change.after;
+        } else {
+            changes.push(change);
+        }
+    }
+    changes.retain(|change| !atlas_core::workbook_assets::same_path(&change.before, &change.after));
+    RewriteLocators { changes }
 }
 
 fn locator_changes(

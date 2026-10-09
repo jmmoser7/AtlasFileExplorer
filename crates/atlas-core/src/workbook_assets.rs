@@ -487,7 +487,11 @@ fn files_identical(from: &Path, to: &Path) -> bool {
     if same_path(from, to) {
         return true;
     }
-    if !to.is_file() {
+    if !to.is_file() || crate::cloud::is_dehydrated(to) {
+        return false;
+    }
+    let len = |path: &Path| std::fs::metadata(path).map(|meta| meta.len()).ok();
+    if len(from) != len(to) {
         return false;
     }
     std::fs::read(from).ok() == std::fs::read(to).ok()

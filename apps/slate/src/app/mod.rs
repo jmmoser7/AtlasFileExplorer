@@ -359,6 +359,9 @@ pub struct SlateApp {
     pub picker: FilePicker<PickerMsg>,
     export_rx: Option<Receiver<(PathBuf, Result<slate_artifact::ExportReport, String>)>>,
     collect_rx: Option<Receiver<workbook_assets::CollectJob>>,
+    asset_save_rx: Vec<Receiver<workbook_assets::SaveAssetsJob>>,
+    /// Saves per tab id; a Save's copies apply only while it is the latest.
+    asset_save_generation: HashMap<u64, u64>,
     unsaved_close: Option<UnsavedClose>,
     pub toasts: Vec<(String, Instant)>,
     /// Rate-limit for the read-only edit refusal toast (one per second).
@@ -875,6 +878,8 @@ impl SlateApp {
             picker: dialogs.picker(),
             export_rx: None,
             collect_rx: None,
+            asset_save_rx: Vec::new(),
+            asset_save_generation: HashMap::new(),
             unsaved_close: None,
             toasts: Vec::new(),
             last_read_only_toast: None,
@@ -1778,14 +1783,8 @@ impl SlateApp {
             return;
         };
         let edits_before = self.tabs[tab_idx].edits.len();
-        let asset_note = {
-            let outcome = self.migrate_assets_for_save(tab_idx, &path);
-            if outcome.collected.is_empty() && outcome.refused.is_empty() {
-                String::new()
-            } else {
-                format!(" · {}", outcome.summary())
-            }
-        };
+        let old_path = self.tabs[tab_idx].path.clone();
+        let interim = self.prepare_asset_save(tab_idx, &path);
         if tab_idx == self.active_tab {
             self.lock_all_models();
         }
@@ -1821,10 +1820,11 @@ impl SlateApp {
         let need_lease = path_changed || self.tabs[tab_idx].lease.is_none();
         self.tabs[tab_idx].path = Some(path.clone());
         self.tabs[tab_idx].dirty = false;
+        self.spawn_asset_save(tab_idx, old_path, &path, interim);
         // Save-as (or first save of an untitled): take the lease on the new
         // path and clear read-only. Same-path save keeps the lease we hold.
         if !need_lease {
-            self.toast(format!("Workbook saved{asset_note}"));
+            self.toast("Workbook saved");
             return;
         }
         if let Some(old) = self.tabs[tab_idx].lease.take() {
@@ -1836,14 +1836,14 @@ impl SlateApp {
                 tab.lease = Some(lease);
                 tab.read_only = false;
                 tab.lease_holder = None;
-                format!("Workbook saved{asset_note}")
+                "Workbook saved".to_string()
             }
             Ok(LeaseState::Held(info)) => {
                 let tab = &mut self.tabs[tab_idx];
                 tab.read_only = true;
                 tab.lease_holder = Some(info.clone());
                 format!(
-                    "Saved, but open read-only — {} has it open{asset_note}",
+                    "Saved, but open read-only — {} has it open",
                     info.describe()
                 )
             }
@@ -1851,7 +1851,7 @@ impl SlateApp {
                 let tab = &mut self.tabs[tab_idx];
                 tab.read_only = true;
                 tab.lease_holder = Some(LeaseInfo::unknown());
-                format!("Saved, but could not take write lease ({e}){asset_note}")
+                format!("Saved, but could not take write lease ({e})")
             }
         };
         self.toast(toast);
@@ -2387,7 +2387,11 @@ impl SlateApp {
     pub(crate) fn update_close_blocked(&self) -> Option<&'static str> {
         if self.tabs.iter().any(|tab| tab.dirty) {
             Some("Save all open workbooks before restarting.")
-        } else if self.export_rx.is_some() || self.collect_rx.is_some() || self.dialogs.any_open() {
+        } else if self.export_rx.is_some()
+            || self.collect_rx.is_some()
+            || !self.asset_save_rx.is_empty()
+            || self.dialogs.any_open()
+        {
             Some("Finish the open file dialog or export before restarting.")
         } else {
             self.atlas
@@ -2420,6 +2424,7 @@ impl SlateApp {
             }
             self.poll_artifact_export(ctx);
             self.poll_collect_assets(ctx);
+            self.poll_asset_saves(ctx);
             self.heartbeat_active_lease();
             self.note_engine_failure();
         }

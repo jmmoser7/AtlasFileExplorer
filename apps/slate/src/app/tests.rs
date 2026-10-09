@@ -720,6 +720,20 @@ fn saving_files_data_dir_images_beside_the_workbook_and_undo_restores_locators()
         .add_item(user.clone(), "holiday.png", 10, 1, "u");
     let dest = h.base.join("Board.slate");
     h.app.save_doc_to(h.app.tab().id, dest.clone());
+    assert_eq!(
+        h.app.doc().item(id).unwrap().path,
+        src,
+        "Save copies on a worker; the locator moves when the copy lands"
+    );
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while !h.app.asset_save_rx.is_empty() && std::time::Instant::now() < deadline {
+        h.app.poll_asset_saves(&h.ctx);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(
+        !h.app.tab().dirty,
+        "the follow-up write leaves the tab clean"
+    );
     let stored = h.app.doc().item(id).unwrap().path.clone();
     let locator = stored.to_string_lossy().replace('\\', "/");
     assert!(
@@ -829,6 +843,62 @@ fn collect_assets_rewrites_data_dir_images_and_refuses_user_files() {
     h.app.board_undo();
     assert_eq!(h.app.doc().item(gen_id).unwrap().path, src);
     let _ = std::fs::remove_dir_all(&gen_dir);
+}
+
+#[test]
+fn save_as_elsewhere_stays_resolvable_while_assets_copy() {
+    let mut h = Harness::new("asset_save_as");
+    h.app.ensure_work_tab();
+    let first = h.base.join("A").join("Board.slate");
+    std::fs::create_dir_all(first.parent().unwrap().join("assets").join("pasted")).unwrap();
+    std::fs::write(
+        first.parent().unwrap().join("assets/pasted/paste-1.png"),
+        b"own-asset",
+    )
+    .unwrap();
+    h.app.tab_mut().path = Some(first.clone());
+    let id = h.app.doc_mut().add_item(
+        std::path::PathBuf::from("assets/pasted/paste-1.png"),
+        "paste-1.png",
+        9,
+        1,
+        "p",
+    );
+    let dest = h.base.join("B").join("Board.slate");
+    std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
+    let undo_depth = h.app.tab().edits.len();
+    h.app.save_doc_to(h.app.tab().id, dest.clone());
+    let written = slate_doc::SlateDoc::load_from(&dest).unwrap();
+    let interim = slate_doc::scene::resolve_source(
+        Some(&dest),
+        &written.item(id).unwrap().path.to_string_lossy(),
+    );
+    assert_eq!(
+        std::fs::read(&interim).unwrap(),
+        b"own-asset",
+        "the file written before the copy must resolve"
+    );
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while !h.app.asset_save_rx.is_empty() && std::time::Instant::now() < deadline {
+        h.app.poll_asset_saves(&h.ctx);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let on_disk = slate_doc::SlateDoc::load_from(&dest).unwrap();
+    let locator = on_disk
+        .item(id)
+        .unwrap()
+        .path
+        .to_string_lossy()
+        .replace('\\', "/");
+    assert_eq!(locator, "assets/pasted/paste-1.png");
+    assert_eq!(
+        std::fs::read(dest.parent().unwrap().join(&locator)).unwrap(),
+        b"own-asset"
+    );
+    assert!(
+        h.app.tab().edits.len() <= undo_depth + 1,
+        "one undo step at most"
+    );
 }
 
 fn copy_dir(from: &std::path::Path, to: &std::path::Path) {
