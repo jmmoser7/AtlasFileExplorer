@@ -78,19 +78,23 @@ pub const INTERACTIVE_HOLD_SECS: f32 = 0.18;
 pub const UPLOADS_PER_FRAME: usize = atlas_core::display::WEB_UPLOADS_PER_FRAME;
 /// GPU readbacks issued on one frame. Matches the upload budget (D29).
 pub const READS_PER_FRAME: usize = UPLOADS_PER_FRAME;
-/// Browsers a zoomed-out board may borrow to photograph cards. The scheduler
-/// that spends them is separate from the disk still; GP8 still fills the pool.
+/// Pool-scheduler targets the ignored `bench_web` cases describe. No scheduler
+/// in this build spends them, so they exist for those benches only.
+#[cfg(test)]
 pub const WARM_SLOTS: usize = 1;
-/// Slots held back from live pages for that photographer. Zero, so a full
-/// board still runs [`LIVE_POOL`] webviews.
+#[cfg(test)]
 pub const WARM_RESERVE: usize = 0;
-/// Demoted browsers kept past losing their slot. Not spent by this build.
+#[cfg(test)]
 pub const LINGER_MAX: usize = 2;
+#[cfg(test)]
 pub const EVICT_LINGER_SECS: f32 = 0.45;
+#[cfg(test)]
 pub const OPEN_MIN_GAP_SECS: f32 = 0.0;
+#[cfg(test)]
 pub const POOL_CHANGE_MIN_SECS: f32 = 0.35;
 
 /// `ATLAS_BENCH_LEGACY=1` is the unbudgeted comparison the load benches use.
+#[cfg(test)]
 pub fn bench_legacy() -> bool {
     std::env::var_os("ATLAS_BENCH_LEGACY").is_some()
 }
@@ -456,7 +460,6 @@ struct WebView {
     cached_text_at: Option<SystemTime>,
     text_miss: bool,
     still_requested: bool,
-    text_requested: bool,
     /// Physical on-screen size last frame; 0 when not yet painted.
     width_px: f32,
     height_px: f32,
@@ -502,7 +505,6 @@ impl WebView {
             cached_text_at: None,
             text_miss: false,
             still_requested: false,
-            text_requested: false,
             width_px: 0.0,
             height_px: 0.0,
             area_px: 0.0,
@@ -649,7 +651,6 @@ impl WebRuntime {
         self.still_inbox.clear();
         for view in self.views.values_mut() {
             view.still_requested = false;
-            view.text_requested = false;
             view.text_miss = false;
         }
     }
@@ -670,6 +671,7 @@ impl WebRuntime {
         self.host_open.len()
     }
 
+    #[cfg(test)]
     pub fn lingering(&self) -> usize {
         0
     }
@@ -1291,27 +1293,15 @@ impl SlateApp {
                 }
                 self.web.views.insert(*id, view);
             }
-            if !self.web.stills.is_off() {
-                if self.web.views.get(id).is_some_and(|v| {
+            if !self.web.stills.is_off()
+                && self.web.views.get(id).is_some_and(|v| {
                     v.poster.is_none() && !v.still_requested && !v.still_key.is_empty()
-                }) {
-                    let key = self.web.views[id].still_key.clone();
-                    self.web.stills.request(*id, &key);
-                    if let Some(v) = self.web.views.get_mut(id) {
-                        v.still_requested = true;
-                    }
-                }
-                if self.web.views.get(id).is_some_and(|v| {
-                    v.cached_text.is_none()
-                        && !v.text_miss
-                        && !v.text_requested
-                        && !v.still_key.is_empty()
-                }) {
-                    let key = self.web.views[id].still_key.clone();
-                    self.web.stills.request_text(*id, &key);
-                    if let Some(v) = self.web.views.get_mut(id) {
-                        v.text_requested = true;
-                    }
+                })
+            {
+                let key = self.web.views[id].still_key.clone();
+                self.web.stills.request(*id, &key);
+                if let Some(v) = self.web.views.get_mut(id) {
+                    v.still_requested = true;
                 }
             }
             if self.portal_chrome.maximized == Some(*id) {
@@ -1530,7 +1520,7 @@ impl SlateApp {
     /// Disk stills and cached page text. Never blocks: the worker already
     /// finished the read, and uploads share the per-frame budget.
     fn drain_web_stills(&mut self, ctx: &egui::Context) {
-        self.web.still_inbox.extend(self.web.stills.drain());
+        self.absorb_cached_captures();
         let pending = std::mem::take(&mut self.web.still_inbox);
         let mut later = Vec::new();
         for item in pending {
@@ -1561,25 +1551,6 @@ impl SlateApp {
             }
         }
         self.web.still_inbox = later;
-
-        for item in self.web.stills.drain_text() {
-            let Some(view) = self.web.views.get_mut(&item.id) else {
-                continue;
-            };
-            if view.still_key != item.key {
-                continue;
-            }
-            match item.text {
-                Some(text) => {
-                    if view.cached_text.is_none() {
-                        view.cached_text = Some(text);
-                        view.cached_text_at = item.captured;
-                    }
-                    view.text_miss = false;
-                }
-                None => view.text_miss = view.cached_text.is_none(),
-            }
-        }
     }
 
     /// Apply finished local-source probes. Generation-tagged so a rebind that
