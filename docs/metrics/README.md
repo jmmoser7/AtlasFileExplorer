@@ -32,7 +32,9 @@ sorts by path, so two runs on an unchanged tree produce byte-identical output.
 
 ## Code map (agent lookup)
 
-`cargo xtask map` writes two committed indexes (LF, sorted, deterministic):
+`cargo xtask map` writes local, gitignored indexes under this folder (LF,
+sorted, deterministic). They are **not committed** — regenerate on demand so
+parallel branches do not fight over line shifts.
 
 - `code-map.jsonl` — one JSON object per `.rs` file under `crates/`, `apps/`,
   and `xtask/`: `path`, `lines` (physical newline count), `purpose` (first
@@ -41,11 +43,13 @@ sorts by path, so two runs on an unchanged tree produce byte-identical output.
   line).
 - `symbols.tsv` — `symbol`, `kind`, `path:line` per item for grep-style
   lookup.
+- `.map-cache.json` — per-file mtime/size cache so unchanged sources skip
+  re-parse on the next run.
 
-Regenerate with `cargo xtask map`. Freshness is enforced by
-`cargo xtask map --check` inside `cargo test --workspace`. Agents should
-grep `symbols.tsv` for “where is X?” instead of scanning the tree; do not
-load either file whole into a prompt.
+Scouts run `cargo xtask map` when `symbols.tsv` is missing or older than
+`git log -1 --format=%ct`, then grep one symbol at a time. Optional local
+check: `cargo xtask map --check`. Do not load either map file whole into a
+prompt.
 
 ## Totals
 

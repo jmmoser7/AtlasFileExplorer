@@ -2,6 +2,11 @@
 /.codex/tools/
 **/.atlas-cache/
 
+# Generated on demand (`cargo xtask map`); not committed.
+docs/metrics/code-map.jsonl
+docs/metrics/symbols.tsv
+docs/metrics/.map-cache.json
+
 # Local IDE / OS
 .idea/
 .vscode/

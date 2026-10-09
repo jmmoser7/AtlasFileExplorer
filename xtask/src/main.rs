@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::time::Instant;
 
 use xtask::{
     audit_contracts, audit_kits, audit_size, audit_theme, collect, map, render_contract_audit,
@@ -113,15 +114,18 @@ fn code_map() -> Result<(), Box<dyn std::error::Error>> {
         println!("code map: fresh");
         Ok(())
     } else {
+        let started = Instant::now();
         map::write(&root)?;
+        let elapsed = started.elapsed();
         let jsonl = root.join("docs/metrics/code-map.jsonl");
         let tsv = root.join("docs/metrics/symbols.tsv");
         let jsonl_len = std::fs::metadata(&jsonl)?.len();
         let tsv_len = std::fs::metadata(&tsv)?.len();
         println!(
-            "wrote {} ({jsonl_len} bytes) and {} ({tsv_len} bytes)",
+            "wrote {} ({jsonl_len} bytes) and {} ({tsv_len} bytes) in {:.2}s",
             jsonl.display(),
-            tsv.display()
+            tsv.display(),
+            elapsed.as_secs_f64()
         );
         Ok(())
     }

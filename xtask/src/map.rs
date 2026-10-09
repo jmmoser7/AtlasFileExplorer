@@ -1,16 +1,17 @@
 //! Generated code map and symbol index for agent navigation (`cargo xtask map`).
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use syn::{ImplItem, Item, Visibility};
 
+use crate::map_cache;
 use crate::size::{count_physical_lines, scoped_files};
 use crate::MetricsError;
 
 const JSONL: &str = "docs/metrics/code-map.jsonl";
 const SYMBOLS: &str = "docs/metrics/symbols.tsv";
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MapItem {
     pub name: String,
     pub kind: String,
@@ -36,38 +37,51 @@ pub(crate) struct SymbolRow {
 }
 
 pub(crate) fn collect(root: &Path) -> Result<(Vec<FileMap>, Vec<SymbolRow>), MetricsError> {
+    let mut cache = map_cache::load(root);
+    map_cache::retain_existing(root, &mut cache);
+    let mut next_cache = map_cache::empty_store();
     let mut files = Vec::new();
     let mut symbols = Vec::new();
 
     for path in scoped_files(root) {
         let rel = normalize_rel(&path, root);
-        let text = std::fs::read_to_string(&path).map_err(|e| MetricsError::io(&path, e))?;
-        let lines = count_physical_lines(&text);
-        let purpose = file_purpose(&text);
-        let file =
-            syn::parse_file(&text).map_err(|e| MetricsError::syntax(&path, e.to_string()))?;
-        let mut items = extract_items(&file, &text);
-        items.sort_by(|a, b| (a.line, &a.name, &a.kind).cmp(&(b.line, &b.name, &b.kind)));
+        let fm = if let Some(hit) = map_cache::try_hit(&cache, &rel, &path) {
+            hit
+        } else {
+            parse_file_map(&path, &rel)?
+        };
+        map_cache::insert(&mut next_cache, rel.clone(), &fm, &path);
 
-        for item in &items {
+        for item in &fm.items {
             symbols.push(SymbolRow {
                 name: item.name.clone(),
                 kind: item.kind.clone(),
                 loc: format!("{}:{}", rel, item.line),
             });
         }
-
-        files.push(FileMap {
-            path: rel,
-            lines,
-            purpose,
-            items,
-        });
+        files.push(fm);
     }
+
+    map_cache::save(root, &next_cache)?;
 
     files.sort_by(|a, b| a.path.cmp(&b.path));
     symbols.sort();
     Ok((files, symbols))
+}
+
+fn parse_file_map(path: &Path, rel: &str) -> Result<FileMap, MetricsError> {
+    let text = std::fs::read_to_string(path).map_err(|e| MetricsError::io(path, e))?;
+    let lines = count_physical_lines(&text);
+    let purpose = file_purpose(&text);
+    let file = syn::parse_file(&text).map_err(|e| MetricsError::syntax(path, e.to_string()))?;
+    let mut items = extract_items(&file, &text);
+    items.sort_by(|a, b| (a.line, &a.name, &a.kind).cmp(&(b.line, &b.name, &b.kind)));
+    Ok(FileMap {
+        path: rel.to_string(),
+        lines,
+        purpose,
+        items,
+    })
 }
 
 pub(crate) fn render(files: &[FileMap], symbols: &[SymbolRow]) -> (String, String) {
@@ -306,5 +320,17 @@ mod tests {
     fn purpose_reads_first_inner_doc_line() {
         let text = "// comment\n\n//! First purpose line\n//! second\n\nfn x() {}\n";
         assert_eq!(file_purpose(text), "First purpose line");
+    }
+
+    #[test]
+    fn extract_items_finds_pub_items_in_fixture() {
+        let text = "//! Widget helpers.\n\npub fn visible() {}\npub(crate) struct Inner;\nstruct Hidden;\n";
+        let file = syn::parse_file(text).expect("fixture parses");
+        let items = extract_items(&file, text);
+        assert!(items.iter().any(|i| i.name == "visible" && i.kind == "fn"));
+        assert!(items
+            .iter()
+            .any(|i| i.name == "Inner" && i.kind == "struct"));
+        assert!(!items.iter().any(|i| i.name == "Hidden"));
     }
 }

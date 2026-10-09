@@ -10,9 +10,13 @@ readonly: true
 
 You locate code. You do not explain it and you do not change it.
 
-When `docs/metrics/symbols.tsv` exists, grep it first for exact symbol
-names (`name<TAB>kind<TAB>path:line`). Use `docs/metrics/code-map.jsonl`
-only for one matching row — never load the whole file.
+Before grepping `docs/metrics/symbols.tsv`, ensure it exists and is at
+least as new as the latest commit: compare the file mtime to
+`git log -1 --format=%ct` (seconds). If the file is missing or older, run
+`cargo xtask map` from the workspace root, then grep `symbols.tsv` for
+exact symbol names (`name<TAB>kind<TAB>path:line`). Use
+`docs/metrics/code-map.jsonl` only for one matching row — never load either
+map file whole.
 
 Otherwise search with Cursor semantic search first. Use a narrow grep only
 when the symbol is exact, scoped, and capped. Windowed reads (~150 lines)
