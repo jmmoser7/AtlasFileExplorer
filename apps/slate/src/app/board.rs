@@ -7130,12 +7130,24 @@ impl SlateApp {
 
                 if !mods.alt {
                     if is_corner {
-                        // Snap the grabbed corner (osnap + smart guides), then
-                        // rebuild so aspect lock still holds. Independent
-                        // edge snaps fight proportional scale.
-                        let pointer =
-                            self.resolve_point_snap(world, &[node_id], None, false, false);
-                        (r, crossed) = resize(pointer);
+                        let rotated = rotation_deg.abs() > f32::EPSILON;
+                        if !rotated && crossed == [false, false] {
+                            let pointer = self.resolve_corner_scale(
+                                world,
+                                before_rect,
+                                r,
+                                handle,
+                                MIN_DRAW,
+                                lock_aspect,
+                                from_center,
+                                &[node_id],
+                            );
+                            (r, crossed) = resize(pointer);
+                        } else {
+                            let pointer =
+                                self.resolve_point_snap(world, &[node_id], None, false, false);
+                            (r, crossed) = resize(pointer);
+                        }
                     } else if self.board_smart_guides {
                         let all = self.board_node_rects();
                         // Past the far edge, the moving edge is the opposite one.
@@ -7269,7 +7281,25 @@ impl SlateApp {
                 let from_center = !reposition && mods.ctrl;
                 let mut pointer = world;
                 if !mods.alt && is_corner {
-                    pointer = self.resolve_point_snap(world, &ids, None, false, false);
+                    let proposed = board_snap::resize_from_handle(
+                        gb,
+                        world,
+                        handle,
+                        MIN_DRAW,
+                        lock_aspect,
+                        from_center,
+                        0.0,
+                    );
+                    pointer = self.resolve_corner_scale(
+                        world,
+                        gb,
+                        proposed,
+                        handle,
+                        MIN_DRAW,
+                        lock_aspect,
+                        from_center,
+                        &ids,
+                    );
                 }
                 let mut new_group = board_snap::resize_from_handle(
                     gb,

@@ -2453,8 +2453,8 @@ pub fn regular_polygon_vertices(rect: WorldRect, sides: u8, phase_deg: f32) -> V
 
 /// Side count and phase after adding (`add`) or removing one side at
 /// vertex `k` (P1.shape.polygon-sides). Removing keeps a vertex exactly at
-/// vertex `k`: the new vertex 0 takes its angle. Adding centers the new
-/// side between vertices 0 and 1 on vertex `k`'s angle. `None` at the
+/// vertex `k`: the new vertex 0 takes its angle. Adding keeps vertex `k`
+/// at that same angle and re-spaces the others around it. `None` at the
 /// 3 / 12 limits.
 pub fn regular_polygon_resided(
     sides: u8,
@@ -2467,8 +2467,13 @@ pub fn regular_polygon_resided(
     if next != clamp_regular_sides(next) {
         return None;
     }
-    let at = phase_deg + (k % n as usize) as f32 * 360.0 / n as f32;
-    let phase = if add { at - 180.0 / next as f32 } else { at };
+    let k = k % n as usize;
+    let at = phase_deg + k as f32 * 360.0 / n as f32;
+    let phase = if add {
+        at - k as f32 * 360.0 / next as f32
+    } else {
+        at
+    };
     let phase = phase.rem_euclid(360.0);
     Some((next, if phase >= 360.0 { 0.0 } else { phase }))
 }
@@ -4007,7 +4012,6 @@ mod tests {
     fn polygon_sides_step_about_a_vertex_and_stay_aligned_to_it() {
         // A wide box: the vertices ride an ellipse, and the rule stays exact.
         let rect = WorldRect::new(-80.0, -50.0, 160.0, 100.0);
-        let (cx, cy) = rect.center();
         let near = |a: [f32; 2], b: [f32; 2]| (a[0] - b[0]).hypot(a[1] - b[1]) < 1e-3;
         for n in 3..=12u8 {
             for phase in [0.0f32, 17.5, 300.0] {
@@ -4031,13 +4035,9 @@ mod tests {
                         Some((m, p)) => {
                             assert_eq!(m, n + 1);
                             let new = regular_polygon_vertices(rect, m, p);
-                            let mid =
-                                [(new[0][0] + new[1][0]) * 0.5, (new[0][1] + new[1][1]) * 0.5];
-                            let d = (180.0f32 / m as f32).to_radians().cos();
-                            let on_ray = [cx + (at[0] - cx) * d, cy + (at[1] - cy) * d];
                             assert!(
-                                near(mid, on_ray),
-                                "n={n} phase={phase} k={k}: the new side is centered on vertex k"
+                                near(new[k], at),
+                                "n={n} phase={phase} k={k}: adding keeps vertex k"
                             );
                         }
                         None => {
@@ -4051,7 +4051,40 @@ mod tests {
         assert_eq!(regular_polygon_resided(6, 0.0, 2, false), Some((5, 120.0)));
         let (m, p) = regular_polygon_resided(6, 0.0, 0, true).unwrap();
         assert_eq!(m, 7);
-        assert!((p - (360.0 - 180.0 / 7.0)).abs() < 1e-3, "{p}");
+        assert!(p.abs() < 1e-3, "{p}");
+    }
+
+    #[test]
+    fn polygon_repeated_adds_keep_the_clicked_vertex() {
+        let rect = WorldRect::new(-80.0, -50.0, 160.0, 100.0);
+        let near = |a: [f32; 2], b: [f32; 2]| (a[0] - b[0]).hypot(a[1] - b[1]) < 1e-3;
+        for phase in [0.0f32, 17.5, 300.0] {
+            for k in [0usize, 1, 2] {
+                let mut sides = 3u8;
+                let mut phase_deg = phase;
+                let fixed = regular_polygon_vertices(rect, sides, phase_deg)[k];
+                while sides < REGULAR_POLYGON_SIDES_MAX {
+                    let (m, p) =
+                        regular_polygon_resided(sides, phase_deg, k, true).expect("add below 12");
+                    let verts = regular_polygon_vertices(rect, m, p);
+                    assert!(
+                        near(verts[k], fixed),
+                        "sides {sides}->{m} phase {phase} k {k}"
+                    );
+                    sides = m;
+                    phase_deg = p;
+                }
+            }
+        }
+        // Even → odd: the new edge is centered on the far side of vertex 0.
+        let square = WorldRect::new(-50.0, -50.0, 100.0, 100.0);
+        let (m, p) = regular_polygon_resided(6, 0.0, 0, true).unwrap();
+        let v = regular_polygon_vertices(square, m, p);
+        let mid_x = (v[3][0] + v[4][0]) * 0.5;
+        let mid_y = (v[3][1] + v[4][1]) * 0.5;
+        let (cx, cy) = square.center();
+        assert!((mid_x - cx).abs() < 1e-3, "far edge centered, x={mid_x}");
+        assert!(mid_y > cy, "far edge sits opposite vertex 0");
     }
 
     #[test]

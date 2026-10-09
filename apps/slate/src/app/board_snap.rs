@@ -9,8 +9,8 @@ use eframe::egui::{Pos2, Vec2};
 use slate_doc::scene::WorldRect;
 use slate_doc::NodeId;
 
-/// Snap activates within this many screen pixels (InDesign "snap-to zone" ≈ 6 pt).
-pub const SNAP_SCREEN_PX: f32 = 6.0;
+/// Snap activates within this many screen pixels (InDesign "snap-to zone" ≈ 9 pt).
+pub const SNAP_SCREEN_PX: f32 = 9.0;
 /// Board grid spacing in world units (visible dots + optional snap).
 pub const GRID_WORLD: f32 = 20.0;
 /// Mild rotation snap threshold in degrees (45° and 90° multiples).
@@ -724,6 +724,117 @@ pub fn draw_end_from_rect(start: Pos2, rect: WorldRect) -> Pos2 {
     Pos2::new(x, y)
 }
 
+/// Snap a scaled corner to neighbouring edges. Returns a pointer for
+/// [`resize_from_handle`] and the guide lines of the axes that landed.
+/// Aspect lock keeps the nearer axis exact and derives the other; free
+/// aspect snaps both. `None` when nothing in range lands.
+#[allow(clippy::too_many_arguments)]
+pub fn snap_scaled_corner(
+    before: WorldRect,
+    proposed: WorldRect,
+    handle: u8,
+    min_size: f32,
+    lock_aspect: bool,
+    from_center: bool,
+    exclude: &[NodeId],
+    all: &[(NodeId, WorldRect)],
+    scope: SnapScope,
+) -> Option<(Pos2, Vec<SnapGuide>)> {
+    let (sx, sy) = handle_sides(handle);
+    if sx == 0.0 || sy == 0.0 {
+        return None;
+    }
+    let targets = collect_targets(exclude, all);
+    if targets.is_empty() {
+        return None;
+    }
+    let (ax, ay) = resize_anchor(before, handle, from_center);
+    let corner = handle_local(proposed, handle);
+    let moving = SnapLines::from_rect(proposed);
+    let x_hit = nearest_edge_from(&moving, corner.0, &targets, &scope, GuideAxis::Vertical);
+    let y_hit = nearest_edge_from(&moving, corner.1, &targets, &scope, GuideAxis::Horizontal);
+    let x_ok = x_hit
+        .as_ref()
+        .is_some_and(|(d, _)| (corner.0 + *d - ax) * sx > 0.0);
+    let y_ok = y_hit
+        .as_ref()
+        .is_some_and(|(d, _)| (corner.1 + *d - ay) * sy > 0.0);
+    let (snap_x, snap_y) = match (x_ok, y_ok, lock_aspect) {
+        (false, false, _) => return None,
+        (true, false, _) => (true, false),
+        (false, true, _) => (false, true),
+        (true, true, false) => (true, true),
+        (true, true, true) => {
+            let dx = x_hit.unwrap().0.abs();
+            let dy = y_hit.unwrap().0.abs();
+            (dx <= dy, dy < dx)
+        }
+    };
+
+    let mut cx = corner.0;
+    let mut cy = corner.1;
+    let mut x_target = None;
+    let mut y_target = None;
+    if snap_x {
+        let (d, t) = x_hit.unwrap();
+        cx += d;
+        x_target = Some(t);
+    }
+    if snap_y {
+        let (d, t) = y_hit.unwrap();
+        cy += d;
+        y_target = Some(t);
+    }
+    let aspect = (before.w / before.h.max(0.001)).max(0.001);
+    if lock_aspect {
+        if snap_x && !snap_y {
+            let dist_x = (cx - ax) * sx;
+            cy = ay + sy * (dist_x / aspect);
+        } else if snap_y && !snap_x {
+            let dist_y = (cy - ay) * sy;
+            cx = ax + sx * (dist_y * aspect);
+        }
+    }
+    let dist_x = ((cx - ax) * sx).max(0.0);
+    let dist_y = ((cy - ay) * sy).max(0.0);
+    let bias = 1.0 - 1e-4;
+    let (px, py) = if lock_aspect && snap_x && !snap_y {
+        (dist_x, dist_y * bias)
+    } else if lock_aspect && snap_y && !snap_x {
+        (dist_x * bias, dist_y)
+    } else {
+        (dist_x, dist_y)
+    };
+    let pointer = Pos2::new(ax + sx * px, ay + sy * py);
+    let rect = resize_from_handle(
+        before,
+        pointer,
+        handle,
+        min_size,
+        lock_aspect,
+        from_center,
+        0.0,
+    );
+    let lines = SnapLines::from_rect(rect);
+    let mut guides = Vec::new();
+    if let Some(t) = x_target {
+        let pos = if sx > 0.0 { lines.right } else { lines.left };
+        if (pos - cx).abs() < 0.05 {
+            guides.push(guide_between(GuideAxis::Vertical, pos, &lines, &t));
+        }
+    }
+    if let Some(t) = y_target {
+        let pos = if sy > 0.0 { lines.bottom } else { lines.top };
+        if (pos - cy).abs() < 0.05 {
+            guides.push(guide_between(GuideAxis::Horizontal, pos, &lines, &t));
+        }
+    }
+    if guides.is_empty() {
+        return None;
+    }
+    Some((pointer, guides))
+}
+
 fn nearest_edge_from(
     moving: &SnapLines,
     val: f32,
@@ -1240,6 +1351,113 @@ pub fn constrain_draw_rect(raw: WorldRect, tool_square: bool, shift: bool) -> Wo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scaled_corner_lands_on_a_neighbour_edge_and_keeps_aspect() {
+        let before = WorldRect::new(0.0, 0.0, 100.0, 50.0);
+        let neighbour = WorldRect::new(220.0, 0.0, 40.0, 80.0);
+        let pointer = Pos2::new(214.0, 107.0);
+        let proposed = resize_from_handle(before, pointer, 4, 8.0, true, false, 0.0);
+        let all = vec![(NodeId(2), neighbour)];
+        let (snapped, guides) = snap_scaled_corner(
+            before,
+            proposed,
+            4,
+            8.0,
+            true,
+            false,
+            &[NodeId(1)],
+            &all,
+            SnapScope::open(9.0),
+        )
+        .expect("corner snaps");
+        let rect = resize_from_handle(before, snapped, 4, 8.0, true, false, 0.0);
+        assert!(
+            (rect.x + rect.w - 220.0).abs() < 0.01,
+            "right={}",
+            rect.x + rect.w
+        );
+        assert!(
+            (rect.w / rect.h - 2.0).abs() < 1e-3,
+            "aspect {}",
+            rect.w / rect.h
+        );
+        assert!(
+            guides
+                .iter()
+                .any(|g| g.axis == GuideAxis::Vertical && (g.pos - 220.0).abs() < 0.01),
+            "{guides:?}"
+        );
+        assert!(guides.iter().all(|g| g.axis == GuideAxis::Vertical));
+    }
+
+    #[test]
+    fn scaled_corner_free_aspect_snaps_both_axes() {
+        let before = WorldRect::new(0.0, 0.0, 100.0, 50.0);
+        let neighbour = WorldRect::new(220.0, -20.0, 40.0, 60.0);
+        let pointer = Pos2::new(214.0, 46.0);
+        let proposed = resize_from_handle(before, pointer, 4, 8.0, false, false, 0.0);
+        let all = vec![(NodeId(2), neighbour)];
+        let (snapped, guides) = snap_scaled_corner(
+            before,
+            proposed,
+            4,
+            8.0,
+            false,
+            false,
+            &[NodeId(1)],
+            &all,
+            SnapScope::open(9.0),
+        )
+        .expect("both axes snap");
+        let rect = resize_from_handle(before, snapped, 4, 8.0, false, false, 0.0);
+        assert!(
+            (rect.x + rect.w - 220.0).abs() < 0.01,
+            "right={}",
+            rect.x + rect.w
+        );
+        assert!(
+            (rect.y + rect.h - 40.0).abs() < 0.01,
+            "bottom={}",
+            rect.y + rect.h
+        );
+        assert_eq!(guides.len(), 2);
+    }
+
+    #[test]
+    fn scaled_corner_aspect_lock_takes_the_nearer_axis() {
+        let before = WorldRect::new(0.0, 0.0, 100.0, 50.0);
+        // Top at 116: 8px from the aspect-correct bottom (108), while the
+        // vertical edge at 220 is 4px from the proposed right (216).
+        let neighbour = WorldRect::new(220.0, 116.0, 40.0, 40.0);
+        let pointer = Pos2::new(216.0, 108.0);
+        let proposed = resize_from_handle(before, pointer, 4, 8.0, true, false, 0.0);
+        let all = vec![(NodeId(2), neighbour)];
+        let (snapped, guides) = snap_scaled_corner(
+            before,
+            proposed,
+            4,
+            8.0,
+            true,
+            false,
+            &[NodeId(1)],
+            &all,
+            SnapScope::open(9.0),
+        )
+        .expect("nearer axis snaps");
+        let rect = resize_from_handle(before, snapped, 4, 8.0, true, false, 0.0);
+        assert!(
+            (rect.x + rect.w - 220.0).abs() < 0.01,
+            "right={}",
+            rect.x + rect.w
+        );
+        assert!((rect.w / rect.h - 2.0).abs() < 1e-3);
+        assert!(
+            (rect.y + rect.h - 116.0).abs() > 1.0,
+            "y is derived, not snapped"
+        );
+        assert!(guides.iter().all(|g| g.axis == GuideAxis::Vertical));
+    }
 
     #[test]
     fn centered_snap_keeps_the_press_point() {

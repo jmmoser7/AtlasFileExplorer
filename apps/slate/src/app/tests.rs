@@ -19198,6 +19198,109 @@ fn picture_flips(h: &Harness, id: NodeId) -> (bool, bool) {
     }
 }
 
+/// Corner-scaling an image near a neighbour's edge lands on that edge and
+/// keeps the aspect. Preview and commit share that rect. Alt does not snap.
+#[test]
+fn corner_scale_of_an_image_lands_on_a_neighbour_edge() {
+    let mut h = web_board("corner_edge_snap");
+    let id = add_picture(
+        &mut h,
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 100.0, 50.0),
+    );
+    let _neighbour = add_picture(
+        &mut h,
+        slate_doc::scene::WorldRect::new(220.0, 0.0, 40.0, 80.0),
+    );
+    h.app.board_sel = std::iter::once(id).collect();
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.frame();
+    h.app.tab_mut().cam.z = 1.0;
+    h.app.tab_mut().cam.offset = EVec2::ZERO;
+    h.app.board_osnap.enabled = false;
+    h.app.board_snap_grid = false;
+    h.app.board_smart_guides = true;
+
+    let xf = h.app.board_xf();
+    let node = h.app.doc().scene.node(id).unwrap().clone();
+    let se = xf.w2s(Pos2::new(
+        node.rect.x + node.rect.w,
+        node.rect.y + node.rect.h,
+    ));
+    let alt = egui::Modifiers {
+        alt: true,
+        ..Default::default()
+    };
+    h.app.board_drag = h
+        .app
+        .begin_gesture_for_test(se, xf.s2w(se), egui::Modifiers::NONE);
+    assert!(
+        matches!(
+            h.app.board_drag,
+            Some(board::BoardDrag::Resize { handle: 4, .. })
+        ),
+        "SE corner starts a resize"
+    );
+    let raw = Pos2::new(214.0, 107.0);
+    h.app.update_gesture_for_test(raw, alt);
+    let held = h.app.doc().scene.node(id).unwrap().rect;
+    assert!(
+        (held.x + held.w - 220.0).abs() > 1.0,
+        "alt suspends, right={}",
+        held.x + held.w
+    );
+    h.app.end_gesture_for_test(raw, Some(xf.w2s(raw)), alt);
+    h.app.board_undo();
+    assert!(
+        (h.app.doc().scene.node(id).unwrap().rect.w - 100.0).abs() < 0.01,
+        "undo restores the image"
+    );
+
+    let xf = h.app.board_xf();
+    let node = h.app.doc().scene.node(id).unwrap().clone();
+    let se = xf.w2s(Pos2::new(
+        node.rect.x + node.rect.w,
+        node.rect.y + node.rect.h,
+    ));
+    let mods = egui::Modifiers::NONE;
+    h.app.board_drag = h.app.begin_gesture_for_test(se, xf.s2w(se), mods);
+    assert!(
+        matches!(
+            h.app.board_drag,
+            Some(board::BoardDrag::Resize { handle: 4, .. })
+        ),
+        "SE corner starts a resize"
+    );
+    let target = Pos2::new(214.0, 107.0);
+    h.app.update_gesture_for_test(target, mods);
+    let live = h.app.doc().scene.node(id).unwrap().rect;
+    assert!(
+        (live.x + live.w - 220.0).abs() < 0.01,
+        "live right {}",
+        live.x + live.w
+    );
+    assert!(
+        (live.w / live.h - 2.0).abs() < 1e-3,
+        "aspect {}",
+        live.w / live.h
+    );
+    assert!(
+        h.app
+            .board_snap_guides
+            .iter()
+            .any(|g| g.axis == board_snap::GuideAxis::Vertical && (g.pos - 220.0).abs() < 0.01),
+        "guide while snapped: {:?}",
+        h.app.board_snap_guides
+    );
+    h.app
+        .end_gesture_for_test(target, Some(xf.w2s(target)), mods);
+    let committed = h.app.doc().scene.node(id).unwrap().rect;
+    assert!(
+        (committed.x - live.x).abs() < 0.01 && (committed.w - live.w).abs() < 0.01,
+        "commit matches preview"
+    );
+    assert!((committed.w / committed.h - 2.0).abs() < 1e-3);
+}
+
 /// Dragging a picture's right edge past its left edge mirrors it: the width
 /// stays positive, the flip is authored state, and one undo restores both.
 #[test]
