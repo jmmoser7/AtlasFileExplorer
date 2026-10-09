@@ -1,0 +1,82 @@
+{
+  "format_version": 2,
+  "name": "Wire Colors",
+  "groups": [],
+  "items": [],
+  "view": {
+    "active_view": "board",
+    "cam_x": 0.0,
+    "cam_y": 0.0,
+    "zoom": 1.0
+  },
+  "scene": {
+    "nodes": [
+      {
+        "id": 1,
+        "rect": { "x": 0.0, "y": 0.0, "w": 200.0, "h": 0.0 },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "connector": {
+            "a": { "free": { "point": [0.0, 0.0] } },
+            "b": { "free": { "point": [200.0, 0.0] } },
+            "stroke": {
+              "width": 2.0,
+              "color": [27, 30, 34, 255],
+              "dash": "solid",
+              "cap": "Round",
+              "join": "Round",
+              "profile": "Uniform"
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "rect": { "x": 0.0, "y": 100.0, "w": 200.0, "h": 0.0 },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "connector": {
+            "a": { "free": { "point": [0.0, 100.0] } },
+            "b": { "free": { "point": [200.0, 100.0] } },
+            "stroke": {
+              "width": 2.0,
+              "color": [221, 226, 232, 255],
+              "dash": "solid",
+              "cap": "Round",
+              "join": "Round",
+              "profile": "Uniform"
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "rect": { "x": 0.0, "y": 200.0, "w": 200.0, "h": 0.0 },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "connector": {
+            "a": { "free": { "point": [0.0, 200.0] } },
+            "b": { "free": { "point": [200.0, 200.0] } },
+            "stroke": {
+              "width": 2.0,
+              "color": [200, 30, 30, 255],
+              "dash": "solid",
+              "cap": "Round",
+              "join": "Round",
+              "profile": "Uniform"
+            },
+            "arrow_b": true
+          }
+        }
+      }
+    ],
+    "next_node_id": 3,
+    "next_group_key": 0
+  },
+  "next_group_id": 1,
+  "next_tag_id": 1,
+  "next_item_id": 1
+}

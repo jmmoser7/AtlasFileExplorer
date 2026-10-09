@@ -103,7 +103,8 @@ the inner radius as `8 * zoom^-0.35` screen px, capped at 14; the
 outward reach stays six times the inner one. This is a pointer hit,
 not painted geometry. A port whose painted disc is below 1.5 screen px
 is not drawn and is not hittable. A press inside any node's body does
-not start a wire from another node's port. A press inside a
+not start a wire from another node's port, unless that body also holds
+the port (a slide frame around the card). A press inside a
 multi-selection's bounding box moves that selection. An edge or stroke
 between ports is inert for preview — it does not reveal the others. A
 press on a port starts a wire and **beats** the edge-resize band

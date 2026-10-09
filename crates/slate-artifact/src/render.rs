@@ -2355,6 +2355,9 @@ fn stroke_dash_ink(stroke: &slate_doc::scene::Stroke) -> Option<(Vec<f32>, f32)>
 
 /// Faint wires render at 40% opacity in both interpreters.
 const FAINT_OPACITY: f32 = 0.4;
+/// Unauthored wire color when the caller passes no theme: the light `wire`
+/// slot in `atlas-shell/ui-tokens.toml`.
+const WIRE_FALLBACK: slate_doc::scene::Rgba = slate_doc::scene::Rgba([0x6e, 0x76, 0x80, 255]);
 /// Connector label font size (world units) — labels have no size in the
 /// model yet, so both interpreters pin the same constant.
 const CONNECTOR_LABEL_SIZE: f32 = 14.0;
@@ -2381,9 +2384,7 @@ fn render_connector(
     ) else {
         return;
     };
-    let color = theme_wire
-        .map(|theme| conn.paint_color(theme))
-        .unwrap_or(conn.stroke.color);
+    let color = conn.paint_color(theme_wire.unwrap_or(WIRE_FALLBACK));
     let color_css = color.css();
     let drawn = connector_drawn_stroke(conn.stroke);
     let path = retreat_off_hosts(

@@ -2685,52 +2685,37 @@ pub enum WireDisplay {
     Faint,
 }
 
-/// Board ink stored on wires created before the stroke followed the theme.
-/// Light-mode ink (`#1b1e22`) and dark-mode ink (`#dde2e8`), both opaque.
-/// A connector whose color is either of these has no authored color.
+/// Board ink every wire stored as its stroke color before wires had an
+/// optional [`ConnectorNode::color`]: light-mode `#1b1e22`, dark-mode
+/// `#dde2e8`. Only [`ConnectorRepr`]'s load migration compares against them.
 pub const WIRE_LEGACY_INK_LIGHT: Rgba = Rgba([0x1b, 0x1e, 0x22, 255]);
 pub const WIRE_LEGACY_INK_DARK: Rgba = Rgba([0xdd, 0xe2, 0xe8, 255]);
-
-/// True when `stored` is the historical default ink rather than a color
-/// someone picked. Those wires paint as the active theme's wire gray.
-pub fn wire_color_follows_theme(stored: Rgba) -> bool {
-    stored == WIRE_LEGACY_INK_LIGHT || stored == WIRE_LEGACY_INK_DARK
-}
-
-/// Theme gray when the stroke is still the default ink; otherwise `stored`.
-pub fn resolve_wire_color(stored: Rgba, theme_wire: Rgba) -> Rgba {
-    if wire_color_follows_theme(stored) {
-        theme_wire
-    } else {
-        stored
-    }
-}
 
 /// A wire between two endpoints. Geometry is derived, never stored — the
 /// curve is recomputed from the current [`crate::WireHost`] pose of
 /// anchored nodes at paint/export time (see [`crate::connector_route`]).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(from = "ConnectorRepr", into = "ConnectorRepr")]
 pub struct ConnectorNode {
     pub a: ConnectorEnd,
     pub b: ConnectorEnd,
+    /// Width, dash, caps, and profile. `stroke.color` is not painted: it
+    /// mirrors [`Self::color`] (the legacy ink when unauthored) so builds
+    /// that predate `color` still read a sensible wire.
     pub stroke: Stroke,
+    /// Authored stroke color. `None` paints the active theme's wire gray in
+    /// both interpreters. Set it through [`Self::set_color`].
+    pub color: Option<Rgba>,
     /// Authored routing; legacy wires without this field use the caller's default.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub routing: Option<crate::wire::WireRouting>,
-    #[serde(default, skip_serializing_if = "is_false")]
     pub arrow_a: bool,
-    #[serde(default, skip_serializing_if = "is_false")]
     pub arrow_b: bool,
     /// Optional text centered at the curve midpoint.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
-    #[serde(default)]
     pub display: WireDisplay,
     /// None is a decorative wire. Bound wires use these existing A/B endpoints.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub binding: Option<crate::agent_inputs::WireBinding>,
     /// A crosswire between two coding conversations (`crate::crosstalk`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub crosstalk: Option<Box<crate::crosstalk::Crosstalk>>,
 }
 
@@ -2744,7 +2729,83 @@ impl ConnectorNode {
 
     /// Stroke color both interpreters paint. Unauthored wires take `theme_wire`.
     pub fn paint_color(&self, theme_wire: Rgba) -> Rgba {
-        resolve_wire_color(self.stroke.color, theme_wire)
+        self.color.unwrap_or(theme_wire)
+    }
+
+    /// Author (`Some`) or clear (`None`) the color, keeping the mirror.
+    pub fn set_color(&mut self, color: Option<Rgba>) {
+        self.color = color;
+        self.stroke.color = color.unwrap_or(WIRE_LEGACY_INK_LIGHT);
+    }
+}
+
+/// On-disk connector. `color` is new; a file written before it carries only
+/// `stroke.color`, where the legacy ink meant "board default" and anything
+/// else was picked. Unauthored wires are saved with that ink, so older
+/// builds and this migration agree.
+#[derive(Serialize, Deserialize)]
+struct ConnectorRepr {
+    a: ConnectorEnd,
+    b: ConnectorEnd,
+    stroke: Stroke,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    color: Option<Rgba>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    routing: Option<crate::wire::WireRouting>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    arrow_a: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    arrow_b: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    label: Option<String>,
+    #[serde(default)]
+    display: WireDisplay,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    binding: Option<crate::agent_inputs::WireBinding>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    crosstalk: Option<Box<crate::crosstalk::Crosstalk>>,
+}
+
+impl From<ConnectorRepr> for ConnectorNode {
+    fn from(r: ConnectorRepr) -> Self {
+        let legacy_default = |c: Rgba| c == WIRE_LEGACY_INK_LIGHT || c == WIRE_LEGACY_INK_DARK;
+        let color = r
+            .color
+            .or_else(|| (!legacy_default(r.stroke.color)).then_some(r.stroke.color));
+        let mut node = Self {
+            a: r.a,
+            b: r.b,
+            stroke: r.stroke,
+            color: None,
+            routing: r.routing,
+            arrow_a: r.arrow_a,
+            arrow_b: r.arrow_b,
+            label: r.label,
+            display: r.display,
+            binding: r.binding,
+            crosstalk: r.crosstalk,
+        };
+        node.set_color(color);
+        node
+    }
+}
+
+impl From<ConnectorNode> for ConnectorRepr {
+    fn from(mut n: ConnectorNode) -> Self {
+        n.set_color(n.color);
+        Self {
+            a: n.a,
+            b: n.b,
+            stroke: n.stroke,
+            color: n.color,
+            routing: n.routing,
+            arrow_a: n.arrow_a,
+            arrow_b: n.arrow_b,
+            label: n.label,
+            display: n.display,
+            binding: n.binding,
+            crosstalk: n.crosstalk,
+        }
     }
 }
 
@@ -5762,6 +5823,7 @@ mod tests {
                 dash: Dash::Solid,
                 ..Stroke::default()
             },
+            color: Some(Rgba::BLACK),
             arrow_a: false,
             arrow_b: true,
             label: Some("relates".into()),
@@ -5968,15 +6030,48 @@ mod tests {
     }
 
     #[test]
-    fn legacy_ink_wires_follow_the_theme_and_authored_colors_stay() {
+    fn legacy_wire_ink_loads_as_unauthored_and_a_picked_color_stays() {
         let gray = Rgba::opaque(0x6e, 0x76, 0x80);
-        assert!(wire_color_follows_theme(WIRE_LEGACY_INK_LIGHT));
-        assert!(wire_color_follows_theme(WIRE_LEGACY_INK_DARK));
-        assert_eq!(resolve_wire_color(WIRE_LEGACY_INK_LIGHT, gray), gray);
-        assert_eq!(resolve_wire_color(WIRE_LEGACY_INK_DARK, gray), gray);
         let red = Rgba::opaque(200, 30, 30);
-        assert!(!wire_color_follows_theme(red));
-        assert_eq!(resolve_wire_color(red, gray), red);
+        let end = |x: f32| ConnectorEnd::Free { point: [x, 0.0] };
+        // A file from before `color`: only `stroke.color` is on disk.
+        let legacy = |stored: Rgba| {
+            let mut wire = test_connector(end(0.0), end(100.0));
+            wire.set_color(Some(stored));
+            let mut json = serde_json::to_value(&wire).unwrap();
+            json.as_object_mut().unwrap().remove("color");
+            serde_json::from_value::<ConnectorNode>(json).unwrap()
+        };
+        for ink in [WIRE_LEGACY_INK_LIGHT, WIRE_LEGACY_INK_DARK] {
+            let wire = legacy(ink);
+            assert_eq!(wire.color, None, "old default ink follows the theme");
+            assert_eq!(wire.paint_color(gray), gray);
+        }
+        assert_eq!(legacy(red).color, Some(red), "an old picked color stays");
+
+        // A color picked today survives even when it is the old ink.
+        for color in [
+            None,
+            Some(WIRE_LEGACY_INK_LIGHT),
+            Some(WIRE_LEGACY_INK_DARK),
+            Some(red),
+        ] {
+            let mut wire = test_connector(end(0.0), end(100.0));
+            wire.set_color(color);
+            let json = serde_json::to_value(&wire).unwrap();
+            assert_eq!(json.get("color").is_some(), color.is_some());
+            let back: ConnectorNode = serde_json::from_value(json).unwrap();
+            assert_eq!(back, wire);
+            assert_eq!(back.paint_color(gray), color.unwrap_or(gray));
+        }
+
+        // A constructor that left the mirror stale still saves as unauthored.
+        let mut stale = test_connector(end(0.0), end(100.0));
+        stale.color = None;
+        stale.stroke.color = red;
+        let back: ConnectorNode =
+            serde_json::from_value(serde_json::to_value(&stale).unwrap()).unwrap();
+        assert_eq!(back.color, None);
     }
 
     #[test]
@@ -6198,7 +6293,12 @@ pub fn set_stroke(node: &mut Node, stroke: Stroke) {
     match &mut node.kind {
         NodeKind::Shape(s) => s.stroke = stroke,
         NodeKind::Image(i) => i.stroke = stroke,
-        NodeKind::Connector(c) => c.stroke = stroke,
+        // A wire's color is authored only through `ConnectorNode::set_color`.
+        NodeKind::Connector(c) => {
+            let color = c.color;
+            c.stroke = stroke;
+            c.set_color(color);
+        }
         NodeKind::Frame(f) => f.stroke = stroke,
         NodeKind::Text(t) => t.stroke = stroke,
         // TWIN: see `stroke_of` above (DV-21).

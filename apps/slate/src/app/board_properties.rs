@@ -240,6 +240,11 @@ impl Property {
                     _ => {}
                 }
                 scene::set_stroke(node, s);
+                if matches!(*self, Self::StrokeRgb(_) | Self::StrokeAlpha(_)) {
+                    if let NodeKind::Connector(c) = &mut node.kind {
+                        c.set_color(Some(s.color));
+                    }
+                }
             }
         }
     }
@@ -2305,7 +2310,7 @@ impl SlateApp {
                     scene::stroke_of(n).unwrap().color
                 }
             } else if let NodeKind::Connector(c) = &n.kind {
-                scene::resolve_wire_color(c.stroke.color, super::board::to_rgba(theme.wire))
+                c.paint_color(super::board::to_rgba(theme.wire))
             } else {
                 scene::stroke_of(n).unwrap().color
             }

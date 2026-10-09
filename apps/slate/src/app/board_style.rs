@@ -330,7 +330,11 @@ impl SlateApp {
             }
             NodeKind::Connector(c) => {
                 if let Some(stroke) = slot.stroke {
+                    // The memory's stroke color may be an unauthored wire's mirror,
+                    // so a wire inherits width and dash but keeps its own color.
+                    let color = c.color;
                     c.stroke = stroke;
+                    c.set_color(color);
                 }
             }
             _ => {}

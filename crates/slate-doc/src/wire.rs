@@ -2120,6 +2120,7 @@ mod tests {
                 a,
                 b,
                 stroke: Stroke::default(),
+                color: None,
                 arrow_a: false,
                 arrow_b: false,
                 label: None,

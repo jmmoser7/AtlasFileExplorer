@@ -384,19 +384,18 @@ impl SlateApp {
                 .is_some_and(|gb| gb.contains(world.x, world.y))
     }
 
-    fn areas_under(&self, world: Pos2) -> Vec<NodeId> {
-        self.doc()
-            .scene
-            .nodes
-            .iter()
-            .filter(|n| {
-                !n.hidden
-                    && !matches!(n.kind, NodeKind::Connector(_))
-                    && self.wire_host(n).is_area()
-                    && n.rect.contains_rotated(world.x, world.y, n.rotation_deg)
-            })
-            .map(|n| n.id)
-            .collect()
+    /// Another node's body holds the press but not `owner`'s port at
+    /// `port`, so the press belongs to that body. A slide frame or other
+    /// container around both does not block.
+    fn body_claims_press(&self, owner: NodeId, world: Pos2, port: [f32; 2]) -> bool {
+        self.doc().scene.nodes.iter().any(|m| {
+            m.id != owner
+                && !m.hidden
+                && !matches!(m.kind, NodeKind::Connector(_))
+                && m.rect.contains_rotated(world.x, world.y, m.rotation_deg)
+                && !m.rect.contains_rotated(port[0], port[1], m.rotation_deg)
+                && self.wire_host(m).is_area()
+        })
     }
 
     fn theme_wire_rgba(&self) -> slate_doc::scene::Rgba {
@@ -414,22 +413,25 @@ impl SlateApp {
         }
         let hit_px = grip_hit_radius(xf.z);
         let hit_out = grip_hit_out_radius(xf.z);
-        let under = self.areas_under(w);
         for n in self.doc().scene.nodes.iter().rev() {
             if n.hidden || matches!(n.kind, NodeKind::Connector(_)) {
                 continue;
             }
             let host = self.wire_host(n);
-            let blocked = under.iter().any(|id| *id != n.id);
             if let NodeKind::Portal(portal) = &n.kind {
                 if portal.kind == slate_doc::scene::PortalKind::Agent {
                     if let Some(side) = self.crosstalk_port_at(n, screen, xf) {
-                        if !blocked {
+                        if !self.body_claims_press(n.id, w, host.anchor(side, 0.5)) {
                             return Some((n.id, side, 0.5));
                         }
                     }
                     if let Some(id) = self.agent_manual_context_at(screen, xf) {
-                        if !under.iter().any(|other| *other != id) {
+                        let port = self
+                            .doc()
+                            .scene
+                            .node(id)
+                            .map(|card| self.wire_host(card).anchor(Side::Left, 0.5));
+                        if port.is_some_and(|port| !self.body_claims_press(id, w, port)) {
                             return Some((id, Side::Left, 0.5));
                         }
                     }
@@ -464,7 +466,7 @@ impl SlateApp {
                     })
             });
             if let Some(port) = hovered.flatten() {
-                if !blocked {
+                if !self.body_claims_press(n.id, w, port.point) {
                     return Some((n.id, port.side, port.t));
                 }
             }
@@ -1023,6 +1025,7 @@ impl SlateApp {
             a,
             b,
             stroke,
+            color: None,
             arrow_a: false,
             arrow_b: false,
             label: None,
@@ -1044,7 +1047,7 @@ impl SlateApp {
             if slate_doc::agent_inputs::endpoint_node(input)
                 .is_some_and(|id| slate_doc::agent_inputs::is_chat_card(&self.doc().scene, id))
             {
-                conn.stroke.color = self.chat_wire_color();
+                conn.set_color(Some(self.chat_wire_color()));
             }
         }
         let scene = &self.doc().scene;
@@ -1115,10 +1118,9 @@ impl SlateApp {
                 } else {
                     self.default_wire_stroke()
                 });
-                stroke.color = slate_doc::scene::resolve_wire_color(
-                    stroke.color,
-                    super::board::to_rgba(palette.wire),
-                );
+                if !crosstalk {
+                    stroke.color = super::board::to_rgba(palette.wire);
+                }
                 let path =
                     retreat_off_hosts(path, &a, &b, scene_wire_hosts(scene), stroke.width * 0.5);
                 let color =
@@ -1179,7 +1181,7 @@ impl SlateApp {
             return;
         }
         let (path, mut stroke) = drawn_connector(&self.doc().scene, path, conn);
-        stroke.color = slate_doc::scene::resolve_wire_color(stroke.color, self.theme_wire_rgba());
+        stroke.color = conn.paint_color(self.theme_wire_rgba());
         let opacity = (node.opacity
             * match conn.display {
                 WireDisplay::Faint => FAINT_OPACITY,

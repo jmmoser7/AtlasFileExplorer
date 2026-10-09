@@ -18,6 +18,8 @@ use slate_doc::{GroupId, ItemId, SlateDoc, SlateLoadError, TagId, ViewKind};
 
 const V1_FIXTURE: &str = "v1-tags-items.slate.json";
 const V2_FIXTURE: &str = "v2-board.slate.json";
+/// Hand-written: wires from before `ConnectorNode::color`.
+const V2_WIRE_COLORS_FIXTURE: &str = "v2-wire-colors.slate.json";
 /// Fixtures the loader must *refuse* live here, so the round-trip harness —
 /// which walks the top level of the fixtures directory — never sees them.
 const UNSUPPORTED_DIR: &str = "unsupported";
@@ -312,6 +314,8 @@ fn v2_fixture_preserves_scene_shape() {
     );
     assert!(!connector.arrow_a);
     assert!(connector.arrow_b);
+    // Not the old default ink, so it was picked: it stays authored.
+    assert_eq!(connector.color, Some(Rgba::opaque(120, 120, 130)));
     assert_eq!(connector.label.as_deref(), Some("informs"));
     assert_eq!(connector.display, WireDisplay::Faint);
 
@@ -330,6 +334,28 @@ fn v2_fixture_preserves_scene_shape() {
             "connector rect {stored:?} vs {derived:?}"
         );
     }
+}
+
+/// Wires saved before `ConnectorNode::color` stored the board ink as their
+/// stroke color. That ink now means "follow the theme"; any other stored
+/// color was picked and stays.
+#[test]
+fn v2_wire_ink_migrates_to_the_theme_default() {
+    let doc = round_trip(V2_WIRE_COLORS_FIXTURE);
+    let colors: Vec<Option<Rgba>> = doc
+        .scene
+        .nodes
+        .iter()
+        .map(|n| match &n.kind {
+            NodeKind::Connector(c) => c.color,
+            _ => panic!("fixture holds only wires"),
+        })
+        .collect();
+    assert_eq!(
+        colors,
+        vec![None, None, Some(Rgba::opaque(200, 30, 30))],
+        "light ink, dark ink, picked red"
+    );
 }
 
 #[test]
@@ -367,10 +393,14 @@ fn generate_fixtures() {
     }
     write_json(&dir.join(V1_FIXTURE), &v1);
 
-    // v2 is the current format, so the writer under test is the generator.
-    v2_document()
-        .save_to(&dir.join(V2_FIXTURE))
-        .expect("write v2 fixture");
+    // v2 is the current format, but its fixture predates `ConnectorNode::color`.
+    let mut v2 = serde_json::to_value(v2_document()).expect("serialize v2");
+    for node in v2["scene"]["nodes"].as_array_mut().expect("v2 nodes") {
+        if let Some(wire) = node["kind"].get_mut("connector") {
+            wire.as_object_mut().expect("v2 connector").remove("color");
+        }
+    }
+    write_json(&dir.join(V2_FIXTURE), &v2);
 
     // A workbook from a version this build has never heard of.
     let mut future = serde_json::to_value(SlateDoc::new("From The Future")).expect("serialize v99");
@@ -575,6 +605,7 @@ fn v2_document() -> SlateDoc {
             dash: Dash::Dashed,
             ..Default::default()
         },
+        color: Some(Rgba::opaque(120, 120, 130)),
         arrow_a: false,
         arrow_b: true,
         label: Some("informs".into()),

@@ -6273,6 +6273,29 @@ fn a_press_inside_a_node_does_not_start_a_neighbors_wire() {
     );
 }
 
+/// A slide frame around a card holds both the press and the port, so it
+/// does not count as another body: the card's port still starts a wire.
+#[test]
+fn a_port_inside_a_slide_frame_still_starts_a_wire() {
+    let mut h = web_board("wire_port_in_frame");
+    h.seed_frame(None);
+    let id = add_rect(&mut h.app, 200.0, 200.0);
+    h.app.board_sel.clear();
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.app.tab_mut().cam.z = 1.0;
+    h.frame();
+
+    let xf = h.app.board_xf();
+    let rect = h.app.doc().scene.node(id).unwrap().rect;
+    let grip = board_wire::grip_point(rect, slate_doc::scene::Side::Right);
+    let press = xf.w2s(grip) + EVec2::new(12.0, 0.0);
+    assert_eq!(
+        h.app.wire_grip_at(press, &xf),
+        Some((id, slate_doc::scene::Side::Right, 0.5)),
+        "the outward hit over the frame still reaches the card's port"
+    );
+}
+
 /// Zoomed out, a packed multi-selection drags as a group. Overlapping port
 /// hits must not start a wire. Images share the area-port hit with these cards.
 #[test]
@@ -6335,7 +6358,8 @@ fn a_press_in_the_selection_gap_moves_the_group() {
     );
 }
 
-/// New wires store the legacy ink so they follow the theme. A picked color stays.
+/// New wires store no color, so they paint the active theme's wire gray.
+/// A picked color is kept, even when it is the old default ink.
 #[test]
 fn default_wire_color_follows_the_theme() {
     let mut h = web_board("wire_theme_color");
@@ -6355,30 +6379,31 @@ fn default_wire_color_follows_the_theme() {
         },
     );
     let id = h.app.add_nodes(vec![wire])[0];
-    let stored = match &h.app.doc().scene.node(id).unwrap().kind {
-        slate_doc::scene::NodeKind::Connector(c) => c.stroke.color,
+    let conn = |h: &Harness| match &h.app.doc().scene.node(id).unwrap().kind {
+        slate_doc::scene::NodeKind::Connector(c) => c.clone(),
         _ => panic!("connector"),
     };
-    assert!(slate_doc::scene::wire_color_follows_theme(stored));
+    assert_eq!(conn(&h).color, None);
     h.app.dark_mode = false;
     let light = board::to_rgba(h.app.palette().wire);
     h.app.dark_mode = true;
     let dark = board::to_rgba(h.app.palette().wire);
     assert_ne!(light, dark);
-    assert_eq!(slate_doc::scene::resolve_wire_color(stored, light), light);
-    assert_eq!(slate_doc::scene::resolve_wire_color(stored, dark), dark);
-    let red = slate_doc::scene::Rgba([200, 30, 30, 255]);
+    assert_eq!(conn(&h).paint_color(light), light);
+    assert_eq!(conn(&h).paint_color(dark), dark);
+
+    let ink = slate_doc::scene::WIRE_LEGACY_INK_LIGHT;
+    let rgb = [ink.0[0], ink.0[1], ink.0[2]];
+    h.app.board_sel = [id].into_iter().collect();
     h.app.patch_nodes(&[id], |n| {
-        if let slate_doc::scene::NodeKind::Connector(c) = &mut n.kind {
-            c.stroke.color = red;
-        }
+        board_properties::Property::StrokeRgb(rgb).apply(n, None)
     });
-    let stored = match &h.app.doc().scene.node(id).unwrap().kind {
-        slate_doc::scene::NodeKind::Connector(c) => c.stroke.color,
-        _ => panic!("connector"),
-    };
-    assert_eq!(stored, red);
-    assert_eq!(slate_doc::scene::resolve_wire_color(stored, light), red);
+    assert_eq!(conn(&h).color, Some(ink), "picking the old ink keeps it");
+    assert_eq!(conn(&h).paint_color(dark), ink);
+    h.app.patch_nodes(&[id], |n| {
+        board_properties::Property::StrokeWidth(5.0).apply(n, None)
+    });
+    assert_eq!(conn(&h).color, Some(ink), "a width edit keeps the color");
 }
 
 /// Dropping a new wire on empty canvas commits a free end there.

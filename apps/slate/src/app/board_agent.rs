@@ -11874,24 +11874,28 @@ To install them by hand, run in PowerShell:\n  cd \"C:\\workspace\\Slate\\docs\\
         let id = h.app.add_nodes(vec![wire])[0];
         let color =
             |h: &super::super::tests::Harness| match &h.app.doc().scene.node(id).unwrap().kind {
-                NodeKind::Connector(c) => c.stroke.color,
+                NodeKind::Connector(c) => c.color,
                 _ => unreachable!(),
             };
         assert_eq!(
             color(&h),
-            h.app.chat_wire_color(),
+            Some(h.app.chat_wire_color()),
             "not the pink drawing color"
         );
         let chosen = Rgba([40, 120, 220, 255]);
         h.app.patch_nodes(&[id], |n| {
             if let NodeKind::Connector(c) = &mut n.kind {
-                c.stroke.color = chosen;
+                c.set_color(Some(chosen));
             }
         });
         for _ in 0..3 {
             h.frame();
         }
-        assert_eq!(color(&h), chosen, "a color the person picks is never reset");
+        assert_eq!(
+            color(&h),
+            Some(chosen),
+            "a color the person picks is never reset"
+        );
         let loose = h.app.build_connector(
             ConnectorEnd::Anchored {
                 node: text,
@@ -11905,11 +11909,10 @@ To install them by hand, run in PowerShell:\n  cd \"C:\\workspace\\Slate\\docs\\
         let NodeKind::Connector(c) = &loose.kind else {
             unreachable!()
         };
-        assert!(
-            slate_doc::scene::wire_color_follows_theme(c.stroke.color),
+        assert_eq!(
+            c.color, None,
             "other wires follow the theme, not the drawing color"
         );
-        assert_ne!(c.stroke.color, h.app.board_colors.fg);
     }
 
     /// A context wire from `source` into `card` that a send already used.
