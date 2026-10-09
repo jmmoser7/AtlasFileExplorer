@@ -29,6 +29,7 @@ pub struct UiTokens {
     pub board_eraser: BoardEraserTokens,
     pub board_forcefield: BoardForcefieldTokens,
     pub board_overlay: BoardOverlayTokens,
+    pub board_agent: BoardAgentTokens,
     pub menu: MenuTokens,
     pub slider: SliderTokens,
     pub theme: ThemeTokens,
@@ -51,6 +52,7 @@ impl Default for UiTokens {
             board_eraser: BoardEraserTokens::default(),
             board_forcefield: BoardForcefieldTokens::default(),
             board_overlay: BoardOverlayTokens::default(),
+            board_agent: BoardAgentTokens::default(),
             menu: MenuTokens::default(),
             slider: SliderTokens::default(),
             theme: ThemeTokens::default(),
@@ -457,6 +459,73 @@ impl Default for BoardOverlayThemeTokens {
     fn default() -> Self {
         Self::dark()
     }
+}
+
+/// Port-role chip colours on agent nodes (prompt / geometry / image / style).
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BoardAgentTokens {
+    pub light: BoardAgentRoleTokens,
+    pub dark: BoardAgentRoleTokens,
+}
+
+impl Default for BoardAgentTokens {
+    fn default() -> Self {
+        Self {
+            light: BoardAgentRoleTokens::light(),
+            dark: BoardAgentRoleTokens::dark(),
+        }
+    }
+}
+
+impl BoardAgentTokens {
+    pub fn roles(&self, dark_mode: bool) -> AgentRoleInk {
+        let t = if dark_mode { &self.dark } else { &self.light };
+        AgentRoleInk {
+            prompt: t.prompt.color(),
+            geometry: t.geometry.color(),
+            image: t.image.color(),
+            style: t.style.color(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BoardAgentRoleTokens {
+    pub prompt: Hex,
+    pub geometry: Hex,
+    pub image: Hex,
+    pub style: Hex,
+}
+
+impl BoardAgentRoleTokens {
+    fn light() -> Self {
+        Self {
+            prompt: Hex::rgb(0xf0, 0xc4, 0x5c),
+            geometry: Hex::rgb(0x5c, 0xcc, 0xaa),
+            image: Hex::rgb(0x78, 0xaa, 0xfa),
+            style: Hex::rgb(0xc4, 0x92, 0xfa),
+        }
+    }
+
+    fn dark() -> Self {
+        Self::light()
+    }
+}
+
+impl Default for BoardAgentRoleTokens {
+    fn default() -> Self {
+        Self::dark()
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AgentRoleInk {
+    pub prompt: Color32,
+    pub geometry: Color32,
+    pub image: Color32,
+    pub style: Color32,
 }
 
 /// Resolved [`BoardOverlayTokens`] for one theme.
@@ -2621,6 +2690,13 @@ pub struct ThemeSlots {
     pub select_fill: Hex,
     /// `Visuals::selection.stroke.color`.
     pub select_stroke: Hex,
+    /// Hover fill for fillet grips and crop handles.
+    pub handle_hot: Hex,
+    /// Primary canvas action control (picker buttons, links).
+    pub link: Hex,
+    pub link_hover: Hex,
+    /// Success / progress accent (agent run bars, journal applied dot).
+    pub success: Hex,
 }
 
 impl ThemeSlots {
@@ -2648,6 +2724,10 @@ impl ThemeSlots {
         "extreme_bg",
         "select_fill",
         "select_stroke",
+        "handle_hot",
+        "link",
+        "link_hover",
+        "success",
     ];
 
     pub fn light() -> Self {
@@ -2674,6 +2754,10 @@ impl ThemeSlots {
             extreme_bg: Hex::rgb(0xee, 0xf0, 0xf2),
             select_fill: Hex::rgb(0xd7, 0xe8, 0xff),
             select_stroke: Hex::rgb(0x1f, 0x6f, 0xb2),
+            handle_hot: Hex::rgb(0xd2, 0xe6, 0xff),
+            link: Hex::rgb(0x25, 0x63, 0xeb),
+            link_hover: Hex::rgb(0x37, 0x75, 0xfa),
+            success: Hex::rgb(0x5c, 0xcc, 0xaa),
         }
     }
 
@@ -2703,6 +2787,10 @@ impl ThemeSlots {
             // egui's own dark default, which `dark_visuals` used to inherit
             // silently while the light theme overrode it.
             select_stroke: Hex::rgb(0xc0, 0xde, 0xff),
+            handle_hot: Hex::rgb(0x4a, 0x60, 0x80),
+            link: Hex::rgb(0x37, 0x75, 0xfa),
+            link_hover: Hex::rgb(0x6f, 0xb7, 0xff),
+            success: Hex::rgb(0x5c, 0xcc, 0xaa),
         }
     }
 
@@ -2730,6 +2818,10 @@ impl ThemeSlots {
             "extreme_bg" => &mut self.extreme_bg,
             "select_fill" => &mut self.select_fill,
             "select_stroke" => &mut self.select_stroke,
+            "handle_hot" => &mut self.handle_hot,
+            "link" => &mut self.link,
+            "link_hover" => &mut self.link_hover,
+            "success" => &mut self.success,
             _ => return None,
         })
     }

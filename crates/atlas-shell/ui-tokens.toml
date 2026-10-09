@@ -904,6 +904,10 @@ window = "#ffffff"
 extreme_bg = "#eef0f2"
 select_fill = "#d7e8ff"
 select_stroke = "#1f6fb2"
+handle_hot = "#d2e6ff"
+link = "#2563eb"
+link_hover = "#3775fa"
+success = "#5cccaa"
 
 [theme.dark]
 dark_base = true
@@ -928,3 +932,19 @@ window = "#1a1d23"
 extreme_bg = "#0e1013"
 select_fill = "#2b5c8a"
 select_stroke = "#c0deff"
+handle_hot = "#4a6080"
+link = "#3775fa"
+link_hover = "#6fb7ff"
+success = "#5cccaa"
+
+[board_agent.light]
+prompt = "#f0c45c"
+geometry = "#5cccaa"
+image = "#78aafa"
+style = "#c492fa"
+
+[board_agent.dark]
+prompt = "#f0c45c"
+geometry = "#5cccaa"
+image = "#78aafa"
+style = "#c492fa"
