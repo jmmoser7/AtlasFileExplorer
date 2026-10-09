@@ -105,3 +105,12 @@ Do not:
 ```
 
 After a batch, run this agent again in Quick mode.
+
+## Multi-agent isolation
+
+Any agent meant to work in isolation must verify
+`git rev-parse --show-toplevel` is not the owner's main checkout
+(`C:/Users/jmoser/source/repos/AtlasFileExplorer`) before editing; if it
+is, create a dedicated `git worktree add` and work there instead. The
+coordinator checks the active branch of the main checkout before merging
+anything from a batch.

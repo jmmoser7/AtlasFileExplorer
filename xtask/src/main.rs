@@ -4,13 +4,13 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use xtask::{
-    audit_contracts, audit_kits, audit_size, audit_theme, collect, render_contract_audit,
+    audit_contracts, audit_kits, audit_size, audit_theme, collect, map, render_contract_audit,
     render_kit_audit, render_size_audit, render_theme_audit, update_size_ceilings,
     verify_workspace_root, write_artifacts,
 };
 
 const USAGE: &str =
-    "usage: cargo xtask <metrics | contracts | kits [dir] | theme | size [--update-ceilings]>";
+    "usage: cargo xtask <metrics | map [--check] | contracts | kits [dir] | theme | size [--update-ceilings]>";
 
 fn main() -> ExitCode {
     match run() {
@@ -26,6 +26,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let command = std::env::args().nth(1);
     match command.as_deref() {
         Some("metrics") => metrics(),
+        Some("map") => code_map(),
         Some("contracts") => contracts(),
         Some("kits") => kits(std::env::args().nth(2)),
         Some("theme") => theme(),
@@ -101,6 +102,28 @@ fn contracts() -> Result<(), Box<dyn std::error::Error>> {
         Ok(())
     } else {
         Err(format!("{} contract finding(s)", audit.findings.len()).into())
+    }
+}
+
+fn code_map() -> Result<(), Box<dyn std::error::Error>> {
+    let root: PathBuf = std::env::current_dir()?;
+    verify_workspace_root(&root)?;
+    if std::env::args().any(|a| a == "--check") {
+        map::check(&root)?;
+        println!("code map: fresh");
+        Ok(())
+    } else {
+        map::write(&root)?;
+        let jsonl = root.join("docs/metrics/code-map.jsonl");
+        let tsv = root.join("docs/metrics/symbols.tsv");
+        let jsonl_len = std::fs::metadata(&jsonl)?.len();
+        let tsv_len = std::fs::metadata(&tsv)?.len();
+        println!(
+            "wrote {} ({jsonl_len} bytes) and {} ({tsv_len} bytes)",
+            jsonl.display(),
+            tsv.display()
+        );
+        Ok(())
     }
 }
 

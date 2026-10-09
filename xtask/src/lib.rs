@@ -11,6 +11,7 @@ pub mod collect;
 pub mod contracts;
 pub mod kits;
 pub mod ledger;
+pub mod map;
 pub mod model;
 pub mod report;
 pub mod rust_parse;

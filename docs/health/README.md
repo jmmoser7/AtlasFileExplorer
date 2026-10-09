@@ -208,6 +208,10 @@ tool calls; the damage was the parallel cargo.
 - Builder and reviewer are different agents. Model tiers are in the agent
   brief: Composer for easy, Grok 4.7 for hard, the strongest model for
   integration review.
+- Any isolated agent verifies `git rev-parse --show-toplevel` is not the
+  owner's main checkout before editing, and creates its own
+  `git worktree add` when it is. The coordinator checks the main
+  checkout's active branch before merging batch work.
 
 **Saving:** the next batch finishes. **Risk:** a cap that is tighter than
 the machine needs. **Guard:** the cap is on cargo, not on agents that are

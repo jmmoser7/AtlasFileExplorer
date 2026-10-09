@@ -199,4 +199,21 @@ impressions.
 
 Crates sort by name, enum variants keep declaration order, and the file walk
 sorts by path, so two runs on an unchanged tree produce byte-identical output.
+
+## Code map (agent lookup)
+
+`cargo xtask map` writes two committed indexes (LF, sorted, deterministic):
+
+- `code-map.jsonl` — one JSON object per `.rs` file under `crates/`, `apps/`,
+  and `xtask/`: `path`, `lines` (physical newline count), `purpose` (first
+  `//!` line or empty), and `items` (`pub` / `pub(crate)` functions, structs,
+  enums, traits, consts, and mods with `name`, `kind`, `line`, and first doc
+  line).
+- `symbols.tsv` — `symbol`, `kind`, `path:line` per item for grep-style
+  lookup.
+
+Regenerate with `cargo xtask map`. Freshness is enforced by
+`cargo xtask map --check` inside `cargo test --workspace`. Agents should
+grep `symbols.tsv` for “where is X?” instead of scanning the tree; do not
+load either file whole into a prompt.
 ";
