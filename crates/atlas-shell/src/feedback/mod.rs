@@ -72,6 +72,11 @@ pub struct FeedbackHub {
     pub screenshot_pending: bool,
     pub last_bundle_dir: PathBuf,
     pub attach_note: Option<String>,
+    /// Set by the app each frame while its own text editor (one egui does
+    /// not see as a focused field) is open.
+    pub app_text_editing: bool,
+    pub(crate) editing_last_frame: bool,
+    pub(crate) capture_rx: Option<std::sync::mpsc::Receiver<Option<Vec<u8>>>>,
     form_return: FeedbackPhase,
     dispatch_depth: u32,
 }
@@ -94,6 +99,9 @@ impl Default for FeedbackHub {
             screenshot_pending: false,
             last_bundle_dir: PathBuf::new(),
             attach_note: None,
+            app_text_editing: false,
+            editing_last_frame: false,
+            capture_rx: None,
             form_return: FeedbackPhase::BugForm,
             dispatch_depth: 0,
         }

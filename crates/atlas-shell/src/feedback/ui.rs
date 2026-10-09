@@ -120,7 +120,13 @@ pub fn dialogs(
             }
             None => hub.phase = hub.form_after_recording(),
         }
-        if ctx.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.any()) {
+        // Enter belongs to a text field or board text editor while one holds
+        // the keyboard. A field that just committed on this Enter released
+        // focus earlier in the frame, so last frame's state counts too.
+        let editing_now = ctx.wants_keyboard_input() || hub.app_text_editing;
+        let editing = editing_now || hub.editing_last_frame;
+        hub.editing_last_frame = editing_now;
+        if !editing && ctx.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.any()) {
             hub.finish_recording();
             hub.phase = hub.form_after_recording();
             out.command = Some("app.feedback.finish_recording");
@@ -320,21 +326,43 @@ fn attachments_ui(
     }
 }
 
+/// The capture arrives as an event; its PNG encode runs on a worker so a
+/// large window never stalls the frame.
 fn poll_screenshot(ctx: &egui::Context, hub: &mut FeedbackHub) {
+    if let Some(rx) = &hub.capture_rx {
+        match rx.try_recv() {
+            Ok(png) => {
+                if let Some(bytes) = png {
+                    hub.attachments
+                        .push((PathBuf::from("window-capture.png"), bytes));
+                } else {
+                    hub.attach_note = Some("The window capture could not be encoded.".into());
+                }
+                hub.capture_rx = None;
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => hub.capture_rx = None,
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+        }
+    }
     if !hub.screenshot_pending {
         return;
     }
-    ctx.input(|i| {
-        for event in &i.raw.events {
-            if let egui::Event::Screenshot { image, .. } = event {
-                if let Some(bytes) = color_image_to_png(image.as_ref()) {
-                    hub.attachments
-                        .push((PathBuf::from("window-capture.png"), bytes));
-                }
-                hub.screenshot_pending = false;
-            }
-        }
+    let image = ctx.input(|i| {
+        i.raw.events.iter().find_map(|event| match event {
+            egui::Event::Screenshot { image, .. } => Some(image.clone()),
+            _ => None,
+        })
     });
+    if let Some(image) = image {
+        hub.screenshot_pending = false;
+        let (tx, rx) = std::sync::mpsc::channel();
+        hub.capture_rx = Some(rx);
+        let repaint = ctx.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(color_image_to_png(&image));
+            repaint.request_repaint();
+        });
+    }
 }
 
 fn color_image_to_png(img: &egui::ColorImage) -> Option<Vec<u8>> {
@@ -456,4 +484,74 @@ pub fn advanced_section(ui: &mut egui::Ui, prefs: &mut FeedbackPrefs, sub: Color
         };
     }
     ui.data_mut(|d| d.insert_temp(buf_id, dir_text));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn frame(ctx: &egui::Context, hub: &mut FeedbackHub, enter: bool, field: bool) {
+        let log = atlas_core::session_log::SessionLog::memory("feedback-test");
+        let mut input = egui::RawInput::default();
+        if enter {
+            input.events.push(egui::Event::Key {
+                key: egui::Key::Enter,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        let _ = ctx.run(input, |ctx| {
+            if field {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let mut text = String::new();
+                    let id = Id::new("feedback-test-field");
+                    ui.add(egui::TextEdit::singleline(&mut text).id(id));
+                    ui.memory_mut(|m| m.request_focus(id));
+                });
+            }
+            dialogs(ctx, &Palette::dark(), hub, "test", "0", &log);
+        });
+    }
+
+    fn recording_hub() -> FeedbackHub {
+        let mut hub = FeedbackHub::default();
+        hub.begin_form(FeedbackKind::Bug);
+        hub.start_recording();
+        hub
+    }
+
+    #[test]
+    fn enter_in_a_focused_field_does_not_end_the_recording() {
+        let ctx = egui::Context::default();
+        let mut hub = recording_hub();
+        for _ in 0..3 {
+            frame(&ctx, &mut hub, false, true);
+        }
+        frame(&ctx, &mut hub, true, true);
+        assert!(hub.recording());
+    }
+
+    #[test]
+    fn enter_in_the_apps_own_text_editor_does_not_end_the_recording() {
+        let ctx = egui::Context::default();
+        let mut hub = recording_hub();
+        hub.app_text_editing = true;
+        frame(&ctx, &mut hub, false, false);
+        // The editor committed on this Enter and closed earlier in the frame.
+        hub.app_text_editing = false;
+        frame(&ctx, &mut hub, true, false);
+        assert!(hub.recording());
+    }
+
+    #[test]
+    fn enter_with_nothing_edited_ends_the_recording() {
+        let ctx = egui::Context::default();
+        let mut hub = recording_hub();
+        frame(&ctx, &mut hub, false, false);
+        frame(&ctx, &mut hub, true, false);
+        assert!(!hub.recording());
+        assert_eq!(hub.phase, FeedbackPhase::BugForm);
+    }
 }

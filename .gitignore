@@ -38,6 +38,7 @@ debug-*.log
 
 # Cursor sidecar npm install (Slate runs this on first Send)
 docs/agent/cursor-sidecar/node_modules/
+docs/agent/cursor-sidecar/node_modules.old-*/
 
 # Workbook leases (holder pid + heartbeat, rewritten while a board is open)
 *.slate.lock

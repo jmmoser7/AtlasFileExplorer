@@ -2640,6 +2640,7 @@ impl SlateApp {
             atlas_shell::feedback::paint_recording_chrome(ctx, self.canvas_rect, &self.palette());
         }
         let palette = self.palette();
+        self.feedback.app_text_editing = self.text_edit.is_some();
         let fb = atlas_shell::feedback::dialogs(
             ctx,
             &palette,
