@@ -76,12 +76,8 @@ impl SlateApp {
             return;
         }
         let workbook = self.tab().path.clone();
-        let n = self.apply_collected(workbook.as_deref(), &job.outcome);
-        if n == 0 && job.outcome.collected.is_empty() {
-            self.toast(job.outcome.summary());
-        } else {
-            self.toast(job.outcome.summary());
-        }
+        self.apply_collected(workbook.as_deref(), &job.outcome);
+        self.toast(job.outcome.summary());
     }
 
     /// Copy data-dir images and this workbook's own `assets/` into `dest`

@@ -213,7 +213,7 @@ mod tests {
             assert!(loaded
                 .items
                 .iter()
-                .any(|item| item.path == PathBuf::from(locator)));
+                .any(|item| item.path.as_path() == Path::new(locator)));
         }
         let _ = fs::remove_dir_all(from);
         let _ = fs::remove_dir_all(to);

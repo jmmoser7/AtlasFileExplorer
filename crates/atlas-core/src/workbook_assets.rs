@@ -904,7 +904,7 @@ mod tests {
             crate::cloud::mark_offline(&src),
             "could not mark the fixture offline"
         );
-        let outcome = collect_data_dir_assets(&data, &workbook, &[src.clone()], 0);
+        let outcome = collect_data_dir_assets(&data, &workbook, std::slice::from_ref(&src), 0);
         assert!(
             outcome
                 .refused
