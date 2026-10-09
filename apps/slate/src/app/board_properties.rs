@@ -1882,8 +1882,7 @@ impl SlateApp {
                             if let Some(path) =
                                 self.node_pdf_item(node_id).map(|item| item.path.clone())
                             {
-                                self.documents
-                                    .request(&path, slate_doc::media::is_powerpoint(&path));
+                                self.documents.request(&path);
                             }
                             let host = xf.rect_w2s(node.rect);
                             let album = self.paint_pages_album(

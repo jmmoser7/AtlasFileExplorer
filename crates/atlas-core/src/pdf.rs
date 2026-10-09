@@ -1,9 +1,9 @@
 //! PDF first-page thumbnails via pdfium (Chrome's PDF engine).
 //!
-//! pdfium.dll is loaded dynamically from next to the exe (or a `vendor/`
-//! folder during development). If the DLL is missing the binding simply
-//! stays `None` and PDF previews fall back to whatever shell handler the
-//! machine has — the app never fails because of it.
+//! pdfium.dll is loaded dynamically from next to the exe, or from a `vendor/`
+//! folder on the working directory or a parent of it. If the DLL is missing the
+//! binding simply stays `None` and PDF previews fall back to whatever shell
+//! handler the machine has — the app never fails because of it.
 //!
 //! Pdfium is not thread-safe and must not be initialized once per worker
 //! thread. A single dedicated render thread owns the only `Pdfium` instance;
@@ -121,14 +121,18 @@ fn pdf_worker_loop(job_rx: Receiver<PdfJob>) {
 }
 
 fn init_pdfium() -> Option<Pdfium> {
-    let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+    let mut candidates: Vec<PathBuf> = Vec::new();
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             candidates.push(dir.to_path_buf());
+            push_vendor_dirs(&mut candidates, dir);
         }
     }
-    candidates.push(std::path::PathBuf::from("vendor"));
-    candidates.push(std::path::PathBuf::from("."));
+    if let Ok(cwd) = std::env::current_dir() {
+        push_vendor_dirs(&mut candidates, &cwd);
+    }
+    candidates.push(PathBuf::from("vendor"));
+    candidates.push(PathBuf::from("."));
     for dir in candidates {
         let lib = Pdfium::pdfium_platform_library_name_at_path(&dir);
         if let Ok(bindings) = Pdfium::bind_to_library(&lib) {
@@ -141,6 +145,17 @@ fn init_pdfium() -> Option<Pdfium> {
             eprintln!("[atlas] pdfium.dll not found — PDF previews limited to shell handlers");
             None
         }
+    }
+}
+
+fn push_vendor_dirs(candidates: &mut Vec<PathBuf>, start: &Path) {
+    let mut dir = Some(start);
+    for _ in 0..8 {
+        let Some(current) = dir else {
+            break;
+        };
+        candidates.push(current.join("vendor"));
+        dir = current.parent();
     }
 }
 
@@ -166,6 +181,9 @@ fn read_pdf_bytes(path: &Path) -> Option<Vec<u8>> {
 }
 
 fn read_pdf_bytes_inner(path: &Path) -> Option<Vec<u8>> {
+    if crate::cloud::is_dehydrated(path) {
+        return None;
+    }
     let meta = std::fs::metadata(path).ok()?;
     if meta.len() > MAX_PDF_BYTES {
         eprintln!(
@@ -277,6 +295,22 @@ pub fn page_count(path: &Path) -> Option<u16> {
         }
         Err(RecvTimeoutError::Disconnected) => None,
     }
+}
+
+/// Write one PDF page as a PNG. Cloud placeholders are refused before any
+/// byte is read. Runs on a worker: pdfium is not safe to call on the frame loop.
+pub fn write_page_png(path: &Path, page: u16, dest: &Path) -> Result<(), String> {
+    if crate::cloud::is_dehydrated(path) {
+        return Err("File is cloud-only. Make it available locally to preview its pages.".into());
+    }
+    let (w, h, rgba) = thumbnail_page(path, page, 1440)
+        .ok_or_else(|| "Could not render this document page.".to_string())?;
+    let image = image::RgbaImage::from_raw(w, h, rgba)
+        .ok_or_else(|| "Could not render this document page.".to_string())?;
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    image.save(dest).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

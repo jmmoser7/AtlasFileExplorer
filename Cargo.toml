@@ -61,6 +61,8 @@ jpeg-decoder = { version = "0.3", default-features = false }
 dirs = "6"
 velopack = "=1.2.0"
 zip = { version = "2", default-features = false, features = ["deflate"] }
+# Outlook .msg is a Compound File Binary package. One pin for every crate.
+cfb = "0.7"
 pdfium-render = { version = "0.8", features = ["thread_safe"] }
 # SVG → RGBA for atlas thumbnails / zoom previews. Pure Rust; no native DLL.
 resvg = "0.48"

@@ -91,6 +91,47 @@ pub fn is_dehydrated(_path: &Path) -> bool {
     false
 }
 
+/// Sets [`OFFLINE`] on an existing file so tests can exercise the cloud gate
+/// without a sync client. Does not read or write file bytes.
+#[cfg(windows)]
+pub fn mark_offline(path: &Path) -> bool {
+    set_offline_bit(path, true)
+}
+
+/// Clears [`OFFLINE`] set by [`mark_offline`].
+#[cfg(windows)]
+pub fn clear_offline(path: &Path) -> bool {
+    set_offline_bit(path, false)
+}
+
+#[cfg(not(windows))]
+pub fn mark_offline(_path: &Path) -> bool {
+    false
+}
+
+#[cfg(not(windows))]
+pub fn clear_offline(_path: &Path) -> bool {
+    false
+}
+
+#[cfg(windows)]
+fn set_offline_bit(path: &Path, on: bool) -> bool {
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn SetFileAttributesW(name: *const u16, attrs: u32) -> i32;
+    }
+    let Some(attrs) = file_attributes(path) else {
+        return false;
+    };
+    let next = if on {
+        attrs | OFFLINE
+    } else {
+        attrs & !OFFLINE
+    };
+    let wide = extended_wide(path);
+    unsafe { SetFileAttributesW(wide.as_ptr(), next) != 0 }
+}
+
 #[cfg(not(windows))]
 pub fn file_attributes(_path: &Path) -> Option<u32> {
     None
@@ -286,6 +327,11 @@ mod tests {
             !is_dehydrated(&file),
             "a local temp file is not a placeholder"
         );
+        assert!(mark_offline(&file));
+        assert!(is_dehydrated(&file), "OFFLINE is the cloud gate");
+        assert_eq!(std::fs::metadata(&file).unwrap().len(), 1);
+        assert!(clear_offline(&file));
+        assert!(!is_dehydrated(&file));
 
         std::fs::remove_dir_all(&deep).ok();
     }

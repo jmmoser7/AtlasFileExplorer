@@ -1,5 +1,6 @@
-//! Office files: embedded thumbnails, and a short text excerpt for Word,
-//! Excel, OpenDocument, and RTF.
+//! Office files: embedded thumbnails, a short text excerpt for Word, Excel,
+//! OpenDocument, RTF, and Outlook messages, and on-demand PDF rendering for
+//! PowerPoint and Word.
 //!
 //! Thumbnails live in the zip at `docProps/thumbnail.{jpeg,png,...}` when the
 //! document was saved with a preview picture. Reading that image costs a few
@@ -9,8 +10,12 @@
 use std::io::Read;
 use std::path::Path;
 
+#[cfg(windows)]
+mod automate;
+pub mod outlook;
 pub mod powerpoint;
 mod text;
+pub mod word;
 
 pub use text::{
     clear_xlsx_cell, document_excerpt, set_xlsx_cell, xlsx_next_column, xlsx_sheet, xlsx_table,
