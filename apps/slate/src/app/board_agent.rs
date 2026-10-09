@@ -11905,10 +11905,11 @@ To install them by hand, run in PowerShell:\n  cd \"C:\\workspace\\Slate\\docs\\
         let NodeKind::Connector(c) = &loose.kind else {
             unreachable!()
         };
-        assert_eq!(
-            c.stroke.color, h.app.board_colors.fg,
-            "other wires keep the drawing color"
+        assert!(
+            slate_doc::scene::wire_color_follows_theme(c.stroke.color),
+            "other wires follow the theme, not the drawing color"
         );
+        assert_ne!(c.stroke.color, h.app.board_colors.fg);
     }
 
     /// A context wire from `source` into `card` that a send already used.

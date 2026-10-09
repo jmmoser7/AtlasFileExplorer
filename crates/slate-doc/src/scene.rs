@@ -2685,6 +2685,27 @@ pub enum WireDisplay {
     Faint,
 }
 
+/// Board ink stored on wires created before the stroke followed the theme.
+/// Light-mode ink (`#1b1e22`) and dark-mode ink (`#dde2e8`), both opaque.
+/// A connector whose color is either of these has no authored color.
+pub const WIRE_LEGACY_INK_LIGHT: Rgba = Rgba([0x1b, 0x1e, 0x22, 255]);
+pub const WIRE_LEGACY_INK_DARK: Rgba = Rgba([0xdd, 0xe2, 0xe8, 255]);
+
+/// True when `stored` is the historical default ink rather than a color
+/// someone picked. Those wires paint as the active theme's wire gray.
+pub fn wire_color_follows_theme(stored: Rgba) -> bool {
+    stored == WIRE_LEGACY_INK_LIGHT || stored == WIRE_LEGACY_INK_DARK
+}
+
+/// Theme gray when the stroke is still the default ink; otherwise `stored`.
+pub fn resolve_wire_color(stored: Rgba, theme_wire: Rgba) -> Rgba {
+    if wire_color_follows_theme(stored) {
+        theme_wire
+    } else {
+        stored
+    }
+}
+
 /// A wire between two endpoints. Geometry is derived, never stored — the
 /// curve is recomputed from the current [`crate::WireHost`] pose of
 /// anchored nodes at paint/export time (see [`crate::connector_route`]).
@@ -2719,6 +2740,11 @@ impl ConnectorNode {
         fallback: crate::wire::WireRouting,
     ) -> crate::wire::WireRouting {
         self.routing.unwrap_or(fallback)
+    }
+
+    /// Stroke color both interpreters paint. Unauthored wires take `theme_wire`.
+    pub fn paint_color(&self, theme_wire: Rgba) -> Rgba {
+        resolve_wire_color(self.stroke.color, theme_wire)
     }
 }
 
@@ -2873,11 +2899,31 @@ fn resolve_end(
     }
 }
 
+/// Handle directions for one cubic.
+///
+/// Anchored ends keep their outward. A free end opposite an anchored end
+/// stays on that same axis, reversed, so a drag matches a wire into a
+/// facing port. Two free ends follow the chord.
+pub fn connector_end_dirs(
+    dir_a: Option<[f32; 2]>,
+    dir_b: Option<[f32; 2]>,
+    chord: [f32; 2],
+) -> ([f32; 2], [f32; 2]) {
+    let back = [-chord[0], -chord[1]];
+    match (dir_a, dir_b) {
+        (Some(a), Some(b)) => (a, b),
+        (Some(a), None) => (a, [-a[0], -a[1]]),
+        (None, Some(b)) => ([-b[0], -b[1]], b),
+        (None, None) => (chord, back),
+    }
+}
+
 /// Derives the connector curve from its two ends and the current node rects.
 ///
 /// - An anchored end leaves its rect **perpendicular to its side** (handle
 ///   along the side's outward normal).
-/// - A free end aims at the other endpoint (handle along the chord).
+/// - A free end opposite an anchor stays on that side's axis, reversed.
+///   Two free ends aim along the chord.
 /// - Handle length is Grasshopper's `max(0.5·|Δx|, 0.75·|Δy|)`.
 ///
 /// Returns `None` when an anchored node is missing from `rect_of` (the
@@ -2891,15 +2937,8 @@ pub fn connector_bezier(
     let (p3, side_b) = resolve_end(b, &rect_of)?;
 
     let chord = [p3[0] - p0[0], p3[1] - p0[1]];
-    let dir_a = match side_a {
-        Some(side) => side.normal(),
-        None => normalize_or(chord, [0.0, 0.0]),
-    };
-    let dir_b = match side_b {
-        Some(side) => side.normal(),
-        None => normalize_or([-chord[0], -chord[1]], [0.0, 0.0]),
-    };
-
+    let (dir_a, dir_b) =
+        connector_end_dirs(side_a.map(Side::normal), side_b.map(Side::normal), chord);
     Some(connector_bezier_from_dirs(p0, dir_a, p3, dir_b))
 }
 
@@ -5881,6 +5920,63 @@ mod tests {
         let below = ConnectorEnd::Free { point: [0.0, 80.0] };
         let bez = connector_bezier(&a, &below, |_| None).unwrap();
         assert!((bez.c1[1] - 60.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn connector_free_end_mirrors_the_anchored_axis() {
+        let rect = WorldRect::new(0.0, 0.0, 100.0, 60.0);
+        let rects = |id: NodeId| (id.0 == 1).then_some(rect);
+        let right = ConnectorEnd::Anchored {
+            node: NodeId(1),
+            side: Side::Right,
+            t: 0.5,
+        };
+        let dragged = ConnectorEnd::Free {
+            point: [220.0, 140.0],
+        };
+        let bez = connector_bezier(&right, &dragged, rects).unwrap();
+        assert_eq!(bez.start_dir(), [1.0, 0.0]);
+        assert_eq!(bez.end_dir(), [-1.0, 0.0]);
+
+        let top = ConnectorEnd::Anchored {
+            node: NodeId(1),
+            side: Side::Top,
+            t: 0.5,
+        };
+        let above = ConnectorEnd::Free {
+            point: [40.0, -80.0],
+        };
+        let bez = connector_bezier(&above, &top, rects).unwrap();
+        assert_eq!(bez.end_dir(), [0.0, -1.0]);
+        assert_eq!(bez.start_dir(), [0.0, 1.0]);
+
+        let left = ConnectorEnd::Anchored {
+            node: NodeId(1),
+            side: Side::Left,
+            t: 0.5,
+        };
+        let bez = connector_bezier(
+            &left,
+            &ConnectorEnd::Free {
+                point: [-40.0, 90.0],
+            },
+            rects,
+        )
+        .unwrap();
+        assert_eq!(bez.start_dir(), [-1.0, 0.0]);
+        assert_eq!(bez.end_dir(), [1.0, 0.0]);
+    }
+
+    #[test]
+    fn legacy_ink_wires_follow_the_theme_and_authored_colors_stay() {
+        let gray = Rgba::opaque(0x6e, 0x76, 0x80);
+        assert!(wire_color_follows_theme(WIRE_LEGACY_INK_LIGHT));
+        assert!(wire_color_follows_theme(WIRE_LEGACY_INK_DARK));
+        assert_eq!(resolve_wire_color(WIRE_LEGACY_INK_LIGHT, gray), gray);
+        assert_eq!(resolve_wire_color(WIRE_LEGACY_INK_DARK, gray), gray);
+        let red = Rgba::opaque(200, 30, 30);
+        assert!(!wire_color_follows_theme(red));
+        assert_eq!(resolve_wire_color(red, gray), red);
     }
 
     #[test]

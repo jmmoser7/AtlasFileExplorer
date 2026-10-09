@@ -2304,6 +2304,8 @@ impl SlateApp {
                 } else {
                     scene::stroke_of(n).unwrap().color
                 }
+            } else if let NodeKind::Connector(c) = &n.kind {
+                scene::resolve_wire_color(c.stroke.color, super::board::to_rgba(theme.wire))
             } else {
                 scene::stroke_of(n).unwrap().color
             }

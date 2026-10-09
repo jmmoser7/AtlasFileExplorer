@@ -29,13 +29,16 @@ use vector_ink::kurbo::BezPath;
 
 /// Painted grip radius at zoom 1. Screen size is this times zoom.
 const GRIP_RADIUS: f32 = 3.0;
-/// Press-hit radius on the node side of a grip, and the full disk for a
-/// selected connector's endpoint dots (screen px).
+/// Press-hit radius on the node side of a grip at zoom ≥ 1, and the full
+/// disk for a selected connector's endpoint dots (screen px).
 pub const GRIP_HIT_PX: f32 = 8.0;
-/// Outward press-hit radius: 500% larger than [`GRIP_HIT_PX`] (six times).
-/// The extra reach is the outward half-plane only — inside the node the
-/// hit stays [`GRIP_HIT_PX`].
+/// Outward press-hit radius at zoom ≥ 1: 500% larger than [`GRIP_HIT_PX`]
+/// (six times). The extra reach is the outward half-plane only — inside
+/// the node the hit stays the inner radius.
 pub const GRIP_HIT_OUT_PX: f32 = GRIP_HIT_PX * 6.0;
+/// Painted port discs smaller than this (screen px) are dropped and are
+/// not hittable. Shared with the flow-port painter.
+pub(crate) const PORT_LOD_PX: f32 = 1.5;
 /// Snap radius while dragging a wire (screen px) to a grip or edge.
 pub const WIRE_SNAP_PX: f32 = 14.0;
 /// Connector stroke pick width (click select / right-click).
@@ -87,16 +90,46 @@ fn port_point(node: &Node, side: Side, t: f32) -> Pos2 {
     Pos2::new(p[0], p[1])
 }
 
-/// Grip under the pointer. The inner disk is [`GRIP_HIT_PX`] on every side.
+/// Inner press radius in screen px. At zoom ≥ 1 this is [`GRIP_HIT_PX`].
+/// Zooming out grows it as `8 * zoom^-0.35`, capped at 14. Pointer hit
+/// area, not painted geometry.
+pub fn grip_hit_radius(zoom: f32) -> f32 {
+    const CAP: f32 = 14.0;
+    let zoom = zoom.max(1.0e-3);
+    if zoom >= 1.0 {
+        GRIP_HIT_PX
+    } else {
+        (GRIP_HIT_PX * zoom.powf(-0.35)).min(CAP)
+    }
+}
+
+/// Outward press radius: six times [`grip_hit_radius`], so the half-plane
+/// stays the same proportion as the zoom ≥ 1 pair.
+pub fn grip_hit_out_radius(zoom: f32) -> f32 {
+    grip_hit_radius(zoom) * (GRIP_HIT_OUT_PX / GRIP_HIT_PX)
+}
+
+/// A painted port disc at `designed_radius` world units is still drawn.
+pub(crate) fn port_disc_visible(designed_radius: f32, zoom: f32) -> bool {
+    atlas_shell::canvas_scale::px(designed_radius, zoom) >= PORT_LOD_PX
+}
+
+/// Grip under the pointer. The inner disk is `hit_px` on every side.
 /// Past that, the pointer must sit in the outward half-plane and within
-/// [`GRIP_HIT_OUT_PX`] — the enlargement does not reach into the node.
-pub(crate) fn grip_hit(screen: Pos2, grip: Pos2, outward: Vec2) -> bool {
+/// `hit_out_px` — the enlargement does not reach into the node.
+pub(crate) fn grip_hit(
+    screen: Pos2,
+    grip: Pos2,
+    outward: Vec2,
+    hit_px: f32,
+    hit_out_px: f32,
+) -> bool {
     let delta = screen - grip;
     let dist = delta.length();
-    if dist <= GRIP_HIT_PX {
+    if dist <= hit_px {
         return true;
     }
-    if dist > GRIP_HIT_OUT_PX {
+    if dist > hit_out_px {
         return false;
     }
     let len = outward.length();
@@ -263,7 +296,7 @@ impl SlateApp {
     fn default_wire_stroke(&self) -> Stroke {
         Stroke {
             width: 2.0,
-            color: self.board_colors.fg,
+            color: slate_doc::scene::WIRE_LEGACY_INK_LIGHT,
             dash: Dash::Solid,
             cap: StrokeCap::Round,
             join: StrokeJoin::Round,
@@ -342,24 +375,63 @@ impl SlateApp {
 
     // ----- grips -----
 
+    /// A multi-selection claims presses inside its bounding box: that press
+    /// moves the group, so no port on it may start a wire.
+    pub(crate) fn selection_bounds_claim_press(&self, world: Pos2) -> bool {
+        self.board_sel.len() >= 2
+            && self
+                .board_group_bounds()
+                .is_some_and(|gb| gb.contains(world.x, world.y))
+    }
+
+    fn areas_under(&self, world: Pos2) -> Vec<NodeId> {
+        self.doc()
+            .scene
+            .nodes
+            .iter()
+            .filter(|n| {
+                !n.hidden
+                    && !matches!(n.kind, NodeKind::Connector(_))
+                    && self.wire_host(n).is_area()
+                    && n.rect.contains_rotated(world.x, world.y, n.rotation_deg)
+            })
+            .map(|n| n.id)
+            .collect()
+    }
+
+    fn theme_wire_rgba(&self) -> slate_doc::scene::Rgba {
+        super::board::to_rgba(self.palette().wire)
+    }
+
     /// Grip under `screen`, independent of hover state. Topmost node wins;
     /// a body under the pointer occludes grips behind it. Used by both the
     /// hover preview and press-to-wire so a drag that has already left the
     /// dot still starts a wire from the press origin (resize must not win).
     pub(crate) fn wire_grip_at(&self, screen: Pos2, xf: &BoardXf) -> Option<(NodeId, Side, f32)> {
         let w = xf.s2w(screen);
+        if self.selection_bounds_claim_press(w) {
+            return None;
+        }
+        let hit_px = grip_hit_radius(xf.z);
+        let hit_out = grip_hit_out_radius(xf.z);
+        let under = self.areas_under(w);
         for n in self.doc().scene.nodes.iter().rev() {
             if n.hidden || matches!(n.kind, NodeKind::Connector(_)) {
                 continue;
             }
             let host = self.wire_host(n);
+            let blocked = under.iter().any(|id| *id != n.id);
             if let NodeKind::Portal(portal) = &n.kind {
                 if portal.kind == slate_doc::scene::PortalKind::Agent {
                     if let Some(side) = self.crosstalk_port_at(n, screen, xf) {
-                        return Some((n.id, side, 0.5));
+                        if !blocked {
+                            return Some((n.id, side, 0.5));
+                        }
                     }
                     if let Some(id) = self.agent_manual_context_at(screen, xf) {
-                        return Some((id, Side::Left, 0.5));
+                        if !under.iter().any(|other| *other != id) {
+                            return Some((id, Side::Left, 0.5));
+                        }
                     }
                     if !host.is_flow() {
                         if host.is_area() && n.rect.contains_rotated(w.x, w.y, n.rotation_deg) {
@@ -369,23 +441,32 @@ impl SlateApp {
                     }
                 }
             }
+            let designed = if host.is_flow() {
+                super::board_flow::PORT_RADIUS
+            } else {
+                GRIP_RADIUS
+            };
             // Stacked ports overlap once zoomed out; the nearest one wins.
-            let hovered = host
-                .ports()
-                .into_iter()
-                .filter(|port| {
-                    let g = xf.w2s(Pos2::new(port.point[0], port.point[1]));
-                    let n = host.outward(port.side, port.t);
-                    grip_hit(screen, g, Vec2::new(n[0], n[1]))
-                })
-                .min_by(|a, b| {
-                    let d = |p: &slate_doc::WirePort| {
-                        xf.w2s(Pos2::new(p.point[0], p.point[1])).distance(screen)
-                    };
-                    d(a).total_cmp(&d(b))
-                });
-            if let Some(port) = hovered {
-                return Some((n.id, port.side, port.t));
+            // A disc the painter dropped (below the LOD) is not a target.
+            let hovered = port_disc_visible(designed, xf.z).then(|| {
+                host.ports()
+                    .into_iter()
+                    .filter(|port| {
+                        let g = xf.w2s(Pos2::new(port.point[0], port.point[1]));
+                        let n = host.outward(port.side, port.t);
+                        grip_hit(screen, g, Vec2::new(n[0], n[1]), hit_px, hit_out)
+                    })
+                    .min_by(|a, b| {
+                        let d = |p: &slate_doc::WirePort| {
+                            xf.w2s(Pos2::new(p.point[0], p.point[1])).distance(screen)
+                        };
+                        d(a).total_cmp(&d(b))
+                    })
+            });
+            if let Some(port) = hovered.flatten() {
+                if !blocked {
+                    return Some((n.id, port.side, port.t));
+                }
             }
             if host.is_area() && n.rect.contains_rotated(w.x, w.y, n.rotation_deg) {
                 return None;
@@ -472,7 +553,7 @@ impl SlateApp {
                     let Some(p) = end_point(&self.doc().scene, end) else {
                         continue;
                     };
-                    if xf.w2s(p).distance(screen) <= GRIP_HIT_PX {
+                    if xf.w2s(p).distance(screen) <= grip_hit_radius(xf.z) {
                         if conn.crosstalk.is_some() {
                             self.toast("A crosstalk wire follows its messages; its ends stay put.");
                             return None;
@@ -920,7 +1001,7 @@ impl SlateApp {
         })
     }
 
-    /// Journaled connector Add (stroke = fg default, no arrows).
+    /// Journaled connector Add (unauthored stroke, no arrows).
     pub(crate) fn build_connector(&mut self, a: ConnectorEnd, b: ConnectorEnd) -> slate_doc::Node {
         self.build_connector_with(a, b, &[])
     }
@@ -1029,11 +1110,15 @@ impl SlateApp {
                 connector_route_in_scene(scene, None, &a, &b, self.board_wire_routing)
             {
                 let crosstalk = self.is_crosstalk_port(*from);
-                let stroke = connector_drawn_stroke(if crosstalk {
+                let mut stroke = connector_drawn_stroke(if crosstalk {
                     slate_doc::crosstalk::wire_stroke()
                 } else {
                     self.default_wire_stroke()
                 });
+                stroke.color = slate_doc::scene::resolve_wire_color(
+                    stroke.color,
+                    super::board::to_rgba(palette.wire),
+                );
                 let path =
                     retreat_off_hosts(path, &a, &b, scene_wire_hosts(scene), stroke.width * 0.5);
                 let color =
@@ -1093,7 +1178,8 @@ impl SlateApp {
         if conn.crosstalk.is_some() && self.crosstalk_duplicate(node.id) {
             return;
         }
-        let (path, stroke) = drawn_connector(&self.doc().scene, path, conn);
+        let (path, mut stroke) = drawn_connector(&self.doc().scene, path, conn);
+        stroke.color = slate_doc::scene::resolve_wire_color(stroke.color, self.theme_wire_rgba());
         let opacity = (node.opacity
             * match conn.display {
                 WireDisplay::Faint => FAINT_OPACITY,
@@ -1343,7 +1429,7 @@ impl SlateApp {
     }
 }
 
-fn paint_route_preview(
+pub(crate) fn paint_route_preview(
     painter: &egui::Painter,
     xf: &BoardXf,
     path: &ConnectorPath,
@@ -1415,12 +1501,33 @@ mod tests {
     fn grip_hit_enlarges_only_outward() {
         let grip = Pos2::new(100.0, 100.0);
         let up = Vec2::new(0.0, -1.0);
-        assert!(grip_hit(grip, grip, up));
-        assert!(grip_hit(grip + Vec2::new(0.0, 6.0), grip, up));
-        assert!(!grip_hit(grip + Vec2::new(0.0, 30.0), grip, up));
-        assert!(grip_hit(grip + Vec2::new(0.0, -30.0), grip, up));
-        assert!(!grip_hit(grip + Vec2::new(0.0, -50.0), grip, up));
-        assert!(!grip_hit(grip + Vec2::new(30.0, 0.0), grip, up));
+        let (hit, out) = (GRIP_HIT_PX, GRIP_HIT_OUT_PX);
+        assert!(grip_hit(grip, grip, up, hit, out));
+        assert!(grip_hit(grip + Vec2::new(0.0, 6.0), grip, up, hit, out));
+        assert!(!grip_hit(grip + Vec2::new(0.0, 30.0), grip, up, hit, out));
+        assert!(grip_hit(grip + Vec2::new(0.0, -30.0), grip, up, hit, out));
+        assert!(!grip_hit(grip + Vec2::new(0.0, -50.0), grip, up, hit, out));
+        assert!(!grip_hit(grip + Vec2::new(30.0, 0.0), grip, up, hit, out));
+    }
+
+    #[test]
+    fn grip_hit_radius_grows_only_while_zoomed_out() {
+        assert_eq!(grip_hit_radius(1.0), GRIP_HIT_PX);
+        assert_eq!(grip_hit_radius(4.0), GRIP_HIT_PX);
+        let zoom = 0.25;
+        let grown = grip_hit_radius(zoom);
+        assert!((grown - (GRIP_HIT_PX * zoom.powf(-0.35)).min(14.0)).abs() < 1e-4);
+        assert!(grown > GRIP_HIT_PX && grown <= 14.0);
+        assert!((grip_hit_radius(0.01) - 14.0).abs() < 1e-4);
+        assert!((grip_hit_out_radius(zoom) - grown * 6.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn ports_below_the_lod_are_not_visible() {
+        assert!(port_disc_visible(GRIP_RADIUS, 1.0));
+        assert!(!port_disc_visible(GRIP_RADIUS, 0.2));
+        assert!(port_disc_visible(crate::app::board_flow::PORT_RADIUS, 0.4));
+        assert!(!port_disc_visible(crate::app::board_flow::PORT_RADIUS, 0.2));
     }
 
     #[test]

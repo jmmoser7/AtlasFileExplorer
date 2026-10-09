@@ -6185,6 +6185,202 @@ fn wire_grip_press_beats_edge_resize() {
     );
 }
 
+fn add_image_card(app: &mut SlateApp, x: f32, y: f32) -> NodeId {
+    let rect = slate_doc::scene::WorldRect::new(x, y, 80.0, 60.0);
+    let node = app.doc_mut().scene.build_node(
+        rect,
+        slate_doc::scene::NodeKind::Image(slate_doc::scene::ImageNode::new(
+            slate_doc::ItemId::NONE,
+        )),
+    );
+    app.add_nodes(vec![node])[0]
+}
+
+/// The inner hit grows past 8 px once the camera pulls back, and stays 8 px
+/// when zoomed in. Painted discs still use canvas scale.
+#[test]
+fn wire_grip_hit_grows_when_zoomed_out() {
+    let mut h = web_board("wire_hit_zoom");
+    let id = add_rect(&mut h.app, 0.0, 0.0);
+    h.app.board_sel.clear();
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.app.tab_mut().cam.z = 1.0;
+    h.frame();
+
+    let rect = h.app.doc().scene.node(id).unwrap().rect;
+    let grip_w = board_wire::grip_point(rect, slate_doc::scene::Side::Top);
+    let xf = h.app.board_xf();
+    let inside = xf.w2s(grip_w) + EVec2::new(0.0, 9.0);
+    assert!(
+        h.app.wire_grip_at(inside, &xf).is_none(),
+        "9 px inside the edge is past the zoom-1 disk"
+    );
+
+    h.app.tab_mut().cam.z = 0.55;
+    let xf = h.app.board_xf();
+    let inside = xf.w2s(grip_w) + EVec2::new(0.0, 9.0);
+    assert_eq!(
+        h.app.wire_grip_at(inside, &xf).map(|(_, side, _)| side),
+        Some(slate_doc::scene::Side::Top),
+        "the same 9 px reaches the grown hit"
+    );
+}
+
+/// A port the painter has dropped is not a press target.
+#[test]
+fn wire_ports_below_the_lod_are_not_hittable() {
+    let mut h = web_board("wire_port_lod");
+    let id = add_rect(&mut h.app, 0.0, 0.0);
+    h.app.board_sel.clear();
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.app.tab_mut().cam.z = 0.2;
+    h.frame();
+
+    let xf = h.app.board_xf();
+    let rect = h.app.doc().scene.node(id).unwrap().rect;
+    let grip = xf.w2s(board_wire::grip_point(rect, slate_doc::scene::Side::Right));
+    assert!(
+        h.app.wire_grip_at(grip, &xf).is_none(),
+        "a disc below 1.5 px is not a grip"
+    );
+}
+
+/// A neighbor's enlarged port must not steal a press that landed in this body.
+#[test]
+fn a_press_inside_a_node_does_not_start_a_neighbors_wire() {
+    let mut h = web_board("wire_neighbor_body");
+    let a = add_rect(&mut h.app, 0.0, 0.0);
+    let _b = add_rect(&mut h.app, 84.0, 0.0);
+    h.app.board_sel.clear();
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.app.tab_mut().cam.z = 1.0;
+    h.frame();
+
+    let xf = h.app.board_xf();
+    let rect = h.app.doc().scene.node(a).unwrap().rect;
+    let world = Pos2::new(rect.x + rect.w * 0.5, rect.y + rect.h * 0.5);
+    let screen = xf.w2s(world);
+    assert!(
+        h.app.wire_grip_at(screen, &xf).is_none(),
+        "the neighbor's outward hit stops at this body"
+    );
+    let drag = h
+        .app
+        .begin_gesture_for_test(screen, world, egui::Modifiers::NONE);
+    assert!(
+        matches!(drag, Some(board::BoardDrag::Move { .. })),
+        "the press moves the node"
+    );
+}
+
+/// Zoomed out, a packed multi-selection drags as a group. Overlapping port
+/// hits must not start a wire. Images share the area-port hit with these cards.
+#[test]
+fn zoomed_out_packed_selection_moves_instead_of_starting_a_wire() {
+    let mut h = web_board("wire_packed_sel");
+    let mut ids = Vec::new();
+    for row in 0..3 {
+        for col in 0..3 {
+            ids.push(add_image_card(
+                &mut h.app,
+                col as f32 * 84.0,
+                row as f32 * 64.0,
+            ));
+        }
+    }
+    let middle = ids[4];
+    h.app.board_sel = ids.into_iter().collect();
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.app.tab_mut().cam.z = 0.55;
+    h.frame();
+
+    let xf = h.app.board_xf();
+    let rect = h.app.doc().scene.node(middle).unwrap().rect;
+    let world = Pos2::new(rect.x + rect.w * 0.5, rect.y + rect.h * 0.5);
+    let screen = xf.w2s(world);
+    assert!(
+        h.app.wire_grip_at(screen, &xf).is_none(),
+        "a press inside the selection is not a port"
+    );
+    let drag = h
+        .app
+        .begin_gesture_for_test(screen, world, egui::Modifiers::NONE);
+    assert!(
+        matches!(drag, Some(board::BoardDrag::Move { .. })),
+        "the group moves"
+    );
+}
+
+/// The gap inside a multi-selection's box moves the selection.
+#[test]
+fn a_press_in_the_selection_gap_moves_the_group() {
+    let mut h = web_board("wire_sel_gap");
+    let a = add_rect(&mut h.app, 0.0, 0.0);
+    let b = add_rect(&mut h.app, 100.0, 0.0);
+    h.app.board_sel = [a, b].into_iter().collect();
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.app.tab_mut().cam.z = 1.0;
+    h.frame();
+
+    let xf = h.app.board_xf();
+    let world = Pos2::new(90.0, 30.0);
+    let screen = xf.w2s(world);
+    assert!(h.app.wire_grip_at(screen, &xf).is_none());
+    let drag = h
+        .app
+        .begin_gesture_for_test(screen, world, egui::Modifiers::NONE);
+    assert!(
+        matches!(drag, Some(board::BoardDrag::Move { .. })),
+        "the gap moves the selection"
+    );
+}
+
+/// New wires store the legacy ink so they follow the theme. A picked color stays.
+#[test]
+fn default_wire_color_follows_the_theme() {
+    let mut h = web_board("wire_theme_color");
+    let a = add_rect(&mut h.app, 0.0, 0.0);
+    let b = add_rect(&mut h.app, 240.0, 0.0);
+    h.frame();
+    let wire = h.app.build_connector(
+        slate_doc::scene::ConnectorEnd::Anchored {
+            node: a,
+            side: slate_doc::scene::Side::Right,
+            t: 0.5,
+        },
+        slate_doc::scene::ConnectorEnd::Anchored {
+            node: b,
+            side: slate_doc::scene::Side::Left,
+            t: 0.5,
+        },
+    );
+    let id = h.app.add_nodes(vec![wire])[0];
+    let stored = match &h.app.doc().scene.node(id).unwrap().kind {
+        slate_doc::scene::NodeKind::Connector(c) => c.stroke.color,
+        _ => panic!("connector"),
+    };
+    assert!(slate_doc::scene::wire_color_follows_theme(stored));
+    h.app.dark_mode = false;
+    let light = board::to_rgba(h.app.palette().wire);
+    h.app.dark_mode = true;
+    let dark = board::to_rgba(h.app.palette().wire);
+    assert_ne!(light, dark);
+    assert_eq!(slate_doc::scene::resolve_wire_color(stored, light), light);
+    assert_eq!(slate_doc::scene::resolve_wire_color(stored, dark), dark);
+    let red = slate_doc::scene::Rgba([200, 30, 30, 255]);
+    h.app.patch_nodes(&[id], |n| {
+        if let slate_doc::scene::NodeKind::Connector(c) = &mut n.kind {
+            c.stroke.color = red;
+        }
+    });
+    let stored = match &h.app.doc().scene.node(id).unwrap().kind {
+        slate_doc::scene::NodeKind::Connector(c) => c.stroke.color,
+        _ => panic!("connector"),
+    };
+    assert_eq!(stored, red);
+    assert_eq!(slate_doc::scene::resolve_wire_color(stored, light), red);
+}
+
 /// Dropping a new wire on empty canvas commits a free end there.
 /// The tool-search palette stays closed. Undo removes that wire.
 #[test]

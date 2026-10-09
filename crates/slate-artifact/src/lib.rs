@@ -54,6 +54,9 @@ pub struct ExportOptions {
     pub web_posters: BTreeMap<slate_doc::NodeId, PathBuf>,
     /// Routing fallback for legacy wires; authored per-wire choices take precedence.
     pub wire_routing: WireRouting,
+    /// Active theme's wire gray. Connectors still stored as the legacy board
+    /// ink paint this instead. Absent leaves the stored color.
+    pub wire_theme: Option<slate_doc::scene::Rgba>,
     /// Nested workbook boards keyed by [`slate_doc::scene::workbook_key`].
     pub slate_boards: BTreeMap<String, ExportedBoard>,
     /// The workbook file this export was made from, for resolving child locators.
