@@ -50,6 +50,15 @@ pub struct Loaded {
     pub img: Arc<egui::ColorImage>,
 }
 
+/// Visible text kept beside the picture, for an agent run whose page has not
+/// loaded. `text` is `None` when this key has nothing on disk.
+pub struct LoadedText {
+    pub id: NodeId,
+    pub key: String,
+    pub text: Option<String>,
+    pub captured: Option<SystemTime>,
+}
+
 enum Job {
     Load {
         id: NodeId,
@@ -58,6 +67,14 @@ enum Job {
     Save {
         key: String,
         img: Arc<egui::ColorImage>,
+    },
+    SaveText {
+        key: String,
+        text: String,
+    },
+    LoadText {
+        id: NodeId,
+        key: String,
     },
 }
 
@@ -71,9 +88,11 @@ pub struct StillCache {
     dir: PathBuf,
     jobs: crossbeam_channel::Sender<Job>,
     done: crossbeam_channel::Receiver<Loaded>,
+    text_done: crossbeam_channel::Receiver<LoadedText>,
     /// Keys asked for this session, so a card is fetched once however many
     /// frames it takes to arrive.
     asked: HashSet<String>,
+    asked_text: HashSet<String>,
     /// Keys written this session. A page that recaptures five times a second
     /// must not write five files a second.
     stored: HashSet<String>,
@@ -115,6 +134,7 @@ impl StillCache {
         let _ = std::fs::create_dir_all(&dir);
         let (jobs, job_rx) = crossbeam_channel::unbounded::<Job>();
         let (done_tx, done) = crossbeam_channel::unbounded();
+        let (text_tx, text_done) = crossbeam_channel::unbounded();
         let worker_dir = dir.clone();
         std::thread::Builder::new()
             .name("slate-web-stills".into())
@@ -128,6 +148,18 @@ impl StillCache {
                             }
                         }
                         Job::Save { key, img } => write(&worker_dir, &key, &img),
+                        Job::SaveText { key, text } => write_text(&worker_dir, &key, &text),
+                        Job::LoadText { id, key } => {
+                            let (text, captured) = read_text(&worker_dir, &key)
+                                .map(|(text, at)| (Some(text), Some(at)))
+                                .unwrap_or((None, None));
+                            let _ = text_tx.send(LoadedText {
+                                id,
+                                key,
+                                text,
+                                captured,
+                            });
+                        }
                     }
                 }
             })
@@ -136,7 +168,9 @@ impl StillCache {
             dir,
             jobs,
             done,
+            text_done,
             asked: HashSet::new(),
+            asked_text: HashSet::new(),
             stored: HashSet::new(),
             hits: 0,
             off: false,
@@ -147,11 +181,14 @@ impl StillCache {
     pub fn disabled() -> Self {
         let (jobs, _) = crossbeam_channel::unbounded::<Job>();
         let (_, done) = crossbeam_channel::unbounded();
+        let (_, text_done) = crossbeam_channel::unbounded();
         StillCache {
             dir: PathBuf::new(),
             jobs,
             done,
+            text_done,
             asked: HashSet::new(),
+            asked_text: HashSet::new(),
             stored: HashSet::new(),
             hits: 0,
             off: true,
@@ -196,6 +233,10 @@ impl StillCache {
         self.hits
     }
 
+    pub fn is_off(&self) -> bool {
+        self.off
+    }
+
     /// Keep this picture for next time.
     ///
     /// Once per key per session: a live page hands back a new frame five times a
@@ -203,7 +244,7 @@ impl StillCache {
     /// that it is seconds fresh. A session that opens the board again writes the
     /// entry again, so a page that changed does not stay wrong for ever.
     pub fn store(&mut self, key: &str, img: Arc<egui::ColorImage>) {
-        if self.off || !self.stored.insert(key.to_owned()) {
+        if self.off || key.is_empty() || !self.stored.insert(key.to_owned()) {
             return;
         }
         let _ = self.jobs.send(Job::Save {
@@ -212,12 +253,55 @@ impl StillCache {
         });
     }
 
+    /// Replace the stored picture. An explicit capture does this; the live
+    /// readback path uses [`store`] so it cannot rewrite the file every frame.
+    pub fn store_fresh(&mut self, key: &str, img: Arc<egui::ColorImage>) {
+        if self.off || key.is_empty() {
+            return;
+        }
+        self.stored.insert(key.to_owned());
+        let _ = self.jobs.send(Job::Save {
+            key: key.to_owned(),
+            img,
+        });
+    }
+
+    /// Visible text from a page the human asked an agent to read. Replaces the
+    /// previous text for this locator. Not called per frame.
+    pub fn store_text(&mut self, key: &str, text: &str) {
+        if self.off || key.is_empty() || text.is_empty() {
+            return;
+        }
+        let _ = self.jobs.send(Job::SaveText {
+            key: key.to_owned(),
+            text: text.to_owned(),
+        });
+    }
+
+    /// Ask for stored text, at most once per key until the answer arrives.
+    pub fn request_text(&mut self, id: NodeId, key: &str) {
+        if self.off || key.is_empty() || !self.asked_text.insert(key.to_owned()) {
+            return;
+        }
+        let _ = self.jobs.send(Job::LoadText {
+            id,
+            key: key.to_owned(),
+        });
+    }
+
+    /// Text reads that have finished since the last call, including misses.
+    pub fn drain_text(&mut self) -> Vec<LoadedText> {
+        self.text_done.try_iter().collect()
+    }
+
     /// Forget an entry, for a card whose page turned out not to load. Cheap
     /// enough to do inline: one `remove_file`.
     pub fn forget(&mut self, key: &str) {
         self.asked.remove(key);
+        self.asked_text.remove(key);
         self.stored.remove(key);
         let _ = std::fs::remove_file(self.path(key));
+        let _ = std::fs::remove_file(text_path(&self.dir, key));
     }
 
     fn path(&self, key: &str) -> PathBuf {
@@ -227,6 +311,10 @@ impl StillCache {
 
 fn entry_path(dir: &Path, key: &str) -> PathBuf {
     dir.join(format!("{key}.jpg"))
+}
+
+fn text_path(dir: &Path, key: &str) -> PathBuf {
+    dir.join(format!("{key}.txt"))
 }
 
 fn read(dir: &Path, key: &str) -> Option<(Arc<egui::ColorImage>, Duration)> {
@@ -274,6 +362,36 @@ fn write(dir: &Path, key: &str, img: &egui::ColorImage) {
     drop(w);
     if ok {
         let _ = std::fs::rename(&tmp, entry_path(dir, key));
+    } else {
+        let _ = std::fs::remove_file(&tmp);
+    }
+}
+
+fn read_text(dir: &Path, key: &str) -> Option<(String, SystemTime)> {
+    let path = text_path(dir, key);
+    let meta = std::fs::metadata(&path).ok()?;
+    let captured = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+    let raw = std::fs::read_to_string(&path).ok()?;
+    let body = raw
+        .split_once('\n')
+        .map(|(_, body)| body)
+        .unwrap_or(raw.as_str())
+        .trim();
+    if body.is_empty() {
+        return None;
+    }
+    Some((body.to_string(), captured))
+}
+
+fn write_text(dir: &Path, key: &str, text: &str) {
+    let millis = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let tmp = dir.join(format!("{key}.txt.tmp"));
+    let body = format!("{millis}\n{text}");
+    if std::fs::write(&tmp, body).is_ok() {
+        let _ = std::fs::rename(&tmp, text_path(dir, key));
     } else {
         let _ = std::fs::remove_file(&tmp);
     }
@@ -390,6 +508,32 @@ mod tests {
             cache.store(&key, img(8, 8, shade));
         }
         assert_eq!(cache.stored.len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn page_text_survives_into_the_next_session() {
+        let dir = temp("text");
+        let key = StillCache::key("https://example.com/article");
+        {
+            let mut cache = StillCache::new(dir.clone());
+            cache.store_text(&key, "The visible article.");
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            while !text_path(&dir, &key).exists() && std::time::Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+        let mut next = StillCache::new(dir.clone());
+        next.request_text(NodeId(7), &key);
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let mut got = Vec::new();
+        while got.is_empty() && std::time::Instant::now() < deadline {
+            got = next.drain_text();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].text.as_deref(), Some("The visible article."));
+        assert!(got[0].captured.is_some());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
