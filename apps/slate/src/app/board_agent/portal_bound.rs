@@ -389,7 +389,7 @@ impl SlateApp {
                             paint_responding(
                                 ui,
                                 label,
-                                &font,
+                                (TRANSCRIPT_TEXT_PX, z),
                                 (palette.accent, palette.sub),
                                 reported,
                                 &turns,
