@@ -27,7 +27,6 @@ mod clipboard_render;
 
 use super::SlateApp;
 use eframe::egui::Pos2;
-use image::RgbaImage;
 use slate_doc::scene::{ConnectorEnd, GroupKey, Node, NodeKind, Scene, WireDisplay};
 use slate_doc::{connector_anchor_on, WireHost};
 use slate_doc::{NodeId, SlateDoc};
