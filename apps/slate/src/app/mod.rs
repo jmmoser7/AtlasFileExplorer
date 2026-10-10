@@ -1714,7 +1714,7 @@ impl SlateApp {
         if let Some(i) = self
             .tabs
             .iter()
-            .position(|t| t.path.as_deref().map(&canon) == Some(target.clone()))
+            .position(|t| t.path.as_deref().map(canon) == Some(target.clone()))
         {
             self.switch_tab(i);
             self.leave_home();
