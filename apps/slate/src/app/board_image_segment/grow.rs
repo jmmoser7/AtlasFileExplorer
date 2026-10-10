@@ -102,7 +102,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_slow_step_grows_and_a_retreat_restores_the_previous_mask() {
+    fn expanding_moves_the_outline_outward_inside_the_image() {
         let ring = vec![vec![[0.2, 0.2], [0.6, 0.2], [0.6, 0.6], [0.2, 0.6]]];
         let grown = expand_contours(&ring, 1.1);
         let before = ring[0][1][0];
