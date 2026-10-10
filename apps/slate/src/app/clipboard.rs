@@ -31,6 +31,8 @@ use slate_doc::scene::{ConnectorEnd, GroupKey, Node, NodeKind, Scene, WireDispla
 use slate_doc::{connector_anchor_on, WireHost};
 use slate_doc::{NodeId, SlateDoc};
 use std::collections::{HashMap, HashSet};
+#[cfg(windows)]
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
