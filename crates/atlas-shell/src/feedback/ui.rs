@@ -1,59 +1,10 @@
 use super::bundle::{self, ReportJson};
 use super::{FeedbackHub, FeedbackKind, FeedbackPhase, FeedbackPrefs};
-use crate::icons::{self, Icon};
 use crate::theme::Palette;
-use crate::tokens;
 use eframe::egui::{
     self, Color32, CornerRadius, Id, Rect, RichText, Sense, Stroke, StrokeKind, Vec2,
 };
 use std::path::PathBuf;
-
-pub fn suggestion_button(
-    ctx: &egui::Context,
-    palette: &Palette,
-    dock_id: &str,
-    canvas: Rect,
-    hub: &mut FeedbackHub,
-) -> bool {
-    let t = tokens::current().readouts.clone();
-    let hit = t.chevron_hit.max(20.0);
-    let chevron = canvas.left_bottom() + Vec2::new(t.chevron_inset_x, -t.chevron_inset_y);
-    let pos = chevron + Vec2::new(-hit - 6.0, 0.0);
-    let mut open = false;
-    egui::Area::new(Id::new(("suggestion_box", dock_id)))
-        .fixed_pos(pos)
-        .pivot(egui::Align2::LEFT_BOTTOM)
-        .order(egui::Order::Middle)
-        .show(ctx, |ui| {
-            let (rect, resp) = ui.allocate_exact_size(Vec2::splat(hit), Sense::click());
-            let hovered = resp.hovered();
-            if hovered {
-                ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
-                ui.painter().rect_filled(
-                    rect,
-                    CornerRadius::same(4),
-                    palette.ink.gamma_multiply(t.chevron_hover_fill),
-                );
-            }
-            let ink = palette.ink.gamma_multiply(if hovered {
-                t.chevron_hover_opacity
-            } else {
-                t.chevron_idle_opacity
-            });
-            let glyph = Rect::from_center_size(rect.center(), Vec2::splat(hit * 0.7));
-            icons::paint(ui.painter(), glyph, Icon::Feedback, ink);
-            if resp
-                .on_hover_text("Suggestion box — report a bug or request a feature")
-                .clicked()
-            {
-                open = true;
-            }
-        });
-    if open {
-        hub.open_picker();
-    }
-    open
-}
 
 pub fn paint_recording_chrome(ctx: &egui::Context, canvas: Rect, palette: &Palette) {
     if !canvas.is_positive() {

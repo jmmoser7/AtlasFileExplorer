@@ -8249,21 +8249,9 @@ impl AtlasApp {
 
     fn draw_toasts(&mut self, ctx: &egui::Context) {
         self.toasts.retain(|(_, t)| t.elapsed().as_secs_f32() < 4.0);
-        if self.toasts.is_empty() {
-            return;
-        }
-        egui::Area::new(egui::Id::new("toasts"))
-            .anchor(Align2::RIGHT_BOTTOM, Vec2::new(-16.0, -16.0))
-            .order(egui::Order::Foreground)
-            .interactable(false)
-            .show(ctx, |ui| {
-                for (msg, _) in &self.toasts {
-                    egui::Frame::popup(ui.style()).show(ui, |ui| {
-                        ui.label(msg);
-                    });
-                    ui.add_space(4.0);
-                }
-            });
+        let palette = self.palette();
+        let msgs: Vec<&str> = self.toasts.iter().map(|(m, _)| m.as_str()).collect();
+        let _ = atlas_shell::toast::paint_stack(ctx, &palette, self.canvas_rect, &msgs);
     }
 
     fn evict_textures(&mut self) {

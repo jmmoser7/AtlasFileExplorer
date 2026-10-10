@@ -119,7 +119,12 @@ The bar hosting the timeline is tunable too, under *Readout bar (bottom)*:
 | File | Responsibility |
 |------|----------------|
 | `apps/file-atlas/src/app/ui/readouts.rs` | The bar: gear menu, live counts, root path, timeline |
-| `[readouts]` in `ui-tokens.toml` | Text size, pad above/below, metrics row → timeline gap, item spacing, min row height, separator rules, lower-left collapse chevron |
+| `[readouts]` in `ui-tokens.toml` | Text size, pad above/below, metrics row → timeline gap, item spacing, min row height, separator rules, lower-left collapse chevron, suggestion-box size / gap / inset |
+| `crates/atlas-shell/src/canvas_corner.rs` | Lower-left layout: chevron at the corner, suggestion box right of it on the bottom palette's baseline, zoom cluster past the box |
+| `[toast]` in `ui-tokens.toml` | Bottom toast stack (`atlas_shell::toast`): wrap width (px, window fraction, minimum), gap above the palette's partition line, stack gap, padding, type, radius |
+
+Toasts and the suggestion box are tuned under *Bottom toasts · Suggestion box*,
+which starts with **Lock sample toasts open**.
 
 `text_size` sets `override_font_id` for the whole metrics row, so the counts,
 the root path, and every transient progress line scale together — they are one

@@ -2783,22 +2783,12 @@ impl SlateApp {
 
     fn draw_toasts(&mut self, ctx: &egui::Context) {
         self.toasts.retain(|(_, t)| t.elapsed().as_secs_f32() < 3.0);
-        if self.toasts.is_empty() {
-            return;
-        }
         let palette = self.palette();
-        egui::Area::new(egui::Id::new("slate_toasts"))
-            .anchor(egui::Align2::CENTER_BOTTOM, Vec2::new(0.0, -48.0))
-            .show(ctx, |ui| {
-                for (msg, _) in &self.toasts {
-                    egui::Frame::popup(ui.style())
-                        .fill(palette.card)
-                        .show(ui, |ui| {
-                            ui.label(egui::RichText::new(msg).color(palette.ink));
-                        });
-                }
-            });
-        ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        let msgs: Vec<&str> = self.toasts.iter().map(|(m, _)| m.as_str()).collect();
+        let _ = atlas_shell::toast::paint_stack(ctx, &palette, self.canvas_rect, &msgs);
+        if !msgs.is_empty() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        }
     }
 
     pub(crate) fn ensure_home_cover_bakes(&mut self) {

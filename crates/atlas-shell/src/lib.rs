@@ -43,6 +43,7 @@
 /// Shared by native apps and visual fixtures so screenshots exercise production AA.
 pub const NATIVE_MSAA_SAMPLES: u16 = 4;
 
+pub mod canvas_corner;
 pub mod canvas_scale;
 pub mod canvas_text;
 pub mod chrome;
@@ -50,6 +51,7 @@ pub mod commands;
 pub mod covers;
 pub mod dock;
 mod dock_advanced;
+mod dock_plate;
 pub mod feedback;
 pub mod file_picker;
 pub mod folder_map;
@@ -71,8 +73,13 @@ pub mod tabs;
 pub mod taper;
 pub mod theme;
 pub mod timeline;
+pub mod toast;
 pub mod tokens;
+mod tokens_readouts;
+mod tokens_toast;
 pub mod tuning;
+#[cfg(feature = "ui-tuner")]
+mod tuning_corner;
 pub mod updates;
 pub mod widgets;
 

@@ -653,6 +653,20 @@ chevron_idle_opacity = 0.3799999952316284
 chevron_hover_opacity = 0.9200000166893005
 chevron_hover_fill = 0.10000000149011612
 chevron_emboss = 0.2199999988079071
+suggestion_size = 0.0
+suggestion_gap_from_chevron = 6.0
+suggestion_inset_x = 16.0
+
+[toast]
+max_width_px = 560.0
+max_width_fraction = 0.6
+min_width_px = 280.0
+above_palette_gap = 14.0
+stack_gap = 8.0
+pad_x = 14.0
+pad_y = 10.0
+text_size = 13.0
+corner_radius = 8.0
 
 [activity_heatmap]
 out_of_range_opacity = 0.3799999952316284

@@ -10,6 +10,7 @@
 //! icon + kind) and one arm in the app's body callback. Renaming = changing
 //! `label`. App-specific icons use [`DockIcon::Custom`] with a painter fn.
 
+use crate::dock_plate::{associate_shade, hover_plate_fill, mix_icon_fill, primary_plate_fill};
 use crate::sidebar::{
     paint_toggle_dot, sidebar_icon_row, sidebar_tool_row, SidebarTheme, TOGGLE_SLIDE_SECS,
 };
@@ -325,36 +326,6 @@ const ICON_ACTIVE_MIX: f32 = 0.18;
 /// Title-chip translucency (on top of the open animation).
 const HOVER_CHIP_OPACITY: f32 = 0.78;
 
-/// Dark mode lightens gray; light mode darkens it.
-fn associate_shade(color: Color32, dark: bool, tint: f32) -> Color32 {
-    let toward = if dark {
-        Color32::from_rgba_unmultiplied(255, 255, 255, color.a())
-    } else {
-        Color32::from_rgba_unmultiplied(0, 0, 0, color.a())
-    };
-    mix_icon_fill(color, toward, tint)
-}
-
-/// Signed luminance shift. Positive matches [`associate_shade`]; negative
-/// flips the direction so a primary plate can sit darker than its host.
-fn signed_shade(color: Color32, dark: bool, offset: f32) -> Color32 {
-    if offset.abs() < 0.0005 {
-        color
-    } else if offset > 0.0 {
-        associate_shade(color, dark, offset)
-    } else {
-        associate_shade(color, !dark, -offset)
-    }
-}
-
-/// Idle fill of a primary dock plate. `primary_fill_mix` blends the
-/// absolute icon token toward the secondary capsule plus its offset.
-fn primary_plate_fill(th: &DockThemeTokens, p: &DockPaletteTokens, dark: bool) -> Color32 {
-    let secondary = th.popover_fill_color().gamma_multiply(p.group_fill);
-    let linked = signed_shade(secondary, dark, p.primary_fill_offset);
-    mix_icon_fill(th.icon_fill_color(), linked, p.primary_fill_mix)
-}
-
 /// Primary-icon outline: pinned is always denser than idle; hover can go further.
 fn icon_outline(associated: bool, pinned: bool, p: &DockPaletteTokens) -> (f32, f32) {
     let (width, tint) = if pinned {
@@ -367,16 +338,6 @@ fn icon_outline(associated: bool, pinned: bool, p: &DockPaletteTokens) -> (f32, 
     } else {
         (width, tint)
     }
-}
-
-fn mix_icon_fill(base: Color32, accent: Color32, t: f32) -> Color32 {
-    let t = t.clamp(0.0, 1.0);
-    Color32::from_rgba_unmultiplied(
-        (base.r() as f32 + (accent.r() as f32 - base.r() as f32) * t).round() as u8,
-        (base.g() as f32 + (accent.g() as f32 - base.g() as f32) * t).round() as u8,
-        (base.b() as f32 + (accent.b() as f32 - base.b() as f32) * t).round() as u8,
-        (base.a() as f32 + (accent.a() as f32 - base.a() as f32) * t).round() as u8,
-    )
 }
 
 fn lerp_toward(current: f32, target: f32, dt: f32, duration: f32) -> f32 {
@@ -3226,18 +3187,7 @@ pub fn floating_dock(
                     } else if item.active || is_pinned || is_preview {
                         mix_icon_fill(base, th.icon_active_color(), ICON_ACTIVE_MIX)
                     } else {
-                        let hover_c = th.icon_hover_color();
-                        let hover_c = Color32::from_rgba_unmultiplied(
-                            hover_c.r(),
-                            hover_c.g(),
-                            hover_c.b(),
-                            (hover_c.a() as f32 * tokens.palette.icon_hover_opacity).round() as u8,
-                        );
-                        let hovered_fill =
-                            mix_icon_fill(base, hover_c, tokens.palette.icon_hover_fill);
-                        let shaded =
-                            associate_shade(hovered_fill, dark, tokens.palette.icon_hover_tint);
-                        mix_icon_fill(base, shaded, hover_t)
+                        hover_plate_fill(base, th, &tokens.palette, dark, hover_t)
                     };
                     let (outline_w, outline_tint) =
                         icon_outline(associated, is_pinned, &tokens.palette);
