@@ -311,7 +311,8 @@ mod tests {
                     /MediaBox [0 0 300 100] /Rotate 270 >> endobj\n"
             .to_string()
             + "3 0 obj << /Type /Page /Parent 6 0 R >> endobj\n"
-            + &page(4, "[0 0 50 80]", "/CropBox [10 10 40 70]");
+            + "4 0 obj << /Type /Page /Parent 6 0 R /MediaBox [0 0 50 80] \
+               /CropBox [10 10 40 70] >> endobj\n";
         let bytes = pdf("6 0 R", &body);
         assert_eq!(
             page_sizes(&bytes),
