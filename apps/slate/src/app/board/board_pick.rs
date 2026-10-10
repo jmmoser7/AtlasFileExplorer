@@ -22,6 +22,9 @@ impl SlateApp {
             }
             self.board_crop = None;
         }
+        if self.board_tool == BoardTool::Select && self.segment_click_opens_tag(world) {
+            return;
+        }
         match self.board_tool {
             BoardTool::Text => {
                 if matches!(self.board_drag, Some(BoardDrag::Draw { .. })) {

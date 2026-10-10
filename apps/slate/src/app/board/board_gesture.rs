@@ -20,6 +20,9 @@ impl SlateApp {
         }
         match self.board_tool {
             BoardTool::Select => {
+                if self.segment_press_claims(screen, world) {
+                    return None;
+                }
                 // Crop mode intercepts everything on its node: handles move
                 // the crop window, interior drags pan the content, presses
                 // outside exit crop mode and fall through to normal behavior.

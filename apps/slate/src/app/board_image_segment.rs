@@ -1,8 +1,7 @@
 //! Local image subject highlights. Durable highlights are ordinary paint paths.
 
 use super::{board::BoardXf, SlateApp};
-use atlas_shell::{canvas_scale, selection_tools};
-use eframe::egui::{self, Id, Pos2, Rect};
+use eframe::egui::{self, Pos2};
 use runtime::PendingImage;
 use slate_doc::{
     image_paint::{layer_node_to_world, PaintLayer, PaintLayerPrompt},
@@ -28,7 +27,10 @@ pub(crate) struct SegmentResult {
     mask: std::sync::Arc<Vec<Vec<[f32; 2]>>>,
 }
 
+mod grow;
 mod runtime;
+mod sticker;
+mod tag;
 use runtime::Hover;
 pub(crate) use runtime::ImageSegmentRuntime;
 
@@ -50,8 +52,18 @@ impl SlateApp {
     /// Esc ends the dwell either way, but only a visible offer is a cancel
     /// layer; a bare dwell lets Esc fall through to the selection.
     pub(crate) fn dismiss_image_segment(&mut self) -> bool {
+        let chrome =
+            self.image_segments.layers_menu.is_some() || self.image_segments.tag_at.is_some();
+        if chrome {
+            self.image_segments.layers_menu = None;
+            self.image_segments.layers_fresh = false;
+            self.image_segments.layer_rects.clear();
+            self.image_segments.tag_at = None;
+            self.image_segments.tag_fresh = false;
+            self.image_segments.tag_rects.clear();
+        }
         let Some(hover) = self.image_segments.hover.as_ref() else {
-            return false;
+            return chrome;
         };
         let offered = self.image_segments.offered();
         self.image_segments.dismissed = Some(hover.screen);
@@ -68,6 +80,12 @@ impl SlateApp {
         world: Option<Pos2>,
     ) {
         self.image_segments.receive();
+        if self.segment_drag_frame(ui, pointer, world) {
+            return;
+        }
+        if self.image_segments.tag_at.is_some() {
+            return;
+        }
         if self
             .image_segments
             .hover
@@ -124,6 +142,7 @@ impl SlateApp {
             .as_ref()
             .is_some_and(|r| r.host == host && vector_ink::point_in_polygon(&r.mask, point_norm))
         {
+            self.segment_grow_step(screen, xf.z);
             return;
         }
         let basis = slate_doc::image_paint::image_content_rect(node, img);
@@ -218,6 +237,7 @@ impl SlateApp {
         painter: &egui::Painter,
         xf: &BoardXf,
     ) {
+        self.paint_layer_squircle(ui, xf);
         let Some(hover) = self.image_segments.hover.as_ref() else {
             return;
         };
@@ -225,77 +245,33 @@ impl SlateApp {
             return;
         }
         let host_id = hover.host;
-        let point = hover.point_norm;
         let Some(host) = self.doc().scene.node(host_id) else {
             return;
         };
         let NodeKind::Image(img) = &host.kind else {
             return;
         };
-        let basis = slate_doc::image_paint::image_content_rect(host, img);
-        let world = slate_doc::geom::orbit_point(
-            host.rect.center(),
-            (basis.x + point[0] * basis.w, basis.y + point[1] * basis.h),
-            host.rotation_deg,
-        );
-        let screen = xf.w2s(Pos2::new(world.0, world.1));
-        let host_bounds = xf.rect_w2s(slate_doc::node_aabb(host));
-        let result = self.image_segments.result.clone();
-        if let Some(result) = &result {
-            let region = layer_node_to_world(host, img, &result.local);
-            if let NodeKind::Shape(shape) = &region.kind {
-                if let Some(path) = &shape.path {
-                    super::board_path::paint_path_shape(
-                        self,
-                        painter,
-                        xf,
-                        &region,
-                        shape,
-                        path,
-                        &|c| c,
-                    );
+        let show_home = self.image_segments.drag_delta.is_none();
+        if show_home {
+            if let Some(result) = self.image_segments.result.clone() {
+                let region = layer_node_to_world(host, img, &result.local);
+                if let NodeKind::Shape(shape) = &region.kind {
+                    if let Some(path) = &shape.path {
+                        super::board_path::paint_path_shape(
+                            self,
+                            painter,
+                            xf,
+                            &region,
+                            shape,
+                            path,
+                            &|c| c,
+                        );
+                    }
                 }
             }
         }
-        if !self.image_segments.offered() {
-            return;
-        }
-        let px = |v: f32| canvas_scale::px(v, xf.z);
-        let anchor = Rect::from_center_size(screen, egui::Vec2::splat(px(12.0)));
-        let size = egui::vec2(
-            px(selection_tools::STACK_WIDTH),
-            px(selection_tools::CORNER_HEIGHT),
-        );
-        let rect =
-            selection_tools::place_popup(size, anchor, host_bounds, px(10.0), ui.clip_rect());
-        self.image_segments.action_rect = Some(rect);
-        self.image_segments.corridor = Some(anchor.union(rect).expand(px(6.0)));
-        self.shape_properties.chrome_hits.push(rect);
-        let label = if result.is_some() {
-            "Highlight"
-        } else if self.image_segments.error.is_some() {
-            "Highlight unavailable"
-        } else {
-            "Finding object..."
-        };
-        let response = selection_tools::capsule(
-            ui,
-            Id::new(("image_highlight", host_id.0)),
-            rect,
-            &selection_tools::Capsule {
-                label,
-                disabled: result.is_none(),
-                ..Default::default()
-            },
-            xf.z,
-            self.palette(),
-        );
-        if let Some(error) = &self.image_segments.error {
-            response.response.clone().on_hover_text(error);
-        }
-        if response.response.clicked() {
-            self.commit_hover_segment(None);
-        }
+        self.paint_sticker_ghost(painter, xf);
+        self.paint_segment_tag(ui, xf);
     }
 
     pub(crate) fn commit_hover_segment(&mut self, prompt: Option<&str>) -> Option<NodeId> {
@@ -305,8 +281,11 @@ impl SlateApp {
             self.image_segments.clear();
             return None;
         }
-        let id = self.commit_image_segment(result.host, result.local, prompt)?;
+        let host = result.host;
+        let id = self.commit_image_segment(host, result.local, prompt)?;
         self.image_segments.clear();
+        self.image_segments.layers_menu = Some(host);
+        self.image_segments.layers_fresh = true;
         Some(id)
     }
 

@@ -63,6 +63,29 @@ pub(crate) struct ImageSegmentRuntime {
     pub(super) corridor: Option<Rect>,
     pub(super) error: Option<String>,
     pub(super) dismissed: Option<Pos2>,
+    /// Click on the highlight: capsule tag above the cursor. Derived.
+    pub(super) tag_at: Option<Pos2>,
+    /// The click that opened the tag must not dismiss it in the same paint.
+    pub(super) tag_fresh: bool,
+    /// Screen rects of the open tag. Review sheets read this.
+    pub(crate) tag_rects: Vec<Rect>,
+    /// Press on the highlight that may become a sticker drag. Derived.
+    pub(super) grab: Option<Grab>,
+    pub(super) drag_delta: Option<egui::Vec2>,
+    /// Layer squircle at the top of the image. Derived; not a scene field.
+    pub(crate) layers_menu: Option<NodeId>,
+    pub(crate) layers_fresh: bool,
+    pub(super) layer_rects: Vec<Rect>,
+    /// `SLATE_SEGMENT_GROW=1` or a test sets this. Off by default.
+    pub(crate) grow_debug: bool,
+    pub(super) grow_past: Vec<std::sync::Arc<Vec<Vec<[f32; 2]>>>>,
+    pub(super) grow_last: Option<Pos2>,
+}
+
+pub(super) struct Grab {
+    pub(super) origin: Pos2,
+    pub(super) world: Pos2,
+    pub(super) moved: bool,
 }
 
 pub(super) struct Hover {
@@ -75,7 +98,7 @@ pub(super) struct Hover {
 }
 
 impl ImageSegmentRuntime {
-    /// A result, a running request, or an error is on screen as the capsule.
+    /// A result, a running request, or an error is the visible offer.
     pub(super) fn offered(&self) -> bool {
         self.result.is_some() || self.pending.is_some() || self.error.is_some()
     }
@@ -87,6 +110,13 @@ impl ImageSegmentRuntime {
         self.pending = None;
         self.action_rect = None;
         self.corridor = None;
+        self.tag_at = None;
+        self.tag_fresh = false;
+        self.tag_rects.clear();
+        self.grab = None;
+        self.drag_delta = None;
+        self.grow_past.clear();
+        self.grow_last = None;
     }
 
     pub(super) fn receive(&mut self) {
