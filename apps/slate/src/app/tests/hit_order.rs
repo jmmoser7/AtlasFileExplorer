@@ -122,3 +122,34 @@ fn a_picture_on_a_focused_page_is_dragged_and_the_page_hears_nothing() {
     );
     assert_eq!(h.app.doc().scene.node(page).unwrap().rect, frame);
 }
+
+/// The same rule over a focused File Atlas portal: the folder map does not
+/// claim a drag that starts on a picture lying on it.
+#[test]
+fn a_picture_on_a_focused_folder_map_is_dragged() {
+    let (mut h, atlas, _) = bound_atlas_lens("hit_image_over_atlas");
+    let frame = h.app.doc().scene.node(atlas).unwrap().rect;
+    h.app.zoom_to_rect(frame);
+    h.app.atlas_focus(atlas);
+    let picture = image_over(&mut h, frame);
+    h.frame();
+    let (world, _) = center_of(&h, picture);
+    let before = h.app.doc().scene.node(picture).unwrap().rect;
+    let step = before.w * 0.1;
+    let path: Vec<Pos2> = (0..=5)
+        .map(|i| world + EVec2::new(step * i as f32, 0.0))
+        .collect();
+    press_drag_release_frames(&mut h, &path, egui::Modifiers::NONE, |_| {});
+    let after = h.app.doc().scene.node(picture).unwrap().rect;
+    assert!(
+        (after.x - before.x - step * 5.0).abs() < 1.0,
+        "the picture moves with the drag: {} -> {}",
+        before.x,
+        after.x
+    );
+    assert_eq!(
+        h.app.atlas_lenses.focused, None,
+        "a press on the picture peels focus"
+    );
+    assert_eq!(h.app.doc().scene.node(atlas).unwrap().rect, frame);
+}
