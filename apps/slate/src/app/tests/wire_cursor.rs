@@ -24,6 +24,8 @@ fn hover_grip(h: &mut Harness, kind: &str) -> egui::CursorIcon {
         node.rect,
         slate_doc::scene::Side::Right,
     ));
+    // egui reports the canvas hovered from the second frame the pointer is over it.
+    h.frame_with(pointer_to(grip, false));
     let icon = h
         .frame_output(pointer_to(grip, false))
         .platform_output
@@ -71,4 +73,8 @@ fn wire_grab_zone_uses_a_grab_cursor_on_every_node_kind() {
     );
     h.app.add_nodes(vec![node]);
     assert_eq!(hover_grip(&mut h, "image"), egui::CursorIcon::Grab);
+
+    let mut h = web_board("wire_cursor_portal");
+    h.app.place_web_portal_at(Pos2::ZERO);
+    assert_eq!(hover_grip(&mut h, "web portal"), egui::CursorIcon::Grab);
 }
