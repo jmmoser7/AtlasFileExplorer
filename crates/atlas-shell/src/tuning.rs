@@ -33,7 +33,7 @@ pub fn forcefield_preview_locked() -> bool {
 }
 
 #[cfg(feature = "ui-tuner")]
-mod enabled {
+pub(crate) mod enabled {
     use crate::menu::{self, MenuIcon};
     use crate::tokens::{
         self, ActivityHeatmapTokens, BoardForcefieldTokens, BoardPreviewTokens, DockAdvancedTheme,
@@ -118,7 +118,7 @@ mod enabled {
 
     /// Returns whether the value changed, for dials that are a view onto some
     /// other token rather than the token itself.
-    fn scalar(
+    pub(crate) fn scalar(
         ui: &mut egui::Ui,
         label: &str,
         value: &mut f32,
@@ -1735,11 +1735,10 @@ mod enabled {
                 board_forcefield_editor(ui, &mut state.draft.board_forcefield);
 
                 readouts_editor(ui, &mut state.draft.readouts);
-
+                crate::tuning_corner::editor(ui, &mut state.draft);
                 activity_heatmap_editor(ui, &mut state.draft.activity_heatmap);
 
                 home_editor(ui, &mut state.draft.home);
-
                 slider_editor(ui, &mut state.draft.slider);
 
                 dock_partition_tracer_editor(ui, &mut state.draft.dock);

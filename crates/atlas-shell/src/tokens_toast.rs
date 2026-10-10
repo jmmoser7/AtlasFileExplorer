@@ -7,6 +7,7 @@ pub struct ToastTokens {
     pub max_width_px: f32,
     pub max_width_fraction: f32,
     pub min_width_px: f32,
+    /// Clear space between the lowest toast and the bottom palette's partition line.
     pub above_palette_gap: f32,
     pub stack_gap: f32,
     pub pad_x: f32,

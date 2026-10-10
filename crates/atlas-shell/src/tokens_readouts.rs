@@ -23,9 +23,12 @@ pub struct ReadoutTokens {
     pub chevron_hover_opacity: f32,
     pub chevron_hover_fill: f32,
     pub chevron_emboss: f32,
-    /// `0` uses [`super::DockTokens::icon_size`].
+    /// Suggestion-box button edge; `0` uses [`super::DockTokens::icon_size`]
+    /// so it matches the bottom tool palette.
     pub suggestion_size: f32,
+    /// Clear space between the chevron's hit rect and the button.
     pub suggestion_gap_from_chevron: f32,
+    /// Minimum distance from the canvas's left edge to the button.
     pub suggestion_inset_x: f32,
 }
 
@@ -49,8 +52,8 @@ impl Default for ReadoutTokens {
             chevron_hover_fill: 0.10,
             chevron_emboss: 0.22,
             suggestion_size: 0.0,
-            suggestion_gap_from_chevron: 10.0,
-            suggestion_inset_x: 12.0,
+            suggestion_gap_from_chevron: 6.0,
+            suggestion_inset_x: 16.0,
         }
     }
 }

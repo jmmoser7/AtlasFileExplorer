@@ -1,15 +1,15 @@
 //! Shared suggestion box: local report bundles, optional step recording.
 
 mod bundle;
+mod button;
 mod recorder;
 mod ui;
 
 pub use bundle::{default_reports_dir, repo_root_from, repo_root_from_exe, ReportJson};
+pub use button::suggestion_button;
 pub use recorder::RecordedStep;
 pub use recorder::{redact_paths_in_text, Recorder, RECORD_TIMEOUT};
-pub use ui::{
-    advanced_section, dialogs, paint_recording_chrome, suggestion_button, FeedbackUiOutput,
-};
+pub use ui::{advanced_section, dialogs, paint_recording_chrome, FeedbackUiOutput};
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;

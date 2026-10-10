@@ -8249,9 +8249,6 @@ impl AtlasApp {
 
     fn draw_toasts(&mut self, ctx: &egui::Context) {
         self.toasts.retain(|(_, t)| t.elapsed().as_secs_f32() < 4.0);
-        if self.toasts.is_empty() {
-            return;
-        }
         let palette = self.palette();
         let msgs: Vec<&str> = self.toasts.iter().map(|(m, _)| m.as_str()).collect();
         let _ = atlas_shell::toast::paint_stack(ctx, &palette, self.canvas_rect, &msgs);

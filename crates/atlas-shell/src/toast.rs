@@ -1,33 +1,69 @@
 //! Bottom toast stack — shared by File Atlas and Slate.
+//!
+//! Window chrome (P0.9 exception): screen-sized, centered on the canvas, and
+//! stacked upward from just above the bottom tool palette.
 
 use crate::canvas_corner::bottom_tool_palette_rect;
 use crate::theme::Palette;
-use crate::tokens;
-use eframe::egui::{
-    self, Align2, Color32, CornerRadius, FontId, Id, Pos2, Rect, RichText, Stroke, Vec2,
-};
+use crate::tokens::{self, ToastTokens};
+use eframe::egui::{self, Color32, CornerRadius, FontId, Galley, Id, Pos2, Rect, Stroke, Vec2};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
-fn measure_body(ctx: &egui::Context, text: &str, wrap_width: f32, t: &tokens::ToastTokens) -> Vec2 {
-    ctx.fonts(|fonts| {
-        let job = egui::text::LayoutJob::simple(
-            text.to_owned(),
-            FontId::proportional(t.text_size),
-            Color32::WHITE,
-            wrap_width,
-        );
-        let galley = fonts.layout_job(job);
-        galley.size() + Vec2::new(t.pad_x * 2.0, t.pad_y * 2.0)
-    })
+/// Set by the UI tuner's "Lock sample toasts open".
+pub(crate) static TUNER_PREVIEW: AtomicBool = AtomicBool::new(false);
+
+const TUNER_SAMPLES: [&str; 2] = [
+    "Copied 12 files to Destination — the originals stay where they were, and the \
+     journal can undo this.",
+    "Saved.",
+];
+
+/// Width the toast body text wraps at on a window `screen_width` wide.
+pub fn wrap_width(screen_width: f32, t: &ToastTokens) -> f32 {
+    t.max_width_px
+        .min(screen_width * t.max_width_fraction)
+        .max(t.min_width_px)
 }
 
-fn wrap_width(screen_width: f32, t: &tokens::ToastTokens) -> f32 {
-    (t.max_width_px.min(screen_width * t.max_width_fraction)).max(t.min_width_px)
-}
-
-/// Bottom edge (y) of the toast stack — above the tool palette.
+/// Bottom edge (y) of the toast stack: `above_palette_gap` above the bottom
+/// palette's partition line, which sits `partition_gap` above its icons.
 pub fn toast_stack_bottom_y(canvas: Rect) -> f32 {
+    let t = tokens::current();
+    bottom_tool_palette_rect(canvas).top() - t.dock.partition_gap - t.toast.above_palette_gap
+}
+
+/// Body rect and laid-out text for each toast, newest at the bottom.
+fn layout(
+    ctx: &egui::Context,
+    canvas: Rect,
+    screen_width: f32,
+    messages: &[&str],
+    ink: Color32,
+) -> Vec<(Rect, Arc<Galley>)> {
     let t = tokens::current().toast.clone();
-    bottom_tool_palette_rect(canvas).top() - t.above_palette_gap
+    let wrap = wrap_width(screen_width, &t);
+    let pad = Vec2::new(t.pad_x, t.pad_y);
+    let mut bottom = toast_stack_bottom_y(canvas);
+    let mut out = Vec::with_capacity(messages.len());
+    for msg in messages.iter().rev() {
+        let galley = ctx.fonts(|fonts| {
+            fonts.layout(
+                (*msg).to_owned(),
+                FontId::proportional(t.text_size),
+                ink,
+                wrap,
+            )
+        });
+        let size = galley.size() + pad * 2.0;
+        let rect = Rect::from_min_size(
+            Pos2::new(canvas.center().x - size.x * 0.5, bottom - size.y),
+            size,
+        );
+        bottom = rect.top() - t.stack_gap;
+        out.push((rect, galley));
+    }
+    out
 }
 
 /// Union rect of all toast bodies if painted on `canvas` with `screen_width`.
@@ -37,69 +73,45 @@ pub fn toast_stack_rect(
     screen_width: f32,
     messages: &[&str],
 ) -> Option<Rect> {
-    if messages.is_empty() {
-        return None;
-    }
-    let t = tokens::current().toast.clone();
-    let wrap = wrap_width(screen_width, &t);
-    let mut bottom = toast_stack_bottom_y(canvas);
-    let mut union: Option<Rect> = None;
-    for msg in messages {
-        let size = measure_body(ctx, msg, wrap, &t);
-        let rect = Rect::from_min_max(
-            Pos2::new(canvas.center().x - size.x * 0.5, bottom - size.y),
-            Pos2::new(canvas.center().x + size.x * 0.5, bottom),
-        );
-        union = Some(union.map_or(rect, |u| u.union(rect)));
-        bottom = rect.top() - t.stack_gap;
-    }
-    union
+    layout(ctx, canvas, screen_width, messages, Color32::WHITE)
+        .into_iter()
+        .map(|(rect, _)| rect)
+        .reduce(|a, b| a.union(b))
 }
 
-/// Paint toasts centered above the bottom tool palette. Returns the painted union rect.
+/// Paint toasts centered above the bottom tool palette, newest lowest.
+/// Call every frame, even with no messages, so the tuner preview can show.
+/// Returns the painted union rect.
 pub fn paint_stack(
     ctx: &egui::Context,
     palette: &Palette,
     canvas: Rect,
     messages: &[&str],
 ) -> Option<Rect> {
-    if messages.is_empty() {
-        return None;
-    }
+    let messages = if messages.is_empty() && TUNER_PREVIEW.load(Ordering::Relaxed) {
+        &TUNER_SAMPLES[..]
+    } else {
+        messages
+    };
     let t = tokens::current().toast.clone();
-    let screen_w = ctx.screen_rect().width();
-    let wrap = wrap_width(screen_w, &t);
-    let mut bottom = toast_stack_bottom_y(canvas);
+    let painter = ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Foreground,
+        Id::new("atlas_toasts"),
+    ));
+    let pad = Vec2::new(t.pad_x, t.pad_y);
+    let radius = CornerRadius::same(t.corner_radius.round() as u8);
     let mut union: Option<Rect> = None;
-    for (i, msg) in messages.iter().enumerate() {
-        let pos = Pos2::new(canvas.center().x, bottom);
-        let rect = egui::Area::new(Id::new(("atlas_toast", i)))
-            .fixed_pos(pos)
-            .pivot(Align2::CENTER_BOTTOM)
-            .order(egui::Order::Foreground)
-            .interactable(false)
-            .show(ctx, |ui| {
-                ui.set_max_width(wrap);
-                egui::Frame::popup(ui.style())
-                    .fill(palette.card)
-                    .stroke(Stroke::new(
-                        1.0_f32,
-                        palette.border_strong.gamma_multiply(0.85),
-                    ))
-                    .inner_margin(egui::Margin::symmetric(
-                        t.pad_x.round() as i8,
-                        t.pad_y.round() as i8,
-                    ))
-                    .corner_radius(CornerRadius::same(t.corner_radius.round() as u8))
-                    .show(ui, |ui| {
-                        ui.label(RichText::new(*msg).color(palette.ink).size(t.text_size));
-                    })
-                    .response
-                    .rect
-            })
-            .inner;
+    let screen_w = ctx.screen_rect().width();
+    for (rect, galley) in layout(ctx, canvas, screen_w, messages, palette.ink) {
+        painter.rect(
+            rect,
+            radius,
+            palette.window,
+            Stroke::new(1.0_f32, palette.border_strong),
+            egui::StrokeKind::Inside,
+        );
+        painter.galley(rect.min + pad, galley, palette.ink);
         union = Some(union.map_or(rect, |u| u.union(rect)));
-        bottom = rect.top() - t.stack_gap;
     }
     union
 }
@@ -107,31 +119,57 @@ pub fn paint_stack(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::canvas_corner::bottom_tool_palette_rect;
 
     fn canvas() -> Rect {
         Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(1440.0, 820.0))
     }
 
-    #[test]
-    fn toast_stack_sits_above_the_tool_palette() {
+    fn ctx() -> egui::Context {
         let ctx = egui::Context::default();
-        let canvas = canvas();
-        let msg = "Save the workbook first — assets travel beside the .slate file.";
-        let toast = toast_stack_rect(&ctx, canvas, 1440.0, &[msg]).expect("toast");
-        let palette = bottom_tool_palette_rect(canvas);
-        assert!(!toast.intersects(palette));
-        assert!(toast.bottom() <= palette.top() - tokens::current().toast.above_palette_gap + 0.5);
+        let _ = ctx.run(Default::default(), |_| {});
+        ctx
     }
 
     #[test]
-    fn long_toast_wraps_below_max_width() {
-        let ctx = egui::Context::default();
+    fn toast_stack_sits_above_the_tool_palette() {
+        let ctx = ctx();
+        let canvas = canvas();
+        let msg = "Save the workbook first — assets travel beside the .slate file.";
+        let toast = toast_stack_rect(&ctx, canvas, 1440.0, &[msg, msg]).expect("toast");
+        let palette = bottom_tool_palette_rect(canvas);
+        let t = tokens::current();
+        let partition_y = palette.top() - t.dock.partition_gap;
+        assert!(toast.bottom() <= partition_y - t.toast.above_palette_gap + 0.01);
+    }
+
+    #[test]
+    fn long_toast_wraps_at_the_max_width_never_one_word_per_line() {
+        let ctx = ctx();
         let t = tokens::current().toast.clone();
-        let wrap = (t.max_width_px.min(1440.0 * t.max_width_fraction)).max(t.min_width_px);
+        let wrap = wrap_width(1440.0, &t);
         let msg = "word ".repeat(80);
-        let size = measure_body(&ctx, &msg, wrap, &t);
-        assert!(size.x <= wrap + t.pad_x * 2.0 + 1.0);
-        assert!(size.y > t.text_size * 2.0, "multi-line wrap");
+        let toast = toast_stack_rect(&ctx, canvas(), 1440.0, &[&msg]).expect("toast");
+        let text_w = toast.width() - t.pad_x * 2.0;
+        assert!(text_w <= wrap + 1.0, "{text_w} wraps within {wrap}");
+        assert!(
+            text_w >= wrap * 0.8,
+            "{text_w} fills the line before wrapping"
+        );
+        assert!(toast.height() > t.text_size * 2.0, "multi-line wrap");
+    }
+
+    #[test]
+    fn short_toast_hugs_its_text() {
+        let ctx = ctx();
+        let t = tokens::current().toast.clone();
+        let toast = toast_stack_rect(&ctx, canvas(), 1440.0, &["Saved."]).expect("toast");
+        assert!(toast.width() < wrap_width(1440.0, &t) * 0.5);
+        assert!(toast.height() < t.text_size * 2.0 + t.pad_y * 2.0);
+    }
+
+    #[test]
+    fn narrow_window_still_wraps_at_the_minimum_width() {
+        let t = tokens::current().toast.clone();
+        assert!(wrap_width(320.0, &t) >= t.min_width_px);
     }
 }
