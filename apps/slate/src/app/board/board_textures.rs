@@ -1,6 +1,8 @@
 //! Texture lookup and selection glyphs.
 
 use super::*;
+use std::collections::HashMap;
+use std::path::PathBuf;
 
 /// Longest edge on the board is 320. Smaller sources stay at their pixel size.
 fn fit_board_image(mut w: f32, mut h: f32) -> (f32, f32) {
@@ -12,21 +14,25 @@ fn fit_board_image(mut w: f32, mut h: f32) -> (f32, f32) {
     (w * scale, h * scale)
 }
 
-/// Header size of a local picture, or one PDF page's media box. A missing
+/// Header size of a local picture, or one PDF page's box. `pages` keeps each
+/// document's page sizes so a whole unbundle reads its file once. A missing
 /// path is treated as cloud-only and skipped — never opened.
-fn source_pixel_size(path: &std::path::Path, pdf_page: u16) -> Option<(f32, f32)> {
-    if atlas_core::cloud::is_dehydrated(path) {
-        return None;
-    }
+fn source_pixel_size(
+    path: &std::path::Path,
+    pdf_page: u16,
+    pages: &mut HashMap<PathBuf, Vec<Option<(f32, f32)>>>,
+) -> Option<(f32, f32)> {
     match slate_doc::media_kind(path) {
-        slate_doc::MediaKind::Image => {
+        slate_doc::MediaKind::Image if !atlas_core::cloud::is_dehydrated(path) => {
             let (w, h) = image::image_dimensions(path).ok()?;
             (w > 0 && h > 0).then_some((w as f32, h as f32))
         }
-        slate_doc::MediaKind::Pdf => {
-            let bytes = std::fs::read(path).ok()?;
-            atlas_core::pdf_media::page_points(&bytes, pdf_page)
-        }
+        slate_doc::MediaKind::Pdf => pages
+            .entry(path.to_path_buf())
+            .or_insert_with(|| atlas_core::pdf_media::file_page_sizes(path))
+            .get(pdf_page as usize)
+            .copied()
+            .flatten(),
         _ => None,
     }
 }
@@ -150,28 +156,57 @@ impl SlateApp {
     }
 
     /// Natural pixel dimensions for an item, scaled to a sensible board size.
-    ///
-    /// Pasted and generated pictures are stored as `assets/…` locators
-    /// (`d780767`). Resolve them before reading the header: an unresolved
-    /// locator fails the cloud check closed and every picture lands in the
-    /// default 4:3 box.
     pub(crate) fn image_natural_size(&self, item: ItemId) -> (f32, f32) {
-        let Some((key, page, stored)) = self
-            .doc()
-            .item(item)
-            .map(|it| (it.cache_key.clone(), it.pdf_page, it.path.clone()))
-        else {
-            return fit_board_image(IMAGE_W, IMAGE_H);
-        };
-        let resolved =
-            slate_doc::scene::resolve_source(self.tab().path.as_deref(), &stored.to_string_lossy());
-        let (w, h) = self
-            .thumb_pixels
-            .get(&key)
-            .map(|img| (img.width() as f32, img.height() as f32))
-            .or_else(|| source_pixel_size(&resolved, page))
-            .unwrap_or((IMAGE_W, IMAGE_H));
-        fit_board_image(w, h)
+        self.image_natural_sizes(&[item])[0]
+    }
+
+    /// [`Self::image_natural_size`] for several items. The rendered thumbnail
+    /// wins (it carries EXIF orientation and the page as pdfium crops it);
+    /// before it lands, the file header answers. Pasted and generated
+    /// pictures store a workbook-relative `assets/…` locator, which is
+    /// resolved before any read.
+    pub(crate) fn image_natural_sizes(&self, items: &[ItemId]) -> Vec<(f32, f32)> {
+        let workbook = self.tab().path.as_deref();
+        let mut pages = HashMap::new();
+        items
+            .iter()
+            .map(|&item| {
+                let Some(it) = self.doc().item(item) else {
+                    return fit_board_image(IMAGE_W, IMAGE_H);
+                };
+                let (w, h) = self
+                    .thumb_pixels
+                    .get(&it.cache_key)
+                    .map(|img| (img.width() as f32, img.height() as f32))
+                    .or_else(|| {
+                        let path =
+                            super::super::image_composite::item_file(self.doc(), workbook, item)?;
+                        source_pixel_size(&path, it.pdf_page, &mut pages)
+                    })
+                    .unwrap_or((IMAGE_W, IMAGE_H));
+                fit_board_image(w, h)
+            })
+            .collect()
+    }
+
+    /// Each page at its own natural size, scaled so `active` covers the area
+    /// `card` already covers: unbundling keeps the size the person chose.
+    pub(crate) fn page_sizes_like(
+        &self,
+        items: &[ItemId],
+        active: usize,
+        card: WorldRect,
+    ) -> Vec<(f32, f32)> {
+        let sizes = self.image_natural_sizes(items);
+        let scale = sizes
+            .get(active)
+            .map(|&(w, h)| (card.w * card.h / (w * h)).sqrt())
+            .filter(|s| s.is_finite() && *s > 0.0)
+            .unwrap_or(1.0);
+        sizes
+            .into_iter()
+            .map(|(w, h)| (w * scale, h * scale))
+            .collect()
     }
 
     pub(super) fn paint_board_grid(
