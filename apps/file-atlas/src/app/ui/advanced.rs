@@ -189,6 +189,12 @@ pub fn window(app: &mut AtlasApp, ctx: &egui::Context) {
                 }
             });
             ui.add_space(6.0);
+            if let Some(error) = atlas_ai::ui::connections_section(&mut app.ai, ui, palette.sub) {
+                app.toast(error);
+            }
+            ui.add_space(12.0);
+            ui.separator();
+            ui.add_space(6.0);
             commands::shortcuts_reference_ui(ui);
         });
     if !open {

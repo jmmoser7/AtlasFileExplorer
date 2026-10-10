@@ -1,0 +1,8 @@
+{
+  "id": "sam",
+  "title": "Highlight",
+  "contract": "segment",
+  "contract_version": 1,
+  "install_note": "Run scripts/setup-segmentation.ps1 once to install the local model.",
+  "probe": { "kind": "custom", "id": "sam" }
+}

@@ -1,0 +1,8 @@
+{
+  "id": "cursor",
+  "title": "Cursor",
+  "contract": "chat",
+  "contract_version": 1,
+  "install_note": "Install Cursor. Opening the chooser looks again.",
+  "probe": { "kind": "custom", "id": "cursor" }
+}

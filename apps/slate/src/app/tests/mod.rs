@@ -35,6 +35,7 @@ mod line;
 mod media;
 mod media_guards;
 mod osnap;
+mod packs;
 mod page_focus;
 mod path_cuts;
 mod path_edit;

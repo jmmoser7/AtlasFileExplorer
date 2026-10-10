@@ -7,6 +7,25 @@ impl SlateApp {
     /// bottom, progress, the run button, and squares under the card for every
     /// result. A click on a square picks that result; the newest shows until
     /// then. Model, count, aspect, seed and Live live on the Agent squircle.
+    /// An agent's media card, then the caption naming a pack it needs that
+    /// did not answer this session.
+    pub(crate) fn paint_agent_media(
+        &mut self,
+        ui: &egui::Ui,
+        painter: &egui::Painter,
+        xf: &BoardXf,
+        node: &Node,
+        body: Rect,
+    ) {
+        if slate_doc::agent_chat::agent(node)
+            .is_some_and(|a| a.view == atlas_ai::agent::PortalView::Text)
+        {
+            self.paint_agent_text_window(ui, painter, xf, node, body);
+        } else {
+            self.paint_agent_picture(ui, painter, xf, node, body);
+        }
+        self.paint_pack_caption(painter, node, body, xf.z);
+    }
     pub(crate) fn paint_agent_picture(
         &mut self,
         ui: &egui::Ui,
@@ -299,7 +318,7 @@ impl SlateApp {
         Some(resolve_source(self.tab().path.as_deref(), &image.source))
     }
     pub(super) fn agent_background_pending(&self) -> bool {
-        self.agents.programs_rx.is_some()
+        self.ai.packs.in_flight()
             || self.agents.recents_rx.is_some()
             || self.agents.ide_inflight
             || self.agents.chats_rx.is_some()

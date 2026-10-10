@@ -120,7 +120,7 @@ pub fn floating_tools_dock(app: &mut AtlasApp, ctx: &egui::Context) {
             "mode" => mode_body(app, ui, theme),
             "workflow" => workflow_body(app, ui),
             "ai" => {
-                if current_body_layout(ui.ctx()) != DockBodyLayout::List {
+                if current_body_layout(ui.ctx()) != DockBodyLayout::List && app.ai.cursor_ok() {
                     let items = [FlyoutItem {
                         id: "ai.launch",
                         label: "Launch Cursor",

@@ -71,6 +71,8 @@ fn fixture_unpainted(name: &str) -> (Harness, NodeId) {
     h.app.set_board_tool(BoardTool::Select);
     h.app.doc_mut().view.active_view = slate_doc::ViewKind::Board;
     h.app.tab_mut().cam.z = 1.0;
+    h.app
+        .pin_pack_for_test("sam", atlas_ai::packs::PackHealth::Ok);
     let path = h.base.join("photo.png");
     image::RgbaImage::from_pixel(64, 64, image::Rgba([100, 130, 160, 255]))
         .save(&path)
@@ -193,6 +195,20 @@ fn segment_highlight_click_opens_a_tag_and_create_layer_does_not_move_the_photo(
         unreachable!()
     };
     assert!(img.paint_layers.is_empty());
+}
+
+#[test]
+fn a_machine_without_the_highlight_pack_is_never_offered_the_dwell() {
+    let (mut h, id) = fixture("segment_no_pack");
+    h.app
+        .pin_pack_for_test("sam", atlas_ai::packs::PackHealth::Missing);
+    let p = h
+        .app
+        .board_xf()
+        .rect_w2s(h.app.doc().scene.node(id).unwrap().rect)
+        .center();
+    move_to(&mut h, p);
+    assert!(h.app.image_segments.hover.is_none());
 }
 
 #[test]

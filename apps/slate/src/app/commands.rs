@@ -65,6 +65,9 @@ pub static SPECS: &[CommandSpec] = &[
     spec("app.updates.download", "Application", "Download update", "Update prompt → Download update", None, Repeat::Never, GLOBAL, &[]),
     spec("app.updates.install", "Application", "Update and restart", "Update prompt → Update and restart (save all workbooks first)", None, Repeat::Never, GLOBAL, &[]),
     spec("app.updates.later", "Application", "Dismiss update prompt", "Update prompt → Later", None, Repeat::Never, GLOBAL, &[]),
+    spec("app.packs.refresh", "Application", "Refresh connections", "Advanced → Connections → Refresh (probes every pack on a worker)", None, Repeat::Never, GLOBAL, &["packs", "probe"]),
+    spec("app.packs.forget", "Application", "Forget a trial pack", "Advanced → Connections → Forget", None, Repeat::Never, GLOBAL, &["packs", "trial"]),
+    spec("app.packs.openai_key", "Application", "Add OpenAI API key", "Generate chooser → OpenAI · add API key", None, Repeat::Never, GLOBAL, &["openai", "api key", "chatgpt"]),
     spec("board.media.image", "Board", "Media: Image", "Media > Image: choose images, PDFs, or PowerPoint", None, Repeat::Repeatable, BOARD, &["image", "picture", "pdf", "powerpoint", "ppt", "print media"]),
     spec("board.media.model", "Board", "Media: 3D", "Media > 3D: choose a 3D model (Rhino, OBJ, STL, glTF, or a recognized file such as Blender, DWG, or SketchUp)", None, Repeat::Repeatable, BOARD, &["3d", "rhino", "model", "3dm", "obj", "stl", "gltf", "blend", "dwg", "skp"]),
     spec("board.media.video", "Board", "Media: Video", "Media > Video: place a video. Hover across it to scrub; click to play", None, Repeat::Repeatable, BOARD, &["video", "movie", "mp4", "scrub"]),
@@ -86,16 +89,7 @@ pub static SPECS: &[CommandSpec] = &[
     spec("board.tool.arc", "Board", "Arc tool", "Shapes: pick three points for an arc. Shift = 45° from the last point; Tab locks the direction", None, Repeat::Repeatable, BOARD, &["arc", "curve"]),
     spec("board.tool.bezier", "Board", "Bezier span tool", "Shapes: place anchors and drag tangent handles. Shift = 45° from the last anchor; Tab locks the direction", None, Repeat::Repeatable, BOARD, &["bezier", "handles"]),
     // ----- Navigation -------------------------------------------------------
-    spec(
-        "nav.pan",
-        "Navigation",
-        "Pan (precise)",
-        "Left-drag or right-drag on canvas background",
-        None,
-        Repeat::Never,
-        GLOBAL,
-        &[],
-    ),
+    spec("nav.pan", "Navigation", "Pan (precise)", "Left-drag or right-drag on canvas background", None, Repeat::Never, GLOBAL, &[]),
     spec(
         "nav.turbo_pan",
         "Navigation",

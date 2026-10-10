@@ -573,15 +573,7 @@ impl SlateApp {
                 }
                 stroke_outline(painter, &outline, &img.stroke, z);
                 if img.agent.is_some() && !nested {
-                    let text_agent = img
-                        .agent
-                        .as_ref()
-                        .is_some_and(|a| a.view == atlas_ai::agent::PortalView::Text);
-                    if text_agent {
-                        self.paint_agent_text_window(ui, painter, xf, node, srect);
-                    } else {
-                        self.paint_agent_picture(ui, painter, xf, node, srect);
-                    }
+                    self.paint_agent_media(ui, painter, xf, node, srect);
                 }
             }
             NodeKind::Shape(s) => {

@@ -1,0 +1,8 @@
+{
+  "id": "ollama",
+  "title": "Ollama",
+  "contract": "chat",
+  "contract_version": 1,
+  "install_note": "Install Ollama and leave it running on this machine.",
+  "probe": { "kind": "http-get", "url": "http://127.0.0.1:11434/", "timeout_ms": 400 }
+}

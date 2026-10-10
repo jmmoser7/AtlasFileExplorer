@@ -7,6 +7,9 @@
 //! `slate_doc::agent_inputs`. Runs go through the generator queue. See
 //! `docs/keymap/contracts/portal-agent-link.md` (Flow ports, 23 September 2026).
 
+#[path = "board_flow_models.rs"]
+mod flow_models;
+
 use std::collections::HashMap;
 
 use atlas_ai::agent::{AgentRequest, PortalView};
@@ -54,15 +57,6 @@ fn model_index(models: &[(String, String, String)], choice: Option<&(String, Str
         })
         .or_else(|| models.iter().position(|m| &m.0 == provider))
         .unwrap_or(0)
-}
-
-/// The key field shows one bullet per key character: the bullets left are
-/// the characters kept, anything else was typed or pasted.
-fn absorb_key(draft: &mut AgentDraft, shown: &str) {
-    let kept = shown.chars().filter(|c| *c == '•').count();
-    let typed: String = shown.chars().filter(|c| *c != '•').collect();
-    let key = draft.key.get_or_insert_with(String::new);
-    *key = key.chars().take(kept).chain(typed.chars()).collect();
 }
 
 /// A seed to lock, from a fresh request id.
@@ -172,8 +166,6 @@ struct AgentDraft {
     seed: Option<u64>,
     live: bool,
     take_focus: bool,
-    /// An OpenAI key being pasted, shown masked.
-    key: Option<String>,
 }
 
 impl AgentDraft {
@@ -189,25 +181,6 @@ impl AgentDraft {
             seed: None,
             live: false,
             take_focus: true,
-            key: None,
-        }
-    }
-}
-
-/// Which remote engines this machine can reach. Read once, never per frame;
-/// saving a key refreshes it.
-#[derive(Clone, Copy)]
-struct Engines {
-    codex: bool,
-    openai: bool,
-}
-
-impl Engines {
-    fn probe() -> Self {
-        Self {
-            codex: atlas_ai::runtime::codex_executable().is_some(),
-            openai: atlas_core::secrets::health(atlas_ai::runtime::OPENAI_KEY_SLOT)
-                == atlas_core::secrets::SecretHealth::Ok,
         }
     }
 }
@@ -218,7 +191,6 @@ pub(crate) struct FlowUi {
     menu: Option<FlowMenu>,
     press: Option<(NodeId, Pos2)>,
     drafts: HashMap<NodeId, AgentDraft>,
-    engines: Option<Engines>,
     /// The prompt capsule of this frame is expanded for editing.
     capsule: Option<NodeId>,
     /// A generator's own prompt field has the caret.
@@ -1173,42 +1145,6 @@ impl SlateApp {
         }
     }
 
-    fn engines(&mut self) -> Engines {
-        *self.agents.flow.engines.get_or_insert_with(Engines::probe)
-    }
-
-    /// (provider, model, label) choices for image or text agents, across every
-    /// engine this machine reaches. The first is local, so no agent needs an
-    /// account (Art. I.4). Catalogs are discovered off-thread as they are needed.
-    pub(crate) fn agent_models(&mut self, image: bool) -> Vec<(String, String, String)> {
-        let engines = self.engines();
-        if image {
-            self.agents.want_catalog("comfy");
-            if engines.openai {
-                self.agents.want_catalog("openai-image");
-            }
-            return atlas_ai::runtime::image_models(
-                self.agents.catalog("comfy"),
-                engines.codex,
-                engines.openai,
-                self.agents.catalog("openai-image"),
-            );
-        }
-        self.agents.want_catalog("ollama");
-        if engines.codex {
-            self.agents.want_catalog("codex");
-        }
-        if engines.openai {
-            self.agents.want_catalog("openai-text");
-        }
-        atlas_ai::runtime::text_models(
-            self.agents.catalog("ollama"),
-            engines.codex.then(|| self.agents.catalog("codex")),
-            engines.openai,
-            self.agents.catalog("openai-text"),
-        )
-    }
-
     /// The model the person last chose for this kind of agent.
     pub(crate) fn default_model(&self, image: bool) -> Option<(String, String)> {
         if image {
@@ -1232,11 +1168,24 @@ impl SlateApp {
         }
     }
 
-    /// A saved key opens the OpenAI catalogs.
-    fn key_saved(&mut self) {
-        self.agents.flow.engines = None;
-        self.agents.refresh_catalog("openai-image");
-        self.agents.refresh_catalog("openai-text");
+    /// A picked row that only lacks the OpenAI key opens the key window
+    /// instead of binding a model that cannot run.
+    fn needs_openai_key(&mut self, provider: &str, label: &str) -> bool {
+        let missing = atlas_shell::selection_tools::needs_key_label(label)
+            || (provider.starts_with("openai") && !self.pack_ok(atlas_ai::packs::OPENAI));
+        if missing {
+            self.ai.packs.key_entry = true;
+        }
+        missing
+    }
+
+    /// Opens the model list of `source`'s Agent editor, as a click would.
+    #[cfg(test)]
+    pub(crate) fn open_agent_model_menu_for_test(&mut self, source: NodeId) {
+        let mut draft = AgentDraft::new();
+        draft.model_open = true;
+        draft.take_focus = false;
+        self.agents.flow.drafts.insert(source, draft);
     }
 
     /// The Agent squircle's editor for `source`. Returns open popup rects.
@@ -1275,22 +1224,10 @@ impl SlateApp {
             .iter()
             .map(|a| a.label())
             .collect();
-        let pasting = draft.key.is_some();
-        let hint = if pasting {
-            "Paste your OpenAI API key, then Submit. It stays in Windows Credential Manager."
-        } else if draft.image {
+        let hint = if draft.image {
             "Describe the picture to make, or the look to give this one"
         } else {
             "Ask for a description, a caption, or a rewrite"
-        };
-        let mut hidden = String::new();
-        let key_masked = draft.key.as_ref().map(|k| "•".repeat(k.chars().count()));
-        let prompt_text = match &key_masked {
-            Some(masked) => {
-                hidden.clone_from(masked);
-                &mut hidden
-            }
-            None => &mut draft.prompt,
         };
         let out = atlas_shell::selection_tools::agent_editor(
             ui,
@@ -1299,7 +1236,7 @@ impl SlateApp {
                 modes: &modes,
                 mode,
                 image: draft.image,
-                prompt: prompt_text,
+                prompt: &mut draft.prompt,
                 hint,
                 models: &labels,
                 model: index,
@@ -1318,19 +1255,20 @@ impl SlateApp {
         if out.prompt.focused {
             self.web_release_keyboard();
         }
-        if pasting && out.prompt.changed {
-            absorb_key(&mut draft, &hidden);
+        if draft.model_open {
+            self.note_program_chooser();
         }
         if let Some(mode) = out.mode {
             draft.image = MODALITIES
                 .get(mode)
                 .is_some_and(|m| m.kind == Some(SpawnKind::Image));
             draft.choice = None;
-            draft.key = None;
         }
-        if let Some((provider, model, _)) = out.model.and_then(|i| models.get(i)) {
-            draft.choice = Some((provider.clone(), model.clone()));
-            self.remember_model(draft.image, provider, model);
+        if let Some((provider, model, label)) = out.model.and_then(|i| models.get(i)) {
+            if !self.needs_openai_key(provider, label) {
+                draft.choice = Some((provider.clone(), model.clone()));
+                self.remember_model(draft.image, provider, model);
+            }
         }
         if let Some(count) = out.count {
             draft.count = count.clamp(1, 8);
@@ -1362,15 +1300,10 @@ impl SlateApp {
         draft: &mut AgentDraft,
         chosen: Option<(String, String)>,
     ) {
-        if self.save_pasted_key(draft) {
-            return;
-        }
         let Some((provider, model)) = chosen else {
             return;
         };
-        if provider.starts_with("openai") && !self.engines().openai {
-            draft.key = Some(String::new());
-            draft.take_focus = true;
+        if self.needs_openai_key(&provider, "") {
             return;
         }
         self.remember_model(draft.image, &provider, &model);
@@ -1399,25 +1332,6 @@ impl SlateApp {
         );
         // The source stays selected, so the next variation is one Submit away.
         self.board_sel = std::iter::once(source).collect();
-    }
-
-    /// A pasted OpenAI key goes to Credential Manager. True when a key was
-    /// being pasted, saved or not.
-    fn save_pasted_key(&mut self, draft: &mut AgentDraft) -> bool {
-        let Some(key) = draft.key.take() else {
-            return false;
-        };
-        match atlas_core::secrets::store(atlas_ai::runtime::OPENAI_KEY_SLOT, &key) {
-            Ok(()) => {
-                self.key_saved();
-                self.toast("OpenAI API key saved for this Windows user.");
-            }
-            Err(error) => {
-                self.toast(error);
-                draft.key = Some(String::new());
-            }
-        }
-        true
     }
 
     /// The squircle on a picture or note an agent makes edits that agent:
@@ -1468,18 +1382,12 @@ impl SlateApp {
             .iter()
             .position(|a| *a == agent.image.aspect)
             .unwrap_or(0);
-        let pasting = draft.key.is_some();
-        let hint = if pasting {
-            "Paste your OpenAI API key, then Submit. It stays in Windows Credential Manager."
-        } else if image {
+        let hint = if image {
             "Describe the picture. Submit makes it again."
         } else {
             "Tell the model what to write. Submit writes it again."
         };
-        let mut text = match &draft.key {
-            Some(key) => "•".repeat(key.chars().count()),
-            None => self.agents.prompt_mut(id).clone(),
-        };
+        let mut text = self.agents.prompt_mut(id).clone();
         let modes = [kind.modality().label];
         let out = atlas_shell::selection_tools::agent_editor(
             ui,
@@ -1508,17 +1416,13 @@ impl SlateApp {
             self.web_release_keyboard();
         }
         if out.prompt.changed {
-            if pasting {
-                absorb_key(&mut draft, &text);
-            } else {
-                *self.agents.prompt_mut(id) = text;
-            }
+            *self.agents.prompt_mut(id) = text;
         }
-        if let Some((provider, model, _)) = out.model.and_then(|i| models.get(i)) {
-            if provider.starts_with("openai") && !self.engines().openai {
-                draft.key = Some(String::new());
-                draft.take_focus = true;
-            } else {
+        if draft.model_open {
+            self.note_program_chooser();
+        }
+        if let Some((provider, model, label)) = out.model.and_then(|i| models.get(i)) {
+            if !self.needs_openai_key(provider, label) {
                 self.set_flow_model(id, image, provider, model);
             }
         }
@@ -1548,7 +1452,7 @@ impl SlateApp {
         if let Some(live) = out.live {
             self.set_generator_live(id, live);
         }
-        if out.submit && !self.save_pasted_key(&mut draft) {
+        if out.submit {
             self.commit_instruction(id);
             self.board_sel = std::iter::once(id).collect();
             if !agent.live {
@@ -1875,6 +1779,7 @@ impl SlateApp {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use super::super::tests::painted;
     use super::*;
     use slate_doc::agent_inputs::InputKind;
 
@@ -1898,6 +1803,8 @@ pub(crate) mod tests {
         h.app.ensure_work_tab();
         h.app.doc_mut().view.active_view = slate_doc::ViewKind::Board;
         h.app.ai.config.workspace_dir = Some(h.base.clone());
+        h.app
+            .pin_pack_for_test("comfy", atlas_ai::packs::PackHealth::Ok);
         h.app.place_agent_portal_at(Pos2::new(0.0, 0.0));
         let generator = h.app.doc().scene.nodes[0].id;
         h.app.set_agent_program(generator, "comfy");
@@ -2027,29 +1934,6 @@ pub(crate) mod tests {
     }
 
     /// Text shapes one real frame paints with the pointer at `pointer`.
-    fn painted(h: &mut super::super::tests::Harness, pointer: Pos2) -> Vec<String> {
-        fn walk(shape: &egui::Shape, out: &mut Vec<String>) {
-            match shape {
-                egui::Shape::Text(t) => out.push(t.galley.text().to_string()),
-                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
-                _ => {}
-            }
-        }
-        let mut input = egui::RawInput {
-            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1440.0, 900.0))),
-            ..Default::default()
-        };
-        input.events.push(egui::Event::PointerMoved(pointer));
-        let ctx = h.ctx.clone();
-        let app = &mut h.app;
-        let output = ctx.run(input, |c| app.update_app(c));
-        let mut texts = Vec::new();
-        for clipped in &output.shapes {
-            walk(&clipped.shape, &mut texts);
-        }
-        texts
-    }
-
     #[test]
     fn ports_show_near_a_generator_and_the_text_block_paints_its_controls() {
         let (mut h, generator) = generator_with_output("flow_paint");
@@ -2368,7 +2252,7 @@ pub(crate) mod tests {
     }
 
     /// A placed file on the board, like a drop.
-    fn place(h: &mut super::super::tests::Harness, name: &str, x: f32) -> NodeId {
+    pub(crate) fn place(h: &mut super::super::tests::Harness, name: &str, x: f32) -> NodeId {
         let path = h.base.join(name);
         if name.ends_with(".png") {
             image::RgbImage::new(8, 8).save(&path).unwrap();

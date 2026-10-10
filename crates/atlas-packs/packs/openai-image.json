@@ -1,0 +1,9 @@
+{
+  "id": "openai-image",
+  "title": "OpenAI",
+  "contract": "image",
+  "contract_version": 1,
+  "credential": "openai-api-key",
+  "install_note": "Add an API key. It stays on this machine, never in the workbook.",
+  "probe": { "kind": "custom", "id": "openai-key" }
+}

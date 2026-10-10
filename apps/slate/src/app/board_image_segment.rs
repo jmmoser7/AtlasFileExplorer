@@ -101,6 +101,9 @@ impl SlateApp {
             self.image_segments.clear();
             return;
         };
+        if !self.pack_ok("sam") && !self.image_segments.offered() {
+            return;
+        }
         let (true, Some(world)) = (hover_live, world) else {
             self.image_segments.clear();
             return;
