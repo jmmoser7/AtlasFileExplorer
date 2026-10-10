@@ -45,13 +45,8 @@ reason = "Slate app; extract one concern per module"
 
 [[entry]]
 file = "apps/slate/src/app/board.rs"
-ceiling = 3058
+ceiling = 3057
 reason = "Slate board interpreter; split on banner seams"
-
-[[entry]]
-file = "apps/slate/src/app/board_agent.rs"
-ceiling = 14333
-reason = "agent session UI; continue existing submodules"
 
 [[entry]]
 file = "apps/slate/src/app/board_agent/crosstalk.rs"
@@ -465,12 +460,12 @@ reason = "HTML export interpreter; slate-artifact"
 
 [[entry]]
 file = "crates/slate-artifact/src/lib.rs"
-ceiling = 1944
+ceiling = 1943
 reason = "HTML export interpreter; slate-artifact"
 
 [[entry]]
 file = "crates/slate-artifact/src/paint_layers.rs"
-ceiling = 808
+ceiling = 799
 reason = "HTML export interpreter; slate-artifact"
 
 [[entry]]
