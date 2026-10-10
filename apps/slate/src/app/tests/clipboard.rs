@@ -27,6 +27,48 @@ fn copying_a_picture_puts_its_bitmap_on_the_clipboard() {
     assert!(matches!(nodes[0].kind, slate_doc::NodeKind::Image(_)));
 }
 
+/// A picture stored as a workbook-relative `assets/pasted/…` locator still
+/// copies as a bitmap and names the resolved file on disk.
+#[test]
+fn copying_a_pasted_assets_picture_puts_its_bitmap_on_the_clipboard() {
+    use slate_doc::scene::{ImageNode, WorldRect};
+    let mut h = web_board("copy_pasted_assets_picture");
+    let book = h.base.join("Book.slate");
+    h.app.tab_mut().path = Some(book.clone());
+    let pasted =
+        atlas_core::workbook_assets::paste_dir(Some(&book), &atlas_core::index::data_dir())
+            .join("copy-paste.png");
+    if let Some(dir) = pasted.parent() {
+        std::fs::create_dir_all(dir).unwrap();
+    }
+    image::RgbaImage::from_fn(40, 20, |x, _| image::Rgba(if x < 20 { RED } else { BLUE }))
+        .save(&pasted)
+        .unwrap();
+    let item = h.app.item_for_path(&pasted).unwrap();
+    assert!(
+        h.app
+            .doc()
+            .item(item)
+            .unwrap()
+            .path
+            .to_string_lossy()
+            .replace('\\', "/")
+            .starts_with("assets/pasted/"),
+        "stored locator stays relative"
+    );
+    let node = h.app.doc_mut().scene.build_node(
+        WorldRect::new(0.0, 0.0, 200.0, 100.0),
+        slate_doc::NodeKind::Image(ImageNode::new(item)),
+    );
+    let id = h.app.add_nodes(vec![node])[0];
+    copy_selection(&mut h, &[id]);
+    let bitmap = copied_bitmap(&h);
+    assert_eq!(bitmap.dimensions(), (40, 20));
+    assert_eq!(bitmap.get_pixel(5, 10).0, RED);
+    let write = h.app.os_clipboard.last_write().unwrap();
+    assert_eq!(write.files, vec![pasted]);
+}
+
 /// The bitmap is the picture as displayed: rotation, crop, mirror, filters,
 /// and paint layers all land in the pixels.
 #[test]
