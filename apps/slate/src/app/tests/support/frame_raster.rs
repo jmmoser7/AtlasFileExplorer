@@ -186,6 +186,23 @@ pub(crate) fn snapshot(
     raster.save(&dir.join(format!("{name}.png")));
 }
 
+/// Save a look-and-feel review frame to `target/review/<item>/<state>.png`,
+/// where `item` is a request id from `docs/requests/` (e.g. `CT1`).
+pub(crate) fn review_shot(
+    h: &mut Harness,
+    raster: &mut FrameRaster,
+    out: egui::FullOutput,
+    item: &str,
+    state: &str,
+) {
+    rasterize(h, raster, out);
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../target/review")
+        .join(item);
+    std::fs::create_dir_all(&dir).unwrap();
+    raster.save(&dir.join(format!("{state}.png")));
+}
+
 /// Draw `out` into `raster` over black.
 pub(crate) fn rasterize(h: &mut Harness, raster: &mut FrameRaster, out: egui::FullOutput) {
     // Tiled strokes render on worker threads; let them land first.

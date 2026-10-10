@@ -39,6 +39,7 @@ mod page_focus;
 mod path_cuts;
 mod path_edit;
 mod previews;
+mod review;
 mod selection_chrome;
 mod sheet;
 mod split_gp;
