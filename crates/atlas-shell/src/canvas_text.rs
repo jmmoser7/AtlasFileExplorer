@@ -90,14 +90,22 @@
 //!
 //! [`layout`] wraps at the on-screen width. egui rounds every glyph advance
 //! to a physical pixel, so the same word can cross the line's capacity when
-//! the camera moves and the raster size changes. Authored text must not do
-//! that: a line break is a property of the text, the typeface, the world
-//! font size, and the world wrap width.
+//! the camera moves and the raster size changes. Canvas text that wraps —
+//! authored or derived, a text node or a chat transcript — must not do that:
+//! a line break is a property of the text, the typeface, the world font
+//! size, and the world wrap width. [`layout`] and [`layout_rows`] are for
+//! text whose wrap width is not a world quantity.
 //!
 //! [`world_layout`] shapes once at a fixed 64-physical-pixel reference and
-//! caches the breaks. [`zoom_galley`] paints those lines through the same
-//! ladder as [`layout_no_wrap`], each line at its world position times the
-//! zoom, so only the rasterization changes with the camera.
+//! records every line and every glyph position in world units. Painting goes
+//! through [`world_text`] (or [`zoom_galley`] when egui needs a screen-space
+//! galley, as an inline editor does). Each rasterizes the lines at a ladder
+//! rung and moves every glyph to its recorded position, so the block is the
+//! same shape at every zoom and only the glyph bitmaps change. Neither is
+//! keyed by zoom: a gesture builds one galley per rung it crosses and never
+//! shapes. Glyph advances inside a line are therefore the reference ones
+//! too; laying a line out at the rung size and keeping its own advances
+//! would slide words a pixel at each rung.
 //!
 //! The HTML artifact does not share this cache. It writes the same world
 //! font size and the same box — shape text keeps its 8px padding — as CSS
@@ -169,9 +177,6 @@ use eframe::egui::{
     self, emath::TSTransform, epaint::TextShape, Align2, Color32, FontId, Galley, Painter, Pos2,
     Rect, Shape, Vec2,
 };
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 /// Ladder step, as a fraction of an octave. Four steps per doubling is a 19%
@@ -388,566 +393,13 @@ fn ladder_font(pixels_per_point: f32, font: FontId) -> (FontId, f32) {
     (FontId::new(raster / ppp, font.family), wanted / raster)
 }
 
-// ---------------------------------------------------------------------------
-// World-space line breaks
-// ---------------------------------------------------------------------------
-
-/// Physical pixels of the one raster a line break is shaped at.
-///
-/// High enough that a one-pixel advance round is a small fraction of a word,
-/// and independent of the camera. The world font size only scales the wrap
-/// width into this raster and the resulting rows back out.
-const REFERENCE_PX: f32 = 64.0;
-
-/// How many world layouts are kept. A camera move does not add a key; an
-/// edit does. Past this, the least recently used entry is dropped.
-const WORLD_CACHE_CAP: usize = 256;
-
-/// One wrapped line, in the same units as the font size and wrap width
-/// (world units, for board text).
-#[derive(Clone, Debug)]
-pub struct WorldLine {
-    /// Bytes of the source this line paints. Excludes a trailing newline.
-    pub bytes: std::ops::Range<usize>,
-    /// Glyph left edge after alignment.
-    pub x: f32,
-    /// Top of the line box.
-    pub y: f32,
-    /// Advance width of the glyphs.
-    pub width: f32,
-    /// Line box height.
-    pub height: f32,
-    /// This row ended on a `\n` in the source. The last row of a galley never
-    /// does — a trailing newline is its own empty row after this one.
-    pub ends_with_newline: bool,
-}
-
-/// Line breaks for one string at one world size and wrap width.
-#[derive(Clone, Debug)]
-pub struct WorldLayout {
-    pub lines: Vec<WorldLine>,
-    /// Wrap width, or the widest row when the wrap is unbounded.
-    pub width: f32,
-    /// Block height. The first line starts at y = 0.
-    pub height: f32,
-}
-
-#[derive(Clone, PartialEq, Eq, Hash)]
-enum FamilyKey {
-    Proportional,
-    Monospace,
-    Name(Arc<str>),
-}
-
-struct Slot {
-    text: String,
-    family: FamilyKey,
-    size_bits: u32,
-    wrap_bits: u32,
-    align: u8,
-    ppp_bits: u32,
-    layout: Arc<WorldLayout>,
-    used: u64,
-}
-
-struct WorldCache {
-    buckets: HashMap<u64, Vec<Slot>>,
-    len: usize,
-    clock: u64,
-    shapes: u64,
-}
-
-impl WorldCache {
-    fn new() -> Self {
-        Self {
-            buckets: HashMap::new(),
-            len: 0,
-            clock: 0,
-            shapes: 0,
-        }
-    }
-}
-
-thread_local! {
-    static WORLD_CACHE: RefCell<WorldCache> = RefCell::new(WorldCache::new());
-}
-
-fn family_key(family: &egui::FontFamily) -> FamilyKey {
-    match family {
-        egui::FontFamily::Proportional => FamilyKey::Proportional,
-        egui::FontFamily::Monospace => FamilyKey::Monospace,
-        egui::FontFamily::Name(name) => FamilyKey::Name(Arc::clone(name)),
-    }
-}
-
-fn align_tag(align: egui::Align) -> u8 {
-    match align {
-        egui::Align::Center => 1,
-        egui::Align::Max => 2,
-        egui::Align::Min => 0,
-    }
-}
-
-fn cache_hash(
-    text: &str,
-    family: &FamilyKey,
-    size_bits: u32,
-    wrap_bits: u32,
-    align: u8,
-    ppp_bits: u32,
-) -> u64 {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    text.hash(&mut hasher);
-    family.hash(&mut hasher);
-    size_bits.hash(&mut hasher);
-    wrap_bits.hash(&mut hasher);
-    align.hash(&mut hasher);
-    ppp_bits.hash(&mut hasher);
-    hasher.finish()
-}
-
-/// How many times line breaking has shaped text on this thread.
-///
-/// A cache hit does not increment it. Painting a cached layout at another
-/// zoom goes through [`zoom_galley`] and does not either — that path only
-/// rasterizes the lines already chosen.
-pub fn world_layout_shapes() -> u64 {
-    WORLD_CACHE.with(|cache| cache.borrow().shapes)
-}
-
-/// Drop cached line breaks. The next layout of the same text shapes again.
-pub fn clear_world_layout_cache() {
-    WORLD_CACHE.with(|cache| *cache.borrow_mut() = WorldCache::new());
-    ZOOM_CACHE.with(|cache| *cache.borrow_mut() = ZoomCache::default());
-}
-
-/// Break `text` in world units. Zoom is not an input.
-///
-/// `font.size` and `wrap_width` share one unit system. An unbounded wrap
-/// (`f32::INFINITY`) keeps each paragraph on one line. The same key returns
-/// the cached breaks and does not shape again.
-pub fn world_layout(
-    ctx: &egui::Context,
-    text: &str,
-    font: FontId,
-    wrap_width: f32,
-    align: egui::Align,
-) -> Arc<WorldLayout> {
-    let wrap = if wrap_width.is_finite() {
-        wrap_width.max(0.0)
-    } else {
-        f32::INFINITY
-    };
-    let size = font.size.max(1.0e-3);
-    let family = family_key(&font.family);
-    let size_bits = size.to_bits();
-    let wrap_bits = wrap.to_bits();
-    let align_bits = align_tag(align);
-    let ppp_bits = ctx.pixels_per_point().to_bits();
-    let hash = cache_hash(text, &family, size_bits, wrap_bits, align_bits, ppp_bits);
-
-    if let Some(hit) = WORLD_CACHE.with(|cache| {
-        let mut cache = cache.borrow_mut();
-        cache.clock = cache.clock.wrapping_add(1);
-        let used = cache.clock;
-        let slot = cache.buckets.get_mut(&hash).and_then(|slots| {
-            slots.iter_mut().find(|slot| {
-                slot.text == text
-                    && slot.family == family
-                    && slot.size_bits == size_bits
-                    && slot.wrap_bits == wrap_bits
-                    && slot.align == align_bits
-                    && slot.ppp_bits == ppp_bits
-            })
-        })?;
-        slot.used = used;
-        Some(Arc::clone(&slot.layout))
-    }) {
-        return hit;
-    }
-
-    let layout = Arc::new(shape_world(ctx, text, font, size, wrap, align));
-    WORLD_CACHE.with(|cache| {
-        let mut cache = cache.borrow_mut();
-        cache.shapes += 1;
-        cache.clock += 1;
-        let used = cache.clock;
-        cache.buckets.entry(hash).or_default().push(Slot {
-            text: text.to_owned(),
-            family,
-            size_bits,
-            wrap_bits,
-            align: align_bits,
-            ppp_bits,
-            layout: Arc::clone(&layout),
-            used,
-        });
-        cache.len += 1;
-        if cache.len > WORLD_CACHE_CAP {
-            evict_oldest(&mut cache);
-        }
-    });
-    layout
-}
-
-fn evict_oldest(cache: &mut WorldCache) {
-    let mut oldest: Option<(u64, usize, u64)> = None;
-    for (hash, slots) in &cache.buckets {
-        for (index, slot) in slots.iter().enumerate() {
-            let replace = oldest.is_none_or(|(_, _, used)| slot.used < used);
-            if replace {
-                oldest = Some((*hash, index, slot.used));
-            }
-        }
-    }
-    if let Some((hash, index, _)) = oldest {
-        if let Some(slots) = cache.buckets.get_mut(&hash) {
-            slots.swap_remove(index);
-            if slots.is_empty() {
-                cache.buckets.remove(&hash);
-            }
-            cache.len = cache.len.saturating_sub(1);
-        }
-    }
-}
-
-fn shape_world(
-    ctx: &egui::Context,
-    text: &str,
-    font: FontId,
-    world_size: f32,
-    wrap: f32,
-    align: egui::Align,
-) -> WorldLayout {
-    let ppp = ctx.pixels_per_point().max(0.01);
-    let logical = REFERENCE_PX / ppp;
-    let to_world = world_size / logical;
-    let wrap_logical = if wrap.is_finite() {
-        wrap / to_world
-    } else {
-        f32::INFINITY
-    };
-    let mut job = egui::text::LayoutJob::default();
-    job.wrap.max_width = wrap_logical;
-    job.halign = egui::Align::LEFT;
-    job.append(
-        text,
-        0.0,
-        egui::TextFormat {
-            font_id: FontId::new(logical, font.family.clone()),
-            color: Color32::PLACEHOLDER,
-            ..Default::default()
-        },
-    );
-    let galley = ctx.fonts(|fonts| fonts.layout_job(job));
-
-    let mut byte = 0;
-    let mut lines = Vec::with_capacity(galley.rows.len());
-    for row in &galley.rows {
-        let start = byte;
-        for glyph in &row.glyphs {
-            let Some(ch) = text[byte..].chars().next() else {
-                break;
-            };
-            debug_assert_eq!(ch, glyph.chr, "shaper glyph diverged from the source");
-            byte += ch.len_utf8();
-        }
-        let end = byte;
-        if row.ends_with_newline && text[byte..].starts_with('\n') {
-            byte += 1;
-        }
-        let glyph_w = row.rect.width() * to_world;
-        let glyph_left = row.rect.min.x * to_world;
-        lines.push(WorldLine {
-            bytes: start..end,
-            x: glyph_left,
-            y: row.rect.min.y * to_world,
-            width: glyph_w,
-            height: row.rect.height() * to_world,
-            ends_with_newline: row.ends_with_newline,
-        });
-    }
-    debug_assert!(
-        byte == text.len() || text[byte..].chars().all(|ch| ch == '\n'),
-        "line breaks did not cover the source"
-    );
-
-    let content_w = lines.iter().map(|line| line.width).fold(0.0, f32::max);
-    let box_w = if wrap.is_finite() { wrap } else { content_w };
-    for line in &mut lines {
-        let dx = match align {
-            egui::Align::Center => (box_w - line.width) * 0.5,
-            egui::Align::Max => box_w - line.width,
-            egui::Align::Min => 0.0,
-        };
-        line.x += dx;
-    }
-    let height = galley.rect.height() * to_world;
-    WorldLayout {
-        lines,
-        width: box_w,
-        height,
-    }
-}
-
-/// A screen-space galley of `layout`'s lines.
-///
-/// Each line is rasterized on the ladder at `screen_font` and placed at
-/// `world position × zoom`. The row text is `layout`'s; zoom does not
-/// rebreak it. Glyph positions and the mesh are the same geometry, so a
-/// caret hit-tested against this galley sits on the ink.
-///
-/// Cached by layout identity, text, font, color, zoom and pixels per point:
-/// a repaint with the camera still returns the same `Arc` without
-/// allocating. A zoom gesture misses once per frame per visible text, and
-/// those entries age out of the bounded cache.
-pub fn zoom_galley(
-    ctx: &egui::Context,
-    text: &str,
-    layout: &Arc<WorldLayout>,
-    screen_font: FontId,
-    color: Color32,
-    zoom: f32,
-) -> Arc<Galley> {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    text.hash(&mut hasher);
-    let text_hash = hasher.finish();
-    let family = family_key(&screen_font.family);
-    let size_bits = screen_font.size.to_bits();
-    let zoom_bits = zoom.to_bits();
-    let ppp_bits = ctx.pixels_per_point().to_bits();
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    (
-        Arc::as_ptr(layout) as usize,
-        text_hash,
-        size_bits,
-        zoom_bits,
-    )
-        .hash(&mut hasher);
-    (ppp_bits, color.to_array(), &family).hash(&mut hasher);
-    let key = hasher.finish();
-    let hit = ZOOM_CACHE.with(|cache| {
-        let mut cache = cache.borrow_mut();
-        cache.clock = cache.clock.wrapping_add(1);
-        let used = cache.clock;
-        let slot = cache.buckets.get_mut(&key).and_then(|slots| {
-            slots.iter_mut().find(|slot| {
-                Arc::ptr_eq(&slot.layout, layout)
-                    && slot.text_hash == text_hash
-                    && slot.text_len == text.len()
-                    && slot.size_bits == size_bits
-                    && slot.zoom_bits == zoom_bits
-                    && slot.ppp_bits == ppp_bits
-                    && slot.color == color
-                    && slot.family == family
-            })
-        })?;
-        slot.used = used;
-        Some(Arc::clone(&slot.galley))
-    });
-    if let Some(galley) = hit {
-        return galley;
-    }
-    let galley = build_zoom_galley(ctx, text, layout, screen_font, color, zoom);
-    ZOOM_CACHE.with(|cache| {
-        let mut cache = cache.borrow_mut();
-        cache.builds += 1;
-        let used = cache.clock;
-        cache.buckets.entry(key).or_default().push(ZoomSlot {
-            layout: Arc::clone(layout),
-            text_hash,
-            text_len: text.len(),
-            family,
-            size_bits,
-            color,
-            zoom_bits,
-            ppp_bits,
-            galley: Arc::clone(&galley),
-            used,
-        });
-        cache.len += 1;
-        if cache.len > ZOOM_CACHE_CAP {
-            let oldest = cache
-                .buckets
-                .iter()
-                .flat_map(|(key, slots)| {
-                    slots
-                        .iter()
-                        .enumerate()
-                        .map(move |(index, slot)| (*key, index, slot.used))
-                })
-                .min_by_key(|(_, _, used)| *used);
-            if let Some((key, index, _)) = oldest {
-                if let Some(slots) = cache.buckets.get_mut(&key) {
-                    slots.swap_remove(index);
-                    if slots.is_empty() {
-                        cache.buckets.remove(&key);
-                    }
-                }
-                cache.len -= 1;
-            }
-        }
-    });
-    galley
-}
-
-/// How many screen galleys [`zoom_galley`] has built on this thread. A
-/// repaint at the same zoom does not increment it.
-pub fn zoom_galley_builds() -> u64 {
-    ZOOM_CACHE.with(|cache| cache.borrow().builds)
-}
-
-/// Most screen galleys [`zoom_galley`] keeps.
-const ZOOM_CACHE_CAP: usize = 512;
-
-struct ZoomSlot {
-    /// Held so the layout's address cannot be reused while this entry lives.
-    layout: Arc<WorldLayout>,
-    text_hash: u64,
-    text_len: usize,
-    family: FamilyKey,
-    size_bits: u32,
-    color: Color32,
-    zoom_bits: u32,
-    ppp_bits: u32,
-    galley: Arc<Galley>,
-    used: u64,
-}
-
-#[derive(Default)]
-struct ZoomCache {
-    buckets: HashMap<u64, Vec<ZoomSlot>>,
-    len: usize,
-    clock: u64,
-    builds: u64,
-}
-
-thread_local! {
-    static ZOOM_CACHE: RefCell<ZoomCache> = RefCell::new(ZoomCache::default());
-}
-
-fn build_zoom_galley(
-    ctx: &egui::Context,
-    text: &str,
-    layout: &WorldLayout,
-    screen_font: FontId,
-    color: Color32,
-    zoom: f32,
-) -> Arc<Galley> {
-    let zoom = if zoom.is_finite() { zoom.max(0.0) } else { 0.0 };
-    let (ladder_font, scale) = ladder_font(ctx.pixels_per_point(), screen_font.clone());
-    let mut rows = Vec::with_capacity(layout.lines.len());
-    let mut mesh_bounds = Rect::NOTHING;
-    let mut num_vertices = 0;
-    let mut num_indices = 0;
-
-    ctx.fonts(|fonts| {
-        for line in &layout.lines {
-            let slice = text.get(line.bytes.clone()).unwrap_or("");
-            if slice.is_empty() {
-                rows.push(empty_row(line, zoom, line.ends_with_newline));
-                continue;
-            }
-            let laid =
-                fonts.layout_no_wrap(slice.to_owned(), ladder_font.clone(), Color32::PLACEHOLDER);
-            let Some(src) = laid.rows.first() else {
-                rows.push(empty_row(line, zoom, line.ends_with_newline));
-                continue;
-            };
-            let origin = egui::vec2(line.x, line.y) * zoom;
-            let translate = origin - src.rect.min.to_vec2() * scale;
-            let mut glyphs = Vec::with_capacity(src.glyphs.len());
-            for glyph in &src.glyphs {
-                let mut glyph = *glyph;
-                glyph.pos = (glyph.pos.to_vec2() * scale + translate).to_pos2();
-                glyph.advance_width *= scale;
-                glyph.line_height *= scale;
-                glyph.font_ascent *= scale;
-                glyph.font_height *= scale;
-                glyph.font_impl_ascent *= scale;
-                glyph.font_impl_height *= scale;
-                glyphs.push(glyph);
-            }
-            let mut mesh = src.visuals.mesh.clone();
-            for vertex in &mut mesh.vertices {
-                vertex.pos = (vertex.pos.to_vec2() * scale + translate).to_pos2();
-                vertex.color = color;
-            }
-            let row_mesh_bounds = if mesh.vertices.is_empty() {
-                Rect::NOTHING
-            } else {
-                mesh.calc_bounds()
-            };
-            mesh_bounds = mesh_bounds.union(row_mesh_bounds);
-            num_vertices += mesh.vertices.len();
-            num_indices += mesh.indices.len();
-            let rect = Rect::from_min_size(
-                egui::pos2(line.x * zoom, line.y * zoom),
-                egui::vec2(src.rect.width() * scale, line.height * zoom),
-            );
-            rows.push(egui::epaint::text::Row {
-                section_index_at_start: src.section_index_at_start,
-                glyphs,
-                rect,
-                visuals: egui::epaint::text::RowVisuals {
-                    mesh,
-                    mesh_bounds: row_mesh_bounds,
-                    glyph_index_start: src.visuals.glyph_index_start,
-                    glyph_vertex_range: src.visuals.glyph_vertex_range.clone(),
-                },
-                ends_with_newline: line.ends_with_newline,
-            });
-        }
-    });
-
-    if rows.is_empty() {
-        rows.push(empty_row(
-            &WorldLine {
-                bytes: 0..0,
-                x: 0.0,
-                y: 0.0,
-                width: 0.0,
-                height: screen_font.size.max(0.0),
-                ends_with_newline: false,
-            },
-            1.0,
-            false,
-        ));
-    }
-
-    let job = egui::text::LayoutJob::simple(
-        text.to_owned(),
-        screen_font,
-        Color32::PLACEHOLDER,
-        (layout.width * zoom).max(0.0),
-    );
-    Arc::new(Galley {
-        job: Arc::new(job),
-        rows,
-        elided: false,
-        rect: Rect::from_min_size(
-            Pos2::ZERO,
-            egui::vec2(layout.width * zoom, layout.height * zoom),
-        ),
-        mesh_bounds,
-        num_vertices,
-        num_indices,
-        pixels_per_point: ctx.pixels_per_point(),
-    })
-}
-
-fn empty_row(line: &WorldLine, zoom: f32, ends_with_newline: bool) -> egui::epaint::text::Row {
-    egui::epaint::text::Row {
-        section_index_at_start: 0,
-        glyphs: Vec::new(),
-        rect: Rect::from_min_size(
-            egui::pos2(line.x * zoom, line.y * zoom),
-            egui::vec2(0.0, line.height * zoom),
-        ),
-        visuals: Default::default(),
-        ends_with_newline,
-    }
-}
+mod raster;
+mod world;
+pub use raster::{rung_galley_builds, world_text, world_wrapped, zoom_galley, zoom_galley_builds};
+pub use world::{
+    clear_world_layout_cache, world_layout, world_layout_rows, world_layout_shapes, WorldLayout,
+    WorldLine,
+};
 
 #[cfg(test)]
 mod tests {
@@ -1192,9 +644,8 @@ mod tests {
         zoom: f32,
     ) -> Vec<String> {
         let font = FontId::proportional(size);
-        let layout = world_layout(ctx, text, font.clone(), wrap, align);
-        let screen = FontId::new(size * zoom, font.family);
-        let galley = zoom_galley(ctx, text, &layout, screen, Color32::WHITE, zoom);
+        let layout = world_layout(ctx, text, font, wrap, align);
+        let galley = zoom_galley(ctx, &layout, Color32::WHITE, zoom);
         let chars: usize = galley
             .rows
             .iter()
@@ -1246,27 +697,13 @@ mod tests {
             let expected = {
                 let font = FontId::monospace(13.0);
                 let layout = world_layout(ctx, mono, font.clone(), 90.0, egui::Align::LEFT);
-                let galley = zoom_galley(
-                    ctx,
-                    mono,
-                    &layout,
-                    FontId::monospace(13.0),
-                    Color32::WHITE,
-                    1.0,
-                );
+                let galley = zoom_galley(ctx, &layout, Color32::WHITE, 1.0);
                 row_text(&galley)
             };
             for zoom in ZOOM_SWEEP {
                 let font = FontId::monospace(13.0);
                 let layout = world_layout(ctx, mono, font.clone(), 90.0, egui::Align::LEFT);
-                let galley = zoom_galley(
-                    ctx,
-                    mono,
-                    &layout,
-                    FontId::new(13.0 * zoom, font.family),
-                    Color32::WHITE,
-                    zoom,
-                );
+                let galley = zoom_galley(ctx, &layout, Color32::WHITE, zoom);
                 assert_eq!(row_text(&galley), expected);
             }
         });
@@ -1290,14 +727,7 @@ mod tests {
             let line = &layout.lines[1];
             let world = egui::vec2(line.x + 2.0, line.y + line.height * 0.5);
             for zoom in ZOOM_SWEEP {
-                let galley = zoom_galley(
-                    ctx,
-                    text,
-                    &layout,
-                    FontId::proportional(16.0 * zoom),
-                    Color32::WHITE,
-                    zoom,
-                );
+                let galley = zoom_galley(ctx, &layout, Color32::WHITE, zoom);
                 let cursor = galley.cursor_from_pos(world * zoom);
                 assert_eq!(cursor.rcursor.row, 1, "caret left its line at zoom {zoom}");
             }
@@ -1315,20 +745,55 @@ mod tests {
             assert_eq!(world_layout_shapes(), before + 1);
             for zoom in ZOOM_SWEEP {
                 let _ = world_layout(ctx, text, font.clone(), 120.0, egui::Align::LEFT);
-                let _ = zoom_galley(
-                    ctx,
-                    text,
-                    &layout,
-                    FontId::proportional(20.0 * zoom),
-                    Color32::WHITE,
-                    zoom,
-                );
+                let _ = zoom_galley(ctx, &layout, Color32::WHITE, zoom);
             }
             assert_eq!(
                 world_layout_shapes(),
                 before + 1,
                 "pure zoom reshaped the paragraph"
             );
+        });
+    }
+
+    #[test]
+    fn glyphs_scale_uniformly_and_rungs_do_not_reshape() {
+        let text = "Glyph positions scale with the camera; words never slide inside a line.";
+        with_ctx(|ctx| {
+            clear_world_layout_cache();
+            let layout = world_layout(
+                ctx,
+                text,
+                FontId::proportional(14.0),
+                180.0,
+                egui::Align::Center,
+            );
+            let shapes = world_layout_shapes();
+            let world: Vec<Vec<Pos2>> = layout
+                .lines
+                .iter()
+                .map(|line| {
+                    let x = line.glyph_x.iter().map(|gx| line.x + gx);
+                    x.map(|x| egui::pos2(x, line.baseline)).collect()
+                })
+                .collect();
+            for zoom in [0.25, 0.5, 0.8, 1.0, 1.5, 2.0, 3.0, 4.0] {
+                let scaled = world_text(ctx, &layout, zoom);
+                let galley = scaled.galley();
+                for (row, want) in galley.rows.iter().zip(&world) {
+                    assert_eq!(row.glyphs.len(), want.len(), "zoom {zoom}");
+                    for (glyph, want) in row.glyphs.iter().zip(want) {
+                        let got = glyph.pos.to_vec2() * scaled.scale();
+                        let err = (got - want.to_vec2() * zoom).length();
+                        assert!(err < 0.5, "glyph off by {err}px at zoom {zoom}");
+                    }
+                }
+            }
+            let builds = rung_galley_builds();
+            for step in 0..40 {
+                let _ = world_text(ctx, &layout, 1.0 + step as f32 * 0.001);
+            }
+            assert!(rung_galley_builds() - builds <= 1, "a small zoom crossed many rungs");
+            assert_eq!(world_layout_shapes(), shapes, "painting reshaped the text");
         });
     }
 
@@ -1340,14 +805,7 @@ mod tests {
             let font = FontId::proportional(18.0);
             let paint = |text: &str, zoom: f32| {
                 let layout = world_layout(ctx, text, font.clone(), 140.0, egui::Align::LEFT);
-                zoom_galley(
-                    ctx,
-                    text,
-                    &layout,
-                    FontId::proportional(18.0 * zoom),
-                    Color32::WHITE,
-                    zoom,
-                )
+                zoom_galley(ctx, &layout, Color32::WHITE, zoom)
             };
             let first = paint(text, 1.5);
             let builds = zoom_galley_builds();
@@ -1358,10 +816,10 @@ mod tests {
             assert_eq!(zoom_galley_builds(), builds + 1, "a new zoom must rebuild");
             let edited = paint("a note that was edited", 1.5);
             assert!(!Arc::ptr_eq(&first, &edited));
-            for i in 0..(ZOOM_CACHE_CAP + 8) {
+            for i in 0..(raster::ZOOM_CACHE_CAP + 8) {
                 let _ = paint(text, 1.0 + i as f32 * 0.001);
             }
-            ZOOM_CACHE.with(|cache| assert!(cache.borrow().len <= ZOOM_CACHE_CAP));
+            raster::CACHES.with(|caches| assert!(caches.borrow().zoom.len() <= raster::ZOOM_CACHE_CAP));
         });
     }
 }

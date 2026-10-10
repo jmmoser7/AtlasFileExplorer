@@ -242,16 +242,14 @@ impl SlateApp {
             ));
         }
     }
-    pub(super) fn agent_text_key(&self, painter: &egui::Painter, z: f32) -> (u64, u64, u64) {
+    /// What invalidates cached agent text. The camera is deliberately absent:
+    /// line breaks are world-unit layouts and must not change with zoom.
+    pub(super) fn agent_text_key(&self) -> (u64, u64, u64) {
         let palette = self.palette();
         (
             self.agents.output_epoch,
             self.doc().scene.scene_gen(),
-            ((z * painter.ctx().pixels_per_point() * 8.0)
-                .ceil()
-                .to_bits() as u64)
-                << 32
-                | u32::from_le_bytes(palette.ink.to_array()) as u64,
+            u32::from_le_bytes(palette.ink.to_array()) as u64,
         )
     }
     pub(super) fn paint_agent_bundle(
@@ -298,7 +296,7 @@ impl SlateApp {
             let Some(binding) = slate_doc::agent_chat::agent(member) else {
                 continue;
             };
-            let key = self.agent_text_key(painter, xf.z * 5.0 / 13.0);
+            let key = self.agent_text_key();
             let mut cache = self.agents.summary_cache.borrow_mut();
             if cache.get(id).is_none_or(|e| (e.0, e.1, e.2) != key) {
                 let turns = self.agent_all_turns(*id);
@@ -316,26 +314,16 @@ impl SlateApp {
                     .collect::<Vec<_>>()
                     .join(" ");
                 let excerpt: String = text.chars().take(100).collect();
-                let miniature = canvas_text::layout(
-                    painter,
-                    excerpt,
-                    FontId::proportional(5.0 * xf.z),
-                    palette.ink,
-                    52.0 * xf.z,
+                let miniature = canvas_text::world_layout(
+                    painter.ctx(),
+                    &excerpt,
+                    FontId::proportional(5.0),
+                    52.0,
+                    egui::Align::LEFT,
                 );
-                cache.insert(
-                    *id,
-                    (
-                        key.0,
-                        key.1,
-                        key.2,
-                        miniature.galley(),
-                        miniature.scale() / xf.z,
-                    ),
-                );
+                cache.insert(*id, (key.0, key.1, key.2, miniature));
             }
-            let entry = &cache[id];
-            let miniature = canvas_text::Scaled::from_galley(entry.3.clone(), entry.4 * xf.z);
+            let miniature = canvas_text::world_text(painter.ctx(), &cache[id].3, xf.z);
             miniature.paint(
                 &painter.with_clip_rect(mini.shrink(4.0 * xf.z)),
                 origin + egui::vec2(6.0, 17.0) * xf.z,
@@ -377,7 +365,7 @@ impl SlateApp {
         } else {
             palette.ink
         };
-        let key = self.agent_text_key(&painter, z);
+        let key = self.agent_text_key();
         let key = if from_agent {
             (key.0, key.1, key.2 ^ (1 << 63))
         } else {
@@ -394,19 +382,17 @@ impl SlateApp {
                 .map(|t| t.text.as_str())
                 .collect::<Vec<_>>()
                 .join("\n\n");
-            let font = FontId::proportional(13.0 * z);
-            let wrap = ((node.rect.w - 24.0) * z).max(1.0);
-            let laid = match max_rows {
-                Some(rows) => canvas_text::layout_rows(&painter, excerpt, font, ink, wrap, rows),
-                None => canvas_text::layout(&painter, excerpt, font, ink, wrap),
-            };
-            cache.insert(
-                node.id,
-                (key.0, key.1, key.2, laid.galley(), laid.scale() / z),
+            let layout = canvas_text::world_layout_rows(
+                painter.ctx(),
+                &excerpt,
+                FontId::proportional(13.0),
+                (node.rect.w - 24.0).max(1.0),
+                egui::Align::LEFT,
+                max_rows.unwrap_or(usize::MAX),
             );
+            cache.insert(node.id, (key.0, key.1, key.2, layout));
         }
-        let entry = &cache[&node.id];
-        let laid = canvas_text::Scaled::from_galley(entry.3.clone(), entry.4 * z);
+        let laid = canvas_text::world_text(painter.ctx(), &cache[&node.id].3, z);
         drop(cache);
         let mut offset = 0.0;
         if max_rows.is_none() && agent.chat.size.is_some() {

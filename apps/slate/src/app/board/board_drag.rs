@@ -125,9 +125,8 @@ pub(super) fn zoom_text_galley(
     color: Color32,
     zoom: f32,
 ) -> std::sync::Arc<egui::Galley> {
-    let layout = canvas_text::world_layout(ctx, text, font.clone(), world_wrap, egui_align(align));
-    let screen = FontId::new(font.size * zoom, font.family);
-    canvas_text::zoom_galley(ctx, text, &layout, screen, color, zoom)
+    let layout = canvas_text::world_layout(ctx, text, font, world_wrap, egui_align(align));
+    canvas_text::zoom_galley(ctx, &layout, color, zoom)
 }
 
 /// Excerpt type size on a text document card, in world units.
@@ -232,7 +231,7 @@ pub(crate) struct StickyFit {
 
 pub(super) fn center_galley_vertically(galley: &mut egui::Galley, box_h: f32) {
     let dy = (box_h - galley.rect.height()) * 0.5;
-    if dy <= 0.5 {
+    if dy <= 0.0 {
         return;
     }
     for row in &mut galley.rows {

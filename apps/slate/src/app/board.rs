@@ -757,12 +757,7 @@ impl SlateApp {
                     // A sticky centers its block by moving where the cached
                     // galley paints, as `center_galley_vertically` does for the editor.
                     let dy = if sticky {
-                        let dy = (srect.height() - laid.rect.height()) * 0.5;
-                        if dy > 0.5 {
-                            dy
-                        } else {
-                            0.0
-                        }
+                        ((srect.height() - laid.rect.height()) * 0.5).max(0.0)
                     } else {
                         0.0
                     };

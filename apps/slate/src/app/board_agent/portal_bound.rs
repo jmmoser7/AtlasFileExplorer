@@ -2,6 +2,9 @@
 
 use super::*;
 
+/// Transcript type size, in world units.
+const TRANSCRIPT_TEXT_PX: f32 = 14.0;
+
 impl SlateApp {
     /// Chevron just left of the ellipsis. Dead center steps one level; the
     /// bands above and below jump. Returns the zone's command detail.
@@ -116,7 +119,7 @@ impl SlateApp {
         let z = xf.z.max(0.01);
         let palette = self.palette();
         let body = layout.body;
-        let font = FontId::proportional(canvas_text::authored_px(14.0, z));
+        let font = FontId::proportional(canvas_text::authored_px(TRANSCRIPT_TEXT_PX, z));
         if !canvas_text::legible(font.size) {
             return;
         }
@@ -218,7 +221,7 @@ impl SlateApp {
             chat_ui.style_mut().visuals = palette.visuals();
             chat_ui.style_mut().override_font_id = Some(font.clone());
             chat_ui.spacing_mut().item_spacing = egui::vec2(8.0 * z, 12.0 * z);
-            let text_key = self.agent_text_key(painter, z);
+            let text_key = self.agent_text_key();
             let responding = matches!(
                 self.agents.awaiting.get(&node.id),
                 Some(AgentAwait::Responding { .. })
@@ -285,7 +288,8 @@ impl SlateApp {
                         let from_agent = user
                             .then(|| relayed.get(&(agent.session.clone(), first_turn + index)))
                             .flatten();
-                        let wrap = (width * if user { 0.78 } else { 0.94 } - 20.0 * z).max(1.0);
+                        let world_wrap =
+                            (width / z * if user { 0.78 } else { 0.94 } - 20.0).max(1.0);
                         let ink = if turn.role == "system" {
                             palette.sub
                         } else if from_agent.is_some() {
@@ -312,21 +316,23 @@ impl SlateApp {
                             .get(&cache_id)
                             .is_none_or(|e| (e.0, e.1, e.2) != text_key)
                         {
-                            let laid =
-                                canvas_text::layout(ui.painter(), text, font.clone(), ink, wrap);
+                            let layout = canvas_text::world_layout(
+                                ui.ctx(),
+                                &text,
+                                FontId::proportional(TRANSCRIPT_TEXT_PX),
+                                world_wrap,
+                                egui::Align::LEFT,
+                            );
                             self.agents.transcript_cache.insert(
                                 cache_id,
-                                (
-                                    text_key.0,
-                                    text_key.1,
-                                    text_key.2,
-                                    laid.galley(),
-                                    laid.scale() / z,
-                                ),
+                                (text_key.0, text_key.1, text_key.2, layout),
                             );
                         }
-                        let entry = &self.agents.transcript_cache[&cache_id];
-                        let laid = canvas_text::Scaled::from_galley(entry.3.clone(), entry.4 * z);
+                        let laid = canvas_text::world_text(
+                            ui.ctx(),
+                            &self.agents.transcript_cache[&cache_id].3,
+                            z,
+                        );
                         let size = laid.size() + egui::vec2(20.0, 20.0) * z;
                         let (row, _) =
                             ui.allocate_exact_size(egui::vec2(width, size.y), Sense::hover());
