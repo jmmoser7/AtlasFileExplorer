@@ -1547,7 +1547,7 @@ pub(crate) fn brush_stamp(
                     let tip = mark.tips.get(i).or(mark.tips.first()).copied();
                     vector_ink::TipPoint {
                         pos: [x, y],
-                        tip: tip.map(&tip_of).unwrap_or(base),
+                        tip: tip.map(tip_of).unwrap_or(base),
                     }
                 })
                 .collect()
