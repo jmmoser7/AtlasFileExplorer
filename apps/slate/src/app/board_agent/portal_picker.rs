@@ -131,19 +131,20 @@ impl SlateApp {
                     ui.style_mut().visuals = palette.visuals();
                     ui.spacing_mut().item_spacing.y = 0.0;
                     if canvas_text::legible(title_px) {
-                        let galley = tracked_galley(
-                            ui,
+                        let laid = tracked_label(
+                            ui.ctx(),
                             heading_label,
-                            title_px,
+                            15.0,
+                            0.4,
+                            heading.width() / z,
+                            z,
+                        );
+                        laid.paint_anchored(
+                            ui.painter(),
+                            heading.left_center(),
+                            Align2::LEFT_CENTER,
                             palette.ink.gamma_multiply(0.78),
-                            canvas_scale::px(0.4, z),
-                            heading.width(),
                         );
-                        let pos = Pos2::new(
-                            heading.left(),
-                            heading.center().y - galley.size().y * 0.5,
-                        );
-                        ui.painter().galley(pos, galley, palette.ink);
                     }
                     ui.add_space(heading.height());
                     let row_fill = palette.ink.gamma_multiply(if palette.dark_mode {
@@ -221,19 +222,23 @@ impl SlateApp {
                                     if resp.hovered() { row_hover } else { row_fill },
                                 );
                                 let text_w = (rect.width() - canvas_scale::px(44.0, z)).max(8.0);
-                                let galley = tracked_galley(
-                                    ui,
+                                let laid = tracked_label(
+                                    ui.ctx(),
                                     &chat.title,
-                                    row_px,
+                                    13.5,
+                                    0.08,
+                                    text_w / z,
+                                    z,
+                                );
+                                laid.paint_anchored(
+                                    ui.painter(),
+                                    Pos2::new(
+                                        rect.left() + canvas_scale::px(14.0, z),
+                                        rect.center().y,
+                                    ),
+                                    Align2::LEFT_CENTER,
                                     palette.ink,
-                                    canvas_scale::px(0.08, z),
-                                    text_w,
                                 );
-                                let text_pos = Pos2::new(
-                                    rect.left() + canvas_scale::px(14.0, z),
-                                    rect.center().y - galley.size().y * 0.5,
-                                );
-                                ui.painter().galley(text_pos, galley, palette.ink);
                                 let chev = Rect::from_center_size(
                                     Pos2::new(
                                         rect.right() - canvas_scale::px(16.0, z),

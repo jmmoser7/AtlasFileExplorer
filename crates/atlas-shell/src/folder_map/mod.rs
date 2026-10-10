@@ -10,6 +10,9 @@
 mod cam;
 mod collapse;
 mod input;
+mod labels;
+#[cfg(test)]
+mod labels_tests;
 mod paint;
 
 pub use cam::FolderCam;

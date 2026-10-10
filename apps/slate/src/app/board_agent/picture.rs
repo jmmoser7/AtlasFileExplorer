@@ -219,12 +219,13 @@ impl SlateApp {
             _ => view.error.clone(),
         };
         if let Some(reason) = failure {
-            let text = canvas_text::layout(
-                painter,
-                reason,
-                canvas_scale::font(GENERATOR_CHIP_PX, z),
-                ink.warn,
-                body.width() - canvas_scale::px(24.0, z),
+            let text = canvas_text::world_wrapped(
+                painter.ctx(),
+                &reason,
+                egui::FontId::proportional(GENERATOR_CHIP_PX),
+                body.width() / z.max(0.01) - 24.0,
+                usize::MAX,
+                z,
             );
             let at = Pos2::new(body.left() + canvas_scale::px(12.0, z), text_top);
             let back = Rect::from_min_size(at, text.size()).expand(canvas_scale::px(5.0, z));

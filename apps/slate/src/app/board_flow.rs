@@ -11,7 +11,7 @@ use std::collections::HashMap;
 
 use atlas_ai::agent::{AgentRequest, PortalView};
 use atlas_shell::{canvas_scale, canvas_text};
-use eframe::egui::{self, Align2, Color32, Id, Pos2, Rect};
+use eframe::egui::{self, Align2, Id, Pos2, Rect};
 use slate_doc::agent_inputs::{self, InputKind, OUTPUT_T};
 use slate_doc::scene::{ConnectorEnd, NodeId, NodeKind, PortalNode, SceneCmd, Side};
 use slate_doc::wire::connector_route_in_scene;
@@ -1041,14 +1041,14 @@ impl SlateApp {
         let own = self.agent_text_window_owned(id);
         if let Some(reply) = &reply {
             if !own && !running {
-                let laid = canvas_text::layout(
-                    painter,
-                    reply.clone(),
-                    canvas_scale::font(BLOCK_TEXT_PX, z),
-                    Color32::WHITE,
-                    body.width(),
+                let laid = canvas_text::world_layout(
+                    painter.ctx(),
+                    reply,
+                    egui::FontId::proportional(BLOCK_TEXT_PX),
+                    body.width() / z.max(0.01),
+                    egui::Align::LEFT,
                 );
-                self.fit_agent_note(id, reply, laid.size().y / z.max(0.01));
+                self.fit_agent_note(id, reply, laid.height);
             }
         }
         let hovered = ui
@@ -1081,12 +1081,13 @@ impl SlateApp {
             .map(str::to_string)
             .filter(|_| !running);
         if let Some(reason) = failure {
-            let laid = canvas_text::layout(
-                painter,
-                reason,
-                canvas_scale::font(super::board_agent::GENERATOR_CHIP_PX, z),
-                ink.warn,
-                body.width() - px(24.0),
+            let laid = canvas_text::world_wrapped(
+                painter.ctx(),
+                &reason,
+                egui::FontId::proportional(super::board_agent::GENERATOR_CHIP_PX),
+                body.width() / z.max(0.01) - 24.0,
+                usize::MAX,
+                z,
             );
             let at = Pos2::new(body.left() + px(12.0), body.top() + px(12.0));
             paint_overlay_pill(
@@ -1815,29 +1816,28 @@ impl SlateApp {
         }
         let ink = self.palette().overlay();
         paint_overlay_pill(painter, capsule, capsule.height() * 0.5, ink.fill, &ink, z);
-        let font = canvas_scale::font(super::board_agent::GENERATOR_CHIP_PX, z);
         let shown = if label.is_empty() {
             "Add a prompt".to_string()
         } else {
             format!("“{label}”")
         };
-        let laid = canvas_text::layout_rows(
-            painter,
-            shown,
-            font,
-            if label.is_empty() {
-                ink.muted
-            } else {
-                ink.text
-            },
-            capsule.width() - px(24.0),
+        let laid = canvas_text::world_wrapped(
+            painter.ctx(),
+            &shown,
+            egui::FontId::proportional(super::board_agent::GENERATOR_CHIP_PX),
+            capsule.width() / z.max(0.01) - 24.0,
             1,
+            z,
         );
         laid.paint_anchored(
             &painter.with_clip_rect(capsule),
             Pos2::new(capsule.left() + px(12.0), capsule.center().y),
             Align2::LEFT_CENTER,
-            ink.text,
+            if label.is_empty() {
+                ink.muted
+            } else {
+                ink.text
+            },
         );
         if !open {
             return;
@@ -1887,8 +1887,8 @@ pub(crate) mod tests {
         let dark = h.app.palette().overlay();
         assert_ne!(light.fill, dark.fill);
         assert_ne!(light.text, dark.text);
-        assert_eq!(dark.fill, Color32::from_black_alpha(175));
-        assert_eq!(dark.text, Color32::WHITE);
+        assert_eq!(dark.fill, egui::Color32::from_black_alpha(175));
+        assert_eq!(dark.text, egui::Color32::WHITE);
     }
 
     /// A ComfyUI generator with one finished picture in its album.

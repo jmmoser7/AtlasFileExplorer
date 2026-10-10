@@ -2,6 +2,22 @@
 
 use super::*;
 
+impl SlateApp {
+    /// Replace an agent card's transcript with one assistant turn, as a stream
+    /// delivering `text` would.
+    pub(crate) fn set_assistant_turn_for_test(&mut self, id: NodeId, text: &str) {
+        self.agents.local_turns.insert(
+            id,
+            vec![AgentTurn {
+                role: "assistant".into(),
+                text: text.into(),
+                at: 0,
+            }],
+        );
+        self.agents.output_epoch += 1;
+    }
+}
+
 #[test]
 fn agent_history_cache_tracks_live_drag_and_grip_suppresses_resize() {
     let mut h = super::super::tests::Harness::new("live_chat_rails");
@@ -60,16 +76,17 @@ fn agent_full_transcript_scales_without_rewrapping_between_raster_steps() {
     h.app.agents.output_epoch += 1;
     h.frame();
     let first = h.app.agents.transcript_cache[&(id, 0)].clone();
-    let logical_width = first.3.size().x * first.4;
     let r = h.app.doc().scene.node(id).unwrap().rect;
     h.app.tab_mut().cam.offset.x = r.x + r.w * 0.5;
     h.app.tab_mut().cam.offset.y = r.y + r.h * 0.5;
-    for z in [1.01, 1.02, 1.03] {
+    for z in [1.01, 1.02, 1.03, 0.3, 2.7] {
         h.app.tab_mut().cam.z = z;
         h.frame();
         let current = &h.app.agents.transcript_cache[&(id, 0)];
-        assert_eq!(current.3.rows.len(), first.3.rows.len());
-        assert!((current.3.size().x * current.4 - logical_width).abs() < 0.5);
+        assert!(
+            std::sync::Arc::ptr_eq(&current.3, &first.3),
+            "zoom {z} relaid the transcript"
+        );
     }
 }
 
@@ -209,7 +226,7 @@ fn agent_draft_focus_enter_send_and_text_sizing() {
 }
 
 #[test]
-fn agent_summary_cache_refreshes_for_theme_and_zoom() {
+fn agent_summary_cache_refreshes_for_theme_but_not_zoom() {
     let mut h = super::super::tests::Harness::new("agent_summary_raster");
     h.app.leave_home();
     h.app.ensure_work_tab();
@@ -244,7 +261,10 @@ fn agent_summary_cache_refreshes_for_theme_and_zoom() {
     h.app.tab_mut().cam.z = 3.0;
     h.frame();
     let zoom = h.app.agents.transcript_cache[&(id, 0)].2;
-    assert_ne!(zoom, light, "high zoom must re-rasterize text");
+    assert_eq!(
+        zoom, light,
+        "zoom must not invalidate world-unit line breaks"
+    );
 }
 
 #[test]
