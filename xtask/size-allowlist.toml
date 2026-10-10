@@ -344,11 +344,6 @@ ceiling = 560
 reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]
-file = "crates/atlas-shell/src/canvas_text.rs"
-ceiling = 825
-reason = "shared chrome/canvas; Art. X owner atlas-shell"
-
-[[entry]]
 file = "crates/atlas-shell/src/covers.rs"
 ceiling = 620
 reason = "shared chrome/canvas; Art. X owner atlas-shell"
