@@ -5339,6 +5339,7 @@ impl SlateApp {
         };
         let dt = ui.input(|i| i.unstable_dt);
         self.tick_hover_preview(hover_target, dt, ui.ctx());
+        self.tick_image_segment_hover(ui, &xf, hover_live && !align_hovered, pointer, wp);
         brush_prof::lap("hover");
 
         // Adjustment previews must show authored color/stroke without selection tint.
@@ -5502,9 +5503,10 @@ impl SlateApp {
         self.paint_crosstalk(ui, &painter, &xf);
         self.paint_trim_preview(&painter, &xf);
         self.paint_align_widget(&painter, &xf, &palette, select_tint);
-        if self.board_crop.is_none() {
+        if self.board_crop.is_none() && !self.image_segment_preview_live() {
             self.paint_hover_preview(&selection_painter, &xf, palette.select);
         }
+        self.paint_image_segment_hover(ui, &selection_painter, &xf);
 
         // Crop-mode overlay: ghosted full image, scrim, crop border +
         // handles, content grabber.

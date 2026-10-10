@@ -24,8 +24,17 @@ pub struct PaintLayer {
     pub opacity: f32,
     #[serde(default = "default_true")]
     pub visible: bool,
+    /// Agent instructions pinned to specific layer children.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub prompts: Vec<PaintLayerPrompt>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub nodes: Vec<Node>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PaintLayerPrompt {
+    pub node: NodeId,
+    pub prompt: String,
 }
 
 fn default_layer_opacity() -> f32 {
@@ -42,6 +51,7 @@ impl PaintLayer {
             id,
             opacity: 1.0,
             visible: true,
+            prompts: Vec::new(),
             nodes: Vec::new(),
         }
     }
@@ -165,6 +175,72 @@ pub fn find_layer_node(scene: &crate::scene::Scene, id: NodeId) -> Option<LayerN
         }
     }
     None
+}
+
+/// Only visible, still-present paint regions contribute instructions.
+pub fn region_prompts(img: &ImageNode) -> Vec<String> {
+    img.paint_layers
+        .iter()
+        .filter(|layer| layer.visible)
+        .flat_map(|layer| {
+            layer.prompts.iter().filter_map(move |p| {
+                layer
+                    .nodes
+                    .iter()
+                    .any(|n| n.id == p.node)
+                    .then(|| p.prompt.trim().to_string())
+            })
+        })
+        .filter(|p| !p.is_empty())
+        .collect()
+}
+
+/// A segmentation mask becomes ordinary SVG-compatible, even-odd paint geometry.
+/// Coordinates cover the image's normalized content, including holes.
+pub fn region_path(contours: Vec<Vec<[f32; 2]>>) -> Option<crate::scene::PathData> {
+    use crate::scene::{PathContour, PathData, PathFillRule, PathSeg};
+    let mut contours = contours.into_iter().filter(|points| points.len() >= 3);
+    let first = contours.next()?;
+    let contour = |points: Vec<[f32; 2]>| PathContour {
+        start: points[0],
+        segs: points[1..].iter().map(|&to| PathSeg::Line { to }).collect(),
+        closed: true,
+    };
+    let first = contour(first);
+    Some(PathData {
+        start: first.start,
+        segs: first.segs,
+        closed: true,
+        extra: contours.map(contour).collect(),
+        fill_rule: PathFillRule::EvenOdd,
+        ..Default::default()
+    })
+}
+
+/// The visible crop/fillet/trim window in content coordinates, for image masks.
+pub fn visible_window_norm(host: &Node, img: &ImageNode) -> Vec<Vec<[f32; 2]>> {
+    let contours = if host.clip.is_some() {
+        crate::geom::node_closed_poly(host, 0.25).unwrap_or_default()
+    } else {
+        vec![img
+            .corner
+            .outline(host.rect, 0.25)
+            .into_iter()
+            .map(|p| host.rect.rotate_point(p, host.rotation_deg))
+            .collect()]
+    };
+    contours
+        .into_iter()
+        .map(|contour| {
+            contour
+                .into_iter()
+                .map(|p| {
+                    let (x, y) = world_to_host_norm(host, img, p[0], p[1]);
+                    [x, y]
+                })
+                .collect()
+        })
+        .collect()
 }
 
 #[cfg(test)]

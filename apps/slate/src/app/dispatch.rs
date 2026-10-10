@@ -125,7 +125,6 @@ impl SlateApp {
                 self.start_tool_desktop_sample(detail.as_deref() == Some("background"), false);
                 true
             }
-
             "app.updates.check" => {
                 self.updater.check(true);
                 true
@@ -935,6 +934,7 @@ impl SlateApp {
                     true
                 }
             }
+            "board.image.segment.commit" => self.commit_hover_segment(None).is_some(),
             "board.image.invert" => {
                 let images = self.selected_image_nodes();
                 if images.is_empty() {
@@ -1028,7 +1028,6 @@ impl SlateApp {
             })
             .collect()
     }
-
     /// Where Ctrl+V lands: the pointer when it hovers the canvas, else the
     /// view center.
     fn paste_target_world(&self, ctx: &egui::Context) -> egui::Pos2 {
@@ -1037,14 +1036,11 @@ impl SlateApp {
             .map(|p| self.screen_to_world(p))
             .unwrap_or_else(|| self.tab().cam.offset.to_pos2())
     }
-
     /// Fit the active view (used by the palette's `canvas.fit`). Board uses
     fn fit_active_view(&mut self) {
         self.fit_board();
     }
-
     // ---------- the Esc cancel stack ----------
-
     /// Build the live cancel layers and pop exactly one
     /// (`atlas_commands::cancel_target`). Text editing is *not* a
     /// layer here: the edit overlay owns Esc (commit) itself.
@@ -1074,7 +1070,9 @@ impl SlateApp {
         }
         // A saved view held over a model cancels before the viewport it
         // opened (media D38).
-        if self.doc().view.active_view == ViewKind::Board && self.dismiss_view_drop_preview() {
+        if self.doc().view.active_view == ViewKind::Board
+            && (self.dismiss_view_drop_preview() || self.dismiss_image_segment())
+        {
             return true;
         }
         // Any drag that edits nodes live (move, Alt copy, resize, rotate,

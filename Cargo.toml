@@ -12,6 +12,7 @@ members = [
     "crates/atlas-ollama",
     "crates/atlas-comfy",
     "crates/atlas-openai",
+    "crates/atlas-segment",
     "crates/atlas-commands",
     "crates/slate-doc",
     "crates/slate-kit",
@@ -85,6 +86,7 @@ atlas-curl = { path = "crates/atlas-curl" }
 atlas-ollama = { path = "crates/atlas-ollama" }
 atlas-comfy = { path = "crates/atlas-comfy" }
 atlas-openai = { path = "crates/atlas-openai" }
+atlas-segment = { path = "crates/atlas-segment" }
 atlas-commands = { path = "crates/atlas-commands" }
 slate-doc = { path = "crates/slate-doc" }
 slate-kit = { path = "crates/slate-kit" }

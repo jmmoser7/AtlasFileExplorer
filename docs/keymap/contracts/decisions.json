@@ -1,6 +1,6 @@
 {
   "_about": "Approved-decision database for interaction contracts (canvas tools and portal subtypes). One entry per contract x dimension. Agents seed future volatile matrices from here: an approved decision that maps onto a new contract (same archetype / object class / portal class) is re-proposed with high confidence. Only verdict:'approved' rows count as precedent; 'proposed' rows are awaiting user confirmation in the volatile canvas. Schema: tools.<name>.family = tool|portal, and tools.<name>.decisions.<D##> = { behavior, source: stated|research|pattern|guess|precedent, confidence: 0-100, verdict: proposed|approved|rejected, decided: date|null }. Each contract answers exactly the dimensions DIMENSIONS.md scopes to its family; `cargo xtask contracts` enforces the parity between this file, the registry, and the contract markdown. Append-only in spirit: superseded decisions are overwritten only by a newer user approval.",
-  "updated": "2026-09-28",
+  "updated": "2026-10-09",
   "tools": {
     "bumper-cars": {
       "status": "shipped",
@@ -4957,11 +4957,11 @@
           "decided": "2026-09-26"
         },
         "D09": {
-          "behavior": "Each layer circle previews that layer's ink alone, center-cropped, rebuilt once per scene generation; a layer without a preview shows its index. Painting suppresses the selection's blue cast, dimension stringers, and fillet grip. Ink previews clip to crop, rotation, and fillet. Up to six document recent colors sit inside the layer palette as small dots between the layer circles and the slider; click sets brush/tool color via ViewState.recent_colors. On agent/generator pictures, suppress prompt readout, chips, verb pill, and album strip while hosting; they return when the session ends.",
+          "behavior": "Each layer circle previews that layer's ink alone, center-cropped, rebuilt once per scene generation; a layer without a preview shows its index. Painting suppresses the selection's blue cast, dimension stringers, and fillet grip. Ink previews clip to crop, rotation, and fillet. Up to six document recent colors sit inside the layer palette as small dots between the layer circles and the slider; click sets brush/tool color via ViewState.recent_colors. On agent/generator pictures, suppress prompt readout, chips, verb pill, and album strip while hosting; they return when the session ends. Object-highlighting refinement (2026-10-09): Select-tool linger previews a translucent object silhouette, including holes, without a region box. Use a local object segmentation model (explicit user choice); no fabricated geometric fallback.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-26"
+          "decided": "2026-10-09"
         },
         "D10": {
           "behavior": "Hosted tool cursors unchanged by clipping.",
@@ -4971,25 +4971,25 @@
           "decided": null
         },
         "D11": {
-          "behavior": "Layers and opacity patch ImageNode; strokes are child nodes in normalized host space; Eraser affects active layer strokes only; filters affect base image only; layers composite above. Wired generator inputs use a derived PNG composite (filtered base + visible layers) written under slate-composite at send time.",
+          "behavior": "Layers and opacity patch ImageNode; strokes are child nodes in normalized host space; Eraser affects active layer strokes only; filters affect base image only; layers composite above. Wired generator inputs use a derived PNG composite (filtered base + visible layers) written under slate-composite at send time. Highlight commits an independent visible paint layer through the scene journal; Undo removes it. The saved result is the same SVG-compatible filled mask path as the preview.",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",
           "decided": null
         },
         "D12": {
-          "behavior": "Esc exits hosting; strip previews discard like other shape properties.",
+          "behavior": "Esc exits hosting; strip previews discard like other shape properties. Escape dismisses the object-highlight offer until pointer movement; late worker results cannot restore it.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "proposed",
           "decided": null
         },
         "D13": {
-          "behavior": "Layer palette: a dark rounded capsule at the filter height, centered 10 units below the image's rotated bounds, canvas-scaled. Left to right: layer circles (filter-radio size; only the active one carries the accent ring), recent-color dots, and the opacity slider (120-unit track as thick as a circle's radius); the circled + sits 6 units past the right end on its vertical center. Shown only while a hosting tool paints the sole selected image; the whole palette is editor chrome. The filter capsule holds filters only.",
+          "behavior": "Layer palette: a dark rounded capsule at the filter height, centered 10 units below the image's rotated bounds, canvas-scaled. Left to right: layer circles (filter-radio size; only the active one carries the accent ring), recent-color dots, and the opacity slider (120-unit track as thick as a circle's radius); the circled + sits 6 units past the right end on its vertical center. Shown only while a hosting tool paints the sole selected image; the whole palette is editor chrome. The filter capsule holds filters only. Object highlighting uses the shared capsule/pop-up primitives: one Highlight action beside the image, preserved while crossing the gap. No generic Agent/prompt action.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-26"
+          "decided": "2026-10-09"
         },
         "D14": {
           "behavior": "Image transform carries layer geometry; replace-base-image keeps adjust, crop, and paint_layers. Image-on-image move and an external raster file drop onto an image show fixed Replace and Add as layer capsules beside the target. The dragged image is never its own target: the target is the topmost image under the pointer other than the one being dragged. The offer holds while the pointer crosses from the target to the capsule row. A file-drop offer ends only on Esc or real pointer movement away from both target and row; the pointer position egui kept from before the OS drag does not dismiss it. The capsules are a foreground widget: a press on one is that choice even if it drifts, and never drags the image beneath. Release on a capsule (move) or click on it (file drop) commits one command group; release elsewhere does nothing.",

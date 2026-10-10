@@ -509,6 +509,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "atlas-segment"
+version = "1.0.0"
+dependencies = [
+ "crossbeam-channel",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "atlas-session"
 version = "1.0.0"
 
@@ -3955,6 +3964,7 @@ dependencies = [
  "atlas-ai",
  "atlas-commands",
  "atlas-core",
+ "atlas-segment",
  "atlas-session",
  "atlas-shell",
  "atlas-update",

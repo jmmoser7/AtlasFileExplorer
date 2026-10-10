@@ -8,6 +8,14 @@ Inherits: P0.* (all), P1.node, P1.shape.properties, P1.curve, P1.curve.pick, P2.
 
 ## Behavior matrix
 
+Object-highlight refinement (9 October 2026; D01/D09/D11/D12/D13): with
+Select active, linger over a raster object to preview a translucent silhouette,
+with no region bounding box. Use a local object segmentation model (explicit
+user choice), not a geometric placeholder or a color flood. The shared
+Highlight capsule commits one independent paint layer through the journal;
+Escape dismisses the offer. See [runtime and setup](../../image-highlighting.md).
+Existing paint gestures and palette behavior below continue to apply.
+
 | ID | Dimension | Agreed behavior | Source | Conf |
 |----|-----------|-----------------|--------|------|
 | D01 | Initiation & arming | Layers are not filters. With an image selected, activating a hosting drawing tool (including Eraser) starts painting on it; the first stroke creates a layer when the image has none, in the same undo step. While painting, the **layer palette** hangs centered below the image and stays up for the whole session. Its small circled `+` sits just outside the palette's right end and appends a layer, makes it active, and keeps the tool armed. A click on a layer circle makes that layer active; later strokes go to it. The photo-filter capsule holds filters only (user finding, 26 September 2026). Sticky is intentionally not a hosting tool: its click-to-edit lifecycle remains on the board z-list. Agent and generator pictures are eligible whenever they show a raster result, picked or not (until one is picked, the newest), and their selection strip offers the photo-filter squircle before the Agent squircle (user finding, 26 September 2026: an AI picture had no filter option). | stated | 100 |
@@ -48,6 +56,16 @@ Inherits: P0.* (all), P1.node, P1.shape.properties, P1.curve, P1.curve.pick, P2.
 5. GP5: Paint on an agent result — overlays hide; Esc — overlays return.
 6. GP6: Wire a layered image to a generator — send uses composite PNG.
 7. GP7: Drag image A onto B — Replace — B’s pixels change, layers/filters stay.
+8. GP8: Select-tool linger on an object — silhouette highlight — cross the gap to Highlight — click. One independent paint layer is added; the image does not move; Undo removes the highlight.
+9. GP9: Small pointer jitter preserves dwell. Escape dismisses the offer until movement.
+10. GP10: Leaving, changing tabs, or replacing a hover invalidates its worker reply. A command cannot commit another tab's preview.
+11. GP11: A rotated crop maps its visible window into content coordinates; the mask stays on that window.
+12. GP12: A concave mask with a hole commits and exports as the same even-odd filled path, with no region-box stroke.
+
+GP8–GP12 are pinned in `apps/slate/src/app/image_segment_tests.rs`.
+The optional real-model protocol check is `atlas-segment`'s
+`local_model_round_trip_reuses_the_image_for_another_object` (ignored unless
+the local model has been installed).
 
 ## Open questions
 

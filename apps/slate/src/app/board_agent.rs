@@ -1,6 +1,5 @@
 //! Agent portal runtime: file-link context, session status, and staged proposal
 //! handling. Everything here is derived state until a human accepts a proposal.
-
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -4954,6 +4953,7 @@ impl SlateApp {
                     role: InputRole::of_slot(slot),
                     label,
                 });
+                self.append_image_region_prompts(node, slot, &mut hasher, &mut prompts);
                 continue;
             }
             let text = item.text.trim().to_string();

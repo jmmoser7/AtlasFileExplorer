@@ -48,6 +48,7 @@ mod board_forcefield;
 mod board_handles;
 pub mod board_icons;
 mod board_image_layers;
+mod board_image_segment;
 mod board_join;
 mod board_line;
 mod board_osnap;
@@ -432,6 +433,8 @@ pub struct SlateApp {
     pub(crate) image_drop: Option<board_image_layers::ImageDropOffer>,
     /// Screen anchor for external-file drop capsules (Replace / Add as layer).
     pub(crate) image_drop_screen: Option<egui::Pos2>,
+    /// Derived hover state for local image subject highlights.
+    pub(crate) image_segments: board_image_segment::ImageSegmentRuntime,
     /// Inline text editing: (node, live buffer).
     pub text_edit: Option<(NodeId, String)>,
     /// Click/drag text-box compose before the first journaled add.
@@ -913,6 +916,7 @@ impl SlateApp {
             layer_opacity_drag: None,
             image_drop: None,
             image_drop_screen: None,
+            image_segments: Default::default(),
             text_edit: None,
             text_box_draft: None,
             text_doc_edit: None,
