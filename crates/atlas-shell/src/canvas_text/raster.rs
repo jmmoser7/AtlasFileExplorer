@@ -158,8 +158,14 @@ pub fn world_wrapped(
     max_rows: usize,
     zoom: f32,
 ) -> Scaled {
-    let layout =
-        super::world_layout_rows(ctx, text, world_font, world_wrap, egui::Align::LEFT, max_rows);
+    let layout = super::world_layout_rows(
+        ctx,
+        text,
+        world_font,
+        world_wrap,
+        egui::Align::LEFT,
+        max_rows,
+    );
     world_text(ctx, &layout, zoom)
 }
 
@@ -259,10 +265,7 @@ fn build_rung(ctx: &egui::Context, layout: &WorldLayout, rung: &FontId) -> Galle
         job: Arc::new(job),
         rows,
         elided: layout.elided,
-        rect: Rect::from_min_size(
-            Pos2::ZERO,
-            egui::vec2(layout.width * r, layout.height * r),
-        ),
+        rect: Rect::from_min_size(Pos2::ZERO, egui::vec2(layout.width * r, layout.height * r)),
         mesh_bounds,
         num_vertices,
         num_indices,
@@ -273,11 +276,7 @@ fn build_rung(ctx: &egui::Context, layout: &WorldLayout, rung: &FontId) -> Galle
 /// `src` is one line rasterized at the rung. Its glyphs and their quads move
 /// to `line`'s reference positions; advances become the reference gaps, so a
 /// caret hit-test lands where the ink is.
-fn place_row(
-    line: &WorldLine,
-    src: &egui::epaint::text::Row,
-    r: f32,
-) -> egui::epaint::text::Row {
+fn place_row(line: &WorldLine, src: &egui::epaint::text::Row, r: f32) -> egui::epaint::text::Row {
     let mut glyphs = src.glyphs.clone();
     let mut mesh = src.visuals.mesh.clone();
     let exact = glyphs.len() == line.glyph_x.len();
@@ -413,7 +412,10 @@ fn scale_galley(src: &Galley, s: f32, color: Color32) -> Galley {
         if r == Rect::NOTHING {
             r
         } else {
-            Rect::from_min_max((r.min.to_vec2() * s).to_pos2(), (r.max.to_vec2() * s).to_pos2())
+            Rect::from_min_max(
+                (r.min.to_vec2() * s).to_pos2(),
+                (r.max.to_vec2() * s).to_pos2(),
+            )
         }
     };
     let mut galley = src.clone();

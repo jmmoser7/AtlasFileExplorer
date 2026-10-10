@@ -171,7 +171,12 @@ type FitRevision = (
 );
 /// Text key and the world-unit line breaks it produced. Zoom is not part of
 /// either; `canvas_text::world_text` scales the layout at paint time.
-type CachedGalley = (u64, u64, u64, std::sync::Arc<atlas_shell::canvas_text::WorldLayout>);
+type CachedGalley = (
+    u64,
+    u64,
+    u64,
+    std::sync::Arc<atlas_shell::canvas_text::WorldLayout>,
+);
 type ChatsResult = (String, PathBuf, Result<Vec<CursorChat>, String>);
 
 #[derive(Default)]

@@ -323,10 +323,9 @@ impl SlateApp {
                                 world_wrap,
                                 egui::Align::LEFT,
                             );
-                            self.agents.transcript_cache.insert(
-                                cache_id,
-                                (text_key.0, text_key.1, text_key.2, layout),
-                            );
+                            self.agents
+                                .transcript_cache
+                                .insert(cache_id, (text_key.0, text_key.1, text_key.2, layout));
                         }
                         let laid = canvas_text::world_text(
                             ui.ctx(),

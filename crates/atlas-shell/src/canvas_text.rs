@@ -792,7 +792,10 @@ mod tests {
             for step in 0..40 {
                 let _ = world_text(ctx, &layout, 1.0 + step as f32 * 0.001);
             }
-            assert!(rung_galley_builds() - builds <= 1, "a small zoom crossed many rungs");
+            assert!(
+                rung_galley_builds() - builds <= 1,
+                "a small zoom crossed many rungs"
+            );
             assert_eq!(world_layout_shapes(), shapes, "painting reshaped the text");
         });
     }
@@ -819,7 +822,8 @@ mod tests {
             for i in 0..(raster::ZOOM_CACHE_CAP + 8) {
                 let _ = paint(text, 1.0 + i as f32 * 0.001);
             }
-            raster::CACHES.with(|caches| assert!(caches.borrow().zoom.len() <= raster::ZOOM_CACHE_CAP));
+            raster::CACHES
+                .with(|caches| assert!(caches.borrow().zoom.len() <= raster::ZOOM_CACHE_CAP));
         });
     }
 }

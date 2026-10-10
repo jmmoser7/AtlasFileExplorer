@@ -261,7 +261,10 @@ fn agent_summary_cache_refreshes_for_theme_but_not_zoom() {
     h.app.tab_mut().cam.z = 3.0;
     h.frame();
     let zoom = h.app.agents.transcript_cache[&(id, 0)].2;
-    assert_eq!(zoom, light, "zoom must not invalidate world-unit line breaks");
+    assert_eq!(
+        zoom, light,
+        "zoom must not invalidate world-unit line breaks"
+    );
 }
 
 #[test]
