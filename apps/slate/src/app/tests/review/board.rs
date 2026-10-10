@@ -10,16 +10,22 @@ fn review_board(tag: &str) -> Harness {
     h
 }
 
-/// A left-to-right hue ramp with a dark top band, so a squashed or turned
-/// picture is obvious at a glance.
+/// A left-to-right hue ramp inside a white edge, with a yellow square in the
+/// top-left corner: the edge shows the picture reaches every side of its node,
+/// and the square shows it is not turned or mirrored. Nothing in it is dark,
+/// so no part can be mistaken for the board showing through.
 fn ramp_png(path: &std::path::Path, w: u32, h: u32) {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).unwrap();
     }
+    let edge = (w.min(h) / 25).max(3);
+    let mark = w.min(h) / 4;
     image::RgbaImage::from_fn(w, h, |x, y| {
         let t = x as f32 / w as f32;
-        if y < h / 8 {
-            image::Rgba([30, 30, 40, 255])
+        if x < edge || y < edge || x >= w - edge || y >= h - edge {
+            image::Rgba([255, 255, 255, 255])
+        } else if x < edge + mark && y < edge + mark {
+            image::Rgba([250, 210, 40, 255])
         } else {
             image::Rgba([(255.0 * t) as u8, 120, (255.0 * (1.0 - t)) as u8, 255])
         }
