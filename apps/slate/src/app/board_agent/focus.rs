@@ -58,17 +58,44 @@ impl SlateApp {
             ImageWheel::Board
         }
     }
+    /// True when `id` is the topmost painted node under the pointer. Locked
+    /// nodes count: a locked portal still owns its contents, and a locked
+    /// picture lying on one still covers it.
+    pub(crate) fn node_is_topmost(&self, id: NodeId, pointer: Option<Pos2>, xf: &BoardXf) -> bool {
+        pointer.is_some_and(|p| self.topmost_node_at(p, xf) == Some(id))
+    }
+    fn topmost_node_at(&self, p: Pos2, xf: &BoardXf) -> Option<NodeId> {
+        let world = xf.s2w(p);
+        super::super::board_path::board_pick_node_routed(
+            &self.doc().scene,
+            world.x,
+            world.y,
+            xf.z,
+            true,
+            self.board_wire_routing,
+        )
+    }
+    /// A portal's own input (page, folder map, transcript drag) runs only where
+    /// the portal is the topmost node, or while it is maximized. A held button
+    /// is judged at its press, so a gesture keeps its owner when it leaves.
+    /// With no pointer yet the portal keeps its widgets registered: a tap
+    /// arrives in the same frame as its position.
+    pub(crate) fn portal_owns_pointer(&self, ctx: &egui::Context, id: NodeId) -> bool {
+        let at = ctx.input(|i| i.pointer.press_origin().or(i.pointer.latest_pos()));
+        self.portal_is_maximized(id)
+            || at.is_none_or(|p| self.node_is_topmost(id, Some(p), &self.board_xf()))
+    }
+
     /// The wheel zooms the board while the pointer is over an agent card.
     pub(crate) fn pointer_over_agent_card(&self, xf: &BoardXf, pointer: Option<Pos2>) -> bool {
         let Some(p) = pointer else {
             return false;
         };
-        let world = xf.s2w(p);
-        self.doc().scene.nodes.iter().rev().any(|n| {
-            !n.hidden
-                && n.rect.contains(world.x, world.y)
-                && matches!(&n.kind, NodeKind::Portal(p) if p.kind == PortalKind::Agent)
-        })
+        // The topmost painted node owns the pointer. A picture lying on a
+        // chat card is the press, not the card underneath.
+        self.topmost_node_at(p, xf)
+            .and_then(|id| self.doc().scene.node(id))
+            .is_some_and(|n| matches!(&n.kind, NodeKind::Portal(p) if p.kind == PortalKind::Agent))
     }
     /// The folder list before a chat starts. The wheel scrolls that list.
     pub(crate) fn pointer_over_project_picker(&self, xf: &BoardXf, pointer: Option<Pos2>) -> bool {
@@ -115,7 +142,7 @@ impl SlateApp {
         if layout.pointer_on_chrome(p) {
             return false;
         }
-        srect.contains(p)
+        self.node_is_topmost(id, Some(p), xf) && srect.contains(p)
     }
     /// Text editing owns the pointer. The rest of a train card drags as a node.
     pub(crate) fn agent_text_editing_captures(&self, xf: &BoardXf, pointer: Option<Pos2>) -> bool {

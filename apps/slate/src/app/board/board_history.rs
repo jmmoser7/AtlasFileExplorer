@@ -394,10 +394,7 @@ impl SlateApp {
         if items.is_empty() {
             return;
         }
-        let sizes: Vec<(f32, f32)> = items
-            .iter()
-            .map(|item| self.image_natural_size(*item))
-            .collect();
+        let sizes = self.image_natural_sizes(items);
         let rects = grid_drop_rects(&sizes, at);
         let mut nodes = Vec::new();
         {

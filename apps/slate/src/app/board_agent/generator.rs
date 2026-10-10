@@ -145,7 +145,7 @@ impl SlateApp {
             .map(|i| i.prompt.clone())
             .unwrap_or_default()
     }
-    pub(super) fn generation_request(
+    pub(crate) fn generation_request(
         &mut self,
         id: NodeId,
         live: bool,

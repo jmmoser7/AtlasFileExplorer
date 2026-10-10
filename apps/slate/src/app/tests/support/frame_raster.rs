@@ -111,7 +111,10 @@ impl FrameRaster {
                         let w0 = ((p1.x - px) * (p2.y - py) - (p1.y - py) * (p2.x - px)) / area;
                         let w1 = ((p2.x - px) * (p0.y - py) - (p2.y - py) * (p0.x - px)) / area;
                         let w2 = 1.0 - w0 - w1;
-                        if w0 < 0.0 || w1 < 0.0 || w2 < 0.0 {
+                        // `w2` carries rounding: a center on the diagonal two
+                        // triangles share would otherwise be refused by both.
+                        const SEAM: f32 = -1e-5;
+                        if w0 < SEAM || w1 < SEAM || w2 < SEAM {
                             continue;
                         }
                         let lerp = |f: &dyn Fn(&egui::epaint::Vertex) -> f32| {
