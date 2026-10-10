@@ -395,7 +395,7 @@ impl SlateApp {
                 .collect::<Vec<_>>()
                 .join("\n\n");
             let font = FontId::proportional(13.0 * z);
-            let wrap = ((node.rect.w - 24.0) * z).max(1.0);
+            let wrap = (text_column(node.rect.w).2 * z).max(1.0);
             let laid = match max_rows {
                 Some(rows) => canvas_text::layout_rows(&painter, excerpt, font, ink, wrap, rows),
                 None => canvas_text::layout(&painter, excerpt, font, ink, wrap),
@@ -438,7 +438,7 @@ impl SlateApp {
                 .max_rect(clip),
         );
         text_ui.set_clip_rect(clip);
-        let at = rect.min + egui::vec2(12.0, SUMMARY_TEXT_TOP - offset) * z;
+        let at = rect.min + egui::vec2(TEXT_INSET_LEFT, SUMMARY_TEXT_TOP - offset) * z;
         if from_agent {
             let bar = Rect::from_min_size(
                 at - egui::vec2(6.0 * z, 0.0),

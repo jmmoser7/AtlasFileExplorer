@@ -15,20 +15,21 @@ impl SlateApp {
             return;
         }
         let body = layout.body;
-        let pad = 12.0 * z;
-        let text_x = body.left() + (slate_doc::agent_chat::PORT_INSET + 10.0) * z;
+        let (inset_l, inset_r, wrap_w) = text_column(node.rect.w);
+        let text_x = body.left() + inset_l * z;
+        let text_right = body.right() - inset_r * z;
         let prompt = self
             .agents
             .prompts
             .get(&node.id)
             .cloned()
             .unwrap_or_default();
-        let wrap = (body.right() - pad - text_x).max(1.0);
+        let wrap = (wrap_w * z).max(1.0);
         let prompt_h = composer_text_height(ui.ctx(), &prompt, wrap, 14.0 * z);
         let bottom = body.bottom() - COMPOSER_BOTTOM * z;
         let field = Rect::from_min_max(
             Pos2::new(text_x, bottom - prompt_h - 2.0 * z),
-            Pos2::new(body.right() - pad, bottom),
+            Pos2::new(text_right, bottom),
         );
         self.paint_agent_composer(ui, node.id, field, z, false);
     }

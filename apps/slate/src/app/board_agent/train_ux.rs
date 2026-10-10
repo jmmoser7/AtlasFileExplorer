@@ -14,82 +14,95 @@ pub(crate) enum CardFold {
     Open,
 }
 
-/// Where the pointer sits on the collapse chevron, in screen pixels from its center.
-/// Negative is above. Bands are designed pixels scaled by the board zoom (P0.9).
+/// Toward the three-line capsule, or toward the card that fits its text.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ChevronZone {
-    /// Further above center: collapse all the way.
-    FullCollapse,
-    /// Slightly above center: collapse one level.
-    PartialCollapse,
-    /// Dead center: open one level.
-    OneStep,
-    /// Below center: open all the way. The full-expand zone paints a double chevron.
-    FullExpand,
+pub(crate) enum FoldDir {
+    Collapse,
+    Expand,
 }
 
-const ZONE_CENTER: f32 = 2.0;
-const ZONE_NEAR: f32 = 7.0;
-
-impl ChevronZone {
-    pub(crate) fn detail(self) -> &'static str {
-        match self {
-            Self::OneStep => "one",
-            Self::FullExpand => "full",
-            Self::PartialCollapse => "partial",
-            Self::FullCollapse => "collapse",
-        }
-    }
-
-    pub(crate) fn parse(detail: &str) -> Option<Self> {
-        Some(match detail {
-            "one" => Self::OneStep,
-            "full" => Self::FullExpand,
-            "partial" => Self::PartialCollapse,
-            "collapse" => Self::FullCollapse,
-            _ => return None,
-        })
-    }
+/// One level, or both remaining levels (the double chevron).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FoldStep {
+    Single,
+    Double,
 }
 
-/// `dy` is `pointer.y - center.y` in screen pixels. `z` is the board zoom.
-pub(crate) fn chevron_zone(dy: f32, z: f32) -> ChevronZone {
-    let z = if z.is_finite() && z > 0.0 { z } else { 0.01 };
-    let center = atlas_shell::canvas_scale::px(ZONE_CENTER, z);
-    let near = atlas_shell::canvas_scale::px(ZONE_NEAR, z);
-    if dy < -near {
-        ChevronZone::FullCollapse
-    } else if dy < -center {
-        ChevronZone::PartialCollapse
-    } else if dy <= center {
-        ChevronZone::OneStep
-    } else {
-        ChevronZone::FullExpand
+/// Designed-px chevron stroke. Thin, and the double sits inside 1.4× the single.
+pub(crate) const GLYPH_HALF: f32 = 2.4;
+pub(crate) const GLYPH_RISE: f32 = 1.15;
+pub(crate) const GLYPH_STROKE: f32 = 0.72;
+/// Center distance of the two marks in a double chevron.
+pub(crate) const GLYPH_DOUBLE_PITCH: f32 = 0.8;
+
+pub(crate) fn glyph_single_height() -> f32 {
+    GLYPH_RISE * 2.0
+}
+
+pub(crate) fn glyph_double_height() -> f32 {
+    GLYPH_DOUBLE_PITCH + glyph_single_height()
+}
+
+/// Vertical pitch of one offered chevron in the cluster, designed px.
+pub(crate) fn glyph_slot() -> f32 {
+    glyph_double_height() + 1.0
+}
+
+/// Chevrons offered on a hovered card, top to bottom.
+/// Collapsed opens; maximized closes; partial offers both directions.
+pub(crate) fn chevron_offers(fold: CardFold) -> &'static [(FoldDir, FoldStep)] {
+    use FoldDir::*;
+    use FoldStep::*;
+    match fold {
+        CardFold::Collapsed => &[(Expand, Single), (Expand, Double)],
+        CardFold::Open => &[(Collapse, Double), (Collapse, Single)],
+        CardFold::Partial => &[
+            (Collapse, Double),
+            (Collapse, Single),
+            (Expand, Single),
+            (Expand, Double),
+        ],
     }
 }
 
-/// `(points_up, double)`. The full-expand zone is the animated double chevron.
-pub(crate) fn chevron_glyph(zone: ChevronZone, fold: CardFold) -> (bool, bool) {
-    match zone {
-        ChevronZone::FullExpand => (false, true),
-        ChevronZone::FullCollapse => (true, true),
-        ChevronZone::PartialCollapse => (true, false),
-        ChevronZone::OneStep => (matches!(fold, CardFold::Open), false),
+pub(crate) fn chevron_detail(dir: FoldDir, step: FoldStep) -> &'static str {
+    match (dir, step) {
+        (FoldDir::Expand, FoldStep::Single) => "step-expand",
+        (FoldDir::Expand, FoldStep::Double) => "jump-expand",
+        (FoldDir::Collapse, FoldStep::Single) => "step-collapse",
+        (FoldDir::Collapse, FoldStep::Double) => "jump-collapse",
     }
 }
 
-pub(crate) fn apply_chevron(fold: CardFold, zone: ChevronZone) -> CardFold {
-    match zone {
-        ChevronZone::FullCollapse => CardFold::Collapsed,
-        ChevronZone::PartialCollapse => match fold {
-            CardFold::Open => CardFold::Partial,
-            CardFold::Partial | CardFold::Collapsed => CardFold::Collapsed,
-        },
-        ChevronZone::OneStep => match fold {
-            CardFold::Collapsed => CardFold::Partial,
-            CardFold::Partial | CardFold::Open => CardFold::Open,
-        },
-        ChevronZone::FullExpand => CardFold::Open,
+pub(crate) fn parse_chevron(detail: &str) -> Option<(FoldDir, FoldStep)> {
+    Some(match detail {
+        "step-expand" | "one" => (FoldDir::Expand, FoldStep::Single),
+        "jump-expand" | "full" => (FoldDir::Expand, FoldStep::Double),
+        "step-collapse" | "partial" => (FoldDir::Collapse, FoldStep::Single),
+        "jump-collapse" | "collapse" => (FoldDir::Collapse, FoldStep::Double),
+        _ => return None,
+    })
+}
+
+/// Step one level, or two. A step that would pass an end lands on that end.
+pub(crate) fn apply_fold(fold: CardFold, dir: FoldDir, step: FoldStep) -> CardFold {
+    let index = match fold {
+        CardFold::Collapsed => 0,
+        CardFold::Partial => 1,
+        CardFold::Open => 2,
+    };
+    let delta = match step {
+        FoldStep::Single => 1,
+        FoldStep::Double => 2,
+    };
+    let next = match dir {
+        FoldDir::Expand => (index + delta).min(2),
+        FoldDir::Collapse => (index - delta).max(0),
+    };
+    match next {
+        0 => CardFold::Collapsed,
+        1 => CardFold::Partial,
+        _ => CardFold::Open,
     }
 }
 
@@ -158,10 +171,37 @@ pub(crate) fn settle_follow(
 }
 
 /// Provider total when `reported` is set, otherwise `~` plus characters divided by 4.
+/// Counts from 1000 compact to `1.2k`.
 pub(crate) fn token_readout(reported: Option<u64>, chars: usize) -> String {
     match reported {
-        Some(n) => n.to_string(),
-        None => format!("~{}", chars / 4),
+        Some(n) => compact_count(n),
+        None => format!("~{}", compact_count((chars / 4) as u64)),
+    }
+}
+
+fn compact_count(n: u64) -> String {
+    if n < 1000 {
+        n.to_string()
+    } else if n < 10_000 {
+        let tenths = ((n as f32 / 100.0).round() / 10.0 * 10.0).round() as u64;
+        let whole = tenths / 10;
+        let frac = tenths % 10;
+        if frac == 0 {
+            format!("{whole}k")
+        } else {
+            format!("{whole}.{frac}k")
+        }
+    } else if n < 1_000_000 {
+        format!("{}k", n / 1000)
+    } else {
+        let tenths = ((n as f32 / 100_000.0).round() / 10.0 * 10.0).round() as u64;
+        let whole = tenths / 10;
+        let frac = tenths % 10;
+        if frac == 0 {
+            format!("{whole}m")
+        } else {
+            format!("{whole}.{frac}m")
+        }
     }
 }
 
@@ -182,55 +222,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn chevron_zones_follow_the_center_and_scale() {
-        assert_eq!(chevron_zone(0.0, 1.0), ChevronZone::OneStep);
-        assert_eq!(chevron_zone(1.5, 1.0), ChevronZone::OneStep);
-        assert_eq!(chevron_zone(3.0, 1.0), ChevronZone::FullExpand);
-        assert_eq!(chevron_zone(-4.0, 1.0), ChevronZone::PartialCollapse);
-        assert_eq!(chevron_zone(-8.0, 1.0), ChevronZone::FullCollapse);
-        assert_eq!(chevron_zone(3.0, 2.0), ChevronZone::OneStep);
-        assert_eq!(chevron_zone(-10.0, 2.0), ChevronZone::PartialCollapse);
-        assert_eq!(chevron_zone(-16.0, 2.0), ChevronZone::FullCollapse);
-        assert_eq!(chevron_zone(5.0, 2.0), ChevronZone::FullExpand);
-    }
-
-    #[test]
-    fn chevron_clicks_step_and_jump() {
+    fn every_chevron_steps_one_level_or_two() {
+        use CardFold::*;
+        use FoldDir::*;
+        use FoldStep::*;
+        let cases = [
+            (Open, Collapse, Single, Partial),
+            (Open, Collapse, Double, Collapsed),
+            (Collapsed, Expand, Single, Partial),
+            (Collapsed, Expand, Double, Open),
+            (Partial, Expand, Single, Open),
+            (Partial, Collapse, Single, Collapsed),
+            (Partial, Expand, Double, Open),
+            (Partial, Collapse, Double, Collapsed),
+            (Open, Expand, Single, Open),
+            (Collapsed, Collapse, Single, Collapsed),
+        ];
+        for (from, dir, step, to) in cases {
+            assert_eq!(apply_fold(from, dir, step), to, "{from:?} {dir:?} {step:?}");
+        }
+        assert!(glyph_double_height() <= glyph_single_height() * 1.4 + 0.01);
+        assert!(chevron_offers(Partial).iter().any(|(d, _)| *d == Expand));
+        assert!(chevron_offers(Partial).iter().any(|(d, _)| *d == Collapse));
         assert_eq!(
-            apply_chevron(CardFold::Collapsed, ChevronZone::OneStep),
-            CardFold::Partial
-        );
-        assert_eq!(
-            apply_chevron(CardFold::Partial, ChevronZone::OneStep),
-            CardFold::Open
-        );
-        assert_eq!(
-            apply_chevron(CardFold::Open, ChevronZone::OneStep),
-            CardFold::Open
-        );
-        assert_eq!(
-            apply_chevron(CardFold::Collapsed, ChevronZone::FullExpand),
-            CardFold::Open
-        );
-        assert_eq!(
-            apply_chevron(CardFold::Open, ChevronZone::PartialCollapse),
-            CardFold::Partial
-        );
-        assert_eq!(
-            apply_chevron(CardFold::Partial, ChevronZone::PartialCollapse),
-            CardFold::Collapsed
-        );
-        assert_eq!(
-            apply_chevron(CardFold::Partial, ChevronZone::FullCollapse),
-            CardFold::Collapsed
-        );
-        assert_eq!(
-            chevron_glyph(ChevronZone::FullExpand, CardFold::Collapsed),
-            (false, true)
-        );
-        assert_eq!(
-            chevron_glyph(ChevronZone::FullCollapse, CardFold::Open),
-            (true, true)
+            parse_chevron(chevron_detail(Expand, Single)),
+            Some((Expand, Single))
         );
     }
 
@@ -260,6 +276,29 @@ mod tests {
         assert_eq!(token_readout(None, 8), "~2");
         assert_eq!(token_readout(None, 3), "~0");
         assert_eq!(token_readout(Some(40), 8), "40");
+        assert_eq!(token_readout(Some(1200), 8), "1.2k");
+        assert_eq!(token_readout(Some(2000), 0), "2k");
+    }
+
+    #[test]
+    fn text_insets_match_in_every_fold() {
+        let (left, right, wrap) = super::super::text_column(320.0);
+        assert_eq!(left, super::super::TEXT_INSET_LEFT);
+        assert_eq!(right, super::super::TEXT_INSET_RIGHT);
+        assert_eq!(left, right, "left and right insets are the same datum");
+        assert!((wrap - (320.0 - left - right)).abs() < 0.01);
+        assert_eq!(super::super::text_column(176.0), super::super::text_column(176.0));
+    }
+
+    #[test]
+    fn a_split_dot_gaps_by_half_its_radius() {
+        let radius = super::super::HANDLE_DOT;
+        let travel = super::super::dot_split_travel(radius);
+        let gap = travel * 2.0 - radius * 2.0;
+        assert!(
+            (gap - radius * 0.5).abs() < 0.01,
+            "edge gap {gap} is not half the radius {radius}"
+        );
     }
 
     #[test]

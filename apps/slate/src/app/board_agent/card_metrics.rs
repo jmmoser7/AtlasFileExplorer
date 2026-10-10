@@ -3,7 +3,15 @@
 use super::*;
 
 /// Designed radius of a chat card's gray handle dots.
-const HANDLE_DOT: f32 = 3.5;
+pub(super) const HANDLE_DOT: f32 = 3.5;
+/// Edge-to-edge gap when an input dot splits, as a fraction of [`HANDLE_DOT`].
+pub(super) const DOT_SPLIT_GAP: f32 = 0.5;
+
+/// How far each half travels from the resting center so the gap between
+/// edges is [`DOT_SPLIT_GAP`] × the radius.
+pub(super) fn dot_split_travel(radius: f32) -> f32 {
+    radius + radius * DOT_SPLIT_GAP * 0.5
+}
 
 /// The handle dot of a chat card: the output grip, the context and
 /// changed-document handles, and the crosstalk ports. It scales with the
@@ -88,10 +96,19 @@ pub(super) fn tracked_galley(
 pub(super) const COMPOSER_TOP: f32 = 32.0;
 /// Padding under the message, in world units.
 pub(super) const COMPOSER_BOTTOM: f32 = 14.0;
-/// Gap between a transcript and the composer, in world units.
-pub(super) const COMPOSER_GAP: f32 = 8.0;
+/// One line between the last transcript line and the Message composer.
+pub(super) const COMPOSER_GAP: f32 = 18.0;
 /// Extra room so a measured transcript is not clipped by spacing.
-const TRANSCRIPT_SLACK: f32 = 4.0;
+const TRANSCRIPT_SLACK: f32 = 0.0;
+/// Left and right inset of chat text, the same in every fold. World units.
+pub(super) const TEXT_INSET_LEFT: f32 = 16.0;
+pub(super) const TEXT_INSET_RIGHT: f32 = 16.0;
+
+/// `(left inset, right inset, wrap width)` for a card of `card_w`.
+pub(super) fn text_column(card_w: f32) -> (f32, f32, f32) {
+    let wrap = (card_w - TEXT_INSET_LEFT - TEXT_INSET_RIGHT).max(1.0);
+    (TEXT_INSET_LEFT, TEXT_INSET_RIGHT, wrap)
+}
 /// About 1.3 lines under the last line of a sent message.
 pub(super) const CARD_TEXT_PAD: f32 = 18.0;
 /// Top of a sent card's text, in world units.
@@ -286,9 +303,9 @@ pub(super) fn paint_chevron_glyph(
     up: bool,
     ink: Color32,
 ) {
-    let half = canvas_scale::px(3.0, z);
-    let rise = canvas_scale::px(1.6, z) * if up { -1.0 } else { 1.0 };
-    let stroke = egui::Stroke::new(canvas_scale::px(1.3, z), ink);
+    let half = canvas_scale::px(train_ux::GLYPH_HALF, z);
+    let rise = canvas_scale::px(train_ux::GLYPH_RISE, z) * if up { -1.0 } else { 1.0 };
+    let stroke = egui::Stroke::new(canvas_scale::px(train_ux::GLYPH_STROKE, z), ink);
     painter.line_segment(
         [
             center + egui::vec2(-half, -rise),
@@ -303,6 +320,25 @@ pub(super) fn paint_chevron_glyph(
         ],
         stroke,
     );
+}
+
+/// Single mark, or two packed into [`train_ux::glyph_double_height`].
+pub(super) fn paint_fold_glyph(
+    painter: &egui::Painter,
+    center: Pos2,
+    z: f32,
+    dir: train_ux::FoldDir,
+    step: train_ux::FoldStep,
+    ink: Color32,
+) {
+    let up = dir == train_ux::FoldDir::Collapse;
+    if step == train_ux::FoldStep::Single {
+        paint_chevron_glyph(painter, center, z, up, ink);
+        return;
+    }
+    let pitch = canvas_scale::px(train_ux::GLYPH_DOUBLE_PITCH, z);
+    paint_chevron_glyph(painter, center + egui::vec2(0.0, -pitch * 0.5), z, up, ink);
+    paint_chevron_glyph(painter, center + egui::vec2(0.0, pitch * 0.5), z, up, ink);
 }
 
 pub(super) fn write_fold(chat: &mut slate_doc::agent_chat::ChatView, fold: train_ux::CardFold) {
@@ -385,7 +421,7 @@ pub(super) fn collapsed_card_height(ctx: &egui::Context, text: String, card_w: f
         text,
         FontId::proportional(CARD_TEXT_PX),
         Color32::WHITE,
-        (card_w - 24.0).max(1.0),
+        text_column(card_w).2,
     );
     job.wrap.max_rows = COLLAPSED_ROWS;
     let lines = ctx.fonts(|fonts| fonts.layout_job(job)).size().y;
@@ -393,7 +429,7 @@ pub(super) fn collapsed_card_height(ctx: &egui::Context, text: String, card_w: f
 }
 
 pub(super) fn composer_wrap(card_w: f32) -> f32 {
-    (card_w - slate_doc::agent_chat::PORT_INSET - 10.0 - 12.0).max(1.0)
+    text_column(card_w).2
 }
 
 /// Wrapped height of the text being typed. An empty draft is one line.

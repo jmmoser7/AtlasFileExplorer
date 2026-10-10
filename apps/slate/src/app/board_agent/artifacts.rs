@@ -67,8 +67,9 @@ impl SlateApp {
             r.left() + slate_doc::agent_chat::PORT_INSET * z,
             r.center().y,
         );
-        let lift = canvas_scale::px(14.0, z);
-        let drop = canvas_scale::px(12.0, z);
+        let travel = canvas_scale::px(dot_split_travel(HANDLE_DOT), z);
+        let lift = travel;
+        let drop = travel;
         let reach = canvas_scale::px(11.0, z);
         let pointer = ui.ctx().pointer_hover_pos();
         let refs = self.agent_artifacts(node.id, false);

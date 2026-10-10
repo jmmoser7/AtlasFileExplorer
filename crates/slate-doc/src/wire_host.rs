@@ -311,7 +311,7 @@ impl WireHost {
 
 /// Resolve an anchored end through the node's current pose.
 pub fn connector_anchor_on(node: &Node, side: Side, t: f32) -> [f32; 2] {
-    WireHost::from_node(node).anchor(side, t)
+    crate::link_inset::anchor(node, side, t)
 }
 
 fn open_stroke(node: &Node) -> Option<OpenStroke> {

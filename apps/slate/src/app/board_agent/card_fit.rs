@@ -311,13 +311,8 @@ impl SlateApp {
                                 {
                                     h += 22.0;
                                 }
-                                let ratio = if t.role == "user" { 0.78 } else { 0.94 };
-                                h += measure(
-                                    t.text.clone(),
-                                    (after.rect.w - 24.0) * ratio - 20.0,
-                                    14.0,
-                                )
-                                .y + 32.0;
+                                h += measure(t.text.clone(), text_column(after.rect.w).2, 14.0).y
+                                    + 12.0;
                             }
                             if self.agents.awaiting.contains_key(&node.id) {
                                 h += 30.0;
@@ -332,7 +327,7 @@ impl SlateApp {
                         (COMPOSER_TOP + transcript_h + COMPOSER_BOTTOM).max(DRAFT_HEIGHT)
                     }
                 } else {
-                    let text_h = measure(text, after.rect.w - 24.0, 13.0).y;
+                    let text_h = measure(text, text_column(after.rect.w).2, 13.0).y;
                     (COMPOSER_TOP + text_h + CARD_TEXT_PAD).max(DRAFT_HEIGHT)
                 };
             } else {
@@ -344,15 +339,7 @@ impl SlateApp {
                     .max(112);
                 let text_h: f32 = turns
                     .iter()
-                    .map(|t| {
-                        measure(
-                            t.text.clone(),
-                            (after.rect.w - 24.0) * if t.role == "user" { 0.78 } else { 0.94 }
-                                - 20.0,
-                            14.0,
-                        )
-                        .y + 32.0
-                    })
+                    .map(|t| measure(t.text.clone(), text_column(after.rect.w).2, 14.0).y + 12.0)
                     .sum();
                 let prompt_h =
                     composer_text_height(ctx, &prompt, composer_wrap(after.rect.w), 14.0);

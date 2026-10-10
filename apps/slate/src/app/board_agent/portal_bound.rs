@@ -3,10 +3,11 @@
 use super::*;
 
 impl SlateApp {
-    /// Chevron just left of the ellipsis. Dead center steps one level; the
-    /// bands above and below jump. Returns the zone's command detail.
+    /// Chevron cluster just left of the ellipsis. Each mark is its own hit,
+    /// and the cluster owns the pointer so a press cannot resize the frame.
+    /// Hover brightens the mark under the pointer; there is no tooltip.
     pub(super) fn paint_agent_collapse_toggle(
-        &self,
+        &mut self,
         ui: &egui::Ui,
         node: &Node,
         card_rect: Rect,
@@ -17,30 +18,10 @@ impl SlateApp {
         let fold = slate_doc::agent_chat::agent(node)
             .map(|a| card_fold(&a.chat, self.agents.stream_open.contains(&node.id)))
             .unwrap_or(train_ux::CardFold::Open);
-        let center = Pos2::new(menu_left - canvas_scale::px(8.0, z), cy);
-        let hit = Rect::from_center_size(
-            center,
-            egui::vec2(canvas_scale::px(14.0, z), canvas_scale::px(22.0, z)),
-        );
-        let response = ui.interact(hit, Id::new(("agent-collapse", node.id.0)), Sense::click());
-        let dy = ui
-            .ctx()
-            .pointer_hover_pos()
-            .filter(|_| response.hovered())
-            .map(|p| p.y - center.y);
-        let zone = dy
-            .map(|dy| train_ux::chevron_zone(dy, z))
-            .unwrap_or(train_ux::ChevronZone::OneStep);
-        let response = response.on_hover_text(match zone {
-            train_ux::ChevronZone::OneStep => match fold {
-                train_ux::CardFold::Collapsed => "Expand one level",
-                train_ux::CardFold::Partial => "Expand",
-                train_ux::CardFold::Open => "Open",
-            },
-            train_ux::ChevronZone::FullExpand => "Expand fully",
-            train_ux::ChevronZone::PartialCollapse => "Collapse one level",
-            train_ux::ChevronZone::FullCollapse => "Collapse",
-        });
+        let offers = train_ux::chevron_offers(fold);
+        let slot = canvas_scale::px(train_ux::glyph_slot(), z);
+        let x = menu_left - canvas_scale::px(8.0, z);
+        let top = cy - slot * offers.len() as f32 * 0.5;
         let card = self.board_sel.contains(&node.id)
             || ui
                 .ctx()
@@ -51,28 +32,35 @@ impl SlateApp {
             card,
             0.12,
         );
-        let alpha = if response.hovered() {
-            0.95
-        } else {
-            0.18 + 0.64 * reveal
-        };
-        let (up, double) = train_ux::chevron_glyph(zone, fold);
-        let bob = if response.hovered() && matches!(zone, train_ux::ChevronZone::FullExpand) {
-            ui.ctx().request_repaint();
-            (ui.input(|i| i.time) as f32).sin() * canvas_scale::px(0.8, z)
-        } else {
-            0.0
-        };
-        let gap = canvas_scale::px(3.2, z);
-        let ink = self.palette().ink.gamma_multiply(alpha);
-        let paint = |at: Pos2| paint_chevron_glyph(ui.painter(), at, z, up, ink);
-        if double {
-            paint(center + egui::vec2(0.0, -gap * 0.5 + bob));
-            paint(center + egui::vec2(0.0, gap * 0.5 + bob));
-        } else {
-            paint(center);
+        let ink = self.palette().ink;
+        let mut clicked = None;
+        for (i, (dir, step)) in offers.iter().copied().enumerate() {
+            let center = Pos2::new(x, top + slot * (i as f32 + 0.5));
+            let hit = Rect::from_center_size(center, egui::vec2(canvas_scale::px(14.0, z), slot));
+            self.agents.chevron_hits.push(hit);
+            let response = ui.interact(
+                hit,
+                Id::new(("agent-collapse", node.id.0, i)),
+                Sense::click(),
+            );
+            let alpha = if response.hovered() {
+                0.95
+            } else {
+                0.55 + 0.27 * reveal
+            };
+            paint_fold_glyph(
+                ui.painter(),
+                center,
+                z,
+                dir,
+                step,
+                ink.gamma_multiply(alpha),
+            );
+            if response.clicked() {
+                clicked = Some(train_ux::chevron_detail(dir, step));
+            }
         }
-        response.clicked().then_some(zone.detail())
+        clicked
     }
     #[allow(clippy::too_many_arguments)]
     pub(super) fn paint_agent_bound(
@@ -120,15 +108,16 @@ impl SlateApp {
         if !canvas_text::legible(font.size) {
             return;
         }
-        let pad = 12.0 * z;
-        let text_x = body.left() + (slate_doc::agent_chat::PORT_INSET + 10.0) * z;
+        let (inset_l, inset_r, wrap_w) = text_column(node.rect.w);
+        let text_x = body.left() + inset_l * z;
+        let text_right = body.right() - inset_r * z;
         let prompt = self
             .agents
             .prompts
             .get(&node.id)
             .cloned()
             .unwrap_or_default();
-        let wrap = (body.right() - pad - text_x).max(1.0);
+        let wrap = (wrap_w * z).max(1.0);
         let prompt_h = composer_text_height(ui.ctx(), &prompt, wrap, 14.0 * z);
         let bottom_limit = body.bottom() - COMPOSER_BOTTOM * z;
         let title_floor = body.top() + COMPOSER_TOP * z;
@@ -136,7 +125,7 @@ impl SlateApp {
             let field = Rect::from_min_max(
                 Pos2::new(text_x, title_floor),
                 Pos2::new(
-                    body.right() - pad,
+                    text_right,
                     (title_floor + prompt_h + 2.0 * z).min(body.bottom() - 8.0 * z),
                 ),
             );
@@ -172,21 +161,21 @@ impl SlateApp {
         let input = Rect::from_min_max(
             Pos2::new(text_x, field_top),
             Pos2::new(
-                body.right() - pad,
+                text_right,
                 (field_top + field_h).min(body.bottom() - 8.0 * z),
             ),
         );
         if key_open && !transcript_open {
             let strip = Rect::from_min_max(
-                Pos2::new(body.left() + pad, title_floor),
-                Pos2::new(body.right() - pad, title_floor + 64.0 * z),
+                Pos2::new(text_x, title_floor),
+                Pos2::new(text_right, title_floor + 64.0 * z),
             );
             self.paint_agent_key_entry(ui, node.id, strip, z);
         }
         let key_strip = (key_open && transcript_open).then(|| {
             Rect::from_min_max(
-                Pos2::new(body.left() + pad, input.top() - 80.0 * z),
-                Pos2::new(body.right() - pad, input.top() - 8.0 * z),
+                Pos2::new(text_x, input.top() - 80.0 * z),
+                Pos2::new(text_right, input.top() - 8.0 * z),
             )
         });
         if self.agents.key_rect.is_some_and(|(id, _)| id == node.id) && !key_open {
@@ -203,9 +192,15 @@ impl SlateApp {
             bottom_limit.max(title_floor)
         };
         let transcript = Rect::from_min_max(
-            Pos2::new(body.left() + pad, title_floor),
-            Pos2::new(body.right() - pad, transcript_bottom),
+            Pos2::new(text_x, title_floor),
+            Pos2::new(text_right, transcript_bottom),
         );
+        let fold_now = slate_doc::agent_chat::agent(node)
+            .map(|a| card_fold(&a.chat, self.agents.stream_open.contains(&node.id)))
+            .unwrap_or(train_ux::CardFold::Open);
+        if fold_now == train_ux::CardFold::Partial {
+            atlas_shell::menu_wheel::claim(ui.ctx(), transcript);
+        }
         if transcript.height() > 16.0 * z {
             let mut chat_ui = egui::Ui::new(
                 ui.ctx().clone(),
@@ -249,7 +244,7 @@ impl SlateApp {
                 .id_salt(("agent-history-scroll", node.id.0))
                 .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
                 .vertical_scroll_offset(requested * z)
-                .stick_to_bottom(!responding || follow.follow)
+                .stick_to_bottom(responding && follow.follow)
                 .max_height(transcript.height())
                 .auto_shrink([false, false])
                 .show(&mut chat_ui, |ui| {
@@ -285,7 +280,7 @@ impl SlateApp {
                         let from_agent = user
                             .then(|| relayed.get(&(agent.session.clone(), first_turn + index)))
                             .flatten();
-                        let wrap = (width * if user { 0.78 } else { 0.94 } - 20.0 * z).max(1.0);
+                        let wrap = width.max(1.0);
                         let ink = if turn.role == "system" {
                             palette.sub
                         } else if from_agent.is_some() {
@@ -327,36 +322,18 @@ impl SlateApp {
                         }
                         let entry = &self.agents.transcript_cache[&cache_id];
                         let laid = canvas_text::Scaled::from_galley(entry.3.clone(), entry.4 * z);
-                        let size = laid.size() + egui::vec2(20.0, 20.0) * z;
-                        let (row, _) =
-                            ui.allocate_exact_size(egui::vec2(width, size.y), Sense::hover());
-                        let bubble = Rect::from_min_size(
-                            Pos2::new(
-                                if user {
-                                    row.right() - size.x
-                                } else {
-                                    row.left()
-                                },
-                                row.top(),
-                            ),
-                            size,
-                        );
-                        ui.painter().rect_filled(
-                            bubble,
-                            10.0 * z,
-                            if user {
-                                palette.card_hover
-                            } else {
-                                palette.card
-                            },
+                        let (row, _) = ui.allocate_exact_size(
+                            egui::vec2(width, laid.size().y),
+                            Sense::hover(),
                         );
                         if from_agent.is_some() {
-                            self.paint_received_mark(ui.painter(), bubble, z);
+                            let mark = Rect::from_min_size(row.left_top(), laid.size());
+                            self.paint_received_mark(ui.painter(), mark, z);
                         }
                         laid.selectable(
                             ui,
                             Id::new(("agent-turn-selection", node.id.0, index)),
-                            bubble.min + egui::vec2(10.0, 10.0) * z,
+                            row.left_top(),
                             ink,
                         );
                     }
@@ -379,16 +356,6 @@ impl SlateApp {
                             ui.label("Thinking…");
                         }
                         Some(AgentAwait::Responding { .. }) => {
-                            let reported = self.agents.session(node.id).and_then(|s| s.usage);
-                            let label = self.agents.responding.entry(node.id).or_default();
-                            paint_responding(
-                                ui,
-                                label,
-                                &font,
-                                (palette.accent, palette.sub),
-                                reported,
-                                &turns,
-                            );
                             ui.ctx().request_repaint();
                         }
                         Some(AgentAwait::Failed { reason, actions }) => {
@@ -405,9 +372,6 @@ impl SlateApp {
                             ui.label("Start a conversation");
                         }
                         None => {}
-                    }
-                    if composer {
-                        ui.add_space(COMPOSER_GAP * z);
                     }
                 });
             let got = scroll.state.offset.y / z.max(0.01);
@@ -434,7 +398,7 @@ impl SlateApp {
                 self.agents.measure_epoch = self.agents.measure_epoch.wrapping_add(1);
                 ui.ctx().request_repaint();
             }
-            if agent.chat.size.is_some() {
+            if agent.chat.size.is_some() || fold_now == train_ux::CardFold::Partial {
                 self.agents.card_overflow.insert(
                     node.id,
                     (scroll.content_size.y - scroll.inner_rect.height()).max(0.0) / z,

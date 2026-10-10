@@ -220,8 +220,11 @@ pub struct AgentRuntime {
     /// field that currently has the caret.
     pub(super) composer_rects: HashMap<NodeId, Rect>,
     pub(super) composer_editing: Option<NodeId>,
-    /// Scroll range of user-sized cards whose content overflows, in world units.
+    /// Scroll range of user-sized and partial cards whose content overflows, in world units.
     pub(super) card_overflow: HashMap<NodeId, f32>,
+    /// Screen rects of the collapse chevrons painted last frame. A press here
+    /// is the chevron's, not a frame resize.
+    pub(super) chevron_hits: Vec<Rect>,
     /// Streaming transcript follow, in world units. Absent means follow the bottom.
     pub(super) follow: HashMap<NodeId, train_ux::FollowScroll>,
     /// Collapsed cards shown at twice the capsule while a reply streams.

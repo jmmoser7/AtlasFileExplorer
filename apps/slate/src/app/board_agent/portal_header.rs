@@ -62,6 +62,10 @@ impl SlateApp {
                 .chat_picker
                 .as_ref()
                 .is_some_and(|p| p.portal == node.id);
+        let streaming = matches!(
+            self.agents.awaiting.get(&node.id),
+            Some(AgentAwait::Responding { .. })
+        );
         let title_rect = Rect::from_min_max(
             anchor + egui::vec2(10.0 * z, -10.0 * z),
             rect.right_top() + egui::vec2(-56.0 * z, 27.0 * z),
@@ -137,28 +141,32 @@ impl SlateApp {
                     rename = true;
                 }
                 header.label("·");
-                // Full access paints the model deep red, the moment it is granted.
-                let full = self.agent_full_access(&agent.session);
-                let model_text = if full {
-                    egui::RichText::new(model_name).color(palette.danger)
+                if streaming {
+                    self.paint_header_responding(header, node.id, z);
                 } else {
-                    egui::RichText::new(model_name)
-                };
-                let mut button = egui::Button::new(model_text);
-                if open {
-                    let open_look = &header.visuals().widgets.open;
-                    button = button.fill(open_look.weak_bg_fill).stroke(open_look.bg_stroke);
-                }
-                let model = header.add(button);
-                if model.clicked() {
-                    self.agents.model_menu = (!open).then_some(node.id);
-                    self.agents.model_menu_armed = false;
-                }
-                model_rect = Some(model.rect);
-                if full {
-                    model.on_hover_text(
-                        "Full access: this conversation runs commands and edits files without asking",
-                    );
+                    // Full access paints the model deep red, the moment it is granted.
+                    let full = self.agent_full_access(&agent.session);
+                    let model_text = if full {
+                        egui::RichText::new(model_name).color(palette.danger)
+                    } else {
+                        egui::RichText::new(model_name)
+                    };
+                    let mut button = egui::Button::new(model_text);
+                    if open {
+                        let open_look = &header.visuals().widgets.open;
+                        button = button.fill(open_look.weak_bg_fill).stroke(open_look.bg_stroke);
+                    }
+                    let model = header.add(button);
+                    if model.clicked() {
+                        self.agents.model_menu = (!open).then_some(node.id);
+                        self.agents.model_menu_armed = false;
+                    }
+                    model_rect = Some(model.rect);
+                    if full {
+                        model.on_hover_text(
+                            "Full access: this conversation runs commands and edits files without asking",
+                        );
+                    }
                 }
             });
             if rename {
@@ -207,7 +215,33 @@ impl SlateApp {
             let font = FontId::proportional(canvas_text::authored_px(13.0, z));
             let clip = painter.with_clip_rect(title_rect);
             let at = anchor + egui::vec2(10.0 * z, 0.0);
-            if show_model && self.agent_full_access(&agent.session) {
+            if streaming && show_model {
+                let lead = format!("{title} · ");
+                let lead_w =
+                    canvas_text::layout_no_wrap(&clip, lead.clone(), font.clone(), palette.ink)
+                        .size()
+                        .x;
+                canvas_text::text(
+                    &clip,
+                    at,
+                    Align2::LEFT_CENTER,
+                    lead,
+                    font.clone(),
+                    palette.ink,
+                );
+                let band = Rect::from_min_max(
+                    at + egui::vec2(lead_w, -12.0 * z),
+                    title_rect.max,
+                );
+                let mut respond = egui::Ui::new(
+                    ui.ctx().clone(),
+                    Id::new(("agent-responding", node.id.0)),
+                    egui::UiBuilder::new()
+                        .layer_id(ui.layer_id())
+                        .max_rect(band),
+                );
+                self.paint_header_responding(&mut respond, node.id, z);
+            } else if show_model && self.agent_full_access(&agent.session) {
                 let lead = format!("{title} · ");
                 let lead_w =
                     canvas_text::layout_no_wrap(&clip, lead.clone(), font.clone(), palette.ink)
@@ -256,15 +290,14 @@ impl SlateApp {
         // 60% of the previous cluster, pinned to its old top and right edge.
         let full_r = 3.5 * z;
         let full_pitch = full_r * 2.8;
-        let full_top = rect.top() + slate_doc::agent_chat::RAIL_INSET * z - full_r;
         let full_right_edge =
             rect.right() - (slate_doc::agent_chat::PORT_INSET + 3.5) * z - 4.0 * z - full_r * 0.4;
         let dot_r = full_r * 0.6;
         let pitch = full_pitch * 0.6;
-        let dot_cy = full_top + dot_r;
+        let dot_cy = output_circle_center(rect, z).y;
         let menu_w = pitch * 3.0;
         let menu_rect = Rect::from_min_size(
-            Pos2::new(full_right_edge - (pitch * 2.5 + dot_r), full_top),
+            Pos2::new(full_right_edge - (pitch * 2.5 + dot_r), dot_cy - dot_r),
             egui::vec2(menu_w, dot_r * 2.0),
         );
         let mut menu_ui = egui::Ui::new(
@@ -289,166 +322,8 @@ impl SlateApp {
             widget.weak_bg_fill = Color32::TRANSPARENT;
             widget.bg_stroke = egui::Stroke::NONE;
         }
-        let full_on = self.agent_full_access(&agent.session);
-        let reviews = self.crosstalk_policy(&agent.session) == atlas_agent::TurnPolicy::ReadOnly;
-        // The menu selects this card first; the editor resolves its crosstalk.
-        let crosstalk =
-            slate_doc::crosstalk::chain_of_session(&self.doc().scene, &agent.session).is_some();
-        let schedulable = atlas_ai::runtime::linear_provider(&agent.provider) && !agent.chat.draft;
-        let scheduled = schedulable && self.agent_schedule(node.id).is_some();
-        let mut command: Option<&str> = None;
-        let mut command_detail: Option<&str> = None;
-        egui::menu::menu_custom_button(
-            &mut menu_ui,
-            egui::Button::new("")
-                .min_size(menu_rect.size())
-                .frame(false),
-            |ui| {
-                use atlas_shell::icons::Icon;
-                use atlas_shell::menu::{MenuIcon, Row};
-                use slate_doc::agent_chat::Detail;
-                let dark = palette.dark_mode;
-                atlas_shell::menu::prepare(ui, dark);
-                ui.set_min_width(224.0);
-                ui.set_max_width(260.0);
-                let train = agent.chat.train;
-                let full_access = if full_on {
-                    Row::new(MenuIcon::Lock, "Full access")
-                        .checked(true)
-                        .danger()
-                } else {
-                    Row::new(MenuIcon::Lock, "Full access")
-                };
-                // Presentation, then the conversation, then this card.
-                let [window, chat_train, pairs] = agent_presentations(&agent.chat, running);
-                let rows = [
-                    (
-                        0,
-                        Row::glyph(Icon::ChatWindow, "Single chat window"),
-                        window.0,
-                        window.1,
-                    ),
-                    (
-                        0,
-                        Row::glyph(Icon::ChatTrain, "Chat train"),
-                        chat_train.0,
-                        chat_train.1,
-                    ),
-                    (
-                        0,
-                        Row::glyph(Icon::ChatPairs, "Message pairs"),
-                        pairs.0,
-                        pairs.1,
-                    ),
-                    (
-                        0,
-                        Row::glyph(Icon::TextDoc, "Full conversation"),
-                        "portal.agent.full",
-                        train && !agent.chat.draft && agent.chat.detail != Detail::Full,
-                    ),
-                    (
-                        1,
-                        Row::glyph(Icon::Agent, "Choose program"),
-                        "portal.agent.provider",
-                        !running
-                            && !train
-                            && agent.chat.parent.is_none()
-                            && agent.chat.end.is_none(),
-                    ),
-                    (
-                        1,
-                        Row::glyph(Icon::Stop, "Stop response"),
-                        "portal.agent.stop",
-                        running,
-                    ),
-                    (
-                        1,
-                        Row::glyph(Icon::ChatTrain, "Fork chat here"),
-                        "portal.agent.fork",
-                        !running
-                            && !agent.chat.draft
-                            && agent.chat.bundled.is_empty()
-                            && !atlas_ai::runtime::linear_provider(&agent.provider)
-                            && !agent.chat.linear,
-                    ),
-                    (
-                        1,
-                        full_access,
-                        "portal.agent.full_access",
-                        atlas_ai::runtime::linear_provider(&agent.provider) && !agent.chat.draft,
-                    ),
-                    (
-                        1,
-                        Row::glyph(Icon::Agent, "Crosstalk…"),
-                        "portal.agent.crosstalk.edit",
-                        crosstalk,
-                    ),
-                    (
-                        1,
-                        Row::glyph(
-                            Icon::Clock,
-                            if scheduled {
-                                "Edit schedule…"
-                            } else {
-                                "Schedule…"
-                            },
-                        ),
-                        "portal.agent.schedule:{\"open\":true}",
-                        schedulable,
-                    ),
-                    (
-                        1,
-                        Row::glyph(Icon::Clock, "Stop schedule"),
-                        "portal.agent.schedule:{\"stop\":true}",
-                        scheduled,
-                    ),
-                    (
-                        2,
-                        Row::glyph(Icon::Fit, "Fit to text"),
-                        "portal.agent.fit",
-                        agent.chat.size.is_some(),
-                    ),
-                    (
-                        2,
-                        Row::new(MenuIcon::Trash, "Delete card").danger(),
-                        "board.delete",
-                        leaf,
-                    ),
-                ];
-                let mut group = None;
-                for (section, row, id, shown) in rows {
-                    if !shown {
-                        continue;
-                    }
-                    if group.is_some_and(|g| g != section) {
-                        atlas_shell::menu::separator(ui, dark);
-                    }
-                    group = Some(section);
-                    let response = atlas_shell::menu::row(ui, row, dark);
-                    let response = if id == "portal.agent.full_access" {
-                        response.on_hover_text(if reviews {
-                            "This side reviews read-only in its crosstalk; Full access cannot apply"
-                        } else if running {
-                            "Run commands and edit files without asking, from the next message"
-                        } else {
-                            "Run commands and edit files without asking, in this conversation"
-                        })
-                    } else {
-                        response
-                    };
-                    if response.clicked() {
-                        match id.split_once(':') {
-                            Some((cmd, detail)) => {
-                                command = Some(cmd);
-                                command_detail = Some(detail);
-                            }
-                            None => command = Some(id),
-                        }
-                        ui.close_menu();
-                    }
-                }
-            },
-        );
+        let (mut command, mut command_detail) =
+            self.agent_header_menu(&mut menu_ui, menu_rect, node, agent, running, leaf);
         let dots_hot = ui
             .ctx()
             .pointer_hover_pos()
@@ -463,6 +338,13 @@ impl SlateApp {
                 palette.ink.gamma_multiply(0.55 + 0.40 * grow),
             );
         }
+        paint_handle_dot(
+            painter,
+            output_circle_center(rect, z),
+            z,
+            false,
+            palette.sub.gamma_multiply(0.72),
+        );
         if !(agent.chat.train && !agent.chat.bundled.is_empty()) {
             if let Some(detail) =
                 self.paint_agent_collapse_toggle(ui, node, rect, menu_rect.left(), dot_cy, z)
@@ -470,10 +352,6 @@ impl SlateApp {
                 command = Some("portal.agent.collapse");
                 command_detail = Some(detail);
             }
-        }
-        if schedulable && self.paint_agent_clock(ui, node.id, menu_rect.left(), dot_cy, z) {
-            command = Some("portal.agent.schedule");
-            command_detail = Some("{\"open\":true}");
         }
         if let Some(command) = command {
             if command != "portal.agent.bundle_chat" {
