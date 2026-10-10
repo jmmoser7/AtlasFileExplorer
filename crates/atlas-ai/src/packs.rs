@@ -22,9 +22,10 @@ struct Probed {
 pub struct PackSession {
     catalog: Catalog,
     rx: Option<Receiver<Probed>>,
-    /// A refresh asked for while a probe was in flight runs when it lands, so
-    /// a key saved mid-probe is not undone by the older answer.
+    /// A refresh asked for while a probe was in flight. The older answer is
+    /// dropped and this one runs, so a key saved mid-probe is not undone.
     again: Option<Option<PathBuf>>,
+    workspace: Option<PathBuf>,
     started: bool,
     chooser_painted: bool,
     chooser_latched: bool,
@@ -44,6 +45,7 @@ impl PackSession {
             catalog: Catalog::from_manifests(Vec::new()),
             rx: None,
             again: None,
+            workspace: None,
             started: false,
             chooser_painted: false,
             chooser_latched: false,
@@ -112,6 +114,9 @@ impl PackSession {
     pub fn set_health_override(&mut self, id: &str, health: PackHealth) {
         self.overrides.retain(|(name, _)| name != id);
         self.overrides.push((id.to_string(), health));
+        if self.rx.is_some() && self.again.is_none() {
+            self.again = Some(self.workspace.clone());
+        }
     }
 
     pub fn clear_health_overrides(&mut self) {
@@ -182,8 +187,10 @@ impl PackSession {
         };
         match rx.try_recv() {
             Ok(probed) => {
-                self.catalog = probed.catalog;
-                self.pending_programs = Some(probed.programs);
+                if self.again.is_none() {
+                    self.catalog = probed.catalog;
+                    self.pending_programs = Some(probed.programs);
+                }
                 self.rx = None;
             }
             Err(crossbeam_channel::TryRecvError::Empty) => {}
@@ -204,6 +211,7 @@ impl PackSession {
         let (tx, rx) = unbounded();
         self.rx = Some(rx);
         self.probes += 1;
+        self.workspace.clone_from(&workspace);
         let overrides = self.overrides.clone();
         std::thread::spawn(move || {
             let catalog = probe_catalog(workspace.as_deref(), &overrides);

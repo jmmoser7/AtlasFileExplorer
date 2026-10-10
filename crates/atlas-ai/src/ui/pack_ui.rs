@@ -19,6 +19,7 @@ pub fn connections_section(panel: &mut AiPanel, ui: &mut egui::Ui, sub: Color32)
             id: row.id,
             name: row.name,
             contract: row.contract,
+            ok: row.health == crate::packs::PackHealth::Ok.as_str(),
             health: row.health,
             install_note: row.install_note,
             detail: row.detail,

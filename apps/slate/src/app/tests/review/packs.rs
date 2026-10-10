@@ -5,8 +5,11 @@ use super::super::packs::{chooser_in_view, generate_chooser_open, pack_board};
 use super::*;
 use atlas_ai::packs::{PackHealth, OPENAI};
 
+/// Popups fade in over a few frames; shoot once they have settled.
 fn shoot(h: &mut Harness, raster: &mut FrameRaster, item: &str, state: &str) {
-    capture_frame(h, raster, |_| {});
+    for _ in 0..12 {
+        capture_frame(h, raster, |_| {});
+    }
     let out = capture_frame(h, raster, |_| {});
     review_shot(h, raster, out, item, state);
 }
@@ -32,7 +35,9 @@ fn pk2_generate_chooser() {
         let theme = if dark { "dark" } else { "light" };
         let mut h = pack_board("pk2_generate", &["comfy"]);
         h.app.dark_mode = dark;
-        generate_chooser_open(&mut h);
+        generate_chooser_open(&mut h, |h| {
+            capture_frame(h, &mut raster, |_| {});
+        });
         shoot(
             &mut h,
             &mut raster,
@@ -48,7 +53,9 @@ fn pk2_generate_chooser() {
         );
     }
     let mut h = pack_board("pk2_generate_bare", &[]);
-    generate_chooser_open(&mut h);
+    generate_chooser_open(&mut h, |h| {
+        capture_frame(h, &mut raster, |_| {});
+    });
     shoot(
         &mut h,
         &mut raster,

@@ -74,6 +74,18 @@ fn a_refresh_during_a_probe_runs_after_it_instead_of_being_dropped() {
 }
 
 #[test]
+fn an_answer_recorded_mid_probe_is_not_undone_by_the_older_probe() {
+    let mut session = PackSession::new();
+    session.set_health_override(OPENAI, PackHealth::Missing);
+    session.refresh(None);
+    session.set_health_override(OPENAI, PackHealth::Ok);
+    session.record(OPENAI, PackHealth::Ok);
+    settle(&mut session);
+    assert!(session.ok(OPENAI));
+    assert_eq!(session.probes(), 2);
+}
+
+#[test]
 fn workspace_programs_survive_and_never_launch() {
     let ws = temp_dir("programs");
     std::fs::create_dir_all(ws.join(".atlas-ai")).unwrap();

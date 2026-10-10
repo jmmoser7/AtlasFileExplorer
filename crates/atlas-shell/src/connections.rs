@@ -8,6 +8,8 @@ pub struct ConnectionRow {
     pub name: String,
     pub contract: String,
     pub health: String,
+    /// The probe answered Ok; the install note is then beside the point.
+    pub ok: bool,
     pub install_note: String,
     /// What the probe looked for (P1.portal.health names it on failure).
     pub detail: String,
@@ -52,11 +54,20 @@ pub fn section(ui: &mut Ui, rows: &[ConnectionRow], sub: Color32) -> Option<Conn
             for row in rows {
                 ui.label(RichText::new(&row.name).small());
                 ui.label(RichText::new(&row.contract).small().color(sub));
-                let health = ui.label(RichText::new(&row.health).small());
+                let health = RichText::new(&row.health).small();
+                let health = ui.label(if row.ok {
+                    health.strong()
+                } else {
+                    health.color(sub)
+                });
                 if !row.detail.is_empty() {
                     health.on_hover_text(&row.detail);
                 }
-                ui.label(RichText::new(&row.install_note).small().color(sub));
+                ui.label(
+                    RichText::new(if row.ok { "" } else { &row.install_note })
+                        .small()
+                        .color(sub),
+                );
                 if row.trial && ui.small_button("Forget").clicked() {
                     action = Some(ConnectionAction::Forget(row.id.clone()));
                 } else if !row.trial {

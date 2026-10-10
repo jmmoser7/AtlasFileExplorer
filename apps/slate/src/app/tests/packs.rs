@@ -55,13 +55,17 @@ pub(crate) fn chooser_in_view(h: &mut Harness) -> NodeId {
 }
 
 /// A picture with its Agent editor open and the model list dropped down.
-pub(crate) fn generate_chooser_open(h: &mut Harness) -> NodeId {
+/// `frame` runs the setup frames (a review sheet feeds them to its raster).
+pub(crate) fn generate_chooser_open(
+    h: &mut Harness,
+    mut frame: impl FnMut(&mut Harness),
+) -> NodeId {
     let picture = super::super::board_flow::tests::place(h, "site.png", -900.0);
     h.app.agent_blur();
     h.app.board_sel = std::iter::once(picture).collect();
     look_at(h, picture);
-    h.frame();
-    h.frame();
+    frame(h);
+    frame(h);
     h.app.shape_properties.panel = Some(super::super::board_properties::Panel::Agent);
     h.app.open_agent_model_menu_for_test(picture);
     picture
@@ -122,7 +126,7 @@ fn pk2_generate_offers_add_api_key_until_a_key_is_stored() {
     assert_eq!(rows.len(), 1, "{rows:?}");
     assert_eq!(rows[0].2, ADD_KEY_LABEL);
     assert!(h.app.ai.packs.needs_key(OPENAI));
-    generate_chooser_open(&mut h);
+    generate_chooser_open(&mut h, |h| h.frame());
     let texts = shown(&mut h);
     assert!(texts.iter().any(|t| t == ADD_KEY_LABEL), "{texts:?}");
 
