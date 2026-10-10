@@ -2783,13 +2783,12 @@ impl SlateApp {
 
     fn draw_toasts(&mut self, ctx: &egui::Context) {
         self.toasts.retain(|(_, t)| t.elapsed().as_secs_f32() < 3.0);
-        if self.toasts.is_empty() {
-            return;
-        }
         let palette = self.palette();
         let msgs: Vec<&str> = self.toasts.iter().map(|(m, _)| m.as_str()).collect();
         let _ = atlas_shell::toast::paint_stack(ctx, &palette, self.canvas_rect, &msgs);
-        ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        if !msgs.is_empty() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        }
     }
 
     pub(crate) fn ensure_home_cover_bakes(&mut self) {

@@ -645,8 +645,8 @@ row_height = 6.0
 text_size = 12.0
 separators = true
 chevron_size = 4.0
-chevron_hit = 10.0
-chevron_inset_x = 10.0
+chevron_hit = 8.0
+chevron_inset_x = 2.5
 chevron_inset_y = 1.5
 chevron_stroke = 0.5799999833106995
 chevron_idle_opacity = 0.3799999952316284
@@ -654,8 +654,8 @@ chevron_hover_opacity = 0.9200000166893005
 chevron_hover_fill = 0.10000000149011612
 chevron_emboss = 0.2199999988079071
 suggestion_size = 0.0
-suggestion_gap_from_chevron = 10.0
-suggestion_inset_x = 12.0
+suggestion_gap_from_chevron = 6.0
+suggestion_inset_x = 16.0
 
 [toast]
 max_width_px = 560.0

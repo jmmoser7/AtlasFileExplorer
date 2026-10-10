@@ -360,7 +360,7 @@ reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]
 file = "crates/atlas-shell/src/dock.rs"
-ceiling = 5336
+ceiling = 5286
 reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]
@@ -370,7 +370,7 @@ reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]
 file = "crates/atlas-shell/src/feedback/ui.rs"
-ceiling = 558
+ceiling = 509
 reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]
@@ -425,7 +425,7 @@ reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]
 file = "crates/atlas-shell/src/tuning.rs"
-ceiling = 1827
+ceiling = 1826
 reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]

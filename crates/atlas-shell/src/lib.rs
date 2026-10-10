@@ -51,6 +51,7 @@ pub mod commands;
 pub mod covers;
 pub mod dock;
 mod dock_advanced;
+mod dock_plate;
 pub mod feedback;
 pub mod file_picker;
 pub mod folder_map;
@@ -73,10 +74,12 @@ pub mod taper;
 pub mod theme;
 pub mod timeline;
 pub mod toast;
+pub mod tokens;
 mod tokens_readouts;
 mod tokens_toast;
-pub mod tokens;
 pub mod tuning;
+#[cfg(feature = "ui-tuner")]
+mod tuning_corner;
 pub mod updates;
 pub mod widgets;
 

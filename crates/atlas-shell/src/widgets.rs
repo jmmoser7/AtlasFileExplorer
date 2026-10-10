@@ -776,10 +776,9 @@ pub fn canvas_mini_menu(
         });
 
     if let Some(pct) = model.zoom_pct {
-        let zoom_pos = chevron.left_bottom() + Vec2::new(chevron.width() + 6.0, 0.0);
         egui::Area::new(Id::new(("canvas_zoom_cluster", id)))
-            .fixed_pos(zoom_pos)
-            .pivot(egui::Align2::LEFT_BOTTOM)
+            .fixed_pos(crate::canvas_corner::zoom_cluster_anchor(canvas))
+            .pivot(egui::Align2::LEFT_CENTER)
             .order(egui::Order::Middle)
             .show(ctx, |ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
