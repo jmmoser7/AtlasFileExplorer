@@ -3,6 +3,7 @@
 //! this blocking operation on a worker. Source files are opened read-only.
 
 use std::path::Path;
+#[cfg(windows)]
 use std::time::Duration;
 
 /// Render a Word document to a new PDF. Windows uses the installed Word
