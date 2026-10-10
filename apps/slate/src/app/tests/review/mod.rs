@@ -8,6 +8,7 @@ use super::*;
 mod board;
 mod chat_train;
 mod chrome;
+mod packs;
 mod segment;
 mod text_zoom;
 

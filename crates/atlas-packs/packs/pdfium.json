@@ -1,0 +1,8 @@
+{
+  "id": "pdfium",
+  "title": "PDFium",
+  "contract": "page",
+  "contract_version": 1,
+  "install_note": "Place pdfium next to the app. Page thumbnails stay fail-open without it.",
+  "probe": { "kind": "custom", "id": "pdfium" }
+}

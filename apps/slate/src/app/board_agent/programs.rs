@@ -8,6 +8,7 @@ impl SlateApp {
     pub(crate) fn set_agent_programs_for_test(&mut self, ids: &[&str]) {
         self.agents.programs_started = true;
         self.agents.programs_rx = None;
+        self.ai.packs.hold = true;
         self.agents.programs = ids
             .iter()
             .map(|id| atlas_ai::agent::provider_by_id(id))
@@ -25,25 +26,78 @@ impl SlateApp {
     pub(super) fn ensure_agent_programs(&mut self) {
         if !self.agents.programs_started {
             self.agents.programs_started = true;
-            let ws = self.ai.config.workspace_dir.clone();
-            let (tx, rx) = unbounded();
-            self.agents.programs_rx = Some(rx);
-            std::thread::spawn(move || {
-                let _ = tx.send(atlas_ai::runtime::discover_programs(ws.as_deref()));
-            });
+            self.ai
+                .packs
+                .ensure_started(self.ai.config.workspace_dir.clone());
         }
-        if let Some(rx) = &self.agents.programs_rx {
-            match rx.try_recv() {
-                Ok(programs) => {
-                    self.agents.programs = programs;
-                    self.agents.programs_rx = None;
-                }
-                Err(crossbeam_channel::TryRecvError::Empty) => {}
-                Err(crossbeam_channel::TryRecvError::Disconnected) => {
-                    self.agents.programs_rx = None;
-                }
+        if let Some(programs) = self.ai.packs.poll_programs() {
+            if !self.ai.packs.hold {
+                self.agents.programs = programs;
             }
         }
+    }
+    pub(crate) fn pack_caption(&self, provider: &str) -> Option<String> {
+        if provider.is_empty() {
+            return None;
+        }
+        let health = self.ai.packs.health(provider);
+        if health == atlas_ai::packs::PackHealth::Ok {
+            return None;
+        }
+        if health == atlas_ai::packs::PackHealth::Unknown && self.ai.packs.detail(provider).is_empty() {
+            return None;
+        }
+        let title = self.ai.packs.title(provider)?;
+        Some(format!("{title} · {}", health.as_str()))
+    }
+    pub(super) fn paint_pack_key_entry(&mut self, ctx: &egui::Context) {
+        if !self.ai.packs.key_entry {
+            return;
+        }
+        let mut open = true;
+        let mut save = None;
+        egui::Window::new("OpenAI API key").open(&mut open).show(ctx, |ui| {
+            ui.label(
+                "The key stays in Credential Manager for this Windows user. It is never written into the workbook.",
+            );
+            ui.hyperlink_to("Get an API key", atlas_ai::packs::KEY_URL);
+            let id = ui.id().with("openai_key_draft");
+            let mut draft = ui.data(|d| d.get_temp::<String>(id)).unwrap_or_default();
+            ui.add(
+                egui::TextEdit::singleline(&mut draft)
+                    .password(true)
+                    .hint_text("Paste the API key"),
+            );
+            ui.data_mut(|d| d.insert_temp(id, draft.clone()));
+            if ui.button("Save").clicked() {
+                save = Some(draft);
+            }
+        });
+        if let Some(key) = save {
+            match atlas_core::secrets::store(atlas_ai::runtime::OPENAI_KEY_SLOT, &key) {
+                Ok(()) => {
+                    self.ai
+                        .packs
+                        .record("openai-image", atlas_ai::packs::PackHealth::Ok);
+                    self.ai
+                        .packs
+                        .refresh(self.ai.config.workspace_dir.clone());
+                    self.ai.packs.key_entry = false;
+                    self.toast("OpenAI API key saved for this Windows user.");
+                }
+                Err(error) => self.toast(error),
+            }
+        }
+        if !open {
+            self.ai.packs.key_entry = false;
+        }
+    }
+    /// The program chooser is on screen. Probe again so an install that
+    /// landed while Slate was open shows up without a restart.
+    pub(crate) fn note_program_chooser(&mut self) {
+        self.ai
+            .packs
+            .note_chooser_open(self.ai.config.workspace_dir.clone());
     }
     pub(crate) fn set_agent_program(&mut self, id: NodeId, provider: &str) {
         if self

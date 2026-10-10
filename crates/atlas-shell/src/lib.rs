@@ -47,6 +47,7 @@ pub mod canvas_scale;
 pub mod canvas_text;
 pub mod chrome;
 pub mod commands;
+pub mod connections;
 pub mod covers;
 pub mod dock;
 mod dock_advanced;

@@ -189,10 +189,43 @@ pub fn window(app: &mut AtlasApp, ctx: &egui::Context) {
                 }
             });
             ui.add_space(6.0);
+            paint_connections(app, ui, palette.sub);
+            ui.add_space(12.0);
+            ui.separator();
+            ui.add_space(6.0);
             commands::shortcuts_reference_ui(ui);
         });
     if !open {
         app.active_chrome_mut().advanced_open = false;
+    }
+}
+
+fn paint_connections(app: &mut AtlasApp, ui: &mut egui::Ui, sub: egui::Color32) {
+    let rows: Vec<_> = app
+        .ai
+        .packs
+        .rows()
+        .into_iter()
+        .map(|row| atlas_shell::connections::ConnectionRow {
+            id: row.id,
+            name: row.name,
+            contract: row.contract,
+            health: row.health,
+            install_note: row.install_note,
+            trial: row.trial,
+        })
+        .collect();
+    let workspace = app.ai.config.workspace_dir.clone();
+    match atlas_shell::connections::section(ui, &rows, sub) {
+        Some(atlas_shell::connections::ConnectionAction::Refresh) => {
+            app.ai.packs.refresh(workspace);
+        }
+        Some(atlas_shell::connections::ConnectionAction::Forget(id)) => {
+            if let Err(error) = app.ai.packs.forget(&id, workspace) {
+                app.toast(error);
+            }
+        }
+        None => {}
     }
 }
 

@@ -76,6 +76,24 @@ impl SlateApp {
             self.paint_agent_bound(ui, painter, xf, &layout, node, portal, maximized);
         }
 
+        if let Some(caption) = portal
+            .agent
+            .as_ref()
+            .and_then(|agent| self.pack_caption(&agent.provider))
+        {
+            atlas_shell::canvas_text::text(
+                painter,
+                egui::pos2(
+                    layout.body.center().x,
+                    layout.body.bottom() - atlas_shell::canvas_scale::px(14.0, xf.z),
+                ),
+                egui::Align2::CENTER_BOTTOM,
+                &caption,
+                atlas_shell::canvas_scale::font(12.0, xf.z),
+                self.palette().sub,
+            );
+        }
+
         if portal
             .agent
             .as_ref()
@@ -106,6 +124,7 @@ impl SlateApp {
         _maximized: bool,
         zoom: f32,
     ) {
+        self.note_program_chooser();
         self.ensure_agent_programs();
         let interactive = !self.tab().read_only;
         // A fit while redo waits would clear it, and Undo could never get
@@ -146,7 +165,11 @@ impl SlateApp {
             interactive,
             zoom,
         ) {
-            self.set_agent_program(id, &provider);
+            if self.ai.packs.needs_key(&provider) {
+                self.ai.packs.key_entry = true;
+            } else {
+                self.set_agent_program(id, &provider);
+            }
         }
     }
 }

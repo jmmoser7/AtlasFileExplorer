@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/atlas-core",
+    "crates/atlas-packs",
     "crates/atlas-update",
     "crates/atlas-shell",
     "crates/atlas-session",
@@ -76,6 +77,7 @@ earcutr = "0.4"
 
 # Workspace crates.
 atlas-core = { path = "crates/atlas-core" }
+atlas-packs = { path = "crates/atlas-packs" }
 atlas-update = { path = "crates/atlas-update" }
 atlas-shell = { path = "crates/atlas-shell" }
 atlas-session = { path = "crates/atlas-session" }

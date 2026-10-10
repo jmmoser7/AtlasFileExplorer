@@ -7,6 +7,9 @@
 //! `slate_doc::agent_inputs`. Runs go through the generator queue. See
 //! `docs/keymap/contracts/portal-agent-link.md` (Flow ports, 23 September 2026).
 
+#[path = "board_flow_models.rs"]
+mod flow_models;
+
 use std::collections::HashMap;
 
 use atlas_ai::agent::{AgentRequest, PortalView};
@@ -194,31 +197,12 @@ impl AgentDraft {
     }
 }
 
-/// Which remote engines this machine can reach. Read once, never per frame;
-/// saving a key refreshes it.
-#[derive(Clone, Copy)]
-struct Engines {
-    codex: bool,
-    openai: bool,
-}
-
-impl Engines {
-    fn probe() -> Self {
-        Self {
-            codex: atlas_ai::runtime::codex_executable().is_some(),
-            openai: atlas_core::secrets::health(atlas_ai::runtime::OPENAI_KEY_SLOT)
-                == atlas_core::secrets::SecretHealth::Ok,
-        }
-    }
-}
-
 /// Derived view state; nothing here is journaled.
 #[derive(Default)]
 pub(crate) struct FlowUi {
     menu: Option<FlowMenu>,
     press: Option<(NodeId, Pos2)>,
     drafts: HashMap<NodeId, AgentDraft>,
-    engines: Option<Engines>,
     /// The prompt capsule of this frame is expanded for editing.
     capsule: Option<NodeId>,
     /// A generator's own prompt field has the caret.
@@ -1172,42 +1156,6 @@ impl SlateApp {
         }
     }
 
-    fn engines(&mut self) -> Engines {
-        *self.agents.flow.engines.get_or_insert_with(Engines::probe)
-    }
-
-    /// (provider, model, label) choices for image or text agents, across every
-    /// engine this machine reaches. The first is local, so no agent needs an
-    /// account (Art. I.4). Catalogs are discovered off-thread as they are needed.
-    pub(crate) fn agent_models(&mut self, image: bool) -> Vec<(String, String, String)> {
-        let engines = self.engines();
-        if image {
-            self.agents.want_catalog("comfy");
-            if engines.openai {
-                self.agents.want_catalog("openai-image");
-            }
-            return atlas_ai::runtime::image_models(
-                self.agents.catalog("comfy"),
-                engines.codex,
-                engines.openai,
-                self.agents.catalog("openai-image"),
-            );
-        }
-        self.agents.want_catalog("ollama");
-        if engines.codex {
-            self.agents.want_catalog("codex");
-        }
-        if engines.openai {
-            self.agents.want_catalog("openai-text");
-        }
-        atlas_ai::runtime::text_models(
-            self.agents.catalog("ollama"),
-            engines.codex.then(|| self.agents.catalog("codex")),
-            engines.openai,
-            self.agents.catalog("openai-text"),
-        )
-    }
-
     /// The model the person last chose for this kind of agent.
     pub(crate) fn default_model(&self, image: bool) -> Option<(String, String)> {
         if image {
@@ -1233,7 +1181,12 @@ impl SlateApp {
 
     /// A saved key opens the OpenAI catalogs.
     fn key_saved(&mut self) {
-        self.agents.flow.engines = None;
+        self.ai
+            .packs
+            .record("openai-image", atlas_ai::packs::PackHealth::Ok);
+        self.ai
+            .packs
+            .refresh(self.ai.config.workspace_dir.clone());
         self.agents.refresh_catalog("openai-image");
         self.agents.refresh_catalog("openai-text");
     }
@@ -1276,7 +1229,7 @@ impl SlateApp {
             .collect();
         let pasting = draft.key.is_some();
         let hint = if pasting {
-            "Paste your OpenAI API key, then Submit. It stays in Windows Credential Manager."
+            "Paste your OpenAI API key, then Submit. Get one at https://platform.openai.com/api-keys. It stays in Credential Manager, never in the workbook."
         } else if draft.image {
             "Describe the picture to make, or the look to give this one"
         } else {
@@ -1327,9 +1280,13 @@ impl SlateApp {
             draft.choice = None;
             draft.key = None;
         }
-        if let Some((provider, model, _)) = out.model.and_then(|i| models.get(i)) {
-            draft.choice = Some((provider.clone(), model.clone()));
-            self.remember_model(draft.image, provider, model);
+        if let Some((provider, model, label)) = out.model.and_then(|i| models.get(i)) {
+            if label == atlas_ai::packs::ADD_KEY_LABEL {
+                self.ai.packs.key_entry = true;
+            } else {
+                draft.choice = Some((provider.clone(), model.clone()));
+                self.remember_model(draft.image, provider, model);
+            }
         }
         if let Some(count) = out.count {
             draft.count = count.clamp(1, 8);
@@ -1368,6 +1325,7 @@ impl SlateApp {
             return;
         };
         if provider.starts_with("openai") && !self.engines().openai {
+            self.ai.packs.key_entry = true;
             draft.key = Some(String::new());
             draft.take_focus = true;
             return;
@@ -1469,7 +1427,7 @@ impl SlateApp {
             .unwrap_or(0);
         let pasting = draft.key.is_some();
         let hint = if pasting {
-            "Paste your OpenAI API key, then Submit. It stays in Windows Credential Manager."
+            "Paste your OpenAI API key, then Submit. Get one at https://platform.openai.com/api-keys. It stays in Credential Manager, never in the workbook."
         } else if image {
             "Describe the picture. Submit makes it again."
         } else {
@@ -1513,8 +1471,11 @@ impl SlateApp {
                 *self.agents.prompt_mut(id) = text;
             }
         }
-        if let Some((provider, model, _)) = out.model.and_then(|i| models.get(i)) {
-            if provider.starts_with("openai") && !self.engines().openai {
+        if let Some((provider, model, label)) = out.model.and_then(|i| models.get(i)) {
+            if label == atlas_ai::packs::ADD_KEY_LABEL
+                || (provider.starts_with("openai") && !self.engines().openai)
+            {
+                self.ai.packs.key_entry = true;
                 draft.key = Some(String::new());
                 draft.take_focus = true;
             } else {
@@ -2501,7 +2462,7 @@ pub(crate) mod tests {
             "Text",
             "Image",
             "Submit",
-            "ComfyUI · Auto",
+            "Image",
             "Source",
             "1 img",
             "Seed",
@@ -2565,7 +2526,6 @@ pub(crate) mod tests {
     fn a_chosen_model_becomes_the_default_for_new_frames_from_any_spawn() {
         let (mut h, generator) = generator_with_output("model_default");
         let models = h.app.agent_models(true);
-        assert!(models.iter().any(|m| m.0 == "comfy"));
         assert!(models.iter().any(|m| m.0 == "openai-image"), "{models:?}");
         let texts = h.app.agent_models(false);
         assert!(texts.iter().any(|m| m.0 == "openai-text"), "{texts:?}");

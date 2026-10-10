@@ -36,6 +36,7 @@ mod media;
 mod media_guards;
 mod osnap;
 mod page_focus;
+mod packs;
 mod path_cuts;
 mod path_edit;
 mod previews;

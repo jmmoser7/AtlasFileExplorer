@@ -69,10 +69,10 @@ const fn gesture(
     spec(id, name, category, binding, None, Repeat::Never, when, &[])
 }
 
-/// Canonical command table. Grouped by category (Navigation, Files, Filters,
-/// Selection, Workflow) — the Advanced reference renders groups in this
-/// declaration order.
+/// Canonical command table. The Advanced reference renders groups in declaration order.
 pub const SPECS: &[CommandSpec] = &[
+    gesture("app.packs.refresh", "Refresh connections", "Workflow", "Advanced → Connections → Refresh", GLOBAL),
+    gesture("app.packs.forget", "Forget a trial pack", "Workflow", "Advanced → Connections → Forget", GLOBAL),
     gesture(
         "app.updates.check",
         "Check for updates",

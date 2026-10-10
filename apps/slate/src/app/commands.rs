@@ -85,7 +85,8 @@ pub static SPECS: &[CommandSpec] = &[
     spec("board.tool.polyline", "Board", "Polyline tool", "Shapes: click vertices; Enter finishes; snap to the start to close. Shift = 45° from the last vertex; Tab locks the direction", None, Repeat::Repeatable, BOARD, &["polyline", "polygon"]),
     spec("board.tool.arc", "Board", "Arc tool", "Shapes: pick three points for an arc. Shift = 45° from the last point; Tab locks the direction", None, Repeat::Repeatable, BOARD, &["arc", "curve"]),
     spec("board.tool.bezier", "Board", "Bezier span tool", "Shapes: place anchors and drag tangent handles. Shift = 45° from the last anchor; Tab locks the direction", None, Repeat::Repeatable, BOARD, &["bezier", "handles"]),
-    // ----- Navigation -------------------------------------------------------
+    spec("app.packs.refresh", "Commands", "Refresh connections", "Advanced → Connections → Refresh", None, Repeat::Never, GLOBAL, &["packs", "probe"]),
+    spec("app.packs.forget", "Commands", "Forget a trial pack", "Advanced → Connections → Forget", None, Repeat::Never, GLOBAL, &["packs", "trial"]),
     spec(
         "nav.pan",
         "Navigation",

@@ -23,7 +23,8 @@ const BEACON_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
 /// frame ends (it self-throttles).
 pub struct AiPanel {
     pub config: AiConfig,
-    /// `None` until the background probe finishes.
+    /// `None` until the background probe finishes. Launch uses pack health.
+    #[allow(dead_code)]
     cursor_available: Option<bool>,
     cursor_rx: Option<Receiver<bool>>,
     picker: FilePicker<Option<PathBuf>>,
@@ -34,6 +35,7 @@ pub struct AiPanel {
     /// The workspace may be a synced or network folder: beacons are written
     /// on their own thread, newest first.
     beacon_tx: Option<Sender<(PathBuf, AiAppContext)>>,
+    pub packs: crate::packs::PackSession,
 }
 
 impl AiPanel {
@@ -53,7 +55,12 @@ impl AiPanel {
             last_fingerprint: 0,
             last_beacon: None,
             beacon_tx: None,
+            packs: crate::packs::PackSession::new(),
         }
+    }
+
+    pub fn cursor_ok(&self) -> bool {
+        self.packs.cursor_ok()
     }
 
     /// Drain the async folder picker and the Cursor probe. Returns true while
@@ -68,7 +75,8 @@ impl AiPanel {
                 }
             }
         }
-        let cursor_pending = self.cursor_rx.is_some();
+        self.packs.ensure_started(self.config.workspace_dir.clone());
+        let cursor_pending = self.cursor_rx.is_some() || self.packs.probe_pending();
         if let Some(Some(dir)) = self.picker.poll(ctx) {
             match self.config.set_workspace(dir.clone()) {
                 Ok(()) => {
@@ -158,32 +166,26 @@ impl AiPanel {
 
 /// Panel body, rendered inside each app's `sidebar_section`. Identical in
 /// Atlas and Slate by construction.
-pub fn ai_body(panel: &mut AiPanel, ui: &mut egui::Ui, theme: SidebarTheme) {
-    sidebar_region(ui, "Cursor", theme, |ui| {
-        ui.horizontal(|ui| {
-            let (dot, msg) = match panel.cursor_available {
-                None => (Color32::from_rgb(0x8a, 0x90, 0x98), "Cursor status unknown"),
-                Some(true) => (
-                    Color32::from_rgb(0x3f, 0xb9 - 0x10, 0x50),
-                    "Cursor detected",
-                ),
-                Some(false) => (Color32::from_rgb(0xd0, 0x8a, 0x2e), "Cursor not detected"),
-            };
-            ui.label(RichText::new("●").color(dot));
-            ui.label(RichText::new(msg).small().color(theme.sub));
+    pub fn ai_body(panel: &mut AiPanel, ui: &mut egui::Ui, theme: SidebarTheme) {
+    if panel.cursor_ok() {
+        sidebar_region(ui, "Cursor", theme, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("●").color(theme.ink));
+                ui.label(RichText::new("Cursor detected").small().color(theme.sub));
+            });
+            if ui
+                .button("Launch Cursor")
+                .on_hover_text(
+                    "Opens Cursor in the AI workspace folder. On first launch you'll be \
+                     asked to establish that folder; it is shared by File Atlas and every \
+                     Slate workbook.",
+                )
+                .clicked()
+            {
+                panel.launch_cursor();
+            }
         });
-        if ui
-            .button("Launch Cursor")
-            .on_hover_text(
-                "Opens Cursor in the AI workspace folder. On first launch you'll be \
-                 asked to establish that folder; it is shared by File Atlas and every \
-                 Slate workbook.",
-            )
-            .clicked()
-        {
-            panel.launch_cursor();
-        }
-    });
+    }
 
     sidebar_subtle_divider(ui, theme);
     sidebar_region(ui, "AI workspace", theme, |ui| {
@@ -295,7 +297,10 @@ pub fn program_grid(
             response.hovered(),
             PROGRAM_HOVER_SECONDS,
         );
-        let color = program_lobby_color(ui.visuals().text_color(), hover);
+        let mut color = program_lobby_color(ui.visuals().text_color(), hover);
+        if program.display_name.contains("add API key") {
+            color = color.gamma_multiply(0.45);
+        }
         let icon = match program.id.as_str() {
             "cursor" => atlas_shell::icons::Icon::ProviderCursor,
             "codex" => atlas_shell::icons::Icon::ProviderCodex,
