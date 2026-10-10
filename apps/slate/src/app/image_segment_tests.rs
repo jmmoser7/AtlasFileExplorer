@@ -58,7 +58,7 @@ fn committed_segment_becomes_a_prompted_image_layer_region() {
     assert!(img.paint_layers.is_empty());
 }
 
-fn fixture(name: &str) -> (Harness, NodeId) {
+pub(super) fn fixture(name: &str) -> (Harness, NodeId) {
     let (mut h, id) = fixture_unpainted(name);
     h.frame();
     (h, id)
@@ -99,7 +99,7 @@ fn contours() -> Vec<Vec<[f32; 2]>> {
     ]
 }
 
-fn inject(h: &mut Harness, id: NodeId) -> Pos2 {
+pub(super) fn inject(h: &mut Harness, id: NodeId) -> Pos2 {
     let world = Pos2::new(-50.0, -70.0);
     let screen = h.app.board_xf().w2s(world);
     let mask = contours();
@@ -120,24 +120,40 @@ fn inject(h: &mut Harness, id: NodeId) -> Pos2 {
     screen
 }
 
-fn move_to(h: &mut Harness, p: Pos2) {
+pub(super) fn move_to(h: &mut Harness, p: Pos2) {
     h.frame_with(|i| i.events.push(egui::Event::PointerMoved(p)));
 }
 
 #[test]
-fn segment_highlight_action_is_reachable_and_does_not_drag_the_photo() {
+fn segment_highlight_click_opens_a_tag_and_create_layer_does_not_move_the_photo() {
     let (mut h, id) = fixture("segment_action");
     let p = inject(&mut h, id);
     move_to(&mut h, p);
+    assert!(
+        h.app.image_segments.tag_at.is_none(),
+        "hover draws the highlight without a button"
+    );
     let before = h.app.doc().scene.node(id).unwrap().rect;
-    let target = h.app.image_segments.action_rect.unwrap().center();
-    // Travel across the intervening empty canvas before pressing the capsule.
-    for n in 1..=6 {
-        move_to(&mut h, p.lerp(target, n as f32 / 6.0));
-    }
-    assert!(h.app.image_segments.result.is_some());
     for pressed in [true, false] {
         h.frame_with(|i| {
+            i.events.push(egui::Event::PointerButton {
+                pos: p,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: Default::default(),
+            })
+        });
+    }
+    assert_eq!(h.app.doc().scene.node(id).unwrap().rect, before);
+    let NodeKind::Image(img) = &h.app.doc().scene.node(id).unwrap().kind else {
+        unreachable!()
+    };
+    assert!(img.paint_layers.is_empty(), "the click only opens the tag");
+    let target = h.app.image_segments.tag_rects[0].center();
+    assert!(target.y < p.y, "the tag sits above the cursor");
+    for pressed in [true, false] {
+        h.frame_with(|i| {
+            i.events.push(egui::Event::PointerMoved(target));
             i.events.push(egui::Event::PointerButton {
                 pos: target,
                 button: egui::PointerButton::Primary,
@@ -147,7 +163,7 @@ fn segment_highlight_action_is_reachable_and_does_not_drag_the_photo() {
         });
     }
     let node = h.app.doc().scene.node(id).unwrap();
-    assert_eq!(node.rect, before, "capsule press never moves the photo");
+    assert_eq!(node.rect, before, "the tag never moves the photo");
     let NodeKind::Image(img) = &node.kind else {
         unreachable!()
     };
@@ -164,6 +180,13 @@ fn segment_highlight_action_is_reachable_and_does_not_drag_the_photo() {
         shape.path.as_ref().unwrap().extra.len(),
         1,
         "hole survives commit"
+    );
+    assert_eq!(h.app.image_segments.layers_menu, Some(id));
+    assert!(
+        super::tag::layer_rows(img)
+            .iter()
+            .any(|row| row == "Layer 1"),
+        "the new layer is listed on the layer squircle"
     );
     h.app.board_undo();
     let NodeKind::Image(img) = &h.app.doc().scene.node(id).unwrap().kind else {
@@ -221,7 +244,10 @@ fn escape_over_a_bare_dwell_still_reaches_the_selection() {
     h.app.board_sel = [id].into();
     let p = inject(&mut h, id);
     move_to(&mut h, p);
-    assert!(h.app.image_segments.action_rect.is_some());
+    assert!(
+        h.app.image_segments.result.is_some(),
+        "the highlight is the offer"
+    );
     press_escape(&mut h);
     assert!(h.app.image_segments.result.is_none());
     assert!(h.app.board_sel.contains(&id));
@@ -303,6 +329,27 @@ fn segment_visible_window_tracks_rotated_crop_coordinates() {
         .fold(f32::NEG_INFINITY, f32::max);
     assert!((min_x - 0.2).abs() < 0.0001);
     assert!((max_y - 0.7).abs() < 0.0001);
+}
+
+#[test]
+fn segment_grow_is_idle_until_the_debug_flag_and_then_retreats() {
+    let (mut h, id) = fixture("segment_grow");
+    let p = inject(&mut h, id);
+    let width = |h: &Harness| h.app.image_segments.result.as_ref().unwrap().mask[0][1][0];
+    let before = width(&h);
+    h.app.segment_grow_step(p, 1.0);
+    h.app.segment_grow_step(p + egui::vec2(1.5, 0.0), 1.0);
+    assert_eq!(width(&h), before, "no flag, no growth");
+    h.app.image_segments.grow_debug = true;
+    h.app.image_segments.grow_last = None;
+    h.app.segment_grow_step(p, 1.0);
+    h.app.segment_grow_step(p + egui::vec2(1.5, 0.0), 1.0);
+    assert!(width(&h) > before, "slow drift grows the outline");
+    h.app.segment_grow_step(p + egui::vec2(40.0, 0.0), 1.0);
+    assert!(
+        (width(&h) - before).abs() < 1e-4,
+        "a quick retreat undoes it"
+    );
 }
 
 /// Optional real production-widget captures; no model or network required.

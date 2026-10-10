@@ -321,6 +321,13 @@ impl SlateApp {
                             self.enter_crop_mode(node_id);
                             close = true;
                         }
+                        if Self::supports_image_paint(node_id, self)
+                            && menu::item(ui, MenuIcon::Image, "Layers", dark).clicked()
+                        {
+                            self.image_segments.layers_menu = Some(node_id);
+                            self.image_segments.layers_fresh = true;
+                            close = true;
+                        }
                         if let Some(path) = self.doc().item(img.item).map(|it| it.path.clone()) {
                             if menu::item(ui, MenuIcon::Open, "Open file", dark).clicked() {
                                 self.open_item_path(&path);

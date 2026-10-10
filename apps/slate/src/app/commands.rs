@@ -1420,7 +1420,7 @@ pub static SPECS: &[CommandSpec] = &[
     spec(
         "board.menu",
         "Board",
-        "Object menu (z-order, tags, delete)",
+        "Object menu (z-order, tags, delete, image Layers)",
         "Right-click object",
         None,
         Repeat::Never,
@@ -1657,7 +1657,7 @@ pub static SPECS: &[CommandSpec] = &[
         "board.image.segment.commit",
         "Board",
         "Highlight image object",
-        "Select tool: linger over an image object, then click Highlight",
+        "Select tool: linger, click the highlight, then Create layer; drag the highlight off the image for a sticker",
         None,
         Repeat::Never,
         BOARD,

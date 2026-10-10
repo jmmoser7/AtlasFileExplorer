@@ -2,11 +2,22 @@
 
 With Select active, rest over an object in a placed or generated picture for
 400 ms. Slate previews its silhouette as a translucent orange highlight.
-Move to the shared **Highlight** capsule beside the picture to keep it.
-The action creates a separate paint layer; Undo removes the highlight.
-The ordinary layer controls provide opacity and visibility. Escape dismisses
-the offer until the pointer moves again. No region box or resize handles are
-part of the segmentation preview.
+Hovering only draws the highlight. Click it to open a small capsule tag just
+above the cursor; its first entry, **Create layer from highlight**, keeps the
+highlight as a separate paint layer and opens the layer squircle at the top
+of the picture. Undo removes the layer. The squircle lists one row per layer
+plus **Add layer**; a row selects the picture and arms the brush on that
+layer, where the layer palette provides opacity. Right-click a picture and
+choose **Layers** to open the same squircle.
+
+Drag the highlight outside its picture to drop a cut-out sticker: a new image
+node of the same file, cropped to the highlight's bounds and clipped by its
+traced outline (an even-odd SVG clip path, holes included). The board painter
+and the HTML export use the same crop and clip. One Undo removes the sticker.
+Only file-backed pictures can be cut out.
+
+Escape dismisses the highlight until the pointer moves again. No region box
+or resize handles are part of the segmentation preview.
 
 ## Local model setup
 
@@ -32,9 +43,9 @@ The adapter uses Meta's official SAM 2 implementation:
 <https://github.com/facebookresearch/sam2>.
 It caches image embeddings in one resident worker process, so subsequent
 points on the same image only run the prompt/mask decoder. CPU inference
-uses at most four threads. First use includes model startup and encoding;
-the capsule reads “Finding object...” while it runs. A failure appears as
-“Highlight unavailable” with its explanation on hover.
+uses at most four threads. First use includes model startup and encoding,
+and no highlight shows until it finishes. Because hover draws only the
+highlight, a running request or a failure shows nothing on the picture.
 
 ## Ownership and limits
 
