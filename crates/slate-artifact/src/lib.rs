@@ -668,10 +668,9 @@ mod tests {
             panic!();
         };
         img.paint_layers.push(PaintLayer {
-            id: PaintLayerId(1),
             opacity: 0.5,
-            visible: true,
             nodes: vec![local],
+            ..PaintLayer::new(PaintLayerId(1))
         });
         doc.scene.apply(&SceneCmd::Add {
             index: 0,

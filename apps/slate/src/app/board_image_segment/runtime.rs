@@ -8,6 +8,7 @@ use std::time::Instant;
 
 type WorkerReply = (u64, Result<Vec<Vec<[f32; 2]>>, String>);
 
+/// Derived hover state for local image subject highlights; never journaled.
 #[derive(Default)]
 pub(crate) struct ImageSegmentRuntime {
     pub(super) hover: Option<Hover>,
@@ -32,6 +33,11 @@ pub(super) struct Hover {
 }
 
 impl ImageSegmentRuntime {
+    /// A result, a running request, or an error is on screen as the capsule.
+    pub(super) fn offered(&self) -> bool {
+        self.result.is_some() || self.pending.is_some() || self.error.is_some()
+    }
+
     pub(super) fn clear(&mut self) {
         self.serial = self.serial.wrapping_add(1);
         self.hover = None;

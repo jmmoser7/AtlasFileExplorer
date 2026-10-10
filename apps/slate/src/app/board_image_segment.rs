@@ -2,7 +2,7 @@
 
 use super::{board::BoardXf, SlateApp};
 use atlas_segment::Request;
-use atlas_shell::selection_tools;
+use atlas_shell::{canvas_scale, selection_tools};
 use eframe::egui::{self, Id, Pos2, Rect};
 use slate_doc::{
     image_paint::{layer_node_to_world, PaintLayer, PaintLayerPrompt},
@@ -34,17 +34,30 @@ use runtime::Hover;
 pub(crate) use runtime::ImageSegmentRuntime;
 
 impl SlateApp {
-    pub(crate) fn image_segment_preview_live(&self) -> bool {
-        self.image_segments.result.is_some()
+    /// The silhouette replaces the ordinary hover outline while it shows.
+    pub(crate) fn paint_hover_or_segment(
+        &mut self,
+        ui: &egui::Ui,
+        painter: &egui::Painter,
+        xf: &BoardXf,
+        select: egui::Color32,
+    ) {
+        if self.board_crop.is_none() && self.image_segments.result.is_none() {
+            self.paint_hover_preview(painter, xf, select);
+        }
+        self.paint_image_segment_hover(ui, painter, xf);
     }
 
+    /// Esc ends the dwell either way, but only a visible offer is a cancel
+    /// layer; a bare dwell lets Esc fall through to the selection.
     pub(crate) fn dismiss_image_segment(&mut self) -> bool {
         let Some(hover) = self.image_segments.hover.as_ref() else {
             return false;
         };
+        let offered = self.image_segments.offered();
         self.image_segments.dismissed = Some(hover.screen);
         self.image_segments.clear();
-        true
+        offered
     }
 
     pub(crate) fn tick_image_segment_hover(
@@ -56,15 +69,32 @@ impl SlateApp {
         world: Option<Pos2>,
     ) {
         self.image_segments.receive();
-        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-            self.dismiss_image_segment();
-            return;
+        if self
+            .image_segments
+            .hover
+            .as_ref()
+            .is_some_and(|h| h.gen != self.scene_gen || h.tab != self.tab().id)
+        {
+            self.image_segments.clear();
         }
-        if !hover_live {
+        let Some(screen) = pointer else {
             self.image_segments.clear();
             return;
+        };
+        // Preserve the offer across the gap to its capsule and over the capsule
+        // itself, where the canvas is no longer the hovered widget. Its press is
+        // chrome, never a drag or a click-through on the underlying image.
+        if self.image_segments.offered()
+            && self.board_tool == super::board::BoardTool::Select
+            && self.board_drag.is_none()
+            && self
+                .image_segments
+                .corridor
+                .is_some_and(|r| r.contains(screen))
+        {
+            return;
         }
-        let (Some(screen), Some(world)) = (pointer, world) else {
+        let (true, Some(world)) = (hover_live, world) else {
             self.image_segments.clear();
             return;
         };
@@ -76,26 +106,6 @@ impl SlateApp {
             return;
         }
         self.image_segments.dismissed = None;
-        if self
-            .image_segments
-            .hover
-            .as_ref()
-            .is_some_and(|h| h.gen != self.scene_gen || h.tab != self.tab().id)
-        {
-            self.image_segments.clear();
-        }
-        // Preserve the offer across the gap to its capsule. Its press is chrome,
-        // never a drag or a click-through on the underlying image.
-        if (self.image_segments.result.is_some()
-            || self.image_segments.pending.is_some()
-            || self.image_segments.error.is_some())
-            && self
-                .image_segments
-                .corridor
-                .is_some_and(|r| r.contains(screen))
-        {
-            return;
-        }
         let Some(host) = self.board_pick_node(world.x, world.y).filter(|&host| {
             Self::supports_image_paint(host, self) && self.point_in_image_paint_window(host, world)
         }) else {
@@ -143,10 +153,7 @@ impl SlateApp {
                 .request_repaint_after(LINGER.saturating_sub(hover.since.elapsed()));
             return;
         }
-        if self.image_segments.pending.is_some()
-            || self.image_segments.result.is_some()
-            || self.image_segments.error.is_some()
-        {
+        if self.image_segments.offered() {
             return;
         }
         if self
@@ -270,18 +277,19 @@ impl SlateApp {
                 }
             }
         }
-        if result.is_none()
-            && self.image_segments.pending.is_none()
-            && self.image_segments.error.is_none()
-        {
+        if !self.image_segments.offered() {
             return;
         }
-        let anchor = Rect::from_center_size(screen, egui::Vec2::splat(12.0 * xf.z));
-        let size = egui::vec2(selection_tools::STACK_WIDTH, selection_tools::CORNER_HEIGHT) * xf.z;
+        let px = |v: f32| canvas_scale::px(v, xf.z);
+        let anchor = Rect::from_center_size(screen, egui::Vec2::splat(px(12.0)));
+        let size = egui::vec2(
+            px(selection_tools::STACK_WIDTH),
+            px(selection_tools::CORNER_HEIGHT),
+        );
         let rect =
-            selection_tools::place_popup(size, anchor, host_bounds, 10.0 * xf.z, ui.clip_rect());
+            selection_tools::place_popup(size, anchor, host_bounds, px(10.0), ui.clip_rect());
         self.image_segments.action_rect = Some(rect);
-        self.image_segments.corridor = Some(anchor.union(rect).expand(6.0 * xf.z));
+        self.image_segments.corridor = Some(anchor.union(rect).expand(px(6.0)));
         self.shape_properties.chrome_hits.push(rect);
         let label = if result.is_some() {
             "Highlight"
@@ -344,7 +352,7 @@ impl SlateApp {
         };
         after_img
             .paint_layers
-            .push(PaintLayer::new(next_layer_id(img)));
+            .push(PaintLayer::new(Self::next_paint_layer_id(img)));
         let layer = after_img.paint_layers.last_mut()?;
         layer.nodes.push(local);
         if let Some(prompt) = prompt.map(str::trim).filter(|p| !p.is_empty()) {
@@ -390,17 +398,6 @@ impl SlateApp {
             _ => Vec::new(),
         }
     }
-}
-
-fn next_layer_id(img: &slate_doc::scene::ImageNode) -> slate_doc::image_paint::PaintLayerId {
-    slate_doc::image_paint::PaintLayerId(
-        img.paint_layers
-            .iter()
-            .map(|l| l.id.0)
-            .max()
-            .unwrap_or(0)
-            .saturating_add(1),
-    )
 }
 
 fn region_node(path: slate_doc::scene::PathData) -> Node {

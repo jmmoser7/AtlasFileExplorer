@@ -2376,7 +2376,6 @@ pub static SPECS: &[CommandSpec] = &[
         &["session log"],
     ),
 ];
-
 /// Secondary chords: (chord, target command). Checked after the primary
 /// registry lookup so one command can own several keys without duplicate ids.
 pub static ALIAS_CHORDS: &[(Chord, CommandId)] = &[

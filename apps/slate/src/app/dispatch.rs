@@ -1040,7 +1040,9 @@ impl SlateApp {
     fn fit_active_view(&mut self) {
         self.fit_board();
     }
+
     // ---------- the Esc cancel stack ----------
+
     /// Build the live cancel layers and pop exactly one
     /// (`atlas_commands::cancel_target`). Text editing is *not* a
     /// layer here: the edit overlay owns Esc (commit) itself.

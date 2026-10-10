@@ -183,14 +183,12 @@ pub fn region_prompts(img: &ImageNode) -> Vec<String> {
         .iter()
         .filter(|layer| layer.visible)
         .flat_map(|layer| {
-            layer.prompts.iter().filter_map(move |p| {
-                layer
-                    .nodes
-                    .iter()
-                    .any(|n| n.id == p.node)
-                    .then(|| p.prompt.trim().to_string())
-            })
+            layer
+                .prompts
+                .iter()
+                .filter(move |p| layer.nodes.iter().any(|n| n.id == p.node))
         })
+        .map(|p| p.prompt.trim().to_string())
         .filter(|p| !p.is_empty())
         .collect()
 }

@@ -519,10 +519,9 @@ mod tests {
                 panic!();
             };
             img.paint_layers.push(PaintLayer {
-                id: PaintLayerId(1),
                 opacity: 0.5,
-                visible: true,
                 nodes: vec![local],
+                ..PaintLayer::new(PaintLayerId(1))
             });
         }
         let NodeKind::Image(ref img) = img_node.kind else {
@@ -583,10 +582,8 @@ mod tests {
                 unreachable!()
             };
             img.paint_layers.push(PaintLayer {
-                id: PaintLayerId(1),
-                opacity: 1.0,
-                visible: true,
                 nodes: vec![local],
+                ..PaintLayer::new(PaintLayerId(1))
             });
             img.clone()
         };
@@ -698,10 +695,8 @@ mod tests {
                 unreachable!()
             };
             img.paint_layers.push(PaintLayer {
-                id: PaintLayerId(1),
-                opacity: 1.0,
-                visible: true,
                 nodes,
+                ..PaintLayer::new(PaintLayerId(1))
             });
             let img = img.clone();
             (host, img)
@@ -754,10 +749,8 @@ mod tests {
                 unreachable!()
             };
             img.paint_layers.push(PaintLayer {
-                id: PaintLayerId(1),
-                opacity: 1.0,
-                visible: true,
                 nodes: vec![text],
+                ..PaintLayer::new(PaintLayerId(1))
             });
             img.clone()
         };
@@ -789,10 +782,8 @@ mod tests {
                 unreachable!()
             };
             img.paint_layers.push(PaintLayer {
-                id: PaintLayerId(1),
-                opacity: 1.0,
-                visible: true,
                 nodes: vec![child],
+                ..PaintLayer::new(PaintLayerId(1))
             });
             img.clone()
         };

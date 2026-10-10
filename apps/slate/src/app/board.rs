@@ -1953,10 +1953,7 @@ impl SlateApp {
         self.paint_crosstalk(ui, &painter, &xf);
         self.paint_trim_preview(&painter, &xf);
         self.paint_align_widget(&painter, &xf, &palette, select_tint);
-        if self.board_crop.is_none() && !self.image_segment_preview_live() {
-            self.paint_hover_preview(&selection_painter, &xf, palette.select);
-        }
-        self.paint_image_segment_hover(ui, &selection_painter, &xf);
+        self.paint_hover_or_segment(ui, &selection_painter, &xf, palette.select);
 
         // Crop-mode overlay: ghosted full image, scrim, crop border +
         // handles, content grabber.

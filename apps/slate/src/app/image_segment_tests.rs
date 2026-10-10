@@ -168,6 +168,11 @@ fn segment_dwell_tolerates_small_pointer_jitter_and_escape_stays_dismissed() {
         move_to(&mut h, p + egui::vec2(dx, 0.0));
     }
     assert_eq!(h.app.image_segments.hover.as_ref().unwrap().since, since);
+    press_escape(&mut h);
+    assert!(h.app.image_segments.hover.is_none());
+}
+
+fn press_escape(h: &mut Harness) {
     h.frame_with(|i| {
         i.events.push(egui::Event::Key {
             key: egui::Key::Escape,
@@ -178,7 +183,30 @@ fn segment_dwell_tolerates_small_pointer_jitter_and_escape_stays_dismissed() {
         })
     });
     h.frame();
+}
+
+#[test]
+fn escape_over_a_bare_dwell_still_reaches_the_selection() {
+    let (mut h, id) = fixture("segment_escape_falls_through");
+    h.app.board_sel = [id].into();
+    let rect = h.app.doc().scene.node(id).unwrap().rect;
+    let center = h.app.board_xf().rect_w2s(rect).center();
+    move_to(&mut h, center);
+    assert!(h.app.image_segments.hover.is_some());
+    press_escape(&mut h);
     assert!(h.app.image_segments.hover.is_none());
+    assert!(
+        h.app.board_sel.is_empty(),
+        "a bare dwell is not a cancel layer"
+    );
+    // A visible offer is one: Esc dismisses it and keeps the selection.
+    h.app.board_sel = [id].into();
+    let p = inject(&mut h, id);
+    move_to(&mut h, p);
+    assert!(h.app.image_segments.action_rect.is_some());
+    press_escape(&mut h);
+    assert!(h.app.image_segments.result.is_none());
+    assert!(h.app.board_sel.contains(&id));
 }
 
 #[test]

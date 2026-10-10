@@ -104,12 +104,9 @@ mod tests_tip_chord;
 mod tests_wire_lanes;
 mod ui;
 mod workbook_assets;
-
 pub use chrome::ChromeConfig;
-
 /// All Slate thumbnail requests share one generation (no root swaps here).
 const THUMB_GENERATION: u64 = 1;
-
 /// Cycle of pleasant tag accent colors for newly created tags.
 pub const TAG_COLOR_CYCLE: [[u8; 3]; 10] = [
     [0x2d, 0xd4, 0xbf], // teal
@@ -433,7 +430,6 @@ pub struct SlateApp {
     pub(crate) image_drop: Option<board_image_layers::ImageDropOffer>,
     /// Screen anchor for external-file drop capsules (Replace / Add as layer).
     pub(crate) image_drop_screen: Option<egui::Pos2>,
-    /// Derived hover state for local image subject highlights.
     pub(crate) image_segments: board_image_segment::ImageSegmentRuntime,
     /// Inline text editing: (node, live buffer).
     pub text_edit: Option<(NodeId, String)>,
