@@ -10,17 +10,13 @@
 //! Rows with `chord: None` are documentation for mouse gestures or keys that
 //! are handled specially (Space/Enter repeat, Esc, Tab, arrows) or locally in
 //! the board canvas.
-
 use atlas_commands::{Availability, Chord, CommandId, CommandSpec, Key, Registry, Repeat};
-use eframe::egui::Ui;
-
 pub use atlas_shell::commands::{CommandEntry, TurboPanState};
-
+use eframe::egui::Ui;
 const GLOBAL: Availability = Availability::GLOBAL;
 const BOARD: Availability = Availability::BOARD_VIEW;
 const BOARD_SEL: Availability =
     Availability(Availability::BOARD_VIEW.0 | Availability::NEEDS_SELECTION.0);
-
 /// Shorthand spec constructor keeping the table readable (one row per
 /// argument mirrors the `CommandSpec` fields; the arg count is the point).
 #[allow(clippy::too_many_arguments)]
@@ -45,7 +41,6 @@ const fn spec(
         aliases,
     }
 }
-
 const fn shift(key: Key) -> Chord {
     Chord {
         key,
@@ -54,7 +49,6 @@ const fn shift(key: Key) -> Chord {
         alt: false,
     }
 }
-
 const fn ctrl_shift(key: Key) -> Chord {
     Chord {
         key,
@@ -63,7 +57,6 @@ const fn ctrl_shift(key: Key) -> Chord {
         alt: false,
     }
 }
-
 /// Canonical command table. Keep grouped by category (the reference UI groups
 /// on category changes), documentation rows first within their historical
 /// order, dispatchable additions after.
@@ -1624,9 +1617,7 @@ pub static SPECS: &[CommandSpec] = &[
         "board.paste",
         "Board",
         "Paste objects",
-        "Ctrl + V — at the pointer when over the canvas, else at the view center; \
-         repeated pastes step +24, +24. A copied image or files on the clipboard \
-         land on the board.",
+        "Ctrl + V — at the pointer when over the canvas, else at the view center; repeated pastes step +24, +24. A copied image or files on the clipboard land on the board.",
         Some(Chord::ctrl(Key::V)),
         Repeat::Repeatable,
         BOARD,
@@ -1661,6 +1652,16 @@ pub static SPECS: &[CommandSpec] = &[
         Repeat::Repeatable,
         BOARD_SEL,
         &["negative"],
+    ),
+    spec(
+        "board.image.segment.commit",
+        "Board",
+        "Highlight image object",
+        "Select tool: linger over an image object, then click Highlight",
+        None,
+        Repeat::Never,
+        BOARD,
+        &["segment", "mask", "highlight", "object"],
     ),
     spec(
         "board.image.layer.add",
@@ -2375,7 +2376,6 @@ pub static SPECS: &[CommandSpec] = &[
         &["session log"],
     ),
 ];
-
 /// Secondary chords: (chord, target command). Checked after the primary
 /// registry lookup so one command can own several keys without duplicate ids.
 pub static ALIAS_CHORDS: &[(Chord, CommandId)] = &[

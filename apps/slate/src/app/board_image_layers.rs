@@ -248,7 +248,7 @@ impl SlateApp {
         }
     }
 
-    fn next_paint_layer_id(img: &ImageNode) -> PaintLayerId {
+    pub(crate) fn next_paint_layer_id(img: &ImageNode) -> PaintLayerId {
         let next = img
             .paint_layers
             .iter()

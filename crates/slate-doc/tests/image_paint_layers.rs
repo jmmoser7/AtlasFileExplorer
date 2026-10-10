@@ -68,10 +68,8 @@ fn layer_stroke_follows_image_move() {
         panic!();
     };
     img.paint_layers.push(PaintLayer {
-        id: PaintLayerId(1),
-        opacity: 1.0,
-        visible: true,
         nodes: vec![local],
+        ..PaintLayer::new(PaintLayerId(1))
     });
     scene.apply(&SceneCmd::Patch {
         before: Box::new(host.clone()),
