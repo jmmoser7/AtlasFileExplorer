@@ -59,18 +59,22 @@ fn mixed_pdf_pages_keep_their_own_size_on_the_card_and_unbundled() {
         Some(node.0.to_string())
     ));
     assert_eq!(h.app.doc().scene.nodes.len(), 3);
-    let mut got: Vec<f32> = h
-        .app
-        .doc()
-        .scene
-        .nodes
-        .iter()
-        .map(|n| ratio(n.rect))
-        .collect();
-    got.sort_by(f32::total_cmp);
-    let mut want = [612.0 / 792.0, 1.0, 792.0 / 612.0];
-    want.sort_by(f32::total_cmp);
-    for (g, w) in got.iter().zip(want) {
-        assert!((g - w).abs() < 0.02, "pages {got:?} want {want:?}");
+    // One scale for the whole document: the square page is smaller than the
+    // letter pages, not fit to the same longest edge.
+    let scale = card.h / 792.0;
+    for n in &h.app.doc().scene.nodes {
+        let NodeKind::Image(img) = &n.kind else {
+            panic!("an unbundled page is a picture");
+        };
+        let page = h.app.doc().item(img.item).unwrap().pdf_page as usize;
+        let (w, hh) = boxes[page];
+        assert!(
+            (n.rect.w - w * scale).abs() < 1.0 && (n.rect.h - hh * scale).abs() < 1.0,
+            "page {page} is {}x{}, want {}x{}",
+            n.rect.w,
+            n.rect.h,
+            w * scale,
+            hh * scale
+        );
     }
 }

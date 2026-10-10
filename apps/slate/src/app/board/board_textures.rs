@@ -14,27 +14,40 @@ fn fit_board_image(mut w: f32, mut h: f32) -> (f32, f32) {
     (w * scale, h * scale)
 }
 
-/// Header size of a local picture, or one PDF page's box. `pages` keeps each
-/// document's page sizes so a whole unbundle reads its file once. A missing
-/// path is treated as cloud-only and skipped — never opened.
-fn source_pixel_size(
+/// Header size of a local picture. A missing path is treated as cloud-only
+/// and skipped — never opened.
+fn source_pixel_size(path: &std::path::Path) -> Option<(f32, f32)> {
+    if slate_doc::media_kind(path) != slate_doc::MediaKind::Image
+        || atlas_core::cloud::is_dehydrated(path)
+    {
+        return None;
+    }
+    let (w, h) = image::image_dimensions(path).ok()?;
+    (w > 0 && h > 0).then_some((w as f32, h as f32))
+}
+
+/// One PDF page on the board. Every page of a document shares one scale (its
+/// longest page edge fits the board size), so a small page stays smaller than
+/// a letter page beside it. `pages` keeps each document's boxes so a whole
+/// unbundle reads its file once.
+fn pdf_page_size(
     path: &std::path::Path,
-    pdf_page: u16,
+    page: u16,
     pages: &mut HashMap<PathBuf, Vec<Option<(f32, f32)>>>,
 ) -> Option<(f32, f32)> {
-    match slate_doc::media_kind(path) {
-        slate_doc::MediaKind::Image if !atlas_core::cloud::is_dehydrated(path) => {
-            let (w, h) = image::image_dimensions(path).ok()?;
-            (w > 0 && h > 0).then_some((w as f32, h as f32))
-        }
-        slate_doc::MediaKind::Pdf => pages
-            .entry(path.to_path_buf())
-            .or_insert_with(|| atlas_core::pdf_media::file_page_sizes(path))
-            .get(pdf_page as usize)
-            .copied()
-            .flatten(),
-        _ => None,
+    if slate_doc::media_kind(path) != slate_doc::MediaKind::Pdf {
+        return None;
     }
+    let boxes = pages
+        .entry(path.to_path_buf())
+        .or_insert_with(|| atlas_core::pdf_media::file_page_sizes(path));
+    let (w, h) = boxes.get(page as usize).copied().flatten()?;
+    let longest = boxes
+        .iter()
+        .flatten()
+        .fold(0.0f32, |m, &(w, h)| m.max(w).max(h));
+    let scale = (320.0 / longest).min(1.0);
+    Some((w * scale, h * scale))
 }
 
 impl SlateApp {
@@ -160,11 +173,11 @@ impl SlateApp {
         self.image_natural_sizes(&[item])[0]
     }
 
-    /// [`Self::image_natural_size`] for several items. The rendered thumbnail
-    /// wins (it carries EXIF orientation and the page as pdfium crops it);
-    /// before it lands, the file header answers. Pasted and generated
-    /// pictures store a workbook-relative `assets/…` locator, which is
-    /// resolved before any read.
+    /// [`Self::image_natural_size`] for several items. A PDF page is sized
+    /// from its page box. A picture's rendered thumbnail wins (it carries
+    /// EXIF orientation); before it lands, the file header answers. Pasted
+    /// and generated pictures store a workbook-relative `assets/…` locator,
+    /// which is resolved before any read.
     pub(crate) fn image_natural_sizes(&self, items: &[ItemId]) -> Vec<(f32, f32)> {
         let workbook = self.tab().path.as_deref();
         let mut pages = HashMap::new();
@@ -174,15 +187,18 @@ impl SlateApp {
                 let Some(it) = self.doc().item(item) else {
                     return fit_board_image(IMAGE_W, IMAGE_H);
                 };
+                let path = super::super::image_composite::item_file(self.doc(), workbook, item);
+                if let Some(size) = path
+                    .as_deref()
+                    .and_then(|p| pdf_page_size(p, it.pdf_page, &mut pages))
+                {
+                    return size;
+                }
                 let (w, h) = self
                     .thumb_pixels
                     .get(&it.cache_key)
                     .map(|img| (img.width() as f32, img.height() as f32))
-                    .or_else(|| {
-                        let path =
-                            super::super::image_composite::item_file(self.doc(), workbook, item)?;
-                        source_pixel_size(&path, it.pdf_page, &mut pages)
-                    })
+                    .or_else(|| source_pixel_size(path.as_deref()?))
                     .unwrap_or((IMAGE_W, IMAGE_H));
                 fit_board_image(w, h)
             })
