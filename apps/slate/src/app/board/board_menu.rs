@@ -321,8 +321,6 @@ impl SlateApp {
                             self.enter_crop_mode(node_id);
                             close = true;
                         }
-                        // Restored after fb07c2c moved layer chips out of the
-                        // filter squircle ("filters back to filters").
                         if Self::supports_image_paint(node_id, self)
                             && menu::item(ui, MenuIcon::Image, "Layers", dark).clicked()
                         {

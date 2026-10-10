@@ -1420,7 +1420,7 @@ pub static SPECS: &[CommandSpec] = &[
     spec(
         "board.menu",
         "Board",
-        "Object menu (z-order, tags, delete)",
+        "Object menu (z-order, tags, delete, image Layers)",
         "Right-click object",
         None,
         Repeat::Never,
