@@ -477,10 +477,9 @@ impl SlateApp {
         None
     }
 
-    /// Per-frame grip hover: with the Select tool, only the grip whose
-    /// midpoint is within the grip hit of the pointer previews (locked
-    /// nodes included — wires may anchor to them). An edge between grips
-    /// is inert. A node body under the pointer occludes grips behind it.
+    /// Per-frame grip hover (Select tool): only the grip whose midpoint is within
+    /// the grip hit of the pointer previews, locked nodes included (wires may anchor
+    /// to them). An edge between grips is inert; a body occludes grips behind it.
     pub(crate) fn update_wire_grips(&mut self, pointer: Option<Pos2>, xf: &BoardXf) {
         self.wire_grips = None;
         let Some(p) = pointer else { return };

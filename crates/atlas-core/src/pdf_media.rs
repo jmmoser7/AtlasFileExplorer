@@ -125,9 +125,11 @@ fn unpack(dict: &str, raw: &[u8], out: &mut HashMap<u32, String>) {
         .filter_map(|t| t.parse().ok())
         .collect();
     let pairs: Vec<(u32, usize)> = nums
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .take(n)
-        .map(|pair| (pair[0] as u32, first + pair[1]))
+        .map(|&[id, offset]| (id as u32, first + offset))
         .collect();
     for (index, &(id, start)) in pairs.iter().enumerate() {
         let end = pairs.get(index + 1).map_or(data.len(), |next| next.1);
