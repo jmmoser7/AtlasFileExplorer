@@ -59,8 +59,6 @@ pub(crate) struct ImageSegmentRuntime {
     pub(super) pending: Option<u64>,
     pub(super) worker: Option<crossbeam_channel::Sender<(u64, PendingImage)>>,
     pub(super) done: Option<crossbeam_channel::Receiver<WorkerReply>>,
-    pub(super) action_rect: Option<Rect>,
-    pub(super) corridor: Option<Rect>,
     pub(super) error: Option<String>,
     pub(super) dismissed: Option<Pos2>,
     /// Click on the highlight: capsule tag above the cursor. Derived.
@@ -86,6 +84,9 @@ pub(super) struct Grab {
     pub(super) origin: Pos2,
     pub(super) world: Pos2,
     pub(super) moved: bool,
+    /// Gesture end bumps the scene generation even when nothing journaled;
+    /// an unchanged journal top says the highlight is still current.
+    pub(super) journal_top: Option<slate_doc::scene::GroupToken>,
 }
 
 pub(super) struct Hover {
@@ -108,8 +109,6 @@ impl ImageSegmentRuntime {
         self.hover = None;
         self.result = None;
         self.pending = None;
-        self.action_rect = None;
-        self.corridor = None;
         self.tag_at = None;
         self.tag_fresh = false;
         self.tag_rects.clear();

@@ -16,6 +16,9 @@ const MOVE_RESET_PX: f32 = 8.0;
 const HIGHLIGHT: Rgba = Rgba([255, 150, 40, 100]);
 
 #[cfg(test)]
+#[path = "image_segment_drag_tests.rs"]
+mod drag_tests;
+#[cfg(test)]
 #[path = "image_segment_tests.rs"]
 mod tests;
 
@@ -98,19 +101,6 @@ impl SlateApp {
             self.image_segments.clear();
             return;
         };
-        // Preserve the offer across the gap to its capsule and over the capsule
-        // itself, where the canvas is no longer the hovered widget. Its press is
-        // chrome, never a drag or a click-through on the underlying image.
-        if self.image_segments.offered()
-            && self.board_tool == super::board::BoardTool::Select
-            && self.board_drag.is_none()
-            && self
-                .image_segments
-                .corridor
-                .is_some_and(|r| r.contains(screen))
-        {
-            return;
-        }
         let (true, Some(world)) = (hover_live, world) else {
             self.image_segments.clear();
             return;
@@ -251,26 +241,23 @@ impl SlateApp {
         let NodeKind::Image(img) = &host.kind else {
             return;
         };
-        let show_home = self.image_segments.drag_delta.is_none();
-        if show_home {
-            if let Some(result) = self.image_segments.result.clone() {
-                let region = layer_node_to_world(host, img, &result.local);
-                if let NodeKind::Shape(shape) = &region.kind {
-                    if let Some(path) = &shape.path {
-                        super::board_path::paint_path_shape(
-                            self,
-                            painter,
-                            xf,
-                            &region,
-                            shape,
-                            path,
-                            &|c| c,
-                        );
-                    }
+        if let Some(result) = self.image_segments.result.clone() {
+            let region = layer_node_to_world(host, img, &result.local);
+            if let NodeKind::Shape(shape) = &region.kind {
+                if let Some(path) = &shape.path {
+                    super::board_path::paint_path_shape(
+                        self,
+                        painter,
+                        xf,
+                        &region,
+                        shape,
+                        path,
+                        &|c| c,
+                    );
                 }
             }
         }
-        self.paint_sticker_ghost(painter, xf);
+        self.paint_sticker_ghost(ui, painter, xf);
         self.paint_segment_tag(ui, xf);
     }
 

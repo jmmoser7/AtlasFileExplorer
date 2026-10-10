@@ -58,7 +58,7 @@ fn committed_segment_becomes_a_prompted_image_layer_region() {
     assert!(img.paint_layers.is_empty());
 }
 
-fn fixture(name: &str) -> (Harness, NodeId) {
+pub(super) fn fixture(name: &str) -> (Harness, NodeId) {
     let (mut h, id) = fixture_unpainted(name);
     h.frame();
     (h, id)
@@ -99,7 +99,7 @@ fn contours() -> Vec<Vec<[f32; 2]>> {
     ]
 }
 
-fn inject(h: &mut Harness, id: NodeId) -> Pos2 {
+pub(super) fn inject(h: &mut Harness, id: NodeId) -> Pos2 {
     let world = Pos2::new(-50.0, -70.0);
     let screen = h.app.board_xf().w2s(world);
     let mask = contours();
@@ -120,7 +120,7 @@ fn inject(h: &mut Harness, id: NodeId) -> Pos2 {
     screen
 }
 
-fn move_to(h: &mut Harness, p: Pos2) {
+pub(super) fn move_to(h: &mut Harness, p: Pos2) {
     h.frame_with(|i| i.events.push(egui::Event::PointerMoved(p)));
 }
 
@@ -329,60 +329,6 @@ fn segment_visible_window_tracks_rotated_crop_coordinates() {
         .fold(f32::NEG_INFINITY, f32::max);
     assert!((min_x - 0.2).abs() < 0.0001);
     assert!((max_y - 0.7).abs() < 0.0001);
-}
-
-fn painted_text(out: &egui::FullOutput) -> Vec<String> {
-    fn walk(shape: &egui::Shape, out: &mut Vec<String>) {
-        match shape {
-            egui::Shape::Text(text) => out.push(text.galley.text().to_string()),
-            egui::Shape::Vec(list) => list.iter().for_each(|s| walk(s, out)),
-            _ => {}
-        }
-    }
-    let mut labels = Vec::new();
-    for clipped in &out.shapes {
-        walk(&clipped.shape, &mut labels);
-    }
-    labels
-}
-
-#[test]
-fn the_image_menu_lists_layers() {
-    // fb07c2c ("Image paint: layer palette below the image, filters back to
-    // filters") removed layer chips from the image filter squircle.
-    let (mut h, id) = fixture("segment_layers_menu");
-    let p = h
-        .app
-        .board_xf()
-        .rect_w2s(h.app.doc().scene.node(id).unwrap().rect)
-        .center();
-    h.app.board_menu = Some((id, p));
-    let out = h.frame_output(|_| {});
-    assert!(
-        painted_text(&out).iter().any(|label| label == "Layers"),
-        "the image menu lists Layers"
-    );
-}
-
-#[test]
-fn a_highlight_dragged_out_is_an_undoable_clipped_sticker() {
-    let (mut h, id) = fixture("segment_sticker");
-    inject(&mut h, id);
-    let before = h.app.doc().scene.node(id).unwrap().rect;
-    let drop_world = Pos2::new(360.0, 0.0);
-    let sticker = h.app.place_hover_sticker(drop_world).unwrap();
-    assert_eq!(h.app.doc().scene.node(id).unwrap().rect, before);
-    let node = h.app.doc().scene.node(sticker).unwrap();
-    let clip = node.clip.as_ref().expect("svg clip path");
-    assert_eq!(clip.extra.len(), 1, "the hole is a second contour");
-    let html = slate_artifact::render_html(h.app.doc(), &slate_artifact::AssetMap::default());
-    assert!(
-        html.contains("clip-path:path(evenodd"),
-        "the export clips with the same even-odd path"
-    );
-    h.app.board_undo();
-    assert!(h.app.doc().scene.node(sticker).is_none());
-    assert!(h.app.doc().scene.node(id).is_some());
 }
 
 #[test]
