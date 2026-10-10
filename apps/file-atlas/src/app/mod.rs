@@ -4526,30 +4526,6 @@ impl AtlasApp {
         let loading = self.scan_ui.is_some() || self.pending_load.is_some();
         let was_held = std::mem::replace(&mut self.auto_zoom_held, loading);
         if loading || was_held {
-            // #region agent log
-            {
-                use std::sync::atomic::{AtomicU64, Ordering};
-                static N: AtomicU64 = AtomicU64::new(0);
-                let n = N.fetch_add(1, Ordering::Relaxed);
-                if n.is_multiple_of(20) || !loading {
-                    agent_dbg(
-                        "H1",
-                        "mod.rs:auto_zoom_after_filter",
-                        "camera follow held while populating",
-                        &format!(
-                            "{{\"n\":{},\"loading\":{},\"was_held\":{},\"entries\":{},\"cam\":[{:.1},{:.1}],\"z\":{:.3}}}",
-                            n,
-                            loading,
-                            was_held,
-                            self.entries.len(),
-                            self.cam.offset.x,
-                            self.cam.offset.y,
-                            self.cam.z
-                        ),
-                    );
-                }
-            }
-            // #endregion
             self.auto_zoom_last = Some(bounds);
             return;
         }
@@ -4565,22 +4541,6 @@ impl AtlasApp {
         if rect_settled(last, bounds) {
             return;
         }
-        // #region agent log
-        agent_dbg(
-            "H2",
-            "mod.rs:auto_zoom_after_filter",
-            "camera follow FIRED",
-            &format!(
-                "{{\"scan_active\":{},\"pending_load\":{},\"entries\":{},\"any_filter\":{},\"cam\":[{:.1},{:.1}]}}",
-                self.scan_ui.is_some(),
-                self.pending_load.is_some(),
-                self.entries.len(),
-                self.any_filter,
-                self.cam.offset.x,
-                self.cam.offset.y
-            ),
-        );
-        // #endregion
         self.auto_zoom_last = Some(bounds);
         let cam = self.cam_for_bounds(bounds, 1.2);
         self.fly_to(cam);
@@ -8342,26 +8302,6 @@ fn group_digits(n: u64) -> String {
     }
     out
 }
-
-// #region agent log
-fn agent_dbg(hypothesis_id: &str, location: &str, message: &str, data_json: &str) {
-    use std::io::Write;
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    let line = format!(
-        "{{\"sessionId\":\"06e974\",\"hypothesisId\":\"{hypothesis_id}\",\"location\":\"{location}\",\"message\":\"{message}\",\"data\":{data_json},\"timestamp\":{ts}}}\n"
-    );
-    if let Ok(mut f) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(r"c:\Users\jmoser\source\repos\AtlasFileExplorer\debug-06e974.log")
-    {
-        let _ = f.write_all(line.as_bytes());
-    }
-}
-// #endregion
 
 /// The never-scanned list as editable text, one folder name per line.
 fn skip_list_text() -> String {
