@@ -9,8 +9,13 @@ use std::path::{Path, PathBuf};
 
 /// PNG path for generator input: filtered/cropped base plus visible paint layers.
 /// Decodes and encodes; the context publish runs it off the frame loop.
-pub fn agent_wired_image_file(doc: &SlateDoc, node: &Node, img: &ImageNode) -> Option<PathBuf> {
-    let source = doc.item(img.item).map(|i| i.path.clone())?;
+pub fn agent_wired_image_file(
+    doc: &SlateDoc,
+    workbook: Option<&Path>,
+    node: &Node,
+    img: &ImageNode,
+) -> Option<PathBuf> {
+    let source = item_file(doc, workbook, img.item)?;
     if !img.mirror().any()
         && img
             .paint_layers
@@ -111,20 +116,28 @@ pub fn replace_wired_image_slots(
     let NodeKind::Image(img) = &node.kind else {
         return;
     };
-    let Some(path) = agent_wired_image_file(app.doc(), node, img) else {
+    let workbook = app.tab().path.as_deref();
+    let Some(path) = agent_wired_image_file(app.doc(), workbook, node, img) else {
         return;
     };
     let clipped = path.to_string_lossy().into_owned();
-    let source = app
-        .doc()
-        .item(img.item)
-        .map(|i| i.path.clone())
-        .unwrap_or_default();
+    let source = item_file(app.doc(), workbook, img.item).unwrap_or_default();
     for slot in item.images.iter_mut().chain(item.depth.as_mut()) {
         if Path::new(&*slot) == source.as_path() {
             *slot = clipped.clone();
         }
     }
+}
+
+/// The file an item's locator names. Pasted and generated pictures store a
+/// workbook-relative `assets/…` locator; anything that opens bytes needs this.
+pub(crate) fn item_file(
+    doc: &SlateDoc,
+    workbook: Option<&Path>,
+    item: slate_doc::ItemId,
+) -> Option<PathBuf> {
+    let locator = doc.item(item)?.path.to_string_lossy();
+    Some(slate_doc::scene::resolve_source(workbook, &locator))
 }
 
 fn path_key(path: &Path) -> u64 {

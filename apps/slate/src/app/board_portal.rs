@@ -211,7 +211,7 @@ impl SlateApp {
         if layout.pointer_on_chrome(p) {
             return;
         }
-        if layout.body.contains(p) {
+        if layout.body.contains(p) && self.node_is_topmost(id, Some(p), xf) {
             return;
         }
         self.contents_blur();

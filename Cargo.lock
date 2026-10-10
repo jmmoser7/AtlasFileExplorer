@@ -469,6 +469,7 @@ dependencies = [
  "crossbeam-channel",
  "dirs",
  "eframe",
+ "flate2",
  "image",
  "jpeg-decoder",
  "notify",

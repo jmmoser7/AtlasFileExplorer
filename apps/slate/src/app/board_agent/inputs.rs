@@ -1,5 +1,6 @@
 //! Input snapshots and image export.
 
+use super::super::image_composite::item_file;
 use super::*;
 
 impl SlateApp {
@@ -40,7 +41,7 @@ impl SlateApp {
             if !painted && img.crop.is_full() {
                 continue;
             }
-            let Some(source) = self.doc().item(img.item).map(|i| i.path.clone()) else {
+            let Some(source) = item_file(self.doc(), self.tab().path.as_deref(), img.item) else {
                 continue;
             };
             let key = clips.key(node, img, revision);
@@ -63,11 +64,15 @@ impl SlateApp {
                     if painted {
                         let doc = self.doc().clone();
                         let node = node.clone();
+                        let book = self.tab().path.clone();
                         std::thread::spawn(move || {
                             let clip = match &node.kind {
                                 NodeKind::Image(img) => {
                                     super::super::image_composite::agent_wired_image_file(
-                                        &doc, &node, img,
+                                        &doc,
+                                        book.as_deref(),
+                                        &node,
+                                        img,
                                     )
                                 }
                                 _ => None,
@@ -209,6 +214,14 @@ impl SlateApp {
             &[],
             &outputs,
         )?;
+        // Engines open files: a pasted picture's `assets/…` locator is a path
+        // relative to the workbook, not to the engine's working directory.
+        let book = self.tab().path.as_deref();
+        for item in inputs.context.iter_mut().chain(inputs.wired.iter_mut()) {
+            for slot in item.images.iter_mut().chain(item.depth.as_mut()) {
+                *slot = resolve_source(book, slot).to_string_lossy().into_owned();
+            }
+        }
         // A prompt being typed steers before the edit commits.
         if let Some((editing, text)) = &self.text_edit {
             for item in &mut inputs.wired {
@@ -244,7 +257,7 @@ impl SlateApp {
             if img.crop.is_full() {
                 continue;
             }
-            let Some(source) = self.doc().item(img.item).map(|i| i.path.clone()) else {
+            let Some(source) = item_file(self.doc(), self.tab().path.as_deref(), img.item) else {
                 continue;
             };
             let Some(clipped) = super::super::imagefx::visible_crop_file(&source, img.crop) else {
