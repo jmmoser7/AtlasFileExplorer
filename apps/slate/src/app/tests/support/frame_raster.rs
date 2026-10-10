@@ -45,6 +45,17 @@ impl FrameRaster {
         }
     }
 
+    /// The font atlas as it stands now. Its first upload happened on harness
+    /// frames this raster never saw, so text would otherwise sample white.
+    pub(crate) fn sync_fonts(&mut self, ctx: &egui::Context) {
+        let image = ctx.fonts(|f| f.image());
+        let [w, h] = image.size;
+        self.textures.insert(
+            egui::TextureId::default(),
+            (w, h, image.srgba_pixels(None).collect()),
+        );
+    }
+
     pub(crate) fn sample(&self, id: egui::TextureId, u: f32, v: f32) -> [f32; 4] {
         let Some((w, h, px)) = self.textures.get(&id) else {
             return [1.0; 4];
@@ -153,6 +164,37 @@ impl FrameRaster {
         }
         img.save(path).unwrap();
     }
+
+    /// Save only `area` (screen points, clamped to the raster), each pixel
+    /// repeated `magnify` times so a close-up stays legible.
+    pub(crate) fn save_crop(&self, path: &std::path::Path, area: ERect, magnify: u32) {
+        let x0 = (area.min.x.max(0.0) as usize).min(self.w - 1);
+        let y0 = (area.min.y.max(0.0) as usize).min(self.h - 1);
+        let x1 = (area.max.x.ceil().max(0.0) as usize).clamp(x0 + 1, self.w);
+        let y1 = (area.max.y.ceil().max(0.0) as usize).clamp(y0 + 1, self.h);
+        let mut img = image::RgbImage::new((x1 - x0) as u32, (y1 - y0) as u32);
+        let q = |c: f32| (c.clamp(0.0, 1.0) * 255.0).round() as u8;
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let p = self.px[y * self.w + x];
+                img.put_pixel(
+                    (x - x0) as u32,
+                    (y - y0) as u32,
+                    image::Rgb([q(p[0]), q(p[1]), q(p[2])]),
+                );
+            }
+        }
+        let magnify = magnify.max(1);
+        if magnify > 1 {
+            img = image::imageops::resize(
+                &img,
+                img.width() * magnify,
+                img.height() * magnify,
+                image::imageops::FilterType::Nearest,
+            );
+        }
+        img.save(path).unwrap();
+    }
 }
 
 /// Run one frame with `prepare`, feeding its textures into `raster`.
@@ -195,12 +237,32 @@ pub(crate) fn review_shot(
     item: &str,
     state: &str,
 ) {
+    raster.sync_fonts(&h.ctx);
     rasterize(h, raster, out);
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../target/review")
         .join(item);
     std::fs::create_dir_all(&dir).unwrap();
     raster.save(&dir.join(format!("{state}.png")));
+}
+
+/// [`review_shot`] cropped to `area` and magnified, for close-ups of one object.
+pub(crate) fn review_shot_crop(
+    h: &mut Harness,
+    raster: &mut FrameRaster,
+    out: egui::FullOutput,
+    item: &str,
+    state: &str,
+    area: ERect,
+    magnify: u32,
+) {
+    raster.sync_fonts(&h.ctx);
+    rasterize(h, raster, out);
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../target/review")
+        .join(item);
+    std::fs::create_dir_all(&dir).unwrap();
+    raster.save_crop(&dir.join(format!("{state}.png")), area, magnify);
 }
 
 /// Draw `out` into `raster` over black.
