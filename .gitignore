@@ -59,3 +59,7 @@ docs/agent/cursor-sidecar/node_modules.old-*/
 # Suggestion-box report bundles written by dev builds (user content).
 /feedback/client/
 /docs/agent/cursor-sidecar/demo-ai-workspace/
+
+# Bytecode from local Python setup checks.
+__pycache__/
+*.pyc

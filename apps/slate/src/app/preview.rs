@@ -48,7 +48,7 @@ pub struct PreviewEntry {
     pub tex: TextureHandle,
     /// Decoded pixels, so a committed photo filter can run once on the sharp
     /// preview instead of locking the image to its thumbnail.
-    pub pixels: egui::ColorImage,
+    pub pixels: std::sync::Arc<egui::ColorImage>,
     /// Ladder tier this texture satisfies ([`PX_EXACT`] = native size).
     pub px: u32,
     /// Decoded RGBA footprint, the unit of the memory budget.
@@ -189,7 +189,7 @@ impl SlateApp {
                         key,
                         PreviewEntry {
                             tex,
-                            pixels: img,
+                            pixels: img.into(),
                             px,
                             bytes: (w as usize) * (h as usize) * 4,
                             last_used: self.frame_no,

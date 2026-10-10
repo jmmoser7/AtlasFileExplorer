@@ -1,9 +1,9 @@
 //! Local image subject highlights. Durable highlights are ordinary paint paths.
 
 use super::{board::BoardXf, SlateApp};
-use atlas_segment::Request;
 use atlas_shell::{canvas_scale, selection_tools};
 use eframe::egui::{self, Id, Pos2, Rect};
+use runtime::PendingImage;
 use slate_doc::{
     image_paint::{layer_node_to_world, PaintLayer, PaintLayerPrompt},
     scene::{Node, NodeKind, Rgba, SceneCmd, ShapeKind, ShapeNode, Stroke, WorldRect},
@@ -14,7 +14,6 @@ use std::time::{Duration, Instant};
 
 const LINGER: Duration = Duration::from_millis(400);
 const MOVE_RESET_PX: f32 = 8.0;
-const SAMPLE_EDGE: usize = 768;
 const HIGHLIGHT: Rgba = Rgba([255, 150, 40, 100]);
 
 #[cfg(test)]
@@ -186,7 +185,7 @@ impl SlateApp {
         }
     }
 
-    fn segment_request(&mut self, host: NodeId, point: [f32; 2]) -> Option<Request> {
+    fn segment_request(&mut self, host: NodeId, point: [f32; 2]) -> Option<PendingImage> {
         let item = self.image_item(host)?;
         let key = if item.is_none() {
             super::preview::linked_image_key(&self.agent_shown_path(host)?, "shown")
@@ -204,29 +203,10 @@ impl SlateApp {
             .get(&key)
             .map(|e| &e.pixels)
             .or_else(|| self.thumb_pixels.get(&key))?;
-        let [w, h] = pixels.size;
-        if w < 2 || h < 2 {
-            return None;
-        }
-        let scale = (SAMPLE_EDGE as f32 / w.max(h) as f32).min(1.0);
-        let width = (w as f32 * scale).round().max(2.0) as usize;
-        let height = (h as f32 * scale).round().max(2.0) as usize;
-        let mut rgb = Vec::with_capacity(width * height * 3);
-        for y in 0..height {
-            for x in 0..width {
-                let sx = x * w / width;
-                let sy = y * h / height;
-                let sx = if mirror.x { w - 1 - sx } else { sx };
-                let sy = if mirror.y { h - 1 - sy } else { sy };
-                let color = pixels.pixels[sy * w + sx].to_srgba_unmultiplied();
-                rgb.extend_from_slice(&color[..3]);
-            }
-        }
-        Some(Request {
+        Some(PendingImage {
             key: format!("{key}:{}:{}", mirror.x, mirror.y),
-            width,
-            height,
-            rgb,
+            pixels: pixels.clone(),
+            mirror: [mirror.x, mirror.y],
             point,
             window,
         })

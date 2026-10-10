@@ -5,6 +5,24 @@ use crate::app::tests::{capture_frame, rasterize, FrameRaster, Harness};
 use slate_doc::scene::ImageNode;
 
 #[test]
+fn segment_dispatch_shares_resident_pixels_without_copying_them() {
+    let (mut h, id) = fixture("segment_shared_pixels");
+    let item = h.app.image_item(id).unwrap();
+    let key = h.app.resolved_item_preview(item).unwrap().0;
+    h.app.preview_cache.remove(&key);
+    let pixels = std::sync::Arc::new(egui::ColorImage::new([1024, 512], egui::Color32::RED));
+    h.app.thumb_pixels.insert(key, pixels.clone());
+    let request = h.app.segment_request(id, [0.25, 0.5]).unwrap();
+    assert!(std::sync::Arc::ptr_eq(&pixels, &request.pixels));
+    assert_eq!(
+        request.pixels.size,
+        [1024, 512],
+        "dispatch leaves sampling to the worker"
+    );
+    assert_eq!(request.point, [0.25, 0.5]);
+}
+
+#[test]
 fn committed_segment_becomes_a_prompted_image_layer_region() {
     let (mut h, id) = fixture("segment_prompt_layer");
     let region = h

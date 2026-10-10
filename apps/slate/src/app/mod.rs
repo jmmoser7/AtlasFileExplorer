@@ -459,7 +459,7 @@ pub struct SlateApp {
     pub board_menu: Option<(NodeId, egui::Pos2)>,
     pub presenting: Option<present::Present>,
     /// Retained source pixels for board images (needed to apply filters).
-    pub thumb_pixels: HashMap<String, egui::ColorImage>,
+    pub thumb_pixels: HashMap<String, std::sync::Arc<egui::ColorImage>>,
     /// Cached text-file excerpts for board snippet cards (`None` = unreadable).
     pub snippets: HashMap<ItemId, Option<String>>,
     /// Cached CSV / Excel grids for the same cards (`None` = not a spreadsheet).
@@ -2054,7 +2054,7 @@ impl SlateApp {
                         egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba);
                     // Retain source pixels so board image adjustments (CSS
                     // filter math) can re-render without re-decoding.
-                    self.thumb_pixels.insert(key.clone(), img.clone());
+                    self.thumb_pixels.insert(key.clone(), img.clone().into());
                     let tex = ctx.load_texture(
                         format!("slate-thumb-{key}"),
                         img,

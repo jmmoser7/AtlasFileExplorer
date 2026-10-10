@@ -12,9 +12,21 @@ part of the segmentation preview.
 
 Run `scripts/setup-segmentation.ps1` once. It installs an isolated CPU runtime
 and Meta's `facebook/sam2.1-hiera-tiny` model under
-`%LOCALAPPDATA%/NativeFileAtlas/segmentation`. Python must be installed to run
-the setup script. Dependencies and weights are machine resources, never
+`%LOCALAPPDATA%/NativeFileAtlas/segmentation`. Install 64-bit Python 3.11–3.13
+first (3.13 is the validated runtime). Dependencies and weights are machine resources, never
 workbook content. Setup requires internet access; inference is offline.
+
+Both lockfiles beside the setup script pin every runtime and build dependency,
+including transitive packages. Pip requires their published SHA-256 hashes.
+SAM's source archive is pinned by commit and SHA-256; the checkpoint is checked
+against the SHA-256 in Meta's [published Git LFS pointer](https://huggingface.co/facebook/sam2.1-hiera-tiny/blob/main/sam2.1_hiera_tiny.pt).
+An existing checkpoint is verified too. A mismatch stops setup; an incomplete
+or corrupt download is never promoted into the installed checkpoint.
+
+Run `scripts/setup-segmentation.ps1 -VerifyOnly` to check installed versions,
+SAM source identity, and model integrity offline without installing anything.
+When updating dependencies, update both lockfiles from official release
+metadata and validate a fresh installation before shipping them.
 
 The adapter uses Meta's official SAM 2 implementation:
 <https://github.com/facebookresearch/sam2>.
@@ -34,8 +46,9 @@ the capsule reads “Finding object...” while it runs. A failure appears as
   artifact writer serialize committed paths, including silhouette holes.
 - The UI uses the shell's existing capsule and popup placement primitives.
 
-Requests contain only already-resident preview pixels, downsampled to a
-maximum edge of 768 pixels. The adapter never opens source files, hydrates
+Requests share already-resident preview pixels without copying them on the UI
+thread. The background worker downsamples to a maximum edge of 768 pixels and
+converts them to RGB before inference. The adapter never opens source files, hydrates
 cloud placeholders, uploads images, or downloads a model during hover.
 If no pixels are resident, it waits for the existing preview pipeline.
 Fine details depend on preview resolution and the model's prediction.
