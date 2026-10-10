@@ -190,6 +190,48 @@ impl SlateApp {
     pub(crate) fn begin_agent_paint(&mut self) {
         self.agents.composer_rects.clear();
         self.agents.card_overflow.clear();
+        self.agents.chevron_hits.clear();
+    }
+    /// Partial cards always own the wheel. A sized card owns it once content overflows.
+    pub(crate) fn card_owns_transcript_wheel(&self, n: &Node) -> bool {
+        let Some(a) = slate_doc::agent_chat::agent(n) else {
+            return false;
+        };
+        if a.view != atlas_ai::agent::PortalView::Chat {
+            return false;
+        }
+        let fold = card_fold(&a.chat, self.agents.stream_open.contains(&n.id));
+        if fold == train_ux::CardFold::Partial {
+            return true;
+        }
+        a.chat.size.is_some()
+            && self
+                .agents
+                .card_overflow
+                .get(&n.id)
+                .is_some_and(|max| *max > 0.5)
+    }
+    /// A chat card's own grips (output, stop, context, crosstalk port,
+    /// chevron) own the pointer, so no frame resize starts under them.
+    pub(crate) fn agent_grip_owns(&self, screen: Pos2, xf: &BoardXf) -> bool {
+        self.agent_output_at(screen, xf).is_some()
+            || self.agent_stop_at(screen, xf).is_some()
+            || self.agent_artifact_at(screen, xf).is_some()
+            || self.crosstalk_port_under(screen, xf).is_some()
+            || self.crosstalk_captures(screen)
+            || self.chevron_owns(screen)
+    }
+    /// The pointer is over a collapse chevron painted on the previous pass.
+    pub(crate) fn chevron_owns(&self, screen: Pos2) -> bool {
+        self.agents.chevron_hits.iter().any(|r| r.contains(screen))
+    }
+    /// Center of the `index`th chevron painted last frame, for review sheets.
+    #[cfg(test)]
+    pub(crate) fn chevron_hover_point(&self, index: usize) -> Option<Pos2> {
+        self.agents
+            .chevron_hits
+            .get(index)
+            .map(|rect| rect.center())
     }
     /// A user-sized card with more content than room scrolls instead of zooming.
     pub(crate) fn pointer_over_scrolling_agent_card(
@@ -207,14 +249,7 @@ impl SlateApp {
             .iter()
             .rev()
             .find(|n| !n.hidden && !n.is_frame() && n.rect.contains(world.x, world.y))
-            .is_some_and(|n| {
-                slate_doc::agent_chat::agent(n).is_some_and(|a| a.chat.size.is_some())
-                    && self
-                        .agents
-                        .card_overflow
-                        .get(&n.id)
-                        .is_some_and(|max| *max > 0.5)
-            })
+            .is_some_and(|n| self.card_owns_transcript_wheel(n))
     }
     pub(crate) fn agent_focus(&mut self, id: NodeId) {
         self.portal_enter_interactive(id);

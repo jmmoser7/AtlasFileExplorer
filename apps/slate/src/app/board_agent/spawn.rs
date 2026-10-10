@@ -184,6 +184,10 @@ impl SlateApp {
             return true;
         }
         if let Some(pointer) = ui.ctx().pointer_latest_pos() {
+            if self.chevron_owns(pointer) && ui.input(|i| i.pointer.primary_pressed()) {
+                self.board_align_eat_press = true;
+                return true;
+            }
             // Blisters, the Send pill, the capsule and its editor take their
             // own presses, not the moves and release of a gesture that began
             // elsewhere. Only a primary press arms the guard: a hover or a

@@ -16,6 +16,7 @@ pub mod image_paint;
 mod item;
 pub mod lease;
 mod link;
+mod link_inset;
 pub mod locators;
 pub mod media;
 pub mod mirror;

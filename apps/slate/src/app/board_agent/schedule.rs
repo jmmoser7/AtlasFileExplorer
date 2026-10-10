@@ -3,7 +3,7 @@
 //! `atlas_ai::schedule`; this file only asks and shows.
 
 use atlas_ai::schedule::{self as plan, AgentSchedule, Repeat};
-use eframe::egui::{self, Id, Pos2, Rect, Sense};
+use eframe::egui::{self, Id};
 use slate_doc::scene::NodeId;
 
 use super::super::SlateApp;
@@ -372,41 +372,5 @@ impl SlateApp {
             }
             None => self.agents.schedule_dialog = Some(dialog),
         }
-    }
-
-    /// A clock just left of the collapse chevron while a run is still ahead.
-    /// Hover names when; a click opens the dialog.
-    pub(crate) fn paint_agent_clock(
-        &mut self,
-        ui: &egui::Ui,
-        id: NodeId,
-        menu_left: f32,
-        cy: f32,
-        z: f32,
-    ) -> bool {
-        let Some(schedule) = self.agent_schedule(id) else {
-            return false;
-        };
-        if !schedule.pending(plan::now_local()) {
-            return false;
-        }
-        let size = atlas_shell::canvas_scale::px(11.0, z);
-        let center = Pos2::new(menu_left - atlas_shell::canvas_scale::px(22.0, z), cy);
-        let rect = Rect::from_center_size(center, egui::Vec2::splat(size));
-        let response = ui
-            .interact(
-                rect.expand(atlas_shell::canvas_scale::px(2.0, z)),
-                Id::new(("agent-clock", id.0)),
-                Sense::click(),
-            )
-            .on_hover_text(schedule.describe());
-        let ink = self.palette().ink;
-        let color = if response.hovered() {
-            ink
-        } else {
-            ink.gamma_multiply(0.72)
-        };
-        atlas_shell::icons::paint(ui.painter(), rect, atlas_shell::icons::Icon::Clock, color);
-        response.clicked()
     }
 }

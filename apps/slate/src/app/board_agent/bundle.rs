@@ -385,8 +385,8 @@ impl SlateApp {
             let layout = canvas_text::world_layout_rows(
                 painter.ctx(),
                 &excerpt,
-                FontId::proportional(13.0),
-                (node.rect.w - 24.0).max(1.0),
+                FontId::proportional(CARD_TEXT_PX),
+                text_column(node.rect.w).2,
                 egui::Align::LEFT,
                 max_rows.unwrap_or(usize::MAX),
             );
@@ -424,7 +424,13 @@ impl SlateApp {
                 .max_rect(clip),
         );
         text_ui.set_clip_rect(clip);
-        let at = rect.min + egui::vec2(12.0, SUMMARY_TEXT_TOP - offset) * z;
+        // A capsule shares the open card's text top, so folding never moves the first line.
+        let top = if max_rows.is_some() {
+            COMPOSER_TOP
+        } else {
+            SUMMARY_TEXT_TOP
+        };
+        let at = rect.min + egui::vec2(TEXT_INSET_LEFT, top - offset) * z;
         if from_agent {
             let bar = Rect::from_min_size(
                 at - egui::vec2(6.0 * z, 0.0),

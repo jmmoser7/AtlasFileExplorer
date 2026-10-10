@@ -157,11 +157,11 @@ impl SlateApp {
             chat.partial = false;
         }) || released
     }
-    /// Chevron zones. A missing detail keeps the keyboard toggle. Folding a
+    /// One chevron steps a level; the double jumps two. A missing detail keeps the keyboard toggle. Folding a
     /// card that is open only for streaming starts from what the person sees
     /// and makes that fold theirs.
     pub(crate) fn agent_fold(&mut self, ctx: &egui::Context, detail: Option<&str>) -> bool {
-        let Some(zone) = detail.and_then(train_ux::ChevronZone::parse) else {
+        let Some((dir, step)) = detail.and_then(train_ux::parse_chevron) else {
             return self.agent_toggle_collapse(ctx);
         };
         let ids = self.selected_chat_cards();
@@ -173,7 +173,7 @@ impl SlateApp {
         let released = self.release_stream_open(&ids);
         self.refit_agent_cards_by(ctx, &ids, |id, chat| {
             let fold = card_fold(chat, streaming.contains(&id));
-            write_fold(chat, train_ux::apply_chevron(fold, zone));
+            write_fold(chat, train_ux::apply_fold(fold, dir, step));
         }) || released
     }
     /// A collapsed card shows twice the capsule while a reply streams. The
