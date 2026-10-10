@@ -9,6 +9,8 @@ pub struct ConnectionRow {
     pub contract: String,
     pub health: String,
     pub install_note: String,
+    /// What the probe looked for (P1.portal.health names it on failure).
+    pub detail: String,
     pub trial: bool,
 }
 
@@ -18,24 +20,30 @@ pub enum ConnectionAction {
 }
 
 pub fn section(ui: &mut Ui, rows: &[ConnectionRow], sub: Color32) -> Option<ConnectionAction> {
-    ui.label(RichText::new("Connections").strong());
+    let mut action = None;
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Connections").strong());
+        if ui
+            .small_button("Refresh")
+            .on_hover_text("Probe every pack again on a background thread.")
+            .clicked()
+        {
+            action = Some(ConnectionAction::Refresh);
+        }
+    });
     ui.label(
         RichText::new(
-            "A pack appears here even when it is not ready. The chooser only \
-             lists packs that answered this session, plus a credential that \
-             only needs a key.",
+            "Every known pack is listed here, ready or not. Choosers list only \
+             packs that answered this session, plus OpenAI when it only needs a key.",
         )
         .small()
         .color(sub),
     );
-    let mut action = None;
-    if ui.small_button("Refresh").clicked() {
-        action = Some(ConnectionAction::Refresh);
-    }
     ui.add_space(4.0);
     egui::Grid::new("pack_connections")
         .striped(true)
         .num_columns(5)
+        .spacing([14.0, 4.0])
         .show(ui, |ui| {
             for title in ["Name", "Contract", "Health", "Install", ""] {
                 ui.label(RichText::new(title).small().strong().color(sub));
@@ -44,11 +52,15 @@ pub fn section(ui: &mut Ui, rows: &[ConnectionRow], sub: Color32) -> Option<Conn
             for row in rows {
                 ui.label(RichText::new(&row.name).small());
                 ui.label(RichText::new(&row.contract).small().color(sub));
-                ui.label(RichText::new(&row.health).small())
-                    .on_hover_text(&row.install_note);
+                let health = ui.label(RichText::new(&row.health).small());
+                if !row.detail.is_empty() {
+                    health.on_hover_text(&row.detail);
+                }
                 ui.label(RichText::new(&row.install_note).small().color(sub));
                 if row.trial && ui.small_button("Forget").clicked() {
                     action = Some(ConnectionAction::Forget(row.id.clone()));
+                } else if !row.trial {
+                    ui.label("");
                 }
                 ui.end_row();
             }

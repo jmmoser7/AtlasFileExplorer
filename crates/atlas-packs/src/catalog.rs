@@ -106,10 +106,7 @@ impl Catalog {
     }
 
     pub fn health(&self, id: &PackId) -> PackHealth {
-        self.health
-            .get(id)
-            .copied()
-            .unwrap_or(PackHealth::Unknown)
+        self.health.get(id).copied().unwrap_or(PackHealth::Unknown)
     }
 
     pub fn detail(&self, id: &PackId) -> &str {
@@ -127,7 +124,9 @@ impl Catalog {
     pub fn ready(&self, contract: ContractId) -> Vec<PackId> {
         self.entries
             .iter()
-            .filter(|e| e.manifest.contract == contract && self.health(&e.manifest.id) == PackHealth::Ok)
+            .filter(|e| {
+                e.manifest.contract == contract && self.health(&e.manifest.id) == PackHealth::Ok
+            })
             .map(|e| e.manifest.id.clone())
             .collect()
     }
@@ -204,7 +203,10 @@ impl Catalog {
             let Ok(manifest) = serde_json::from_slice::<PackManifest>(&bytes) else {
                 continue;
             };
-            if self.entries.iter().any(|e| e.manifest.id == manifest.id && e.trial_path.is_none())
+            if self
+                .entries
+                .iter()
+                .any(|e| e.manifest.id == manifest.id && e.trial_path.is_none())
             {
                 continue;
             }
@@ -250,11 +252,7 @@ mod tests {
             id,
             ContractId::Chat,
             ProbeSpec::KnownPath {
-                names: vec![file
-                    .file_name()
-                    .unwrap()
-                    .to_string_lossy()
-                    .into_owned()],
+                names: vec![file.file_name().unwrap().to_string_lossy().into_owned()],
                 roots: vec![file.parent().unwrap().display().to_string()],
             },
         );
@@ -357,7 +355,10 @@ mod tests {
         std::fs::write(packs.join("trial-tool.json"), trial.to_string()).unwrap();
         let mut cat = Catalog::load_at(&packs, None);
         cat.probe_all();
-        assert!(cat.ready(ContractId::Chat).iter().all(|id| id.as_str() != "trial-tool"));
+        assert!(cat
+            .ready(ContractId::Chat)
+            .iter()
+            .all(|id| id.as_str() != "trial-tool"));
         assert_eq!(cat.health(&PackId::new("trial-tool")), PackHealth::Missing);
         cat.forget(&PackId::new("trial-tool")).unwrap();
         assert!(!packs.join("trial-tool.json").exists());
@@ -390,7 +391,9 @@ mod tests {
     fn shipped_manifests_cover_the_shelves_and_not_photocraft() {
         let shipped = crate::shipped_manifests();
         assert!(shipped.iter().any(|m| m.id.as_str() == "cursor"));
-        assert!(shipped.iter().any(|m| m.id.as_str() == "openai-image" && m.credential.is_some()));
+        assert!(shipped
+            .iter()
+            .any(|m| m.id.as_str() == "openai-image" && m.credential.is_some()));
         assert!(shipped.iter().all(|m| m.id.as_str() != "photocraft"));
         assert!(shipped.iter().any(|m| m.contract == ContractId::Page));
         assert!(shipped.iter().any(|m| m.contract == ContractId::Segment));

@@ -75,7 +75,6 @@ impl AgentRuntime {
         swap(&mut self.models_started, &mut other.models_started);
         swap(&mut self.models_error, &mut other.models_error);
         swap(&mut self.programs, &mut other.programs);
-        swap(&mut self.programs_rx, &mut other.programs_rx);
         swap(&mut self.programs_started, &mut other.programs_started);
         swap(&mut self.recents, &mut other.recents);
         swap(&mut self.provider_recents, &mut other.provider_recents);

@@ -2,49 +2,39 @@
 //! last snapshot.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::Mutex;
 
+use atlas_packs::{Catalog, ContractId};
 pub use atlas_packs::{PackHealth, PackId, PackRow};
-use atlas_packs::{Catalog, ContractId, Offer};
-use crossbeam_channel::{Receiver, unbounded};
+use crossbeam_channel::{unbounded, Receiver};
 
 use crate::agent::{provider_by_id, AgentProvider};
 
 pub const ADD_KEY_LABEL: &str = "OpenAI · add API key";
 pub const KEY_URL: &str = "https://platform.openai.com/api-keys";
+/// The pack whose credential is the OpenAI API key. Text and image share it.
+pub const OPENAI: &str = "openai-image";
 
-static OVERRIDES: Mutex<Vec<(String, PackHealth)>> = Mutex::new(Vec::new());
-static PROBES: AtomicU32 = AtomicU32::new(0);
-
-/// Replace a probe result. The next worker probe records it again, so a test
-/// can flip Cursor from missing to installed without restarting the process.
-pub fn set_health_override(id: &str, health: PackHealth) {
-    let mut rows = OVERRIDES.lock().expect("pack overrides");
-    if let Some(slot) = rows.iter_mut().find(|(name, _)| name == id) {
-        slot.1 = health;
-    } else {
-        rows.push((id.to_string(), health));
-    }
-}
-
-pub fn clear_health_overrides() {
-    OVERRIDES.lock().expect("pack overrides").clear();
-}
-
-pub fn probes_started() -> u32 {
-    PROBES.load(Ordering::Relaxed)
+struct Probed {
+    catalog: Catalog,
+    programs: Vec<AgentProvider>,
 }
 
 pub struct PackSession {
     catalog: Catalog,
-    rx: Option<Receiver<Catalog>>,
+    rx: Option<Receiver<Probed>>,
+    /// A refresh asked for while a probe was in flight runs when it lands, so
+    /// a key saved mid-probe is not undone by the older answer.
+    again: Option<Option<PathBuf>>,
     started: bool,
     chooser_painted: bool,
     chooser_latched: bool,
+    overrides: Vec<(String, PackHealth)>,
+    probes: u32,
     /// Tests pin the program grid so a background probe cannot replace it.
     pub hold: bool,
+    /// The OpenAI key window is open.
     pub key_entry: bool,
+    pub key_draft: String,
     pending_programs: Option<Vec<AgentProvider>>,
 }
 
@@ -53,11 +43,15 @@ impl PackSession {
         Self {
             catalog: Catalog::from_manifests(Vec::new()),
             rx: None,
+            again: None,
             started: false,
             chooser_painted: false,
             chooser_latched: false,
+            overrides: Vec::new(),
+            probes: 0,
             hold: false,
             key_entry: false,
+            key_draft: String::new(),
             pending_programs: None,
         }
     }
@@ -71,6 +65,7 @@ impl PackSession {
     }
 
     pub fn refresh(&mut self, workspace: Option<PathBuf>) {
+        self.started = true;
         self.spawn(workspace);
     }
 
@@ -89,7 +84,7 @@ impl PackSession {
             return;
         }
         self.chooser_latched = true;
-        self.spawn(workspace);
+        self.refresh(workspace);
     }
 
     pub fn probe_pending(&mut self) -> bool {
@@ -97,9 +92,30 @@ impl PackSession {
         self.rx.is_some()
     }
 
+    /// A probe is running. Does not drain; the frame may still repaint.
+    pub fn in_flight(&self) -> bool {
+        self.rx.is_some()
+    }
+
+    /// Worker probes started by this session.
+    pub fn probes(&self) -> u32 {
+        self.probes
+    }
+
     pub fn poll_programs(&mut self) -> Option<Vec<AgentProvider>> {
         self.drain();
         self.pending_programs.take()
+    }
+
+    /// Pin a probe answer for this session. Every later probe reports it, so
+    /// a test can flip Cursor from missing to installed without a restart.
+    pub fn set_health_override(&mut self, id: &str, health: PackHealth) {
+        self.overrides.retain(|(name, _)| name != id);
+        self.overrides.push((id.to_string(), health));
+    }
+
+    pub fn clear_health_overrides(&mut self) {
+        self.overrides.clear();
     }
 
     pub fn record(&mut self, id: &str, health: PackHealth) {
@@ -114,6 +130,10 @@ impl PackSession {
         self.catalog.health(&PackId::new(id))
     }
 
+    pub fn ok(&self, id: &str) -> bool {
+        self.health(id) == PackHealth::Ok
+    }
+
     pub fn title(&self, id: &str) -> Option<String> {
         self.catalog.title(&PackId::new(id)).map(str::to_string)
     }
@@ -122,10 +142,11 @@ impl PackSession {
         self.catalog.detail(&PackId::new(id)).to_string()
     }
 
+    /// Offered in a chooser although only its credential is missing (PK2).
     pub fn needs_key(&self, id: &str) -> bool {
-        self.offers_for("image")
+        [ContractId::Chat, ContractId::Image]
             .into_iter()
-            .chain(self.offers_for("chat"))
+            .flat_map(|contract| self.catalog.offers(contract))
             .any(|offer| offer.id.as_str() == id && offer.needs_key)
     }
 
@@ -135,15 +156,24 @@ impl PackSession {
 
     pub fn forget(&mut self, id: &str, workspace: Option<PathBuf>) -> Result<(), String> {
         self.catalog.forget(&PackId::new(id))?;
-        self.spawn(workspace);
+        self.refresh(workspace);
         Ok(())
     }
 
-    fn offers_for(&self, contract: &str) -> Vec<Offer> {
-        let Some(contract) = contract_id(contract) else {
-            return Vec::new();
-        };
-        self.catalog.offers(contract)
+    /// Store the OpenAI API key for this operating-system user and probe
+    /// again. The key never reaches the workbook, a log, or this struct after
+    /// the call.
+    pub fn save_openai_key(&mut self, workspace: Option<PathBuf>) -> Result<(), String> {
+        let key = std::mem::take(&mut self.key_draft);
+        let key = key.trim();
+        if key.is_empty() {
+            return Err("Paste an OpenAI API key first.".into());
+        }
+        atlas_core::secrets::store(crate::runtime::OPENAI_KEY_SLOT, key)?;
+        self.record(OPENAI, PackHealth::Ok);
+        self.key_entry = false;
+        self.refresh(workspace);
+        Ok(())
     }
 
     fn drain(&mut self) {
@@ -151,25 +181,34 @@ impl PackSession {
             return;
         };
         match rx.try_recv() {
-            Ok(catalog) => {
-                self.catalog = catalog;
-                self.pending_programs = Some(programs_of(&self.catalog));
+            Ok(probed) => {
+                self.catalog = probed.catalog;
+                self.pending_programs = Some(probed.programs);
                 self.rx = None;
             }
             Err(crossbeam_channel::TryRecvError::Empty) => {}
             Err(crossbeam_channel::TryRecvError::Disconnected) => self.rx = None,
         }
+        if self.rx.is_none() {
+            if let Some(workspace) = self.again.take() {
+                self.spawn(workspace);
+            }
+        }
     }
 
     fn spawn(&mut self, workspace: Option<PathBuf>) {
         if self.rx.is_some() {
+            self.again = Some(workspace);
             return;
         }
         let (tx, rx) = unbounded();
         self.rx = Some(rx);
+        self.probes += 1;
+        let overrides = self.overrides.clone();
         std::thread::spawn(move || {
-            PROBES.fetch_add(1, Ordering::Relaxed);
-            let _ = tx.send(probe_catalog(workspace.as_deref()));
+            let catalog = probe_catalog(workspace.as_deref(), &overrides);
+            let programs = programs_of(&catalog, workspace.as_deref());
+            let _ = tx.send(Probed { catalog, programs });
         });
     }
 }
@@ -180,74 +219,83 @@ impl Default for PackSession {
     }
 }
 
-fn probe_catalog(workspace: Option<&Path>) -> Catalog {
+fn probe_catalog(workspace: Option<&Path>, overrides: &[(String, PackHealth)]) -> Catalog {
     let mut catalog = Catalog::load(workspace);
     register_builtin(&mut catalog);
     catalog.probe_all();
-    let overrides = OVERRIDES.lock().expect("pack overrides").clone();
     for (id, health) in overrides {
-        catalog.set_health(&PackId::new(id), health);
+        catalog.set_health(&PackId::new(id.as_str()), *health);
     }
     catalog
 }
 
+fn found(present: bool) -> PackHealth {
+    if present {
+        PackHealth::Ok
+    } else {
+        PackHealth::Missing
+    }
+}
+
 fn register_builtin(catalog: &mut Catalog) {
-    catalog.register_custom("cursor", || {
-        if crate::launch::cursor_available() {
-            PackHealth::Ok
-        } else {
-            PackHealth::Missing
-        }
-    });
+    catalog.register_custom("cursor", || found(crate::launch::cursor_available()));
     catalog.register_custom("codex", || {
-        if crate::runtime::codex_executable().is_some() {
-            PackHealth::Ok
-        } else {
-            PackHealth::Missing
-        }
+        found(crate::runtime::codex_executable().is_some())
     });
     catalog.register_custom("openai-key", || {
-        if atlas_core::secrets::health(crate::runtime::OPENAI_KEY_SLOT)
-            == atlas_core::secrets::SecretHealth::Ok
-        {
-            PackHealth::Ok
-        } else {
-            PackHealth::Missing
-        }
+        found(
+            atlas_core::secrets::health(crate::runtime::OPENAI_KEY_SLOT)
+                == atlas_core::secrets::SecretHealth::Ok,
+        )
     });
-    catalog.register_custom("pdfium", || {
-        if atlas_core::pdf::library_present() {
-            PackHealth::Ok
-        } else {
-            PackHealth::Missing
-        }
-    });
+    catalog.register_custom("pdfium", || found(atlas_core::pdf::library_present()));
     catalog.register_custom("sam", || {
-        if atlas_segment::installed(&atlas_core::index::data_dir()) {
-            PackHealth::Ok
-        } else {
-            PackHealth::Missing
-        }
+        found(atlas_segment::installed(&atlas_core::index::data_dir()))
     });
 }
 
-fn programs_of(catalog: &Catalog) -> Vec<AgentProvider> {
-    let mut out = Vec::new();
-    for id in catalog.ready(ContractId::Chat) {
-        out.push(named(catalog, &id, false));
-    }
+/// The agent grid: Ok chat packs, image packs on offer, then the file-link
+/// adapters a workspace declares in `.atlas-ai/programs.json`.
+fn programs_of(catalog: &Catalog, workspace: Option<&Path>) -> Vec<AgentProvider> {
+    let mut out: Vec<AgentProvider> = catalog
+        .ready(ContractId::Chat)
+        .iter()
+        .map(|id| named(catalog, id, false))
+        .collect();
     for offer in catalog.offers(ContractId::Image) {
         out.push(named(catalog, &offer.id, offer.needs_key));
     }
+    for program in workspace_programs(workspace) {
+        if !out.iter().any(|p| p.id == program.id) {
+            out.push(program);
+        }
+    }
     out
+}
+
+/// File-link adapters from `.atlas-ai/programs.json`. They never launch an
+/// application, whatever the file says.
+fn workspace_programs(workspace: Option<&Path>) -> Vec<AgentProvider> {
+    let Some(bytes) =
+        workspace.and_then(|ws| std::fs::read(ws.join(".atlas-ai/programs.json")).ok())
+    else {
+        return Vec::new();
+    };
+    serde_json::from_slice::<Vec<AgentProvider>>(&bytes)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|p| !p.id.is_empty() && !p.id.starts_with("ollama/"))
+        .map(|mut p| {
+            p.launch = crate::agent::LaunchKind::None;
+            p
+        })
+        .collect()
 }
 
 fn named(catalog: &Catalog, id: &PackId, needs_key: bool) -> AgentProvider {
     let mut program = provider_by_id(id.as_str());
     let title = catalog.title(id).unwrap_or(id.as_str());
-    program.display_name = if needs_key && id.as_str() == "openai-image" {
-        ADD_KEY_LABEL.to_string()
-    } else if needs_key {
+    program.display_name = if needs_key {
         format!("{title} · add API key")
     } else {
         title.to_string()
@@ -255,80 +303,11 @@ fn named(catalog: &Catalog, id: &PackId, needs_key: bool) -> AgentProvider {
     program
 }
 
-fn contract_id(name: &str) -> Option<ContractId> {
-    Some(match name {
-        "chat" => ContractId::Chat,
-        "image" => ContractId::Image,
-        "segment" => ContractId::Segment,
-        "page" => ContractId::Page,
-        "program" => ContractId::Program,
-        _ => return None,
-    })
-}
-
-/// Generate-chooser rows. Install packs stay out unless their probe is Ok.
-/// OpenAI stays in, dimmed, when the only miss is the API key.
-pub fn image_chooser(
-    comfy_ok: bool,
-    codex_ok: bool,
-    openai_ok: bool,
-    comfy: &[atlas_agent::AgentModel],
-    gpt: &[atlas_agent::AgentModel],
-) -> Vec<(String, String, String)> {
-    let mut models = crate::runtime::image_models(
-        if comfy_ok { comfy } else { &[] },
-        codex_ok,
-        openai_ok,
-        gpt,
-    );
-    if !comfy_ok {
-        models.retain(|row| row.0 != "comfy");
-    }
-    if !openai_ok {
-        models.retain(|row| row.0 != "openai-image");
-        models.push((
-            "openai-image".into(),
-            String::new(),
-            ADD_KEY_LABEL.to_string(),
-        ));
-    } else {
-        for row in &mut models {
-            if row.0 == "openai-image" {
-                let name = row.2.split(" · ").next().unwrap_or(row.2.as_str());
-                row.2 = format!("OpenAI · {name}");
-            }
-        }
-    }
-    models
-}
-
-pub fn text_chooser(
-    ollama_ok: bool,
-    codex_ok: bool,
-    openai_ok: bool,
-    local: &[atlas_agent::AgentModel],
-    codex: Option<&[atlas_agent::AgentModel]>,
-    api: &[atlas_agent::AgentModel],
-) -> Vec<(String, String, String)> {
-    let mut models =
-        crate::runtime::text_models(if ollama_ok { local } else { &[] }, codex.filter(|_| codex_ok), openai_ok, api);
-    if !ollama_ok {
-        models.retain(|row| row.0 != "ollama");
-    }
-    if !codex_ok {
-        models.retain(|row| row.0 != "codex-text");
-    }
-    if !openai_ok {
-        models.retain(|row| row.0 != "openai-text");
-        models.push(("openai-text".into(), String::new(), ADD_KEY_LABEL.into()));
-    }
-    models
-}
-
-/// Contract slot shared by every chat pack. A new vendor does not add a slot.
+/// Contract slot shared by every pack of a kind. A new vendor does not add a slot.
 pub fn contract_slot(pack_id: &str) -> Option<&'static str> {
     match pack_id {
         "cursor" | "codex" | "codex-text" | "ollama" | "openai-text" => Some("chat"),
+        id if id.starts_with("ollama/") => Some("chat"),
         "comfy" | "openai-image" | "codex-image" => Some("image"),
         "sam" => Some("segment"),
         "pdfium" => Some("page"),
@@ -336,61 +315,21 @@ pub fn contract_slot(pack_id: &str) -> Option<&'static str> {
     }
 }
 
-/// Existing leaf crate. Cursor and Codex both sit on the chat slot above.
+/// The existing leaf crate that executes a pack. `runtime` starts engines
+/// through this table; a new vendor is a row here, never a new enum variant.
 pub fn leaf(pack_id: &str) -> Option<&'static str> {
     match pack_id {
         "cursor" => Some("cursor"),
         "codex" | "codex-text" | "codex-image" => Some("atlas-codex"),
         "ollama" => Some("atlas-ollama"),
+        id if id.starts_with("ollama/") => Some("atlas-ollama"),
         "comfy" => Some("atlas-comfy"),
         "openai-image" | "openai-text" => Some("atlas-openai"),
+        "sam" => Some("atlas-segment"),
         _ => None,
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn no_key_offers_one_dimmed_openai_row_and_hides_comfy() {
-        let rows = image_chooser(false, false, false, &[], &[]);
-        assert!(rows.iter().all(|row| row.0 != "comfy"));
-        assert_eq!(
-            rows.iter().filter(|row| row.0 == "openai-image").count(),
-            1
-        );
-        assert_eq!(rows.last().map(|row| row.2.as_str()), Some(ADD_KEY_LABEL));
-    }
-
-    #[test]
-    fn a_stored_key_shows_openai_as_a_normal_option() {
-        let rows = image_chooser(false, false, true, &[], &[]);
-        assert!(rows.iter().all(|row| row.2 != ADD_KEY_LABEL));
-        assert!(rows.iter().any(|row| row.0 == "openai-image" && row.2.starts_with("OpenAI · ")));
-    }
-
-    #[test]
-    fn cursor_and_codex_share_the_chat_slot() {
-        assert_eq!(contract_slot("cursor"), Some("chat"));
-        assert_eq!(contract_slot("codex"), contract_slot("cursor"));
-        assert_eq!(leaf("cursor"), Some("cursor"));
-        assert_eq!(leaf("codex"), Some("atlas-codex"));
-        assert!(leaf("ollama").is_some());
-    }
-
-    #[test]
-    fn the_cursor_probe_is_registered_on_the_shipped_manifest() {
-        let mut catalog = Catalog::from_manifests(atlas_packs::shipped_manifests());
-        register_builtin(&mut catalog);
-        catalog.probe_all();
-        let health = catalog.health(&PackId::new("cursor"));
-        let expected = if crate::launch::cursor_available() {
-            PackHealth::Ok
-        } else {
-            PackHealth::Missing
-        };
-        assert_eq!(health, expected);
-        assert!(catalog.detail(&PackId::new("cursor")).contains("cursor"));
-    }
-}
+#[path = "packs_tests.rs"]
+mod tests;

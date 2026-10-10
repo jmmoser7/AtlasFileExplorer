@@ -79,7 +79,9 @@ pub fn window(app: &mut SlateApp, ctx: &egui::Context) {
             ui.add_space(12.0);
             ui.separator();
             ui.add_space(6.0);
-            paint_connections(app, ui, palette.sub);
+            if let Some(error) = atlas_ai::ui::connections_section(&mut app.ai, ui, palette.sub) {
+                app.toast(error);
+            }
             ui.add_space(12.0);
             ui.separator();
             ui.add_space(6.0);
@@ -87,35 +89,6 @@ pub fn window(app: &mut SlateApp, ctx: &egui::Context) {
         });
     if !open {
         app.tab_mut().chrome.advanced_open = false;
-    }
-}
-
-fn paint_connections(app: &mut SlateApp, ui: &mut egui::Ui, sub: egui::Color32) {
-    let rows: Vec<_> = app
-        .ai
-        .packs
-        .rows()
-        .into_iter()
-        .map(|row| atlas_shell::connections::ConnectionRow {
-            id: row.id,
-            name: row.name,
-            contract: row.contract,
-            health: row.health,
-            install_note: row.install_note,
-            trial: row.trial,
-        })
-        .collect();
-    let workspace = app.ai.config.workspace_dir.clone();
-    match atlas_shell::connections::section(ui, &rows, sub) {
-        Some(atlas_shell::connections::ConnectionAction::Refresh) => {
-            app.ai.packs.refresh(workspace);
-        }
-        Some(atlas_shell::connections::ConnectionAction::Forget(id)) => {
-            if let Err(error) = app.ai.packs.forget(&id, workspace) {
-                app.toast(error);
-            }
-        }
-        None => {}
     }
 }
 

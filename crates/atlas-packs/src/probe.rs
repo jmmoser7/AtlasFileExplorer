@@ -146,7 +146,10 @@ fn http_get(url: &str, timeout_ms: u64) -> ProbeOutcome {
     };
     let _ = stream.set_read_timeout(Some(timeout));
     let _ = stream.set_write_timeout(Some(timeout));
-    let request = format!("GET {path} HTTP/1.0\r\nHost: {}\r\nConnection: close\r\n\r\n", addr.ip());
+    let request = format!(
+        "GET {path} HTTP/1.0\r\nHost: {}\r\nConnection: close\r\n\r\n",
+        addr.ip()
+    );
     if stream.write_all(request.as_bytes()).is_err() {
         return ProbeOutcome {
             health: PackHealth::Unknown,

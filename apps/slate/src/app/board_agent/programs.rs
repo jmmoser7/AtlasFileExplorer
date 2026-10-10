@@ -7,12 +7,18 @@ impl SlateApp {
     #[cfg(test)]
     pub(crate) fn set_agent_programs_for_test(&mut self, ids: &[&str]) {
         self.agents.programs_started = true;
-        self.agents.programs_rx = None;
         self.ai.packs.hold = true;
         self.agents.programs = ids
             .iter()
             .map(|id| atlas_ai::agent::provider_by_id(id))
             .collect();
+    }
+    /// Pins one pack's health now and for every later probe, so a test does
+    /// not depend on what this machine has installed.
+    #[cfg(test)]
+    pub(crate) fn pin_pack_for_test(&mut self, id: &str, health: atlas_ai::packs::PackHealth) {
+        self.ai.packs.set_health_override(id, health);
+        self.ai.packs.record(id, health);
     }
     /// The unbound agent portal's size (width, height) around its program
     /// grid, once the installed programs are known.
@@ -23,7 +29,7 @@ impl SlateApp {
             (grid.x + 48.0, grid.y + 72.0)
         })
     }
-    pub(super) fn ensure_agent_programs(&mut self) {
+    pub(crate) fn ensure_agent_programs(&mut self) {
         if !self.agents.programs_started {
             self.agents.programs_started = true;
             self.ai
@@ -44,52 +50,50 @@ impl SlateApp {
         if health == atlas_ai::packs::PackHealth::Ok {
             return None;
         }
-        if health == atlas_ai::packs::PackHealth::Unknown && self.ai.packs.detail(provider).is_empty() {
+        if health == atlas_ai::packs::PackHealth::Unknown
+            && self.ai.packs.detail(provider).is_empty()
+        {
             return None;
         }
         let title = self.ai.packs.title(provider)?;
         Some(format!("{title} · {}", health.as_str()))
     }
-    pub(super) fn paint_pack_key_entry(&mut self, ctx: &egui::Context) {
-        if !self.ai.packs.key_entry {
+    /// Names the pack a card needs when it did not answer Ok this session
+    /// (P1.portal.health). The card keeps painting its last poster.
+    pub(crate) fn paint_pack_caption(
+        &self,
+        painter: &egui::Painter,
+        node: &Node,
+        body: Rect,
+        z: f32,
+    ) {
+        let Some(caption) =
+            slate_doc::agent_chat::agent(node).and_then(|a| self.pack_caption(&a.provider))
+        else {
             return;
-        }
-        let mut open = true;
-        let mut save = None;
-        egui::Window::new("OpenAI API key").open(&mut open).show(ctx, |ui| {
-            ui.label(
-                "The key stays in Credential Manager for this Windows user. It is never written into the workbook.",
-            );
-            ui.hyperlink_to("Get an API key", atlas_ai::packs::KEY_URL);
-            let id = ui.id().with("openai_key_draft");
-            let mut draft = ui.data(|d| d.get_temp::<String>(id)).unwrap_or_default();
-            ui.add(
-                egui::TextEdit::singleline(&mut draft)
-                    .password(true)
-                    .hint_text("Paste the API key"),
-            );
-            ui.data_mut(|d| d.insert_temp(id, draft.clone()));
-            if ui.button("Save").clicked() {
-                save = Some(draft);
+        };
+        atlas_shell::canvas_text::text(
+            painter,
+            egui::pos2(
+                body.center().x,
+                body.bottom() - atlas_shell::canvas_scale::px(14.0, z),
+            ),
+            egui::Align2::CENTER_BOTTOM,
+            &caption,
+            atlas_shell::canvas_scale::font(12.0, z),
+            self.palette().sub,
+        );
+    }
+    /// The shared OpenAI key window. A stored key opens the OpenAI catalogs.
+    pub(super) fn paint_pack_key_entry(&mut self, ctx: &egui::Context) {
+        match atlas_ai::ui::openai_key_window(&mut self.ai, ctx) {
+            Some(Ok(())) => {
+                self.agents.refresh_catalog("openai-image");
+                self.agents.refresh_catalog("openai-text");
+                self.toast("OpenAI API key saved for this user.");
             }
-        });
-        if let Some(key) = save {
-            match atlas_core::secrets::store(atlas_ai::runtime::OPENAI_KEY_SLOT, &key) {
-                Ok(()) => {
-                    self.ai
-                        .packs
-                        .record("openai-image", atlas_ai::packs::PackHealth::Ok);
-                    self.ai
-                        .packs
-                        .refresh(self.ai.config.workspace_dir.clone());
-                    self.ai.packs.key_entry = false;
-                    self.toast("OpenAI API key saved for this Windows user.");
-                }
-                Err(error) => self.toast(error),
-            }
-        }
-        if !open {
-            self.ai.packs.key_entry = false;
+            Some(Err(error)) => self.toast(error),
+            None => {}
         }
     }
     /// The program chooser is on screen. Probe again so an install that

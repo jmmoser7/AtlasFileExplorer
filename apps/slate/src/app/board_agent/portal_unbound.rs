@@ -76,23 +76,7 @@ impl SlateApp {
             self.paint_agent_bound(ui, painter, xf, &layout, node, portal, maximized);
         }
 
-        if let Some(caption) = portal
-            .agent
-            .as_ref()
-            .and_then(|agent| self.pack_caption(&agent.provider))
-        {
-            atlas_shell::canvas_text::text(
-                painter,
-                egui::pos2(
-                    layout.body.center().x,
-                    layout.body.bottom() - atlas_shell::canvas_scale::px(14.0, xf.z),
-                ),
-                egui::Align2::CENTER_BOTTOM,
-                &caption,
-                atlas_shell::canvas_scale::font(12.0, xf.z),
-                self.palette().sub,
-            );
-        }
+        self.paint_pack_caption(painter, node, layout.body, xf.z);
 
         if portal
             .agent
