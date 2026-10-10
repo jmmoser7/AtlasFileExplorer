@@ -1,0 +1,8 @@
+{
+  "id": "comfy",
+  "title": "ComfyUI",
+  "contract": "image",
+  "contract_version": 1,
+  "install_note": "Start ComfyUI on this machine (127.0.0.1:8188).",
+  "probe": { "kind": "http-get", "url": "http://127.0.0.1:8188/", "timeout_ms": 400 }
+}

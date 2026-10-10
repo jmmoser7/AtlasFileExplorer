@@ -1,6 +1,6 @@
 //! The AI sidebar panel — one implementation rendered by both apps so the
 //! toolbar is identical in Atlas and Slate (shared-chrome rule).
-//! Cursor detection runs off the UI thread.
+//! Pack probes (Cursor included) run off the UI thread in [`crate::packs`].
 
 use crate::config::AiConfig;
 use crate::context::{now_secs, write_context, AiAppContext};
@@ -9,7 +9,7 @@ use atlas_shell::file_picker::{self, DialogGate, FilePicker, PickRequest};
 use atlas_shell::sidebar::{
     sidebar_region, sidebar_subtle_divider, sidebar_toolbar_row, SidebarTheme,
 };
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::Sender;
 use eframe::egui::{self, Color32, RichText};
 use std::path::PathBuf;
 use std::time::Instant;
@@ -23,9 +23,6 @@ const BEACON_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
 /// frame ends (it self-throttles).
 pub struct AiPanel {
     pub config: AiConfig,
-    /// `None` until the background probe finishes.
-    cursor_available: Option<bool>,
-    cursor_rx: Option<Receiver<bool>>,
     picker: FilePicker<Option<PathBuf>>,
     /// Transient status line shown at the bottom of the panel.
     pub status: Option<String>,
@@ -34,41 +31,33 @@ pub struct AiPanel {
     /// The workspace may be a synced or network folder: beacons are written
     /// on their own thread, newest first.
     beacon_tx: Option<Sender<(PathBuf, AiAppContext)>>,
+    pub packs: crate::packs::PackSession,
 }
 
 impl AiPanel {
     /// `dialogs` is the host window's gate: the workspace picker is one of
     /// that window's dialog slots.
     pub fn new(dialogs: &DialogGate) -> Self {
-        let (cursor_tx, cursor_rx) = crossbeam_channel::bounded(1);
-        std::thread::spawn(move || {
-            let _ = cursor_tx.send(launch::cursor_available());
-        });
         AiPanel {
             config: AiConfig::load(),
-            cursor_available: None,
-            cursor_rx: Some(cursor_rx),
             picker: dialogs.picker(),
             status: None,
             last_fingerprint: 0,
             last_beacon: None,
             beacon_tx: None,
+            packs: crate::packs::PackSession::new(),
         }
     }
 
-    /// Drain the async folder picker and the Cursor probe. Returns true while
+    pub fn cursor_ok(&self) -> bool {
+        self.packs.cursor_ok()
+    }
+
+    /// Drain the async folder picker and the pack probe. Returns true while
     /// the probe is still running so the caller can wake one more frame.
     pub fn poll(&mut self, ctx: &egui::Context) -> bool {
-        if let Some(rx) = self.cursor_rx.take() {
-            match rx.try_recv() {
-                Ok(found) => self.cursor_available = Some(found),
-                Err(crossbeam_channel::TryRecvError::Empty) => self.cursor_rx = Some(rx),
-                Err(crossbeam_channel::TryRecvError::Disconnected) => {
-                    self.cursor_available = Some(false);
-                }
-            }
-        }
-        let cursor_pending = self.cursor_rx.is_some();
+        self.packs.ensure_started(self.config.workspace_dir.clone());
+        let probe_pending = self.packs.probe_pending();
         if let Some(Some(dir)) = self.picker.poll(ctx) {
             match self.config.set_workspace(dir.clone()) {
                 Ok(()) => {
@@ -81,7 +70,7 @@ impl AiPanel {
                 Err(e) => self.status = Some(format!("Could not use folder: {e}")),
             }
         }
-        cursor_pending
+        probe_pending
     }
 
     /// Open the async "establish AI workspace" folder picker.
@@ -107,7 +96,7 @@ impl AiPanel {
         match launch::launch_cursor(&ws) {
             Ok(()) => self.status = Some("Cursor launched.".into()),
             Err(e) => {
-                self.cursor_available = Some(launch::cursor_available());
+                self.packs.refresh(Some(ws));
                 self.status = Some(e);
             }
         }
@@ -156,34 +145,32 @@ impl AiPanel {
     }
 }
 
+mod pack_ui;
+pub use pack_ui::{connections_section, openai_key_window};
+
 /// Panel body, rendered inside each app's `sidebar_section`. Identical in
-/// Atlas and Slate by construction.
+/// Atlas and Slate by construction. Launch Cursor shows only while the Cursor
+/// pack is Ok; a missing install is a Connections row, not a dead button.
 pub fn ai_body(panel: &mut AiPanel, ui: &mut egui::Ui, theme: SidebarTheme) {
-    sidebar_region(ui, "Cursor", theme, |ui| {
-        ui.horizontal(|ui| {
-            let (dot, msg) = match panel.cursor_available {
-                None => (Color32::from_rgb(0x8a, 0x90, 0x98), "Cursor status unknown"),
-                Some(true) => (
-                    Color32::from_rgb(0x3f, 0xb9 - 0x10, 0x50),
-                    "Cursor detected",
-                ),
-                Some(false) => (Color32::from_rgb(0xd0, 0x8a, 0x2e), "Cursor not detected"),
-            };
-            ui.label(RichText::new("●").color(dot));
-            ui.label(RichText::new(msg).small().color(theme.sub));
+    if panel.cursor_ok() {
+        sidebar_region(ui, "Cursor", theme, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("●").color(theme.ink));
+                ui.label(RichText::new("Cursor detected").small().color(theme.sub));
+            });
+            if ui
+                .button("Launch Cursor")
+                .on_hover_text(
+                    "Opens Cursor in the AI workspace folder. On first launch you'll be \
+                     asked to establish that folder; it is shared by File Atlas and every \
+                     Slate workbook.",
+                )
+                .clicked()
+            {
+                panel.launch_cursor();
+            }
         });
-        if ui
-            .button("Launch Cursor")
-            .on_hover_text(
-                "Opens Cursor in the AI workspace folder. On first launch you'll be \
-                 asked to establish that folder; it is shared by File Atlas and every \
-                 Slate workbook.",
-            )
-            .clicked()
-        {
-            panel.launch_cursor();
-        }
-    });
+    }
 
     sidebar_subtle_divider(ui, theme);
     sidebar_region(ui, "AI workspace", theme, |ui| {
@@ -295,12 +282,15 @@ pub fn program_grid(
             response.hovered(),
             PROGRAM_HOVER_SECONDS,
         );
-        let color = program_lobby_color(ui.visuals().text_color(), hover);
+        let mut color = program_lobby_color(ui.visuals().text_color(), hover);
+        if atlas_shell::selection_tools::needs_key_label(&program.display_name) {
+            color = color.gamma_multiply(0.45);
+        }
         let icon = match program.id.as_str() {
             "cursor" => atlas_shell::icons::Icon::ProviderCursor,
             "codex" => atlas_shell::icons::Icon::ProviderCodex,
             "ollama" => atlas_shell::icons::Icon::ProviderOllama,
-            "image-link" | "comfy" => atlas_shell::icons::Icon::Brush,
+            "image-link" | "comfy" | "openai-image" => atlas_shell::icons::Icon::Brush,
             _ => atlas_shell::icons::Icon::Lens,
         };
         atlas_shell::icons::paint(

@@ -1,0 +1,8 @@
+{
+  "id": "codex",
+  "title": "Codex",
+  "contract": "chat",
+  "contract_version": 1,
+  "install_note": "Install Codex, or set CODEX_BIN to the executable.",
+  "probe": { "kind": "custom", "id": "codex" }
+}

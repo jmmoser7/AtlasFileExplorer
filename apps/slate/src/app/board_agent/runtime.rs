@@ -263,7 +263,6 @@ pub struct AgentRuntime {
     pub(super) context_tick: Option<Instant>,
     pub(super) codex: HashMap<String, atlas_ai::runtime::CodexLink>,
     pub(super) programs: Vec<atlas_ai::agent::AgentProvider>,
-    pub(super) programs_rx: Option<Receiver<Vec<atlas_ai::agent::AgentProvider>>>,
     pub(super) programs_started: bool,
     pub(super) output_epoch: u64,
     pub(super) image_cache: std::cell::RefCell<HashMap<NodeId, CachedImages>>,
