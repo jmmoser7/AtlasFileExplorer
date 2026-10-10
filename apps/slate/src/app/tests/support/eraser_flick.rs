@@ -71,6 +71,10 @@ pub(crate) fn flick_eraser_then(
     shift: bool,
     before_release: impl FnOnce(&mut Harness),
 ) -> (u64, u64) {
+    // This fixture exercises release before the preview arrives. Hold delivery,
+    // rather than assuming workers cannot finish between consecutive frames.
+    let held_rasters = h.app.brush_tiles.hold_rasters;
+    h.app.brush_tiles.hold_rasters = true;
     let modifiers = if shift {
         egui::Modifiers::SHIFT
     } else {
@@ -103,6 +107,7 @@ pub(crate) fn flick_eraser_then(
         board_path::stamps_on_this_thread(),
     );
     h.frame_with(at(b, Some(false)));
+    h.app.brush_tiles.hold_rasters = held_rasters;
     assert!(h.app.board_drag.is_none(), "the pass is released");
     counted
 }

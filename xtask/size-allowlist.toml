@@ -290,7 +290,7 @@ reason = "oversized; split along module seam"
 
 [[entry]]
 file = "crates/atlas-core/src/office/outlook.rs"
-ceiling = 561
+ceiling = 559
 reason = "core backend; atlas-core owner"
 
 [[entry]]

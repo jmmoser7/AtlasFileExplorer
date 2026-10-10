@@ -39,6 +39,18 @@ jobs:
       - name: Formatting
         run: cargo fmt --all -- --check
 
+      - name: Segmentation installer integrity
+        run: python3 -B -m unittest discover -s scripts/tests -p test_setup_segmentation.py -v
+
+      # Match the packaged Windows engine so document tests run on Linux too.
+      - name: Install pinned Pdfium for document tests
+        run: |
+          curl --fail --location --retry 3 \
+            https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/7920/pdfium-linux-x64.tgz \
+            --output "$RUNNER_TEMP/pdfium.tgz"
+          echo "49ab3afbd4e6c1e284b5f2898129c8bb8a10fd785c1c5392c8c1fc70242f9ced  $RUNNER_TEMP/pdfium.tgz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/pdfium.tgz" -C vendor --strip-components=1 lib/libpdfium.so
+
       - name: Tests
         run: |
           set -o pipefail

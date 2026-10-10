@@ -346,7 +346,7 @@ fn slate_thumb_lru_caps_resident_textures() {
         h.app.textures.insert(k.clone(), ThumbState::Failed);
         h.app
             .thumb_pixels
-            .insert(k.clone(), egui::ColorImage::example());
+            .insert(k.clone(), egui::ColorImage::example().into());
         h.app.thumb_used.insert(k, i as u64);
     }
     h.app.evict_thumbs();

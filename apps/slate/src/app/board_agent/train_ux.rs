@@ -264,16 +264,14 @@ mod tests {
 
     #[test]
     fn just_build_uses_the_workbook_assets_or_the_data_dir() {
-        let saved = Path::new(r"C:\Boards\Garden.slate");
-        let data = Path::new(r"C:\Users\me\AppData\Local\NativeFileAtlas");
-        let (path, fallback) = agent_build_dir(Some(saved), data);
+        let root = std::env::temp_dir();
+        let saved = root.join("Boards").join("Garden.slate");
+        let data = root.join("NativeFileAtlas");
+        let (path, fallback) = agent_build_dir(Some(&saved), &data);
         assert!(!fallback);
-        assert_eq!(path, PathBuf::from(r"C:\Boards\assets\agent"));
-        let (path, fallback) = agent_build_dir(None, data);
+        assert_eq!(path, root.join("Boards").join("assets").join("agent"));
+        let (path, fallback) = agent_build_dir(None, &data);
         assert!(fallback);
-        assert_eq!(
-            path,
-            PathBuf::from(r"C:\Users\me\AppData\Local\NativeFileAtlas\assets\agent")
-        );
+        assert_eq!(path, data.join("assets").join("agent"));
     }
 }
