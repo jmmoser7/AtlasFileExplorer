@@ -16,9 +16,9 @@ pub fn suggestion_button(
     hub: &mut FeedbackHub,
 ) -> bool {
     let t = tokens::current().readouts.clone();
-    let hit = t.chevron_hit.max(20.0);
-    let chevron = canvas.left_bottom() + Vec2::new(t.chevron_inset_x, -t.chevron_inset_y);
-    let pos = chevron + Vec2::new(-hit - 6.0, 0.0);
+    let hit_rect = crate::canvas_corner::suggestion_button_hit_rect(canvas);
+    let hit = hit_rect.width();
+    let pos = hit_rect.left_bottom();
     let mut open = false;
     egui::Area::new(Id::new(("suggestion_box", dock_id)))
         .fixed_pos(pos)

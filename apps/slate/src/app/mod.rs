@@ -2787,17 +2787,8 @@ impl SlateApp {
             return;
         }
         let palette = self.palette();
-        egui::Area::new(egui::Id::new("slate_toasts"))
-            .anchor(egui::Align2::CENTER_BOTTOM, Vec2::new(0.0, -48.0))
-            .show(ctx, |ui| {
-                for (msg, _) in &self.toasts {
-                    egui::Frame::popup(ui.style())
-                        .fill(palette.card)
-                        .show(ui, |ui| {
-                            ui.label(egui::RichText::new(msg).color(palette.ink));
-                        });
-                }
-            });
+        let msgs: Vec<&str> = self.toasts.iter().map(|(m, _)| m.as_str()).collect();
+        let _ = atlas_shell::toast::paint_stack(ctx, &palette, self.canvas_rect, &msgs);
         ctx.request_repaint_after(std::time::Duration::from_millis(250));
     }
 

@@ -43,6 +43,7 @@
 /// Shared by native apps and visual fixtures so screenshots exercise production AA.
 pub const NATIVE_MSAA_SAMPLES: u16 = 4;
 
+pub mod canvas_corner;
 pub mod canvas_scale;
 pub mod canvas_text;
 pub mod chrome;
@@ -71,6 +72,9 @@ pub mod tabs;
 pub mod taper;
 pub mod theme;
 pub mod timeline;
+pub mod toast;
+mod tokens_readouts;
+mod tokens_toast;
 pub mod tokens;
 pub mod tuning;
 pub mod updates;
