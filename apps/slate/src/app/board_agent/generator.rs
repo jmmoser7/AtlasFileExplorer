@@ -183,8 +183,6 @@ impl SlateApp {
             aspect: settings.aspect,
             count: settings.count,
         });
-        let mut inputs = inputs;
-        self.resolve_wired_image_files(&mut inputs);
         Ok(AgentRequest {
             id: atlas_ai::agent::request_id(),
             prompt,
@@ -197,20 +195,6 @@ impl SlateApp {
             oneshot: false,
             ..Default::default()
         })
-    }
-
-    /// A pasted picture is stored as `assets/pasted/…`. The engine opens a
-    /// file, so the locator is resolved against the workbook first.
-    fn resolve_wired_image_files(&self, inputs: &mut atlas_agent::InputSnapshot) {
-        let book = self.tab().path.clone();
-        for item in &mut inputs.wired {
-            for image in item.images.iter_mut().chain(item.outputs.values_mut()) {
-                let path = slate_doc::scene::resolve_source(book.as_deref(), image);
-                if path.is_file() {
-                    *image = path.to_string_lossy().into_owned();
-                }
-            }
-        }
     }
     /// Every press is accepted. One generation runs per note at a time.
     pub(crate) fn queue_generation(&mut self, id: NodeId) {

@@ -75,4 +75,28 @@ fn a_pasted_image_resolves_as_a_generator_input() {
         "generator input {image} is not a file the engine can open"
     );
     assert!(image.replace('\\', "/").ends_with("paste-input.png"));
+
+    h.app.patch_nodes(&[picture], |n| {
+        if let NodeKind::Image(img) = &mut n.kind {
+            img.crop = slate_doc::scene::Crop {
+                x: 0.5,
+                y: 0.0,
+                w: 0.5,
+                h: 1.0,
+            };
+        }
+    });
+    let request = h.app.generation_request(generator, false).unwrap();
+    let image = request
+        .inputs
+        .on(atlas_agent::InputSlot::Media)
+        .next()
+        .and_then(|item| item.images.first().cloned())
+        .expect("the cropped picture is a media input");
+    let fed = image::open(&image).expect("the cropped input is a readable file");
+    assert_eq!(
+        (fed.width(), fed.height()),
+        (20, 20),
+        "a cropped pasted picture feeds its visible window"
+    );
 }
