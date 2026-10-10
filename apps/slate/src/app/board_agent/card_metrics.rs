@@ -54,34 +54,23 @@ pub(crate) fn paint_overlay_pill(
     }
 }
 
-pub(super) fn tracked_galley(
-    ui: &egui::Ui,
+/// One line of chat-card type in world units — `size`, extra `tracking`, cut
+/// with `…` past `max_w` — painted at board zoom `z`.
+pub(super) fn tracked_label(
+    ctx: &egui::Context,
     text: &str,
     size: f32,
-    color: Color32,
     tracking: f32,
-    max_width: f32,
-) -> std::sync::Arc<egui::Galley> {
-    let mut job = egui::text::LayoutJob {
-        wrap: egui::text::TextWrapping {
-            max_width,
-            max_rows: 1,
-            break_anywhere: false,
-            overflow_character: Some('…'),
-        },
-        ..Default::default()
+    max_w: f32,
+    z: f32,
+) -> canvas_text::Scaled {
+    let spec = canvas_text::WorldSpec {
+        tracking,
+        break_anywhere: false,
+        ..canvas_text::WorldSpec::label(FontId::proportional(size), max_w)
     };
-    job.append(
-        text,
-        0.0,
-        egui::TextFormat {
-            font_id: FontId::proportional(size),
-            color,
-            extra_letter_spacing: tracking,
-            ..Default::default()
-        },
-    );
-    ui.fonts(|fonts| fonts.layout_job(job))
+    let layout = canvas_text::world_layout_spec(ctx, text, &spec);
+    canvas_text::world_text(ctx, &layout, z)
 }
 
 /// Title band above the message being typed, in world units.
@@ -189,50 +178,39 @@ pub(super) fn paint_pick_button(
     } else {
         palette.window
     };
-    let galley = tracked_galley(
-        ui,
-        label,
-        canvas_text::authored_px(14.0, z),
-        on_link,
-        canvas_scale::px(0.15, z),
-        rect.width() - canvas_scale::px(24.0, z),
-    );
-    let pos = Pos2::new(
-        rect.center().x - galley.size().x * 0.5,
-        rect.center().y - galley.size().y * 0.5,
-    );
-    ui.painter().galley(pos, galley, on_link);
+    let laid = tracked_label(ui.ctx(), label, 14.0, 0.15, rect.width() / z - 24.0, z);
+    laid.paint_anchored(ui.painter(), rect.center(), Align2::CENTER_CENTER, on_link);
     resp.clicked()
 }
 
-/// "Responding" and its token readout, laid out once per font size and count,
-/// so the wave repaints without allocating.
+/// "Responding" and its token readout, shaped in world units once per count,
+/// so the wave repaints and the board zooms without shaping or allocating.
 #[derive(Default)]
 pub(crate) struct RespondingLabel {
-    pub(super) font_bits: u32,
-    pub(super) wave: Option<std::sync::Arc<egui::Galley>>,
+    pub(super) wave: Option<std::sync::Arc<canvas_text::WorldLayout>>,
     pub(super) count_key: Option<(Option<u64>, usize)>,
-    pub(super) count: Option<std::sync::Arc<egui::Galley>>,
+    pub(super) count: Option<std::sync::Arc<canvas_text::WorldLayout>>,
 }
 
 /// The opacity wave runs glyph by glyph over one cached galley: each glyph
-/// is the same galley clipped to its advance, tinted by its phase.
+/// is the same galley clipped to its advance, tinted by its phase. `size` is
+/// the world type size; `z` the board zoom.
 pub(super) fn paint_responding(
     ui: &mut egui::Ui,
     label: &mut RespondingLabel,
-    font: &FontId,
+    (size, z): (f32, f32),
     colors: (Color32, Color32),
     reported: Option<u64>,
     turns: &[AgentTurn],
 ) {
     let (accent, sub) = colors;
-    if label.font_bits != font.size.to_bits() || label.wave.is_none() {
-        label.font_bits = font.size.to_bits();
-        label.wave = Some(ui.painter().layout_no_wrap(
-            "Responding".to_owned(),
-            font.clone(),
-            Color32::WHITE,
-        ));
+    let ctx = ui.ctx().clone();
+    let font = FontId::proportional(size);
+    let world = |text: &str| {
+        canvas_text::world_layout(&ctx, text, font.clone(), f32::INFINITY, egui::Align::LEFT)
+    };
+    if label.wave.as_ref().is_none_or(|wave| wave.font != font) {
+        label.wave = Some(world("Responding"));
         label.count_key = None;
     }
     // Byte length moves whenever text arrives; characters are counted only then.
@@ -240,15 +218,13 @@ pub(super) fn paint_responding(
     if label.count_key != Some((reported, bytes)) {
         label.count_key = Some((reported, bytes));
         let chars = turns.iter().map(|t| t.text.chars().count()).sum();
-        label.count = Some(ui.painter().layout_no_wrap(
-            train_ux::token_readout(reported, chars),
-            font.clone(),
-            Color32::WHITE,
-        ));
+        label.count = Some(world(&train_ux::token_readout(reported, chars)));
     }
-    let (Some(wave), Some(count)) = (label.wave.clone(), label.count.clone()) else {
+    let (Some(wave), Some(count)) = (&label.wave, &label.count) else {
         return;
     };
+    let wave = canvas_text::world_text(&ctx, wave, z);
+    let count = canvas_text::world_text(&ctx, count, z);
     let gap = ui.spacing().item_spacing.x;
     let size = egui::vec2(
         wave.size().x + gap + count.size().x,
@@ -257,24 +233,24 @@ pub(super) fn paint_responding(
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
     let painter = ui.painter();
     let time = ui.input(|i| i.time) as f32;
-    if let Some(row) = wave.rows.first() {
+    let (galley, scale) = (wave.galley(), wave.scale());
+    if let Some(row) = galley.rows.first() {
         for (i, glyph) in row.glyphs.iter().enumerate() {
             let phase = ((time * 2.2 - i as f32 * 0.35).sin() + 1.0) * 0.5;
-            let left = rect.left() + glyph.pos.x;
-            let clip = Rect::from_x_y_ranges(left..=left + glyph.advance_width, rect.y_range())
-                .intersect(painter.clip_rect());
-            painter
-                .with_clip_rect(clip)
-                .galley_with_override_text_color(
-                    rect.min,
-                    wave.clone(),
-                    accent.gamma_multiply(0.35 + 0.65 * phase),
-                );
+            let left = rect.left() + glyph.pos.x * scale;
+            let right = left + glyph.advance_width * scale;
+            let clip =
+                Rect::from_x_y_ranges(left..=right, rect.y_range()).intersect(painter.clip_rect());
+            canvas_text::Scaled::from_galley(galley.clone(), scale).paint(
+                &painter.with_clip_rect(clip),
+                rect.min,
+                accent.gamma_multiply(0.35 + 0.65 * phase),
+            );
         }
     }
-    painter.galley_with_override_text_color(
+    count.paint(
+        painter,
         Pos2::new(rect.left() + wave.size().x + gap, rect.top()),
-        count,
         sub,
     );
 }
@@ -380,15 +356,18 @@ pub(super) fn context_label(n: &Node) -> String {
 }
 
 /// Header, the first lines of `text` at the card's wrap, and the text pad.
+/// Measured with the same world layout `paint_agent_summary` paints, so the
+/// card fits the rows it shows.
 pub(super) fn collapsed_card_height(ctx: &egui::Context, text: String, card_w: f32) -> f32 {
-    let mut job = egui::text::LayoutJob::simple(
-        text,
+    let lines = canvas_text::world_layout_rows(
+        ctx,
+        &text,
         FontId::proportional(CARD_TEXT_PX),
-        Color32::WHITE,
         (card_w - 24.0).max(1.0),
-    );
-    job.wrap.max_rows = COLLAPSED_ROWS;
-    let lines = ctx.fonts(|fonts| fonts.layout_job(job)).size().y;
+        egui::Align::LEFT,
+        COLLAPSED_ROWS,
+    )
+    .height;
     COMPOSER_TOP + lines + CARD_TEXT_PAD
 }
 

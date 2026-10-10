@@ -68,9 +68,8 @@ use card_metrics::{
     agent_pick_columns, bundle_view, card_fold, collapsed_card_height, composer_text_height,
     composer_wrap, context_label, conversation_card_height, hugging_composer_card,
     output_circle_center, paint_chevron_glyph, paint_pick_button, paint_responding,
-    parse_artifact_open, tracked_galley, write_fold, CARD_TEXT_PAD, COLLAPSED_ROWS,
-    COMPOSER_BOTTOM, COMPOSER_GAP, COMPOSER_TOP, PICK_BAR_RESERVE, STOP_REACH, STOP_SIDE,
-    SUMMARY_TEXT_TOP,
+    parse_artifact_open, tracked_label, write_fold, CARD_TEXT_PAD, COLLAPSED_ROWS, COMPOSER_BOTTOM,
+    COMPOSER_GAP, COMPOSER_TOP, PICK_BAR_RESERVE, STOP_REACH, STOP_SIDE, SUMMARY_TEXT_TOP,
 };
 pub(crate) use card_metrics::{
     agent_presentations, paint_agent_spinner, paint_handle_dot, paint_overlay_pill,

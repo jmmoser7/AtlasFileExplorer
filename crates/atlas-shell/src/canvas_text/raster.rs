@@ -6,19 +6,24 @@
 //! is therefore the same shape at every zoom; only the bitmap behind each
 //! glyph changes, a few times per octave. A zoom gesture does not shape text.
 
+use super::lru::Lru;
 use super::world::{family_key, FamilyKey, WorldLayout, WorldLine};
 use super::{ladder_font, Scaled};
 use eframe::egui::{self, Color32, FontId, Galley, Pos2, Rect};
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-/// Most rung galleys kept. A sweep from 0.25 to 4 visits about sixteen rungs.
+/// Rung galleys kept before a sweep drops those no recent frame painted. A
+/// sweep from 0.25 to 4 visits about sixteen rungs per layout.
 const RUNG_CACHE_CAP: usize = 512;
+/// Most rung galleys one frame may hold.
+const RUNG_CACHE_HARD_CAP: usize = 16_384;
 
-/// Most screen galleys [`zoom_galley`] keeps.
-pub(super) const ZOOM_CACHE_CAP: usize = 512;
+/// Screen galleys [`zoom_galley`] keeps before a sweep.
+const ZOOM_CACHE_CAP: usize = 512;
+/// Most screen galleys one frame may hold.
+pub(super) const ZOOM_CACHE_HARD_CAP: usize = 2048;
 
 struct RungSlot {
     /// Held so the layout's address cannot be reused while this entry lives.
@@ -27,7 +32,6 @@ struct RungSlot {
     size_bits: u32,
     ppp_bits: u32,
     galley: Arc<Galley>,
-    used: u64,
 }
 
 struct ZoomSlot {
@@ -36,95 +40,33 @@ struct ZoomSlot {
     zoom_bits: u32,
     ppp_bits: u32,
     galley: Arc<Galley>,
-    used: u64,
-}
-
-struct Lru<T> {
-    buckets: HashMap<u64, Vec<T>>,
-    len: usize,
-    clock: u64,
-    builds: u64,
-}
-
-impl<T> Default for Lru<T> {
-    fn default() -> Self {
-        Self {
-            buckets: HashMap::new(),
-            len: 0,
-            clock: 0,
-            builds: 0,
-        }
-    }
 }
 
 pub(super) struct Caches {
     rung: Lru<RungSlot>,
-    pub(super) zoom: ZoomLru,
+    zoom: Lru<ZoomSlot>,
 }
 
-pub(super) struct ZoomLru(Lru<ZoomSlot>);
+impl Caches {
+    fn new() -> Self {
+        Self {
+            rung: Lru::new(RUNG_CACHE_CAP, RUNG_CACHE_HARD_CAP),
+            zoom: Lru::new(ZOOM_CACHE_CAP, ZOOM_CACHE_HARD_CAP),
+        }
+    }
 
-impl ZoomLru {
-    pub(super) fn len(&self) -> usize {
-        self.0.len
+    #[cfg(test)]
+    pub(super) fn zoom_len(&self) -> usize {
+        self.zoom.len()
     }
 }
 
 thread_local! {
-    pub(super) static CACHES: RefCell<Caches> = RefCell::new(Caches {
-        rung: Lru::default(),
-        zoom: ZoomLru(Lru::default()),
-    });
+    pub(super) static CACHES: RefCell<Caches> = RefCell::new(Caches::new());
 }
 
 pub(super) fn clear_raster_caches() {
-    CACHES.with(|caches| {
-        let mut caches = caches.borrow_mut();
-        caches.rung = Lru::default();
-        caches.zoom = ZoomLru(Lru::default());
-    });
-}
-
-trait Used {
-    fn used(&self) -> u64;
-}
-impl Used for RungSlot {
-    fn used(&self) -> u64 {
-        self.used
-    }
-}
-impl Used for ZoomSlot {
-    fn used(&self) -> u64 {
-        self.used
-    }
-}
-
-fn insert<T: Used>(lru: &mut Lru<T>, key: u64, slot: T, cap: usize) {
-    lru.builds += 1;
-    lru.buckets.entry(key).or_default().push(slot);
-    lru.len += 1;
-    if lru.len <= cap {
-        return;
-    }
-    let oldest = lru
-        .buckets
-        .iter()
-        .flat_map(|(key, slots)| {
-            slots
-                .iter()
-                .enumerate()
-                .map(move |(index, slot)| (*key, index, slot.used()))
-        })
-        .min_by_key(|(_, _, used)| *used);
-    if let Some((key, index, _)) = oldest {
-        if let Some(slots) = lru.buckets.get_mut(&key) {
-            slots.swap_remove(index);
-            if slots.is_empty() {
-                lru.buckets.remove(&key);
-            }
-            lru.len -= 1;
-        }
-    }
+    CACHES.with(|caches| *caches.borrow_mut() = Caches::new());
 }
 
 fn hash_of(value: impl Hash) -> u64 {
@@ -172,7 +114,7 @@ pub fn world_wrapped(
 /// How many galleys [`world_text`] and [`zoom_galley`] have rasterized on this
 /// thread. A zoom inside one ladder rung does not increment it.
 pub fn rung_galley_builds() -> u64 {
-    CACHES.with(|caches| caches.borrow().rung.builds)
+    CACHES.with(|caches| caches.borrow().rung.builds())
 }
 
 fn rung_galley(ctx: &egui::Context, layout: &Arc<WorldLayout>, rung: &FontId) -> Arc<Galley> {
@@ -180,39 +122,29 @@ fn rung_galley(ctx: &egui::Context, layout: &Arc<WorldLayout>, rung: &FontId) ->
     let size_bits = rung.size.to_bits();
     let ppp_bits = ctx.pixels_per_point().to_bits();
     let key = hash_of((Arc::as_ptr(layout) as usize, size_bits, ppp_bits, &family));
+    let pass = ctx.cumulative_pass_nr();
     let hit = CACHES.with(|caches| {
         let mut caches = caches.borrow_mut();
-        let lru = &mut caches.rung;
-        lru.clock = lru.clock.wrapping_add(1);
-        let used = lru.clock;
-        let slot = lru.buckets.get_mut(&key).and_then(|slots| {
-            slots.iter_mut().find(|slot| {
-                Arc::ptr_eq(&slot.layout, layout)
-                    && slot.size_bits == size_bits
-                    && slot.ppp_bits == ppp_bits
-                    && slot.family == family
-            })
+        let slot = caches.rung.get(key, pass, |slot| {
+            Arc::ptr_eq(&slot.layout, layout)
+                && slot.size_bits == size_bits
+                && slot.ppp_bits == ppp_bits
+                && slot.family == family
         })?;
-        slot.used = used;
         Some(Arc::clone(&slot.galley))
     });
     if let Some(galley) = hit {
         return galley;
     }
     let galley = Arc::new(build_rung(ctx, layout, rung));
-    CACHES.with(|caches| {
-        let mut caches = caches.borrow_mut();
-        let used = caches.rung.clock;
-        let slot = RungSlot {
-            layout: Arc::clone(layout),
-            family,
-            size_bits,
-            ppp_bits,
-            galley: Arc::clone(&galley),
-            used,
-        };
-        insert(&mut caches.rung, key, slot, RUNG_CACHE_CAP);
-    });
+    let slot = RungSlot {
+        layout: Arc::clone(layout),
+        family,
+        size_bits,
+        ppp_bits,
+        galley: Arc::clone(&galley),
+    };
+    CACHES.with(|caches| caches.borrow_mut().rung.insert(key, pass, slot));
     galley
 }
 
@@ -364,20 +296,15 @@ pub fn zoom_galley(
         ppp_bits,
         color.to_array(),
     ));
+    let pass = ctx.cumulative_pass_nr();
     let hit = CACHES.with(|caches| {
         let mut caches = caches.borrow_mut();
-        let lru = &mut caches.zoom.0;
-        lru.clock = lru.clock.wrapping_add(1);
-        let used = lru.clock;
-        let slot = lru.buckets.get_mut(&key).and_then(|slots| {
-            slots.iter_mut().find(|slot| {
-                Arc::ptr_eq(&slot.layout, layout)
-                    && slot.zoom_bits == zoom_bits
-                    && slot.ppp_bits == ppp_bits
-                    && slot.color == color
-            })
+        let slot = caches.zoom.get(key, pass, |slot| {
+            Arc::ptr_eq(&slot.layout, layout)
+                && slot.zoom_bits == zoom_bits
+                && slot.ppp_bits == ppp_bits
+                && slot.color == color
         })?;
-        slot.used = used;
         Some(Arc::clone(&slot.galley))
     });
     if let Some(galley) = hit {
@@ -385,26 +312,21 @@ pub fn zoom_galley(
     }
     let scaled = world_text(ctx, layout, zoom);
     let galley = Arc::new(scale_galley(&scaled.galley(), scaled.scale(), color));
-    CACHES.with(|caches| {
-        let mut caches = caches.borrow_mut();
-        let used = caches.zoom.0.clock;
-        let slot = ZoomSlot {
-            layout: Arc::clone(layout),
-            color,
-            zoom_bits,
-            ppp_bits,
-            galley: Arc::clone(&galley),
-            used,
-        };
-        insert(&mut caches.zoom.0, key, slot, ZOOM_CACHE_CAP);
-    });
+    let slot = ZoomSlot {
+        layout: Arc::clone(layout),
+        color,
+        zoom_bits,
+        ppp_bits,
+        galley: Arc::clone(&galley),
+    };
+    CACHES.with(|caches| caches.borrow_mut().zoom.insert(key, pass, slot));
     galley
 }
 
 /// How many screen galleys [`zoom_galley`] has built on this thread. A
 /// repaint at the same zoom does not increment it.
 pub fn zoom_galley_builds() -> u64 {
-    CACHES.with(|caches| caches.borrow().zoom.0.builds)
+    CACHES.with(|caches| caches.borrow().zoom.builds())
 }
 
 fn scale_galley(src: &Galley, s: f32, color: Color32) -> Galley {

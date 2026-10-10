@@ -11,7 +11,7 @@ use std::collections::HashMap;
 
 use atlas_ai::agent::{AgentRequest, PortalView};
 use atlas_shell::{canvas_scale, canvas_text};
-use eframe::egui::{self, Align2, Color32, Id, Pos2, Rect};
+use eframe::egui::{self, Align2, Id, Pos2, Rect};
 use slate_doc::agent_inputs::{self, InputKind, OUTPUT_T};
 use slate_doc::scene::{ConnectorEnd, NodeId, NodeKind, PortalNode, SceneCmd, Side};
 use slate_doc::wire::connector_route_in_scene;
@@ -1887,8 +1887,8 @@ pub(crate) mod tests {
         let dark = h.app.palette().overlay();
         assert_ne!(light.fill, dark.fill);
         assert_ne!(light.text, dark.text);
-        assert_eq!(dark.fill, Color32::from_black_alpha(175));
-        assert_eq!(dark.text, Color32::WHITE);
+        assert_eq!(dark.fill, egui::Color32::from_black_alpha(175));
+        assert_eq!(dark.text, egui::Color32::WHITE);
     }
 
     /// A ComfyUI generator with one finished picture in its album.
