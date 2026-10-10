@@ -479,8 +479,7 @@ impl SlateApp {
 
     /// Per-frame grip hover: with the Select tool, only the grip whose
     /// midpoint is within the grip hit of the pointer previews (locked
-    /// nodes included — wires may anchor to them). An edge between grips
-    /// is inert. A node body under the pointer occludes grips behind it.
+    /// nodes included). An edge between grips is inert. A body occludes grips behind it.
     pub(crate) fn update_wire_grips(&mut self, pointer: Option<Pos2>, xf: &BoardXf) {
         self.wire_grips = None;
         let Some(p) = pointer else { return };
@@ -493,6 +492,7 @@ impl SlateApp {
     }
 
     pub(crate) fn paint_wire_grips(&self, painter: &egui::Painter, xf: &BoardXf) {
+        if self.wire_grips.is_some() { painter.ctx().set_cursor_icon(egui::CursorIcon::Grab); }
         let key = egui::Id::new("wire-blister-last");
         if let Some(grips) = self.wire_grips {
             painter.ctx().data_mut(|d| d.insert_temp(key, grips));

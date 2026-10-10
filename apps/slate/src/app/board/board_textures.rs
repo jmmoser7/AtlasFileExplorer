@@ -2,6 +2,35 @@
 
 use super::*;
 
+/// Longest edge on the board is 320. Smaller sources stay at their pixel size.
+fn fit_board_image(mut w: f32, mut h: f32) -> (f32, f32) {
+    if w <= 0.0 || h <= 0.0 {
+        w = IMAGE_W;
+        h = IMAGE_H;
+    }
+    let scale = (320.0 / w.max(h)).min(1.0);
+    (w * scale, h * scale)
+}
+
+/// Header size of a local picture, or one PDF page's media box. A missing
+/// path is treated as cloud-only and skipped — never opened.
+fn source_pixel_size(path: &std::path::Path, pdf_page: u16) -> Option<(f32, f32)> {
+    if atlas_core::cloud::is_dehydrated(path) {
+        return None;
+    }
+    match slate_doc::media_kind(path) {
+        slate_doc::MediaKind::Image => {
+            let (w, h) = image::image_dimensions(path).ok()?;
+            (w > 0 && h > 0).then_some((w as f32, h as f32))
+        }
+        slate_doc::MediaKind::Pdf => {
+            let bytes = std::fs::read(path).ok()?;
+            atlas_core::pdf_media::page_points(&bytes, pdf_page)
+        }
+        _ => None,
+    }
+}
+
 impl SlateApp {
     // ----- textures -------------------------------------------------------------
 
@@ -121,33 +150,28 @@ impl SlateApp {
     }
 
     /// Natural pixel dimensions for an item, scaled to a sensible board size.
+    ///
+    /// Pasted and generated pictures are stored as `assets/…` locators
+    /// (`d780767`). Resolve them before reading the header: an unresolved
+    /// locator fails the cloud check closed and every picture lands in the
+    /// default 4:3 box.
     pub(crate) fn image_natural_size(&self, item: ItemId) -> (f32, f32) {
-        let (mut w, mut h) = match self.doc().item(item) {
-            Some(it) => self
-                .thumb_pixels
-                .get(&it.cache_key)
-                .map(|img| (img.width() as f32, img.height() as f32))
-                // A drop lands before its thumbnail does, so read the header
-                // rather than boxing the image at the default aspect. Never on
-                // a placeholder: one header byte hydrates the whole file.
-                .or_else(|| {
-                    let path = &it.path;
-                    (slate_doc::media_kind(path) == slate_doc::MediaKind::Image
-                        && !atlas_core::cloud::is_dehydrated(path))
-                    .then(|| image::image_dimensions(path).ok())
-                    .flatten()
-                    .map(|(pw, ph)| (pw as f32, ph as f32))
-                })
-                .unwrap_or((IMAGE_W, IMAGE_H)),
-            None => (IMAGE_W, IMAGE_H),
+        let Some((key, page, stored)) = self
+            .doc()
+            .item(item)
+            .map(|it| (it.cache_key.clone(), it.pdf_page, it.path.clone()))
+        else {
+            return fit_board_image(IMAGE_W, IMAGE_H);
         };
-        if w <= 0.0 || h <= 0.0 {
-            w = IMAGE_W;
-            h = IMAGE_H;
-        }
-        let max_dim = 320.0;
-        let scale = (max_dim / w.max(h)).min(1.0);
-        (w * scale, h * scale)
+        let resolved =
+            slate_doc::scene::resolve_source(self.tab().path.as_deref(), &stored.to_string_lossy());
+        let (w, h) = self
+            .thumb_pixels
+            .get(&key)
+            .map(|img| (img.width() as f32, img.height() as f32))
+            .or_else(|| source_pixel_size(&resolved, page))
+            .unwrap_or((IMAGE_W, IMAGE_H));
+        fit_board_image(w, h)
     }
 
     pub(super) fn paint_board_grid(

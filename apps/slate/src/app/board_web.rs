@@ -2970,8 +2970,8 @@ impl SlateApp {
         if self.portal_chrome.maximized == Some(id) {
             return false;
         }
-        // Escape is owned exclusively by the command cancel stack. Handling
-        // it here too would peel focus in the same frame as restoring maximize.
+        if !self.node_is_topmost(id, pointer, xf) { return false; }
+        // Escape stays on the cancel stack so maximize restore is not peeled.
         let srect = xf.rect_w2s(node.rect);
         let mut layout = layout_portal_chrome(
             srect,

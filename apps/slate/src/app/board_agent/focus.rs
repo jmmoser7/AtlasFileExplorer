@@ -58,17 +58,25 @@ impl SlateApp {
             ImageWheel::Board
         }
     }
+    /// True when `id` is the topmost painted node under the pointer.
+    pub(crate) fn node_is_topmost(&self, id: NodeId, pointer: Option<Pos2>, xf: &BoardXf) -> bool {
+        pointer.is_some_and(|p| {
+            let world = xf.s2w(p);
+            self.board_pick_node(world.x, world.y) == Some(id)
+        })
+    }
+
     /// The wheel zooms the board while the pointer is over an agent card.
     pub(crate) fn pointer_over_agent_card(&self, xf: &BoardXf, pointer: Option<Pos2>) -> bool {
         let Some(p) = pointer else {
             return false;
         };
         let world = xf.s2w(p);
-        self.doc().scene.nodes.iter().rev().any(|n| {
-            !n.hidden
-                && n.rect.contains(world.x, world.y)
-                && matches!(&n.kind, NodeKind::Portal(p) if p.kind == PortalKind::Agent)
-        })
+        // The topmost painted node owns the pointer. A picture lying on a
+        // chat card is the press, not the card underneath.
+        self.board_pick_node(world.x, world.y)
+            .and_then(|id| self.doc().scene.node(id))
+            .is_some_and(|n| matches!(&n.kind, NodeKind::Portal(p) if p.kind == PortalKind::Agent))
     }
     /// The folder list before a chat starts. The wheel scrolls that list.
     pub(crate) fn pointer_over_project_picker(&self, xf: &BoardXf, pointer: Option<Pos2>) -> bool {
@@ -115,7 +123,7 @@ impl SlateApp {
         if layout.pointer_on_chrome(p) {
             return false;
         }
-        srect.contains(p)
+        self.node_is_topmost(id, Some(p), xf) && srect.contains(p)
     }
     /// Text editing owns the pointer. The rest of a train card drags as a node.
     pub(crate) fn agent_text_editing_captures(&self, xf: &BoardXf, pointer: Option<Pos2>) -> bool {

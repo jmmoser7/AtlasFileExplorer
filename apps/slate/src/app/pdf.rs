@@ -452,7 +452,7 @@ impl SlateApp {
             return false;
         }
         let style = img.clone();
-        let sizes = vec![(node.rect.w, node.rect.h); page_items.len()];
+        let sizes: Vec<_> = page_items.iter().map(|id| self.image_natural_size(*id)).collect();
         let center = eframe::egui::Pos2::new(
             node.rect.x + node.rect.w * 0.5,
             node.rect.y + node.rect.h * 0.5,
