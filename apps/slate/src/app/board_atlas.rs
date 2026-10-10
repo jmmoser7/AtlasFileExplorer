@@ -808,7 +808,8 @@ impl SlateApp {
         xf: &BoardXf,
         pointer: Option<Pos2>,
     ) -> bool {
-        // A gesture belongs to its press target, including after it leaves the portal.
+        // A gesture belongs to its press target, including the frames after
+        // it leaves the portal. Resolve it before any body-boundary return.
         if self.atlas_lenses.carry.is_some() {
             return self.atlas_carry_frame(ui, xf, pointer);
         }
@@ -821,10 +822,9 @@ impl SlateApp {
         let NodeKind::Portal(portal) = &node.kind else {
             return false;
         };
-        if portal.kind != PortalKind::FileAtlas {
+        if portal.kind != PortalKind::FileAtlas || !self.portal_owns_pointer(ui.ctx(), id) {
             return false;
         }
-        if !self.node_is_topmost(id, pointer, xf) { return false; }
         let srect = xf.rect_w2s(node.rect);
         let layout = super::board_portal_chrome::layout_for_portal(
             PortalKind::FileAtlas,

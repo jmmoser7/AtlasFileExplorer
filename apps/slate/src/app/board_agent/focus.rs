@@ -65,6 +65,13 @@ impl SlateApp {
             self.board_pick_node(world.x, world.y) == Some(id)
         })
     }
+    /// A portal's own input (page, folder map, transcript drag) runs only where
+    /// the portal is the topmost node, or while it is maximized. A held button
+    /// is judged at its press, so a gesture keeps its owner when it leaves.
+    pub(crate) fn portal_owns_pointer(&self, ctx: &egui::Context, id: NodeId) -> bool {
+        let at = ctx.input(|i| i.pointer.press_origin().or(i.pointer.latest_pos()));
+        self.portal_is_maximized(id) || self.node_is_topmost(id, at, &self.board_xf())
+    }
 
     /// The wheel zooms the board while the pointer is over an agent card.
     pub(crate) fn pointer_over_agent_card(&self, xf: &BoardXf, pointer: Option<Pos2>) -> bool {

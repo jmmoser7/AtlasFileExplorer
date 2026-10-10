@@ -248,6 +248,7 @@ impl SlateApp {
             let scroll = egui::ScrollArea::vertical()
                 .id_salt(("agent-history-scroll", node.id.0))
                 .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+                .drag_to_scroll(self.portal_owns_pointer(ui.ctx(), node.id))
                 .vertical_scroll_offset(requested * z)
                 .stick_to_bottom(!responding || follow.follow)
                 .max_height(transcript.height())

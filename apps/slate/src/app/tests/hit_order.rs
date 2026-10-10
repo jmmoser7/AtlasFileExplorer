@@ -91,3 +91,34 @@ fn image_over_chat_and_chat_over_image_follow_paint_order() {
     h.app.agent_focus(chat);
     assert!(h.app.agent_shelf_captures(&xf, Some(screen)));
 }
+
+/// A picture lying on a focused web page is grabbed: the page hears no press,
+/// gives up focus, and the portal stays put.
+#[test]
+fn a_picture_on_a_focused_page_is_dragged_and_the_page_hears_nothing() {
+    let (mut h, page, host) = focused_page("hit_image_over_page");
+    let frame = h.app.doc().scene.node(page).unwrap().rect;
+    let picture = image_over(&mut h, frame);
+    h.frame();
+    let (world, _) = center_of(&h, picture);
+    let before = h.app.doc().scene.node(picture).unwrap().rect;
+    let step = before.w * 0.1;
+    let path: Vec<Pos2> = (0..=5)
+        .map(|i| world + EVec2::new(step * i as f32, 0.0))
+        .collect();
+    press_drag_release_frames(&mut h, &path, egui::Modifiers::NONE, |_| {});
+    let after = h.app.doc().scene.node(picture).unwrap().rect;
+    assert!(
+        (after.x - before.x - step * 5.0).abs() < 1.0,
+        "the picture moves with the drag: {} -> {}",
+        before.x,
+        after.x
+    );
+    let downs = host.sent(|i| matches!(i, board_web::WebInput::Down { .. }).then_some(()));
+    assert!(downs.is_empty(), "the covered page hears no press");
+    assert_eq!(
+        h.app.web.focused, None,
+        "a press on the picture peels page focus"
+    );
+    assert_eq!(h.app.doc().scene.node(page).unwrap().rect, frame);
+}
