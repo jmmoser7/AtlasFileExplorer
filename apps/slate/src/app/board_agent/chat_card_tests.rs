@@ -14,22 +14,39 @@ fn chat_with_text(tag: &str) -> (super::super::tests::Harness, NodeId) {
         }
     });
     let paragraph = "The courtyard keeps its plane trees along the north wall. ";
-    h.app.agents.local_turns.insert(
-        id,
-        (0..12)
-            .map(|i| AgentTurn {
-                role: if i % 2 == 0 { "user" } else { "assistant" }.into(),
-                text: format!("{paragraph}{paragraph}Line {i}."),
-                at: i,
-            })
-            .collect(),
-    );
-    h.app.agents.output_epoch = h.app.agents.output_epoch.wrapping_add(1);
+    let lines: Vec<(String, String)> = (0..12)
+        .map(|i| {
+            (
+                if i % 2 == 0 { "user" } else { "assistant" }.to_string(),
+                format!("{paragraph}{paragraph}Line {i}."),
+            )
+        })
+        .collect();
+    let lines: Vec<(&str, &str)> = lines
+        .iter()
+        .map(|(r, t)| (r.as_str(), t.as_str()))
+        .collect();
+    h.app.review_chat_lines(id, &lines);
     (h, id)
 }
 
 impl SlateApp {
+    /// Session sync drops turns, sessions, and awaits for a card whose binding
+    /// it has not recorded yet, so seeding records it first.
+    fn review_bind(&mut self, id: NodeId) {
+        if let Some(a) = self
+            .doc()
+            .scene
+            .node(id)
+            .and_then(slate_doc::agent_chat::agent)
+        {
+            let session = a.session.clone();
+            self.agents.bindings.insert(id, session);
+        }
+    }
+
     pub(crate) fn review_chat_lines(&mut self, id: NodeId, lines: &[(&str, &str)]) {
+        self.review_bind(id);
         self.agents.local_turns.insert(
             id,
             lines
@@ -62,6 +79,7 @@ impl SlateApp {
     }
 
     pub(crate) fn review_chat_streaming(&mut self, id: NodeId, tokens: u64) {
+        self.review_bind(id);
         self.agents
             .awaiting
             .insert(id, AgentAwait::Responding { req_at: 1 });
@@ -90,15 +108,30 @@ impl SlateApp {
 }
 
 fn fold(h: &mut super::super::tests::Harness, id: NodeId, collapsed: bool, partial: bool) {
-    h.app.patch_nodes(&[id], |n| {
-        if let NodeKind::Portal(p) = &mut n.kind {
-            let chat = &mut p.agent.as_mut().unwrap().chat;
-            chat.collapsed = collapsed;
-            chat.partial = partial;
-            chat.size = None;
-        }
+    h.app.review_chat_fold(id, collapsed, partial);
+}
+
+fn wheel(h: &mut super::super::tests::Harness, at: Pos2, dy: f32) {
+    h.frame_with(|i| {
+        i.events.push(egui::Event::PointerMoved(at));
+        i.events.push(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, dy),
+            modifiers: Default::default(),
+        });
     });
-    h.app.agents.fit_revision = None;
+    for _ in 0..12 {
+        h.frame_with(|i| i.events.push(egui::Event::PointerMoved(at)));
+    }
+}
+
+fn scroll_of(h: &super::super::tests::Harness, id: NodeId) -> f32 {
+    h.app
+        .agents
+        .transcript_scroll
+        .get(&id)
+        .copied()
+        .unwrap_or(0.0)
 }
 
 #[test]
@@ -144,7 +177,10 @@ fn chevron_press_steps_and_does_not_resize() {
     );
     press(&mut h, single);
     let after = h.app.doc().scene.node(id).unwrap().rect;
-    assert!((after.w - width).abs() < 1.0, "a chevron press does not resize");
+    assert!(
+        (after.w - width).abs() < 1.0,
+        "a chevron press does not resize"
+    );
     let chat = chat(&h, id);
     assert!(
         chat.partial && !chat.collapsed,
@@ -156,6 +192,8 @@ fn chevron_press_steps_and_does_not_resize() {
 fn every_fold_transition_is_one_or_two_steps() {
     let (mut h, id) = chat_with_text("ct_steps");
     h.app.board_sel.insert(id);
+    center_on(&mut h, id);
+    h.frame();
     let step = |h: &mut super::super::tests::Harness, detail: &str| {
         h.app.agent_fold(&h.ctx, Some(detail));
         let chat = chat(h, id);
@@ -182,32 +220,157 @@ fn a_partial_card_scrolls_and_the_board_does_not_zoom() {
     center_on(&mut h, id);
     h.frame();
     h.frame();
-    let rect = h.app.board_xf().rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
+    let rect = h
+        .app
+        .board_xf()
+        .rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
     let point = rect.center();
     let zoom = h.app.tab().cam.z;
-    h.frame_with(|i| {
-        i.events.push(egui::Event::PointerMoved(point));
-        i.events.push(egui::Event::MouseWheel {
-            unit: egui::MouseWheelUnit::Point,
-            delta: egui::vec2(0.0, -120.0),
-            modifiers: Default::default(),
-        });
-    });
+    wheel(&mut h, point, -120.0);
     assert!(
         (h.app.tab().cam.z - zoom).abs() < 0.01,
         "the board zoomed over a partial card: {} -> {}",
         zoom,
         h.app.tab().cam.z
     );
-    let offset = h
-        .app
-        .agents
-        .transcript_scroll
-        .get(&id)
-        .copied()
-        .unwrap_or(0.0);
+    let offset = scroll_of(&h, id);
     assert!(
         offset.is_finite() && offset > 1.0,
         "the transcript did not scroll: {offset}"
+    );
+}
+
+/// Where the first transcript line lands relative to the card, its type
+/// size, wrap width, and first row.
+fn first_line(h: &mut super::super::tests::Harness, id: NodeId) -> (f32, f32, f32, f32, String) {
+    fn walk(shape: &egui::Shape, out: &mut Vec<egui::epaint::TextShape>) {
+        match shape {
+            egui::Shape::Text(t) => out.push(t.clone()),
+            egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+            _ => {}
+        }
+    }
+    let card = h
+        .app
+        .board_xf()
+        .rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
+    let input = egui::RawInput {
+        screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1440.0, 900.0))),
+        ..Default::default()
+    };
+    let ctx = h.ctx.clone();
+    let app = &mut h.app;
+    let output = ctx.run(input, |c| app.update_app(c));
+    let mut texts = Vec::new();
+    for clipped in &output.shapes {
+        walk(&clipped.shape, &mut texts);
+    }
+    let t = texts
+        .iter()
+        .find(|t| t.galley.text().starts_with("The courtyard"))
+        .expect("the first message is painted");
+    let font = t.galley.job.sections[0].format.font_id.size;
+    (
+        t.pos.x - card.left(),
+        t.pos.y - card.top(),
+        font,
+        t.galley.job.wrap.max_width,
+        t.galley.rows[0].text(),
+    )
+}
+
+#[test]
+fn the_text_column_is_the_same_in_every_fold() {
+    let (mut h, id) = chat_with_text("ct_column");
+    center_on(&mut h, id);
+    let mut seen = Vec::new();
+    for (name, collapsed, partial) in [
+        ("collapsed", true, false),
+        ("partial", false, true),
+        ("maximized", false, false),
+    ] {
+        fold(&mut h, id, collapsed, partial);
+        for _ in 0..4 {
+            h.frame();
+        }
+        center_on(&mut h, id);
+        h.frame();
+        seen.push((name, first_line(&mut h, id)));
+    }
+    let (_, base) = &seen[0];
+    let (inset_l, _, _) = text_column(h.app.doc().scene.node(id).unwrap().rect.w);
+    assert!((base.0 - inset_l).abs() < 0.5, "left inset {}", base.0);
+    for (name, line) in &seen[1..] {
+        assert!(
+            (line.0 - base.0).abs() < 0.5,
+            "{name} left inset {} vs {}",
+            line.0,
+            base.0
+        );
+        assert!(
+            (line.1 - base.1).abs() < 0.5,
+            "{name} text top {} vs {}",
+            line.1,
+            base.1
+        );
+        assert!(
+            (line.2 - base.2).abs() < 0.01,
+            "{name} type {} vs {}",
+            line.2,
+            base.2
+        );
+        assert!(
+            (line.3 - base.3).abs() < 0.5,
+            "{name} wrap {} vs {}",
+            line.3,
+            base.3
+        );
+        assert_eq!(line.4, base.4, "{name} breaks the first line elsewhere");
+    }
+}
+
+#[test]
+fn a_streaming_partial_card_follows_until_the_reader_scrolls_up() {
+    let (mut h, id) = chat_with_text("ct_follow");
+    fold(&mut h, id, false, true);
+    h.app.review_chat_streaming(id, 1200);
+    center_on(&mut h, id);
+    for _ in 0..4 {
+        h.frame();
+    }
+    let bottom = scroll_of(&h, id);
+    let overflow = h.app.agents.card_overflow.get(&id).copied().unwrap_or(0.0);
+    assert!(overflow > 20.0, "the transcript overflows: {overflow}");
+    assert!(
+        (bottom - overflow).abs() < 2.0,
+        "a streaming partial card is pinned to the bottom: {bottom} vs {overflow}"
+    );
+    let rect = h
+        .app
+        .board_xf()
+        .rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
+    wheel(&mut h, rect.center(), 160.0);
+    let up = scroll_of(&h, id);
+    assert!(
+        up < bottom - 20.0,
+        "the reader scrolled up: {up} vs {bottom}"
+    );
+    h.app
+        .agents
+        .local_turns
+        .get_mut(&id)
+        .unwrap()
+        .push(AgentTurn {
+            role: "assistant".into(),
+            text: "More streamed text arrives while the reader looks back.".into(),
+            at: 99,
+        });
+    h.app.agents.output_epoch += 1;
+    for _ in 0..4 {
+        h.frame();
+    }
+    assert!(
+        (scroll_of(&h, id) - up).abs() < 2.0,
+        "new text does not pull the reader back down"
     );
 }

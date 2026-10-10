@@ -68,14 +68,12 @@ impl SlateApp {
             r.center().y,
         );
         let travel = canvas_scale::px(dot_split_travel(HANDLE_DOT), z);
-        let lift = travel;
-        let drop = travel;
         let reach = canvas_scale::px(11.0, z);
         let pointer = ui.ctx().pointer_hover_pos();
         let refs = self.agent_artifacts(node.id, false);
         let has_refs = !refs.is_empty();
-        let raised = rest + egui::vec2(0.0, -lift);
-        let lowered = rest + egui::vec2(0.0, drop);
+        let raised = rest + egui::vec2(0.0, -travel);
+        let lowered = rest + egui::vec2(0.0, travel);
         let near = |p: Pos2| pointer.is_some_and(|q| q.distance(p) <= reach);
         let on_rest = near(rest);
         let outward = pointer.is_some_and(|p| {
@@ -95,25 +93,30 @@ impl SlateApp {
             split_on,
             0.18,
         );
-        let auto = Pos2::new(rest.x, rest.y - if has_refs { split * lift } else { 0.0 });
-        let human = Pos2::new(rest.x, rest.y + if has_refs { split * drop } else { 0.0 });
+        // Split halves swell together and part by the swollen radius, so the
+        // drawn gap stays DOT_SPLIT_GAP × the drawn radius.
+        let grow = if split_on { HANDLE_HOVER_GROW } else { 1.0 };
+        let open = split * canvas_scale::px(dot_split_travel(HANDLE_DOT * grow), z);
+        let auto = Pos2::new(rest.x, rest.y - if has_refs { open } else { 0.0 });
+        let human = Pos2::new(rest.x, rest.y + if has_refs { open } else { 0.0 });
         let pocket = self.agent_has_pocket(node.id);
         self.agents.context_human.remove(&node.id);
         let gray = palette.sub;
         if has_refs {
             self.agents.context_auto.insert(node.id, auto);
+            let swell = if split > 0.02 { split_on } else { near(auto) };
             if split > 0.02 {
                 self.paint_context_wire_slide(painter, node.id, rest, auto, human, gray, z);
                 paint_handle_dot(
                     painter,
                     human,
                     z,
-                    near(human),
+                    swell,
                     gray.gamma_multiply(0.8 * split.min(1.0)),
                 );
                 self.agents.context_human.insert(node.id, human);
             }
-            paint_handle_dot(painter, auto, z, near(auto), gray.gamma_multiply(0.8));
+            paint_handle_dot(painter, auto, z, swell, gray.gamma_multiply(0.8));
         } else {
             self.agents.context_auto.remove(&node.id);
             let fade = ui.ctx().animate_bool_with_time(

@@ -322,10 +322,8 @@ impl SlateApp {
                         }
                         let entry = &self.agents.transcript_cache[&cache_id];
                         let laid = canvas_text::Scaled::from_galley(entry.3.clone(), entry.4 * z);
-                        let (row, _) = ui.allocate_exact_size(
-                            egui::vec2(width, laid.size().y),
-                            Sense::hover(),
-                        );
+                        let (row, _) = ui
+                            .allocate_exact_size(egui::vec2(width, laid.size().y), Sense::hover());
                         if from_agent.is_some() {
                             let mark = Rect::from_min_size(row.left_top(), laid.size());
                             self.paint_received_mark(ui.painter(), mark, z);

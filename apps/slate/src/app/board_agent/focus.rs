@@ -184,13 +184,27 @@ impl SlateApp {
                 .get(&n.id)
                 .is_some_and(|max| *max > 0.5)
     }
+    /// A chat card's own grips (output, stop, context, crosstalk port,
+    /// chevron) own the pointer, so no frame resize starts under them.
+    pub(crate) fn agent_grip_owns(&self, screen: Pos2, xf: &BoardXf) -> bool {
+        self.agent_output_at(screen, xf).is_some()
+            || self.agent_stop_at(screen, xf).is_some()
+            || self.agent_artifact_at(screen, xf).is_some()
+            || self.crosstalk_port_under(screen, xf).is_some()
+            || self.crosstalk_captures(screen)
+            || self.chevron_owns(screen)
+    }
     /// The pointer is over a collapse chevron painted on the previous pass.
     pub(crate) fn chevron_owns(&self, screen: Pos2) -> bool {
         self.agents.chevron_hits.iter().any(|r| r.contains(screen))
     }
-    /// Center of the first chevron painted last frame, for review sheets.
-    pub(crate) fn chevron_hover_point(&self) -> Option<Pos2> {
-        self.agents.chevron_hits.first().map(|rect| rect.center())
+    /// Center of the `index`th chevron painted last frame, for review sheets.
+    #[cfg(test)]
+    pub(crate) fn chevron_hover_point(&self, index: usize) -> Option<Pos2> {
+        self.agents
+            .chevron_hits
+            .get(index)
+            .map(|rect| rect.center())
     }
     /// A user-sized card with more content than room scrolls instead of zooming.
     pub(crate) fn pointer_over_scrolling_agent_card(

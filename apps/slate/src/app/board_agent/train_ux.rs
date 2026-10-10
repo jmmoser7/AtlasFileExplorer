@@ -28,40 +28,53 @@ pub(crate) enum FoldStep {
     Double,
 }
 
-/// Designed-px chevron stroke. Thin, and the double sits inside 1.4× the single.
+/// Designed-px chevron: arm half-width, apex rise, and a thin stroke.
 pub(crate) const GLYPH_HALF: f32 = 2.4;
-pub(crate) const GLYPH_RISE: f32 = 1.15;
-pub(crate) const GLYPH_STROKE: f32 = 0.72;
-/// Center distance of the two marks in a double chevron.
-pub(crate) const GLYPH_DOUBLE_PITCH: f32 = 0.8;
+pub(crate) const GLYPH_RISE: f32 = 1.35;
+pub(crate) const GLYPH_STROKE: f32 = 0.55;
+/// The double chevron's inked height over the single's.
+const DOUBLE_RATIO: f32 = 1.4;
 
+/// Cosine of an arm's slope, which turns vertical offsets into stroke distance.
+fn arm_cos() -> f32 {
+    GLYPH_HALF / GLYPH_HALF.hypot(GLYPH_RISE * 2.0)
+}
+
+/// Inked height of one mark, stroke included.
 pub(crate) fn glyph_single_height() -> f32 {
-    GLYPH_RISE * 2.0
+    GLYPH_RISE * 2.0 + GLYPH_STROKE / arm_cos()
+}
+
+/// Center distance of the two marks in a double chevron.
+pub(crate) fn glyph_double_pitch() -> f32 {
+    glyph_single_height() * (DOUBLE_RATIO - 1.0)
 }
 
 pub(crate) fn glyph_double_height() -> f32 {
-    GLYPH_DOUBLE_PITCH + glyph_single_height()
+    glyph_double_pitch() + glyph_single_height()
+}
+
+/// Clear space between the two marks' strokes, measured across the arms.
+#[cfg(test)]
+pub(crate) fn glyph_double_gap() -> f32 {
+    glyph_double_pitch() * arm_cos() - GLYPH_STROKE
 }
 
 /// Vertical pitch of one offered chevron in the cluster, designed px.
 pub(crate) fn glyph_slot() -> f32 {
-    glyph_double_height() + 1.0
+    glyph_double_height() + 0.8
 }
 
 /// Chevrons offered on a hovered card, top to bottom.
-/// Collapsed opens; maximized closes; partial offers both directions.
+/// Collapsed opens; maximized closes; partial offers one step each way,
+/// since from the middle a double would land on the same end.
 pub(crate) fn chevron_offers(fold: CardFold) -> &'static [(FoldDir, FoldStep)] {
     use FoldDir::*;
     use FoldStep::*;
     match fold {
         CardFold::Collapsed => &[(Expand, Single), (Expand, Double)],
         CardFold::Open => &[(Collapse, Double), (Collapse, Single)],
-        CardFold::Partial => &[
-            (Collapse, Double),
-            (Collapse, Single),
-            (Expand, Single),
-            (Expand, Double),
-        ],
+        CardFold::Partial => &[(Collapse, Single), (Expand, Single)],
     }
 }
 
@@ -242,6 +255,11 @@ mod tests {
             assert_eq!(apply_fold(from, dir, step), to, "{from:?} {dir:?} {step:?}");
         }
         assert!(glyph_double_height() <= glyph_single_height() * 1.4 + 0.01);
+        assert!(
+            glyph_double_gap() >= GLYPH_STROKE * 0.6,
+            "the double's marks merge: gap {} for stroke {GLYPH_STROKE}",
+            glyph_double_gap()
+        );
         assert!(chevron_offers(Partial).iter().any(|(d, _)| *d == Expand));
         assert!(chevron_offers(Partial).iter().any(|(d, _)| *d == Collapse));
         assert_eq!(
@@ -284,10 +302,13 @@ mod tests {
     fn text_insets_match_in_every_fold() {
         let (left, right, wrap) = super::super::text_column(320.0);
         assert_eq!(left, super::super::TEXT_INSET_LEFT);
-        assert_eq!(right, super::super::TEXT_INSET_RIGHT);
+        assert_eq!(right, super::super::card_metrics::TEXT_INSET_RIGHT);
         assert_eq!(left, right, "left and right insets are the same datum");
         assert!((wrap - (320.0 - left - right)).abs() < 0.01);
-        assert_eq!(super::super::text_column(176.0), super::super::text_column(176.0));
+        assert_eq!(
+            super::super::text_column(176.0),
+            super::super::text_column(176.0)
+        );
     }
 
     #[test]

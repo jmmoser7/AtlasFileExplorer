@@ -280,8 +280,17 @@ impl SlateApp {
                         h = train_ux::stream_card_height(h);
                     }
                     if !self.agent_has_child(node.id) {
-                        h += composer_text_height(ctx, &prompt, composer_wrap(after.rect.w), 14.0)
-                            + COMPOSER_BOTTOM;
+                        let prompt_h =
+                            composer_text_height(ctx, &prompt, composer_wrap(after.rect.w), 14.0);
+                        h += prompt_h + COMPOSER_BOTTOM;
+                        // A short transcript keeps the open card's one-line composer gap.
+                        if let Some(open) = self
+                            .measured_transcript(node.id, after.rect.w, &turns)
+                            .filter(|_| partial)
+                            .map(|t| conversation_card_height(t, prompt_h))
+                        {
+                            h = h.min(open);
+                        }
                     }
                     h
                 };

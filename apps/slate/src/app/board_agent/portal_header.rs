@@ -229,10 +229,7 @@ impl SlateApp {
                     font.clone(),
                     palette.ink,
                 );
-                let band = Rect::from_min_max(
-                    at + egui::vec2(lead_w, -12.0 * z),
-                    title_rect.max,
-                );
+                let band = Rect::from_min_max(at + egui::vec2(lead_w, -12.0 * z), title_rect.max);
                 let mut respond = egui::Ui::new(
                     ui.ctx().clone(),
                     Id::new(("agent-responding", node.id.0)),
@@ -338,13 +335,15 @@ impl SlateApp {
                 palette.ink.gamma_multiply(0.55 + 0.40 * grow),
             );
         }
-        paint_handle_dot(
-            painter,
-            output_circle_center(rect, z),
-            z,
-            false,
-            palette.sub.gamma_multiply(0.72),
-        );
+        if !self.agent_stop_shown(node) {
+            paint_handle_dot(
+                painter,
+                output_circle_center(rect, z),
+                z,
+                false,
+                palette.sub.gamma_multiply(0.72),
+            );
+        }
         if !(agent.chat.train && !agent.chat.bundled.is_empty()) {
             if let Some(detail) =
                 self.paint_agent_collapse_toggle(ui, node, rect, menu_rect.left(), dot_cy, z)

@@ -7,6 +7,9 @@ pub(super) const HANDLE_DOT: f32 = 3.5;
 /// Edge-to-edge gap when an input dot splits, as a fraction of [`HANDLE_DOT`].
 pub(super) const DOT_SPLIT_GAP: f32 = 0.5;
 
+/// A handle dot's radius under the pointer, over its resting radius.
+pub(super) const HANDLE_HOVER_GROW: f32 = 1.12;
+
 /// How far each half travels from the resting center so the gap between
 /// edges is [`DOT_SPLIT_GAP`] × the radius.
 pub(super) fn dot_split_travel(radius: f32) -> f32 {
@@ -23,7 +26,7 @@ pub(crate) fn paint_handle_dot(
     near: bool,
     color: Color32,
 ) {
-    let grow = if near { 1.12 } else { 1.0 };
+    let grow = if near { HANDLE_HOVER_GROW } else { 1.0 };
     painter.circle_filled(at, canvas_scale::px(HANDLE_DOT, z) * grow, color);
 }
 
@@ -98,8 +101,9 @@ pub(super) const COMPOSER_TOP: f32 = 32.0;
 pub(super) const COMPOSER_BOTTOM: f32 = 14.0;
 /// One line between the last transcript line and the Message composer.
 pub(super) const COMPOSER_GAP: f32 = 18.0;
-/// Extra room so a measured transcript is not clipped by spacing.
-const TRANSCRIPT_SLACK: f32 = 0.0;
+/// The composer field's caret room (`paint_agent_bound` adds it to the field),
+/// so a fitted transcript is never clipped.
+const TRANSCRIPT_SLACK: f32 = 2.0;
 /// Left and right inset of chat text, the same in every fold. World units.
 pub(super) const TEXT_INSET_LEFT: f32 = 16.0;
 pub(super) const TEXT_INSET_RIGHT: f32 = 16.0;
@@ -115,8 +119,8 @@ pub(super) const CARD_TEXT_PAD: f32 = 18.0;
 pub(super) const SUMMARY_TEXT_TOP: f32 = 28.0;
 /// Lines a collapsed card keeps.
 pub(super) const COLLAPSED_ROWS: usize = 3;
-/// Card text size, in world units.
-const CARD_TEXT_PX: f32 = 13.0;
+/// Chat text size in every fold, in world units.
+pub(super) const CARD_TEXT_PX: f32 = 14.0;
 /// Stop's bare square (the output circle's diameter) and press reach on a
 /// streaming card's output circle, in world units.
 pub(super) const STOP_SIDE: f32 = 7.0;
@@ -306,20 +310,14 @@ pub(super) fn paint_chevron_glyph(
     let half = canvas_scale::px(train_ux::GLYPH_HALF, z);
     let rise = canvas_scale::px(train_ux::GLYPH_RISE, z) * if up { -1.0 } else { 1.0 };
     let stroke = egui::Stroke::new(canvas_scale::px(train_ux::GLYPH_STROKE, z), ink);
-    painter.line_segment(
-        [
+    painter.add(egui::Shape::line(
+        vec![
             center + egui::vec2(-half, -rise),
-            center + egui::vec2(0.0, rise),
-        ],
-        stroke,
-    );
-    painter.line_segment(
-        [
             center + egui::vec2(0.0, rise),
             center + egui::vec2(half, -rise),
         ],
         stroke,
-    );
+    ));
 }
 
 /// Single mark, or two packed into [`train_ux::glyph_double_height`].
@@ -336,7 +334,7 @@ pub(super) fn paint_fold_glyph(
         paint_chevron_glyph(painter, center, z, up, ink);
         return;
     }
-    let pitch = canvas_scale::px(train_ux::GLYPH_DOUBLE_PITCH, z);
+    let pitch = canvas_scale::px(train_ux::glyph_double_pitch(), z);
     paint_chevron_glyph(painter, center + egui::vec2(0.0, -pitch * 0.5), z, up, ink);
     paint_chevron_glyph(painter, center + egui::vec2(0.0, pitch * 0.5), z, up, ink);
 }
