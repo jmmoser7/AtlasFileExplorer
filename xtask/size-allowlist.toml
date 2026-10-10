@@ -375,7 +375,7 @@ reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]
 file = "crates/atlas-shell/src/folder_map/paint.rs"
-ceiling = 1222
+ceiling = 824
 reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]
