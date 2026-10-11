@@ -4,6 +4,8 @@ use super::*;
 
 impl SlateApp {
     pub(crate) fn agent_pump(&mut self, ctx: &egui::Context) {
+        self.ai.packs.begin_frame();
+        self.paint_pack_key_entry(ctx);
         self.sync_agent_doc();
         let front_span = atlas_core::session_log::span("slate.agents.front");
         let mut existing: HashSet<String> = self

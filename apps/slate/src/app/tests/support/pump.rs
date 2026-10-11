@@ -49,3 +49,30 @@ pub(crate) fn copy_dir(from: &std::path::Path, to: &std::path::Path) {
         }
     }
 }
+
+/// Text of every shape one frame paints, with the pointer at `pointer`.
+pub(crate) fn painted(h: &mut Harness, pointer: Pos2) -> Vec<String> {
+    fn walk(shape: &egui::Shape, out: &mut Vec<String>) {
+        match shape {
+            egui::Shape::Text(t) => out.push(t.galley.text().to_string()),
+            egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+            _ => {}
+        }
+    }
+    let mut input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            Pos2::ZERO,
+            egui::vec2(1440.0, 900.0),
+        )),
+        ..Default::default()
+    };
+    input.events.push(egui::Event::PointerMoved(pointer));
+    let ctx = h.ctx.clone();
+    let app = &mut h.app;
+    let output = ctx.run(input, |c| app.update_app(c));
+    let mut texts = Vec::new();
+    for clipped in &output.shapes {
+        walk(&clipped.shape, &mut texts);
+    }
+    texts
+}

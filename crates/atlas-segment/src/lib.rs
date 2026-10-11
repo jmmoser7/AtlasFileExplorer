@@ -25,6 +25,20 @@ struct Reply {
     error: Option<String>,
 }
 
+/// The local model and its venv are both on disk. No process is started.
+pub fn installed(data_dir: &Path) -> bool {
+    let root = data_dir.join("segmentation");
+    root.join(python_relative()).is_file() && root.join("model/sam2.1_hiera_tiny.pt").is_file()
+}
+
+fn python_relative() -> &'static str {
+    if cfg!(windows) {
+        "venv/Scripts/python.exe"
+    } else {
+        "venv/bin/python"
+    }
+}
+
 pub struct Segmenter {
     child: Child,
     input: ChildStdin,
@@ -34,14 +48,10 @@ pub struct Segmenter {
 impl Segmenter {
     pub fn start(data_dir: &Path) -> Result<Self, String> {
         let root = data_dir.join("segmentation");
-        let python = root.join(if cfg!(windows) {
-            "venv/Scripts/python.exe"
-        } else {
-            "venv/bin/python"
-        });
-        if !python.is_file() || !root.join("model/sam2.1_hiera_tiny.pt").is_file() {
+        if !installed(data_dir) {
             return Err("Object highlighting needs its local model. Run scripts/setup-segmentation.ps1 once.".into());
         }
+        let python = root.join(python_relative());
         let mut command = Command::new(python);
         command
             .args(["-u", "-c", include_str!("segmentation.py")])
