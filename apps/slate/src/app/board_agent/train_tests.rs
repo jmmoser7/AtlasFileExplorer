@@ -315,10 +315,13 @@ fn coding_train_keeps_identity_and_artifacts_open_only_on_request() {
             .as_deref(),
         Some("provider-conversation")
     );
-    assert!(h
+    let continued = h.app.agent_session_for(reply).unwrap();
+    let (branch, _) = h
         .app
         .prepare_agent_train_send(root, std::path::Path::new("test-workspace"))
-        .is_none());
+        .expect("an earlier coding card forks");
+    assert_ne!(h.app.agent_session_for(branch).unwrap().0, continued.0);
+    assert_eq!(h.app.agent_session_for(reply).unwrap(), continued);
     let state:AgentSession=serde_json::from_value(serde_json::json!({"provider":"codex","conversation":"provider-conversation","artifacts":[
         {"id":"read","turn":1,"kind":"web","source":"https://example.com/reference","title":"Reference"},
         {"id":"edit","turn":1,"kind":"modified","source":"C:/fixture/main.rs","title":"main.rs"}

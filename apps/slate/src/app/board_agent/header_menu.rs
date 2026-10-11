@@ -88,11 +88,7 @@ impl SlateApp {
                         1,
                         Row::glyph(Icon::ChatTrain, "Fork chat here"),
                         "portal.agent.fork",
-                        !running
-                            && !agent.chat.draft
-                            && agent.chat.bundled.is_empty()
-                            && !atlas_ai::runtime::linear_provider(&agent.provider)
-                            && !agent.chat.linear,
+                        !running && !agent.chat.draft && agent.chat.bundled.is_empty(),
                     ),
                     (
                         1,

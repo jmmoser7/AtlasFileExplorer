@@ -51,14 +51,6 @@ impl SlateApp {
         }
         let linear = self.agent_linear(id);
         let collapsed = slate_doc::crosstalk::collapses_new_cards(&self.doc().scene, &a.session);
-        if linear
-            && self.doc().scene.nodes.iter().any(|n| {
-                slate_doc::agent_chat::agent(n).is_some_and(|other| other.chat.parent == Some(id))
-            })
-        {
-            self.toast("Continue at the end of this conversation; coding agents have one stream.");
-            return None;
-        }
         let source = self.agent_all_turns(id);
         let through = a
             .chat
@@ -72,7 +64,6 @@ impl SlateApp {
             }
         };
         let count = history.len();
-        let draft = a.chat.draft || (linear && source.is_empty());
         let children: Vec<_> = self
             .doc()
             .scene
@@ -81,6 +72,9 @@ impl SlateApp {
             .filter(|n| slate_doc::agent_chat::agent(n).is_some_and(|a| a.chat.parent == Some(id)))
             .map(|n| n.id)
             .collect();
+        // An empty coding card is the first beat of its stream. A card that
+        // already has a child is a fork point, not that beat.
+        let draft = a.chat.draft || (linear && source.is_empty() && children.is_empty());
         let branches = children.len();
         let lane_height = slate_doc::agent_chat::subtree(&self.doc().scene, &children)
             .iter()
@@ -108,11 +102,24 @@ impl SlateApp {
             user.rect.x = original.rect.x;
             user.rect.y = original.rect.y;
         }
-        let session = if linear {
+        // A coding tail with no child keeps its session. A fork — this card
+        // already has a child, or a draft whose session was split from its
+        // parent — replays `history` into a fresh session, the same checkpoint
+        // a model chat returns below.
+        let split = a.chat.parent.is_some_and(|parent| {
+            self.doc()
+                .scene
+                .node(parent)
+                .and_then(slate_doc::agent_chat::agent)
+                .is_some_and(|p| p.session != a.session)
+        });
+        let continue_stream = linear && !split && children.is_empty();
+        let session = if continue_stream || (linear && split) {
             a.session.clone()
         } else {
             slate_doc::scene::new_agent_session_id()
         };
+        let replay = if continue_stream { Vec::new() } else { history };
         let manifest = slate_doc::SourceUri {
             locator: super::super::board_portal::source_locator(
                 self.tab().path.as_deref(),
@@ -126,7 +133,7 @@ impl SlateApp {
                 if let Some(child) = &mut p.agent {
                     child.session = session;
                     child.bundle = Some(manifest);
-                    if !linear {
+                    if !continue_stream {
                         child.channel = None;
                     }
                     child.chat.linear = linear;
@@ -140,13 +147,13 @@ impl SlateApp {
             }]) {
                 return None;
             }
-            return Some((id, if linear { Vec::new() } else { history }));
+            return Some((id, replay));
         }
         if let NodeKind::Portal(p) = &mut user.kind {
             if let Some(a) = &mut p.agent {
                 a.session = session;
                 a.bundle = Some(manifest);
-                if !linear {
+                if !continue_stream {
                     a.channel = None;
                 }
                 a.chat = ChatView {
@@ -253,7 +260,7 @@ impl SlateApp {
         }
         self.board_sel.clear();
         self.board_sel.insert(reply_id);
-        Some((reply_id, if linear { Vec::new() } else { history }))
+        Some((reply_id, replay))
     }
     /// Project, conversation, and first-load phases have no train handles yet.
     pub(super) fn agent_in_choose_phase(&self, id: NodeId) -> bool {

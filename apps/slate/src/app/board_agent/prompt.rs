@@ -178,9 +178,8 @@ impl SlateApp {
                     at: req.at,
                 };
                 if !self.agents.local_turns.contains_key(&portal) {
-                    // A linear provider's request carries no history, and a new
-                    // tail has no session yet: the stream the composer shows is
-                    // what the whole train keeps displaying.
+                    // A continuation carries no history. A fork's request carries
+                    // the checkpoint, and that is what a new tail displays.
                     let same_stream = self
                         .doc()
                         .scene
