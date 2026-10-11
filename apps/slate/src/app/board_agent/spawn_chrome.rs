@@ -9,9 +9,7 @@ impl SlateApp {
         let palette = self.palette();
         let pointer = painter.ctx().pointer_latest_pos();
         if let (Some((id, _)), Some(p)) = (self.agents.artifact_drag, pointer) {
-            if let Some(n) = self.doc().scene.node(id) {
-                let r = xf.rect_w2s(n.rect);
-                let from = output_circle_center(r, xf.z);
+            if let Some(from) = self.return_dot_at(painter.ctx(), id, xf) {
                 painter.line_segment(
                     [from, p],
                     egui::Stroke::new((1.25 * xf.z).max(1.0), palette.sub.gamma_multiply(0.7)),

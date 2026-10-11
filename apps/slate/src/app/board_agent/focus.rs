@@ -192,6 +192,7 @@ impl SlateApp {
         self.agents.composer_rects.clear();
         self.agents.card_overflow.clear();
         self.agents.chevron_hits.clear();
+        self.agents.return_dot.clear();
     }
     /// The wheel scrolls a chat card only when that card is selected and its
     /// text does not fit. A hover alone leaves the wheel on the board.

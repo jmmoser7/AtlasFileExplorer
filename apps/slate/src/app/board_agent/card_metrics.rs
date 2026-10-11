@@ -149,7 +149,8 @@ pub(super) fn chat_dot_center(card: Rect, right: bool, z: f32) -> Pos2 {
     Pos2::new(x, card.top() + canvas_scale::px(top, z))
 }
 
-/// On-screen center of a chat card's top output circle.
+/// On-screen center of the train grip: header bar, right end, after the menu.
+/// The return dot is `chat_return_dot`, not this point.
 pub(super) fn output_circle_center(card: Rect, z: f32) -> Pos2 {
     chat_dot_center(card, true, z)
 }

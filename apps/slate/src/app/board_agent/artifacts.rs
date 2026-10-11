@@ -152,7 +152,7 @@ impl SlateApp {
                 continue;
             }
             let anchor = if output {
-                output_circle_center(r, z)
+                self.chat_return_dot(ui.ctx(), node.id, node.rect.w, r, z)
             } else {
                 auto
             };
@@ -162,12 +162,19 @@ impl SlateApp {
                 Sense::hover(),
             );
             if output {
-                if self.agents.artifact_popup == Some((node.id, true)) {
+                self.agents.return_dot.insert(node.id, anchor);
+                let near = pointer.is_some_and(|p| p.distance(anchor) <= canvas_scale::px(12.0, z));
+                paint_handle_dot(painter, anchor, z, near, gray.gamma_multiply(0.8));
+                let listed = self.agents.artifact_popup == Some((node.id, true))
+                    || self
+                        .agents
+                        .artifact_popup_rect
+                        .is_some_and(|rect| pointer.is_some_and(|p| rect.contains(p)));
+                if near || listed {
+                    self.agents.artifact_popup = Some((node.id, true));
                     self.paint_agent_output_stack(ui, xf, node.id, anchor);
-                } else {
-                    let count = self.agent_outputs(node.id).list.items.len();
-                    response.on_hover_text(format!("Outputs · {count}"));
                 }
+                let _ = response;
                 continue;
             }
             let _ = response;
@@ -193,7 +200,7 @@ impl SlateApp {
         if agent != node.id {
             return;
         }
-        let dot = output_circle_center(rect, z);
+        let dot = self.chat_return_dot(ui.ctx(), node.id, node.rect.w, rect, z);
         let dark = self.palette().dark_mode;
         let mut chosen = None;
         let shown = atlas_shell::menu::anchored(

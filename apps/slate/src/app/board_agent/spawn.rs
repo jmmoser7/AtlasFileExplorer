@@ -315,7 +315,9 @@ impl SlateApp {
                                 ),
                             );
                         }
-                    } else if self.agent_has_outputs(id) {
+                    } else if self.agent_has_outputs(id)
+                        && self.agents.artifact_popup != Some((id, true))
+                    {
                         self.dispatch(
                             ui.ctx(),
                             atlas_commands::CommandId("portal.agent.artifacts"),
@@ -412,11 +414,13 @@ impl SlateApp {
             if self.agent_in_choose_phase(id) {
                 continue;
             }
-            let n = self.doc().scene.node(id).unwrap();
-            let r = xf.rect_w2s(n.rect);
+            let r = {
+                let n = self.doc().scene.node(id).unwrap();
+                xf.rect_w2s(n.rect)
+            };
             let handle = output_circle_center(r, xf.z);
             if self.agent_has_outputs(id) {
-                let docs = output_circle_center(r, xf.z);
+                let docs = self.return_dot_at(ui.ctx(), id, xf).unwrap();
                 if pointer.is_some_and(|p| p.distance(docs) <= 10.0 * xf.z)
                     && ui.input(|i| i.pointer.primary_pressed())
                 {

@@ -218,6 +218,8 @@ pub struct AgentRuntime {
     pub(super) context_auto: HashMap<NodeId, Pos2>,
     /// Last painted screen position of the manual-context dot, when it is showing.
     pub(super) context_human: HashMap<NodeId, Pos2>,
+    /// Last painted screen position of the return dot, when the card has outputs.
+    pub(super) return_dot: HashMap<NodeId, Pos2>,
     /// Press origin on a context dot, so a click can be told from a drag.
     pub(super) context_press: Option<(NodeId, Pos2)>,
     /// Temporary context cards. They vanish when the pointer leaves them.

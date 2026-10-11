@@ -342,15 +342,13 @@ impl SlateApp {
             .rev()
             .filter(|n| !n.hidden && !n.locked && self.agent_context_handles_visible(n.id))
         {
-            let r = xf.rect_w2s(n.rect);
             let left = self.agents.context_auto.get(&n.id);
             if let Some(left) = left {
                 if point.distance(*left) <= 10.0 * xf.z {
                     return Some((n.id, false));
                 }
             }
-            if self.agent_has_outputs(n.id) {
-                let right = output_circle_center(r, xf.z);
+            if let Some(right) = self.agents.return_dot.get(&n.id).copied() {
                 if point.distance(right) <= 10.0 * xf.z {
                     return Some((n.id, true));
                 }

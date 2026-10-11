@@ -167,6 +167,8 @@ mod chat_card_tests;
 #[cfg(test)]
 mod cover_tests;
 #[cfg(test)]
+mod dot_roles;
+#[cfg(test)]
 mod draft_tests;
 #[cfg(test)]
 mod fork_tests;

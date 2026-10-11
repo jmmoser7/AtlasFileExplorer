@@ -711,12 +711,10 @@ impl SlateApp {
         ) else {
             return;
         };
-        let Some(node) = self.doc().scene.node(*card) else {
+        let Some(from) = self.return_dot_at(painter.ctx(), *card, xf) else {
             return;
         };
         let palette = self.palette();
-        let r = xf.rect_w2s(node.rect);
-        let from = super::output_circle_center(r, xf.z);
         let hot = xf.w2s(at);
         painter.line_segment(
             [from, hot],
@@ -1633,8 +1631,7 @@ mod tests {
         pump_outputs(&mut h, card, &link);
         h.frame();
         let xf = h.app.board_xf();
-        let r = xf.rect_w2s(h.app.doc().scene.node(card).unwrap().rect);
-        let circle = super::super::output_circle_center(r, xf.z);
+        let circle = h.app.return_dot_at(&h.ctx, card, &xf).unwrap();
         click(&mut h, circle, egui::Modifiers::NONE);
         assert_eq!(h.app.agents.artifact_popup, Some((card, true)));
         let rows: Vec<Rect> =

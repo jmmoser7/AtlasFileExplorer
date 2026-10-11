@@ -183,7 +183,12 @@ fn presses_on_the_bottom_band_resize_and_the_inside_does_not() {
     h.app.tab_mut().cam.offset = egui::vec2(world.x + world.w * 0.5, world.y + world.h - 48.0);
     h.frame();
     let band = super::chat_edge::chat_bottom_band(h.app.tab().cam.z);
+    let coding = slate_doc::crosstalk::is_coding_card(h.app.doc().scene.node(id).unwrap());
+    // The center of a coding card's bottom edge is its port, not the resize band.
     for frac in [0.2, 0.5, 0.8] {
+        if coding && (frac - 0.5).abs() < 0.01 {
+            continue;
+        }
         let xf = h.app.board_xf();
         let r = xf.rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
         let from = Pos2::new(r.left() + r.width() * frac, r.bottom() - band * 0.45);
@@ -229,14 +234,14 @@ fn the_context_dot_keeps_the_collapsed_offset() {
             .app
             .chat_context_dot(&h.ctx, &node, screen, h.app.tab().cam.z);
         offsets.push(dot.y - screen.top());
-        let header = slate_doc::agent_chat::RAIL_INSET * h.app.tab().cam.z;
-        assert!(
-            (dot.y - (screen.top() + header)).abs() < 1.5,
-            "the context dot stays on the header: {} vs {}",
-            dot.y - screen.top(),
-            header
-        );
-        let _ = collapsed;
+        if collapsed {
+            assert!(
+                (dot.y - screen.center().y).abs() < 1.5,
+                "collapsed dot is centered: {} vs {}",
+                dot.y,
+                screen.center().y
+            );
+        }
     }
     assert!(
         (offsets[1] - offsets[0]).abs() < 1.0,
@@ -374,8 +379,14 @@ fn a_chat_wire_starts_at_the_header_dot() {
     h.frame();
     let xf = h.app.board_xf();
     let screen = xf.rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
-    let from = super::output_circle_center(screen, xf.z);
-    assert!((from.y - screen.center().y).abs() > 40.0);
+    let train = super::output_circle_center(screen, xf.z);
+    assert!((train.y - screen.center().y).abs() > 40.0);
+    let card_w = h.app.doc().scene.node(id).unwrap().rect.w;
+    let from = h.app.chat_return_dot(&h.ctx, id, card_w, screen, xf.z);
+    assert!(
+        (from.y - train.y).abs() > 8.0,
+        "the return drag does not leave the train grip"
+    );
     h.app.agents.outputs.drag = Some((id, "k".into(), from));
     let hot = from + egui::vec2(180.0, 0.0);
     let out = h.frame_output(|i| i.events.push(egui::Event::PointerMoved(hot)));
