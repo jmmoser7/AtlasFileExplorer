@@ -345,16 +345,18 @@ impl SlateApp {
                         self.agents.spawn_drag = None;
                         self.board_sel.clear();
                         self.board_sel.insert(id);
+                        let parented = self.agent_has_child(id);
                         let fork = moving
-                            && self
-                                .doc()
-                                .scene
-                                .node(id)
-                                .and_then(slate_doc::agent_chat::agent)
-                                .is_some_and(|a| {
-                                    !a.chat.linear
-                                        && !atlas_ai::runtime::linear_provider(&a.provider)
-                                });
+                            && (parented
+                                || self
+                                    .doc()
+                                    .scene
+                                    .node(id)
+                                    .and_then(slate_doc::agent_chat::agent)
+                                    .is_some_and(|a| {
+                                        !a.chat.linear
+                                            && !atlas_ai::runtime::linear_provider(&a.provider)
+                                    }));
                         self.dispatch(
                             ui.ctx(),
                             atlas_commands::CommandId(if fork {

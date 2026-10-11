@@ -40,6 +40,7 @@ mod awaits;
 mod bundle;
 mod card_fit;
 mod card_metrics;
+mod chat_edge;
 mod composer;
 mod connection;
 mod context;
@@ -49,6 +50,7 @@ mod generator;
 mod generator_pump;
 mod header_menu;
 mod inputs;
+mod interactive_text;
 mod models;
 mod picture;
 mod portal_bound;
@@ -157,6 +159,8 @@ pub(crate) fn bind_program(
 
 #[cfg(test)]
 mod await_tests;
+#[cfg(test)]
+mod chat_card_polish_tests;
 #[cfg(test)]
 mod chat_card_tests;
 #[cfg(test)]

@@ -480,9 +480,8 @@ impl SlateApp {
         self.board_clipboard.clone()
     }
 
-    /// Ctrl+V / Ctrl+Shift+V. `at` = world target for the payload center
-    /// (`None` = paste in place at source coordinates). One journaled Add
-    /// group; the copies become the selection. Returns pasted count.
+    /// Ctrl+V / Ctrl+Shift+V. `at` is the world center (`None` pastes in place).
+    /// One journaled Add group; the copies become the selection. Returns the count.
     pub(crate) fn board_paste(&mut self, os_text: Option<&str>, at: Option<Pos2>) -> usize {
         // A pasted URL is a page, not text (D01). Checked before the scene
         // payload so copying nodes and copying a link never compete.
@@ -510,7 +509,7 @@ impl SlateApp {
             }
             None => (0.0, 0.0),
         };
-        let nodes = {
+        let mut nodes = {
             let scene = &mut self.doc_mut().scene;
             // Scene id/key allocation stays inside the scene: build a probe
             // node per fresh id so ids can never collide with existing ones.
@@ -540,8 +539,8 @@ impl SlateApp {
                 dy,
             )
         };
-        // A copied context card leaves its provenance wire behind, so the
-        // paste is an ordinary board node.
+        self.keep_external_chat_hosts(&mut nodes, &payload);
+        // A copied context card leaves its provenance wire behind.
         let nodes: Vec<_> = nodes
             .into_iter()
             .filter(|n| {

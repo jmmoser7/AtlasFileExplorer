@@ -396,10 +396,9 @@ impl SlateApp {
         let reach = canvas_scale::px(PORT_REACH, xf.z);
         [Side::Top, Side::Bottom].into_iter().find(|side| {
             let p = slate_doc::connector_anchor_on(node, *side, 0.5);
-            xf.w2s(Pos2::new(p[0], p[1])).distance(screen) <= reach
+            self.port_reaches(screen, xf, *side, p, reach)
         })
     }
-
     /// The topmost crosstalk port under `screen`.
     pub(crate) fn crosstalk_port_under(
         &self,

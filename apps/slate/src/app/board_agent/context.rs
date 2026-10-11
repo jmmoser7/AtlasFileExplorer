@@ -261,7 +261,10 @@ impl SlateApp {
         let Some(id) = self.selected_agent_portal() else {
             return false;
         };
-        if self.agent_linear(id) {
+        // A card that already has a child still forks: the drag that leaves
+        // its output is this command. A linear card with no child continues
+        // instead, and stays one stream.
+        if self.agent_linear(id) && !self.agent_has_child(id) {
             self.toast("Coding agents use one conversation stream.");
             return true;
         }

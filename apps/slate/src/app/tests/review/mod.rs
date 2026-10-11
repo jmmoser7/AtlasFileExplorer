@@ -6,6 +6,7 @@
 use super::*;
 
 mod board;
+mod chat_polish;
 mod chat_train;
 mod chrome;
 mod packs;

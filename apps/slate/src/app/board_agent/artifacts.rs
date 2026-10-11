@@ -63,10 +63,7 @@ impl SlateApp {
         let r = xf.rect_w2s(node.rect);
         let z = xf.z;
         let palette = self.palette();
-        let rest = Pos2::new(
-            r.left() + slate_doc::agent_chat::PORT_INSET * z,
-            r.center().y,
-        );
+        let rest = self.chat_context_dot(ui.ctx(), node, r, z);
         let travel = canvas_scale::px(dot_split_travel(HANDLE_DOT), z);
         let reach = canvas_scale::px(11.0, z);
         let pointer = ui.ctx().pointer_hover_pos();
@@ -175,10 +172,7 @@ impl SlateApp {
                 self.agent_artifacts(node.id, false)
             };
             let anchor = if output {
-                Pos2::new(
-                    r.right() - slate_doc::agent_chat::PORT_INSET * z,
-                    r.center().y,
-                )
+                Pos2::new(r.right() - slate_doc::agent_chat::PORT_INSET * z, rest.y)
             } else {
                 auto
             };
