@@ -848,7 +848,7 @@ impl SlateApp {
         let editing_text = self.text_compose_active();
 
         // Object chrome runs before gestures so it can capture clicks.
-        let agent_controls_capture = self.agent_spawn_input(ui, &xf);
+        let agent_controls_capture = self.agent_spawn_input(ui, &xf) | self.image_result_drag_input(ui, &xf);
         let other_toolbar_captures = self.shape_properties_ui(ui, &xf)
             | self.corner_entry_ui(ui, &xf)
             | self.tip_numeric_ui(ui, &xf)
@@ -856,6 +856,8 @@ impl SlateApp {
         let shot_captures = self.paint_model_screenshot_popup(ui.ctx());
         let model_toolbar_captures =
             agent_controls_capture || other_toolbar_captures || shot_captures;
+        let selection_capture = !model_toolbar_captures && self.image_selection_input(ui, &xf);
+        let model_toolbar_captures = model_toolbar_captures || selection_capture;
         self.lock_models_pressed_outside(ui, &xf, pointer, model_toolbar_captures);
 
         let now = ui.input(|i| i.time);

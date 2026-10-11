@@ -8,8 +8,11 @@ use crate::geom::{child_norm_rect_to_world, child_world_rect_to_norm};
 use crate::scene::{ImageNode, Node, NodeId, NodeKind, WorldRect};
 use serde::{Deserialize, Serialize};
 
+mod results;
+pub use results::*;
+
 /// Stable id for a paint layer on one image.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct PaintLayerId(pub u64);
 
 impl PaintLayerId {
@@ -128,20 +131,13 @@ pub fn layer_node_kind_allowed(kind: &NodeKind) -> bool {
 }
 
 /// Where a layer-owned node lives in the scene graph.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LayerNodeRef {
     pub image: NodeId,
+    /// `None` identifies the pre-album legacy stack.
+    pub result: Option<ImageResultId>,
     pub layer_index: usize,
     pub node_index: usize,
-}
-
-/// Fresh [`NodeId`]s for every child on duplicated or pasted images.
-pub fn fresh_layer_node_ids(img: &mut ImageNode, mut next_id: impl FnMut() -> NodeId) {
-    for layer in &mut img.paint_layers {
-        for child in &mut layer.nodes {
-            child.id = next_id();
-        }
-    }
 }
 
 /// Drop layer children whose kinds are not allowed (load / paste hygiene).
@@ -150,8 +146,15 @@ pub fn sanitize_paint_layers(scene: &mut crate::scene::Scene) {
         let NodeKind::Image(img) = &mut host.kind else {
             continue;
         };
-        for layer in &mut img.paint_layers {
+        for layer in img.paint_layers.iter_mut().chain(
+            img.result_layers
+                .iter_mut()
+                .flat_map(|stack| &mut stack.layers),
+        ) {
             layer.nodes.retain(|n| layer_node_kind_allowed(&n.kind));
+        }
+        for stack in &mut img.result_layers {
+            stack.normalize_metadata();
         }
     }
 }
@@ -167,9 +170,24 @@ pub fn find_layer_node(scene: &crate::scene::Scene, id: NodeId) -> Option<LayerN
                 if child.id == id {
                     return Some(LayerNodeRef {
                         image: host.id,
+                        result: None,
                         layer_index,
                         node_index,
                     });
+                }
+            }
+        }
+        for stack in &img.result_layers {
+            for (layer_index, layer) in stack.layers.iter().enumerate() {
+                for (node_index, child) in layer.nodes.iter().enumerate() {
+                    if child.id == id {
+                        return Some(LayerNodeRef {
+                            image: host.id,
+                            result: Some(stack.result.clone()),
+                            layer_index,
+                            node_index,
+                        });
+                    }
                 }
             }
         }
@@ -191,6 +209,54 @@ pub fn region_prompts(img: &ImageNode) -> Vec<String> {
         .map(|p| p.prompt.trim().to_string())
         .filter(|p| !p.is_empty())
         .collect()
+}
+
+/// Instructions attached to the displayed result only, with legacy ordinary
+/// image layers resolved through `layers_for_result`.
+pub fn region_prompts_for_result(img: &ImageNode, result: &ImageResultId) -> Vec<String> {
+    layers_for_result(img, result)
+        .iter()
+        .filter(|layer| layer.visible)
+        .flat_map(|layer| {
+            layer
+                .prompts
+                .iter()
+                .filter(move |prompt| layer.nodes.iter().any(|node| node.id == prompt.node))
+        })
+        .map(|prompt| prompt.prompt.trim().to_string())
+        .filter(|prompt| !prompt.is_empty())
+        .collect()
+}
+
+/// Convert a host-image-normalized selection into a child layer node's
+/// normalized `Node.clip` coordinates. The child can have its own rotation;
+/// the mask is inverse-rotated before being mapped through its rect.
+pub fn clip_path_for_layer_node(
+    child: &Node,
+    mask_in_host_norm: &[Vec<[f32; 2]>],
+) -> Option<crate::scene::PathData> {
+    let rect = child.rect;
+    if rect.w.abs() <= 1e-6 || rect.h.abs() <= 1e-6 {
+        return None;
+    }
+    let (cx, cy) = rect.center();
+    let (sin, cos) = child.rotation_deg.to_radians().sin_cos();
+    let contours = mask_in_host_norm
+        .iter()
+        .map(|contour| {
+            contour
+                .iter()
+                .map(|point| {
+                    let dx = point[0] - cx;
+                    let dy = point[1] - cy;
+                    let local_x = cx + dx * cos + dy * sin;
+                    let local_y = cy - dx * sin + dy * cos;
+                    [(local_x - rect.x) / rect.w, (local_y - rect.y) / rect.h]
+                })
+                .collect()
+        })
+        .collect();
+    region_path(contours)
 }
 
 /// A segmentation mask becomes ordinary SVG-compatible, even-odd paint geometry.
@@ -242,221 +308,4 @@ pub fn visible_window_norm(host: &Node, img: &ImageNode) -> Vec<Vec<[f32; 2]>> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::scene::{Corner, Crop, NodeKind, ShapeKind, ShapeNode, Stroke};
-
-    fn path_shape() -> ShapeNode {
-        ShapeNode {
-            shape: ShapeKind::Path,
-            sides: 6,
-            phase_deg: 0.0,
-            fill: None,
-            stroke: Stroke::default(),
-            corner: Corner::Square,
-            flip: false,
-            path: None,
-            text: None,
-        }
-    }
-
-    fn host_with_crop(crop: Crop) -> Node {
-        let mut scene = crate::scene::Scene::default();
-        scene.build_node(
-            WorldRect::new(10.0, 20.0, 100.0, 50.0),
-            NodeKind::Image(ImageNode {
-                item: crate::ItemId(1),
-                crop,
-                ..ImageNode::new(crate::ItemId(1))
-            }),
-        )
-    }
-
-    fn stroke_local(u: f32, v: f32) -> Node {
-        let mut scene = crate::scene::Scene::default();
-        scene.build_node(
-            WorldRect::new(u, v, 0.2, 0.1),
-            NodeKind::Shape(ShapeNode {
-                shape: ShapeKind::Rect,
-                sides: 6,
-                phase_deg: 0.0,
-                fill: None,
-                stroke: Stroke::default(),
-                corner: Corner::Square,
-                flip: false,
-                path: None,
-                text: None,
-            }),
-        )
-    }
-
-    #[test]
-    fn layer_norm_is_content_not_crop_window() {
-        let crop = Crop {
-            x: 0.25,
-            y: 0.25,
-            w: 0.5,
-            h: 0.5,
-        };
-        let host = host_with_crop(crop);
-        let img = match &host.kind {
-            NodeKind::Image(i) => i,
-            _ => unreachable!(),
-        };
-        let (cx, cy) = host.rect.center();
-        let (u, v) = world_to_host_norm(&host, img, cx, cy);
-        assert!((u - 0.5).abs() < 1e-3 && (v - 0.5).abs() < 1e-3);
-        let mut local = stroke_local(0.0, 0.0);
-        local.rect = WorldRect::new(0.4, 0.4, 0.2, 0.2);
-        let world = layer_node_to_world(&host, img, &local);
-        let content = image_content_rect(&host, img);
-        let (ccx, ccy) = content.center();
-        let (wx, wy) = world.rect.center();
-        assert!((wx - ccx).abs() < 1e-2 && (wy - ccy).abs() < 1e-2);
-    }
-
-    #[test]
-    fn layer_coords_round_trip_unrotated() {
-        let host = host_with_crop(Crop::full());
-        let img = match &host.kind {
-            NodeKind::Image(i) => i,
-            _ => unreachable!(),
-        };
-        let local = stroke_local(0.2, 0.2);
-        let back = layer_node_to_world(&host, img, &local);
-        let again = layer_node_from_world(&host, img, &back);
-        assert!((again.rect.x - local.rect.x).abs() < 1e-4);
-        assert!((again.rect.y - local.rect.y).abs() < 1e-4);
-    }
-
-    #[test]
-    fn layer_coords_survive_host_rotation() {
-        for deg in [37.0, 90.0, 180.0] {
-            let mut host = host_with_crop(Crop::full());
-            host.rotation_deg = deg;
-            let img = match &host.kind {
-                NodeKind::Image(i) => i.clone(),
-                _ => unreachable!(),
-            };
-            let local = stroke_local(0.3, 0.4);
-            let world = layer_node_to_world(&host, &img, &local);
-            let back = layer_node_from_world(&host, &img, &world);
-            assert!((back.rect.x - local.rect.x).abs() < 1e-3, "deg={deg} x");
-            assert!((back.rect.y - local.rect.y).abs() < 1e-3, "deg={deg} y");
-            assert!(
-                (back.rotation_deg - local.rotation_deg).abs() < 1e-3,
-                "deg={deg} rot"
-            );
-        }
-    }
-
-    #[test]
-    fn host_local_mapping_does_not_orbit_with_rotated_host() {
-        let mut host = host_with_crop(Crop {
-            x: 0.25,
-            y: 0.0,
-            w: 0.5,
-            h: 1.0,
-        });
-        host.rotation_deg = 90.0;
-        let img = match &host.kind {
-            NodeKind::Image(i) => i,
-            _ => unreachable!(),
-        };
-        let local = stroke_local(0.0, 0.0);
-        let mapped = layer_node_to_host_local(&host, img, &local);
-        assert!((mapped.rect.x + 50.0).abs() < 1e-3);
-        assert!((mapped.rect.y - 0.0).abs() < 1e-3);
-        assert!((mapped.rect.w - 40.0).abs() < 1e-3);
-        assert_eq!(mapped.rotation_deg, local.rotation_deg);
-    }
-
-    #[test]
-    fn rotate_after_draw_round_trip() {
-        let mut host = host_with_crop(Crop::full());
-        let img = match &host.kind {
-            NodeKind::Image(i) => i.clone(),
-            _ => unreachable!(),
-        };
-        let local = stroke_local(0.25, 0.35);
-        let world_before = layer_node_to_world(&host, &img, &local);
-        host.rotation_deg = 45.0;
-        let world_after = layer_node_to_world(&host, &img, &local);
-        assert!(world_before.rect.x != world_after.rect.x);
-        let back = layer_node_from_world(&host, &img, &world_after);
-        assert!((back.rect.x - local.rect.x).abs() < 1e-3);
-    }
-
-    #[test]
-    fn old_image_without_layers_field_defaults_empty() {
-        let json = r#"{"item":1,"crop":{"x":0,"y":0,"w":1,"h":1}}"#;
-        let img: ImageNode = serde_json::from_str(json).unwrap();
-        assert!(img.paint_layers.is_empty());
-    }
-
-    #[test]
-    fn layer_node_kind_allows_drawing_tools_and_layer_images() {
-        use crate::scene::{FrameNode, Rgba, TextNode};
-        assert!(layer_node_kind_allowed(&NodeKind::Text(TextNode {
-            text: String::new(),
-            family: Default::default(),
-            size: 14.0,
-            color: Rgba([0, 0, 0, 255]),
-            align: Default::default(),
-            fill: None,
-            stroke: Default::default(),
-            agent: None,
-        })));
-        for shape in [
-            ShapeKind::Path,
-            ShapeKind::Line,
-            ShapeKind::Rect,
-            ShapeKind::Ellipse,
-        ] {
-            let mut s = path_shape();
-            s.shape = shape;
-            assert!(layer_node_kind_allowed(&NodeKind::Shape(s)));
-        }
-        assert!(layer_node_kind_allowed(&NodeKind::Image(ImageNode::new(
-            crate::ItemId(1)
-        ))));
-        assert!(!layer_node_kind_allowed(&NodeKind::Frame(FrameNode {
-            title: String::new(),
-            order: 0,
-            fill: Rgba([255, 255, 255, 255]),
-            fill_authored: false,
-            assignments: Default::default(),
-            stroke: Stroke::none(),
-            corner: Corner::Square,
-        })));
-    }
-
-    #[test]
-    fn find_layer_node_locates_nested_stroke() {
-        let mut scene = crate::scene::Scene::default();
-        let host = scene.build_node(
-            WorldRect::new(10.0, 20.0, 100.0, 50.0),
-            NodeKind::Image(ImageNode::new(crate::ItemId(1))),
-        );
-        let host_id = host.id;
-        scene.apply(&crate::scene::SceneCmd::Add {
-            index: 0,
-            node: host,
-        });
-        let local = scene.build_node(
-            WorldRect::new(0.1, 0.1, 0.2, 0.2),
-            NodeKind::Shape(path_shape()),
-        );
-        let stroke_id = local.id;
-        let host = scene.node_mut(host_id).unwrap();
-        let NodeKind::Image(ref mut img) = host.kind else {
-            unreachable!()
-        };
-        img.paint_layers.push(PaintLayer::new(PaintLayerId(1)));
-        img.paint_layers[0].nodes.push(local);
-        let loc = find_layer_node(&scene, stroke_id).unwrap();
-        assert_eq!(loc.image, host_id);
-        assert_eq!(loc.layer_index, 0);
-        assert_eq!(loc.node_index, 0);
-    }
-}
+mod tests;

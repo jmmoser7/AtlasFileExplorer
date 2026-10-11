@@ -423,6 +423,10 @@ pub struct ChatPicker {
 }
 
 impl AgentRuntime {
+    pub fn prompt(&self, id: NodeId) -> Option<&str> {
+        self.prompts.get(&id).map(String::as_str)
+    }
+
     pub fn prompt_mut(&mut self, id: NodeId) -> &mut String {
         self.prompts.entry(id).or_default()
     }

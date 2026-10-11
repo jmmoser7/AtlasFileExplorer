@@ -32,6 +32,7 @@ impl SlateApp {
                     ui.set_min_width(menu::tokens().min_width);
                     menu::heading(ui, format!("{} object(s)", targets.len()), dark);
                     menu::separator(ui, dark);
+                    close |= self.image_selection_context_menu(ui, node_id);
                     if let Some(NodeKind::Portal(p)) =
                         self.doc().scene.node(node_id).map(|n| n.kind.clone())
                     {

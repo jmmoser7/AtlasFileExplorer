@@ -11,6 +11,8 @@ use std::sync::OnceLock;
 
 use crate::render::{brush_stamp, escape_attr, render_shape_svg, render_text_svg};
 
+pub(crate) mod clips;
+
 /// SVG document for one image's paint layers at pixel size `w`×`h`.
 pub fn paint_layers_svg(host: &Node, img: &ImageNode, w: u32, h: u32) -> String {
     paint_layers_svg_inner(host, img, w, h, None)
@@ -108,49 +110,8 @@ impl<'a> LayerFrame<'a> {
     }
 }
 
-fn node_svg(
-    html: &mut String,
-    mapped: &Node,
-    child_rel: WorldRect,
-    scale: f32,
-    doc: Option<&SlateDoc>,
-) {
-    match &mapped.kind {
-        NodeKind::Shape(shape) => render_shape_svg(html, mapped, shape, child_rel, scale),
-        NodeKind::Text(text) => render_text_svg(html, mapped, text, &text.text, child_rel, scale),
-        NodeKind::Image(layer_img) => {
-            if let Some(href) = doc.and_then(|doc| image_data_uri(doc, layer_img)) {
-                let cx = child_rel.x + child_rel.w * 0.5;
-                let cy = child_rel.y + child_rel.h * 0.5;
-                let mirror = layer_img
-                    .mirror()
-                    .scale()
-                    .map(|(sx, sy)| {
-                        format!(
-                            " translate({cx:.3} {cy:.3}) scale({sx} {sy}) translate({:.3} {:.3})",
-                            -cx, -cy
-                        )
-                    })
-                    .unwrap_or_default();
-                let _ = write!(
-                    html,
-                    "<image x=\"{:.3}\" y=\"{:.3}\" width=\"{:.3}\" height=\"{:.3}\" preserveAspectRatio=\"none\" opacity=\"{:.3}\" transform=\"rotate({:.3} {:.3} {:.3}){}\" href=\"{}\"/>",
-                    child_rel.x,
-                    child_rel.y,
-                    child_rel.w,
-                    child_rel.h,
-                    mapped.opacity.clamp(0.0, 1.0),
-                    mapped.rotation_deg,
-                    cx,
-                    cy,
-                    mirror,
-                    escape_attr(&href)
-                );
-            }
-        }
-        _ => {}
-    }
-}
+mod svg;
+use svg::node_svg;
 
 /// Brush-stroke bitmaps of paint layers, kept across rebuilds so an edit
 /// restamps only the strokes it changed. Owned by whoever rasterizes.
@@ -314,7 +275,9 @@ pub fn rasterize_paint_layers(
                 node_svg(&mut vector, &mapped, child_rel, frame.scale, doc);
                 continue;
             };
-            if !is_brush_stroke(shape) {
+            // Masked marks use the shared SVG clip interpreter. Unmasked
+            // brushes retain their cached bitmap fast path.
+            if !is_brush_stroke(shape) || mapped.clip.is_some() {
                 node_svg(&mut vector, &mapped, child_rel, frame.scale, doc);
                 continue;
             }

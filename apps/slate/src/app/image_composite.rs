@@ -11,15 +11,19 @@ use std::path::{Path, PathBuf};
 /// Decodes and encodes; the context publish runs it off the frame loop.
 pub fn agent_wired_image_file(doc: &SlateDoc, node: &Node, img: &ImageNode) -> Option<PathBuf> {
     let source = doc.item(img.item).map(|i| i.path.clone())?;
-    if !img.mirror().any()
+    agent_wired_image_file_from_source(doc, node, img, &source)
+}
+
+pub fn agent_wired_image_file_from_source(doc: &SlateDoc, node: &Node, img: &ImageNode, source: &Path) -> Option<PathBuf> {
+    if img.adjust == Default::default() && !img.mirror().any()
         && img
             .paint_layers
             .iter()
             .all(|l| !l.visible || l.nodes.is_empty())
     {
-        return super::imagefx::visible_crop_file(&source, img.crop).or_else(|| {
+        return super::imagefx::visible_crop_file(source, img.crop).or_else(|| {
             if img.crop.is_full() {
-                Some(source)
+                Some(source.to_path_buf())
             } else {
                 None
             }
@@ -27,12 +31,12 @@ pub fn agent_wired_image_file(doc: &SlateDoc, node: &Node, img: &ImageNode) -> O
     }
     #[cfg(test)]
     super::imagefx::DECODES_ON_THIS_THREAD.with(|n| n.set(n.get() + 1));
-    let rgba = composite_rgba(doc, node, img, &source, false)?;
+    let rgba = composite_rgba(doc, node, img, source, false)?;
     let dir = std::env::temp_dir().join("slate-composite");
     std::fs::create_dir_all(&dir).ok()?;
     let key = format!(
         "{:016x}-{}-{}.png",
-        path_key(&source),
+        path_key(source),
         node.id.0,
         img.paint_layers.len()
     );
@@ -51,6 +55,7 @@ pub fn composite_rgba(
     source: &Path,
     with_overlay: bool,
 ) -> Option<RgbaImage> {
+    if atlas_core::cloud::is_dehydrated(source) { return None; }
     let mut base = image::open(source).ok()?;
     if img.flip_x {
         base = base.fliph();
@@ -111,15 +116,14 @@ pub fn replace_wired_image_slots(
     let NodeKind::Image(img) = &node.kind else {
         return;
     };
-    let Some(path) = agent_wired_image_file(app.doc(), node, img) else {
+    let display = app
+        .image_for_selected_result(node_id)
+        .unwrap_or_else(|| img.clone());
+    let Some(source) = app.image_item_path(node_id) else { return };
+    let Some(path) = agent_wired_image_file_from_source(app.doc(), node, &display, &source) else {
         return;
     };
     let clipped = path.to_string_lossy().into_owned();
-    let source = app
-        .doc()
-        .item(img.item)
-        .map(|i| i.path.clone())
-        .unwrap_or_default();
     for slot in item.images.iter_mut().chain(item.depth.as_mut()) {
         if Path::new(&*slot) == source.as_path() {
             *slot = clipped.clone();

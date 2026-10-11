@@ -5,7 +5,15 @@ use crate::{
     theme::Palette,
     tokens,
 };
-use eframe::egui::{self, emath::Rot2, Align2, Color32, Id, Pos2, Rect, Sense, Stroke, Vec2};
+use eframe::egui::{self, Align2, Color32, Id, Pos2, Rect, Sense, Stroke, Vec2, emath::Rot2};
+
+mod image_presentation;
+pub use image_presentation::{
+    IMAGE_DATUM_HEIGHT, IMAGE_PANEL_GAP, IMAGE_PANEL_INSET, IMAGE_WIDE_THRESHOLD, ImageColorLayout,
+    ImageLayoutChoice, ImagePanelKind, ImagePresentationLayout, ImageTechnicalLayout,
+    image_presentation_layout, image_presentation_layout_with_choice, paint_image_blister,
+    paint_image_tab,
+};
 
 pub const BUTTON_SIZE: f32 = 30.0;
 pub const BUTTON_GAP: f32 = 7.0;
@@ -844,14 +852,65 @@ pub fn color_editor(
     zoom: f32,
     theme: Palette,
 ) -> ColorEdit {
-    panel(ui, rect, zoom, theme);
+    color_editor_impl(
+        ui, rect, rgba, width, mixed, recent, state, zoom, theme, None,
+    )
+}
+
+/// Shared color editor inside an image blister. The layout supplies only the
+/// field, rail, and technical-datum positions; color state, textures, slider
+/// semantics, sampling, and numeric edits remain the same as `color_editor`.
+#[allow(clippy::too_many_arguments)]
+pub fn image_color_editor(
+    ui: &mut egui::Ui,
+    layout: &ImagePresentationLayout,
+    rgba: [u8; 4],
+    width: Option<f32>,
+    mixed: bool,
+    recent: &[[u8; 3]],
+    state: &mut ColorState,
+    zoom: f32,
+    theme: Palette,
+) -> ColorEdit {
+    color_editor_impl(
+        ui,
+        layout.main,
+        rgba,
+        width,
+        mixed,
+        recent,
+        state,
+        zoom,
+        theme,
+        Some(layout),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn color_editor_impl(
+    ui: &mut egui::Ui,
+    rect: Rect,
+    rgba: [u8; 4],
+    width: Option<f32>,
+    mixed: bool,
+    recent: &[[u8; 3]],
+    state: &mut ColorState,
+    zoom: f32,
+    theme: Palette,
+    image_layout: Option<&ImagePresentationLayout>,
+) -> ColorEdit {
+    if image_layout.is_none() {
+        panel(ui, rect, zoom, theme);
+    }
     let mut out = ColorEdit::default();
     let rgb = [rgba[0], rgba[1], rgba[2]];
     if state.rgb != Some(rgb) {
         state.hsv = hsv_for(rgb, state.hsv);
         state.rgb = Some(rgb);
     }
-    let field = color_field(rect, zoom);
+    let field = image_layout
+        .and_then(|layout| layout.color.map(|color| color.field))
+        .unwrap_or_else(|| color_field(rect, zoom));
     let hue = state.hsv.h;
     let texture = state.texture(
         ui,
@@ -880,7 +939,11 @@ pub fn color_editor(
     if mixed {
         response.on_hover_text("Mixed colors — editing applies this color to the selection");
     }
-    let rail = |index: usize| color_rail(rect, index, zoom);
+    let rail = |index: usize| {
+        image_layout
+            .and_then(|layout| layout.color.map(|color| color.rails[index]))
+            .unwrap_or_else(|| color_rail(rect, index, zoom))
+    };
     let tex = state.texture(
         ui,
         "shape-alpha",
@@ -989,10 +1052,17 @@ pub fn color_editor(
             out.width = Some(fraction_width(t));
         }
     }
-    let y = rect.bottom() - 20.0 * zoom;
-    let dropper = Rect::from_center_size(
-        Pos2::new(rect.left() + 21.0 * zoom, y),
-        Vec2::splat(23.0 * zoom),
+    let y = image_layout.map_or(rect.bottom() - 20.0 * zoom, |layout| {
+        layout.technical.center().y
+    });
+    let dropper = image_layout.map_or_else(
+        || {
+            Rect::from_center_size(
+                Pos2::new(rect.left() + 21.0 * zoom, y),
+                Vec2::splat(23.0 * zoom),
+            )
+        },
+        |layout| layout.technical_controls.eyedropper,
     );
     let r = ui
         .interact(dropper, ui.id().with("eyedropper"), Sense::click_and_drag())
@@ -1027,16 +1097,21 @@ pub fn color_editor(
         },
     );
     for (i, c) in recent.iter().take(6).enumerate() {
-        let center = Pos2::new(rect.left() + (51.0 + i as f32 * 26.0) * zoom, y);
-        let color = Color32::from_rgb(c[0], c[1], c[2]);
-        let r = ui.interact(
-            Rect::from_center_size(center, Vec2::splat(22.0 * zoom)),
-            ui.id().with(("recent", i)),
-            Sense::click(),
+        let hit = image_layout.map_or_else(
+            || {
+                Rect::from_center_size(
+                    Pos2::new(rect.left() + (51.0 + i as f32 * 26.0) * zoom, y),
+                    Vec2::splat(22.0 * zoom),
+                )
+            },
+            |layout| layout.technical_controls.recent_colors[i],
         );
+        let center = hit.center();
+        let color = Color32::from_rgb(c[0], c[1], c[2]);
+        let r = ui.interact(hit, ui.id().with(("recent", i)), Sense::click());
         ui.painter().circle(
             center,
-            8.0 * zoom,
+            hit.height().min(hit.width()) * (8.0 / 22.0),
             color,
             Stroke::new(0.5 * zoom, theme.border),
         );
@@ -1044,20 +1119,30 @@ pub fn color_editor(
             out.rgb = Some(*c);
         }
     }
-    let divider = rect.left() + 204.0 * zoom;
+    let divider = image_layout.map_or(rect.left() + 204.0 * zoom, |layout| {
+        layout.technical_controls.divider.center().x
+    });
+    let divider_rect = image_layout.map(|layout| layout.technical_controls.divider);
     ui.painter().line_segment(
-        [
-            Pos2::new(divider, y - 10.0 * zoom),
-            Pos2::new(divider, y + 10.0 * zoom),
-        ],
+        divider_rect.map_or(
+            [
+                Pos2::new(divider, y - 10.0 * zoom),
+                Pos2::new(divider, y + 10.0 * zoom),
+            ],
+            |r| [Pos2::new(divider, r.top()), Pos2::new(divider, r.bottom())],
+        ),
         Stroke::new(0.7 * zoom, theme.border),
     );
     let mut channels = rgb;
     for (i, label) in ["R ", "G ", "B "].iter().enumerate() {
+        let center = image_layout.map_or_else(
+            || Pos2::new(rect.left() + (244.0 + i as f32 * 65.0) * zoom, y),
+            |layout| layout.technical_controls.rgb_values[i].center(),
+        );
         let r = inline_number(
             ui,
             ui.id().with(("rgb", i)),
-            Pos2::new(rect.left() + (244.0 + i as f32 * 65.0) * zoom, y),
+            center,
             0.0,
             label,
             "%",
@@ -1739,11 +1824,7 @@ pub fn corner_editor(
         0.0..=maximum.max(0.0),
         if percent { "%" } else { " u" },
         |v| {
-            if maximum > 0.0 {
-                v / maximum
-            } else {
-                0.0
-            }
+            if maximum > 0.0 { v / maximum } else { 0.0 }
         },
         |v| {
             format!(
@@ -2095,6 +2176,12 @@ pub fn agent_editor(
     }
     out
 }
+
+mod agent_image;
+pub use agent_image::{
+    ImageAgentEditResponse, ImageAgentHistoryItem, ImageAgentInput, ImageAgentOptions,
+    image_agent_editor, image_agent_height,
+};
 
 /// Crosstalk editor on a selected crosstalk wire: which side builds, the stop
 /// rule (turns, minutes, goal), then Start or Done. Rows are default capsules.
@@ -2478,6 +2565,11 @@ pub enum FilterCapsuleStyle {
     /// Chips only (e.g. 3D viewport display modes). Same chip sizing as
     /// [`FilterCapsuleStyle::WithIntensity`]; no intensity track.
     ChipsOnly,
+    /// Image-blister form of [`FilterCapsuleStyle::WithIntensity`]. The image
+    /// blister supplies the surface behind the controls.
+    ImageWithIntensity,
+    /// Image-blister form of [`FilterCapsuleStyle::ChipsOnly`].
+    ImageChipsOnly,
 }
 
 /// Board-unit width for a chips-only filter capsule at the given height.
@@ -2532,7 +2624,12 @@ pub fn filter_capsule(
     theme: Palette,
     style: FilterCapsuleStyle,
 ) -> FilterEdit {
-    paint_capsule(ui, rect, zoom, theme);
+    if !matches!(
+        style,
+        FilterCapsuleStyle::ImageWithIntensity | FilterCapsuleStyle::ImageChipsOnly
+    ) {
+        paint_capsule(ui, rect, zoom, theme);
+    }
     let (pad, inner_h, radio_pitch) = filter_chip_metrics(rect.height(), zoom);
     let radius = inner_h * 0.36 * 0.8;
     let row_w = radios.len().max(1) as f32 * radio_pitch;
@@ -2564,7 +2661,10 @@ pub fn filter_capsule(
             theme,
         );
     }
-    if style == FilterCapsuleStyle::WithIntensity {
+    if matches!(
+        style,
+        FilterCapsuleStyle::WithIntensity | FilterCapsuleStyle::ImageWithIntensity
+    ) {
         if let Some(amount) = amount {
             let track = Rect::from_center_size(
                 Pos2::new(
@@ -2693,6 +2793,21 @@ pub fn layer_palette_layout(
     }
 }
 
+/// Places the shared layer controls in an image blister's main field. The
+/// existing below-image helper remains available for its original workflow.
+pub fn image_layer_palette_layout(
+    presentation: &ImagePresentationLayout,
+    layers: usize,
+    colors: usize,
+    zoom: f32,
+) -> LayerPaletteLayout {
+    let anchor = Pos2::new(
+        presentation.main.center().x,
+        presentation.main.center().y - FILTER_HEIGHT * zoom * 0.5 - LAYER_PALETTE_GAP * zoom,
+    );
+    layer_palette_layout(anchor, layers, colors, zoom)
+}
+
 /// What the layer palette did this frame.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct LayerPaletteEdit {
@@ -2720,7 +2835,44 @@ pub fn layer_palette(
     zoom: f32,
     theme: Palette,
 ) -> LayerPaletteEdit {
-    paint_capsule(ui, layout.capsule, zoom, theme);
+    layer_palette_impl(
+        ui, layout, thumbs, active, opacity, colors, zoom, theme, true,
+    )
+}
+
+/// Paints image-layer controls on the shared image blister, without adding an
+/// independent capsule behind them.
+#[allow(clippy::too_many_arguments)]
+pub fn image_layer_palette(
+    ui: &mut egui::Ui,
+    layout: &LayerPaletteLayout,
+    thumbs: &[Option<egui::TextureId>],
+    active: Option<usize>,
+    opacity: f32,
+    colors: &[[u8; 3]],
+    zoom: f32,
+    theme: Palette,
+) -> LayerPaletteEdit {
+    layer_palette_impl(
+        ui, layout, thumbs, active, opacity, colors, zoom, theme, false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn layer_palette_impl(
+    ui: &mut egui::Ui,
+    layout: &LayerPaletteLayout,
+    thumbs: &[Option<egui::TextureId>],
+    active: Option<usize>,
+    opacity: f32,
+    colors: &[[u8; 3]],
+    zoom: f32,
+    theme: Palette,
+    paint_surface: bool,
+) -> LayerPaletteEdit {
+    if paint_surface {
+        paint_capsule(ui, layout.capsule, zoom, theme);
+    }
     let mut out = LayerPaletteEdit::default();
     for (i, center) in layout.layers.iter().enumerate() {
         let hit = Rect::from_center_size(*center, Vec2::splat(layout.radius * 2.0));
@@ -3129,137 +3281,9 @@ pub fn text_format_editor(
     out
 }
 
-struct CapsuleMenu {
-    picked: Option<usize>,
-    popup: Option<Rect>,
-    opened: bool,
-}
-
-/// Rounded capsule whose menu arrow sits in a circle at the end.
-#[allow(clippy::too_many_arguments)]
-fn capsule_menu(
-    ui: &mut egui::Ui,
-    id: Id,
-    rect: Rect,
-    label: &str,
-    options: &[&str],
-    selected: usize,
-    open: &mut bool,
-    zoom: f32,
-    theme: Palette,
-) -> CapsuleMenu {
-    let mut out = CapsuleMenu {
-        picked: None,
-        popup: None,
-        opened: false,
-    };
-    let response = ui.interact(rect, id, Sense::click());
-    if response.clicked() {
-        *open = !*open;
-        out.opened = *open;
-    }
-    paint_capsule(ui, rect, zoom, theme);
-    let radius = rect.height() * 0.5;
-    let center = Pos2::new(rect.right() - radius, rect.center().y);
-    ui.painter().circle_filled(center, radius - zoom, theme.bg);
-    ui.painter().circle_stroke(
-        center,
-        radius - zoom,
-        Stroke::new(0.8 * zoom, theme.border_strong),
-    );
-    let arm = radius * 0.32;
-    let tip = center + Vec2::new(0.0, arm * 0.55);
-    let stroke = Stroke::new(1.1 * zoom, theme.ink);
-    ui.painter()
-        .line_segment([center + Vec2::new(-arm, -arm * 0.35), tip], stroke);
-    ui.painter()
-        .line_segment([center + Vec2::new(arm, -arm * 0.35), tip], stroke);
-    let label_rect = Rect::from_min_max(
-        rect.min,
-        Pos2::new(center.x - radius - 2.0 * zoom, rect.bottom()),
-    );
-    let painter = ui.painter().with_clip_rect(label_rect);
-    canvas_text::text(
-        &painter,
-        label_rect.left_center() + Vec2::new(10.0 * zoom, 0.0),
-        Align2::LEFT_CENTER,
-        label,
-        canvas_scale::font(9.0, zoom),
-        theme.ink,
-    );
-    if !*open {
-        return out;
-    }
-    let row_h = 22.0 * zoom;
-    let visible = options.len().min(8) as f32 * row_h + 8.0 * zoom;
-    let popup = Rect::from_min_size(
-        Pos2::new(rect.left(), rect.bottom() + 4.0 * zoom),
-        Vec2::new(rect.width().max(168.0 * zoom), visible),
-    );
-    out.popup = Some(popup);
-    let click = ui.input(|i| {
-        i.pointer
-            .any_click()
-            .then(|| i.pointer.interact_pos())
-            .flatten()
-    });
-    if let Some(pos) = click {
-        if !rect.contains(pos) && !popup.contains(pos) {
-            *open = false;
-            out.popup = None;
-            return out;
-        }
-    }
-    crate::menu_wheel::claim(ui.ctx(), popup);
-    popup_area(ui.ctx(), id.with("pop"), ui.layer_id())
-        .fixed_pos(popup.min)
-        .constrain(false)
-        .show(ui.ctx(), |ui| {
-            let frame = egui::Frame::NONE
-                .fill(theme.panel)
-                .stroke(Stroke::new(0.8 * zoom, theme.border_strong))
-                .corner_radius(egui::CornerRadius::same((10.0 * zoom).round() as u8))
-                .inner_margin(egui::Margin::same((4.0 * zoom).round() as i8));
-            frame.show(ui, |ui| {
-                ui.set_min_width(popup.width() - 8.0 * zoom);
-                egui::ScrollArea::vertical()
-                    .max_height(visible - 8.0 * zoom)
-                    .show(ui, |ui| {
-                        for (i, option) in options.iter().enumerate() {
-                            let (row, response) = ui.allocate_exact_size(
-                                Vec2::new(ui.available_width(), row_h),
-                                Sense::click(),
-                            );
-                            let on = i == selected;
-                            if on || response.hovered() {
-                                ui.painter().rect_filled(
-                                    row,
-                                    6.0 * zoom,
-                                    if on {
-                                        theme.select_fill
-                                    } else {
-                                        theme.card_hover
-                                    },
-                                );
-                            }
-                            canvas_text::text(
-                                ui.painter(),
-                                row.left_center() + Vec2::new(8.0 * zoom, 0.0),
-                                Align2::LEFT_CENTER,
-                                option,
-                                canvas_scale::font(11.0, zoom),
-                                if on { theme.select_stroke } else { theme.ink },
-                            );
-                            if response.clicked() {
-                                out.picked = Some(i);
-                                *open = false;
-                            }
-                        }
-                    });
-            });
-        });
-    out
-}
+mod menu_selector;
+use menu_selector::capsule_menu;
+pub(super) use menu_selector::{CapsuleMenu, bare_menu};
 
 fn align_segments(
     ui: &mut egui::Ui,
@@ -3981,10 +4005,11 @@ mod tests {
             let mut state = ColorState::default();
             let (rest, _) = frame(&ctx, &mut state, theme, vec![]);
             assert!(!has_metric(&rest));
-            assert!(rest
-                .shapes
-                .iter()
-                .any(|s| matches!(&s.shape, egui::Shape::Rect(r) if r.fill == theme.panel)));
+            assert!(
+                rest.shapes
+                    .iter()
+                    .any(|s| matches!(&s.shape, egui::Shape::Rect(r) if r.fill == theme.panel))
+            );
             let p = Pos2::new(250.0, color_rail(color_editor_rect(), 0, 1.0).center().y);
             frame(&ctx, &mut state, theme, vec![egui::Event::PointerMoved(p)]);
             let event = |pressed| egui::Event::PointerButton {
@@ -4430,11 +4455,12 @@ mod tests {
         );
         let (idle, _) = host.run(vec![]);
         let font_atlas = egui::TextureId::default();
-        assert!(idle
-            .textures_delta
-            .set
-            .iter()
-            .all(|(id, _)| *id == font_atlas));
+        assert!(
+            idle.textures_delta
+                .set
+                .iter()
+                .all(|(id, _)| *id == font_atlas)
+        );
     }
 
     #[test]

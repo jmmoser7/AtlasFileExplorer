@@ -1,19 +1,7 @@
-//! Board clipboard: copy / cut / paste of scene nodes, and paste of an image
-//! or files copied outside Slate.
-//!
-//! Node payload is plain `Vec<Node>` JSON (the same serde model the `.slate`
-//! file uses), kept app-internally *and* put on the OS clipboard under
-//! Slate's own registered format, so selections round-trip between tabs and
-//! Slate instances. The same clipboard write offers other apps something they
-//! can paste: copied pictures as a bitmap as shown (CF_DIBV5 and PNG) plus
-//! their linked files, anything else as plain text, never the JSON. Slate's
-//! own format is read before any of those on paste. A copied image
-//! (screenshot, "Copy image") or a file list from elsewhere is not that
-//! payload: those land as board items, the same intake as a drop. All
-//! mutations go through the
-//! journal (Constitution Art. VI): cut = one Remove group, paste = one Add
-//! group. The pasted bitmap is a file the workbook links to, never bytes
-//! stored in the `.slate` (Art. IX).
+//! Slate clipboard: scene-node JSON for in-app copy/paste, plus an OS bitmap,
+//! linked files, or plain text for other apps. Outside images and file lists
+//! use the same intake as drops. Cut and paste are journaled; pasted bitmaps
+//! are linked files, never bytes stored in the workbook (Constitution VI/IX).
 //!
 //! Connector rules (`docs/keymap/specs/constraints.md` §3):
 //! - connectors whose *both* anchored ends are inside the selection ride
@@ -344,10 +332,8 @@ fn render_clipboard(job: ClipboardJob) -> ClipboardWrite {
     }
 }
 
-/// The copied pictures composed as they sit on the board: each one as shown
-/// (`image_composite::composite_rgba`), scaled so the sharpest keeps its own
-/// resolution, turned by its rotation, faded by its opacity. Transparent
-/// between pictures. Cloud placeholders are skipped, never downloaded.
+/// Compose shown pictures at their sharpest source resolution, preserving
+/// rotation and opacity. Cloud placeholders are skipped, never downloaded.
 fn render_pictures(doc: &SlateDoc, pictures: &[Node]) -> Option<RgbaImage> {
     let shown: Vec<(&Node, RgbaImage)> = pictures
         .iter()
@@ -544,17 +530,21 @@ impl SlateApp {
         }
         // A picture an agent makes copies as the picture it shows, alone.
         for node in &mut payload {
-            let NodeKind::Image(img) = &node.kind else {
+            let NodeKind::Image(_) = &node.kind else {
                 continue;
             };
-            if img.agent.is_none() {
-                continue;
+            if let Some(display) = self.image_for_selected_result(node.id) {
+                if let NodeKind::Image(img) = &mut node.kind {
+                    img.paint_layers = display.paint_layers;
+                    img.result_layers.clear();
+                }
             }
-            let item = if img.item.is_none() {
-                self.agent_shown_path(node.id)
-                    .and_then(|path| self.item_for_path(&path))
-            } else {
-                Some(img.item)
+            let item = match &node.kind {
+                NodeKind::Image(img) if img.agent.is_some() && img.item.is_none() => self
+                    .agent_shown_path(node.id)
+                    .and_then(|path| self.item_for_path(&path)),
+                NodeKind::Image(img) if img.agent.is_some() => Some(img.item),
+                _ => None,
             };
             if let (Some(item), NodeKind::Image(img)) = (item, &mut node.kind) {
                 img.item = item;
@@ -603,6 +593,12 @@ impl SlateApp {
             if let NodeKind::Image(img) = &node.kind {
                 wanted.insert(img.item);
                 stack.extend(img.paint_layers.iter().flat_map(|l| l.nodes.iter()));
+                stack.extend(
+                    img.result_layers
+                        .iter()
+                        .flat_map(|result| result.layers.iter())
+                        .flat_map(|layer| layer.nodes.iter()),
+                );
             }
         }
         let mut job_doc = SlateDoc::new("clipboard");

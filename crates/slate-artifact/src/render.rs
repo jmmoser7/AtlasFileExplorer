@@ -867,7 +867,10 @@ fn render_image_paint_layers(
                 child.rect.w / node.rect.w.max(1e-6) * hw,
                 child.rect.h / node.rect.h.max(1e-6) * hh,
             );
-            html.push_str("<div class=\"paint-layer-node\" style=\"position:absolute;inset:0;pointer-events:none\">");
+            let clip_style = crate::paint_layers::clips::html_style(html, &child, child_px);
+            html.push_str("<div class=\"paint-layer-node\" style=\"position:absolute;inset:0;pointer-events:none;");
+            html.push_str(&clip_style);
+            html.push_str("\">");
             match &child.kind {
                 NodeKind::Shape(shape) => render_shape(html, &child, shape, child_px),
                 NodeKind::Text(text) => render_text(html, &child, text, &text.text, child_px),
@@ -2143,7 +2146,7 @@ fn bezpath_to_d_local(bez: &BezPath, rect: WorldRect, w: f32, h: f32) -> String 
     d
 }
 
-fn path_data_d(path: &PathData, w: f32, h: f32) -> String {
+pub(crate) fn path_data_d(path: &PathData, w: f32, h: f32) -> String {
     let mut d = String::new();
     let (x, y) = denorm_pt(path.start, w, h);
     d.push_str("M ");

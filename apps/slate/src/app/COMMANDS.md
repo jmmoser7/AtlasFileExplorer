@@ -153,6 +153,11 @@ drag the address-bar URL or a page link instead.
   vertex where it was. Each click is one undo step.
   The glyphs grow and shrink with the board zoom and drop when too small.
   This replaces the Corners panel's Sides number.
+- **Polygon rotation and dimensions** — hover outside any polygon vertex,
+  clear of the vertex pick and +/− controls, to rotate with the usual cursor
+  and drag. Stringers measure the current polygon's local width and height;
+  typed sizes preserve its measured center. Pick vertices for local Stroke
+  width/color/opacity edits; click a side away from vertices to edit the whole stroke.
 - **Align widget** (Grasshopper): with the Select tool and 2+ nodes selected,
   two icon clusters sit outside the group box (bottom and left). Bottom:
   align left / center / right / distribute horizontally; the row sits past
@@ -713,12 +718,35 @@ Agent chat titles support double-click editing (`portal.agent.rename`) across th
 Agent composer: Enter sends the message; Shift+Enter inserts a newline. Newly placed continuations focus this field automatically. Presentation changes live only in the ellipsis menu; single chat windows have no summary/identity or Unbundle action.
 
 Media agents: a selected picture, video, 3D model, text document, note or
-generated frame shows the Agent squircle. Its editor offers Text or Image, the
+generated frame shows the Agent control. Its editor offers Text or Image, the
 model menu (ComfyUI checkpoints with Auto, ChatGPT through the Codex sign-in,
 GPT Image with an API key, or a local language model), the prompt, and for
-images the count, aspect, seed lock and Live. Submit (or Enter in the prompt)
-dispatches `portal.agent.spawn` with those settings; the new frame appears
-downstream, wired, and runs. The source stays selected for the next variation.
+images the count, aspect and Live. Generating on a placed image enables the
+same image editor on that frame, retaining the original as its first album
+image and retaining its layers. Other media use `portal.agent.spawn` to create
+a downstream frame. The output-port menu still creates downstream cards.
+
+Images sit naked on the board until selected. Their image-local blister has
+one active tool panel, a technical strip above its content, and an expanding
+prompt below the generation controls. Empty-canvas clicks hide it. Painting
+and selection editing keep the active image pinned. Each generated album
+image owns its own layers. The wheel advances one image per mouse detent;
+trackpad momentum advances once until the gesture settles.
+
+Dragging an image's left input port onto empty canvas keeps the input menu
+open after release. Choose Image → image or Text → image to create an upstream
+card feeding the original frame. A new image input is gray until generation
+starts. Esc cancels; one Undo removes the new card and wire and restores any
+capability change on the original.
+
+`board.image.selection.lasso` starts a polygonal image selection. Click to
+place vertices, hold Shift for 45° directions, press Delete for the previous
+vertex, Enter to close, or Esc to cancel. Automatic object previews can be
+pinned and refined with click to include and Alt-click to exclude. Right-click
+and choose Create layer from selection (`board.image.selection.layer`). A
+pinned selection constrains painting; committed ink retains that clip after
+the selection is cleared. Dragging a layer or album result onto the canvas
+creates an independent copy and retains the original.
 
 Pictures and notes an agent makes: selected or hovered, they show typed input
 ports on the left edge (picture: Media, Prompt, Style; note: Image, Prompt)

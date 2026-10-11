@@ -972,10 +972,10 @@ impl SlateApp {
             .iter()
             .flatten()
             .filter_map(|id| {
-                self.doc()
-                    .scene
-                    .node(*id)
-                    .or_else(|| pending.iter().find(|n| n.id == *id))
+                pending
+                    .iter()
+                    .find(|n| n.id == *id)
+                    .or_else(|| self.doc().scene.node(*id))
                     .cloned()
             })
             .collect();
@@ -1055,9 +1055,10 @@ impl SlateApp {
         let rect = connector_aabb_routed(
             &conn,
             |id| {
-                scene
-                    .node(id)
-                    .or_else(|| pending.iter().find(|n| n.id == id))
+                pending
+                    .iter()
+                    .find(|n| n.id == id)
+                    .or_else(|| scene.node(id))
                     .map(|n| self.wire_host(n))
             },
             self.board_wire_routing,

@@ -17,6 +17,8 @@ use slate_doc::{
 };
 use vector_ink::kurbo::Shape;
 
+mod image_palette;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Panel {
     Fill,
@@ -24,6 +26,10 @@ pub enum Panel {
     Corners,
     Wire,
     Filter,
+    /// Paint on the selected image or edit its pinned selection mask.
+    Brush,
+    /// Select the active image result or paint layer.
+    Layers,
     Pages,
     AtlasFormat,
     Text,
@@ -634,6 +640,8 @@ fn edits_picked_vertices(item: &StripItem) -> bool {
             | Panel::AtlasFormat
             | Panel::Text
             | Panel::Agent
+            | Panel::Brush
+            | Panel::Layers
             | Panel::Bumper
             | Panel::ModelDisplay,
         )
@@ -854,168 +862,9 @@ fn photo_filter_choice(adjust: &ImageAdjust) -> Option<(usize, f32)> {
     Some((index, amount))
 }
 
-fn dimension_editable(n: &Node) -> bool {
-    !matches!(n.kind, NodeKind::Connector(_) | NodeKind::DockStrip(_))
-}
-
-/// Tight centerline bounds, before node rotation. Cached on scene/selection change.
-pub(crate) fn measured_bounds(n: &Node) -> WorldRect {
-    if let NodeKind::Shape(s) = &n.kind {
-        if let Some(path) = &s.path {
-            let bounds = board_path::path_data_to_world_bez(path, n.rect, 0.0).bounding_box();
-            return WorldRect::new(
-                bounds.x0 as f32,
-                bounds.y0 as f32,
-                bounds.width() as f32,
-                bounds.height() as f32,
-            );
-        }
-    }
-    n.rect
-}
-
-/// Open curves and brush strokes carry no dimension stringers; closed shapes
-/// keep theirs.
-fn takes_stringers(n: &Node) -> bool {
-    !slate_doc::is_open_shape(n)
-        && !matches!(&n.kind, NodeKind::Shape(s) if s.stroke.paints_as_stamp())
-}
-
-fn dimensions(nodes: &[Node]) -> (Option<WorldRect>, Vec<Dimension>) {
-    let (bounds, dims) = measured_dimensions(nodes);
-    if nodes.iter().any(takes_stringers) {
-        (bounds, dims)
-    } else {
-        (bounds, vec![])
-    }
-}
-
-fn measured_dimensions(nodes: &[Node]) -> (Option<WorldRect>, Vec<Dimension>) {
-    if nodes.is_empty() {
-        return (None, vec![]);
-    }
-    if nodes
-        .iter()
-        .any(|n| slate_doc::agent_chat::agent(n).is_some())
-    {
-        return (
-            board_snap::union_rect(&nodes.iter().map(|n| n.rect).collect::<Vec<_>>()),
-            vec![],
-        );
-    }
-    if nodes
-        .iter()
-        .any(|n| matches!(n.kind, NodeKind::Connector(_)))
-    {
-        // Anchored wire length follows its hosts; it is not an editable box size.
-        return (
-            board_snap::union_rect(
-                &nodes
-                    .iter()
-                    .map(|n| n.rect.rotated_bounds(n.rotation_deg))
-                    .collect::<Vec<_>>(),
-            ),
-            vec![],
-        );
-    }
-    if nodes.len() == 1 {
-        let n = &nodes[0];
-        if let Some((a, b)) = board_line::line_endpoints(n) {
-            return (
-                Some(n.rect.rotated_bounds(n.rotation_deg)),
-                vec![Dimension {
-                    kind: DimensionKind::Length,
-                    value: (b - a).length(),
-                    ends: [a, b],
-                    offset: (b - a).normalized().rot90() * chrome::STRINGER_GAP,
-                }],
-            );
-        }
-    }
-    let local = if nodes.len() == 1 {
-        measured_bounds(&nodes[0])
-    } else {
-        board_snap::union_rect(
-            &nodes
-                .iter()
-                .map(|n| n.rect.rotated_bounds(n.rotation_deg))
-                .collect::<Vec<_>>(),
-        )
-        .unwrap()
-    };
-    let mut pts = local.corners_rotated(0.0).map(|(x, y)| Pos2::new(x, y));
-    if nodes.len() == 1 {
-        for p in &mut pts {
-            let q =
-                board_snap::orbit_point(nodes[0].rect.center(), (p.x, p.y), nodes[0].rotation_deg);
-            *p = Pos2::new(q.0, q.1);
-        }
-    }
-    let bounds = WorldRect::new(
-        pts.iter().map(|p| p.x).fold(f32::INFINITY, f32::min),
-        pts.iter().map(|p| p.y).fold(f32::INFINITY, f32::min),
-        0.0,
-        0.0,
-    );
-    let bounds = WorldRect::new(
-        bounds.x,
-        bounds.y,
-        pts.iter().map(|p| p.x).fold(f32::NEG_INFINITY, f32::max) - bounds.x,
-        pts.iter().map(|p| p.y).fold(f32::NEG_INFINITY, f32::max) - bounds.y,
-    );
-    let circle = nodes.len() == 1
-        && matches!(&nodes[0].kind,NodeKind::Shape(s) if s.shape==ShapeKind::Ellipse)
-        && (local.w - local.h).abs() < local.w.max(local.h) * 1e-5;
-    let (ends, offset) = stringer_lane(
-        [pts[3], pts[2]],
-        -(pts[2] - pts[3]).normalized().rot90(),
-        [pts[0], pts[1]],
-    );
-    let mut result = vec![Dimension {
-        kind: if circle {
-            DimensionKind::Diameter
-        } else {
-            DimensionKind::Width
-        },
-        value: local.w,
-        ends,
-        offset,
-    }];
-    if !circle {
-        let (ends, offset) = stringer_lane(
-            [pts[1], pts[2]],
-            (pts[2] - pts[1]).normalized().rot90(),
-            [pts[0], pts[3]],
-        );
-        result.push(Dimension {
-            kind: DimensionKind::Height,
-            value: local.h,
-            ends,
-            offset,
-        });
-    }
-    (Some(bounds), result)
-}
-
-/// Which of an axis's two parallel edges carries its stringer. `home` is the
-/// unrotated choice (local bottom for width, local right for height) and
-/// `outward` its exterior normal. On screen a mostly horizontal span sits
-/// below and a mostly vertical one to the right, so rotation never moves a
-/// stringer into the upper lane the selection strip owns. The measured axis,
-/// and so what W and H mean, never changes.
-fn stringer_lane(home: [Pos2; 2], outward: Vec2, opposite: [Pos2; 2]) -> ([Pos2; 2], Vec2) {
-    let along = home[1] - home[0];
-    let lane = if along.x.abs() >= along.y.abs() {
-        Vec2::DOWN
-    } else {
-        Vec2::RIGHT
-    };
-    if outward.dot(lane) < -1e-4 {
-        (opposite, -outward * chrome::STRINGER_GAP)
-    } else {
-        (home, outward * chrome::STRINGER_GAP)
-    }
-}
+mod dimensions;
+pub(crate) use dimensions::measured_bounds;
+use dimensions::{dimension_editable, dimensions};
 
 impl SlateApp {
     /// An open adjustment previews authored color without the selection
@@ -1599,6 +1448,9 @@ impl SlateApp {
             self.shape_properties.number = None;
         }
         let items = chrome_state.items;
+        if image_palette::handles(self, live) {
+            return image_palette::show(self, ui, xf, bounds, enabled);
+        }
         let strip = if items.is_empty() {
             Rect::from_center_size(
                 Pos2::new(bounds.center().x, bounds.top() - chrome::OBJECT_GAP * z),
@@ -1684,6 +1536,16 @@ impl SlateApp {
                     "Agent: write or picture from this",
                     Icon::Agent,
                     self.shape_properties.panel == Some(Panel::Agent),
+                ),
+                StripItem::Panel(Panel::Brush) => (
+                    "Brush or lasso the selected image",
+                    Icon::Brush,
+                    self.shape_properties.panel == Some(Panel::Brush),
+                ),
+                StripItem::Panel(Panel::Layers) => (
+                    "Image results and paint layers",
+                    Icon::Pages,
+                    self.shape_properties.panel == Some(Panel::Layers),
                 ),
                 StripItem::Panel(Panel::ModelDisplay) => (
                     "Viewport display",
@@ -1925,6 +1787,7 @@ impl SlateApp {
                         Panel::Corners => chrome::CORNER_HEIGHT,
                         Panel::Wire => chrome::WIRE_HEIGHT,
                         Panel::Filter => chrome::FILTER_HEIGHT,
+                        Panel::Brush | Panel::Layers => chrome::FILTER_HEIGHT,
                         Panel::Pages => 0.0,
                         Panel::AtlasFormat => chrome::ATLAS_FORMAT_HEIGHT,
                         Panel::Text => chrome::TEXT_HEIGHT,
@@ -1948,7 +1811,7 @@ impl SlateApp {
                             ui.set_clip_rect(canvas);
                             ui.set_min_size(rect.size());
                             ui.add_enabled_ui(enabled, |ui| {
-                                sample = self.shape_property_body(ui, rect, panel, z);
+                                sample = self.shape_property_body(ui, rect, panel, z, None);
                             });
                         });
                     captures |= ctx.pointer_latest_pos().is_some_and(|p| {
@@ -2080,6 +1943,7 @@ impl SlateApp {
         rect: Rect,
         panel: Panel,
         z: f32,
+        image_layout: Option<&chrome::ImagePresentationLayout>,
     ) -> Option<chrome::SampleGesture> {
         let theme = self.palette();
         let nodes_owned: Vec<Node> = if self.shape_properties.preview.is_empty() {
@@ -2154,7 +2018,20 @@ impl SlateApp {
             };
             let thumbs = self.filter_swatch_ids(ui.ctx(), amount);
             let radios = photo_filter_radios(thumbs);
-            let edit = chrome::filter_editor(ui, rect, &radios, selected, amount, z, theme);
+            let edit = if image_layout.is_some() {
+                chrome::filter_capsule(
+                    ui,
+                    rect,
+                    &radios,
+                    selected,
+                    Some(amount),
+                    z,
+                    theme,
+                    chrome::FilterCapsuleStyle::ImageWithIntensity,
+                )
+            } else {
+                chrome::filter_editor(ui, rect, &radios, selected, amount, z, theme)
+            };
             if let Some(index) = edit.hovered {
                 self.shape_properties.filter_aim = Some(index);
             }
@@ -2331,17 +2208,31 @@ impl SlateApp {
             }
         });
         let recent = self.doc().view.recent_colors.clone().unwrap_or_default();
-        let edit = chrome::color_editor(
-            ui,
-            rect,
-            color.0,
-            width,
-            mixed,
-            &recent,
-            &mut self.shape_properties.color,
-            z,
-            theme,
-        );
+        let edit = if let Some(layout) = image_layout {
+            chrome::image_color_editor(
+                ui,
+                layout,
+                color.0,
+                width,
+                mixed,
+                &recent,
+                &mut self.shape_properties.color,
+                z,
+                theme,
+            )
+        } else {
+            chrome::color_editor(
+                ui,
+                rect,
+                color.0,
+                width,
+                mixed,
+                &recent,
+                &mut self.shape_properties.color,
+                z,
+                theme,
+            )
+        };
         let theme_relative_fill = panel == Panel::Fill
             && matches!(
                 &first.kind,
@@ -4896,6 +4787,8 @@ mod tests {
                 StripItem::Panel(Panel::AtlasFormat) => "format",
                 StripItem::Panel(Panel::Text) => "text",
                 StripItem::Panel(Panel::Agent) => "agent",
+                StripItem::Panel(Panel::Brush) => "brush",
+                StripItem::Panel(Panel::Layers) => "layers",
                 StripItem::Panel(Panel::Bumper) => "bumper",
                 StripItem::Panel(Panel::ModelDisplay) => "display",
                 StripItem::ModelMeasure => "measure",

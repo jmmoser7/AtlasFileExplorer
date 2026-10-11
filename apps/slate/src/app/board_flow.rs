@@ -20,6 +20,9 @@ use super::board::{BoardDrag, BoardXf};
 use super::board_agent::{bind_program, paint_overlay_pill, program_card_size, InputRole};
 use super::SlateApp;
 
+mod image_editor;
+mod image_workflow;
+
 /// Designed width of a picture an agent generates.
 const AGENT_PICTURE_W: f32 = 480.0;
 /// Designed port radius; it scales with the board like the card does.
@@ -38,40 +41,8 @@ const NOTE_MAX_H: f32 = 1200.0;
 /// Providers a text block may run on: local, ChatGPT sign-in, OpenAI API.
 const TEXT_ENGINES: [&str; 3] = ["ollama", "codex-text", "openai-text"];
 
-/// Where `choice` sits in a model list: the exact entry, else that provider's
-/// default, else the first (local) entry.
-fn model_index(models: &[(String, String, String)], choice: Option<&(String, String)>) -> usize {
-    let Some((provider, model)) = choice else {
-        return 0;
-    };
-    models
-        .iter()
-        .position(|m| &m.0 == provider && &m.1 == model)
-        .or_else(|| {
-            models
-                .iter()
-                .position(|m| &m.0 == provider && m.1.is_empty())
-        })
-        .or_else(|| models.iter().position(|m| &m.0 == provider))
-        .unwrap_or(0)
-}
-
-/// The key field shows one bullet per key character: the bullets left are
-/// the characters kept, anything else was typed or pasted.
-fn absorb_key(draft: &mut AgentDraft, shown: &str) {
-    let kept = shown.chars().filter(|c| *c == '•').count();
-    let typed: String = shown.chars().filter(|c| *c != '•').collect();
-    let key = draft.key.get_or_insert_with(String::new);
-    *key = key.chars().take(kept).chain(typed.chars()).collect();
-}
-
-/// A seed to lock, from a fresh request id.
-fn fresh_seed() -> u64 {
-    let id = atlas_ai::agent::request_id();
-    id.bytes().fold(0xcbf29ce484222325u64, |h, b| {
-        (h ^ u64::from(b)).wrapping_mul(0x100000001b3)
-    }) >> 1
-}
+mod editor_helpers;
+use editor_helpers::{absorb_key, fresh_seed, model_index};
 
 /// The instruction a text block spawned from a picture starts with.
 const DESCRIBE_STYLE: &str = "Describe the visual style of this image as a comma-separated image prompt of 15 to 30 words: medium, palette, lighting, texture and mood. Leave out the subject.";
@@ -215,6 +186,7 @@ impl Engines {
 /// Derived view state; nothing here is journaled.
 #[derive(Default)]
 pub(crate) struct FlowUi {
+    image_result_drag: Option<image_editor::ImageResultDrag>,
     menu: Option<FlowMenu>,
     press: Option<(NodeId, Pos2)>,
     drafts: HashMap<NodeId, AgentDraft>,
@@ -300,12 +272,26 @@ impl SlateApp {
                 240.0,
                 Some(&mut menu.armed),
                 |ui| {
-                    atlas_shell::menu::heading(ui, "Make with an agent", dark);
+                    let upstream = self.flow_is_upstream(menu.source, menu.grip);
+                    atlas_shell::menu::heading(
+                        ui,
+                        if upstream {
+                            "Add an input"
+                        } else {
+                            "Make with an agent"
+                        },
+                        dark,
+                    );
                     let mut chosen = None;
-                    for m in SPAWN_CHOICES {
+                    let choices = if upstream { MODALITIES } else { SPAWN_CHOICES };
+                    for m in choices {
+                        let label = upstream.then(|| self.flow_input_label(menu.source, m.label));
                         let row = atlas_shell::menu::Row {
                             glyph: m.glyph,
-                            ..atlas_shell::menu::Row::new(m.icon, m.menu)
+                            ..atlas_shell::menu::Row::new(
+                                m.icon,
+                                label.as_deref().unwrap_or(m.menu),
+                            )
                         };
                         if atlas_shell::menu::row(ui, row, dark).clicked() {
                             chosen = Some(m.id);
@@ -361,7 +347,10 @@ impl SlateApp {
     /// point. A generator or note offers it from its output only, since its
     /// left edge holds inputs. False when `from` offers no agent.
     pub(crate) fn flow_wire_released(&mut self, from: (NodeId, Side, f32), cursor: Pos2) -> bool {
-        let offers = if agent_inputs::is_flow_node(&self.doc().scene, from.0) {
+        let upstream = self.flow_is_upstream(from.0, Some((from.1, from.2)));
+        let offers = if upstream {
+            true
+        } else if agent_inputs::is_flow_node(&self.doc().scene, from.0) {
             self.is_flow_output(from)
         } else {
             self.is_agent_media(from.0)
@@ -466,6 +455,9 @@ impl SlateApp {
                 None => (None, None),
             },
         };
+        if self.flow_is_upstream(source, spawn.from) {
+            return self.spawn_flow_input(source, kind, spawn.at, provider, model, spawn.image);
+        }
         let program = match kind {
             SpawnKind::Image => atlas_ai::agent::provider_by_id(
                 provider
@@ -1291,9 +1283,10 @@ impl SlateApp {
             }
             None => &mut draft.prompt,
         };
-        let out = atlas_shell::selection_tools::agent_editor(
+        let out = self.paint_image_agent_editor(
             ui,
             rect,
+            source,
             atlas_shell::selection_tools::AgentEdit {
                 modes: &modes,
                 mode,
@@ -1382,6 +1375,9 @@ impl SlateApp {
             .get(draft.aspect)
             .copied()
             .unwrap_or_default();
+        if draft.image && self.submit_image_in_place(source, draft, &provider, &model, aspect) {
+            return;
+        }
         let detail = serde_json::json!({
             "source": source.0,
             "kind": if draft.image { "image" } else { "text" },
@@ -1480,9 +1476,10 @@ impl SlateApp {
             None => self.agents.prompt_mut(id).clone(),
         };
         let modes = [kind.modality().label];
-        let out = atlas_shell::selection_tools::agent_editor(
+        let out = self.paint_image_agent_editor(
             ui,
             rect,
+            id,
             atlas_shell::selection_tools::AgentEdit {
                 modes: &modes,
                 mode: 0,
@@ -1742,6 +1739,11 @@ impl SlateApp {
         if self.is_text_block(id) {
             self.queue_text_block(id);
         } else {
+            self.patch_nodes(&[id], |node| {
+                if let NodeKind::Image(image) = &mut node.kind {
+                    image.item = slate_doc::ItemId::NONE;
+                }
+            });
             self.queue_generation(id);
         }
     }
@@ -1942,10 +1944,12 @@ pub(crate) mod tests {
         h.app.agents.flow.menu = None;
         assert!(h.app.flow_wire_released(out, Pos2::new(10.0, 10.0)));
         assert!(h.app.agents.flow.menu.is_none());
-        // A left-edge input is not an output.
-        assert!(!h
+        // A left-edge release keeps an upstream-input menu alive.
+        assert!(h
             .app
             .flow_wire_released((generator, Side::Left, 0.5), Pos2::new(1400.0, 0.0)));
+        assert!(h.app.agents.flow.menu.is_some());
+        h.app.agents.flow.menu = None;
 
         let before = h.app.doc().scene.nodes.len();
         let depth = h.app.tab().journal.undo_depth();
@@ -2368,7 +2372,7 @@ pub(crate) mod tests {
     }
 
     /// A placed file on the board, like a drop.
-    fn place(h: &mut super::super::tests::Harness, name: &str, x: f32) -> NodeId {
+    pub(super) fn place(h: &mut super::super::tests::Harness, name: &str, x: f32) -> NodeId {
         let path = h.base.join(name);
         if name.ends_with(".png") {
             image::RgbImage::new(8, 8).save(&path).unwrap();

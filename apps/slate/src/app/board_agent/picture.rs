@@ -124,6 +124,16 @@ impl SlateApp {
             self.paint_generation_preview(painter, id, body, z);
             ui.ctx().request_repaint_after(Duration::from_millis(100));
         }
+        // Image-node controls have one home: the selected image's blister.
+        // Album flow and generation previews still paint within the image.
+        if self.image_palette_eligible(id) {
+            if selected && running {
+                self.paint_run_progress(
+                    ui, painter, id, body, z, view.task().working(), agent.provider == "comfy",
+                );
+            }
+            return;
+        }
         let legible = canvas_text::legible(canvas_scale::px(GENERATOR_CHIP_PX, z));
         if agent.live && !reveal {
             painter.circle_filled(

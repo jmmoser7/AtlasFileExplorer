@@ -28,6 +28,33 @@ defaults for object-property editors.
 - [desktop_color.rs](src/desktop_color.rs) owns the desktop sampler;
   [vector-ink](../vector-ink/DESIGN.md) owns curve and stroke quality.
 
+### Image-specific presentation
+
+Image selection keeps the image naked at rest; the application owns when the
+editor is visible. When open, `selection_tools::image_presentation_layout`
+places a compact technical datum directly below the image and the main field
+below it. The shared shell paints the full-width blister and its low centered
+tab with `paint_image_blister`. The blister has no framed icon buttons: use
+bare shared glyphs, color dots, rails, and the existing shared editor controls.
+Its sides continue the image edges without a vertical outline. The datum,
+field, tab, and editor all follow P0.9 and pan and zoom with the image.
+
+`ImagePanelKind::Color` supplies a pure layout for the gradient and three
+rails (four for Stroke); narrow layouts stack them and wide layouts place the
+gradient left of an equal-height rail stack. Responsive mode is derived from
+image width in board units. The remaining kinds cover Filters, Layers,
+Corners, Crop, Brush, and a board-unit Custom height, so app integrations use
+the same datum and surface geometry. The layout owns no app values or
+visibility and does not replace `ColorState`, filter recipes, layer metadata,
+or journal handling. `image_color_editor` consumes this layout while reusing
+the existing color textures, rails, eyedropper gesture, recent-color behavior,
+and RGB editing. `FilterCapsuleStyle::ImageWithIntensity` and
+`ImageChipsOnly` reuse the existing filter radio and slider semantics without
+painting a nested capsule; `image_layer_palette` does the same for layer
+circles, recent-color dots, opacity, and add. The technical datum hosts the
+eyedropper, six recent color dots, and underlined RGB percentages for color
+editing.
+
 ## Spatial composition
 
 The selection strip sits directly above the selected object or selection

@@ -31,10 +31,18 @@ metadata and validate a fresh installation before shipping them.
 The adapter uses Meta's official SAM 2 implementation:
 <https://github.com/facebookresearch/sam2>.
 It caches image embeddings in one resident worker process, so subsequent
-points on the same image only run the prompt/mask decoder. CPU inference
-uses at most four threads. First use includes model startup and encoding;
+points on the same image only run the prompt/mask decoder. Ordered positive
+and negative point prompts are supported, and the adapter returns each SAM
+multimask candidate with its quality score so the caller can choose or pin a
+candidate. The legacy single-positive-point API continues to return the
+highest-scoring candidate. CPU inference uses at most four threads. First use
+includes model startup and encoding;
 the capsule reads “Finding object...” while it runs. A failure appears as
 “Highlight unavailable” with its explanation on hover.
+
+The caller's request key identifies a stable resident-pixel revision; the
+worker combines it with image dimensions before reusing the encoder result.
+Callers must change the key whenever those pixels change.
 
 ## Ownership and limits
 

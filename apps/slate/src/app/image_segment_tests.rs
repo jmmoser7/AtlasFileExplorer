@@ -12,14 +12,23 @@ fn segment_dispatch_shares_resident_pixels_without_copying_them() {
     h.app.preview_cache.remove(&key);
     let pixels = std::sync::Arc::new(egui::ColorImage::new([1024, 512], egui::Color32::RED));
     h.app.thumb_pixels.insert(key, pixels.clone());
-    let request = h.app.segment_request(id, [0.25, 0.5]).unwrap();
+    let request = h
+        .app
+        .segment_request(
+            id,
+            &[atlas_segment::PointPrompt {
+                point: [0.25, 0.5],
+                positive: true,
+            }],
+        )
+        .unwrap();
     assert!(std::sync::Arc::ptr_eq(&pixels, &request.pixels));
     assert_eq!(
         request.pixels.size,
         [1024, 512],
         "dispatch leaves sampling to the worker"
     );
-    assert_eq!(request.point, [0.25, 0.5]);
+    assert_eq!(request.prompts[0].point, [0.25, 0.5]);
 }
 
 #[test]
@@ -103,19 +112,31 @@ fn inject(h: &mut Harness, id: NodeId) -> Pos2 {
     let world = Pos2::new(-50.0, -70.0);
     let screen = h.app.board_xf().w2s(world);
     let mask = contours();
+    let source_key = h.app.segment_source_key(id).unwrap();
     h.app.image_segments.hover = Some(Hover {
         tab: h.app.tab().id,
         host: id,
         gen: h.app.scene_gen,
+        source_key: source_key.clone(),
         point_norm: [0.375, 0.28125],
+        prompts: vec![atlas_segment::PointPrompt {
+            point: [0.375, 0.28125],
+            positive: true,
+        }],
         screen,
         since: Instant::now() - LINGER,
     });
     h.app.image_segments.result = Some(SegmentResult {
         host: id,
         gen: h.app.scene_gen,
+        source_key,
         local: region_node(slate_doc::image_paint::region_path(mask.clone()).unwrap()),
         mask: std::sync::Arc::new(mask),
+        candidates: std::sync::Arc::new(vec![atlas_segment::Candidate {
+            quality: 1.0,
+            contours: contours(),
+        }]),
+        selected: 0,
     });
     screen
 }
@@ -125,7 +146,7 @@ fn move_to(h: &mut Harness, p: Pos2) {
 }
 
 #[test]
-fn segment_highlight_action_is_reachable_and_does_not_drag_the_photo() {
+fn segment_highlight_action_pins_selection_without_dragging_or_committing() {
     let (mut h, id) = fixture("segment_action");
     let p = inject(&mut h, id);
     move_to(&mut h, p);
@@ -151,25 +172,57 @@ fn segment_highlight_action_is_reachable_and_does_not_drag_the_photo() {
     let NodeKind::Image(img) = &node.kind else {
         unreachable!()
     };
-    assert_eq!(img.paint_layers.len(), 1);
-    let NodeKind::Shape(shape) = &img.paint_layers[0].nodes[0].kind else {
-        unreachable!()
-    };
-    assert_eq!(shape.fill, Some(HIGHLIGHT));
+    assert!(img.paint_layers.is_empty(), "pinning is ephemeral");
+    assert!(h.app.image_selection_clip(id).is_some());
+    assert!(h.app.image_segments.pinned.is_some());
+}
+
+#[test]
+fn pinned_mask_survives_unrelated_scene_generation_and_creates_a_clipped_image_child() {
+    let (mut h, id) = fixture("segment_selection_layer");
+    inject(&mut h, id);
+    h.app.pin_hover_selection();
+    assert!(h.app.image_selection_clip(id).is_some());
+    h.app.scene_gen = h.app.scene_gen.wrapping_add(1);
+    assert!(h.app.image_selection_clip(id).is_some());
+
+    assert!(h.app.create_image_layer_from_selection(id));
     assert!(
-        shape.stroke.is_none(),
-        "a highlight has no bounding-box stroke"
+        h.app.image_selection_clip(id).is_none(),
+        "creation clears selection"
     );
-    assert_eq!(
-        shape.path.as_ref().unwrap().extra.len(),
-        1,
-        "hole survives commit"
+    let child_id = *h.app.board_sel.iter().next().unwrap();
+    let child = h.app.doc().scene.node(child_id).unwrap();
+    assert!(
+        child.clip.is_some(),
+        "the new image stores the selection clip"
     );
+    assert!(matches!(&child.kind, NodeKind::Image(_)));
     h.app.board_undo();
-    let NodeKind::Image(img) = &h.app.doc().scene.node(id).unwrap().kind else {
-        unreachable!()
-    };
-    assert!(img.paint_layers.is_empty());
+    assert!(h.app.doc().scene.node(child_id).is_none());
+}
+
+#[test]
+fn candidate_cycling_uses_the_selected_sam_contours() {
+    let (mut h, id) = fixture("segment_candidate_cycle");
+    inject(&mut h, id);
+    let second = vec![vec![[0.1, 0.1], [0.3, 0.1], [0.3, 0.3], [0.1, 0.3]]];
+    let result = h.app.image_segments.result.as_mut().unwrap();
+    result.candidates = std::sync::Arc::new(vec![
+        atlas_segment::Candidate {
+            quality: 0.7,
+            contours: contours(),
+        },
+        atlas_segment::Candidate {
+            quality: 0.9,
+            contours: second.clone(),
+        },
+    ]);
+    h.app.pin_hover_selection();
+    h.app.cycle_image_selection_candidate(true);
+    let selected = h.app.image_segments.pinned.as_ref().unwrap();
+    assert_eq!(selected.result.selected, 1);
+    assert_eq!(*selected.result.mask, second);
 }
 
 #[test]
@@ -237,7 +290,16 @@ fn segment_worker_results_cannot_resurrect_a_dismissed_or_replaced_hover() {
         ..Default::default()
     };
     runtime.clear();
-    tx.send((4, Ok(contours()))).unwrap();
+    tx.send((
+        4,
+        Ok(atlas_segment::Prediction {
+            candidates: vec![atlas_segment::Candidate {
+                quality: 0.9,
+                contours: contours(),
+            }],
+        }),
+    ))
+    .unwrap();
     runtime.receive();
     assert!(runtime.result.is_none());
     runtime.pending = Some(6);

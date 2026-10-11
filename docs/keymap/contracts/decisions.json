@@ -1,7 +1,141 @@
 {
   "_about": "Approved-decision database for interaction contracts (canvas tools and portal subtypes). One entry per contract x dimension. Agents seed future volatile matrices from here: an approved decision that maps onto a new contract (same archetype / object class / portal class) is re-proposed with high confidence. Only verdict:'approved' rows count as precedent; 'proposed' rows are awaiting user confirmation in the volatile canvas. Schema: tools.<name>.family = tool|portal, and tools.<name>.decisions.<D##> = { behavior, source: stated|research|pattern|guess|precedent, confidence: 0-100, verdict: proposed|approved|rejected, decided: date|null }. Each contract answers exactly the dimensions DIMENSIONS.md scopes to its family; `cargo xtask contracts` enforces the parity between this file, the registry, and the contract markdown. Append-only in spirit: superseded decisions are overwritten only by a newer user approval.",
-  "updated": "2026-10-09",
+  "updated": "2026-10-11",
   "tools": {
+    "image-workflow": {
+      "status": "agreed",
+      "family": "tool",
+      "reference": "Slate image-card visual reviews; Photoshop Polygonal Lasso",
+      "inherits": [
+        "P0.*",
+        "P1.node",
+        "P1.shape.properties",
+        "P1.curve",
+        "P1.curve.pick"
+      ],
+      "canvas": "image-workflow-tool-contract",
+      "decisions": {
+        "D01": {
+          "behavior": "Placed and generated images share Fill, Stroke, Corners/Crop, Filters, Brush, Layers and Generator palettes. Idle images show no toolbar.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-11"
+        },
+        "D02": {
+          "behavior": "Click/select reveals palette; passive hover shows subtle affordance only; editing pins it; empty-canvas click hides it. Existing drawing repeat semantics stay.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-11"
+        },
+        "D03": {
+          "behavior": "Existing brush Freehand; polygonal lasso reuses MultiPoint. Layer circles select, + adds; wire-to-blank keeps the typed choice alive after release.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-11"
+        },
+        "D04": {
+          "behavior": "Layer and image circles preview on hover, select on click, drag after shared threshold; layer reorder slips adjacent thumbnails. A palette press never starts a stroke.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-11"
+        },
+        "D05": {
+          "behavior": "Alt-drag duplicates layer with content; Ctrl-C/Ctrl-V copies image with layers; right-click layer names/renames. Lasso uses Shift 45°, Delete last vertex, Esc cancel. Pinned refinement: click include, Alt-click exclude with visible +/− controls; right-click offers Create layer from selection.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-11"
+        },
+        "D06": {
+          "behavior": "Use existing normalized image/crop transforms. Pinned selection clips hosted paint until cleared. Lasso Shift constrains angle in image-local coordinates; use the existing image-local selection owner rather than unrelated canvas snapping.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-11"
+        },
+        "D07": {
+          "behavior": "Hosted tools retain existing locks. No new layer or palette lock control; remove generator lock icon.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-11"
+        },
+        "D08": {
+          "behavior": "Reuse inline percentages and slider editing. Generator count is one number with tiny hover chevrons left of bare Play; model, ratio, Live/Single and Settings use matching dropdown chevrons.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-11"
+        },
+        "D09": {
+          "behavior": "Shared palette: low bare-glyph blister, technical strip above content, equal prompt insets. Responsive stacked/wide colors. Image and layer circles hover-preview without committing. Selection mask previews asynchronously.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-11"
+        },
+        "D10": {
+          "behavior": "Reuse Brush cursor, shared point-pick cursor for lasso, drag cursor for layers. Proposed refinement cursor indicates include/exclude; no tooltip obscures selection.",
+          "source": "precedent",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-10-11"
+        },
+        "D11": {
+          "behavior": "Each album image owns its stable layer stack. Add/rename/reorder/duplicate/extract/paint commit journaled commands, one gesture one undo. Source selection creates an actual cutout layer; board and artifact agree.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-11"
+        },
+        "D12": {
+          "behavior": "Inherit P0.1: Esc cancels current drag/draft before mode, selection and chrome. Cancelling wire choice leaves no orphan card. Stale segmentation cannot restore a dismissed mask.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-11"
+        },
+        "D13": {
+          "behavior": "Bare image at rest; same shared blister on any image. Image-space UI scales with host. One active editor; preserve gap traversal; low filters/layers and no nested color capsules.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-11"
+        },
+        "D14": {
+          "behavior": "Layer leftmost is top, rightmost bottom. Per-image stacks survive album navigation, save, reopen, clipboard and drag-out. Drag-out makes an independent copy and preserves the original. Wheel advances one album item per intentional gesture.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-11"
+        },
+        "D15": {
+          "behavior": "No new portal host, separate generated-image editor, copied chrome, external Photoshop dependency or destructive source-file edits. Backend remains local and user-configured.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-11"
+        },
+        "D16": {
+          "behavior": "Reuse active tool state and document recent colors; new blank image card uses same shared UI with neutral gray empty content. No fabricated image before generation.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-11"
+        },
+        "D17": {
+          "behavior": "Hit regions follow crop/rotation and active image. Pinned mask/lasso clips hosted paint; layer controls win over image gestures. Menus own wheel; selected album owns wheel outside menus/active strokes.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-11"
+        }
+      }
+    },
     "bumper-cars": {
       "status": "shipped",
       "family": "tool",
@@ -3251,11 +3385,11 @@
           "decided": "2026-09-25"
         },
         "D08": {
-          "behavior": "Bounding-box W/H stringers. Side count is not typed: it changes through the vertex +/− (D13, D14), which replaces the Corners-panel Sides integer (stated 26 September 2026; the integer was removed, not repaired — it painted below the panel's reserved height, so it could not be clicked).",
+          "behavior": "Local width and height stringers on the tight bounds of the current polygon vertices, derived from its current side count and phase (user, 11 October 2026). Rotation carries these measured axes with the polygon. Typing a dimension sizes that measured span and preserves its world center; vertex-style metadata never changes the measurement. No dimensions in the toolbar. Side count is not typed: it changes through the vertex +/− (D13, D14), which replaces the Corners-panel **Sides** integer (stated 26 September 2026; the integer was removed, not repaired — it painted below the panel's reserved height, so it could not be clicked).",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-10-11"
         },
         "D09": {
           "behavior": "Armed: a small polygon GhostFollow glyph beside the pointer. Drag: the preview is the regular polygon itself (first vertex top center), not its bounding box. Then the P1.shape.properties selection strip.",
@@ -3265,11 +3399,11 @@
           "decided": "2026-09-25"
         },
         "D10": {
-          "behavior": "Crosshair while armed over the board (stated 2026-09-25); shell hover on controls.",
+          "behavior": "P0.3 and P1.node.transform. Near any polygon vertex, the exterior halo uses the existing Windows-style rotation cursor and rotation drag. The exact vertex pick, vertex +/− hit discs, and corner grip are excluded from the halo; the +/− keep their pointing-hand cursor (user, 11 October 2026).",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-10-11"
         },
         "D11": {
           "behavior": "One property edit → one invertible journal group.",
@@ -3286,11 +3420,11 @@
           "decided": "2026-09-25"
         },
         "D13": {
-          "behavior": "Fill / Stroke / Corners squircles when geometry allows. P1.node.corner-grip on every selected polygon (multi-selection: one drag or typed amount sets every selected host, clamped per host — stated 26 September 2026): the grip rides the side from the first vertex toward the next vertex clockwise, at the treatment's tangent point; drag along that side, click to type. Vertex +/− (stated 26 September 2026): hovering a vertex of a selected polygon shows a + outside it and a − inside it, on that vertex's bisector, at the hovered vertex only; both glyphs scale with the canvas (P0.9: canvas_scale::px radius 6 and offset 14 world units). Proposals: offered on every selected, unlocked polygon (multi-selection included) but drawn only at the one hovered vertex; hidden during any drag, in crop mode, and where portal chrome suppresses the cast; dropped (LOD) when the glyph radius is under 4 screen px; a glyph at its limit is omitted (no + at 12, no − at 3); the vertex hover zone is hit_px(10) and each glyph hit_px(6); the corner grip wins where they overlap, and the glyph wins over the resize band only on the glyph itself, where the cursor is a pointing hand; a quick second click on a glyph is not a canvas double-click. Vertex picks (user, 28 September 2026: \"alow for vrtex selection on closed forms like sqares and polygons\"): a click without travel on a vertex of the one selected polygon picks it (P1.shape.vertex-style); Shift+click adds or removes a pick; under Direct Select (A) the vertices are anchors to pick, never to move. Proposals: the vertex hit is the nearest vertex within 7 screen px (screen-constant like path-edit handles); a click elsewhere clears the picks; a quick second click on a vertex is a pick, not a canvas double-click; the vertex +/− and the pick share the vertex, so each glyph wins on its own hit disc (its press is taken at press time, so it never picks) and a click on the vertex outside both discs picks it; the picked vertices paint filled and the vertex under the pointer hollow, with the glyphs beside it.",
+          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers. **P1.node.corner-grip** on every selected polygon (multi-selection: one drag or typed amount sets every selected host, clamped per host — stated 26 September 2026): the grip rides the side from the first vertex toward the next vertex clockwise, at the treatment's tangent point; drag along that side, click to type. **Vertex +/− (stated 26 September 2026):** hovering a vertex of a selected polygon shows a **+** outside it and a **−** inside it, on that vertex's bisector, at the hovered vertex only; both glyphs scale with the canvas (P0.9: `canvas_scale::px` paint radius 3 and offset 14 world units; hit radius remains 6, user refinement 11 October 2026). Proposals: offered on every selected, unlocked polygon (multi-selection included) but drawn only at the one hovered vertex; hidden during any drag, in crop mode, and where portal chrome suppresses the cast; dropped (LOD) when the designed control size (6 units times zoom) is under 4 screen px; a glyph at its limit is omitted (no + at 12, no − at 3); the vertex hover zone is `hit_px(10)` and each glyph `hit_px(6)`; the corner grip wins where they overlap, and the glyph wins over the resize band only on the glyph itself, where the cursor is a pointing hand; a quick second click on a glyph is not a canvas double-click. **Vertex picks (user, 28 September 2026: \"alow for vrtex selection on closed forms like sqares and polygons\"):** a click without travel on a vertex of the one selected polygon picks it (P1.shape.vertex-style); Shift+click adds or removes a pick; under Direct Select (A) the vertices are anchors to pick, never to move. Proposals: the vertex hit is the nearest vertex within 7 screen px (screen-constant like path-edit handles); a click elsewhere clears the picks; a quick second click on a vertex is a pick, not a canvas double-click; the vertex +/− and the pick share the vertex, so each glyph wins on its own hit disc (its press is taken at press time, so it never picks) and a click on the vertex outside both discs picks it; the picked vertices paint filled and the vertex under the pointer hollow, with the glyphs beside it. **Vertex rotation (user, 11 October 2026):** all current vertices own an exterior halo out to the shared rotate offset plus zone radius (18 + 12 world units, using canvas hit slop). The 7-screen-pixel vertex pick, all visible side-control hit discs and fillet grips take priority. Box-corner rotation is replaced by these vertex zones; hover and press share the same hit-test. The ordinary rotation gesture, snapping, cancellation and undo grouping apply.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-28"
+          "decided": "2026-10-11"
         },
         "D14": {
           "behavior": "Fill, Stroke, Corners (fillet/chamfer like rectangles). A fillet amount is the arc radius at every vertex and a chamfer is a straight cut, both clamped per vertex so the outline stays inside the drag box with no spikes on the board or in the export. Sides (stated 26 September 2026; + amended 8 October 2026, user-ratified): clicking + adds a side (max 12) and keeps the clicked vertex at its angle while the other vertices re-space around it; clicking − removes a side (min 3) and keeps a vertex at the removed vertex's position; each is one journaled board.shape.sides patch (undo restores both count and turn). Proposals: the turn is stored as ShapeNode.phase_deg, so the drag box, fillet, and stroke are unchanged and vertices stay on the box's inscribed ellipse; vertex 0 remains the corner-grip anchor, so the grip may move to another side after a step; Property::RegularSides stays as the command-parity setter for agents. Per-vertex properties (user, 28 September 2026: \"for squrcle menue allow for vertex by vertex adjustment of forms properties\"): with vertices picked, the tip HUD (Alt width, Ctrl color, Shift opacity) and the strip's stroke width, stroke color, opacity and Corners amount apply to the picked vertices only, blending around the closed loop (P1.curve.vertex-style); each edit is one journaled patch. The polygon stays regular: moving one vertex would make it another kind, so vertex moves are not offered. Proposal: a side step carries each vertex's style to the nearest new vertex by angle.",

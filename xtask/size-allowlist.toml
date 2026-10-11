@@ -90,7 +90,7 @@ reason = "Slate app; extract one concern per module"
 
 [[entry]]
 file = "apps/slate/src/app/board_handles.rs"
-ceiling = 910
+ceiling = 884
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
@@ -125,7 +125,7 @@ reason = "Slate app; extract one concern per module"
 
 [[entry]]
 file = "apps/slate/src/app/board_properties.rs"
-ceiling = 5457
+ceiling = 5350
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
@@ -145,7 +145,7 @@ reason = "Slate app; extract one concern per module"
 
 [[entry]]
 file = "apps/slate/src/app/board_transform.rs"
-ceiling = 953
+ceiling = 799
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
@@ -510,7 +510,7 @@ reason = "document model; slate-doc owner"
 
 [[entry]]
 file = "crates/slate-doc/src/scene.rs"
-ceiling = 6841
+ceiling = 6804
 reason = "document model; slate-doc owner"
 
 [[entry]]

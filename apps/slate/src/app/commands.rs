@@ -41,22 +41,8 @@ const fn spec(
         aliases,
     }
 }
-const fn shift(key: Key) -> Chord {
-    Chord {
-        key,
-        ctrl: false,
-        shift: true,
-        alt: false,
-    }
-}
-const fn ctrl_shift(key: Key) -> Chord {
-    Chord {
-        key,
-        ctrl: true,
-        shift: true,
-        alt: false,
-    }
-}
+mod constructors;
+use constructors::{ctrl_shift, shift};
 /// Canonical command table. Keep grouped by category (the reference UI groups
 /// on category changes), documentation rows first within their historical
 /// order, dispatchable additions after.
@@ -1020,7 +1006,7 @@ pub static SPECS: &[CommandSpec] = &[
         "board.rotate",
         "Board",
         "Rotate object",
-        "Hover just outside a corner of a rotatable node (not a portal); drag \
+        "Hover outside a rotatable node's corner (any polygon vertex, clear of its +/− and point pick); drag \
          to rotate (snaps at 45°). With 2+ selected, rotates the group about \
          its center; portals in the group stay axis-aligned",
         None,
@@ -1656,12 +1642,22 @@ pub static SPECS: &[CommandSpec] = &[
     spec(
         "board.image.segment.commit",
         "Board",
-        "Highlight image object",
-        "Select tool: linger over an image object, then click Highlight",
+        "Pin image object selection",
+        "Hover an image object, click to pin, then click to include or Alt-click to exclude",
         None,
         Repeat::Never,
         BOARD,
         &["segment", "mask", "highlight", "object"],
+    ),
+    spec(
+        "board.image.selection.lasso", "Board", "Polygonal image selection",
+        "Image editing palette: click vertices, Shift for 45°, Delete for the previous vertex, Enter to close, Esc to cancel",
+        None, Repeat::Never, BOARD_SEL, &["lasso", "polygon", "image selection"],
+    ),
+    spec(
+        "board.image.selection.layer", "Board", "Create layer from image selection",
+        "Right-click a pinned image selection and choose Create layer from selection",
+        None, Repeat::Never, BOARD_SEL, &["cutout", "mask", "selection layer"],
     ),
     spec(
         "board.image.layer.add",

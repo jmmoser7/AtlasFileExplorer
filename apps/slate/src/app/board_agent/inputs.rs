@@ -30,20 +30,21 @@ impl SlateApp {
             let Some(node) = self.doc().scene.node(NodeId(item.node)) else {
                 continue;
             };
-            let NodeKind::Image(img) = &node.kind else {
+            let Some(img) = self.image_for_selected_result(node.id) else {
                 continue;
             };
             let painted = img
                 .paint_layers
                 .iter()
                 .any(|layer| layer.visible && !layer.nodes.is_empty());
-            if !painted && img.crop.is_full() {
+            let composed = painted || img.mirror().any() || img.adjust != Default::default();
+            if !composed && img.crop.is_full() {
                 continue;
             }
-            let Some(source) = self.doc().item(img.item).map(|i| i.path.clone()) else {
+            let Some(source) = self.image_item_path(node.id) else {
                 continue;
             };
-            let key = clips.key(node, img, revision);
+            let key = clips.key(node, &img, revision);
             match clips.ready.get(&key) {
                 Some(Some(clip)) => {
                     let clip = clip.to_string_lossy().into_owned();
@@ -60,18 +61,13 @@ impl SlateApp {
                         continue;
                     }
                     let tx = clips.sender();
-                    if painted {
+                    if composed {
                         let doc = self.doc().clone();
                         let node = node.clone();
                         std::thread::spawn(move || {
-                            let clip = match &node.kind {
-                                NodeKind::Image(img) => {
-                                    super::super::image_composite::agent_wired_image_file(
-                                        &doc, &node, img,
-                                    )
-                                }
-                                _ => None,
-                            };
+                            let clip = super::super::image_composite::agent_wired_image_file_from_source(
+                                &doc, &node, &img, &source,
+                            );
                             let _ = tx.send((key, clip));
                         });
                     } else {
@@ -225,7 +221,7 @@ impl SlateApp {
             let Some(node) = self.doc().scene.node(NodeId(item.node)) else {
                 continue;
             };
-            let NodeKind::Image(img) = &node.kind else {
+            let Some(img) = self.image_for_selected_result(node.id) else {
                 continue;
             };
             if img.mirror().any()
@@ -244,7 +240,7 @@ impl SlateApp {
             if img.crop.is_full() {
                 continue;
             }
-            let Some(source) = self.doc().item(img.item).map(|i| i.path.clone()) else {
+            let Some(source) = self.image_item_path(node.id) else {
                 continue;
             };
             let Some(clipped) = super::super::imagefx::visible_crop_file(&source, img.crop) else {

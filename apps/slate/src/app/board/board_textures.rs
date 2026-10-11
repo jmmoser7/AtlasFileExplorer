@@ -243,14 +243,38 @@ impl SlateApp {
         }
         if rotate_hover {
             let geom = board_handles::selection_geom(xf, n.rect, n.rotation_deg);
+            let hover = self
+                .board_hover_hit
+                .filter(|_| self.board_hover_node == Some(n.id));
+            let polygon = match &n.kind {
+                NodeKind::Shape(s) if s.shape == ShapeKind::RegularPolygon => Some(s),
+                _ => None,
+            };
             board_handles::paint_selection(
                 painter,
                 &geom,
                 &outline,
                 select_tint,
-                self.board_hover_hit,
+                hover.filter(|_| polygon.is_none()),
                 outline_w,
             );
+            if let Some(s) = polygon {
+                if let Some(board_handles::BoardHitTarget::Rotate(i)) = hover {
+                    if let Some(p) = slate_doc::scene::regular_polygon_vertex(
+                        n.rect,
+                        s.sides,
+                        s.phase_deg,
+                        i as usize,
+                    ) {
+                        let vertex = xf.w2s(Pos2::from(n.rect.rotate_point(p, n.rotation_deg)));
+                        let center = xf.w2s(Pos2::from(n.rect.center()));
+                        let at = vertex
+                            + (vertex - center).normalized()
+                                * canvas_scale::px(board_handles::ROTATE_OFFSET_PX, xf.z);
+                        board_handles::paint_rotate_affordance(painter, vertex, at, select_tint);
+                    }
+                }
+            }
             self.paint_node_fillet_grip(painter, xf, n, select_tint);
         } else {
             painter.add(egui::Shape::closed_line(
@@ -275,8 +299,7 @@ impl SlateApp {
         let pointer = painter.ctx().pointer_hover_pos();
         for g in self.polygon_sides_glyphs(xf) {
             let hot = pointer.is_some_and(|p| {
-                p.distance(g.center)
-                    <= canvas_scale::hit_px(board_handles::SIDES_GLYPH_RADIUS, xf.z)
+                p.distance(g.center) <= canvas_scale::hit_px(board_handles::SIDES_GLYPH_HIT, xf.z)
             });
             board_handles::paint_sides_glyph(
                 painter,

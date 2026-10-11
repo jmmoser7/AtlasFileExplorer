@@ -935,6 +935,8 @@ impl SlateApp {
                 }
             }
             "board.image.segment.commit" => self.commit_hover_segment(None).is_some(),
+            "board.image.selection.lasso" => self.dispatch_image_selection(true),
+            "board.image.selection.layer" => self.dispatch_image_selection(false),
             "board.image.invert" => {
                 let images = self.selected_image_nodes();
                 if images.is_empty() {
@@ -1249,6 +1251,11 @@ impl SlateApp {
         let paste_edge = self.take_paste_chord_edge(focused);
         // Presentation mode owns the keyboard (handled in present_frame).
         if self.presenting.is_some() {
+            self.space_tap = SpaceTap::default();
+            self.bare_letter_hold = None;
+            return;
+        }
+        if self.image_selection_keys(ctx) {
             self.space_tap = SpaceTap::default();
             self.bare_letter_hold = None;
             return;

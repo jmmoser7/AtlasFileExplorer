@@ -80,6 +80,11 @@ changes require actual-size visual review, not just enlarged artwork.
 
 The shape-selection strip uses the catalog Fill bucket, Ellipse stroke ring, Corners outline, Filters funnel, Pages grid, and Display for File Atlas Formatting. These share the same path stroke and squircle chrome as the primary dock; applications do not paint private substitute glyphs. [DYNAMIC_PANELS.md](DYNAMIC_PANELS.md) owns the surrounding panel composition and distinguishes squircle icon buttons from circular color swatches, filter radios, and rail handles.
 
+Image-specific editing controls inside the shared selection blister use the
+same catalog glyphs at canvas scale, presented bare in the compact technical
+datum. They do not inherit the selection strip's squircle button silhouette;
+color and filter circles remain their named circular exceptions.
+
 ## Justification
 
 `JustifyLeft`, `JustifyCenter`, and `JustifyRight` are the standard four-line

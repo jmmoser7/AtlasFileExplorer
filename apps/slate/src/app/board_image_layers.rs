@@ -4,13 +4,18 @@ use super::{board::BoardTool, board::BoardXf, SlateApp};
 use eframe::egui::{self, Color32, Pos2};
 use slate_doc::{
     image_paint::{
-        find_layer_node, layer_node_from_world, layer_node_kind_allowed, layer_node_to_world,
-        LayerNodeRef, PaintLayerId,
+        clip_path_for_layer_node, ensure_result_layers_mut, find_layer_node, layer_node_from_world,
+        layer_node_kind_allowed, layer_node_to_world, layers_for_result, result_layers,
+        seed_result_from_legacy, ImageResultId, ImageResultLayers, LayerNodeRef, PaintLayerId,
     },
     scene::{ImageNode, Node, NodeKind, Rgba, SceneCmd, WorldRect},
     NodeId, PaintLayer, ViewState,
 };
 
+#[path = "board_image_layers/result_palette.rs"]
+mod result_palette;
+#[path = "board_image_layers/transfer.rs"]
+mod transfer;
 /// The layer the palette slider and Delete address; `Filter` means the image
 /// has no layer yet.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -22,6 +27,7 @@ pub enum ImageStripFocus {
 #[derive(Clone, Debug)]
 pub struct ImagePaintSession {
     pub image: NodeId,
+    pub result: ImageResultId,
     pub layer_index: usize,
     pub focus: ImageStripFocus,
 }
@@ -46,7 +52,13 @@ pub(crate) struct PaintLayerThumb {
     texture: egui::TextureHandle,
 }
 
-fn paint_layer_cache_key(host: &Node, img: &ImageNode, gen: u64, zoom_bucket: u32) -> u128 {
+fn paint_layer_cache_key(
+    host: &Node,
+    img: &ImageNode,
+    result: &ImageResultId,
+    gen: u64,
+    zoom_bucket: u32,
+) -> u128 {
     let c = img.crop.clamped();
     let mut key = host.id.0 as u128;
     key = key.wrapping_mul(31).wrapping_add(gen as u128);
@@ -69,7 +81,20 @@ fn paint_layer_cache_key(host: &Node, img: &ImageNode, gen: u64, zoom_bucket: u3
     key = key.wrapping_mul(31).wrapping_add(c.x.to_bits() as u128);
     key = key.wrapping_mul(31).wrapping_add(c.y.to_bits() as u128);
     key = key.wrapping_mul(31).wrapping_add(c.w.to_bits() as u128);
-    key.wrapping_mul(31).wrapping_add(c.h.to_bits() as u128)
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    result.hash(&mut hasher);
+    key.wrapping_mul(31)
+        .wrapping_add(c.h.to_bits() as u128)
+        .wrapping_mul(31)
+        .wrapping_add(hasher.finish() as u128)
+}
+
+fn image_for_result(img: &ImageNode, result: &ImageResultId) -> ImageNode {
+    let mut resolved = img.clone();
+    resolved.paint_layers = layers_for_result(img, result).to_vec();
+    resolved.result_layers.clear();
+    resolved
 }
 
 pub fn tool_hosts_on_image(tool: BoardTool) -> bool {
@@ -112,6 +137,38 @@ pub struct ImageDropOffer {
 }
 
 impl SlateApp {
+    fn selected_layers<'a>(img: &'a ImageNode, result: &ImageResultId) -> &'a [PaintLayer] {
+        layers_for_result(img, result)
+    }
+
+    fn prepare_result_stack(img: &mut ImageNode, result: ImageResultId) {
+        if result_layers(img, &result).is_some() {
+            return;
+        }
+        if img.paint_layers.is_empty() {
+            ensure_result_layers_mut(img, result);
+        } else {
+            seed_result_from_legacy(img, result);
+        }
+    }
+
+    fn selected_layers_mut<'a>(
+        img: &'a mut ImageNode,
+        result: &ImageResultId,
+    ) -> &'a mut Vec<PaintLayer> {
+        &mut Self::selected_stack_mut(img, result).layers
+    }
+
+    fn selected_stack_mut<'a>(
+        img: &'a mut ImageNode,
+        result: &ImageResultId,
+    ) -> &'a mut ImageResultLayers {
+        img.result_layers
+            .iter_mut()
+            .find(|stack| &stack.result == result)
+            .expect("result stack is prepared")
+    }
+
     pub fn image_paint_session(&self) -> Option<&ImagePaintSession> {
         self.image_paint.as_ref()
     }
@@ -148,7 +205,11 @@ impl SlateApp {
     pub fn agent_picture_draw_mode(&self, image: NodeId) -> bool {
         self.image_paint
             .as_ref()
-            .is_some_and(|s| s.image == image && tool_hosts_on_image(self.board_tool))
+            .is_some_and(|s| {
+                s.image == image
+                    && self.image_result_id(image).as_ref() == Some(&s.result)
+                    && tool_hosts_on_image(self.board_tool)
+            })
     }
 
     pub fn sync_image_paint_for_tool(&mut self) {
@@ -165,26 +226,36 @@ impl SlateApp {
             self.image_paint = None;
             return;
         }
+        let Some(result) = self.image_result_id(id) else {
+            self.image_paint = None;
+            return;
+        };
         let Some(node) = self.doc().scene.node(id).cloned() else {
             return;
         };
         let NodeKind::Image(ref img) = node.kind else {
             return;
         };
+        let layers = Self::selected_layers(img, &result);
         let layer_index = self
             .image_paint
             .as_ref()
-            .filter(|s| s.image == id)
+            .filter(|s| s.image == id && s.result == result)
             .map(|s| s.layer_index)
-            .unwrap_or_else(|| img.paint_layers.len().saturating_sub(1));
-        let focus = if img.paint_layers.is_empty() {
+            .unwrap_or_else(|| layers.len().saturating_sub(1));
+        let focus = if layers.is_empty() {
             ImageStripFocus::Layer(0)
         } else {
-            ImageStripFocus::Layer(layer_index.min(img.paint_layers.len() - 1))
+            ImageStripFocus::Layer(layer_index.min(layers.len() - 1))
         };
-        if self.image_paint.as_ref().map(|s| s.image) != Some(id) {
+        if self
+            .image_paint
+            .as_ref()
+            .is_none_or(|s| s.image != id || s.result != result)
+        {
             self.image_paint = Some(ImagePaintSession {
                 image: id,
+                result,
                 layer_index: match focus {
                     ImageStripFocus::Layer(i) => i,
                     ImageStripFocus::Filter => 0,
@@ -199,7 +270,16 @@ impl SlateApp {
     pub(crate) fn session_layer_mark(&self, id: NodeId) -> Option<LayerNodeRef> {
         let loc = find_layer_node(&self.doc().scene, id)?;
         let session = self.image_paint.as_ref()?;
-        (session.image == loc.image && session.layer_index == loc.layer_index).then_some(loc)
+        let result_matches = loc.result.as_ref().map_or_else(
+            || matches!(&session.result, ImageResultId::Item(_)),
+            |result| result == &session.result,
+        );
+        let selected = self.image_result_id(session.image).as_ref() == Some(&session.result);
+        (selected
+            && session.image == loc.image
+            && result_matches
+            && session.layer_index == loc.layer_index)
+        .then_some(loc)
     }
 
     /// Edit layer mark `id` as a world-space node and return the layer
@@ -215,7 +295,11 @@ impl SlateApp {
         let NodeKind::Image(img) = &host.kind else {
             return None;
         };
-        let layer = img.paint_layers.get(loc.layer_index)?;
+        let layers = match &loc.result {
+            Some(result) => result_layers(img, result)?.layers.as_slice(),
+            None => img.paint_layers.as_slice(),
+        };
+        let layer = layers.get(loc.layer_index)?;
         let before = layer.nodes.get(loc.node_index)?.clone();
         let mut world = layer_node_to_world(host, img, &before);
         match edit(&mut world) {
@@ -243,6 +327,7 @@ impl SlateApp {
         if !tool_hosts_on_image(self.board_tool)
             || self.board_sel.len() != 1
             || !self.board_sel.contains(&session.image)
+            || self.image_result_id(session.image).as_ref() != Some(&session.result)
         {
             self.image_paint = None;
         }
@@ -252,6 +337,7 @@ impl SlateApp {
         let next = img
             .paint_layers
             .iter()
+            .chain(img.result_layers.iter().flat_map(|stack| &stack.layers))
             .map(|l| l.id.0)
             .max()
             .unwrap_or(0)
@@ -267,18 +353,23 @@ impl SlateApp {
         let NodeKind::Image(img) = &node.kind else {
             return;
         };
-        let layer_index = if img.paint_layers.is_empty() {
+        let Some(result) = self.image_result_id(image) else {
+            return;
+        };
+        let layers = Self::selected_layers(img, &result);
+        let layer_index = if layers.is_empty() {
             self.add_paint_layer_on_image(image);
             0
         } else {
             self.image_paint
                 .as_ref()
-                .filter(|s| s.image == image)
+                .filter(|s| s.image == image && s.result == result)
                 .map(|s| s.layer_index)
-                .unwrap_or(img.paint_layers.len().saturating_sub(1))
+                .unwrap_or(layers.len().saturating_sub(1))
         };
         self.image_paint = Some(ImagePaintSession {
             image,
+            result,
             layer_index,
             focus: ImageStripFocus::Layer(layer_index),
         });
@@ -292,13 +383,14 @@ impl SlateApp {
         let NodeKind::Image(ref img) = before.kind else {
             return None;
         };
+        let result = self.image_result_id(image)?;
         let id = Self::next_paint_layer_id(img);
         let mut after = before.clone();
         let NodeKind::Image(ref mut img) = after.kind else {
             return None;
         };
-        img.paint_layers.push(PaintLayer::new(id));
-        let index = img.paint_layers.len() - 1;
+        Self::prepare_result_stack(img, result.clone());
+        let index = Self::selected_stack_mut(img, &result).add_layer(PaintLayer::new(id));
         if !self.commit_scene(vec![SceneCmd::Patch {
             before: Box::new(before),
             after: Box::new(after),
@@ -322,15 +414,28 @@ impl SlateApp {
         let NodeKind::Image(ref img) = before.kind else {
             return;
         };
-        let Some(layer) = img.paint_layers.get(index) else {
+        let Some(result) = self.image_result_id(image) else {
             return;
         };
+        if self
+            .image_paint
+            .as_ref()
+            .is_some_and(|session| session.image == image && session.result != result)
+        {
+            return;
+        }
+        let Some(layer) = Self::selected_layers(img, &result).get(index) else {
+            return;
+        };
+        let old_opacity = layer.opacity;
         let mut after = before.clone();
         let NodeKind::Image(ref mut img) = after.kind else {
             return;
         };
-        img.paint_layers[index].opacity = opacity.clamp(0.0, 1.0);
-        if (img.paint_layers[index].opacity - layer.opacity).abs() < 1e-4 {
+        Self::prepare_result_stack(img, result.clone());
+        let layers = Self::selected_layers_mut(img, &result);
+        layers[index].opacity = opacity.clamp(0.0, 1.0);
+        if (layers[index].opacity - old_opacity).abs() < 1e-4 {
             return;
         }
         let _ = self.commit_scene(vec![SceneCmd::Patch {
@@ -353,15 +458,27 @@ impl SlateApp {
         let NodeKind::Image(ref img) = before.kind else {
             return;
         };
-        if index >= img.paint_layers.len() {
+        let Some(result) = self.image_result_id(image) else {
+            return;
+        };
+        if self
+            .image_paint
+            .as_ref()
+            .is_some_and(|session| session.image == image && session.result != result)
+        {
+            return;
+        }
+        if index >= Self::selected_layers(img, &result).len() {
             return;
         }
         let mut after = before.clone();
         let NodeKind::Image(ref mut img) = after.kind else {
             return;
         };
-        img.paint_layers.remove(index);
-        let remaining = img.paint_layers.len();
+        Self::prepare_result_stack(img, result.clone());
+        let stack = Self::selected_stack_mut(img, &result);
+        stack.remove_layer(index);
+        let remaining = stack.layers.len();
         if !self.commit_scene(vec![SceneCmd::Patch {
             before: Box::new(before),
             after: Box::new(after),
@@ -404,6 +521,9 @@ impl SlateApp {
         if nodes.is_empty() {
             return Some(Vec::new());
         }
+        if self.image_result_id(session.image).as_ref() != Some(&session.result) {
+            return Some(Vec::new());
+        }
         if !nodes.iter().all(|n| layer_node_kind_allowed(&n.kind)) {
             return Some(Vec::new());
         }
@@ -420,36 +540,48 @@ impl SlateApp {
         if accepted.is_empty() {
             return Some(Vec::new());
         }
-        let locals: Vec<Node> = accepted
+        let mut locals: Vec<Node> = accepted
             .iter()
             .map(|n| layer_node_from_world(&host, host_img, n))
             .collect();
+        if let Some(contours) = self.image_selection_clip(session.image) {
+            for local in &mut locals {
+                local.clip = clip_path_for_layer_node(local, &contours);
+            }
+        }
         let ids: Vec<NodeId> = locals.iter().map(|n| n.id).collect();
         let mut cmds = Vec::new();
-        let (layer_id, layer_index) = if host_img.paint_layers.is_empty() {
-            let before = host.clone();
-            let layer_id = Self::next_paint_layer_id(host_img);
-            let mut after = before.clone();
-            let NodeKind::Image(ref mut img) = after.kind else {
-                return Some(Vec::new());
-            };
-            img.paint_layers.push(PaintLayer::new(layer_id));
+        let mut after = host.clone();
+        let NodeKind::Image(ref mut after_img) = after.kind else {
+            return Some(Vec::new());
+        };
+        Self::prepare_result_stack(after_img, session.result.clone());
+        let needs_layer = Self::selected_layers(after_img, &session.result).is_empty();
+        let layer_id = if needs_layer {
+            let layer_id = Self::next_paint_layer_id(after_img);
+            Self::selected_stack_mut(after_img, &session.result)
+                .add_layer(PaintLayer::new(layer_id));
+            layer_id
+        } else {
+            let layers = Self::selected_layers(after_img, &session.result);
+            layers[session.layer_index.min(layers.len() - 1)].id
+        };
+        let layer_index = Self::selected_layers(after_img, &session.result)
+            .iter()
+            .position(|layer| layer.id == layer_id)
+            .unwrap_or(0);
+        if after != host {
             cmds.push(SceneCmd::Patch {
-                before: Box::new(before),
+                before: Box::new(host.clone()),
                 after: Box::new(after),
             });
-            (layer_id, 0)
-        } else {
-            let idx = session.layer_index.min(host_img.paint_layers.len() - 1);
-            (host_img.paint_layers[idx].id, idx)
-        };
+        }
         let base = self
             .doc()
             .scene
             .node(session.image)
             .and_then(|n| match &n.kind {
-                NodeKind::Image(img) => img
-                    .paint_layers
+                NodeKind::Image(img) => layers_for_result(img, &session.result)
                     .iter()
                     .find(|l| l.id == layer_id)
                     .map(|l| l.nodes.len()),
@@ -484,105 +616,14 @@ impl SlateApp {
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn paint_image_paint_layers(
-        &mut self,
-        ui: &egui::Ui,
-        painter: &egui::Painter,
-        xf: &BoardXf,
-        host: &Node,
-        img: &ImageNode,
-        outline: &[Pos2],
-        _srect: egui::Rect,
-        host_alpha: f32,
-        _z: f32,
-    ) {
-        if img.paint_layers.is_empty() {
-            return;
-        }
-        let ppp = ui.ctx().pixels_per_point();
-        let longest_px = (host.rect.w.max(host.rect.h) * xf.z * ppp)
-            .ceil()
-            .clamp(1.0, 4096.0);
-        let zoom_bucket = (longest_px as u32).max(1).next_power_of_two();
-        let key = paint_layer_cache_key(host, img, self.scene_gen, zoom_bucket);
-        let stale = self
-            .paint_layer_texture_cache
-            .get(&host.id)
-            .is_none_or(|entry| entry.key != key);
-        if stale {
-            let aspect = host.rect.w.max(1e-6) / host.rect.h.max(1e-6);
-            let (w, h) = if aspect >= 1.0 {
-                (zoom_bucket, (zoom_bucket as f32 / aspect).ceil() as u32)
-            } else {
-                ((zoom_bucket as f32 * aspect).ceil() as u32, zoom_bucket)
-            };
-            let mut stamps = std::mem::take(&mut self.paint_layer_stamps);
-            let raster = slate_artifact::rasterize_paint_layers(
-                host,
-                img,
-                w,
-                h,
-                Some(self.doc()),
-                &mut stamps,
-            );
-            self.paint_layer_stamps = stamps;
-            if let Some(rgba) = raster {
-                let image =
-                    egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba);
-                let texture = ui.ctx().load_texture(
-                    format!("paint-layer-{}", host.id.0),
-                    image,
-                    egui::TextureOptions::LINEAR,
-                );
-                self.paint_layer_texture_cache
-                    .insert(host.id, PaintLayerTextureCache { key, texture });
-            }
-        }
-        let Some(texture) = self
-            .paint_layer_texture_cache
-            .get(&host.id)
-            .map(|entry| entry.texture.clone())
-        else {
-            return;
-        };
-        let tint = Color32::WHITE.gamma_multiply(host_alpha.clamp(0.0, 1.0));
-        if let Some(clip) = &host.clip {
-            super::board::paint_clipped_texture(
-                painter,
-                xf,
-                &texture,
-                host,
-                clip,
-                slate_doc::scene::Crop::full(),
-                slate_doc::scene::Mirror::default(),
-                tint,
-            );
-        } else if outline.len() >= 3 {
-            let outline_world = outline
-                .iter()
-                .map(|point| {
-                    let world = xf.s2w(*point);
-                    (world.x, world.y)
-                })
-                .collect::<Vec<_>>();
-            super::board::textured_polygon_world(
-                painter,
-                &texture,
-                outline,
-                &outline_world,
-                host.rect,
-                slate_doc::scene::Crop::full(),
-                tint,
-                host.rotation_deg,
-            );
-        }
-    }
-
     pub fn on_image_paint_add_clicked(&mut self, image: NodeId) {
         if let Some(idx) = self.add_paint_layer_on_image(image) {
+            let Some(result) = self.image_result_id(image) else {
+                return;
+            };
             self.image_paint = Some(ImagePaintSession {
                 image,
+                result,
                 layer_index: idx,
                 focus: ImageStripFocus::Layer(idx),
             });
@@ -596,13 +637,17 @@ impl SlateApp {
         let Some(session) = self.image_paint.as_ref() else {
             return Vec::new();
         };
+        if self.image_result_id(session.image).as_ref() != Some(&session.result) {
+            return Vec::new();
+        }
         let Some(host) = self.doc().scene.node(session.image) else {
             return Vec::new();
         };
         let NodeKind::Image(img) = &host.kind else {
             return Vec::new();
         };
-        let Some(layer) = img.paint_layers.get(session.layer_index) else {
+        let Some(layer) = Self::selected_layers(img, &session.result).get(session.layer_index)
+        else {
             return Vec::new();
         };
         let zoom = self.tab().cam.z;
@@ -626,13 +671,17 @@ impl SlateApp {
         let Some(session) = self.image_paint.as_ref() else {
             return;
         };
+        if self.image_result_id(session.image).as_ref() != Some(&session.result) {
+            return;
+        }
         let Some(host) = self.doc().scene.node(session.image) else {
             return;
         };
         let NodeKind::Image(img) = &host.kind else {
             return;
         };
-        let Some(layer) = img.paint_layers.get(session.layer_index) else {
+        let Some(layer) = Self::selected_layers(img, &session.result).get(session.layer_index)
+        else {
             return;
         };
         let tail: &[Pos2] = if straight || points.len() < 2 {
@@ -714,154 +763,11 @@ impl SlateApp {
         (cmds, touched)
     }
 
-    /// The layer palette below the image being painted: one preview circle
-    /// per layer (the active one ringed), the document's recent colors as
-    /// small dots, the active layer's opacity slider, and the circled `+`.
-    /// Runs before board input so a press on it never paints. Returns
-    /// whether it holds the pointer.
+    /// Legacy separate-area entry point. The shared image blister now owns
+    /// these controls through `image_layer_palette_body`.
     pub(crate) fn image_paint_palette_ui(&mut self, ui: &mut egui::Ui, xf: &BoardXf) -> bool {
-        let Some(session) = self.image_paint.clone() else {
-            self.layer_opacity_drag = None;
-            return false;
-        };
-        let image = session.image;
-        if !self.agent_picture_draw_mode(image) || atlas_shell::canvas_scale::too_small(12.0 * xf.z)
-        {
-            return false;
-        }
-        let Some(host) = self.doc().scene.node(image).cloned() else {
-            return false;
-        };
-        let NodeKind::Image(img) = &host.kind else {
-            return false;
-        };
-        let z = xf.z;
-        let bounds = xf.rect_w2s(host.rect.rotated_bounds(host.rotation_deg));
-        let recents: Vec<[u8; 3]> = self
-            .doc()
-            .view
-            .recent_colors
-            .iter()
-            .flatten()
-            .take(ViewState::RECENT_COLOR_LIMIT)
-            .copied()
-            .collect();
-        let layout = atlas_shell::selection_tools::layer_palette_layout(
-            Pos2::new(bounds.center().x, bounds.bottom()),
-            img.paint_layers.len(),
-            recents.len(),
-            z,
-        );
-        let active = match session.focus {
-            ImageStripFocus::Layer(i) if i < img.paint_layers.len() => Some(i),
-            _ => None,
-        };
-        let opacity = match self.layer_opacity_drag {
-            Some((drag_image, layer, value)) if drag_image == image && Some(layer) == active => {
-                value
-            }
-            _ => active.map_or(1.0, |i| img.paint_layers[i].opacity),
-        };
-        let thumbs = self.paint_layer_thumbs(ui.ctx(), &host, img);
-        let theme = self.palette();
-        let canvas = self.canvas_rect;
-        let mut edit = atlas_shell::selection_tools::LayerPaletteEdit::default();
-        egui::Area::new(egui::Id::new(("image_paint_palette", image.0)))
-            .order(atlas_shell::selection_tools::CANVAS_CHROME_ORDER)
-            .fixed_pos(layout.capsule.min)
-            .constrain(false)
-            .movable(false)
-            .fade_in(false)
-            .show(ui.ctx(), |ui| {
-                ui.set_clip_rect(canvas);
-                edit = atlas_shell::selection_tools::layer_palette(
-                    ui, &layout, &thumbs, active, opacity, &recents, z, theme,
-                );
-            });
-        self.shape_properties
-            .chrome_hits
-            .extend([layout.capsule, layout.add]);
-        if edit.add {
-            self.on_image_paint_add_clicked(image);
-        } else if let Some(i) = edit.layer {
-            self.image_paint = Some(ImagePaintSession {
-                image,
-                layer_index: i,
-                focus: ImageStripFocus::Layer(i),
-            });
-        }
-        if let Some(rgb) = edit.color.and_then(|i| recents.get(i)) {
-            self.adopt_board_color_rgb(*rgb);
-        }
-        if let (Some(value), Some(layer)) = (edit.opacity, active) {
-            self.layer_opacity_drag = Some((image, layer, value));
-        }
-        if !ui.input(|i| i.pointer.primary_down()) {
-            if let Some((drag_image, layer, value)) = self.layer_opacity_drag.take() {
-                self.set_paint_layer_opacity(drag_image, layer, value);
-            }
-        }
-        let captures = ui.ctx().pointer_latest_pos().is_some_and(|p| {
-            canvas.contains(p) && (layout.capsule.contains(p) || layout.add.contains(p))
-        }) || self.layer_opacity_drag.is_some();
-        if captures && ui.input(|i| i.pointer.any_pressed()) {
-            self.board_align_eat_press = true;
-        }
-        captures
-    }
-
-    /// One preview texture per layer of `host`: that layer's ink alone,
-    /// center-cropped square. Rebuilt only when the scene generation moves.
-    fn paint_layer_thumbs(
-        &mut self,
-        ctx: &egui::Context,
-        host: &Node,
-        img: &ImageNode,
-    ) -> Vec<Option<egui::TextureId>> {
-        const THUMB_PX: u32 = 48;
-        let gen = self.scene_gen;
-        let aspect = host.rect.w.max(1e-6) / host.rect.h.max(1e-6);
-        let (w, h) = if aspect >= 1.0 {
-            ((THUMB_PX as f32 * aspect).ceil() as u32, THUMB_PX)
-        } else {
-            (THUMB_PX, (THUMB_PX as f32 / aspect).ceil() as u32)
-        };
-        img.paint_layers
-            .iter()
-            .map(|layer| {
-                let key = (host.id, layer.id);
-                if self
-                    .paint_layer_thumbs
-                    .get(&key)
-                    .is_none_or(|t| t.gen != gen)
-                {
-                    let mut alone = img.clone();
-                    alone.paint_layers = vec![PaintLayer {
-                        opacity: 1.0,
-                        visible: true,
-                        ..layer.clone()
-                    }];
-                    let svg =
-                        slate_artifact::paint_layers_svg_with_doc(host, &alone, w, h, self.doc());
-                    let rgba = slate_artifact::rasterize_paint_layers_svg(&svg, w, h)?;
-                    let (x0, y0) = ((w - THUMB_PX) / 2, (h - THUMB_PX) / 2);
-                    let side = THUMB_PX as usize;
-                    let mut square = Vec::with_capacity(side * side * 4);
-                    for row in 0..side {
-                        let start = ((y0 as usize + row) * w as usize + x0 as usize) * 4;
-                        square.extend_from_slice(&rgba[start..start + side * 4]);
-                    }
-                    let texture = ctx.load_texture(
-                        format!("paint-layer-thumb-{}-{}", host.id.0, layer.id.0),
-                        egui::ColorImage::from_rgba_unmultiplied([side, side], &square),
-                        egui::TextureOptions::LINEAR,
-                    );
-                    self.paint_layer_thumbs
-                        .insert(key, PaintLayerThumb { gen, texture });
-                }
-                self.paint_layer_thumbs.get(&key).map(|t| t.texture.id())
-            })
-            .collect()
+        let _ = (ui, xf);
+        false
     }
 
     pub fn adopt_board_color_rgb(&mut self, rgb: [u8; 3]) {
@@ -930,6 +836,9 @@ impl SlateApp {
         let NodeKind::Image(ref host_img) = host.kind else {
             return false;
         };
+        let Some(result) = self.image_result_id(target) else {
+            return false;
+        };
         let mut child = self.doc_mut().scene.build_node(
             WorldRect::new(host.rect.x, host.rect.y, host.rect.w, host.rect.h),
             NodeKind::Image(ImageNode::new(item)),
@@ -937,35 +846,48 @@ impl SlateApp {
         child.rotation_deg = host.rotation_deg;
         let local = layer_node_from_world(&host, host_img, &child);
         let mut cmds = Vec::new();
-        let (layer_id, layer_index) = if host_img.paint_layers.is_empty() {
-            let layer_id = Self::next_paint_layer_id(host_img);
-            let mut after = host.clone();
-            let NodeKind::Image(ref mut img) = after.kind else {
-                return false;
-            };
-            img.paint_layers.push(PaintLayer::new(layer_id));
+        let mut after = host.clone();
+        let NodeKind::Image(ref mut after_img) = after.kind else {
+            return false;
+        };
+        Self::prepare_result_stack(after_img, result.clone());
+        let count = Self::selected_layers(after_img, &result).len();
+        let layer_index = self
+            .image_paint
+            .as_ref()
+            .filter(|session| session.image == target && session.result == result)
+            .map(|session| session.layer_index)
+            .unwrap_or_else(|| count.saturating_sub(1))
+            .min(count.saturating_sub(1));
+        let layer_id = if count == 0 {
+            let id = Self::next_paint_layer_id(after_img);
+            Self::selected_stack_mut(after_img, &result).add_layer(PaintLayer::new(id));
+            id
+        } else {
+            Self::selected_layers(after_img, &result)[layer_index].id
+        };
+        if after != host {
             cmds.push(SceneCmd::Patch {
                 before: Box::new(host.clone()),
                 after: Box::new(after),
             });
-            (layer_id, 0)
-        } else {
-            let index = self
-                .image_paint
-                .as_ref()
-                .filter(|session| session.image == target)
-                .map(|session| session.layer_index)
-                .unwrap_or(host_img.paint_layers.len() - 1)
-                .min(host_img.paint_layers.len() - 1);
-            (host_img.paint_layers[index].id, index)
-        };
+        }
+        let base = self
+            .doc()
+            .scene
+            .node(target)
+            .and_then(|node| match &node.kind {
+                NodeKind::Image(img) => layers_for_result(img, &result)
+                    .iter()
+                    .find(|layer| layer.id == layer_id)
+                    .map(|layer| layer.nodes.len()),
+                _ => None,
+            })
+            .unwrap_or(0);
         cmds.push(SceneCmd::LayerNodeAdd {
             host: target,
             layer: layer_id,
-            index: host_img
-                .paint_layers
-                .get(layer_index)
-                .map_or(0, |layer| layer.nodes.len()),
+            index: base,
             node: local,
         });
         if let Some(id) = remove_source.filter(|id| *id != target) {
@@ -980,6 +902,7 @@ impl SlateApp {
         }
         self.image_paint = Some(ImagePaintSession {
             image: target,
+            result,
             layer_index,
             focus: ImageStripFocus::Layer(layer_index),
         });

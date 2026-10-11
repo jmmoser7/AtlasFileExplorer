@@ -424,7 +424,14 @@ pub struct SlateApp {
     pub(crate) paint_layer_stamps: slate_artifact::LayerStamps,
     /// Layer-palette preview circles, rebuilt once per scene generation.
     pub(crate) paint_layer_thumbs:
-        HashMap<(NodeId, slate_doc::PaintLayerId), board_image_layers::PaintLayerThumb>,
+        HashMap<
+            (
+                NodeId,
+                slate_doc::image_paint::ImageResultId,
+                slate_doc::PaintLayerId,
+            ),
+            board_image_layers::PaintLayerThumb,
+        >,
     /// Layer-palette opacity slider mid-drag: (image, layer, opacity).
     pub(crate) layer_opacity_drag: Option<(NodeId, usize, f32)>,
     pub(crate) image_drop: Option<board_image_layers::ImageDropOffer>,
@@ -2187,6 +2194,7 @@ impl SlateApp {
         };
         let workbook = self.tab().path.clone();
         let mut doc = self.doc().clone();
+        self.resolve_export_image_layers(&mut doc);
         for item in &mut doc.items {
             item.path =
                 slate_doc::scene::resolve_source(workbook.as_deref(), &item.path.to_string_lossy());
@@ -2831,7 +2839,8 @@ impl SlateApp {
 
 #[cfg(not(test))]
 fn sample_workbook_cover_media(doc: &slate_doc::SlateDoc, limit: usize) -> Vec<PathBuf> {
-    doc.items
+    let images = doc
+        .items
         .iter()
         .filter_map(|it| {
             let ext = it
@@ -2839,22 +2848,11 @@ fn sample_workbook_cover_media(doc: &slate_doc::SlateDoc, limit: usize) -> Vec<P
                 .extension()
                 .map(|e| e.to_string_lossy().to_ascii_lowercase())
                 .unwrap_or_default();
-            let fam = atlas_core::types::Family::from_ext(&ext);
-            if atlas_core::types::wants_thumb(fam)
-                && matches!(
-                    fam,
-                    atlas_core::types::Family::Image
-                        | atlas_core::types::Family::Video
-                        | atlas_core::types::Family::Design
-                )
-            {
-                Some(it.path.clone())
-            } else {
-                None
-            }
+            (atlas_core::types::Family::from_ext(&ext) == atlas_core::types::Family::Image)
+                .then(|| it.path.clone())
         })
-        .take(limit)
-        .collect()
+        .collect::<Vec<_>>();
+    atlas_shell::cover_interest::rank_striking(&images, limit)
 }
 
 impl eframe::App for SlateApp {
