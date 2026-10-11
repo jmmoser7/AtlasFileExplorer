@@ -25,16 +25,7 @@ impl SlateApp {
         let slot = canvas_scale::px(train_ux::glyph_slot(), z);
         let x = menu_left - canvas_scale::px(8.0, z);
         let top = cy - slot * offers.len() as f32 * 0.5;
-        let card = self.board_sel.contains(&node.id)
-            || ui
-                .ctx()
-                .pointer_hover_pos()
-                .is_some_and(|p| card_rect.contains(p));
-        let reveal = ui.ctx().animate_bool_with_time(
-            Id::new(("agent-collapse-reveal", node.id.0)),
-            card,
-            0.12,
-        );
+        let _ = card_rect;
         let ink = self.palette().ink;
         let mut clicked = None;
         for (i, (dir, step)) in offers.iter().copied().enumerate() {
@@ -46,19 +37,14 @@ impl SlateApp {
                 Id::new(("agent-collapse", node.id.0, i)),
                 Sense::click(),
             );
-            let alpha = if response.hovered() {
-                0.95
-            } else {
-                0.55 + 0.27 * reveal
-            };
-            paint_fold_glyph(
-                ui.painter(),
-                center,
-                z,
-                dir,
-                step,
-                ink.gamma_multiply(alpha),
-            );
+            // Only the step under the pointer is drawn. The other hits stay.
+            let hot = ui
+                .ctx()
+                .pointer_hover_pos()
+                .is_some_and(|p| hit.contains(p));
+            if hot {
+                paint_fold_glyph(ui.painter(), center, z, dir, step, ink.gamma_multiply(0.95));
+            }
             if response.clicked() {
                 clicked = Some(train_ux::chevron_detail(dir, step));
             }
@@ -201,9 +187,9 @@ impl SlateApp {
         let fold_now = slate_doc::agent_chat::agent(node)
             .map(|a| card_fold(&a.chat, self.agents.stream_open.contains(&node.id)))
             .unwrap_or(train_ux::CardFold::Open);
-        if fold_now == train_ux::CardFold::Partial {
-            atlas_shell::menu_wheel::claim(ui.ctx(), transcript);
-        }
+        let band_floor = xf.rect_w2s(node.rect).bottom() - super::chat_edge::chat_bottom_band(z);
+        let transcript = cap_bottom(transcript, band_floor);
+        let input = cap_bottom(input, band_floor);
         if transcript.height() > 16.0 * z {
             let mut chat_ui = egui::Ui::new(
                 ui.ctx().clone(),
@@ -252,6 +238,8 @@ impl SlateApp {
                 .max_height(transcript.height())
                 .auto_shrink([false, false])
                 .show(&mut chat_ui, |ui| {
+                    // The viewport clip, not the card, so a glyph cannot sit in the composer gap.
+                    ui.set_clip_rect(transcript.intersect(ui.clip_rect()));
                     for (index, turn) in turns.iter().enumerate() {
                         let width = transcript.width();
                         if agent.chat.detail == slate_doc::agent_chat::Detail::Pair
@@ -401,11 +389,12 @@ impl SlateApp {
                 self.agents.measure_epoch = self.agents.measure_epoch.wrapping_add(1);
                 ui.ctx().request_repaint();
             }
+            let overflow = (scroll.content_size.y - scroll.inner_rect.height()).max(0.0) / z;
             if agent.chat.size.is_some() || fold_now == train_ux::CardFold::Partial {
-                self.agents.card_overflow.insert(
-                    node.id,
-                    (scroll.content_size.y - scroll.inner_rect.height()).max(0.0) / z,
-                );
+                self.agents.card_overflow.insert(node.id, overflow);
+            }
+            if self.board_sel.contains(&node.id) && overflow > 0.5 {
+                atlas_shell::menu_wheel::claim(ui.ctx(), transcript);
             }
         }
         if let Some(strip) = key_strip {
@@ -415,4 +404,12 @@ impl SlateApp {
             self.paint_agent_composer(ui, node.id, input, z, false);
         }
     }
+}
+
+/// Keep `rect` above `floor` so the bottom resize band is not part of it.
+fn cap_bottom(rect: Rect, floor: f32) -> Rect {
+    Rect::from_min_max(
+        rect.min,
+        Pos2::new(rect.right(), rect.bottom().min(floor).max(rect.top())),
+    )
 }

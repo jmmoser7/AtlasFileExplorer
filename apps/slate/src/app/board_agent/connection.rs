@@ -103,6 +103,19 @@ impl SlateApp {
             groups.entry(a.session.clone()).or_default().push(index);
         }
         for (old_session, indices) in groups {
+            // A card copied out of a train keeps its session; paste wires it
+            // back to the same host. A copied root still forks its source.
+            let indices: Vec<usize> = indices
+                .into_iter()
+                .filter(|&index| {
+                    slate_doc::agent_chat::agent(&payload[index])
+                        .and_then(|a| a.chat.parent)
+                        .is_none_or(|parent| payload.iter().any(|n| n.id == parent))
+                })
+                .collect();
+            if indices.is_empty() {
+                continue;
+            }
             let sample = &payload[indices[0]];
             let Some(agent) = slate_doc::agent_chat::agent(sample).cloned() else {
                 continue;
@@ -153,6 +166,20 @@ impl SlateApp {
             let _ = old_session;
         }
         true
+    }
+    /// A pasted chat whose parent stayed on the board is another fork of that host.
+    pub(crate) fn keep_external_chat_hosts(&self, nodes: &mut [Node], sources: &[Node]) {
+        for (node, src) in nodes.iter_mut().zip(sources.iter()) {
+            let Some(parent) = slate_doc::agent_chat::agent(src).and_then(|a| a.chat.parent) else {
+                continue;
+            };
+            if sources.iter().any(|n| n.id == parent) || self.doc().scene.node(parent).is_none() {
+                continue;
+            }
+            if let Some(a) = slate_doc::agent_chat::agent_mut(node) {
+                a.chat.parent = Some(parent);
+            }
+        }
     }
     fn fork_source_turns(
         &self,

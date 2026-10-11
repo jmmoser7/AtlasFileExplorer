@@ -22,31 +22,31 @@ fn seed(h: &mut Harness, id: NodeId, lines: &[(&str, &str)]) {
     h.app.review_chat_lines(id, lines);
 }
 
-fn fold(h: &mut Harness, id: NodeId, collapsed: bool, partial: bool) {
+pub(super) fn fold(h: &mut Harness, id: NodeId, collapsed: bool, partial: bool) {
     h.app.review_chat_fold(id, collapsed, partial);
 }
 
-fn settle(h: &mut Harness) {
+pub(super) fn settle(h: &mut Harness) {
     for _ in 0..6 {
         h.frame();
     }
 }
 
-fn aim(h: &mut Harness, id: NodeId, zoom: f32) {
+pub(super) fn aim(h: &mut Harness, id: NodeId, zoom: f32) {
     let r = h.app.doc().scene.node(id).unwrap().rect;
     h.app.tab_mut().cam.offset = egui::vec2(r.x + r.w * 0.5, r.y + r.h * 0.5);
     h.app.tab_mut().cam.z = zoom;
     settle(h);
 }
 
-fn card_screen(h: &Harness, id: NodeId) -> egui::Rect {
+pub(super) fn card_screen(h: &Harness, id: NodeId) -> egui::Rect {
     h.app
         .board_xf()
         .rect_w2s(h.app.doc().scene.node(id).unwrap().rect)
 }
 
 /// Two frames with the pointer at `at`, then a crop around `id`'s card.
-fn shoot(
+pub(super) fn shoot(
     h: &mut Harness,
     raster: &mut FrameRaster,
     item: &str,
@@ -89,7 +89,7 @@ const TRANSCRIPT: &[(&str, &str)] = &[
     ),
 ];
 
-fn prepare(tag: &str, collapsed: bool, partial: bool) -> (Harness, NodeId, FrameRaster) {
+pub(super) fn prepare(tag: &str, collapsed: bool, partial: bool) -> (Harness, NodeId, FrameRaster) {
     let mut h = line_board(tag);
     h.app.set_board_tool(crate::app::board::BoardTool::Select);
     let id = cursor_card(&mut h, "Cursor");
@@ -396,4 +396,10 @@ fn ct10_link_dots() {
         let at = h.app.board_xf().w2s(Pos2::new(w[0], w[1]));
         shoot(&mut h, &mut raster, "CT10", name, Some(at), id);
     }
+}
+
+#[test]
+#[ignore = "review sheet: writes PNGs to target/review/"]
+fn ct_polish_sheets() {
+    super::chat_polish::sheets();
 }

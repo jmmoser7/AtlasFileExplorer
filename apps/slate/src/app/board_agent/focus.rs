@@ -185,6 +185,7 @@ impl SlateApp {
             .get(&top.id)
             .is_some_and(|rect| rect.contains(p))
             .then_some(top.id)
+            .filter(|_| !self.pointer_in_chat_bottom_band(p, xf))
     }
     /// Paint registers composer fields and scroll ranges again for what it draws.
     pub(crate) fn begin_agent_paint(&mut self) {
@@ -192,28 +193,26 @@ impl SlateApp {
         self.agents.card_overflow.clear();
         self.agents.chevron_hits.clear();
     }
-    /// Partial cards always own the wheel. A sized card owns it once content overflows.
+    /// The wheel scrolls a chat card only when that card is selected and its
+    /// text does not fit. A hover alone leaves the wheel on the board.
     pub(crate) fn card_owns_transcript_wheel(&self, n: &Node) -> bool {
         let Some(a) = slate_doc::agent_chat::agent(n) else {
             return false;
         };
-        if a.view != atlas_ai::agent::PortalView::Chat {
+        if a.view != atlas_ai::agent::PortalView::Chat || !self.board_sel.contains(&n.id) {
             return false;
         }
-        let fold = card_fold(&a.chat, self.agents.stream_open.contains(&n.id));
-        if fold == train_ux::CardFold::Partial {
-            return true;
-        }
-        a.chat.size.is_some()
-            && self
-                .agents
-                .card_overflow
-                .get(&n.id)
-                .is_some_and(|max| *max > 0.5)
+        self.agents
+            .card_overflow
+            .get(&n.id)
+            .is_some_and(|max| *max > 0.5)
     }
     /// A chat card's own grips (output, stop, context, crosstalk port,
     /// chevron) own the pointer, so no frame resize starts under them.
     pub(crate) fn agent_grip_owns(&self, screen: Pos2, xf: &BoardXf) -> bool {
+        if self.pointer_in_chat_bottom_band(screen, xf) {
+            return false;
+        }
         self.agent_output_at(screen, xf).is_some()
             || self.agent_stop_at(screen, xf).is_some()
             || self.agent_artifact_at(screen, xf).is_some()

@@ -5,7 +5,7 @@ use super::test_support::*;
 use super::*;
 use eframe::egui::Pos2;
 
-fn chat_with_text(tag: &str) -> (super::super::tests::Harness, NodeId) {
+pub(super) fn chat_with_text(tag: &str) -> (super::super::tests::Harness, NodeId) {
     let mut h = board(tag);
     let id = train(&mut h, Pos2::ZERO, "cursor");
     h.app.patch_nodes(&[id], |n| {
@@ -107,11 +107,16 @@ impl SlateApp {
     }
 }
 
-fn fold(h: &mut super::super::tests::Harness, id: NodeId, collapsed: bool, partial: bool) {
+pub(super) fn fold(
+    h: &mut super::super::tests::Harness,
+    id: NodeId,
+    collapsed: bool,
+    partial: bool,
+) {
     h.app.review_chat_fold(id, collapsed, partial);
 }
 
-fn wheel(h: &mut super::super::tests::Harness, at: Pos2, dy: f32) {
+pub(super) fn wheel(h: &mut super::super::tests::Harness, at: Pos2, dy: f32) {
     h.frame_with(|i| {
         i.events.push(egui::Event::PointerMoved(at));
         i.events.push(egui::Event::MouseWheel {
@@ -125,7 +130,7 @@ fn wheel(h: &mut super::super::tests::Harness, at: Pos2, dy: f32) {
     }
 }
 
-fn scroll_of(h: &super::super::tests::Harness, id: NodeId) -> f32 {
+pub(super) fn scroll_of(h: &super::super::tests::Harness, id: NodeId) -> f32 {
     h.app
         .agents
         .transcript_scroll
@@ -217,6 +222,7 @@ fn every_fold_transition_is_one_or_two_steps() {
 fn a_partial_card_scrolls_and_the_board_does_not_zoom() {
     let (mut h, id) = chat_with_text("ct_wheel");
     fold(&mut h, id, false, true);
+    h.app.board_sel.insert(id);
     center_on(&mut h, id);
     h.frame();
     h.frame();

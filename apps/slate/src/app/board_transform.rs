@@ -579,6 +579,9 @@ impl SlateApp {
         if self.agent_grip_owns(screen, &xf) {
             return None;
         }
+        if let Some((id, hit)) = self.chat_south_resize(screen, &xf) {
+            return Some((Some(id), hit));
+        }
         if self.board_sel.len() >= 2 && !self.selection_all_simple_lines() {
             if let Some(gb) = self.board_group_bounds() {
                 let geom = board_handles::selection_geom(&xf, gb, 0.0);

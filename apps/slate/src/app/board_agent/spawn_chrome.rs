@@ -43,14 +43,14 @@ impl SlateApp {
                 r.right() - slate_doc::agent_chat::PORT_INSET * xf.z,
                 r.top() + slate_doc::agent_chat::RAIL_INSET * xf.z,
             );
-            let color = palette.sub.gamma_multiply(
-                if pointer.is_some_and(|q| q.distance(p) < 16.0 * xf.z) {
-                    0.9
-                } else {
-                    0.35
-                },
-            );
-            let near = pointer.is_some_and(|q| q.distance(p) <= 10.0 * xf.z);
+            let on_model = pointer.is_some_and(|q| {
+                painter
+                    .ctx()
+                    .data(|d| d.get_temp::<Rect>(Id::new(("agent-model-hit", n.id.0))))
+                    .is_some_and(|rect| rect.contains(q))
+            });
+            let near = !on_model && pointer.is_some_and(|q| q.distance(p) <= 10.0 * xf.z);
+            let color = palette.sub.gamma_multiply(if near { 0.9 } else { 0.35 });
             paint_handle_dot(painter, p, xf.z, near, color);
         }
         if let (Some((id, _)), Some(pos)) = (self.agents.spawn_drag, self.board_point_snap) {

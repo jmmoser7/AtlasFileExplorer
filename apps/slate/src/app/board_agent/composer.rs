@@ -26,7 +26,8 @@ impl SlateApp {
             .unwrap_or_default();
         let wrap = (wrap_w * z).max(1.0);
         let prompt_h = composer_text_height(ui.ctx(), &prompt, wrap, 14.0 * z);
-        let bottom = body.bottom() - COMPOSER_BOTTOM * z;
+        let bottom = (body.bottom() - COMPOSER_BOTTOM * z)
+            .min(body.bottom() - super::chat_edge::chat_bottom_band(z));
         let field = Rect::from_min_max(
             Pos2::new(text_x, bottom - prompt_h - 2.0 * z),
             Pos2::new(text_right, bottom),
@@ -285,7 +286,9 @@ impl SlateApp {
         self.agents
             .context_human
             .iter()
-            .find(|(_, p)| screen.distance(**p) <= 10.0 * xf.z)
+            .find(|(_, p)| {
+                screen.distance(**p) <= 10.0 * xf.z && !self.pointer_in_chat_bottom_band(screen, xf)
+            })
             .map(|(id, _)| *id)
     }
     pub(crate) fn context_auto_under(&self, screen: Pos2, xf: &BoardXf) -> Option<NodeId> {

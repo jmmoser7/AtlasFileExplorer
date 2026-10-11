@@ -19,6 +19,8 @@ impl SlateApp {
         let z = xf.z;
         let rect = xf.rect_w2s(node.rect);
         let palette = self.palette();
+        let model_key = Id::new(("agent-model-hit", node.id.0));
+        ui.ctx().data_mut(|d| d.remove::<Rect>(model_key));
         if self.agent_context_handles_visible(node.id) {
             self.paint_agent_artifacts(ui, painter, xf, node);
         } else {
@@ -118,26 +120,34 @@ impl SlateApp {
             );
             header.set_clip_rect(ui.clip_rect());
             header.style_mut().visuals = palette.visuals();
-            header.style_mut().override_font_id = Some(FontId::proportional(13.0 * z));
-            header.spacing_mut().button_padding = egui::vec2(0.0, 2.0 * z);
-            header.spacing_mut().interact_size.y = 24.0 * z;
             header.spacing_mut().item_spacing.x = 4.0 * z;
-            {
-                let widget = &mut header.style_mut().visuals.widgets.inactive;
-                widget.bg_fill = Color32::TRANSPARENT;
-                widget.weak_bg_fill = Color32::TRANSPARENT;
-                widget.bg_stroke = egui::Stroke::NONE;
-            }
             let mut chosen = None;
             let mut rename = false;
             let open = self.agents.model_menu == Some(node.id);
             let mut model_rect = None;
             header.horizontal(|header| {
-                if header
-                    .add(egui::Button::new(&title).frame(false))
-                    .on_hover_text("Rename conversation")
-                    .clicked()
+                let title_hit = interactive_text::hover_interactive_text(
+                    header,
+                    Id::new(("agent-title", node.id.0)),
+                    &title,
+                    z,
+                    13.0,
+                    palette.ink,
+                );
+                if title_hit.hovered()
+                    || header
+                        .ctx()
+                        .pointer_hover_pos()
+                        .is_some_and(|p| title_hit.rect.contains(p))
                 {
+                    interactive_text::paint_rename_linger(
+                        header.painter(),
+                        title_hit.rect.left_bottom(),
+                        z,
+                        palette.ink,
+                    );
+                }
+                if title_hit.clicked() {
                     rename = true;
                 }
                 header.label("·");
@@ -146,17 +156,15 @@ impl SlateApp {
                 } else {
                     // Full access paints the model deep red, the moment it is granted.
                     let full = self.agent_full_access(&agent.session);
-                    let model_text = if full {
-                        egui::RichText::new(model_name).color(palette.danger)
-                    } else {
-                        egui::RichText::new(model_name)
-                    };
-                    let mut button = egui::Button::new(model_text);
-                    if open {
-                        let open_look = &header.visuals().widgets.open;
-                        button = button.fill(open_look.weak_bg_fill).stroke(open_look.bg_stroke);
-                    }
-                    let model = header.add(button);
+                    let color = if full { palette.danger } else { palette.ink };
+                    let model = interactive_text::hover_interactive_text(
+                        header,
+                        Id::new(("agent-model-name", node.id.0)),
+                        &model_name,
+                        z,
+                        13.0,
+                        color,
+                    );
                     if model.clicked() {
                         self.agents.model_menu = (!open).then_some(node.id);
                         self.agents.model_menu_armed = false;
@@ -205,6 +213,9 @@ impl SlateApp {
                     atlas_commands::CommandId("portal.agent.model"),
                     Some(model),
                 );
+            }
+            if let Some(rect) = model_rect {
+                ui.ctx().data_mut(|d| d.insert_temp(model_key, rect));
             }
         } else {
             if self.agents.model_menu == Some(node.id) {
@@ -268,21 +279,29 @@ impl SlateApp {
                 };
                 canvas_text::text(&clip, at, Align2::LEFT_CENTER, label, font, palette.ink);
             }
-            if ui
-                .interact(
-                    title_rect,
-                    Id::new(("agent-title", node.id.0)),
-                    Sense::click(),
-                )
-                .on_hover_text("Rename conversation")
-                .clicked()
-            {
+            let title_hit = ui.interact(
+                title_rect,
+                Id::new(("agent-title", node.id.0)),
+                Sense::click(),
+            );
+            let over_title = title_hit.hovered()
+                || ui
+                    .ctx()
+                    .pointer_hover_pos()
+                    .is_some_and(|p| title_rect.contains(p));
+            if over_title {
+                interactive_text::paint_rename_linger(
+                    &clip,
+                    at + egui::vec2(0.0, canvas_scale::px(8.0, z)),
+                    z,
+                    palette.ink,
+                );
+            }
+            if title_hit.clicked() {
                 self.agents.title_edit = Some((node.id, title));
             }
         }
-        if agent.chat.draft {
-            return;
-        }
+        let draft = agent.chat.draft;
         let leaf = !self.agent_has_child(node.id);
         // 60% of the previous cluster, pinned to its old top and right edge.
         let full_r = 3.5 * z;
@@ -335,7 +354,7 @@ impl SlateApp {
                 palette.ink.gamma_multiply(0.55 + 0.40 * grow),
             );
         }
-        if !self.agent_stop_shown(node) {
+        if !draft && !self.agent_stop_shown(node) {
             paint_handle_dot(
                 painter,
                 output_circle_center(rect, z),
@@ -344,7 +363,7 @@ impl SlateApp {
                 palette.sub.gamma_multiply(0.72),
             );
         }
-        if !(agent.chat.train && !agent.chat.bundled.is_empty()) {
+        if !draft && !(agent.chat.train && !agent.chat.bundled.is_empty()) {
             if let Some(detail) =
                 self.paint_agent_collapse_toggle(ui, node, rect, menu_rect.left(), dot_cy, z)
             {
