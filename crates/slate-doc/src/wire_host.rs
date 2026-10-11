@@ -53,19 +53,16 @@ pub struct WireSnap {
     pub dist: f32,
 }
 
-/// Pose a connector end resolves against. Built from a [`Node`] at
-/// paint / hit / export time — never persisted.
+/// Pose a connector end resolves against. Built from a [`Node`] at paint time.
 #[derive(Debug, Clone)]
 pub struct WireHost {
     pub rect: WorldRect,
     pub rotation_deg: f32,
     kind: HostKind,
-    /// Typed inputs of a generator or text block. When present, the host's
-    /// ports are these on the left edge plus one output at the right middle.
     flow: &'static [crate::agent_inputs::InputPort],
-    /// [`is_open_shape`]: no ports and no new attachments. Saved anchors
-    /// still resolve.
     open_shape: bool,
+    /// Chat-card side ports resolve on the header dot, not the edge midpoint.
+    chat: bool,
 }
 
 /// An unclosed line, arc, polyline, Bézier span, or pen stroke. The single
@@ -98,8 +95,6 @@ struct OpenStroke {
 }
 
 impl WireHost {
-    /// Unrotated axis-aligned box — the historical AABB host. Used by
-    /// tests and by paste remap when only a rect is available.
     pub fn from_rect(rect: WorldRect) -> Self {
         Self {
             rect,
@@ -107,10 +102,10 @@ impl WireHost {
             kind: HostKind::Oriented { ellipse: false },
             flow: &[],
             open_shape: false,
+            chat: false,
         }
     }
 
-    /// Unrotated ellipse — collision uses the oval, not the AABB.
     pub fn from_ellipse(rect: WorldRect) -> Self {
         Self {
             rect,
@@ -118,6 +113,7 @@ impl WireHost {
             kind: HostKind::Oriented { ellipse: true },
             flow: &[],
             open_shape: false,
+            chat: false,
         }
     }
 
@@ -133,18 +129,22 @@ impl WireHost {
                 kind: HostKind::Open(stroke),
                 flow: &[],
                 open_shape: is_open_shape(node),
+                chat: false,
             };
         }
         let ellipse = matches!(
             &node.kind,
             NodeKind::Shape(s) if s.shape == ShapeKind::Ellipse
         );
+        let chat =
+            crate::agent_chat::agent(node).is_some_and(|a| a.view == atlas_agent::PortalView::Chat);
         Self {
             rect: node.rect,
             rotation_deg: node.rotation_deg,
             kind: HostKind::Oriented { ellipse },
             flow,
             open_shape: is_open_shape(node),
+            chat,
         }
     }
 
@@ -170,9 +170,7 @@ impl WireHost {
         matches!(self.kind, HostKind::Oriented { ellipse: true })
     }
 
-    /// Default spawn handles. Three on a closed stroke, four on an area, none
-    /// on an open shape. A flow node has its inputs down the left edge and
-    /// one output on the right.
+    /// Spawn handles. A flow node has inputs on the left and one output.
     pub fn ports(&self) -> Vec<WirePort> {
         if !self.offers_ports() {
             return Vec::new();
@@ -223,22 +221,25 @@ impl WireHost {
         }
     }
 
-    /// World point for a stored `(side, t)`.
-    ///
-    /// Oriented: `side` is a **local** edge; the point is rotated with the
-    /// node. Open: `Start` / `End` ignore `t`; `Mid` is arclength `t`.
-    /// A box side stored on an open host (old files) snaps to the nearest
-    /// of start / mid / end.
+    /// World point for `(side, t)`. Chat side ports sit on the header dot.
     pub fn anchor(&self, side: Side, t: f32) -> [f32; 2] {
-        match &self.kind {
+        let (t, inset) = if self.chat && matches!(side, Side::Left | Side::Right) {
+            let t = (crate::agent_chat::RAIL_INSET / self.rect.h.max(1.0)).clamp(0.0, 1.0);
+            (t, crate::agent_chat::PORT_INSET)
+        } else {
+            (t, 0.0)
+        };
+        let p = match &self.kind {
             HostKind::Oriented { .. } => self.oriented_anchor(side, t),
             HostKind::Open(stroke) => self.open_anchor(stroke, side, t),
+        };
+        if inset == 0.0 {
+            return p;
         }
+        let n = self.outward(side, t);
+        [p[0] - n[0] * inset, p[1] - n[1] * inset]
     }
 
-    /// Outward unit direction at the anchor (bezier handles; ortho stubs
-    /// cardinalize this). Open mid uses a consistent left-normal of the
-    /// tangent — it does not flip when the far end crosses the curve.
     pub fn outward(&self, side: Side, t: f32) -> [f32; 2] {
         match &self.kind {
             HostKind::Oriented { .. } => rotate_vec(side.normal(), self.rotation_deg),

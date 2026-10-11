@@ -28,25 +28,51 @@ impl SlateApp {
         let _ = card_rect;
         let ink = self.palette().ink;
         let mut clicked = None;
+        let mut hot_index = None;
         for (i, (dir, step)) in offers.iter().copied().enumerate() {
-            let center = Pos2::new(x, top + slot * (i as f32 + 0.5));
-            let hit = Rect::from_center_size(center, egui::vec2(canvas_scale::px(14.0, z), slot));
+            let hit_at = Pos2::new(x, top + slot * (i as f32 + 0.5));
+            let hit = Rect::from_center_size(hit_at, egui::vec2(canvas_scale::px(14.0, z), slot));
             self.agents.chevron_hits.push(hit);
             let response = ui.interact(
                 hit,
                 Id::new(("agent-collapse", node.id.0, i)),
                 Sense::click(),
             );
-            // Only the step under the pointer is drawn. The other hits stay.
-            let hot = ui
+            if ui
                 .ctx()
                 .pointer_hover_pos()
-                .is_some_and(|p| hit.contains(p));
-            if hot {
-                paint_fold_glyph(ui.painter(), center, z, dir, step, ink.gamma_multiply(0.95));
+                .is_some_and(|p| hit.contains(p))
+            {
+                hot_index = Some(i);
             }
             if response.clicked() {
                 clicked = Some(train_ux::chevron_detail(dir, step));
+            }
+        }
+        // One fixed mark, centered on the header dots. Only the glyph changes.
+        let center = Pos2::new(x, cy);
+        let lower = hot_index.is_some_and(|i| i + 1 == offers.len());
+        let mix =
+            ui.ctx()
+                .animate_bool_with_time(Id::new(("agent-chevron-mix", node.id.0)), lower, 0.10);
+        if hot_index.is_some() {
+            for (i, (dir, step)) in offers.iter().copied().enumerate() {
+                let alpha = if i + 1 == offers.len() {
+                    mix
+                } else {
+                    1.0 - mix
+                };
+                if alpha < 0.04 {
+                    continue;
+                }
+                paint_fold_glyph(
+                    ui.painter(),
+                    center,
+                    z,
+                    dir,
+                    step,
+                    ink.gamma_multiply(0.95 * alpha),
+                );
             }
         }
         clicked

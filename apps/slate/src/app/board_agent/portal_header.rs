@@ -109,138 +109,66 @@ impl SlateApp {
                 );
                 self.agents.title_edit = None;
             }
-        } else if show_model && (agent.chat.draft || !self.agent_has_child(node.id)) {
-            let model_name = self.model_menu_label(agent);
-            let mut header = egui::Ui::new(
-                ui.ctx().clone(),
-                Id::new(("agent-model", node.id.0)),
-                egui::UiBuilder::new()
-                    .layer_id(ui.layer_id())
-                    .max_rect(title_rect),
+        } else {
+            let tail = agent.chat.draft || !self.agent_has_child(node.id);
+            let model_owned = show_model.then(|| self.model_menu_label(agent));
+            let full = show_model && self.agent_full_access(&agent.session);
+            let font = canvas_scale::font(13.0, z);
+            let rise = interactive_text::x_height_rise(painter, &font);
+            let dot_top = output_circle_center(rect, z).y - canvas_scale::px(HANDLE_DOT, z);
+            let at = Pos2::new(anchor.x + canvas_scale::px(10.0, z), dot_top - rise);
+            let title_label = if !tail && !streaming {
+                model_owned
+                    .as_deref()
+                    .map(|model| format!("{title} · {model}"))
+                    .unwrap_or_else(|| title.clone())
+            } else {
+                title.clone()
+            };
+            let title_hit = interactive_text::hover_interactive_text(
+                ui,
+                Id::new(("agent-title", node.id.0)),
+                at,
+                &title_label,
+                z,
+                13.0,
+                palette.ink,
             );
-            header.set_clip_rect(ui.clip_rect());
-            header.style_mut().visuals = palette.visuals();
-            header.spacing_mut().item_spacing.x = 4.0 * z;
-            let mut chosen = None;
-            let mut rename = false;
-            let open = self.agents.model_menu == Some(node.id);
-            let mut model_rect = None;
-            header.horizontal(|header| {
-                let title_hit = interactive_text::hover_interactive_text(
-                    header,
-                    Id::new(("agent-title", node.id.0)),
-                    &title,
+            let over_title = title_hit.hovered()
+                || ui
+                    .ctx()
+                    .pointer_hover_pos()
+                    .is_some_and(|p| title_hit.rect.contains(p));
+            if over_title {
+                interactive_text::paint_rename_linger(
+                    ui,
+                    node.id.0,
+                    title_hit.rect.left_bottom(),
                     z,
-                    13.0,
                     palette.ink,
                 );
-                if title_hit.hovered()
-                    || header
-                        .ctx()
-                        .pointer_hover_pos()
-                        .is_some_and(|p| title_hit.rect.contains(p))
-                {
-                    interactive_text::paint_rename_linger(
-                        header.painter(),
-                        title_hit.rect.left_bottom(),
-                        z,
-                        palette.ink,
-                    );
-                }
-                if title_hit.clicked() {
-                    rename = true;
-                }
-                header.label("·");
-                if streaming {
-                    self.paint_header_responding(header, node.id, z);
-                } else {
-                    // Full access paints the model deep red, the moment it is granted.
-                    let full = self.agent_full_access(&agent.session);
-                    let color = if full { palette.danger } else { palette.ink };
-                    let model = interactive_text::hover_interactive_text(
-                        header,
-                        Id::new(("agent-model-name", node.id.0)),
-                        &model_name,
-                        z,
-                        13.0,
-                        color,
-                    );
-                    if model.clicked() {
-                        self.agents.model_menu = (!open).then_some(node.id);
-                        self.agents.model_menu_armed = false;
-                    }
-                    model_rect = Some(model.rect);
-                    if full {
-                        model.on_hover_text(
-                            "Full access: this conversation runs commands and edits files without asking",
-                        );
-                    }
-                }
-            });
-            if rename {
+            }
+            if title_hit.clicked() {
                 self.agents.title_edit = Some((node.id, title));
             }
-            if let Some(anchor) = model_rect.filter(|_| self.agents.model_menu == Some(node.id)) {
-                let mut armed = self.agents.model_menu_armed;
-                let shown = atlas_shell::menu::anchored(
-                    ui.ctx(),
-                    Id::new(("agent-model-menu", node.id.0)),
-                    ui.layer_id(),
-                    anchor.left_bottom() + egui::vec2(0.0, canvas_scale::px(2.0, z)),
-                    palette.dark_mode,
-                    ui.ctx().screen_rect().width(),
-                    Some(&mut armed),
-                    |ui| self.model_menu_items(ui, node.id, agent, z),
-                );
-                chosen = shown.inner;
-                self.agents.model_menu_armed = armed;
-                let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
-                let pressed_title = ui.input(|i| {
-                    i.pointer.any_pressed()
-                        && i.pointer.interact_pos().is_some_and(|p| anchor.contains(p))
-                });
-                if chosen.is_some() || escape || (shown.dismissed && !pressed_title) {
-                    self.agents.model_menu = None;
-                    self.agents.model_menu_rect = None;
-                } else {
-                    self.agents.model_menu_rect = Some(shown.rect);
-                }
-            }
-            if let Some(model) = chosen {
-                self.board_sel = std::iter::once(node.id).collect();
-                self.dispatch(
-                    ui.ctx(),
-                    atlas_commands::CommandId("portal.agent.model"),
-                    Some(model),
-                );
-            }
-            if let Some(rect) = model_rect {
-                ui.ctx().data_mut(|d| d.insert_temp(model_key, rect));
-            }
-        } else {
-            if self.agents.model_menu == Some(node.id) {
-                self.agents.model_menu = None;
-                self.agents.model_menu_rect = None;
-            }
-            // Sent cards name the model that answered; only the tail chooses the next one.
-            let font = FontId::proportional(canvas_text::authored_px(13.0, z));
-            let clip = painter.with_clip_rect(title_rect);
-            let at = anchor + egui::vec2(10.0 * z, 0.0);
-            if streaming && show_model {
-                let lead = format!("{title} · ");
-                let lead_w =
-                    canvas_text::layout_no_wrap(&clip, lead.clone(), font.clone(), palette.ink)
-                        .size()
-                        .x;
-                canvas_text::text(
-                    &clip,
-                    at,
-                    Align2::LEFT_CENTER,
-                    lead,
+            let mut x = title_hit.rect.right();
+            if show_model && (tail || streaming) {
+                let sep = canvas_text::text(
+                    painter,
+                    Pos2::new(x, at.y),
+                    Align2::LEFT_TOP,
+                    " · ",
                     font.clone(),
                     palette.ink,
                 );
-                let band = Rect::from_min_max(at + egui::vec2(lead_w, -12.0 * z), title_rect.max);
+                x = sep.right();
+            }
+            let mut model_rect = None;
+            if streaming && show_model {
+                let band = Rect::from_min_max(
+                    Pos2::new(x, at.y),
+                    Pos2::new(title_rect.right(), at.y + canvas_scale::px(18.0, z)),
+                );
                 let mut respond = egui::Ui::new(
                     ui.ctx().clone(),
                     Id::new(("agent-responding", node.id.0)),
@@ -249,56 +177,77 @@ impl SlateApp {
                         .max_rect(band),
                 );
                 self.paint_header_responding(&mut respond, node.id, z);
-            } else if show_model && self.agent_full_access(&agent.session) {
-                let lead = format!("{title} · ");
-                let lead_w =
-                    canvas_text::layout_no_wrap(&clip, lead.clone(), font.clone(), palette.ink)
-                        .size()
-                        .x;
-                canvas_text::text(
-                    &clip,
-                    at,
-                    Align2::LEFT_CENTER,
-                    lead,
-                    font.clone(),
-                    palette.ink,
-                );
-                canvas_text::text(
-                    &clip,
-                    at + egui::vec2(lead_w, 0.0),
-                    Align2::LEFT_CENTER,
-                    self.model_menu_label(agent),
-                    font,
-                    palette.danger,
-                );
-            } else {
-                let label = if show_model {
-                    format!("{title} · {}", self.model_menu_label(agent))
-                } else {
-                    title.clone()
-                };
-                canvas_text::text(&clip, at, Align2::LEFT_CENTER, label, font, palette.ink);
+            } else if tail {
+                if let Some(model_name) = model_owned.as_deref() {
+                    let color = if full { palette.danger } else { palette.ink };
+                    let mut model = interactive_text::hover_interactive_text(
+                        ui,
+                        Id::new(("agent-model-name", node.id.0)),
+                        Pos2::new(x, at.y),
+                        model_name,
+                        z,
+                        13.0,
+                        color,
+                    );
+                    let hit = model.rect;
+                    if full {
+                        model = model.on_hover_text(
+                            "Full access: this conversation runs commands and edits files without asking",
+                        );
+                    }
+                    if model.clicked() {
+                        let open = self.agents.model_menu == Some(node.id);
+                        self.agents.model_menu = (!open).then_some(node.id);
+                        self.agents.model_menu_armed = false;
+                    }
+                    model_rect = Some(hit);
+                }
             }
-            let title_hit = ui.interact(
-                title_rect,
-                Id::new(("agent-title", node.id.0)),
-                Sense::click(),
-            );
-            let over_title = title_hit.hovered()
-                || ui
-                    .ctx()
-                    .pointer_hover_pos()
-                    .is_some_and(|p| title_rect.contains(p));
-            if over_title {
-                interactive_text::paint_rename_linger(
-                    &clip,
-                    at + egui::vec2(0.0, canvas_scale::px(8.0, z)),
-                    z,
-                    palette.ink,
-                );
+            if tail {
+                if let Some(menu_at) =
+                    model_rect.filter(|_| self.agents.model_menu == Some(node.id))
+                {
+                    let mut armed = self.agents.model_menu_armed;
+                    let shown = atlas_shell::menu::anchored(
+                        ui.ctx(),
+                        Id::new(("agent-model-menu", node.id.0)),
+                        ui.layer_id(),
+                        menu_at.left_bottom() + egui::vec2(0.0, canvas_scale::px(2.0, z)),
+                        palette.dark_mode,
+                        ui.ctx().screen_rect().width(),
+                        Some(&mut armed),
+                        |ui| self.model_menu_items(ui, node.id, agent, z),
+                    );
+                    let chosen = shown.inner;
+                    self.agents.model_menu_armed = armed;
+                    let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
+                    let pressed_title = ui.input(|i| {
+                        i.pointer.any_pressed()
+                            && i.pointer
+                                .interact_pos()
+                                .is_some_and(|p| menu_at.contains(p))
+                    });
+                    if chosen.is_some() || escape || (shown.dismissed && !pressed_title) {
+                        self.agents.model_menu = None;
+                        self.agents.model_menu_rect = None;
+                    } else {
+                        self.agents.model_menu_rect = Some(shown.rect);
+                    }
+                    if let Some(model) = chosen {
+                        self.board_sel = std::iter::once(node.id).collect();
+                        self.dispatch(
+                            ui.ctx(),
+                            atlas_commands::CommandId("portal.agent.model"),
+                            Some(model),
+                        );
+                    }
+                }
+            } else if self.agents.model_menu == Some(node.id) {
+                self.agents.model_menu = None;
+                self.agents.model_menu_rect = None;
             }
-            if title_hit.clicked() {
-                self.agents.title_edit = Some((node.id, title));
+            if let Some(hit) = model_rect {
+                ui.ctx().data_mut(|d| d.insert_temp(model_key, hit));
             }
         }
         let draft = agent.chat.draft;
@@ -355,12 +304,18 @@ impl SlateApp {
             );
         }
         if !draft && !self.agent_stop_shown(node) {
+            let center = output_circle_center(rect, z);
+            let pointer = ui.ctx().pointer_hover_pos();
+            let model_hit = ui.ctx().data(|d| d.get_temp::<Rect>(model_key));
+            let on_model = pointer.is_some_and(|p| model_hit.is_some_and(|hit| hit.contains(p)));
+            let near = !on_model
+                && pointer.is_some_and(|p| p.distance(center) <= canvas_scale::px(10.0, z));
             paint_handle_dot(
                 painter,
-                output_circle_center(rect, z),
+                center,
                 z,
-                false,
-                palette.sub.gamma_multiply(0.72),
+                near,
+                palette.sub.gamma_multiply(if near { 0.9 } else { 0.72 }),
             );
         }
         if !draft && !(agent.chat.train && !agent.chat.bundled.is_empty()) {

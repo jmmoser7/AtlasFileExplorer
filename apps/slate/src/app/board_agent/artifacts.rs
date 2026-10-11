@@ -143,21 +143,6 @@ impl SlateApp {
             )
             .on_hover_text(blurb);
         }
-        if self.agents.context_preview == Some(node.id) {
-            let over = pointer.is_some_and(|p| {
-                p.distance(auto) <= reach * 1.6
-                    || self
-                        .agents
-                        .context_preview_rect
-                        .is_some_and(|rect| rect.expand(canvas_scale::px(12.0, z)).contains(p))
-            });
-            if self.agents.context_preview_rect.is_some() && !over {
-                self.agents.context_preview = None;
-                self.agents.context_preview_rect = None;
-            } else {
-                self.paint_context_preview(painter, xf, node, auto);
-            }
-        }
         let mut open = None;
         for output in [false, true] {
             if !output && !has_refs {
@@ -166,20 +151,11 @@ impl SlateApp {
             if output && !self.agent_has_outputs(node.id) {
                 continue;
             }
-            let artifacts = if output {
-                Vec::new()
-            } else {
-                self.agent_artifacts(node.id, false)
-            };
             let anchor = if output {
-                Pos2::new(r.right() - slate_doc::agent_chat::PORT_INSET * z, rest.y)
+                output_circle_center(r, z)
             } else {
                 auto
             };
-            if output {
-                let near = pointer.is_some_and(|p| p.distance(anchor) <= canvas_scale::px(12.0, z));
-                paint_handle_dot(painter, anchor, z, near, gray.gamma_multiply(0.8));
-            }
             let response = ui.interact(
                 Rect::from_center_size(anchor, egui::vec2(16.0, 16.0) * z),
                 Id::new(("agent-artifact", node.id.0, output)),
@@ -194,61 +170,9 @@ impl SlateApp {
                 }
                 continue;
             }
-            let blurb = self.agent_context_blurb(node.id);
-            response.on_hover_text(blurb);
-            if self.agents.artifact_popup == Some((node.id, output)) {
-                let title = "Linked context";
-                let dark = palette.dark_mode;
-                let shown = atlas_shell::menu::anchored(
-                    ui.ctx(),
-                    Id::new(("agent-artifact-list", node.id.0, output)),
-                    ui.layer_id(),
-                    anchor + egui::vec2(0.0, 14.0 * z),
-                    dark,
-                    360.0,
-                    None,
-                    |ui| {
-                        atlas_shell::menu::heading(ui, title, dark);
-                        if artifacts.is_empty() {
-                            atlas_shell::menu::note(
-                                ui,
-                                "No reported artifacts for this exchange.",
-                                dark,
-                            );
-                        }
-                        egui::ScrollArea::vertical()
-                            .max_height(260.0)
-                            .show(ui, |ui| {
-                                for a in &artifacts {
-                                    let label = format!("{} · {}", a.kind.label(), a.title);
-                                    if ui
-                                        .add_enabled(
-                                            a.kind != atlas_ai::agent::ArtifactKind::Deleted,
-                                            egui::Button::new(label),
-                                        )
-                                        .on_hover_text(&a.source)
-                                        .clicked()
-                                    {
-                                        open = Some(a.id.clone());
-                                    }
-                                }
-                            });
-                        atlas_shell::menu::item(
-                            ui,
-                            atlas_shell::menu::MenuIcon::None,
-                            "Close",
-                            dark,
-                        )
-                        .clicked()
-                    },
-                );
-                if shown.inner {
-                    self.agents.artifact_popup = None;
-                    self.agents.artifact_popup_rect = None;
-                }
-                if self.agents.artifact_popup.is_some() {
-                    self.agents.artifact_popup_rect = Some(shown.rect);
-                }
+            let _ = response;
+            if let Some(id) = self.paint_context_stack(ui, xf, node, auto) {
+                open = Some(id);
             }
         }
         if let Some(id) = open {
@@ -260,19 +184,16 @@ impl SlateApp {
             self.agents.artifact_popup = None;
             self.agents.artifact_popup_rect = None;
         }
-        self.paint_preview_ask(ui, node, r);
+        self.paint_preview_ask(ui, node, r, z);
     }
-    fn paint_preview_ask(&mut self, ui: &egui::Ui, node: &Node, rect: Rect) {
+    fn paint_preview_ask(&mut self, ui: &egui::Ui, node: &Node, rect: Rect, z: f32) {
         let Some((agent, artifact, at)) = self.agents.preview_ask.clone() else {
             return;
         };
         if agent != node.id {
             return;
         }
-        let dot = Pos2::new(
-            rect.right() - slate_doc::agent_chat::PORT_INSET * 2.0,
-            rect.center().y,
-        );
+        let dot = output_circle_center(rect, z);
         let dark = self.palette().dark_mode;
         let mut chosen = None;
         let shown = atlas_shell::menu::anchored(
@@ -327,12 +248,13 @@ impl SlateApp {
             self.agents.preview_ask_ready = false;
         }
     }
-    fn context_preview_rows(&self, id: NodeId) -> Vec<(String, Option<String>)> {
+    fn context_preview_rows(&self, id: NodeId) -> Vec<(String, Option<String>, String)> {
         let mut rows = Vec::new();
         for artifact in self.agent_artifacts(id, false) {
             rows.push((
                 format!("{} · {}", artifact.kind.label(), artifact.title),
                 Some(artifact.id),
+                artifact.source,
             ));
         }
         for node in &self.doc().scene.nodes {
@@ -370,39 +292,69 @@ impl SlateApp {
             }) else {
                 continue;
             };
-            if label.is_empty() || rows.iter().any(|(title, _)| title == &label) {
+            if label.is_empty() || rows.iter().any(|(title, _, _)| title == &label) {
                 continue;
             }
-            rows.push((label, None));
+            rows.push((label, None, String::new()));
         }
         if rows.is_empty() {
-            rows.push(("No linked context".into(), None));
+            rows.push(("No linked context".into(), None, String::new()));
         }
         rows
     }
-    /// Unjournaled cards. They last only while the pointer stays with them.
-    fn paint_context_preview(
+    /// The same capsule stack as the output dot. A click sends that file to the board.
+    fn paint_context_stack(
         &mut self,
-        painter: &egui::Painter,
+        ui: &egui::Ui,
         xf: &BoardXf,
         node: &Node,
         anchor: Pos2,
-    ) {
+    ) -> Option<String> {
         use atlas_shell::selection_tools::{self as tools, Capsule, StackSide};
         let z = xf.z;
+        let reach = canvas_scale::px(14.0, z);
         let rows = self.context_preview_rows(node.id);
         let palette = self.palette();
-        let mut bounds: Option<Rect> = None;
-        let rects = tools::capsule_stack_rects(anchor, StackSide::Left, rows.len(), z);
-        for ((label, _), rect) in rows.iter().zip(rects) {
-            bounds = Some(bounds.map_or(rect, |b| b.union(rect)));
+        let rects: Vec<Rect> =
+            tools::capsule_stack_rects(anchor, StackSide::Left, rows.len(), z).collect();
+        let bounds = rects.iter().copied().fold(Rect::NOTHING, Rect::union);
+        let over = ui.ctx().pointer_hover_pos().is_some_and(|p| {
+            p.distance(anchor) <= reach || bounds.expand(canvas_scale::px(10.0, z)).contains(p)
+        });
+        if !over {
+            if self.agents.context_preview == Some(node.id) {
+                self.agents.context_preview = None;
+                self.agents.context_preview_rect = None;
+            }
+            return None;
+        }
+        self.agents.context_preview = Some(node.id);
+        self.agents.context_preview_rect = Some(bounds);
+        let mut chosen = None;
+        for (i, ((label, artifact, source), rect)) in rows.iter().zip(rects).enumerate() {
             let row = Capsule {
                 label,
                 ..Default::default()
             };
-            tools::paint_capsule_row(painter, rect, &row, false, false, z, palette);
+            let hit = tools::capsule(
+                ui,
+                Id::new(("agent-context-row", node.id.0, i)),
+                rect,
+                &row,
+                z,
+                palette,
+            );
+            if hit.response.clicked() {
+                chosen = artifact.clone();
+            }
+            if !source.is_empty() {
+                let path = source.clone();
+                hit.response.on_hover_ui(move |ui| {
+                    ui.label(path);
+                });
+            }
         }
-        self.agents.context_preview_rect = bounds;
+        chosen
     }
     pub(super) fn pin_agent_context(&mut self, id: NodeId) {
         let existing = self.provenance_portals(id, false);

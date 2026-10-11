@@ -1,6 +1,7 @@
 //! Fork release, chevron glyphs, bottom band, context dot, paste, and the wheel.
 
 use super::chat_card_tests::{chat_with_text, fold, scroll_of, wheel};
+use super::paint_probe::painted_at;
 use super::test_support::*;
 use super::*;
 use eframe::egui::Pos2;
@@ -41,6 +42,28 @@ fn release_screen(h: &mut super::super::tests::Harness, at: Pos2) {
         })
     });
     h.frame();
+}
+
+fn preview_leaves(origin: Pos2, output: &egui::FullOutput) -> bool {
+    fn walk(shape: &egui::Shape, origin: Pos2, found: &mut bool) {
+        match shape {
+            egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, origin, found)),
+            egui::Shape::LineSegment { points, .. } => {
+                let (a, b) = (points[0], points[1]);
+                let along = (a.y - origin.y).abs() < 3.0
+                    && (b.y - origin.y).abs() < 3.0
+                    && (a.x - origin.x).abs().min((b.x - origin.x).abs()) < 4.0
+                    && (a.x - b.x).abs() > 40.0;
+                *found |= along;
+            }
+            _ => {}
+        }
+    }
+    let mut found = false;
+    for clipped in &output.shapes {
+        walk(&clipped.shape, origin, &mut found);
+    }
+    found
 }
 
 fn lines_near(output: &egui::FullOutput, center: Pos2, radius: f32) -> usize {
@@ -126,18 +149,22 @@ fn pointer_in_one_chevron_zone_draws_only_that_glyph() {
     h.frame();
     let hits = h.app.agents.chevron_hits.clone();
     assert!(hits.len() >= 2, "both hit targets stay");
-    for (index, other) in [(0, 1), (1, 0)] {
+    let fixed = Pos2::new(
+        (hits[0].center().x + hits[1].center().x) * 0.5,
+        (hits[0].center().y + hits[1].center().y) * 0.5,
+    );
+    for index in 0..2 {
         let at = hits[index].center();
         let out = h.frame_output(|i| i.events.push(egui::Event::PointerMoved(at)));
-        let radius = hits[index].height() * 0.45;
         assert!(
-            lines_near(&out, at, radius) >= 1,
-            "zone {index} draws its glyph"
+            lines_near(&out, fixed, 8.0) >= 1,
+            "zone {index} draws the glyph at the header center"
         );
+        let away = Pos2::new(fixed.x, fixed.y - 28.0);
         assert_eq!(
-            lines_near(&out, hits[other].center(), radius),
+            lines_near(&out, away, 6.0),
             0,
-            "zone {index} does not draw the other glyph"
+            "zone {index} does not jump the glyph off the header"
         );
     }
 }
@@ -202,14 +229,14 @@ fn the_context_dot_keeps_the_collapsed_offset() {
             .app
             .chat_context_dot(&h.ctx, &node, screen, h.app.tab().cam.z);
         offsets.push(dot.y - screen.top());
-        if collapsed {
-            assert!(
-                (dot.y - screen.center().y).abs() < 1.5,
-                "collapsed dot is centered: {} vs {}",
-                dot.y,
-                screen.center().y
-            );
-        }
+        let header = slate_doc::agent_chat::RAIL_INSET * h.app.tab().cam.z;
+        assert!(
+            (dot.y - (screen.top() + header)).abs() < 1.5,
+            "the context dot stays on the header: {} vs {}",
+            dot.y - screen.top(),
+            header
+        );
+        let _ = collapsed;
     }
     assert!(
         (offsets[1] - offsets[0]).abs() < 1.0,
@@ -290,5 +317,158 @@ fn the_wheel_scrolls_only_a_selected_overflowing_card() {
     assert!(
         scroll_of(&h, id) > before + 1.0,
         "the selected card scrolled"
+    );
+}
+
+#[test]
+fn the_home_card_drags_a_child_with_no_children_yet() {
+    let mut h = board("home_output_drag");
+    let root = train(&mut h, Pos2::ZERO, "ollama");
+    assert!(!h.app.agent_has_child(root));
+    center_on(&mut h, root);
+    h.app.set_board_tool(super::super::board::BoardTool::Select);
+    h.frame();
+    let xf = h.app.board_xf();
+    let screen = xf.rect_w2s(h.app.doc().scene.node(root).unwrap().rect);
+    let handle = super::output_circle_center(screen, xf.z);
+    assert_eq!(
+        h.app.agent_output_at(handle, &xf),
+        Some(root),
+        "the home card's output dot is a hit with no children"
+    );
+    let drop = handle + egui::vec2(160.0, 80.0);
+    drag_screen(&mut h, handle, drop);
+    release_screen(&mut h, drop);
+    assert!(
+        h.app.agent_has_child(root),
+        "dragging the output dot spawns a downstream card"
+    );
+}
+
+#[test]
+fn a_chat_wire_starts_at_the_header_dot() {
+    let mut h = board("wire_at_dot");
+    let id = train(&mut h, Pos2::ZERO, "ollama");
+    h.app.patch_nodes(&[id], |n| {
+        n.rect.h = 420.0;
+        if let NodeKind::Portal(p) = &mut n.kind {
+            p.agent.as_mut().unwrap().chat.size = Some([n.rect.w, 420.0]);
+        }
+    });
+    let node = h.app.doc().scene.node(id).unwrap().clone();
+    let right = slate_doc::connector_anchor_on(&node, slate_doc::scene::Side::Right, 0.5);
+    let dot_y = node.rect.y + slate_doc::agent_chat::RAIL_INSET;
+    let mid_y = node.rect.y + node.rect.h * 0.5;
+    assert!(
+        (right[1] - dot_y).abs() < 0.6,
+        "committed anchor y {} is the dot {dot_y}, not the center {mid_y}",
+        right[1]
+    );
+    assert!((right[1] - mid_y).abs() > 40.0);
+    let edge_x = node.rect.x + node.rect.w - slate_doc::agent_chat::PORT_INSET;
+    assert!(
+        (right[0] - edge_x).abs() < 0.6,
+        "the wire meets the dot's inset"
+    );
+    center_on(&mut h, id);
+    h.frame();
+    let xf = h.app.board_xf();
+    let screen = xf.rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
+    let from = super::output_circle_center(screen, xf.z);
+    assert!((from.y - screen.center().y).abs() > 40.0);
+    h.app.agents.outputs.drag = Some((id, "k".into(), from));
+    let hot = from + egui::vec2(180.0, 0.0);
+    let out = h.frame_output(|i| i.events.push(egui::Event::PointerMoved(hot)));
+    assert!(
+        preview_leaves(from, &out),
+        "the drag preview starts on the dot, not the card center"
+    );
+}
+
+#[test]
+fn a_context_row_click_sends_that_file_to_the_board() {
+    let mut h = board("context_row");
+    let id = train(&mut h, Pos2::ZERO, "ollama");
+    let path = h.base.join("notes.md");
+    std::fs::write(&path, "hello").unwrap();
+    h.app.agents.bindings.insert(
+        id,
+        slate_doc::agent_chat::agent(h.app.doc().scene.node(id).unwrap())
+            .unwrap()
+            .session
+            .clone(),
+    );
+    h.app.agents.sessions.insert(
+        id,
+        std::sync::Arc::new(AgentSession {
+            approval: None,
+            conversation: String::new(),
+            artifacts: vec![atlas_ai::agent::AgentArtifact {
+                id: "read-notes".into(),
+                turn: 0,
+                kind: atlas_ai::agent::ArtifactKind::Read,
+                source: path.to_string_lossy().into(),
+                title: "notes.md".into(),
+            }],
+            status: AgentStatus::Idle,
+            provider: "ollama".into(),
+            turns: Vec::new(),
+            updated_at: 0,
+            bundle: Default::default(),
+            request: String::new(),
+            usage: None,
+        }),
+    );
+    center_on(&mut h, id);
+    h.frame();
+    let xf = h.app.board_xf();
+    let node = h.app.doc().scene.node(id).unwrap().clone();
+    let screen = xf.rect_w2s(node.rect);
+    let dot = h.app.chat_context_dot(&h.ctx, &node, screen, xf.z);
+    let out = h.frame_output(|i| i.events.push(egui::Event::PointerMoved(dot)));
+    let row = painted_at(&out)
+        .into_iter()
+        .find(|(text, _)| text.contains("notes.md"))
+        .map(|(_, rect)| rect.center())
+        .expect("hovering the input dot lists the context file");
+    let before = h.app.doc().scene.nodes.len();
+    press(&mut h, row);
+    assert!(
+        h.app.doc().scene.nodes.len() > before,
+        "clicking the context row sends that file to the board"
+    );
+}
+
+#[test]
+fn the_title_bolds_on_hover_when_a_second_card_exists() {
+    let mut h = board("title_bold");
+    let root = train(&mut h, Pos2::ZERO, "ollama");
+    h.app.patch_nodes(&[root], |n| {
+        if let NodeKind::Portal(p) = &mut n.kind {
+            p.title = "Courtyard".into();
+        }
+    });
+    let child = next_card(&mut h, root);
+    h.app.patch_nodes(&[child], |n| {
+        if let NodeKind::Portal(p) = &mut n.kind {
+            p.title = "Side path".into();
+        }
+    });
+    center_on(&mut h, root);
+    h.frame();
+    let quiet = h.frame_output(|_| {});
+    let title = painted_at(&quiet)
+        .into_iter()
+        .find(|(text, _)| text == "Courtyard")
+        .map(|(_, rect)| rect.center())
+        .expect("the home card paints its title");
+    let hovered = h.frame_output(|i| i.events.push(egui::Event::PointerMoved(title)));
+    let copies = painted_at(&hovered)
+        .iter()
+        .filter(|(text, _)| text == "Courtyard")
+        .count();
+    assert!(
+        copies >= 2,
+        "hover bolds the title on a train with more than one card, saw {copies}"
     );
 }

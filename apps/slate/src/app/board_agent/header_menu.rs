@@ -80,12 +80,6 @@ impl SlateApp {
                     ),
                     (
                         1,
-                        Row::glyph(Icon::Stop, "Stop response"),
-                        "portal.agent.stop",
-                        running,
-                    ),
-                    (
-                        1,
                         Row::glyph(Icon::ChatTrain, "Fork chat here"),
                         "portal.agent.fork",
                         !running

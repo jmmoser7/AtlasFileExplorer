@@ -2,11 +2,12 @@
 
 use super::*;
 
-/// Hovering interactive text in Slate bolds the text; do not invent a new
-/// box, underline, or color wash.
+/// Hovering interactive text bolds it. The widget is placed at `at` (left top
+/// of the galley) so every card uses the same hit, whatever else is in the train.
 pub(super) fn hover_interactive_text(
-    ui: &mut egui::Ui,
+    ui: &egui::Ui,
     id: Id,
+    at: Pos2,
     text: &str,
     zoom: f32,
     designed_px: f32,
@@ -14,30 +15,42 @@ pub(super) fn hover_interactive_text(
 ) -> egui::Response {
     let font = canvas_scale::font(designed_px, zoom);
     let size = label_size(ui.painter(), text, font.clone(), color);
-    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+    let rect = Rect::from_min_size(at, size);
     let response = ui.interact(rect, id, Sense::click());
     let hot = response.hovered()
         || ui
             .ctx()
             .pointer_hover_pos()
             .is_some_and(|p| rect.contains(p));
-    paint_label(
-        ui.painter(),
-        rect.left_top(),
-        Align2::LEFT_TOP,
-        text,
-        font,
-        color,
-        hot,
-    );
+    paint_label(ui.painter(), at, Align2::LEFT_TOP, text, font, color, hot);
     response
 }
 
-/// "Rename conversation" under the title: the title's type family and resting
-/// weight, slightly larger, in world units so it scales with the board.
-pub(super) fn paint_rename_linger(painter: &egui::Painter, under: Pos2, zoom: f32, color: Color32) {
+/// Distance from the galley's top to the top of a lowercase letter.
+pub(super) fn x_height_rise(painter: &egui::Painter, font: &FontId) -> f32 {
+    let laid = canvas_text::layout_no_wrap(painter, "x".into(), font.clone(), Color32::WHITE);
+    let bounds = laid.galley().mesh_bounds;
+    if bounds.height() > 0.0 && bounds.min.y.is_finite() {
+        bounds.min.y * laid.scale()
+    } else {
+        font.size * 0.24
+    }
+}
+
+/// "Rename conversation" on the tooltip layer, above the card's own text.
+pub(super) fn paint_rename_linger(
+    ui: &egui::Ui,
+    id: impl std::hash::Hash,
+    under: Pos2,
+    zoom: f32,
+    color: Color32,
+) {
+    let painter = ui.ctx().layer_painter(egui::LayerId::new(
+        egui::Order::Tooltip,
+        Id::new(("rename-linger", id)),
+    ));
     canvas_text::text(
-        painter,
+        &painter,
         under + egui::vec2(0.0, canvas_scale::px(1.0, zoom)),
         Align2::LEFT_TOP,
         "Rename conversation",
@@ -61,7 +74,6 @@ fn paint_label(
 ) -> Rect {
     let rect = canvas_text::text(painter, pos, anchor, text, font.clone(), color);
     if hot {
-        // A second copy, a fraction of the type size over, is the bold.
         let shift = font.size * (0.45 / 13.0);
         canvas_text::text(
             painter,

@@ -11,10 +11,7 @@ impl SlateApp {
         if let (Some((id, _)), Some(p)) = (self.agents.artifact_drag, pointer) {
             if let Some(n) = self.doc().scene.node(id) {
                 let r = xf.rect_w2s(n.rect);
-                let from = Pos2::new(
-                    r.right() - slate_doc::agent_chat::PORT_INSET * xf.z,
-                    r.center().y,
-                );
+                let from = output_circle_center(r, xf.z);
                 painter.line_segment(
                     [from, p],
                     egui::Stroke::new((1.25 * xf.z).max(1.0), palette.sub.gamma_multiply(0.7)),
@@ -22,36 +19,9 @@ impl SlateApp {
             }
         }
         for n in &self.doc().scene.nodes {
-            let Some(a) = slate_doc::agent_chat::agent(n) else {
-                continue;
-            };
             if self.agent_stop_shown(n) {
                 self.paint_agent_stop(painter, xf, n, pointer);
-                continue;
             }
-            if n.hidden
-                || n.locked
-                || a.chat.draft
-                || a.provider.is_empty()
-                || a.chat.parent.is_none()
-                || self.agent_in_choose_phase(n.id)
-            {
-                continue;
-            }
-            let r = xf.rect_w2s(n.rect);
-            let p = Pos2::new(
-                r.right() - slate_doc::agent_chat::PORT_INSET * xf.z,
-                r.top() + slate_doc::agent_chat::RAIL_INSET * xf.z,
-            );
-            let on_model = pointer.is_some_and(|q| {
-                painter
-                    .ctx()
-                    .data(|d| d.get_temp::<Rect>(Id::new(("agent-model-hit", n.id.0))))
-                    .is_some_and(|rect| rect.contains(q))
-            });
-            let near = !on_model && pointer.is_some_and(|q| q.distance(p) <= 10.0 * xf.z);
-            let color = palette.sub.gamma_multiply(if near { 0.9 } else { 0.35 });
-            paint_handle_dot(painter, p, xf.z, near, color);
         }
         if let (Some((id, _)), Some(pos)) = (self.agents.spawn_drag, self.board_point_snap) {
             {

@@ -130,13 +130,20 @@ pub(super) fn agent_pick_columns(projects: bool, rows: usize) -> usize {
     }
 }
 
+/// On-screen center of a chat card's header dot. Left and right share one
+/// height so card count cannot move a port.
+pub(super) fn chat_dot_center(card: Rect, right: bool, z: f32) -> Pos2 {
+    let x = if right {
+        card.right() - slate_doc::agent_chat::PORT_INSET * z
+    } else {
+        card.left() + slate_doc::agent_chat::PORT_INSET * z
+    };
+    Pos2::new(x, card.top() + slate_doc::agent_chat::RAIL_INSET * z)
+}
+
 /// On-screen center of a chat card's top output circle.
 pub(super) fn output_circle_center(card: Rect, z: f32) -> Pos2 {
-    card.right_top()
-        + egui::vec2(
-            -slate_doc::agent_chat::PORT_INSET,
-            slate_doc::agent_chat::RAIL_INSET,
-        ) * z
+    chat_dot_center(card, true, z)
 }
 
 /// A person's resize of a chat card is authored size, recorded in the same

@@ -278,7 +278,6 @@ impl SlateApp {
             .is_some_and(|a| {
                 !a.provider.is_empty()
                     && a.chat.train
-                    && a.chat.parent.is_some()
                     && a.view == atlas_ai::agent::PortalView::Chat
             })
     }
@@ -307,44 +306,6 @@ impl SlateApp {
                 screen.distance(p) <= 10.0 * xf.z
             })
             .map(|n| n.id)
-    }
-    pub(super) fn agent_context_blurb(&self, id: NodeId) -> String {
-        let mut lines = Vec::new();
-        let refs = self.agent_artifacts(id, false);
-        if refs.is_empty() {
-            lines.push("No linked references.".into());
-        } else {
-            lines.extend(
-                refs.iter()
-                    .take(6)
-                    .map(|a| format!("{} · {}", a.kind.label(), a.title)),
-            );
-        }
-        for node in &self.doc().scene.nodes {
-            let NodeKind::Connector(conn) = &node.kind else {
-                continue;
-            };
-            let Some(binding) = &conn.binding else {
-                continue;
-            };
-            // TWIN: slate_doc::agent_inputs::WireBinding::source 2026-09-25
-            let (source, target) = if binding.input_b {
-                (&conn.a, &conn.b)
-            } else {
-                (&conn.b, &conn.a)
-            };
-            if slate_doc::agent_inputs::endpoint_node(target) != Some(id) {
-                continue;
-            }
-            let Some(src) = slate_doc::agent_inputs::endpoint_node(source) else {
-                continue;
-            };
-            let Some(label) = self.doc().scene.node(src).map(context_label) else {
-                continue;
-            };
-            lines.push(label);
-        }
-        lines.join("\n")
     }
     /// What the human context handle holds: the card's pocketed context.
     pub(super) fn agent_pocket_blurb(&self, id: NodeId) -> String {
@@ -382,10 +343,7 @@ impl SlateApp {
                 }
             }
             if self.agent_has_outputs(n.id) {
-                let right = Pos2::new(
-                    r.right() - slate_doc::agent_chat::PORT_INSET * xf.z,
-                    r.center().y,
-                );
+                let right = output_circle_center(r, xf.z);
                 if point.distance(right) <= 10.0 * xf.z {
                     return Some((n.id, true));
                 }

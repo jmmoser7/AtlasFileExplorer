@@ -50,8 +50,8 @@ fn agent_history_cache_tracks_live_drag_and_grip_suppresses_resize() {
         ) * xf.z;
     assert_eq!(
         h.app.agent_output_at(p, &xf),
-        None,
-        "the first train card has no output grip"
+        Some(root),
+        "the first train card's output grip is live with no second card"
     );
 }
 

@@ -84,35 +84,14 @@ impl SlateApp {
         None
     }
 
-    /// Screen position of the gray context dot. Collapsed, that is the card's
-    /// vertical center. Taller folds keep that same distance from the top.
+    /// Screen position of the gray context dot. Same header slot on every card.
     pub(crate) fn chat_context_dot(
         &self,
-        ctx: &egui::Context,
-        node: &Node,
+        _ctx: &egui::Context,
+        _node: &Node,
         screen: Rect,
         z: f32,
     ) -> Pos2 {
-        let text = self
-            .visible_agent_turns(node.id)
-            .iter()
-            .map(|t| t.text.as_str())
-            .collect::<Vec<_>>()
-            .join("\n\n");
-        let mut h = collapsed_card_height(ctx, text, node.rect.w);
-        if !self.agent_has_child(node.id) {
-            let prompt = self
-                .agents
-                .prompts
-                .get(&node.id)
-                .cloned()
-                .unwrap_or_default();
-            h += composer_text_height(ctx, &prompt, composer_wrap(node.rect.w), 14.0)
-                + COMPOSER_BOTTOM;
-        }
-        Pos2::new(
-            screen.left() + slate_doc::agent_chat::PORT_INSET * z,
-            screen.top() + h * 0.5 * z,
-        )
+        chat_dot_center(screen, false, z)
     }
 }

@@ -68,8 +68,8 @@ mod spawn_chrome;
 mod train;
 
 use card_metrics::{
-    agent_pick_columns, bundle_view, card_fold, collapsed_card_height, composer_text_height,
-    composer_wrap, context_label, conversation_card_height, dot_split_travel,
+    agent_pick_columns, bundle_view, card_fold, chat_dot_center, collapsed_card_height,
+    composer_text_height, composer_wrap, context_label, conversation_card_height, dot_split_travel,
     hugging_composer_card, output_circle_center, paint_fold_glyph, paint_pick_button,
     paint_responding, parse_artifact_open, text_column, tracked_label, write_fold, CARD_TEXT_PAD,
     CARD_TEXT_PX, COLLAPSED_ROWS, COMPOSER_BOTTOM, COMPOSER_GAP, COMPOSER_TOP, HANDLE_DOT,
