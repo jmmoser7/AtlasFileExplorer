@@ -32,7 +32,7 @@ pub enum Detail {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ChatView {
-    /// One provider-owned stream; checkpoint branching is not available.
+    /// One provider-owned session along an unbranched tail. A fork mints another.
     pub linear: bool,
     pub train: bool,
     /// View reference only; each session source owns its checkpoint transcript.

@@ -261,13 +261,8 @@ impl SlateApp {
         let Some(id) = self.selected_agent_portal() else {
             return false;
         };
-        // A card that already has a child still forks: the drag that leaves
-        // its output is this command. A linear card with no child continues
-        // instead, and stays one stream.
-        if self.agent_linear(id) && !self.agent_has_child(id) {
-            self.toast("Coding agents use one conversation stream.");
-            return true;
-        }
+        // Dragging the output, or Fork chat here, opens a branch. A coding
+        // branch gets its own session; the tail of an unbranched line continues.
         if self.agent_is_running(id) {
             self.toast("Wait for a completed checkpoint before forking.");
             return true;
@@ -298,10 +293,26 @@ impl SlateApp {
             self.agent_draft_width(id),
             slate_doc::agent_chat::DRAFT_HEIGHT,
         );
+        let linear = self.agent_linear(id);
         if let NodeKind::Portal(p) = &mut next.kind {
             if let Some(a) = &mut p.agent {
+                if linear {
+                    let session = slate_doc::scene::new_agent_session_id();
+                    a.bundle = self
+                        .ai
+                        .config
+                        .valid_workspace()
+                        .map(|ws| slate_doc::SourceUri {
+                            locator: super::super::board_portal::source_locator(
+                                self.tab().path.as_deref(),
+                                &atlas_ai::agent::agent_dir(ws, &session).join("session.json"),
+                            ),
+                        });
+                    a.session = session;
+                    a.channel = None;
+                }
                 a.chat = slate_doc::agent_chat::ChatView {
-                    linear: false,
+                    linear,
                     train: true,
                     parent: Some(id),
                     start: end,
@@ -318,8 +329,14 @@ impl SlateApp {
         if self.add_nodes(vec![next]).is_empty() {
             return false;
         }
-        if let Some(turns) = self.agents.local_turns.get(&id).cloned() {
-            self.agents.local_turns.insert(next_id, turns);
+        if linear {
+            if let Ok(prefix) = atlas_ai::agent::checkpoint(&turns, Some(end)) {
+                if !prefix.is_empty() {
+                    self.agents.local_turns.insert(next_id, prefix.to_vec());
+                }
+            }
+        } else if let Some(copied) = self.agents.local_turns.get(&id).cloned() {
+            self.agents.local_turns.insert(next_id, copied);
         } else if let Some(session) = self.agents.sessions.get(&id).cloned() {
             self.agents.sessions.insert(next_id, session);
         }
