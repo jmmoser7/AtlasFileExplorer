@@ -31,25 +31,31 @@ pub(crate) enum FoldStep {
 /// Designed-px chevron: arm half-width, apex rise, and a thin stroke.
 pub(crate) const GLYPH_HALF: f32 = 2.4;
 pub(crate) const GLYPH_RISE: f32 = 1.35;
-pub(crate) const GLYPH_STROKE: f32 = 0.55;
 /// The double chevron's inked height over the single's.
 const DOUBLE_RATIO: f32 = 1.4;
 
+#[cfg(test)]
+pub(crate) const GLYPH_STROKE: f32 = 0.55;
+
 /// Cosine of an arm's slope, which turns vertical offsets into stroke distance.
+#[cfg(test)]
 fn arm_cos() -> f32 {
     GLYPH_HALF / GLYPH_HALF.hypot(GLYPH_RISE * 2.0)
 }
 
 /// Inked height of one mark, stroke included.
+#[cfg(test)]
 pub(crate) fn glyph_single_height() -> f32 {
     GLYPH_RISE * 2.0 + GLYPH_STROKE / arm_cos()
 }
 
 /// Center distance of the two marks in a double chevron.
+#[cfg(test)]
 pub(crate) fn glyph_double_pitch() -> f32 {
     glyph_single_height() * (DOUBLE_RATIO - 1.0)
 }
 
+#[cfg(test)]
 pub(crate) fn glyph_double_height() -> f32 {
     glyph_double_pitch() + glyph_single_height()
 }
@@ -60,9 +66,25 @@ pub(crate) fn glyph_double_gap() -> f32 {
     glyph_double_pitch() * arm_cos() - GLYPH_STROKE
 }
 
-/// Vertical pitch of one offered chevron in the cluster, designed px.
-pub(crate) fn glyph_slot() -> f32 {
-    glyph_double_height() + 0.8
+/// Tuned chevron: arm half-width, proportional rise, stroke. World units.
+pub(crate) fn chevron_metrics() -> (f32, f32, f32) {
+    let card = atlas_shell::tokens::current().chat_card;
+    let half = card.chevron_size;
+    (half, half * (GLYPH_RISE / GLYPH_HALF), card.chevron_stroke)
+}
+
+fn arm_cos_of(half: f32, rise: f32) -> f32 {
+    half / half.hypot(rise * 2.0)
+}
+
+pub(crate) fn glyph_double_pitch_of(half: f32, rise: f32, stroke: f32) -> f32 {
+    let single = rise * 2.0 + stroke / arm_cos_of(half, rise);
+    single * (DOUBLE_RATIO - 1.0)
+}
+
+pub(crate) fn glyph_slot_of(half: f32, rise: f32, stroke: f32) -> f32 {
+    let single = rise * 2.0 + stroke / arm_cos_of(half, rise);
+    single * DOUBLE_RATIO + 0.8
 }
 
 /// Chevrons offered on a hovered card, top to bottom.
@@ -313,7 +335,7 @@ mod tests {
 
     #[test]
     fn a_split_dot_gaps_by_half_its_radius() {
-        let radius = super::super::HANDLE_DOT;
+        let radius = 3.5;
         let travel = super::super::dot_split_travel(radius);
         let gap = travel * 2.0 - radius * 2.0;
         assert!(

@@ -106,6 +106,8 @@ pub(crate) mod enabled {
         stored.menu.round_for_storage();
         stored.slider.normalize();
         stored.slider.round_for_storage();
+        stored.chat_card.normalize();
+        stored.chat_card.round_for_storage();
         let body = toml::to_string_pretty(&stored).map_err(|error| error.to_string())?;
         let header = concat!(
             "# Canonical shared-chrome design tokens.\n",
@@ -1724,16 +1726,12 @@ pub(crate) mod enabled {
                 ui.separator();
 
                 // Newest work first for quick access.
+                crate::tuning_chat_card::editor(ui, &mut state.draft.chat_card);
                 dock_palette_editor(ui, &mut state.draft.dock);
-
                 dock_advanced_editor(ui, &mut state.draft.dock.advanced);
-
                 menu_editor(ui, &mut state.draft.menu);
-
                 board_preview_editor(ui, &mut state.draft.board_preview);
-
                 board_forcefield_editor(ui, &mut state.draft.board_forcefield);
-
                 readouts_editor(ui, &mut state.draft.readouts);
                 crate::tuning_corner::editor(ui, &mut state.draft);
                 activity_heatmap_editor(ui, &mut state.draft.activity_heatmap);
@@ -1777,6 +1775,7 @@ pub(crate) mod enabled {
                 state.draft.board_preview.normalize();
                 state.draft.board_forcefield.normalize();
                 state.draft.menu.normalize();
+                state.draft.chat_card.normalize();
                 tokens::replace(state.draft.clone());
                 ctx.request_repaint();
             });

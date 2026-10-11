@@ -2,9 +2,15 @@
 
 use super::*;
 
-/// Designed radius of a chat card's gray handle dots.
-pub(super) const HANDLE_DOT: f32 = 3.5;
-/// Edge-to-edge gap when an input dot splits, as a fraction of [`HANDLE_DOT`].
+pub(crate) fn handle_dot_radius() -> f32 {
+    atlas_shell::tokens::current().chat_card.dot_diameter * 0.5
+}
+
+fn header_insets_from_tokens() -> (f32, f32) {
+    let card = atlas_shell::tokens::current().chat_card;
+    (card.dot_inset, card.dot_top)
+}
+/// Edge-to-edge gap when an input dot splits, as a fraction of its radius.
 pub(super) const DOT_SPLIT_GAP: f32 = 0.5;
 
 /// A handle dot's radius under the pointer, over its resting radius.
@@ -27,7 +33,7 @@ pub(crate) fn paint_handle_dot(
     color: Color32,
 ) {
     let grow = if near { HANDLE_HOVER_GROW } else { 1.0 };
-    painter.circle_filled(at, canvas_scale::px(HANDLE_DOT, z) * grow, color);
+    painter.circle_filled(at, canvas_scale::px(handle_dot_radius(), z) * grow, color);
 }
 
 pub(crate) fn paint_agent_spinner(
@@ -133,12 +139,14 @@ pub(super) fn agent_pick_columns(projects: bool, rows: usize) -> usize {
 /// On-screen center of a chat card's header dot. Left and right share one
 /// height so card count cannot move a port.
 pub(super) fn chat_dot_center(card: Rect, right: bool, z: f32) -> Pos2 {
+    slate_doc::link_inset::install_header_insets(header_insets_from_tokens);
+    let (inset, top) = header_insets_from_tokens();
     let x = if right {
-        card.right() - slate_doc::agent_chat::PORT_INSET * z
+        card.right() - canvas_scale::px(inset, z)
     } else {
-        card.left() + slate_doc::agent_chat::PORT_INSET * z
+        card.left() + canvas_scale::px(inset, z)
     };
-    Pos2::new(x, card.top() + slate_doc::agent_chat::RAIL_INSET * z)
+    Pos2::new(x, card.top() + canvas_scale::px(top, z))
 }
 
 /// On-screen center of a chat card's top output circle.
@@ -290,9 +298,10 @@ pub(super) fn paint_chevron_glyph(
     up: bool,
     ink: Color32,
 ) {
-    let half = canvas_scale::px(train_ux::GLYPH_HALF, z);
-    let rise = canvas_scale::px(train_ux::GLYPH_RISE, z) * if up { -1.0 } else { 1.0 };
-    let stroke = egui::Stroke::new(canvas_scale::px(train_ux::GLYPH_STROKE, z), ink);
+    let (half_w, rise_w, stroke_w) = train_ux::chevron_metrics();
+    let half = canvas_scale::px(half_w, z);
+    let rise = canvas_scale::px(rise_w, z) * if up { -1.0 } else { 1.0 };
+    let stroke = egui::Stroke::new(canvas_scale::px(stroke_w, z), ink);
     painter.add(egui::Shape::line(
         vec![
             center + egui::vec2(-half, -rise),
@@ -317,7 +326,8 @@ pub(super) fn paint_fold_glyph(
         paint_chevron_glyph(painter, center, z, up, ink);
         return;
     }
-    let pitch = canvas_scale::px(train_ux::glyph_double_pitch(), z);
+    let (half, rise, stroke) = train_ux::chevron_metrics();
+    let pitch = canvas_scale::px(train_ux::glyph_double_pitch_of(half, rise, stroke), z);
     paint_chevron_glyph(painter, center + egui::vec2(0.0, -pitch * 0.5), z, up, ink);
     paint_chevron_glyph(painter, center + egui::vec2(0.0, pitch * 0.5), z, up, ink);
 }

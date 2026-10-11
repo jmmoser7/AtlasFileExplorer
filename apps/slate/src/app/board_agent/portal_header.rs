@@ -18,6 +18,7 @@ impl SlateApp {
         };
         let z = xf.z;
         let rect = xf.rect_w2s(node.rect);
+        let card = atlas_shell::tokens::current().chat_card;
         let palette = self.palette();
         let model_key = Id::new(("agent-model-hit", node.id.0));
         ui.ctx().data_mut(|d| d.remove::<Rect>(model_key));
@@ -27,11 +28,7 @@ impl SlateApp {
             self.agents.context_auto.remove(&node.id);
             self.agents.context_human.remove(&node.id);
         }
-        let anchor = rect.min
-            + egui::vec2(
-                slate_doc::agent_chat::PORT_INSET * z,
-                slate_doc::agent_chat::RAIL_INSET * z,
-            );
+        let anchor = chat_dot_center(rect, false, z);
         let (status_color, status_label, pulse) = agent_status_chip(
             &agent.provider,
             self.agents.ide,
@@ -90,7 +87,7 @@ impl SlateApp {
             let edit = title_ui.add(
                 egui::TextEdit::singleline(&mut draft)
                     .frame(false)
-                    .font(FontId::proportional(13.0 * z))
+                    .font(canvas_scale::font(card.title_size, z))
                     .desired_width(title_rect.width()),
             );
             if !edit.has_focus() && !edit.lost_focus() {
@@ -113,10 +110,14 @@ impl SlateApp {
             let tail = agent.chat.draft || !self.agent_has_child(node.id);
             let model_owned = show_model.then(|| self.model_menu_label(agent));
             let full = show_model && self.agent_full_access(&agent.session);
-            let font = canvas_scale::font(13.0, z);
+            let font = canvas_scale::font(card.title_size, z);
             let rise = interactive_text::x_height_rise(painter, &font);
-            let dot_top = output_circle_center(rect, z).y - canvas_scale::px(HANDLE_DOT, z);
-            let at = Pos2::new(anchor.x + canvas_scale::px(10.0, z), dot_top - rise);
+            let dot_top =
+                output_circle_center(rect, z).y - canvas_scale::px(handle_dot_radius(), z);
+            let at = Pos2::new(
+                anchor.x + canvas_scale::px(10.0, z),
+                dot_top - rise + canvas_scale::px(card.title_x_height_offset, z),
+            );
             let title_label = if !tail && !streaming {
                 model_owned
                     .as_deref()
@@ -131,7 +132,7 @@ impl SlateApp {
                 at,
                 &title_label,
                 z,
-                13.0,
+                card.title_size,
                 palette.ink,
             );
             let over_title = title_hit.hovered()
@@ -186,7 +187,7 @@ impl SlateApp {
                         Pos2::new(x, at.y),
                         model_name,
                         z,
-                        13.0,
+                        card.title_size,
                         color,
                     );
                     let hit = model.rect;
@@ -252,13 +253,15 @@ impl SlateApp {
         }
         let draft = agent.chat.draft;
         let leaf = !self.agent_has_child(node.id);
-        // 60% of the previous cluster, pinned to its old top and right edge.
-        let full_r = 3.5 * z;
-        let full_pitch = full_r * 2.8;
-        let full_right_edge =
-            rect.right() - (slate_doc::agent_chat::PORT_INSET + 3.5) * z - 4.0 * z - full_r * 0.4;
-        let dot_r = full_r * 0.6;
-        let pitch = full_pitch * 0.6;
+        // Cluster stays pinned to the old right edge. Dot size and spacing are tokens.
+        let legacy_r = canvas_scale::px(3.5, z);
+        let full_right_edge = rect.right()
+            - canvas_scale::px(card.dot_inset, z)
+            - legacy_r
+            - canvas_scale::px(4.0, z)
+            - legacy_r * 0.4;
+        let dot_r = canvas_scale::px(card.menu_dot_diameter * 0.5, z);
+        let pitch = canvas_scale::px(card.menu_dot_spacing, z);
         let dot_cy = output_circle_center(rect, z).y;
         let menu_w = pitch * 3.0;
         let menu_rect = Rect::from_min_size(

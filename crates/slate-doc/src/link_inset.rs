@@ -1,10 +1,33 @@
 //! Top and bottom link dots sit the same distance in from the edge as the
 //! side dots (`agent_chat::PORT_INSET`).
 
-use crate::agent_chat::PORT_INSET;
+use crate::agent_chat::{PORT_INSET, RAIL_INSET};
 use crate::crosstalk::is_coding_card;
 use crate::scene::{Node, Side};
 use crate::wire_host::WireHost;
+use std::sync::OnceLock;
+
+static HEADER_INSETS: OnceLock<fn() -> (f32, f32)> = OnceLock::new();
+
+/// The board installs the live header insets. Until then, the document
+/// constants apply, which are the same numbers.
+pub fn install_header_insets(source: fn() -> (f32, f32)) {
+    let _ = HEADER_INSETS.set(source);
+}
+
+pub fn port_inset() -> f32 {
+    HEADER_INSETS
+        .get()
+        .map(|source| source().0)
+        .unwrap_or(PORT_INSET)
+}
+
+pub fn rail_inset() -> f32 {
+    HEADER_INSETS
+        .get()
+        .map(|source| source().1)
+        .unwrap_or(RAIL_INSET)
+}
 
 /// Anchor of a connector end. Coding-card top and bottom ports move inward
 /// by [`PORT_INSET`]; every other anchor stays on the edge.
@@ -17,8 +40,8 @@ pub fn anchor(node: &Node, side: Side, t: f32) -> [f32; 2] {
     }
     let outward = host.outward(side, t);
     [
-        point[0] - outward[0] * PORT_INSET,
-        point[1] - outward[1] * PORT_INSET,
+        point[0] - outward[0] * port_inset(),
+        point[1] - outward[1] * port_inset(),
     ]
 }
 

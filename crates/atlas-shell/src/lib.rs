@@ -76,9 +76,12 @@ pub mod theme;
 pub mod timeline;
 pub mod toast;
 pub mod tokens;
+mod tokens_chat_card;
 mod tokens_readouts;
 mod tokens_toast;
 pub mod tuning;
+#[cfg(feature = "ui-tuner")]
+mod tuning_chat_card;
 #[cfg(feature = "ui-tuner")]
 mod tuning_corner;
 pub mod updates;

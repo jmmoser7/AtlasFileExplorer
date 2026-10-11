@@ -22,8 +22,10 @@ impl SlateApp {
             .map(|a| card_fold(&a.chat, self.agents.stream_open.contains(&node.id)))
             .unwrap_or(train_ux::CardFold::Open);
         let offers = train_ux::chevron_offers(fold);
-        let slot = canvas_scale::px(train_ux::glyph_slot(), z);
-        let x = menu_left - canvas_scale::px(8.0, z);
+        let (half, rise, stroke) = train_ux::chevron_metrics();
+        let card = atlas_shell::tokens::current().chat_card;
+        let slot = canvas_scale::px(train_ux::glyph_slot_of(half, rise, stroke), z);
+        let x = menu_left - canvas_scale::px(card.chevron_x, z);
         let top = cy - slot * offers.len() as f32 * 0.5;
         let _ = card_rect;
         let ink = self.palette().ink;
@@ -51,10 +53,14 @@ impl SlateApp {
         }
         // One fixed mark, centered on the header dots. Only the glyph changes.
         let center = Pos2::new(x, cy);
+        if atlas_shell::tokens::chat_header_preview_locked() && hot_index.is_none() {
+            hot_index = Some(0);
+        }
         let lower = hot_index.is_some_and(|i| i + 1 == offers.len());
+        let fade = (card.chevron_fade_ms / 1000.0).max(0.0);
         let mix =
             ui.ctx()
-                .animate_bool_with_time(Id::new(("agent-chevron-mix", node.id.0)), lower, 0.10);
+                .animate_bool_with_time(Id::new(("agent-chevron-mix", node.id.0)), lower, fade);
         if hot_index.is_some() {
             for (i, (dir, step)) in offers.iter().copied().enumerate() {
                 let alpha = if i + 1 == offers.len() {
@@ -266,6 +272,10 @@ impl SlateApp {
                 .show(&mut chat_ui, |ui| {
                     // The viewport clip, not the card, so a glyph cannot sit in the composer gap.
                     ui.set_clip_rect(transcript.intersect(ui.clip_rect()));
+                    // A picture lying on the card is the press. Transcript
+                    // widgets only take the pointer when this card is topmost.
+                    let owns = self.portal_owns_pointer(ui.ctx(), node.id);
+                    let row_sense = if owns { Sense::hover() } else { Sense::empty() };
                     for (index, turn) in turns.iter().enumerate() {
                         let width = transcript.width();
                         if agent.chat.detail == slate_doc::agent_chat::Detail::Pair
@@ -274,7 +284,7 @@ impl SlateApp {
                             && turn.role == "assistant"
                         {
                             let (rule, _) =
-                                ui.allocate_exact_size(egui::vec2(width, 10.0 * z), Sense::hover());
+                                ui.allocate_exact_size(egui::vec2(width, 10.0 * z), row_sense);
                             ui.painter().hline(
                                 (rule.left() + 12.0 * z)..=(rule.right() - 12.0 * z),
                                 rule.center().y,
@@ -314,7 +324,7 @@ impl SlateApp {
                         if let Some(label) = from_agent {
                             let (row, _) = ui.allocate_exact_size(
                                 egui::vec2(width, crosstalk::LABEL_PX * 1.4 * z),
-                                Sense::hover(),
+                                row_sense,
                             );
                             self.paint_received_label(ui.painter(), row.right_bottom(), label, z);
                         }
@@ -341,18 +351,22 @@ impl SlateApp {
                             &self.agents.transcript_cache[&cache_id].3,
                             z,
                         );
-                        let (row, _) = ui
-                            .allocate_exact_size(egui::vec2(width, laid.size().y), Sense::hover());
+                        let (row, _) =
+                            ui.allocate_exact_size(egui::vec2(width, laid.size().y), row_sense);
                         if from_agent.is_some() {
                             let mark = Rect::from_min_size(row.left_top(), laid.size());
                             self.paint_received_mark(ui.painter(), mark, z);
                         }
-                        laid.selectable(
-                            ui,
-                            Id::new(("agent-turn-selection", node.id.0, index)),
-                            row.left_top(),
-                            ink,
-                        );
+                        if owns {
+                            laid.selectable(
+                                ui,
+                                Id::new(("agent-turn-selection", node.id.0, index)),
+                                row.left_top(),
+                                ink,
+                            );
+                        } else {
+                            laid.paint(ui.painter(), row.left_top(), ink);
+                        }
                     }
                     if let Some(approval) = &approval {
                         ui.label(&approval.description);
@@ -426,7 +440,9 @@ impl SlateApp {
         if let Some(strip) = key_strip {
             self.paint_agent_key_entry(ui, node.id, strip, z);
         }
-        if composer && input.height() > 16.0 * z {
+        // A hugging tail is only as tall as the composer, and the frame border
+        // eats part of that, so the field is a short strip. Still register it.
+        if composer && input.height() > 4.0 * z {
             self.paint_agent_composer(ui, node.id, input, z, false);
         }
     }

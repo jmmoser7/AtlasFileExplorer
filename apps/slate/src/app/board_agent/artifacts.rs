@@ -64,7 +64,7 @@ impl SlateApp {
         let z = xf.z;
         let palette = self.palette();
         let rest = self.chat_context_dot(ui.ctx(), node, r, z);
-        let travel = canvas_scale::px(dot_split_travel(HANDLE_DOT), z);
+        let travel = canvas_scale::px(dot_split_travel(handle_dot_radius()), z);
         let reach = canvas_scale::px(11.0, z);
         let pointer = ui.ctx().pointer_hover_pos();
         let refs = self.agent_artifacts(node.id, false);
@@ -93,7 +93,7 @@ impl SlateApp {
         // Split halves swell together and part by the swollen radius, so the
         // drawn gap stays DOT_SPLIT_GAP × the drawn radius.
         let grow = if split_on { HANDLE_HOVER_GROW } else { 1.0 };
-        let open = split * canvas_scale::px(dot_split_travel(HANDLE_DOT * grow), z);
+        let open = split * canvas_scale::px(dot_split_travel(handle_dot_radius() * grow), z);
         let auto = Pos2::new(rest.x, rest.y - if has_refs { open } else { 0.0 });
         let human = Pos2::new(rest.x, rest.y + if has_refs { open } else { 0.0 });
         let pocket = self.agent_has_pocket(node.id);

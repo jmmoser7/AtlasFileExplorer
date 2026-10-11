@@ -153,8 +153,8 @@ fn pointer_in_one_chevron_zone_draws_only_that_glyph() {
         (hits[0].center().x + hits[1].center().x) * 0.5,
         (hits[0].center().y + hits[1].center().y) * 0.5,
     );
-    for index in 0..2 {
-        let at = hits[index].center();
+    for (index, hit) in hits.iter().take(2).enumerate() {
+        let at = hit.center();
         let out = h.frame_output(|i| i.events.push(egui::Event::PointerMoved(at)));
         assert!(
             lines_near(&out, fixed, 8.0) >= 1,

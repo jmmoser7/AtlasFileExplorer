@@ -335,8 +335,8 @@ impl SlateApp {
                     self.agent_draft_width(id),
                     slate_doc::agent_chat::DRAFT_HEIGHT,
                 );
-                let drop =
-                    moving.then(|| xf.s2w(p) - egui::vec2(0.0, slate_doc::agent_chat::RAIL_INSET));
+                let drop = moving
+                    .then(|| xf.s2w(p) - egui::vec2(0.0, slate_doc::link_inset::rail_inset()));
                 if let Some(rect) = self.agent_spawn_rect(id, drop, size, xf.z) {
                     self.board_point_snap = Some(Pos2::new(rect.x, rect.y));
                     if ui.input(|i| i.pointer.any_released()) {

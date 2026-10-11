@@ -30,7 +30,7 @@ impl SlateApp {
             self.retreat_segment_mask();
             return;
         }
-        if travel < 0.4 || travel > SLOW_PX {
+        if !(0.4..=SLOW_PX).contains(&travel) {
             return;
         }
         let factor = 1.0 + 0.03 / zoom.max(0.25);

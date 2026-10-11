@@ -224,8 +224,8 @@ impl WireHost {
     /// World point for `(side, t)`. Chat side ports sit on the header dot.
     pub fn anchor(&self, side: Side, t: f32) -> [f32; 2] {
         let (t, inset) = if self.chat && matches!(side, Side::Left | Side::Right) {
-            let t = (crate::agent_chat::RAIL_INSET / self.rect.h.max(1.0)).clamp(0.0, 1.0);
-            (t, crate::agent_chat::PORT_INSET)
+            let t = (crate::link_inset::rail_inset() / self.rect.h.max(1.0)).clamp(0.0, 1.0);
+            (t, crate::link_inset::port_inset())
         } else {
             (t, 0.0)
         };
@@ -239,7 +239,6 @@ impl WireHost {
         let n = self.outward(side, t);
         [p[0] - n[0] * inset, p[1] - n[1] * inset]
     }
-
     pub fn outward(&self, side: Side, t: f32) -> [f32; 2] {
         match &self.kind {
             HostKind::Oriented { .. } => rotate_vec(side.normal(), self.rotation_deg),

@@ -4,6 +4,9 @@
 //! that file. A build with the `ui-tuner` feature can replace the in-memory
 //! values while the app runs and save them back to the TOML file.
 
+pub use crate::tokens_chat_card::{
+    chat_header_preview_locked, set_chat_header_preview_locked, ChatCardTokens,
+};
 pub use crate::tokens_readouts::ReadoutTokens;
 pub use crate::tokens_toast::ToastTokens;
 
@@ -34,6 +37,7 @@ pub struct UiTokens {
     pub board_forcefield: BoardForcefieldTokens,
     pub board_overlay: BoardOverlayTokens,
     pub board_agent: BoardAgentTokens,
+    pub chat_card: ChatCardTokens,
     pub menu: MenuTokens,
     pub slider: SliderTokens,
     pub theme: ThemeTokens,
@@ -58,6 +62,7 @@ impl Default for UiTokens {
             board_forcefield: BoardForcefieldTokens::default(),
             board_overlay: BoardOverlayTokens::default(),
             board_agent: BoardAgentTokens::default(),
+            chat_card: ChatCardTokens::default(),
             menu: MenuTokens::default(),
             slider: SliderTokens::default(),
             theme: ThemeTokens::default(),
@@ -2757,6 +2762,7 @@ fn parse_embedded() -> UiTokens {
     tokens.board_overlay.normalize();
     tokens.menu.normalize();
     tokens.slider.normalize();
+    tokens.chat_card.normalize();
     tokens
 }
 
@@ -2796,6 +2802,7 @@ pub fn replace(mut tokens: UiTokens) {
     tokens.board_overlay.normalize();
     tokens.menu.normalize();
     tokens.slider.normalize();
+    tokens.chat_card.normalize();
     *store().write().expect("UI token lock poisoned") = Arc::new(tokens);
     GENERATION.fetch_add(1, Ordering::Relaxed);
 }

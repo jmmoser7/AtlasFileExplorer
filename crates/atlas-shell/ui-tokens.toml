@@ -958,3 +958,16 @@ prompt = "#f0c45c"
 geometry = "#5cccaa"
 image = "#78aafa"
 style = "#c492fa"
+
+[chat_card]
+title_x_height_offset = 0.0
+title_size = 13.0
+dot_diameter = 7.0
+dot_inset = 6.0
+dot_top = 10.0
+chevron_size = 2.4
+chevron_stroke = 0.55
+chevron_x = 8.0
+menu_dot_diameter = 4.2
+menu_dot_spacing = 5.88
+chevron_fade_ms = 100.0
