@@ -457,15 +457,15 @@ fn the_title_bolds_on_hover_when_a_second_card_exists() {
     center_on(&mut h, root);
     h.frame();
     let quiet = h.frame_output(|_| {});
-    let title = painted_at(&quiet)
+    let (label, title) = painted_at(&quiet)
         .into_iter()
-        .find(|(text, _)| text == "Courtyard")
-        .map(|(_, rect)| rect.center())
+        .find(|(text, _)| text.starts_with("Courtyard"))
+        .map(|(text, rect)| (text, rect.center()))
         .expect("the home card paints its title");
     let hovered = h.frame_output(|i| i.events.push(egui::Event::PointerMoved(title)));
     let copies = painted_at(&hovered)
         .iter()
-        .filter(|(text, _)| text == "Courtyard")
+        .filter(|(text, _)| text == &label)
         .count();
     assert!(
         copies >= 2,

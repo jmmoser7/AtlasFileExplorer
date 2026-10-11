@@ -39,7 +39,11 @@ impl SlateApp {
             palette.danger,
         );
         {
-            painter.circle_filled(anchor, 3.5 * z, status_color.gamma_multiply(0.85));
+            painter.circle_filled(
+                anchor,
+                canvas_scale::px(handle_dot_radius(), z),
+                status_color.gamma_multiply(0.85),
+            );
             ui.interact(
                 Rect::from_center_size(anchor, egui::vec2(16.0 * z, 16.0 * z)),
                 Id::new(("agent-status", node.id.0)),
