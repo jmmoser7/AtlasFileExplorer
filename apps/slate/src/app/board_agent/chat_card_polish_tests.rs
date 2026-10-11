@@ -186,7 +186,7 @@ fn presses_on_the_bottom_band_resize_and_the_inside_does_not() {
     let coding = slate_doc::crosstalk::is_coding_card(h.app.doc().scene.node(id).unwrap());
     // The center of a coding card's bottom edge is its port, not the resize band.
     for frac in [0.2, 0.5, 0.8] {
-        if coding && (frac - 0.5).abs() < 0.01 {
+        if coding && frac == 0.5 {
             continue;
         }
         let xf = h.app.board_xf();
