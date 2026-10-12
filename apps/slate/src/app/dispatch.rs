@@ -25,6 +25,9 @@ use slate_doc::{ItemId, NodeId, ViewKind};
 use std::time::{Duration, Instant};
 
 /// Space taps longer than this are holds (pan chords), not repeat requests.
+mod cancel;
+mod image_layers;
+
 const SPACE_TAP_MAX: Duration = Duration::from_millis(250);
 
 /// After a bare letter shortcut, wait this long before committing so a
@@ -115,6 +118,12 @@ impl SlateApp {
         let board = self.doc().view.active_view == ViewKind::Board;
         let mut detail = detail;
         let ran = match id.0 {
+            "board.image.shape_fill" => return self.shape_fill_command(detail.as_deref()),
+            "board.image.layer.rename"
+            | "board.image.layer.visibility"
+            | "board.image.layer.delete"
+            | "board.image.layer.duplicate"
+            | "board.image.layer.reorder" => self.dispatch_image_layer(id.0, detail.as_deref()),
             "board.shape.edit" | "board.wire.edit" => {
                 self.shape_property_command(detail.as_deref())
             }
@@ -469,7 +478,11 @@ impl SlateApp {
             }
             "board.tool.brush" => {
                 // Re-arming also forgets where the next Shift segment starts.
-                self.set_board_tool(board::BoardTool::Brush);
+                if let Some(image) = self.selected_image_nodes().first().copied() {
+                    self.arm_image_brush(image);
+                } else {
+                    self.set_board_tool(board::BoardTool::Brush);
+                }
                 true
             }
             "board.tool.eraser" => {
@@ -757,12 +770,7 @@ impl SlateApp {
                     if self.board_sel.len() == 1 && self.board_sel.contains(&session.image) {
                         if let ImageStripFocus::Layer(idx) = session.focus {
                             let image = session.image;
-                            if self
-                                .doc()
-                                .scene
-                                .node(image)
-                                .is_some_and(|n| matches!(&n.kind, slate_doc::NodeKind::Image(img) if idx < img.paint_layers.len()))
-                            {
+                            if self.image_layer_index_exists(image, idx) {
                                 self.delete_paint_layer(image, idx);
                                 return true;
                             }
@@ -935,6 +943,9 @@ impl SlateApp {
                 }
             }
             "board.image.segment.commit" => self.commit_hover_segment(None).is_some(),
+            "board.image.selection.lasso" => self.dispatch_image_selection(true),
+            "board.image.selection.layer" => self.dispatch_image_selection(false),
+            "board.image.selection.copy" => self.dispatch_image_selection_copy(ctx),
             "board.image.invert" => {
                 let images = self.selected_image_nodes();
                 if images.is_empty() {
@@ -1041,204 +1052,6 @@ impl SlateApp {
         self.fit_board();
     }
 
-    // ---------- the Esc cancel stack ----------
-
-    /// Build the live cancel layers and pop exactly one
-    /// (`atlas_commands::cancel_target`). Text editing is *not* a
-    /// layer here: the edit overlay owns Esc (commit) itself.
-    fn cancel_pop(&mut self) -> bool {
-        if self.atlas_cancel_carry() {
-            return true;
-        }
-        // Maximize peels first: Esc returns the portal to the board without
-        // dropping page focus (P1.portal.maximize / P0.1).
-        if self.portal_chrome.maximized.is_some() {
-            return self.portal_restore();
-        }
-        // Web portal input focus. Releasing it leaves the page running with
-        // its scroll position and form contents intact (D12) — this peels
-        // where the keyboard goes, nothing more.
-        if self.doc().view.active_view == ViewKind::Board && self.web.focused.is_some() {
-            return self.web_blur();
-        }
-        if self.doc().view.active_view == ViewKind::Board && self.dismiss_agent_picker() {
-            return true;
-        }
-        if self.doc().view.active_view == ViewKind::Board && self.agents.focused.is_some() {
-            return self.agent_blur();
-        }
-        if self.doc().view.active_view == ViewKind::Board && self.atlas_lenses.focused.is_some() {
-            return self.atlas_blur();
-        }
-        // A saved view held over a model cancels before the viewport it
-        // opened (media D38).
-        if self.doc().view.active_view == ViewKind::Board
-            && (self.dismiss_view_drop_preview() || self.dismiss_image_segment())
-        {
-            return true;
-        }
-        // Any drag that edits nodes live (move, Alt copy, resize, rotate,
-        // crop, grip, fillet) goes back to its press-time nodes before an
-        // entered viewport peels (P0.1).
-        if self.doc().view.active_view == ViewKind::Board && self.cancel_node_drag() {
-            return true;
-        }
-        // A live 3D viewport is entered contents: its measure state, then
-        // the viewport itself, peel before the board's own layers.
-        if self.doc().view.active_view == ViewKind::Board && self.model_cancel_step() {
-            return true;
-        }
-        let board = self.doc().view.active_view == ViewKind::Board;
-        let mut live: Vec<CancelLayer> = Vec::new();
-        // Running drag operations (wire drags, eraser scrubs, direct-
-        // selection edits, the zoom-window marquee) cancel first — restore,
-        // no journal.
-        if self.brush_hud.is_some()
-            || self.zoom_marquee.is_some()
-            || matches!(
-                self.board_drag,
-                Some(
-                    board::BoardDrag::Wire(_)
-                        | board::BoardDrag::Erase { .. }
-                        | board::BoardDrag::Smooth { .. }
-                        | board::BoardDrag::Direct(_)
-                        | board::BoardDrag::DeckStroke { .. }
-                        | board::BoardDrag::Marquee { .. }
-                        | board::BoardDrag::BezierAnchor { .. }
-                        | board::BoardDrag::BezierEdit { .. }
-                )
-            )
-        {
-            live.push(CancelLayer::ActiveOperation);
-        }
-        let direct_live = board
-            && self.board_tool == board::BoardTool::DirectSelect
-            && (!self.direct.anchors.is_empty() || self.direct.node.is_some());
-        if self.board_crop.is_some()
-            || self.board_path_draft.is_some()
-            || self.line_draft.is_some()
-            || self.trim_live_draft()
-            || direct_live
-        {
-            live.push(CancelLayer::Draft);
-        }
-        if self.zoom_tool_active() || (board && self.board_tool != board::BoardTool::Select) {
-            live.push(CancelLayer::Mode);
-        }
-        let has_selection = if board {
-            !self.board_sel.is_empty()
-        } else {
-            !self.selection.is_empty()
-        };
-        if has_selection {
-            live.push(CancelLayer::Selection);
-        }
-        // Chrome: open context menus, the adjust popover, and the inline
-        // new-tag editor. The palette and the search strip own their Esc
-        // (focused text fields); the minimap is pinned chrome — excluded.
-        if self.board_menu.is_some()
-            || self.board_empty_menu.is_some()
-            || self.adjust_popover_open
-            || self.new_tag_edit.is_some()
-        {
-            live.push(CancelLayer::Chrome);
-        }
-        match cancel_target(&live) {
-            Some(CancelLayer::ActiveOperation) => {
-                if self.brush_hud.is_some() {
-                    self.cancel_brush_hud();
-                    return true;
-                }
-                if self.zoom_marquee.is_some() {
-                    // Cancel the zoom window; the tool stays armed.
-                    self.zoom_marquee = None;
-                    return true;
-                }
-                match self.board_drag.take() {
-                    Some(board::BoardDrag::Wire(wd)) => self.cancel_wire_drag(wd),
-                    Some(board::BoardDrag::Direct(d)) => self.cancel_direct_drag(d),
-                    Some(board::BoardDrag::Smooth { .. }) => {
-                        self.smooth_preview.clear();
-                        self.smooth_polylines.clear();
-                    }
-                    // Bézier draft: drop the anchor being placed, or put an
-                    // edited anchor back. Placed anchors stay.
-                    Some(board::BoardDrag::BezierAnchor { .. }) => {
-                        if let Some(board_path::BoardPathDraft::Bezier { placing, .. }) =
-                            &mut self.board_path_draft
-                        {
-                            *placing = None;
-                        }
-                    }
-                    Some(board::BoardDrag::BezierEdit { anchors0, .. }) => {
-                        if let Some(board_path::BoardPathDraft::Bezier { anchors, .. }) =
-                            &mut self.board_path_draft
-                        {
-                            *anchors = anchors0;
-                        }
-                    }
-                    // Eraser: nothing was mutated — dropping the drag and its
-                    // live preview restores the ink.
-                    _ => {
-                        self.erase_live.clear();
-                        self.brush_tiles
-                            .forget_erase_lines(&self.erase_settle.jobs());
-                    }
-                }
-                true
-            }
-            Some(CancelLayer::Draft) => {
-                if self.image_paint.is_some() {
-                    self.clear_image_paint_session();
-                } else if self.board_crop.is_some() {
-                    // First Escape only exits crop mode; the node stays
-                    // selected (press again to clear the selection).
-                    self.board_crop = None;
-                } else if self.line_draft.is_some() {
-                    // Line draft Esc layering (contract D12): a live numeric
-                    // entry clears first, the next press removes the first
-                    // point; the Mode layer below then disarms to Select.
-                    self.line_cancel_step();
-                } else if self.board_path_draft.is_some() {
-                    self.escape_path_draft();
-                } else if self.trim_live_draft() {
-                    self.trim_cancel_step();
-                } else if !self.direct.anchors.is_empty() {
-                    // Direct-selection Esc order: anchors → node → tool.
-                    self.direct.anchors.clear();
-                } else {
-                    self.direct_set_target(None);
-                }
-                true
-            }
-            Some(CancelLayer::Mode) => {
-                if self.zoom_tool_active() {
-                    // Disarm Z first: the previous tool re-arms untouched.
-                    self.zoom_armed = false;
-                    self.zoom_marquee = None;
-                } else {
-                    self.set_board_tool(board::BoardTool::Select);
-                }
-                true
-            }
-            Some(CancelLayer::Selection) => {
-                self.board_sel.clear();
-                self.selection.clear();
-                true
-            }
-            Some(CancelLayer::Chrome) => {
-                self.board_menu = None;
-                self.board_empty_menu = None;
-                self.adjust_popover_open = false;
-                self.new_tag_edit = None;
-                true
-            }
-            // Slate has no readout-owned selection (File Atlas' activity
-            // timeline registers that layer), so it is never live here.
-            Some(CancelLayer::Readout) | None => false,
-        }
-    }
-
     // ---------- the keyboard front-end ----------
 
     pub(crate) fn hotkeys(&mut self, ctx: &egui::Context) {
@@ -1249,6 +1062,11 @@ impl SlateApp {
         let paste_edge = self.take_paste_chord_edge(focused);
         // Presentation mode owns the keyboard (handled in present_frame).
         if self.presenting.is_some() {
+            self.space_tap = SpaceTap::default();
+            self.bare_letter_hold = None;
+            return;
+        }
+        if self.image_selection_keys(ctx) {
             self.space_tap = SpaceTap::default();
             self.bare_letter_hold = None;
             return;

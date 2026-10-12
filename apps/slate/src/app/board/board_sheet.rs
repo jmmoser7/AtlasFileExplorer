@@ -110,7 +110,9 @@ impl SlateApp {
     }
 
     pub(crate) fn item_path(&self, item: ItemId) -> Option<PathBuf> {
-        self.doc().item(item).map(|it| it.path.clone())
+        self.doc().item(item).map(|it| {
+            slate_doc::scene::resolve_source(self.tab().path.as_deref(), &it.path.to_string_lossy())
+        })
     }
 
     pub(super) fn push_sheet_mark(&mut self, mark: SheetMark) {

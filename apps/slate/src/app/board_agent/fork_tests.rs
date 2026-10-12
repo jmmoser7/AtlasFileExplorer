@@ -51,11 +51,19 @@ fn fork_is_one_undo_and_coding_agents_stay_linear() {
     assert_eq!(forks, 3);
 
     let linear = train(&mut h, Pos2::new(800.0, 0.0), "cursor");
+    let session = h.app.agent_session_for(linear).unwrap().0;
     let count = h.app.doc().scene.nodes.len();
     h.app.board_sel.clear();
     h.app.board_sel.insert(linear);
     assert!(h.app.agent_fork_selected(None));
-    assert_eq!(h.app.doc().scene.nodes.len(), count);
+    assert_eq!(h.app.doc().scene.nodes.len(), count + 1);
+    let forked = h
+        .app
+        .agent_session_for(h.app.doc().scene.nodes.last().unwrap().id)
+        .unwrap()
+        .0;
+    assert_ne!(forked, session);
+    assert_eq!(h.app.agent_session_for(linear).unwrap().0, session);
 }
 
 /// Streaming opens a collapsed card for display only: the document keeps

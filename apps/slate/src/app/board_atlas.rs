@@ -822,7 +822,7 @@ impl SlateApp {
         let NodeKind::Portal(portal) = &node.kind else {
             return false;
         };
-        if portal.kind != PortalKind::FileAtlas {
+        if portal.kind != PortalKind::FileAtlas || !self.portal_owns_pointer(ui.ctx(), id) {
             return false;
         }
         let srect = xf.rect_w2s(node.rect);

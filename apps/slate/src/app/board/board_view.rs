@@ -133,6 +133,7 @@ impl SlateApp {
     /// Switch the board tool through one place: the brush chain breaks on
     /// every re-arm, and direct-selection state clears when leaving A.
     pub(crate) fn set_board_tool(&mut self, tool: BoardTool) {
+        self.image_segments.cancel_tool_gestures();
         if let Some(draft) = self.text_box_draft.take() {
             if draft.buffer.is_empty() {
                 // Tool switch discards an empty compose (no journal).
@@ -141,7 +142,10 @@ impl SlateApp {
                 self.commit_text_box_draft();
             }
         }
+        let remembered_image_panels =
+            std::mem::take(&mut self.shape_properties.remembered_image_panels);
         self.shape_properties = Default::default();
+        self.shape_properties.remembered_image_panels = remembered_image_panels;
         self.desktop_sample = None;
         self.armed_kit_id = None;
         self.brush_straight = None;

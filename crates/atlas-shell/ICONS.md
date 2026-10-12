@@ -80,6 +80,11 @@ changes require actual-size visual review, not just enlarged artwork.
 
 The shape-selection strip uses the catalog Fill bucket, Ellipse stroke ring, Corners outline, Filters funnel, Pages grid, and Display for File Atlas Formatting. These share the same path stroke and squircle chrome as the primary dock; applications do not paint private substitute glyphs. [DYNAMIC_PANELS.md](DYNAMIC_PANELS.md) owns the surrounding panel composition and distinguishes squircle icon buttons from circular color swatches, filter radios, and rail handles.
 
+Image-specific editing controls inside the shared selection blister use the
+same catalog glyphs at canvas scale, presented bare in the compact technical
+datum. They do not inherit the selection strip's squircle button silhouette;
+color and filter circles remain their named circular exceptions.
+
 ## Justification
 
 `JustifyLeft`, `JustifyCenter`, and `JustifyRight` are the standard four-line
@@ -103,6 +108,20 @@ It is not Ellipse (one ring) or Join.
 
 `Pages` is a 2×2 grid of sheets: the poster-page album and `board.media.unbundle` (spread a PDF/PowerPoint deck onto the board). It is not Media (stacked family sheets), Image (landscape frame), or Frame (dog-eared page). Command mapping: selection-strip squircle → album browse (`board.media.page`) and Unbundle (`board.media.unbundle`).
 
+## Image palette glyphs
+
+`Sliders` is the bare two-rail control glyph for the selected-image Filters
+panel. `Media`'s offset sheets identify the selected-image Layers panel; the
+separate `Pages` grid remains the album/unbundle action.
+
+## Polygonal lasso
+
+`Lasso` is the polygonal-selection glyph: an irregular closed selection outline
+with a short looped rope tail at its starting vertex. It is distinct from the
+regular six-sided `Polygon` drawing tool and the pointer-shaped `Select` tool.
+Image-palette adapters use this shared catalog entry rather than painting a
+private lasso mark.
+
 ## Conversation presentation glyphs
 
 ChatTrain uses two separated linked cards; ChatWindow uses a single tall transcript with alternating lines. ChatBundle encloses miniature cards in one container, matching the supplied bundle reference. ChatUnbundle separates those cards with outward arrows. Bundle/Unbundle map to the agent selection strip; Train/Window accompany the contextual presentation menu. These use the shared 24-unit outline catalog and avoid reusing the unrelated geometric Join/Split tools.
@@ -111,10 +130,11 @@ ChatPairs is the ChatWindow card holding one pair: a short message bubble at the
 
 ## Suggestion box
 
-`Feedback` is the suggestion-box button left of the readout chevron in both
-apps: a speech bubble with a tail at the lower left and two message lines.
-It shares the 24-unit outline catalog and stroke weight so it sits beside
-the chevron as one family, instead of the emoji it replaces (9 October 2026).
+`Feedback` is a speech bubble with a lower-left tail and two comment lines.
+In Slate Board it is the cherry-red Action singleton at the far left of the
+bottom toolstrip. It uses the same circle size and glyph inset as its neighbors.
+File Atlas and Slate views without the Board strip retain the readout-edge
+launcher. All hosts use the same 24-unit vector catalog asset.
 
 ## Agent portal
 

@@ -1,3 +1,6 @@
+mod image;
+mod image_filter;
+use image::render_image;
 use std::collections::BTreeMap;
 
 use slate_doc::media::{ext_badge, media_kind, web_safe_video, MediaKind};
@@ -711,98 +714,6 @@ fn render_web_portal(
     html.push_str("</div>\n");
 }
 
-fn render_image(
-    html: &mut String,
-    doc: &SlateDoc,
-    assets: &AssetMap,
-    node: &Node,
-    img: &slate_doc::scene::ImageNode,
-    rel: WorldRect,
-) {
-    let item = doc.item(img.item);
-    let (file_name, path_opt) = match item {
-        Some(item) => (item.file_name.as_str(), Some(&item.path)),
-        None => ("?", None),
-    };
-
-    let mut style = geometry_style(rel, node.rotation_deg);
-    append_opacity(&mut style, node.opacity);
-    append_clip(&mut style, node, rel);
-    let corner = path_opt
-        .map(|path| slate_doc::media::text_card_corner(path, img.corner))
-        .unwrap_or(img.corner);
-    append_corner(&mut style, corner, rel.w, rel.h);
-    append_stroke(&mut style, &img.stroke);
-    style.push_str("overflow:hidden;");
-
-    html.push_str("<div class=\"node\" style=\"");
-    html.push_str(&style);
-    html.push_str("\">");
-
-    // A picture an agent makes shows its newest result until one is picked;
-    // the app lists the shown result first, as the board paints it.
-    let shown = (img.agent.is_some() && img.item.is_none())
-        .then(|| assets.agent_images(node.id).and_then(|v| v.first()))
-        .flatten();
-    let missing = item.is_none() || path_opt.is_none_or(|p| assets.get(p).is_none());
-    if let Some(url) = shown {
-        render_img_tag(html, url, img);
-    } else if img.agent.is_some() && img.item.is_none() {
-        // Not generated yet: an empty picture, not a missing file.
-    } else if missing {
-        html.push_str("<div class=\"missing\">");
-        html.push_str(&escape_html(file_name));
-        html.push_str("</div>");
-    } else {
-        let path = path_opt.unwrap();
-        let url = assets.get(path).unwrap();
-
-        match media_kind(path) {
-            MediaKind::Image => render_img_tag(html, url, img),
-            MediaKind::Video if web_safe_video(path) => {
-                render_video_tag(html, url, img, path, assets.item_thumb(img.item, path));
-            }
-            MediaKind::Text => {
-                if let Some(sheet) = assets.sheet(path) {
-                    render_sheet_card(html, url, file_name, sheet, &img.sheet);
-                } else {
-                    render_text_card(html, url, file_name, assets.snippet(path), path);
-                }
-            }
-            // 3D models: the frozen-camera poster for exactly this node,
-            // falling back to the item thumbnail, always linking to the
-            // copied original. No extension badge, matching the board.
-            MediaKind::Model => {
-                let poster = assets
-                    .model_poster(node.id)
-                    .or_else(|| assets.item_thumb(img.item, path));
-                render_model_poster_card(html, url, poster, img);
-            }
-            // PDFs, docs, non-web-safe video, workbooks (legacy docs may
-            // still carry one as an item), anything else: poster thumbnail
-            // when available, labeled card otherwise — always linking to the
-            // copied original.
-            _ => render_file_card(
-                html,
-                url,
-                file_name,
-                &ext_badge(path),
-                assets.item_thumb(img.item, path),
-            ),
-        }
-    }
-
-    if let Some(overlay) = img.adjust.overlay {
-        html.push_str("<div class=\"ovl\" style=\"background:");
-        html.push_str(&overlay.css());
-        html.push_str(";\"></div>");
-    }
-
-    render_image_paint_layers(html, doc, assets, node, img, rel);
-
-    html.push_str("</div>\n");
-}
-
 fn render_model_poster_card(
     html: &mut String,
     url: &str,
@@ -867,28 +778,15 @@ fn render_image_paint_layers(
                 child.rect.w / node.rect.w.max(1e-6) * hw,
                 child.rect.h / node.rect.h.max(1e-6) * hh,
             );
-            html.push_str("<div class=\"paint-layer-node\" style=\"position:absolute;inset:0;pointer-events:none\">");
+            let clip_style = crate::paint_layers::clips::html_style(html, &child, child_px);
+            html.push_str("<div class=\"paint-layer-node\" style=\"position:absolute;inset:0;pointer-events:none;");
+            html.push_str(&clip_style);
+            html.push_str("\">");
             match &child.kind {
                 NodeKind::Shape(shape) => render_shape(html, &child, shape, child_px),
                 NodeKind::Text(text) => render_text(html, &child, text, &text.text, child_px),
                 NodeKind::Image(layer_img) => {
-                    if let Some(item) = doc.item(layer_img.item) {
-                        if let Some(url) = assets.get(&item.path) {
-                            let mut style = geometry_style(child_px, local.rotation_deg);
-                            if let Some((sx, sy)) = layer_img.mirror().scale() {
-                                style.push_str(&format!(
-                                    "transform:rotate({:.3}deg) scale({sx},{sy});",
-                                    local.rotation_deg
-                                ));
-                            }
-                            append_opacity(&mut style, child.opacity);
-                            html.push_str("<img src=\"");
-                            html.push_str(&escape_attr(url));
-                            html.push_str("\" alt=\"\" style=\"");
-                            html.push_str(&style);
-                            html.push_str("\" draggable=\"false\">");
-                        }
-                    }
+                    render_image(html, doc, assets, &child, layer_img, child_px);
                 }
                 _ => {}
             }
@@ -898,13 +796,13 @@ fn render_image_paint_layers(
     }
 }
 
-fn render_img_tag(html: &mut String, url: &str, img: &slate_doc::scene::ImageNode) {
+fn render_img_tag(html: &mut String, url: &str, img: &slate_doc::scene::ImageNode, id: NodeId) {
+    let filter = image_filter::html_filter(html, &img.adjust, id);
     html.push_str("<img src=\"");
     html.push_str(&escape_attr(url));
     html.push_str("\" alt=\"\" style=\"");
     html.push_str(&crop_style(&img.crop));
     push_mirror_transform(html, img.mirror());
-    let filter = img.adjust.css_filter();
     if !filter.is_empty() {
         html.push_str("filter:");
         html.push_str(&filter);
@@ -1607,15 +1505,15 @@ fn append_contour(
 }
 
 fn encode_png(stamp: &vector_ink::StampImage) -> Option<Vec<u8>> {
-    use image::ImageEncoder;
+    use ::image::ImageEncoder;
     let mut bytes = Vec::new();
-    let encoder = image::codecs::png::PngEncoder::new(&mut bytes);
+    let encoder = ::image::codecs::png::PngEncoder::new(&mut bytes);
     encoder
         .write_image(
             &stamp.rgba,
             stamp.width,
             stamp.height,
-            image::ExtendedColorType::Rgba8,
+            ::image::ExtendedColorType::Rgba8,
         )
         .ok()?;
     Some(bytes)
@@ -2143,108 +2041,8 @@ fn bezpath_to_d_local(bez: &BezPath, rect: WorldRect, w: f32, h: f32) -> String 
     d
 }
 
-fn path_data_d(path: &PathData, w: f32, h: f32) -> String {
-    let mut d = String::new();
-    let (x, y) = denorm_pt(path.start, w, h);
-    d.push_str("M ");
-    d.push_str(&fmt_px(x));
-    d.push(' ');
-    d.push_str(&fmt_px(y));
-    for seg in &path.segs {
-        match seg {
-            PathSeg::Line { to } => {
-                let (x, y) = denorm_pt(*to, w, h);
-                d.push_str(" L ");
-                d.push_str(&fmt_px(x));
-                d.push(' ');
-                d.push_str(&fmt_px(y));
-            }
-            PathSeg::Quad { ctrl, to } => {
-                let (cx, cy) = denorm_pt(*ctrl, w, h);
-                let (x, y) = denorm_pt(*to, w, h);
-                d.push_str(" Q ");
-                d.push_str(&fmt_px(cx));
-                d.push(' ');
-                d.push_str(&fmt_px(cy));
-                d.push(' ');
-                d.push_str(&fmt_px(x));
-                d.push(' ');
-                d.push_str(&fmt_px(y));
-            }
-            PathSeg::Cubic { c1, c2, to } => {
-                let (c1x, c1y) = denorm_pt(*c1, w, h);
-                let (c2x, c2y) = denorm_pt(*c2, w, h);
-                let (x, y) = denorm_pt(*to, w, h);
-                d.push_str(" C ");
-                d.push_str(&fmt_px(c1x));
-                d.push(' ');
-                d.push_str(&fmt_px(c1y));
-                d.push(' ');
-                d.push_str(&fmt_px(c2x));
-                d.push(' ');
-                d.push_str(&fmt_px(c2y));
-                d.push(' ');
-                d.push_str(&fmt_px(x));
-                d.push(' ');
-                d.push_str(&fmt_px(y));
-            }
-        }
-    }
-    if path.closed {
-        d.push_str(" Z");
-    }
-    for extra in &path.extra {
-        let (x, y) = denorm_pt(extra.start, w, h);
-        d.push_str(" M ");
-        d.push_str(&fmt_px(x));
-        d.push(' ');
-        d.push_str(&fmt_px(y));
-        for seg in &extra.segs {
-            match seg {
-                PathSeg::Line { to } => {
-                    let (x, y) = denorm_pt(*to, w, h);
-                    d.push_str(" L ");
-                    d.push_str(&fmt_px(x));
-                    d.push(' ');
-                    d.push_str(&fmt_px(y));
-                }
-                PathSeg::Quad { ctrl, to } => {
-                    let (cx, cy) = denorm_pt(*ctrl, w, h);
-                    let (x, y) = denorm_pt(*to, w, h);
-                    d.push_str(" Q ");
-                    d.push_str(&fmt_px(cx));
-                    d.push(' ');
-                    d.push_str(&fmt_px(cy));
-                    d.push(' ');
-                    d.push_str(&fmt_px(x));
-                    d.push(' ');
-                    d.push_str(&fmt_px(y));
-                }
-                PathSeg::Cubic { c1, c2, to } => {
-                    let (c1x, c1y) = denorm_pt(*c1, w, h);
-                    let (c2x, c2y) = denorm_pt(*c2, w, h);
-                    let (x, y) = denorm_pt(*to, w, h);
-                    d.push_str(" C ");
-                    d.push_str(&fmt_px(c1x));
-                    d.push(' ');
-                    d.push_str(&fmt_px(c1y));
-                    d.push(' ');
-                    d.push_str(&fmt_px(c2x));
-                    d.push(' ');
-                    d.push_str(&fmt_px(c2y));
-                    d.push(' ');
-                    d.push_str(&fmt_px(x));
-                    d.push(' ');
-                    d.push_str(&fmt_px(y));
-                }
-            }
-        }
-        if extra.closed {
-            d.push_str(" Z");
-        }
-    }
-    d
-}
+mod path_data;
+pub(crate) use path_data::path_data_d;
 
 fn path_data_to_bez(path: &PathData, w: f32, h: f32) -> BezPath {
     let mut bez = BezPath::new();
@@ -3223,7 +3021,7 @@ mod tests {
             .nth(1)
             .and_then(|s| s.split('"').next())
             .expect("embedded PNG");
-        let img = image::load_from_memory(&base64_decode(b64))
+        let img = ::image::load_from_memory(&base64_decode(b64))
             .expect("PNG decodes")
             .to_rgba8();
         let (w, h) = img.dimensions();

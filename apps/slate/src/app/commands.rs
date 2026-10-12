@@ -41,30 +41,20 @@ const fn spec(
         aliases,
     }
 }
-const fn shift(key: Key) -> Chord {
-    Chord {
-        key,
-        ctrl: false,
-        shift: true,
-        alt: false,
-    }
-}
-const fn ctrl_shift(key: Key) -> Chord {
-    Chord {
-        key,
-        ctrl: true,
-        shift: true,
-        alt: false,
-    }
-}
+mod constructors;
+use constructors::{ctrl_shift, shift};
 /// Canonical command table. Keep grouped by category (the reference UI groups
 /// on category changes), documentation rows first within their historical
 /// order, dispatchable additions after.
 pub static SPECS: &[CommandSpec] = &[
+    spec("board.image.shape_fill", "Board", "Fill closed shape with image", "Drag an image into a closed shape; Alt keeps the source. Double-click to pan or scale pixels behind the fixed mask", None, Repeat::Never, BOARD, &["image fill", "shape crop", "cover"]),
     spec("app.updates.check", "Application", "Check for updates", "Advanced → Software updates", None, Repeat::Never, GLOBAL, &["version", "update"]),
     spec("app.updates.download", "Application", "Download update", "Update prompt → Download update", None, Repeat::Never, GLOBAL, &[]),
     spec("app.updates.install", "Application", "Update and restart", "Update prompt → Update and restart (save all workbooks first)", None, Repeat::Never, GLOBAL, &[]),
     spec("app.updates.later", "Application", "Dismiss update prompt", "Update prompt → Later", None, Repeat::Never, GLOBAL, &[]),
+    spec("app.packs.refresh", "Application", "Refresh connections", "Advanced → Connections → Refresh (probes every pack on a worker)", None, Repeat::Never, GLOBAL, &["packs", "probe"]),
+    spec("app.packs.forget", "Application", "Forget a trial pack", "Advanced → Connections → Forget", None, Repeat::Never, GLOBAL, &["packs", "trial"]),
+    spec("app.packs.openai_key", "Application", "Add OpenAI API key", "Generate chooser → OpenAI · add API key", None, Repeat::Never, GLOBAL, &["openai", "api key", "chatgpt"]),
     spec("board.media.image", "Board", "Media: Image", "Media > Image: choose images, PDFs, or PowerPoint", None, Repeat::Repeatable, BOARD, &["image", "picture", "pdf", "powerpoint", "ppt", "print media"]),
     spec("board.media.model", "Board", "Media: 3D", "Media > 3D: choose a 3D model (Rhino, OBJ, STL, glTF, or a recognized file such as Blender, DWG, or SketchUp)", None, Repeat::Repeatable, BOARD, &["3d", "rhino", "model", "3dm", "obj", "stl", "gltf", "blend", "dwg", "skp"]),
     spec("board.media.video", "Board", "Media: Video", "Media > Video: place a video. Hover across it to scrub; click to play", None, Repeat::Repeatable, BOARD, &["video", "movie", "mp4", "scrub"]),
@@ -86,16 +76,7 @@ pub static SPECS: &[CommandSpec] = &[
     spec("board.tool.arc", "Board", "Arc tool", "Shapes: pick three points for an arc. Shift = 45° from the last point; Tab locks the direction", None, Repeat::Repeatable, BOARD, &["arc", "curve"]),
     spec("board.tool.bezier", "Board", "Bezier span tool", "Shapes: place anchors and drag tangent handles. Shift = 45° from the last anchor; Tab locks the direction", None, Repeat::Repeatable, BOARD, &["bezier", "handles"]),
     // ----- Navigation -------------------------------------------------------
-    spec(
-        "nav.pan",
-        "Navigation",
-        "Pan (precise)",
-        "Left-drag or right-drag on canvas background",
-        None,
-        Repeat::Never,
-        GLOBAL,
-        &[],
-    ),
+    spec("nav.pan", "Navigation", "Pan (precise)", "Left-drag or right-drag on canvas background", None, Repeat::Never, GLOBAL, &[]),
     spec(
         "nav.turbo_pan",
         "Navigation",
@@ -803,10 +784,10 @@ pub static SPECS: &[CommandSpec] = &[
     spec("portal.agent.chat", "Board", "Agent: single chat window", "Collapse the conversation into one window per branch", None, Repeat::Never, BOARD, &["single chat"]),
     spec("portal.agent.bundle_chat", "Board", "Agent: bundle messages", "Collapse a consecutive selection without changing history", None, Repeat::Never, BOARD, &["bundle chat"]),
     spec("portal.agent.expand_chat", "Board", "Agent: expand messages", "Restore the original bundled message cards", None, Repeat::Never, BOARD, &["expand chat"]),
-    spec("portal.agent.fork", "Board", "Agent: fork at checkpoint", "Ellipsis → Fork chat here, or drag the top output circle of a non-linear card. Creates one forked chat at that checkpoint, journaled as one command and joined by the history rail. Each drag is one fork. A click without a drag still continues. Coding agents cannot fork", None, Repeat::Never, BOARD, &["fork chat"]),
-    spec("portal.agent.collapse", "Board", "Agent: collapse or expand card", "Click the chevron left of a chat card's ellipsis. Dead center steps one level (collapsed to a scrolling card twice the capsule, then fully open). Below center expands fully. Slightly above center collapses one level; further above collapses to three lines. Detail is one, full, partial, or collapse. With no detail, selected cards toggle between full and the three-line capsule. The tail keeps its composer", None, Repeat::Never, BOARD, &["collapse chat", "expand chat card"]),
+    spec("portal.agent.fork", "Board", "Agent: fork at checkpoint", "Ellipsis → Fork chat here, or drag the top output circle. Creates one forked chat at that checkpoint, journaled as one command and joined by the history rail. Each drag is one fork. A click without a drag still continues. A coding-agent branch gets its own session, seeded with the transcript up to that card; continuing the unbranched tail keeps the session", None, Repeat::Never, BOARD, &["fork chat"]),
+    spec("portal.agent.collapse", "Board", "Agent: collapse or expand card", "Click a chevron left of a chat card's ellipsis. A single chevron steps one level; a double chevron steps two. From maximized that is partial, then collapsed. From collapsed that is partial, then maximized. From partial both directions work, one single chevron each way. Hover highlights the mark and shows no tooltip. Detail is step-expand, jump-expand, step-collapse, or jump-collapse. With no detail, selected cards toggle between full and the three-line capsule. The tail keeps its composer", None, Repeat::Never, BOARD, &["collapse chat", "expand chat card"]),
     spec("portal.agent.fit", "Board", "Agent: fit card to text", "Ellipsis menu → Fit to text, on a chat card you resized", None, Repeat::Never, BOARD, &["fit to text", "auto size chat"]),
-    spec("portal.agent.schedule", "Board", "Agent: repeat a message", "Ellipsis menu → Schedule… opens a dialog: message, date and time (tonight, Oct 1, 4:55 am), Once / Every hour / Every day / Every week, and a required end (until next month, until next year, or a date). Windows Task Scheduler stores that end and will not register a task without one. A schedule saved without an end stays until you set one. A clock in the card's top strip shows a pending schedule", None, Repeat::Never, BOARD, &["repeat", "schedule", "cron", "heartbeat"]),
+    spec("portal.agent.schedule", "Board", "Agent: repeat a message", "Ellipsis menu → Schedule… opens a dialog: message, date and time (tonight, Oct 1, 4:55 am), Once / Every hour / Every day / Every week, and a required end (until next month, until next year, or a date). Windows Task Scheduler stores that end and will not register a task without one. A schedule saved without an end stays until you set one. A pending schedule stays in this menu, not on the card's top bar", None, Repeat::Never, BOARD, &["repeat", "schedule", "cron", "heartbeat"]),
     spec("portal.agent.full_access", "Board", "Agent: full access", "Ellipsis menu → Full access. This conversation runs commands and edits files without asking, from its next message. Stored for this user on this machine, never in the workbook", None, Repeat::Never, BOARD, &["full access", "allow all", "stop asking permission"]),
     spec("portal.agent.pocket", "Board", "Agent: show or pocket used context", "Click a chat card's lower context handle. Deleting context a card already sent pockets it into that card", None, Repeat::Never, BOARD, &["pocketed context", "restore context"]),
     spec("portal.agent.crosstalk.link", "Board", "Start crosstalk", "Drag from a Cursor or Codex chat card's top or bottom port onto another conversation's card; or select two chat cards and run this", None, Repeat::Never, BOARD, &["agent crosstalk", "agents talk", "reviewer", "builder and reviewer"]),
@@ -1020,8 +1001,8 @@ pub static SPECS: &[CommandSpec] = &[
         "board.rotate",
         "Board",
         "Rotate object",
-        "Hover just outside a corner of a rotatable node (not a portal); drag \
-         to rotate (snaps at 45°). With 2+ selected, rotates the group about \
+        "Hover outside a rotatable node's corner (any polygon vertex, clear of its +/− and point pick); drag \
+         to rotate (snaps at 45°; Shift locks a polygon's gripped vertex to cardinal directions; Alt suspends). With 2+ selected, rotates the group about \
          its center; portals in the group stay axis-aligned",
         None,
         Repeat::Never,
@@ -1138,7 +1119,7 @@ pub static SPECS: &[CommandSpec] = &[
         "board.dock.drop",
         "Board",
         "Drop toolbar to canvas",
-        "Icon-strip two-dot column → Drop to canvas",
+        "Primary-circle context menu → Drop to canvas (left dock: two-dot column)",
         None,
         Repeat::Never,
         BOARD,
@@ -1154,16 +1135,8 @@ pub static SPECS: &[CommandSpec] = &[
         BOARD,
         &["toolbar tags"],
     ),
-    spec(
-        "dock.bar.toggle",
-        "Board",
-        "Collapse / expand the primary toolbar",
-        "Hover beside or below the icon bar (arrow) and click; blister on the readout redeploys",
-        None,
-        Repeat::Never,
-        BOARD,
-        &["collapse dock", "blister"],
-    ),
+    spec("dock.bar.toggle", "Board", "Collapse / expand the entire toolbar", "Bottom readout blister, or hover beside / below the toolbar and click", None, Repeat::Never, BOARD, &["collapse dock", "blister"]),
+    spec("dock.palette.toggle", "Board", "Expand / collapse a tool family", "Bottom dock: click the primary circle; secondary icons expand right in the same capsule. Click again to collapse", None, Repeat::Never, BOARD, &["toolbar", "capsule"]),
     spec(
         "board.osnap.end",
         "Board",
@@ -1420,7 +1393,7 @@ pub static SPECS: &[CommandSpec] = &[
     spec(
         "board.menu",
         "Board",
-        "Object menu (z-order, tags, delete)",
+        "Object menu (z-order, tags, delete, image Layers)",
         "Right-click object",
         None,
         Repeat::Never,
@@ -1656,12 +1629,22 @@ pub static SPECS: &[CommandSpec] = &[
     spec(
         "board.image.segment.commit",
         "Board",
-        "Highlight image object",
-        "Select tool: linger over an image object, then click Highlight",
+        "Pin image object selection",
+        "Hover an image object, click to pin, then click to include or Alt-click to exclude",
         None,
         Repeat::Never,
         BOARD,
         &["segment", "mask", "highlight", "object"],
+    ),
+    spec(
+        "board.image.selection.lasso", "Board", "Polygonal image selection",
+        "Image editing palette: click vertices, Shift for 45°, Delete for the previous vertex, Enter to close, Esc to cancel",
+        None, Repeat::Never, BOARD_SEL, &["lasso", "polygon", "image selection"],
+    ),
+    spec(
+        "board.image.selection.layer", "Board", "Create layer from image selection",
+        "Right-click a pinned image selection and choose Create layer from selection",
+        None, Repeat::Never, BOARD_SEL, &["cutout", "mask", "selection layer"],
     ),
     spec(
         "board.image.layer.add",
@@ -1673,6 +1656,16 @@ pub static SPECS: &[CommandSpec] = &[
         BOARD_SEL,
         &["trace paper", "paint layer"],
     ),
+    spec("board.image.selection.copy", "Board", "Copy image selection to canvas",
+        "Drag a highlighted image object onto the canvas", None, Repeat::Never, BOARD_SEL, &["cutout", "segmentation"]),
+    spec("board.image.layer.rename", "Board", "Rename image layer",
+        "Right-click a layer; type its name, then Enter or click away", None, Repeat::Never, BOARD_SEL, &["layer name"]),
+    spec("board.image.layer.visibility", "Board", "Toggle image layer visibility",
+        "Right-click a layer and toggle Visible", None, Repeat::Never, BOARD_SEL, &["hide layer", "show layer"]),
+    spec("board.image.layer.duplicate", "Board", "Duplicate image layer",
+        "Right-click Duplicate layer, or Alt-drag a layer", None, Repeat::Never, BOARD_SEL, &["copy layer"]),
+    spec("board.image.layer.reorder", "Board", "Reorder image layer",
+        "Drag layer previews; leftmost is topmost", None, Repeat::Never, BOARD_SEL, &["layer order"]),
     spec(
         "board.image.layer.delete",
         "Board",
@@ -2290,7 +2283,7 @@ pub static SPECS: &[CommandSpec] = &[
         "app.feedback.open",
         "Commands",
         "Suggestion box",
-        "Speech-bubble button left of the readout chevron",
+        "Cherry feedback circle at the far left of the Board toolstrip",
         None,
         Repeat::Never,
         GLOBAL,

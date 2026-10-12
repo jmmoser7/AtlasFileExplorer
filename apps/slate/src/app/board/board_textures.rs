@@ -1,6 +1,54 @@
 //! Texture lookup and selection glyphs.
 
 use super::*;
+use std::collections::HashMap;
+use std::path::PathBuf;
+
+/// Longest edge on the board is 320. Smaller sources stay at their pixel size.
+fn fit_board_image(mut w: f32, mut h: f32) -> (f32, f32) {
+    if w <= 0.0 || h <= 0.0 {
+        w = IMAGE_W;
+        h = IMAGE_H;
+    }
+    let scale = (320.0 / w.max(h)).min(1.0);
+    (w * scale, h * scale)
+}
+
+/// Header size of a local picture. A missing path is treated as cloud-only
+/// and skipped — never opened.
+fn source_pixel_size(path: &std::path::Path) -> Option<(f32, f32)> {
+    if slate_doc::media_kind(path) != slate_doc::MediaKind::Image
+        || atlas_core::cloud::is_dehydrated(path)
+    {
+        return None;
+    }
+    let (w, h) = image::image_dimensions(path).ok()?;
+    (w > 0 && h > 0).then_some((w as f32, h as f32))
+}
+
+/// One PDF page on the board. Every page of a document shares one scale (its
+/// longest page edge fits the board size), so a small page stays smaller than
+/// a letter page beside it. `pages` keeps each document's boxes so a whole
+/// unbundle reads its file once.
+fn pdf_page_size(
+    path: &std::path::Path,
+    page: u16,
+    pages: &mut HashMap<PathBuf, Vec<Option<(f32, f32)>>>,
+) -> Option<(f32, f32)> {
+    if slate_doc::media_kind(path) != slate_doc::MediaKind::Pdf {
+        return None;
+    }
+    let boxes = pages
+        .entry(path.to_path_buf())
+        .or_insert_with(|| atlas_core::pdf_media::file_page_sizes(path));
+    let (w, h) = boxes.get(page as usize).copied().flatten()?;
+    let longest = boxes
+        .iter()
+        .flatten()
+        .fold(0.0f32, |m, &(w, h)| m.max(w).max(h));
+    let scale = (320.0 / longest).min(1.0);
+    Some((w * scale, h * scale))
+}
 
 impl SlateApp {
     // ----- textures -------------------------------------------------------------
@@ -122,32 +170,59 @@ impl SlateApp {
 
     /// Natural pixel dimensions for an item, scaled to a sensible board size.
     pub(crate) fn image_natural_size(&self, item: ItemId) -> (f32, f32) {
-        let (mut w, mut h) = match self.doc().item(item) {
-            Some(it) => self
-                .thumb_pixels
-                .get(&it.cache_key)
-                .map(|img| (img.width() as f32, img.height() as f32))
-                // A drop lands before its thumbnail does, so read the header
-                // rather than boxing the image at the default aspect. Never on
-                // a placeholder: one header byte hydrates the whole file.
-                .or_else(|| {
-                    let path = &it.path;
-                    (slate_doc::media_kind(path) == slate_doc::MediaKind::Image
-                        && !atlas_core::cloud::is_dehydrated(path))
-                    .then(|| image::image_dimensions(path).ok())
-                    .flatten()
-                    .map(|(pw, ph)| (pw as f32, ph as f32))
-                })
-                .unwrap_or((IMAGE_W, IMAGE_H)),
-            None => (IMAGE_W, IMAGE_H),
-        };
-        if w <= 0.0 || h <= 0.0 {
-            w = IMAGE_W;
-            h = IMAGE_H;
-        }
-        let max_dim = 320.0;
-        let scale = (max_dim / w.max(h)).min(1.0);
-        (w * scale, h * scale)
+        self.image_natural_sizes(&[item])[0]
+    }
+
+    /// [`Self::image_natural_size`] for several items. A PDF page is sized
+    /// from its page box. A picture's rendered thumbnail wins (it carries
+    /// EXIF orientation); before it lands, the file header answers. Pasted
+    /// and generated pictures store a workbook-relative `assets/…` locator,
+    /// which is resolved before any read.
+    pub(crate) fn image_natural_sizes(&self, items: &[ItemId]) -> Vec<(f32, f32)> {
+        let workbook = self.tab().path.as_deref();
+        let mut pages = HashMap::new();
+        items
+            .iter()
+            .map(|&item| {
+                let Some(it) = self.doc().item(item) else {
+                    return fit_board_image(IMAGE_W, IMAGE_H);
+                };
+                let path = super::super::image_composite::item_file(self.doc(), workbook, item);
+                if let Some(size) = path
+                    .as_deref()
+                    .and_then(|p| pdf_page_size(p, it.pdf_page, &mut pages))
+                {
+                    return size;
+                }
+                let (w, h) = self
+                    .thumb_pixels
+                    .get(&it.cache_key)
+                    .map(|img| (img.width() as f32, img.height() as f32))
+                    .or_else(|| source_pixel_size(path.as_deref()?))
+                    .unwrap_or((IMAGE_W, IMAGE_H));
+                fit_board_image(w, h)
+            })
+            .collect()
+    }
+
+    /// Each page at its own natural size, scaled so `active` covers the area
+    /// `card` already covers: unbundling keeps the size the person chose.
+    pub(crate) fn page_sizes_like(
+        &self,
+        items: &[ItemId],
+        active: usize,
+        card: WorldRect,
+    ) -> Vec<(f32, f32)> {
+        let sizes = self.image_natural_sizes(items);
+        let scale = sizes
+            .get(active)
+            .map(|&(w, h)| (card.w * card.h / (w * h)).sqrt())
+            .filter(|s| s.is_finite() && *s > 0.0)
+            .unwrap_or(1.0);
+        sizes
+            .into_iter()
+            .map(|(w, h)| (w * scale, h * scale))
+            .collect()
     }
 
     pub(super) fn paint_board_grid(
@@ -243,14 +318,38 @@ impl SlateApp {
         }
         if rotate_hover {
             let geom = board_handles::selection_geom(xf, n.rect, n.rotation_deg);
+            let hover = self
+                .board_hover_hit
+                .filter(|_| self.board_hover_node == Some(n.id));
+            let polygon = match &n.kind {
+                NodeKind::Shape(s) if s.shape == ShapeKind::RegularPolygon => Some(s),
+                _ => None,
+            };
             board_handles::paint_selection(
                 painter,
                 &geom,
                 &outline,
                 select_tint,
-                self.board_hover_hit,
+                hover.filter(|_| polygon.is_none()),
                 outline_w,
             );
+            if let Some(s) = polygon {
+                if let Some(board_handles::BoardHitTarget::Rotate(i)) = hover {
+                    if let Some(p) = slate_doc::scene::regular_polygon_vertex(
+                        n.rect,
+                        s.sides,
+                        s.phase_deg,
+                        i as usize,
+                    ) {
+                        let vertex = xf.w2s(Pos2::from(n.rect.rotate_point(p, n.rotation_deg)));
+                        let center = xf.w2s(Pos2::from(n.rect.center()));
+                        let at = vertex
+                            + (vertex - center).normalized()
+                                * canvas_scale::px(board_handles::ROTATE_OFFSET_PX, xf.z);
+                        board_handles::paint_rotate_affordance(painter, vertex, at, select_tint);
+                    }
+                }
+            }
             self.paint_node_fillet_grip(painter, xf, n, select_tint);
         } else {
             painter.add(egui::Shape::closed_line(
@@ -275,8 +374,7 @@ impl SlateApp {
         let pointer = painter.ctx().pointer_hover_pos();
         for g in self.polygon_sides_glyphs(xf) {
             let hot = pointer.is_some_and(|p| {
-                p.distance(g.center)
-                    <= canvas_scale::hit_px(board_handles::SIDES_GLYPH_RADIUS, xf.z)
+                p.distance(g.center) <= canvas_scale::hit_px(board_handles::SIDES_GLYPH_HIT, xf.z)
             });
             board_handles::paint_sides_glyph(
                 painter,

@@ -30,7 +30,15 @@ impl SlateApp {
                     let on_image = self.press_on_selected_crop(world);
                     if !on_image {
                         self.board_crop = None;
+                    } else if let Some(drag) = self.begin_crop_pan(world) {
+                        return Some(drag);
                     }
+                }
+                // Agent controls own their grip regions, so a press there
+                // cannot also begin a board selection or transform drag.
+                let xf = self.board_xf();
+                if self.agent_grip_owns(screen, &xf) {
+                    return None;
                 }
                 // Match hover priority: the visible fillet grip wins any
                 // overlap with wire/resize bands, and a curve grip only

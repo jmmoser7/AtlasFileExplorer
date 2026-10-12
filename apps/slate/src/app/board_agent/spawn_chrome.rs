@@ -9,12 +9,7 @@ impl SlateApp {
         let palette = self.palette();
         let pointer = painter.ctx().pointer_latest_pos();
         if let (Some((id, _)), Some(p)) = (self.agents.artifact_drag, pointer) {
-            if let Some(n) = self.doc().scene.node(id) {
-                let r = xf.rect_w2s(n.rect);
-                let from = Pos2::new(
-                    r.right() - slate_doc::agent_chat::PORT_INSET * xf.z,
-                    r.center().y,
-                );
+            if let Some(from) = self.return_dot_at(painter.ctx(), id, xf) {
                 painter.line_segment(
                     [from, p],
                     egui::Stroke::new((1.25 * xf.z).max(1.0), palette.sub.gamma_multiply(0.7)),
@@ -22,36 +17,9 @@ impl SlateApp {
             }
         }
         for n in &self.doc().scene.nodes {
-            let Some(a) = slate_doc::agent_chat::agent(n) else {
-                continue;
-            };
             if self.agent_stop_shown(n) {
                 self.paint_agent_stop(painter, xf, n, pointer);
-                continue;
             }
-            if n.hidden
-                || n.locked
-                || a.chat.draft
-                || a.provider.is_empty()
-                || a.chat.parent.is_none()
-                || self.agent_in_choose_phase(n.id)
-            {
-                continue;
-            }
-            let r = xf.rect_w2s(n.rect);
-            let p = Pos2::new(
-                r.right() - slate_doc::agent_chat::PORT_INSET * xf.z,
-                r.top() + slate_doc::agent_chat::RAIL_INSET * xf.z,
-            );
-            let color = palette.sub.gamma_multiply(
-                if pointer.is_some_and(|q| q.distance(p) < 16.0 * xf.z) {
-                    0.9
-                } else {
-                    0.35
-                },
-            );
-            let near = pointer.is_some_and(|q| q.distance(p) <= 10.0 * xf.z);
-            paint_handle_dot(painter, p, xf.z, near, color);
         }
         if let (Some((id, _)), Some(pos)) = (self.agents.spawn_drag, self.board_point_snap) {
             {
@@ -157,11 +125,11 @@ impl SlateApp {
             chat.partial = false;
         }) || released
     }
-    /// Chevron zones. A missing detail keeps the keyboard toggle. Folding a
+    /// One chevron steps a level; the double jumps two. A missing detail keeps the keyboard toggle. Folding a
     /// card that is open only for streaming starts from what the person sees
     /// and makes that fold theirs.
     pub(crate) fn agent_fold(&mut self, ctx: &egui::Context, detail: Option<&str>) -> bool {
-        let Some(zone) = detail.and_then(train_ux::ChevronZone::parse) else {
+        let Some((dir, step)) = detail.and_then(train_ux::parse_chevron) else {
             return self.agent_toggle_collapse(ctx);
         };
         let ids = self.selected_chat_cards();
@@ -173,7 +141,7 @@ impl SlateApp {
         let released = self.release_stream_open(&ids);
         self.refit_agent_cards_by(ctx, &ids, |id, chat| {
             let fold = card_fold(chat, streaming.contains(&id));
-            write_fold(chat, train_ux::apply_chevron(fold, zone));
+            write_fold(chat, train_ux::apply_fold(fold, dir, step));
         }) || released
     }
     /// A collapsed card shows twice the capsule while a reply streams. The

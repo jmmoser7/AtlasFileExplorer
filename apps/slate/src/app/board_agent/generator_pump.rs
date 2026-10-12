@@ -8,7 +8,7 @@ impl SlateApp {
             .agents
             .comfy_queue
             .iter()
-            .filter(|(id, queue)| !queue.is_empty() && !self.agent_is_running(**id))
+            .filter(|(id, queue)| !queue.is_empty() && !self.agent_generation_dispatched(**id))
             .map(|(id, _)| *id)
             .collect();
         for id in ready {
@@ -20,6 +20,24 @@ impl SlateApp {
             else {
                 continue;
             };
+            if request.doc != self.tab().id {
+                self.agents.comfy_queue.remove(&id);
+                self.agents.capture_wait.remove(&id);
+                self.toast(
+                    "The queued generation belongs to a different open tab; send it again there.",
+                );
+                continue;
+            }
+            match self.poll_agent_input_preparation(&mut request.inputs) {
+                Ok(true) => request.request.inputs = request.inputs.inputs.clone(),
+                Ok(false) => continue,
+                Err(error) => {
+                    self.agents.comfy_queue.remove(&id);
+                    self.agents.capture_wait.remove(&id);
+                    self.fail_agent_await(id, error);
+                    continue;
+                }
+            }
             let since = self
                 .agents
                 .capture_wait
@@ -27,7 +45,7 @@ impl SlateApp {
                 .copied()
                 .unwrap_or_else(Instant::now);
             let allow_stale = since.elapsed() > CAPTURE_TIMEOUT;
-            match self.capture_generator_inputs(id, &mut request, allow_stale) {
+            match self.capture_generator_inputs(id, &mut request.request, allow_stale) {
                 Ok(true) => {}
                 Ok(false) => {
                     let since = *self
@@ -53,10 +71,23 @@ impl SlateApp {
                 }
             }
             self.agents.capture_wait.remove(&id);
-            if let Some(queue) = self.agents.comfy_queue.get_mut(&id) {
+            let queue_empty = if let Some(queue) = self.agents.comfy_queue.get_mut(&id) {
                 queue.pop_front();
+                queue.is_empty()
+            } else {
+                false
+            };
+            if queue_empty {
+                self.agents.comfy_queue.remove(&id);
             }
-            self.dispatch_generation(id, request);
+            if request.request.oneshot
+                && self.is_text_block(id)
+                && self.agent_text_window_owned(id)
+                && !self.tab().read_only
+            {
+                self.clear_agent_text_output_file(id);
+            }
+            self.dispatch_generation(id, request.request);
         }
     }
     /// A wired 3D model is captured when its run starts, from its current camera.

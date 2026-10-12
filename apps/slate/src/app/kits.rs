@@ -65,10 +65,6 @@ impl KitState {
         self.registry.get(id).map(|t| &t.def.recipe)
     }
 
-    pub fn tool_name(&self, id: &str) -> Option<&str> {
-        self.registry.get(id).map(|t| t.def.name.as_str())
-    }
-
     pub fn is_derived(&self, id: &str) -> bool {
         let kit = kit_id_for_catalog(id).unwrap_or(id);
         self.registry

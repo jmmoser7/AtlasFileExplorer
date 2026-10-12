@@ -4,6 +4,13 @@ use crate::app::board::BoardTool;
 use crate::app::tests::{capture_frame, rasterize, FrameRaster, Harness};
 use slate_doc::scene::ImageNode;
 
+#[path = "image_segment_tests/interaction.rs"]
+mod interaction;
+#[path = "image_segment_tests/preview.rs"]
+mod preview;
+#[path = "image_segment_tests/selection.rs"]
+mod selection;
+
 #[test]
 fn segment_dispatch_shares_resident_pixels_without_copying_them() {
     let (mut h, id) = fixture("segment_shared_pixels");
@@ -11,15 +18,51 @@ fn segment_dispatch_shares_resident_pixels_without_copying_them() {
     let key = h.app.resolved_item_preview(item).unwrap().0;
     h.app.preview_cache.remove(&key);
     let pixels = std::sync::Arc::new(egui::ColorImage::new([1024, 512], egui::Color32::RED));
-    h.app.thumb_pixels.insert(key, pixels.clone());
-    let request = h.app.segment_request(id, [0.25, 0.5]).unwrap();
+    h.app.thumb_pixels.insert(key.clone(), pixels.clone());
+    let request = h
+        .app
+        .segment_request(
+            id,
+            &[atlas_segment::PointPrompt {
+                point: [0.25, 0.5],
+                positive: true,
+            }],
+        )
+        .unwrap();
     assert!(std::sync::Arc::ptr_eq(&pixels, &request.pixels));
     assert_eq!(
         request.pixels.size,
         [1024, 512],
         "dispatch leaves sampling to the worker"
     );
-    assert_eq!(request.point, [0.25, 0.5]);
+    assert_eq!(request.key, format!("{key}:false:false"));
+    assert_eq!(request.source_key, h.app.segment_source_key(id).unwrap());
+    assert_eq!(request.prompts[0].point, [0.25, 0.5]);
+
+    let model_key = request.key.clone();
+    let source_key = request.source_key.clone();
+    let node = h.app.doc_mut().scene.node_mut(id).unwrap();
+    let NodeKind::Image(img) = &mut node.kind else {
+        unreachable!()
+    };
+    img.crop = slate_doc::scene::Crop {
+        x: 0.1,
+        y: 0.2,
+        w: 0.7,
+        h: 0.6,
+    };
+    let cropped = h
+        .app
+        .segment_request(
+            id,
+            &[atlas_segment::PointPrompt {
+                point: [0.25, 0.5],
+                positive: true,
+            }],
+        )
+        .unwrap();
+    assert_eq!(cropped.key, model_key, "crop reuses encoded source pixels");
+    assert_ne!(cropped.source_key, source_key, "crop invalidates the mask");
 }
 
 #[test]
@@ -44,9 +87,15 @@ fn committed_segment_becomes_a_prompted_image_layer_region() {
     let NodeKind::Image(img) = &h.app.doc().scene.node(id).unwrap().kind else {
         panic!()
     };
-    assert_eq!(img.paint_layers.len(), 1);
-    assert_eq!(img.paint_layers[0].nodes[0].id, region);
-    assert_eq!(img.paint_layers[0].prompts[0].node, region);
+    assert!(img.paint_layers.is_empty());
+    let stack = slate_doc::image_paint::result_layers(
+        img,
+        &slate_doc::image_paint::ImageResultId::Item(img.item),
+    )
+    .unwrap();
+    assert_eq!(stack.layers.len(), 1);
+    assert_eq!(stack.layers[0].nodes[0].id, region);
+    assert_eq!(stack.layers[0].prompts[0].node, region);
     assert_eq!(
         h.app.image_region_prompts(id),
         vec!["give this person a hat"]
@@ -56,6 +105,7 @@ fn committed_segment_becomes_a_prompted_image_layer_region() {
         panic!()
     };
     assert!(img.paint_layers.is_empty());
+    assert!(img.result_layers.is_empty());
 }
 
 fn fixture(name: &str) -> (Harness, NodeId) {
@@ -103,19 +153,31 @@ fn inject(h: &mut Harness, id: NodeId) -> Pos2 {
     let world = Pos2::new(-50.0, -70.0);
     let screen = h.app.board_xf().w2s(world);
     let mask = contours();
+    let source_key = h.app.segment_source_key(id).unwrap();
     h.app.image_segments.hover = Some(Hover {
         tab: h.app.tab().id,
         host: id,
         gen: h.app.scene_gen,
+        source_key: source_key.clone(),
         point_norm: [0.375, 0.28125],
+        prompts: vec![atlas_segment::PointPrompt {
+            point: [0.375, 0.28125],
+            positive: true,
+        }],
         screen,
         since: Instant::now() - LINGER,
     });
     h.app.image_segments.result = Some(SegmentResult {
         host: id,
         gen: h.app.scene_gen,
+        source_key,
         local: region_node(slate_doc::image_paint::region_path(mask.clone()).unwrap()),
         mask: std::sync::Arc::new(mask),
+        candidates: std::sync::Arc::new(vec![atlas_segment::Candidate {
+            quality: 1.0,
+            contours: contours(),
+        }]),
+        selected: 0,
     });
     screen
 }
@@ -125,17 +187,16 @@ fn move_to(h: &mut Harness, p: Pos2) {
 }
 
 #[test]
-fn segment_highlight_action_is_reachable_and_does_not_drag_the_photo() {
+fn segment_highlight_action_pins_selection_without_dragging_or_committing() {
     let (mut h, id) = fixture("segment_action");
     let p = inject(&mut h, id);
     move_to(&mut h, p);
     let before = h.app.doc().scene.node(id).unwrap().rect;
-    let target = h.app.image_segments.action_rect.unwrap().center();
-    // Travel across the intervening empty canvas before pressing the capsule.
-    for n in 1..=6 {
-        move_to(&mut h, p.lerp(target, n as f32 / 6.0));
-    }
-    assert!(h.app.image_segments.result.is_some());
+    assert!(
+        h.app.image_segments.action_rect.is_none(),
+        "hover has no Pin capsule"
+    );
+    let target = p;
     for pressed in [true, false] {
         h.frame_with(|i| {
             i.events.push(egui::Event::PointerButton {
@@ -147,29 +208,59 @@ fn segment_highlight_action_is_reachable_and_does_not_drag_the_photo() {
         });
     }
     let node = h.app.doc().scene.node(id).unwrap();
-    assert_eq!(node.rect, before, "capsule press never moves the photo");
+    assert_eq!(node.rect, before, "mask press never moves the photo");
     let NodeKind::Image(img) = &node.kind else {
         unreachable!()
     };
-    assert_eq!(img.paint_layers.len(), 1);
-    let NodeKind::Shape(shape) = &img.paint_layers[0].nodes[0].kind else {
-        unreachable!()
-    };
-    assert_eq!(shape.fill, Some(HIGHLIGHT));
+    assert!(img.paint_layers.is_empty(), "pinning is ephemeral");
+    assert!(h.app.image_selection_clip(id).is_some());
+    assert!(h.app.image_segments.pinned.is_some());
+}
+
+#[test]
+fn pinned_mask_creates_a_hosted_cutout_layer_and_undoes_as_one_host_edit() {
+    let (mut h, id) = fixture("segment_selection_layer");
+    inject(&mut h, id);
+    h.app.pin_hover_selection();
+    assert!(h.app.image_selection_clip(id).is_some());
+    h.app.scene_gen = h.app.scene_gen.wrapping_add(1);
+    assert!(h.app.image_selection_clip(id).is_some());
+
+    let top_level_count = h.app.doc().scene.nodes.len();
+    let item = h.app.image_item(id).unwrap();
+    assert!(h.app.create_image_layer_from_selection(id));
     assert!(
-        shape.stroke.is_none(),
-        "a highlight has no bounding-box stroke"
+        h.app.image_selection_clip(id).is_none(),
+        "creation clears selection"
     );
-    assert_eq!(
-        shape.path.as_ref().unwrap().extra.len(),
-        1,
-        "hole survives commit"
-    );
-    h.app.board_undo();
-    let NodeKind::Image(img) = &h.app.doc().scene.node(id).unwrap().kind else {
-        unreachable!()
+    assert_eq!(h.app.board_sel, [id].into(), "host stays selected");
+    assert_eq!(h.app.doc().scene.nodes.len(), top_level_count);
+    let NodeKind::Image(host) = &h.app.doc().scene.node(id).unwrap().kind else {
+        panic!()
     };
-    assert!(img.paint_layers.is_empty());
+    let result = h.app.image_result_id(id).unwrap();
+    let stack = slate_doc::image_paint::result_layers(host, &result).unwrap();
+    assert_eq!(stack.layers.len(), 1);
+    assert_eq!(stack.layers[0].nodes.len(), 1);
+    let child = &stack.layers[0].nodes[0];
+    assert!(
+        child.clip.is_some(),
+        "the hosted image stores the selection clip"
+    );
+    assert_eq!(child.rect, WorldRect::new(0.0, 0.0, 1.0, 1.0));
+    let NodeKind::Image(child_img) = &child.kind else {
+        panic!()
+    };
+    assert_eq!(child_img.item, item);
+    assert!(child_img.agent.is_none());
+    assert!(child_img.paint_layers.is_empty());
+    assert!(child_img.result_layers.is_empty());
+    h.app.board_undo();
+    let NodeKind::Image(host) = &h.app.doc().scene.node(id).unwrap().kind else {
+        panic!()
+    };
+    assert!(slate_doc::image_paint::result_layers(host, &result).is_none());
+    assert_eq!(h.app.doc().scene.nodes.len(), top_level_count);
 }
 
 #[test]
@@ -221,7 +312,8 @@ fn escape_over_a_bare_dwell_still_reaches_the_selection() {
     h.app.board_sel = [id].into();
     let p = inject(&mut h, id);
     move_to(&mut h, p);
-    assert!(h.app.image_segments.action_rect.is_some());
+    assert!(h.app.image_segments.result.is_some());
+    assert!(h.app.image_segments.action_rect.is_none());
     press_escape(&mut h);
     assert!(h.app.image_segments.result.is_none());
     assert!(h.app.board_sel.contains(&id));
@@ -237,7 +329,16 @@ fn segment_worker_results_cannot_resurrect_a_dismissed_or_replaced_hover() {
         ..Default::default()
     };
     runtime.clear();
-    tx.send((4, Ok(contours()))).unwrap();
+    tx.send((
+        4,
+        Ok(atlas_segment::Prediction {
+            candidates: vec![atlas_segment::Candidate {
+                quality: 0.9,
+                contours: contours(),
+            }],
+        }),
+    ))
+    .unwrap();
     runtime.receive();
     assert!(runtime.result.is_none());
     runtime.pending = Some(6);
@@ -261,24 +362,15 @@ fn segment_command_refuses_a_preview_from_another_tab() {
 }
 
 #[test]
-fn segment_preview_and_export_keep_the_silhouette_and_hole() {
+fn legacy_segment_commit_command_pins_the_mask_without_journaling_a_highlight() {
     let (mut h, id) = fixture("segment_export");
     inject(&mut h, id);
     h.app.commit_hover_segment(None).unwrap();
-    let html = slate_artifact::render_html(h.app.doc(), &slate_artifact::AssetMap::default());
-    assert!(html.contains("evenodd"), "export keeps the mask hole");
     let NodeKind::Image(img) = &h.app.doc().scene.node(id).unwrap().kind else {
         unreachable!()
     };
-    let NodeKind::Shape(shape) = &img.paint_layers[0].nodes[0].kind else {
-        unreachable!()
-    };
-    let path = shape.path.as_ref().unwrap();
-    assert_eq!(
-        path.segs.len(),
-        5,
-        "the concave silhouette was not replaced by a rectangle"
-    );
+    assert!(img.paint_layers.is_empty());
+    assert!(h.app.image_selection_clip(id).is_some());
 }
 
 #[test]

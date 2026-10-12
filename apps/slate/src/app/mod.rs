@@ -107,20 +107,6 @@ mod workbook_assets;
 pub use chrome::ChromeConfig;
 /// All Slate thumbnail requests share one generation (no root swaps here).
 const THUMB_GENERATION: u64 = 1;
-/// Cycle of pleasant tag accent colors for newly created tags.
-pub const TAG_COLOR_CYCLE: [[u8; 3]; 10] = [
-    [0x2d, 0xd4, 0xbf], // teal
-    [0xf4, 0x72, 0x5e], // coral
-    [0x6f, 0xb7, 0xff], // sky
-    [0xe0, 0xa8, 0x3c], // amber
-    [0xa7, 0x8b, 0xfa], // violet
-    [0x7d, 0xd8, 0x7d], // green
-    [0xf2, 0x8c, 0xd6], // pink
-    [0xc9, 0xd4, 0x5e], // lime
-    [0x5e, 0xd4, 0xf4], // cyan
-    [0xd4, 0x8c, 0x5e], // clay
-];
-
 #[derive(Clone, Copy)]
 pub struct Camera {
     pub offset: Vec2,
@@ -234,12 +220,6 @@ pub enum PickerMsg {
     AddMedia {
         tab_id: u64,
         at: egui::Pos2,
-        paths: Option<Vec<PathBuf>>,
-    },
-    /// Files picked from a frame's "Add images…" — placed inside the frame
-    /// and inheriting its tags.
-    AddToFrame {
-        frame: NodeId,
         paths: Option<Vec<PathBuf>>,
     },
     /// Folder picked for "Export artifact…".
@@ -357,7 +337,9 @@ pub struct SlateApp {
     pub picker: FilePicker<PickerMsg>,
     export_rx: Option<Receiver<(PathBuf, Result<slate_artifact::ExportReport, String>)>>,
     collect_rx: Option<Receiver<workbook_assets::CollectJob>>,
-    asset_save_rx: Vec<Receiver<workbook_assets::SaveAssetsJob>>,
+    asset_save_rx: Vec<workbook_assets::SaveAssetsWatch>,
+    asset_saves_pending: HashSet<u64>,
+    deferred_workbook_actions: workbook_assets::DeferredWorkbookActions,
     /// Saves per tab id; a Save's copies apply only while it is the latest.
     asset_save_generation: HashMap<u64, u64>,
     unsaved_close: Option<UnsavedClose>,
@@ -367,7 +349,6 @@ pub struct SlateApp {
 
     /// Inline "new tag" editor state: (group, buffer). `None` group = new group name.
     pub new_tag_edit: Option<(Option<GroupId>, String)>,
-    pub tag_color_cursor: usize,
 
     /// Linked File Atlas session (in-process second viewport).
     pub atlas: Option<session::AtlasSession>,
@@ -408,8 +389,6 @@ pub struct SlateApp {
     pub board_tool: board::BoardTool,
     /// Frames explicitly ordered by the Deck tool, oldest arming included.
     pub deck: board_deck::DeckState,
-    /// Last-used navigation tool (Select or Pan) shown on the combined dock button.
-    pub board_nav_tool: board::BoardTool,
     pub board_frame_preset: board::FramePreset,
     pub board_frame_custom: Option<board::FrameCustomDraft>,
     pub board_drag: Option<board::BoardDrag>,
@@ -420,13 +399,11 @@ pub struct SlateApp {
     pub(crate) image_paint: Option<board_image_layers::ImagePaintSession>,
     pub(crate) paint_layer_texture_cache:
         HashMap<NodeId, board_image_layers::PaintLayerTextureCache>,
-    /// Paint-layer brush bitmaps, kept across the texture rebuilds above.
-    pub(crate) paint_layer_stamps: slate_artifact::LayerStamps,
     /// Layer-palette preview circles, rebuilt once per scene generation.
     pub(crate) paint_layer_thumbs:
-        HashMap<(NodeId, slate_doc::PaintLayerId), board_image_layers::PaintLayerThumb>,
-    /// Layer-palette opacity slider mid-drag: (image, layer, opacity).
-    pub(crate) layer_opacity_drag: Option<(NodeId, usize, f32)>,
+        HashMap<board_image_layers::PaintLayerThumbKey, board_image_layers::PaintLayerThumb>,
+    /// Stable result/layer identity and transient opacity while scrubbing.
+    pub(crate) layer_opacity_drag: Option<board_image_layers::LayerOpacityDrag>,
     pub(crate) image_drop: Option<board_image_layers::ImageDropOffer>,
     /// Screen anchor for external-file drop capsules (Replace / Add as layer).
     pub(crate) image_drop_screen: Option<egui::Pos2>,
@@ -498,6 +475,7 @@ pub struct SlateApp {
     pending_view_drop: Option<model_screenshot::PendingViewDrop>,
     /// A saved view held over a model mid-drag. Derived; not journaled.
     view_drop_preview: Option<model_screenshot::ViewDropPreview>,
+    shape_fill_preview: Option<board_image_layers::ShapeFillPreview>,
     pending_view_wire_cache: Vec<model_wired_views::PendingViewWireCache>,
     /// Canvas video scrub and playback. Derived; not journaled.
     video: board_video::VideoBoard,
@@ -602,6 +580,8 @@ pub struct SlateApp {
     /// own format, beside a bitmap or text for other apps).
     pub(crate) board_clipboard: Vec<slate_doc::scene::Node>,
     pub(crate) os_clipboard: clipboard::OsClipboard,
+    pub(crate) layer_bakes: board_image_layers::LayerBakeJobs,
+    pub(crate) image_rasters: board_image_layers::ImageRasterJobs,
     /// OS clipboard text delivered by this frame's platform Paste event;
     /// consumed by the `board.paste` dispatch arm.
     pub(crate) pending_paste_text: Option<String>,
@@ -879,12 +859,13 @@ impl SlateApp {
             export_rx: None,
             collect_rx: None,
             asset_save_rx: Vec::new(),
+            asset_saves_pending: HashSet::new(),
+            deferred_workbook_actions: workbook_assets::DeferredWorkbookActions::default(),
             asset_save_generation: HashMap::new(),
             unsaved_close: None,
             toasts: Vec::new(),
             last_read_only_toast: None,
             new_tag_edit: None,
-            tag_color_cursor: 0,
             atlas: None,
             ai: atlas_ai::AiPanel::new(&dialogs),
             dialogs,
@@ -900,14 +881,12 @@ impl SlateApp {
             staged_dup_sel: None,
             board_tool: board::BoardTool::default(),
             deck: board_deck::DeckState::default(),
-            board_nav_tool: board::BoardTool::Select,
             board_frame_preset: board::FramePreset::default(),
             board_frame_custom: None,
             board_drag: None,
             board_crop: None,
             image_paint: None,
             paint_layer_texture_cache: HashMap::new(),
-            paint_layer_stamps: Default::default(),
             paint_layer_thumbs: HashMap::new(),
             layer_opacity_drag: None,
             image_drop: None,
@@ -948,6 +927,7 @@ impl SlateApp {
             model_shot_pending: None,
             pending_view_drop: None,
             view_drop_preview: None,
+            shape_fill_preview: None,
             pending_view_wire_cache: Vec::new(),
             video: board_video::VideoBoard::default(),
             board_snap_guides: Vec::new(),
@@ -1006,6 +986,8 @@ impl SlateApp {
             pending_paste_text: None,
             board_paste_count: 0,
             os_clipboard: Default::default(),
+            layer_bakes: board_image_layers::LayerBakeJobs::new(),
+            image_rasters: board_image_layers::ImageRasterJobs::new(),
             #[cfg(windows)]
             paste_chord_down: false,
             scene_gen: 0,
@@ -1413,12 +1395,6 @@ impl SlateApp {
         true
     }
 
-    pub fn next_tag_color(&mut self) -> [u8; 3] {
-        let c = TAG_COLOR_CYCLE[self.tag_color_cursor % TAG_COLOR_CYCLE.len()];
-        self.tag_color_cursor += 1;
-        c
-    }
-
     // ----- tabs -------------------------------------------------------------
 
     pub fn new_tab(&mut self) {
@@ -1474,6 +1450,12 @@ impl SlateApp {
         if i >= self.tabs.len() {
             return;
         }
+        let tab_id = self.tabs[i].id;
+        if self.layer_bakes.pending_for(tab_id) {
+            self.deferred_workbook_actions.close_discard(tab_id);
+            return;
+        }
+        self.deferred_workbook_actions.clear_tab(tab_id);
         self.release_agent_doc(i);
         if let Some(lease) = self.tabs[i].lease.take() {
             lease.release();
@@ -1496,21 +1478,12 @@ impl SlateApp {
     }
 
     fn discard_dirty_tabs(&mut self) {
-        for tab in &mut self.tabs {
-            tab.dirty = false;
+        for index in (0..self.tabs.len()).rev() {
+            let tab_id = self.tabs[index].id;
+            self.tabs[index].dirty = false;
+            self.deferred_workbook_actions.cancel_io(tab_id);
+            self.force_close_tab(index);
         }
-    }
-
-    fn save_tab_for_close(&mut self, i: usize) -> bool {
-        if i >= self.tabs.len() {
-            return true;
-        }
-        if !self.tabs[i].dirty {
-            return true;
-        }
-        self.switch_tab(i);
-        self.save_doc();
-        i < self.tabs.len() && !self.tabs[i].dirty
     }
 
     fn resume_unsaved_close_if_ready(&mut self, ctx: &egui::Context) {
@@ -1518,10 +1491,17 @@ impl SlateApp {
             return;
         };
         match kind {
-            UnsavedClose::Tab(i) if i < self.tabs.len() && !self.tabs[i].dirty => {
+            UnsavedClose::Tab(i) if self.tab_ready_to_close(i) => {
                 self.continue_unsaved_close(ctx);
             }
-            UnsavedClose::Exit if !self.tabs.iter().any(|t| t.dirty) => {
+            UnsavedClose::Exit
+                if !self.tabs.iter().any(|t| t.dirty)
+                    && self.asset_saves_pending.is_empty()
+                    && self.deferred_workbook_actions.is_empty()
+                    && !self.layer_bakes.is_pending()
+                    && self.export_rx.is_none()
+                    && self.collect_rx.is_none() =>
+            {
                 self.continue_unsaved_close(ctx);
             }
             _ => {}
@@ -1534,7 +1514,7 @@ impl SlateApp {
         };
         match kind {
             UnsavedClose::Tab(i) => {
-                if i < self.tabs.len() && !self.tabs[i].dirty {
+                if self.tab_ready_to_close(i) {
                     self.unsaved_close = None;
                     self.force_close_tab(i);
                 }
@@ -1545,7 +1525,12 @@ impl SlateApp {
                         return;
                     }
                     self.continue_unsaved_close(ctx);
-                } else {
+                } else if self.asset_saves_pending.is_empty()
+                    && self.deferred_workbook_actions.is_empty()
+                    && !self.layer_bakes.is_pending()
+                    && self.export_rx.is_none()
+                    && self.collect_rx.is_none()
+                {
                     self.unsaved_close = None;
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
@@ -1568,14 +1553,15 @@ impl SlateApp {
                 UnsavedClose::Tab(i) => {
                     self.unsaved_close = None;
                     if i < self.tabs.len() {
+                        let tab_id = self.tabs[i].id;
                         self.tabs[i].dirty = false;
+                        self.deferred_workbook_actions.cancel_io(tab_id);
                         self.force_close_tab(i);
                     }
                 }
                 UnsavedClose::Exit => {
                     self.discard_dirty_tabs();
-                    self.unsaved_close = None;
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    self.resume_unsaved_close_if_ready(ctx);
                 }
             },
             ConfirmChoice::Primary => match kind {
@@ -1598,8 +1584,7 @@ impl SlateApp {
             UnsavedClose::Exit => match self.tabs.iter().position(|t| t.dirty) {
                 Some(i) => i,
                 None => {
-                    self.unsaved_close = None;
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    self.resume_unsaved_close_if_ready(ctx);
                     return;
                 }
             },
@@ -1662,7 +1647,12 @@ impl SlateApp {
 
     pub fn save_doc_as_dialog(&mut self) {
         let tab_id = self.tab().id;
-        let suggested = format!("{}.{}", self.doc().name, SLATE_EXTENSION);
+        let name = self.doc().name.clone();
+        self.save_doc_as_dialog_for(tab_id, name);
+    }
+
+    fn save_doc_as_dialog_for(&mut self, tab_id: u64, name: String) {
+        let suggested = format!("{}.{}", name, SLATE_EXTENSION);
         self.picker.open(
             PickRequest::save()
                 .filter("Slate workbook", &[SLATE_EXTENSION])
@@ -1788,6 +1778,11 @@ impl SlateApp {
         let Some(tab_idx) = self.tabs.iter().position(|t| t.id == tab_id) else {
             return;
         };
+        if self.layer_bakes.pending_for(tab_id) {
+            self.deferred_workbook_actions.save(tab_id, path);
+            self.toast("Saving after paint layers finish…");
+            return;
+        }
         let edits_before = self.tabs[tab_idx].edits.len();
         let old_path = self.tabs[tab_idx].path.clone();
         let interim = self.prepare_asset_save(tab_idx, &path);
@@ -1827,6 +1822,7 @@ impl SlateApp {
         self.tabs[tab_idx].path = Some(path.clone());
         self.tabs[tab_idx].dirty = false;
         self.spawn_asset_save(tab_idx, old_path, &path, interim);
+        self.asset_saves_pending.insert(tab_id);
         // Save-as (or first save of an untitled): take the lease on the new
         // path and clear read-only. Same-path save keeps the lease we hold.
         if !need_lease {
@@ -1969,16 +1965,6 @@ impl SlateApp {
     pub fn unassign_group(&mut self, ids: &[ItemId], group: GroupId) {
         for id in ids {
             self.doc_mut().unassign_group(*id, group);
-        }
-    }
-
-    /// The set the context-menu action applies to: the whole selection when
-    /// the clicked item is part of it, otherwise just the clicked item.
-    pub fn action_targets(&self, clicked: ItemId) -> Vec<ItemId> {
-        if self.selection.contains(&clicked) {
-            self.selection.iter().copied().collect()
-        } else {
-            vec![clicked]
         }
     }
 
@@ -2151,12 +2137,15 @@ impl SlateApp {
 
     /// Write the HTML artifact into `<dir>/<workbook>-slides/`.
     fn do_export(&mut self, dir: PathBuf) {
+        let tab_id = self.tab().id;
+        self.do_export_for(tab_id, dir);
+    }
+
+    fn do_export_active(&mut self, dir: PathBuf) {
         if self.export_rx.is_some() {
             self.toast("An export is already running.");
             return;
         }
-        // Freeze live 3D viewports so the export shows their latest poses.
-        self.lock_all_models();
         // Web portals: resolve local sources and capture whatever posters the
         // pool can give us, before anything is written.
         let (web_sources, web_posters) = self.export_web_maps();
@@ -2187,6 +2176,7 @@ impl SlateApp {
         };
         let workbook = self.tab().path.clone();
         let mut doc = self.doc().clone();
+        self.resolve_export_image_layers(&mut doc);
         for item in &mut doc.items {
             item.path =
                 slate_doc::scene::resolve_source(workbook.as_deref(), &item.path.to_string_lossy());
@@ -2281,13 +2271,6 @@ impl SlateApp {
             }
             PickerMsg::AddFiles(Some(paths)) => {
                 self.add_paths(&paths);
-            }
-            PickerMsg::AddToFrame {
-                frame,
-                paths: Some(paths),
-            } => {
-                let items = self.add_paths(&paths);
-                self.place_items_in_frame(frame, &items);
             }
             PickerMsg::ExportArtifact(Some(dir)) => self.do_export(dir),
             PickerMsg::WebPortalSource {
@@ -2397,6 +2380,8 @@ impl SlateApp {
         } else if self.export_rx.is_some()
             || self.collect_rx.is_some()
             || !self.asset_save_rx.is_empty()
+            || self.layer_bakes.is_pending()
+            || !self.deferred_workbook_actions.is_empty()
             || self.dialogs.any_open()
         {
             Some("Finish the open file dialog or export before restarting.")
@@ -2424,6 +2409,8 @@ impl SlateApp {
         {
             let _span = atlas_core::session_log::span("slate.pumps");
             self.drain_pickers(ctx);
+            self.poll_layer_bake_completions();
+            self.resume_deferred_workbook_actions();
             self.resume_unsaved_close_if_ready(ctx);
             self.pump_document_jobs(ctx);
             if !self.queued_unbundles.is_empty() {
@@ -2783,22 +2770,12 @@ impl SlateApp {
 
     fn draw_toasts(&mut self, ctx: &egui::Context) {
         self.toasts.retain(|(_, t)| t.elapsed().as_secs_f32() < 3.0);
-        if self.toasts.is_empty() {
-            return;
-        }
         let palette = self.palette();
-        egui::Area::new(egui::Id::new("slate_toasts"))
-            .anchor(egui::Align2::CENTER_BOTTOM, Vec2::new(0.0, -48.0))
-            .show(ctx, |ui| {
-                for (msg, _) in &self.toasts {
-                    egui::Frame::popup(ui.style())
-                        .fill(palette.card)
-                        .show(ui, |ui| {
-                            ui.label(egui::RichText::new(msg).color(palette.ink));
-                        });
-                }
-            });
-        ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        let msgs: Vec<&str> = self.toasts.iter().map(|(m, _)| m.as_str()).collect();
+        let _ = atlas_shell::toast::paint_stack(ctx, &palette, self.canvas_rect, &msgs);
+        if !msgs.is_empty() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        }
     }
 
     pub(crate) fn ensure_home_cover_bakes(&mut self) {
@@ -2831,7 +2808,8 @@ impl SlateApp {
 
 #[cfg(not(test))]
 fn sample_workbook_cover_media(doc: &slate_doc::SlateDoc, limit: usize) -> Vec<PathBuf> {
-    doc.items
+    let images = doc
+        .items
         .iter()
         .filter_map(|it| {
             let ext = it
@@ -2839,22 +2817,11 @@ fn sample_workbook_cover_media(doc: &slate_doc::SlateDoc, limit: usize) -> Vec<P
                 .extension()
                 .map(|e| e.to_string_lossy().to_ascii_lowercase())
                 .unwrap_or_default();
-            let fam = atlas_core::types::Family::from_ext(&ext);
-            if atlas_core::types::wants_thumb(fam)
-                && matches!(
-                    fam,
-                    atlas_core::types::Family::Image
-                        | atlas_core::types::Family::Video
-                        | atlas_core::types::Family::Design
-                )
-            {
-                Some(it.path.clone())
-            } else {
-                None
-            }
+            (atlas_core::types::Family::from_ext(&ext) == atlas_core::types::Family::Image)
+                .then(|| it.path.clone())
         })
-        .take(limit)
-        .collect()
+        .collect::<Vec<_>>();
+    atlas_shell::cover_interest::rank_striking(&images, limit)
 }
 
 impl eframe::App for SlateApp {

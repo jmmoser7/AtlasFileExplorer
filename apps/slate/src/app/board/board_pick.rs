@@ -274,8 +274,8 @@ impl SlateApp {
                 self.text_edit = Some((id, body));
                 self.shape_properties.panel = Some(super::super::board_properties::Panel::Text);
             }
-            NodeKind::Image(img) => {
-                if let Some(path) = self.doc().item(img.item).map(|it| it.path.clone()) {
+            NodeKind::Image(_) => {
+                if let Some(path) = self.image_item_path(id) {
                     if self
                         .model_node_info(id)
                         .is_some_and(|info| self.model3d.external.contains(&info.cache_key))

@@ -9,7 +9,6 @@
 mod assets;
 mod paint_layers;
 mod render;
-
 use std::collections::BTreeMap;
 use std::fs;
 use std::io;
@@ -19,7 +18,7 @@ use slate_doc::{ItemId, SlateDoc, WireRouting};
 
 pub use assets::{read_snippet, AssetMap};
 pub use paint_layers::{
-    paint_layers_svg, paint_layers_svg_with_doc, rasterize_paint_layers,
+    paint_layers_svg, paint_layers_svg_with_doc, rasterize_node_clip, rasterize_paint_layers,
     rasterize_paint_layers_svg, LayerStamps,
 };
 pub use render::render_html;
@@ -243,6 +242,7 @@ mod tests {
                 model: Default::default(),
                 agent: None,
                 paint_layers: Vec::new(),
+                result_layers: Vec::new(),
                 flip_x: false,
                 flip_y: false,
             }),
@@ -624,13 +624,12 @@ mod tests {
             Stroke::none(),
             adjust,
         );
-
         let mut assets = AssetMap::default();
         assets.insert(path, "assets/c.png".into());
         let html = render_html(&doc, &assets);
         assert!(html.contains("filter:brightness(1.200)"));
-        assert!(html.contains("class=\"ovl\""));
-        assert!(html.contains("rgba(255,0,0,1.000)"));
+        assert!(html.contains("image-tint-") && !html.contains("class=\"ovl\""));
+        assert!(html.contains("color-interpolation-filters=\"sRGB\""));
     }
 
     #[test]

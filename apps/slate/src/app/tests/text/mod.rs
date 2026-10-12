@@ -4,3 +4,4 @@ use super::*;
 
 mod boxes;
 mod shape_edit;
+pub(crate) mod zoom_stable;

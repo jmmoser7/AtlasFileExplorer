@@ -17,6 +17,9 @@ use slate_doc::{
 };
 use vector_ink::kurbo::Shape;
 
+mod image_palette;
+mod palette_ui;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Panel {
     Fill,
@@ -24,6 +27,10 @@ pub enum Panel {
     Corners,
     Wire,
     Filter,
+    /// Paint on the selected image or edit its pinned selection mask.
+    Brush,
+    /// Select the active image result or paint layer.
+    Layers,
     Pages,
     AtlasFormat,
     Text,
@@ -518,11 +525,13 @@ struct CornerEntry {
 pub struct ShapeProperties {
     pub(super) tab: u64,
     pub(super) ids: Vec<NodeId>,
-    generation: u64,
+    generation: (u64, u64),
     nodes: Vec<Node>,
     dimensions: Vec<Dimension>,
     bounds: Option<WorldRect>,
     pub panel: Option<Panel>,
+    /// Session-local, per-image palette preference; never rearms a drawing tool.
+    pub(super) remembered_image_panels: std::collections::BTreeMap<(u64, NodeId), Panel>,
     pub(super) pages_focus: u16,
     pub preview: Vec<Node>,
     edits: Vec<Property>,
@@ -592,74 +601,8 @@ fn property_strip_items(nodes: &[Node]) -> Vec<StripItem> {
     items
 }
 
-fn image_is_model(app: &SlateApp, n: &Node) -> bool {
-    let NodeKind::Image(img) = &n.kind else {
-        return false;
-    };
-    app.doc()
-        .item(img.item)
-        .is_some_and(|item| slate_doc::media_kind(&item.path) == slate_doc::MediaKind::Model)
-}
-
-fn image_is_text(app: &SlateApp, n: &Node) -> bool {
-    let NodeKind::Image(img) = &n.kind else {
-        return false;
-    };
-    app.doc()
-        .item(img.item)
-        .is_some_and(|item| slate_doc::media_kind(&item.path) == slate_doc::MediaKind::Text)
-}
-
-fn image_has_pages(app: &SlateApp, n: &Node) -> bool {
-    let NodeKind::Image(img) = &n.kind else {
-        return false;
-    };
-    app.doc()
-        .item(img.item)
-        .is_some_and(|item| slate_doc::media::has_pages(&item.path))
-}
-
-/// Whether a strip item edits picked vertices. With vertices picked only
-/// these show (user, 28 September 2026, ed9); every other squircle edits
-/// the whole node. A new item must be classified here.
-fn edits_picked_vertices(item: &StripItem) -> bool {
-    match item {
-        // Width, color and opacity per vertex; the corner a vertex turns.
-        StripItem::Panel(Panel::Stroke | Panel::Corners) => true,
-        StripItem::Panel(
-            Panel::Fill
-            | Panel::Wire
-            | Panel::Filter
-            | Panel::Pages
-            | Panel::AtlasFormat
-            | Panel::Text
-            | Panel::Agent
-            | Panel::Bumper
-            | Panel::ModelDisplay,
-        )
-        | StripItem::Frame(_)
-        | StripItem::Agent(_)
-        | StripItem::ModelMeasure
-        | StripItem::ModelScreenshot => false,
-    }
-}
-
-/// The strip for `nodes`. With vertices picked on the one curve, only the
-/// per-vertex squircles, and Corners only when a picked vertex turns one.
-fn live_property_strip_items(app: &SlateApp, nodes: &[Node]) -> Vec<StripItem> {
-    let mut items = node_strip_items(app, nodes);
-    let points = app.shape_property_points();
-    if let ([node], false) = (nodes, points.is_empty()) {
-        if app.shape_properties.ids.as_slice() != [node.id] {
-            return items;
-        }
-        let corner = !picked_corners(node, &points).is_empty();
-        items.retain(|item| {
-            edits_picked_vertices(item) && (corner || *item != StripItem::Panel(Panel::Corners))
-        });
-    }
-    items
-}
+mod property_strip;
+use property_strip::{image_has_pages, image_is_model, image_is_text, live_property_strip_items};
 
 fn node_strip_items(app: &SlateApp, nodes: &[Node]) -> Vec<StripItem> {
     if nodes.is_empty() {
@@ -854,168 +797,10 @@ fn photo_filter_choice(adjust: &ImageAdjust) -> Option<(usize, f32)> {
     Some((index, amount))
 }
 
-fn dimension_editable(n: &Node) -> bool {
-    !matches!(n.kind, NodeKind::Connector(_) | NodeKind::DockStrip(_))
-}
-
-/// Tight centerline bounds, before node rotation. Cached on scene/selection change.
-pub(crate) fn measured_bounds(n: &Node) -> WorldRect {
-    if let NodeKind::Shape(s) = &n.kind {
-        if let Some(path) = &s.path {
-            let bounds = board_path::path_data_to_world_bez(path, n.rect, 0.0).bounding_box();
-            return WorldRect::new(
-                bounds.x0 as f32,
-                bounds.y0 as f32,
-                bounds.width() as f32,
-                bounds.height() as f32,
-            );
-        }
-    }
-    n.rect
-}
-
-/// Open curves and brush strokes carry no dimension stringers; closed shapes
-/// keep theirs.
-fn takes_stringers(n: &Node) -> bool {
-    !slate_doc::is_open_shape(n)
-        && !matches!(&n.kind, NodeKind::Shape(s) if s.stroke.paints_as_stamp())
-}
-
-fn dimensions(nodes: &[Node]) -> (Option<WorldRect>, Vec<Dimension>) {
-    let (bounds, dims) = measured_dimensions(nodes);
-    if nodes.iter().any(takes_stringers) {
-        (bounds, dims)
-    } else {
-        (bounds, vec![])
-    }
-}
-
-fn measured_dimensions(nodes: &[Node]) -> (Option<WorldRect>, Vec<Dimension>) {
-    if nodes.is_empty() {
-        return (None, vec![]);
-    }
-    if nodes
-        .iter()
-        .any(|n| slate_doc::agent_chat::agent(n).is_some())
-    {
-        return (
-            board_snap::union_rect(&nodes.iter().map(|n| n.rect).collect::<Vec<_>>()),
-            vec![],
-        );
-    }
-    if nodes
-        .iter()
-        .any(|n| matches!(n.kind, NodeKind::Connector(_)))
-    {
-        // Anchored wire length follows its hosts; it is not an editable box size.
-        return (
-            board_snap::union_rect(
-                &nodes
-                    .iter()
-                    .map(|n| n.rect.rotated_bounds(n.rotation_deg))
-                    .collect::<Vec<_>>(),
-            ),
-            vec![],
-        );
-    }
-    if nodes.len() == 1 {
-        let n = &nodes[0];
-        if let Some((a, b)) = board_line::line_endpoints(n) {
-            return (
-                Some(n.rect.rotated_bounds(n.rotation_deg)),
-                vec![Dimension {
-                    kind: DimensionKind::Length,
-                    value: (b - a).length(),
-                    ends: [a, b],
-                    offset: (b - a).normalized().rot90() * chrome::STRINGER_GAP,
-                }],
-            );
-        }
-    }
-    let local = if nodes.len() == 1 {
-        measured_bounds(&nodes[0])
-    } else {
-        board_snap::union_rect(
-            &nodes
-                .iter()
-                .map(|n| n.rect.rotated_bounds(n.rotation_deg))
-                .collect::<Vec<_>>(),
-        )
-        .unwrap()
-    };
-    let mut pts = local.corners_rotated(0.0).map(|(x, y)| Pos2::new(x, y));
-    if nodes.len() == 1 {
-        for p in &mut pts {
-            let q =
-                board_snap::orbit_point(nodes[0].rect.center(), (p.x, p.y), nodes[0].rotation_deg);
-            *p = Pos2::new(q.0, q.1);
-        }
-    }
-    let bounds = WorldRect::new(
-        pts.iter().map(|p| p.x).fold(f32::INFINITY, f32::min),
-        pts.iter().map(|p| p.y).fold(f32::INFINITY, f32::min),
-        0.0,
-        0.0,
-    );
-    let bounds = WorldRect::new(
-        bounds.x,
-        bounds.y,
-        pts.iter().map(|p| p.x).fold(f32::NEG_INFINITY, f32::max) - bounds.x,
-        pts.iter().map(|p| p.y).fold(f32::NEG_INFINITY, f32::max) - bounds.y,
-    );
-    let circle = nodes.len() == 1
-        && matches!(&nodes[0].kind,NodeKind::Shape(s) if s.shape==ShapeKind::Ellipse)
-        && (local.w - local.h).abs() < local.w.max(local.h) * 1e-5;
-    let (ends, offset) = stringer_lane(
-        [pts[3], pts[2]],
-        -(pts[2] - pts[3]).normalized().rot90(),
-        [pts[0], pts[1]],
-    );
-    let mut result = vec![Dimension {
-        kind: if circle {
-            DimensionKind::Diameter
-        } else {
-            DimensionKind::Width
-        },
-        value: local.w,
-        ends,
-        offset,
-    }];
-    if !circle {
-        let (ends, offset) = stringer_lane(
-            [pts[1], pts[2]],
-            (pts[2] - pts[1]).normalized().rot90(),
-            [pts[0], pts[3]],
-        );
-        result.push(Dimension {
-            kind: DimensionKind::Height,
-            value: local.h,
-            ends,
-            offset,
-        });
-    }
-    (Some(bounds), result)
-}
-
-/// Which of an axis's two parallel edges carries its stringer. `home` is the
-/// unrotated choice (local bottom for width, local right for height) and
-/// `outward` its exterior normal. On screen a mostly horizontal span sits
-/// below and a mostly vertical one to the right, so rotation never moves a
-/// stringer into the upper lane the selection strip owns. The measured axis,
-/// and so what W and H mean, never changes.
-fn stringer_lane(home: [Pos2; 2], outward: Vec2, opposite: [Pos2; 2]) -> ([Pos2; 2], Vec2) {
-    let along = home[1] - home[0];
-    let lane = if along.x.abs() >= along.y.abs() {
-        Vec2::DOWN
-    } else {
-        Vec2::RIGHT
-    };
-    if outward.dot(lane) < -1e-4 {
-        (opposite, -outward * chrome::STRINGER_GAP)
-    } else {
-        (home, outward * chrome::STRINGER_GAP)
-    }
-}
+mod dimensions;
+mod selection;
+pub(crate) use dimensions::measured_bounds;
+use dimensions::{dimension_editable, dimensions};
 
 impl SlateApp {
     /// An open adjustment previews authored color without the selection
@@ -1031,62 +816,6 @@ impl SlateApp {
                     .is_some_and(|n| matches!(n.kind, NodeKind::Text(_)))
             }),
             Some(_) => true,
-        }
-    }
-
-    pub(crate) fn sync_shape_properties(&mut self) {
-        // Sorted, so the strip resets on membership only: `board_sel` is a
-        // HashSet whose iteration order can change without its contents
-        // changing (a rehash on insert of an already selected id).
-        let mut ids: Vec<_> = self.board_sel.iter().copied().collect();
-        ids.sort_unstable_by_key(|id| id.0);
-        let changed =
-            self.shape_properties.tab != self.tab().id || self.shape_properties.ids != ids;
-        let keep_text = self.text_edit.as_ref().is_some_and(|(id, _)| {
-            ids.len() == 1
-                && ids[0] == *id
-                && self.doc().scene.node(*id).is_some_and(|n| match &n.kind {
-                    NodeKind::Text(_) => true,
-                    NodeKind::Shape(s) => scene::shape_hosts_text(s),
-                    _ => false,
-                })
-        });
-        // A sticky opens on the caret. The text/color capsule stays closed
-        // until the user opens it from the strip.
-        let sticky_edit = keep_text
-            && self
-                .doc()
-                .scene
-                .node(ids[0])
-                .is_some_and(|n| matches!(&n.kind, NodeKind::Text(t) if t.fill.is_some()));
-        let open_text = keep_text && !sticky_edit;
-        if changed {
-            let last_chrome = ids
-                .is_empty()
-                .then(|| self.shape_properties.last_chrome.clone())
-                .flatten();
-            self.shape_properties = ShapeProperties {
-                tab: self.tab().id,
-                ids: ids.clone(),
-                last_chrome,
-                panel: open_text.then_some(Panel::Text),
-                ..Default::default()
-            };
-        } else if open_text && self.shape_properties.panel.is_none() {
-            self.shape_properties.panel = Some(Panel::Text);
-        }
-        if changed || self.shape_properties.generation != self.scene_gen {
-            self.shape_properties.preview.clear();
-            self.shape_properties.edits.clear();
-            let nodes: Vec<_> = ids
-                .iter()
-                .filter_map(|id| self.doc().scene.node(*id).cloned())
-                .collect();
-            let (bounds, dimensions) = dimensions(&nodes);
-            self.shape_properties.nodes = nodes;
-            self.shape_properties.bounds = bounds;
-            self.shape_properties.dimensions = dimensions;
-            self.shape_properties.generation = self.scene_gen;
         }
     }
 
@@ -1383,12 +1112,39 @@ impl SlateApp {
     }
 
     pub(crate) fn shape_property_keys(&mut self, ctx: &egui::Context) -> bool {
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape))
+            && self.cancel_image_layer_name_draft(ctx)
+        {
+            ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+            return true;
+        }
+        if self.shape_properties.panel == Some(Panel::Layers)
+            && self.layer_opacity_drag.is_some()
+            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+        {
+            self.cancel_image_layer_opacity_for_escape(ctx);
+            return true;
+        }
+        // Image tool keys precede the open palette's Escape handling.
+        if self.image_selection_keys(ctx) {
+            return true;
+        }
         let corner_entry = self.shape_properties.corner_entry.is_some();
         if self.shape_properties.number.is_some()
             || self.shape_properties.panel.is_some()
             || corner_entry
         {
             if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+                if self.shape_properties.panel == Some(Panel::Layers)
+                    && self.cancel_image_layer_drag()
+                {
+                    return true;
+                }
+                if self.shape_properties.panel == Some(Panel::Brush) {
+                    if let Some(id) = self.shape_properties.nodes.first().map(|node| node.id) {
+                        image_palette::cancel_brush_edit(ctx, id, self);
+                    }
+                }
                 self.shape_properties.preview.clear();
                 self.shape_properties.edits.clear();
                 self.shape_properties.number = None;
@@ -1511,493 +1267,11 @@ impl SlateApp {
             )
         });
         match primary {
-            Some(origin) => {
-                Some(origin.is_some_and(|p| self.crop_owns_pointer(p) || self.curve_knob_under(p)))
-            }
+            Some(origin) => Some(
+                origin.is_some_and(|p| self.crop_owns_pointer(p) || self.property_grip_under(p)),
+            ),
             None => click.then_some(false),
         }
-    }
-
-    /// Runs before board input. Layout is recomputed from the host transform every frame.
-    pub(crate) fn shape_properties_ui(&mut self, ui: &mut egui::Ui, xf: &BoardXf) -> bool {
-        let ctx = ui.ctx().clone();
-        self.sync_shape_properties();
-        self.seed_document_colors();
-        self.shape_properties.chrome_hits.clear();
-        let editing_hosted_text = self.text_edit.as_ref().is_some_and(|(id, _)| {
-            self.doc().scene.node(*id).is_some_and(|n| match &n.kind {
-                NodeKind::Text(_) => true,
-                NodeKind::Shape(s) => scene::shape_hosts_text(s),
-                _ => false,
-            })
-        });
-        // A sticky's first job is the caret. The fill/text strip returns
-        // once editing ends and the note is simply selected.
-        let editing_sticky = self.text_edit.as_ref().is_some_and(|(id, _)| {
-            self.doc()
-                .scene
-                .node(*id)
-                .is_some_and(|n| matches!(&n.kind, NodeKind::Text(t) if t.fill.is_some()))
-        });
-        let composing_text_box = self.text_box_draft.is_some();
-        let vertex_bounds = self.picked_vertex_bounds();
-        let direct_picks = self.board_tool == BoardTool::DirectSelect && vertex_bounds.is_some();
-        let live = self.board_drag.is_none()
-            && !editing_sticky
-            && !composing_text_box
-            && (editing_hosted_text
-                || ((self.board_tool == BoardTool::Select || direct_picks)
-                    && self.text_edit.is_none()))
-            && !self.shape_properties.nodes.is_empty();
-        if live {
-            let items = live_property_strip_items(self, &self.shape_properties.nodes);
-            // D13 / D11: a panel whose squircle a vertex pick took off the
-            // strip commits its pending edits and closes.
-            if self
-                .shape_properties
-                .panel
-                .is_some_and(|panel| !items.contains(&StripItem::Panel(panel)))
-                && !self.shape_property_points().is_empty()
-            {
-                self.apply_shape_preview(&ctx, true);
-            }
-            if let Some(bounds) = vertex_bounds.or(self.shape_properties.bounds) {
-                self.shape_properties.last_chrome = Some(LastChrome { bounds, items });
-            }
-        }
-        let fade = chrome::strip_fade(&ctx, Id::new("selection_property_strip"), live);
-        if fade <= 0.0 {
-            if !live {
-                self.shape_properties.last_chrome = None;
-            }
-            return false;
-        }
-        let z = xf.z;
-        if canvas_scale::too_small(12.0 * z) {
-            // The strip and its panel are not painted, but screen-constant
-            // grips still take presses, so the D11 commit still runs. The
-            // press keeps its board meaning.
-            let overlay_open =
-                self.shape_properties.panel.is_some() || self.shape_properties.number.is_some();
-            if let (true, true, Some(grip)) =
-                (live, overlay_open, self.property_dismiss_press(&ctx))
-            {
-                self.apply_shape_preview(&ctx, !grip);
-            }
-            return false;
-        }
-        let Some(chrome_state) = self.shape_properties.last_chrome.clone() else {
-            return false;
-        };
-        let theme = self.palette();
-        let bounds = xf.rect_w2s(chrome_state.bounds);
-        let enabled =
-            live && !self.tab().read_only && self.shape_properties.nodes.iter().all(|n| !n.locked);
-        if live && !enabled {
-            self.shape_properties.preview.clear();
-            self.shape_properties.edits.clear();
-            self.shape_properties.number = None;
-        }
-        let items = chrome_state.items;
-        let strip = if items.is_empty() {
-            Rect::from_center_size(
-                Pos2::new(bounds.center().x, bounds.top() - chrome::OBJECT_GAP * z),
-                Vec2::ZERO,
-            )
-        } else {
-            chrome::strip_rect(
-                Pos2::new(bounds.center().x, bounds.top()),
-                items.len(),
-                z,
-                fade,
-            )
-        };
-        let mut requested_panel = None;
-        let mut requested_frame = None;
-        let mut requested_agent = None;
-        let mut requested_measure = false;
-        let mut requested_screenshot = false;
-        let mut captures = false;
-        // P1.curve.grips: a painted grip under a button takes the press. The
-        // board hit-tests a drag at its press origin, so a held press is
-        // judged there too.
-        let grip_probe = ctx.input(|i| {
-            let held = i.pointer.any_down();
-            i.pointer
-                .press_origin()
-                .filter(|_| held)
-                .or(i.pointer.latest_pos())
-        });
-        let grip_under =
-            live && grip_probe.is_some_and(|p| strip.contains(p) && self.curve_knob_under(p));
-        for (index, item) in items.iter().enumerate() {
-            let r = chrome::strip_button_rect(strip, index, z);
-            let (label, icon, active) = match item {
-                StripItem::Agent(false) => ("Bundle selected messages", Icon::ChatBundle, false),
-                StripItem::Agent(true) => ("Unbundle messages", Icon::ChatUnbundle, false),
-                StripItem::Panel(Panel::Fill) => (
-                    "Fill",
-                    Icon::Fill,
-                    self.shape_properties.panel == Some(Panel::Fill),
-                ),
-                StripItem::Panel(Panel::Stroke) => (
-                    "Stroke",
-                    Icon::Ellipse,
-                    self.shape_properties.panel == Some(Panel::Stroke),
-                ),
-                StripItem::Panel(Panel::Corners) => (
-                    if self.corners_include_crop() {
-                        "Corners and crop"
-                    } else {
-                        "Corners: fillet / chamfer"
-                    },
-                    Icon::Corners,
-                    self.shape_properties.panel == Some(Panel::Corners)
-                        || (self.corners_include_crop() && self.board_crop.is_some()),
-                ),
-                StripItem::Panel(Panel::Wire) => (
-                    "Wire: routing / weight / dashes / arrows",
-                    Icon::Bezier,
-                    self.shape_properties.panel == Some(Panel::Wire),
-                ),
-                StripItem::Panel(Panel::Filter) => (
-                    "Photo filters",
-                    Icon::Filters,
-                    self.shape_properties.panel == Some(Panel::Filter),
-                ),
-                StripItem::Panel(Panel::Pages) => (
-                    "Pages: browse the deck or unbundle onto the board",
-                    Icon::Pages,
-                    self.shape_properties.panel == Some(Panel::Pages),
-                ),
-                StripItem::Panel(Panel::AtlasFormat) => (
-                    "Formatting: filters and zoom to fit",
-                    Icon::Display,
-                    self.shape_properties.panel == Some(Panel::AtlasFormat),
-                ),
-                StripItem::Panel(Panel::Text) => (
-                    "Text",
-                    Icon::Text,
-                    self.shape_properties.panel == Some(Panel::Text),
-                ),
-                StripItem::Panel(Panel::Agent) => (
-                    "Agent: write or picture from this",
-                    Icon::Agent,
-                    self.shape_properties.panel == Some(Panel::Agent),
-                ),
-                StripItem::Panel(Panel::ModelDisplay) => (
-                    "Viewport display",
-                    Icon::Model,
-                    self.shape_properties.panel == Some(Panel::ModelDisplay),
-                ),
-                StripItem::ModelMeasure => (
-                    "Measure: pick two points on the model",
-                    Icon::Ruler,
-                    self.shape_properties
-                        .ids
-                        .first()
-                        .is_some_and(|id| self.model_measuring(*id)),
-                ),
-                StripItem::ModelScreenshot => (
-                    "Screenshot: export the current viewport",
-                    Icon::View,
-                    self.model_shot_popup.is_some(),
-                ),
-                StripItem::Panel(Panel::Bumper) => (
-                    "Bumper cars",
-                    Icon::Bumper,
-                    self.shape_properties.panel == Some(Panel::Bumper)
-                        || self
-                            .shape_properties
-                            .nodes
-                            .iter()
-                            .all(|n| n.bumper.is_some()),
-                ),
-                StripItem::Frame(FrameAction::Prev) => {
-                    ("Move earlier in the deck", Icon::ChevronLeft, false)
-                }
-                StripItem::Frame(FrameAction::Next) => {
-                    ("Move later in the deck", Icon::ChevronRight, false)
-                }
-                StripItem::Frame(FrameAction::Present) => {
-                    ("Present from this slide", Icon::View, false)
-                }
-                StripItem::Frame(FrameAction::Deck) => (
-                    "Order frames: click each one, or draw a stroke through them",
-                    Icon::Deck,
-                    self.board_tool == BoardTool::Deck,
-                ),
-            };
-            let button_live = live && !grip_under;
-            let response = chrome::button(
-                ui,
-                r,
-                Id::new(("shape_property", index)),
-                label,
-                icon,
-                active,
-                z,
-                theme,
-                fade,
-                button_live,
-            );
-            if button_live && response.clicked() {
-                match item {
-                    StripItem::Panel(panel) => requested_panel = Some(*panel),
-                    StripItem::Frame(action) => requested_frame = Some(*action),
-                    StripItem::Agent(expand) => requested_agent = Some(*expand),
-                    StripItem::ModelMeasure => requested_measure = true,
-                    StripItem::ModelScreenshot => requested_screenshot = true,
-                }
-            }
-            captures |= button_live && ctx.pointer_latest_pos().is_some_and(|p| r.contains(p));
-            if live {
-                self.shape_properties.chrome_hits.push(r);
-            }
-        }
-        if let Some(expand) = requested_agent {
-            self.dispatch(
-                &ctx,
-                CommandId(if expand {
-                    "portal.agent.expand_chat"
-                } else {
-                    "portal.agent.bundle_chat"
-                }),
-                None,
-            );
-        }
-        if let Some(panel) = requested_panel {
-            let was = self.shape_properties.panel;
-            self.apply_shape_preview(&ctx, true);
-            self.shape_properties.number = None;
-            if was != Some(panel) {
-                self.shape_properties.panel = Some(panel);
-                if panel == Panel::Pages {
-                    if let Some(item) = self
-                        .shape_properties
-                        .ids
-                        .first()
-                        .and_then(|id| self.node_pdf_item(*id))
-                    {
-                        self.shape_properties.pages_focus = item.pdf_page;
-                    }
-                }
-            }
-        }
-        if let Some(action) = requested_frame {
-            self.apply_shape_preview(&ctx, true);
-            self.shape_properties.number = None;
-            self.run_frame_strip_action(&ctx, action);
-        }
-        if requested_measure {
-            self.apply_shape_preview(&ctx, true);
-            self.shape_properties.number = None;
-            if let Some(id) = self.shape_properties.ids.first().copied() {
-                self.dispatch(
-                    &ctx,
-                    CommandId("board.model_measure"),
-                    Some(id.0.to_string()),
-                );
-            }
-        }
-        if requested_screenshot {
-            self.apply_shape_preview(&ctx, true);
-            self.shape_properties.number = None;
-            if let (Some(id), Some(p)) = (
-                self.shape_properties.ids.first().copied(),
-                ctx.pointer_latest_pos(),
-            ) {
-                self.open_model_screenshot_menu(id, p);
-            }
-        }
-        // The inline editor is attached to a dimension kind, never a cached screen position.
-        // Nested portal edit keeps the frame selected but hides its stringers.
-        let dims = if self.selection_stringers_suppressed() {
-            self.shape_properties.number = None;
-            Vec::new()
-        } else {
-            self.shape_properties.dimensions.clone()
-        };
-        let mut dimension_commit = None;
-        for (index, d) in dims.iter().enumerate() {
-            let mut edit = self.shape_properties.number.take();
-            let is_current = edit.as_ref().is_some_and(|e| e.kind == d.kind);
-            let mut input = if is_current {
-                edit.as_mut().unwrap().input.take()
-            } else {
-                None
-            };
-            let was_editing = input.is_some();
-            let result = ui
-                .add_enabled_ui(live && enabled && d.value > f32::EPSILON, |ui| {
-                    chrome::stringer(
-                        ui,
-                        Id::new(("shape_stringer", index)),
-                        d.ends.map(|p| xf.w2s(p)),
-                        d.offset * z,
-                        d.value,
-                        if d.kind == DimensionKind::Diameter {
-                            "Ø "
-                        } else {
-                            ""
-                        },
-                        z,
-                        theme,
-                        &mut input,
-                    )
-                })
-                .inner;
-            captures |=
-                result.response.contains_pointer() || (was_editing && ctx.wants_keyboard_input());
-            if let Some(value) = result.value {
-                dimension_commit = Some((d.kind, value));
-            }
-            if input.is_some() {
-                if !was_editing {
-                    self.apply_shape_preview(&ctx, true);
-                }
-                self.shape_properties.number = Some(NumberEdit {
-                    kind: d.kind,
-                    input,
-                });
-            } else if !is_current {
-                self.shape_properties.number = edit;
-            }
-        }
-        if let Some((kind, value)) = dimension_commit {
-            let request = DimensionRequest {
-                ids: self.shape_properties.ids.clone(),
-                kind,
-                value,
-            };
-            self.dispatch(
-                &ctx,
-                CommandId("board.shape.dimension"),
-                serde_json::to_string(&request).ok(),
-            );
-        }
-        if self.shape_properties.panel != Some(Panel::Filter) {
-            self.shape_properties.filter_aim = None;
-        }
-        if live {
-            if let Some(panel) = self.shape_properties.panel {
-                if panel == Panel::Pages {
-                    if let Some(node_id) = self.shape_properties.ids.first().copied() {
-                        if let Some(node) = self.doc().scene.node(node_id).cloned() {
-                            if let Some(path) =
-                                self.node_pdf_item(node_id).map(|item| item.path.clone())
-                            {
-                                self.documents.request(&path);
-                            }
-                            let host = xf.rect_w2s(node.rect);
-                            let album = self.paint_pages_album(
-                                ui,
-                                node_id,
-                                host,
-                                z,
-                                theme,
-                                self.shape_properties.pages_focus,
-                            );
-                            self.shape_properties.pages_focus = album.focus;
-                            captures |= album.hover;
-                            if album.commit_page {
-                                if let Some(item) = self.node_pdf_item(node_id) {
-                                    self.dispatch(
-                                        &ctx,
-                                        CommandId("board.media.page"),
-                                        Some(format!("{}:{}", item.id.0, album.focus)),
-                                    );
-                                }
-                            }
-                            if album.unbundle {
-                                self.dispatch(
-                                    &ctx,
-                                    CommandId("board.media.unbundle"),
-                                    Some(format!("{}:{}", node_id.0, album.focus)),
-                                );
-                            }
-                        }
-                    }
-                } else {
-                    let height = match panel {
-                        Panel::Fill => chrome::FILL_HEIGHT,
-                        Panel::Stroke => chrome::STROKE_HEIGHT,
-                        Panel::Corners => chrome::CORNER_HEIGHT,
-                        Panel::Wire => chrome::WIRE_HEIGHT,
-                        Panel::Filter => chrome::FILTER_HEIGHT,
-                        Panel::Pages => 0.0,
-                        Panel::AtlasFormat => chrome::ATLAS_FORMAT_HEIGHT,
-                        Panel::Text => chrome::TEXT_HEIGHT,
-                        Panel::Agent => chrome::AGENT_HEIGHT,
-                        Panel::Bumper => chrome::CORNER_HEIGHT,
-                        Panel::ModelDisplay => chrome::FILTER_CHIPS_HEIGHT,
-                    };
-                    if panel != Panel::Text {
-                        self.shape_properties.text_family_open = false;
-                        self.shape_properties.text_size_open = false;
-                    }
-                    let canvas = self.canvas_rect;
-                    let rect = chrome::editor_placement(strip, bounds, height, z, canvas);
-                    let mut sample = None;
-                    chrome::popup_area(&ctx, Id::new("shape_property_editor"), ui.layer_id())
-                        .fixed_pos(rect.min)
-                        .constrain(false)
-                        .movable(false)
-                        .fade_in(false)
-                        .show(&ctx, |ui| {
-                            ui.set_clip_rect(canvas);
-                            ui.set_min_size(rect.size());
-                            ui.add_enabled_ui(enabled, |ui| {
-                                sample = self.shape_property_body(ui, rect, panel, z);
-                            });
-                        });
-                    captures |= ctx.pointer_latest_pos().is_some_and(|p| {
-                        rect.contains(p) && canvas.contains(p)
-                            || !grip_under
-                                && self
-                                    .shape_properties
-                                    .chrome_hits
-                                    .iter()
-                                    .any(|hit| hit.contains(p))
-                    });
-                    if live {
-                        self.shape_properties.chrome_hits.push(rect);
-                    }
-                    if let Some(gesture) = sample {
-                        self.start_property_desktop_sample(panel, gesture);
-                    }
-                }
-            }
-            let overlay_open =
-                self.shape_properties.panel.is_some() || self.shape_properties.number.is_some();
-            let press = self.property_dismiss_press(&ctx);
-            if overlay_open && !captures && press == Some(true) {
-                self.apply_shape_preview(&ctx, false);
-            } else if overlay_open && !captures && press.is_some() {
-                self.apply_shape_preview(&ctx, true);
-                if let Some(p) = ctx.pointer_latest_pos() {
-                    if self.canvas_rect.contains(p) {
-                        let world = xf.s2w(p);
-                        match self.board_pick_node(world.x, world.y) {
-                            Some(id) => {
-                                self.board_sel = super::board_flags::expand_selection_to_groups(
-                                    &self.doc().scene,
-                                    &[id],
-                                )
-                                .into_iter()
-                                .collect();
-                            }
-                            None => self.board_sel.clear(),
-                        }
-                    }
-                }
-                captures = true;
-            }
-        }
-        if captures && ctx.input(|i| i.pointer.any_pressed()) {
-            self.board_align_eat_press = true;
-        }
-        captures
     }
 
     fn run_frame_strip_action(&mut self, ctx: &egui::Context, action: FrameAction) {
@@ -2080,6 +1354,7 @@ impl SlateApp {
         rect: Rect,
         panel: Panel,
         z: f32,
+        image_layout: Option<&chrome::ImagePresentationLayout>,
     ) -> Option<chrome::SampleGesture> {
         let theme = self.palette();
         let nodes_owned: Vec<Node> = if self.shape_properties.preview.is_empty() {
@@ -2154,7 +1429,20 @@ impl SlateApp {
             };
             let thumbs = self.filter_swatch_ids(ui.ctx(), amount);
             let radios = photo_filter_radios(thumbs);
-            let edit = chrome::filter_editor(ui, rect, &radios, selected, amount, z, theme);
+            let edit = if image_layout.is_some() {
+                chrome::filter_capsule(
+                    ui,
+                    rect,
+                    &radios,
+                    selected,
+                    Some(amount),
+                    z,
+                    theme,
+                    chrome::FilterCapsuleStyle::ImageWithIntensity,
+                )
+            } else {
+                chrome::filter_editor(ui, rect, &radios, selected, amount, z, theme)
+            };
             if let Some(index) = edit.hovered {
                 self.shape_properties.filter_aim = Some(index);
             }
@@ -2331,17 +1619,31 @@ impl SlateApp {
             }
         });
         let recent = self.doc().view.recent_colors.clone().unwrap_or_default();
-        let edit = chrome::color_editor(
-            ui,
-            rect,
-            color.0,
-            width,
-            mixed,
-            &recent,
-            &mut self.shape_properties.color,
-            z,
-            theme,
-        );
+        let edit = if let Some(layout) = image_layout {
+            chrome::image_color_editor(
+                ui,
+                layout,
+                color.0,
+                width,
+                mixed,
+                &recent,
+                &mut self.shape_properties.color,
+                z,
+                theme,
+            )
+        } else {
+            chrome::color_editor(
+                ui,
+                rect,
+                color.0,
+                width,
+                mixed,
+                &recent,
+                &mut self.shape_properties.color,
+                z,
+                theme,
+            )
+        };
         let theme_relative_fill = panel == Panel::Fill
             && matches!(
                 &first.kind,
@@ -4896,6 +4198,8 @@ mod tests {
                 StripItem::Panel(Panel::AtlasFormat) => "format",
                 StripItem::Panel(Panel::Text) => "text",
                 StripItem::Panel(Panel::Agent) => "agent",
+                StripItem::Panel(Panel::Brush) => "brush",
+                StripItem::Panel(Panel::Layers) => "layers",
                 StripItem::Panel(Panel::Bumper) => "bumper",
                 StripItem::Panel(Panel::ModelDisplay) => "display",
                 StripItem::ModelMeasure => "measure",

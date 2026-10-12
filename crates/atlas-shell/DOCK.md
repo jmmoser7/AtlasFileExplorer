@@ -1,6 +1,6 @@
 # Floating canvas docks
 
-Both File Atlas and Slate host a **single floating dock** of squircle icons
+Both File Atlas and Slate host a **single floating dock** of tool icons
 over the canvas. Dock chrome lives in `atlas-shell::dock`; apps supply items
 and panel bodies only. Cross-app interaction notes: **`TOOLBARS.md`**.
 
@@ -8,6 +8,41 @@ Selected-object property editors are a separate shared surface governed by
 [DYNAMIC_PANELS.md](DYNAMIC_PANELS.md). They reuse dock squircles and icon
 language, while their placement follows the selected host's canvas transform.
 Do not apply this document's pin stack or stacked-form layout to them.
+
+## Bottom-edge Tool palettes: inline capsules (11 October 2026)
+
+Slate supplies `Tool` families for this layout. File Atlas supplies `Dashboard`
+menus: these retain their classic stacked form bodies and primary bar, including
+when the dock edge preference changes. Shared chrome owns both presentations.
+
+Each primary is a circle inside its family's capsule. Primary and secondary
+circles have the same diameter, glyph size and pitch, taken from
+`flyout_icon_size` and the scaled icon gap. The primary has a solid contrasting
+fill: charcoal/white in light mode and light/dark in dark mode. Secondary
+circles retain their outline and simple infill. Feedback is a cherry-red
+Action singleton first on the left; it opens the shared feedback UI.
+
+Click a primary to expand its secondary tools **to the right**; click the
+same primary again to collapse. Several families may stay open. Hover,
+outside clicks and Escape do not change these recorded open families.
+Expansion and collapse use a smooth S-shaped reveal over
+`inline.open_duration` (200 ms by default); capsule widths and their neighbors
+move together. Reversing an animation starts at its current width.
+All icons share one centerline. Overflow scrolls horizontally instead of
+wrapping into another row. The bottom blister hides the **entire** toolbar,
+then restores its open families. Right-click a primary for Expand / Collapse
+or Drop to canvas. Inspectors remain separate forms.
+
+The row's viewport is sized and centered from this frame's animated widths,
+not the Area's remembered width. A fitting row has no scroll container; genuine
+overflow scrolls horizontally with no overlay scrollbar. Secondary reveal clips
+retain the capsule's vertical padding so antialiased circle tops stay intact.
+
+`dock/inline.rs` owns this layout and `dock/primary.rs` retains the form-menu
+and left-edge bars. Both reuse the shared icon painter. `[dock.inline]` owns
+the capsule timing and primary infill without changing form-menu styling.
+The legacy palette stacking and volatile-preview rules below apply to the
+left edge; the readout blister geometry and canvas navigation apply to both.
 
 ## Ownership split
 
@@ -41,7 +76,7 @@ Popovers open **rightward** from a left dock and **upward** from a bottom dock.
 
 - **Minimize** dismisses a volatile body or unpins a pinned one back
   to its icon. Palettes are an **icon strip** (unlabeled fieldset
-  capsules). Inspectors stay stacked forms. Icon-strip
+  capsules). Dashboards and Inspectors stay stacked forms. Icon-strip
   chrome is a **vertical two-dot column** on the right of the cluster
   (Minimize / Close, Drop to canvas); stacked captions carry the same
   two actions as a **horizontal ellipsis** at the top-right. Hover
@@ -227,3 +262,5 @@ DockItem {
 cargo test -p atlas-shell
 cargo build --release -p native-file-atlas -p slate
 ```
+
+Feedback window geometry and the approved form layout: [specification](../../design/feedback-ui-2026-10-11/implementation-spec.md).

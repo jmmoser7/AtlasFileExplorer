@@ -162,36 +162,6 @@ impl BoardTool {
         }
     }
 
-    pub fn tool_icon(self) -> board_icons::ToolIcon {
-        match self {
-            BoardTool::Select => board_icons::ToolIcon::Select,
-            BoardTool::Pan => board_icons::ToolIcon::Pan,
-            BoardTool::Frame => board_icons::ToolIcon::Frame,
-            BoardTool::RectShape => board_icons::ToolIcon::Rect,
-            BoardTool::Ellipse => board_icons::ToolIcon::Ellipse,
-            BoardTool::Polygon => board_icons::ToolIcon::Polygon,
-            BoardTool::Line => board_icons::ToolIcon::Line,
-            BoardTool::Arc => board_icons::ToolIcon::Arc,
-            BoardTool::Polyline => board_icons::ToolIcon::Polyline,
-            BoardTool::BezierSpan => board_icons::ToolIcon::Bezier,
-            BoardTool::Pen => board_icons::ToolIcon::Pen,
-            BoardTool::Text => board_icons::ToolIcon::Text,
-            BoardTool::Brush => board_icons::ToolIcon::Brush,
-            BoardTool::Eraser => board_icons::ToolIcon::Eraser,
-            BoardTool::Smooth => board_icons::ToolIcon::Smooth,
-            BoardTool::Eyedropper => board_icons::ToolIcon::Eyedropper,
-            BoardTool::Sticky => board_icons::ToolIcon::Sticky,
-            BoardTool::DirectSelect => board_icons::ToolIcon::DirectSelect,
-            BoardTool::AgentPortal => board_icons::ToolIcon::Agent,
-            BoardTool::WebPortal => board_icons::ToolIcon::WebPortal,
-            BoardTool::AtlasPortal => board_icons::ToolIcon::AtlasLens,
-            BoardTool::SlatePortal => board_icons::ToolIcon::Frame,
-            BoardTool::Trim => board_icons::ToolIcon::Trim,
-            BoardTool::Split => board_icons::ToolIcon::Split,
-            BoardTool::Deck => board_icons::ToolIcon::Deck,
-        }
-    }
-
     pub fn hotkey(self) -> &'static str {
         match self {
             BoardTool::Select => "V",
@@ -311,10 +281,6 @@ impl BoardTool {
         }
     }
 
-    pub fn is_implemented(self) -> bool {
-        true
-    }
-
     pub fn is_path_tool(self) -> bool {
         matches!(
             self,
@@ -347,6 +313,7 @@ pub enum BoardDrag {
         id: NodeId,
         before: Node,
         start_angle: f32,
+        vertex: u8,
     },
     /// Crop mode: dragging a crop-window edge/corner. The node rect and the
     /// UV crop change together so the content stays fixed — only the mask

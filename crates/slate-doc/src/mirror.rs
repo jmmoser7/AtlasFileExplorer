@@ -107,6 +107,13 @@ fn mirror_picture(img: &mut ImageNode, axis: MirrorAxis) {
             mirror_layer_child(child, axis);
         }
     }
+    for result in &mut img.result_layers {
+        for layer in &mut result.layers {
+            for child in &mut layer.nodes {
+                mirror_layer_child(child, axis);
+            }
+        }
+    }
 }
 
 /// A paint-layer child is stored normalized in the host content rect, so
@@ -299,6 +306,39 @@ mod tests {
         let after_v = -(ax - cx) * uy + (ay - cy) * ux;
         assert!((after_u + before_u).abs() < 1e-3, "{before_u} vs {after_u}");
         assert!((after_v - before_v).abs() < 1e-3, "{before_v} vs {after_v}");
+    }
+
+    #[test]
+    fn a_picture_mirrors_every_album_result_layer() {
+        use crate::image_paint::{ImageResultId, PaintLayer};
+        let mut node = picture_with_ink();
+        let result_id = ImageResultId::Output("output-2".into());
+        let result_child_id;
+        if let NodeKind::Image(img) = &mut node.kind {
+            let mut child = img.paint_layers[0].nodes[0].clone();
+            child.rect.x = 0.15;
+            result_child_id = child.id;
+            let mut layer = PaintLayer::new(PaintLayerId(44));
+            layer.nodes.push(child);
+            img.result_layers
+                .push(crate::image_paint::ImageResultLayers {
+                    result: result_id.clone(),
+                    layers: vec![layer],
+                    metadata: vec![],
+                });
+        } else {
+            unreachable!();
+        }
+
+        assert!(mirror_local(&mut node, MirrorAxis::Horizontal));
+        let NodeKind::Image(img) = &node.kind else {
+            unreachable!();
+        };
+        let mirrored = &img.result_layers[0].layers[0].nodes[0];
+        assert_eq!(img.result_layers[0].result, result_id);
+        assert_eq!(mirrored.id, result_child_id);
+        assert!((mirrored.rect.x - 0.55).abs() < 1e-6);
+        assert_eq!(mirrored.rotation_deg, -20.0);
     }
 
     #[test]

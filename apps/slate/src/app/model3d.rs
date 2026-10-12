@@ -1233,7 +1233,7 @@ impl SlateApp {
         Some(ModelNodeInfo {
             node: id,
             cache_key: item.cache_key.clone(),
-            path: item.path.clone(),
+            path: self.item_path(img.item)?,
             cam: img.model,
             rect: node.rect,
         })
@@ -1423,7 +1423,7 @@ impl SlateApp {
         }
     }
 
-    fn tick_model_view_tweens(&mut self) -> bool {
+    pub(super) fn tick_model_view_tweens(&mut self) -> bool {
         const VIEW_TWEEN: Duration = Duration::from_millis(220);
         let mut changed = false;
         for vp in self.model3d.live.values_mut() {

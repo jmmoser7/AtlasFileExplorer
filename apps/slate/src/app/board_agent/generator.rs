@@ -1,5 +1,6 @@
 //! Generator view and generation request.
 
+use super::runtime::QueuedGeneration;
 use super::*;
 
 impl SlateApp {
@@ -27,13 +28,13 @@ impl SlateApp {
     }
     fn resolve_generator(&self, id: NodeId) -> GeneratorView {
         use std::hash::{Hash, Hasher};
-        let inputs = match self.agent_input_snapshot(id) {
+        let inputs = match self.agent_input_refs(id) {
             Ok(inputs) => inputs,
             Err(error) => {
                 return GeneratorView {
                     error: Some(error),
                     ..Default::default()
-                }
+                };
             }
         };
         let mut view = GeneratorView::default();
@@ -145,7 +146,7 @@ impl SlateApp {
             .map(|i| i.prompt.clone())
             .unwrap_or_default()
     }
-    pub(super) fn generation_request(
+    pub(crate) fn generation_request(
         &mut self,
         id: NodeId,
         live: bool,
@@ -157,7 +158,7 @@ impl SlateApp {
         if prompt.is_empty() {
             return Err("Connect a note with a prompt to this generator.".into());
         }
-        let inputs = self.agent_input_snapshot(id)?;
+        let inputs = self.agent_input_refs(id)?;
         let (model, session, settings) = self
             .doc()
             .scene
@@ -218,12 +219,31 @@ impl SlateApp {
             self.ai.pick_workspace();
             return;
         }
-        let queue = self.agents.comfy_queue.entry(id).or_default();
-        if queue.len() >= GENERATION_QUEUE {
+        if self
+            .agents
+            .comfy_queue
+            .get(&id)
+            .map_or(0, |queue| queue.len())
+            >= GENERATION_QUEUE
+        {
             self.toast("Eight generations are already waiting on this generator.");
             return;
         }
-        queue.push_back(request);
+        let inputs = match self.begin_agent_input_preparation(request.inputs.clone()) {
+            Ok(inputs) => inputs,
+            Err(error) => {
+                self.fail_agent_await(id, error.clone());
+                self.toast(error);
+                return;
+            }
+        };
+        let doc = self.tab().id;
+        let queue = self.agents.comfy_queue.entry(id).or_default();
+        queue.push_back(QueuedGeneration {
+            doc,
+            request,
+            inputs,
+        });
         if matches!(
             self.agents.awaiting.get(&id),
             Some(AgentAwait::Failed { .. })

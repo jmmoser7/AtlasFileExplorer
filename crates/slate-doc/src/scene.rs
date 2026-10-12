@@ -26,6 +26,9 @@ use std::sync::Arc;
 use crate::ids::{GroupId, ItemId, TagId};
 use crate::spatial::SpatialIndex;
 
+mod capabilities;
+pub use capabilities::{supports_corners, supports_fill, supports_image_adjust, supports_stroke};
+
 // ---------- geometry ----------
 
 /// Axis-aligned rectangle in board world coordinates.
@@ -1070,6 +1073,7 @@ pub struct Crop {
 }
 
 impl Crop {
+    pub const MIN_SPAN: f32 = 1e-6;
     pub fn full() -> Crop {
         Crop {
             x: 0.0,
@@ -1084,8 +1088,8 @@ impl Crop {
     }
 
     pub fn clamped(&self) -> Crop {
-        let w = self.w.clamp(0.05, 1.0);
-        let h = self.h.clamp(0.05, 1.0);
+        let w = self.w.clamp(Self::MIN_SPAN, 1.0);
+        let h = self.h.clamp(Self::MIN_SPAN, 1.0);
         Crop {
             x: self.x.clamp(0.0, 1.0 - w),
             y: self.y.clamp(0.0, 1.0 - h),
@@ -2177,6 +2181,10 @@ pub struct ImageNode {
     /// Trace-paper overlays (brush, pen, shapes, text) clipped to this image.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub paint_layers: Vec<crate::image_paint::PaintLayer>,
+    /// Explicit paint-layer stacks keyed to stable album result identities.
+    /// Empty on older documents, whose layers remain in `paint_layers`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub result_layers: Vec<crate::image_paint::ImageResultLayers>,
     /// Pixels mirrored left to right inside the crop window. `crop` and the
     /// paint layers are stored as displayed; see [`crate::mirror`].
     #[serde(default, skip_serializing_if = "is_false")]
@@ -2207,6 +2215,7 @@ impl ImageNode {
             model: ModelCamera::default(),
             agent: None,
             paint_layers: Vec::new(),
+            result_layers: Vec::new(),
             flip_x: false,
             flip_y: false,
         }
@@ -2423,60 +2432,11 @@ pub enum ShapeKind {
     Path,
 }
 
-pub fn default_regular_sides() -> u8 {
-    6
-}
-
-pub const REGULAR_POLYGON_SIDES_MIN: u8 = 3;
-pub const REGULAR_POLYGON_SIDES_MAX: u8 = 12;
-
-pub fn clamp_regular_sides(sides: u8) -> u8 {
-    sides.clamp(REGULAR_POLYGON_SIDES_MIN, REGULAR_POLYGON_SIDES_MAX)
-}
-
-/// Vertices of a regular n-gon inscribed in `rect`. Vertex `i` sits at
-/// parameter angle `-90° + phase_deg + i·360°/n` on the inscribed ellipse,
-/// so phase 0 puts the first vertex at top center.
-pub fn regular_polygon_vertices(rect: WorldRect, sides: u8, phase_deg: f32) -> Vec<[f32; 2]> {
-    let n = clamp_regular_sides(sides) as f32;
-    let (cx, cy) = rect.center();
-    let rx = rect.w * 0.5;
-    let ry = rect.h * 0.5;
-    let start = -std::f32::consts::FRAC_PI_2 + phase_deg.to_radians();
-    (0..clamp_regular_sides(sides) as usize)
-        .map(|i| {
-            let a = start + i as f32 * (std::f32::consts::TAU / n);
-            [cx + rx * a.cos(), cy + ry * a.sin()]
-        })
-        .collect()
-}
-
-/// Side count and phase after adding (`add`) or removing one side at
-/// vertex `k` (P1.shape.polygon-sides). Removing keeps a vertex exactly at
-/// vertex `k`: the new vertex 0 takes its angle. Adding keeps vertex `k`
-/// at that same angle and re-spaces the others around it. `None` at the
-/// 3 / 12 limits.
-pub fn regular_polygon_resided(
-    sides: u8,
-    phase_deg: f32,
-    k: usize,
-    add: bool,
-) -> Option<(u8, f32)> {
-    let n = clamp_regular_sides(sides);
-    let next = if add { n + 1 } else { n - 1 };
-    if next != clamp_regular_sides(next) {
-        return None;
-    }
-    let k = k % n as usize;
-    let at = phase_deg + k as f32 * 360.0 / n as f32;
-    let phase = if add {
-        at - k as f32 * 360.0 / next as f32
-    } else {
-        at
-    };
-    let phase = phase.rem_euclid(360.0);
-    Some((next, if phase >= 360.0 { 0.0 } else { phase }))
-}
+mod polygon;
+pub use polygon::{
+    clamp_regular_sides, default_regular_sides, regular_polygon_resided, regular_polygon_vertex,
+    regular_polygon_vertices, REGULAR_POLYGON_SIDES_MAX, REGULAR_POLYGON_SIDES_MIN,
+};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShapeNode {
@@ -3561,7 +3521,14 @@ fn paint_layer_slot(
     let NodeKind::Image(img) = &mut nodes[idx].kind else {
         return None;
     };
-    img.paint_layers.iter_mut().find(|l| l.id == layer)
+    img.paint_layers
+        .iter_mut()
+        .chain(
+            img.result_layers
+                .iter_mut()
+                .flat_map(|stack| &mut stack.layers),
+        )
+        .find(|candidate| candidate.id == layer)
 }
 
 impl Scene {
@@ -6316,12 +6283,6 @@ pub fn stroke_of(node: &Node) -> Option<Stroke> {
     }
 }
 
-/// Stroke editor applies to shapes, images, wires, text boxes, slide frames,
-/// and portal frames.
-pub fn supports_stroke(node: &Node) -> bool {
-    stroke_of(node).is_some()
-}
-
 pub fn set_stroke(node: &mut Node, stroke: Stroke) {
     match &mut node.kind {
         NodeKind::Shape(s) => s.stroke = stroke,
@@ -6360,22 +6321,6 @@ pub fn set_corner(node: &mut Node, corner: Corner) {
         NodeKind::Frame(f) => f.corner = corner,
         NodeKind::Portal(p) => p.corner = corner,
         _ => {}
-    }
-}
-
-/// Fillet/chamfer applies to rectangles, images, slide frames, and portals.
-/// Other shapes store a corner field that is not a user-facing treatment.
-pub fn supports_corners(node: &Node) -> bool {
-    match &node.kind {
-        NodeKind::Shape(s) => {
-            matches!(s.shape, ShapeKind::Rect | ShapeKind::RegularPolygon)
-                || (s.shape == ShapeKind::Path
-                    && s.path
-                        .as_ref()
-                        .is_some_and(|p| crate::geom::path_is_line_polyline(p)))
-        }
-        NodeKind::Image(_) | NodeKind::Frame(_) | NodeKind::Portal(_) => true,
-        _ => false,
     }
 }
 
@@ -6483,12 +6428,6 @@ pub fn set_adjust(node: &mut Node, adjust: ImageAdjust) {
     }
 }
 
-/// Photo-filter / ImageAdjust editors apply to placed images, including 3D
-/// model viewports (over the live render or frozen poster).
-pub fn supports_image_adjust(node: &Node) -> bool {
-    matches!(node.kind, NodeKind::Image(_))
-}
-
 pub fn fill_of(node: &Node) -> Option<Rgba> {
     match &node.kind {
         NodeKind::Shape(s) => s.fill,
@@ -6517,19 +6456,6 @@ pub fn set_fill(node: &mut Node, fill: Option<Rgba>) {
             }
         }
         _ => {}
-    }
-}
-
-/// Fill editor authors closed-shape paint, text sticky-note background, and
-/// frame/portal frame color. Text ink stays on `TextNode.color`.
-pub fn supports_fill(node: &Node) -> bool {
-    match &node.kind {
-        NodeKind::Shape(s) => {
-            s.shape != ShapeKind::Line
-                && (s.shape != ShapeKind::Path || s.path.as_ref().is_some_and(|p| p.closed))
-        }
-        NodeKind::Text(_) | NodeKind::Frame(_) | NodeKind::Portal(_) => true,
-        _ => false,
     }
 }
 

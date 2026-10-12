@@ -32,6 +32,7 @@ impl SlateApp {
                     ui.set_min_width(menu::tokens().min_width);
                     menu::heading(ui, format!("{} object(s)", targets.len()), dark);
                     menu::separator(ui, dark);
+                    close |= self.image_selection_context_menu(ui, node_id);
                     if let Some(NodeKind::Portal(p)) =
                         self.doc().scene.node(node_id).map(|n| n.kind.clone())
                     {
@@ -319,6 +320,16 @@ impl SlateApp {
                             && menu::item(ui, MenuIcon::Image, "Crop image", dark).clicked()
                         {
                             self.enter_crop_mode(node_id);
+                            close = true;
+                        }
+                        if Self::supports_image_paint(node_id, self)
+                            && menu::item(ui, MenuIcon::Image, "Layers", dark).clicked()
+                        {
+                            self.board_sel.clear();
+                            self.board_sel.insert(node_id);
+                            self.shape_properties.panel =
+                                Some(crate::app::board_properties::Panel::Layers);
+                            self.sync_image_paint_for_tool();
                             close = true;
                         }
                         if let Some(path) = self.doc().item(img.item).map(|it| it.path.clone()) {

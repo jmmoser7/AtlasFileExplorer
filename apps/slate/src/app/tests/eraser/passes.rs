@@ -316,11 +316,16 @@ fn image_paint_eraser_spot_hits_layer_strokes() {
     h.app.sync_image_paint_for_tool();
     h.app
         .finish_freehand_brush(vec![Pos2::new(50.0, 50.0), Pos2::new(150.0, 50.0)]);
+    let result = h.app.image_result_id(image_id).unwrap();
     let stroke_id = h.app.doc().scene.node(image_id).unwrap();
     let slate_doc::scene::NodeKind::Image(img) = &stroke_id.kind else {
         panic!("image");
     };
-    let stroke_id = img.paint_layers[0].nodes[0].id;
+    let stroke_id = slate_doc::image_paint::result_layers(img, &result)
+        .unwrap()
+        .layers[0]
+        .nodes[0]
+        .id;
     h.app.set_board_tool(board::BoardTool::Eraser);
     h.app.sync_image_paint_for_tool();
     h.app.eraser_width = 30.0;
@@ -351,12 +356,17 @@ fn image_paint_eraser_removes_vector_stroke_and_undo_restores_it() {
     h.app.sync_image_paint_for_tool();
     h.app
         .finish_freehand_pen(vec![Pos2::new(40.0, 50.0), Pos2::new(160.0, 50.0)]);
+    let result = h.app.image_result_id(image_id).unwrap();
     let stroke_id = {
         let host = h.app.doc().scene.node(image_id).unwrap();
         let slate_doc::scene::NodeKind::Image(img) = &host.kind else {
             panic!("image");
         };
-        img.paint_layers[0].nodes[0].id
+        slate_doc::image_paint::result_layers(img, &result)
+            .unwrap()
+            .layers[0]
+            .nodes[0]
+            .id
     };
     h.app
         .finish_erase(vec![stroke_id], vec![Pos2::new(100.0, 50.0)], Vec::new());

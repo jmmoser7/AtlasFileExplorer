@@ -1,15 +1,17 @@
 //! Shared suggestion box: local report bundles, optional step recording.
 
+mod attachments;
 mod bundle;
+mod button;
+mod panels;
 mod recorder;
 mod ui;
 
 pub use bundle::{default_reports_dir, repo_root_from, repo_root_from_exe, ReportJson};
+pub use button::suggestion_button;
 pub use recorder::RecordedStep;
 pub use recorder::{redact_paths_in_text, Recorder, RECORD_TIMEOUT};
-pub use ui::{
-    advanced_section, dialogs, paint_recording_chrome, suggestion_button, FeedbackUiOutput,
-};
+pub use ui::{advanced_section, dialogs, paint_recording_chrome, FeedbackUiOutput};
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -60,6 +62,8 @@ pub enum FeedbackPhase {
 }
 
 pub struct FeedbackHub {
+    /// Canvas geometry supplied by the launcher; transient, never saved.
+    pub canvas_rect: Option<eframe::egui::Rect>,
     pub prefs: FeedbackPrefs,
     pub phase: FeedbackPhase,
     pub kind: Option<FeedbackKind>,
@@ -87,6 +91,7 @@ const MAX_ATTACHMENT_BYTES: u64 = 32 * 1024 * 1024;
 impl Default for FeedbackHub {
     fn default() -> Self {
         Self {
+            canvas_rect: None,
             prefs: FeedbackPrefs::default(),
             phase: FeedbackPhase::Closed,
             kind: None,

@@ -98,8 +98,6 @@ pub const POOL_CHANGE_MIN_SECS: f32 = 0.35;
 pub fn bench_legacy() -> bool {
     std::env::var_os("ATLAS_BENCH_LEGACY").is_some()
 }
-/// Border band that stays a Slate target while a portal holds input focus.
-pub const BORDER_HIT_PX: f32 = 6.0;
 /// Floor on how often a local source's mtime is checked, on a worker.
 pub const POLL_SECS: f32 = 1.0;
 /// Poster alpha while a recapture is in flight.
@@ -2677,21 +2675,6 @@ impl SlateApp {
         )
     }
 
-    /// `portal.web.source` for a multi-file dashboard: the folder holding the
-    /// entry file.
-    #[allow(dead_code)] // No caller yet.
-    pub(crate) fn web_pick_folder_for_selection(&mut self) -> bool {
-        let Some(portal) = self.selected_web_portal() else {
-            return false;
-        };
-        self.picker.open(PickRequest::folder(), move |picked| {
-            super::PickerMsg::WebPortalSource {
-                portal,
-                path: file_picker::first(picked),
-            }
-        })
-    }
-
     /// `portal.web.allow_origin`.
     pub(crate) fn web_allow_selected_origin(&mut self) -> bool {
         let Some(id) = self.selected_web_portal() else {
@@ -2970,8 +2953,7 @@ impl SlateApp {
         if self.portal_chrome.maximized == Some(id) {
             return false;
         }
-        // Escape is owned exclusively by the command cancel stack. Handling
-        // it here too would peel focus in the same frame as restoring maximize.
+        // Escape belongs to the cancel stack: handling it here would peel focus as maximize restores.
         let srect = xf.rect_w2s(node.rect);
         let mut layout = layout_portal_chrome(
             srect,
@@ -3077,7 +3059,8 @@ impl SlateApp {
         pointer: Option<Pos2>,
     ) -> bool {
         let page = layout.body;
-        let inside = pointer.is_some_and(|p| page_owns_point(layout, p));
+        let inside = pointer.is_some_and(|p| page_owns_point(layout, p))
+            && self.portal_owns_pointer(ui.ctx(), id);
         let dragging = self.web.pointer_down != 0;
         if !inside && !dragging {
             if ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary)) {

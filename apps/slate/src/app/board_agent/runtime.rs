@@ -1,6 +1,7 @@
 //! Agent runtime types: live preview, generator view, and session state.
 
 use super::*;
+use std::collections::VecDeque;
 
 /// Persisted MRU of folders the human bound to an agent portal.
 pub(super) const AGENT_RECENTS_KEY: &str = "slate-agent-projects";
@@ -98,63 +99,22 @@ thread_local! {
         const { std::cell::Cell::new(0) };
 }
 
-/// The visible crop or paint composite the once-a-second context publish
-/// shows for a wired picture. Made off the frame loop, then reused while the
-/// picture is unchanged; a send still clips fresh (`agent_input_snapshot`).
-#[derive(Default)]
-pub(super) struct PublishClips {
-    /// Content key per picture node, valid for one scene revision.
-    pub(super) keys: HashMap<NodeId, ((u64, u64), u64)>,
-    /// `None` when no clip can be made; the source then stands, as at send.
-    pub(super) ready: HashMap<u64, Option<PathBuf>>,
-    pub(super) pending: HashSet<u64>,
-    pub(super) done: Option<(Sender<MadeClip>, Receiver<MadeClip>)>,
+#[derive(Clone)]
+pub(super) struct QueuedGeneration {
+    pub(super) doc: u64,
+    pub(super) request: atlas_agent::AgentRequest,
+    pub(super) inputs: super::input_prep::InputPreparation,
 }
 
-/// A publish clip's content key and the file made for it.
-type MadeClip = (u64, Option<PathBuf>);
-
-impl PublishClips {
-    const KEEP: usize = 256;
-
-    pub(super) fn receive(&mut self) {
-        let Some((_, rx)) = &self.done else {
-            return;
-        };
-        while let Ok((key, clip)) = rx.try_recv() {
-            self.pending.remove(&key);
-            if self.ready.len() >= Self::KEEP {
-                self.ready.clear();
-            }
-            self.ready.insert(key, clip);
-        }
-    }
-
-    pub(super) fn key(
-        &mut self,
-        node: &Node,
-        img: &slate_doc::scene::ImageNode,
-        revision: (u64, u64),
-    ) -> u64 {
-        use std::hash::{Hash, Hasher};
-        if let Some((at, key)) = self.keys.get(&node.id) {
-            if *at == revision {
-                return *key;
-            }
-        }
-        let mut hash = std::collections::hash_map::DefaultHasher::new();
-        node.id.hash(&mut hash);
-        serde_json::to_string(img)
-            .unwrap_or_default()
-            .hash(&mut hash);
-        let key = hash.finish();
-        self.keys.insert(node.id, (revision, key));
-        key
-    }
-
-    pub(super) fn sender(&mut self) -> Sender<MadeClip> {
-        self.done.get_or_insert_with(unbounded).0.clone()
-    }
+#[derive(Clone)]
+pub(super) struct PendingChatSend {
+    pub(super) doc: u64,
+    pub(super) portal: NodeId,
+    pub(super) composer: NodeId,
+    pub(super) prompt: String,
+    pub(super) workspace: PathBuf,
+    pub(super) typing_here: bool,
+    pub(super) inputs: super::input_prep::InputPreparation,
 }
 
 type ConnectionResult = (NodeId, String, Result<AgentSession, String>);
@@ -169,13 +129,21 @@ type FitRevision = (
     Option<NodeId>,
     u64,
 );
-type CachedGalley = (u64, u64, u64, std::sync::Arc<egui::Galley>, f32);
+/// Text key and the world-unit line breaks it produced. Zoom is not part of
+/// either; `canvas_text::world_text` scales the layout at paint time.
+type CachedGalley = (
+    u64,
+    u64,
+    u64,
+    std::sync::Arc<atlas_shell::canvas_text::WorldLayout>,
+);
 type ChatsResult = (String, PathBuf, Result<Vec<CursorChat>, String>);
 
 #[derive(Default)]
 pub struct AgentRuntime {
     pub(super) sources: atlas_ai::agent::AgentSources,
-    pub(super) publish_clips: std::cell::RefCell<PublishClips>,
+    pub(super) image_prep: std::cell::RefCell<super::input_prep::ImageInputPrep>,
+    pub(super) chat_preparing: HashMap<NodeId, PendingChatSend>,
     pub(super) project_picker: Option<NodeId>,
     pub(super) catalog_error: Option<String>,
     pub(super) connection_rx: Option<Receiver<ConnectionResult>>,
@@ -211,6 +179,8 @@ pub struct AgentRuntime {
     pub(super) context_auto: HashMap<NodeId, Pos2>,
     /// Last painted screen position of the manual-context dot, when it is showing.
     pub(super) context_human: HashMap<NodeId, Pos2>,
+    /// Last painted screen position of the return dot, when the card has outputs.
+    pub(super) return_dot: HashMap<NodeId, Pos2>,
     /// Press origin on a context dot, so a click can be told from a drag.
     pub(super) context_press: Option<(NodeId, Pos2)>,
     /// Temporary context cards. They vanish when the pointer leaves them.
@@ -220,8 +190,11 @@ pub struct AgentRuntime {
     /// field that currently has the caret.
     pub(super) composer_rects: HashMap<NodeId, Rect>,
     pub(super) composer_editing: Option<NodeId>,
-    /// Scroll range of user-sized cards whose content overflows, in world units.
+    /// Scroll range of user-sized and partial cards whose content overflows, in world units.
     pub(super) card_overflow: HashMap<NodeId, f32>,
+    /// Screen rects of the collapse chevrons painted last frame. A press here
+    /// is the chevron's, not a frame resize.
+    pub(super) chevron_hits: Vec<Rect>,
     /// Streaming transcript follow, in world units. Absent means follow the bottom.
     pub(super) follow: HashMap<NodeId, train_ux::FollowScroll>,
     /// Collapsed cards shown at twice the capsule while a reply streams.
@@ -263,7 +236,6 @@ pub struct AgentRuntime {
     pub(super) context_tick: Option<Instant>,
     pub(super) codex: HashMap<String, atlas_ai::runtime::CodexLink>,
     pub(super) programs: Vec<atlas_ai::agent::AgentProvider>,
-    pub(super) programs_rx: Option<Receiver<Vec<atlas_ai::agent::AgentProvider>>>,
     pub(super) programs_started: bool,
     pub(super) output_epoch: u64,
     pub(super) image_cache: std::cell::RefCell<HashMap<NodeId, CachedImages>>,
@@ -298,7 +270,7 @@ pub struct AgentRuntime {
     pub(super) recents_started: bool,
     pub(super) cover_focus: HashMap<NodeId, usize>,
     /// Generations accepted while this note is already running.
-    pub(super) comfy_queue: HashMap<NodeId, std::collections::VecDeque<atlas_agent::AgentRequest>>,
+    pub(super) comfy_queue: HashMap<NodeId, VecDeque<QueuedGeneration>>,
     /// Input signature last sent by a live generator.
     pub(super) live_sent: HashMap<NodeId, u64>,
     /// Current live run. Keep starts a new one so the shown frame stays.
@@ -423,6 +395,10 @@ pub struct ChatPicker {
 }
 
 impl AgentRuntime {
+    pub fn prompt(&self, id: NodeId) -> Option<&str> {
+        self.prompts.get(&id).map(String::as_str)
+    }
+
     pub fn prompt_mut(&mut self, id: NodeId) -> &mut String {
         self.prompts.entry(id).or_default()
     }

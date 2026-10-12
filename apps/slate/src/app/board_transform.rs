@@ -3,7 +3,6 @@
 //! Select-tool edges and corners are live without a prior selection. Portals
 //! and simple lines do not rotate. Aspect-ratio keys stay in `board_snap`
 //! (Shift / Ctrl) — this module only decides what the pointer is aimed at.
-
 use super::board::{BoardDrag, BoardXf};
 use super::{board_handles, SlateApp};
 use atlas_shell::canvas_scale;
@@ -20,173 +19,12 @@ pub(crate) struct FilletRequest {
     pub vertex: Option<usize>,
 }
 
-/// A + or − at a hovered polygon vertex (P1.shape.polygon-sides).
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct SidesGlyph {
-    pub id: NodeId,
-    pub vertex: usize,
-    pub add: bool,
-    /// Screen center and radius.
-    pub center: Pos2,
-    pub radius: f32,
-}
-
-#[derive(serde::Serialize, serde::Deserialize)]
-pub(crate) struct SidesRequest {
-    pub id: NodeId,
-    pub vertex: usize,
-    pub add: bool,
-}
+mod drag;
+mod hover;
+mod polygon;
+pub(crate) use polygon::SidesRequest;
 
 impl SlateApp {
-    /// Screen vertices of a selected, editable regular polygon and every
-    /// +/− it can offer. `None` when it offers none, or they are too small
-    /// to read.
-    fn polygon_sides_layout(
-        &self,
-        node: &Node,
-        xf: &BoardXf,
-    ) -> Option<(Vec<Pos2>, Vec<SidesGlyph>)> {
-        let NodeKind::Shape(s) = &node.kind else {
-            return None;
-        };
-        if s.shape != ShapeKind::RegularPolygon
-            || node.locked
-            || self.tab().read_only
-            || self.board_crop.is_some()
-            || !self.board_sel.contains(&node.id)
-            || self.frame_chrome_suppressed(node.id)
-        {
-            return None;
-        }
-        let radius = canvas_scale::px(board_handles::SIDES_GLYPH_RADIUS, xf.z);
-        if canvas_scale::too_small(radius) {
-            return None;
-        }
-        let offset = canvas_scale::px(board_handles::SIDES_GLYPH_OFFSET, xf.z);
-        let sides = scene::clamp_regular_sides(s.sides);
-        let pts: Vec<Pos2> = scene::regular_polygon_vertices(node.rect, sides, s.phase_deg)
-            .into_iter()
-            .map(|p| {
-                let [x, y] = node.rect.rotate_point(p, node.rotation_deg);
-                xf.w2s(Pos2::new(x, y))
-            })
-            .collect();
-        let n = pts.len();
-        let mut glyphs = Vec::new();
-        for (k, &v) in pts.iter().enumerate() {
-            // Outward bisector: the sum of the unit edges arriving at `v`.
-            let out = (v - pts[(k + n - 1) % n]).normalized() + (v - pts[(k + 1) % n]).normalized();
-            let len = out.length();
-            if len.is_nan() || len <= 1e-4 {
-                continue;
-            }
-            let out = out.normalized();
-            for (add, center) in [(true, v + out * offset), (false, v - out * offset)] {
-                if scene::regular_polygon_resided(sides, s.phase_deg, k, add).is_some() {
-                    glyphs.push(SidesGlyph {
-                        id: node.id,
-                        vertex: k,
-                        add,
-                        center,
-                        radius,
-                    });
-                }
-            }
-        }
-        Some((pts, glyphs))
-    }
-
-    fn selected_polygon_layouts(&self, xf: &BoardXf) -> Vec<(Vec<Pos2>, Vec<SidesGlyph>)> {
-        self.doc()
-            .scene
-            .nodes
-            .iter()
-            .rev()
-            .filter(|n| self.board_sel.contains(&n.id))
-            .filter_map(|n| self.polygon_sides_layout(n, xf))
-            .collect()
-    }
-
-    /// The +/− under `screen`, shown or not: pointing at one reveals it.
-    pub(crate) fn polygon_sides_glyph_at(&self, screen: Pos2, xf: &BoardXf) -> Option<SidesGlyph> {
-        let hit = canvas_scale::hit_px(board_handles::SIDES_GLYPH_RADIUS, xf.z);
-        self.selected_polygon_layouts(xf)
-            .into_iter()
-            .flat_map(|(_, glyphs)| glyphs)
-            .find(|g| g.center.distance(screen) <= hit)
-    }
-
-    /// The polygon vertex whose glyphs `screen` reveals: near the vertex or
-    /// on one of its glyphs.
-    fn polygon_sides_hover_at(&self, screen: Pos2, xf: &BoardXf) -> Option<(NodeId, usize)> {
-        let near = canvas_scale::hit_px(board_handles::SIDES_VERTEX_HIT, xf.z);
-        let hit = canvas_scale::hit_px(board_handles::SIDES_GLYPH_RADIUS, xf.z);
-        self.selected_polygon_layouts(xf)
-            .into_iter()
-            .find_map(|(pts, glyphs)| {
-                let id = glyphs.first()?.id;
-                pts.iter()
-                    .position(|v| v.distance(screen) <= near)
-                    .or_else(|| {
-                        glyphs
-                            .iter()
-                            .find(|g| g.center.distance(screen) <= hit)
-                            .map(|g| g.vertex)
-                    })
-                    .map(|k| (id, k))
-            })
-    }
-
-    /// The glyphs to paint: the hovered vertex's + and −, if any.
-    pub(crate) fn polygon_sides_glyphs(&self, xf: &BoardXf) -> Vec<SidesGlyph> {
-        let Some((id, vertex)) = self.board_sides_hover.filter(|_| self.board_drag.is_none())
-        else {
-            return Vec::new();
-        };
-        let Some(node) = self.doc().scene.node(id) else {
-            return Vec::new();
-        };
-        self.polygon_sides_layout(node, xf)
-            .map(|(_, glyphs)| glyphs.into_iter().filter(|g| g.vertex == vertex).collect())
-            .unwrap_or_default()
-    }
-
-    /// One side more or fewer about a vertex: one journaled patch.
-    pub(crate) fn shape_sides_command(&mut self, detail: Option<&str>) -> bool {
-        let Some(req) = detail.and_then(|s| serde_json::from_str::<SidesRequest>(s).ok()) else {
-            return false;
-        };
-        if self.refuse_read_only_edit() {
-            return false;
-        }
-        let Some(before) = self.doc().scene.node(req.id).cloned() else {
-            return false;
-        };
-        let NodeKind::Shape(s) = &before.kind else {
-            return false;
-        };
-        if before.locked || s.shape != ShapeKind::RegularPolygon {
-            return false;
-        }
-        let Some((sides, phase)) =
-            scene::regular_polygon_resided(s.sides, s.phase_deg, req.vertex, req.add)
-        else {
-            return false;
-        };
-        let mut after = before.clone();
-        if let NodeKind::Shape(s) = &mut after.kind {
-            let (old_sides, old_phase) = (s.sides, s.phase_deg);
-            s.sides = sides;
-            s.phase_deg = phase;
-            slate_doc::vertex_style::reside_closed_form_style(s, old_sides, old_phase);
-        }
-        self.commit_scene(vec![scene::SceneCmd::Patch {
-            before: Box::new(before),
-            after: Box::new(after),
-        }])
-    }
-
     /// Portals stay axis-aligned; connectors and simple lines have no bbox
     /// rotate. Everything else with a rectangular frame can rotate.
     pub(crate) fn node_allows_rotation(node: &Node) -> bool {
@@ -576,13 +414,14 @@ impl SlateApp {
         screen: Pos2,
     ) -> Option<(Option<NodeId>, board_handles::BoardHitTarget)> {
         let xf = self.board_xf();
-        if self.agent_output_at(screen, &xf).is_some()
-            || self.agent_stop_at(screen, &xf).is_some()
-            || self.agent_artifact_at(screen, &xf).is_some()
-            || self.crosstalk_port_under(screen, &xf).is_some()
-            || self.crosstalk_captures(screen)
+        if self.agent_grip_owns(screen, &xf)
+            || self.polygon_sides_glyph_at(screen, &xf).is_some()
+            || self.fillet_grip_hit_at(screen).is_some()
         {
             return None;
+        }
+        if let Some((id, hit)) = self.chat_south_resize(screen, &xf) {
+            return Some((Some(id), hit));
         }
         if self.board_sel.len() >= 2 && !self.selection_all_simple_lines() {
             if let Some(gb) = self.board_group_bounds() {
@@ -599,82 +438,27 @@ impl SlateApp {
                 continue;
             }
             let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
-            if let Some(hit) =
-                board_handles::hit_test_chrome(screen, &geom, Self::node_allows_rotation(n))
-            {
+            if let Some(vertex) = self.polygon_rotate_at(n, screen, &xf) {
+                return Some((Some(n.id), board_handles::BoardHitTarget::Rotate(vertex)));
+            }
+            let polygon =
+                matches!(&n.kind, NodeKind::Shape(s) if s.shape == ShapeKind::RegularPolygon);
+            if let Some(hit) = board_handles::hit_test_chrome(
+                screen,
+                &geom,
+                !polygon && Self::node_allows_rotation(n),
+            ) {
+                let world = xf.s2w(screen);
+                if polygon
+                    && matches!(&n.kind, NodeKind::Shape(s)
+                    if !super::board_path::hit_path_node(n, s, world.x, world.y, xf.z))
+                {
+                    continue;
+                }
                 return Some((Some(n.id), hit));
             }
         }
         None
-    }
-
-    /// Hover cursors only. Selection is not required. Edge / rotate hover
-    /// never paints selection chrome (P1.node.transform).
-    pub(crate) fn hover_transform_chrome(
-        &mut self,
-        pointer: Option<Pos2>,
-        xf: &BoardXf,
-        ctx: &egui::Context,
-        wire_grip_hovered: bool,
-    ) {
-        self.board_hover_hit = None;
-        self.board_hover_node = None;
-        self.board_sides_hover = None;
-        let Some(p) = pointer else { return };
-        if self.pointer_on_portal_maximize(p, xf) {
-            return;
-        }
-        if let Some((id, vertex)) = self.fillet_grip_hit_at(p) {
-            self.board_hover_hit = Some(board_handles::BoardHitTarget::FilletRadius);
-            self.board_hover_node = Some(id);
-            self.board_hover_grip_vertex = vertex;
-            if let Some(edge) = self
-                .doc()
-                .scene
-                .node(id)
-                .and_then(|n| self.node_grip_edge(n, vertex))
-            {
-                ctx.set_cursor_icon(board_handles::cursor_along(Vec2::from(edge.dir)));
-            }
-            return;
-        }
-        self.board_sides_hover = self.polygon_sides_hover_at(p, xf);
-        if self.polygon_sides_glyph_at(p, xf).is_some() {
-            ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
-            return;
-        }
-        if self.curve_grip_under(p) {
-            return;
-        }
-        let Some((node, hit)) = self.transform_hit_at(p) else {
-            return;
-        };
-        self.board_hover_hit = Some(hit);
-        self.board_hover_node = node;
-        if wire_grip_hovered {
-            return;
-        }
-        let geom = match node {
-            Some(id) => self
-                .doc()
-                .scene
-                .node(id)
-                .map(|n| board_handles::selection_geom(xf, n.rect, n.rotation_deg)),
-            None => self
-                .board_group_bounds()
-                .map(|gb| board_handles::selection_geom(xf, gb, 0.0)),
-        };
-        let Some(geom) = geom else { return };
-        match hit {
-            board_handles::BoardHitTarget::Resize(h) => {
-                ctx.set_cursor_icon(board_handles::cursor_for_resize(h, &geom));
-            }
-            board_handles::BoardHitTarget::Rotate(_) => {
-                ctx.set_cursor_icon(board_handles::cursor_for_rotate());
-            }
-            board_handles::BoardHitTarget::Body => {}
-            board_handles::BoardHitTarget::FilletRadius => {}
-        }
     }
 
     /// Body under the pointer, excluding edge / rotate chrome and the
@@ -785,145 +569,6 @@ impl SlateApp {
             painter.add(egui::Shape::closed_line(outline, stroke));
         }
     }
-
-    /// Press on bounding-box chrome — selected, group, or an unselected node.
-    /// A wire-grip press is not a resize, even though it sits on the edge.
-    pub(crate) fn begin_transform_drag(&mut self, screen: Pos2, world: Pos2) -> Option<BoardDrag> {
-        let xf = self.board_xf();
-        if self.pointer_on_portal_maximize(screen, &xf) {
-            return None;
-        }
-        if self.wire_grip_at(screen, &xf).is_some() {
-            return None;
-        }
-        let Some((node, hit)) = self.transform_hit_at(screen) else {
-            return self.move_selection_in_bounds(world);
-        };
-        match (node, hit) {
-            (None, board_handles::BoardHitTarget::Resize(h)) => {
-                let gb = self.board_group_bounds()?;
-                let before: Vec<Node> = self
-                    .board_sel
-                    .iter()
-                    .filter_map(|i| self.doc().scene.node(*i).cloned())
-                    .collect();
-                if self.alt_scale_copies() {
-                    let (ids, before) = self.stage_unjournaled_duplicates(&before);
-                    let gb = self.board_group_bounds().unwrap_or(gb);
-                    return Some(BoardDrag::GroupResize {
-                        ids,
-                        before,
-                        group_before: gb,
-                        handle: h as u8,
-                        dup: true,
-                    });
-                }
-                let ids: Vec<NodeId> = before.iter().map(|n| n.id).collect();
-                Some(BoardDrag::GroupResize {
-                    ids,
-                    before,
-                    group_before: gb,
-                    handle: h as u8,
-                    dup: false,
-                })
-            }
-            (None, board_handles::BoardHitTarget::Rotate(_)) => {
-                let gb = self.board_group_bounds()?;
-                let before: Vec<Node> = self
-                    .board_sel
-                    .iter()
-                    .filter_map(|i| self.doc().scene.node(*i).cloned())
-                    .collect();
-                let ids: Vec<NodeId> = before.iter().map(|n| n.id).collect();
-                let (cx, cy) = gb.center();
-                let start_angle = (world.y - cy).atan2(world.x - cx);
-                Some(BoardDrag::GroupRotate {
-                    ids,
-                    before,
-                    center: (cx, cy),
-                    start_angle,
-                })
-            }
-            (Some(id), board_handles::BoardHitTarget::Resize(h)) => {
-                // Shift/Ctrl on an unselected node is add-to-selection, not
-                // a hover-resize steal (P1.node.select). Shift on a selected
-                // node still means free-aspect resize.
-                if (self.shift_down || self.ctrl_down) && !self.board_sel.contains(&id) {
-                    return None;
-                }
-                let n = self.doc().scene.node(id).cloned()?;
-                if !self.board_sel.contains(&id) {
-                    self.board_sel.clear();
-                    self.board_sel.insert(id);
-                }
-                if self.alt_scale_copies() {
-                    let (ids, before) = self.stage_unjournaled_duplicates(std::slice::from_ref(&n));
-                    let (id, before) = (ids.into_iter().next()?, before.into_iter().next()?);
-                    return Some(BoardDrag::Resize {
-                        id,
-                        before,
-                        handle: h as u8,
-                        dup: true,
-                    });
-                }
-                Some(BoardDrag::Resize {
-                    id,
-                    before: n,
-                    handle: h as u8,
-                    dup: false,
-                })
-            }
-            (Some(id), board_handles::BoardHitTarget::Rotate(_)) => {
-                let n = self.doc().scene.node(id).cloned()?;
-                if !Self::node_allows_rotation(&n) {
-                    return None;
-                }
-                if (self.shift_down || self.ctrl_down) && !self.board_sel.contains(&id) {
-                    return None;
-                }
-                if !self.board_sel.contains(&id) {
-                    self.board_sel.clear();
-                    self.board_sel.insert(id);
-                }
-                let (cx, cy) = n.rect.center();
-                let start_angle = (world.y - cy).atan2(world.x - cx);
-                Some(BoardDrag::Rotate {
-                    id,
-                    before: n,
-                    start_angle,
-                })
-            }
-            (_, board_handles::BoardHitTarget::Body) => None,
-            (_, board_handles::BoardHitTarget::FilletRadius) => None,
-        }
-    }
-
-    /// Gap inside a multi-selection's box: nothing was picked, so the press
-    /// moves the group instead of starting a marquee.
-    fn move_selection_in_bounds(&self, world: Pos2) -> Option<BoardDrag> {
-        if !self.selection_bounds_claim_press(world) {
-            return None;
-        }
-        if self.board_pick_node(world.x, world.y).is_some() {
-            return None;
-        }
-        let selected: Vec<NodeId> = self.board_sel.iter().copied().collect();
-        let expanded = self.expand_with_members(&selected);
-        let before: Vec<Node> = expanded
-            .iter()
-            .filter_map(|id| self.doc().scene.node(*id).cloned())
-            .collect();
-        if before.is_empty() {
-            return None;
-        }
-        let ids = before.iter().map(|n| n.id).collect();
-        Some(BoardDrag::Move {
-            ids,
-            before,
-            start_world: world,
-            dup: self.alt_down,
-        })
-    }
 }
 
 fn ease_in_out_cubic(t: f32) -> f32 {
@@ -934,7 +579,6 @@ fn ease_in_out_cubic(t: f32) -> f32 {
         1.0 - (-2.0 * t + 2.0).powi(3) / 2.0
     }
 }
-
 /// Numeric sizing uses the same rectangle mapping as group/handle scaling.
 /// `bounds` may be tighter than a path's normalization rectangle. Preserve its
 /// world-space center when rotation makes the two centers differ.

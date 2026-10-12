@@ -13,6 +13,13 @@ use slate_doc::scene::resolve_source;
 use slate_doc::{LocatorChange, RewriteLocators};
 use std::path::{Path, PathBuf};
 
+#[path = "workbook_assets_deferred.rs"]
+mod deferred;
+pub(super) use deferred::{DeferredWorkbookAction, DeferredWorkbookActions};
+
+#[cfg(test)]
+mod tests;
+
 pub(crate) struct CollectJob {
     pub tab: u64,
     pub outcome: CollectOutcome,
@@ -28,13 +35,138 @@ pub(crate) struct SaveAssetsJob {
     outcome: CollectOutcome,
 }
 
+pub(crate) struct SaveAssetsWatch {
+    tab: u64,
+    generation: u64,
+    rx: crossbeam_channel::Receiver<SaveAssetsJob>,
+}
+
 impl SlateApp {
-    /// `board.assets.collect`. Copies are off the frame loop.
-    pub(crate) fn collect_assets_into_workbook(&mut self) -> bool {
-        if self.refuse_read_only_edit() {
+    pub(super) fn save_tab_for_close(&mut self, i: usize) -> bool {
+        if i >= self.tabs.len() {
+            return true;
+        }
+        let tab_id = self.tabs[i].id;
+        if !self.tabs[i].dirty {
+            return !self.asset_saves_pending.contains(&tab_id)
+                && !self.deferred_workbook_actions.has_tab(tab_id)
+                && !self.layer_bakes.pending_for(tab_id);
+        }
+        if self.tabs[i].read_only {
+            self.toast("Workbook is read-only — use Save a copy…");
             return false;
         }
-        let Some(workbook) = self.tab().path.clone() else {
+        if let Some(path) = self.tabs[i].path.clone() {
+            self.save_doc_to(tab_id, path);
+        } else {
+            let name = self.tabs[i].doc.name.clone();
+            self.save_doc_as_dialog_for(tab_id, name);
+            return false;
+        }
+        !self.tabs[i].dirty
+            && !self.asset_saves_pending.contains(&tab_id)
+            && !self.deferred_workbook_actions.has_tab(tab_id)
+            && !self.layer_bakes.pending_for(tab_id)
+    }
+
+    pub(super) fn unsaved_close_tab_id(&self) -> Option<u64> {
+        match self.unsaved_close {
+            Some(super::UnsavedClose::Tab(index)) => self.tabs.get(index).map(|tab| tab.id),
+            _ => None,
+        }
+    }
+
+    pub(super) fn tab_ready_to_close(&self, index: usize) -> bool {
+        self.tabs.get(index).is_some_and(|tab| {
+            !tab.dirty
+                && !self.asset_saves_pending.contains(&tab.id)
+                && !self.deferred_workbook_actions.has_tab(tab.id)
+                && !self.layer_bakes.pending_for(tab.id)
+        })
+    }
+
+    pub(super) fn do_export_for(&mut self, tab_id: u64, dir: PathBuf) {
+        if self.layer_bakes.pending_for(tab_id) {
+            self.deferred_workbook_actions.export(tab_id, dir);
+            self.toast("Export queued until paint layers finish and this workbook is active…");
+            return;
+        }
+        if self.tab().id != tab_id {
+            self.deferred_workbook_actions.export(tab_id, dir);
+            self.toast("Export queued until this workbook is active…");
+            return;
+        }
+        if self.export_rx.is_some() {
+            self.deferred_workbook_actions.export(tab_id, dir);
+            self.toast("Export queued until the current export finishes…");
+            return;
+        }
+        self.lock_all_models();
+        self.do_export_active(dir);
+    }
+
+    /// Run actions that were waiting for cutout PNGs to finish. This is called
+    /// after the bake completion pump has applied the resulting metadata.
+    pub(crate) fn resume_deferred_workbook_actions(&mut self) {
+        let failed = self.layer_bakes.take_failed_tabs();
+        for tab in failed {
+            self.deferred_workbook_actions.cancel_io(tab);
+            if self.unsaved_close_tab_id() == Some(tab) {
+                self.toast("Paint layer creation failed; the workbook was not saved or closed.");
+            }
+        }
+        let tabs: Vec<u64> = self
+            .tabs
+            .iter()
+            .filter(|tab| !self.layer_bakes.pending_for(tab.id))
+            .map(|tab| tab.id)
+            .collect();
+        let active_tab = self
+            .tabs
+            .get(self.active_tab)
+            .map(|tab| tab.id)
+            .unwrap_or(0);
+        for tab in tabs {
+            let actions =
+                self.deferred_workbook_actions
+                    .take_tab(tab, active_tab, self.export_rx.is_none());
+            for action in actions {
+                match action {
+                    DeferredWorkbookAction::Save { tab, path } => self.save_doc_to(tab, path),
+                    DeferredWorkbookAction::Export { tab, dir } => self.do_export_for(tab, dir),
+                    DeferredWorkbookAction::Collect { tab } => {
+                        self.collect_assets_into_workbook_for(tab);
+                    }
+                    DeferredWorkbookAction::CloseDiscard { tab } => {
+                        if let Some(index) = self.tabs.iter().position(|open| open.id == tab) {
+                            self.force_close_tab(index);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// `board.assets.collect`. Copies are off the frame loop.
+    pub(crate) fn collect_assets_into_workbook(&mut self) -> bool {
+        let tab = self.tab().id;
+        self.collect_assets_into_workbook_for(tab)
+    }
+
+    fn collect_assets_into_workbook_for(&mut self, tab_id: u64) -> bool {
+        if self.layer_bakes.pending_for(tab_id) {
+            self.deferred_workbook_actions.collect(tab_id);
+            self.toast("Collecting assets after paint layers finish…");
+            return true;
+        }
+        let Some(tab_idx) = self.tabs.iter().position(|tab| tab.id == tab_id) else {
+            return false;
+        };
+        if self.tabs[tab_idx].read_only {
+            self.toast("Workbook is read-only.");
+            return false;
+        }
+        let Some(workbook) = self.tabs[tab_idx].path.clone() else {
             self.toast("Save the workbook first — assets travel beside the .slate file.");
             return true;
         };
@@ -42,8 +174,7 @@ impl SlateApp {
             self.toast("Already collecting assets.");
             return true;
         }
-        let tab = self.tab().id;
-        let sources = self.resolved_item_paths();
+        let sources = resolved_paths(Some(&workbook), &self.tabs[tab_idx].doc);
         let data_dir = atlas_core::index::data_dir();
         let (tx, rx) = crossbeam_channel::bounded(1);
         self.collect_rx = Some(rx);
@@ -55,7 +186,10 @@ impl SlateApp {
             let outcome = atlas_core::workbook_assets::collect_data_dir_assets(
                 &data_dir, &workbook, &sources, now,
             );
-            let _ = tx.send(CollectJob { tab, outcome });
+            let _ = tx.send(CollectJob {
+                tab: tab_id,
+                outcome,
+            });
         });
         self.toast("Collecting assets…");
         true
@@ -81,12 +215,11 @@ impl SlateApp {
     }
 
     fn finish_collect(&mut self, job: CollectJob) {
-        if self.tab().id != job.tab {
-            self.toast("Collect finished for a workbook that is no longer active.");
+        let Some(tab_idx) = self.tabs.iter().position(|tab| tab.id == job.tab) else {
             return;
-        }
-        let workbook = self.tab().path.clone();
-        self.apply_collected(workbook.as_deref(), &job.outcome);
+        };
+        let workbook = self.tabs[tab_idx].path.clone();
+        self.apply_collected_on_tab(tab_idx, workbook.as_deref(), &job.outcome);
         self.toast(job.outcome.summary());
     }
 
@@ -147,7 +280,11 @@ impl SlateApp {
         let data_dir = atlas_core::index::data_dir();
         let dest = dest.to_path_buf();
         let (tx, rx) = crossbeam_channel::bounded(1);
-        self.asset_save_rx.push(rx);
+        self.asset_save_rx.push(SaveAssetsWatch {
+            tab,
+            generation,
+            rx,
+        });
         std::thread::spawn(move || {
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -182,14 +319,28 @@ impl SlateApp {
             return;
         }
         let mut done = Vec::new();
-        self.asset_save_rx.retain(|rx| match rx.try_recv() {
-            Ok(job) => {
-                done.push(job);
-                false
+        let mut failed = Vec::new();
+        self.asset_save_rx
+            .retain(|watch| match watch.rx.try_recv() {
+                Ok(job) => {
+                    done.push(job);
+                    false
+                }
+                Err(crossbeam_channel::TryRecvError::Empty) => true,
+                Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                    failed.push((watch.tab, watch.generation));
+                    false
+                }
+            });
+        for (tab, generation) in failed {
+            if self.asset_save_generation.get(&tab) == Some(&generation) {
+                self.asset_saves_pending.remove(&tab);
+                if let Some(tab) = self.tabs.iter_mut().find(|open| open.id == tab) {
+                    tab.dirty = true;
+                }
+                self.toast("Asset copying stopped. Save the workbook again to retry.");
             }
-            Err(crossbeam_channel::TryRecvError::Empty) => true,
-            Err(crossbeam_channel::TryRecvError::Disconnected) => false,
-        });
+        }
         for job in done {
             self.finish_asset_save(job);
         }
@@ -200,6 +351,7 @@ impl SlateApp {
 
     fn finish_asset_save(&mut self, job: SaveAssetsJob) {
         let Some(tab_idx) = self.tabs.iter().position(|t| t.id == job.tab) else {
+            self.asset_saves_pending.remove(&job.tab);
             return;
         };
         // A later save of this tab owns the result.
@@ -211,6 +363,7 @@ impl SlateApp {
             .as_deref()
             .is_some_and(|path| atlas_core::workbook_assets::same_path(path, &job.dest));
         if !at_dest {
+            self.asset_saves_pending.remove(&job.tab);
             return;
         }
         let changes = locator_changes(
@@ -241,11 +394,7 @@ impl SlateApp {
         if !job.outcome.collected.is_empty() || !job.outcome.refused.is_empty() {
             self.toast(job.outcome.summary());
         }
-    }
-
-    fn apply_collected(&mut self, workbook: Option<&Path>, outcome: &CollectOutcome) -> usize {
-        let idx = self.active_tab;
-        self.apply_collected_on_tab(idx, workbook, outcome)
+        self.asset_saves_pending.remove(&job.tab);
     }
 
     fn apply_collected_on_tab(
@@ -271,10 +420,6 @@ impl SlateApp {
         tab.edits.push(BoardMark::Locators(cmd));
         tab.edit_redo.clear();
         tab.edits.last().map(|_| 1).unwrap_or(0)
-    }
-
-    fn resolved_item_paths(&self) -> Vec<PathBuf> {
-        resolved_paths(self.tab().path.as_deref(), self.doc())
     }
 }
 

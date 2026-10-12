@@ -1,7 +1,10 @@
 //! Board vector paths: world ↔ `PathData`, tessellation cache, hit-testing.
 
+pub(crate) mod multi_point;
 #[path = "board_path/tiles.rs"]
 pub(crate) mod tiles;
+
+mod picking;
 
 use eframe::egui::{self, Color32, Pos2, Shape, Stroke as EStroke, Vec2};
 use slate_doc::scene::{
@@ -813,7 +816,7 @@ fn path_content_hash(
     h.finish()
 }
 
-fn path_fill_hash(
+pub(crate) fn path_fill_hash(
     path: &PathData,
     rect: WorldRect,
     rotation_deg: f32,
@@ -986,17 +989,6 @@ fn stroke_picks(shape: &ShapeNode) -> bool {
     stroke.width > 0.0 && (!stroke.is_none() || stroke.paints_as_stamp() || !filled)
 }
 
-/// The ink disc of a single-click brush stroke: world center and radius.
-/// `None` for anything that is not a lone stamp dab.
-fn brush_dab_disc(node: &Node, shape: &ShapeNode) -> Option<(Pos2, f32)> {
-    let path = shape.path.as_ref()?;
-    if !path.is_empty() || !stroke_picks(shape) || !shape.stroke.paints_as_stamp() {
-        return None;
-    }
-    let (cx, cy) = node.rect.center();
-    Some((Pos2::new(cx, cy), shape.stroke.width.max(0.0) * 0.5))
-}
-
 fn hit_brush_dab(node: &Node, shape: &ShapeNode, wx: f32, wy: f32, zoom: f32) -> bool {
     let Some((c, r)) = brush_dab_disc(node, shape) else {
         return false;
@@ -1030,6 +1022,8 @@ pub fn hit_shape_stroke(node: &Node, shape: &ShapeNode, wx: f32, wy: f32, zoom: 
 }
 
 pub fn hit_path_node(node: &Node, shape: &ShapeNode, wx: f32, wy: f32, zoom: f32) -> bool {
+    let styled = slate_doc::vertex_style::closed_form_paint_shape(shape, node.rect);
+    let shape = styled.as_ref().unwrap_or(shape);
     if erased_at(node, shape, wx, wy) {
         return false;
     }
@@ -1039,12 +1033,10 @@ pub fn hit_path_node(node: &Node, shape: &ShapeNode, wx: f32, wy: f32, zoom: f32
     if shape_uses_stroke_pick(node, shape) {
         return hit_shape_stroke(node, shape, wx, wy, zoom);
     }
-    let Some(path) = shape.path.as_ref() else {
-        return node.rect.contains_rotated(wx, wy, node.rotation_deg);
+    let Some(path) = shape.path.as_ref().filter(|p| !p.is_empty()) else {
+        return slate_doc::geom::point_in_node_outline(node, wx, wy, 0.25)
+            || hit_shape_stroke(node, shape, wx, wy, zoom);
     };
-    if path.is_empty() {
-        return node.rect.contains_rotated(wx, wy, node.rotation_deg);
-    }
     let bez = shape_path_world_bez(node, shape, path);
     let style = stroke_style_world(&shape.stroke, zoom);
     let slop = pick_slop_world(zoom);
@@ -1385,86 +1377,10 @@ pub fn marquee_hits_node(
     }
 }
 
-pub fn board_pick_node(
-    scene: &slate_doc::scene::Scene,
-    wx: f32,
-    wy: f32,
-    zoom: f32,
-) -> Option<NodeId> {
-    board_pick_node_ex(scene, wx, wy, zoom, false)
-}
-
-/// Point pick honoring the scene flags: hidden nodes are never hit; locked
-/// nodes only when `include_locked` (the Ctrl+Shift+click escape hatch and
-/// eyedropper sampling). Connectors hit on their stroke (8 px pick width),
-/// never on their AABB.
-pub fn board_pick_node_ex(
-    scene: &slate_doc::scene::Scene,
-    wx: f32,
-    wy: f32,
-    zoom: f32,
-    include_locked: bool,
-) -> Option<NodeId> {
-    board_pick_node_routed(
-        scene,
-        wx,
-        wy,
-        zoom,
-        include_locked,
-        slate_doc::WireRouting::Bezier,
-    )
-}
-
-/// Point pick with the session wire routing. A node under the pointer, and
-/// the pick slop just outside that node, beats a wire.
-pub fn board_pick_node_routed(
-    scene: &slate_doc::scene::Scene,
-    wx: f32,
-    wy: f32,
-    zoom: f32,
-    include_locked: bool,
-    routing: slate_doc::WireRouting,
-) -> Option<NodeId> {
-    let eligible = |n: &Node| !n.hidden && (!n.locked || include_locked) && !n.is_frame();
-    for n in scene.nodes.iter().rev().filter(|n| eligible(n)) {
-        if matches!(n.kind, NodeKind::Connector(_)) {
-            continue;
-        }
-        if let NodeKind::Shape(s) = &n.kind {
-            if shape_uses_stroke_pick(n, s) {
-                if hit_shape_stroke(n, s, wx, wy, zoom) {
-                    return Some(n.id);
-                }
-                continue;
-            }
-            if s.shape == ShapeKind::Path {
-                if hit_path_node(n, s, wx, wy, zoom) {
-                    return Some(n.id);
-                }
-                continue;
-            }
-        }
-        if n.rect.contains_rotated(wx, wy, n.rotation_deg) {
-            return Some(n.id);
-        }
-    }
-    for n in scene.nodes.iter().rev().filter(|n| eligible(n)) {
-        let NodeKind::Connector(c) = &n.kind else {
-            continue;
-        };
-        if super::board_wire::hit_connector_routed(scene, n.id, c, wx, wy, zoom, routing) {
-            return Some(n.id);
-        }
-    }
-    scene
-        .nodes
-        .iter()
-        .rev()
-        .find(|n| {
-            n.is_frame() && !n.hidden && (include_locked || !n.locked) && n.rect.contains(wx, wy)
-        })
-        .map(|n| n.id)
-}
+#[cfg(test)]
+pub use picking::board_pick_node_ex;
+use picking::brush_dab_disc;
+pub use picking::{board_pick_node, board_pick_node_routed};
 
 #[cfg(test)]
 pub fn default_draw_stroke(accent: Rgba) -> Stroke {
@@ -5463,47 +5379,6 @@ pub const FREEHAND_SAMPLE_SPACING_PX: f32 = 1.75;
 pub const FREEHAND_FIT_ERROR_PX: f32 = 2.0;
 
 impl SlateApp {
-    pub(crate) fn cancel_path_draft(&mut self) {
-        self.board_path_draft = None;
-    }
-
-    pub(crate) fn finish_path_draft(&mut self) -> bool {
-        let Some(draft) = self.board_path_draft.take() else {
-            return false;
-        };
-        let (tool, rect, path_data, closed, tips) = match draft {
-            BoardPathDraft::Polyline {
-                mut points,
-                mut tips,
-            } => {
-                if points.len() < 2 {
-                    return false;
-                }
-                let closed = points.len() >= 4 && points.first() == points.last();
-                if closed {
-                    points.pop();
-                    tips.truncate(points.len());
-                }
-                let (r, d) = points_to_path_data(&points, closed);
-                (StrokeTool::Polyline, r, d, closed, tips)
-            }
-            BoardPathDraft::Bezier { anchors, tips, .. } => {
-                if anchors.len() < 2 {
-                    return false;
-                }
-                let bez = bezier_anchors_to_bezpath(&anchors);
-                let (r, d) = bezpath_to_path_data(&bez, false);
-                (StrokeTool::Bezier, r, d, false, tips)
-            }
-            BoardPathDraft::Arc { .. } => return false,
-        };
-        if path_data.is_empty() {
-            return false;
-        }
-        self.commit_drawn_path(tool, rect, path_data, closed, DrawnTips::Grips(&tips));
-        true
-    }
-
     #[cfg(test)]
     pub(crate) fn commit_path_node(
         &mut self,
@@ -5602,20 +5477,31 @@ impl SlateApp {
         match self.board_tool {
             super::board::BoardTool::Polyline => {
                 let tip = self.placed_tip(StrokeTool::Polyline);
+                if !matches!(self.board_path_draft, Some(BoardPathDraft::Polyline { .. })) {
+                    self.board_path_draft = Some(BoardPathDraft::Polyline {
+                        points: vec![],
+                        tips: vec![],
+                    });
+                }
                 if let Some(BoardPathDraft::Polyline { points, tips }) = &mut self.board_path_draft
                 {
-                    if points.last().copied() != Some(world) {
-                        points.push(world);
+                    let close = points.first().copied() == Some(world);
+                    let before = points.len();
+                    let result = multi_point::collect(
+                        points,
+                        multi_point::Event::Pick {
+                            point: world,
+                            close,
+                            finish: false,
+                        },
+                        multi_point::POLYLINE,
+                    );
+                    if points.len() != before {
                         tips.push(tip);
                     }
-                    if points.len() >= 4 && points.first() == points.last() {
+                    if result == multi_point::Transition::Finish {
                         self.finish_path_draft();
                     }
-                } else {
-                    self.board_path_draft = Some(BoardPathDraft::Polyline {
-                        points: vec![world],
-                        tips: vec![tip],
-                    });
                 }
             }
             super::board::BoardTool::Arc => {

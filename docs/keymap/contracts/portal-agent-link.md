@@ -465,8 +465,9 @@ the user delegated them.
   Oct 1, 4:55 am), and Once / Every hour / Every day / Every week, with a
   preview line. Windows Task Scheduler runs it while Slate is closed; replies
   arrive through the conversation folder and appear when the board opens.
-  While a run is still ahead, a clock glyph sits in the top strip just left of
-  the collapse chevron; hover names when, a click reopens the dialog.   An end is required (until this time next month, next year, or a date). Task
+  The top strip holds only `● Program · Model` and `⌄ ••• ●` (ledger CT5,
+  10 October 2026), so a pending run shows as Edit schedule… / Stop schedule
+  in the ellipsis menu rather than a clock glyph. An end is required (until this time next month, next year, or a date). Task
   Scheduler stores it as EndBoundary, so a task is not registered to run
   forever. A schedule saved without an end stays until the person sets one.
   Local only for now: the computer must be on.

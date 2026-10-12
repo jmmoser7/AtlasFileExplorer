@@ -4,6 +4,8 @@ use super::*;
 
 impl SlateApp {
     pub(crate) fn agent_pump(&mut self, ctx: &egui::Context) {
+        self.ai.packs.begin_frame();
+        self.paint_pack_key_entry(ctx);
         self.sync_agent_doc();
         let front_span = atlas_core::session_log::span("slate.agents.front");
         let mut existing: HashSet<String> = self
@@ -48,7 +50,16 @@ impl SlateApp {
         let tail_span = atlas_core::session_log::span("slate.agents.tail");
         self.pump_agent_awaits(ctx, &ws);
         self.pump_crosstalk(ctx);
+        self.pump_pending_chat_sends(ctx);
         self.pump_comfy_queue();
+        if self
+            .agents
+            .comfy_queue
+            .values()
+            .any(|queue| !queue.is_empty())
+        {
+            ctx.request_repaint_after(Duration::from_millis(30));
+        }
         self.pump_live_generators();
         if !self.agents.live_settle.is_empty() {
             ctx.request_repaint_after(LIVE_TYPING_SETTLE);

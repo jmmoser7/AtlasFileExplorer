@@ -271,8 +271,9 @@ impl SlateApp {
         }
     }
 
-    fn image_item_path(&self, image: NodeId) -> Option<PathBuf> {
-        self.image_item(image).and_then(|item| self.item_path(item))
+    pub(crate) fn image_item_path(&self, image: NodeId) -> Option<PathBuf> {
+        self.agent_shown_path(image)
+            .or_else(|| self.image_item(image).and_then(|item| self.item_path(item)))
     }
 
     fn image_item_cache_key(&self, image: NodeId) -> Option<String> {

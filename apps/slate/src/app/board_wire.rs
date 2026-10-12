@@ -5,9 +5,7 @@
 //!
 //! See `docs/keymap/specs/connectors.md`. Geometry is derived, never stored
 //! (`slate_doc::connector_route`); one gesture = one journaled step.
-
 const WIRE_BLISTER_SECONDS: f32 = 0.14;
-
 use super::board::{rgba32, BoardXf};
 use super::{board_path, SlateApp};
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Stroke as EStroke, Vec2};
@@ -402,10 +400,7 @@ impl SlateApp {
         super::board::to_rgba(self.palette().wire)
     }
 
-    /// Grip under `screen`, independent of hover state. Topmost node wins;
-    /// a body under the pointer occludes grips behind it. Used by both the
-    /// hover preview and press-to-wire so a drag that has already left the
-    /// dot still starts a wire from the press origin (resize must not win).
+    /// Shared topmost port hit: bodies and polygon rotation halos occlude ports.
     pub(crate) fn wire_grip_at(&self, screen: Pos2, xf: &BoardXf) -> Option<(NodeId, Side, f32)> {
         let w = xf.s2w(screen);
         if self.selection_bounds_claim_press(w) {
@@ -416,6 +411,9 @@ impl SlateApp {
         for n in self.doc().scene.nodes.iter().rev() {
             if n.hidden || matches!(n.kind, NodeKind::Connector(_)) {
                 continue;
+            }
+            if self.polygon_rotate_at(n, screen, xf).is_some() {
+                return None;
             }
             let host = self.wire_host(n);
             if let NodeKind::Portal(portal) = &n.kind {
@@ -477,10 +475,9 @@ impl SlateApp {
         None
     }
 
-    /// Per-frame grip hover: with the Select tool, only the grip whose
-    /// midpoint is within the grip hit of the pointer previews (locked
-    /// nodes included — wires may anchor to them). An edge between grips
-    /// is inert. A node body under the pointer occludes grips behind it.
+    /// Per-frame grip hover (Select tool): only the grip whose midpoint is within
+    /// the grip hit of the pointer previews, locked nodes included (wires may anchor
+    /// to them). An edge between grips is inert; a body occludes grips behind it.
     pub(crate) fn update_wire_grips(&mut self, pointer: Option<Pos2>, xf: &BoardXf) {
         self.wire_grips = None;
         let Some(p) = pointer else { return };
@@ -495,6 +492,7 @@ impl SlateApp {
     pub(crate) fn paint_wire_grips(&self, painter: &egui::Painter, xf: &BoardXf) {
         let key = egui::Id::new("wire-blister-last");
         if let Some(grips) = self.wire_grips {
+            painter.ctx().set_cursor_icon(egui::CursorIcon::Grab);
             painter.ctx().data_mut(|d| d.insert_temp(key, grips));
         }
         let Some(grips) = painter.ctx().data(|d| d.get_temp::<GripHover>(key)) else {
@@ -504,12 +502,6 @@ impl SlateApp {
             return;
         };
         let Some(node) = self.doc().scene.node(grips.node) else {
-            return;
-        };
-        if matches!(
-            &node.kind,
-            NodeKind::Portal(portal) if portal.kind == slate_doc::scene::PortalKind::Agent
-        ) {
             return;
         };
         let visible = self
@@ -972,10 +964,10 @@ impl SlateApp {
             .iter()
             .flatten()
             .filter_map(|id| {
-                self.doc()
-                    .scene
-                    .node(*id)
-                    .or_else(|| pending.iter().find(|n| n.id == *id))
+                pending
+                    .iter()
+                    .find(|n| n.id == *id)
+                    .or_else(|| self.doc().scene.node(*id))
                     .cloned()
             })
             .collect();
@@ -1055,9 +1047,10 @@ impl SlateApp {
         let rect = connector_aabb_routed(
             &conn,
             |id| {
-                scene
-                    .node(id)
-                    .or_else(|| pending.iter().find(|n| n.id == id))
+                pending
+                    .iter()
+                    .find(|n| n.id == id)
+                    .or_else(|| scene.node(id))
                     .map(|n| self.wire_host(n))
             },
             self.board_wire_routing,

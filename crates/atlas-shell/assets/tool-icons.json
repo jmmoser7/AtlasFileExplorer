@@ -79,6 +79,10 @@
     "path": "M12 4 19 8 19 16 12 20 5 16 5 8Z",
     "filled": false
   },
+  "Lasso": {
+    "path": "M5 7 12 4 20 8 19 16 12 20 6 16ZM5 7C3 6 2 4 3 3Q4 2 6 4L5 7",
+    "filled": false
+  },
   "Line": {
     "path": "M5 19 19 5",
     "filled": false
@@ -137,6 +141,10 @@
   },
   "Filters": {
     "path": "M3 5H21L14 13V20L10 18V13Z",
+    "filled": false
+  },
+  "Sliders": {
+    "path": "M3 7H6M12 7H21M9 4A3 3 0 1 0 9 10A3 3 0 1 0 9 4M3 17H15M21 17H18M15 14A3 3 0 1 0 15 20A3 3 0 1 0 15 14",
     "filled": false
   },
   "Grid": {

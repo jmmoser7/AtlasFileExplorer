@@ -42,10 +42,9 @@
 //!   them; the opposite union handle stays put on every corner and edge.
 //! - Frames drag their members with them (geometric membership, captured at
 //!   gesture start).
-
 use super::{
-    board_color, board_crop, board_forcefield, board_handles, board_icons, board_osnap, board_path,
-    board_place, board_snap, board_web, kits, model3d, SlateApp, ThumbState,
+    board_color, board_crop, board_forcefield, board_handles, board_osnap, board_path, board_place,
+    board_snap, board_web, kits, model3d, SlateApp, ThumbState,
 };
 
 pub use super::board_align::{BoardAlign, DistributeAxis};
@@ -170,7 +169,6 @@ pub(crate) struct SheetResize {
 
 /// (group, tag list of (id, name, color)) rows for tag menus.
 type TagRows = Vec<(slate_doc::TagId, String, [u8; 3])>;
-
 const ZOOM_MIN: f32 = atlas_core::display::SLATE_CANVAS.min;
 const ZOOM_MAX: f32 = atlas_core::display::SLATE_CANVAS.max;
 pub(crate) const MIN_DRAW: f32 = 8.0;
@@ -184,7 +182,6 @@ pub const IMAGE_H: f32 = 180.0;
 /// and a dozen rows; a larger card shows more, and the rest scroll.
 pub const SHEET_COL_WORLD: f32 = IMAGE_W / 12.0;
 pub const SHEET_ROW_WORLD: f32 = IMAGE_H / 12.0;
-
 /// How a spreadsheet card maps its rows and columns into a view rectangle.
 /// Few columns stretch to the card. Extra rows and columns keep this cell
 /// size and scroll.
@@ -400,7 +397,7 @@ impl SlateApp {
                 }
             }
             NodeKind::Image(img) => {
-                // An agent's picture shows its newest result until one is picked.
+                self.paint_image_interaction_shadow(painter, xf, node, chrome);
                 let generated = img.agent.is_some() && img.item.is_none();
                 let (path, name) = if generated {
                     (
@@ -501,6 +498,7 @@ impl SlateApp {
                             let tint = Color32::WHITE.gamma_multiply(alpha);
                             if let Some(clip) = &node.clip {
                                 paint_clipped_texture(
+                                    &mut self.path_mesh_cache,
                                     painter,
                                     xf,
                                     &tex,
@@ -521,13 +519,6 @@ impl SlateApp {
                                     img.mirror(),
                                 );
                                 paint_node_texture(painter, &tex, &vertices, tint);
-                            }
-                            if let Some(ov) = img.adjust.overlay {
-                                painter.add(egui::Shape::convex_polygon(
-                                    outline.clone(),
-                                    fade(rgba32(ov)),
-                                    EStroke::NONE,
-                                ));
                             }
                             self.paint_image_paint_layers(
                                 ui, painter, xf, node, img, &outline, srect, alpha, z,
@@ -571,17 +562,9 @@ impl SlateApp {
                 if !(matches!(kind, slate_doc::MediaKind::Image) || show_excerpt || model_card) {
                     paint_ext_badge(painter, srect, &slate_doc::media::ext_badge(&path), z);
                 }
-                stroke_outline(painter, &outline, &img.stroke, z);
+                self.paint_image_mask_stroke(painter, xf, node, img, &outline, alpha);
                 if img.agent.is_some() && !nested {
-                    let text_agent = img
-                        .agent
-                        .as_ref()
-                        .is_some_and(|a| a.view == atlas_ai::agent::PortalView::Text);
-                    if text_agent {
-                        self.paint_agent_text_window(ui, painter, xf, node, srect);
-                    } else {
-                        self.paint_agent_picture(ui, painter, xf, node, srect);
-                    }
+                    self.paint_agent_media(ui, painter, xf, node, srect);
                 }
             }
             NodeKind::Shape(s) => {
@@ -757,12 +740,7 @@ impl SlateApp {
                     // A sticky centers its block by moving where the cached
                     // galley paints, as `center_galley_vertically` does for the editor.
                     let dy = if sticky {
-                        let dy = (srect.height() - laid.rect.height()) * 0.5;
-                        if dy > 0.5 {
-                            dy
-                        } else {
-                            0.0
-                        }
+                        ((srect.height() - laid.rect.height()) * 0.5).max(0.0)
                     } else {
                         0.0
                     };
@@ -817,6 +795,7 @@ impl SlateApp {
     // ----- main board entry -----------------------------------------------------
 
     pub fn board_canvas(&mut self, ui: &mut egui::Ui, rect: Rect) {
+        self.poll_image_rasters(ui.ctx());
         self.validate_image_paint_session();
         self.tick_bumper_glide(ui.ctx());
         self.fit_agent_cards(ui.ctx());
@@ -848,7 +827,8 @@ impl SlateApp {
         let editing_text = self.text_compose_active();
 
         // Object chrome runs before gestures so it can capture clicks.
-        let agent_controls_capture = self.agent_spawn_input(ui, &xf);
+        let agent_controls_capture =
+            self.agent_spawn_input(ui, &xf) | self.image_result_drag_input(ui, &xf);
         let other_toolbar_captures = self.shape_properties_ui(ui, &xf)
             | self.corner_entry_ui(ui, &xf)
             | self.tip_numeric_ui(ui, &xf)
@@ -856,6 +836,8 @@ impl SlateApp {
         let shot_captures = self.paint_model_screenshot_popup(ui.ctx());
         let model_toolbar_captures =
             agent_controls_capture || other_toolbar_captures || shot_captures;
+        let selection_capture = !model_toolbar_captures && self.image_selection_input(ui, &xf);
+        let model_toolbar_captures = model_toolbar_captures || selection_capture;
         self.lock_models_pressed_outside(ui, &xf, pointer, model_toolbar_captures);
 
         let now = ui.input(|i| i.time);
@@ -1818,6 +1800,7 @@ impl SlateApp {
         // are not cloned or painted.
         self.begin_agent_paint();
         let _nodes_span = atlas_core::session_log::span("slate.board.nodes");
+        self.maintain_shape_fill_preview(ui.ctx());
         let mut nodes = self.board_paint_nodes(rect);
         // A Shift preview that continues a stroke paints that stroke inside
         // its own canvas once the workers have stamped it there, so the
@@ -1862,6 +1845,7 @@ impl SlateApp {
         }
         // A saved view held over a model: its picture sinks in (media D38).
         self.sink_view_drop_picture(&mut nodes);
+        self.sink_shape_fill_picture(&mut nodes);
         for n in nodes.iter().filter(|n| n.is_frame()) {
             self.paint_board_node(ui, &painter, &xf, n, true);
         }
@@ -2435,6 +2419,7 @@ impl SlateApp {
         // In-viewport measurement overlays (live only).
         self.paint_model_measurements(&painter, &xf);
         self.paint_view_drop_file(&painter, &xf);
+        self.paint_shape_fill_file(&painter, &xf);
 
         // Empty-board hint.
         if self.doc().scene.is_empty() {
@@ -2828,14 +2813,14 @@ impl SlateApp {
                 let handle = *handle;
                 let peers = peers.clone();
                 let (before_rect, before_crop, rot) = match &before.kind {
-                    NodeKind::Image(img) => (before.rect, img.crop, before.rotation_deg),
+                    NodeKind::Image(image) => (before.rect, image.crop, before.rotation_deg),
                     _ => return,
                 };
                 // Rotated nodes: do the rect math in the node's local axes
                 // about the gesture-start center (see board_crop docs).
                 let (cx, cy) = before_rect.center();
                 let local = board_crop::to_local(world.x, world.y, cx, cy, rot);
-                let (r, c) = board_crop::edge_drag(before_rect, before_crop, handle, local);
+                let (r, c) = board_crop::edge_drag_node(before, handle, local);
                 if let Some(n) = self.doc_mut().scene.node_mut(node_id) {
                     n.rect = r;
                     if let NodeKind::Image(img) = &mut n.kind {
@@ -2846,7 +2831,14 @@ impl SlateApp {
                     let NodeKind::Image(img) = &peer.kind else {
                         continue;
                     };
-                    let (rect, crop) = board_crop::place_crop(peer.rect, img.crop, c);
+                    let (rect, crop) = if peer.clip.is_some() {
+                        (
+                            peer.rect,
+                            board_crop::peer_content_crop(before_crop, c, img.crop),
+                        )
+                    } else {
+                        board_crop::place_crop(peer.rect, img.crop, c)
+                    };
                     if let Some(n) = self.doc_mut().scene.node_mut(peer.id) {
                         n.rect = rect;
                         if let NodeKind::Image(live) = &mut n.kind {
@@ -2878,20 +2870,10 @@ impl SlateApp {
                 id,
                 before,
                 start_angle,
+                vertex,
             }) => {
                 let node_id = *id;
-                let (cx, cy) = before.rect.center();
-                let angle = (world.y - cy).atan2(world.x - cx);
-                let mut rot = before.rotation_deg + (angle - start_angle).to_degrees();
-                while rot > 180.0 {
-                    rot -= 360.0;
-                }
-                while rot < -180.0 {
-                    rot += 360.0;
-                }
-                if !mods.alt {
-                    rot = board_snap::snap_rotation_deg(rot, board_snap::ROTATION_SNAP_DEG);
-                }
+                let rot = Self::rotation_drag_value(before, *start_angle, *vertex, world, mods);
                 if let Some(n) = self.doc_mut().scene.node_mut(node_id) {
                     n.rotation_deg = rot;
                 }

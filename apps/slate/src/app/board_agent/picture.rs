@@ -7,6 +7,25 @@ impl SlateApp {
     /// bottom, progress, the run button, and squares under the card for every
     /// result. A click on a square picks that result; the newest shows until
     /// then. Model, count, aspect, seed and Live live on the Agent squircle.
+    /// An agent's media card, then the caption naming a pack it needs that
+    /// did not answer this session.
+    pub(crate) fn paint_agent_media(
+        &mut self,
+        ui: &egui::Ui,
+        painter: &egui::Painter,
+        xf: &BoardXf,
+        node: &Node,
+        body: Rect,
+    ) {
+        if slate_doc::agent_chat::agent(node)
+            .is_some_and(|a| a.view == atlas_ai::agent::PortalView::Text)
+        {
+            self.paint_agent_text_window(ui, painter, xf, node, body);
+        } else {
+            self.paint_agent_picture(ui, painter, xf, node, body);
+        }
+        self.paint_pack_caption(painter, node, body, xf.z);
+    }
     pub(crate) fn paint_agent_picture(
         &mut self,
         ui: &egui::Ui,
@@ -124,6 +143,22 @@ impl SlateApp {
             self.paint_generation_preview(painter, id, body, z);
             ui.ctx().request_repaint_after(Duration::from_millis(100));
         }
+        // Image-node controls have one home: the selected image's blister.
+        // Album flow and generation previews still paint within the image.
+        if self.image_palette_eligible(id) {
+            if running || waiting > 0 {
+                self.paint_run_progress(
+                    ui,
+                    painter,
+                    id,
+                    body,
+                    z,
+                    view.task().working(),
+                    agent.provider == "comfy",
+                );
+            }
+            return;
+        }
         let legible = canvas_text::legible(canvas_scale::px(GENERATOR_CHIP_PX, z));
         if agent.live && !reveal {
             painter.circle_filled(
@@ -219,12 +254,13 @@ impl SlateApp {
             _ => view.error.clone(),
         };
         if let Some(reason) = failure {
-            let text = canvas_text::layout(
-                painter,
-                reason,
-                canvas_scale::font(GENERATOR_CHIP_PX, z),
-                ink.warn,
-                body.width() - canvas_scale::px(24.0, z),
+            let text = canvas_text::world_wrapped(
+                painter.ctx(),
+                &reason,
+                egui::FontId::proportional(GENERATOR_CHIP_PX),
+                body.width() / z.max(0.01) - 24.0,
+                usize::MAX,
+                z,
             );
             let at = Pos2::new(body.left() + canvas_scale::px(12.0, z), text_top);
             let back = Rect::from_min_size(at, text.size()).expand(canvas_scale::px(5.0, z));
@@ -285,20 +321,40 @@ impl SlateApp {
             self.toast("That result is no longer on disk.");
             return;
         };
-        self.patch_nodes(&[id], |n| {
-            if let NodeKind::Image(i) = &mut n.kind {
-                i.item = item;
+        let Some(before) = self.doc().scene.node(id).cloned() else {
+            return;
+        };
+        let mut after = before.clone();
+        let NodeKind::Image(image_node) = &mut after.kind else {
+            return;
+        };
+        if self.agent_active_output(id).as_deref() != Some(image.id.as_str()) {
+            if let Some(current) = self.image_result_id(id) {
+                if !image_node.paint_layers.is_empty()
+                    && slate_doc::image_paint::result_layers(image_node, &current).is_none()
+                {
+                    slate_doc::image_paint::seed_result_from_legacy(image_node, current);
+                }
             }
-        });
+        }
+        image_node.item = item;
+        self.commit_scene(vec![slate_doc::scene::SceneCmd::Patch {
+            before: Box::new(before),
+            after: Box::new(after),
+        }]);
     }
     /// The file an agent picture shows: the picked result, else the newest.
     pub(crate) fn agent_shown_path(&self, id: NodeId) -> Option<PathBuf> {
+        self.doc()
+            .scene
+            .node(id)
+            .and_then(slate_doc::agent_chat::agent)?;
         let images = self.agent_images(id);
         let image = images.get(self.agent_shown_index(id)?)?;
         Some(resolve_source(self.tab().path.as_deref(), &image.source))
     }
     pub(super) fn agent_background_pending(&self) -> bool {
-        self.agents.programs_rx.is_some()
+        self.ai.packs.in_flight()
             || self.agents.recents_rx.is_some()
             || self.agents.ide_inflight
             || self.agents.chats_rx.is_some()

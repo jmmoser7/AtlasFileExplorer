@@ -153,6 +153,13 @@ drag the address-bar URL or a page link instead.
   vertex where it was. Each click is one undo step.
   The glyphs grow and shrink with the board zoom and drop when too small.
   This replaces the Corners panel's Sides number.
+- **Polygon rotation and dimensions** — hover outside any polygon vertex,
+  clear of the vertex pick and +/− controls, to rotate with the usual cursor
+  and drag. Hold Shift to lock the gripped vertex ray to a cardinal direction
+  about the polygon center; Alt suspends snapping. Stringers follow the
+  current polygon's measured local axes throughout the live drag;
+  typed sizes preserve its measured center. Pick vertices for local Stroke
+  width/color/opacity edits; click a side away from vertices to edit the whole stroke.
 - **Align widget** (Grasshopper): with the Select tool and 2+ nodes selected,
   two icon clusters sit outside the group box (bottom and left). Bottom:
   align left / center / right / distribute horizontally; the row sits past
@@ -200,8 +207,8 @@ drag the address-bar URL or a page link instead.
   Dragging a bumper node pushes other bumper nodes (`board.bumper.push`);
   Alt passes through, Esc mid-drag restores everything, and the release
   glide plus every push is one undo. No new key.
-- **Suggestion box** (`app.feedback.open`) — the speech-bubble button left
-  of the readout chevron opens a bug / feature form that writes a local
+- **Suggestion box** (`app.feedback.open`) — the cherry-red singleton at the far
+  left of the Board toolstrip opens a bug / feature form that writes a local
   report folder (no network). Dropped or pasted images attach while the
   form is open and do not land on the board. **Enter** ends a Reproduce
   recording (`app.feedback.finish_recording`); recording also stops itself
@@ -713,12 +720,35 @@ Agent chat titles support double-click editing (`portal.agent.rename`) across th
 Agent composer: Enter sends the message; Shift+Enter inserts a newline. Newly placed continuations focus this field automatically. Presentation changes live only in the ellipsis menu; single chat windows have no summary/identity or Unbundle action.
 
 Media agents: a selected picture, video, 3D model, text document, note or
-generated frame shows the Agent squircle. Its editor offers Text or Image, the
+generated frame shows the Agent control. Its editor offers Text or Image, the
 model menu (ComfyUI checkpoints with Auto, ChatGPT through the Codex sign-in,
 GPT Image with an API key, or a local language model), the prompt, and for
-images the count, aspect, seed lock and Live. Submit (or Enter in the prompt)
-dispatches `portal.agent.spawn` with those settings; the new frame appears
-downstream, wired, and runs. The source stays selected for the next variation.
+images the count, aspect and Live. Generating on a placed image enables the
+same image editor on that frame, retaining the original as its first album
+image and retaining its layers. Other media use `portal.agent.spawn` to create
+a downstream frame. The output-port menu still creates downstream cards.
+
+Images sit naked on the board until selected. Their image-local blister has
+one active tool panel, a technical strip above its content, and an expanding
+prompt below the generation controls. Empty-canvas clicks hide it. Painting
+and selection editing keep the active image pinned. Each generated album
+image owns its own layers. The wheel advances one image per mouse detent;
+trackpad momentum advances once until the gesture settles.
+
+Dragging an image's left input port onto empty canvas keeps the input menu
+open after release. Choose Image → image or Text → image to create an upstream
+card feeding the original frame. A new image input is gray until generation
+starts. Esc cancels; one Undo removes the new card and wire and restores any
+capability change on the original.
+
+`board.image.selection.lasso` starts a polygonal image selection. Click to
+place vertices, hold Shift for 45° directions, press Delete for the previous
+vertex, Enter to close, or Esc to cancel. Automatic object previews can be
+pinned and refined with click to include and Alt-click to exclude. Right-click
+and choose Create layer from selection (`board.image.selection.layer`). A
+pinned selection constrains painting; committed ink retains that clip after
+the selection is cleared. Dragging a layer or album result onto the canvas
+creates an independent copy and retains the original.
 
 Pictures and notes an agent makes: selected or hovered, they show typed input
 ports on the left edge (picture: Media, Prompt, Style; note: Image, Prompt)
@@ -740,7 +770,7 @@ Agent coding sidecars: `portal.agent.artifacts` opens the output capsule stack (
 Agent cards: `portal.agent.model` chooses the next Codex or Ollama response model from the
 installed provider catalog. The title menu also exposes conversation rename.
 `portal.agent.continue` accepts click or drag on the terminal top output handle
-for coding agents; it cannot fork historical coding messages. Midpoint ports
+for coding agents. Dragging that handle, or Fork chat here, starts a branch with its own session. Midpoint ports
 remain ordinary context/artifact ports. Drag-select transcript text and Copy to
 copy it without moving the card. Additional context requires an explicit wire.
 
@@ -754,10 +784,10 @@ Agent train cards (23 September 2026):
 | Command | Binding | Effect |
 |---------|---------|--------|
 | `portal.agent.model` | Model name, tail card only | Sent cards show "Title · Model" as text; only the tail (or an unsent draft) opens the dropdown. |
-| `portal.agent.collapse` | Chevron left of the ellipsis | Dead center steps one level (collapsed → twice the capsule, scrolling → fully open). Below center expands fully. Slightly above collapses one level; further above collapses to three lines. Detail `one`, `full`, `partial`, or `collapse`. With no detail, selected cards toggle between full and the three-line capsule. The tail keeps its composer. One undo step. |
-| `portal.agent.schedule` | Ellipsis → Schedule… / Edit schedule… / Stop schedule; click the clock in the card's top strip (Cursor, Codex) | The dialog takes the message (the composer's text or the last message sent), a date (tonight, tomorrow, Oct 1, 10/1, 2026-10-01) and a time (1am, 4:55 am, 13:30), Once / Every hour / Every day / Every week, and a required end (Until next month, Until next year, or a date). Windows Task Scheduler stores that end (`EndBoundary`) and will not register a task without one. A schedule saved before an end was required stays, and the dialog asks for one. Replies land in the conversation's `session.json`. A clock sits left of the collapse chevron while a run is still ahead; hover names when, including a missing end. Detail JSON: `{"open":true}`, `{"stop":true}`, or `{"start":"2026-10-01T04:55","end":"2026-11-01T04:55","repeat":"once|hourly|daily|weekly","prompt":"…"}`. |
+| `portal.agent.collapse` | Chevrons left of the ellipsis | A single chevron steps one level, a double steps two (ledger CT1). Maximized offers a double (to collapsed) and a single (to partial); collapsed offers a single (to partial) and a double (to maximized); partial offers one single chevron each way. Each chevron owns the pointer, so a press never starts a resize, and hover is a highlight with no tooltip. Detail `step-expand`, `jump-expand`, `step-collapse`, or `jump-collapse` (older `one`, `full`, `partial`, `collapse` still parse). With no detail, selected cards toggle between full and the three-line capsule. The tail keeps its composer. One undo step. |
+| `portal.agent.schedule` | Ellipsis → Schedule… / Edit schedule… / Stop schedule (Cursor, Codex) | The dialog takes the message (the composer's text or the last message sent), a date (tonight, tomorrow, Oct 1, 10/1, 2026-10-01) and a time (1am, 4:55 am, 13:30), Once / Every hour / Every day / Every week, and a required end (Until next month, Until next year, or a date). Windows Task Scheduler stores that end (`EndBoundary`) and will not register a task without one. A schedule saved before an end was required stays, and the dialog asks for one. Replies land in the conversation's `session.json`. The top strip carries no clock (ledger CT5); a pending run reads Edit schedule… in the ellipsis menu. Detail JSON: `{"open":true}`, `{"stop":true}`, or `{"start":"2026-10-01T04:55","end":"2026-11-01T04:55","repeat":"once|hourly|daily|weekly","prompt":"…"}`. |
 | `portal.agent.fit` | Ellipsis → Fit to text | Appears after a resize. Resizing records the card's size in the same undo step; the text rewraps and scrolls with the wheel inside. |
-| `portal.agent.fork` | Ellipsis → Fork chat here; drag the top output circle on a non-linear card | Creates one forked chat at that checkpoint, journaled as one command and joined by the history rail. Each drag is one fork. A click without a drag still continues. Coding agents cannot fork. |
+| `portal.agent.fork` | Ellipsis → Fork chat here; drag the top output circle | Creates one forked chat at that checkpoint, journaled as one command and joined by the history rail. Each drag is one fork. A click without a drag still continues. A coding-agent branch gets its own session, seeded with the transcript up to that card; continuing the unbranched tail keeps the session. |
 | `portal.agent.full_access` | Ellipsis → Full access (Cursor, Codex) | Toggles the person's grant for this conversation: from the next message Codex runs with approval policy `never` and a full-access sandbox, and Cursor runs without auto-review. The model name turns deep red on every card of that conversation. Stored per user in the Atlas data folder (`agent-access.json`), never in the workbook, so a received `.slate` never arrives trusted. |
 | `board.delete` | Delete / Backspace; Ellipsis → Delete card | A selected chat card deletes while its composer is idle. With an empty composer focused, Delete deletes and Backspace stays with the field. With typed text, both keys edit. Unsent text is discarded. |
 | `portal.agent.pocket` | Click the lower (human) context handle | Deleting context a card already sent hides it into every card that used it. A click shows it beside the card; a second click pockets it again. |

@@ -2,11 +2,23 @@
 
 With Select active, rest over an object in a placed or generated picture for
 400 ms. Slate previews its silhouette as a translucent orange highlight.
-Move to the shared **Highlight** capsule beside the picture to keep it.
-The action creates a separate paint layer; Undo removes the highlight.
-The ordinary layer controls provide opacity and visibility. Escape dismisses
-the offer until the pointer moves again. No region box or resize handles are
-part of the segmentation preview.
+Click the preview to keep the selection while refining
+it. Click to include another point; Alt-click to exclude a point. The visible
+**+** and **−** controls choose the same include/exclude modes. **Mask** cycles
+the model's alternative candidates, and **Clear** removes the selection.
+
+Right-click the highlighted region and choose **Create layer from selection**
+to create a cutout in that image's current layer stack. This is one undoable
+operation. A pinned selection also constrains painting until cleared. The
+ordinary layer controls provide opacity and visibility. Escape dismisses the
+selection or preview. No region box or resize handles are part of the
+segmentation preview.
+
+Drag the highlight outside its picture to create an independent cutout.
+A background worker writes its visible pixels to a tightly bounded transparent
+PNG, retaining holes, crop, mirror, filters and visible layers. The original
+picture stays in place. Board and HTML export use the same result; one Undo
+removes the canvas copy. Placed and generated pictures share this behavior.
 
 ## Local model setup
 
@@ -31,10 +43,18 @@ metadata and validate a fresh installation before shipping them.
 The adapter uses Meta's official SAM 2 implementation:
 <https://github.com/facebookresearch/sam2>.
 It caches image embeddings in one resident worker process, so subsequent
-points on the same image only run the prompt/mask decoder. CPU inference
-uses at most four threads. First use includes model startup and encoding;
-the capsule reads “Finding object...” while it runs. A failure appears as
-“Highlight unavailable” with its explanation on hover.
+points on the same image only run the prompt/mask decoder. Ordered positive
+and negative point prompts are supported, and the adapter returns each SAM
+multimask candidate with its quality score so the caller can choose or pin a
+candidate. The legacy single-positive-point API continues to return the
+highest-scoring candidate. CPU inference uses at most four threads. First use
+includes model startup and encoding;
+the image-local status communicates startup without adding a text capsule to
+the technical datum. Failures expose their explanation on hover.
+
+The caller's request key identifies a stable resident-pixel revision; the
+worker combines it with image dimensions before reusing the encoder result.
+Callers must change the key whenever those pixels change.
 
 ## Ownership and limits
 
@@ -44,7 +64,8 @@ the capsule reads “Finding object...” while it runs. A failure appears as
   representation. The image's crop, rotation, fillet, trim and mirror apply.
 - Slate's existing path interpreter paints previews; paint layers and the
   artifact writer serialize committed paths, including silhouette holes.
-- The UI uses the shell's existing capsule and popup placement primitives.
+- Refinement uses existing image-local controls and context-menu placement;
+  no floating Pin capsule overlaps the technical datum.
 
 Requests share already-resident preview pixels without copying them on the UI
 thread. The background worker downsamples to a maximum edge of 768 pixels and

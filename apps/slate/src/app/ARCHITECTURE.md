@@ -30,7 +30,7 @@ hidden on home. Opening is the shelf; **New** starts a blank workbook.
 | Canvas | `canvas.rs` | Board entry point, shared camera helpers, and Home |
 | Board | `board.rs` | Authored open-world canvas: frames, shapes, text, placed images, gestures (draw tools live in the shared bottom dock). A **dropped toolbar** is a journaled `DockStrip` node (`board_dock_embed.rs`, `P1.dock-strip`): the same `atlas-shell::dock` fieldset strip as the docked flyout (unlabeled capsules, contain-scaled — no second painter); click an icon to arm, click-hold-drag anywhere on the node to move it; selection chrome follows the painted card fillet. Armed create-tool chrome (tinted pointer + 22 px ghost) lives in `board_place.rs`. **Trim** (`board_trim.rs`, Ctrl+T) picks cutters then clicks the dying piece — open paths rewrite spans, closed shapes become compound even-odd paths, text/images store `Node.clip`. **Split** (same session, Ctrl+Shift+T) keeps every piece as its own Path. **Join** (`board_join.rs`, Ctrl+J) merges open paths at nearest ends, or boolean-unions connected closed regions (open operands become stroke-weight ribbons; disjoint operands stay put). Object snaps (`board_osnap.rs`, syntax in `slate-doc::osnap`) live in Document Settings as session aids. Wire routing (`slate-doc::wire`, Bezier / Square) is authored per connector from the object-local property palette, alongside weight, dash and arrows; `None` preserves the legacy session fallback. Wire ports follow object features (`P1.wire.ports`), not the world AABB. Wires paint under host nodes. A Grasshopper-style align widget (`board_align.rs`) appears around a 2+ selection. Canvas objects follow **P0.9** (scale with zoom). Agent portals have no identity tab; an unbound portal embeds `atlas-shell::home::cover_flow_home` (`HomeModel.interactive` only in contents-focus) and journals the chosen folder on `PortalNode.source`. Bound posters split Cursor IDE status from file-link sidecar status. |
 | Presentation | `present.rs` | Fullscreen slide playback of the board's frames |
-| Image filters | `imagefx.rs` | CSS-filter math on pixels (board preview parity with the HTML artifact) |
+| Image filters | `imagefx.rs` | Board pixel adapter for shared `slate-doc::image_adjust` filter math (artifact parity) |
 | 3D viewports | `model3d.rs` | One viewport for every placed 3D file. Readers live in `crates/model-preview` (Rhino via `rhino-mesh`, plus OBJ, STL, glTF). Offscreen glow render, lock/unlock, poster cache |
 | Previews | `preview.rs` | Lazy full-resolution texture tier above the thumbnails (see below) |
 | Settings | `settings.rs` | Persisted UI settings (`slate-settings.json` next to the index DB) |
@@ -103,8 +103,9 @@ the workbook. Two invariants carry the whole design:
    `crates/vector-ink`) and the HTML writer (`crates/slate-artifact`) are
    two interpreters of one model, so the exported artifact shows exactly
    what the board shows: uniform strokes as native SVG stroke attributes,
-   tapered strokes as filled outline paths. `imagefx.rs` implements the
-   same filter math on pixels for the live preview. Do not add board
+   tapered strokes as filled outline paths. `slate-doc::image_adjust` owns
+   pixel filter math; `imagefx.rs` and hosted-image artifact adapters call it.
+   Do not add board
    styling that no web standard can express.
 2. **Every mutation is an invertible, authored `SceneCmd`.** Gestures mutate
    the scene live but journal their net effect on release (`SceneJournal`);
