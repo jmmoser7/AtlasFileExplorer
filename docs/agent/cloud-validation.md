@@ -96,6 +96,10 @@ Do not describe a stale run as verification of newer local fixes.
   Do not launch duplicate cold workspace builds merely because status is quiet.
   Repeat green checks only for a new change or concern.
 - Review returned diffs before applying them to the owner's dirty checkout.
+  Passing the reported positive cases does not prove that new input routing
+  preserves overlay ownership, cancellation, or foreground occlusion. Review
+  those paths against the existing interaction owners and retain meaningful
+  negative regressions when changing capture or layer behavior.
   Run the relevant native compile check for code changes; final Windows GUI
   verification remains a separate result.
 
@@ -107,10 +111,12 @@ In the 2026-10-13 session, `codex cloud status` printed `[PENDING]` for a task
 whose JSON status and interactive task list were `error`. Do not use that
 status command or its exit code as the sole polling condition. If they disagree,
 stop the pending loop and inspect the task page/list; record both observations.
-That task later returned `ready` with a report and source diff. An observed
-`error` was not permanent, and the CLI exposed no failure reason. Recheck a
-disputed state after a bounded interval before launching another cold build;
-keep a late result tied to its submitted SHA and review overlaps with newer work.
+Two such tasks later returned `ready` with reports and source diffs; one
+recovered more than thirty minutes after `error` was observed. The CLI exposed
+no failure reason. A timeout alone does not establish that execution stopped.
+Use bounded rechecks and the live task page when available before replacing a
+disputed job. If recovery work is necessary without that evidence, record the
+possible overlap; keep late results tied to their SHAs and review competing diffs.
 Use bounded waits and back off unchanged polls; avoid sending the same status
 update each minute. Ask the user to inspect a task only when their action can
 resolve a specific blocker unavailable through the tools. CLI task completion

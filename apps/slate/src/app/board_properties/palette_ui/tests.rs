@@ -1,6 +1,8 @@
 use super::*;
 use crate::app::tests::Harness;
 
+mod pointer_ownership;
+
 fn frame(h: &mut Harness, time: &mut f64) -> egui::FullOutput {
     *time += 1.0 / 60.0;
     let xf = h.app.board_xf();

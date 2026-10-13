@@ -2775,7 +2775,7 @@ mod tests {
         id
     }
 
-    fn text_node(h: &mut Harness, rect: WorldRect) -> NodeId {
+    pub(super) fn text_node(h: &mut Harness, rect: WorldRect) -> NodeId {
         let node = h.app.doc_mut().scene.build_node(
             rect,
             NodeKind::Text(scene::TextNode {
@@ -2796,7 +2796,7 @@ mod tests {
     }
 
     /// Screen rect of a strip squircle, as the last frame laid it out.
-    fn strip_button(h: &Harness, panel: Panel) -> Rect {
+    pub(super) fn strip_button(h: &Harness, panel: Panel) -> Rect {
         let items = &h.app.shape_properties.last_chrome.as_ref().unwrap().items;
         let index = items
             .iter()

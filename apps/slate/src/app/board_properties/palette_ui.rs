@@ -170,11 +170,10 @@ impl SlateApp {
         let mut requested_measure = false;
         let mut requested_screenshot = false;
         let mut captures = false;
+        let strip_ui_id = ui.id().with("selection-strip-input");
+        let mut strip_ui = chrome::object_ui(ui, strip_ui_id, strip);
         if blister {
-            let painter = ui.painter().clone().with_layer_id(egui::LayerId::new(
-                chrome::CANVAS_CHROME_ORDER,
-                Id::new("portal_property_blister"),
-            ));
+            let painter = chrome::object_painter(&strip_ui);
             let open = self.shape_properties.panel.is_some();
             chrome::paint_blister_tab(
                 &painter,
@@ -200,7 +199,7 @@ impl SlateApp {
             let (label, icon, active) = self.property_strip_button_info(item);
             let button_live = live && !grip_under;
             let response = if blister {
-                let response = ui
+                let response = strip_ui
                     .interact(
                         r,
                         Id::new(("shape_property", index)),
@@ -218,15 +217,12 @@ impl SlateApp {
                 } else {
                     theme.sub
                 };
-                let painter = ui.painter().clone().with_layer_id(egui::LayerId::new(
-                    chrome::CANVAS_CHROME_ORDER,
-                    Id::new("portal_property_blister"),
-                ));
+                let painter = chrome::object_painter(&strip_ui);
                 atlas_shell::icons::paint(&painter, r, icon, ink.gamma_multiply(fade));
                 response
             } else {
                 chrome::button(
-                    ui,
+                    &mut strip_ui,
                     r,
                     Id::new(("shape_property", index)),
                     label,

@@ -17,7 +17,12 @@ impl SlateApp {
             start_allowed
                 && self.canvas_rect.contains(*p)
                 && ui.clip_rect().contains(*p)
-                && ui.ctx().layer_id_at(*p) == Some(ui.layer_id())
+                && ui.ctx().layer_id_at(*p).is_some_and(|layer| {
+                    layer == ui.layer_id()
+                        || (layer == atlas_shell::selection_tools::selection_chrome_layer()
+                            && !self.property_editor_open()
+                            && self.curve_subselect_under(*p))
+                })
                 && !ui.ctx().memory(|m| m.any_popup_open())
         }) {
             if self.board_drag.is_none()
@@ -353,6 +358,70 @@ impl SlateApp {
                 }
             }
             _ => {}
+        }
+    }
+}
+
+#[cfg(test)]
+mod input_guards {
+    use super::*;
+    use crate::app::tests::{edge_polyline, grip_board, mid, SUB_OBJECT};
+
+    #[test]
+    fn covering_area_and_open_editor_block_raw_edge_input() {
+        // Exercise the ordered input owner with real press events and an actual
+        // overlapping Area. No popup memory flag is set by these Areas.
+        for editor in [false, true] {
+            let mut h = grip_board("edge_layer_guards");
+            let (_, pts) = edge_polyline(&mut h);
+            let xf = h.app.board_xf();
+            let at = xf.w2s(mid(pts[1], pts[2]));
+            h.app.ctrl_down = true;
+            h.app.shift_down = true;
+            let layer = if editor {
+                h.app.shape_properties.panel = Some(crate::app::board_properties::Panel::Stroke);
+                atlas_shell::selection_tools::selection_chrome_layer()
+            } else {
+                egui::LayerId::new(
+                    egui::Order::Tooltip,
+                    egui::Id::new("unrelated_covering_area"),
+                )
+            };
+            let ctx = egui::Context::default();
+            for pressed in [None, None, Some(true)] {
+                let mut input = egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))),
+                    modifiers: SUB_OBJECT,
+                    ..Default::default()
+                };
+                input.events.push(egui::Event::PointerMoved(at));
+                if let Some(pressed) = pressed {
+                    input.events.push(egui::Event::PointerButton {
+                        pos: at,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: SUB_OBJECT,
+                    });
+                }
+                let _ = ctx.run(input, |ctx| {
+                    egui::Area::new(layer.id)
+                        .order(layer.order)
+                        .fixed_pos(at - Vec2::splat(20.0))
+                        .fade_in(false)
+                        .show(ctx, |ui| {
+                            ui.allocate_space(Vec2::splat(40.0));
+                        });
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        if pressed.is_some() {
+                            assert_eq!(ctx.layer_id_at(at), Some(layer));
+                            assert!(!ctx.memory(|m| m.any_popup_open()));
+                            h.app.curve_subselect_input(ui, &xf, Some(at), true);
+                        }
+                    });
+                });
+            }
+            assert!(h.app.board_drag.is_none(), "editor={editor}");
+            assert!(h.app.direct.grip_points.edges.is_empty());
         }
     }
 }
