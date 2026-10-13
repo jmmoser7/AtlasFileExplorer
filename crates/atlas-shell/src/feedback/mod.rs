@@ -81,6 +81,8 @@ pub struct FeedbackHub {
     pub app_text_editing: bool,
     pub(crate) editing_last_frame: bool,
     pub(crate) capture_rx: Option<std::sync::mpsc::Receiver<Option<Vec<u8>>>>,
+    /// Last user-chosen position of the shared feedback dialog.
+    pub(crate) dialog_pos: Option<eframe::egui::Pos2>,
     form_return: FeedbackPhase,
     dispatch_depth: u32,
 }
@@ -107,6 +109,7 @@ impl Default for FeedbackHub {
             app_text_editing: false,
             editing_last_frame: false,
             capture_rx: None,
+            dialog_pos: None,
             form_return: FeedbackPhase::BugForm,
             dispatch_depth: 0,
         }

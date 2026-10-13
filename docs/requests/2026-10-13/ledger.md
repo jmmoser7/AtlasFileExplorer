@@ -33,6 +33,7 @@ Scope: all 25 bundles in `feedback/client/`, including the three October 10 regr
 ## Validation
 
 - Cloud geometry validation: `cargo test --locked -p vector-ink`, exit 0; **149 passed, 0 failed, 1 ignored**. The internal-vertex regression passed.
+- Cloud shared-package validation: **837 passed, 0 failed, 6 ignored** across `atlas-shell`, `slate-doc`, `slate-artifact`, `vector-ink` and `xtask`, after fixing custom feedback-header drag ownership. Contracts, kits, size and formatting passed. `cloud-shared-final.md` records the exact snapshot and commands. Local review delegates position constraints to egui's actual resized window bounds; a new compact-window movement regression is pending targeted cloud execution.
 - Windows `cargo check --locked --workspace --all-targets -j 2`: exit 0. A subsequent `cargo check --locked -p slate --all-targets -j 2` also passed after the final font and vertex-toolbar safeguards.
 - Windows shared-shell tests compiled successfully, but execution was blocked before any test ran: `Access is denied (os error 5)` for `target/debug/deps/atlas_shell-4c6f6405ec5b0aa9.exe`. Build artifacts were preserved; no execution-policy workaround or repeated launch was attempted. Native GUI verification remains pending that machine approval.
 - Final follow-up Windows `cargo check --locked -p slate --all-targets -j2`: exit 0, including the font-cache lifecycle regression and integration fixture repairs. Formatting and Rust size ceilings passed.

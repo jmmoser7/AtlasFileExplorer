@@ -45,6 +45,8 @@ pub(super) fn show(
     let picker = hub.phase == FeedbackPhase::KindPicker;
     let bug = hub.kind == Some(FeedbackKind::Bug);
     let height = area.height().min(if picker { 300.0 } else { 560.0 });
+    let default_pos = area.center() - Vec2::new(width, height) * 0.5;
+    let dialog_pos = hub.dialog_pos.unwrap_or(default_pos);
     let (title, subtitle) = if picker {
         ("Feedback", "Help improve the app.")
     } else if bug {
@@ -53,14 +55,15 @@ pub(super) fn show(
         ("Request a feature", "Describe what would help your work.")
     };
     let mut close = false;
-    egui::Window::new(title)
+    let mut header_drag = Vec2::ZERO;
+    let shown = egui::Window::new(title)
         .id(Id::new(("feedback-dialog", app, picker, bug)))
         .title_bar(false)
         .collapsible(false)
         .resizable([false, true])
         .movable(true)
         .constrain_to(area)
-        .default_pos(area.center() - Vec2::new(width, height) * 0.5)
+        .current_pos(dialog_pos)
         .default_width(width)
         .default_height(height)
         .min_height(area.height().min(if picker { 240.0 } else { 280.0 }))
@@ -84,7 +87,7 @@ pub(super) fn show(
             ui.visuals_mut().widgets.inactive.weak_bg_fill = field;
             ui.visuals_mut().widgets.inactive.bg_stroke = Stroke::new(1.0_f32, p.border);
             ui.visuals_mut().widgets.inactive.corner_radius = CornerRadius::same(6);
-            header(
+            header_drag = header(
                 ui,
                 p,
                 title,
@@ -165,6 +168,9 @@ pub(super) fn show(
                     }
                 });
         });
+    if let Some(shown) = shown {
+        hub.dialog_pos = Some(shown.response.rect.min + header_drag);
+    }
     if close {
         hub.phase = FeedbackPhase::Closed;
     }
@@ -185,8 +191,8 @@ fn header(
     inset: f32,
     colors: (Color32, Color32),
     close: &mut bool,
-) {
-    egui::Frame::new()
+) -> Vec2 {
+    let response = egui::Frame::new()
         .inner_margin(Margin::symmetric(inset as i8, 20))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -219,7 +225,18 @@ fn header(
                     }
                 });
             });
-        });
+        })
+        .response;
+    // `Window::title_bar(false)` gives the dialog its bespoke header, so the
+    // corresponding drag affordance must also be supplied here. Keep the
+    // close-button end out of this interaction rectangle.
+    let drag_rect = Rect::from_min_max(response.rect.min, response.rect.max - Vec2::new(40.0, 0.0));
+    ui.interact(
+        drag_rect,
+        ui.id().with("feedback-header-drag"),
+        egui::Sense::drag(),
+    )
+    .drag_delta()
 }
 
 fn chooser(ui: &mut egui::Ui, p: &Palette, hub: &mut FeedbackHub) {
