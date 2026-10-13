@@ -11,7 +11,10 @@ impl SlateApp {
         aspect: bool,
     ) -> (f32, f32) {
         let minimum = super::super::board::MIN_DRAW;
-        for node in before.iter().filter(|n| !matches!(n.kind, NodeKind::Connector(_))) {
+        for node in before
+            .iter()
+            .filter(|n| !matches!(n.kind, NodeKind::Connector(_)))
+        {
             if node.rect.w >= minimum {
                 sx = sx.max(minimum / node.rect.w);
             }

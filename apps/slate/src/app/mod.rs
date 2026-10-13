@@ -1234,8 +1234,9 @@ impl SlateApp {
         );
         let cour = files.iter().find(|(name, _)| name == "cour.ttf");
         let name = atlas_shell::home::AGENT_TITLE_FAMILY;
-        let mut stack = vec![name.to_string()];
+        let mut stack = Vec::new();
         if let Some((_, bytes)) = cour {
+            stack.push(name.to_string());
             fonts.font_data.insert(
                 name.into(),
                 std::sync::Arc::new(egui::FontData::from_owned(bytes.clone())),
@@ -1248,20 +1249,29 @@ impl SlateApp {
             .families
             .insert(egui::FontFamily::Name(name.into()), stack);
         for face in slate_doc::scene::Typeface::ALL {
-            let (Some(file), Some(key)) = (face.font_file(), face.egui_family()) else {
+            let Some(key) = face.egui_family() else {
                 continue;
             };
-            let Some((_, bytes)) = files.iter().find(|(name, _)| name == file) else {
+            if face.font_file().is_none() {
                 continue;
-            };
-            fonts.font_data.insert(
-                key.into(),
-                std::sync::Arc::new(egui::FontData::from_owned(bytes.clone())),
-            );
-            let mut family = vec![key.to_string()];
-            if let Some(proportional) = fonts.families.get(&egui::FontFamily::Proportional) {
-                family.extend(proportional.iter().cloned());
+            } // bundled Serif already exists
+            let mut family = Vec::new();
+            if let Some((_, bytes)) = files
+                .iter()
+                .find(|(name, _)| Some(name.as_str()) == face.font_file())
+            {
+                fonts.font_data.insert(
+                    key.into(),
+                    std::sync::Arc::new(egui::FontData::from_owned(bytes.clone())),
+                );
+                family.push(key.to_string());
             }
+            let fallback = if face.css_stack().ends_with("monospace") {
+                egui::FontFamily::Monospace
+            } else {
+                egui::FontFamily::Proportional
+            };
+            family.extend(fonts.families[&fallback].iter().cloned());
             fonts
                 .families
                 .insert(egui::FontFamily::Name(key.into()), family);
@@ -1294,6 +1304,8 @@ impl SlateApp {
                 .insert(egui::FontFamily::Name(key.into()), family);
         }
         ctx.set_fonts(fonts);
+        let pass = ctx.cumulative_pass_nr();
+        ctx.data_mut(|data| data.insert_temp(egui::Id::new(board::TYPEFACE_ALIASES_READY), pass));
         atlas_shell::canvas_text::clear_world_layout_cache();
     }
 

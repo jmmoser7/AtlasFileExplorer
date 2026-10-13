@@ -9,6 +9,7 @@ pub(super) struct LastChrome {
     pub(super) bounds: WorldRect,
     pub(super) items: Vec<StripItem>,
     generation: (u64, u64),
+    picked_vertices: bool,
     bottom: Pos2,
     blister: bool,
     image: bool,
@@ -72,6 +73,7 @@ impl SlateApp {
                         last.bounds == bounds
                             && last.items.len() == items.len()
                             && last.generation == generation
+                            && last.picked_vertices == vertex_bounds.is_some()
                     })
                     .map(|last| last.bottom)
                     .unwrap_or_else(|| {
@@ -79,6 +81,7 @@ impl SlateApp {
                             .shape_properties
                             .nodes
                             .iter()
+                            .filter(|_| vertex_bounds.is_none())
                             .filter_map(|node| slate_doc::geom::node_closed_poly(node, 0.25))
                             .flatten()
                             .collect();
@@ -95,6 +98,7 @@ impl SlateApp {
                     bounds,
                     items,
                     generation,
+                    picked_vertices: vertex_bounds.is_some(),
                     bottom,
                     blister: property_strip::rectangular_blister(&self.shape_properties.nodes),
                     image: image_palette::handles(self, true),

@@ -59,6 +59,6 @@ Shared with Trim (`board_trim::trim_tokens`): `trim.span_slop` 10 px,
 
 None — remaining rows are locked as inferred so the tool can ship.
 
-## Rhino refinement evidence � 13 October 2026
+## Rhino refinement evidence — 13 October 2026
 
 [McNeel Split](https://docs.mcneel.com/rhino/8/help/en-us/commands/split.htm) uses targets first, then cutters, and retains every piece. Slate keeps its explicitly approved cutter-first flow shared with Trim (D03, user 16 August 2026); this is a deliberate adaptation. A filled silhouette crossing an open curve splits it into every interior/exterior span, including intersections exactly on internal polyline vertices, preserves the cutter, and undoes in one step.

@@ -1,5 +1,4 @@
 //! File Atlas lens portal — host surface over `atlas-core`.
-//!
 //! The inner map is `atlas-shell::folder_map` (same camera, leaders, collapse
 //! grips, and cards as standalone File Atlas). Slate does not import
 //! `apps/file-atlas` or instantiate `AtlasApp` (Art. I / contract D15).

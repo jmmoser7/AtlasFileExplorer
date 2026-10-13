@@ -1,6 +1,5 @@
 //! Bumper cars (`docs/keymap/contracts/bumper-cars.md`): an opt-in node
 //! property that makes shapes and sticky notes push each other.
-//!
 //! The property is authored and journaled. Motion is not: a drag and the
 //! glide after release are solved here, deterministically, and the app
 //! journals only where bodies come to rest (Art. VI.3). Contact geometry is

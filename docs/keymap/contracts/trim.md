@@ -78,6 +78,6 @@ Pinned as `board_trim::trim_tokens` (P0.6).
 
 None — remaining rows are locked as best-guess so the tool can ship.
 
-## Rhino refinement evidence � 13 October 2026
+## Rhino refinement evidence — 13 October 2026
 
 [McNeel Trim](https://docs.mcneel.com/rhino/8/help/en-us/commands/trim.htm) confirms cutter selection, removal picks and Shift extension. The shipped staged Esc stack remains the approved Slate precedent. A filled silhouette crossing an open curve cuts its interior and exterior spans; a click on the curve beneath the cutter fill targets the curve, preserves the cutter, and undoes in one step. Internal polyline vertices at the silhouette boundary count as intersections.

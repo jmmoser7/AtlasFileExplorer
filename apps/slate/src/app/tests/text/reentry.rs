@@ -3,6 +3,53 @@
 use super::*;
 
 #[test]
+fn no_system_fonts_render_preferred_faces_and_emphasis_with_nonempty_aliases() {
+    use slate_doc::scene::{TextStyle, Typeface};
+    let mut h = text_draft_board("text-without-system-fonts");
+    let center = h.app.canvas_rect.center();
+    compose_text(&mut h, center, "Fallback words");
+    press_key(&mut h, egui::Key::Escape);
+    let id = h.app.doc().scene.nodes[0].id;
+    h.app.font_rx = None;
+    SlateApp::install_loaded_fonts(&h.ctx, &[]);
+    h.frame();
+    h.frame();
+    for face in [Typeface::Replica, Typeface::Arial, Typeface::Courier] {
+        for style in [
+            TextStyle::default(),
+            TextStyle {
+                bold: true,
+                italic: true,
+                underline: true,
+            },
+        ] {
+            h.app.patch_nodes(&[id], |node| {
+                let NodeKind::Text(text) = &mut node.kind else {
+                    unreachable!()
+                };
+                text.family = face;
+                text.style = style;
+            });
+            let output = h.frame_output(|_| {});
+            assert!(
+                painted_block(&output, "Fallback words", h.app.board_xf().z).is_some(),
+                "{face:?} {style:?} renders without a system font"
+            );
+            h.app.board_double_click_for_test(Pos2::new(
+                h.app.doc().scene.node(id).unwrap().rect.x + 2.0,
+                h.app.doc().scene.node(id).unwrap().rect.y + 2.0,
+            ));
+            h.frame();
+            assert!(
+                h.app.text_edit.is_some(),
+                "fallback family also supports the caret"
+            );
+            press_key(&mut h, egui::Key::Escape);
+        }
+    }
+}
+
+#[test]
 fn text_emphasis_is_journaled_and_survives_inline_reentry() {
     let mut h = text_draft_board("text-emphasis-reentry");
     let center = h.app.canvas_rect.center();

@@ -19,6 +19,30 @@ fn frame(h: &mut Harness, time: &mut f64) -> egui::FullOutput {
 }
 
 #[test]
+fn a_picked_vertex_strip_stays_beside_the_vertex_instead_of_the_whole_shape() {
+    let mut h = Harness::new("picked_vertex_strip_anchor");
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.set_board_tool(BoardTool::Select);
+    h.app.tab_mut().cam.z = 1.0;
+    let id = super::super::tests::rectangle(&mut h, WorldRect::new(0.0, 0.0, 200.0, 300.0), 0.0);
+    h.app.board_sel.insert(id);
+    h.app.direct.grip_points.pick(id, 0, false);
+    let picked = h.app.picked_vertex_bounds().expect("picked corner bounds");
+    let mut time = 0.0;
+    for _ in 0..12 {
+        let _ = frame(&mut h, &mut time);
+    }
+    let chrome = h.app.shape_properties.last_chrome.as_ref().unwrap();
+    assert!(chrome.picked_vertices);
+    assert!((chrome.bottom.y - (picked.y + picked.h)).abs() < 0.001);
+    assert!(
+        chrome.bottom.y < 50.0,
+        "strip followed the whole rectangle's bottom"
+    );
+}
+
+#[test]
 fn deselecting_a_rectangular_portal_keeps_its_fading_palette_below_the_portal() {
     let mut h = Harness::new("portal-blister-dismissal");
     h.app.leave_home();

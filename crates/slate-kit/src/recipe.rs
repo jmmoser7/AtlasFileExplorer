@@ -1,5 +1,4 @@
 //! Recipes — what a completed gesture produces.
-//!
 //! A recipe is the *data* half of a tool. It may only name node kinds and style
 //! properties the document model already has, because a kit cannot teach
 //! `slate-artifact` anything (Art. IV: a style property lands in both

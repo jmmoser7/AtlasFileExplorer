@@ -2175,8 +2175,7 @@ pub static SPECS: &[CommandSpec] = &[
         "Ctrl + Shift + click — a single member inside a group, or a locked \
          object (grayed handles, one-off edit). On a curve segment (Select \
          tool) it also picks that edge and its two vertices; more clicks add \
-         or toggle edges. Ctrl + Shift + sweep adds fully contained segments \
-         left-to-right or crossed segments right-to-left",
+         or toggle edges. Ctrl + Shift + sweep adds contained segments left-to-right or crossed segments right-to-left",
         None,
         Repeat::Never,
         BOARD,

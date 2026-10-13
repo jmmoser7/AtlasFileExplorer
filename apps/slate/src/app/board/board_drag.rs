@@ -122,13 +122,24 @@ pub(super) fn styled_typeface_font(
     if !style.bold {
         return typeface_font(face, size);
     }
-    let family = egui::FontFamily::Name(face.bold_egui_family().into());
-    if ctx.fonts(|fonts| fonts.families().contains(&family)) {
-        FontId::new(size, family)
+    let installed = ctx.data(|data| data.get_temp::<u64>(egui::Id::new(TYPEFACE_ALIASES_READY)));
+    // set_fonts applies on the next pass. Installation records readiness;
+    // painting never enumerates or allocates a list of available families.
+    if installed.is_some_and(|pass| ctx.cumulative_pass_nr() > pass) {
+        static BOLD: std::sync::OnceLock<Vec<egui::FontFamily>> = std::sync::OnceLock::new();
+        let families = BOLD.get_or_init(|| {
+            Typeface::ALL
+                .iter()
+                .map(|face| egui::FontFamily::Name(face.bold_egui_family().into()))
+                .collect()
+        });
+        FontId::new(size, families[face.index()].clone())
     } else {
         typeface_font(face, size)
     }
 }
+
+pub(crate) const TYPEFACE_ALIASES_READY: &str = "slate.typeface.aliases.installed";
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn styled_text_galley(
