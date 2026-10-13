@@ -205,9 +205,10 @@ tool calls; the damage was the parallel cargo.
 - Commit a green slice early on the feature branch so a disconnect keeps
   it. Do not commit a red tree to survive. Do not push unless the owner
   asks.
-- Builder and reviewer are different agents. Model tiers are in the agent
-  brief: Composer for easy, Grok 4.7 for hard, the strongest model for
-  integration review.
+- Builder and reviewer are different agents. Model and reasoning allocation
+  is owned by the [health-check agent brief](../../.cursor/agents/health-check.md#handoff).
+  Cloud snapshot handoff and validation evidence are owned by
+  [the cloud procedure](../agent/cloud-validation.md).
 - Any isolated agent verifies `git rev-parse --show-toplevel` is not the
   owner's main checkout before editing, and creates its own
   `git worktree add` when it is. The coordinator checks the main
@@ -225,6 +226,14 @@ estimates. Propose a JSONL line per agent turn:
 only. No arguments, no file bodies, no command output. Secrets stay out
 (the secrets rule). Until that log exists, the spend row says "not logged"
 or "estimated", and this check does not invent a token total.
+
+Keep elapsed time separate from spend. Session wall time is one start-to-end
+interval; cumulative agent time sums active turns, excluding gaps between turns.
+Both can include tool waits. Cloud submission-to-completion intervals also
+include queues, setup, builds, and tests; label them as job elapsed time.
+An `updated_at` timestamp alone is not a start time or a runtime measurement.
+Report Cargo duration only when captured, and model compute, tokens, or cost
+only when the corresponding usage record exists. Do not price elapsed hours.
 
 ## Report template
 

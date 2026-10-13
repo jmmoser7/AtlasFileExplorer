@@ -348,6 +348,9 @@ for analysis, layout, overlay matching, and the AI beacon.
 
 ## Cursor Cloud specific instructions
 
+Before dispatching cloud work, read [`docs/agent/cloud-validation.md`](docs/agent/cloud-validation.md).
+It owns snapshot handoff, retained test evidence, and economical verification.
+
 Cloud agents run on **Linux VMs**. These crates target **Windows** (Win32
 shell thumbnails, `windows` crate), but non-Windows stubs keep
 `cargo check/test --workspace` green on Linux — use them.
