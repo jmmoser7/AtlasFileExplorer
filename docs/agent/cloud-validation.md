@@ -88,9 +88,13 @@ Do not describe a stale run as verification of newer local fixes.
   mismatch. Keep its behavioral assertion; reproduce unexplained failures
   before changing production code or widening waits.
 - Reuse an environment and its build cache when the available tooling supports
-  it. Do not launch duplicate cold workspace builds merely because status is
-  quiet. After a repair, rerun affected tests, then perform one integrated run
-  on the finished snapshot. Repeat green checks only for a new change or concern.
+  it. Give runtime repair to a worker that can execute the failing tests in
+  that checkout, especially when local execution is blocked. Supply the known
+  diagnostics and trace locations; source-only review can support the repair
+  but cannot identify every event-routing failure. Let that worker iterate
+  focused checks and then run the integrated suite in the same warm environment.
+  Do not launch duplicate cold workspace builds merely because status is quiet.
+  Repeat green checks only for a new change or concern.
 - Review returned diffs before applying them to the owner's dirty checkout.
   Run the relevant native compile check for code changes; final Windows GUI
   verification remains a separate result.
