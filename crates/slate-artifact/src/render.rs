@@ -1,5 +1,6 @@
 mod image;
 mod image_filter;
+mod shape_text;
 use image::render_image;
 use std::collections::BTreeMap;
 
@@ -1152,6 +1153,7 @@ pub(crate) fn render_shape_svg(
             }
         }
     }
+    shape_text::render_hosted_shape_text_svg(svg, node, shape, rel, stroke_scale);
     svg.push_str("</g>");
 }
 
