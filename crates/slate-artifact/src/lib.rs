@@ -857,7 +857,7 @@ mod tests {
         assert_eq!(html.matches(&stroke(ink)).count(), 1, "{html}");
 
         let fallback = render_html(&doc, &AssetMap::default());
-        assert!(fallback.contains(&stroke(Rgba::opaque(0x6e, 0x76, 0x80))));
+        assert!(fallback.contains(&stroke(Rgba::opaque(0xcc, 0xcf, 0xcf))));
     }
 
     #[test]

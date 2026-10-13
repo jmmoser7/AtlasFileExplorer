@@ -2687,7 +2687,7 @@
       "canvas": "shapes-tool-contract",
       "decisions": {
         "D01": {
-          "behavior": "Selecting one or more board objects that expose fill, stroke, corners, wire, photo-filter, or File Atlas formatting controls opens a hovering toolbar directly above the selection. Frame-only actions join the same strip. User refinement 13 October 2026: right-clicking empty canvas also offers Canvas wire settings, independent of selection.",
+          "behavior": "Selecting one or more board objects that expose fill, stroke, corners, wire, photo-filter, or File Atlas formatting controls opens the shared toolbar below the actual selection silhouette, with clearance for the full strip width and concave notches. Frame-only actions join the same strip. User refinement 13 October 2026: right-clicking empty canvas also offers Canvas wire settings, independent of selection.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -3031,7 +3031,7 @@
           "decided": "2026-09-17"
         },
         "D13": {
-          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers.",
+          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls below the actual silhouette, with full-width clearance and concave-notch support, gated by geometry; dimensions use separate exterior stringers.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -3291,7 +3291,7 @@
           "decided": "2026-10-13"
         },
         "D13": {
-          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers. P1.node.corner-grip on a single selected line-only polyline: one grip near each turning vertex, riding that vertex's incoming segment at the treatment's tangent distance; dragging it or typing after a click fillets or chamfers that corner alone (stated 26 September 2026). With vertices picked, the Corners squircle likewise writes only the picked corners, and the strip shows only Stroke and Corners (user, 28 September 2026, ep2 and ed9; shape-selection-toolbar D13). In a multi-selection the polyline shows one shared grip on the leaving side of the first turning vertex, which sets every corner together with the other hosts (proposal). P1.curve.grips (user, 26 September 2026): a single selected polyline, open or closed, shows its corner vertices and end points through the shared path-edit overlay; dragging one moves only that point as one journaled Patch, snapped through resolve_point_snap. The two grips never share a spot: a press on a vertex takes the vertex grip, and a press on the segment grip at tangent distance takes that corner's fillet (proposal). Picked vertices (user, 27 September 2026; direct-selection.md): Alt/Ctrl/Shift+right-drag edit only the picked vertices' width, color and opacity (vertex color alpha), or the hovered vertex when none is picked; one journaled Patch per HUD, Esc restores. Delete with vertices picked removes them and rejoins the neighbors; fewer than two (open) or three (closed) left removes the node; one Ctrl+Z restores.",
+          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls below the actual silhouette, with full-width clearance and concave-notch support, gated by geometry; dimensions use separate exterior stringers. P1.node.corner-grip on a single selected line-only polyline: one grip near each turning vertex, riding that vertex's incoming segment at the treatment's tangent distance; dragging it or typing after a click fillets or chamfers that corner alone (stated 26 September 2026). With vertices picked, the Corners squircle likewise writes only the picked corners, and the strip shows only Stroke and Corners (user, 28 September 2026, ep2 and ed9; shape-selection-toolbar D13). In a multi-selection the polyline shows one shared grip on the leaving side of the first turning vertex, which sets every corner together with the other hosts (proposal). P1.curve.grips (user, 26 September 2026): a single selected polyline, open or closed, shows its corner vertices and end points through the shared path-edit overlay; dragging one moves only that point as one journaled Patch, snapped through resolve_point_snap. The two grips never share a spot: a press on a vertex takes the vertex grip, and a press on the segment grip at tangent distance takes that corner's fillet (proposal). Picked vertices (user, 27 September 2026; direct-selection.md): Alt/Ctrl/Shift+right-drag edit only the picked vertices' width, color and opacity (vertex color alpha), or the hovered vertex when none is picked; one journaled Patch per HUD, Esc restores. Delete with vertices picked removes them and rejoins the neighbors; fewer than two (open) or three (closed) left removes the node; one Ctrl+Z restores.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -3551,7 +3551,7 @@
           "decided": "2026-09-17"
         },
         "D13": {
-          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry. P1.curve.grips (user, 26 September 2026): a single selected arc shows start, end and through point through the shared path-edit overlay; dragging one rebuilds the circular arc through the three points as one journaled Patch, snapped through resolve_point_snap. The through grip sits at the middle of the sweep, so it re-centers after a drag (user pass, 28 September 2026, pm6). Picked grips (user, 27 September 2026; direct-selection.md): Alt/Ctrl/Shift+right-drag edit only the picked grips' width, color and opacity, or the hovered grip when none is picked; one journaled Patch per HUD, Esc restores. Delete with grips picked removes them, rebuilding the path through the rest; fewer than two left removes the node; one Ctrl+Z restores.",
+          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls below the actual silhouette, with full-width clearance and concave-notch support, gated by geometry. P1.curve.grips (user, 26 September 2026): a single selected arc shows start, end and through point through the shared path-edit overlay; dragging one rebuilds the circular arc through the three points as one journaled Patch, snapped through resolve_point_snap. The through grip sits at the middle of the sweep, so it re-centers after a drag (user pass, 28 September 2026, pm6). Picked grips (user, 27 September 2026; direct-selection.md): Alt/Ctrl/Shift+right-drag edit only the picked grips' width, color and opacity, or the hovered grip when none is picked; one journaled Patch per HUD, Esc restores. Delete with grips picked removes them, rebuilding the path through the rest; fewer than two left removes the node; one Ctrl+Z restores.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -3681,7 +3681,7 @@
           "decided": "2026-09-25"
         },
         "D13": {
-          "behavior": "Decision: automatic edit affordance, not Direct Select only. A single selected Bézier curve, open or closed, shows every anchor and every non-zero handle with the Select tool (extends P1.curve.grips; an arc shows its start, end and through point instead). Each anchor or handle drag is one journaled Patch. A dragged handle keeps its grab offset and snaps its tip, never onto its own anchor (user, 27 September 2026, tip31; user pass, 28 September 2026, pm2). Handle drags take the D05 / D07 keys: Alt moves only that handle, Shift keeps its direction, Ctrl scales both handles of the anchor. Picked vertices (user, 27 September 2026; direct-selection.md): Alt/Ctrl/Shift+right-drag edit only the picked anchors' width, color and opacity (vertex color alpha), or the hovered anchor when none is picked; one journaled Patch per HUD, Esc restores. Delete with anchors picked removes them and rejoins the neighbors; fewer than two (open) or three (closed) left removes the node; one Ctrl+Z restores. P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry.",
+          "behavior": "Decision: automatic edit affordance, not Direct Select only. A single selected Bézier curve, open or closed, shows every anchor and every non-zero handle with the Select tool (extends P1.curve.grips; an arc shows its start, end and through point instead). Each anchor or handle drag is one journaled Patch. A dragged handle keeps its grab offset and snaps its tip, never onto its own anchor (user, 27 September 2026, tip31; user pass, 28 September 2026, pm2). Handle drags take the D05 / D07 keys: Alt moves only that handle, Shift keeps its direction, Ctrl scales both handles of the anchor. Picked vertices (user, 27 September 2026; direct-selection.md): Alt/Ctrl/Shift+right-drag edit only the picked anchors' width, color and opacity (vertex color alpha), or the hovered anchor when none is picked; one journaled Patch per HUD, Esc restores. Delete with anchors picked removes them and rejoins the neighbors; fewer than two (open) or three (closed) left removes the node; one Ctrl+Z restores. P1.shape.properties: squircle Fill / Stroke / Corners controls below the actual silhouette, with full-width clearance and concave-notch support, gated by geometry.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -3811,7 +3811,7 @@
           "decided": "2026-09-17"
         },
         "D13": {
-          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers. P1.curve.grips: a single selected Pen stroke shows every anchor and every non-zero tangent handle with the Select tool; each drag is one journaled Patch (user pass, 28 September 2026, tn3).",
+          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls below the actual silhouette, with full-width clearance and concave-notch support, gated by geometry; dimensions use separate exterior stringers. P1.curve.grips: a single selected Pen stroke shows every anchor and every non-zero tangent handle with the Select tool; each drag is one journaled Patch (user pass, 28 September 2026, tn3).",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",

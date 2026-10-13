@@ -123,7 +123,7 @@ pub(super) fn styled_typeface_font(
         return typeface_font(face, size);
     }
     let family = egui::FontFamily::Name(face.bold_egui_family().into());
-    if ctx.fonts(|fonts| fonts.definitions().families.contains_key(&family)) {
+    if ctx.fonts(|fonts| fonts.families().contains(&family)) {
         FontId::new(size, family)
     } else {
         typeface_font(face, size)

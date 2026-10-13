@@ -2456,27 +2456,13 @@ impl SlateApp {
                     new_group = snapped;
                     self.board_snap_guides = guides;
                 }
-                let mut sx = new_group.w / gb.w.max(0.001);
-                let mut sy = new_group.h / gb.h.max(0.001);
-                if !reposition {
-                    // No member may collapse below MIN_DRAW world units (but a
-                    // member already smaller than that never blocks the gesture).
-                    for node in before
-                        .iter()
-                        .filter(|n| !matches!(n.kind, NodeKind::Connector(_)))
-                    {
-                        if node.rect.w >= MIN_DRAW {
-                            sx = sx.max(MIN_DRAW / node.rect.w);
-                        }
-                        if node.rect.h >= MIN_DRAW {
-                            sy = sy.max(MIN_DRAW / node.rect.h);
-                        }
-                    }
-                    if lock_aspect {
-                        sx = sx.max(sy);
-                        sy = sx;
-                    }
-                }
+                let sx = new_group.w / gb.w.max(0.001);
+                let sy = new_group.h / gb.h.max(0.001);
+                let (sx, sy) = if reposition {
+                    (sx, sy)
+                } else {
+                    Self::constrain_group_scale(&before, sx, sy, lock_aspect)
+                };
                 let mean = (sx + sy) * 0.5;
                 let rects: Vec<WorldRect> = before.iter().map(|n| n.rect).collect();
                 let scaled = board_snap::apply_group_box_scale(

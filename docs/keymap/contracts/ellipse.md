@@ -26,7 +26,7 @@ D01–D17 are every tool-scoped dimension. D18–D35 are portal-only and do not 
 | D10 | Cursor | Crosshair while armed over the board (stated 2026-09-25). The P2.GhostFollow silhouette still follows it until the press, without the tinted pointer. Controls use shell hover and focus feedback. | stated | 100 |
 | D11 | Commit | P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history. | pattern | 85 |
 | D12 | Cancel | P1.shape.properties: Esc cancels the pending property edit and preserves selection. Existing creation cancellation remains unchanged. | pattern | 85 |
-| D13 | Selected presentation | P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers. | pattern | 85 |
+| D13 | Selected presentation | P1.shape.properties: squircle Fill / Stroke / Corners controls below the actual silhouette, with full-width clearance and concave-notch support, gated by geometry; dimensions use separate exterior stringers. | pattern | 85 |
 | D14 | Post-edit | Circular Fill and Stroke buttons; no corner button. Color editors open outward and use the shared desktop eyedropper. Dimension alternatives are in shape-property-editing.md. | guess | 55 |
 | D15 | Non-goals | P1.shape.properties: no dimensions, independent opacity, or unsupported geometry controls in the strip. | pattern | 85 |
 | D16 | Create-style inheritance | **Closed-form** create-style memory (P1.shape.style): inherit last closed-shape stroke/fill when the kit recipe is inherit. Open-curve edits do not overwrite ellipse defaults. | stated | 100 |

@@ -2223,12 +2223,14 @@ impl SlateApp {
             return;
         };
         let fill = t.fill;
+        let style = t.style;
         let (family, size, color, align) = (t.family, t.size, t.color, t.align);
         let rect = src.rect.translated(dir * (src.rect.w + STICKY_GAP), 0.0);
         let node = self.doc_mut().scene.build_node(
             rect,
             NodeKind::Text(TextNode {
                 text: String::new(),
+                style,
                 family,
                 size,
                 color,

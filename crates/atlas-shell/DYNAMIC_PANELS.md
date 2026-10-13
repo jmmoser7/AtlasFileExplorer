@@ -88,9 +88,11 @@ The selection strip sits below the selected object or selection bounds,
 following the actual silhouette with clearance for its full width; concave
 notches are supported. Its active editor opens upward, away from the strip
 and object. Preserve a clear gap; crossing that gap must not dismiss the editor.
-The strip remains horizontal above rotated selection bounds; dimension
+The strip remains horizontal below rotated selection bounds; dimension
 stringers follow the object's measured local axes and refresh during live
-geometry changes. For polygons the strip uses the actual rotated outline
+geometry changes. A horizontal stringer uses a 68-unit lane (`STRINGER_GAP +
+OBJECT_GAP + BUTTON_SIZE`), leaving 24 units beyond the icon strip; a vertical
+stringer keeps its 24-unit lane. For polygons the strip uses the actual rotated outline
 bounds, keeping the shared gap from the visible shape. P1.shape.properties
 owns grip priority over strip/stringer presses and oriented numeric-label
 hit regions; closed-form seam vertices follow the same rule.

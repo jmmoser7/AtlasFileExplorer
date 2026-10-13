@@ -24,11 +24,11 @@ pub fn paint_rotate_cursor(painter: &egui::Painter, pos: Pos2) {
         .collect();
     painter.add(egui::Shape::line(
         points.clone(),
-        EStroke::new(4.5, Color32::BLACK),
+        EStroke::new(4.5_f32, Color32::BLACK),
     ));
     painter.add(egui::Shape::line(
         points.clone(),
-        EStroke::new(2.0, Color32::WHITE),
+        EStroke::new(2.0_f32, Color32::WHITE),
     ));
     for (end, tangent, outward) in [
         (points[0], Vec2::new(-1.0, 0.0), Vec2::new(0.0, -1.0)),
@@ -45,7 +45,7 @@ pub fn paint_rotate_cursor(painter: &egui::Painter, pos: Pos2) {
                 end - outward * HEAD,
             ],
             Color32::WHITE,
-            EStroke::new(1.0, Color32::BLACK),
+            EStroke::new(1.0_f32, Color32::BLACK),
         ));
     }
 }

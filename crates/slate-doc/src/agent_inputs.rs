@@ -2,6 +2,8 @@
 //! Resolves one immutable run input; adapters never interpret a scene.
 mod ports;
 pub use ports::*;
+#[cfg(test)]
+mod compatibility_tests;
 use ports::{flow_view, model_view_target};
 #[cfg(test)]
 use ports::{GENERATOR_PORTS, TEXT_PORTS};
@@ -1582,17 +1584,6 @@ mod tests {
         before.binding.as_mut().unwrap().output = None;
         before.binding.as_mut().unwrap().all_images = true;
         assert!(rebind(&doc.scene, &before, &after).unwrap().all_images);
-    }
-
-    #[test]
-    fn old_wires_and_portals_deserialize_without_new_fields() {
-        let p = PortalNode::unbound_agent("legacy", "cursor");
-        let mut value = serde_json::to_value(&p).unwrap();
-        for field in ["bundle", "seed", "view"] {
-            value["agent"].as_object_mut().unwrap().remove(field);
-        }
-        let read: PortalNode = serde_json::from_value(value).unwrap();
-        assert_eq!(read.agent.unwrap().view, atlas_agent::PortalView::Chat);
     }
 
     #[test]

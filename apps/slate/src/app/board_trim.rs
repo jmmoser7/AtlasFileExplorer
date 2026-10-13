@@ -219,6 +219,7 @@ impl SlateApp {
         matches!(n.kind, NodeKind::Shape(_))
     }
 
+    #[cfg(test)]
     pub(crate) fn trim_click(&mut self, world: Pos2, shift: bool) -> bool {
         self.trim_click_modifiers(world, shift, false)
     }

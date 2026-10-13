@@ -3,7 +3,7 @@ use super::{FeedbackHub, FeedbackKind, FeedbackPhase, FeedbackUiOutput};
 use crate::icons::{self, Icon};
 use crate::theme::Palette;
 use crate::tokens::{self, FeedbackTokens};
-use eframe::egui::{self, Align2, Color32, CornerRadius, Id, Margin, Rect, RichText, Stroke, Vec2};
+use eframe::egui::{self, Color32, CornerRadius, Id, Margin, Rect, RichText, Stroke, Vec2};
 
 pub(super) fn color(c: [u8; 4]) -> Color32 {
     Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3])

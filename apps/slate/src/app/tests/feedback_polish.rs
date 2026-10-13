@@ -1,5 +1,6 @@
 //! Report-driven regression tests for the October 13 interaction pass.
 use super::*;
+use atlas_commands::CommandId;
 
 #[test]
 fn escape_commits_placed_polyline_vertices_as_one_undo_step() {

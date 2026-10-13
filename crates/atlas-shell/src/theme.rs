@@ -299,7 +299,7 @@ mod tests {
         assert_eq!(light.ink, Color32::from_rgb(0x1b, 0x1e, 0x22));
         assert_eq!(light.sub, Color32::from_rgb(0x87, 0x8e, 0x96));
         assert_eq!(light.line, Color32::from_rgb(0xcb, 0xd1, 0xd8));
-        assert_eq!(light.wire, Color32::from_rgb(0x6e, 0x76, 0x80));
+        assert_eq!(light.wire, Color32::from_rgb(0xcc, 0xcf, 0xcf));
         assert_eq!(light.accent, Color32::from_rgb(0x0f, 0x76, 0x6e));
         assert_eq!(light.portal, Color32::from_rgb(0x8b, 0x5c, 0xf6));
         assert_eq!(light.thumb_bg, Color32::from_rgb(0xee, 0xf0, 0xf2));

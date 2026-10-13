@@ -3,6 +3,29 @@
 use super::*;
 
 impl SlateApp {
+    /// Preserve minimum member dimensions while resizing the group box.
+    pub(crate) fn constrain_group_scale(
+        before: &[Node],
+        mut sx: f32,
+        mut sy: f32,
+        aspect: bool,
+    ) -> (f32, f32) {
+        let minimum = super::super::board::MIN_DRAW;
+        for node in before.iter().filter(|n| !matches!(n.kind, NodeKind::Connector(_))) {
+            if node.rect.w >= minimum {
+                sx = sx.max(minimum / node.rect.w);
+            }
+            if node.rect.h >= minimum {
+                sy = sy.max(minimum / node.rect.h);
+            }
+        }
+        if aspect {
+            sx = sx.max(sy);
+            sy = sx;
+        }
+        (sx, sy)
+    }
+
     pub(crate) fn rotation_drag_value(
         before: &Node,
         start_angle: f32,
