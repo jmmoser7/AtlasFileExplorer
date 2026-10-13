@@ -103,6 +103,10 @@ In the 2026-10-13 session, `codex cloud status` printed `[PENDING]` for a task
 whose JSON status and interactive task list were `error`. Do not use that
 status command or its exit code as the sole polling condition. If they disagree,
 stop the pending loop and inspect the task page/list; record both observations.
+That task later returned `ready` with a report and source diff. An observed
+`error` was not permanent, and the CLI exposed no failure reason. Recheck a
+disputed state after a bounded interval before launching another cold build;
+keep a late result tied to its submitted SHA and review overlaps with newer work.
 Use bounded waits and back off unchanged polls; avoid sending the same status
 update each minute. Ask the user to inspect a task only when their action can
 resolve a specific blocker unavailable through the tools. CLI task completion
