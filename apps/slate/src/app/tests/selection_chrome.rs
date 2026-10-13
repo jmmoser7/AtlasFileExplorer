@@ -178,7 +178,7 @@ fn the_eraser_preview_keeps_its_own_color() {
 }
 
 #[test]
-fn rotate_hover_and_drag_show_a_circular_arrow_in_the_windows_cursor_scheme() {
+fn rotate_hover_and_drag_show_a_quarter_arc_in_the_windows_cursor_scheme() {
     let mut h = Harness::new("rotate_pointer");
     h.app.leave_home();
     h.app.ensure_work_tab();

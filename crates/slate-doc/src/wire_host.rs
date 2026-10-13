@@ -13,19 +13,17 @@
 //! | Kind | Class | Ports |
 //! |------|-------|-------|
 //! | Rect, text, sticky, image, frame, portal, dock strip | Oriented box | Midpoints of the **local** edges, then rotated about the node center |
-//! | Ellipse | Oriented box | Same four local-axis extrema — those points lie on the ellipse |
-//! | Closed path / compound | Open stroke (closed loop) | Arclength `t = 0`, `0.5`, `1` on the path itself, including the closing seam — never `node.rect` |
+//! | Ellipse, polygon | Oriented box | No new ports; saved anchors resolve on the existing local-axis geometry |
+//! | Closed path / compound | Open stroke (closed loop) | No new ports; saved anchors resolve by arclength on the path itself |
 //! | Line, arc, polyline, Bézier span, pen stroke — unclosed ([`is_open_shape`]) | Open stroke | No ports and no new attachments. Wires saved earlier still resolve through [`WireHost::anchor`] |
 //! | Connector | — | No ports (filtered by the interaction layer) |
 //!
 //! ## Future kinds
 //!
-//! New geometry declares a class here; it does not special-case a file
-//! format (facet taxonomy). A regular polygon or star would expose
-//! vertices or edge mids. A closed freehand / NURBS would ray-cast the
-//! local cardinals against the silhouette. A 3D / mesh portal stays an
-//! oriented frame — ports belong to the frame, not the mesh. Do not
-//! invent a port per vertex on a dense path (Article III).
+//! New geometry declares its anchor class here without adding ports to
+//! nonrectangular shapes. A 3D / mesh portal stays an oriented frame —
+//! ports belong to the frame, not the mesh. File format does not select
+//! port geometry (facet taxonomy).
 //!
 //! Geometry stays derived (Art. VI.3). The journal stores only
 //! `Side` + `t` + node id.

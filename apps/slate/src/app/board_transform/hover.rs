@@ -2,6 +2,25 @@
 use super::*;
 
 impl SlateApp {
+    /// Keep a small object's visible body available for moving when its
+    /// ordinary transform hit bands cover the whole object.
+    pub(crate) fn tiny_body_owns_pointer(&self, screen: Pos2) -> Option<NodeId> {
+        let xf = self.board_xf();
+        let world = xf.s2w(screen);
+        let id = self.board_pick_node(world.x, world.y)?;
+        let n = self.doc().scene.node(id)?;
+        // Curves keep their explicit endpoint/anchor edit contract.
+        if n.is_frame()
+            || Self::node_uses_curve_grips(n)
+            || self.curve_grips_of(id).is_some()
+            || !n.rect.contains_rotated(world.x, world.y, n.rotation_deg)
+        {
+            return None;
+        }
+        let band = canvas_scale::hit_px(board_handles::CORNER_HIT_PX, xf.z);
+        (n.rect.w.min(n.rect.h) * xf.z <= 2.0 * band).then_some(id)
+    }
+
     /// Hover cursors only. Selection is not required. Edge / rotate hover
     /// never paints selection chrome (P1.node.transform).
     pub(crate) fn hover_transform_chrome(
@@ -16,6 +35,12 @@ impl SlateApp {
         self.board_sides_hover = None;
         let Some(p) = pointer else { return };
         if self.pointer_on_portal_maximize(p, xf) {
+            return;
+        }
+        if let Some(id) = self.tiny_body_owns_pointer(p) {
+            self.board_hover_hit = Some(board_handles::BoardHitTarget::Body);
+            self.board_hover_node = Some(id);
+            ctx.set_cursor_icon(egui::CursorIcon::Move);
             return;
         }
         if let Some((id, vertex)) = self.fillet_grip_hit_at(p) {

@@ -4,8 +4,8 @@ use super::*;
 impl SlateApp {
     /// Subtle selection highlight that follows the painted shape, not its
     /// axis-aligned box. Paths use the stroke; closed primitives get a faint
-    /// fill plus the silhouette. `rotate_hover` paints the single-select
-    /// rotate hint.
+    /// fill plus the silhouette. `rotate_hover` uses the single-select
+    /// outline; rotation feedback belongs to the pointer alone.
     pub(crate) fn paint_selected_node(
         &self,
         painter: &egui::Painter,
@@ -74,38 +74,13 @@ impl SlateApp {
         }
         if rotate_hover {
             let geom = board_handles::selection_geom(xf, n.rect, n.rotation_deg);
-            let hover = self
-                .board_hover_hit
-                .filter(|_| self.board_hover_node == Some(n.id));
-            let polygon = match &n.kind {
-                NodeKind::Shape(s) if s.shape == ShapeKind::RegularPolygon => Some(s),
-                _ => None,
-            };
             board_handles::paint_selection(
                 &painter,
                 &geom,
                 selection_outline,
                 select_tint,
-                hover.filter(|_| polygon.is_none()),
                 outline_w,
             );
-            if let Some(s) = polygon {
-                if let Some(board_handles::BoardHitTarget::Rotate(i)) = hover {
-                    if let Some(p) = slate_doc::scene::regular_polygon_vertex(
-                        n.rect,
-                        s.sides,
-                        s.phase_deg,
-                        i as usize,
-                    ) {
-                        let vertex = xf.w2s(Pos2::from(n.rect.rotate_point(p, n.rotation_deg)));
-                        let center = xf.w2s(Pos2::from(n.rect.center()));
-                        let at = vertex
-                            + (vertex - center).normalized()
-                                * canvas_scale::px(board_handles::ROTATE_OFFSET_PX, xf.z);
-                        board_handles::paint_rotate_affordance(&painter, vertex, at, select_tint);
-                    }
-                }
-            }
             self.paint_node_fillet_grip(&painter, xf, n, select_tint);
         } else {
             painter.add(egui::Shape::closed_line(

@@ -44,6 +44,9 @@ settings (page + sliders) for a size.
 
 ## State and sizing
 
+Text emphasis uses the shared Bold, Italic and Underline glyphs. Their
+independent toggles use the same selected accent as the justification segments.
+
 Apps supply state colors through the shared Palette/dock tokens. This rollout
 does not change existing hover, active, pinned, focus, or disabled semantics.
 Do not hardcode colors into glyphs. Keep geometry fixed between these states.

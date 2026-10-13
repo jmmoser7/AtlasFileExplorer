@@ -4,10 +4,10 @@
 //! I); this module routes input, paints the anchor adornment, and journals
 //! one Patch per drag through the existing gesture convention. A `Line`
 //! shape promotes to a 2-anchor `Path` on its first direct edit (one Patch
-//! covers the promotion + the edit). Rotated paths bake their rotation into
-//! the path on the first direct edit (world shape unchanged).
-//!
-//! See `docs/keymap/specs/direct-selection.md`.
+//! covers the promotion + the edit). Rotated paths bake rotation on edit.
+//! Contract: `docs/keymap/specs/direct-selection.md`.
+
+mod sweep;
 
 use super::board::{BoardXf, MIN_DRAW};
 use super::path_edit_overlay::{
@@ -203,7 +203,11 @@ pub enum DirectDrag {
         idx: usize,
     },
     /// Rubber-band over anchors of the target path (Shift = add).
-    Marquee { start_screen: Pos2, add: bool, edges: bool },
+    Marquee {
+        start_screen: Pos2,
+        add: bool,
+        edges: bool,
+    },
 }
 
 fn to_point(p: Pos2) -> Point {
@@ -291,7 +295,7 @@ fn rebuild_from_world_bez(n: &mut Node, bez: &BezPath, closed: bool, sources: Op
 
 impl SlateApp {
     /// Is this node direct-editable (a Path, or a Line that would promote)?
-    /// A closed form is too, for picking its vertices only
+    /// Closed-form vertices promote on their first geometric edit
     /// (P1.shape.vertex-style).
     pub(crate) fn direct_editable(&self, id: NodeId) -> bool {
         matches!(
@@ -349,8 +353,8 @@ impl SlateApp {
     }
 
     /// World-space anchors of a node: Paths lift through `vector_ink::edit`;
-    /// Lines synthesize their 2 endpoint anchors (promotion happens on the
-    /// first edit, not on inspection).
+    /// Lines and closed primitives synthesize anchors through their existing
+    /// geometry owner; promotion happens on the first edit, not inspection.
     pub(crate) fn direct_anchors_of(&self, id: NodeId) -> Option<(Vec<Anchor>, bool)> {
         let node = self.doc().scene.node(id)?;
         let NodeKind::Shape(s) = &node.kind else {
@@ -373,7 +377,7 @@ impl SlateApp {
                 let path = vertex_style::closed_form_path(s)?;
                 let bez = board_path::path_data_to_world_bez(&path, node.rect, node.rotation_deg);
                 Some(anchors_from_bezpath(&bez))
-            },
+            }
         }
     }
 
@@ -913,8 +917,10 @@ impl SlateApp {
             return None;
         }
         let line = board_line::line_endpoints(n).is_some();
-        if !line && self.closed_form_points(id).is_none()
-            && !matches!(self.curve_grips_of(id), Some(CurveGrips::Anchors { .. })) {
+        if !line
+            && self.closed_form_points(id).is_none()
+            && !matches!(self.curve_grips_of(id), Some(CurveGrips::Anchors { .. }))
+        {
             return None;
         }
         let (anchors, closed) = self.direct_anchors_of(id)?;
@@ -948,42 +954,6 @@ impl SlateApp {
         self.board_sel.insert(id);
         self.direct.grip_points.toggle_edge(id, seg, anchors.len());
         true
-    }
-
-    /// Rhino's Ctrl+Shift window/crossing picks segments on one curve. Keep
-    /// existing picks on that curve; repeated sweeps add rather than toggle.
-    pub(crate) fn pick_curve_edges_in_window(&mut self, start: Pos2, end: Pos2) {
-        let xf = self.board_xf();
-        let rect = Rect::from_two_pos(xf.s2w(start), xf.s2w(end));
-        let r = WorldRect::new(rect.min.x, rect.min.y, rect.width(), rect.height());
-        let mode = board_path::marquee_mode(start.x, end.x);
-        let preferred = self.direct.grip_points.node;
-        let mut candidates: Vec<_> = self.doc().scene.nodes.iter().rev()
-            .filter(|n| !n.hidden && !n.locked).map(|n| n.id).collect();
-        candidates.sort_by_key(|id| Some(*id) != preferred);
-        for id in candidates {
-            let Some((anchors, closed)) = self.direct_anchors_of(id) else { continue };
-            let Some(before) = self.doc().scene.node(id) else { continue };
-            let count = anchors.len().saturating_sub(usize::from(!closed));
-            let hits: Vec<_> = (0..count).filter(|&i| {
-                let mut segment = before.clone();
-                let bez = bezpath_from_anchors(&[anchors[i], anchors[(i + 1) % anchors.len()]], false);
-                rebuild_from_world_bez(&mut segment, &bez, false, None);
-                if let NodeKind::Shape(s) = &mut segment.kind { s.fill = None; }
-                board_path::marquee_selects_node(&segment, r, xf.z, &self.doc().scene,
-                    self.board_wire_routing, mode)
-            }).collect();
-            if hits.is_empty() { continue; }
-            self.board_sel.clear();
-            self.board_sel.insert(id);
-            for seg in hits {
-                if self.direct.grip_points.node != Some(id)
-                    || !self.direct.grip_points.edges.contains_key(&seg) {
-                    self.direct.grip_points.toggle_edge(id, seg, anchors.len());
-                }
-            }
-            return;
-        }
     }
 
     /// Press on a picked edge of the selected curve: the picked vertices
@@ -1171,29 +1141,7 @@ impl SlateApp {
         mods: egui::Modifiers,
     ) -> Option<DirectDrag> {
         let xf = self.board_xf();
-        if let Some(id) = self
-            .direct
-            .node
-            .filter(|&id| self.direct_anchors_of(id).is_none())
-        {
-            // A closed form's vertices pick but never move: moving one would
-            // change the form's kind (P1.shape.vertex-style).
-            if self.closed_form_points(id).is_none() {
-                self.direct_set_target(None);
-                return None;
-            }
-            if let Some(idx) = self.direct_anchor_at(screen, &xf) {
-                if mods.shift {
-                    if !self.direct.anchors.remove(&idx) {
-                        self.direct.anchors.insert(idx);
-                    }
-                } else {
-                    self.direct.anchors.clear();
-                    self.direct.anchors.insert(idx);
-                }
-                return None;
-            }
-        } else if let Some(id) = self.direct.node {
+        if let Some(id) = self.direct.node {
             let Some((anchors, closed)) = self.direct_anchors_of(id) else {
                 self.direct_set_target(None);
                 return None;
@@ -1398,7 +1346,11 @@ impl SlateApp {
                     }
                 }
             }
-            DirectDrag::Marquee { start_screen, add, edges } => {
+            DirectDrag::Marquee {
+                start_screen,
+                add,
+                edges,
+            } => {
                 let Some(p) = pointer else { return };
                 if edges {
                     self.pick_curve_edges_in_window(start_screen, p);

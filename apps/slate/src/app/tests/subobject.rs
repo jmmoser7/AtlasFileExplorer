@@ -3,6 +3,38 @@
 use super::*;
 
 #[test]
+fn tiny_shape_body_moves_before_overlapping_transform_grips() {
+    use slate_doc::scene::ShapeKind;
+    for zoom in [0.5, 1.0, 8.0] {
+        let (mut h, id, _) = closed_form_board("tiny_body_move", ShapeKind::Rect);
+        let center = h.app.board_xf().s2w(h.app.canvas_rect.center());
+        h.app.doc_mut().scene.node_mut(id).unwrap().rect =
+            WorldRect::new(center.x, center.y, 4.0, 3.0);
+        h.app.tab_mut().cam.z = zoom;
+        let xf = h.app.board_xf();
+        let pan = h.app.canvas_rect.center().to_vec2() - xf.w2s(center).to_vec2();
+        h.app.tab_mut().cam.offset += pan;
+        h.frame();
+        let before = h.app.doc().scene.node(id).unwrap().clone();
+        let xf = h.app.board_xf();
+        let grab = xf.w2s(Pos2::new(before.rect.x + 2.0, before.rect.y + 1.5));
+        assert_eq!(h.app.tiny_body_owns_pointer(grab), Some(id));
+        assert_eq!(
+            h.app.transform_hit_at(grab),
+            Some((Some(id), board_handles::BoardHitTarget::Body))
+        );
+        drag_screen(&mut h, grab, grab + EVec2::new(50.0, 35.0), false);
+        let after = h.app.doc().scene.node(id).unwrap();
+        assert_eq!(shape_kind_of(&h, id), ShapeKind::Rect);
+        assert_eq!(after.rect.w, before.rect.w);
+        assert_eq!(after.rect.h, before.rect.h);
+        assert_ne!(after.rect.x, before.rect.x);
+        h.app.board_undo();
+        assert_eq!(h.app.doc().scene.node(id).unwrap(), &before);
+    }
+}
+
+#[test]
 fn ctrl_shift_sweeps_pick_contained_or_crossing_segments() {
     let mut h = grip_board("edge_sweep");
     let (id, pts) = edge_polyline(&mut h);
@@ -10,19 +42,34 @@ fn ctrl_shift_sweeps_pick_contained_or_crossing_segments() {
     let depth = h.app.tab().journal.undo_depth();
     let a = xf.w2s(pts[0] + EVec2::new(-20.0, -20.0));
     let b = xf.w2s(pts[2] + EVec2::new(20.0, 20.0));
-    let pointer = |h: &mut Harness, pos, button| h.frame_with(|i| {
-        i.modifiers = SUB_OBJECT;
-        i.events.push(egui::Event::PointerMoved(pos));
-        if let Some(pressed) = button {
-            i.events.push(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary,
-                pressed, modifiers: SUB_OBJECT });
-        }
-    });
+    let pointer = |h: &mut Harness, pos, button| {
+        h.frame_with(|i| {
+            i.modifiers = SUB_OBJECT;
+            i.events.push(egui::Event::PointerMoved(pos));
+            if let Some(pressed) = button {
+                i.events.push(egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: SUB_OBJECT,
+                });
+            }
+        })
+    };
     pointer(&mut h, a, Some(true));
     pointer(&mut h, mid(a, b), None);
     pointer(&mut h, b, None);
     pointer(&mut h, b, Some(false));
-    assert_eq!(h.app.direct.grip_points.edges.keys().copied().collect::<Vec<_>>(), vec![0, 1]);
+    assert_eq!(
+        h.app
+            .direct
+            .grip_points
+            .edges
+            .keys()
+            .copied()
+            .collect::<Vec<_>>(),
+        vec![0, 1]
+    );
     assert_eq!(h.app.board_sel, [id].into_iter().collect());
     assert_eq!(h.app.tab().journal.undo_depth(), depth);
     // Right-to-left crossing touches edge 2 without enclosing its ends.
@@ -31,7 +78,16 @@ fn ctrl_shift_sweeps_pick_contained_or_crossing_segments() {
     pointer(&mut h, a, Some(true));
     pointer(&mut h, b, None);
     pointer(&mut h, b, Some(false));
-    assert_eq!(h.app.direct.grip_points.edges.keys().copied().collect::<Vec<_>>(), vec![0, 1, 2]);
+    assert_eq!(
+        h.app
+            .direct
+            .grip_points
+            .edges
+            .keys()
+            .copied()
+            .collect::<Vec<_>>(),
+        vec![0, 1, 2]
+    );
 }
 
 #[test]
@@ -49,8 +105,12 @@ fn deleting_a_primitive_vertex_promotes_it_and_undo_restores_it() {
         let (anchors, closed) = h.app.direct_anchors_of(id).unwrap();
         assert!(closed);
         assert_eq!(anchors.len(), count - 1);
-        let NodeKind::Shape(s) = &h.app.doc().scene.node(id).unwrap().kind else { panic!("shape") };
-        let NodeKind::Shape(old) = &before.kind else { panic!("shape") };
+        let NodeKind::Shape(s) = &h.app.doc().scene.node(id).unwrap().kind else {
+            panic!("shape")
+        };
+        let NodeKind::Shape(old) = &before.kind else {
+            panic!("shape")
+        };
         assert_eq!(s.fill, old.fill);
         assert_eq!(s.stroke, old.stroke);
         h.app.board_undo();
@@ -65,7 +125,16 @@ fn deleting_a_rectangle_edge_opens_its_outline() {
     let before = h.app.doc().scene.node(id).unwrap().clone();
     let at = h.app.board_xf().w2s(mid(v[1], v[2]));
     press_primary(&mut h, at, SUB_OBJECT);
-    assert_eq!(h.app.direct.grip_points.edges.keys().copied().collect::<Vec<_>>(), vec![1]);
+    assert_eq!(
+        h.app
+            .direct
+            .grip_points
+            .edges
+            .keys()
+            .copied()
+            .collect::<Vec<_>>(),
+        vec![1]
+    );
     press_key_with(&mut h, egui::Key::Delete, egui::Modifiers::NONE);
     assert_eq!(shape_kind_of(&h, id), ShapeKind::Path);
     assert!(!h.app.direct_anchors_of(id).unwrap().1);

@@ -348,6 +348,39 @@ fn zoom_and_pan_do_not_reshape() {
 }
 
 #[test]
+fn italic_and_underlined_world_text_keep_style_in_the_cache_and_at_each_zoom() {
+    with_ctx(|ctx| {
+        let normal = WorldSpec::new(FontId::proportional(24.0), 160.0);
+        let decorated = WorldSpec {
+            italics: true,
+            underline: true,
+            ..normal.clone()
+        };
+        let plain = world_layout_spec(ctx, "Styled words", &normal);
+        let styled = world_layout_spec(ctx, "Styled words", &decorated);
+        assert!(!std::sync::Arc::ptr_eq(&plain, &styled));
+        assert!(std::sync::Arc::ptr_eq(
+            &styled,
+            &world_layout_spec(ctx, "Styled words", &decorated)
+        ));
+        for zoom in [0.25, 1.0, 3.0] {
+            let a = zoom_galley(ctx, &plain, Color32::WHITE, zoom);
+            let b = zoom_galley(ctx, &styled, Color32::WHITE, zoom);
+            assert!(
+                b.num_vertices > a.num_vertices,
+                "underline is rendered at zoom {zoom}"
+            );
+            assert_eq!(a.rows.len(), b.rows.len());
+            assert_eq!(
+                b.rows[0].glyphs.len(),
+                a.rows[0].glyphs.len(),
+                "decoration does not change caret positions"
+            );
+        }
+    });
+}
+
+#[test]
 fn glyphs_scale_uniformly_and_rungs_do_not_reshape() {
     let text = "Glyph positions scale with the camera; words never slide inside a line.";
     with_ctx(|ctx| {

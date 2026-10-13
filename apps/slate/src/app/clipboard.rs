@@ -678,17 +678,15 @@ impl SlateApp {
         #[cfg(windows)]
         {
             let held = paste_chord_held();
-            let down = held.is_some();
-            if !focused {
-                self.paste_chord_down = down;
-                return None;
-            }
-            let edge = down && !self.paste_chord_down;
-            self.paste_chord_down = down;
             // egui owns text pastes, including Slate selections with a text
             // fallback. Its Paste event may arrive a frame after this poll;
             // emitting both is two journal commits for one physical chord.
-            (edge && !clipboard_has_text()).then(|| held.unwrap_or(false))
+            paste_fallback_edge(
+                &mut self.paste_chord_down,
+                held,
+                focused,
+                clipboard_has_text(),
+            )
         }
         #[cfg(not(windows))]
         {
@@ -696,6 +694,18 @@ impl SlateApp {
             None
         }
     }
+}
+
+#[cfg(any(windows, test))]
+fn paste_fallback_edge(
+    was_down: &mut bool,
+    held: Option<bool>,
+    focused: bool,
+    has_text: bool,
+) -> Option<bool> {
+    let edge = held.is_some() && !*was_down;
+    *was_down = held.is_some();
+    (focused && edge && !has_text).then(|| held.unwrap_or(false))
 }
 
 #[cfg(windows)]
@@ -885,6 +895,50 @@ fn paste_chord_held() -> Option<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn text_paste_has_one_owner_even_when_the_platform_event_arrives_later() {
+        let mut down = false;
+        // Native polling sees the press before egui delivers the text event.
+        assert_eq!(
+            paste_fallback_edge(&mut down, Some(false), true, true),
+            None
+        );
+        assert_eq!(
+            paste_fallback_edge(&mut down, Some(false), true, true),
+            None
+        );
+        // Releasing before the queued Paste event does not create a fallback.
+        assert_eq!(paste_fallback_edge(&mut down, None, true, true), None);
+        // A second real text paste still belongs to egui.
+        assert_eq!(paste_fallback_edge(&mut down, Some(true), true, true), None);
+    }
+
+    #[test]
+    fn bitmap_paste_fires_once_per_press_and_never_on_focus_regain() {
+        let mut down = false;
+        assert_eq!(
+            paste_fallback_edge(&mut down, Some(false), true, false),
+            Some(false)
+        );
+        assert_eq!(
+            paste_fallback_edge(&mut down, Some(false), true, false),
+            None
+        );
+        assert_eq!(paste_fallback_edge(&mut down, None, true, false), None);
+        assert_eq!(
+            paste_fallback_edge(&mut down, Some(true), true, false),
+            Some(true)
+        );
+        assert_eq!(paste_fallback_edge(&mut down, None, false, false), None);
+        assert_eq!(
+            paste_fallback_edge(&mut down, Some(false), false, false),
+            None
+        );
+        assert_eq!(
+            paste_fallback_edge(&mut down, Some(false), true, false),
+            None
+        );
+    }
     use slate_doc::scene::{ConnectorNode, Side, Stroke, TextNode, WireDisplay, WorldRect};
 
     fn text_node(scene: &mut Scene, x: f32, y: f32) -> Node {

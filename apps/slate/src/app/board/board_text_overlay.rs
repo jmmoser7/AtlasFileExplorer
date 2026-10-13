@@ -290,6 +290,7 @@ impl SlateApp {
                         node.rect.w,
                         node.rect.h,
                         live.align,
+                        live.style,
                     )
                 } else {
                     live.size
@@ -465,6 +466,7 @@ impl SlateApp {
                         .get_or_insert_with(|| slate_doc::scene::ShapeText::new(ink));
                     block.body = text.clone();
                     if block.body.is_empty()
+                        && block.style == slate_doc::scene::TextStyle::default()
                         && block.family == slate_doc::scene::Typeface::Sans
                         && block.size == 24.0
                         && block.align == TextAlign::Center

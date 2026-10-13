@@ -422,6 +422,7 @@ impl SlateApp {
                         node.rect.w,
                         node.rect.h,
                         t.align,
+                        t.style,
                     )
                 } else {
                     t.size

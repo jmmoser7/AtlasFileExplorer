@@ -44,6 +44,7 @@ pub(super) fn show(
     let width = (t.width - 2.0).min((area.width() - 2.0).max(1.0));
     let picker = hub.phase == FeedbackPhase::KindPicker;
     let bug = hub.kind == Some(FeedbackKind::Bug);
+    let height = area.height().min(if picker { 300.0 } else { 560.0 });
     let (title, subtitle) = if picker {
         ("Feedback", "Help improve the app.")
     } else if bug {
@@ -59,10 +60,10 @@ pub(super) fn show(
         .resizable([false, true])
         .movable(true)
         .constrain_to(area)
-        .default_pos(area.center() - Vec2::new(width, area.height().min(560.0)) * 0.5)
+        .default_pos(area.center() - Vec2::new(width, height) * 0.5)
         .default_width(width)
-        .default_height(area.height().min(560.0))
-        .min_height(area.height().min(280.0))
+        .default_height(height)
+        .min_height(area.height().min(if picker { 240.0 } else { 280.0 }))
         .min_width(width)
         .max_width(width)
         .max_height(area.height())

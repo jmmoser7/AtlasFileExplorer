@@ -432,53 +432,14 @@ fn unit(v: Vec2) -> Vec2 {
     }
 }
 
-/// egui exposes no native rotate cursor: hide the OS cursor over rotate
-/// zones and paint [`paint_rotate_cursor`] at the pointer instead.
-pub fn cursor_for_rotate() -> CursorIcon {
-    CursorIcon::None
-}
-
-/// Rotate pointer in the Windows cursor scheme (white, rimmed in black, OS
-/// cursor size): a circular arrow painted at the pointer. Pointer-attached
-/// chrome (`P2.GhostFollow`), so it stays screen-sized; pair with
-/// `CursorIcon::None`.
-pub fn paint_rotate_cursor(painter: &egui::Painter, pos: Pos2) {
-    let r = 7.0;
-    let n = 40;
-    let start = -30.0f32.to_radians();
-    let sweep = 300.0f32.to_radians();
-    let pts: Vec<Pos2> = (0..=n)
-        .map(|i| {
-            let a = start + sweep * i as f32 / n as f32;
-            pos + Vec2::angled(a) * r
-        })
-        .collect();
-    painter.add(egui::Shape::line(
-        pts.clone(),
-        EStroke::new(4.5_f32, Color32::BLACK),
-    ));
-    painter.add(egui::Shape::line(
-        pts.clone(),
-        EStroke::new(2.0_f32, Color32::WHITE),
-    ));
-    let end = *pts.last().unwrap();
-    let end_angle = start + sweep;
-    let tangent = Vec2::angled(end_angle + std::f32::consts::FRAC_PI_2);
-    let outward = Vec2::angled(end_angle);
-    let s = 4.5;
-    painter.add(egui::Shape::convex_polygon(
-        vec![end + tangent * s, end + outward * s, end - outward * s],
-        Color32::WHITE,
-        EStroke::new(1.0_f32, Color32::BLACK),
-    ));
-}
+mod rotate_cursor;
+pub use rotate_cursor::{cursor_for_rotate, paint_rotate_cursor};
 
 pub fn paint_selection(
     painter: &egui::Painter,
     geom: &SelectionGeom,
     outline: &[Pos2],
     color: Color32,
-    hover: Option<BoardHitTarget>,
     outline_w: f32,
 ) {
     let pts = if outline.is_empty() {
@@ -489,41 +450,6 @@ pub fn paint_selection(
     painter.add(egui::Shape::closed_line(
         pts,
         EStroke::new(outline_w, color),
-    ));
-
-    if let Some(BoardHitTarget::Rotate(i)) = hover {
-        paint_rotate_affordance(
-            painter,
-            geom.corners[i as usize],
-            geom.rotate_points[i as usize],
-            color,
-        );
-    }
-}
-
-/// Semi-circular arc hint outside a corner (Office-style rotate affordance).
-pub fn paint_rotate_affordance(
-    painter: &egui::Painter,
-    corner: Pos2,
-    rotate_point: Pos2,
-    color: Color32,
-) {
-    let center = corner;
-    let radius = corner.distance(rotate_point);
-    let base = (rotate_point - corner).angle();
-    let n = 14;
-    let pts: Vec<Pos2> = (0..=n)
-        .map(|i| {
-            let t = i as f32 / n as f32;
-            let a = base - 0.55 + t * 1.1;
-            center + Vec2::angled(a) * radius
-        })
-        .collect();
-    painter.add(egui::Shape::dashed_line(
-        &pts,
-        EStroke::new(1.5_f32, color),
-        4.0,
-        3.0,
     ));
 }
 

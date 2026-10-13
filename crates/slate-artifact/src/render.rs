@@ -1788,8 +1788,8 @@ fn push_shape_text_overlay(
     html.push_str(&style);
     html.push_str("\"><div style=\"width:100%;font-family:");
     html.push_str(text.family.css_stack());
-        html.push(';');
-        html.push_str(&text.style.css());
+    html.push(';');
+    html.push_str(&text.style.css());
     html.push_str(";font-size:");
     html.push_str(&fmt_px(text.size));
     html.push_str("px;color:");

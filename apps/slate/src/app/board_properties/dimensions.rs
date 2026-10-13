@@ -170,9 +170,8 @@ pub(super) fn measured_dimensions(nodes: &[Node]) -> (Option<WorldRect>, Vec<Dim
 /// Which of an axis's two parallel edges carries its stringer. `home` is the
 /// unrotated choice (local bottom for width, local right for height) and
 /// `outward` its exterior normal. On screen a mostly horizontal span sits
-/// below and a mostly vertical one to the right, so rotation never moves a
-/// stringer into the upper lane the selection strip owns. The measured axis,
-/// and so what W and H mean, never changes.
+/// below and a mostly vertical one to the right. The lower stringer clears
+/// the selection strip; the measured axis never changes.
 pub(super) fn stringer_lane(
     home: [Pos2; 2],
     outward: Vec2,
@@ -184,10 +183,36 @@ pub(super) fn stringer_lane(
     } else {
         Vec2::RIGHT
     };
+    let gap = chrome::STRINGER_GAP
+        + if lane == Vec2::DOWN {
+            chrome::OBJECT_GAP + chrome::BUTTON_SIZE
+        } else {
+            0.0
+        };
     if outward.dot(lane) < -1e-4 {
-        (opposite, -outward * chrome::STRINGER_GAP)
+        (opposite, -outward * gap)
     } else {
-        (home, outward * chrome::STRINGER_GAP)
+        (home, outward * gap)
+    }
+}
+
+#[cfg(test)]
+mod strip_lane_tests {
+    use super::*;
+
+    #[test]
+    fn bottom_stringer_clears_circle_and_polygon_property_strips() {
+        for width in [40.0, 100.0, 300.0] {
+            let bounds = Rect::from_min_size(Pos2::ZERO, Vec2::new(width, 100.0));
+            let strip = chrome::strip_rect_below(bounds.center_bottom(), 3, 1.0, 1.0);
+            let (ends, offset) = stringer_lane(
+                [bounds.left_bottom(), bounds.right_bottom()],
+                Vec2::DOWN,
+                [bounds.left_top(), bounds.right_top()],
+            );
+            let label = (ends[0] + (ends[1] - ends[0]) * 0.5) + offset;
+            assert!(label.y > strip.bottom() + chrome::OBJECT_GAP);
+        }
     }
 }
 
@@ -207,7 +232,8 @@ impl SlateApp {
             live && Self::property_pointer_probe(&ctx).is_some_and(|p| self.property_grip_under(p));
         // The inline editor is attached to a dimension kind, never a cached screen position.
         // Nested portal edit keeps the frame selected but hides its stringers.
-        let dims = if self.selection_stringers_suppressed() || self.property_panel_fades_selection() {
+        let dims = if self.selection_stringers_suppressed() || self.property_panel_fades_selection()
+        {
             self.shape_properties.number = None;
             Vec::new()
         } else {

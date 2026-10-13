@@ -84,9 +84,10 @@ alignment, image-specific glyphs, Generator prompt and verification targets.
 
 ## Spatial composition
 
-The selection strip sits directly above the selected object or selection
-bounds. Its one active editor opens further upward, away from the strip and
-object. Preserve a clear gap; crossing that gap must not dismiss the editor.
+The selection strip sits below the selected object or selection bounds,
+following the actual silhouette with clearance for its full width; concave
+notches are supported. Its active editor opens upward, away from the strip
+and object. Preserve a clear gap; crossing that gap must not dismiss the editor.
 The strip remains horizontal above rotated selection bounds; dimension
 stringers follow the object's measured local axes and refresh during live
 geometry changes. For polygons the strip uses the actual rotated outline
@@ -122,19 +123,13 @@ they do not change the icon-button silhouette. Dimensions stay outside the
 toolbar. Do not add a title/header block, a permanent Apply/Cancel footer,
 or stock stacked form rows to these compact editors.
 
-Opening any adjustment icon fades the selection tint, outline, and endpoint
-grips fully out so the authored fill, stroke, and geometry remain visible.
-Hover decoration must not paint over that preview. Keep the property strip,
-editor, and dimension stringers visible; keep the objects selected. Switching
-editors keeps the highlights hidden. Closing or cancelling restores them.
-Use the shared `selection_painter` transition (`SELECTION_FADE_SECONDS`,
-currently 120 ms), without changing document opacity or creating an undo step.
-
-Named exception: the Text editor (typeface, justification, height, color)
-on a selection of text nodes keeps the outline. It changes the glyphs, not
-the box, so the person keeps seeing which box they are editing while the
-pointer is on the strip or the editor. Fill, Stroke, and the other editors
-on the same text still fade it.
+Opening a property palette on one selected node suppresses its selection
+tint, outline, endpoint grips, and dimension stringers while keeping the node
+selected and its property controls visible, including for Text. Multi-selection
+keeps each object's highlight and stringers. Switching palettes preserves this
+presentation; closing or cancelling restores single-node decoration. Use the
+shared `selection_painter` transition (`SELECTION_FADE_SECONDS`, currently
+120 ms), without changing document opacity or creating an undo step.
 
 ## Fill and Stroke
 

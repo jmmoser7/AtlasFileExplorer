@@ -167,12 +167,16 @@ fn build_rung(ctx: &egui::Context, layout: &WorldLayout, rung: &FontId) -> Galle
                 continue;
             }
             let mut job = egui::text::LayoutJob::default();
-            job.append(&slice, 0.0, egui::TextFormat {
-                font_id: rung.clone(),
-                italics: layout.italics,
-                color: Color32::PLACEHOLDER,
-                ..Default::default()
-            });
+            job.append(
+                &slice,
+                0.0,
+                egui::TextFormat {
+                    font_id: rung.clone(),
+                    italics: layout.italics,
+                    color: Color32::PLACEHOLDER,
+                    ..Default::default()
+                },
+            );
             let laid = fonts.layout_job(job);
             let Some(src) = laid.rows.first() else {
                 rows.push(empty_row(line, r));
@@ -181,10 +185,13 @@ fn build_rung(ctx: &egui::Context, layout: &WorldLayout, rung: &FontId) -> Galle
             let mut row = place_row(line, src, r);
             if layout.underline {
                 let y = line.baseline * r + rung.size * 0.08;
-                row.visuals.mesh.add_colored_rect(Rect::from_min_size(
-                    egui::pos2(line.x * r, y),
-                    egui::vec2(line.width * r, rung.size * 0.05),
-                ), Color32::PLACEHOLDER);
+                row.visuals.mesh.add_colored_rect(
+                    Rect::from_min_size(
+                        egui::pos2(line.x * r, y),
+                        egui::vec2(line.width * r, rung.size * 0.05),
+                    ),
+                    Color32::PLACEHOLDER,
+                );
                 row.visuals.mesh_bounds = row.visuals.mesh.calc_bounds();
             }
             mesh_bounds = mesh_bounds.union(row.visuals.mesh_bounds);

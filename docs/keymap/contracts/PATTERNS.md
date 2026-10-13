@@ -157,6 +157,7 @@ is searchable.
   A rotated resize pins that origin in world space so the grabbed edge
   is the one that moves (local AABB math alone walks the far edge once
   rotation is about the live center; most visible at 180°).
+  For a tiny host whose shorter actual body side is no larger than twice the corner hit radius, the actual body is a move target first; scale is available next, and rotation remains outside the body. This priority does not replace explicit curve grips or Ctrl+Shift curve-segment selection. Rotation uses one pointer-attached, two-headed 90-degree arc cursor; no dashed arc is attached to geometry.
   Dragging a mirrorable picture's edge or corner past its opposite mirrors
   it on that local axis (`board_snap::resize_from_handle_mirroring`,
   `slate-doc::mirror`): the rect stays positive and the flip is authored
@@ -305,10 +306,14 @@ is searchable.
   P1.curve.vertex-style unchanged: the tip HUD (Alt width, Ctrl color,
   Shift opacity) and the strip's stroke width, color, opacity and Corners
   amount act at the picks and blend around the closed loop. Closed
-  polylines and paths are already curves and follow P1.curve.grips. The
-  form keeps its kind: nothing converts a rectangle or polygon to a path,
-  and a vertex never moves on its own (that would be another kind);
-  resize, rotate and polygon sides stay. **Model:** the per-vertex arrays
+  polylines and paths already follow P1.curve.grips. Style-only edits keep
+  the primitive kind. Moving or deleting an individual
+  rectangle/polygon vertex promotes it to a closed Path in that same
+  journaled edit (user, 13 October 2026); Delete reconnects surviving
+  neighbors, and fewer than three vertices removes the shape. Edge deletion
+  opens the curve. Fill, stroke and per-vertex corner intent survive promotion;
+  undo restores the primitive. Resize/rotate and polygon sides remain while
+  it is a primitive. **Model:** the per-vertex arrays
   (`tips`, `corner_amounts`, one per vertex, rectangle order top-left,
   top-right, bottom-right, bottom-left; polygon order from
   `regular_polygon_vertices`) ride in `ShapeNode.path` with no segments,
@@ -322,8 +327,8 @@ is searchable.
   pick, not a canvas double-click; a polygon side glyph wins on its own
   disc; the corner grip and a vertex resolve to the nearer, a tie to the
   vertex; a side step carries each vertex's style to the nearest new
-  vertex by angle; Delete with closed-form picks does nothing (removing
-  a vertex would change the kind) and arrow keys nudge the whole node.
+  vertex by angle; Delete promotes the primitive as above; arrow keys
+  nudge the whole node.
   **Not in scope:** per-vertex fill blended across the interior is a mesh
   gradient, which SVG cannot express (Art. IV). The conforming
   alternative, a linear or radial gradient anchored to picked vertices,
@@ -623,45 +628,30 @@ is searchable.
 
 ### P1.wire — connector ports (spawn handles)
 
-- **P1.wire.ports** wire spawn handles sit on **consistent object
-  features**, never the world AABB of a rotated host. Area objects
-  (rect, ellipse, text, image, frame, portal, dock strip)
-  expose the four local-edge midpoints of `node.rect`, then rotate
-  those points about the node center — so a rotated rectangle's ports
-  travel with the rectangle, and an ellipse's ports are the local-axis
-  extrema (which lie on the ellipse). Closed strokes (closed polyline,
-  closed path) expose arclength `t = 0`, `0.5`, `1` on the path itself,
-  including the closing seam — never the path's AABB. **Open shapes**
-  (lines, open arcs, polylines, Bézier spans, unclosed pen strokes) offer
-  no ports and take no new wire ends; wires saved earlier still resolve.
-  One predicate at the port owner decides: `slate_doc::is_open_shape`.
-  Connectors have no ports. New geometry declares a
-  class on `slate_doc::WireHost` (oriented box, open stroke, or a
-  future silhouette / vertex facet) — it does not special-case a file
-  format. Geometry is derived at resolve time (Art. VI.3); the journal
-  stores only `Side` + `t` + node id. Both interpreters call
-  `connector_route` with that host pose (Art. IV).   Implementation:
-  `crates/slate-doc/src/wire_host.rs`.
-- **P1.wire.hit** The port press target is a pointer hit, not painted
-  geometry, so P0.9 does not apply; painted discs still go through
-  `canvas_scale::px`. At zoom ≥ 1 the inner disk is 8 screen px and the
-  outward half-plane is six times that. Below zoom 1 the inner disk
-  grows as `8 * zoom^-0.35`, capped at 14 screen px, and the outward
-  reach stays six times the inner disk. A port whose painted radius is
-  below 1.5 screen px is not drawn and is not hittable. A press inside
-  any node's body does not start a wire from another node's port, unless
-  that body also holds the port (a slide frame around the card). A
-  press inside a multi-selection's bounding box moves that selection.
-  Polygon vertex rotation halos occlude the enlarged port targets;
-  hover and press use this same exclusion (polygon D13).
+- **P1.wire.ports** New connectors can start only from rectangular hosts:
+  rectangles, text, images, frames, portals, and dock strips. Ports sit at
+  local-edge midpoints and rotate with the host. Ellipses, polygons, open and
+  closed paths, and other non-rectangular geometry expose no new ports. Saved
+  wire anchors on any former host still resolve from their stored `Side` + `t`
+  + node id. Connectors have no ports. Host eligibility and geometry are owned
+  by `slate_doc::WireHost`; both interpreters call `connector_route` with that
+  host pose (Art. IV). Implementation: `crates/slate-doc/src/wire_host.rs`.
+- **P1.wire.hit** Port press targets are pointer hits, not painted geometry.
+  At zoom ≥ 1 the inner disk is 8 screen px and the outward half-plane is six
+  times that. Below zoom 1 the inner disk grows as `8 * zoom^-0.35`, capped at
+  14 screen px, and outward reach stays six times the inner disk. A port on a
+  tiny host is suppressed when its hit radius is no greater than four grip-hit
+  radii. Painted discs still use `canvas_scale::px`. A press inside any node's
+  body does not start a wire from another node's port, unless that body also
+  holds the port. A press inside a multi-selection's bounding box moves that
+  selection. Polygon vertex rotation halos occlude port targets; hover and
+  press share this exclusion (polygon D13).
 - **P1.wire.drag** While a wire is dragged from a port, the free end's
   tangent stays on the source side's axis, reversed (horizontal for
   left/right, vertical for top/bottom), matching a wire into a facing
   port. The leader drawn to the flow action menu uses that same curve.
 - **P1.wire.color** A connector's color is optional (`ConnectorNode::color`).
-  `None` paints `Palette::wire`, a medium gray with a light-mode and a
-  dark-mode value, read from the active theme each frame, on the board and
-  in the export. A picked color is `Some` and is kept, whatever it is.
+  `None` paints `Palette::wire`: light `#cccfcf` (RGB 204, 207, 207), or the active dark-theme value, on the board and in the export. A picked color is `Some` and is kept, whatever it is.
   Files saved before the field read a stroke equal to the old board ink
   (light `#1b1e22` or dark `#dde2e8`) as `None`; that load migration is
   the only place the ink is compared.
@@ -1129,13 +1119,13 @@ a second contract — stop and promote it.
 
 ### P1.shape.properties — selection properties and dimensions
 
-Scene capabilities select one shared squircle strip above the selection: Stroke for shapes, images, wires, text boxes and sticky notes, slide frames, and portals; Fill for closed shapes, text sticky-note backgrounds, frames and portals; Corners for rectangles, images, and slide frames; photo filters for images (not 3D model viewports); Viewport display and Measure for a single 3D model viewport (media D13); routing/weight/dash/arrows for wire-only selections. A File Atlas portal adds a Formatting squircle (search, type radios, Ghost/Hide, Zoom to matches, Zoom to fit) owned by `selection_tools::atlas_format_editor`. Frame-only actions (deck order, present) join that same strip. Images nest by drag and drop. Mixed selections expose common controls. Width/height/length belong to separate exterior dimension stringers. Rectangle axes follow rotation; circles use diameter; closed paths use tight local bounds. Open curves (line, arc, polyline, Bézier, pen) and brush strokes show no dimension stringers (user, 26 September 2026), so a selection made only of them shows none. Proposal: a mixed selection that includes a closed shape keeps its union W/H. Groups without wires use union XY dimensions and uniform centroid scaling. Wire-containing selections omit box-dimension edits because attached endpoints follow their hosts. Portal source UI stays on the portal.
+The shared squircle strip sits below the actual selected silhouette, with clearance for its full width; it follows concave silhouettes and nests into their notches. For one selected node, opening any property palette suppresses that node's selection highlight and dimension stringers, including Text. Multi-selection keeps per-object highlights and stringers. These rules apply to the whole strip. Scene capabilities select one shared squircle strip: Stroke for shapes, images, wires, text boxes and sticky notes, slide frames, and portals; Fill for closed shapes, text sticky-note backgrounds, frames and portals; Corners for rectangles, images, and slide frames; photo filters for images (not 3D model viewports); Viewport display and Measure for a single 3D model viewport (media D13); routing/weight/dash/arrows for wire-only selections. A File Atlas portal adds a Formatting squircle (search, type radios, Ghost/Hide, Zoom to matches, Zoom to fit) owned by `selection_tools::atlas_format_editor`. Frame-only actions (deck order, present) join that same strip. Images nest by drag and drop. Mixed selections expose common controls. Width/height/length belong to separate exterior dimension stringers. Rectangle axes follow rotation; circles use diameter; closed paths use tight local bounds. Open curves (line, arc, polyline, Bézier, pen) and brush strokes show no dimension stringers (user, 26 September 2026), so a selection made only of them shows none. Proposal: a mixed selection that includes a closed shape keeps its union W/H. Groups without wires use union XY dimensions and uniform centroid scaling. Wire-containing selections omit box-dimension edits because attached endpoints follow their hosts. Portal source UI stays on the portal.
 
 Painted vertex/anchor/handle grips, including closed-form seam vertices, line endpoints, side-control glyphs, and corner grips, take their own presses before strip buttons and dimension labels. An overlapping stringer must yield without opening its editor or starting a canvas gesture. Popups retain their higher layer priority. Rotated inline-number hit regions follow their oriented text band, excluding empty AABB corners. Cached measurements refresh on live geometry revisions as well as journal commits. The strip uses the actual rotated outline bounds for polygons. These rules are shared by selection chrome (user refinement, 11 October 2026).
 
 The strip icons expand on selection and collapse when it clears. Palette edits are transient previews until icon change or outside click commits one journal group. A press on empty canvas also deselects. Esc, tool changes, and target changes discard pending previews. Numeric dimensions commit on Enter/focus loss, scale about the measured center, preserve stroke width, and reject invalid values. Locked/read-only selections cannot be mutated. Chrome takes precedence over canvas gestures and follows P0.9. Popups draw above all canvas chrome (`selection_tools::POPUP_ORDER`). The fillet capsule is 30% taller than the 17-unit wire capsule; the photo-filter capsule is twice that fillet height. None clears the adjustment; the other radios are low-resolution filtered thumbnails, and the intensity track is as thick as the radio radius. A chips-only variant (`FilterCapsuleStyle::ChipsOnly`) keeps the same circle chips without the intensity track; width follows the chip count. Heights live in `selection_tools`.
 
-Opening an adjustment icon fades selection tint, outlines and endpoint grips out while keeping the objects selected and property controls/stringers visible. Named exception: the Text editor on text nodes keeps the outline (text D14). Switching editors keeps the decoration hidden; closing or cancelling restores it. Hover decoration yields too, so it cannot obscure the authored color or stroke. The shared dynamic-panel style guide owns the transition; this is presentation state, never a document-opacity mutation.
+Opening an adjustment icon fades selection tint, outlines and endpoint grips out while keeping the objects selected and property controls/stringers visible. Switching editors keeps the decoration hidden; closing or cancelling restores it. Hover decoration yields too, so it cannot obscure the authored color or stroke. The shared dynamic-panel style guide owns the transition; this is presentation state, never a document-opacity mutation.
 
 RGB and opacity are independent edits. One shared desktop sampler serves every eyedropper; a result is tied to the captured workbook, selection and property and preserves alpha. Percentage corners retain relative intent; absolute corners retain authored distance with an effective clamp. The model owns both modes; board and export interpret them identically. See specs/shape-property-editing.md and specs/desktop-color-sampling.md.
 

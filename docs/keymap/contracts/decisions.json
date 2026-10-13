@@ -378,11 +378,11 @@
           "decided": "2026-10-13"
         },
         "D14": {
-          "behavior": "Selected PDF/PowerPoint images expose a Pages squircle. The same control opens a miniature image_album pallet over the document for the poster page (board.media.page) and Unbundle (board.media.unbundle) lays the deck on the board as a selected grid. Existing image controls are unchanged. A 3D model's display pass (board.model_display) commits on click as one undo step, live or frozen, following the Pages precedent; the frozen poster uses that pass and undo updates a live viewport. Measure (board.model_measure) enters a frozen viewport and arms point-to-point picking (Rhino Distance); each pick is a plain click (it starts on press, like DragRect click-place), and after the first pick the rubber band and its length follow the pointer over the model; one completed measurement, Esc, or the squircle again returns to Navigate, the resting tool. Completed measurements are derived: they stay drawn on the live viewport and clear on lock. On the Select tool, moving the pointer horizontally across a video node scrubs that node's full trim window without playing (Frame.io hover pan). The playhead stays where the pan stopped. A 96-frame filmstrip makes the pan a lookup; the playhead and timecode are derived and not journaled. A click with no modifiers toggles silent playback from that frame; click-drag still moves the node. One video decodes at a time. Windows Media Foundation plays mp4, m4v, mov, wmv, avi, mpg, and mpeg, and also webm, mkv, and ogv when that codec is installed. A file it cannot open, or a cloud placeholder, keeps the poster, play badge, and extension badge. Video HTML export is unchanged. Rotating a placed picture, video poster, PDF or document poster, or 3D render turns its pixels rigidly with the frame (user request 25 September 2026): the texture, crop window, paint layers, and filter overlay are laid on the node's unrotated rect and the whole quad turns; nothing is re-fit into the rotated bounding box. The HTML export rotates the node box and fills it unrotated. Dragging a picture's edge or corner past its opposite mirrors the picture instead of clamping (user request 25 September 2026): the rect stays positive, ImageNode flip_x / flip_y record the mirror as authored state, the crop window and paint layers mirror with it, and the release is one undo step. Actions → Mirror horizontal and Mirror vertical (board.mirror.horizontal, board.mirror.vertical) mirror selected pictures, paths, and lines across the board axis through each node's center as one undo step. Rectangles, ellipses, polygons, text, 3D renders, and text or document cards do not mirror. The HTML export mirrors the picture's media element with a CSS scale(-1,1), scale(1,-1), or scale(-1,-1). Copying pictures puts them on the clipboard as the bitmap the board shows (user request 25 September 2026): CF_DIBV5 and PNG carry rotation, crop window, mirror, filters, color overlay, paint layers, and opacity, several pictures compose into one image, the linked files ride along as a file list, and Slate's own node format rides in the same write so paste inside Slate still makes nodes. A copy with anything besides pictures offers the words of its text nodes, or a one-line summary, as plain text; the node JSON never goes out as text. The bitmap renders off the frame loop and skips cloud placeholders. Word documents (.doc and .docx) expose the same Pages control. Unbundle renders them through Word to static page images, and until unbundle the card stays the text excerpt. Unbundle while a preview is still rendering waits for that preview and then places the pages, instead of failing because the page count is not ready yet. A cloud-only file is refused before its bytes are read. Page images for a saved workbook are written under assets/documents/stem and stored with a workbook-relative locator; an unsaved workbook writes them in the Atlas data directory.",
+          "behavior": "Selected PDF/PowerPoint images expose a Pages squircle. The same control opens a miniature image_album pallet over the document for the poster page (board.media.page) and Unbundle (board.media.unbundle) lays the deck on the board as a selected grid. Existing image controls are unchanged. A 3D model's display pass (board.model_display) commits on click as one undo step, live or frozen, following the Pages precedent; the frozen poster uses that pass and undo updates a live viewport. Measure (board.model_measure) enters a frozen viewport and arms point-to-point picking (Rhino Distance); each pick is a plain click (it starts on press, like DragRect click-place), and after the first pick the rubber band and its length follow the pointer over the model; one completed measurement, Esc, or the squircle again returns to Navigate, the resting tool. Completed measurements are derived: they stay drawn on the live viewport and clear on lock. On the Select tool, moving the pointer horizontally across a video node scrubs that node's full trim window without playing (Frame.io hover pan). The playhead stays where the pan stopped. A 96-frame filmstrip makes the pan a lookup; the playhead and timecode are derived and not journaled. A click with no modifiers toggles silent playback from that frame; click-drag still moves the node. One video decodes at a time. Windows Media Foundation plays mp4, m4v, mov, wmv, avi, mpg, and mpeg, and also webm, mkv, and ogv when that codec is installed. A file it cannot open, or a cloud placeholder, keeps the poster, play badge, and extension badge. Video HTML export is unchanged. Rotating a placed picture, video poster, PDF or document poster, or 3D render turns its pixels rigidly with the frame (user request 25 September 2026): the texture, crop window, paint layers, and filter overlay are laid on the node's unrotated rect and the whole quad turns; nothing is re-fit into the rotated bounding box. The HTML export rotates the node box and fills it unrotated. Dragging a picture's edge or corner past its opposite mirrors the picture instead of clamping (user request 25 September 2026): the rect stays positive, ImageNode flip_x / flip_y record the mirror as authored state, the crop window and paint layers mirror with it, and the release is one undo step. Actions → Mirror horizontal and Mirror vertical (board.mirror.horizontal, board.mirror.vertical) mirror selected pictures, paths, and lines across the board axis through each node's center as one undo step. Rectangles, ellipses, polygons, text, 3D renders, and text or document cards do not mirror. The HTML export mirrors the picture's media element with a CSS scale(-1,1), scale(1,-1), or scale(-1,-1). A single Ctrl+V pastes once even when native clipboard input and shortcut input arrive separately. Clipboard text is delivered by the platform Paste event; the Windows key poll is only a fallback for bitmap/file clipboards without text. Each new press pastes once and remains one undo group. Copying pictures puts them on the clipboard as the bitmap the board shows (user request 25 September 2026): CF_DIBV5 and PNG carry rotation, crop window, mirror, filters, color overlay, paint layers, and opacity, several pictures compose into one image, the linked files ride along as a file list, and Slate's own node format rides in the same write so paste inside Slate still makes nodes. A copy with anything besides pictures offers the words of its text nodes, or a one-line summary, as plain text; the node JSON never goes out as text. The bitmap renders off the frame loop and skips cloud placeholders. Word documents (.doc and .docx) expose the same Pages control. Unbundle renders them through Word to static page images, and until unbundle the card stays the text excerpt. Unbundle while a preview is still rendering waits for that preview and then places the pages, instead of failing because the page count is not ready yet. A cloud-only file is refused before its bytes are read. Page images for a saved workbook are written under assets/documents/stem and stored with a workbook-relative locator; an unsaved workbook writes them in the Atlas data directory. The shared media blister stays below the actual silhouette with full-width clearance during and after edits.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-10-13"
         },
         "D15": {
           "behavior": "PowerPoint renders as static PDF pages. No PowerPoint editing, transitions, or animation playback. Word unbundle is static pages, with no Word editing. Outlook .msg files are text excerpts, not page decks. No new 3D formats in this change. JPG and other supported image formats remain native previews. The board video viewer does not edit a timeline, cut clips, play audio, or shuttle with JKL. Viewport screenshots with embedded camera metadata are in scope via D36–D38.",
@@ -549,11 +549,11 @@
           "decided": null
         },
         "D14": {
-          "behavior": "Double-click enters inline edit with the Text/color capsule closed. Plain text boxes keep their wrap width and grow down for new rows; finish journals words and height together. Plain linked text cards (txt, Markdown and source files) support the same caret with an authored ImageNode.text_override, never source write-back; board, HTML, clipboard and wired inputs read it. Office excerpts and spreadsheets retain existing behavior. Inactive text leaves the wheel with the canvas. A sticky double-click puts the same black blinking caret back in the middle and hides the fill/text strip until editing ends. The Text capsules remain the fillet text editor (typeface, justification, height, color) when the user opens them from the strip; they update the caret immediately and selection follows the aligned glyphs. The selected text's outline stays visible while the pointer is over the strip or the Text editor (user request 26 September 2026; the named exception to the P1.shape.properties fade). Each justification segment shows the catalog JustifyLeft / JustifyCenter / JustifyRight glyph beside its label (user request 26 September 2026). The wheel over an open typeface or height list scrolls the list and never zooms the board (user request 26 September 2026). Fill stays on the Fill control. A text box or sticky takes the shared Stroke editor (color, width, dash) as its box border (TextNode.stroke, width 0 = none); the board paints it on the node outline and the HTML export writes the same stroke as a CSS border (SVG rect in paint layers), one undo step per edit (user request 26 September 2026, Art. IV). Single-node bbox resize = frame-only reflow. A sticky's painted size shrinks from the authored size until the centered block fits, and grows back when text is removed. The authored size stays the ceiling.",
+          "behavior": "Double-click enters inline edit with the Text/color capsule closed. Plain text boxes preserve their wrap width and grow down to contain newly typed rows; finishing journals the words and height together. Plain linked text cards (txt, Markdown and source files) use the same double-click caret and store authored text on the card, never writing back to the linked source (Art. IX.5); board paint, HTML export, copy and wired agent inputs use those authored words. Office excerpts and spreadsheets retain their existing specialized behavior. An inactive text node leaves the wheel with the canvas. A sticky double-click puts the same black blinking caret back in the middle and hides the fill/text strip until editing ends. The Text capsules remain the fillet text editor (typeface, justification, height, color, bold, italic, underline) when the user opens them from the strip; the typeface list starts Replica, Arial, Courier New, followed by the other faces. Independent B/I/U glyphs toggle one authored block style and use the same journaled preview/accept path as the other text properties; the board, inline editor, HTML and hosted SVG text carry that style. They update the caret immediately and selection follows the aligned glyphs. When a palette is open on one selected text node, its highlight and dimension stringers are suppressed like other single nodes. Multi-selection retains each object's highlight and stringers (user, 13 October 2026). Each justification segment shows the catalog JustifyLeft / JustifyCenter / JustifyRight glyph beside its label (user request 26 September 2026). The wheel over an open typeface or height list scrolls the list and never zooms the board (user request 26 September 2026). Fill stays on the Fill control. A text box or sticky takes the shared Stroke editor (color, width, dash) as its box border (TextNode.stroke, width 0 = none); the board paints it on the node outline and the HTML export writes the same stroke as a CSS border (SVG rect in paint layers), one undo step per edit (user request 26 September 2026, Art. IV). Single-node bbox resize = frame-only reflow. A sticky's painted size shrinks from the authored size until the centered block fits, and grows back when text is removed. The authored size stays the ceiling.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-26"
+          "decided": "2026-10-13"
         },
         "D15": {
           "behavior": "Cut (Art. III): sticky bulk-mode / spreadsheet paste; sticky stack; emoji reactions; S/M/L size picker chrome; screen-constant text / LOD that changes relative glyph size vs geometry.",
@@ -946,11 +946,11 @@
           "decided": "2026-09-27"
         },
         "D14": {
-          "behavior": "Switch presentation only through the contextual menu. Single chat window converts each maximal linear segment, keeps the current viewport height as its ceiling and shrinks shorter content. Chat train restores message views and forks. Single windows only show full conversation, and never offer Unbundle. Each presentation offers the other two, at any point in the conversation. A switch re-chunks every linear path of the whole conversation from its first turn to its last (message pairs split at each user message; one message per card splits at every turn), keeps each fork at its branch point, and lays it out again. A card left with nothing to show leaves, and its wires move to the card that now shows its first turn. An unsent draft is part of the switch (user finding, 27 September 2026): its text is kept and it re-attaches at the tail of its re-chunked path, laid out in the new presentation. In message pairs and one message per card it stays a draft card in the new form, in line with the train; in a single chat window it becomes the window's composer, its text and wires moving to the window. The switch never sends it, and one Undo returns it to its previous card and place with its text. Any card can start the switch, a draft included. No provider runs, and one Undo returns the previous presentation, including the fit that settles after the switch.",
+          "behavior": "Switch presentation only through the contextual menu. Single chat window converts each maximal linear segment, keeps the current viewport height as its ceiling and shrinks shorter content. Chat train restores message views and forks. Single windows only show full conversation, and never offer Unbundle. Each presentation offers the other two, at any point in the conversation. A switch re-chunks every linear path of the whole conversation from its first turn to its last (message pairs split at each user message; one message per card splits at every turn), keeps each fork at its branch point, and lays it out again. A card left with nothing to show leaves, and its wires move to the card that now shows its first turn. An unsent draft is part of the switch (user finding, 27 September 2026): its text is kept and it re-attaches at the tail of its re-chunked path, laid out in the new presentation. In message pairs and one message per card it stays a draft card in the new form, in line with the train; in a single chat window it becomes the window's composer, its text and wires moving to the window. The switch never sends it, and one Undo returns it to its previous card and place with its text. Any card can start the switch, a draft included. No provider runs, and one Undo returns the previous presentation, including the fit that settles after the switch. In-frame image generation snapshots the explicitly selected album result as the chosen input before clearing selection; no implicit canvas context is supplied (user, 13 October 2026).",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-27"
+          "decided": "2026-10-13"
         },
         "D15": {
           "behavior": "Codex and Cursor expose only conversations supported by their installed interfaces. Legacy Cursor desktop chats are not claimed as SDK agents. No hidden provider-history deletion. Ollama is local chat and the one-shot text block; it reads wired pictures only with an installed vision model. ComfyUI runs installed Stable Diffusion 1.5, 2, and XL checkpoints with core nodes only; the Style port runs the Stable Diffusion 1.5 T2I style adapter with CLIP ViT-L. IP-Adapter and other custom nodes, transformer checkpoints (FLUX, SD3, Qwen-Image), masked edit, upscale, and weight download remain later. Image agents may also use ChatGPT through the installed Codex's ChatGPT sign-in (no API key) or GPT Image through the person's own OpenAI API key; ComfyUI stays the default, so no image agent requires an account (Art. I.4). Video generation remains later; a video contributes the frame it shows. Direct OpenAI chat and local tool execution remain later increments.",
@@ -1785,11 +1785,11 @@
           "decided": "2026-08-16"
         },
         "D03": {
-          "behavior": "Armed → PickCutters → Enter → TrimParts → click*. Preselect skips to TrimParts with mutual cutters.",
-          "source": "research",
-          "confidence": 80,
+          "behavior": "Armed -> PickCutters -> (Enter) -> TrimParts -> click* -> Enter/Esc. Preselection skips to TrimParts. In PickCutters, click adds a cutter and Ctrl+click removes it; click in TrimParts removes the hit span/face (user, 13 October 2026).",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-16"
+          "decided": "2026-10-13"
         },
         "D04": {
           "behavior": "Click only. No drag-marquee trim.",
@@ -1799,11 +1799,11 @@
           "decided": "2026-08-16"
         },
         "D05": {
-          "behavior": "Shift+click near an open end extends that end to the cutter. No Ctrl/Alt.",
-          "source": "research",
-          "confidence": 80,
+          "behavior": "Shift+click near an open-path end extends it to the nearest cutter. Shift is ignored in PickCutters; Ctrl+click removes a picked cutter there. Alt has no command modifier (user, 13 October 2026).",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-16"
+          "decided": "2026-10-13"
         },
         "D06": {
           "behavior": "Click is a region/span pick; F8/F9 unused.",
@@ -1883,11 +1883,11 @@
           "decided": "2026-09-26"
         },
         "D17": {
-          "behavior": "Open: closest span within trim.span_slop. Closed/text/image: point-in-polygon. Prefer the topmost filled target whose remaining region is non-empty so a filled cutter over a hole does not swallow the punch. Frames/portals never targets.",
-          "source": "research",
-          "confidence": 75,
+          "behavior": "A divided open span under the pointer wins before an overlapping filled cutter; otherwise choose the closest remaining span within trim.span_slop. Closed/text/image targets use their filled region or clip; choose the topmost target with a non-empty remainder. Frames and portals are not targets (user, 13 October 2026).",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-16"
+          "decided": "2026-10-13"
         }
       }
     },
@@ -2064,11 +2064,11 @@
           "decided": "2026-08-16"
         },
         "D05": {
-          "behavior": "No modifiers. Shift+extend is Trim-only.",
-          "source": "guess",
-          "confidence": 60,
+          "behavior": "Ctrl+click removes a cutter in PickCutters. Shift+extend is Trim-only. Ctrl+click removal follows the shared Rhino cutter-selection flow (user, 13 October 2026).",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-16"
+          "decided": "2026-10-13"
         },
         "D06": {
           "behavior": "Click picks the object to split. F8/F9 unused.",
@@ -2148,11 +2148,11 @@
           "decided": "2026-09-26"
         },
         "D17": {
-          "behavior": "Open: closest span within trim.span_slop if the path divides. Closed: point-in-polygon if split_closed yields 2+ pieces. Shapes only.",
-          "source": "research",
-          "confidence": 75,
+          "behavior": "A divided open span under the pointer wins before an overlapping filled cutter; otherwise choose the closest span within trim.span_slop when the path actually divides. Closed targets use point-in-polygon when split_closed yields at least two pieces; topmost wins. Frames, portals, text and images are not targets (user, 13 October 2026).",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-16"
+          "decided": "2026-10-13"
         }
       }
     },
@@ -2743,11 +2743,11 @@
           "decided": "2026-09-17"
         },
         "D09": {
-          "behavior": "P1.shape.properties: live property preview; opening an adjustment icon fades selection decoration out, keeps it hidden across editor switches, and restores it on close/cancel. Named exception: the Text editor on text nodes keeps the outline (text D14). Selection and property controls/stringers remain intact. Buffer metrics appear beside the active cursor only while adjusting and vanish on release. Recent-color dots are document-local, deduplicated and most-recent-first.",
+          "behavior": "P1.shape.properties: live property preview; opening a palette on one selected node suppresses that node's highlight and dimension stringers, including Text; multi-selection keeps each object's highlight and stringers. The palette remains visible across editor switches, and closing/cancel restores single-node decoration. Buffer metrics appear beside the active cursor only while adjusting and vanish on release. Recent-color dots are document-local, deduplicated and most-recent-first.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-18"
+          "decided": "2026-10-13"
         },
         "D10": {
           "behavior": "Tooltips name each property; numeric fields own typing and Enter commits a dimension. Other controls retain normal egui keyboard focus behavior.",
@@ -2771,7 +2771,7 @@
           "decided": "2026-09-17"
         },
         "D13": {
-          "behavior": "P1.shape.properties: capability-gated squircle controls above the selection; dimensions use separate exterior stringers. Fill and Stroke share one compact panel: a saturation/value color field at the current hue, then opacity, saturation and hue rails (saturation replaced the neutral value rail, user decision 25 September 2026); Stroke adds only a width rail. With grips picked on a single curve, that rail and the Stroke color field and opacity rail read and edit the picked vertices only (P1.curve.vertex-style; user, 26 September 2026). With vertices picked, under Select or Direct Select, the strip anchors beside the picked points (their bounds plus half the stroke width, DYNAMIC_PANELS placement and edge rules) instead of the whole curve (user, 27 September 2026). With vertices picked the strip offers only per-vertex controls (user, 28 September 2026, ed9): Stroke (width, color, opacity) and Corners when a picked vertex turns a corner of a line-only polyline or is a vertex of a rectangle or regular polygon (rectangle D14, polygon D14). Every other squircle edits the whole node and hides while vertices are picked: Fill, Wire, Filter, Pages, Formatting, Text, Agent, Bumper cars, Model display, frame actions, agent actions, Measure and Screenshot. End points and Bezier anchors carry no per-vertex corner, so Corners hides for them. With corners picked, the Corners amount reads the first picked corner (a rectangle's or polygon's stored override included) and writes only the picked corners' `corner_amounts`; with nothing picked it sets every corner; each accepted edit is one journaled step (user, 28 September 2026, ep2). Fillet / Chamfer and the units toggle stay whole-curve. The strip's target stays fixed at the press. P1.shape.properties owns grip priority over the strip and dimension labels, including rectangle and regular-polygon vertices; their own presses are not a click-away (user refinement, 11 October 2026, superseding the round-8 guess). A grip press commits an open panel's pending edits once, at any zoom; when a vertex pick leaves an open panel's squircle off the strip, that panel commits its pending edits and closes (D11), otherwise it stays up (agent decision, round 8, awaiting user confirmation). The strip keeps every other press. The fillet capsule is 30% taller than the 17-unit wire capsule; the photo-filter capsule is twice that fillet height. Wires expose Bezier/Square, stroke weight, Solid/Dashed and None/Arrows; routing moves out of Document Settings. Images expose a None radio and low-resolution filtered thumbnails of the selected image, plus an intensity slider as thick as the radio radius. A File Atlas portal adds a Formatting squircle (search, type radios, Ghost/Hide, Zoom to matches, Zoom to fit). Frame-only actions reuse the same strip. **P1.node.corner-grip** appears on every selected corner-capable host, and in a multi-selection one grip's drag or typed amount sets them all, clamped per host (stated 26 September 2026); the Corners squircle and grip share one `Corner` field. Shared light/dark theme tokens apply throughout. User refinement 11 October 2026: eligible rectangular portals and linked-media cards use the shared bare-icon blister instead of squircle buttons; their existing capability categories and order remain authoritative. Technical dropdowns sit on the top datum. Portal-body interaction keeps the editor open. User refinement 13 October 2026: rectangular bottom blisters keep that presentation during dismissal; no legacy upper-strip flash.",
+          "behavior": "P1.shape.properties: capability-gated squircle controls below the actual silhouette, with clearance for the full strip width and support for concave notches; dimensions use separate exterior stringers. Fill and Stroke share one compact panel: a saturation/value color field at the current hue, then opacity, saturation and hue rails (saturation replaced the neutral value rail, user decision 25 September 2026); Stroke adds only a width rail. With grips picked on a single curve, that rail and the Stroke color field and opacity rail read and edit the picked vertices only (P1.curve.vertex-style; user, 26 September 2026). With vertices picked, under Select or Direct Select, the strip anchors beside the picked points (their bounds plus half the stroke width, DYNAMIC_PANELS placement and edge rules) instead of the whole curve (user, 27 September 2026). With vertices picked the strip offers only per-vertex controls (user, 28 September 2026, ed9): Stroke (width, color, opacity) and Corners when a picked vertex turns a corner of a line-only polyline or is a vertex of a rectangle or regular polygon (rectangle D14, polygon D14). Every other squircle edits the whole node and hides while vertices are picked: Fill, Wire, Filter, Pages, Formatting, Text, Agent, Bumper cars, Model display, frame actions, agent actions, Measure and Screenshot. End points and Bezier anchors carry no per-vertex corner, so Corners hides for them. With corners picked, the Corners amount reads the first picked corner (a rectangle's or polygon's stored override included) and writes only the picked corners' corner_amounts; with nothing picked it sets every corner; each accepted edit is one journaled step (user, 28 September 2026, ep2). Fillet / Chamfer and the units toggle stay whole-curve. The strip's target stays fixed at the press. P1.shape.properties owns grip priority over the strip and dimension labels, including rectangle and regular-polygon vertices; their own presses are not a click-away (user refinement, 11 October 2026, superseding the round-8 guess). A grip press commits an open panel's pending edits once, at any zoom; when a vertex pick leaves an open panel's squircle off the strip, that panel commits its pending edits and closes (D11), otherwise it stays up (agent decision, round 8, awaiting user confirmation). The strip keeps every other press. The fillet capsule is 30% taller than the 17-unit wire capsule; the photo-filter capsule is twice that fillet height. Wires expose Bezier/Square, stroke weight, Solid/Dashed and None/Arrows; routing moves out of Document Settings. Images expose a None radio and low-resolution filtered thumbnails of the selected image, plus an intensity slider as thick as the radio radius. A File Atlas portal adds a Formatting squircle (search, type radios, Ghost/Hide, Zoom to matches, Zoom to fit). Frame-only actions reuse the same strip. P1.node.corner-grip appears on every selected corner-capable host, and in a multi-selection one grip's drag or typed amount sets them all, clamped per host (stated 26 September 2026); the Corners squircle and grip share one Corner field. Shared light/dark theme tokens apply throughout. User refinement 11 October 2026: eligible rectangular portals and linked-media cards use the shared bare-icon blister instead of squircle buttons; their existing capability categories and order remain authoritative. Technical dropdowns sit on the top datum. Portal-body interaction keeps the editor open. User refinement 13 October 2026: rectangular bottom blisters keep that presentation during dismissal; no legacy upper-strip flash.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -2901,18 +2901,18 @@
           "decided": "2026-09-17"
         },
         "D13": {
-          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers. P1.node.corner-grip on every selected rectangle (a multi-selection shows each grip; one drag or typed amount sets every selected host, clamped per host — stated 26 September 2026): a square grip on the top edge at the fillet tangent point (the chamfer cut), at a small inset when square; dragging changes the amount continuously from its press-time value (no jump on grab) while the held grip stays under the pointer, clamped to the edge; idle, the grip rests at the larger of the amount and the inset; a click types the amount. Vertex picks (user, 28 September 2026: \"alow for vrtex selection on closed forms like sqares and polygons\"): a click without travel on a corner of the one selected rectangle picks it (P1.shape.vertex-style); Shift+click adds or removes a pick; a press-drag on a corner still resizes; under Direct Select (A) the corners are anchors to pick, never to move. Proposals: the corner hit is the nearest corner within 7 screen px (screen-constant like path-edit handles); a click elsewhere clears the picks; a quick second click on a corner is a pick, not a canvas double-click; where the corner grip and a corner overlap, the nearer wins and a tie goes to the corner; the picked corners paint filled and the corner under the pointer hollow; corner order is top-left, top-right, bottom-right, bottom-left.",
+          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls below the actual silhouette, with full-width clearance and concave-notch support; dimensions use separate exterior stringers. P1.node.corner-grip on every selected rectangle (a multi-selection shows each grip; one drag or typed amount sets every selected host, clamped per host — stated 26 September 2026): a square grip on the top edge at the fillet tangent point (the chamfer cut), at a small inset when square; dragging changes the amount continuously from its press-time value (no jump on grab) while the held grip stays under the pointer, clamped to the edge; idle, the grip rests at the larger of the amount and the inset; a click types the amount. Vertex picks (user, 28 September 2026: \"alow for vrtex selection on closed forms like sqares and polygons\"): a click without travel on a corner of the one selected rectangle picks it (P1.shape.vertex-style); Shift+click adds or removes a pick; a press-drag on a corner moves that vertex and promotes the rectangle to a closed Path (P1.shape.vertex-style; user, 13 October 2026); Direct Select (A) offers the same edit. Proposals: the corner hit is the nearest corner within 7 screen px (screen-constant like path-edit handles); a click elsewhere clears the picks; a quick second click on a corner is a pick, not a canvas double-click; where the corner grip and a corner overlap, the nearer wins and a tie goes to the corner; the picked corners paint filled and the corner under the pointer hollow; corner order is top-left, top-right, bottom-right, bottom-left.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-28"
+          "decided": "2026-10-13"
         },
         "D14": {
-          "behavior": "Fill, Stroke, Corners: three circular icons matching the primary toolbar. Fill opens opacity then RGB/eyedropper upward; Corners opens Fillet/Chamfer and Board units/Percent. Confirmed percent amount = p/100 × min(W,H)/2; 100% makes a square a circle/diamond. See shape-property-editing.md. Per-vertex properties (user, 28 September 2026: \"for squrcle menue allow for vertex by vertex adjustment of forms properties\"): with corners picked, the tip HUD (Alt width, Ctrl color, Shift opacity) and the strip's stroke width, stroke color, opacity and Corners amount apply to the picked corners only, blending straight along the two edges at each corner (P1.curve.vertex-style); each edit is one journaled patch. The rectangle stays a rectangle: moving one corner alone would make it another kind, so corner moves are not offered; resize stays. Proposal: a picked corner's Corners amount overrides the rectangle's treatment at that corner only and clamps like it.",
+          "behavior": "Fill, Stroke, Corners: three circular icons matching the primary toolbar. Fill opens opacity then RGB/eyedropper upward; Corners opens Fillet/Chamfer and Board units/Percent. Confirmed percent amount = p/100 × min(W,H)/2; 100% makes a square a circle/diamond. See shape-property-editing.md. Per-vertex properties (user, 28 September 2026: \"for squrcle menue allow for vertex by vertex adjustment of forms properties\"): with corners picked, the tip HUD (Alt width, Ctrl color, Shift opacity) and the strip's stroke width, stroke color, opacity and Corners amount apply to the picked corners only, blending straight along the two edges at each corner (P1.curve.vertex-style); each edit is one journaled patch. Style-only edits keep the rectangle. Moving or deleting an individual corner promotes it to a closed Path, preserving style and world geometry in one undo step (P1.shape.vertex-style; user, 13 October 2026). Proposal: a picked corner's Corners amount overrides the rectangle's treatment at that corner only and clamps like it.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-28"
+          "decided": "2026-10-13"
         },
         "D15": {
           "behavior": "P1.shape.properties: no dimensions, independent opacity, or unsupported geometry controls in the strip. Picked corners take per-vertex stroke and corner edits (D14; user, 28 September 2026: \"appy similar tooling for closed form vertex selectin\"). No per-vertex fill: a fill blended from vertex to vertex across the interior (user, 28 September 2026: \"including fill which would create gradients acrost he forms interiors\") is not SVG-expressible (Art. IV); see Open questions.",
@@ -3277,18 +3277,18 @@
           "decided": "2026-09-25"
         },
         "D11": {
-          "behavior": "After at least three vertices, returning to the first vertex closes one PathData without a duplicated start anchor. Fill remains unset until chosen. Enter commits an open path. A moving primary press places one vertex; release adds none.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "After at least three vertices, returning to the first closes one PathData without a duplicate start. Fill remains unset until chosen. Enter commits an open path. Esc commits the placed polyline when at least two points exist; an incomplete draft is discarded. Commit leaves no ghost endpoint and is one undo step (user, 13 October 2026). A moving primary press places a vertex; release adds none.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-10-13"
         },
         "D12": {
-          "behavior": "Retain the existing creation cancel/undo grammar; palette cancellation follows P1.shape.properties.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Esc commits a polyline with at least two placed points; with fewer than two it discards the incomplete draft. No ghost endpoint is added, and one undo removes the committed path. Palette cancellation follows P1.shape.properties (user, 13 October 2026).",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-10-13"
         },
         "D13": {
           "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers. P1.node.corner-grip on a single selected line-only polyline: one grip near each turning vertex, riding that vertex's incoming segment at the treatment's tangent distance; dragging it or typing after a click fillets or chamfers that corner alone (stated 26 September 2026). With vertices picked, the Corners squircle likewise writes only the picked corners, and the strip shows only Stroke and Corners (user, 28 September 2026, ep2 and ed9; shape-selection-toolbar D13). In a multi-selection the polyline shows one shared grip on the leaving side of the first turning vertex, which sets every corner together with the other hosts (proposal). P1.curve.grips (user, 26 September 2026): a single selected polyline, open or closed, shows its corner vertices and end points through the shared path-edit overlay; dragging one moves only that point as one journaled Patch, snapped through resolve_point_snap. The two grips never share a spot: a press on a vertex takes the vertex grip, and a press on the segment grip at tangent distance takes that corner's fillet (proposal). Picked vertices (user, 27 September 2026; direct-selection.md): Alt/Ctrl/Shift+right-drag edit only the picked vertices' width, color and opacity (vertex color alpha), or the hovered vertex when none is picked; one journaled Patch per HUD, Esc restores. Delete with vertices picked removes them and rejoins the neighbors; fewer than two (open) or three (closed) left removes the node; one Ctrl+Z restores.",
@@ -3421,18 +3421,18 @@
           "decided": "2026-09-25"
         },
         "D13": {
-          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers. **P1.node.corner-grip** on every selected polygon (multi-selection: one drag or typed amount sets every selected host, clamped per host — stated 26 September 2026): the grip rides the side from the first vertex toward the next vertex clockwise, at the treatment's tangent point; drag along that side, click to type. **Vertex +/− (stated 26 September 2026):** hovering a vertex of a selected polygon shows a **+** outside it and a **−** inside it, on that vertex's bisector, at the hovered vertex only; both glyphs scale with the canvas (P0.9: `canvas_scale::px` paint radius 3 and offset 14 world units; hit radius remains 6, user refinement 11 October 2026). Proposals: offered on every selected, unlocked polygon (multi-selection included) but drawn only at the one hovered vertex; hidden during any drag, in crop mode, and where portal chrome suppresses the cast; dropped (LOD) when the designed control size (6 units times zoom) is under 4 screen px; a glyph at its limit is omitted (no + at 12, no − at 3); the vertex hover zone is `hit_px(10)` and each glyph `hit_px(6)`; the corner grip wins where they overlap, and the glyph wins over the resize band only on the glyph itself, where the cursor is a pointing hand; a quick second click on a glyph is not a canvas double-click. **Vertex picks (user, 28 September 2026: \"alow for vrtex selection on closed forms like sqares and polygons\"):** a click without travel on a vertex of the one selected polygon picks it (P1.shape.vertex-style); Shift+click adds or removes a pick; under Direct Select (A) the vertices are anchors to pick, never to move. Proposals: the vertex hit is the nearest vertex within 7 screen px (screen-constant like path-edit handles); a click elsewhere clears the picks; a quick second click on a vertex is a pick, not a canvas double-click; the vertex +/− and the pick share the vertex, so each glyph wins on its own hit disc (its press is taken at press time, so it never picks) and a click on the vertex outside both discs picks it; the picked vertices paint filled and the vertex under the pointer hollow, with the glyphs beside it. **Vertex rotation (user, 11 October 2026):** all current vertices own an exterior halo out to the shared rotate offset plus zone radius (18 + 12 world units, using canvas hit slop). The 7-screen-pixel vertex pick, all visible side-control hit discs and fillet grips take priority. Enlarged connector-port targets yield to these vertex halos, so a rotation drag cannot start a wire. Box-corner rotation is replaced by these vertex zones; hover and press share the same hit-test. The ordinary rotation gesture, D05 modifier snapping, cancellation and undo grouping apply. Grip priority over strip and stringer hit regions follows P1.shape.properties, including vertex 0 at the closed-loop seam (user refinement, 11 October 2026).",
+          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls below the actual silhouette, with full-width clearance and concave-notch support; dimensions use separate exterior stringers. P1.node.corner-grip on every selected polygon (multi-selection: one drag or typed amount sets every selected host, clamped per host — stated 26 September 2026): the grip rides the side from the first vertex toward the next vertex clockwise, at the treatment's tangent point; drag along that side, click to type. Vertex +/− (stated 26 September 2026): hovering a vertex of a selected polygon shows a + outside it and a − inside it, on that vertex's bisector, at the hovered vertex only; both glyphs scale with the canvas (P0.9: canvas_scale::px paint radius 3 and offset 14 world units; hit radius remains 6, user refinement 11 October 2026). Proposals: offered on every selected, unlocked polygon (multi-selection included) but drawn only at the one hovered vertex; hidden during any drag, in crop mode, and where portal chrome suppresses the cast; dropped (LOD) when the designed control size (6 units times zoom) is under 4 screen px; a glyph at its limit is omitted (no + at 12, no − at 3); the vertex hover zone is hit_px(10) and each glyph hit_px(6); the corner grip wins where they overlap, and the glyph wins over the resize band only on the glyph itself, where the cursor is a pointing hand; a quick second click on a glyph is not a canvas double-click. Vertex picks (user, 28 September 2026: \"alow for vrtex selection on closed forms like sqares and polygons\"): a click without travel on a vertex of the one selected polygon picks it (P1.shape.vertex-style); Shift+click adds or removes a pick; under Select or Direct Select (A), moving or deleting a vertex promotes the polygon to a closed Path (P1.shape.vertex-style; user, 13 October 2026). Proposals: the vertex hit is the nearest vertex within 7 screen px (screen-constant like path-edit handles); a click elsewhere clears the picks; a quick second click on a vertex is a pick, not a canvas double-click; the vertex +/− and the pick share the vertex, so each glyph wins on its own hit disc (its press is taken at press time, so it never picks) and a click on the vertex outside both discs picks it; the picked vertices paint filled and the vertex under the pointer hollow, with the glyphs beside it. Vertex rotation (user, 11 October 2026): all current vertices own an exterior halo out to the shared rotate offset plus zone radius (18 + 12 world units, using canvas hit slop). The 7-screen-pixel vertex pick, all visible side-control hit discs and fillet grips take priority. Enlarged connector-port targets yield to these vertex halos, so a rotation drag cannot start a wire. Box-corner rotation is replaced by these vertex zones; hover and press share the same hit-test. The ordinary rotation gesture, D05 modifier snapping, cancellation and undo grouping apply. Grip priority over strip and stringer hit regions follows P1.shape.properties, including vertex 0 at the closed-loop seam (user refinement, 11 October 2026).",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-10-11"
+          "decided": "2026-10-13"
         },
         "D14": {
-          "behavior": "Fill, Stroke, Corners (fillet/chamfer like rectangles). A fillet amount is the arc radius at every vertex and a chamfer is a straight cut, both clamped per vertex so the outline stays inside the drag box with no spikes on the board or in the export. Sides (stated 26 September 2026; + amended 8 October 2026, user-ratified): clicking + adds a side (max 12) and keeps the clicked vertex at its angle while the other vertices re-space around it; clicking − removes a side (min 3) and keeps a vertex at the removed vertex's position; each is one journaled board.shape.sides patch (undo restores both count and turn). Proposals: the turn is stored as ShapeNode.phase_deg, so the drag box, fillet, and stroke are unchanged and vertices stay on the box's inscribed ellipse; vertex 0 remains the corner-grip anchor, so the grip may move to another side after a step; Property::RegularSides stays as the command-parity setter for agents. Per-vertex properties (user, 28 September 2026: \"for squrcle menue allow for vertex by vertex adjustment of forms properties\"): with vertices picked, the tip HUD (Alt width, Ctrl color, Shift opacity) and the strip's stroke width, stroke color, opacity and Corners amount apply to the picked vertices only, blending around the closed loop (P1.curve.vertex-style); each edit is one journaled patch. The polygon stays regular: moving one vertex would make it another kind, so vertex moves are not offered. Proposal: a side step carries each vertex's style to the nearest new vertex by angle.",
+          "behavior": "Fill, Stroke, Corners (fillet/chamfer like rectangles). A fillet amount is the arc radius at every vertex and a chamfer is a straight cut, both clamped per vertex so the outline stays inside the drag box with no spikes on the board or in the export. Sides (stated 26 September 2026; + amended 8 October 2026, user-ratified): clicking + adds a side (max 12) and keeps the clicked vertex at its angle while the other vertices re-space around it; clicking − removes a side (min 3) and keeps a vertex at the removed vertex's position; each is one journaled board.shape.sides patch (undo restores both count and turn). Proposals: the turn is stored as ShapeNode.phase_deg, so the drag box, fillet, and stroke are unchanged and vertices stay on the box's inscribed ellipse; vertex 0 remains the corner-grip anchor, so the grip may move to another side after a step; Property::RegularSides stays as the command-parity setter for agents. Per-vertex properties (user, 28 September 2026: \"for squrcle menue allow for vertex by vertex adjustment of forms properties\"): with vertices picked, the tip HUD (Alt width, Ctrl color, Shift opacity) and the strip's stroke width, stroke color, opacity and Corners amount apply to the picked vertices only, blending around the closed loop (P1.curve.vertex-style); each edit is one journaled patch. Style-only edits keep the regular polygon; moving or deleting one vertex promotes it to a closed Path, preserving style and world geometry in one undo step (P1.shape.vertex-style; user, 13 October 2026). Proposal: a side step carries each vertex's style to the nearest new vertex by angle.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-28"
+          "decided": "2026-10-13"
         },
         "D15": {
           "behavior": "No star or irregular polygon in this tool. Picked vertices take per-vertex stroke and corner edits (D14; user, 28 September 2026: \"appy similar tooling for closed form vertex selectin\", superseding the v1 exclusion of per-vertex strip editing). No per-vertex fill: a fill blended from vertex to vertex across the interior (user, 28 September 2026: \"including fill which would create gradients acrost he forms interiors\") is not SVG-expressible (Art. IV); see Open questions.",
@@ -4653,11 +4653,11 @@
           "decided": null
         },
         "D03": {
-          "behavior": "Press, drag, release. Mode is the pointer's screen x against the press: pointer.x >= press.x is Window; pointer.x < press.x is Crossing. A drag with no horizontal travel is Window. The mode updates live while the button is held.",
+          "behavior": "Press, drag, release. Mode is pointer screen x against press: x >= press.x is Window; x < press.x is Crossing; zero horizontal travel is Window. Mode updates live. With Ctrl+Shift, sweep curve segments on the active curve instead of nodes: left-to-right requires a complete segment inside; right-to-left selects crossed segments, including closed curves and rectangle/polygon outlines (user, 13 October 2026).",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-10-13"
         },
         "D04": {
           "behavior": "A press on a pickable node still moves or scales it. A press on empty space, or a frame body, is the sweep. Release replaces or extends the selection even when the rect is only a few pixels; a miss on empty space clears the selection unless Shift or Ctrl is held.",
@@ -4667,11 +4667,11 @@
           "decided": null
         },
         "D05": {
-          "behavior": "Shift or Ctrl held at release adds the hits to the current selection (P1.node.select). Neither modifier removes hits. Alt does not force Window. Pan chords (Space, middle, right) never start this sweep.",
-          "source": "pattern",
-          "confidence": 70,
-          "verdict": "proposed",
-          "decided": null
+          "behavior": "Shift or Ctrl held at release adds hits to the current selection. Ctrl+Shift together selects curve segments on the active curve: left-to-right contains the complete segment, right-to-left crosses it; repeated sweeps add segments, including closed curves and rectangle/polygon outlines. This shares the Ctrl+Shift click set; Delete opens a closed outline (user, 13 October 2026). Alt does not force Window; pan chords never start a sweep.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-13"
         },
         "D06": {
           "behavior": "The sweep rect is the raw screen drag converted by the camera. F8 ortho, F9 grid, and object snaps do not move its corners.",
@@ -4709,11 +4709,11 @@
           "decided": null
         },
         "D11": {
-          "behavior": "Release writes board_sel. No modifier replaces it with the hits. Shift or Ctrl extends it. expand_board_selection still promotes a hit member to its group. The selection is not journaled. Hidden and locked nodes stay out. Frames are not selected. A sweep that started inside a frame only tests that frame's members.",
-          "source": "pattern",
-          "confidence": 85,
-          "verdict": "proposed",
-          "decided": null
+          "behavior": "Release writes board_sel without journaling. No modifier replaces selection; Shift or Ctrl extends it; Ctrl+Shift adds the active curve segments hit by the sweep. Groups expand as before. Hidden and locked nodes stay out. A frame's members are tested only when the sweep starts inside it.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-13"
         },
         "D12": {
           "behavior": "Esc during the drag drops the sweep and leaves board_sel unchanged.",
@@ -4751,11 +4751,11 @@
           "decided": null
         },
         "D17": {
-          "behavior": "Window selects a node only when its pick geometry lies entirely inside the rect. Stroke-pick shapes and connectors: every flattened centerline sample is inside. Other nodes: all four corners of the rotated rect are inside. Crossing keeps marquee_hits_node: stroke intersection, or the rotated rect intersecting the sweep. A line that only crosses the box is selected right-to-left and missed left-to-right. A single-click brush dab is its ink disc (stroke width across): window needs the whole disc inside, crossing needs the rect to touch the disc, and a click anywhere on the disc picks it.",
+          "behavior": "Window requires complete pick geometry inside; Crossing uses actual stroke intersection or rotated-rect intersection. Ctrl+Shift segment sweep uses complete-segment containment left-to-right and crossed segments right-to-left, on the active curve (including closed outlines). A single-click brush dab uses its ink disc.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-10-13"
         }
       }
     },

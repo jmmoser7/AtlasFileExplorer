@@ -5,18 +5,34 @@ use crate::app::tests::Harness;
 pub(super) fn append_result(h: &mut Harness, id: NodeId, name: &str) {
     let path = h.base.join(format!("{name}.png"));
     image::RgbImage::new(20, 10).save(&path).unwrap();
-    let mut session = h.app.agents.sessions.get(&id).map(|s| (**s).clone()).unwrap_or_else(|| {
-        atlas_agent::AgentSession {
-            approval: None, conversation: String::new(), artifacts: vec![],
-            status: AgentStatus::Idle, provider: "comfy".into(), turns: vec![],
-            updated_at: 0, bundle: Default::default(), request: String::new(), usage: None,
-        }
-    });
+    let mut session = h
+        .app
+        .agents
+        .sessions
+        .get(&id)
+        .map(|s| (**s).clone())
+        .unwrap_or_else(|| atlas_agent::AgentSession {
+            approval: None,
+            conversation: String::new(),
+            artifacts: vec![],
+            status: AgentStatus::Idle,
+            provider: "comfy".into(),
+            turns: vec![],
+            updated_at: 0,
+            bundle: Default::default(),
+            request: String::new(),
+            usage: None,
+        });
     session.bundle.images.push(atlas_agent::ImageOutput {
-        id: name.into(), source: path.to_string_lossy().into_owned(),
-        request: name.into(), ..Default::default()
+        id: name.into(),
+        source: path.to_string_lossy().into_owned(),
+        request: name.into(),
+        ..Default::default()
     });
-    h.app.agents.sessions.insert(id, std::sync::Arc::new(session));
+    h.app
+        .agents
+        .sessions
+        .insert(id, std::sync::Arc::new(session));
     h.app.agents.output_epoch += 1;
 }
 
@@ -29,7 +45,8 @@ fn frame(h: &mut Harness, id: NodeId, wheel: bool) {
         input.events.push(egui::Event::PointerMoved(pointer));
         if wheel {
             input.events.push(egui::Event::MouseWheel {
-                unit: egui::MouseWheelUnit::Line, delta: egui::vec2(0.0, -3.0),
+                unit: egui::MouseWheelUnit::Line,
+                delta: egui::vec2(0.0, -3.0),
                 modifiers: egui::Modifiers::NONE,
             });
         }
@@ -37,7 +54,9 @@ fn frame(h: &mut Harness, id: NodeId, wheel: bool) {
 }
 
 fn settle(h: &mut Harness, id: NodeId) {
-    for _ in 0..180 { frame(h, id, false); }
+    for _ in 0..180 {
+        frame(h, id, false);
+    }
     assert!(atlas_shell::home::album_browsing(&h.ctx, Id::new(("agent-picture", id.0))) < 0.001);
 }
 

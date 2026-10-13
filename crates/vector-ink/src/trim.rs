@@ -755,7 +755,14 @@ mod tests {
         let target = [[0.0, 0.0], [20.0, 0.0], [40.0, 0.0], [60.0, 0.0]];
         let cutter = super::Cutter::Closed(rect(20.0, -10.0, 20.0, 20.0));
         let spans = super::split_open_at_cutters(&target, &[cutter]);
-        assert_eq!(spans, vec![vec![target[0], target[1]], vec![target[1], target[2]], vec![target[2], target[3]]]);
+        assert_eq!(
+            spans,
+            vec![
+                vec![target[0], target[1]],
+                vec![target[1], target[2]],
+                vec![target[2], target[3]]
+            ]
+        );
     }
     use super::*;
 

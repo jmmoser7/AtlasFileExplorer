@@ -40,6 +40,11 @@ impl SlateApp {
                 if self.agent_grip_owns(screen, &xf) {
                     return None;
                 }
+                if !(mods.ctrl && mods.shift) {
+                    if let Some(id) = self.tiny_body_owns_pointer(screen) {
+                        return self.begin_select_body_drag(id, world, mods);
+                    }
+                }
                 // Match hover priority: the visible fillet grip wins any
                 // overlap with wire/resize bands, and a curve grip only
                 // where it is nearer (`fillet_grip_hit_at`).
@@ -67,11 +72,13 @@ impl SlateApp {
                     return Some(BoardDrag::Direct(drag));
                 }
                 if mods.ctrl && mods.shift {
-                    return Some(BoardDrag::Direct(super::super::board_direct::DirectDrag::Marquee {
-                        start_screen: screen,
-                        add: true,
-                        edges: true,
-                    }));
+                    return Some(BoardDrag::Direct(
+                        super::super::board_direct::DirectDrag::Marquee {
+                            start_screen: screen,
+                            add: true,
+                            edges: true,
+                        },
+                    ));
                 }
                 if let Some(drag) = self.begin_picked_edge_drag(world) {
                     return Some(BoardDrag::Direct(drag));
@@ -140,38 +147,7 @@ impl SlateApp {
                             frame: Some(hit),
                         })
                     }
-                    Some(hit) => {
-                        self.apply_select_pick(hit, mods, true);
-                        let sel: Vec<NodeId> = self.board_sel.iter().copied().collect();
-                        if self.alt_down {
-                            // Alt-drag duplicate: insert copies (journaled on release).
-                            let expanded = self.expand_with_members(&sel);
-                            let sources: Vec<Node> = expanded
-                                .iter()
-                                .filter_map(|i| self.doc().scene.node(*i).cloned())
-                                .collect();
-                            let (ids, before) = self.stage_unjournaled_duplicates(&sources);
-                            Some(BoardDrag::Move {
-                                ids,
-                                before,
-                                start_world: world,
-                                dup: true,
-                            })
-                        } else {
-                            let expanded = self.expand_with_members(&sel);
-                            let before: Vec<Node> = expanded
-                                .iter()
-                                .filter_map(|i| self.doc().scene.node(*i).cloned())
-                                .collect();
-                            let ids = before.iter().map(|n| n.id).collect();
-                            Some(BoardDrag::Move {
-                                ids,
-                                before,
-                                start_world: world,
-                                dup: false,
-                            })
-                        }
-                    }
+                    Some(hit) => self.begin_select_body_drag(hit, world, mods),
                     None => Some(BoardDrag::Marquee {
                         start_screen: screen,
                         frame: None,
@@ -263,8 +239,46 @@ impl SlateApp {
         }
     }
 
-    /// True when `id` is a frame large enough on screen that a body drag
-    /// should marquee its members instead of moving the frame.
+    /// The shared Select body-move path, including group/duplicate policy.
+    fn begin_select_body_drag(
+        &mut self,
+        hit: NodeId,
+        world: Pos2,
+        mods: egui::Modifiers,
+    ) -> Option<BoardDrag> {
+        self.apply_select_pick(hit, mods, true);
+        let sel: Vec<NodeId> = self.board_sel.iter().copied().collect();
+        if self.alt_down {
+            // Alt-drag duplicate: insert copies (journaled on release).
+            let expanded = self.expand_with_members(&sel);
+            let sources: Vec<Node> = expanded
+                .iter()
+                .filter_map(|i| self.doc().scene.node(*i).cloned())
+                .collect();
+            let (ids, before) = self.stage_unjournaled_duplicates(&sources);
+            Some(BoardDrag::Move {
+                ids,
+                before,
+                start_world: world,
+                dup: true,
+            })
+        } else {
+            let expanded = self.expand_with_members(&sel);
+            let before: Vec<Node> = expanded
+                .iter()
+                .filter_map(|i| self.doc().scene.node(*i).cloned())
+                .collect();
+            let ids = before.iter().map(|n| n.id).collect();
+            Some(BoardDrag::Move {
+                ids,
+                before,
+                start_world: world,
+                dup: false,
+            })
+        }
+    }
+
+    /// True when a frame body drag should marquee its members.
     pub(super) fn frame_body_selects_contents(&self, id: NodeId) -> bool {
         let Some(n) = self.doc().scene.node(id) else {
             return false;

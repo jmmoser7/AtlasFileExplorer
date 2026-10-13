@@ -8,6 +8,8 @@ mod tests;
 pub(super) struct LastChrome {
     pub(super) bounds: WorldRect,
     pub(super) items: Vec<StripItem>,
+    generation: (u64, u64),
+    bottom: Pos2,
     blister: bool,
     image: bool,
 }
@@ -61,9 +63,39 @@ impl SlateApp {
                 self.apply_shape_preview(&ctx, true);
             }
             if let Some(bounds) = vertex_bounds.or(self.shape_properties.bounds) {
+                let generation = self.shape_properties.generation;
+                let bottom = self
+                    .shape_properties
+                    .last_chrome
+                    .as_ref()
+                    .filter(|last| {
+                        last.bounds == bounds
+                            && last.items.len() == items.len()
+                            && last.generation == generation
+                    })
+                    .map(|last| last.bottom)
+                    .unwrap_or_else(|| {
+                        let outlines: Vec<_> = self
+                            .shape_properties
+                            .nodes
+                            .iter()
+                            .filter_map(|node| slate_doc::geom::node_closed_poly(node, 0.25))
+                            .flatten()
+                            .collect();
+                        chrome::strip_bottom(
+                            Rect::from_min_size(
+                                Pos2::new(bounds.x, bounds.y),
+                                Vec2::new(bounds.w, bounds.h),
+                            ),
+                            &outlines,
+                            chrome::strip_size(items.len()).x,
+                        )
+                    });
                 self.shape_properties.last_chrome = Some(LastChrome {
                     bounds,
                     items,
+                    generation,
+                    bottom,
                     blister: property_strip::rectangular_blister(&self.shape_properties.nodes),
                     image: image_palette::handles(self, true),
                 });
@@ -126,12 +158,7 @@ impl SlateApp {
                 Vec2::ZERO,
             )
         } else {
-            chrome::strip_rect(
-                Pos2::new(bounds.center().x, bounds.top()),
-                items.len(),
-                z,
-                fade,
-            )
+            chrome::strip_rect_below(xf.w2s(chrome_state.bottom), items.len(), z, fade)
         };
         let mut requested_panel = None;
         let mut requested_frame = None;

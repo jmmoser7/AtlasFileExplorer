@@ -12,21 +12,21 @@ Inherits: P0.* (all), P1.node.select — deviations flagged below.
 |----|-----------|-----------------|--------|------|
 | D01 | Initiation & arming | Existing Select tool: V, or the Select/Pan dock button. The sweep starts on left-drag on empty board, or on a frame body that selects its contents (frame_body_selects_contents). Command stays board.marquee. No new key. | pattern | 90 |
 | D02 | Stickiness & repeat | Select stays armed after release. The sweep does not change tool stickiness. | pattern | 90 |
-| D03 | Gesture grammar | Press, drag, release. Mode is the pointer's screen x against the press: pointer.x >= press.x is Window; pointer.x < press.x is Crossing. A drag with no horizontal travel is Window. The mode updates live while the button is held. | stated | 100 |
+| D03 | Gesture grammar | Press, drag, release. Mode is pointer screen x against press: x >= press.x is Window; x < press.x is Crossing; zero horizontal travel is Window. Mode updates live. With Ctrl+Shift, sweep curve segments on the active curve instead of nodes: left-to-right requires a complete segment inside; right-to-left selects crossed segments, including closed curves and rectangle/polygon outlines (user, 13 October 2026). | stated | 100 |
 | D04 | Click vs drag rule | A press on a pickable node still moves or scales it. A press on empty space, or a frame body, is the sweep. Release replaces or extends the selection even when the rect is only a few pixels; a miss on empty space clears the selection unless Shift or Ctrl is held. | pattern | 85 |
-| D05 | Modifiers | Shift or Ctrl held at release adds the hits to the current selection (P1.node.select). Neither modifier removes hits. Alt does not force Window. Pan chords (Space, middle, right) never start this sweep. | pattern | 70 |
+| D05 | Modifiers | Shift or Ctrl held at release adds hits to the current selection. Ctrl+Shift together selects curve segments on the active curve: left-to-right contains the complete segment, right-to-left crosses it; repeated sweeps add segments, including closed curves and rectangle/polygon outlines. This shares the Ctrl+Shift click set; Delete opens a closed outline (user, 13 October 2026). Alt does not force Window; pan chords never start a sweep. | stated | 100 |
 | D06 | Constraints & snapping | The sweep rect is the raw screen drag converted by the camera. F8 ortho, F9 grid, and object snaps do not move its corners. | pattern | 85 |
 | D07 | Direction / value locks | n/a. Tab does not lock the sweep. | pattern | 85 |
 | D08 | Numeric / manual entry | n/a. Digits do nothing. Typing W or C during the drag does not force a mode. | pattern | 80 |
 | D09 | Preview & readouts | Window: solid 1 px stroke in palette.select and a fill of that color at alpha 0.12, which is today's preview. Crossing: dashed stroke, 6 px on and 4 px off, in a new token board.marquee.crossing (light #3D9A4A, dark #7DDEA0) with the same 0.12 fill. Both rects are screen-space chrome on the pointer drag, not canvas objects. | research | 70 |
 | D10 | Cursor | The arrow cursor stays. No window or crossing glyph. | pattern | 80 |
-| D11 | Commit | Release writes board_sel. No modifier replaces it with the hits. Shift or Ctrl extends it. expand_board_selection still promotes a hit member to its group. The selection is not journaled. Hidden and locked nodes stay out. Frames are not selected. A sweep that started inside a frame only tests that frame's members. | pattern | 85 |
+| D11 | Commit | Release writes board_sel without journaling. No modifier replaces selection; Shift or Ctrl extends it; Ctrl+Shift adds the active curve segments hit by the sweep. Groups expand as before. Hidden and locked nodes stay out. A frame's members are tested only when the sweep starts inside it. | stated | 100 |
 | D12 | Cancel | Esc during the drag drops the sweep and leaves board_sel unchanged. | pattern | 85 |
 | D13 | Selected presentation | P1.node.transform after the selection lands. The sweep adds no grips of its own. | pattern | 90 |
 | D14 | Post-edit | n/a. The sweep does not create or edit geometry. | pattern | 90 |
 | D15 | Non-goals | Cut: Alt forcing Window; W/C typed aliases; Ctrl removing hits; File Atlas card marquee; the Z zoom-window; portal-internal file marquee; Direct Selection (A) anchor marquee, which keeps selecting anchors whose points lie inside the box. | guess | 55 |
 | D16 | Create-style inheritance | n/a. The sweep does not read or write BoardLastStyle. | pattern | 90 |
-| D17 | Hit-testing & pick | Window selects a node only when its pick geometry lies entirely inside the rect. Stroke-pick shapes and connectors: every flattened centerline sample is inside. Other nodes: all four corners of the rotated rect are inside. Crossing keeps marquee_hits_node: stroke intersection, or the rotated rect intersecting the sweep. A line that only crosses the box is selected right-to-left and missed left-to-right. A single-click brush dab is its ink disc (stroke width across): window needs the whole disc inside, crossing needs the rect to touch the disc, and a click anywhere on the disc picks it. | stated | 100 |
+| D17 | Hit-testing & pick | Window requires complete pick geometry inside; Crossing uses actual stroke intersection or rotated-rect intersection. Ctrl+Shift segment sweep uses complete-segment containment left-to-right and crossed segments right-to-left, on the active curve (including closed outlines). A single-click brush dab uses its ink disc. | stated | 100 |
 
 ## Feel constants
 
@@ -47,3 +47,5 @@ Inherits: P0.* (all), P1.node.select — deviations flagged below.
 ## Open questions
 
 None. Crossing preview is dashed green. Shift and Ctrl both add. Direct Selection and File Atlas stay as they are.
+
+- **Sub-object sweep (13 October 2026):** Ctrl+Shift left-to-right encloses two complete segments -> both picked; Ctrl+Shift right-to-left crosses a third segment -> adds it without clearing the first two; Delete removes all three; Undo restores the curve. Selection alone adds no journal history.

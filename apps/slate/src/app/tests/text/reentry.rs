@@ -3,6 +3,49 @@
 use super::*;
 
 #[test]
+fn text_emphasis_is_journaled_and_survives_inline_reentry() {
+    let mut h = text_draft_board("text-emphasis-reentry");
+    let center = h.app.canvas_rect.center();
+    compose_text(&mut h, center, "Styled words");
+    press_key(&mut h, egui::Key::Escape);
+    let original = h.app.doc().scene.nodes[0].clone();
+    let id = original.id;
+    let before = h.app.tab().journal.undo_depth();
+    assert!(h.app.dispatch(&h.ctx, atlas_commands::CommandId("board.shape.edit"), Some(
+        serde_json::json!({"ids":[id], "edits":[{"TextBold":true},{"TextItalic":true},{"TextUnderline":true}], "points":[]}).to_string()
+    )));
+    assert_eq!(h.app.tab().journal.undo_depth(), before + 1);
+    let NodeKind::Text(text) = &h.app.doc().scene.node(id).unwrap().kind else {
+        unreachable!()
+    };
+    assert_eq!(
+        text.style,
+        slate_doc::scene::TextStyle {
+            bold: true,
+            italic: true,
+            underline: true
+        }
+    );
+    let center = Pos2::new(
+        original.rect.x + original.rect.w * 0.5,
+        original.rect.y + original.rect.h * 0.5,
+    );
+    h.app.board_double_click_for_test(center);
+    h.frame();
+    press_key(&mut h, egui::Key::End);
+    h.frame_with(|i| i.events.push(egui::Event::Text("!".into())));
+    press_key(&mut h, egui::Key::Escape);
+    let NodeKind::Text(text) = &h.app.doc().scene.node(id).unwrap().kind else {
+        unreachable!()
+    };
+    assert!(text.style.bold && text.style.italic && text.style.underline);
+    assert!(text.text.ends_with('!'));
+    h.app.board_undo();
+    h.app.board_undo();
+    assert_eq!(h.app.doc().scene.node(id).unwrap(), &original);
+}
+
+#[test]
 fn reentered_text_grows_down_and_commits_text_with_height_in_one_undo() {
     let mut h = text_draft_board("text-reentry-height");
     let center = h.app.canvas_rect.center();

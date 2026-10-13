@@ -64,7 +64,11 @@ fn smoke_full_feature_export() {
         WorldRect::new(480.0, 80.0, 400.0, 120.0),
         NodeKind::Text(TextNode {
             text: "Hello <world> & friends".into(),
-            style: Default::default(),
+            style: TextStyle {
+                bold: true,
+                italic: true,
+                underline: true,
+            },
             family: Typeface::Serif,
             size: 36.0,
             color: Rgba::opaque(10, 10, 40),
@@ -104,7 +108,7 @@ fn smoke_full_feature_export() {
         slate_artifact::export_html(&doc, &out, &slate_artifact::ExportOptions::default()).unwrap();
     assert_eq!(rep.slides, 1);
     let html = std::fs::read_to_string(out.join("index.html")).unwrap();
-    println!("=== HTML ===\n{html}");
+    assert!(html.contains("font-weight:bold;font-style:italic;text-decoration:underline;"));
 }
 
 /// 3D model nodes export their frozen-camera poster (per node — the same

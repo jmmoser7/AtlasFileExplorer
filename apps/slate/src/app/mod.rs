@@ -1175,7 +1175,11 @@ impl SlateApp {
         std::thread::spawn(move || {
             let mut names: Vec<&str> = slate_doc::scene::Typeface::ALL
                 .iter()
-                .flat_map(|face| [face.font_file(), face.bold_font_file()].into_iter().flatten())
+                .flat_map(|face| {
+                    [face.font_file(), face.bold_font_file()]
+                        .into_iter()
+                        .flatten()
+                })
                 .collect();
             names.sort_unstable();
             names.dedup();
@@ -1263,20 +1267,31 @@ impl SlateApp {
                 .insert(egui::FontFamily::Name(key.into()), family);
         }
         for face in slate_doc::scene::Typeface::ALL {
-            let key = format!("slate-bold-{}", face.index());
+            let key = face.bold_egui_family().to_string();
             let mut family = Vec::new();
-            if let Some((_, bytes)) = files.iter().find(|(name, _)| Some(name.as_str()) == face.bold_font_file()) {
-                fonts.font_data.insert(key.clone(), std::sync::Arc::new(egui::FontData::from_owned(bytes.clone())));
+            if let Some((_, bytes)) = files
+                .iter()
+                .find(|(name, _)| Some(name.as_str()) == face.bold_font_file())
+            {
+                fonts.font_data.insert(
+                    key.clone(),
+                    std::sync::Arc::new(egui::FontData::from_owned(bytes.clone())),
+                );
                 family.push(key.clone());
             }
             let base = match face {
                 slate_doc::scene::Typeface::Mono => egui::FontFamily::Monospace,
-                _ => face.egui_family().map(|name| egui::FontFamily::Name(name.into())).unwrap_or(egui::FontFamily::Proportional),
+                _ => face
+                    .egui_family()
+                    .map(|name| egui::FontFamily::Name(name.into()))
+                    .unwrap_or(egui::FontFamily::Proportional),
             };
             if let Some(fallback) = fonts.families.get(&base) {
                 family.extend(fallback.iter().cloned());
             }
-            fonts.families.insert(egui::FontFamily::Name(key.into()), family);
+            fonts
+                .families
+                .insert(egui::FontFamily::Name(key.into()), family);
         }
         ctx.set_fonts(fonts);
         atlas_shell::canvas_text::clear_world_layout_cache();

@@ -217,7 +217,12 @@ fn submitting_the_image_editor_captures_the_picked_crop_before_releasing_it() {
     h.app.pick_agent_result(id, 0);
     h.app.patch_nodes(&[id], |node| {
         if let NodeKind::Image(image) = &mut node.kind {
-            image.crop = Crop { x: 0.0, y: 0.0, w: 0.5, h: 1.0 };
+            image.crop = Crop {
+                x: 0.0,
+                y: 0.0,
+                w: 0.5,
+                h: 1.0,
+            };
         }
     });
     let before = h.app.doc().scene.node(id).unwrap().clone();
@@ -228,9 +233,19 @@ fn submitting_the_image_editor_captures_the_picked_crop_before_releasing_it() {
         std::thread::sleep(Duration::from_millis(5));
         h.app.pump_comfy_queue();
     }
-    let request = &h.app.agents.dispatched.last().expect("prepared edit dispatched").1;
+    let request = &h
+        .app
+        .agents
+        .dispatched
+        .last()
+        .expect("prepared edit dispatched")
+        .1;
     assert_eq!(request.image.as_ref().unwrap().count, 3);
-    let input = request.inputs.on(atlas_agent::InputSlot::Media).next().unwrap();
+    let input = request
+        .inputs
+        .on(atlas_agent::InputSlot::Media)
+        .next()
+        .unwrap();
     let pixels = image::open(&input.images[0]).unwrap();
     assert_eq!((pixels.width(), pixels.height()), (4, 8));
     assert!(request.inputs.context.is_empty());

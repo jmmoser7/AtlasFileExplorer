@@ -4,7 +4,7 @@ use super::*;
 impl SlateApp {
     /// Snap target for a live wire drag: topmost visible non-connector node
     /// (excluding `exclude`) whose grip or edge is within 14 px screen.
-    pub(super) fn wire_snap_target(
+    pub(crate) fn wire_snap_target(
         &self,
         world: Pos2,
         from: Option<(NodeId, Side, f32)>,

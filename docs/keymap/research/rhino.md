@@ -603,3 +603,14 @@ clear_selection, properties_toggle, command_history
 ---
 
 *End of Stage-2 research input.*
+
+## Curve editing refinement — 13 October 2026
+
+Official Rhino 8 help was re-opened for the October client reports:
+
+- [Object/sub-object selection](https://docs.mcneel.com/rhino/8/help/en-us/popup_actions/select_objects.htm): Ctrl+Shift works with click, window and crossing; supported examples include polycurve/polyline segments and control points. Left-to-right is containment, right-to-left crossing.
+- [Keyboard modifiers](https://docs.mcneel.com/rhino/8/help/en-us/user_interface/keyboard%20modifiers.htm): Ctrl+Shift click deselects a picked sub-object; Ctrl window/crossing deselects sub-objects. Slate retains its existing click toggle and single-curve picked-edge owner; this refinement adds additive Ctrl+Shift sweeps to that same set.
+- [Trim](https://docs.mcneel.com/rhino/8/help/en-us/commands/trim.htm): choose cutters, then removal parts; preselected cutters may trim one another; Shift near an endpoint extends to a cutter; ExtendCuttingLines uses imaginary line extensions. Slate's current 2D geometry and staged Esc contract remain the approved subset.
+- [Split](https://docs.mcneel.com/rhino/8/help/en-us/commands/split.htm): choose targets, then cutters; Ctrl deselects cutters; Enter completes. Split retains every piece. Slate's user-approved 16 August 2026 contract deliberately shares Trim's cutter-first sequence. This refinement preserves that stated precedent while adopting cutter removal and fixing silhouette/open-curve picking.
+
+Stated October behavior supersedes the old primitive vertex restriction: moving/deleting a rectangle or polygon vertex promotes it to a closed Path, preserving its style; deleting an outline edge opens the curve. This is a Slate model adaptation, not a claim about Rhino primitive storage. Polyline Escape committing is also the user's Slate-specific refinement; Rhino's general Escape cancels commands.

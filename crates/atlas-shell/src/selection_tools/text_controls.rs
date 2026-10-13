@@ -1,16 +1,42 @@
 //! Text alignment control shared by object property editors.
 use super::*;
 
-pub(super) fn emphasis_buttons(ui: &mut egui::Ui, rect: Rect, active: [bool; 3], zoom: f32, theme: Palette) -> Option<(usize, bool)> {
+pub(super) fn emphasis_buttons(
+    ui: &mut egui::Ui,
+    rect: Rect,
+    active: [bool; 3],
+    zoom: f32,
+    theme: Palette,
+) -> Option<(usize, bool)> {
     let mut result = None;
-    for (i, (icon, label)) in [(Icon::Bold, "Bold"), (Icon::Italic, "Italic"), (Icon::Underline, "Underline")].into_iter().enumerate() {
-        let hit = Rect::from_min_size(rect.min + Vec2::new(i as f32 * rect.width() / 3.0, 0.0), Vec2::new(rect.width() / 3.0, rect.height()));
-        let response = ui.interact(hit, ui.id().with(("text_emphasis", i)), Sense::click()).on_hover_text(label);
+    for (i, (icon, label)) in [
+        (Icon::Bold, "Bold"),
+        (Icon::Italic, "Italic"),
+        (Icon::Underline, "Underline"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let hit = Rect::from_min_size(
+            rect.min + Vec2::new(i as f32 * rect.width() / 3.0, 0.0),
+            Vec2::new(rect.width() / 3.0, rect.height()),
+        );
+        let response = ui
+            .interact(hit, ui.id().with(("text_emphasis", i)), Sense::click())
+            .on_hover_text(label);
         if active[i] {
-            ui.painter().rect_filled(hit, hit.height() * 0.5, theme.accent);
+            ui.painter()
+                .rect_filled(hit, hit.height() * 0.5, theme.accent);
         }
-        icons::paint(ui.painter(), Rect::from_center_size(hit.center(), Vec2::splat(14.0 * zoom)), icon, if active[i] { theme.bg } else { theme.ink });
-        if response.clicked() { result = Some((i, !active[i])); }
+        icons::paint(
+            ui.painter(),
+            Rect::from_center_size(hit.center(), Vec2::splat(14.0 * zoom)),
+            icon,
+            if active[i] { theme.bg } else { theme.ink },
+        );
+        if response.clicked() {
+            result = Some((i, !active[i]));
+        }
     }
     result
 }

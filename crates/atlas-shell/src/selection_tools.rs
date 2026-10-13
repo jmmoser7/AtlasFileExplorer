@@ -143,35 +143,8 @@ pub fn strip_fade(ctx: &egui::Context, id: Id, visible: bool) -> f32 {
     ctx.animate_bool_with_time(id, visible, SELECTION_FADE_SECONDS)
 }
 
-pub fn strip_size(count: usize) -> Vec2 {
-    let n = count.max(1) as f32;
-    Vec2::new(
-        n * BUTTON_SIZE + count.saturating_sub(1) as f32 * BUTTON_GAP,
-        BUTTON_SIZE,
-    )
-}
-
-/// Icon strip above the host. `fade` 0 = collapsed, 1 = full size.
-pub fn strip_rect(object_top_center: Pos2, count: usize, zoom: f32, fade: f32) -> Rect {
-    let rest = strip_size(count) * zoom;
-    let center = Pos2::new(
-        object_top_center.x,
-        object_top_center.y - (OBJECT_GAP + BUTTON_SIZE * 0.5) * zoom,
-    );
-    let t = STRIP_COLLAPSE + (1.0 - STRIP_COLLAPSE) * fade.clamp(0.0, 1.0);
-    Rect::from_center_size(center, rest * t)
-}
-
-pub fn strip_button_rect(strip: Rect, index: usize, zoom: f32) -> Rect {
-    let t = strip.height() / (BUTTON_SIZE * zoom).max(f32::EPSILON);
-    let size = BUTTON_SIZE * zoom * t;
-    let gap = BUTTON_GAP * zoom * t;
-    Rect::from_min_size(
-        strip.min + Vec2::new(index as f32 * (size + gap), 0.0),
-        Vec2::splat(size),
-    )
-}
-
+mod strip_layout;
+pub use strip_layout::{strip_bottom, strip_button_rect, strip_rect, strip_rect_below, strip_size};
 #[allow(clippy::too_many_arguments)]
 pub fn button(
     ui: &mut egui::Ui,

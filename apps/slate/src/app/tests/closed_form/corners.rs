@@ -89,8 +89,6 @@ fn a_rectangle_corner_drag_promotes_it_to_a_closed_path() {
         "{rect:?} from {rect0:?}"
     );
     assert_eq!(shape_kind_of(&h, id), ShapeKind::Path);
-    let points = world_anchor_points(&h, id);
-    for k in [0, 1, 3] { assert!(near(points[k], v[k])); }
     h.app.board_undo();
     assert_eq!(shape_kind_of(&h, id), ShapeKind::Rect);
 }

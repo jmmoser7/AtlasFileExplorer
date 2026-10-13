@@ -5752,13 +5752,13 @@ impl SlateApp {
         }
     }
 
-    /// Esc on a path draft: a span of two or more anchors commits as it
-    /// stands (D12); anything else cancels.
+    /// Esc commits a polyline or Bezier with two points; incomplete drafts cancel.
     pub(crate) fn escape_path_draft(&mut self) {
-        let commit = matches!(
-            &self.board_path_draft,
-            Some(BoardPathDraft::Bezier { anchors, .. }) if anchors.len() >= 2
-        );
+        let commit = match &self.board_path_draft {
+            Some(BoardPathDraft::Bezier { anchors, .. }) => anchors.len() >= 2,
+            Some(BoardPathDraft::Polyline { points, .. }) => points.len() >= 2,
+            _ => false,
+        };
         if !(commit && self.finish_path_draft()) {
             self.cancel_path_draft();
         }

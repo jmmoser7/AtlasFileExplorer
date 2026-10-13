@@ -1213,6 +1213,13 @@ macro_rules! typefaces {
                 self.meta().3
             }
 
+            pub fn bold_egui_family(self) -> &'static str {
+                match self {
+                    Self::$first => concat!("slate-bold-", stringify!($first)),
+                    $(Self::$variant => concat!("slate-bold-", stringify!($variant)),)*
+                }
+            }
+
             pub fn index(self) -> usize {
                 Self::ALL.iter().position(|face| *face == self).unwrap_or(0)
             }
@@ -2438,10 +2445,12 @@ pub struct TextStyle {
 
 impl TextStyle {
     pub fn css(self) -> String {
-        format!("font-weight:{};font-style:{};text-decoration:{};",
+        format!(
+            "font-weight:{};font-style:{};text-decoration:{};",
             if self.bold { "bold" } else { "normal" },
             if self.italic { "italic" } else { "normal" },
-            if self.underline { "underline" } else { "none" })
+            if self.underline { "underline" } else { "none" }
+        )
     }
 }
 
@@ -3956,6 +3965,32 @@ impl SceneJournal {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn typography_defaults_keep_old_workbooks_and_preferred_faces_compatible() {
+        assert_eq!(
+            &Typeface::ALL[..3],
+            &[Typeface::Replica, Typeface::Arial, Typeface::Courier]
+        );
+        assert_eq!(Typeface::default(), Typeface::Sans);
+        let old: ShapeText =
+            serde_json::from_value(serde_json::json!({"body":"old note", "color":[1,2,3,255]}))
+                .unwrap();
+        assert_eq!(old.style, TextStyle::default());
+        let style = TextStyle {
+            bold: true,
+            italic: true,
+            underline: true,
+        };
+        let styled = ShapeText { style, ..old };
+        let roundtrip: ShapeText =
+            serde_json::from_str(&serde_json::to_string(&styled).unwrap()).unwrap();
+        assert_eq!(roundtrip.style, style);
+        assert_eq!(
+            style.css(),
+            "font-weight:bold;font-style:italic;text-decoration:underline;"
+        );
+    }
 
     #[test]
     fn end_conditions_are_per_end_and_round_trip() {

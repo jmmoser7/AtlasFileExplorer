@@ -791,6 +791,7 @@ impl SlateApp {
             && !web_capture
             && !self.board_align_eat_press
             && self.board_drag.is_none()
+            && pointer.is_none_or(|p| self.tiny_body_owns_pointer(p).is_none())
             && ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary))
         {
             if let Some(p) = pointer {
@@ -1857,8 +1858,13 @@ impl SlateApp {
         };
         if let (Some(start_screen), Some(p)) = (marquee_start, pointer) {
             let r = Rect::from_two_pos(start_screen, p);
-            let node_marquee = matches!(self.board_drag, Some(BoardDrag::Marquee { .. })
-                | Some(BoardDrag::Direct(super::board_direct::DirectDrag::Marquee { edges: true, .. })));
+            let node_marquee = matches!(
+                self.board_drag,
+                Some(BoardDrag::Marquee { .. })
+                    | Some(BoardDrag::Direct(
+                        super::board_direct::DirectDrag::Marquee { edges: true, .. }
+                    ))
+            );
             let crossing = node_marquee && p.x < start_screen.x;
             let tokens = atlas_shell::tokens::current().board_marquee;
             let color = if crossing {
@@ -2455,7 +2461,10 @@ impl SlateApp {
                 if !reposition {
                     // No member may collapse below MIN_DRAW world units (but a
                     // member already smaller than that never blocks the gesture).
-                    for node in before.iter().filter(|n| !matches!(n.kind, NodeKind::Connector(_))) {
+                    for node in before
+                        .iter()
+                        .filter(|n| !matches!(n.kind, NodeKind::Connector(_)))
+                    {
                         if node.rect.w >= MIN_DRAW {
                             sx = sx.max(MIN_DRAW / node.rect.w);
                         }

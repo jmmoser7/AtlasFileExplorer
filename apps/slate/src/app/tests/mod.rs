@@ -26,6 +26,7 @@ mod crop;
 mod curve_grips;
 mod eraser;
 mod escape_drag;
+mod feedback_polish;
 mod fillet;
 mod hit_order;
 mod image_paint;

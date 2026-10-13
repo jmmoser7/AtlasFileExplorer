@@ -1,8 +1,4 @@
-//! Bounding-box chrome: Windows-style hover resize, optional rotate.
-//!
-//! Select-tool edges and corners are live without a prior selection. Portals
-//! and simple lines do not rotate. Aspect-ratio keys stay in `board_snap`
-//! (Shift / Ctrl) — this module only decides what the pointer is aimed at.
+//! Bounding-box resize/rotate; modifier arithmetic stays in `board_snap`.
 mod preview;
 
 use super::board::{BoardDrag, BoardXf};
@@ -416,6 +412,9 @@ impl SlateApp {
         screen: Pos2,
     ) -> Option<(Option<NodeId>, board_handles::BoardHitTarget)> {
         let xf = self.board_xf();
+        if let Some(id) = self.tiny_body_owns_pointer(screen) {
+            return Some((Some(id), board_handles::BoardHitTarget::Body));
+        }
         if self.agent_grip_owns(screen, &xf)
             || self.polygon_sides_glyph_at(screen, &xf).is_some()
             || self.fillet_grip_hit_at(screen).is_some()

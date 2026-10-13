@@ -5,10 +5,13 @@
 //! Same session machine (`P2.RhinoTrim` phases). Portals and frames are
 //! never targets.
 
+mod serialization;
+pub(crate) use serialization::pieces_to_path_data;
+use serialization::{polygon_to_path_data, polygons_to_clip};
+
 use eframe::egui::{Pos2, Shape, Stroke as EStroke};
 use slate_doc::scene::{
-    Node, NodeId, NodeKind, PathContour, PathData, PathFillRule, PathSeg, SceneCmd, ShapeKind,
-    ShapeNode, WorldRect,
+    Node, NodeId, NodeKind, PathSeg, SceneCmd, ShapeKind, ShapeNode, WorldRect,
 };
 use vector_ink::{
     closest_polyline_span, extend_polyline_end, fill_triangles, infinite_line, point_in_polygon,
@@ -16,7 +19,7 @@ use vector_ink::{
 };
 
 use super::board::{BoardTool, BoardXf};
-use super::board_path::{bounds_of_world_points, points_to_path_data};
+use super::board_path::points_to_path_data;
 use super::SlateApp;
 
 /// Screen-px slop for picking an open span or an extendable end.
@@ -282,8 +285,12 @@ impl SlateApp {
 
     fn trim_pick_node(&self, world: Pos2) -> Option<NodeId> {
         super::board_path::board_pick_node_routed(
-            &self.doc().scene, world.x, world.y, self.board_xf().z,
-            true, self.board_wire_routing,
+            &self.doc().scene,
+            world.x,
+            world.y,
+            self.board_xf().z,
+            true,
+            self.board_wire_routing,
         )
     }
 
@@ -450,6 +457,7 @@ impl SlateApp {
         let slop = trim_tokens::SPAN_SLOP / z;
         let p = [world.x, world.y];
         let mut best: Option<(f32, NodeId, usize)> = None;
+        let mut open_fallback: Option<(f32, NodeId, usize)> = None;
         for n in self.doc().scene.nodes.iter().rev() {
             if !self.trim_can_target(n.id) {
                 continue;
@@ -459,10 +467,14 @@ impl SlateApp {
             };
             let cutters = self.live_cutters(Some(n.id));
             let spans = split_open_at_cutters(&pts, &cutters);
-            if spans.len() < 2 { continue; }
             if let Some(hit) = closest_polyline_span(&spans, p) {
-                if hit.dist <= slop && best.is_none_or(|(d, _, _)| hit.dist < d) {
-                    best = Some((hit.dist, n.id, hit.span));
+                if hit.dist <= slop {
+                    if open_fallback.is_none_or(|(d, _, _)| hit.dist < d) {
+                        open_fallback = Some((hit.dist, n.id, hit.span));
+                    }
+                    if spans.len() >= 2 && best.is_none_or(|(d, _, _)| hit.dist < d) {
+                        best = Some((hit.dist, n.id, hit.span));
+                    }
                 }
             }
         }
@@ -497,7 +509,7 @@ impl SlateApp {
         if let Some(target) = delete_fallback {
             return Some(TrimHover::ClosedRegion { target });
         }
-        None
+        open_fallback.map(|(_, target, span)| TrimHover::OpenSpan { target, span })
     }
 
     fn live_cutters(&self, except: Option<NodeId>) -> Vec<Cutter> {
@@ -1004,169 +1016,4 @@ fn dist(a: [f32; 2], b: [f32; 2]) -> f32 {
     let dx = a[0] - b[0];
     let dy = a[1] - b[1];
     (dx * dx + dy * dy).sqrt()
-}
-
-pub(crate) fn pieces_to_path_data(pieces: &[Polygon]) -> Option<(WorldRect, PathData)> {
-    if pieces.is_empty() {
-        return None;
-    }
-    let mut pts = Vec::new();
-    for piece in pieces {
-        for ring in piece {
-            for p in ring {
-                pts.push(Pos2::new(p[0], p[1]));
-            }
-        }
-    }
-    if pts.is_empty() {
-        return None;
-    }
-    let rect = bounds_of_world_points(&pts);
-    let mut extra = Vec::new();
-    let mut start = [0.0, 0.0];
-    let mut segs = Vec::new();
-    let mut first = true;
-    for piece in pieces {
-        for ring in piece {
-            let (s, sg) = ring_to_contour(ring, rect);
-            if first {
-                start = s;
-                segs = sg;
-                first = false;
-            } else {
-                extra.push(PathContour {
-                    start: s,
-                    segs: sg,
-                    closed: true,
-                });
-            }
-        }
-    }
-    let fill_rule = if extra.is_empty() {
-        PathFillRule::NonZero
-    } else {
-        PathFillRule::EvenOdd
-    };
-    Some((
-        rect,
-        PathData {
-            start,
-            segs,
-            closed: true,
-            extra,
-            fill_rule,
-            tips: Vec::new(),
-            erase: Vec::new(),
-            corner_amounts: Vec::new(),
-        },
-    ))
-}
-
-fn polygon_to_path_data(poly: &Polygon) -> (WorldRect, PathData) {
-    let mut pts = Vec::new();
-    for ring in poly {
-        for p in ring {
-            pts.push(Pos2::new(p[0], p[1]));
-        }
-    }
-    let rect = bounds_of_world_points(&pts);
-    let mut extra = Vec::new();
-    let mut fill_rule = PathFillRule::NonZero;
-    let first = ring_to_contour(&poly[0], rect);
-    if poly.len() > 1 {
-        fill_rule = PathFillRule::EvenOdd;
-        for ring in poly.iter().skip(1) {
-            extra.push(ring_to_extra(ring, rect));
-        }
-    }
-    (
-        rect,
-        PathData {
-            start: first.0,
-            segs: first.1,
-            closed: true,
-            extra,
-            fill_rule,
-            tips: Vec::new(),
-            erase: Vec::new(),
-            corner_amounts: Vec::new(),
-        },
-    )
-}
-
-fn polygons_to_clip(pieces: &[Polygon], host: WorldRect) -> PathData {
-    let mut extra = Vec::new();
-    let mut fill_rule = PathFillRule::EvenOdd;
-    let mut start = [0.0, 0.0];
-    let mut segs = Vec::new();
-    let mut first = true;
-    for piece in pieces {
-        for (i, ring) in piece.iter().enumerate() {
-            let (s, sg) = ring_to_contour(ring, host);
-            if first {
-                start = s;
-                segs = sg;
-                first = false;
-            } else {
-                extra.push(PathContour {
-                    start: s,
-                    segs: sg,
-                    closed: true,
-                });
-            }
-            let _ = i;
-        }
-    }
-    if pieces.len() == 1 && pieces[0].len() == 1 {
-        fill_rule = PathFillRule::NonZero;
-    }
-    PathData {
-        start,
-        segs,
-        closed: true,
-        extra,
-        fill_rule,
-        tips: Vec::new(),
-        erase: Vec::new(),
-        corner_amounts: Vec::new(),
-    }
-}
-
-fn ring_to_contour(ring: &[[f32; 2]], rect: WorldRect) -> ([f32; 2], Vec<PathSeg>) {
-    if ring.is_empty() {
-        return ([0.0, 0.0], Vec::new());
-    }
-    let start = norm_pt(ring[0], rect);
-    let segs = ring
-        .iter()
-        .skip(1)
-        .map(|p| PathSeg::Line {
-            to: norm_pt(*p, rect),
-        })
-        .collect();
-    (start, segs)
-}
-
-fn ring_to_extra(ring: &[[f32; 2]], rect: WorldRect) -> PathContour {
-    let (start, segs) = ring_to_contour(ring, rect);
-    PathContour {
-        start,
-        segs,
-        closed: true,
-    }
-}
-
-fn norm_pt(p: [f32; 2], rect: WorldRect) -> [f32; 2] {
-    [
-        if rect.w.abs() < f32::EPSILON {
-            0.0
-        } else {
-            (p[0] - rect.x) / rect.w
-        },
-        if rect.h.abs() < f32::EPSILON {
-            0.0
-        } else {
-            (p[1] - rect.y) / rect.h
-        },
-    ]
 }

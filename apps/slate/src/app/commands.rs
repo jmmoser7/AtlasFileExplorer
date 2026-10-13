@@ -73,7 +73,7 @@ pub static SPECS: &[CommandSpec] = &[
     spec("board.wire.canvas", "Board", "Canvas wire settings", "Right-click empty canvas: set color, width, and Orthogonal / Bézier routing for all unlocked wires in one undo step", None, Repeat::Never, BOARD, &["all wires", "connector settings", "canvas wires"]),
     spec("board.shape.dimension", "Board", "Edit shape dimension", "Click an external dimension stringer; Enter applies around the center, Escape cancels", None, Repeat::Never, BOARD, &["dimension", "length", "width", "height"]),
     spec("board.color.desktop", "Board", "Sample desktop color", "Eyedropper in any color editor: click it, then click any desktop pixel; or press it, drag to any desktop pixel and release. Escape cancels", None, Repeat::Never, BOARD, &["desktop color", "sample color"]),
-    spec("board.tool.polyline", "Board", "Polyline tool", "Shapes: click vertices; Enter finishes; snap to the start to close. Shift = 45° from the last vertex; Tab locks the direction", None, Repeat::Repeatable, BOARD, &["polyline", "polygon"]),
+    spec("board.tool.polyline", "Board", "Polyline tool", "Shapes: click vertices; Enter or Esc commits placed points; snap to the start to close. Shift = 45° from the last vertex; Tab locks the direction", None, Repeat::Repeatable, BOARD, &["polyline", "polygon"]),
     spec("board.tool.arc", "Board", "Arc tool", "Shapes: pick three points for an arc. Shift = 45° from the last point; Tab locks the direction", None, Repeat::Repeatable, BOARD, &["arc", "curve"]),
     spec("board.tool.bezier", "Board", "Bezier span tool", "Shapes: place anchors and drag tangent handles. Shift = 45° from the last anchor; Tab locks the direction", None, Repeat::Repeatable, BOARD, &["bezier", "handles"]),
     // ----- Navigation -------------------------------------------------------
@@ -2175,7 +2175,8 @@ pub static SPECS: &[CommandSpec] = &[
         "Ctrl + Shift + click — a single member inside a group, or a locked \
          object (grayed handles, one-off edit). On a curve segment (Select \
          tool) it also picks that edge and its two vertices; more clicks add \
-         or toggle edges",
+         or toggle edges. Ctrl + Shift + sweep adds fully contained segments \
+         left-to-right or crossed segments right-to-left",
         None,
         Repeat::Never,
         BOARD,

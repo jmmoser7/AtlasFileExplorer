@@ -76,7 +76,7 @@ image-drop behavior still places its pixels on the active layer.
 
 ## Keymap wave 2a bindings (registry, overlays, small commands)
 
-- **Selection properties** — edited on the object strip above the selection.
+- **Selection properties** — edited on the object strip below the actual selection silhouette, with clearance for the strip width.
   The bottom dock does not host a Selection icon. `app.properties` does not
   open a dock panel.
 - **Space (tap) / Enter (idle)** — repeat the last repeatable command
@@ -84,8 +84,8 @@ image-drop behavior still places its pixels on the active layer.
   pointer use while held — Space+drag stays pan. Enter defers to crop mode,
   path drafts, and text editing first.
 - **Esc** — pops exactly one cancel layer via
-  `atlas_commands::cancel_target`: draft (crop / path) → non-Select tool →
-  selection → chrome (menus, adjust popover, inline tag editor). Lens focus
+  `atlas_commands::cancel_target`: draft (crop / path; polyline Esc commits two or more placed points and
+  discards an incomplete draft) → non-Select tool → selection → chrome (menus, adjust popover, inline tag editor). Lens focus
   clear stays first, as before. Overlays with a focused text field (palette,
   search) own their Esc; the inline text editor commits on its own Esc.
 - **F1** commands reference (Advanced) · **F2** command history window ·
@@ -138,7 +138,7 @@ image-drop behavior still places its pixels on the active layer.
   files, anything else as plain text, never JSON; connectors ride along
   when both ends are copied, outside anchors degrade to Free). Ctrl+V also
   places a copied image or files at the pointer.
-  **Ctrl+Shift+V** paste in place · repeated pastes step +24,+24.
+  **Ctrl+Shift+V** paste in place · repeated pastes step +24,+24. One physical press pastes once; the Windows bitmap/file fallback does not also handle clipboard text.
 - **Select** — click replaces the selection; **Shift+click** or **Ctrl+click**
   adds (a second Shift/Ctrl+click on the same object toggles it off).
   Shift+click empty canvas keeps the set. Shift+marquee adds. Rectangles
@@ -378,8 +378,9 @@ per scene generation (never per frame).
 
 ### Trim (Ctrl+T) + Split (Ctrl+Shift+T)
 
-Same Rhino two-phase syntax: pick cutting objects (or preselect them),
-Enter, then click.
+Shared Slate two-phase syntax: pick cutting objects (or preselect them),
+Enter, then click. Ctrl+click removes a picked cutter before Enter.
+Rhino Split uses target-first input; Slate retains its approved shared flow.
 
 - **Trim** deletes the clicked span (open) or arrangement face (closed).
   Text/images store the remainder in `Node.clip`. Shift+click near an open
@@ -443,15 +444,18 @@ Enter, then click.
   per drag; Esc restores. A Ctrl click keeps its meaning.
 - **Ctrl+Shift+click a segment** (`board.subselect`; user, 28 September
   2026) picks that edge and its two end vertices; more Ctrl+Shift+clicks
-  add edges or toggle one off. Dragging a picked edge moves its vertices
+  add edges or toggle one off. **Ctrl+Shift+drag a window** adds complete
+  segments left-to-right, or crossed segments right-to-left, on the active
+  curve (including closed paths and primitive outlines). Dragging a picked edge moves its vertices
   through object snaps as one journaled Patch (Esc restores), and
   **Delete** removes the picked segments: an open curve splits in two, a
   closed curve opens there. One Ctrl+Z restores.
 - One selected rectangle or regular polygon takes the same picks on its
   vertices (P1.shape.vertex-style, user 28 September 2026). A rectangle
-  corner drag still resizes, a polygon side +/− wins on its own glyph, and
-  no vertex moves on its own (the form keeps its kind). Under Direct Select
-  (A) the vertices pick as anchors.
+  vertex drag moves that vertex and promotes the primitive to a closed Path;
+  Delete on picked vertices reconnects their neighbors and promotes likewise.
+  A polygon side +/− wins on its glyph. Direct Select (A) offers the same
+  vertex edit. Style-only edits keep the primitive. Each edit is one Undo.
 
 ### Picked vertices (A anchors or Select grips)
 
@@ -726,6 +730,8 @@ The folder layout is `atlas_core::workbook_assets`, described in
 images placed before the workbook had a folder, and Save As also copies the
 assets this workbook already keeps under its own `assets/` tree.
 
+
+Text Formatting lists Replica, Arial and Courier New first, and provides independent Bold, Italic and Underline glyph toggles. These use `board.shape.edit` (`TextBold`, `TextItalic`, `TextUnderline`) and preserve the same block style through inline editing, undo, HTML and SVG export.
 
 Selection strip: squircle Fill/Stroke/Corners/Filters/Pages/Formatting (and wire) controls dispatch `board.shape.edit` / `board.wire.edit` / `portal.atlas.fit` for any node those scene helpers support — shapes, frames, text fills, portals, images and wires. File Atlas Formatting is the Display squircle and the filter+fit editor in `selection_tools`. Image Filters is the photo-filter capsule (low-resolution filtered thumbnails, hover preview, intensity slider). A 3D model's Viewport display and Measure squircles dispatch `board.model_display` / `board.model_measure`. Frame deck/tags/images/present actions share that strip. External dimension stringers dispatch `board.shape.dimension`. Palette previews commit on icon change/outside click; an empty-canvas click also deselects. Esc cancels. Numeric dimensions edit directly in their rotated stringers and commit on Enter/outside click. RGB percentages also edit in place; slider metrics appear only during adjustment. All eyedroppers use `board.color.desktop` / the shared desktop sampler (RGB only; existing alpha preserved). The color editor's eyedropper has two modes: click it, move, and click the color; or press it, drag to the color, and release to commit (the magnifier shows a live swatch; Escape cancels). Polyline, Arc and Bezier are also discoverable as `board.tool.polyline`, `board.tool.arc`, and `board.tool.bezier`, without new default shortcuts.
 

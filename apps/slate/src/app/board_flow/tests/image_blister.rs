@@ -4,36 +4,62 @@ use crate::app::board_properties::Panel;
 #[test]
 fn image_agent_count_clicks_reach_the_authored_generator_settings() {
     let (mut h, id) = generator_with_output("count-clicks");
-    h.app.patch_nodes(&[id], |node| { node.rect.w = 480.0; node.rect.h = 480.0; });
+    h.app.patch_nodes(&[id], |node| {
+        node.rect.w = 480.0;
+        node.rect.h = 480.0;
+    });
     h.app.board_sel = std::iter::once(id).collect();
     let rect = h.app.doc().scene.node(id).unwrap().rect;
     h.app.tab_mut().cam.offset = egui::vec2(rect.x + rect.w / 2.0, rect.y + rect.h / 2.0);
     h.app.tab_mut().cam.z = 1.0;
     h.frame();
     h.app.shape_properties.panel = Some(Panel::Agent);
-    for _ in 0..12 { h.frame(); }
+    for _ in 0..12 {
+        h.frame();
+    }
     let xf = h.app.board_xf();
     let image = xf.rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
     let editor = atlas_shell::selection_tools::image_presentation_layout(
-        image, xf.z,
+        image,
+        xf.z,
         atlas_shell::selection_tools::ImagePanelKind::Custom {
-            main_height: h.app.image_agent_body_height(&h.ctx.layer_painter(egui::LayerId::background()), id),
+            main_height: h
+                .app
+                .image_agent_body_height(&h.ctx.layer_painter(egui::LayerId::background()), id),
         },
-    ).main;
+    )
+    .main;
     // Wide datum: play is 20, gap is 6, count's plus target is 13 wide.
     let inner = editor.shrink(12.0 * xf.z);
-    let plus = Pos2::new(inner.right() - (20.0 + 6.0 + 6.5) * xf.z, inner.top() + 12.0 * xf.z);
+    let plus = Pos2::new(
+        inner.right() - (20.0 + 6.0 + 6.5) * xf.z,
+        inner.top() + 12.0 * xf.z,
+    );
     for expected in [2, 3, 4] {
         h.frame_with(|input| input.events.push(egui::Event::PointerMoved(plus)));
         for pressed in [true, false] {
-            h.frame_with(|input| input.events.push(egui::Event::PointerButton {
-                pos: plus, button: egui::PointerButton::Primary, pressed,
-                modifiers: egui::Modifiers::NONE,
-            }));
+            h.frame_with(|input| {
+                input.events.push(egui::Event::PointerButton {
+                    pos: plus,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                })
+            });
         }
-        let settings = slate_doc::agent_chat::agent(h.app.doc().scene.node(id).unwrap()).unwrap().image;
+        let settings = slate_doc::agent_chat::agent(h.app.doc().scene.node(id).unwrap())
+            .unwrap()
+            .image;
         assert_eq!(settings.count, expected);
-        assert_eq!(h.app.generation_request(id, false).unwrap().image.unwrap().count, expected);
+        assert_eq!(
+            h.app
+                .generation_request(id, false)
+                .unwrap()
+                .image
+                .unwrap()
+                .count,
+            expected
+        );
         h.frame();
     }
 }

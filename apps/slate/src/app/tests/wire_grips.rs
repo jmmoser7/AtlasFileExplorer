@@ -2,6 +2,55 @@
 
 use super::*;
 
+#[test]
+fn nonrectangular_shapes_cannot_start_or_receive_new_wires() {
+    use slate_doc::scene::{ShapeKind, Side};
+    for kind in [ShapeKind::Ellipse, ShapeKind::RegularPolygon] {
+        let mut h = web_board("wire_rectangular_only");
+        let id = add_rect(&mut h.app, 0.0, 0.0);
+        h.app.patch_nodes(&[id], |node| {
+            if let NodeKind::Shape(shape) = &mut node.kind {
+                shape.shape = kind;
+            }
+        });
+        h.frame();
+        let xf = h.app.board_xf();
+        let node = h.app.doc().scene.node(id).unwrap();
+        let anchor = slate_doc::connector_anchor_on(node, Side::Right, 0.5);
+        let world = Pos2::new(anchor[0], anchor[1]);
+        assert!(h.app.wire_grip_at(xf.w2s(world), &xf).is_none());
+        assert!(h.app.wire_snap_target(world, None).is_none());
+        assert!(
+            anchor.iter().all(|v| v.is_finite()),
+            "saved anchors still resolve"
+        );
+    }
+}
+
+#[test]
+fn tiny_rectangular_hosts_do_not_offer_overlapping_wire_targets() {
+    let mut h = web_board("wire_tiny_host");
+    let id = add_rect(&mut h.app, 0.0, 0.0);
+    h.app.patch_nodes(&[id], |node| {
+        node.rect.w = 1.0;
+        node.rect.h = 1.0;
+    });
+    h.frame();
+    for zoom in [0.25, 1.0, 12.0] {
+        h.app.tab_mut().cam.z = zoom;
+        let xf = h.app.board_xf();
+        let node = h.app.doc().scene.node(id).unwrap();
+        let (x, y) = node.rect.center();
+        h.app.update_wire_grips(Some(xf.w2s(Pos2::new(x, y))), &xf);
+        assert!(h.app.wire_grips.is_none());
+        let grip = board_wire::grip_point(
+            h.app.doc().scene.node(id).unwrap().rect,
+            slate_doc::scene::Side::Right,
+        );
+        assert!(h.app.wire_grip_at(xf.w2s(grip), &xf).is_none());
+    }
+}
+
 /// Wire grips preview only at the handle under the pointer — not the whole edge.
 #[test]
 fn wire_grips_preview_only_the_handle_under_the_pointer() {
@@ -266,6 +315,7 @@ fn default_wire_color_follows_the_theme() {
     };
     assert_eq!(conn(&h).color, None);
     h.app.dark_mode = false;
+    assert_eq!(h.app.palette().wire, egui::Color32::from_rgb(204, 207, 207));
     let light = board::to_rgba(h.app.palette().wire);
     h.app.dark_mode = true;
     let dark = board::to_rgba(h.app.palette().wire);

@@ -31,9 +31,9 @@ Inherits: P0.* (all), P1.node, **P2.RhinoTrim** — deviations flagged below.
 |----|-----------|-----------------|--------|------|
 | D01 | Initiation & arming | **Ctrl+T**; palette: type "trim" + Enter; Actions dock icon; Space/Enter re-arms when Trim was last (P0.4/P0.7). Ctrl+N is new-tab only. | stated | 100 |
 | D02 | Stickiness & repeat | Sticky for the command: stays in TrimParts after each click. Enter in TrimParts returns to Select. Space/Enter while idle re-arms (P0.4). | stated | 100 |
-| D03 | Gesture grammar | `Armed → PickCutters → (Enter) → TrimParts → click* → Enter/Esc`. Preselect on arm skips to TrimParts with those nodes as cutters (they may trim each other). Click in PickCutters adds a cutter (cannot deselect). Click in TrimParts deletes the hit span/face. | research | 80 |
+| D03 | Gesture grammar | Armed -> PickCutters -> (Enter) -> TrimParts -> click* -> Enter/Esc. Preselection skips to TrimParts. In PickCutters, click adds a cutter and Ctrl+click removes it; click in TrimParts removes the hit span/face (user, 13 October 2026). | stated | 100 |
 | D04 | Click vs drag rule | Click only. Drag does not marquee-trim (Art. III). | guess | 55 |
-| D05 | Modifiers | **Shift+click** near an open-path end extends that end to the nearest cutter (Rhino). Shift is ignored in PickCutters. No Ctrl/Alt modifiers. | research | 80 |
+| D05 | Modifiers | Shift+click near an open-path end extends it to the nearest cutter. Shift is ignored in PickCutters; Ctrl+click removes a picked cutter there. Alt has no command modifier (user, 13 October 2026). | stated | 100 |
 | D06 | Constraints & snapping | Object snap does not move the click; the click is a region/span pick, not a point place. F8/F9 unused during Trim. | guess | 50 |
 | D07 | Direction / value locks | n/a | pattern | 85 |
 | D08 | Numeric / manual entry | n/a (Art. III). No typed options in v1. | guess | 60 |
@@ -45,7 +45,7 @@ Inherits: P0.* (all), P1.node, **P2.RhinoTrim** — deviations flagged below.
 | D14 | Post-edit | Direct Selection on rewritten paths. No Untrim command. | stated | 100 |
 | D15 | Non-goals | Untrim / UntrimAll / ReplaceEdge; ApparentIntersections; temporary Line cutter option; trimming portals or frames; 3D. Split is `board.tool.split`. | stated | 100 |
 | D16 | Create-style inheritance | Preserve the source fill and complete stroke style on every remaining piece. Uniform strokes retain their width along existing edges, new cut boundaries and holes. Per-vertex widths, colors and corner overrides stay on the vertices each piece keeps; a cut vertex takes the stroke's width and color at the cut (P1.curve.vertex-style blend) and no corner override (user, 26 September 2026). An open curve with per-vertex tips is cut in curve parameter space: each piece keeps the source's curves and paints what the source painted between vertices within `trim.tip_tolerance`; a span next to a cut, where a smoothstep blend cannot follow the source's, gains vertices until it does (user, 26 September 2026). | stated | 100 |
-| D17 | Hit-testing & pick | Open: closest remaining span within `trim.span_slop` (10 screen px). Closed/text/image: point-in-polygon on the filled region (or current clip). When several filled objects contain the click, pick the topmost whose remaining region after the cut is non-empty — a filled cutter over a hole does not swallow the punch. Frames/portals never pick as targets. | research | 75 |
+| D17 | Hit-testing & pick | A divided open span under the pointer wins before an overlapping filled cutter; otherwise choose the closest remaining span within trim.span_slop. Closed/text/image targets use their filled region or clip; choose the topmost target with a non-empty remainder. Frames and portals are not targets (user, 13 October 2026). | stated | 100 |
 
 ## Feel constants
 
@@ -77,3 +77,7 @@ Pinned as `board_trim::trim_tokens` (P0.6).
 ## Open questions
 
 None — remaining rows are locked as best-guess so the tool can ship.
+
+## Rhino refinement evidence � 13 October 2026
+
+[McNeel Trim](https://docs.mcneel.com/rhino/8/help/en-us/commands/trim.htm) confirms cutter selection, removal picks and Shift extension. The shipped staged Esc stack remains the approved Slate precedent. A filled silhouette crossing an open curve cuts its interior and exterior spans; a click on the curve beneath the cutter fill targets the curve, preserves the cutter, and undoes in one step. Internal polyline vertices at the silhouette boundary count as intersections.
