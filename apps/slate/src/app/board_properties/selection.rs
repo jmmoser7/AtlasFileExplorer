@@ -183,6 +183,9 @@ impl SlateApp {
     /// of the selected simple line, or any anchor or knob Direct Select
     /// paints on its target, including selected closed-form vertices.
     pub(crate) fn property_grip_under(&self, screen: Pos2) -> bool {
+        if self.curve_subselect_under(screen) {
+            return true;
+        }
         match self.board_tool {
             BoardTool::Select => {
                 self.hovered_vertex(screen).is_some()

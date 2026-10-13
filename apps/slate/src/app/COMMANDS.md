@@ -446,7 +446,9 @@ Rhino Split uses target-first input; Slate retains its approved shared flow.
   2026) picks that edge and its two end vertices; more Ctrl+Shift+clicks
   add edges or toggle one off. **Ctrl+Shift+drag a window** adds complete
   segments left-to-right, or crossed segments right-to-left, on the active
-  curve (including closed paths and primitive outlines). Dragging a picked edge moves its vertices
+  curve (including closed paths and primitive outlines). The explicit chord
+  owns a real edge even under overlapping property or dimension controls.
+  Dragging a picked edge moves its vertices
   through object snaps as one journaled Patch (Esc restores), and
   **Delete** removes the picked segments: an open curve splits in two, a
   closed curve opens there. One Ctrl+Z restores.

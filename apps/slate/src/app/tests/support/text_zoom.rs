@@ -118,6 +118,9 @@ pub(crate) fn set_chat_streaming(h: &mut Harness, chat: NodeId, streaming: bool)
     } else {
         AgentStatus::Idle
     };
+    // Establish the current provider binding before injecting its transcript.
+    // The real frame pump correctly discards output from a previous binding.
+    h.frame();
     h.app.agents.sessions.insert(
         chat,
         Arc::new(AgentSession {

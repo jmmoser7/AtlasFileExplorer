@@ -236,6 +236,7 @@ fn add_image_as_layer_creates_its_own_layer_and_undoes_in_one_step() {
     );
     let image = h.app.add_nodes(vec![node])[0];
     h.app.add_paint_layer_on_image(image).unwrap();
+    let before = h.app.doc().scene.node(image).unwrap().clone();
     let depth = h.app.tab().journal.undo_depth();
     assert!(h.app.add_picked_image_layer(image, pixels));
     assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
@@ -245,9 +246,18 @@ fn add_image_as_layer_creates_its_own_layer_and_undoes_in_one_step() {
     };
     let layers = slate_doc::image_paint::layers_for_result(img, &result);
     assert_eq!(layers.len(), 2);
-    assert!(layers[0].nodes.is_empty());
-    assert!(matches!(&layers[1].nodes[0].kind, NodeKind::Image(child) if child.item == pixels));
+    assert!(matches!(&layers[0].nodes[0].kind, NodeKind::Image(child) if child.item == pixels));
+    assert!(
+        layers[1].nodes.is_empty(),
+        "the existing layer is untouched"
+    );
+    assert_eq!(
+        h.app.image_paint.as_ref().unwrap().layer_index,
+        0,
+        "new image layer is selected at the top of the authored stack"
+    );
     h.app.board_undo();
+    assert_eq!(h.app.doc().scene.node(image), Some(&before));
     let NodeKind::Image(img) = &h.app.doc().scene.node(image).unwrap().kind else {
         panic!()
     };

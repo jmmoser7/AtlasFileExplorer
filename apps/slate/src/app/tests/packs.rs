@@ -122,28 +122,52 @@ fn a_cursor_install_shows_in_the_chooser_without_a_restart() {
 #[test]
 fn pk2_generate_offers_add_api_key_until_a_key_is_stored() {
     let mut h = pack_board("pk2_flip", &[]);
-    let rows = h.app.agent_models(true);
-    assert_eq!(rows.len(), 1, "{rows:?}");
-    assert_eq!(rows[0].2, ADD_KEY_LABEL);
+    let rows: Vec<_> = h
+        .app
+        .agent_models(true)
+        .into_iter()
+        .filter(|row| row.0 == OPENAI)
+        .collect();
+    assert!(
+        !rows.is_empty(),
+        "OpenAI models remain discoverable without a key"
+    );
+    assert!(
+        rows.iter().all(|row| row.2.ends_with(" · add API key")),
+        "{rows:?}"
+    );
+    let missing_labels: Vec<_> = rows.iter().map(|row| row.2.clone()).collect();
     assert!(h.app.ai.packs.needs_key(OPENAI));
     generate_chooser_open(&mut h, |h| h.frame());
     let texts = shown(&mut h);
-    assert!(texts.iter().any(|t| t == ADD_KEY_LABEL), "{texts:?}");
+    assert!(
+        missing_labels.iter().all(|label| texts.contains(label)),
+        "{texts:?}"
+    );
 
     // What `save_openai_key` records once the key is in the store.
     h.app.pin_pack_for_test(OPENAI, PackHealth::Ok);
-    let rows = h.app.agent_models(true);
-    assert!(rows.iter().all(|r| r.2 != ADD_KEY_LABEL), "{rows:?}");
+    let rows: Vec<_> = h
+        .app
+        .agent_models(true)
+        .into_iter()
+        .filter(|row| row.0 == OPENAI)
+        .collect();
+    assert!(!rows.is_empty());
     assert!(
-        rows.iter().all(|r| r.2.starts_with("OpenAI · ")),
+        rows.iter().all(|r| !r.2.ends_with(" · add API key")),
+        "{rows:?}"
+    );
+    assert!(
+        rows.iter().all(|r| r.2.starts_with("GPT Image")),
         "{rows:?}"
     );
     let texts = shown(&mut h);
-    assert!(!texts.iter().any(|t| t == ADD_KEY_LABEL), "{texts:?}");
     assert!(
-        texts.iter().any(|t| t.starts_with("OpenAI · GPT Image")),
+        !missing_labels.iter().any(|label| texts.contains(label)),
         "{texts:?}"
     );
+    assert!(rows.iter().any(|row| texts.contains(&row.2)), "{texts:?}");
 }
 
 #[test]

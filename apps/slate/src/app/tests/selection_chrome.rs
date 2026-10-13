@@ -2,6 +2,14 @@
 
 use super::*;
 
+fn tip_colors(out: &egui::FullOutput, at: Pos2, radius: f32) -> Vec<egui::Color32> {
+    let region = ERect::from_center_size(at, EVec2::splat(2.0 * (radius + 4.0)));
+    let mut tip = out.clone();
+    tip.shapes
+        .retain(|s| region.intersects(s.shape.visual_bounding_rect()));
+    painted_colors(&tip)
+}
+
 /// The Actions flyout offers both mirrors, and they run the commands.
 #[test]
 fn actions_flyout_offers_mirror() {
@@ -42,7 +50,9 @@ fn the_eraser_preview_keeps_its_own_color() {
     let c = h.app.canvas_rect.center();
     let brush = h.frame_output(pointer_to(c, false));
     assert!(
-        painted_colors(&brush).into_iter().any(brush_red),
+        tip_colors(&brush, c, h.app.width_cursor_disc().unwrap().0)
+            .into_iter()
+            .any(brush_red),
         "fixture: the brush tip paints in the foreground"
     );
 
@@ -50,7 +60,13 @@ fn the_eraser_preview_keeps_its_own_color() {
     h.frame_with(pointer_to(c, false));
     let hover = h.frame_output(pointer_to(c + EVec2::new(3.0, 0.0), false));
     assert!(
-        !painted_colors(&hover).into_iter().any(brush_red),
+        !tip_colors(
+            &hover,
+            c + EVec2::new(3.0, 0.0),
+            h.app.width_cursor_disc().unwrap().0
+        )
+        .into_iter()
+        .any(brush_red),
         "the eraser tip took the brush color"
     );
     let expected = h.app.eraser_preview_color();
@@ -69,7 +85,9 @@ fn the_eraser_preview_keeps_its_own_color() {
         "Alt+right-drag opened the size HUD"
     );
     assert!(
-        !painted_colors(&hud).into_iter().any(brush_red),
+        !tip_colors(&hud, c, h.app.width_cursor_disc().unwrap().0)
+            .into_iter()
+            .any(brush_red),
         "the eraser size HUD took the brush color"
     );
     h.frame_with(right_button(c + EVec2::new(30.0, -10.0), false, false));
@@ -82,7 +100,9 @@ fn the_eraser_preview_keeps_its_own_color() {
             let at = c + EVec2::new(-60.0 + i as f32 * 10.0, (i % 3) as f32);
             let out = h.frame_output(pointer_to(at, false));
             assert!(
-                !painted_colors(&out).into_iter().any(brush_red),
+                !tip_colors(&out, at, h.app.width_cursor_disc().unwrap().0)
+                    .into_iter()
+                    .any(brush_red),
                 "{what}: frame {i} of the erase drag painted the brush color"
             );
         }

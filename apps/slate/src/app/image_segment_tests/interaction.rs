@@ -66,9 +66,15 @@ fn outside_image_press_disarms_brush_and_reselection_restores_only_the_palette()
     let tools = image_tools(&mut h, id);
     click_board(&mut h, tools[0].center());
     assert_eq!(h.app.board_tool, BoardTool::Brush);
+    assert_eq!(
+        h.app.shape_properties.panel,
+        Some(Panel::Brush),
+        "arming preserves the palette before click-away"
+    );
     let original = h.app.doc().scene.nodes.clone();
     let depth = h.app.tab().journal.undo_depth();
     let outside = h.app.board_xf().w2s(Pos2::new(380.0, 0.0));
+    let dismissed = std::time::Instant::now();
     button(
         &mut h,
         outside,
@@ -92,7 +98,12 @@ fn outside_image_press_disarms_brush_and_reselection_restores_only_the_palette()
     click_board(&mut h, center);
     assert_eq!(h.app.board_tool, BoardTool::Select);
     assert_eq!(h.app.board_sel, [id].into());
-    assert_eq!(h.app.shape_properties.panel, Some(Panel::Brush));
+    assert_eq!(
+        h.app.shape_properties.panel,
+        Some(Panel::Brush),
+        "quick reselect after {:?}; recovery expires after 1500 ms",
+        dismissed.elapsed()
+    );
     assert_eq!(
         h.app.doc().scene.nodes,
         original,

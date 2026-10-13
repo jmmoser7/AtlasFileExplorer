@@ -106,16 +106,35 @@ fn edit_layer_name(h: &mut Harness, image: NodeId, name: &str) {
     assert!(text_rect(&output, "Save name").is_none());
     let field = text_rect(&output, &current).expect("inline layer name field");
     click(h, field.center());
+    let shortcut = egui::Modifiers {
+        ctrl: true,
+        command: true,
+        ..Default::default()
+    };
     h.frame_with(|input| {
+        input.modifiers = shortcut;
         input.events.push(egui::Event::Key {
             key: egui::Key::A,
             physical_key: Some(egui::Key::A),
             pressed: true,
             repeat: false,
-            modifiers: egui::Modifiers::CTRL,
+            modifiers: shortcut,
         });
         input.events.push(egui::Event::Text(name.to_owned()));
     });
+    let output = h.frame_output(|input| {
+        input.events.push(egui::Event::Key {
+            key: egui::Key::A,
+            physical_key: Some(egui::Key::A),
+            pressed: false,
+            repeat: false,
+            modifiers: shortcut,
+        })
+    });
+    assert!(
+        text_rect(&output, name).is_some(),
+        "select-all replaces the complete name draft"
+    );
 }
 
 #[test]

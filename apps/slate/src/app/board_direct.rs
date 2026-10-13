@@ -908,54 +908,6 @@ impl SlateApp {
         true
     }
 
-    /// The segment of curve `id` under `world`: a line, or a single-contour
-    /// path whose grips are its anchors (an arc's grips are not, and a
-    /// stamped brush stroke has none). Locked and hidden nodes have none.
-    fn curve_edge_at(&self, id: NodeId, world: Pos2) -> Option<usize> {
-        let n = self.doc().scene.node(id)?;
-        if n.locked || n.hidden {
-            return None;
-        }
-        let line = board_line::line_endpoints(n).is_some();
-        if !line
-            && self.closed_form_points(id).is_none()
-            && !matches!(self.curve_grips_of(id), Some(CurveGrips::Anchors { .. }))
-        {
-            return None;
-        }
-        let (anchors, closed) = self.direct_anchors_of(id)?;
-        let bez = bezpath_from_anchors(&anchors, closed);
-        let radius = (SEGMENT_HIT_PX / self.board_xf().z.max(0.05)) as f64;
-        segment_hit(&bez, to_point(world), radius)
-    }
-
-    /// Ctrl+Shift+click with the Select tool on a curve segment (Rhino
-    /// sub-object pick): that curve alone is selected, as the chord already
-    /// selects a group member, and the edge with its two end vertices is
-    /// picked, or taken off again. Returns whether a segment was hit.
-    pub(crate) fn pick_curve_edge(&mut self, world: Pos2) -> bool {
-        let Some(id) = board_path::board_pick_node_routed(
-            &self.doc().scene,
-            world.x,
-            world.y,
-            self.tab().cam.z,
-            true,
-            self.board_wire_routing,
-        ) else {
-            return false;
-        };
-        let Some(seg) = self.curve_edge_at(id, world) else {
-            return false;
-        };
-        let Some((anchors, _)) = self.direct_anchors_of(id) else {
-            return false;
-        };
-        self.board_sel.clear();
-        self.board_sel.insert(id);
-        self.direct.grip_points.toggle_edge(id, seg, anchors.len());
-        true
-    }
-
     /// Press on a picked edge of the selected curve: the picked vertices
     /// move together as one direct drag (snapped like a grip drag, one Patch
     /// on release, Esc restores). A `Line` shape moves whole instead, which
@@ -1254,6 +1206,13 @@ impl SlateApp {
             };
             if !d.x.is_finite() || !d.y.is_finite() {
                 d = egui::Vec2::ZERO;
+            }
+            // egui can update a direct drag on the press frame. A vertex
+            // pick must retain a primitive until that vertex actually moves.
+            if ((world - start).length_sq() <= f32::EPSILON || d.length_sq() <= f32::EPSILON)
+                && self.closed_form_points(node).is_some()
+            {
+                return;
             }
             let delta = KVec2::new(d.x as f64, d.y as f64);
             for idx in indices {

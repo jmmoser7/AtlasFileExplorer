@@ -72,9 +72,16 @@ fn dragging_the_image_keeps_the_editor_visible_and_attached() {
 fn transparent_tab_gaps_allow_painting_without_collapsing_the_editor() {
     let (mut h, image) = photo_board("image_clear_tab_paint");
     h.app.shape_properties.panel = Some(Panel::Brush);
-    arm(&mut h, BoardTool::Brush);
+    assert!(h
+        .app
+        .dispatch(&h.ctx, atlas_commands::CommandId("board.tool.brush"), None));
     h.frame();
     settle_image_panel(&mut h);
+    assert_eq!(
+        h.app.shape_properties.panel,
+        Some(Panel::Brush),
+        "the image command preserves its open palette before the gap press"
+    );
     let layout = atlas_shell::selection_tools::image_presentation_layout(
         screen_rect(&h, image),
         h.app.tab().cam.z,

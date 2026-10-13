@@ -62,25 +62,25 @@ fn generator_inputs_and_controls_live_in_the_selected_agent_blister() {
     assert!(inputs
         .iter()
         .any(|i| i.node == model && i.label == "pavilion.3dm"));
-    let editor = *h
+    // Wired inputs stay on the host's typed ports; the selected blister
+    // contains model/settings/history, not a second set of input circles.
+    let prompt = h
         .app
-        .shape_properties
-        .chrome_hits
+        .wire_input_ports(h.app.doc().scene.node(id).unwrap())
         .iter()
-        .max_by(|a, b| (a.width() * a.height()).total_cmp(&(b.width() * b.height())))
-        .expect("selected Agent blister is open");
-    let prompt_index = inputs
-        .iter()
-        .position(|input| input.node == note)
-        .expect("wired prompt input has a blister circle");
-    let prompt_input = Pos2::new(
-        editor.left() + 23.0 + prompt_index as f32 * 27.0,
-        editor.top() + 53.0,
-    );
-    press(&mut h, prompt_input);
-    assert!(
-        h.app.board_sel.contains(&note),
-        "the wired prompt input circle selects its source"
+        .find(|port| port.slot == atlas_agent::InputSlot::Prompt)
+        .unwrap();
+    let node = h.app.doc().scene.node(id).unwrap();
+    let point = h
+        .app
+        .wire_input_host(node)
+        .anchor(slate_doc::scene::Side::Left, prompt.t);
+    let xf = h.app.board_xf();
+    assert_eq!(
+        h.app
+            .wire_grip_at(xf.w2s(Pos2::new(point[0], point[1])), &xf),
+        Some((id, slate_doc::scene::Side::Left, prompt.t)),
+        "the wired Prompt handle remains on the generator host"
     );
 
     // Live appears as a bare mode label; Play keeps the current result.

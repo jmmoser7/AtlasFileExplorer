@@ -72,3 +72,5 @@ None blocking the agreed rows. One question awaits the user outside the matrix:
 Otherwise settled for this implementation. Circle dimensions use diameter; general curves use tight bounds; multiple selection scales uniformly about the union center. Exact arc radius/sweep and optional curve-length editing remain future alternatives.
 
 - **Vertex edit refinement (13 October 2026):** pick one vertex, drag it or press Delete -> closed Path; only that vertex changes (or neighbors reconnect); one Undo restores the original primitive and style. Ctrl+Shift+click an edge, Delete -> open Path; one Undo restores the primitive.
+
+A vertex pick with no travel keeps the rectangle kind; zero-displacement press-frame direct updates cannot promote it or turn a subsequent per-vertex style scrub into a whole-path edit. Promotion begins with a geometric edit.

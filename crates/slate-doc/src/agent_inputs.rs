@@ -591,16 +591,19 @@ pub fn snapshot(
                 depth: None,
                 slot: None,
             },
-            // A picked result is an ordinary placed picture.
-            NodeKind::Image(i) if i.agent.is_some() && !i.item.is_none() => ContextItem {
-                node: id.0,
-                text: String::new(),
-                images: vec![doc.item(i.item)?.path.to_string_lossy().into_owned()],
-                outputs: Default::default(),
-                active: None,
-                depth: None,
-                slot: None,
-            },
+            // A picked picture uses its linked file; generated text still
+            // reads the caller's visible words (including authored overrides).
+            NodeKind::Image(i) if is_image_generator(&doc.scene, id) && !i.item.is_none() => {
+                ContextItem {
+                    node: id.0,
+                    text: String::new(),
+                    images: vec![doc.item(i.item)?.path.to_string_lossy().into_owned()],
+                    outputs: Default::default(),
+                    active: None,
+                    depth: None,
+                    slot: None,
+                }
+            }
             // A placed text document's words, or an agent picture's newest
             // result, read by the caller.
             NodeKind::Image(_) if outputs.contains_key(&id) => outputs.get(&id)?.clone(),

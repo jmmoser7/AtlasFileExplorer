@@ -68,12 +68,15 @@ impl SlateApp {
             })
             .unwrap_or_else(|| count.saturating_sub(1))
             .min(count.saturating_sub(1));
-        let layer_id = if fresh_layer || count == 0 {
+        let (layer_id, layer_index) = if fresh_layer || count == 0 {
             let id = Self::next_paint_layer_id(after_img);
-            Self::selected_stack_mut(after_img, &result).add_layer(PaintLayer::new(id));
-            id
+            let index = Self::selected_stack_mut(after_img, &result).add_layer(PaintLayer::new(id));
+            (id, index)
         } else {
-            Self::selected_layers(after_img, &result)[layer_index].id
+            (
+                Self::selected_layers(after_img, &result)[layer_index].id,
+                layer_index,
+            )
         };
         if after != host {
             cmds.push(SceneCmd::Patch {
@@ -81,7 +84,6 @@ impl SlateApp {
                 after: Box::new(after),
             });
         }
-        let layer_index = if fresh_layer { count } else { layer_index };
         let base = self
             .doc()
             .scene

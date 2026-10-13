@@ -49,3 +49,5 @@ Inherits: P0.* (all), P1.node.select — deviations flagged below.
 None. Crossing preview is dashed green. Shift and Ctrl both add. Direct Selection and File Atlas stay as they are.
 
 - **Sub-object sweep (13 October 2026):** Ctrl+Shift left-to-right encloses two complete segments -> both picked; Ctrl+Shift right-to-left crosses a third segment -> adds it without clearing the first two; Delete removes all three; Undo restores the curve. Selection alone adds no journal history.
+
+Ctrl+Shift on a real curve edge owns that explicit sub-object pick even where a property button or dimension chip overlaps it. Ordinary control clicks retain their usual ownership. This follows the existing path-grip priority; the real-pointer rectangle-edge deletion regression pins the overlap case.

@@ -791,7 +791,9 @@ impl SlateApp {
             && !web_capture
             && !self.board_align_eat_press
             && self.board_drag.is_none()
-            && pointer.is_none_or(|p| self.tiny_body_owns_pointer(p).is_none())
+            && pointer.is_none_or(|p| {
+                self.tiny_body_owns_pointer(p).is_none() && !self.curve_subselect_under(p)
+            })
             && ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary))
         {
             if let Some(p) = pointer {

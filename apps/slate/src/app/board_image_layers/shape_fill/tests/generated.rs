@@ -216,8 +216,23 @@ fn alt_generated_shape_fill_carries_runtime_output_and_full_stack_durably() {
     let filled = &image(&h, target).result_layers[0];
     let original = &image(&h, source).result_layers[0];
     assert_eq!(filled.result, original.result);
-    assert_eq!(filled.metadata, original.metadata);
-    assert_eq!(filled.layers[0].id, original.layers[0].id);
+    assert_ne!(
+        filled.layers[0].id, original.layers[0].id,
+        "an independent copy owns fresh layer identities"
+    );
+    assert_eq!(filled.metadata.len(), original.metadata.len());
+    for (copy, source) in filled.metadata.iter().zip(&original.metadata) {
+        assert_eq!((&copy.name, copy.order), (&source.name, source.order));
+        let index = original
+            .layers
+            .iter()
+            .position(|layer| layer.id == source.layer)
+            .unwrap();
+        assert_eq!(
+            copy.layer, filled.layers[index].id,
+            "metadata follows the copied layer identity"
+        );
+    }
     assert_eq!(
         filled.layers[0].nodes[0].kind,
         original.layers[0].nodes[0].kind

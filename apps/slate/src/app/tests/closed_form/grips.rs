@@ -382,6 +382,11 @@ fn direct_select_picks_closed_form_vertices_as_anchors() {
         Some((id, vec![3])),
         "the anchor is picked"
     );
+    assert_eq!(
+        shape_kind_of(&h, id),
+        ShapeKind::Rect,
+        "a pick keeps the primitive"
+    );
     let before = closed_tips(&h, id, 4);
     let away = xf.w2s(Pos2::new(v[0].x, v[2].y + 160.0));
     hud_scrub(&mut h, away, EVec2::new(40.0, 0.0), egui::Modifiers::ALT);
