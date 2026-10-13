@@ -228,7 +228,9 @@ mod tests {
     #[test]
     fn browser_picture_places_pixels_with_aspect_and_one_undo() {
         let mut h = Harness::new("browser_picture");
+        h.app.leave_home();
         h.app.new_tab();
+        h.app.doc_mut().view.active_view = slate_doc::ViewKind::Board;
         h.app.tab_mut().path = Some(h.base.join("board.slate"));
         h.frame();
         let at = h.app.canvas_rect.center();
@@ -261,7 +263,9 @@ mod tests {
     #[test]
     fn browser_image_completion_waits_for_the_original_tab() {
         let mut h = Harness::new("browser_picture_tab");
+        h.app.leave_home();
         h.app.new_tab();
+        h.app.doc_mut().view.active_view = slate_doc::ViewKind::Board;
         let origin = h.app.tab().id;
         let origin_index = h.app.active_tab;
         h.app.tab_mut().path = Some(h.base.join("origin.slate"));

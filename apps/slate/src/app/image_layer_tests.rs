@@ -228,7 +228,7 @@ fn painting_suppresses_the_selection_cast_and_the_dimension_stringers() {
 }
 
 #[test]
-fn recent_colors_are_small_dots_inside_the_layer_palette() {
+fn layers_palette_keeps_recent_colors_in_the_color_editor() {
     let (mut h, id) = photo_board("layer_palette_recents");
     let recents = [[250, 10, 10], [10, 250, 10], [10, 10, 250]];
     h.app.doc_mut().view.recent_colors = Some(recents.to_vec());
@@ -243,34 +243,16 @@ fn recent_colors_are_small_dots_inside_the_layer_palette() {
     settle_image_panel(&mut h);
     let capsule = layer_palette_layout(&h, id).capsule;
     let out = render(&mut h);
-    let layer_radius = rings_in(&mut h, capsule)[0].1;
-    let dots: Vec<_> = circles(&out)
-        .into_iter()
-        .filter(|c| {
-            recents
-                .iter()
-                .any(|rgb| c.fill == Color32::from_rgb(rgb[0], rgb[1], rgb[2]))
-        })
-        .collect();
-    assert_eq!(dots.len(), 3, "one dot per recent color");
-    for dot in &dots {
-        assert!(capsule.contains(dot.center), "dot {dot:?} in {capsule:?}");
-        assert!(
-            dot.radius < layer_radius * 0.6,
-            "dots are smaller than layer circles"
-        );
-    }
-    let green = dots
-        .iter()
-        .find(|c| c.fill == Color32::from_rgb(10, 250, 10))
-        .unwrap()
-        .center;
-    click(&mut h, green);
-    assert_eq!(&h.app.board_colors.fg.0[..3], &[10, 250, 10]);
     assert_eq!(
-        layers(&h, id)[0].nodes.len(),
+        rings_in(&mut h, capsule).len(),
         1,
-        "a dot click draws nothing"
+        "the active layer still has its preview ring"
+    );
+    assert!(
+        !circles(&out).into_iter().any(|c| recents
+            .iter()
+            .any(|rgb| c.fill == Color32::from_rgb(rgb[0], rgb[1], rgb[2]))),
+        "recent-color dots belong to color editing, not the Layers row"
     );
 }
 
@@ -477,7 +459,7 @@ fn crop_toggles_fit_inside_the_shared_corners_panel() {
         z,
         atlas_shell::selection_tools::ImagePanelKind::Corners,
     );
-    let editor = presentation.main;
+    let editor = presentation.editor_rect(z);
     assert!(
         (editor.height() - atlas_shell::selection_tools::CORNER_HEIGHT * z).abs() < 0.01,
         "the shared image panel keeps the fillet editor height: {editor:?}"

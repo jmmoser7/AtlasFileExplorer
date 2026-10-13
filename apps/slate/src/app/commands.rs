@@ -64,7 +64,7 @@ pub static SPECS: &[CommandSpec] = &[
     spec("board.media.unbundle", "Board", "Media: unbundle pages", "Selection strip Pages: spread every page onto the board as a selected grid", None, Repeat::Never, BOARD_SEL, &["unbundle", "explode", "pages", "deck"]),
     spec("board.shape.fillet", "Board", "Adjust corner radius", "Selected rectangle, polygon, polyline, frame, portal, or image: drag the square grip along its edge (on the border at the corner's tangent point); Shift snaps to whole units; Esc cancels; one undo step on release. Click the grip to type the amount; Enter applies, Esc cancels. With several selected, each shows its grip and one drag or typed amount sets them all, clamped per node. A single polyline shows a grip per corner that sets that corner alone", None, Repeat::Never, BOARD, &["fillet", "corner", "radius", "live corners"]),
     spec("board.shape.sides", "Board", "Add or remove a polygon side", "Selected polygon: hover a vertex, then click the + outside it to add a side while that vertex stays put and the others re-space around it, or the − inside it to remove one and keep a vertex there (3 to 12 sides); one undo step each", None, Repeat::Never, BOARD, &["polygon", "sides", "vertex", "add side", "remove side"]),
-    spec("board.shape.edit", "Board", "Edit shape properties", "Selection strip: Fill / Stroke / Corners / Filters / Text / Bumper; RGB, opacity, stroke details, fillet/chamfer, photo-filter intensity, typeface, justification, font size, font color, bumper buffer and friction", None, Repeat::Never, BOARD, &["fill", "stroke", "fillet", "chamfer", "filter", "photo", "typeface", "bumper"]),
+    spec("board.shape.edit", "Board", "Edit shape properties", "Selection strip: Fill / Stroke / Corners / Filters / Text / Bumper; RGB, opacity, stroke details, fillet/chamfer, photo-filter intensity, typeface, justification, font size, bold/italic/underline, font color, bumper buffer and friction", None, Repeat::Never, BOARD, &["fill", "stroke", "fillet", "chamfer", "filter", "photo", "typeface", "bumper"]),
     spec("board.shape.text", "Board", "Edit shape text", "Double-click anywhere on a closed shape to open the text editor and a blinking caret. New text is center-justified", None, Repeat::Never, BOARD, &["shape text", "type in shape"]),
     spec("board.sheet.edit", "Board", "Edit spreadsheet cell", "Double-click a CSV or Excel card to open it. Click a cell, type, and press Enter. Save writes the file; clicking off asks when there are unsaved cells", None, Repeat::Never, BOARD, &["excel", "cell", "spreadsheet", "save"]),
     spec("board.sheet.scroll", "Board", "Scroll spreadsheet", "After a double-click into a CSV or Excel card, scroll the wheel to move through rows. Shift+scroll moves across columns. Drag a grid line to resize that row or column", None, Repeat::Never, BOARD, &["csv", "excel", "scroll", "rows"]),
@@ -2046,7 +2046,7 @@ pub static SPECS: &[CommandSpec] = &[
         "board.tool.trim",
         "Board",
         "Trim",
-        "Ctrl + T — pick cutting objects, Enter, then click the part to \
+        "Ctrl + T — pick cutters (Ctrl+click removes), Enter, then click the part to \
          delete. Each click is one undo. Shift+click near a curve end \
          extends it to the cutter. Line cutters extend infinitely; curved \
          and polyline cutters cut along their whole path, open and closed \
@@ -2060,7 +2060,7 @@ pub static SPECS: &[CommandSpec] = &[
         "board.tool.split",
         "Board",
         "Split",
-        "Ctrl + Shift + T — pick cutting objects, Enter, then click an \
+        "Ctrl + Shift + T — pick cutters (Ctrl+click removes), Enter, then click an \
          object to divide. Every piece stays. Each click is one undo. \
          Line cutters extend infinitely; curved and polyline cutters cut \
          along their whole path, open and closed shapes alike.",

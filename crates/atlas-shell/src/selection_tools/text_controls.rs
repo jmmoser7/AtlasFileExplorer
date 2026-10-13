@@ -68,7 +68,9 @@ pub(super) fn align_segments(
             rect.min + Vec2::new(i as f32 * rect.width() / 3.0, 0.0),
             Vec2::new(rect.width() / 3.0, rect.height()),
         );
-        let response = ui.interact(r, id.with(i), Sense::click());
+        let response = ui
+            .interact(r, id.with(i), Sense::click())
+            .on_hover_text(label);
         if i == selected {
             ui.painter().rect_filled(r, r.height() * 0.5, theme.accent);
         }
@@ -79,7 +81,13 @@ pub(super) fn align_segments(
             canvas_scale::font(9.0, zoom),
             ink,
         );
-        let left = r.center().x - (glyph + gap + text.size().x) * 0.5;
+        let show_label = glyph + gap + text.size().x <= r.width();
+        let width = if show_label {
+            glyph + gap + text.size().x
+        } else {
+            glyph
+        };
+        let left = r.center().x - width * 0.5;
         icons::paint(
             ui.painter(),
             Rect::from_center_size(
@@ -89,12 +97,14 @@ pub(super) fn align_segments(
             icon,
             ink,
         );
-        text.paint_anchored(
-            ui.painter(),
-            Pos2::new(left + glyph + gap, r.center().y),
-            Align2::LEFT_CENTER,
-            ink,
-        );
+        if show_label {
+            text.paint_anchored(
+                ui.painter(),
+                Pos2::new(left + glyph + gap, r.center().y),
+                Align2::LEFT_CENTER,
+                ink,
+            );
+        }
         if response.clicked() {
             result = i;
         }

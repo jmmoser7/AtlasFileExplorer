@@ -3,6 +3,49 @@
 use super::*;
 
 #[test]
+fn a_font_installed_during_a_frame_replaces_cached_fallback_metrics_next_pass() {
+    use atlas_shell::canvas_text::{world_layout_spec, WorldSpec};
+    let mut h = text_draft_board("font-cache-after-install");
+    h.app.font_rx = None;
+    SlateApp::install_loaded_fonts(&h.ctx, &[]);
+    h.frame();
+    h.frame();
+    let spec = WorldSpec::new(
+        egui::FontId::new(
+            24.0,
+            egui::FontFamily::Name(
+                slate_doc::scene::Typeface::Arial
+                    .egui_family()
+                    .unwrap()
+                    .into(),
+            ),
+        ),
+        f32::INFINITY,
+    );
+    let words = "Wide letters WWW and narrow iii";
+    let mut old = None;
+    let ctx = h.ctx.clone();
+    let _ = ctx.run(egui::RawInput::default(), |ctx| {
+        SlateApp::install_loaded_fonts(
+            ctx,
+            &[(
+                "arial.ttf".into(),
+                include_bytes!("../../../../assets/fonts/DejaVuSerif.ttf").to_vec(),
+            )],
+        );
+        old = Some(world_layout_spec(ctx, words, &spec));
+    });
+    let _ = ctx.run(egui::RawInput::default(), |ctx| {
+        h.app.poll_deferred_fonts(ctx);
+        let fresh = world_layout_spec(ctx, words, &spec);
+        assert!(
+            (fresh.width - old.as_ref().unwrap().width).abs() > 0.1,
+            "the newly installed face must replace cached fallback glyph advances"
+        );
+    });
+}
+
+#[test]
 fn no_system_fonts_render_preferred_faces_and_emphasis_with_nonempty_aliases() {
     use slate_doc::scene::{TextStyle, Typeface};
     let mut h = text_draft_board("text-without-system-fonts");

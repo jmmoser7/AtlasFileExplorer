@@ -2497,11 +2497,13 @@ pub fn text_format_editor(
 ) -> TextFormatEdit {
     let row = Rect::from_min_size(rect.min, Vec2::new(rect.width(), TEXT_ROW_HEIGHT * zoom));
     let mut out = TextFormatEdit::default();
-    let gap = 6.0 * zoom;
+    let gap = (6.0 * zoom).min(row.width() / 12.0);
     let capsule_h = row.height();
     let y = row.top();
-    let align_w = 132.0 * zoom;
-    let size_w = 92.0 * zoom;
+    let fit = (row.width() / (EDITOR_WIDTH * zoom)).min(1.0);
+    let align_w = 132.0 * zoom * fit;
+    let size_w = 92.0 * zoom * fit;
+    let emphasis_w = 72.0 * zoom * fit;
     let align_rect = Rect::from_min_size(
         Pos2::new(row.right() - align_w, y),
         Vec2::new(align_w, capsule_h),
@@ -2511,8 +2513,8 @@ pub fn text_format_editor(
         Vec2::new(size_w, capsule_h),
     );
     let emphasis_rect = Rect::from_min_size(
-        Pos2::new(size_rect.left() - gap - 72.0 * zoom, y),
-        Vec2::new(72.0 * zoom, capsule_h),
+        Pos2::new(size_rect.left() - gap - emphasis_w, y),
+        Vec2::new(emphasis_w, capsule_h),
     );
     out.emphasis = text_controls::emphasis_buttons(ui, emphasis_rect, emphasis, zoom, theme);
     let family_rect = Rect::from_min_max(

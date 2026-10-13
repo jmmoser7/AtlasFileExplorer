@@ -104,7 +104,7 @@ fn the_property_strip_sits_beside_the_picked_vertices() {
         (strip.center().x - at.x).abs() < 2.0,
         "{strip:?} beside {at:?}"
     );
-    assert!(strip.bottom() < at.y, "above the picked point");
+    assert!(strip.top() > at.y, "below the picked point");
 
     h.app.set_board_tool(board::BoardTool::DirectSelect);
     h.app.direct_set_target(Some(id));
@@ -339,11 +339,11 @@ fn a_handle_knob_under_the_property_strip_still_drags() {
     grip_drag(
         &mut h,
         b + EVec2::new(40.0, 0.0),
-        b + EVec2::new(0.0, -25.0),
+        b + EVec2::new(0.0, 25.0),
         egui::Modifiers::NONE,
     );
     let (_, out0) = handle_pair(&h, id, 1);
-    assert!(near_eps(out0, b + EVec2::new(0.0, -25.0), 0.01), "{out0:?}");
+    assert!(near_eps(out0, b + EVec2::new(0.0, 25.0), 0.01), "{out0:?}");
     let xf = h.app.board_xf();
     press_primary(&mut h, xf.w2s(b), egui::Modifiers::NONE);
     for _ in 0..8 {
@@ -369,7 +369,7 @@ fn a_handle_knob_under_the_property_strip_still_drags() {
     grip_drag(
         &mut h,
         from,
-        from + EVec2::new(0.0, -20.0),
+        from + EVec2::new(0.0, 20.0),
         egui::Modifiers::SHIFT,
     );
     assert_eq!(h.app.shape_properties.panel, None, "no strip panel opened");
@@ -395,7 +395,7 @@ fn a_handle_knob_under_the_property_strip_drags_with_a_panel_open() {
     grip_drag(
         &mut h,
         b + EVec2::new(40.0, 0.0),
-        b + EVec2::new(0.0, -25.0),
+        b + EVec2::new(0.0, 25.0),
         egui::Modifiers::NONE,
     );
     let (_, out0) = handle_pair(&h, id, 1);
@@ -423,7 +423,7 @@ fn a_handle_knob_under_the_property_strip_drags_with_a_panel_open() {
     grip_drag(
         &mut h,
         from,
-        from + EVec2::new(0.0, -20.0),
+        from + EVec2::new(0.0, 20.0),
         egui::Modifiers::SHIFT,
     );
     let (_, out1) = handle_pair(&h, id, 1);

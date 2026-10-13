@@ -172,9 +172,9 @@ fn a_zoomed_out_click_away_commits_the_fill_preview_and_clears_the_selection() {
 
 /// Shape-selection-toolbar D13: only a vertex pick closes a panel the strip
 /// stops offering. Double-clicking a grouped rectangle edits its text with
-/// the group still selected, and the Text panel stays up.
+/// the group still selected and closes the text/color editor.
 #[test]
-fn text_editing_a_grouped_shape_keeps_the_text_panel() {
+fn text_editing_a_grouped_shape_closes_the_text_panel() {
     let mut h = grip_board("grouped_text_panel");
     h.app.tab_mut().cam.offset = EVec2::ZERO;
     h.frame();
@@ -210,9 +210,8 @@ fn text_editing_a_grouped_shape_keeps_the_text_panel() {
         "still the group"
     );
     assert_eq!(
-        h.app.shape_properties.panel,
-        Some(board_properties::Panel::Text),
-        "the Text panel stays up"
+        h.app.shape_properties.panel, None,
+        "entering the caret closes the text/color editor"
     );
 }
 
@@ -226,7 +225,7 @@ fn a_direct_select_knob_on_a_soft_stroke_wins_over_a_strip_button() {
     grip_drag(
         &mut h,
         b + EVec2::new(40.0, 0.0),
-        b + EVec2::new(0.0, -25.0),
+        b + EVec2::new(0.0, 25.0),
         egui::Modifiers::NONE,
     );
     let (_, out0) = handle_pair(&h, id, 1);
@@ -267,13 +266,13 @@ fn a_direct_select_knob_on_a_soft_stroke_wins_over_a_strip_button() {
     grip_drag(
         &mut h,
         from,
-        from + EVec2::new(0.0, -20.0),
+        from + EVec2::new(0.0, 20.0),
         egui::Modifiers::NONE,
     );
     assert_eq!(h.app.shape_properties.panel, None, "no strip panel opened");
     let (_, out1) = handle_pair(&h, id, 1);
     assert!(
-        near_eps(out1, out0 + EVec2::new(0.0, -20.0), 0.5),
+        near_eps(out1, out0 + EVec2::new(0.0, 20.0), 0.5),
         "the handle follows the drag: {out0:?} -> {out1:?}"
     );
     assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "one undo step");
@@ -297,7 +296,7 @@ fn a_line_end_point_under_a_strip_button_drags() {
     let ends = |h: &Harness| board_line::line_endpoints(h.app.doc().scene.node(id).unwrap());
     assert!(ends(&h).is_some(), "a simple line");
     let xf = h.app.board_xf();
-    let grip = xf.w2s(top);
+    let grip = xf.w2s(bottom);
     let press = h
         .app
         .shape_properties
@@ -308,7 +307,7 @@ fn a_line_end_point_under_a_strip_button_drags() {
         .expect("a strip button reaches the end point");
     assert_eq!(
         h.app.hovered_vertex(press),
-        Some((id, 0)),
+        Some((id, 1)),
         "the press is within the end point's hit radius"
     );
     let before = ends(&h).unwrap();
@@ -326,10 +325,10 @@ fn a_line_end_point_under_a_strip_button_drags() {
     );
     let after = ends(&h).unwrap();
     assert!(
-        (after.0 - before.0).length() > 30.0,
+        (after.1 - before.1).length() > 30.0,
         "the end point moved: {before:?} -> {after:?}"
     );
-    assert!(near_eps(after.1, before.1, 0.01), "the other end stays");
+    assert!(near_eps(after.0, before.0, 0.01), "the other end stays");
     assert_eq!(h.app.tab().journal.undo_depth(), depth + 1, "one undo step");
 }
 

@@ -156,6 +156,12 @@ fn wire_grip_press_beats_edge_resize() {
 fn wire_grip_hit_grows_when_zoomed_out() {
     let mut h = web_board("wire_hit_zoom");
     let id = add_rect(&mut h.app, 0.0, 0.0);
+    // The radius growth applies to ports with enough room for disjoint body
+    // and transform targets; tiny hosts have their own suppression regression.
+    h.app.patch_nodes(&[id], |node| {
+        node.rect.h = 100.0;
+        node.rect.w = 160.0;
+    });
     h.app.board_sel.clear();
     h.app.set_board_tool(board::BoardTool::Select);
     h.app.tab_mut().cam.z = 1.0;

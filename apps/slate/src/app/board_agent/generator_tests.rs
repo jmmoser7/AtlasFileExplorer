@@ -40,6 +40,11 @@ fn an_in_frame_run_reads_its_picture_without_adding_chat_or_live_context() {
 fn an_authored_upstream_picture_takes_precedence_over_the_current_frame() {
     let (mut h, id) = generator_with_output("in-frame-upstream");
     let source = place(&mut h, "upstream.png", -700.0);
+    let media = slate_doc::agent_inputs::input_ports(&h.app.doc().scene, id)
+        .iter()
+        .find(|port| port.slot == atlas_agent::InputSlot::Media)
+        .unwrap()
+        .t;
     let wire = h.app.build_connector(
         ConnectorEnd::Anchored {
             node: source,
@@ -49,7 +54,7 @@ fn an_authored_upstream_picture_takes_precedence_over_the_current_frame() {
         ConnectorEnd::Anchored {
             node: id,
             side: Side::Left,
-            t: 0.5,
+            t: media,
         },
     );
     h.app.add_nodes(vec![wire]);
@@ -165,6 +170,7 @@ fn rerunning_a_picked_result_captures_its_visible_crop_before_following_new_resu
     h.app.agents.output_epoch += 1;
     h.app.pick_agent_result(id, 0);
     h.app.patch_nodes(&[id], |node| {
+        slate_doc::agent_chat::agent_mut(node).unwrap().instruction = "warmer light".into();
         if let NodeKind::Image(image) = &mut node.kind {
             image.crop = Crop {
                 x: 0.0,

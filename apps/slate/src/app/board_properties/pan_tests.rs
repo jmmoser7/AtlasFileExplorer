@@ -3,17 +3,32 @@ use super::tests::{board, rectangle};
 use super::*;
 use crate::app::tests::Harness;
 
-fn empty_canvas_point(h: &Harness, id: NodeId) -> Pos2 {
-    let xf = h.app.board_xf();
-    let r = xf.rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
+fn empty_canvas_point(h: &mut Harness, id: NodeId) -> Pos2 {
+    h.frame();
+    h.frame();
+    let r = h
+        .app
+        .board_xf()
+        .rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
     let canvas = h.app.canvas_rect;
-    let p = Pos2::new(
-        (r.max.x + 90.0).min(canvas.max.x - 24.0),
-        (r.max.y + 70.0).min(canvas.max.y - 24.0),
-    );
-    assert!(canvas.contains(p));
-    assert!(!r.expand(20.0).contains(p));
-    p
+    [
+        canvas.left_bottom() + Vec2::new(40.0, -40.0),
+        canvas.right_top() + Vec2::new(-160.0, 80.0),
+    ]
+    .into_iter()
+    .find(|p| {
+        [*p, *p + Vec2::new(80.0, -36.0)].into_iter().all(|point| {
+            canvas.contains(point)
+                && !r.expand(20.0).contains(point)
+                && !h
+                    .app
+                    .shape_properties
+                    .chrome_hits
+                    .iter()
+                    .any(|hit| hit.contains(point))
+        })
+    })
+    .expect("pan starts and ends outside the host and its actual below-host controls")
 }
 
 #[test]
@@ -23,7 +38,7 @@ fn right_drag_pan_keeps_the_property_editor_open() {
     h.frame();
     h.frame();
     h.app.shape_properties.panel = Some(Panel::Fill);
-    let p = empty_canvas_point(&h, id);
+    let p = empty_canvas_point(&mut h, id);
     let before = h.app.tab().cam.offset;
     h.frame_with(|i| i.events.push(egui::Event::PointerMoved(p)));
     h.frame_with(|i| {
@@ -69,7 +84,7 @@ fn secondary_click_without_a_drag_still_collapses_the_editor() {
     h.frame();
     h.frame();
     h.app.shape_properties.panel = Some(Panel::Fill);
-    let p = empty_canvas_point(&h, id);
+    let p = empty_canvas_point(&mut h, id);
     h.frame_with(|i| i.events.push(egui::Event::PointerMoved(p)));
     h.frame_with(|i| {
         i.events.push(egui::Event::PointerButton {

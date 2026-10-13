@@ -1,14 +1,38 @@
 use super::*;
-use crate::app::tests::image_paint_board;
+use crate::app::tests::Harness;
+
+fn opacity_board(name: &str) -> (Harness, NodeId) {
+    let mut h = Harness::new(name);
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = slate_doc::ViewKind::Board;
+    let path = h.base.join("opacity.png");
+    image::RgbaImage::from_pixel(32, 24, image::Rgba([100, 140, 180, 255]))
+        .save(&path)
+        .unwrap();
+    let item = h.app.add_paths(&[path])[0];
+    let node = h.app.doc_mut().scene.build_node(
+        WorldRect::new(-120.0, -80.0, 240.0, 160.0),
+        NodeKind::Image(slate_doc::scene::ImageNode::new(item)),
+    );
+    let image = h.app.add_nodes(vec![node])[0];
+    h.app.board_sel = [image].into();
+    h.app.tab_mut().cam.z = 1.0;
+    h.app.set_board_tool(crate::app::board::BoardTool::Brush);
+    h.frame();
+    h.app
+        .finish_freehand_brush(vec![egui::pos2(-50.0, 0.0), egui::pos2(50.0, 0.0)]);
+    h.app.set_board_tool(crate::app::board::BoardTool::Select);
+    h.app.sync_shape_properties();
+    h.app.shape_properties.panel = Some(crate::app::board_properties::Panel::Layers);
+    h.app.sync_image_paint_for_tool();
+    h.frame();
+    (h, image)
+}
 
 #[test]
 fn early_escape_cancels_opacity_without_closing_palette_or_committing_on_release() {
-    let (mut h, image) = image_paint_board(
-        "opacity_escape_order",
-        WorldRect::new(-120.0, -80.0, 240.0, 160.0),
-        0.0,
-        &[egui::pos2(480.0, 350.0), egui::pos2(540.0, 350.0)],
-    );
+    let (mut h, image) = opacity_board("opacity_escape_order");
     h.app.set_board_tool(crate::app::board::BoardTool::Select);
     h.app.shape_properties.panel = Some(crate::app::board_properties::Panel::Layers);
     h.app.sync_image_paint_for_tool();
@@ -70,12 +94,7 @@ fn max_texture_alpha(shapes: &[egui::epaint::ClippedShape], texture: egui::Textu
 
 #[test]
 fn scrubbing_changes_the_drawn_layer_alpha_without_raster_or_journal_changes() {
-    let (mut h, image) = image_paint_board(
-        "opacity_gpu_preview",
-        WorldRect::new(-120.0, -80.0, 240.0, 160.0),
-        0.0,
-        &[egui::pos2(480.0, 350.0), egui::pos2(540.0, 350.0)],
-    );
+    let (mut h, image) = opacity_board("opacity_gpu_preview");
     h.app
         .finish_freehand_brush(vec![egui::pos2(-50.0, 0.0), egui::pos2(50.0, 0.0)]);
     h.app

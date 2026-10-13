@@ -8,12 +8,11 @@ fn tiny_shape_body_moves_before_overlapping_transform_grips() {
     for zoom in [0.5, 1.0, 8.0] {
         let (mut h, id, _) = closed_form_board("tiny_body_move", ShapeKind::Rect);
         let center = h.app.board_xf().s2w(h.app.canvas_rect.center());
-        h.app.doc_mut().scene.node_mut(id).unwrap().rect =
-            WorldRect::new(center.x, center.y, 4.0, 3.0);
+        h.app.patch_nodes(&[id], |n| {
+            n.rect = WorldRect::new(center.x, center.y, 4.0, 3.0);
+        });
         h.app.tab_mut().cam.z = zoom;
-        let xf = h.app.board_xf();
-        let pan = h.app.canvas_rect.center().to_vec2() - xf.w2s(center).to_vec2();
-        h.app.tab_mut().cam.offset += pan;
+        h.app.tab_mut().cam.offset = center.to_vec2();
         h.frame();
         let before = h.app.doc().scene.node(id).unwrap().clone();
         let xf = h.app.board_xf();

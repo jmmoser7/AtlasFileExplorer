@@ -234,7 +234,7 @@ fn fillet_grip_press_beats_edge_band_but_nw_corner_still_resizes() {
         Some(board::BoardDrag::FilletRadius { id: hit, .. }) if hit == id
     ));
 
-    let nw = geom.corners[0];
+    let nw = geom.corners[0] - EVec2::new(9.0, 0.0);
     assert!(matches!(
         h.app
             .begin_gesture(nw, xf.s2w(nw), egui::Modifiers::NONE),

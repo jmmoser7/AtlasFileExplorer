@@ -28,8 +28,9 @@ fn a_picked_vertex_strip_stays_beside_the_vertex_instead_of_the_whole_shape() {
     let id = super::super::tests::rectangle(&mut h, WorldRect::new(0.0, 0.0, 200.0, 300.0), 0.0);
     h.app.board_sel.insert(id);
     h.app.direct.grip_points.pick(id, 0, false);
-    let picked = h.app.picked_vertex_bounds().expect("picked corner bounds");
     let mut time = 0.0;
+    let _ = frame(&mut h, &mut time);
+    let picked = h.app.picked_vertex_bounds().expect("picked corner bounds");
     for _ in 0..12 {
         let _ = frame(&mut h, &mut time);
     }

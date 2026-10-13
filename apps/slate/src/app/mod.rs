@@ -1201,6 +1201,13 @@ impl SlateApp {
     }
 
     fn poll_deferred_fonts(&mut self, ctx: &egui::Context) {
+        let installed =
+            ctx.data(|d| d.get_temp::<u64>(egui::Id::new(board::TYPEFACE_ALIASES_READY)));
+        if installed.is_some_and(|pass| ctx.cumulative_pass_nr() == pass + 1) {
+            // set_fonts takes effect this pass; discard layouts rebuilt with the old faces.
+            atlas_shell::canvas_text::clear_world_layout_cache();
+            self.sticky_fit.clear();
+        }
         let Some(rx) = self.font_rx.take() else {
             return;
         };

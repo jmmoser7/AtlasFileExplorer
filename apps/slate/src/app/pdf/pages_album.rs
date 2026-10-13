@@ -47,11 +47,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pages_album_is_a_thin_pallet_over_the_host() {
+    fn pages_album_is_a_thin_pallet_below_the_host() {
         let host = Rect::from_min_size(Pos2::new(40.0, 20.0), Vec2::new(320.0, 240.0));
         let layout = pages_album_layout(host, 1.0);
         assert!(layout.pallet.height() <= 48.0);
-        assert!(layout.pallet.bottom() <= host.bottom());
+        assert_eq!(layout.pallet.top(), host.bottom());
+        assert!(layout.pallet.bottom() > host.bottom());
         assert!(layout.album.width() > layout.unbundle.width());
         assert!(layout.pallet.contains(layout.album.center()));
         assert!(layout.pallet.contains(layout.unbundle.center()));

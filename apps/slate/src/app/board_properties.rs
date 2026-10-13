@@ -2011,8 +2011,7 @@ mod tests {
         h.frame();
         h.frame();
         let before = h.app.doc().scene.node(a).unwrap().clone();
-        let r = h.app.board_xf().rect_w2s(before.rect);
-        let p = Pos2::new(r.center().x + 18.5, r.top() - 29.0);
+        let p = strip_button(&h, Panel::Wire).center();
         h.frame_with(|i| i.events.push(egui::Event::PointerMoved(p)));
         for pressed in [true, false] {
             h.frame_with(|i| {
@@ -2248,8 +2247,7 @@ mod tests {
         h.frame();
         h.frame();
         let before = h.app.doc().scene.node(id).unwrap().rect;
-        let r = h.app.board_xf().rect_w2s(before);
-        let p = Pos2::new(r.center().x - 37.0, r.top() - 29.0);
+        let p = strip_button(&h, Panel::Fill).center();
         h.frame_with(|i| i.events.push(egui::Event::PointerMoved(p)));
         h.frame_with(|i| {
             i.events.push(egui::Event::PointerButton {
@@ -2362,17 +2360,13 @@ mod tests {
         let id = rectangle(&mut h, WorldRect::new(-100.0, -60.0, 200.0, 120.0), 0.0);
         h.frame();
         h.frame();
-        let r = h
-            .app
-            .board_xf()
-            .rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
         let button = |pos: Pos2, pressed: bool| egui::Event::PointerButton {
             pos,
             button: egui::PointerButton::Primary,
             pressed,
             modifiers: egui::Modifiers::NONE,
         };
-        let fill = Pos2::new(r.center().x - 37.0, r.top() - 29.0);
+        let fill = strip_button(&h, Panel::Fill).center();
         h.frame_with(|i| i.events.push(egui::Event::PointerMoved(fill)));
         h.frame_with(|i| i.events.push(button(fill, true)));
         h.frame_with(|i| i.events.push(button(fill, false)));
@@ -2380,7 +2374,17 @@ mod tests {
         assert_eq!(h.app.shape_properties.panel, Some(Panel::Fill));
         let editor = *h.app.shape_properties.chrome_hits.last().unwrap();
         let z = h.app.tab().cam.z;
-        let dropper = Pos2::new(editor.left() + 21.0 * z, editor.bottom() - 20.0 * z);
+        let host = h
+            .app
+            .board_xf()
+            .rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
+        let layout = chrome::image_presentation_layout(
+            host,
+            z,
+            chrome::ImagePanelKind::Color { stroke: false },
+        );
+        let dropper = layout.technical_controls.eyedropper.center();
+        assert!(editor.contains(dropper));
 
         h.frame_with(|i| i.events.push(egui::Event::PointerMoved(dropper)));
         h.frame_with(|i| i.events.push(button(dropper, true)));
@@ -2402,75 +2406,33 @@ mod tests {
         );
     }
 
-    /// User finding (2026-09-26): the editor avoided the shape but painted
-    /// behind its dimension stringer. Popups draw above all canvas chrome and
-    /// take the pointer first where the two overlap.
+    /// An open single-node palette replaces the dimension chrome and still
+    /// owns pointer hits above the canvas.
     #[test]
-    fn a_property_editor_over_a_stringer_paints_and_hits_above_it() {
+    fn a_single_node_property_editor_suppresses_stringers_and_owns_pointer() {
         let mut h = board();
-        h.frame();
-        // The rectangle's top sits just under the canvas top, so the editor has
-        // no room above the strip and opens below, over the width stringer.
-        let canvas = h.app.canvas_rect;
-        let top = h
-            .app
-            .board_xf()
-            .s2w(Pos2::new(canvas.center().x, canvas.top() + 70.0));
-        rectangle(
-            &mut h,
-            WorldRect::new(top.x - 150.0, top.y, 300.0, 120.0),
-            0.0,
-        );
+        let id = rectangle(&mut h, WorldRect::new(-150.0, -60.0, 300.0, 120.0), 0.0);
         h.frame();
         h.app.shape_properties.panel = Some(Panel::Fill);
         h.frame();
         h.frame();
         let out = h.frame_output(|_| {});
         let editor = *h.app.shape_properties.chrome_hits.last().unwrap();
+        assert!(h.app.property_panel_fades_selection());
+        assert!(h.app.board_sel.contains(&id));
         let xf = h.app.board_xf();
-        let width = h
-            .app
-            .shape_properties
-            .dimensions
-            .iter()
-            .find(|d| d.kind == DimensionKind::Width)
-            .expect("a rectangle has a width stringer");
-        let [a, b] = width.ends.map(|p| xf.w2s(p) + width.offset * xf.z);
-        let label = a.lerp(b, 0.5);
-        assert!(
-            editor.contains(label),
-            "precondition: {editor:?} covers the width stringer at {label:?}"
-        );
-
-        let layer = h.ctx.layer_id_at(label).expect("hit-testable");
-        assert_eq!(
-            layer.id,
-            Id::new("shape_property_editor"),
-            "the editor takes the pointer first: {layer:?}"
-        );
-
         let baseline = egui::Stroke::new(0.7 * xf.z, h.app.palette().select);
-        let last_stringer = out
-            .shapes
-            .iter()
-            .rposition(|c| {
-                matches!(&c.shape, egui::Shape::LineSegment { points, stroke }
-                    if *stroke == baseline && points.iter().all(|p| (p.y - a.y).abs() < 0.5))
-            })
-            .expect("the width stringer painted");
-        let panel = out
-            .shapes
-            .iter()
-            .position(|c| matches!(&c.shape, egui::Shape::Rect(r) if r.rect == editor))
-            .expect("the editor panel painted");
         assert!(
-            last_stringer < panel,
-            "the stringer (shape {last_stringer}) paints over the editor (shape {panel})"
+            !out.shapes.iter().any(|c| matches!(&c.shape,
+            egui::Shape::LineSegment { stroke, .. } if *stroke == baseline)),
+            "single-node stringers are absent while its palette is open"
         );
-        assert!(
-            layer.order > egui::Order::Foreground,
-            "canvas chrome paints on Foreground, so a popup sits above it: {layer:?}"
-        );
+        let layer = h
+            .ctx
+            .layer_id_at(editor.center())
+            .expect("palette is hit-testable");
+        assert_eq!(layer.id, Id::new("shape_property_editor"));
+        assert!(layer.order > egui::Order::Foreground);
     }
 
     #[test]
@@ -2893,11 +2855,10 @@ mod tests {
         button
     }
 
-    /// User, 26 September 2026: the blue outline around selected text stays
-    /// while the person works in the strip and its Text editor. Fill still
-    /// fades it, so an authored fill previews without the tint.
+    /// User, 13 October 2026: an expanded single-node palette supplies the
+    /// selection feedback, so text decoration stays hidden while it is open.
     #[test]
-    fn text_selection_outline_stays_while_navigating_the_text_editor() {
+    fn text_selection_outline_is_suppressed_while_navigating_the_text_editor() {
         for dark in [false, true] {
             let mut h = board();
             h.app.dark_mode = dark;
@@ -2925,7 +2886,7 @@ mod tests {
                     timed_frame(&mut h, &mut time, vec![egui::Event::PointerMoved(hover)]);
                 }
                 let out = timed_frame(&mut h, &mut time, vec![egui::Event::PointerMoved(hover)]);
-                assert_eq!(silhouettes(&out), rest, "dark={dark} hover={hover:?}");
+                assert_eq!(silhouettes(&out), 0, "dark={dark} hover={hover:?}");
                 assert_eq!(h.app.shape_properties.panel, Some(Panel::Text));
             }
             assert!(h.app.board_sel.contains(&id));
@@ -3020,10 +2981,9 @@ mod tests {
             .expect("the Fill editor is open");
         assert!(canvas.contains_rect(editor), "{editor:?} in {canvas:?}");
         assert!(
-            !editor.intersects(selection),
-            "{editor:?} over {selection:?}"
+            editor.top() >= selection.bottom(),
+            "{editor:?} below {selection:?}"
         );
-        assert!(editor.top() > selection.bottom());
     }
 
     /// Painted text and where it sits, so a list's scroll can be measured.

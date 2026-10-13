@@ -3,7 +3,20 @@ use super::*;
 use crate::app::tests::Harness;
 
 pub(super) fn append_result(h: &mut Harness, id: NodeId, name: &str) {
-    let path = h.base.join(format!("{name}.png"));
+    // Runtime output belongs to the current binding; a provider change must
+    // still discard output from its previous session in the real frame pump.
+    let binding = slate_doc::agent_chat::agent(h.app.doc().scene.node(id).unwrap())
+        .unwrap()
+        .session
+        .clone();
+    h.app.agents.bindings.insert(id, binding);
+    let folder = if h.app.tab().path.is_some() {
+        h.base.join("assets/album")
+    } else {
+        h.base.clone()
+    };
+    std::fs::create_dir_all(&folder).unwrap();
+    let path = folder.join(format!("{name}.png"));
     image::RgbImage::new(20, 10).save(&path).unwrap();
     let mut session = h
         .app
@@ -85,4 +98,21 @@ fn generated_album_resumes_at_its_resting_pick_and_reaches_new_results() {
     frame(&mut h, id, true);
     settle(&mut h, id);
     assert_eq!(h.app.agent_shown_index(id), Some(0));
+}
+
+#[test]
+fn a_picked_result_keeps_its_relative_workbook_locator_and_its_album_index() {
+    let (mut h, id) = generator_with_output("album-relative-pick");
+    h.app.tab_mut().path = Some(h.base.join("Book.slate"));
+    append_result(&mut h, id, "second");
+    append_result(&mut h, id, "third");
+    h.app.pick_agent_result(id, 1);
+    let NodeKind::Image(image) = &h.app.doc().scene.node(id).unwrap().kind else {
+        unreachable!()
+    };
+    let path = &h.app.doc().item(image.item).unwrap().path;
+    assert!(path.is_relative(), "workbook assets keep relative links");
+    assert_eq!(h.app.agent_shown_index(id), Some(1));
+    assert_eq!(h.app.agent_active_output(id).as_deref(), Some("second"));
+    assert!(h.app.agent_shown_path(id).unwrap().is_file());
 }

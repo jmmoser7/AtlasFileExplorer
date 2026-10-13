@@ -20,10 +20,11 @@ fn hover_grip(h: &mut Harness, kind: &str) -> egui::CursorIcon {
         .find(|n| !matches!(n.kind, NodeKind::Connector(_)))
         .unwrap()
         .clone();
-    let grip = xf.w2s(board_wire::grip_point(
-        node.rect,
-        slate_doc::scene::Side::Right,
-    ));
+    let point = h
+        .app
+        .wire_host(&node)
+        .anchor(slate_doc::scene::Side::Right, 0.5);
+    let grip = xf.w2s(Pos2::new(point[0], point[1]));
     // egui reports the canvas hovered from the second frame the pointer is over it.
     h.frame_with(pointer_to(grip, false));
     let icon = h
@@ -51,7 +52,8 @@ fn wire_grab_zone_uses_a_grab_cursor_on_every_node_kind() {
             text: "Hello".into(),
             style: Default::default(),
             family: Default::default(),
-            size: 18.0,
+            // Keep its measured line above the short-host suppression floor.
+            size: 32.0,
             color: slate_doc::scene::Rgba::BLACK,
             align: Default::default(),
             fill: None,
@@ -89,5 +91,9 @@ fn wire_grab_zone_uses_a_grab_cursor_on_every_node_kind() {
 
     let mut h = web_board("wire_cursor_agent");
     h.app.place_agent_portal_at(Pos2::ZERO);
-    assert_eq!(hover_grip(&mut h, "agent card"), egui::CursorIcon::Grab);
+    let id = *h.app.board_sel.iter().next().unwrap();
+    // The unbound program chooser has no wire handles. A bound image agent
+    // offers the same right output port as its generated image.
+    h.app.set_agent_program(id, "comfy");
+    assert_eq!(hover_grip(&mut h, "agent picture"), egui::CursorIcon::Grab);
 }

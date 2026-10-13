@@ -234,10 +234,10 @@ impl SlateApp {
         if let Some(NodeKind::Image(img)) = self.doc().scene.node(id).map(|n| &n.kind) {
             let base = self.tab().path.as_deref();
             if let Some(item) = self.doc().item(img.item) {
-                if let Some(i) = images
-                    .iter()
-                    .position(|o| resolve_source(base, &o.source) == item.path)
-                {
+                if let Some(i) = images.iter().position(|o| {
+                    resolve_source(base, &o.source)
+                        == resolve_source(base, &item.path.to_string_lossy())
+                }) {
                     return Some(i);
                 }
             }

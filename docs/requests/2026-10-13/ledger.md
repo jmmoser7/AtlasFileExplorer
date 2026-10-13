@@ -33,7 +33,9 @@ Scope: all 25 bundles in `feedback/client/`, including the three October 10 regr
 ## Validation
 
 - Cloud geometry validation: `cargo test --locked -p vector-ink`, exit 0; **149 passed, 0 failed, 1 ignored**. The internal-vertex regression passed.
-- Integrated Linux/cloud and native Windows verification are in progress. A report is marked verified only after its relevant checks pass.
+- Windows `cargo check --locked --workspace --all-targets -j 2`: exit 0. A subsequent `cargo check --locked -p slate --all-targets -j 2` also passed after the final font and vertex-toolbar safeguards.
+- Windows shared-shell tests compiled successfully, but execution was blocked before any test ran: `Access is denied (os error 5)` for `target/debug/deps/atlas_shell-4c6f6405ec5b0aa9.exe`. Build artifacts were preserved; no execution-policy workaround or repeated launch was attempted. Native GUI verification remains pending that machine approval.
+- Formatting and whitespace checks passed. Integrated Linux/cloud verification is in progress; a report is marked verified only after its relevant checks pass.
 
 ## Known limits
 
