@@ -121,6 +121,10 @@ fn a_stored_key_turns_add_api_key_into_a_normal_openai_option() {
         "an empty draft is refused"
     );
     session.key_draft = "  placeholder-not-a-key  ".into();
+    // A chooser probe may still be running when the person saves a key.
+    // Its older credential answer must not overwrite the accepted save.
+    session.refresh(None);
+    let probes_before_save = session.probes();
     session.save_openai_key(None).unwrap();
     assert!(!session.key_entry);
     assert!(session.key_draft.is_empty(), "the draft does not linger");
@@ -129,6 +133,10 @@ fn a_stored_key_turns_add_api_key_into_a_normal_openai_option() {
         "recorded before the probe lands"
     );
     settle(&mut session);
+    assert!(
+        session.probes() > probes_before_save,
+        "saving schedules a fresh probe after the in-flight one"
+    );
     assert!(session.ok(OPENAI));
     let shown = names(&mut session);
     assert!(shown.iter().any(|n| n == "OpenAI"), "{shown:?}");

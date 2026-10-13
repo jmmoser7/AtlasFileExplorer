@@ -15,13 +15,13 @@ focal tool, Average dialog (P2 — auto-average lands inside Join).
 
 - `BoardTool::DirectSelect`, key **A**. Operates on `ShapeKind::Path` nodes
   (and `Line` promoted to a 2-anchor path on first direct edit).
-- Rectangles and regular polygons are **pick-only** targets (user, 28
-  September 2026: "alow for vrtex selection on closed forms like sqares and
-  polygons"; P1.shape.vertex-style). Their vertices show as anchors and pick
-  like anchors (click, Shift+click, marquee), but a press on one never moves
-  it, since that would change the form's kind; there are no segments or
-  handles to drag. Arrow keys nudge the whole node; double-click and Join do
-  not apply.
+- Rectangles and regular polygons expose vertex picks (P1.shape.vertex-style).
+  The 13 October 2026 refinement permits moving or deleting picked vertices:
+  that geometric edit promotes the primitive to a closed Path, preserving
+  its world geometry and style. A click without travel keeps the primitive;
+  two quick picks remain picks. Primitive double-click corner/smooth toggling
+  and Join still do not apply; after promotion the ordinary Path edit rules
+  apply. Arrow keys retain whole-node nudging until a vertex geometry edit.
 - Clicking a Path node with A shows **all its anchors**: hollow squares
   (unselected) / filled squares (selected), screen-constant size (~7 px).
 - Selected **smooth** anchors show their two direction handles (thin line +

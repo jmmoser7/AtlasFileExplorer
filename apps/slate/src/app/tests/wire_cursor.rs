@@ -20,6 +20,11 @@ fn hover_grip(h: &mut Harness, kind: &str) -> egui::CursorIcon {
         .find(|n| !matches!(n.kind, NodeKind::Connector(_)))
         .unwrap()
         .clone();
+    assert!(
+        board_wire::wire_ports_fit(node.rect, xf.z),
+        "{kind} fixture must offer eligible wire ports: {:?}",
+        node.rect
+    );
     let point = h
         .app
         .wire_host(&node)
@@ -53,7 +58,7 @@ fn wire_grab_zone_uses_a_grab_cursor_on_every_node_kind() {
             style: Default::default(),
             family: Default::default(),
             // Keep its measured line above the short-host suppression floor.
-            size: 32.0,
+            size: 64.0,
             color: slate_doc::scene::Rgba::BLACK,
             align: Default::default(),
             fill: None,

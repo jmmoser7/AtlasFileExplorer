@@ -51,3 +51,5 @@ None. Crossing preview is dashed green. Shift and Ctrl both add. Direct Selectio
 - **Sub-object sweep (13 October 2026):** Ctrl+Shift left-to-right encloses two complete segments -> both picked; Ctrl+Shift right-to-left crosses a third segment -> adds it without clearing the first two; Delete removes all three; Undo restores the curve. Selection alone adds no journal history.
 
 Ctrl+Shift on a real curve edge owns that explicit sub-object pick even where a property button or dimension chip overlaps it. Ordinary control clicks retain their usual ownership. This follows the existing path-grip priority; the real-pointer rectangle-edge deletion regression pins the overlap case.
+
+The Ctrl+Shift edge gesture reads ordered primary press/release, so a chord arriving with the press cannot be stolen by a previously hovered dimension chip. Travel within the existing draft click threshold toggles one edge; larger travel uses the same segment sweep owner.

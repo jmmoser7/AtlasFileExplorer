@@ -418,8 +418,16 @@ impl SlateApp {
                     .into_iter()
                     .filter(|port| {
                         let g = xf.w2s(Pos2::new(port.point[0], port.point[1]));
-                        let n = host.outward(port.side, port.t);
-                        grip_hit(screen, g, Vec2::new(n[0], n[1]), hit_px, hit_out)
+                        let outward = host.outward(port.side, port.t);
+                        (screen.distance(g) <= hit_px
+                            || !self.wire_extension_yields_to_transform(n, screen, xf))
+                            && grip_hit(
+                                screen,
+                                g,
+                                Vec2::new(outward[0], outward[1]),
+                                hit_px,
+                                hit_out,
+                            )
                     })
                     .min_by(|a, b| {
                         let d = |p: &slate_doc::WirePort| {

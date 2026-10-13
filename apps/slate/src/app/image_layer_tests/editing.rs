@@ -1,6 +1,55 @@
 use super::*;
 
 #[test]
+fn an_expanding_corner_palette_keeps_final_geometry_and_clips_hidden_controls() {
+    use atlas_shell::selection_tools as chrome;
+    let (mut h, image) = photo_board("corners_expand_clip");
+    h.app.sync_shape_properties();
+    h.app.shape_properties.panel = Some(Panel::Corners);
+    h.frame();
+    let now = h.ctx.input(|input| input.time);
+    let output = h.frame_output(|input| input.time = Some(now + 0.08));
+    let zoom = h.app.board_xf().z;
+    let host = screen_rect(&h, image);
+    let layout = chrome::image_presentation_layout(host, zoom, chrome::ImagePanelKind::Corners);
+    let fraction = chrome::strip_fade(
+        &h.ctx,
+        egui::Id::new(("image_palette_expansion", image.0)),
+        true,
+    );
+    assert!(
+        fraction > 0.0 && fraction < 1.0,
+        "exercise an intermediate reveal"
+    );
+    let bottom = layout.overall.top() + layout.overall.height() * fraction;
+    let text = text_rect(&output, "Fillet").expect("full-size content is laid out during reveal");
+    assert!(
+        layout.editor_rect(zoom).contains(text.center()),
+        "content never shrinks to a negative inset rect"
+    );
+    for hit in &h.app.shape_properties.chrome_hits {
+        if hit.top() >= host.bottom() {
+            assert!(
+                hit.bottom() <= bottom + 0.01,
+                "hidden control cannot own input: {hit:?} below {bottom}"
+            );
+        }
+    }
+    let hidden = Pos2::new(
+        layout.editor_rect(zoom).center().x,
+        layout.overall.bottom() - 1.0,
+    );
+    assert!(
+        !h.app
+            .shape_properties
+            .chrome_hits
+            .iter()
+            .any(|hit| hit.contains(hidden)),
+        "unrevealed content is not actionable"
+    );
+}
+
+#[test]
 fn image_body_click_keeps_each_editor_open_until_a_canvas_click() {
     for generated in [false, true] {
         let (mut h, image) = if generated {

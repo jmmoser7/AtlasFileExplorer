@@ -96,6 +96,9 @@ fn outside_image_press_disarms_brush_and_reselection_restores_only_the_palette()
     );
     let center = h.app.board_xf().w2s(Pos2::ZERO);
     click_board(&mut h, center);
+    // Selection is committed by the release input, after the property UI
+    // pass. Its next paint consumes that selection and restores the panel.
+    h.frame();
     assert_eq!(h.app.board_tool, BoardTool::Select);
     assert_eq!(h.app.board_sel, [id].into());
     assert_eq!(

@@ -452,7 +452,7 @@ fn crop_toggles_fit_inside_the_shared_corners_panel() {
     h.app.sync_shape_properties();
     h.app.shape_properties.panel = Some(Panel::Corners);
     h.frame();
-    h.frame();
+    settle_image_panel(&mut h);
     let z = h.app.tab().cam.z;
     let presentation = atlas_shell::selection_tools::image_presentation_layout(
         screen_rect(&h, id),

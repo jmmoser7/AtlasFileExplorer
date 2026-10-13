@@ -76,6 +76,11 @@ Do not describe a stale run as verification of newer local fixes.
   report or another retrievable artifact. A VM-only log path is insufficient
   if the coordinator cannot retrieve its content. Include compile errors,
   panics, expected/actual values, and counts per test binary where relevant.
+- Run required commands even when optional telemetry tools are missing. Cloud
+  images may lack `/usr/bin/time`; use a shell built-in or leave elapsed time
+  unmeasured. Recover routine wrapper failures without changing the required
+  Cargo command. A stop-on-error instruction must not turn a missing logging
+  or timing convenience into abandonment of the requested validation.
 - Check required runtimes before a long suite. Missing Pdfium, denied downloads,
   and Windows execution blocks need exact evidence and a blocked-check label;
   they do not justify ignoring tests or changing expected behavior.

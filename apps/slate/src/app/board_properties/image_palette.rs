@@ -185,8 +185,6 @@ pub(super) fn show(
     let mut sample = None;
     if showing_panel {
         let full_overall_height = layout.overall.height();
-        let full_height = layout.main.height();
-        layout.main.max.y = layout.main.top() + full_height * expansion;
         layout.overall.max.y = layout.overall.top() + full_overall_height * expansion;
     } else {
         layout.main.max.y = layout.main.top();
@@ -236,6 +234,10 @@ pub(super) fn show(
             if !clear_tab {
                 app.shape_properties.chrome_hits.push(layout.tab);
             }
+            // Reveal the surface without shrinking/reflowing its content.
+            // Inset editors must never acquire negative heights mid-animation;
+            // this clip also keeps hidden controls from receiving pointer input.
+            ui.set_clip_rect(canvas.intersect(layout.overall));
             if panel.is_none() {
                 if showing_panel {
                     if let Some(last_panel) = closing_panel {
@@ -299,6 +301,18 @@ pub(super) fn show(
             }
         });
 
+    if showing_panel && expansion < 1.0 {
+        let visible = canvas.intersect(layout.overall);
+        for hit in &mut app.shape_properties.chrome_hits {
+            *hit = hit.intersect(visible);
+        }
+        app.shape_properties
+            .chrome_hits
+            .retain(|hit| hit.is_positive());
+        captures &= ctx
+            .pointer_latest_pos()
+            .is_some_and(|p| visible.contains(p));
+    }
     app.update_image_palette_frame(&ctx, xf, &host, &layout, showing_panel);
     let (icon_captures, requested_panel, close_requested) = panel_buttons(
         app,

@@ -613,23 +613,28 @@ pub struct CornerLayout {
 /// factor so all of them pack into the same capsule:
 /// `[Off|Crop] [Fillet|Chamfer] track [%|u]`.
 pub fn corner_layout(rect: Rect, crop: bool, zoom: f32) -> CornerLayout {
+    // A narrow image apron keeps the same row height while fitting every
+    // horizontal control, including the amount rail, into its actual width.
+    let fit = (rect.width() / (EDITOR_WIDTH * zoom)).min(1.0);
+    let zoom = zoom * fit;
     let pad = rect.height() * (2.0 / CAPSULE_HEIGHT);
+    let pad_x = pad * fit;
     let inner_h = rect.height() * (13.0 / CAPSULE_HEIGHT);
     let at =
         |x: f32, w: f32| Rect::from_min_size(Pos2::new(x, rect.top() + pad), Vec2::new(w, inner_h));
     let track_w = CORNER_TRACK_W * zoom;
     if !crop {
         return CornerLayout {
-            treatment: at(rect.left() + pad, CORNER_TREATMENT_W * zoom),
+            treatment: at(rect.left() + pad_x, CORNER_TREATMENT_W * zoom),
             crop: None,
             track: at(rect.left() + CORNER_TRACK_X * zoom, track_w),
             units: at(rect.left() + CORNER_UNITS_X * zoom, CORNER_UNITS_W * zoom),
         };
     }
     let gap = CORNER_GAP * zoom;
-    let room = rect.width() - 2.0 * pad - track_w - 3.0 * gap;
+    let room = rect.width() - 2.0 * pad_x - track_w - 3.0 * gap;
     let scale = room / ((CORNER_CROP_W + CORNER_TREATMENT_W + CORNER_UNITS_W) * zoom);
-    let crop = at(rect.left() + pad, CORNER_CROP_W * zoom * scale);
+    let crop = at(rect.left() + pad_x, CORNER_CROP_W * zoom * scale);
     let treatment = at(crop.right() + gap, CORNER_TREATMENT_W * zoom * scale);
     let track = at(treatment.right() + gap, track_w);
     let units = at(track.right() + gap, CORNER_UNITS_W * zoom * scale);
@@ -2574,6 +2579,9 @@ use menu_selector::BareMenu;
 
 mod text_controls;
 use text_controls::align_segments;
+
+#[cfg(test)]
+mod corner_layout_tests;
 
 #[cfg(test)]
 mod tests {

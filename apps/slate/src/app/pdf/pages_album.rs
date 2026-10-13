@@ -2,8 +2,8 @@ use eframe::egui::{Pos2, Rect, Vec2};
 
 /// Low-profile tool pallet along the bottom of a selected paged image.
 pub(crate) fn pages_album_layout(host: Rect, zoom: f32) -> PagesAlbumLayout {
-    let btn = atlas_shell::selection_tools::BUTTON_SIZE * zoom;
-    let inner = 12.0 * zoom;
+    let btn = atlas_shell::selection_tools::CORNER_HEIGHT * zoom;
+    let inner = atlas_shell::selection_tools::IMAGE_PANEL_INSET * zoom;
     let outer_width = host.width().max(3.0 * inner + btn + 8.0 * zoom);
     let height = btn + inner * 2.0;
     let pallet = Rect::from_min_max(
@@ -63,5 +63,13 @@ mod tests {
         );
         assert!(narrow.pallet.width() > 12.0);
         assert!(!narrow.album.intersects(narrow.unbundle));
+
+        for zoom in [0.25, 4.0] {
+            let scaled = pages_album_layout(host, zoom);
+            assert!(scaled.pallet.height() / zoom <= 48.0);
+            assert!(scaled.pallet.contains_rect(scaled.album));
+            assert!(scaled.pallet.contains_rect(scaled.unbundle));
+            assert!(!scaled.album.intersects(scaled.unbundle));
+        }
     }
 }

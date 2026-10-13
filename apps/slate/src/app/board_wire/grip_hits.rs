@@ -1,6 +1,26 @@
 //! Shared wire-port pointer reach and overlap eligibility.
 use super::*;
 
+impl SlateApp {
+    /// The enlarged port reach yields to transform chrome; the port's real
+    /// hit disc remains available at its midpoint.
+    pub(super) fn wire_extension_yields_to_transform(
+        &self,
+        node: &Node,
+        point: Pos2,
+        xf: &BoardXf,
+    ) -> bool {
+        let chrome = super::super::board_handles::selection_geom(xf, node.rect, node.rotation_deg);
+        self.node_offers_bbox_transform(node)
+            && super::super::board_handles::hit_test_chrome(
+                point,
+                &chrome,
+                Self::node_allows_rotation(node),
+            )
+            .is_some()
+    }
+}
+
 /// Inner press radius in screen px. At zoom ≥ 1 this is [`GRIP_HIT_PX`].
 /// Zooming out grows it as `8 * zoom^-0.35`, capped at 14. Pointer hit
 /// area, not painted geometry.

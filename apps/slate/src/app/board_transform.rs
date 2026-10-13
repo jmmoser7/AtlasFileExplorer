@@ -375,7 +375,7 @@ impl SlateApp {
         !cmds.is_empty() && self.commit_scene(cmds)
     }
 
-    fn node_offers_bbox_transform(&self, node: &Node) -> bool {
+    pub(super) fn node_offers_bbox_transform(&self, node: &Node) -> bool {
         if node.hidden || matches!(node.kind, NodeKind::Connector(_)) {
             return false;
         }

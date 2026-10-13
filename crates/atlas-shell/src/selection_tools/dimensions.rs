@@ -54,11 +54,12 @@ pub fn inline_number(
             .filter(|_| i.pointer.any_down())
             .or(i.pointer.latest_pos())
     });
-    let hit_rect = if probe.is_some_and(|p| !number_hit(center, rotation, half, p)) {
-        Rect::NOTHING
-    } else {
-        Rect::from_center_size(center, extent * 2.0).intersect(ui.clip_rect())
-    };
+    let hit_rect =
+        if !ui.is_enabled() || probe.is_some_and(|p| !number_hit(center, rotation, half, p)) {
+            Rect::NOTHING
+        } else {
+            Rect::from_center_size(center, extent * 2.0).intersect(ui.clip_rect())
+        };
     let response = ui
         .interact(hit_rect, id, Sense::click_and_drag())
         .on_hover_cursor(egui::CursorIcon::Text);
@@ -265,6 +266,43 @@ pub fn stringer(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn disabled_inline_number_leaves_pointer_to_the_canvas() {
+        let ctx = egui::Context::default();
+        let center = Pos2::new(200.0, 200.0);
+        let mut edit = None;
+        for _ in 0..3 {
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::splat(500.0))),
+                events: vec![egui::Event::PointerMoved(center)],
+                ..Default::default()
+            };
+            let _ = ctx.run(input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.add_enabled_ui(false, |ui| {
+                        let response = inline_number(
+                            ui,
+                            Id::new("disabled_number"),
+                            center,
+                            0.0,
+                            "H ",
+                            " u",
+                            100.0,
+                            1.0,
+                            Palette::light(),
+                            Color32::BLACK,
+                            &mut edit,
+                            0.0..=1000.0,
+                            false,
+                        )
+                        .response;
+                        assert!(!response.contains_pointer());
+                    });
+                });
+            });
+        }
+    }
+
     #[test]
     fn rotated_number_hit_excludes_empty_corners_of_its_aabb() {
         for zoom in [0.25, 1.0, 3.0] {

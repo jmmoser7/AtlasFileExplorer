@@ -167,20 +167,16 @@ impl AgentDraft {
     }
 }
 
-/// Which remote engines this machine can reach. Read once, never per frame;
-/// saving a key refreshes it.
+/// Installed sign-in adapter availability, read once rather than per frame.
 #[derive(Clone, Copy)]
 struct Engines {
     codex: bool,
-    openai: bool,
 }
 
 impl Engines {
     fn probe() -> Self {
         Self {
             codex: atlas_ai::runtime::codex_executable().is_some(),
-            openai: atlas_core::secrets::health(atlas_ai::runtime::OPENAI_KEY_SLOT)
-                == atlas_core::secrets::SecretHealth::Ok,
         }
     }
 }
@@ -1067,15 +1063,16 @@ impl SlateApp {
     /// account (Art. I.4). Catalogs are discovered off-thread as they are needed.
     pub(crate) fn agent_models(&mut self, image: bool) -> Vec<(String, String, String)> {
         let engines = self.engines();
+        let openai = self.ai.packs.ok(atlas_ai::packs::OPENAI);
         if image {
             self.agents.want_catalog("comfy");
-            if engines.openai {
+            if openai {
                 self.agents.want_catalog("openai-image");
             }
             return atlas_ai::runtime::image_models(
                 self.agents.catalog("comfy"),
                 engines.codex,
-                engines.openai,
+                openai,
                 self.agents.catalog("openai-image"),
             );
         }
@@ -1083,13 +1080,13 @@ impl SlateApp {
         if engines.codex {
             self.agents.want_catalog("codex");
         }
-        if engines.openai {
+        if openai {
             self.agents.want_catalog("openai-text");
         }
         atlas_ai::runtime::text_models(
             self.agents.catalog("ollama"),
             engines.codex.then(|| self.agents.catalog("codex")),
-            engines.openai,
+            openai,
             self.agents.catalog("openai-text"),
         )
     }
@@ -1126,9 +1123,7 @@ impl SlateApp {
         }
     }
 
-    /// A saved key opens the OpenAI catalogs.
     fn key_saved(&mut self) {
-        self.agents.flow.engines = None;
         self.agents.refresh_catalog("openai-image");
         self.agents.refresh_catalog("openai-text");
     }
@@ -1263,7 +1258,7 @@ impl SlateApp {
         let Some((provider, model)) = chosen else {
             return;
         };
-        if provider.starts_with("openai") && !self.engines().openai {
+        if provider.starts_with("openai") && !self.ai.packs.ok(atlas_ai::packs::OPENAI) {
             draft.key = Some(String::new());
             draft.take_focus = true;
             return;
@@ -1299,13 +1294,17 @@ impl SlateApp {
         self.board_sel = std::iter::once(source).collect();
     }
 
-    /// A pasted OpenAI key goes to Credential Manager. True when a key was
-    /// being pasted, saved or not.
+    /// Consume a pasted key through PackSession; true even if saving fails.
     fn save_pasted_key(&mut self, draft: &mut AgentDraft) -> bool {
         let Some(key) = draft.key.take() else {
             return false;
         };
-        match atlas_core::secrets::store(atlas_ai::runtime::OPENAI_KEY_SLOT, &key) {
+        self.ai.packs.key_draft = key;
+        match self
+            .ai
+            .packs
+            .save_openai_key(self.ai.config.workspace_dir.clone())
+        {
             Ok(()) => {
                 self.key_saved();
                 self.toast("OpenAI API key saved for this Windows user.");
@@ -1414,7 +1413,7 @@ impl SlateApp {
             }
         }
         if let Some((provider, model, _)) = out.model.and_then(|i| models.get(i)) {
-            if provider.starts_with("openai") && !self.engines().openai {
+            if provider.starts_with("openai") && !self.ai.packs.ok(atlas_ai::packs::OPENAI) {
                 draft.key = Some(String::new());
                 draft.take_focus = true;
             } else {

@@ -3,6 +3,54 @@
 use super::*;
 
 impl SlateApp {
+    /// Egui chooses a click target from the previous frame's widgets. The
+    /// sub-object chord can arrive with the press, after a number chip was
+    /// hovered, so this explicit canvas gesture owns ordered press/release.
+    pub(super) fn curve_subselect_input(
+        &mut self,
+        ui: &egui::Ui,
+        xf: &BoardXf,
+        pointer: Option<Pos2>,
+        start_allowed: bool,
+    ) {
+        if let Some(p) = pointer.filter(|p| {
+            start_allowed
+                && self.canvas_rect.contains(*p)
+                && ui.clip_rect().contains(*p)
+                && ui.ctx().layer_id_at(*p) == Some(ui.layer_id())
+                && !ui.ctx().memory(|m| m.any_popup_open())
+        }) {
+            if self.board_drag.is_none()
+                && ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary))
+                && self.curve_subselect_under(p)
+                && self.hovered_vertex(p).is_none()
+            {
+                self.board_drag = Some(BoardDrag::Direct(
+                    super::super::board_direct::DirectDrag::Marquee {
+                        start_screen: p,
+                        add: true,
+                        edges: true,
+                    },
+                ));
+            }
+        }
+        if matches!(
+            self.board_drag,
+            Some(BoardDrag::Direct(
+                super::super::board_direct::DirectDrag::Marquee { edges: true, .. }
+            ))
+        ) {
+            self.board_align_eat_press = true;
+            if ui.input(|i| i.pointer.button_released(egui::PointerButton::Primary)) {
+                if let Some(p) = pointer {
+                    self.end_gesture(xf.s2w(p), Some(p), ui.input(|i| i.modifiers));
+                } else {
+                    self.board_drag = None;
+                }
+            }
+        }
+    }
+
     pub(super) fn board_click(&mut self, world: Pos2, mods: egui::Modifiers) {
         if self.board_tool == BoardTool::Deck {
             return;

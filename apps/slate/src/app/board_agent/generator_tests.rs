@@ -264,6 +264,10 @@ fn submitting_the_image_editor_captures_the_picked_crop_before_releasing_it() {
 #[test]
 fn running_an_edited_generated_text_card_releases_its_override_as_one_undo() {
     let (mut h, generator) = crate::app::board_flow::tests::generator_with_output("text-rerun");
+    // Settle the existing seed's independent aspect-fit before testing the
+    // text run. Its first rendered frame must not add an unrelated undo step.
+    h.app
+        .fit_generator_frame(generator, "img-1", egui::vec2(8.0, 8.0));
     let detail =
         serde_json::json!({"source": generator.0, "kind": "text", "prompt": "Describe the scene"});
     assert!(h.app.spawn_flow_node(Some(&detail.to_string())));
@@ -330,8 +334,14 @@ fn running_an_edited_generated_text_card_releases_its_override_as_one_undo() {
         .iter()
         .any(|input| input.node == note.0 && input.text == CHAT_REPLY));
     h.app.zoom_to_rect(node.rect);
+    let depth_after_run = h.app.tab().journal.undo_depth();
     let out = h.frame_output(|_| {});
     assert!(painted_block(&out, CHAT_REPLY, h.app.board_xf().z).is_some());
+    assert_eq!(
+        h.app.tab().journal.undo_depth(),
+        depth_after_run,
+        "painting the completed reply adds no unrelated authoring step"
+    );
     h.app.board_undo();
     let NodeKind::Image(image) = &h.app.doc().scene.node(note).unwrap().kind else {
         unreachable!()

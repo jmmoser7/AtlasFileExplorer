@@ -332,7 +332,6 @@ impl SlateApp {
         let xf = self.board_xf();
         let wp = pointer.map(|p| xf.s2w(p));
         let editing_text = self.text_compose_active();
-
         // Object chrome runs before gestures so it can capture clicks.
         let agent_controls_capture =
             self.agent_spawn_input(ui, &xf) | self.image_result_drag_input(ui, &xf);
@@ -918,10 +917,15 @@ impl SlateApp {
             }
         }
 
-        // --- gesture start ---
-        // Hit-test at the pointer *press origin*: by the time egui's drag
-        // threshold fires, a fast drag has often already left the tiny
-        // handle, which used to degrade corner scaling into a node move.
+        let edge_start = !space
+            && !panning
+            && !zoom_tool
+            && !editing_text
+            && !model_toolbar_captures
+            && !web_capture
+            && !over_dock_strip
+            && !self.board_align_eat_press;
+        self.curve_subselect_input(ui, &xf, pointer, edge_start);
         if resp.drag_started_by(egui::PointerButton::Primary)
             && !ordered_drawing
             && !space
@@ -984,8 +988,8 @@ impl SlateApp {
             }
         }
 
-        // --- gesture end ---
         if resp.drag_stopped_by(egui::PointerButton::Primary)
+            && self.board_drag.is_some()
             && !ordered_drawing
             && self.board_tool != BoardTool::Line
             && !place_rect

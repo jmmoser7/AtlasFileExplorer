@@ -147,6 +147,7 @@ fn pk2_generate_offers_add_api_key_until_a_key_is_stored() {
 
     // What `save_openai_key` records once the key is in the store.
     h.app.pin_pack_for_test(OPENAI, PackHealth::Ok);
+    assert!(!h.app.ai.packs.needs_key(OPENAI));
     let rows: Vec<_> = h
         .app
         .agent_models(true)

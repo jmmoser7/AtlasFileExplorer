@@ -1312,7 +1312,11 @@ impl SlateApp {
             } => {
                 let Some(p) = pointer else { return };
                 if edges {
-                    self.pick_curve_edges_in_window(start_screen, p);
+                    if start_screen.distance(p) <= board_path::DRAFT_DRAG_THRESHOLD_PX {
+                        self.pick_curve_edge(self.board_xf().s2w(start_screen));
+                    } else {
+                        self.pick_curve_edges_in_window(start_screen, p);
+                    }
                     return;
                 }
                 let xf = self.board_xf();
@@ -1398,6 +1402,11 @@ impl SlateApp {
         let Some(id) = self.direct.node else {
             return false;
         };
+        // Primitive vertices retain pick-only double-click semantics. Once a
+        // geometric edit promotes the node, Path corner/smooth editing applies.
+        if self.closed_form_points(id).is_some() {
+            return true;
+        }
         let Some(idx) = self.direct_anchor_at(screen, &xf) else {
             return false;
         };

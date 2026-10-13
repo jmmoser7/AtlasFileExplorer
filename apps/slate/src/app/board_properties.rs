@@ -2357,7 +2357,7 @@ mod tests {
     fn shape_property_eyedropper_click_and_drag_open_their_sampling_modes() {
         use atlas_shell::desktop_color::PickMode;
         let mut h = board();
-        let id = rectangle(&mut h, WorldRect::new(-100.0, -60.0, 200.0, 120.0), 0.0);
+        rectangle(&mut h, WorldRect::new(-100.0, -60.0, 200.0, 120.0), 0.0);
         h.frame();
         h.frame();
         let button = |pos: Pos2, pressed: bool| egui::Event::PointerButton {
@@ -2374,16 +2374,7 @@ mod tests {
         assert_eq!(h.app.shape_properties.panel, Some(Panel::Fill));
         let editor = *h.app.shape_properties.chrome_hits.last().unwrap();
         let z = h.app.tab().cam.z;
-        let host = h
-            .app
-            .board_xf()
-            .rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
-        let layout = chrome::image_presentation_layout(
-            host,
-            z,
-            chrome::ImagePanelKind::Color { stroke: false },
-        );
-        let dropper = layout.technical_controls.eyedropper.center();
+        let dropper = Pos2::new(editor.left() + 21.0 * z, editor.bottom() - 20.0 * z);
         assert!(editor.contains(dropper));
 
         h.frame_with(|i| i.events.push(egui::Event::PointerMoved(dropper)));
@@ -2843,7 +2834,7 @@ mod tests {
 
     /// Open the selected node's Text editor with a real click on its squircle.
     fn open_text_editor(h: &mut Harness, time: &mut f64) -> Rect {
-        for _ in 0..3 {
+        for _ in 0..12 {
             timed_frame(h, time, vec![]);
         }
         let button = strip_button(h, Panel::Text);
@@ -2963,8 +2954,10 @@ mod tests {
     #[test]
     fn a_property_editor_clipped_by_the_canvas_top_opens_below_the_selection() {
         let mut h = board();
-        let id = rectangle(&mut h, WorldRect::new(-100.0, -60.0, 200.0, 120.0), 0.0);
+        let id = rectangle(&mut h, WorldRect::new(-400.0, -60.0, 800.0, 120.0), 0.0);
         h.frame();
+        // Neither side can hold the fixed-width popup, so the owner must
+        // choose its below-strip fallback after rejecting the clipped top.
         let canvas = h.app.canvas_rect;
         h.app.tab_mut().cam.offset.y = -60.0 - (canvas.top() + 70.0 - canvas.center().y);
         h.app.shape_properties.panel = Some(Panel::Fill);
