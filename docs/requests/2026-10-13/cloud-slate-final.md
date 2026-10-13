@@ -1,7 +1,8 @@
 # Final Slate Linux integration validation — HEAD `3949649d17ba9ca31bbfe13fd564dfb1e57c0aea`
 
-Date: 2026-10-13  
-Platform: Linux/non-Windows stubs  
+Date: 2026-10-13
+
+Platform: Linux/non-Windows stubs
 Scope: final Slate application integration only. No native GUI, provider network calls, or secret-store access was performed.
 
 ## Fix made during validation
@@ -107,5 +108,5 @@ Notes:
 
 - The `typography` filter matched no tests (0 passed, 0 failed, 1434 filtered out); typography coverage did run under the named `text::reentry`, `no_system_fonts_render`, and `empty_shape_text` filters.
 - The `paste` filter's one failure was `app::tests::media::paste_input::a_pasted_image_resolves_as_a_generator_input`.
-- The failures above include Linux runtime limitations around PDFium/Office document rendering as well as unrelated/baseline integration failures. They are reported exactly rather than hidden or weakened.
+- This initial run did not retain assertion details. PDFium/Office availability may explain some failures, but platform or baseline status is unverified until the follow-up records the actual errors. Several requested behaviors failed and require follow-up.
 - No tests were disabled or weakened, no production owner was duplicated, no `board_*.rs` owner was added, and no size allowlist was raised.
