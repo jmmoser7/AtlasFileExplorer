@@ -1,6 +1,11 @@
 //! Generator view and generation request.
 
+use super::runtime::QueuedGeneration;
 use super::*;
+
+#[cfg(test)]
+#[path = "generator_tests.rs"]
+mod tests;
 
 impl SlateApp {
     /// The inputs an image generator reads now, in wire order. Cached until the
@@ -27,13 +32,19 @@ impl SlateApp {
     }
     fn resolve_generator(&self, id: NodeId) -> GeneratorView {
         use std::hash::{Hash, Hasher};
-        let inputs = match self.agent_input_snapshot(id) {
+        let live = self
+            .doc()
+            .scene
+            .node(id)
+            .and_then(slate_doc::agent_chat::agent)
+            .is_some_and(|agent| agent.live);
+        let inputs = match self.generator_input_refs(id, !live) {
             Ok(inputs) => inputs,
             Err(error) => {
                 return GeneratorView {
                     error: Some(error),
                     ..Default::default()
-                }
+                };
             }
         };
         let mut view = GeneratorView::default();
@@ -81,7 +92,9 @@ impl SlateApp {
             }
             if let Some(first) = item.images.first().filter(|_| !slot.takes_text()) {
                 (slot, &item.images).hash(&mut hasher);
-                let label = if matches!(
+                let label = if node == id {
+                    "Current image".to_string()
+                } else if matches!(
                     self.doc().scene.node(node).map(|n| &n.kind),
                     Some(NodeKind::Portal(_))
                 ) {
@@ -145,7 +158,7 @@ impl SlateApp {
             .map(|i| i.prompt.clone())
             .unwrap_or_default()
     }
-    pub(super) fn generation_request(
+    pub(crate) fn generation_request(
         &mut self,
         id: NodeId,
         live: bool,
@@ -157,7 +170,7 @@ impl SlateApp {
         if prompt.is_empty() {
             return Err("Connect a note with a prompt to this generator.".into());
         }
-        let inputs = self.agent_input_snapshot(id)?;
+        let inputs = self.generator_input_refs(id, !live)?;
         let (model, session, settings) = self
             .doc()
             .scene
@@ -207,6 +220,22 @@ impl SlateApp {
         }
     }
     pub(crate) fn enqueue_generation(&mut self, id: NodeId, request: AgentRequest) {
+        let inputs = match self.begin_agent_input_preparation(request.inputs.clone()) {
+            Ok(inputs) => inputs,
+            Err(error) => {
+                self.fail_agent_await(id, error.clone());
+                self.toast(error);
+                return;
+            }
+        };
+        self.enqueue_prepared_generation(id, request, inputs);
+    }
+    pub(crate) fn enqueue_prepared_generation(
+        &mut self,
+        id: NodeId,
+        request: AgentRequest,
+        inputs: super::input_prep::InputPreparation,
+    ) {
         if self.ai.config.valid_workspace().is_none() {
             self.fail_agent_await(
                 id,
@@ -218,12 +247,30 @@ impl SlateApp {
             self.ai.pick_workspace();
             return;
         }
-        let queue = self.agents.comfy_queue.entry(id).or_default();
-        if queue.len() >= GENERATION_QUEUE {
+        if self
+            .agents
+            .comfy_queue
+            .get(&id)
+            .map_or(0, |queue| queue.len())
+            >= GENERATION_QUEUE
+        {
             self.toast("Eight generations are already waiting on this generator.");
             return;
         }
-        queue.push_back(request);
+        if request.oneshot && self.is_text_block(id) {
+            self.patch_nodes(&[id], |node| {
+                if let NodeKind::Image(image) = &mut node.kind {
+                    image.text_override = None;
+                }
+            });
+        }
+        let doc = self.tab().id;
+        let queue = self.agents.comfy_queue.entry(id).or_default();
+        queue.push_back(QueuedGeneration {
+            doc,
+            request,
+            inputs,
+        });
         if matches!(
             self.agents.awaiting.get(&id),
             Some(AgentAwait::Failed { .. })

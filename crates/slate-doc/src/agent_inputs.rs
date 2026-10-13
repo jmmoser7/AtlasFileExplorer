@@ -1,5 +1,11 @@
-﻿//! The semantic layer of existing board wires. Geometry remains in `wire_host`.
+//! The semantic layer of existing board wires. Geometry remains in `wire_host`.
 //! Resolves one immutable run input; adapters never interpret a scene.
+mod ports;
+pub use ports::*;
+use ports::{flow_view, model_view_target};
+#[cfg(test)]
+use ports::{GENERATOR_PORTS, TEXT_PORTS};
+
 use crate::{scene::*, SlateDoc};
 use atlas_agent::{ContextItem, ImageOutput, InputSlot, InputSnapshot};
 use serde::{Deserialize, Serialize};
@@ -106,7 +112,7 @@ fn directional_binding<'a>(
     let midpoint = matches!(target, ConnectorEnd::Anchored { side: Side::Left, t, .. } if (*t - 0.5).abs() < 0.001);
     let target_id = endpoint_node(target)?;
     let model_view = model_view_target(scene, target_id, item_path);
-    let flow = is_flow_node(scene, target_id) || model_view;
+    let flow = !input_ports_with(scene, target_id, item_path).is_empty();
     if !midpoint && !flow {
         return None;
     }
@@ -127,7 +133,7 @@ fn directional_binding<'a>(
     if let Some(binding) = table_link(source, target, input_b, item_path) {
         return Some(binding);
     }
-    if !crate::agent_chat::is_agent_node(target) {
+    if !crate::agent_chat::is_agent_node(target) && !image_generation_target(target, item_path) {
         return None;
     }
     let mut kind = source_kind(source, item_path)?;
@@ -185,116 +191,6 @@ fn model_view_binding<'a>(
         consumed: false,
         slot: Some(InputSlot::View.id().into()),
     })
-}
-
-/// One input port on the left edge of a generator or text block.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct InputPort {
-    pub slot: InputSlot,
-    /// Fraction down the left edge.
-    pub t: f32,
-    pub label: &'static str,
-}
-
-/// The one output port sits at the right midpoint.
-pub const OUTPUT_T: f32 = 0.5;
-
-const GENERATOR_PORTS: [InputPort; 3] = [
-    InputPort {
-        slot: InputSlot::Media,
-        t: 0.25,
-        label: "Media",
-    },
-    InputPort {
-        slot: InputSlot::Prompt,
-        t: 0.5,
-        label: "Prompt",
-    },
-    InputPort {
-        slot: InputSlot::Style,
-        t: 0.75,
-        label: "Style",
-    },
-];
-
-/// Saved views wired from screenshot images into a 3D viewport.
-pub const MODEL_VIEW_PORT_T: f32 = 0.72;
-
-/// A placed model file that can host the View input port (no format gap).
-pub fn image_model_view_port(path: &std::path::Path) -> bool {
-    use crate::media::{media_kind, MediaKind};
-    media_kind(path) == MediaKind::Model
-}
-
-fn model_view_target<'a>(
-    scene: &Scene,
-    target_id: NodeId,
-    item_path: &dyn Fn(crate::ids::ItemId) -> Option<&'a std::path::Path>,
-) -> bool {
-    let Some(node) = scene.node(target_id) else {
-        return false;
-    };
-    let NodeKind::Image(img) = &node.kind else {
-        return false;
-    };
-    item_path(img.item).is_some_and(image_model_view_port)
-}
-
-const MODEL_VIEW_PORTS: [InputPort; 1] = [InputPort {
-    slot: InputSlot::View,
-    t: MODEL_VIEW_PORT_T,
-    label: "View",
-}];
-
-const TEXT_PORTS: [InputPort; 2] = [
-    InputPort {
-        slot: InputSlot::Media,
-        t: 1.0 / 3.0,
-        label: "Image",
-    },
-    InputPort {
-        slot: InputSlot::Prompt,
-        t: 2.0 / 3.0,
-        label: "Prompt",
-    },
-];
-
-/// The input ports a node draws and binds, top to bottom. Empty for every node
-/// that is not a generator or text block. `WireHost::ports` reads this table.
-pub fn input_ports_of(node: &Node, model_view_port: bool) -> &'static [InputPort] {
-    if model_view_port {
-        return &MODEL_VIEW_PORTS;
-    }
-    match flow_view(node) {
-        Some(atlas_agent::PortalView::Images) => &GENERATOR_PORTS,
-        Some(atlas_agent::PortalView::Text) => &TEXT_PORTS,
-        _ => &[],
-    }
-}
-
-fn flow_view(node: &Node) -> Option<atlas_agent::PortalView> {
-    crate::agent_chat::agent(node)
-        .map(|a| a.view)
-        .filter(|v| *v != atlas_agent::PortalView::Chat)
-}
-
-pub fn input_ports(scene: &Scene, id: NodeId) -> &'static [InputPort] {
-    scene
-        .node(id)
-        .map(|n| input_ports_of(n, false))
-        .unwrap_or(&[])
-}
-
-pub fn input_ports_with<'a>(
-    scene: &Scene,
-    id: NodeId,
-    item_path: &dyn Fn(crate::ids::ItemId) -> Option<&'a std::path::Path>,
-) -> &'static [InputPort] {
-    let Some(node) = scene.node(id) else {
-        return &[];
-    };
-    let model_view = model_view_target(scene, id, item_path);
-    input_ports_of(node, model_view)
 }
 
 /// Generators and text blocks read typed ports and take a wire on any edge.
@@ -1325,6 +1221,7 @@ mod tests {
     fn text(s: &str) -> NodeKind {
         NodeKind::Text(TextNode {
             text: s.into(),
+            style: Default::default(),
             family: Default::default(),
             size: 16.0,
             color: Rgba::BLACK,
@@ -1744,6 +1641,7 @@ mod tests {
                 path: None,
                 text: Some(ShapeText {
                     body: "north wing".into(),
+                    style: Default::default(),
                     family: Default::default(),
                     size: 18.0,
                     color: Rgba::BLACK,

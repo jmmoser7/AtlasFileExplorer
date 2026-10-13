@@ -56,11 +56,31 @@ impl SlateApp {
                 continue;
             };
             let at = rect.translated((nodes.len() as f32 + 1.0) * (rect.w + 24.0), 0.0);
-            nodes.push(
-                self.doc_mut()
-                    .scene
-                    .build_node(at, NodeKind::Image(slate_doc::scene::ImageNode::new(item))),
-            );
+            let mut placed = slate_doc::scene::ImageNode::new(item);
+            if let Some(source) = self.doc().scene.node(id).and_then(|node| match &node.kind {
+                NodeKind::Image(img) => Some(img.clone()),
+                _ => None,
+            }) {
+                placed.result_layers = slate_doc::image_paint::clone_result_layers_to_item(
+                    &source,
+                    &slate_doc::image_paint::ImageResultId::Output(image.id.clone()),
+                    item,
+                    || {
+                        self.doc_mut()
+                            .scene
+                            .build_node(
+                                at,
+                                NodeKind::Image(slate_doc::scene::ImageNode::new(
+                                    slate_doc::ItemId::NONE,
+                                )),
+                            )
+                            .id
+                    },
+                )
+                .into_iter()
+                .collect();
+            }
+            nodes.push(self.doc_mut().scene.build_node(at, NodeKind::Image(placed)));
         }
         if nodes.is_empty() {
             self.toast("This picture has no other results to place.");
@@ -74,6 +94,9 @@ impl SlateApp {
         let Some(id) = self.selected_agent_portal() else {
             return false;
         };
+        if self.cancel_preparing_agent_send(id) {
+            return true;
+        }
         let Some((session, _)) = self.agent_session_for(id) else {
             return false;
         };

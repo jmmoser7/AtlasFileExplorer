@@ -12,6 +12,8 @@
 //! [`HomeModel::interactive`] to false until contents-focus
 //! (`P1.portal.contents-focus`).
 
+use crate::mesh_aa::feather_boundary;
+
 use crate::recent::{RecentEntry, RecentList};
 use crate::theme::Palette;
 use crate::tokens::{self, HomeTokens};
@@ -295,6 +297,8 @@ pub struct AlbumInput {
     pub host_paints_rest: bool,
 }
 
+mod album_wheel;
+
 /// Image-only presentation of the shared album motion. At rest the active image
 /// fills its portal; browsing reveals neighbors and then settles back to full bleed.
 pub fn image_album(
@@ -334,6 +338,7 @@ pub fn image_album(
         FlowInput {
             drag: input.drag && several,
             wheel: input.wheel && several,
+            discrete_album_wheel: true,
         },
         &tuning,
     );
@@ -418,132 +423,8 @@ pub fn album_browsing(ctx: &egui::Context, id: Id) -> f32 {
         .unwrap_or(1.0)
 }
 
-/// Designed size of one album index square and the gap between them.
-const STRIP_SQUARE: f32 = 22.0;
-const STRIP_GAP: f32 = 5.0;
-/// A wider gap separates pictures from different runs.
-const STRIP_RUN_GAP: f32 = 12.0;
-const STRIP_OFFSET: f32 = 10.0;
-/// At most this many squares show, centered on the shown picture.
-const STRIP_MAX: usize = 24;
-
-/// Where the index strip sits under an album, in the album's board units.
-pub fn album_strip_rect(album: Rect, count: usize, zoom: f32) -> Rect {
-    let n = count.min(STRIP_MAX) as f32;
-    let width = n * STRIP_SQUARE + (n - 1.0).max(0.0) * STRIP_RUN_GAP;
-    Rect::from_center_size(
-        Pos2::new(
-            album.center().x,
-            album.bottom() + (STRIP_OFFSET + STRIP_SQUARE * 0.5) * zoom,
-        ),
-        Vec2::new(width, STRIP_SQUARE) * zoom,
-    )
-}
-
-/// Square thumbnails under an album while it is browsed (or `shown`), marking
-/// the picture on display among every picture the album holds. `runs[i]` names
-/// the run that made picture `i`; a wider gap separates runs. Returns a square
-/// the pointer clicked.
-#[allow(clippy::too_many_arguments)]
-pub fn album_index_strip(
-    ui: &egui::Ui,
-    id: Id,
-    album: Rect,
-    images: &[AlbumImage],
-    runs: &[&str],
-    focus: usize,
-    shown: bool,
-    zoom: f32,
-    theme: crate::theme::Palette,
-    min_images: usize,
-    disabled_hover: Option<&str>,
-) -> Option<usize> {
-    if images.len() < min_images.max(1) {
-        return None;
-    }
-    let fade = album_browsing(ui.ctx(), id).max(ui.ctx().animate_bool_with_time(
-        id.with("album-strip"),
-        shown,
-        ALBUM_SETTLE_SECONDS,
-    ));
-    if fade <= 0.01 {
-        return None;
-    }
-    let side = STRIP_SQUARE * zoom;
-    if side < 2.0 {
-        return None;
-    }
-    let start = focus
-        .saturating_sub(STRIP_MAX / 2)
-        .min(images.len().saturating_sub(STRIP_MAX));
-    let end = (start + STRIP_MAX).min(images.len());
-    let gaps: Vec<f32> = (start..end)
-        .map(|i| {
-            if i == start {
-                0.0
-            } else if runs.get(i) != runs.get(i - 1) {
-                STRIP_RUN_GAP * zoom
-            } else {
-                STRIP_GAP * zoom
-            }
-        })
-        .collect();
-    let width = side * (end - start) as f32 + gaps.iter().sum::<f32>();
-    let top = album.bottom() + STRIP_OFFSET * zoom;
-    let mut x = album.center().x - width * 0.5;
-    let mut painter = ui.painter().clone();
-    painter.multiply_opacity(fade);
-    let mut clicked = None;
-    for (offset, i) in (start..end).enumerate() {
-        x += gaps[offset];
-        let square = Rect::from_min_size(Pos2::new(x, top), Vec2::splat(side));
-        x += side;
-        let enabled = images[i].enabled;
-        let mut response = ui.interact(
-            square,
-            id.with(("album-index", i)),
-            if enabled {
-                egui::Sense::click()
-            } else {
-                egui::Sense::hover()
-            },
-        );
-        if !enabled {
-            if let Some(tip) = disabled_hover {
-                response = response.on_hover_text(tip);
-            }
-        }
-        if enabled && response.clicked() {
-            clicked = Some(i);
-        }
-        let radius = 3.0 * zoom;
-        let image = images[i];
-        match image.texture {
-            Some(texture) => painter.add(
-                egui::epaint::RectShape::filled(square, radius, Color32::WHITE)
-                    .with_texture(texture, album_uv(image.size, square.size())),
-            ),
-            None => painter.add(egui::epaint::RectShape::filled(square, radius, theme.card)),
-        };
-        let active = i == focus;
-        painter.rect_stroke(
-            square,
-            radius,
-            egui::Stroke::new(
-                (if active { 1.6 } else { 0.8 }) * zoom,
-                if active {
-                    theme.select
-                } else if response.hovered() {
-                    theme.ink
-                } else {
-                    theme.border_strong
-                },
-            ),
-            egui::StrokeKind::Outside,
-        );
-    }
-    clicked
-}
+mod album_strip;
+pub use album_strip::{album_index_strip, album_strip_rect};
 
 fn album_uv(source: Vec2, host: Vec2) -> Rect {
     let ratio = (host.x / host.y.max(1.0)) / (source.x / source.y.max(1.0)).max(0.001);
@@ -739,6 +620,7 @@ struct CoverFlowState {
     /// Detent the spring is easing toward (same unwrapped space as `position`).
     target: f32,
     wheel_accum: f32,
+    album_wheel: album_wheel::AlbumWheel,
     phase: InteractionPhase,
     /// Press that only stopped momentum — must not open on release.
     stop_gesture: bool,
@@ -753,6 +635,7 @@ impl Default for CoverFlowState {
             velocity: 0.0,
             target: 0.0,
             wheel_accum: 0.0,
+            album_wheel: Default::default(),
             phase: InteractionPhase::Idle,
             stop_gesture: false,
             cover_count: 0,
@@ -913,6 +796,7 @@ fn normalize_position(position: &mut f32, count: usize) {
 struct FlowInput {
     drag: bool,
     wheel: bool,
+    discrete_album_wheel: bool,
 }
 
 /// Draw the Cover Flow home into `ui`'s full available rect.
@@ -937,6 +821,7 @@ fn advance_flow(
         flow.velocity = 0.0;
         flow.target = flow.position;
         flow.wheel_accum = 0.0;
+        flow.album_wheel = Default::default();
         flow.phase = InteractionPhase::Idle;
         flow.stop_gesture = false;
         flow.cover_count = count;
@@ -975,7 +860,22 @@ fn advance_flow(
     if (interactive || input.wheel) && count > 0 {
         // Wheel / trackpad: accumulate px, then step the target one detent at
         // a time so every advance is spring-animated (never a teleport).
-        if input.wheel && resp.hovered() {
+        if input.wheel && resp.hovered() && input.discrete_album_wheel {
+            let step = ui.input(|i| {
+                flow.album_wheel
+                    .step(i.time, &i.events, tuning.wheel_px_per_album)
+            });
+            if step != 0.0 && flow.phase != InteractionPhase::Dragging {
+                let base = if flow.phase == InteractionPhase::Snapping {
+                    flow.target
+                } else {
+                    flow.position.round()
+                };
+                flow.target = base + step;
+                flow.phase = InteractionPhase::Snapping;
+                flow.stop_gesture = false;
+            }
+        } else if input.wheel && resp.hovered() {
             let scroll = ui.input(|i| i.smooth_scroll_delta.x + i.smooth_scroll_delta.y);
             if scroll.abs() > 0.01 && flow.phase != InteractionPhase::Dragging {
                 flow.wheel_accum += -scroll / tuning.wheel_px_per_album;
@@ -1126,6 +1026,7 @@ pub fn cover_flow_home(ui: &Ui, palette: &Palette, model: HomeModel<'_>) -> Home
         FlowInput {
             drag: model.interactive,
             wheel: model.interactive,
+            discrete_album_wheel: false,
         },
         &tuning,
     );
@@ -1868,46 +1769,6 @@ fn artwork_mesh(
         feather_boundary(&mut mesh, &boundary, feather);
         mesh
     })
-}
-
-/// Raw epaint meshes bypass path AA. Give only the silhouette a one-device-pixel
-/// coverage fringe; internal column seams stay solid. UVs stay on the edge so
-/// clamp sampling cannot pull unrelated texels into the fringe.
-fn feather_boundary(mesh: &mut Mesh, boundary: &[u32], width: f32) {
-    let n = boundary.len();
-    let area: f32 = (0..n)
-        .map(|i| {
-            let a = mesh.vertices[boundary[i] as usize].pos;
-            let b = mesh.vertices[boundary[(i + 1) % n] as usize].pos;
-            a.x * b.y - b.x * a.y
-        })
-        .sum();
-    let original: Vec<Vertex> = boundary
-        .iter()
-        .map(|&i| mesh.vertices[i as usize])
-        .collect();
-    let start = mesh.vertices.len() as u32;
-    for i in 0..n {
-        let p = original[i].pos;
-        let normal = |edge: Vec2| {
-            let d = edge.normalized();
-            Vec2::new(d.y, -d.x) * area.signum()
-        };
-        let a = normal(p - original[(i + n - 1) % n].pos);
-        let b = normal(original[(i + 1) % n].pos - p);
-        let miter = (a + b) / (1.0 + a.dot(b)).max(0.25);
-        mesh.vertices[boundary[i] as usize].pos -= miter * width * 0.5;
-        mesh.vertices.push(Vertex {
-            pos: p + miter * width * 0.5,
-            color: Color32::TRANSPARENT,
-            ..original[i]
-        });
-    }
-    for i in 0..n {
-        let j = (i + 1) % n;
-        mesh.add_triangle(boundary[i], boundary[j], start + j as u32);
-        mesh.add_triangle(boundary[i], start + j as u32, start + i as u32);
-    }
 }
 
 /// Normalized sigmoid falloff over `t ∈ [0, 1]`: 1 at the card edge, 0 at the

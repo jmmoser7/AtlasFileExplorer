@@ -39,7 +39,9 @@ impl SlateApp {
         painter: &egui::Painter,
         outline: &[Pos2],
         srect: Rect,
+        node: NodeId,
         item: ItemId,
+        text_override: Option<&str>,
         path: &std::path::Path,
         corner: slate_doc::scene::Corner,
         pointer: Option<Pos2>,
@@ -51,7 +53,7 @@ impl SlateApp {
             palette.card,
             EStroke::NONE,
         ));
-        if self.text_doc_edit.as_ref().is_some_and(|e| e.item == item) {
+        if self.text_doc_edit.as_ref().is_some_and(|e| e.node == node) {
             // The inline editor paints the words and the caret.
             return;
         }
@@ -59,7 +61,10 @@ impl SlateApp {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        match self.snippet_for(item, path) {
+        match text_override
+            .map(std::borrow::Cow::Borrowed)
+            .or_else(|| self.snippet_for(item, path).map(std::borrow::Cow::Owned))
+        {
             Some(snippet) => {
                 let inner = text_card_inner(srect, corner, z);
                 let clip = painter.with_clip_rect(inner);

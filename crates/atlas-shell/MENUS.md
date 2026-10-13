@@ -57,6 +57,13 @@ with `menu::separator`.
 
 ## Tuner
 
+Fixed-width board context menus use `menu::Metrics` over this same painter.
+The approved Slate studio recipe supplies width 256, row height 33, icon size
+18, inset 8, divider height 12, and corner radius 10. This is a local layout;
+it never changes global menu tokens. Long labels elide before shortcut or
+chevron columns, with their full name on hover. Other menus retain their
+existing token geometry and text behavior.
+
 `[menu]` in `ui-tokens.toml`. The live editor (either app, `--features
 ui-tuner`) exposes **Menus · Geometry & spacing**, **Typography**,
 **Shadow**, and light/dark colors first in the dashboard.

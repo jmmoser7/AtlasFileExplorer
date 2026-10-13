@@ -2,6 +2,18 @@
 
 use super::*;
 
+fn image_layers(h: &Harness, id: NodeId) -> Vec<slate_doc::PaintLayer> {
+    let Some(NodeKind::Image(img)) = h.app.doc().scene.node(id).map(|node| &node.kind) else {
+        return Vec::new();
+    };
+    let Some(result) = h.app.image_result_id(id) else {
+        return Vec::new();
+    };
+    slate_doc::image_paint::result_layers(img, &result)
+        .map(|stack| stack.layers.clone())
+        .unwrap_or_else(|| img.paint_layers.clone())
+}
+
 /// tip18 inside an image-paint session: the Shift drag previews every frame
 /// and extends the last mark on the image's layer as one path (D03), so
 /// the joint keeps the stroke's opacity; each segment is one undo step.
@@ -41,19 +53,14 @@ fn brush_shift_drag_in_an_image_paint_session_previews() {
         egui::Modifiers::NONE,
         |_| {},
     );
-    let layer_nodes = |h: &Harness| match &h.app.doc().scene.node(image_id).unwrap().kind {
-        slate_doc::scene::NodeKind::Image(img) => img
-            .paint_layers
+    let layer_nodes = |h: &Harness| {
+        image_layers(h, image_id)
             .iter()
             .map(|l| l.nodes.len())
-            .sum::<usize>(),
-        _ => 0,
+            .sum::<usize>()
     };
     assert_eq!(layer_nodes(&h), 1);
-    let mark = |h: &Harness| match &h.app.doc().scene.node(image_id).unwrap().kind {
-        slate_doc::scene::NodeKind::Image(img) => img.paint_layers[0].nodes[0].clone(),
-        _ => panic!("the image"),
-    };
+    let mark = |h: &Harness| image_layers(h, image_id)[0].nodes[0].clone();
     let drawn = mark(&h);
     let from = h.app.brush_line_anchor().expect("the mark's end").pos;
     let raw_end = Pos2::new(300.0, 250.0);
@@ -73,10 +80,11 @@ fn brush_shift_drag_in_an_image_paint_session_previews() {
     );
     assert_eq!(h.app.doc().scene.nodes.len(), 1, "and not on the board");
     let host = h.app.doc().scene.node(image_id).unwrap().clone();
-    let slate_doc::scene::NodeKind::Image(img) = &host.kind else {
-        panic!("the image");
-    };
-    let world = slate_doc::image_paint::layer_node_to_world(&host, img, &mark(&h));
+    let img = h
+        .app
+        .image_for_selected_result(image_id)
+        .expect("the selected result");
+    let world = slate_doc::image_paint::layer_node_to_world(&host, &img, &mark(&h));
     let v = path_vertices(&world);
     let end = board_snap::ortho_snap_point(from, raw_end);
     assert!(
@@ -85,7 +93,7 @@ fn brush_shift_drag_in_an_image_paint_session_previews() {
     );
     // One stamp: the joint is no more opaque than the stroke's body.
     let mut stamps = Default::default();
-    let rgba = slate_artifact::rasterize_paint_layers(&host, img, 400, 300, None, &mut stamps)
+    let rgba = slate_artifact::rasterize_paint_layers(&host, &img, 400, 300, None, &mut stamps)
         .expect("the layer rasters");
     let alpha = |p: Pos2| rgba[(p.y as usize * 400 + p.x as usize) * 4 + 3];
     let body = alpha(from + (end - from) * 0.5);
@@ -204,12 +212,9 @@ fn image_paint_brush_commits_into_active_layer_not_scene() {
         1,
         "stroke stays on the layer"
     );
-    let host = h.app.doc().scene.node(image_id).unwrap();
-    let slate_doc::scene::NodeKind::Image(img) = &host.kind else {
-        panic!("image");
-    };
-    assert_eq!(img.paint_layers.len(), 1);
-    assert_eq!(img.paint_layers[0].nodes.len(), 1);
+    let layers = image_layers(&h, image_id);
+    assert_eq!(layers.len(), 1);
+    assert_eq!(layers[0].nodes.len(), 1);
 }
 
 #[test]
@@ -319,12 +324,9 @@ fn image_drop_layer_on_rotated_host_is_one_undo_group() {
         .app
         .add_dropped_image_as_layer(target_id, items[1], Some(source_id)));
     assert!(h.app.doc().scene.node(source_id).is_none());
-    let slate_doc::scene::NodeKind::Image(img) = &h.app.doc().scene.node(target_id).unwrap().kind
-    else {
-        panic!("image");
-    };
-    assert_eq!(img.paint_layers.len(), 1);
-    assert!(img.paint_layers[0].nodes[0].rotation_deg.abs() < 1e-4);
+    let layers = image_layers(&h, target_id);
+    assert_eq!(layers.len(), 1);
+    assert!(layers[0].nodes[0].rotation_deg.abs() < 1e-4);
     h.app.board_undo();
     assert!(h.app.doc().scene.node(source_id).is_some());
     let slate_doc::scene::NodeKind::Image(img) = &h.app.doc().scene.node(target_id).unwrap().kind

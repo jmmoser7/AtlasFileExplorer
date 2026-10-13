@@ -30,7 +30,15 @@ impl SlateApp {
                     let on_image = self.press_on_selected_crop(world);
                     if !on_image {
                         self.board_crop = None;
+                    } else if let Some(drag) = self.begin_crop_pan(world) {
+                        return Some(drag);
                     }
+                }
+                // Agent controls own their grip regions, so a press there
+                // cannot also begin a board selection or transform drag.
+                let xf = self.board_xf();
+                if self.agent_grip_owns(screen, &xf) {
+                    return None;
                 }
                 // Match hover priority: the visible fillet grip wins any
                 // overlap with wire/resize bands, and a curve grip only
@@ -57,6 +65,13 @@ impl SlateApp {
                 // Vertex / handle / arc grips on a selected curve.
                 if let Some(drag) = self.begin_curve_grip_drag(screen, mods) {
                     return Some(BoardDrag::Direct(drag));
+                }
+                if mods.ctrl && mods.shift {
+                    return Some(BoardDrag::Direct(super::super::board_direct::DirectDrag::Marquee {
+                        start_screen: screen,
+                        add: true,
+                        edges: true,
+                    }));
                 }
                 if let Some(drag) = self.begin_picked_edge_drag(world) {
                     return Some(BoardDrag::Direct(drag));

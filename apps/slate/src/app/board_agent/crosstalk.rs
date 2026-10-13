@@ -396,10 +396,9 @@ impl SlateApp {
         let reach = canvas_scale::px(PORT_REACH, xf.z);
         [Side::Top, Side::Bottom].into_iter().find(|side| {
             let p = slate_doc::connector_anchor_on(node, *side, 0.5);
-            xf.w2s(Pos2::new(p[0], p[1])).distance(screen) <= reach
+            self.port_reaches(screen, xf, *side, p, reach)
         })
     }
-
     /// The topmost crosstalk port under `screen`.
     pub(crate) fn crosstalk_port_under(
         &self,
@@ -2116,7 +2115,10 @@ mod tests {
         }
         h.frame();
     }
-
+    fn click_empty_board(h: &mut Harness) {
+        let canvas = h.app.canvas_rect;
+        click(h, canvas.right_top() + egui::vec2(-48.0, 48.0));
+    }
     fn escape(h: &mut Harness) {
         h.frame_with(|i| {
             i.events.push(egui::Event::Key {
@@ -2987,8 +2989,7 @@ mod tests {
             (capsule.center() - mid).length() < 0.5,
             "the capsule expands in place at the mid-span"
         );
-        let canvas = p.h.app.canvas_rect;
-        click(&mut p.h, canvas.left_bottom() + egui::vec2(40.0, -40.0));
+        click_empty_board(&mut p.h);
         assert_eq!(p.h.app.agents.crosstalk.open, None, "a click away folds");
         assert_eq!(
             p.h.app.tab().journal.undo_depth(),
@@ -3007,8 +3008,7 @@ mod tests {
         p.h.frame_with(|i| i.events.push(egui::Event::PointerMoved(mid)));
         p.h.frame();
         p.h.app.board_sel = [p.codex].into_iter().collect();
-        let canvas = p.h.app.canvas_rect;
-        click(&mut p.h, canvas.left_bottom() + egui::vec2(40.0, -40.0));
+        click_empty_board(&mut p.h);
         assert!(
             p.h.app.board_sel.is_empty(),
             "the click on empty board clears the selection"
@@ -3035,8 +3035,7 @@ mod tests {
         }
         p.h.frame();
         p.h.app.board_sel = [p.codex].into_iter().collect();
-        let canvas = p.h.app.canvas_rect;
-        click(&mut p.h, canvas.left_bottom() + egui::vec2(40.0, -40.0));
+        click_empty_board(&mut p.h);
         assert!(
             p.h.app.board_sel.is_empty(),
             "the click on empty board clears the selection"

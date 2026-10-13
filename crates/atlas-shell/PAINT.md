@@ -37,6 +37,13 @@ gradient meshes and shared icons in both themes. Its diagnostic `--no-msaa` flag
 reproduces the old hard edges. The [September 18 captures and pixel checks](../../design/render-quality-2026-09-18/README.md)
 record the regression; headless egui tessellation alone cannot verify GPU coverage.
 
+Tab bubbles use one cached gradient mesh with a boundary-only coverage fringe,
+shared through `mesh_aa::feather_boundary` with Home. Horizontal row strokes are
+not a surface fill: their ends leave stepped shoulders. Image tabs use full-height
+eased slopes; dock and top-bar tabs retain their rounded geometry. The native
+`shape_palettes --blister-quality --capture <prefix>` fixture reviews shoulders,
+joined frame strokes and exterior selection in both themes at fractional positions.
+
 ## Tapered ribbon (`taper::paint_tapered_ribbon`)
 
 **Use for:** dock partition lines and any future soft separators that need a

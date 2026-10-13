@@ -1,24 +1,27 @@
 //! Derived hover state and bounded model worker for image highlights.
 
 use super::{region_node, SegmentResult};
-use atlas_segment::{Request, Segmenter};
+use atlas_segment::{Candidate, PointPrompt, Prediction, Request, Segmenter};
 use eframe::egui::{self, Pos2, Rect};
-use slate_doc::NodeId;
+use slate_doc::{scene::Node, NodeId};
 use std::time::Instant;
 
 const SAMPLE_EDGE: usize = 768;
 
 /// Sharing resident pixels makes dispatch constant-time; conversion stays off UI.
 pub(super) struct PendingImage {
+    /// SAM image-encoder key (pixels plus mirroring, not the active crop).
     pub key: String,
+    /// Selection identity also contains crop geometry for stale-result checks.
+    pub source_key: String,
     pub pixels: std::sync::Arc<egui::ColorImage>,
     pub mirror: [bool; 2],
-    pub point: [f32; 2],
+    pub prompts: Vec<PointPrompt>,
     pub window: Vec<Vec<[f32; 2]>>,
 }
 
 impl PendingImage {
-    fn prepare(self) -> Result<Request, String> {
+    fn prepare(self) -> Result<(Request, Vec<PointPrompt>), String> {
         let [w, h] = self.pixels.size;
         if w < 2 || h < 2 {
             return Err("Image preview is too small to highlight.".into());
@@ -37,26 +40,54 @@ impl PendingImage {
                 rgb.extend_from_slice(&color[..3]);
             }
         }
-        Ok(Request {
-            key: self.key,
-            width,
-            height,
-            rgb,
-            point: self.point,
-            window: self.window,
-        })
+        let point = self
+            .prompts
+            .iter()
+            .find(|prompt| prompt.positive)
+            .map_or([0.5, 0.5], |prompt| prompt.point);
+        Ok((
+            Request {
+                key: self.key,
+                width,
+                height,
+                rgb,
+                point,
+                window: self.window,
+            },
+            self.prompts,
+        ))
     }
 }
 
-type WorkerReply = (u64, Result<Vec<Vec<[f32; 2]>>, String>);
+type WorkerReply = (u64, Result<Prediction, String>);
+
+#[derive(Clone)]
+pub(super) struct PinnedSelection {
+    pub(super) tab: u64,
+    pub(super) host: NodeId,
+    pub(super) source_key: String,
+    pub(super) result: SegmentResult,
+    pub(super) prompts: Vec<PointPrompt>,
+    pub(super) screen: Pos2,
+    pub(super) point_norm: [f32; 2],
+}
 
 /// Derived hover state for local image subject highlights; never journaled.
 #[derive(Default)]
 pub(crate) struct ImageSegmentRuntime {
     pub(super) hover: Option<Hover>,
     pub(super) result: Option<SegmentResult>,
+    pub(super) pinned: Option<PinnedSelection>,
+    pub(super) lasso: Option<LassoDraft>,
+    pub(super) drag: Option<MaskDrag>,
+    /// Optional hover growth prototype; never a document field.
+    pub(crate) grow_debug: bool,
+    pub(super) grow_past: Vec<std::sync::Arc<Vec<Vec<[f32; 2]>>>>,
+    pub(super) grow_last: Option<Pos2>,
+    pub(super) prompt_mode: PromptMode,
     pub(super) serial: u64,
     pub(super) pending: Option<u64>,
+    pub(super) queued: Option<(u64, PendingImage)>,
     pub(super) worker: Option<crossbeam_channel::Sender<(u64, PendingImage)>>,
     pub(super) done: Option<crossbeam_channel::Receiver<WorkerReply>>,
     pub(super) action_rect: Option<Rect>,
@@ -65,26 +96,77 @@ pub(crate) struct ImageSegmentRuntime {
     pub(super) dismissed: Option<Pos2>,
 }
 
+#[derive(Clone)]
+pub(super) struct MaskDrag {
+    pub(super) tab: u64,
+    pub(super) host: NodeId,
+    pub(super) source_key: String,
+    /// Tight home geometry is computed once when the pointer is claimed.
+    pub(super) cutout: Option<Node>,
+    /// Base-only preview; the source's cached layer overlay paints separately.
+    pub(super) preview: Option<Node>,
+    pub(super) start: Pos2,
+    pub(super) point: [f32; 2],
+    pub(super) alt: bool,
+    pub(super) pinned_on_press: bool,
+    pub(super) can_extract: bool,
+    pub(super) moved: bool,
+    /// The snapped world displacement used by both preview and placement.
+    pub(super) delta: egui::Vec2,
+}
+
+#[derive(Clone)]
+pub(super) struct LassoDraft {
+    pub(super) tab: u64,
+    pub(super) host: NodeId,
+    pub(super) source_key: String,
+    pub(super) points: Vec<[f32; 2]>,
+    pub(super) last_click: Option<Instant>,
+    pub(super) last_click_screen: Option<Pos2>,
+}
+
+#[derive(Clone, Copy, Default)]
+pub(super) enum PromptMode {
+    #[default]
+    Include,
+    Exclude,
+}
+
 pub(super) struct Hover {
     pub(super) tab: u64,
     pub(super) host: NodeId,
     pub(super) gen: u64,
+    pub(super) source_key: String,
     pub(super) point_norm: [f32; 2],
+    pub(super) prompts: Vec<PointPrompt>,
     pub(super) screen: Pos2,
     pub(super) since: Instant,
 }
 
 impl ImageSegmentRuntime {
-    /// A result, a running request, or an error is on screen as the capsule.
+    /// Tool changes end transient gestures while retaining the pinned mask.
+    pub(crate) fn cancel_tool_gestures(&mut self) {
+        self.lasso = None;
+        self.drag = None;
+    }
+
+    /// A current result or pending request owns this hover context.
     pub(super) fn offered(&self) -> bool {
-        self.result.is_some() || self.pending.is_some() || self.error.is_some()
+        self.pinned.is_some()
+            || self.result.is_some()
+            || self.pending.is_some()
+            || self.error.is_some()
     }
 
     pub(super) fn clear(&mut self) {
         self.serial = self.serial.wrapping_add(1);
         self.hover = None;
         self.result = None;
+        self.cancel_tool_gestures();
+        self.grow_past.clear();
+        self.grow_last = None;
         self.pending = None;
+        self.queued = None;
         self.action_rect = None;
         self.corridor = None;
     }
@@ -98,26 +180,68 @@ impl ImageSegmentRuntime {
                 continue;
             }
             self.pending = None;
+            self.grow_past.clear();
+            self.grow_last = None;
             let Some(hover) = &self.hover else {
                 continue;
             };
             match result {
-                Ok(contours) => {
-                    self.result =
-                        slate_doc::image_paint::region_path(contours.clone()).map(|path| {
-                            SegmentResult {
-                                host: hover.host,
-                                gen: hover.gen,
-                                local: region_node(path),
-                                mask: std::sync::Arc::new(contours),
-                            }
-                        });
-                    // Empty masks do not spin inference on every frame.
-                    if self.result.is_none() {
-                        self.error = Some("No object found here. Try another point.".into());
+                Ok(prediction) => {
+                    let result = make_result(
+                        hover.host,
+                        hover.gen,
+                        hover.source_key.clone(),
+                        prediction.candidates,
+                    );
+                    if let Some(pinned) = self.pinned.as_mut().filter(|pinned| {
+                        pinned.tab == hover.tab
+                            && pinned.host == hover.host
+                            && pinned.source_key == hover.source_key
+                    }) {
+                        if let Some(result) = result {
+                            pinned.result = result;
+                            self.error = None;
+                        } else {
+                            self.error = Some("No object found here. Try another point.".into());
+                        }
+                    } else {
+                        self.result = result;
+                        self.error = self
+                            .result
+                            .is_none()
+                            .then(|| "No object found here. Try another point.".into());
                     }
                 }
                 Err(error) => self.error = Some(error),
+            }
+        }
+        if let (Some(tx), Some(queued)) = (&self.worker, self.queued.take()) {
+            match tx.try_send(queued) {
+                Ok(()) => {}
+                Err(crossbeam_channel::TrySendError::Full(queued)) => {
+                    self.queued = Some(queued);
+                }
+                Err(crossbeam_channel::TrySendError::Disconnected(_)) => {
+                    self.error = Some("The local segmentation worker stopped.".into());
+                    self.pending = None;
+                }
+            }
+        }
+    }
+
+    pub(super) fn submit(&mut self, serial: u64, request: PendingImage) {
+        self.error = None;
+        self.pending = Some(serial);
+        if let Some(tx) = &self.worker {
+            match tx.try_send((serial, request)) {
+                Ok(()) => {}
+                Err(crossbeam_channel::TrySendError::Full(queued)) => {
+                    self.queued = Some(queued);
+                }
+                Err(crossbeam_channel::TrySendError::Disconnected(_)) => {
+                    self.pending = None;
+                    self.error = Some("The local segmentation worker stopped.".into());
+                }
             }
         }
     }
@@ -130,16 +254,19 @@ impl ImageSegmentRuntime {
         std::thread::spawn(move || {
             let mut model = None;
             while let Ok((serial, request)) = rx.recv() {
-                let result = request.prepare().and_then(|request| match model.as_mut() {
-                    Some(model) => Segmenter::segment(model, &request),
-                    None => {
-                        Segmenter::start(&atlas_core::index::data_dir()).and_then(|mut started| {
-                            let result = started.segment(&request);
-                            model = Some(started);
-                            result
-                        })
-                    }
-                });
+                let result =
+                    request
+                        .prepare()
+                        .and_then(|(request, prompts)| match model.as_mut() {
+                            Some(model) => Segmenter::segment_points(model, &request, &prompts),
+                            None => Segmenter::start(&atlas_core::index::data_dir()).and_then(
+                                |mut started| {
+                                    let result = started.segment_points(&request, &prompts);
+                                    model = Some(started);
+                                    result
+                                },
+                            ),
+                        });
                 if result.is_err() {
                     model = None;
                 }
@@ -152,6 +279,30 @@ impl ImageSegmentRuntime {
     }
 }
 
+fn make_result(
+    host: NodeId,
+    gen: u64,
+    source_key: String,
+    candidates: Vec<Candidate>,
+) -> Option<SegmentResult> {
+    let selected = candidates
+        .iter()
+        .enumerate()
+        .max_by(|(_, a), (_, b)| a.quality.total_cmp(&b.quality))
+        .map(|(index, _)| index)?;
+    let contours = candidates.get(selected)?.contours.clone();
+    let path = slate_doc::image_paint::region_path(contours.clone())?;
+    Some(SegmentResult {
+        host,
+        gen,
+        source_key,
+        local: region_node(path),
+        mask: std::sync::Arc::new(contours),
+        candidates: std::sync::Arc::new(candidates),
+        selected,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -159,16 +310,20 @@ mod tests {
     fn pending(size: [usize; 2], mirror: [bool; 2]) -> PendingImage {
         PendingImage {
             key: "resident".into(),
+            source_key: "resident:crop".into(),
             pixels: std::sync::Arc::new(egui::ColorImage::new(size, egui::Color32::RED)),
             mirror,
-            point: [0.5, 0.5],
+            prompts: vec![PointPrompt {
+                point: [0.5, 0.5],
+                positive: true,
+            }],
             window: vec![],
         }
     }
 
     #[test]
     fn worker_bounds_rgb_payload_and_preserves_aspect_ratio() {
-        let request = std::thread::spawn(|| pending([4096, 2048], [false; 2]).prepare())
+        let (request, prompts) = std::thread::spawn(|| pending([4096, 2048], [false; 2]).prepare())
             .join()
             .unwrap()
             .unwrap();
@@ -176,6 +331,7 @@ mod tests {
         assert_eq!(request.rgb.len(), 768 * 384 * 3);
         assert_eq!(&request.rgb[..3], &[255, 0, 0]);
         assert_eq!(request.point, [0.5, 0.5]);
+        assert_eq!(prompts.len(), 1);
     }
 
     #[test]
@@ -187,7 +343,7 @@ mod tests {
             egui::Color32::BLUE,
             egui::Color32::WHITE,
         ];
-        let rgb = request.prepare().unwrap().rgb;
+        let rgb = request.prepare().unwrap().0.rgb;
         assert_eq!(rgb, [255, 255, 255, 0, 0, 255, 0, 255, 0, 255, 0, 0]);
     }
 

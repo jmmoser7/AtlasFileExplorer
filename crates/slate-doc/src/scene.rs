@@ -26,6 +26,12 @@ use std::sync::Arc;
 use crate::ids::{GroupId, ItemId, TagId};
 use crate::spatial::SpatialIndex;
 
+mod image;
+pub use image::ImageNode;
+
+mod capabilities;
+pub use capabilities::{supports_corners, supports_fill, supports_image_adjust, supports_stroke};
+
 // ---------- geometry ----------
 
 /// Axis-aligned rectangle in board world coordinates.
@@ -1070,6 +1076,7 @@ pub struct Crop {
 }
 
 impl Crop {
+    pub const MIN_SPAN: f32 = 1e-6;
     pub fn full() -> Crop {
         Crop {
             x: 0.0,
@@ -1084,8 +1091,8 @@ impl Crop {
     }
 
     pub fn clamped(&self) -> Crop {
-        let w = self.w.clamp(0.05, 1.0);
-        let h = self.h.clamp(0.05, 1.0);
+        let w = self.w.clamp(Self::MIN_SPAN, 1.0);
+        let h = self.h.clamp(Self::MIN_SPAN, 1.0);
         Crop {
             x: self.x.clamp(0.0, 1.0 - w),
             y: self.y.clamp(0.0, 1.0 - h),
@@ -1164,12 +1171,15 @@ impl FontChoice {
 macro_rules! typefaces {
     ($first:ident, $first_label:literal, $first_css:literal, $first_file:expr, $first_egui:expr;
      $($variant:ident, $label:literal, $css:literal, $file:expr, $egui:expr;)*) => {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
         #[serde(rename_all = "snake_case")]
         pub enum Typeface {
-            #[default]
             $first,
             $($variant,)*
+        }
+
+        impl Default for Typeface {
+            fn default() -> Self { Self::Sans }
         }
 
         impl Typeface {
@@ -1211,11 +1221,13 @@ macro_rules! typefaces {
 }
 
 typefaces! {
+    Replica, "Replica", "'Replica Std', Replica, Arial, sans-serif", Some("ReplicaStd-Regular.otf"), Some("slate-replica");
+    Arial, "Arial", "Arial, Helvetica, sans-serif", Some("arial.ttf"), Some("slate-arial");
+    Courier, "Courier New", "'Courier New', Courier, monospace", Some("cour.ttf"), Some("slate-courier");
     Sans, "Sans", "system-ui, 'Segoe UI', Helvetica, Arial, sans-serif", None, None;
     Serif, "Serif", "Georgia, 'Times New Roman', serif", None, Some("slate-serif");
     Mono, "Mono", "'Cascadia Mono', Consolas, 'SF Mono', monospace", None, None;
     Segoe, "Segoe UI", "'Segoe UI', system-ui, sans-serif", Some("segoeui.ttf"), Some("slate-segoe");
-    Arial, "Arial", "Arial, Helvetica, sans-serif", Some("arial.ttf"), Some("slate-arial");
     Calibri, "Calibri", "Calibri, 'Segoe UI', sans-serif", Some("calibri.ttf"), Some("slate-calibri");
     Verdana, "Verdana", "Verdana, sans-serif", Some("verdana.ttf"), Some("slate-verdana");
     Tahoma, "Tahoma", "Tahoma, sans-serif", Some("tahoma.ttf"), Some("slate-tahoma");
@@ -1233,7 +1245,6 @@ typefaces! {
     Constantia, "Constantia", "Constantia, serif", Some("constan.ttf"), Some("slate-constantia");
     Century, "Century Schoolbook", "'Century Schoolbook', serif", Some("CENTURY.TTF"), Some("slate-century");
     Consolas, "Consolas", "Consolas, monospace", Some("consola.ttf"), Some("slate-consolas");
-    Courier, "Courier New", "'Courier New', Courier, monospace", Some("cour.ttf"), Some("slate-courier");
     Cascadia, "Cascadia Mono", "'Cascadia Mono', Consolas, monospace", Some("CascadiaMono.ttf"), Some("slate-cascadia");
     SegoeScript, "Segoe Script", "'Segoe Script', cursive", Some("segoesc.ttf"), Some("slate-segoe-script");
     SegoePrint, "Segoe Print", "'Segoe Print', cursive", Some("segoepr.ttf"), Some("slate-segoe-print");
@@ -1248,6 +1259,37 @@ impl From<FontChoice> for Typeface {
             FontChoice::Serif => Typeface::Serif,
             FontChoice::Mono => Typeface::Mono,
         }
+    }
+}
+
+impl Typeface {
+    /// Matching bold face where Windows ships one. Remaining faces use the
+    /// original face as fallback, preserving the requested typeface.
+    pub fn bold_font_file(self) -> Option<&'static str> {
+        Some(match self {
+            Self::Replica => "ReplicaStd-Bold.otf",
+            Self::Sans | Self::Segoe => "segoeuib.ttf",
+            Self::Arial => "arialbd.ttf",
+            Self::Mono | Self::Consolas => "consolab.ttf",
+            Self::Serif | Self::Georgia => "georgiab.ttf",
+            Self::Courier => "courbd.ttf",
+            Self::Calibri => "calibrib.ttf",
+            Self::Verdana => "verdanab.ttf",
+            Self::Tahoma => "tahomabd.ttf",
+            Self::Trebuchet => "trebucbd.ttf",
+            Self::Candara => "Candarab.ttf",
+            Self::Corbel => "corbelb.ttf",
+            Self::Franklin => "framd.ttf",
+            Self::Comic => "comicbd.ttf",
+            Self::Times => "timesbd.ttf",
+            Self::Palatino => "palab.ttf",
+            Self::Garamond => "GARABD.TTF",
+            Self::Constantia => "constanb.ttf",
+            Self::Century => "SCHLBKB.TTF",
+            Self::SegoeScript => "segoescb.ttf",
+            Self::SegoePrint => "segoeprb.ttf",
+            _ => return self.font_file(),
+        })
     }
 }
 
@@ -2147,85 +2189,9 @@ pub struct SheetLayout {
     pub rows: Vec<f32>,
 }
 
-/// Never pixels — the pool item owns the file link.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ImageNode {
-    pub item: ItemId,
-    /// Column and row sizes when this card shows a spreadsheet.
-    #[serde(default, skip_serializing_if = "SheetLayout::is_empty")]
-    pub sheet: SheetLayout,
-    #[serde(default = "Crop::full")]
-    pub crop: Crop,
-    #[serde(default)]
-    pub corner: Corner,
-    #[serde(default)]
-    pub stroke: Stroke,
-    #[serde(default)]
-    pub adjust: ImageAdjust,
-    /// Playback settings when the linked item is a video; default otherwise.
-    #[serde(default)]
-    pub video: VideoOpts,
-    /// Saved viewport pose when the linked item is a 3D model; default
-    /// otherwise.
-    #[serde(default)]
-    pub model: ModelCamera,
-    /// The agent generating this picture. Its results are the card's album;
-    /// `item` is the result a person picked, and [`ItemId::NONE`] shows the
-    /// newest (see [`crate::agent_inputs::newest_image`]).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent: Option<Box<AgentPortalRef>>,
-    /// Trace-paper overlays (brush, pen, shapes, text) clipped to this image.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub paint_layers: Vec<crate::image_paint::PaintLayer>,
-    /// Pixels mirrored left to right inside the crop window. `crop` and the
-    /// paint layers are stored as displayed; see [`crate::mirror`].
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub flip_x: bool,
-    /// Pixels mirrored top to bottom inside the crop window.
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub flip_y: bool,
-}
-
 impl SheetLayout {
     pub fn is_empty(&self) -> bool {
         self.cols.is_empty() && self.rows.is_empty()
-    }
-}
-
-impl ImageNode {
-    /// A freshly-placed item: full crop, square corners, no stroke, identity
-    /// adjust, default playback.
-    pub fn new(item: ItemId) -> ImageNode {
-        ImageNode {
-            item,
-            sheet: SheetLayout::default(),
-            crop: Crop::full(),
-            corner: Corner::Square,
-            stroke: Stroke::none(),
-            adjust: ImageAdjust::default(),
-            video: VideoOpts::default(),
-            model: ModelCamera::default(),
-            agent: None,
-            paint_layers: Vec::new(),
-            flip_x: false,
-            flip_y: false,
-        }
-    }
-
-    pub fn mirror(&self) -> Mirror {
-        Mirror {
-            x: self.flip_x,
-            y: self.flip_y,
-        }
-    }
-
-    /// A picture an agent will generate; it shows the newest result until a
-    /// person picks one.
-    pub fn generated(agent: AgentPortalRef) -> ImageNode {
-        ImageNode {
-            agent: Some(Box::new(agent)),
-            ..ImageNode::new(ItemId::NONE)
-        }
     }
 }
 
@@ -2423,60 +2389,11 @@ pub enum ShapeKind {
     Path,
 }
 
-pub fn default_regular_sides() -> u8 {
-    6
-}
-
-pub const REGULAR_POLYGON_SIDES_MIN: u8 = 3;
-pub const REGULAR_POLYGON_SIDES_MAX: u8 = 12;
-
-pub fn clamp_regular_sides(sides: u8) -> u8 {
-    sides.clamp(REGULAR_POLYGON_SIDES_MIN, REGULAR_POLYGON_SIDES_MAX)
-}
-
-/// Vertices of a regular n-gon inscribed in `rect`. Vertex `i` sits at
-/// parameter angle `-90° + phase_deg + i·360°/n` on the inscribed ellipse,
-/// so phase 0 puts the first vertex at top center.
-pub fn regular_polygon_vertices(rect: WorldRect, sides: u8, phase_deg: f32) -> Vec<[f32; 2]> {
-    let n = clamp_regular_sides(sides) as f32;
-    let (cx, cy) = rect.center();
-    let rx = rect.w * 0.5;
-    let ry = rect.h * 0.5;
-    let start = -std::f32::consts::FRAC_PI_2 + phase_deg.to_radians();
-    (0..clamp_regular_sides(sides) as usize)
-        .map(|i| {
-            let a = start + i as f32 * (std::f32::consts::TAU / n);
-            [cx + rx * a.cos(), cy + ry * a.sin()]
-        })
-        .collect()
-}
-
-/// Side count and phase after adding (`add`) or removing one side at
-/// vertex `k` (P1.shape.polygon-sides). Removing keeps a vertex exactly at
-/// vertex `k`: the new vertex 0 takes its angle. Adding keeps vertex `k`
-/// at that same angle and re-spaces the others around it. `None` at the
-/// 3 / 12 limits.
-pub fn regular_polygon_resided(
-    sides: u8,
-    phase_deg: f32,
-    k: usize,
-    add: bool,
-) -> Option<(u8, f32)> {
-    let n = clamp_regular_sides(sides);
-    let next = if add { n + 1 } else { n - 1 };
-    if next != clamp_regular_sides(next) {
-        return None;
-    }
-    let k = k % n as usize;
-    let at = phase_deg + k as f32 * 360.0 / n as f32;
-    let phase = if add {
-        at - k as f32 * 360.0 / next as f32
-    } else {
-        at
-    };
-    let phase = phase.rem_euclid(360.0);
-    Some((next, if phase >= 360.0 { 0.0 } else { phase }))
-}
+mod polygon;
+pub use polygon::{
+    clamp_regular_sides, default_regular_sides, regular_polygon_resided, regular_polygon_vertex,
+    regular_polygon_vertices, REGULAR_POLYGON_SIDES_MAX, REGULAR_POLYGON_SIDES_MIN,
+};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShapeNode {
@@ -2509,9 +2426,31 @@ pub struct ShapeNode {
 }
 
 /// Paragraph text hosted by a closed shape. One style for the whole block.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TextStyle {
+    #[serde(default)]
+    pub bold: bool,
+    #[serde(default)]
+    pub italic: bool,
+    #[serde(default)]
+    pub underline: bool,
+}
+
+impl TextStyle {
+    pub fn css(self) -> String {
+        format!("font-weight:{};font-style:{};text-decoration:{};",
+            if self.bold { "bold" } else { "normal" },
+            if self.italic { "italic" } else { "normal" },
+            if self.underline { "underline" } else { "none" })
+    }
+}
+
+/// Paragraph text hosted by a closed shape. One style for the whole block.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShapeText {
     pub body: String,
+    #[serde(default)]
+    pub style: TextStyle,
     #[serde(default)]
     pub family: Typeface,
     #[serde(default = "default_shape_text_size")]
@@ -2533,6 +2472,7 @@ impl ShapeText {
     pub fn new(color: Rgba) -> Self {
         Self {
             body: String::new(),
+            style: TextStyle::default(),
             family: Typeface::Sans,
             size: default_shape_text_size(),
             color,
@@ -2581,6 +2521,8 @@ pub fn ensure_shape_text(node: &mut Node) -> Option<&mut ShapeText> {
 pub struct TextNode {
     pub text: String,
     #[serde(default)]
+    pub style: TextStyle,
+    #[serde(default)]
     pub family: Typeface,
     pub size: f32,
     pub color: Rgba,
@@ -2618,6 +2560,7 @@ impl TextNode {
     pub fn agent_note(agent: AgentPortalRef) -> TextNode {
         TextNode {
             text: String::new(),
+            style: Default::default(),
             family: Typeface::Sans,
             size: AGENT_NOTE_SIZE,
             color: STICKY_INK,
@@ -3561,7 +3504,14 @@ fn paint_layer_slot(
     let NodeKind::Image(img) = &mut nodes[idx].kind else {
         return None;
     };
-    img.paint_layers.iter_mut().find(|l| l.id == layer)
+    img.paint_layers
+        .iter_mut()
+        .chain(
+            img.result_layers
+                .iter_mut()
+                .flat_map(|stack| &mut stack.layers),
+        )
+        .find(|candidate| candidate.id == layer)
 }
 
 impl Scene {
@@ -5825,6 +5775,7 @@ mod tests {
             WorldRect::new(0.0, 0.0, 10.0, 10.0),
             NodeKind::Text(TextNode {
                 text: "x".into(),
+                style: Default::default(),
                 family: Default::default(),
                 size: 12.0,
                 color: Rgba::BLACK,
@@ -6316,12 +6267,6 @@ pub fn stroke_of(node: &Node) -> Option<Stroke> {
     }
 }
 
-/// Stroke editor applies to shapes, images, wires, text boxes, slide frames,
-/// and portal frames.
-pub fn supports_stroke(node: &Node) -> bool {
-    stroke_of(node).is_some()
-}
-
 pub fn set_stroke(node: &mut Node, stroke: Stroke) {
     match &mut node.kind {
         NodeKind::Shape(s) => s.stroke = stroke,
@@ -6360,22 +6305,6 @@ pub fn set_corner(node: &mut Node, corner: Corner) {
         NodeKind::Frame(f) => f.corner = corner,
         NodeKind::Portal(p) => p.corner = corner,
         _ => {}
-    }
-}
-
-/// Fillet/chamfer applies to rectangles, images, slide frames, and portals.
-/// Other shapes store a corner field that is not a user-facing treatment.
-pub fn supports_corners(node: &Node) -> bool {
-    match &node.kind {
-        NodeKind::Shape(s) => {
-            matches!(s.shape, ShapeKind::Rect | ShapeKind::RegularPolygon)
-                || (s.shape == ShapeKind::Path
-                    && s.path
-                        .as_ref()
-                        .is_some_and(|p| crate::geom::path_is_line_polyline(p)))
-        }
-        NodeKind::Image(_) | NodeKind::Frame(_) | NodeKind::Portal(_) => true,
-        _ => false,
     }
 }
 
@@ -6483,12 +6412,6 @@ pub fn set_adjust(node: &mut Node, adjust: ImageAdjust) {
     }
 }
 
-/// Photo-filter / ImageAdjust editors apply to placed images, including 3D
-/// model viewports (over the live render or frozen poster).
-pub fn supports_image_adjust(node: &Node) -> bool {
-    matches!(node.kind, NodeKind::Image(_))
-}
-
 pub fn fill_of(node: &Node) -> Option<Rgba> {
     match &node.kind {
         NodeKind::Shape(s) => s.fill,
@@ -6517,19 +6440,6 @@ pub fn set_fill(node: &mut Node, fill: Option<Rgba>) {
             }
         }
         _ => {}
-    }
-}
-
-/// Fill editor authors closed-shape paint, text sticky-note background, and
-/// frame/portal frame color. Text ink stays on `TextNode.color`.
-pub fn supports_fill(node: &Node) -> bool {
-    match &node.kind {
-        NodeKind::Shape(s) => {
-            s.shape != ShapeKind::Line
-                && (s.shape != ShapeKind::Path || s.path.as_ref().is_some_and(|p| p.closed))
-        }
-        NodeKind::Text(_) | NodeKind::Frame(_) | NodeKind::Portal(_) => true,
-        _ => false,
     }
 }
 
@@ -6614,6 +6524,7 @@ mod corner_percentage_tests {
         let image = node(NodeKind::Image(ImageNode::new(crate::ItemId(1))));
         let text = node(NodeKind::Text(TextNode {
             text: "Note".into(),
+            style: Default::default(),
             family: Typeface::default(),
             size: 16.0,
             color: Rgba([0, 0, 0, 255]),

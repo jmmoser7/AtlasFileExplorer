@@ -36,14 +36,15 @@ impl SlateApp {
         }
         // 8 world units: the artifact's `padding:8px` on shape text.
         let inset = 8.0;
-        let galley = zoom_text_galley(
+        let galley = styled_text_galley(
             painter.ctx(),
             &text.body,
-            typeface_font(text.family, text.size),
+            styled_typeface_font(painter.ctx(), text.family, text.size, text.style),
             (node.rect.w - inset * 2.0).max(0.0),
             text.align,
             fade(rgba32(text.color)),
             z,
+            text.style,
         );
         let pos = Pos2::new(
             srect.left() + canvas_scale::px(inset, z),

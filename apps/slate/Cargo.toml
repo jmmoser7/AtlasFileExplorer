@@ -10,6 +10,7 @@ ui-tuner = ["atlas-shell/ui-tuner"]
 
 [dependencies]
 atlas-core = { workspace = true }
+atlas-curl = { workspace = true }
 atlas-update = { workspace = true }
 atlas-shell = { workspace = true }
 atlas-commands = { workspace = true }
@@ -27,6 +28,7 @@ eframe = { workspace = true }
 crossbeam-channel = { workspace = true }
 rfd = { workspace = true }
 image = { workspace = true }
+url = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

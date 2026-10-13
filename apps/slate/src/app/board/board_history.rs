@@ -3,6 +3,20 @@
 use super::*;
 
 impl SlateApp {
+    /// Copy a source with its current generated image output materialized as
+    /// the durable seed. Runtime sessions belong to the original node id, so
+    /// a new duplicate would otherwise have no active result to paint.
+    fn duplicate_source_snapshot(&self, source: &Node) -> Node {
+        let mut snapshot = source.clone();
+        if matches!(&source.kind, NodeKind::Image(_)) {
+            let owner = self.image_drop_source_owner(source.id);
+            if let Some((image, _)) = self.shape_fill_source_with_output(source.id, owner) {
+                snapshot.kind = NodeKind::Image(image);
+            }
+        }
+        snapshot
+    }
+
     /// Commit a prepared command group through the tab journal.
     pub fn commit_scene(&mut self, cmds: Vec<SceneCmd>) -> bool {
         self.commit_scene_as(cmds, slate_doc::scene::CmdAuthor::Human)
@@ -18,6 +32,7 @@ impl SlateApp {
         if self.refuse_read_only_edit() {
             return false;
         }
+        let image_focus = self.capture_image_paint_focus();
         self.seed_document_colors();
         let colors =
             super::super::board_color::committed_colors(cmds.iter().filter_map(|c| match c {
@@ -37,6 +52,7 @@ impl SlateApp {
         let doc = &mut tab.doc;
         let ok = tab.journal.commit_as(&mut doc.scene, cmds, author);
         if ok {
+            self.restore_image_paint_focus(image_focus);
             self.remember_document_colors(colors);
             self.paint_layer_texture_cache.clear();
             let tab = self.tab_mut();
@@ -78,9 +94,18 @@ impl SlateApp {
 
     pub(super) fn undo_scene_journal(&mut self) -> Option<usize> {
         let depth_before = self.tab().journal.undo_depth();
-        let tab = self.tab_mut();
-        if tab.journal.undo(&mut tab.doc.scene) {
-            tab.dirty = true;
+        let image_focus = self.capture_image_paint_focus();
+        let undone = {
+            let tab = self.tab_mut();
+            if tab.journal.undo(&mut tab.doc.scene) {
+                tab.dirty = true;
+                true
+            } else {
+                false
+            }
+        };
+        if undone {
+            self.restore_image_paint_focus(image_focus);
             Some(depth_before)
         } else {
             None
@@ -88,13 +113,20 @@ impl SlateApp {
     }
 
     pub(super) fn redo_scene_journal(&mut self) -> Option<usize> {
-        let tab = self.tab_mut();
-        if tab.journal.redo(&mut tab.doc.scene) {
-            tab.dirty = true;
-            Some(tab.journal.undo_depth())
-        } else {
-            None
+        let image_focus = self.capture_image_paint_focus();
+        let depth = {
+            let tab = self.tab_mut();
+            if tab.journal.redo(&mut tab.doc.scene) {
+                tab.dirty = true;
+                Some(tab.journal.undo_depth())
+            } else {
+                None
+            }
+        };
+        if depth.is_some() {
+            self.restore_image_paint_focus(image_focus);
         }
+        depth
     }
 
     pub fn board_undo(&mut self) {
@@ -230,7 +262,8 @@ impl SlateApp {
     pub fn duplicate_board_nodes(&mut self, ids: &[NodeId], dx: f32, dy: f32) -> Vec<NodeId> {
         let sources: Vec<Node> = ids
             .iter()
-            .filter_map(|id| self.doc().scene.node(*id).cloned())
+            .filter_map(|id| self.doc().scene.node(*id))
+            .map(|node| self.duplicate_source_snapshot(node))
             .collect();
         if sources.is_empty() {
             return Vec::new();
@@ -271,6 +304,10 @@ impl SlateApp {
         if sources.is_empty() {
             return (ids, before);
         }
+        let sources: Vec<Node> = sources
+            .iter()
+            .map(|node| self.duplicate_source_snapshot(node))
+            .collect();
         let scene = &mut self.doc_mut().scene;
         let mut dups: Vec<Node> = sources
             .iter()
@@ -394,10 +431,7 @@ impl SlateApp {
         if items.is_empty() {
             return;
         }
-        let sizes: Vec<(f32, f32)> = items
-            .iter()
-            .map(|item| self.image_natural_size(*item))
-            .collect();
+        let sizes = self.image_natural_sizes(items);
         let rects = grid_drop_rects(&sizes, at);
         let mut nodes = Vec::new();
         {
@@ -410,42 +444,6 @@ impl SlateApp {
         let ids = self.add_nodes(nodes);
         self.board_sel = ids.iter().copied().collect();
         self.inherit_frame_tags_after_move(&ids);
-    }
-
-    /// Place pool items as image nodes arranged inside a frame, inheriting
-    /// its tags (frame toolbar "+ images" and Atlas drops onto frames).
-    pub fn place_items_in_frame(&mut self, frame: NodeId, items: &[ItemId]) {
-        let Some(rect) = self.doc().scene.node(frame).map(|n| n.rect) else {
-            // Frame vanished — fall back to a plain board drop at origin.
-            self.place_items_on_board(items, Pos2::new(0.0, 0.0));
-            return;
-        };
-        if items.is_empty() {
-            return;
-        }
-        let pad = 24.0f32;
-        let cols = (items.len() as f32).sqrt().ceil().max(1.0) as usize;
-        let cell_w = ((rect.w - pad * 2.0) / cols as f32).clamp(60.0, IMAGE_W);
-        let cell_h = cell_w * (IMAGE_H / IMAGE_W);
-        let mut nodes = Vec::new();
-        {
-            let scene = &mut self.doc_mut().scene;
-            for (i, item) in items.iter().enumerate() {
-                let col = (i % cols) as f32;
-                let row = (i / cols) as f32;
-                let r = WorldRect::new(
-                    rect.x + pad + col * (cell_w + 8.0),
-                    rect.y + pad + row * (cell_h + 8.0),
-                    cell_w,
-                    cell_h,
-                );
-                let img = ImageNode::new(*item);
-                nodes.push(scene.build_node(r, NodeKind::Image(img)));
-            }
-        }
-        let ids = self.add_nodes(nodes);
-        self.board_sel = ids.iter().copied().collect();
-        self.apply_frame_tags(frame, items);
     }
 
     /// Apply a frame's tag assignments to pool items (drop inheritance).

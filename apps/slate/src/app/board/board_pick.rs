@@ -75,7 +75,7 @@ impl SlateApp {
                 return;
             }
             BoardTool::Trim | BoardTool::Split => {
-                self.trim_click(world, mods.shift);
+                self.trim_click_modifiers(world, mods.shift, mods.ctrl);
                 return;
             }
             BoardTool::Select => {
@@ -230,6 +230,8 @@ impl SlateApp {
         };
         match &node.kind {
             NodeKind::Text(t) => {
+                self.shape_properties.panel = None;
+                self.text_edit_rect = None;
                 if t.fill.is_some() {
                     self.board_sel.clear();
                     self.board_sel.insert(id);
@@ -272,10 +274,13 @@ impl SlateApp {
                         .collect();
                 let body = s.text.as_ref().map(|t| t.body.clone()).unwrap_or_default();
                 self.text_edit = Some((id, body));
-                self.shape_properties.panel = Some(super::super::board_properties::Panel::Text);
+                self.shape_properties.panel = None;
             }
-            NodeKind::Image(img) => {
-                if let Some(path) = self.doc().item(img.item).map(|it| it.path.clone()) {
+            NodeKind::Image(_) => {
+                if self.begin_text_document_edit(&node) {
+                    return;
+                }
+                if let Some(path) = self.image_item_path(id) {
                     if self
                         .model_node_info(id)
                         .is_some_and(|info| self.model3d.external.contains(&info.cache_key))

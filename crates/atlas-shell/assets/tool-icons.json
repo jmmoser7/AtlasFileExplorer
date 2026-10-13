@@ -1,4 +1,7 @@
 {
+  "Bold": {"path":"M7 4H13Q18 4 18 8Q18 12 13 12H7V4ZM7 12H14Q19 12 19 16Q19 20 14 20H7V12Z","filled":false,"stroke_width":2.5},
+  "Italic": {"path":"M11 4H19M5 20H13M15 4 9 20","filled":false},
+  "Underline": {"path":"M6 4V12Q6 17 12 17Q18 17 18 12V4M5 21H19","filled":false},
   "ChatBundle": {
     "path": "M4 3H20Q22 3 22 5V19Q22 21 20 21H4Q2 21 2 19V5Q2 3 4 3ZM5 8H10V17H5ZM14 8H19V17H14ZM5 6H12",
     "filled": false
@@ -79,6 +82,10 @@
     "path": "M12 4 19 8 19 16 12 20 5 16 5 8Z",
     "filled": false
   },
+  "Lasso": {
+    "path": "M5 7 12 4 20 8 19 16 12 20 6 16ZM5 7C3 6 2 4 3 3Q4 2 6 4L5 7",
+    "filled": false
+  },
   "Line": {
     "path": "M5 19 19 5",
     "filled": false
@@ -137,6 +144,10 @@
   },
   "Filters": {
     "path": "M3 5H21L14 13V20L10 18V13Z",
+    "filled": false
+  },
+  "Sliders": {
+    "path": "M3 7H6M12 7H21M9 4A3 3 0 1 0 9 10A3 3 0 1 0 9 4M3 17H15M21 17H18M15 14A3 3 0 1 0 15 20A3 3 0 1 0 15 14",
     "filled": false
   },
   "Grid": {

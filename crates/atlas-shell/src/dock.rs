@@ -10,6 +10,13 @@
 //! icon + kind) and one arm in the app's body callback. Renaming = changing
 //! `label`. App-specific icons use [`DockIcon::Custom`] with a painter fn.
 
+mod accordion;
+mod inline;
+mod primary;
+use accordion::accordion_peel_inners;
+use primary::paint_builtin_icon;
+
+use crate::dock_plate::{associate_shade, mix_icon_fill, primary_plate_fill};
 use crate::sidebar::{
     paint_toggle_dot, sidebar_icon_row, sidebar_tool_row, SidebarTheme, TOGGLE_SLIDE_SECS,
 };
@@ -34,6 +41,7 @@ pub type DockIconPainter = fn(&egui::Painter, Rect, Color32);
 /// painters (e.g. Slate's board tool icons).
 #[derive(Clone, Copy)]
 pub enum DockIcon {
+    Feedback,
     Actions,
     ObjectProperties,
     DocumentSettings,
@@ -77,13 +85,13 @@ pub enum DockIcon {
 /// icons as another (neighbors by order only — no visible separator).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum DockItemKind {
-    /// Settings dashboards (filters, tags, display…). Hover → title chip;
+    /// Settings forms (filters, tags, display…). Hover → title chip;
     /// click → volatile body; double-click → pin. See `TOOLBARS.md`.
     Dashboard,
     /// Selection-dependent value editors. Same pin/close behavior, always a
     /// form: icon-strip layout must not hide editable values behind icons.
     Inspector,
-    /// Tool flyouts (shapes, curves, nav…). Same hover / click / pin model.
+    /// Tool flyouts: bottom-edge click toggles inline; left edge previews/pins.
     Tool,
     /// Click fires an action; no body. Hover shows the title chip above the icon.
     Action,
@@ -99,7 +107,7 @@ impl DockItemKind {
     }
 }
 
-/// Palettes (tools and dashboards) are an icon strip. Inspectors stay as
+/// Tool palettes are icon strips. Dashboards and Inspectors stay as
 /// stacked forms so editable values never hide behind icons.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum DockBodyLayout {
@@ -325,36 +333,6 @@ const ICON_ACTIVE_MIX: f32 = 0.18;
 /// Title-chip translucency (on top of the open animation).
 const HOVER_CHIP_OPACITY: f32 = 0.78;
 
-/// Dark mode lightens gray; light mode darkens it.
-fn associate_shade(color: Color32, dark: bool, tint: f32) -> Color32 {
-    let toward = if dark {
-        Color32::from_rgba_unmultiplied(255, 255, 255, color.a())
-    } else {
-        Color32::from_rgba_unmultiplied(0, 0, 0, color.a())
-    };
-    mix_icon_fill(color, toward, tint)
-}
-
-/// Signed luminance shift. Positive matches [`associate_shade`]; negative
-/// flips the direction so a primary plate can sit darker than its host.
-fn signed_shade(color: Color32, dark: bool, offset: f32) -> Color32 {
-    if offset.abs() < 0.0005 {
-        color
-    } else if offset > 0.0 {
-        associate_shade(color, dark, offset)
-    } else {
-        associate_shade(color, !dark, -offset)
-    }
-}
-
-/// Idle fill of a primary dock plate. `primary_fill_mix` blends the
-/// absolute icon token toward the secondary capsule plus its offset.
-fn primary_plate_fill(th: &DockThemeTokens, p: &DockPaletteTokens, dark: bool) -> Color32 {
-    let secondary = th.popover_fill_color().gamma_multiply(p.group_fill);
-    let linked = signed_shade(secondary, dark, p.primary_fill_offset);
-    mix_icon_fill(th.icon_fill_color(), linked, p.primary_fill_mix)
-}
-
 /// Primary-icon outline: pinned is always denser than idle; hover can go further.
 fn icon_outline(associated: bool, pinned: bool, p: &DockPaletteTokens) -> (f32, f32) {
     let (width, tint) = if pinned {
@@ -367,16 +345,6 @@ fn icon_outline(associated: bool, pinned: bool, p: &DockPaletteTokens) -> (f32, 
     } else {
         (width, tint)
     }
-}
-
-fn mix_icon_fill(base: Color32, accent: Color32, t: f32) -> Color32 {
-    let t = t.clamp(0.0, 1.0);
-    Color32::from_rgba_unmultiplied(
-        (base.r() as f32 + (accent.r() as f32 - base.r() as f32) * t).round() as u8,
-        (base.g() as f32 + (accent.g() as f32 - base.g() as f32) * t).round() as u8,
-        (base.b() as f32 + (accent.b() as f32 - base.b() as f32) * t).round() as u8,
-        (base.a() as f32 + (accent.a() as f32 - base.a() as f32) * t).round() as u8,
-    )
 }
 
 fn lerp_toward(current: f32, target: f32, dt: f32, duration: f32) -> f32 {
@@ -472,45 +440,6 @@ pub fn paint_squircle(painter: &egui::Painter, rect: Rect, fill: Color32, stroke
 
 pub fn paint_dock_icon(painter: &egui::Painter, rect: Rect, icon: DockIcon, color: Color32) {
     paint_builtin_icon(painter, rect, icon, color);
-}
-
-fn paint_builtin_icon(painter: &egui::Painter, rect: Rect, icon: DockIcon, color: Color32) {
-    use crate::icons::{self, Icon};
-    let icon = match icon {
-        DockIcon::Custom(paint) => return paint(painter, rect, color),
-        DockIcon::Filters => Icon::Filters,
-        DockIcon::Display => Icon::Display,
-        DockIcon::Mode => Icon::Mode,
-        DockIcon::Workflow => Icon::Workflow,
-        DockIcon::Ai => Icon::Ai,
-        DockIcon::Tags => Icon::Tags,
-        DockIcon::Selection => Icon::Selection,
-        DockIcon::View => Icon::View,
-        DockIcon::Lens => Icon::Lens,
-        DockIcon::Grid => Icon::Grid,
-        DockIcon::SnapGrid => Icon::SnapGrid,
-        DockIcon::Osnap => Icon::Snap,
-        DockIcon::SnapEnd => Icon::SnapEnd,
-        DockIcon::SnapMid => Icon::SnapMid,
-        DockIcon::SnapCenter => Icon::SnapCenter,
-        DockIcon::SnapNear => Icon::SnapNear,
-        DockIcon::SnapInt => Icon::SnapInt,
-        DockIcon::SnapQuad => Icon::SnapQuad,
-        DockIcon::SnapPerp => Icon::SnapPerp,
-        DockIcon::SnapTan => Icon::SnapTan,
-        DockIcon::Swap => Icon::Swap,
-        DockIcon::Reset => Icon::Reset,
-        DockIcon::Fit => Icon::Fit,
-        DockIcon::Dark => Icon::Dark,
-        DockIcon::Ghost => Icon::Ghost,
-        DockIcon::Hide => Icon::Hide,
-        DockIcon::Duplicates => Icon::Colors,
-        DockIcon::Actions => Icon::Actions,
-        DockIcon::ObjectProperties => Icon::ObjectProperties,
-        DockIcon::DocumentSettings => Icon::DocumentSettings,
-        DockIcon::ModeEdit => Icon::ModeEdit,
-    };
-    icons::paint(painter, rect, icon, color);
 }
 
 fn popover_frame(t: &DockTokens, th: &DockThemeTokens) -> egui::Frame {
@@ -1257,6 +1186,9 @@ fn measure_icon_strip_refs(
     side: DockSide,
     budget: f32,
 ) -> IconStripLayout {
+    if inline::active(ctx) {
+        return inline::layout(shown, tokens);
+    }
     let groups = group_flyout_runs(shown);
     let size = flyout_icon_size(tokens);
     let gap = (tokens.icon_gap * tokens.flyout_icon_scale).max(4.0);
@@ -1645,7 +1577,7 @@ fn interact_blister(
             state_id.with("blister_paint"),
         ))
         .with_clip_rect(screen);
-    let bubble = TabBubble {
+    let bubble = TabBubble::Rounded {
         far_radius: p.blister_radius,
         shoulder_radius: p.blister_shoulder,
     };
@@ -1748,54 +1680,6 @@ fn icon_line_cap(size: f32, gap: f32, budget: f32) -> usize {
 fn icon_line_along(cols: usize, size: f32, gap: f32) -> f32 {
     let c = cols.max(1);
     c as f32 * size + c.saturating_sub(1) as f32 * gap
-}
-
-/// Peel one column at a time from the widest group so icons stay in a
-/// sideways row and only the overflow steps onto the next line.
-fn accordion_peel_inners(
-    icon_counts: &[usize],
-    start_inners: &[f32],
-    icon: f32,
-    gap: f32,
-    group_pad: f32,
-    group_gap: f32,
-    budget: f32,
-) -> Vec<f32> {
-    let n = start_inners.len();
-    let mut inners = start_inners.to_vec();
-    if n == 0 {
-        return inners;
-    }
-    let frame_along = |inners: &[f32]| -> f32 {
-        inners.iter().map(|w| w + group_pad * 2.0).sum::<f32>()
-            + group_gap * n.saturating_sub(1) as f32
-    };
-    let cols_of = |inner: f32, count: usize| -> usize {
-        let cap = icon_line_cap(icon, gap, inner);
-        if count > 0 {
-            cap.min(count)
-        } else {
-            cap
-        }
-    };
-    let mut guard = 0;
-    while frame_along(&inners) > budget + 0.5 && guard < 256 {
-        guard += 1;
-        let mut best: Option<usize> = None;
-        let mut best_cols = 1usize;
-        for i in 0..n {
-            let cols = cols_of(inners[i], icon_counts[i]);
-            if cols > 1 && cols >= best_cols {
-                best_cols = cols;
-                best = Some(i);
-            }
-        }
-        let Some(i) = best else {
-            break;
-        };
-        inners[i] = icon_line_along(best_cols - 1, icon, gap);
-    }
-    inners
 }
 
 /// When the pinned band overflows, every category peels one column in the
@@ -2683,7 +2567,9 @@ fn paint_icon_strip_visuals(
     let p = &tokens.palette;
     for g in &layout.groups {
         let frame = Rect::from_min_size(origin + g.origin * scale, g.frame * scale);
-        paint_fieldset_frame(ui, frame, g.label.as_deref(), th, p, scale, associate);
+        if !inline::active(ui.ctx()) {
+            paint_fieldset_frame(ui, frame, g.label.as_deref(), th, p, scale, associate);
+        }
         for s in &g.slots {
             if skip_id == Some(s.id) {
                 continue;
@@ -3147,196 +3033,30 @@ pub fn floating_dock(
         .pinned
         .sort_by_key(|pid| order.iter().position(|id| id == pid).unwrap_or(usize::MAX));
 
-    // ---- icon strip ----
-    let bar_area = match side {
-        DockSide::LeftCenter => egui::Area::new(state_id.with("bar"))
-            .order(egui::Order::Foreground)
-            .pivot(Align2::LEFT_CENTER)
-            .fixed_pos(Pos2::new(
-                canvas.left() + tokens.left_margin,
-                canvas.center().y,
-            ))
-            .constrain(false),
-        DockSide::BottomCenter => egui::Area::new(state_id.with("bar"))
-            .order(egui::Order::Foreground)
-            .pivot(Align2::CENTER_BOTTOM)
-            .fixed_pos(Pos2::new(
-                canvas.center().x,
-                canvas.bottom() - tokens.bottom_margin,
-            ))
-            .constrain(false),
-    };
-
+    let primary::PrimaryBar {
+        bar_rect,
+        icon_rects,
+        hovered_icon,
+        label_hover_candidate,
+        label_blocked_by_open,
+        panel_owns,
+        palette_hover,
+        overlay_rect,
+    } = primary::show(
+        ctx,
+        state_id,
+        &mut state,
+        &visible,
+        &tokens,
+        th,
+        canvas,
+        side,
+        now,
+        &mut clicked,
+        &mut drop_to_canvas,
+        &mut panel_body,
+    );
     let pointer = ctx.pointer_latest_pos();
-    let panel_owns = panel_owns_pointer(state.last_union_panels, pointer);
-    let palette_hover: Option<&'static str> = pointer.and_then(|p| {
-        state
-            .last_panel_rects
-            .iter()
-            .find(|(_, r)| r.expand(4.0).contains(p))
-            .map(|(id, _)| *id)
-    });
-    ctx.data_mut(|d| d.insert_temp(egui::Id::new(DOCK_SIDE_ID), side));
-
-    let mut icon_rects: HashMap<&'static str, Rect> = HashMap::new();
-    let mut label_hover_candidate: Option<&'static str> = None;
-    // Pointer is over a pinned / volatile-open icon — previous chips must die
-    // immediately (the bar still counts as "inside", so close-delay alone
-    // would leave the prior name stuck).
-    let mut label_blocked_by_open = false;
-    let mut hovered_icon: Option<&'static str> = None;
-    let bar_response = (!state.bar_collapsed).then(|| {
-        bar_area.show(ctx, |ui| {
-            let mut draw_items = |ui: &mut egui::Ui| {
-                ui.spacing_mut().item_spacing = Vec2::splat(tokens.icon_gap);
-                for item in &visible {
-                    if item.gap_before {
-                        ui.add_space(tokens.icon_gap * 1.5);
-                    }
-                    let (rect, resp) =
-                        ui.allocate_exact_size(Vec2::splat(tokens.icon_size), Sense::click());
-                    icon_rects.insert(item.id, rect);
-                    let hovered = chip_from_icon_hover(resp.hovered(), panel_owns);
-                    let is_pinned = state.pinned.contains(&item.id);
-                    let is_preview = state.body_preview == Some(item.id);
-                    let associated = palette_hover == Some(item.id)
-                        || (resp.hovered() && (is_pinned || is_preview));
-                    let hover_t = ui.ctx().animate_bool_with_time(
-                        state_id.with(("icon_hover", item.id)),
-                        resp.hovered(),
-                        tokens.palette.hover_fade,
-                    );
-                    let assoc_t = ui.ctx().animate_bool_with_time(
-                        state_id.with(("icon_assoc", item.id)),
-                        associated,
-                        tokens.palette.hover_fade,
-                    );
-                    let dark = ui.visuals().dark_mode;
-                    let base = primary_plate_fill(th, &tokens.palette, dark);
-                    let fill = if assoc_t > 0.001 {
-                        let shaded = associate_shade(
-                            base,
-                            dark,
-                            tokens
-                                .palette
-                                .associate_tint
-                                .max(tokens.palette.icon_hover_tint),
-                        );
-                        mix_icon_fill(base, shaded, assoc_t)
-                    } else if item.active || is_pinned || is_preview {
-                        mix_icon_fill(base, th.icon_active_color(), ICON_ACTIVE_MIX)
-                    } else {
-                        let hover_c = th.icon_hover_color();
-                        let hover_c = Color32::from_rgba_unmultiplied(
-                            hover_c.r(),
-                            hover_c.g(),
-                            hover_c.b(),
-                            (hover_c.a() as f32 * tokens.palette.icon_hover_opacity).round() as u8,
-                        );
-                        let hovered_fill =
-                            mix_icon_fill(base, hover_c, tokens.palette.icon_hover_fill);
-                        let shaded =
-                            associate_shade(hovered_fill, dark, tokens.palette.icon_hover_tint);
-                        mix_icon_fill(base, shaded, hover_t)
-                    };
-                    let (outline_w, outline_tint) =
-                        icon_outline(associated, is_pinned, &tokens.palette);
-                    let outline = if outline_tint > 0.0 {
-                        associate_shade(th.border_color(), dark, outline_tint)
-                    } else {
-                        th.border_color()
-                    };
-                    paint_squircle(
-                        ui.painter(),
-                        rect.shrink(0.5),
-                        fill,
-                        Stroke::new(outline_w, outline),
-                        tokens.squircle_exponent,
-                    );
-                    paint_builtin_icon(ui.painter(), rect.shrink(7.0), item.icon, th.text_color());
-
-                    if resp.hovered() {
-                        hovered_icon = Some(item.id);
-                    }
-                    if hovered {
-                        state.last_inside_time = now;
-                        // Title chip only when the panel isn't already open —
-                        // pinned / volatile bodies carry their own caption.
-                        if is_pinned || is_preview {
-                            label_blocked_by_open = true;
-                        } else {
-                            label_hover_candidate = Some(item.id);
-                        }
-                    }
-                    if item.kind.opens_body() && resp.double_clicked() {
-                        clicked = Some(item.id);
-                        state.last_inside_time = now;
-                        if let Some(idx) = state.pinned.iter().position(|p| *p == item.id) {
-                            state.pinned.remove(idx);
-                            state.panel_open.remove(&item.id);
-                        } else {
-                            state.pinned.push(item.id);
-                            state.panel_open.insert(item.id, 0.0);
-                        }
-                        if state.body_preview == Some(item.id) {
-                            state.body_preview = None;
-                        }
-                        // Pin/unpin under a still-hovering cursor must not flash
-                        // the name chip back on top of the icon.
-                        state.label_hover = None;
-                        state.label_hover_since = 0.0;
-                        state.describe_blend = 0.0;
-                        state.label_suppress = true;
-                    } else if resp.clicked() {
-                        clicked = Some(item.id);
-                        state.last_inside_time = now;
-                        if item.kind.opens_body() {
-                            if state.pinned.contains(&item.id) {
-                                if let Some(idx) = state.pinned.iter().position(|p| *p == item.id) {
-                                    state.pinned.remove(idx);
-                                }
-                                state.panel_open.remove(&item.id);
-                                if state.advanced == Some(item.id) {
-                                    state.advanced = None;
-                                }
-                            } else if state.body_preview == Some(item.id) {
-                                state.body_preview = None;
-                                state.panel_open.remove(&item.id);
-                            } else {
-                                // Volatile menu.
-                                state.body_preview = Some(item.id);
-                                state.panel_open.insert(item.id, 0.0);
-                            }
-                            state.label_hover = None;
-                            state.label_hover_since = 0.0;
-                            state.describe_blend = 0.0;
-                            state.label_suppress = true;
-                        }
-                    }
-                }
-            };
-            match side {
-                DockSide::LeftCenter => {
-                    ui.vertical(|ui| draw_items(ui));
-                }
-                DockSide::BottomCenter => {
-                    ui.horizontal(|ui| draw_items(ui));
-                }
-            }
-        })
-    });
-    let bar_rect = if let Some(resp) = bar_response {
-        state.last_icon_rects = icon_rects.clone();
-        remember_bar_rect(ctx, resp.response.rect);
-        resp.response.rect
-    } else {
-        icon_rects = if !state.last_icon_rects.is_empty() {
-            state.last_icon_rects.clone()
-        } else {
-            estimated_icon_rects(&visible, &tokens, canvas, side)
-        };
-        Rect::NOTHING
-    };
     let blister_anchor = blister_anchor_x(side, canvas, &tokens, bar_rect);
 
     let host_associate = hovered_icon
@@ -3462,7 +3182,7 @@ pub fn floating_dock(
     // Area wins) so a name tag never slips behind a pinned toolbar. See
     // the chip block below the stack.
 
-    let mut union_panels = Rect::NOTHING;
+    let mut union_panels = overlay_rect.unwrap_or(Rect::NOTHING);
     let mut new_sizes: HashMap<&'static str, Vec2> = HashMap::new();
     let mut new_widths: HashMap<&'static str, f32> = HashMap::new();
     let mut new_content_h: HashMap<&'static str, f32> = HashMap::new();
@@ -3470,6 +3190,13 @@ pub fn floating_dock(
 
     // ---- Centered stack (pins and the single-click preview share one layout) ----
     let mut open = stack_ids(&state);
+    if inline::hosts(side, &visible) {
+        open.retain(|id| {
+            !visible
+                .iter()
+                .any(|item| item.id == *id && item.kind == DockItemKind::Tool)
+        });
+    }
     open.sort_by_key(|oid| order.iter().position(|id| id == oid).unwrap_or(usize::MAX));
     let strip_ids: Vec<&'static str> = open
         .iter()
@@ -3871,7 +3598,7 @@ pub fn floating_dock(
     }
     state.hidden = hidden_from_ctx(ctx);
     state.order = order_from_ctx(ctx);
-    if !crate::tuning::dock_advanced_preview() {
+    if !inline::hosts(side, &visible) && !crate::tuning::dock_advanced_preview() {
         state.advanced = None;
     }
     state.last_union_panels = (union_panels != Rect::NOTHING).then_some(union_panels);
@@ -3950,7 +3677,7 @@ struct PanelRender {
 }
 
 fn body_layout_for(_state: &DockState, _id: &str, kind: DockItemKind) -> DockBodyLayout {
-    if kind.is_palette() {
+    if kind == DockItemKind::Tool {
         DockBodyLayout::Icons
     } else {
         DockBodyLayout::List
@@ -4617,7 +4344,10 @@ mod tests {
         assert!(panel_is_open(&ctx, "test_inspector", "selection"));
         let layouts = paint();
         assert!(layouts.contains(&("selection", DockBodyLayout::List)));
-        assert!(layouts.contains(&("tools", DockBodyLayout::Icons)));
+        assert!(
+            !layouts.contains(&("tools", DockBodyLayout::Icons)),
+            "the bottom blister hides entire tool families"
+        );
         assert_eq!(bar_collapsed(&ctx, "test_inspector"), Some(true));
 
         let state_id = egui::Id::new(("floating_dock", "test_inspector"));
@@ -5124,7 +4854,7 @@ mod tests {
         );
         assert_eq!(
             body_layout_for(&state, "object.properties", DockItemKind::Dashboard),
-            DockBodyLayout::Icons
+            DockBodyLayout::List
         );
         assert_eq!(
             body_layout_for(&state, "selection", DockItemKind::Inspector),

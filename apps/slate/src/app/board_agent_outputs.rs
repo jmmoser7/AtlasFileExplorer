@@ -47,7 +47,7 @@ pub(crate) struct OutputsUi {
     /// Shift-collected capsules of the open stack.
     picked: Vec<String>,
     /// A capsule being dragged: card, item key, press point.
-    drag: Option<(NodeId, String, Pos2)>,
+    pub(super) drag: Option<(NodeId, String, Pos2)>,
     /// Snapped world point the dragged capsule would land on.
     drop_at: Option<Pos2>,
     /// Output folder per link folder, named once per session.
@@ -269,6 +269,7 @@ fn text_node(app: &mut SlateApp, rect: WorldRect, text: String) -> Node {
         rect,
         NodeKind::Text(slate_doc::scene::TextNode {
             text,
+            style: Default::default(),
             family: slate_doc::scene::Typeface::Sans,
             size: 12.0,
             color: slate_doc::scene::Rgba::opaque(96, 104, 118),
@@ -711,15 +712,10 @@ impl SlateApp {
         ) else {
             return;
         };
-        let Some(node) = self.doc().scene.node(*card) else {
+        let Some(from) = self.return_dot_at(painter.ctx(), *card, xf) else {
             return;
         };
         let palette = self.palette();
-        let r = xf.rect_w2s(node.rect);
-        let from = Pos2::new(
-            r.right() - slate_doc::agent_chat::PORT_INSET * xf.z,
-            r.center().y,
-        );
         let hot = xf.w2s(at);
         painter.line_segment(
             [from, hot],
@@ -1636,11 +1632,7 @@ mod tests {
         pump_outputs(&mut h, card, &link);
         h.frame();
         let xf = h.app.board_xf();
-        let r = xf.rect_w2s(h.app.doc().scene.node(card).unwrap().rect);
-        let circle = Pos2::new(
-            r.right() - slate_doc::agent_chat::PORT_INSET * xf.z,
-            r.center().y,
-        );
+        let circle = h.app.return_dot_at(&h.ctx, card, &xf).unwrap();
         click(&mut h, circle, egui::Modifiers::NONE);
         assert_eq!(h.app.agents.artifact_popup, Some((card, true)));
         let rows: Vec<Rect> =

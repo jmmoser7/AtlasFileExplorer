@@ -12,7 +12,7 @@
 //! about the gesture-start rect center (see [`to_local`] / [`delta_local`]),
 //! matching how `board_snap::resize_from_handle` handles rotation.
 
-use slate_doc::scene::{Crop, WorldRect};
+use slate_doc::scene::{Crop, Node, NodeKind, WorldRect};
 
 /// Minimum crop-window size in world units (matches `MIN_DRAW` in board.rs).
 pub const MIN_CROP_WORLD: f32 = 8.0;
@@ -56,7 +56,7 @@ pub fn delta_local(dx: f32, dy: f32, rotation_deg: f32) -> (f32, f32) {
 pub fn edge_drag(rect: WorldRect, crop: Crop, handle: u8, local: (f32, f32)) -> (WorldRect, Crop) {
     let content = content_rect(rect, crop);
     let (px, py) = local;
-    // Keep the crop UV representable (`Crop::clamped` floors w/h at 0.05)
+    // Keep the ordinary crop-window gesture's five-percent UX floor
     // and never let a pre-existing tiny window block the gesture.
     let min_w = MIN_CROP_WORLD.min(rect.w).max(0.05 * content.w);
     let min_h = MIN_CROP_WORLD.min(rect.h).max(0.05 * content.h);
@@ -118,6 +118,122 @@ pub fn pan_drag(rect: WorldRect, crop: Crop, delta: (f32, f32)) -> Crop {
         y: (c.y - delta.1 / content.h.max(1e-4)).clamp(0.0, 1.0 - c.h),
         w: c.w,
         h: c.h,
+    }
+}
+
+/// Clipped frames stay fixed: their crop grips follow the full source image.
+/// Return the content box with its center rotated about the frame, so the
+/// existing rotated handle owner paints and picks the same ghosted pixels.
+pub fn handle_rect(node: &Node) -> WorldRect {
+    if node.clip.is_none() {
+        return node.rect;
+    }
+    let NodeKind::Image(image) = &node.kind else {
+        return node.rect;
+    };
+    let content = content_rect(node.rect, image.crop);
+    let center = node
+        .rect
+        .rotate_point([content.center().0, content.center().1], node.rotation_deg);
+    WorldRect::new(
+        center[0] - content.w * 0.5,
+        center[1] - content.h * 0.5,
+        content.w,
+        content.h,
+    )
+}
+
+/// Scale source pixels uniformly while the authored shape mask stays fixed.
+/// The opposite content corner stays anchored until the cover constraint
+/// requires sliding it. A source can never shrink enough to expose a gap.
+pub fn content_scale_drag(frame: WorldRect, crop: Crop, handle: u8, local: (f32, f32)) -> Crop {
+    let content = content_rect(frame, crop);
+    let left = matches!(handle, 0 | 6 | 7);
+    let right = matches!(handle, 2..=4);
+    let top = matches!(handle, 0..=2);
+    let bottom = matches!(handle, 4..=6);
+    let sx = if left {
+        (content.x + content.w - local.0) / content.w
+    } else if right {
+        (local.0 - content.x) / content.w
+    } else {
+        0.0
+    };
+    let sy = if top {
+        (content.y + content.h - local.1) / content.h
+    } else if bottom {
+        (local.1 - content.y) / content.h
+    } else {
+        0.0
+    };
+    let min = (frame.w / content.w).max(frame.h / content.h);
+    let max = (crop.w / Crop::MIN_SPAN)
+        .min(crop.h / Crop::MIN_SPAN)
+        .max(min);
+    let scale = sx.max(sy).clamp(min, max);
+    let w = (content.w * scale).max(frame.w);
+    let h = (content.h * scale).max(frame.h);
+    let x = if left {
+        content.x + content.w - w
+    } else if right {
+        content.x
+    } else {
+        content.center().0 - w * 0.5
+    };
+    let y = if top {
+        content.y + content.h - h
+    } else if bottom {
+        content.y
+    } else {
+        content.center().1 - h * 0.5
+    };
+    let content = WorldRect::new(
+        x.clamp(frame.x + frame.w - w, frame.x),
+        y.clamp(frame.y + frame.h - h, frame.y),
+        w,
+        h,
+    );
+    crop_from_rects(frame, content)
+}
+
+/// Apply the primary gesture's relative pan and uniform source scale to another
+/// fixed mask. Each source keeps its own pixel aspect and continues covering it.
+pub fn peer_content_crop(before: Crop, after: Crop, peer: Crop) -> Crop {
+    let before = before.clamped();
+    let after = after.clamped();
+    let peer = peer.clamped();
+    let scale = (after.w / before.w).min(after.h / before.h).clamp(
+        (Crop::MIN_SPAN / peer.w).max(Crop::MIN_SPAN / peer.h),
+        (1.0 / peer.w).min(1.0 / peer.h),
+    );
+    let w = peer.w * scale;
+    let h = peer.h * scale;
+    let cx = peer.x
+        + peer.w * 0.5
+        + ((after.x + after.w * 0.5) - (before.x + before.w * 0.5)) / before.w * peer.w;
+    let cy = peer.y
+        + peer.h * 0.5
+        + ((after.y + after.h * 0.5) - (before.y + before.h * 0.5)) / before.h * peer.h;
+    Crop {
+        x: (cx - w * 0.5).clamp(0.0, 1.0 - w),
+        y: (cy - h * 0.5).clamp(0.0, 1.0 - h),
+        w,
+        h,
+    }
+}
+
+/// Crop-window handles on ordinary images; source-scale handles on shape fills.
+pub fn edge_drag_node(before: &Node, handle: u8, local: (f32, f32)) -> (WorldRect, Crop) {
+    let NodeKind::Image(image) = &before.kind else {
+        return (before.rect, Crop::full());
+    };
+    if before.clip.is_some() {
+        (
+            before.rect,
+            content_scale_drag(before.rect, image.crop, handle, local),
+        )
+    } else {
+        edge_drag(before.rect, image.crop, handle, local)
     }
 }
 
@@ -262,5 +378,56 @@ mod tests {
         // Zero rotation is the identity.
         let (ix, iy) = to_local(3.0, 4.0, 100.0, 100.0, 0.0);
         assert!(approx(ix, 3.0) && approx(iy, 4.0));
+    }
+
+    #[test]
+    fn shape_content_grips_scale_uniformly_and_cannot_shrink_below_cover() {
+        let frame = WorldRect::new(100.0, 100.0, 100.0, 100.0);
+        let crop = slate_doc::geom::cover_crop(frame, 100.0, Crop::full());
+        for handle in 0..8 {
+            let small = content_scale_drag(frame, crop, handle, frame.center());
+            let content = content_rect(frame, small);
+            assert!(approx(content.w / content.h, 100.0));
+            assert!(content.w + 1e-3 >= frame.w && content.h + 1e-3 >= frame.h);
+            assert!(content.x <= frame.x + 1e-3 && content.y <= frame.y + 1e-3);
+            assert!(content.x + content.w + 1e-3 >= frame.x + frame.w);
+            assert!(content.y + content.h + 1e-3 >= frame.y + frame.h);
+        }
+        let scale = content_scale_drag(frame, crop, 4, (10000.0, 500.0));
+        assert!(scale.w < crop.w && scale.h < crop.h);
+        assert!(approx(
+            content_rect(frame, scale).w / content_rect(frame, scale).h,
+            100.0
+        ));
+    }
+
+    #[test]
+    fn clipped_peers_keep_their_own_source_aspect_during_scale_and_pan() {
+        let primary = Crop {
+            x: 0.25,
+            y: 0.25,
+            w: 0.5,
+            h: 0.5,
+        };
+        let changed = Crop {
+            x: 0.5,
+            y: 0.375,
+            w: 0.25,
+            h: 0.25,
+        };
+        let peer = Crop {
+            x: 0.1,
+            y: 0.0,
+            w: 0.8,
+            h: 1.0,
+        };
+        let result = peer_content_crop(primary, changed, peer);
+        assert!(approx(result.w, 0.4) && approx(result.h, 0.5));
+        assert!(approx(result.w / result.h, peer.w / peer.h));
+        assert!(approx(result.x, 0.5) && approx(result.y, 0.25));
+        let covering = peer_content_crop(changed, primary, peer);
+        assert!(approx(covering.w / covering.h, peer.w / peer.h));
+        assert!(covering.x >= 0.0 && covering.y >= 0.0);
+        assert!(covering.x + covering.w <= 1.0 && covering.y + covering.h <= 1.0);
     }
 }

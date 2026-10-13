@@ -113,6 +113,27 @@ pub(super) fn egui_align(align: TextAlign) -> egui::Align {
     }
 }
 
+pub(super) fn styled_typeface_font(ctx: &egui::Context, face: Typeface, size: f32, style: slate_doc::scene::TextStyle) -> FontId {
+    let family = egui::FontFamily::Name(format!("slate-bold-{}", face.index()).into());
+    if style.bold && ctx.fonts(|fonts| fonts.definitions().families.contains_key(&family)) {
+        FontId::new(size, family)
+    } else {
+        typeface_font(face, size)
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn styled_text_galley(ctx: &egui::Context, text: &str, font: FontId, wrap: f32, align: TextAlign, color: Color32, zoom: f32, style: slate_doc::scene::TextStyle) -> std::sync::Arc<egui::Galley> {
+    let spec = canvas_text::WorldSpec {
+        align: egui_align(align),
+        italics: style.italic,
+        underline: style.underline,
+        ..canvas_text::WorldSpec::new(font, wrap)
+    };
+    let layout = canvas_text::world_layout_spec(ctx, text, &spec);
+    canvas_text::zoom_galley(ctx, &layout, color, zoom)
+}
+
 /// Screen galley for authored text. `font.size` and `world_wrap` are world
 /// units; line breaks come from [`canvas_text::world_layout`] and do not
 /// depend on `zoom`. The caret hit-tests this same galley.
@@ -125,9 +146,8 @@ pub(super) fn zoom_text_galley(
     color: Color32,
     zoom: f32,
 ) -> std::sync::Arc<egui::Galley> {
-    let layout = canvas_text::world_layout(ctx, text, font.clone(), world_wrap, egui_align(align));
-    let screen = FontId::new(font.size * zoom, font.family);
-    canvas_text::zoom_galley(ctx, text, &layout, screen, color, zoom)
+    let layout = canvas_text::world_layout(ctx, text, font, world_wrap, egui_align(align));
+    canvas_text::zoom_galley(ctx, &layout, color, zoom)
 }
 
 /// Excerpt type size on a text document card, in world units.
@@ -232,7 +252,7 @@ pub(crate) struct StickyFit {
 
 pub(super) fn center_galley_vertically(galley: &mut egui::Galley, box_h: f32) {
     let dy = (box_h - galley.rect.height()) * 0.5;
-    if dy <= 0.5 {
+    if dy <= 0.0 {
         return;
     }
     for row in &mut galley.rows {

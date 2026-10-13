@@ -1,25 +1,39 @@
 //! Derived raster snapshots for wired agent inputs (filtered base + paint layers).
 
-use super::SlateApp;
-use eframe::egui::ColorImage;
 use image::RgbaImage;
-use slate_doc::scene::{ImageNode, Node, NodeKind};
-use slate_doc::{NodeId, SlateDoc};
+use slate_doc::scene::{ImageNode, Node};
+use slate_doc::SlateDoc;
 use std::path::{Path, PathBuf};
+
+/// Resolve the item locator before a worker opens its bytes.
+pub(crate) fn item_file(
+    doc: &SlateDoc,
+    workbook: Option<&Path>,
+    item: slate_doc::ItemId,
+) -> Option<PathBuf> {
+    let locator = doc.item(item)?.path.to_string_lossy();
+    Some(slate_doc::scene::resolve_source(workbook, &locator))
+}
 
 /// PNG path for generator input: filtered/cropped base plus visible paint layers.
 /// Decodes and encodes; the context publish runs it off the frame loop.
-pub fn agent_wired_image_file(doc: &SlateDoc, node: &Node, img: &ImageNode) -> Option<PathBuf> {
-    let source = doc.item(img.item).map(|i| i.path.clone())?;
-    if !img.mirror().any()
+pub fn agent_wired_image_file_from_source(
+    doc: &SlateDoc,
+    node: &Node,
+    img: &ImageNode,
+    source: &Path,
+) -> Option<PathBuf> {
+    if node.clip.is_none()
+        && img.adjust == Default::default()
+        && !img.mirror().any()
         && img
             .paint_layers
             .iter()
             .all(|l| !l.visible || l.nodes.is_empty())
     {
-        return super::imagefx::visible_crop_file(&source, img.crop).or_else(|| {
+        return super::imagefx::visible_crop_file(source, img.crop).or_else(|| {
             if img.crop.is_full() {
-                Some(source)
+                Some(source.to_path_buf())
             } else {
                 None
             }
@@ -27,12 +41,12 @@ pub fn agent_wired_image_file(doc: &SlateDoc, node: &Node, img: &ImageNode) -> O
     }
     #[cfg(test)]
     super::imagefx::DECODES_ON_THIS_THREAD.with(|n| n.set(n.get() + 1));
-    let rgba = composite_rgba(doc, node, img, &source, false)?;
+    let rgba = composite_rgba(doc, node, img, source)?;
     let dir = std::env::temp_dir().join("slate-composite");
     std::fs::create_dir_all(&dir).ok()?;
     let key = format!(
         "{:016x}-{}-{}.png",
-        path_key(&source),
+        composite_key(source, node, img),
         node.id.0,
         img.paint_layers.len()
     );
@@ -42,15 +56,17 @@ pub fn agent_wired_image_file(doc: &SlateDoc, node: &Node, img: &ImageNode) -> O
 }
 
 /// The picture as the board shows it before the node's own rotation:
-/// mirrored source, crop window, filters, the color overlay when asked,
+/// mirrored source, crop window, filters and color overlay,
 /// then visible paint layers. Pure over `doc`, so it runs off the frame loop.
 pub fn composite_rgba(
     doc: &slate_doc::SlateDoc,
     node: &Node,
     img: &ImageNode,
     source: &Path,
-    with_overlay: bool,
 ) -> Option<RgbaImage> {
+    if atlas_core::cloud::is_dehydrated(source) {
+        return None;
+    }
     let mut base = image::open(source).ok()?;
     if img.flip_x {
         base = base.fliph();
@@ -67,24 +83,7 @@ pub fn composite_rgba(
     let ch = ((c.h * h as f32).round() as u32).clamp(1, h - y);
     let cropped = base.crop_imm(x, y, cw, ch);
     let mut rgba = RgbaImage::from_vec(cw, ch, cropped.to_rgba8().into_raw())?;
-    let color_img = ColorImage {
-        size: [cw as usize, ch as usize],
-        pixels: rgba
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .map(|p| eframe::egui::Color32::from_rgba_unmultiplied(p[0], p[1], p[2], p[3]))
-            .collect(),
-    };
-    let filtered = super::imagefx::adjusted(&color_img, &img.adjust);
-    for (i, px) in filtered.pixels.iter().enumerate() {
-        let o = i * 4;
-        rgba.as_mut()[o..o + 4].copy_from_slice(&px.to_srgba_unmultiplied());
-    }
-    if let Some(ov) = img.adjust.overlay.filter(|_| with_overlay) {
-        let tint: Vec<u8> = ov.0.repeat((cw * ch) as usize);
-        blend_rgba(&mut rgba, &tint, cw, ch);
-    }
+    slate_doc::image_adjust::adjust_rgba8(rgba.as_mut(), &img.adjust);
     if img
         .paint_layers
         .iter()
@@ -97,40 +96,26 @@ pub fn composite_rgba(
             blend_rgba(&mut rgba, &overlay, cw, ch);
         }
     }
+    if node.clip.is_some() {
+        let mask = slate_artifact::rasterize_node_clip(node, cw, ch)?;
+        for (pixel, coverage) in rgba.pixels_mut().zip(mask.chunks_exact(4)) {
+            pixel.0[3] = ((pixel.0[3] as u16 * coverage[3] as u16 + 127) / 255) as u8;
+        }
+    }
     Some(rgba)
 }
 
-pub fn replace_wired_image_slots(
-    app: &SlateApp,
-    item: &mut atlas_ai::agent::ContextItem,
-    node_id: NodeId,
-) {
-    let Some(node) = app.doc().scene.node(node_id) else {
-        return;
-    };
-    let NodeKind::Image(img) = &node.kind else {
-        return;
-    };
-    let Some(path) = agent_wired_image_file(app.doc(), node, img) else {
-        return;
-    };
-    let clipped = path.to_string_lossy().into_owned();
-    let source = app
-        .doc()
-        .item(img.item)
-        .map(|i| i.path.clone())
-        .unwrap_or_default();
-    for slot in item.images.iter_mut().chain(item.depth.as_mut()) {
-        if Path::new(&*slot) == source.as_path() {
-            *slot = clipped.clone();
-        }
-    }
-}
-
-fn path_key(path: &Path) -> u64 {
+fn composite_key(path: &Path, node: &Node, img: &ImageNode) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     path.hash(&mut hasher);
+    serde_json::to_vec(&(node.rect, node.rotation_deg, &node.clip, img))
+        .ok()
+        .hash(&mut hasher);
+    if let Ok(metadata) = std::fs::metadata(path) {
+        metadata.len().hash(&mut hasher);
+        metadata.modified().ok().hash(&mut hasher);
+    }
     hasher.finish()
 }
 
@@ -147,13 +132,14 @@ fn blend_rgba(base: &mut RgbaImage, top: &[u8], w: u32, h: u32) {
             continue;
         }
         let inv = 1.0 - a;
+        let ba = base.as_mut()[o + 3] as f32 / 255.0;
+        let out_a = a + ba * inv;
         for c in 0..3 {
             let b = base.as_mut()[o + c] as f32;
             let t = top[o + c] as f32;
-            base.as_mut()[o + c] = (b * inv + t * a).round().clamp(0.0, 255.0) as u8;
+            base.as_mut()[o + c] = ((b * ba * inv + t * a) / out_a).round().clamp(0.0, 255.0) as u8;
         }
-        let ba = base.as_mut()[o + 3] as f32 / 255.0;
-        base.as_mut()[o + 3] = ((ba + a - ba * a) * 255.0).round().clamp(0.0, 255.0) as u8;
+        base.as_mut()[o + 3] = (out_a * 255.0).round().clamp(0.0, 255.0) as u8;
     }
 }
 
@@ -161,6 +147,48 @@ fn blend_rgba(base: &mut RgbaImage, top: &[u8], w: u32, h: u32) {
 mod tests {
     use super::blend_rgba;
     use image::RgbaImage;
+
+    #[test]
+    fn composite_and_wired_file_keep_clip_edge_and_hole_transparent() {
+        use slate_doc::scene::{ImageNode, NodeKind, WorldRect};
+        let dir = std::env::temp_dir().join(format!("slate-composite-clip-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("opaque.png");
+        RgbaImage::from_pixel(32, 32, image::Rgba([230, 50, 70, 255]))
+            .save(&source)
+            .unwrap();
+        let mut doc = slate_doc::SlateDoc::new("clip");
+        let item = doc.add_item(source.clone(), "opaque.png", 0, 0, "");
+        let image = ImageNode::new(item);
+        let mut node = doc.scene.build_node(
+            WorldRect::new(0.0, 0.0, 100.0, 100.0),
+            NodeKind::Image(image.clone()),
+        );
+        node.rotation_deg = 31.0;
+        let unclipped_key = super::composite_key(&source, &node, &image);
+        node.clip = slate_doc::image_paint::region_path(vec![
+            vec![[0.1, 0.1], [0.9, 0.1], [0.9, 0.9], [0.1, 0.9]],
+            vec![[0.4, 0.4], [0.6, 0.4], [0.6, 0.6], [0.4, 0.6]],
+        ]);
+        assert_ne!(unclipped_key, super::composite_key(&source, &node, &image));
+        let rgba = super::composite_rgba(&doc, &node, &image, &source).unwrap();
+        assert_eq!(rgba.get_pixel(0, 16)[3], 0, "outside silhouette");
+        assert_eq!(rgba.get_pixel(16, 16)[3], 0, "hole");
+        assert_eq!(rgba.get_pixel(8, 16)[3], 255, "inside silhouette");
+        let out = super::agent_wired_image_file_from_source(&doc, &node, &image, &source).unwrap();
+        assert_ne!(out, source, "clip cannot take the raw-file fast path");
+        assert_eq!(image::open(out).unwrap().to_rgba8(), rgba);
+    }
+
+    #[test]
+    fn transparent_cutout_keeps_straight_color() {
+        let mut base = RgbaImage::from_pixel(1, 1, image::Rgba([0, 0, 0, 0]));
+        blend_rgba(&mut base, &[255, 0, 0, 128], 1, 1);
+        assert_eq!(base.get_pixel(0, 0).0, [255, 0, 0, 128]);
+        let mut base = RgbaImage::from_pixel(1, 1, image::Rgba([0, 0, 255, 128]));
+        blend_rgba(&mut base, &[255, 0, 0, 128], 1, 1);
+        assert_eq!(base.get_pixel(0, 0).0, [170, 0, 85, 192]);
+    }
 
     #[test]
     fn blend_applies_layer_alpha() {

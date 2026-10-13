@@ -102,6 +102,7 @@ fn entered_media_suppresses_the_selection_cast() {
         slate_doc::scene::WorldRect::new(0.0, 0.0, 200.0, 80.0),
         NodeKind::Text(TextNode {
             text: "Note".into(),
+            style: Default::default(),
             family: Typeface::Sans,
             size: 18.0,
             color: slate_doc::scene::Rgba::opaque(20, 20, 20),

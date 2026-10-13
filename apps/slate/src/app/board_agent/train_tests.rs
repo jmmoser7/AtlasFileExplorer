@@ -3,52 +3,7 @@
 use super::test_support::*;
 use super::*;
 
-#[test]
-fn hovering_a_generator_shows_what_it_reads_and_can_do() {
-    let (mut h, id, _) = generator_with_note("gen_hover", "a nice public park");
-    wire_model(&mut h, id);
-    h.frame();
-    let r = h.app.doc().scene.node(id).unwrap().rect;
-    h.app.tab_mut().cam.offset = egui::vec2(r.x + r.w * 0.5, r.y + r.h * 0.5);
-    h.app.tab_mut().cam.z = 1.0;
-    h.frame();
-    let body = h.app.board_xf().rect_w2s(r);
-    // Choosing a program focuses the portal, which reveals its controls.
-    h.app.agent_blur();
-    h.app.board_sel.clear();
-    let rest = painted_text(&mut h, None);
-    assert!(
-        !rest
-            .iter()
-            .any(|t| t.starts_with("Prompt ·") || t == "Render"),
-        "quiet at rest: {rest:?}"
-    );
-    assert!(
-        !rest.iter().any(|t| t.contains("Connect")),
-        "a wired generator asks for nothing: {rest:?}"
-    );
-    let hover = painted_text(&mut h, Some(body.center()));
-    for expected in [
-        "Prompt · a nice public park",
-        "Geometry · pavilion.3dm",
-        "Render",
-    ] {
-        assert!(
-            hover.iter().any(|t| t == expected),
-            "missing {expected:?} in {hover:?}"
-        );
-    }
-    // Model and Live moved to the Agent squircle.
-    assert!(
-        !hover.iter().any(|t| t == "ComfyUI · Auto" || t == "Live"),
-        "no model chip or Live toggle on the picture: {hover:?}"
-    );
-
-    // Live swaps the primary action for Keep.
-    h.app.set_generator_live(id, true);
-    let live = painted_text(&mut h, Some(body.center()));
-    assert!(live.iter().any(|t| t == "Keep"), "{live:?}");
-}
+mod image_blister;
 
 #[test]
 fn live_follows_a_prompt_while_it_is_typed() {
@@ -315,10 +270,13 @@ fn coding_train_keeps_identity_and_artifacts_open_only_on_request() {
             .as_deref(),
         Some("provider-conversation")
     );
-    assert!(h
+    let continued = h.app.agent_session_for(reply).unwrap();
+    let (branch, _) = h
         .app
         .prepare_agent_train_send(root, std::path::Path::new("test-workspace"))
-        .is_none());
+        .expect("an earlier coding card forks");
+    assert_ne!(h.app.agent_session_for(branch).unwrap().0, continued.0);
+    assert_eq!(h.app.agent_session_for(reply).unwrap(), continued);
     let state:AgentSession=serde_json::from_value(serde_json::json!({"provider":"codex","conversation":"provider-conversation","artifacts":[
         {"id":"read","turn":1,"kind":"web","source":"https://example.com/reference","title":"Reference"},
         {"id":"edit","turn":1,"kind":"modified","source":"C:/fixture/main.rs","title":"main.rs"}

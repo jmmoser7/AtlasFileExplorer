@@ -1,0 +1,11 @@
+[package]
+name = "atlas-packs"
+version.workspace = true
+edition.workspace = true
+description = "Pack manifests and off-thread health probes. No renderer and no vendor SDK."
+license = "MIT"
+
+[dependencies]
+dirs.workspace = true
+serde = { workspace = true }
+serde_json = { workspace = true }

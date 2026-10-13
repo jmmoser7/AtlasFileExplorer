@@ -47,7 +47,7 @@ Rules:
 | D14 | Post-edit | How is the result re-edited later (grips, Direct Selection, joins)? | any | line |
 | D15 | Non-goals | What source-app behavior is deliberately cut (Art. III), so it's a decision, not an omission? | any | line |
 | D16 | Create-style inheritance | Does the tool consume the last single-node style edit (stroke, fill, opacity, …)? What are the defaults when none exists? | any | line |
-| D17 | Hit-testing & pick | Click and marquee select on stroke geometry (width + `pick.slop`), never the node AABB alone for open curves (P1.curve.pick) | any | line |
+| D17 | Hit-testing & pick | Click selects actual shape outline/stroke geometry (width + `pick.slop`); body AABBs are broad-phase bounds and explicit grips have separate regions (P1.node.select). Open-curve marquee follows stroke geometry (P1.curve.pick) | any | line |
 | D18 | Portal class & authority | Generated, document, or host (Art. V.3 / decision D7)? Which journal owns mutations made inside it? | portal | portal-lens-repository |
 | D19 | Source binding | What does the frame's `source` hold, how is it bound and rebound, and what is refused as a source kind? | portal | portal-lens-repository |
 | D20 | Query & parameters | What journaled knobs shape the contents (filters, window, pin, ordering, caps)? | portal | portal-lens-repository |

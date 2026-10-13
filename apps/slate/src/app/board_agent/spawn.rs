@@ -128,18 +128,12 @@ impl SlateApp {
             .find(|n| {
                 !n.hidden
                     && !n.locked
-                    && slate_doc::agent_chat::agent(n).is_some_and(|a| {
-                        !a.chat.draft && !a.provider.is_empty() && a.chat.parent.is_some()
-                    })
+                    && slate_doc::agent_chat::agent(n)
+                        .is_some_and(|a| !a.chat.draft && !a.provider.is_empty())
                     && !self.agent_in_choose_phase(n.id)
                     && !self.agent_is_running(n.id)
-                    && screen.distance(
-                        xf.rect_w2s(n.rect).right_top()
-                            + egui::vec2(
-                                -slate_doc::agent_chat::PORT_INSET,
-                                slate_doc::agent_chat::RAIL_INSET,
-                            ) * xf.z,
-                    ) <= 7.0 * xf.z
+                    && screen.distance(output_circle_center(xf.rect_w2s(n.rect), xf.z))
+                        <= 7.0 * xf.z
             })
             .map(|n| n.id)
     }
@@ -184,6 +178,10 @@ impl SlateApp {
             return true;
         }
         if let Some(pointer) = ui.ctx().pointer_latest_pos() {
+            if self.chevron_owns(pointer) && ui.input(|i| i.pointer.primary_pressed()) {
+                self.board_align_eat_press = true;
+                return true;
+            }
             // Blisters, the Send pill, the capsule and its editor take their
             // own presses, not the moves and release of a gesture that began
             // elsewhere. Only a primary press arms the guard: a hover or a
@@ -232,10 +230,14 @@ impl SlateApp {
                 }
             }
             if !gesture
-                && [self.agents.artifact_popup_rect, self.agents.model_menu_rect]
-                    .into_iter()
-                    .flatten()
-                    .any(|r| r.contains(pointer))
+                && [
+                    self.agents.artifact_popup_rect,
+                    self.agents.context_preview_rect,
+                    self.agents.model_menu_rect,
+                ]
+                .into_iter()
+                .flatten()
+                .any(|r| r.contains(pointer))
             {
                 if ui.input(|i| i.pointer.primary_pressed()) {
                     self.board_align_eat_press = true;
@@ -313,7 +315,9 @@ impl SlateApp {
                                 ),
                             );
                         }
-                    } else if self.agent_has_outputs(id) {
+                    } else if self.agent_has_outputs(id)
+                        && self.agents.artifact_popup != Some((id, true))
+                    {
                         self.dispatch(
                             ui.ctx(),
                             atlas_commands::CommandId("portal.agent.artifacts"),
@@ -333,24 +337,26 @@ impl SlateApp {
                     self.agent_draft_width(id),
                     slate_doc::agent_chat::DRAFT_HEIGHT,
                 );
-                let drop =
-                    moving.then(|| xf.s2w(p) - egui::vec2(0.0, slate_doc::agent_chat::RAIL_INSET));
+                let drop = moving
+                    .then(|| xf.s2w(p) - egui::vec2(0.0, slate_doc::link_inset::rail_inset()));
                 if let Some(rect) = self.agent_spawn_rect(id, drop, size, xf.z) {
                     self.board_point_snap = Some(Pos2::new(rect.x, rect.y));
                     if ui.input(|i| i.pointer.any_released()) {
                         self.agents.spawn_drag = None;
                         self.board_sel.clear();
                         self.board_sel.insert(id);
+                        let parented = self.agent_has_child(id);
                         let fork = moving
-                            && self
-                                .doc()
-                                .scene
-                                .node(id)
-                                .and_then(slate_doc::agent_chat::agent)
-                                .is_some_and(|a| {
-                                    !a.chat.linear
-                                        && !atlas_ai::runtime::linear_provider(&a.provider)
-                                });
+                            && (parented
+                                || self
+                                    .doc()
+                                    .scene
+                                    .node(id)
+                                    .and_then(slate_doc::agent_chat::agent)
+                                    .is_some_and(|a| {
+                                        !a.chat.linear
+                                            && !atlas_ai::runtime::linear_provider(&a.provider)
+                                    }));
                         self.dispatch(
                             ui.ctx(),
                             atlas_commands::CommandId(if fork {
@@ -399,9 +405,8 @@ impl SlateApp {
             .iter()
             .filter(|n| !n.hidden && !n.locked)
             .filter(|n| {
-                slate_doc::agent_chat::agent(n).is_some_and(|a| {
-                    !a.chat.draft && !a.provider.is_empty() && a.chat.parent.is_some()
-                })
+                slate_doc::agent_chat::agent(n)
+                    .is_some_and(|a| !a.chat.draft && !a.provider.is_empty())
             })
             .map(|n| n.id)
             .collect();
@@ -409,17 +414,13 @@ impl SlateApp {
             if self.agent_in_choose_phase(id) {
                 continue;
             }
-            let n = self.doc().scene.node(id).unwrap();
-            let r = xf.rect_w2s(n.rect);
-            let handle = Pos2::new(
-                r.right() - slate_doc::agent_chat::PORT_INSET * xf.z,
-                r.top() + slate_doc::agent_chat::RAIL_INSET * xf.z,
-            );
+            let r = {
+                let n = self.doc().scene.node(id).unwrap();
+                xf.rect_w2s(n.rect)
+            };
+            let handle = output_circle_center(r, xf.z);
             if self.agent_has_outputs(id) {
-                let docs = Pos2::new(
-                    r.right() - slate_doc::agent_chat::PORT_INSET * xf.z,
-                    r.center().y,
-                );
+                let docs = self.return_dot_at(ui.ctx(), id, xf).unwrap();
                 if pointer.is_some_and(|p| p.distance(docs) <= 10.0 * xf.z)
                     && ui.input(|i| i.pointer.primary_pressed())
                 {

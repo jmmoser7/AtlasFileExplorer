@@ -6,8 +6,10 @@ impl SlateApp {
     /// Move nodes to the front or back of the z-list (one undo group).
     pub fn reorder_nodes(&mut self, ids: &[NodeId], to_front: bool) {
         let mut cmds = Vec::new();
-        // Stable: process in current z-order.
-        let ordered: Vec<NodeId> = self
+        // Plan against a scratch z-list; only Scene::apply may mutate the
+        // real list, so its spatial/paint order caches are invalidated too.
+        let mut z_list: Vec<NodeId> = self.doc().scene.nodes.iter().map(|n| n.id).collect();
+        let mut ordered: Vec<NodeId> = self
             .doc()
             .scene
             .nodes
@@ -15,16 +17,23 @@ impl SlateApp {
             .filter(|n| ids.contains(&n.id))
             .map(|n| n.id)
             .collect();
+        // Inserting at zero requires reverse traversal to retain the
+        // selection's internal stacking order.
+        if !to_front {
+            ordered.reverse();
+        }
         for id in ordered {
-            let Some(index) = self.doc().scene.index_of(id) else {
+            let index = z_list
+                .iter()
+                .position(|candidate| *candidate == id)
+                .unwrap();
+            let new_index = if to_front { z_list.len() - 1 } else { 0 };
+            if index == new_index {
                 continue;
-            };
+            }
             let node = self.doc().scene.node(id).unwrap().clone();
-            // Apply immediately so subsequent indices are correct.
-            let scene = &mut self.doc_mut().scene;
-            scene.nodes.remove(index);
-            let new_index = if to_front { scene.nodes.len() } else { 0 };
-            scene.nodes.insert(new_index, node.clone());
+            z_list.remove(index);
+            z_list.insert(new_index, id);
             cmds.push(SceneCmd::Remove {
                 index,
                 node: node.clone(),
@@ -35,20 +44,11 @@ impl SlateApp {
             });
         }
         if !cmds.is_empty() {
-            self.tab_mut().journal.record(cmds);
-            self.tab_mut().dirty = true;
-            self.note_scene_change();
+            self.commit_scene(cmds);
         }
     }
 
     // ----- dialogs ------------------------------------------------------------------
-
-    /// Frame "+ images": pick files, place them inside the frame, inherit tags.
-    pub fn add_to_frame_dialog(&mut self, frame: NodeId) {
-        self.picker.open(PickRequest::files(), move |paths| {
-            super::super::PickerMsg::AddToFrame { frame, paths }
-        });
-    }
 
     pub fn export_artifact_dialog(&mut self) {
         self.picker.open(PickRequest::folder(), |picked| {

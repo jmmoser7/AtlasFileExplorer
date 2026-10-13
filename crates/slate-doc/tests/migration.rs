@@ -567,6 +567,7 @@ fn v2_document() -> SlateDoc {
         WorldRect::new(640.0, 460.0, 420.0, 120.0),
         NodeKind::Text(TextNode {
             text: "Harbour frontage — draft".into(),
+            style: Default::default(),
             family: Typeface::Serif,
             size: 34.0,
             color: Rgba::opaque(20, 20, 40),

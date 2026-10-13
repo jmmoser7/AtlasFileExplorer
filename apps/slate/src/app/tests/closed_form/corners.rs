@@ -65,10 +65,9 @@ fn a_rectangle_corner_click_picks_it_and_alt_sizes_only_that_corner() {
     assert_eq!(closed_tips(&h, id, 4), tips, "redo");
 }
 
-/// A press-drag on a rectangle corner still resizes it (rectangle resize
-/// is approved behavior); only a click without travel picks the corner.
+/// Moving an individual rectangle corner promotes it to a closed Path.
 #[test]
-fn a_rectangle_corner_drag_still_resizes() {
+fn a_rectangle_corner_drag_promotes_it_to_a_closed_path() {
     use slate_doc::scene::ShapeKind;
     let (mut h, id, v) = closed_form_board("closed_rect_resize", ShapeKind::Rect);
     let rect0 = h.app.doc().scene.node(id).unwrap().rect;
@@ -89,6 +88,10 @@ fn a_rectangle_corner_drag_still_resizes() {
         (rect.h - (rect0.h + 30.0)).abs() < 1.0,
         "{rect:?} from {rect0:?}"
     );
+    assert_eq!(shape_kind_of(&h, id), ShapeKind::Path);
+    let points = world_anchor_points(&h, id);
+    for k in [0, 1, 3] { assert!(near(points[k], v[k])); }
+    h.app.board_undo();
     assert_eq!(shape_kind_of(&h, id), ShapeKind::Rect);
 }
 

@@ -325,6 +325,7 @@ impl Recipe {
             }
             NodeTarget::Text => NodeKind::Text(TextNode {
                 text: s.text.text.clone(),
+                style: Default::default(),
                 family: s.text.family.into(),
                 size: s.text.size,
                 color: s.text.color.resolve(ctx.accent),

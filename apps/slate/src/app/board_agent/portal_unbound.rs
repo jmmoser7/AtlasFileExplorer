@@ -76,6 +76,8 @@ impl SlateApp {
             self.paint_agent_bound(ui, painter, xf, &layout, node, portal, maximized);
         }
 
+        self.paint_pack_caption(painter, node, layout.body, xf.z);
+
         if portal
             .agent
             .as_ref()
@@ -106,6 +108,7 @@ impl SlateApp {
         _maximized: bool,
         zoom: f32,
     ) {
+        self.note_program_chooser();
         self.ensure_agent_programs();
         let interactive = !self.tab().read_only;
         // A fit while redo waits would clear it, and Undo could never get
@@ -146,7 +149,11 @@ impl SlateApp {
             interactive,
             zoom,
         ) {
-            self.set_agent_program(id, &provider);
+            if self.ai.packs.needs_key(&provider) {
+                self.ai.packs.key_entry = true;
+            } else {
+                self.set_agent_program(id, &provider);
+            }
         }
     }
 }

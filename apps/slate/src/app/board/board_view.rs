@@ -79,12 +79,22 @@ impl SlateApp {
                     if let Some(p) = self.smooth_preview.get(&id) {
                         return p.clone();
                     }
-                    self.shape_properties
+                    let mut painted = self
+                        .shape_properties
                         .preview
                         .iter()
                         .find(|p| p.id == id)
                         .unwrap_or(n)
-                        .clone()
+                        .clone();
+                    if let Some((edit_id, rect)) = self.text_edit_rect {
+                        if edit_id == id {
+                            painted.rect = rect;
+                        }
+                    }
+                    if let Some(edit) = self.text_doc_edit.as_ref().filter(|edit| edit.node == id) {
+                        painted.rect = edit.rect;
+                    }
+                    painted
                 })
             })
             .collect()
@@ -133,6 +143,7 @@ impl SlateApp {
     /// Switch the board tool through one place: the brush chain breaks on
     /// every re-arm, and direct-selection state clears when leaving A.
     pub(crate) fn set_board_tool(&mut self, tool: BoardTool) {
+        self.image_segments.cancel_tool_gestures();
         if let Some(draft) = self.text_box_draft.take() {
             if draft.buffer.is_empty() {
                 // Tool switch discards an empty compose (no journal).
@@ -141,7 +152,10 @@ impl SlateApp {
                 self.commit_text_box_draft();
             }
         }
+        let remembered_image_panels =
+            std::mem::take(&mut self.shape_properties.remembered_image_panels);
         self.shape_properties = Default::default();
+        self.shape_properties.remembered_image_panels = remembered_image_panels;
         self.desktop_sample = None;
         self.armed_kit_id = None;
         self.brush_straight = None;

@@ -427,6 +427,8 @@ dependencies = [
  "atlas-core",
  "atlas-ollama",
  "atlas-openai",
+ "atlas-packs",
+ "atlas-segment",
  "atlas-shell",
  "chrono",
  "crossbeam-channel",
@@ -467,6 +469,7 @@ dependencies = [
  "crossbeam-channel",
  "dirs",
  "eframe",
+ "flate2",
  "image",
  "jpeg-decoder",
  "notify",
@@ -505,6 +508,15 @@ dependencies = [
  "atlas-agent",
  "atlas-curl",
  "base64 0.22.1",
+ "serde_json",
+]
+
+[[package]]
+name = "atlas-packs"
+version = "1.0.0"
+dependencies = [
+ "dirs",
+ "serde",
  "serde_json",
 ]
 
@@ -3964,6 +3976,7 @@ dependencies = [
  "atlas-ai",
  "atlas-commands",
  "atlas-core",
+ "atlas-curl",
  "atlas-segment",
  "atlas-session",
  "atlas-shell",
@@ -3981,6 +3994,7 @@ dependencies = [
  "slate-artifact",
  "slate-doc",
  "slate-kit",
+ "url",
  "vector-ink",
  "webview2-com",
  "windows 0.61.3",

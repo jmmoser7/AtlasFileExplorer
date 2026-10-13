@@ -569,6 +569,7 @@ mod tests {
         let text = |fill| {
             NodeKind::Text(scene::TextNode {
                 text: "hi".into(),
+                style: Default::default(),
                 family: Default::default(),
                 size: 16.0,
                 color: Rgba([0, 0, 0, 255]),

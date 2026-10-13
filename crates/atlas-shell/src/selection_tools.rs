@@ -7,6 +7,37 @@ use crate::{
 };
 use eframe::egui::{self, emath::Rot2, Align2, Color32, Id, Pos2, Rect, Sense, Stroke, Vec2};
 
+mod dimensions;
+pub use dimensions::{inline_number, stringer};
+
+mod image_brush;
+#[cfg(test)]
+#[path = "selection_tools/image_geometry_tests.rs"]
+mod image_geometry_tests;
+mod image_layer_layout;
+mod image_presentation;
+mod image_surface;
+mod layer_palette;
+mod prompt_fields;
+pub use image_brush::{
+    image_brush_header, image_brush_header_groups, image_brush_header_height,
+    image_brush_header_width, ImageBrushEdit, ImageBrushEditResponse,
+};
+pub use image_layer_layout::{
+    image_layer_palette_layout, ImageLayerPaletteDrag, ImageLayerPaletteEdit,
+};
+pub use image_presentation::{
+    blister_icon_rect, blister_tab_rect, image_presentation_layout,
+    image_presentation_layout_with_choice, ImageColorLayout, ImageLayoutChoice, ImagePanelKind,
+    ImagePresentationLayout, ImageTechnicalLayout, IMAGE_DATUM_HEIGHT, IMAGE_PANEL_GAP,
+    IMAGE_PANEL_INSET, IMAGE_WIDE_THRESHOLD,
+};
+pub use image_surface::{
+    image_frame_geometry, paint_blister_corner_backing, paint_blister_surface, paint_blister_tab,
+    paint_image_blister, paint_image_interaction_shadow, paint_image_tab, ImageFrameGeometry,
+};
+pub use layer_palette::{image_layer_palette, layer_palette};
+pub use prompt_fields::{image_prompt_field, image_prompt_line_count, prompt_field};
 pub const BUTTON_SIZE: f32 = 30.0;
 pub const BUTTON_GAP: f32 = 7.0;
 pub const OBJECT_GAP: f32 = 14.0;
@@ -36,7 +67,6 @@ pub const TEXT_HEIGHT: f32 = TEXT_ROW_HEIGHT + 6.0 + FILL_HEIGHT;
 pub const TEXT_HEIGHT_PRESETS: [f32; 7] = [12.0, 16.0, 24.0, 32.0, 48.0, 64.0, 96.0];
 const TEXT_HEIGHT_LABELS: [&str; 7] = ["12", "16", "24", "32", "48", "64", "96"];
 pub const SELECTION_FADE_SECONDS: f32 = 0.12;
-
 /// Quiet raised surface for conversation cards, using the active shared theme.
 pub fn agent_card(painter: &egui::Painter, rect: Rect, radius: f32, zoom: f32, palette: Palette) {
     let shadow = egui::epaint::Shadow {
@@ -72,15 +102,8 @@ pub fn agent_card_outline(painter: &egui::Painter, outline: &[Pos2], zoom: f32, 
 /// Collapse scale of the icon strip before it expands on selection.
 const STRIP_COLLAPSE: f32 = 0.72;
 
-/// Fade only selection decorations, leaving authored paint and editor chrome intact.
-pub fn selection_painter(painter: &egui::Painter, id: Id, editor_open: bool) -> egui::Painter {
-    let fade = painter
-        .ctx()
-        .animate_bool_with_time(id, editor_open, SELECTION_FADE_SECONDS);
-    let mut selection = painter.clone();
-    selection.multiply_opacity(1.0 - fade);
-    selection
-}
+mod selection_fade;
+pub use selection_fade::selection_painter;
 
 /// Canvas-attached chrome paints at or below this order: dimension stringers,
 /// grips, the selection strip, portal chrome, wires, the paint-layer palette.
@@ -327,255 +350,6 @@ fn label_layout(
     )
 }
 
-/// One native text editor for RGB tags and dimensions. Only paint and pointer-to-caret
-/// coordinates rotate; keyboard, selection and clipboard remain owned by egui.
-#[allow(clippy::too_many_arguments)]
-pub fn inline_number(
-    ui: &mut egui::Ui,
-    id: Id,
-    center: Pos2,
-    angle: f32,
-    prefix: &str,
-    suffix: &str,
-    value: f32,
-    zoom: f32,
-    theme: Palette,
-    color: Color32,
-    edit: &mut Option<NumberEdit>,
-    range: std::ops::RangeInclusive<f32>,
-    underline: bool,
-) -> NumberResponse {
-    if !ui.is_enabled() {
-        *edit = None;
-    }
-    let painter = if underline {
-        ui.painter().clone()
-    } else {
-        object_painter(ui)
-    };
-    let rotation = Rot2::from_angle(angle);
-    let current = edit
-        .as_ref()
-        .map(|e| e.text.clone())
-        .unwrap_or_else(|| number(value));
-    let numeric = label_layout(&painter, &current, zoom, color);
-    let pre = label_layout(&painter, prefix, zoom, theme.sub);
-    let post = label_layout(&painter, suffix, zoom, color);
-    let prefix_width = pre.size().x;
-    let total_width = prefix_width + numeric.size().x + post.size().x;
-    let text_center = center + rotation * Vec2::new((pre.size().x - post.size().x) * 0.5, 0.0);
-    let half = Vec2::new(total_width + 8.0 * zoom, 22.0 * zoom) * 0.5;
-    let extent = Vec2::new(
-        angle.cos().abs() * half.x + angle.sin().abs() * half.y,
-        angle.sin().abs() * half.x + angle.cos().abs() * half.y,
-    );
-    let response = ui
-        .interact(
-            Rect::from_center_size(center, extent * 2.0),
-            id,
-            Sense::click_and_drag(),
-        )
-        .on_hover_cursor(egui::CursorIcon::Text);
-    if response.clicked() && edit.is_none() && ui.is_enabled() {
-        *edit = Some(NumberEdit::new(value));
-    }
-    let pre_pos = center + rotation * Vec2::new((pre.size().x - total_width) * 0.5, 0.0);
-    let post_pos = center + rotation * Vec2::new((total_width - post.size().x) * 0.5, 0.0);
-    pre.paint_rotated(&painter, pre_pos, angle, theme.sub);
-    post.paint_rotated(&painter, post_pos, angle, color);
-    let mut committed = None;
-    if let Some(editing) = edit.as_mut() {
-        let text_id = id.with("native_text");
-        let scale = numeric.scale();
-        let galley = numeric.galley();
-        let origin = text_center - rotation * (numeric.size() * 0.5);
-        let mut state = egui::TextEdit::load_state(ui.ctx(), text_id).unwrap_or_default();
-        if editing.focus {
-            state
-                .cursor
-                .set_char_range(Some(egui::text::CCursorRange::two(
-                    egui::text::CCursor::new(0),
-                    egui::text::CCursor::new(editing.text.chars().count()),
-                )));
-        } else if let Some(pos) = response.interact_pointer_pos() {
-            state.cursor.pointer_interaction(
-                ui,
-                &response,
-                galley.cursor_from_pos(rotation.inverse() * (pos - origin) / scale),
-                &galley,
-                response.dragged(),
-            );
-        }
-        let first_frame = editing.focus;
-        editing.focus = false;
-        // The rotated response owns pointer input. Native TextEdit owns typed input,
-        // without an independent visible window or an axis-aligned pointer region.
-        ui.memory_mut(|m| m.request_focus(text_id));
-        egui::TextEdit::store_state(ui.ctx(), text_id, state);
-        let mut child = ui.new_child(egui::UiBuilder::new().id_salt(text_id).max_rect(
-            Rect::from_center_size(center, Vec2::new(160.0, 22.0) * zoom),
-        ));
-        child.set_clip_rect(Rect::NOTHING);
-        let mut layouter = |ui: &egui::Ui, text: &str, _: f32| {
-            label_layout(ui.painter(), text, zoom, color).galley()
-        };
-        let output = egui::TextEdit::singleline(&mut editing.text)
-            .id(text_id)
-            .frame(false)
-            .margin(0.0)
-            .clip_text(false)
-            .desired_width(140.0 * zoom)
-            .layouter(&mut layouter)
-            .show(&mut child);
-        let painted = canvas_text::Scaled::from_galley(output.galley.clone(), scale);
-        let origin = text_center - rotation * (painted.size() * 0.5);
-        if let Some(cursors) = output.state.cursor.range(&output.galley) {
-            let a = output.galley.pos_from_cursor(&cursors.primary);
-            let b = output.galley.pos_from_cursor(&cursors.secondary);
-            if !cursors.is_empty() {
-                let selection = Rect::from_min_max(
-                    Pos2::new(a.left().min(b.left()), 0.0),
-                    Pos2::new(a.left().max(b.left()), output.galley.size().y),
-                );
-                let points = [
-                    selection.left_top(),
-                    selection.right_top(),
-                    selection.right_bottom(),
-                    selection.left_bottom(),
-                ]
-                .map(|p| origin + rotation * (p.to_vec2() * scale));
-                painter.add(egui::Shape::convex_polygon(
-                    points.to_vec(),
-                    theme.select_fill,
-                    Stroke::NONE,
-                ));
-            }
-            let caret =
-                [a.left_top(), a.left_bottom()].map(|p| origin + rotation * (p.to_vec2() * scale));
-            painter.line_segment(caret, Stroke::new(zoom, theme.select));
-        }
-        painted.paint_rotated(
-            &painter,
-            text_center,
-            angle,
-            if editing.error { theme.danger } else { color },
-        );
-        let outside =
-            ui.input(|i| i.pointer.any_pressed()) && !response.contains_pointer() && !first_frame;
-        match crate::widgets::typed_number_event(
-            &editing.text,
-            range,
-            ui.input(|i| i.key_pressed(egui::Key::Enter)),
-            ui.input(|i| i.key_pressed(egui::Key::Escape)),
-            outside,
-            false,
-        ) {
-            crate::widgets::TypedNumber::Idle => {}
-            crate::widgets::TypedNumber::Invalid => {
-                editing.error = true;
-                editing.focus = true;
-            }
-            crate::widgets::TypedNumber::Cancel => {
-                ui.memory_mut(|m| m.surrender_focus(text_id));
-                *edit = None;
-            }
-            crate::widgets::TypedNumber::Commit(v) => {
-                committed = (v != value).then_some(v);
-                ui.memory_mut(|m| m.surrender_focus(text_id));
-                *edit = None;
-            }
-        }
-    } else {
-        numeric.paint_rotated(&painter, text_center, angle, color);
-    }
-    if underline {
-        painter.line_segment(
-            [
-                center + rotation * Vec2::new(-total_width * 0.5 + prefix_width, 9.0 * zoom),
-                center + rotation * Vec2::new(total_width * 0.5, 9.0 * zoom),
-            ],
-            Stroke::new(0.7 * zoom, theme.border_strong),
-        );
-    }
-    NumberResponse {
-        response,
-        value: committed,
-    }
-}
-
-/// Exterior drafting stringer, with the editable value breaking the baseline.
-#[allow(clippy::too_many_arguments)]
-pub fn stringer(
-    ui: &mut egui::Ui,
-    id: Id,
-    ends: [Pos2; 2],
-    offset: Vec2,
-    value: f32,
-    prefix: &str,
-    zoom: f32,
-    theme: Palette,
-    edit: &mut Option<NumberEdit>,
-) -> NumberResponse {
-    let a = ends[0] + offset;
-    let b = ends[1] + offset;
-    let direction = (b - a).normalized();
-    let mut angle = direction.angle();
-    if angle > std::f32::consts::FRAC_PI_2 - 0.001 {
-        angle -= std::f32::consts::PI;
-    }
-    if angle < -std::f32::consts::FRAC_PI_2 {
-        angle += std::f32::consts::PI;
-    }
-    let color = theme.select;
-    let stroke = Stroke::new(0.7 * zoom, color);
-    let painter = object_painter(ui);
-    let p = &painter;
-    let tick = (direction + direction.rot90()).normalized() * (4.0 * zoom);
-    for (base, end) in [(ends[0], a), (ends[1], b)] {
-        p.line_segment(
-            [
-                base + offset.normalized() * (4.0 * zoom),
-                end + offset.normalized() * (5.0 * zoom),
-            ],
-            stroke,
-        );
-        p.line_segment([end - tick, end + tick], stroke);
-    }
-    let label = format!(
-        "{prefix}{} u",
-        edit.as_ref()
-            .map(|e| e.text.clone())
-            .unwrap_or_else(|| number(value))
-    );
-    let half_gap = label_layout(p, &label, zoom, color).size().x * 0.5 + 5.0 * zoom;
-    let mut center = a.lerp(b, 0.5);
-    if (b - a).length() > half_gap * 2.0 {
-        p.line_segment([a, center - direction * half_gap], stroke);
-        p.line_segment([center + direction * half_gap, b], stroke);
-    } else {
-        // Keep the complete dimension line. Continue past its second tick and
-        // place the editable label beyond it, still on the same local axis.
-        let leader = b + direction * (8.0 * zoom);
-        p.line_segment([a, leader], stroke);
-        center = leader + direction * half_gap;
-    }
-    inline_number(
-        ui,
-        id,
-        center,
-        angle,
-        prefix,
-        " u",
-        value,
-        zoom,
-        theme,
-        color,
-        edit,
-        f32::MIN_POSITIVE..=f32::MAX,
-        false,
-    )
-}
-
 #[derive(Default)]
 pub struct ColorState {
     rgb: Option<[u8; 3]>,
@@ -732,7 +506,7 @@ fn texture_rect(
 /// Full-width buffer: the drag readout sits beside the cursor. A click on the
 /// handle turns that readout into a typed value.
 #[allow(clippy::too_many_arguments)]
-fn buffer(
+pub(super) fn buffer(
     ui: &mut egui::Ui,
     id: Id,
     rect: Rect,
@@ -833,254 +607,8 @@ fn buffer(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn color_editor(
-    ui: &mut egui::Ui,
-    rect: Rect,
-    rgba: [u8; 4],
-    width: Option<f32>,
-    mixed: bool,
-    recent: &[[u8; 3]],
-    state: &mut ColorState,
-    zoom: f32,
-    theme: Palette,
-) -> ColorEdit {
-    panel(ui, rect, zoom, theme);
-    let mut out = ColorEdit::default();
-    let rgb = [rgba[0], rgba[1], rgba[2]];
-    if state.rgb != Some(rgb) {
-        state.hsv = hsv_for(rgb, state.hsv);
-        state.rgb = Some(rgb);
-    }
-    let field = color_field(rect, zoom);
-    let hue = state.hsv.h;
-    let texture = state.texture(
-        ui,
-        "shape-color-field",
-        [2, 2],
-        u64::from(hue.to_bits()),
-        || field_texels(hue),
-    );
-    texture_rect(ui, field, texture, [2, 2], 3.0 * zoom);
-    let response = ui.interact(field, ui.id().with("color_field"), Sense::click_and_drag());
-    let mut rgb_changed = false;
-    if response.is_pointer_button_down_on() || response.dragged() {
-        if let Some(p) = response.interact_pointer_pos() {
-            (state.hsv.s, state.hsv.v) = field_saturation_value((p - field.min) / field.size());
-            rgb_changed = true;
-        }
-    }
-    let cursor = field.min + field_fraction(state.hsv) * field.size();
-    ui.painter().circle_stroke(
-        cursor,
-        4.0 * zoom,
-        Stroke::new(2.0 * zoom, Color32::from_black_alpha(90)),
-    );
-    ui.painter()
-        .circle_stroke(cursor, 3.5 * zoom, Stroke::new(1.1 * zoom, Color32::WHITE));
-    if mixed {
-        response.on_hover_text("Mixed colors — editing applies this color to the selection");
-    }
-    let rail = |index: usize| color_rail(rect, index, zoom);
-    let tex = state.texture(
-        ui,
-        "shape-alpha",
-        [96, 2],
-        texture_key(
-            u32::from_le_bytes(theme.border.to_array()),
-            u32::from_le_bytes(theme.card.to_array()),
-        ),
-        || {
-            (0..2usize)
-                .flat_map(|y| {
-                    (0..96usize).map(move |x| {
-                        if (x + y).is_multiple_of(2) {
-                            theme.border
-                        } else {
-                            theme.card
-                        }
-                    })
-                })
-                .collect()
-        },
-    );
-    texture_rect(ui, rail(0), tex, [96, 2], 3.5 * zoom);
-    let mut alpha = rgba[3] as f32 / 255.0;
-    let alpha_pct = (alpha * 100.0).round();
-    if buffer(
-        ui,
-        ui.id().with("alpha"),
-        rail(0),
-        &mut alpha,
-        alpha_pct,
-        0.0..=100.0,
-        "%",
-        |v| v / 100.0,
-        |v| format!("{}%", number((v * 100.0).round())),
-        zoom,
-        theme,
-        false,
-    ) {
-        out.alpha = Some((alpha * 255.0).round() as u8);
-    }
-    let hsv = state.hsv;
-    let tex = state.texture(
-        ui,
-        "shape-saturation",
-        [2, 1],
-        u64::from(hsv.h.to_bits()),
-        || saturation_texels(hsv),
-    );
-    texture_rect(ui, rail(1), tex, [2, 1], 3.5 * zoom);
-    let saturation_pct = (state.hsv.s * 100.0).round();
-    rgb_changed |= buffer(
-        ui,
-        ui.id().with("saturation"),
-        rail(1),
-        &mut state.hsv.s,
-        saturation_pct,
-        0.0..=100.0,
-        "%",
-        |v| v / 100.0,
-        |v| format!("{}%", number((v * 100.0).round())),
-        zoom,
-        theme,
-        false,
-    );
-    let tex = state.texture(ui, "shape-hue", [49, 1], 0, hue_texels);
-    texture_rect(ui, rail(2), tex, [49, 1], 3.5 * zoom);
-    let hue_deg = (state.hsv.h * 360.0).round();
-    rgb_changed |= buffer(
-        ui,
-        ui.id().with("hue"),
-        rail(2),
-        &mut state.hsv.h,
-        hue_deg,
-        0.0..=360.0,
-        "°",
-        |v| v / 360.0,
-        |v| format!("{}°", number((v * 360.0).round())),
-        zoom,
-        theme,
-        false,
-    );
-    if let Some(width) = width {
-        let r = rail(3);
-        ui.painter().rect_filled(r, 3.5 * zoom, theme.card_hover);
-        ui.painter().line_segment(
-            [r.left_center(), r.right_center()],
-            Stroke::new(zoom, theme.sub),
-        );
-        let mut t = width_fraction(width);
-        let width_display = fraction_width(t);
-        if buffer(
-            ui,
-            ui.id().with("width"),
-            r,
-            &mut t,
-            width_display,
-            0.0..=10_000.0,
-            " u",
-            width_fraction,
-            |v| format!("{} u", number(fraction_width(v))),
-            zoom,
-            theme,
-            false,
-        ) {
-            out.width = Some(fraction_width(t));
-        }
-    }
-    let y = rect.bottom() - 20.0 * zoom;
-    let dropper = Rect::from_center_size(
-        Pos2::new(rect.left() + 21.0 * zoom, y),
-        Vec2::splat(23.0 * zoom),
-    );
-    let r = ui
-        .interact(dropper, ui.id().with("eyedropper"), Sense::click_and_drag())
-        .on_hover_text("Sample anywhere on the desktop: click, or drag to a color and release");
-    if ui.input(|i| i.pointer.primary_pressed()) {
-        state.dropper_dragged = false;
-    }
-    let travel = ui.input(|i| {
-        i.pointer
-            .press_origin()
-            .zip(i.pointer.latest_pos())
-            .map_or(0.0, |(a, b)| a.distance(b))
-    });
-    if r.is_pointer_button_down_on() && travel > DROPPER_DRAG_PX && !state.dropper_dragged {
-        state.dropper_dragged = true;
-        out.sample = Some(SampleGesture::Drag);
-    } else if r.clicked() && !state.dropper_dragged {
-        out.sample = Some(SampleGesture::Click);
-    }
-    let dragging = state.dropper_dragged && r.is_pointer_button_down_on();
-    if dragging {
-        ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
-    }
-    icons::paint(
-        ui.painter(),
-        dropper,
-        Icon::Eyedropper,
-        if r.hovered() || dragging {
-            theme.select
-        } else {
-            theme.sub
-        },
-    );
-    for (i, c) in recent.iter().take(6).enumerate() {
-        let center = Pos2::new(rect.left() + (51.0 + i as f32 * 26.0) * zoom, y);
-        let color = Color32::from_rgb(c[0], c[1], c[2]);
-        let r = ui.interact(
-            Rect::from_center_size(center, Vec2::splat(22.0 * zoom)),
-            ui.id().with(("recent", i)),
-            Sense::click(),
-        );
-        ui.painter().circle(
-            center,
-            8.0 * zoom,
-            color,
-            Stroke::new(0.5 * zoom, theme.border),
-        );
-        if r.clicked() {
-            out.rgb = Some(*c);
-        }
-    }
-    let divider = rect.left() + 204.0 * zoom;
-    ui.painter().line_segment(
-        [
-            Pos2::new(divider, y - 10.0 * zoom),
-            Pos2::new(divider, y + 10.0 * zoom),
-        ],
-        Stroke::new(0.7 * zoom, theme.border),
-    );
-    let mut channels = rgb;
-    for (i, label) in ["R ", "G ", "B "].iter().enumerate() {
-        let r = inline_number(
-            ui,
-            ui.id().with(("rgb", i)),
-            Pos2::new(rect.left() + (244.0 + i as f32 * 65.0) * zoom, y),
-            0.0,
-            label,
-            "%",
-            (channels[i] as f32 / 2.55).round(),
-            zoom,
-            theme,
-            theme.ink,
-            &mut state.numbers[i],
-            0.0..=100.0,
-            true,
-        );
-        if let Some(v) = r.value {
-            channels[i] = (v * 2.55).round() as u8;
-            out.rgb = Some(channels);
-        }
-    }
-    if rgb_changed {
-        let c: Color32 = state.hsv.into();
-        out.rgb = Some([c.r(), c.g(), c.b()]);
-        state.rgb = out.rgb;
-    }
-    out
-}
+mod color_editor;
+pub use color_editor::{color_editor, image_color_editor};
 
 pub struct CornerEdit {
     pub chamfer: bool,
@@ -1775,106 +1303,6 @@ pub struct PromptField {
     pub focused: bool,
 }
 
-/// The one canvas prompt field: an agent composer, a text block's instruction
-/// and the agent editor's prompt all use it. The text scales with the board
-/// (P0.9) and drops out once too small to read. At rest (`editing` false) it
-/// paints the text or `hint` without a widget; the caller decides when a click
-/// starts editing. Long text scrolls and keeps the caret in view.
-#[allow(clippy::too_many_arguments)]
-pub fn prompt_field(
-    ui: &egui::Ui,
-    id: Id,
-    field: Rect,
-    zoom: f32,
-    text: &mut String,
-    hint: &str,
-    editing: bool,
-    take_focus: bool,
-    theme: Palette,
-) -> PromptField {
-    let font = canvas_scale::font(PROMPT_PX, zoom);
-    let mut input_ui = egui::Ui::new(
-        ui.ctx().clone(),
-        id.with("prompt-ui"),
-        egui::UiBuilder::new()
-            .layer_id(ui.layer_id())
-            .max_rect(field),
-    );
-    input_ui.set_clip_rect(field.intersect(ui.clip_rect()));
-    input_ui.style_mut().visuals = theme.visuals();
-    if !editing && !take_focus {
-        if canvas_text::legible(font.size) {
-            let painter = input_ui.painter();
-            if text.is_empty() {
-                canvas_text::text(
-                    painter,
-                    field.left_center(),
-                    Align2::LEFT_CENTER,
-                    hint,
-                    font,
-                    theme.sub,
-                );
-            } else {
-                let laid =
-                    canvas_text::layout(painter, text.clone(), font, theme.ink, field.width());
-                laid.paint(painter, field.left_top(), theme.ink);
-            }
-        }
-        return PromptField::default();
-    }
-    let had_focus = ui.memory(|m| m.has_focus(id));
-    let submit =
-        had_focus && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
-    let text_h = ui
-        .painter()
-        .layout(text.clone(), font.clone(), theme.ink, field.width())
-        .size()
-        .y;
-    let editor = egui::TextEdit::multiline(text)
-        .id(id)
-        .font(font.clone())
-        .desired_width(field.width())
-        .desired_rows(1)
-        .margin(egui::Margin::ZERO)
-        .hint_text(hint)
-        .frame(false);
-    let response = if text_h > field.height() + 1.0 {
-        egui::ScrollArea::vertical()
-            .id_salt(id.with("prompt-scroll"))
-            .max_height(field.height())
-            .auto_shrink([false, false])
-            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
-            .show(&mut input_ui, |ui| {
-                ui.set_width(field.width());
-                let output = editor.show(ui);
-                if output.response.has_focus() {
-                    if let Some(range) = output.cursor_range.as_ref() {
-                        let cursor = output.galley.pos_from_cursor(&range.primary);
-                        let caret = Rect::from_min_size(
-                            output.galley_pos + cursor.min.to_vec2(),
-                            cursor.size().max(egui::vec2(1.0, font.size)),
-                        );
-                        if !field.contains_rect(caret) {
-                            ui.scroll_to_rect(caret, Some(egui::Align::Center));
-                        }
-                    }
-                }
-                output.response
-            })
-            .inner
-    } else {
-        input_ui.add(editor)
-    };
-    if take_focus {
-        response.request_focus();
-    }
-    PromptField {
-        changed: response.changed(),
-        submit,
-        focused: response.has_focus(),
-    }
-}
-
 /// Agent editor: Text / Image, the model menu, the prompt face and, for
 /// images, count, aspect, seed lock and Live. Row height is the default capsule.
 pub const AGENT_PROMPT_HEIGHT: f32 = 76.0;
@@ -2095,6 +1523,12 @@ pub fn agent_editor(
     }
     out
 }
+
+mod agent_image;
+pub use agent_image::{
+    image_agent_editor, image_agent_height, ImageAgentEditResponse, ImageAgentHistoryItem,
+    ImageAgentOptions,
+};
 
 /// Crosstalk editor on a selected crosstalk wire: which side builds, the stop
 /// rule (turns, minutes, goal), then Start or Done. Rows are default capsules.
@@ -2478,6 +1912,11 @@ pub enum FilterCapsuleStyle {
     /// Chips only (e.g. 3D viewport display modes). Same chip sizing as
     /// [`FilterCapsuleStyle::WithIntensity`]; no intensity track.
     ChipsOnly,
+    /// Image-blister form of [`FilterCapsuleStyle::WithIntensity`]. The image
+    /// blister supplies the surface behind the controls.
+    ImageWithIntensity,
+    /// Image-blister form of [`FilterCapsuleStyle::ChipsOnly`].
+    ImageChipsOnly,
 }
 
 /// Board-unit width for a chips-only filter capsule at the given height.
@@ -2532,17 +1971,17 @@ pub fn filter_capsule(
     theme: Palette,
     style: FilterCapsuleStyle,
 ) -> FilterEdit {
-    paint_capsule(ui, rect, zoom, theme);
-    let (pad, inner_h, radio_pitch) = filter_chip_metrics(rect.height(), zoom);
-    let radius = inner_h * 0.36 * 0.8;
-    let row_w = radios.len().max(1) as f32 * radio_pitch;
-    let radio_row = Rect::from_min_size(rect.min + Vec2::splat(pad), Vec2::new(row_w, inner_h));
+    if !matches!(
+        style,
+        FilterCapsuleStyle::ImageWithIntensity | FilterCapsuleStyle::ImageChipsOnly
+    ) {
+        paint_capsule(ui, rect, zoom, theme);
+    }
+    let geometry = filter_capsule_geometry(rect, radios.len(), zoom, style);
+    let (centers, radius, track) = geometry;
     let mut out = FilterEdit::default();
     for (i, radio) in radios.iter().enumerate() {
-        let center = Pos2::new(
-            radio_row.left() + (i as f32 + 0.5) * radio_pitch,
-            radio_row.center().y,
-        );
+        let center = centers[i];
         let hit = Rect::from_center_size(center, Vec2::splat(radius * 2.0));
         let response = ui
             .interact(hit, ui.id().with(("filter_radio", i)), Sense::click())
@@ -2564,41 +2003,133 @@ pub fn filter_capsule(
             theme,
         );
     }
-    if style == FilterCapsuleStyle::WithIntensity {
+    if matches!(
+        style,
+        FilterCapsuleStyle::WithIntensity | FilterCapsuleStyle::ImageWithIntensity
+    ) {
         if let Some(amount) = amount {
-            let track = Rect::from_center_size(
-                Pos2::new(
-                    rect.left()
-                        + radio_row.width()
-                        + pad * 2.0
-                        + (rect.width() - radio_row.width() - pad * 3.0).max(radius) * 0.5,
-                    rect.center().y,
-                ),
-                Vec2::new(
-                    (rect.width() - radio_row.width() - pad * 3.0).max(radius),
-                    radius,
-                ),
-            );
+            let track = track.unwrap_or_else(|| {
+                let (pad, _, radio_pitch) = filter_chip_metrics(rect.height(), zoom);
+                let row_w = radios.len().max(1) as f32 * radio_pitch;
+                Rect::from_center_size(
+                    Pos2::new(
+                        rect.left()
+                            + row_w
+                            + pad * 2.0
+                            + (rect.width() - row_w - pad * 3.0).max(radius) * 0.5,
+                        rect.center().y,
+                    ),
+                    Vec2::new((rect.width() - row_w - pad * 3.0).max(radius), radius),
+                )
+            });
             let mut fraction = amount.clamp(0.0, 1.0);
             let filter_display = (fraction * 100.0).round();
-            if capsule_buffer(
-                ui,
-                ui.id().with("filter_amount"),
-                track,
-                &mut fraction,
-                filter_display,
-                0.0..=100.0,
-                "%",
-                |v| v / 100.0,
-                |v| format!("{}%", number((v * 100.0).round())),
-                zoom,
-                theme,
-            ) {
+            let image_style = matches!(
+                style,
+                FilterCapsuleStyle::ImageWithIntensity | FilterCapsuleStyle::ImageChipsOnly
+            );
+            if image_style && track.is_positive() {
+                let filled = Rect::from_min_max(
+                    track.left_top(),
+                    Pos2::new(egui::lerp(track.x_range(), fraction), track.bottom()),
+                );
+                ui.painter()
+                    .rect_filled(track, track.height(), theme.border_strong);
+                ui.painter()
+                    .rect_filled(filled, track.height(), theme.accent);
+            }
+            let changed = if image_style {
+                buffer(
+                    ui,
+                    ui.id().with("filter_amount"),
+                    track,
+                    &mut fraction,
+                    filter_display,
+                    0.0..=100.0,
+                    "%",
+                    |v| v / 100.0,
+                    |v| format!("{}%", number((v * 100.0).round())),
+                    zoom,
+                    theme,
+                    false,
+                )
+            } else {
+                capsule_buffer(
+                    ui,
+                    ui.id().with("filter_amount"),
+                    track,
+                    &mut fraction,
+                    filter_display,
+                    0.0..=100.0,
+                    "%",
+                    |v| v / 100.0,
+                    |v| format!("{}%", number((v * 100.0).round())),
+                    zoom,
+                    theme,
+                )
+            };
+            if changed {
                 out.amount = Some(fraction);
             }
         }
     }
     out
+}
+
+fn filter_capsule_geometry(
+    rect: Rect,
+    count: usize,
+    zoom: f32,
+    style: FilterCapsuleStyle,
+) -> (Vec<Pos2>, f32, Option<Rect>) {
+    let image_style = matches!(
+        style,
+        FilterCapsuleStyle::ImageWithIntensity | FilterCapsuleStyle::ImageChipsOnly
+    );
+    if !image_style {
+        let (pad, inner_h, pitch) = filter_chip_metrics(rect.height(), zoom);
+        let radius = inner_h * 0.36 * 0.8;
+        let centers = (0..count)
+            .map(|i| {
+                Pos2::new(
+                    rect.left() + pad + (i as f32 + 0.5) * pitch,
+                    rect.top() + pad + inner_h * 0.5,
+                )
+            })
+            .collect();
+        return (centers, radius, None);
+    }
+    let z = zoom.max(f32::EPSILON);
+    let pad = (2.0 * z).min(rect.width() * 0.04);
+    let inner_h = (rect.height() - 2.0 * pad).max(0.0);
+    let available = (rect.width() - 2.0 * pad).max(0.0);
+    let has_track = matches!(style, FilterCapsuleStyle::ImageWithIntensity);
+    let track_gap = if has_track { 8.0 * z } else { 0.0 };
+    let desired_radius = inner_h * 0.36;
+    let min_track = if has_track { 12.0 * z } else { 0.0 };
+    let gaps = 6.0 * z * count.saturating_sub(1) as f32;
+    let fit_radius = ((available - track_gap - min_track - gaps).max(0.0)
+        / (2.0 * count.max(1) as f32))
+        .min(desired_radius);
+    let radius = fit_radius.max(0.0);
+    let pitch = radius * 2.0 + 6.0 * z;
+    let centers = (0..count)
+        .map(|i| {
+            Pos2::new(
+                rect.left() + pad + radius + i as f32 * pitch,
+                rect.center().y,
+            )
+        })
+        .collect();
+    let track_left = rect.left() + pad + count as f32 * pitch - 6.0 * z + track_gap;
+    let track_right = rect.right() - pad;
+    let track = has_track.then(|| {
+        Rect::from_center_size(
+            Pos2::new((track_left + track_right) * 0.5, rect.center().y),
+            Vec2::new((track_right - track_left).max(0.0), 1.5 * z),
+        )
+    });
+    (centers, radius, track)
 }
 
 /// Board-unit gap between a painted image's lowest point and its palette.
@@ -2622,13 +2153,25 @@ pub struct LayerPaletteLayout {
     pub capsule: Rect,
     /// Layer preview circle centers, left to right, all of `radius`.
     pub layers: Vec<Pos2>,
+    /// Original layer indexes corresponding to `layers` on the current page.
+    pub layer_indices: Vec<usize>,
     pub radius: f32,
     /// Recent-color dot centers, all of `color_radius`.
     pub colors: Vec<Pos2>,
+    /// Original recent-color indexes corresponding to `colors`.
+    pub color_indices: Vec<usize>,
     pub color_radius: f32,
     pub track: Rect,
+    /// Quiet persistent percentage beside image-layer opacity controls.
+    pub opacity_value: Rect,
     /// The circled `+`, just outside the capsule's right end.
     pub add: Rect,
+    /// Page controls are empty when all layers fit on one page.
+    pub page_prev: Rect,
+    pub page_next: Rect,
+    pub page: usize,
+    pub page_count: usize,
+    pub page_capacity: usize,
 }
 
 /// The paint-layer palette below an image being painted. `anchor` is the
@@ -2685,11 +2228,19 @@ pub fn layer_palette_layout(
     LayerPaletteLayout {
         capsule,
         layers: layer_centers,
+        layer_indices: (0..layers).collect(),
         radius,
         colors: color_centers,
+        color_indices: (0..colors).collect(),
         color_radius,
         track,
+        opacity_value: Rect::NOTHING,
         add,
+        page_prev: Rect::NOTHING,
+        page_next: Rect::NOTHING,
+        page: 0,
+        page_count: 1,
+        page_capacity: layers.max(1),
     }
 }
 
@@ -2704,104 +2255,8 @@ pub struct LayerPaletteEdit {
     pub color: Option<usize>,
     /// The slider moved to this opacity.
     pub opacity: Option<f32>,
-}
-
-/// Paints a [`layer_palette_layout`] and reports what was clicked. `thumbs`
-/// has one preview per layer (`None` shows its number); `opacity` is the
-/// active layer's.
-#[allow(clippy::too_many_arguments)]
-pub fn layer_palette(
-    ui: &mut egui::Ui,
-    layout: &LayerPaletteLayout,
-    thumbs: &[Option<egui::TextureId>],
-    active: Option<usize>,
-    opacity: f32,
-    colors: &[[u8; 3]],
-    zoom: f32,
-    theme: Palette,
-) -> LayerPaletteEdit {
-    paint_capsule(ui, layout.capsule, zoom, theme);
-    let mut out = LayerPaletteEdit::default();
-    for (i, center) in layout.layers.iter().enumerate() {
-        let hit = Rect::from_center_size(*center, Vec2::splat(layout.radius * 2.0));
-        let response = ui
-            .interact(hit, ui.id().with(("paint_layer", i)), Sense::click())
-            .on_hover_ui(|ui| {
-                ui.label(format!("Layer {}", i + 1));
-            });
-        if response.clicked() {
-            out.layer = Some(i);
-        }
-        let thumb = thumbs.get(i).copied().flatten();
-        let radio = FilterRadio {
-            label: "",
-            fill: [theme.panel.r(), theme.panel.g(), theme.panel.b()],
-            fill_b: None,
-            thumb,
-        };
-        paint_filter_radio(
-            ui.painter(),
-            *center,
-            layout.radius,
-            &radio,
-            active == Some(i),
-            response.hovered(),
-            zoom,
-            theme,
-        );
-        let font = egui::FontId::proportional(layout.radius * 0.95);
-        if thumb.is_none() && canvas_text::legible(font.size) {
-            canvas_text::text(
-                ui.painter(),
-                *center,
-                Align2::CENTER_CENTER,
-                i + 1,
-                font,
-                theme.ink,
-            );
-        }
-    }
-    for (i, (center, rgb)) in layout.colors.iter().zip(colors).enumerate() {
-        let hit = Rect::from_center_size(*center, Vec2::splat(layout.color_radius * 2.4));
-        let response = ui.interact(hit, ui.id().with(("paint_color", i)), Sense::click());
-        let ring = if response.hovered() {
-            theme.ink
-        } else {
-            theme.border_strong
-        };
-        ui.painter().circle(
-            *center,
-            layout.color_radius,
-            Color32::from_rgb(rgb[0], rgb[1], rgb[2]),
-            Stroke::new(canvas_scale::px(0.6, zoom), ring),
-        );
-        if response.clicked() {
-            out.color = Some(i);
-        }
-    }
-    let mut fraction = opacity.clamp(0.0, 1.0);
-    let display = (fraction * 100.0).round();
-    if capsule_buffer(
-        ui,
-        ui.id().with("layer_opacity"),
-        layout.track,
-        &mut fraction,
-        display,
-        0.0..=100.0,
-        "%",
-        |v| v / 100.0,
-        |v| format!("{}%", number((v * 100.0).round())),
-        zoom,
-        theme,
-    ) {
-        out.opacity = Some(fraction);
-    }
-    let response = ui
-        .interact(layout.add, ui.id().with("paint_layer_add"), Sense::click())
-        .on_hover_text("Add paint layer");
-    paint_filter_add(ui.painter(), layout.add, response.hovered(), zoom, theme);
-    out.add = response.clicked();
-    out
+    pub previous_page: bool,
+    pub next_page: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -3043,6 +2498,7 @@ fn chip(
 
 #[derive(Default)]
 pub struct TextFormatEdit {
+    pub emphasis: Option<(usize, bool)>,
     pub family: Option<usize>,
     pub align: Option<usize>,
     pub size: Option<f32>,
@@ -3062,6 +2518,7 @@ pub fn text_format_editor(
     size_label: &str,
     size_index: usize,
     size_open: &mut bool,
+    emphasis: [bool; 3],
     zoom: f32,
     theme: Palette,
 ) -> TextFormatEdit {
@@ -3080,9 +2537,14 @@ pub fn text_format_editor(
         Pos2::new(align_rect.left() - gap - size_w, y),
         Vec2::new(size_w, capsule_h),
     );
+    let emphasis_rect = Rect::from_min_size(
+        Pos2::new(size_rect.left() - gap - 72.0 * zoom, y),
+        Vec2::new(72.0 * zoom, capsule_h),
+    );
+    out.emphasis = text_controls::emphasis_buttons(ui, emphasis_rect, emphasis, zoom, theme);
     let family_rect = Rect::from_min_max(
         Pos2::new(row.left(), y),
-        Pos2::new(size_rect.left() - gap, y + capsule_h),
+        Pos2::new(emphasis_rect.left() - gap, y + capsule_h),
     );
     let family_menu = capsule_menu(
         ui,
@@ -3129,198 +2591,14 @@ pub fn text_format_editor(
     out
 }
 
-struct CapsuleMenu {
-    picked: Option<usize>,
-    popup: Option<Rect>,
-    opened: bool,
-}
+mod menu_selector;
+use menu_selector::bare_menu;
+use menu_selector::capsule_menu;
+pub use menu_selector::needs_key_label;
+use menu_selector::BareMenu;
 
-/// Rounded capsule whose menu arrow sits in a circle at the end.
-#[allow(clippy::too_many_arguments)]
-fn capsule_menu(
-    ui: &mut egui::Ui,
-    id: Id,
-    rect: Rect,
-    label: &str,
-    options: &[&str],
-    selected: usize,
-    open: &mut bool,
-    zoom: f32,
-    theme: Palette,
-) -> CapsuleMenu {
-    let mut out = CapsuleMenu {
-        picked: None,
-        popup: None,
-        opened: false,
-    };
-    let response = ui.interact(rect, id, Sense::click());
-    if response.clicked() {
-        *open = !*open;
-        out.opened = *open;
-    }
-    paint_capsule(ui, rect, zoom, theme);
-    let radius = rect.height() * 0.5;
-    let center = Pos2::new(rect.right() - radius, rect.center().y);
-    ui.painter().circle_filled(center, radius - zoom, theme.bg);
-    ui.painter().circle_stroke(
-        center,
-        radius - zoom,
-        Stroke::new(0.8 * zoom, theme.border_strong),
-    );
-    let arm = radius * 0.32;
-    let tip = center + Vec2::new(0.0, arm * 0.55);
-    let stroke = Stroke::new(1.1 * zoom, theme.ink);
-    ui.painter()
-        .line_segment([center + Vec2::new(-arm, -arm * 0.35), tip], stroke);
-    ui.painter()
-        .line_segment([center + Vec2::new(arm, -arm * 0.35), tip], stroke);
-    let label_rect = Rect::from_min_max(
-        rect.min,
-        Pos2::new(center.x - radius - 2.0 * zoom, rect.bottom()),
-    );
-    let painter = ui.painter().with_clip_rect(label_rect);
-    canvas_text::text(
-        &painter,
-        label_rect.left_center() + Vec2::new(10.0 * zoom, 0.0),
-        Align2::LEFT_CENTER,
-        label,
-        canvas_scale::font(9.0, zoom),
-        theme.ink,
-    );
-    if !*open {
-        return out;
-    }
-    let row_h = 22.0 * zoom;
-    let visible = options.len().min(8) as f32 * row_h + 8.0 * zoom;
-    let popup = Rect::from_min_size(
-        Pos2::new(rect.left(), rect.bottom() + 4.0 * zoom),
-        Vec2::new(rect.width().max(168.0 * zoom), visible),
-    );
-    out.popup = Some(popup);
-    let click = ui.input(|i| {
-        i.pointer
-            .any_click()
-            .then(|| i.pointer.interact_pos())
-            .flatten()
-    });
-    if let Some(pos) = click {
-        if !rect.contains(pos) && !popup.contains(pos) {
-            *open = false;
-            out.popup = None;
-            return out;
-        }
-    }
-    crate::menu_wheel::claim(ui.ctx(), popup);
-    popup_area(ui.ctx(), id.with("pop"), ui.layer_id())
-        .fixed_pos(popup.min)
-        .constrain(false)
-        .show(ui.ctx(), |ui| {
-            let frame = egui::Frame::NONE
-                .fill(theme.panel)
-                .stroke(Stroke::new(0.8 * zoom, theme.border_strong))
-                .corner_radius(egui::CornerRadius::same((10.0 * zoom).round() as u8))
-                .inner_margin(egui::Margin::same((4.0 * zoom).round() as i8));
-            frame.show(ui, |ui| {
-                ui.set_min_width(popup.width() - 8.0 * zoom);
-                egui::ScrollArea::vertical()
-                    .max_height(visible - 8.0 * zoom)
-                    .show(ui, |ui| {
-                        for (i, option) in options.iter().enumerate() {
-                            let (row, response) = ui.allocate_exact_size(
-                                Vec2::new(ui.available_width(), row_h),
-                                Sense::click(),
-                            );
-                            let on = i == selected;
-                            if on || response.hovered() {
-                                ui.painter().rect_filled(
-                                    row,
-                                    6.0 * zoom,
-                                    if on {
-                                        theme.select_fill
-                                    } else {
-                                        theme.card_hover
-                                    },
-                                );
-                            }
-                            canvas_text::text(
-                                ui.painter(),
-                                row.left_center() + Vec2::new(8.0 * zoom, 0.0),
-                                Align2::LEFT_CENTER,
-                                option,
-                                canvas_scale::font(11.0, zoom),
-                                if on { theme.select_stroke } else { theme.ink },
-                            );
-                            if response.clicked() {
-                                out.picked = Some(i);
-                                *open = false;
-                            }
-                        }
-                    });
-            });
-        });
-    out
-}
-
-fn align_segments(
-    ui: &mut egui::Ui,
-    rect: Rect,
-    id: Id,
-    selected: usize,
-    zoom: f32,
-    theme: Palette,
-) -> usize {
-    ui.painter().rect_stroke(
-        rect,
-        rect.height() * 0.5,
-        Stroke::new(0.8 * zoom, theme.border_strong),
-        egui::StrokeKind::Inside,
-    );
-    let mut result = selected;
-    let segments = [
-        (Icon::JustifyLeft, "Left"),
-        (Icon::JustifyCenter, "Center"),
-        (Icon::JustifyRight, "Right"),
-    ];
-    let glyph = canvas_scale::px(11.0, zoom);
-    let gap = canvas_scale::px(2.0, zoom);
-    for (i, (icon, label)) in segments.into_iter().enumerate() {
-        let r = Rect::from_min_size(
-            rect.min + Vec2::new(i as f32 * rect.width() / 3.0, 0.0),
-            Vec2::new(rect.width() / 3.0, rect.height()),
-        );
-        let response = ui.interact(r, id.with(i), Sense::click());
-        if i == selected {
-            ui.painter().rect_filled(r, r.height() * 0.5, theme.accent);
-        }
-        let ink = if i == selected { theme.bg } else { theme.sub };
-        let text = canvas_text::layout_no_wrap(
-            ui.painter(),
-            label.to_string(),
-            canvas_scale::font(9.0, zoom),
-            ink,
-        );
-        let left = r.center().x - (glyph + gap + text.size().x) * 0.5;
-        icons::paint(
-            ui.painter(),
-            Rect::from_center_size(
-                Pos2::new(left + glyph * 0.5, r.center().y),
-                Vec2::splat(glyph),
-            ),
-            icon,
-            ink,
-        );
-        text.paint_anchored(
-            ui.painter(),
-            Pos2::new(left + glyph + gap, r.center().y),
-            Align2::LEFT_CENTER,
-            ink,
-        );
-        if response.clicked() {
-            result = i;
-        }
-    }
-    result
-}
+mod text_controls;
+use text_controls::align_segments;
 
 #[cfg(test)]
 mod tests {
@@ -3399,6 +2677,7 @@ mod tests {
                             "24",
                             2,
                             &mut size_open,
+                            [false; 3],
                             zoom,
                             Palette::light(),
                         );

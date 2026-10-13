@@ -256,7 +256,10 @@ pub fn split_open_at_cutters(target: &[[f32; 2]], cutters: &[Cutter]) -> Vec<Vec
             let b = pair[1];
             for (c, d) in &segs {
                 if let Some((t, p)) = seg_intersect(a, b, *c, *d) {
-                    if t > 1e-4 && t < 1.0 - 1e-4 {
+                    // Internal target vertices are valid cuts too. Attribute
+                    // them to the preceding segment so adjacent segments do
+                    // not produce duplicate zero-length pieces.
+                    if t > 1e-4 && (t < 1.0 - 1e-4 || si + 1 < target.len() - 1) {
                         cuts.push((si, t, p));
                     }
                 }
@@ -297,7 +300,9 @@ pub fn split_open_at_cutters(target: &[[f32; 2]], cutters: &[Cutter]) -> Vec<Vec
             cut_i += 1;
         }
         let _ = a;
-        cur.push(b);
+        if cur.last().copied() != Some(b) {
+            cur.push(b);
+        }
     }
     if cur.len() >= 2 {
         spans.push(cur);
@@ -745,6 +750,13 @@ fn clicked_area_region(target: &Polygon, cutters: &[Polygon], click: [f32; 2]) -
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn open_curve_cuts_at_internal_vertices_without_empty_spans() {
+        let target = [[0.0, 0.0], [20.0, 0.0], [40.0, 0.0], [60.0, 0.0]];
+        let cutter = super::Cutter::Closed(rect(20.0, -10.0, 20.0, 20.0));
+        let spans = super::split_open_at_cutters(&target, &[cutter]);
+        assert_eq!(spans, vec![vec![target[0], target[1]], vec![target[1], target[2]], vec![target[2], target[3]]]);
+    }
     use super::*;
 
     fn rect(x: f32, y: f32, w: f32, h: f32) -> Polygon {

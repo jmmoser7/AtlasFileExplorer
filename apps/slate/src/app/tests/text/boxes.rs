@@ -353,14 +353,15 @@ fn quote_then_enter_places_a_blank_text_document_ready_to_type() {
     press_key(&mut h, egui::Key::Escape);
     assert!(h.app.text_doc_edit.is_none());
 
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    while std::fs::read_to_string(&path).ok().as_deref() != Some("hi") {
-        assert!(
-            std::time::Instant::now() < deadline,
-            "typed words reach the linked file"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
+    let NodeKind::Image(image) = &h.app.doc().scene.node(node.id).unwrap().kind else {
+        unreachable!()
+    };
+    assert_eq!(image.text_override.as_deref(), Some("hi"));
+    h.app.board_undo();
+    let NodeKind::Image(image) = &h.app.doc().scene.node(node.id).unwrap().kind else {
+        unreachable!()
+    };
+    assert!(image.text_override.is_none(), "text is separately undoable");
     h.app.board_undo();
     assert!(h.app.doc().scene.nodes.is_empty());
 }

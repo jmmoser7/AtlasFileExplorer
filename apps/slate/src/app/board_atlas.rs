@@ -822,7 +822,7 @@ impl SlateApp {
         let NodeKind::Portal(portal) = &node.kind else {
             return false;
         };
-        if portal.kind != PortalKind::FileAtlas {
+        if portal.kind != PortalKind::FileAtlas || !self.portal_owns_pointer(ui.ctx(), id) {
             return false;
         }
         let srect = xf.rect_w2s(node.rect);
@@ -1635,6 +1635,7 @@ impl SlateApp {
             WorldRect::new(rect.x, rect.y + rect.h + 8.0, rect.w.max(120.0), 20.0),
             NodeKind::Text(slate_doc::scene::TextNode {
                 text: format!("{locator} · {count} files · File Atlas lens"),
+                style: Default::default(),
                 family: slate_doc::scene::Typeface::Sans,
                 size: 12.0,
                 color: slate_doc::scene::Rgba::opaque(198, 208, 224),

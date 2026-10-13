@@ -3,7 +3,9 @@
 //! Both interpreters resolve anchors through [`WireHost`] so a rotated rect
 //! keeps its ports on the same local edges, an ellipse keeps them on the
 //! axis tips (which lie on the curve), and a closed stroke keeps them on
-//! the stroke itself. Open shapes offer none. The AABB is only a fallback
+//! the stroke itself. Only rectangular node types offer new ports; the
+//! richer geometry remains available to resolve previously saved anchors.
+//! The AABB is only a fallback
 //! for area objects that have no richer silhouette facet yet.
 //!
 //! ## Current kinds
@@ -53,19 +55,16 @@ pub struct WireSnap {
     pub dist: f32,
 }
 
-/// Pose a connector end resolves against. Built from a [`Node`] at
-/// paint / hit / export time — never persisted.
+/// Pose a connector end resolves against. Built from a [`Node`] at paint time.
 #[derive(Debug, Clone)]
 pub struct WireHost {
     pub rect: WorldRect,
     pub rotation_deg: f32,
     kind: HostKind,
-    /// Typed inputs of a generator or text block. When present, the host's
-    /// ports are these on the left edge plus one output at the right middle.
     flow: &'static [crate::agent_inputs::InputPort],
-    /// [`is_open_shape`]: no ports and no new attachments. Saved anchors
-    /// still resolve.
-    open_shape: bool,
+    ports_enabled: bool,
+    /// Chat-card side ports resolve on the header dot, not the edge midpoint.
+    chat: bool,
 }
 
 /// An unclosed line, arc, polyline, Bézier span, or pen stroke. The single
@@ -98,26 +97,25 @@ struct OpenStroke {
 }
 
 impl WireHost {
-    /// Unrotated axis-aligned box — the historical AABB host. Used by
-    /// tests and by paste remap when only a rect is available.
     pub fn from_rect(rect: WorldRect) -> Self {
         Self {
             rect,
             rotation_deg: 0.0,
             kind: HostKind::Oriented { ellipse: false },
             flow: &[],
-            open_shape: false,
+            ports_enabled: true,
+            chat: false,
         }
     }
 
-    /// Unrotated ellipse — collision uses the oval, not the AABB.
     pub fn from_ellipse(rect: WorldRect) -> Self {
         Self {
             rect,
             rotation_deg: 0.0,
             kind: HostKind::Oriented { ellipse: true },
             flow: &[],
-            open_shape: false,
+            ports_enabled: false,
+            chat: false,
         }
     }
 
@@ -132,25 +130,34 @@ impl WireHost {
                 rotation_deg: node.rotation_deg,
                 kind: HostKind::Open(stroke),
                 flow: &[],
-                open_shape: is_open_shape(node),
+                ports_enabled: false,
+                chat: false,
             };
         }
         let ellipse = matches!(
             &node.kind,
             NodeKind::Shape(s) if s.shape == ShapeKind::Ellipse
         );
+        let chat =
+            crate::agent_chat::agent(node).is_some_and(|a| a.view == atlas_agent::PortalView::Chat);
         Self {
             rect: node.rect,
             rotation_deg: node.rotation_deg,
             kind: HostKind::Oriented { ellipse },
             flow,
-            open_shape: is_open_shape(node),
+            ports_enabled: match &node.kind {
+                NodeKind::Shape(shape) => shape.shape == ShapeKind::Rect,
+                NodeKind::Connector(_) => false,
+                _ => true,
+            },
+            chat,
         }
     }
 
-    /// Open shapes offer no ports and take no new wire ends.
+    /// New connections belong to rectangular node types. Existing anchors on
+    /// other shapes still resolve through `anchor` and `snap`.
     pub fn offers_ports(&self) -> bool {
-        !self.open_shape
+        self.ports_enabled
     }
 
     /// A generator or text block: typed input ports and one output.
@@ -170,9 +177,7 @@ impl WireHost {
         matches!(self.kind, HostKind::Oriented { ellipse: true })
     }
 
-    /// Default spawn handles. Three on a closed stroke, four on an area, none
-    /// on an open shape. A flow node has its inputs down the left edge and
-    /// one output on the right.
+    /// Spawn handles. A flow node has inputs on the left and one output.
     pub fn ports(&self) -> Vec<WirePort> {
         if !self.offers_ports() {
             return Vec::new();
@@ -223,22 +228,24 @@ impl WireHost {
         }
     }
 
-    /// World point for a stored `(side, t)`.
-    ///
-    /// Oriented: `side` is a **local** edge; the point is rotated with the
-    /// node. Open: `Start` / `End` ignore `t`; `Mid` is arclength `t`.
-    /// A box side stored on an open host (old files) snaps to the nearest
-    /// of start / mid / end.
+    /// World point for `(side, t)`. Chat side ports sit on the header dot.
     pub fn anchor(&self, side: Side, t: f32) -> [f32; 2] {
-        match &self.kind {
+        let (t, inset) = if self.chat && matches!(side, Side::Left | Side::Right) {
+            let t = (crate::link_inset::rail_inset() / self.rect.h.max(1.0)).clamp(0.0, 1.0);
+            (t, crate::link_inset::port_inset())
+        } else {
+            (t, 0.0)
+        };
+        let p = match &self.kind {
             HostKind::Oriented { .. } => self.oriented_anchor(side, t),
             HostKind::Open(stroke) => self.open_anchor(stroke, side, t),
+        };
+        if inset == 0.0 {
+            return p;
         }
+        let n = self.outward(side, t);
+        [p[0] - n[0] * inset, p[1] - n[1] * inset]
     }
-
-    /// Outward unit direction at the anchor (bezier handles; ortho stubs
-    /// cardinalize this). Open mid uses a consistent left-normal of the
-    /// tangent — it does not flip when the far end crosses the curve.
     pub fn outward(&self, side: Side, t: f32) -> [f32; 2] {
         match &self.kind {
             HostKind::Oriented { .. } => rotate_vec(side.normal(), self.rotation_deg),
@@ -311,7 +318,7 @@ impl WireHost {
 
 /// Resolve an anchored end through the node's current pose.
 pub fn connector_anchor_on(node: &Node, side: Side, t: f32) -> [f32; 2] {
-    WireHost::from_node(node).anchor(side, t)
+    crate::link_inset::anchor(node, side, t)
 }
 
 fn open_stroke(node: &Node) -> Option<OpenStroke> {
@@ -662,22 +669,23 @@ mod tests {
     }
 
     #[test]
-    fn ellipse_ports_lie_on_the_ellipse_after_rotation() {
+    fn saved_ellipse_anchors_lie_on_the_ellipse_after_rotation() {
         let rect = WorldRect::new(0.0, 0.0, 100.0, 40.0);
         let node = shape_node(ShapeKind::Ellipse, rect, 35.0, None);
         let host = WireHost::from_node(&node);
         let (cx, cy) = rect.center();
         let rx = rect.w * 0.5;
         let ry = rect.h * 0.5;
-        for port in host.ports() {
-            let local = unrotate_pt(port.point, cx, cy, 35.0);
+        assert!(host.ports().is_empty());
+        for side in Side::BOX {
+            let local = unrotate_pt(host.anchor(side, 0.5), cx, cy, 35.0);
             let nx = (local[0] - cx) / rx;
             let ny = (local[1] - cy) / ry;
             let resid = nx * nx + ny * ny;
             assert!(
                 (resid - 1.0).abs() < 1e-4,
                 "port {:?} not on ellipse (resid={resid})",
-                port.side
+                side
             );
         }
     }
@@ -747,6 +755,7 @@ mod tests {
             bumper: None,
             kind: NodeKind::Text(TextNode {
                 text: "hi".into(),
+                style: Default::default(),
                 family: Typeface::Sans,
                 size: 14.0,
                 color: crate::scene::Rgba::BLACK,
@@ -810,7 +819,7 @@ mod tests {
     }
 
     #[test]
-    fn open_shapes_offer_no_ports_while_closed_shapes_keep_them() {
+    fn only_rectangular_shapes_offer_ports_and_saved_path_anchors_still_resolve() {
         let rect = WorldRect::new(0.0, 0.0, 100.0, 50.0);
         let polyline = |closed: bool| PathData {
             start: [0.0, 0.0],
@@ -849,8 +858,13 @@ mod tests {
             let node = shape_node(ShapeKind::Path, rect, 0.0, Some(path));
             assert!(!is_open_shape(&node));
             let host = WireHost::from_node(&node);
-            assert!(host.offers_ports());
-            assert_eq!(host.ports().len(), 3);
+            assert!(!host.offers_ports());
+            assert!(host.ports().is_empty());
+            assert!(host.anchor(Side::Mid, 0.5).iter().all(|v| v.is_finite()));
+        }
+        for kind in [ShapeKind::Ellipse, ShapeKind::RegularPolygon] {
+            let node = shape_node(kind, rect, 0.0, None);
+            assert!(!WireHost::from_node(&node).offers_ports());
         }
         let boxed = shape_node(ShapeKind::Rect, rect, 0.0, None);
         assert!(!is_open_shape(&boxed));

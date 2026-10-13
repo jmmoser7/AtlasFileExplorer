@@ -24,6 +24,7 @@ pub(super) fn generator_with_note(
         slate_doc::WorldRect::new(-400.0, 0.0, 220.0, 220.0),
         NodeKind::Text(slate_doc::scene::TextNode {
             text: note.into(),
+            style: Default::default(),
             family: slate_doc::scene::Typeface::Sans,
             size: 24.0,
             color: slate_doc::scene::Rgba::opaque(20, 20, 20),
@@ -85,6 +86,7 @@ pub(super) fn note(h: &mut super::super::tests::Harness, at: Pos2, text: &str) -
         slate_doc::WorldRect::new(at.x, at.y, 180.0, 120.0),
         NodeKind::Text(slate_doc::scene::TextNode {
             text: text.into(),
+            style: Default::default(),
             family: slate_doc::scene::Typeface::Sans,
             size: 18.0,
             color: slate_doc::scene::Rgba::opaque(20, 20, 20),

@@ -12,13 +12,11 @@ use crate::wire::{
 use vector_ink::kurbo::{BezPath, Point};
 use vector_ink::{flatten_contours, point_in_polygon, Polygon};
 
-/// The world rect the full uncropped image occupies (crop window + UV crop).
-pub fn image_content_rect(rect: WorldRect, crop: Crop) -> WorldRect {
-    let c = crop.clamped();
-    let w = rect.w / c.w.max(1e-4);
-    let h = rect.h / c.h.max(1e-4);
-    WorldRect::new(rect.x - c.x * w, rect.y - c.y * h, w, h)
-}
+mod outline;
+pub use outline::node_closed_poly;
+
+mod image;
+pub use image::{cover_crop, image_content_rect, shape_image_clip};
 
 /// Rotate `p` about `center` by `delta_deg` (clockwise, y-down — same as
 /// [`WorldRect::rotate_point`]).
@@ -670,64 +668,6 @@ pub fn node_open_polyline(n: &Node, tolerance: f32) -> Option<Vec<[f32; 2]>> {
                 .next()
                 .filter(|c| c.len() >= 2)
         }
-        _ => None,
-    }
-}
-
-/// The world region of a closed node: a trim clip when it has one, else the
-/// rect (with its corner treatment), ellipse, closed path, or the rotated
-/// box of a text, image, or frame.
-pub fn node_closed_poly(n: &Node, tolerance: f32) -> Option<Polygon> {
-    if let Some(clip) = &n.clip {
-        let bez = path_data_to_world_bez(clip, n.rect, n.rotation_deg);
-        let contours = flatten_contours(&bez, tolerance as f64);
-        return (!contours.is_empty()).then_some(contours);
-    }
-    match &n.kind {
-        NodeKind::Shape(s) => match s.shape {
-            ShapeKind::Rect | ShapeKind::Ellipse | ShapeKind::RegularPolygon => {
-                let outline = match s.shape {
-                    ShapeKind::Rect => s
-                        .corner
-                        .outline(n.rect, tolerance)
-                        .into_iter()
-                        .map(|p| n.rect.rotate_point(p, n.rotation_deg))
-                        .collect(),
-                    ShapeKind::Ellipse => n
-                        .rect
-                        .ellipse_outline(tolerance)
-                        .into_iter()
-                        .map(|p| n.rect.rotate_point(p, n.rotation_deg))
-                        .collect(),
-                    ShapeKind::RegularPolygon => regular_polygon_world_outline(
-                        n.rect,
-                        n.rotation_deg,
-                        s.sides,
-                        s.phase_deg,
-                        s.corner,
-                        tolerance,
-                    ),
-                    _ => unreachable!(),
-                };
-                Some(vec![outline])
-            }
-            ShapeKind::Path => {
-                let path = s.path.as_ref()?;
-                if !path.closed {
-                    return None;
-                }
-                let bez = path_data_to_world_bez(path, n.rect, n.rotation_deg);
-                let contours = flatten_contours(&bez, tolerance as f64);
-                (!contours.is_empty()).then_some(contours)
-            }
-            ShapeKind::Line => None,
-        },
-        NodeKind::Text(_) | NodeKind::Image(_) | NodeKind::Frame(_) => Some(vec![n
-            .rect
-            .corners_rotated(n.rotation_deg)
-            .into_iter()
-            .map(|(x, y)| [x, y])
-            .collect()]),
         _ => None,
     }
 }

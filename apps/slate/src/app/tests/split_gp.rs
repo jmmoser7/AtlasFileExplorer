@@ -2,6 +2,45 @@
 
 use super::*;
 
+#[test]
+fn closed_silhouette_cuts_the_open_curve_under_its_fill() {
+    for split in [false, true] {
+        let mut h = trim_board(if split { "silhouette_split" } else { "silhouette_trim" });
+        let line = add_seg(&mut h.app, Pos2::new(0.0, 50.0), Pos2::new(120.0, 50.0));
+        let cutter = add_filled_rect(&mut h.app, 30.0, 20.0, 60.0, 60.0);
+        let before_line = h.app.doc().scene.node(line).unwrap().clone();
+        let before_cutter = h.app.doc().scene.node(cutter).unwrap().clone();
+        select_trim(&mut h.app, &[line, cutter]);
+        h.app.set_board_tool(if split { board::BoardTool::Split } else { board::BoardTool::Trim });
+        assert!(h.app.trim_click(Pos2::new(60.0, 50.0), false));
+        assert_eq!(h.app.doc().scene.node(cutter).unwrap(), &before_cutter);
+        assert_eq!(h.app.doc().scene.nodes.len(), if split { 4 } else { 3 });
+        for n in h.app.doc().scene.nodes.iter().filter(|n| n.id != cutter) {
+            let NodeKind::Shape(s) = &n.kind else { panic!("curve") };
+            assert!(s.path.as_ref().is_some_and(|p| !p.closed));
+        }
+        h.app.board_undo();
+        assert_eq!(h.app.doc().scene.nodes.len(), 2);
+        assert_eq!(h.app.doc().scene.node(line).unwrap(), &before_line);
+        assert_eq!(h.app.doc().scene.node(cutter).unwrap(), &before_cutter);
+    }
+}
+
+#[test]
+fn trim_and_split_allow_ctrl_to_remove_a_picked_cutter() {
+    for split in [false, true] {
+        let mut h = trim_board("cutter_deselect");
+        let cutter = add_filled_rect(&mut h.app, 10.0, 10.0, 80.0, 80.0);
+        h.app.set_board_tool(if split { board::BoardTool::Split } else { board::BoardTool::Trim });
+        assert!(h.app.trim_click(Pos2::new(40.0, 40.0), false));
+        assert_eq!(h.app.trim.as_ref().unwrap().cutters, vec![cutter]);
+        assert!(h.app.trim_click_modifiers(Pos2::new(40.0, 40.0), false, true));
+        assert!(h.app.trim.as_ref().unwrap().cutters.is_empty());
+        assert!(h.app.trim_enter());
+        assert_eq!(h.app.trim.as_ref().unwrap().phase, super::super::board_trim::TrimPhase::PickCutters);
+    }
+}
+
 /// GP1 — crossing lines: click the horizontal; both halves stay.
 #[test]
 fn split_gp1_crossing_lines() {

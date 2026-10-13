@@ -120,6 +120,21 @@ fn pdf_worker_loop(job_rx: Receiver<PdfJob>) {
     }
 }
 
+/// The pdfium library file is on disk beside the exe or in the checkout
+/// `vendor/` folder. This does not load the library.
+pub fn library_present() -> bool {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            candidates.push(dir.to_path_buf());
+            candidates.extend(source_vendor_dir(dir));
+        }
+    }
+    candidates
+        .into_iter()
+        .any(|dir| Pdfium::pdfium_platform_library_name_at_path(&dir).is_file())
+}
+
 fn init_pdfium() -> Option<Pdfium> {
     let mut candidates: Vec<PathBuf> = Vec::new();
     if let Ok(exe) = std::env::current_exe() {

@@ -56,6 +56,7 @@ fn an_occupied_board_can_insert_a_dropped_workbook() {
         slate_doc::scene::WorldRect::new(0.0, 0.0, 80.0, 40.0),
         slate_doc::scene::NodeKind::Text(slate_doc::scene::TextNode {
             text: "keep".into(),
+            style: Default::default(),
             family: slate_doc::scene::Typeface::Sans,
             size: 24.0,
             color: slate_doc::scene::Rgba::opaque(20, 20, 20),
@@ -72,6 +73,7 @@ fn an_occupied_board_can_insert_a_dropped_workbook() {
         slate_doc::scene::WorldRect::new(0.0, 0.0, 120.0, 40.0),
         slate_doc::scene::NodeKind::Text(slate_doc::scene::TextNode {
             text: "NESTED-MARK".into(),
+            style: Default::default(),
             family: slate_doc::scene::Typeface::Sans,
             size: 24.0,
             color: slate_doc::scene::Rgba::opaque(20, 20, 20),

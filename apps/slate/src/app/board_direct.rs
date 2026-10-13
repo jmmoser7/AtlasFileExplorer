@@ -203,7 +203,7 @@ pub enum DirectDrag {
         idx: usize,
     },
     /// Rubber-band over anchors of the target path (Shift = add).
-    Marquee { start_screen: Pos2, add: bool },
+    Marquee { start_screen: Pos2, add: bool, edges: bool },
 }
 
 fn to_point(p: Pos2) -> Point {
@@ -239,7 +239,11 @@ fn rebuild_from_world_bez(n: &mut Node, bez: &BezPath, closed: bool, sources: Op
     let NodeKind::Shape(s) = &mut n.kind else {
         return;
     };
-    if let Some(old) = s.path.clone() {
+    if let Some(old) = if s.shape == ShapeKind::Path {
+        s.path.as_deref().cloned()
+    } else {
+        vertex_style::closed_form_path(s)
+    } {
         match sources.filter(|s| !s.is_empty()) {
             Some(sources) => {
                 // A closing copy of the start comes from anchor 0.
@@ -365,7 +369,11 @@ impl SlateApp {
                     false,
                 ))
             }
-            _ => None,
+            _ => {
+                let path = vertex_style::closed_form_path(s)?;
+                let bez = board_path::path_data_to_world_bez(&path, node.rect, node.rotation_deg);
+                Some(anchors_from_bezpath(&bez))
+            },
         }
     }
 
@@ -462,14 +470,6 @@ impl SlateApp {
     /// the Select tool's grip picks on its one selected curve. An arc's
     /// remaining grips become a straight segment. One undo step.
     pub(crate) fn delete_picked_vertices(&mut self) -> bool {
-        if let Some((id, _)) = self.picked_vertices() {
-            // A closed form cannot lose a vertex without changing its kind;
-            // Delete with its vertices picked does nothing
-            // (P1.shape.vertex-style).
-            if self.closed_form_points(id).is_some() {
-                return true;
-            }
-        }
         if self.board_tool == super::board::BoardTool::DirectSelect {
             return self.direct_delete_anchors();
         }
@@ -820,30 +820,6 @@ impl SlateApp {
         .is_some()
     }
 
-    /// A painted path-edit grip under `screen` (P1.curve.grips): an anchor
-    /// square or handle knob of the Select tool's grip target, an end point
-    /// of the selected simple line, or any anchor or knob Direct Select
-    /// paints on its target. Closed-form vertices (P1.shape.vertex-style)
-    /// do not count.
-    pub(crate) fn curve_knob_under(&self, screen: Pos2) -> bool {
-        match self.board_tool {
-            super::board::BoardTool::Select => {
-                self.curve_grip_under(screen)
-                    || (self.board_sel.len() == 1
-                        && self.board_sel.iter().next().is_some_and(|&id| {
-                            self.line_grip_at(id, screen, &self.board_xf()).is_some()
-                        }))
-            }
-            super::board::BoardTool::DirectSelect => {
-                self.direct
-                    .node
-                    .is_some_and(|id| self.direct_anchors_of(id).is_some())
-                    && self.hovered_vertex(screen).is_some()
-            }
-            _ => false,
-        }
-    }
-
     /// Screen distance from `screen` to the grip of curve `id` a press there
     /// would take, when `id` is the grip target and one is within reach.
     pub(crate) fn curve_grip_distance(&self, id: NodeId, screen: Pos2) -> Option<f32> {
@@ -869,7 +845,11 @@ impl SlateApp {
         screen: Pos2,
         mods: egui::Modifiers,
     ) -> Option<DirectDrag> {
-        let (id, grips) = self.curve_grip_target()?;
+        let (id, grips) = self.curve_grip_target().or_else(|| {
+            let (id, _) = self.closed_form_target()?;
+            let (anchors, closed) = self.direct_anchors_of(id)?;
+            Some((id, CurveGrips::Anchors { anchors, closed }))
+        })?;
         let xf = self.board_xf();
         let hit = path_edit_hit(&self.curve_grip_overlay(id, &grips, &xf), screen)?;
         let before = self.doc().scene.node(id)?.clone();
@@ -933,7 +913,8 @@ impl SlateApp {
             return None;
         }
         let line = board_line::line_endpoints(n).is_some();
-        if !line && !matches!(self.curve_grips_of(id), Some(CurveGrips::Anchors { .. })) {
+        if !line && self.closed_form_points(id).is_none()
+            && !matches!(self.curve_grips_of(id), Some(CurveGrips::Anchors { .. })) {
             return None;
         }
         let (anchors, closed) = self.direct_anchors_of(id)?;
@@ -967,6 +948,42 @@ impl SlateApp {
         self.board_sel.insert(id);
         self.direct.grip_points.toggle_edge(id, seg, anchors.len());
         true
+    }
+
+    /// Rhino's Ctrl+Shift window/crossing picks segments on one curve. Keep
+    /// existing picks on that curve; repeated sweeps add rather than toggle.
+    pub(crate) fn pick_curve_edges_in_window(&mut self, start: Pos2, end: Pos2) {
+        let xf = self.board_xf();
+        let rect = Rect::from_two_pos(xf.s2w(start), xf.s2w(end));
+        let r = WorldRect::new(rect.min.x, rect.min.y, rect.width(), rect.height());
+        let mode = board_path::marquee_mode(start.x, end.x);
+        let preferred = self.direct.grip_points.node;
+        let mut candidates: Vec<_> = self.doc().scene.nodes.iter().rev()
+            .filter(|n| !n.hidden && !n.locked).map(|n| n.id).collect();
+        candidates.sort_by_key(|id| Some(*id) != preferred);
+        for id in candidates {
+            let Some((anchors, closed)) = self.direct_anchors_of(id) else { continue };
+            let Some(before) = self.doc().scene.node(id) else { continue };
+            let count = anchors.len().saturating_sub(usize::from(!closed));
+            let hits: Vec<_> = (0..count).filter(|&i| {
+                let mut segment = before.clone();
+                let bez = bezpath_from_anchors(&[anchors[i], anchors[(i + 1) % anchors.len()]], false);
+                rebuild_from_world_bez(&mut segment, &bez, false, None);
+                if let NodeKind::Shape(s) = &mut segment.kind { s.fill = None; }
+                board_path::marquee_selects_node(&segment, r, xf.z, &self.doc().scene,
+                    self.board_wire_routing, mode)
+            }).collect();
+            if hits.is_empty() { continue; }
+            self.board_sel.clear();
+            self.board_sel.insert(id);
+            for seg in hits {
+                if self.direct.grip_points.node != Some(id)
+                    || !self.direct.grip_points.edges.contains_key(&seg) {
+                    self.direct.grip_points.toggle_edge(id, seg, anchors.len());
+                }
+            }
+            return;
+        }
     }
 
     /// Press on a picked edge of the selected curve: the picked vertices
@@ -1254,6 +1271,7 @@ impl SlateApp {
         Some(DirectDrag::Marquee {
             start_screen: screen,
             add: mods.shift,
+            edges: false,
         })
     }
 
@@ -1380,8 +1398,12 @@ impl SlateApp {
                     }
                 }
             }
-            DirectDrag::Marquee { start_screen, add } => {
+            DirectDrag::Marquee { start_screen, add, edges } => {
                 let Some(p) = pointer else { return };
+                if edges {
+                    self.pick_curve_edges_in_window(start_screen, p);
+                    return;
+                }
                 let xf = self.board_xf();
                 let rect = Rect::from_two_pos(xf.s2w(start_screen), xf.s2w(p));
                 let Some(id) = self.direct.node else { return };

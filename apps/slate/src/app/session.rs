@@ -32,11 +32,6 @@ pub struct AtlasSession {
 const ATLAS_VIEWPORT: &str = "slate-linked-atlas";
 
 impl SlateApp {
-    /// Open File Atlas as a linked viewport (or focus the existing one).
-    pub fn open_atlas(&mut self, ctx: &egui::Context) {
-        self.open_atlas_at(ctx, None);
-    }
-
     /// Open (or focus) the hosted File Atlas viewport, optionally on a folder.
     pub fn open_atlas_at(&mut self, ctx: &egui::Context, root: Option<PathBuf>) {
         if let Some(sess) = &mut self.atlas {
@@ -239,29 +234,6 @@ impl SlateApp {
             // Keep pumping while the linked window is open.
             ctx.request_repaint_after(std::time::Duration::from_millis(120));
         }
-    }
-
-    /// Ghost overlay while an Atlas drag hovers over the Slate window.
-    pub fn draw_session_drag_hint(&self, ctx: &egui::Context) {
-        let Some(sess) = &self.atlas else { return };
-        let Ok(s) = sess.shared.lock() else { return };
-        let Some(drag) = &s.drag else { return };
-        if drag.released {
-            return;
-        }
-        let Some((x, y)) = drag.screen_pos else {
-            return;
-        };
-        if !s.point_in_slate(x, y) {
-            return;
-        }
-        // Convert screen position to local window coordinates.
-        let origin = s
-            .slate_window
-            .map(|(x0, y0, _, _)| (x0, y0))
-            .unwrap_or((0.0, 0.0));
-        let local = egui::Pos2::new(x - origin.0, y - origin.1);
-        self.paint_atlas_drag_hint(ctx, local, drag.files.len());
     }
 
     pub(crate) fn paint_atlas_drag_hint(

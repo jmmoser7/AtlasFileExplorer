@@ -219,7 +219,7 @@ fn brush_shift_after_switching_layers_leaves_the_other_layer() {
     let drawn = layer_marks(&h, image_id)[0].clone();
     h.app.on_image_paint_add_clicked(image_id);
     h.frame();
-    assert_eq!(h.app.image_paint_session().map(|s| s.layer_index), Some(1));
+    assert_eq!(h.app.image_paint_session().map(|s| s.layer_index), Some(0));
     press_drag_release_frames(
         &mut h,
         &[
@@ -231,9 +231,12 @@ fn brush_shift_after_switching_layers_leaves_the_other_layer() {
         |_| {},
     );
     let marks = layer_marks(&h, image_id);
-    assert_eq!(marks[0], drawn, "the first layer's mark is unchanged");
     assert_eq!(
-        marks[1].len(),
+        marks[1], drawn,
+        "the original lower layer's mark is unchanged"
+    );
+    assert_eq!(
+        marks[0].len(),
         1,
         "the segment is a new mark on the active layer"
     );

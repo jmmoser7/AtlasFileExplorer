@@ -3,4 +3,6 @@
 use super::*;
 
 mod boxes;
+mod reentry;
 mod shape_edit;
+pub(crate) mod zoom_stable;

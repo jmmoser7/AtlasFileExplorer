@@ -28,13 +28,71 @@ defaults for object-property editors.
 - [desktop_color.rs](src/desktop_color.rs) owns the desktop sampler;
   [vector-ink](../vector-ink/DESIGN.md) owns curve and stroke quality.
 
+### Image-specific presentation
+
+Image selection keeps the image naked at rest; the application owns when the
+editor is visible. When open, `selection_tools::image_presentation_layout`
+places a compact color datum directly below the image and the main field
+below it for Fill and Stroke. Brush places its parameter strip before the
+color datum. Other panels place their own controls
+directly below the image and reserve no empty color strip. The shared shell paints the full-width blister and its low centered
+tab with `paint_image_blister`. Its seven bare tool glyphs live in that raised
+tab; a collapsed selected image shows only the tab. The silhouette calls the
+same `tabs::paint_tab_bubble` owner as the dock and top bar. The blister has no framed icon buttons: use
+bare shared glyphs, color dots, rails, and the existing shared editor controls.
+Its sides continue the image edges. The tab shoulders slope across their full
+height with coverage antialiasing. While attached, `image_frame_geometry` joins
+the model outline to the apron: the authored frame stroke follows this exterior,
+without a line across the join. Blue selection remains outside the full assembly
+and authored stroke, including during editing. This temporary chrome does not
+change the authored image shape or export (P1.image.frame). The datum,
+field, tab, and editor all follow P0.9 and pan and zoom with the image.
+
+11 October live-use refinement: image-body clicks, hosted strokes and image
+dragging retain the editor; a click outside the image and its controls dismisses
+it. Selection shows an opaque tab. Opening a tool fades just the tab's backing
+over the photograph to transparent over 120 ms, keeping its bare line glyphs.
+Each icon owns its own hit region: the clear gaps remain available for painting.
+The apron below the photograph remains solid `Palette::card`, with a stronger
+bottom edge and soft shadow, in both themes. The active image has a broad blurred
+shadow painted beneath its content. These shadows are interaction chrome only;
+their meshes are cached by geometry, theme and display scale. The executable
+surface and shadow constants live in `selection_tools::image_surface`.
+
+`ImagePanelKind::Color` supplies a pure layout for the gradient and three
+rails (four for Stroke); narrow layouts stack them and wide layouts place the
+gradient right of an equal-height rail stack. Responsive mode is derived from
+image width and aspect in board units. The remaining kinds cover Filters, Layers,
+Corners, Crop, Brush, and a board-unit Custom height, so app integrations use
+the same surface geometry. The layout owns no app values or
+visibility and does not replace `ColorState`, filter recipes, layer metadata,
+or journal handling. Brush shares the three-rail color layout, with Size,
+Softness, Opacity, texture, active layer and Brush/Lasso actions in its top
+parameter strip. `image_color_editor` consumes this layout while reusing
+the existing color textures, rails, eyedropper gesture, recent-color behavior,
+and RGB editing. `FilterCapsuleStyle::ImageWithIntensity` and
+`ImageChipsOnly` reuse the existing filter radio and slider semantics without
+painting a nested capsule; `image_layer_palette` does the same for layer
+circles, Add, then a long opacity rail/value. The image Layers row has no
+recent-color dots. The technical color datum hosts the
+eyedropper, six recent color dots, and underlined RGB percentages for color
+editing.
+
+The [settled image parity brief](../../docs/keymap/specs/image-workflow-visual-parity.md)
+links the approved references and defines the shallow field proportions,
+alignment, image-specific glyphs, Generator prompt and verification targets.
+
 ## Spatial composition
 
 The selection strip sits directly above the selected object or selection
 bounds. Its one active editor opens further upward, away from the strip and
 object. Preserve a clear gap; crossing that gap must not dismiss the editor.
 The strip remains horizontal above rotated selection bounds; dimension
-stringers follow the object's measured local axes.
+stringers follow the object's measured local axes and refresh during live
+geometry changes. For polygons the strip uses the actual rotated outline
+bounds, keeping the shared gap from the visible shape. P1.shape.properties
+owns grip priority over strip/stringer presses and oriented numeric-label
+hit regions; closed-form seam vertices follow the same rule.
 
 Layout is in board units. The host, strip, panel, text, spacing, borders,
 handles, and hit regions share the camera transform. Pan and zoom move and

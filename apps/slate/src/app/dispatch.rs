@@ -15,6 +15,9 @@
 //! (bare letter shortcuts hold ~700 ms so a second character can open the
 //! canvas palette instead).
 
+mod keys;
+use keys::*;
+
 use super::{board, board_align, board_path, commands, SlateApp};
 use atlas_commands::{
     cancel_target, Availability, CancelLayer, Chord, CmdAuthor, CommandId, HistoryEntry, Key,
@@ -25,6 +28,10 @@ use slate_doc::{ItemId, NodeId, ViewKind};
 use std::time::{Duration, Instant};
 
 /// Space taps longer than this are holds (pan chords), not repeat requests.
+mod cancel;
+mod context_menu;
+mod image_layers;
+
 const SPACE_TAP_MAX: Duration = Duration::from_millis(250);
 
 /// After a bare letter shortcut, wait this long before committing so a
@@ -115,6 +122,19 @@ impl SlateApp {
         let board = self.doc().view.active_view == ViewKind::Board;
         let mut detail = detail;
         let ran = match id.0 {
+            "board.wire.canvas" => self.open_canvas_wire_settings(ctx),
+            "board.image.shape_fill" => return self.shape_fill_command(detail.as_deref()),
+            "board.image.layer.rename"
+            | "board.image.layer.visibility"
+            | "board.image.layer.delete"
+            | "board.image.layer.duplicate"
+            | "board.image.layer.reorder" => self.dispatch_image_layer(id.0, detail.as_deref()),
+            "board.shape.edit" | "board.wire.edit" if detail.is_none() => {
+                self.open_object_properties()
+            }
+            "board.sheet.edit" => self.edit_selected_sheet(),
+            "board.open_file" => self.open_selected_image_file(),
+            "board.image.layer.add_image" => self.pick_image_layer_command(detail.as_deref()),
             "board.shape.edit" | "board.wire.edit" => {
                 self.shape_property_command(detail.as_deref())
             }
@@ -198,36 +218,7 @@ impl SlateApp {
                     false
                 }
             }
-            "board.model_display" => {
-                // "<node>:<mode>" from the strip; bare (palette) cycles the
-                // single selected model to its next pass.
-                let target = match detail.as_deref().and_then(|s| s.split_once(':')) {
-                    Some((node, mode)) => node
-                        .parse::<u64>()
-                        .ok()
-                        .map(slate_doc::NodeId)
-                        .zip(slate_doc::scene::ModelDisplay::from_key(mode)),
-                    None => self.selected_model_viewport().and_then(|id| {
-                        let now = self.model_display_of(id)?;
-                        let next = match now {
-                            slate_doc::scene::ModelDisplay::Shaded => {
-                                slate_doc::scene::ModelDisplay::Arctic
-                            }
-                            slate_doc::scene::ModelDisplay::Arctic => {
-                                slate_doc::scene::ModelDisplay::Material
-                            }
-                            slate_doc::scene::ModelDisplay::Material => {
-                                slate_doc::scene::ModelDisplay::Depth
-                            }
-                            slate_doc::scene::ModelDisplay::Depth => {
-                                slate_doc::scene::ModelDisplay::Shaded
-                            }
-                        };
-                        Some((id, next))
-                    }),
-                };
-                target.is_some_and(|(id, mode)| self.set_model_display(id, mode))
-            }
+            "board.model_display" => self.dispatch_model_display(detail.as_deref()),
             "board.model_measure" => {
                 let node = match detail.as_deref() {
                     Some(s) => s.parse::<u64>().ok().map(slate_doc::NodeId),
@@ -469,7 +460,11 @@ impl SlateApp {
             }
             "board.tool.brush" => {
                 // Re-arming also forgets where the next Shift segment starts.
-                self.set_board_tool(board::BoardTool::Brush);
+                if let Some(image) = self.selected_image_nodes().first().copied() {
+                    self.arm_image_brush(image);
+                } else {
+                    self.set_board_tool(board::BoardTool::Brush);
+                }
                 true
             }
             "board.tool.eraser" => {
@@ -568,7 +563,10 @@ impl SlateApp {
             "portal.agent.model" => self.agent_set_model(detail.as_deref().unwrap_or("")),
             "portal.agent.live" => self.agent_toggle_live(),
             "portal.agent.keep" => self.agent_keep_live(),
-            "portal.agent.rename" => self.agent_rename(detail.as_deref().unwrap_or("")),
+            "portal.agent.rename" => match detail.as_deref() {
+                Some(title) => self.agent_rename(title),
+                None => self.begin_agent_rename(),
+            },
             "portal.agent.continue" => self.agent_spawn_command(detail.as_deref()),
             "portal.agent.spawn" => self.spawn_flow_node(detail.as_deref()),
             "portal.agent.approval" => {
@@ -757,12 +755,7 @@ impl SlateApp {
                     if self.board_sel.len() == 1 && self.board_sel.contains(&session.image) {
                         if let ImageStripFocus::Layer(idx) = session.focus {
                             let image = session.image;
-                            if self
-                                .doc()
-                                .scene
-                                .node(image)
-                                .is_some_and(|n| matches!(&n.kind, slate_doc::NodeKind::Image(img) if idx < img.paint_layers.len()))
-                            {
+                            if self.image_layer_index_exists(image, idx) {
                                 self.delete_paint_layer(image, idx);
                                 return true;
                             }
@@ -935,6 +928,9 @@ impl SlateApp {
                 }
             }
             "board.image.segment.commit" => self.commit_hover_segment(None).is_some(),
+            "board.image.selection.lasso" => self.dispatch_image_selection(true),
+            "board.image.selection.layer" => self.dispatch_image_selection(false),
+            "board.image.selection.copy" => self.dispatch_image_selection_copy(ctx),
             "board.image.invert" => {
                 let images = self.selected_image_nodes();
                 if images.is_empty() {
@@ -1041,204 +1037,6 @@ impl SlateApp {
         self.fit_board();
     }
 
-    // ---------- the Esc cancel stack ----------
-
-    /// Build the live cancel layers and pop exactly one
-    /// (`atlas_commands::cancel_target`). Text editing is *not* a
-    /// layer here: the edit overlay owns Esc (commit) itself.
-    fn cancel_pop(&mut self) -> bool {
-        if self.atlas_cancel_carry() {
-            return true;
-        }
-        // Maximize peels first: Esc returns the portal to the board without
-        // dropping page focus (P1.portal.maximize / P0.1).
-        if self.portal_chrome.maximized.is_some() {
-            return self.portal_restore();
-        }
-        // Web portal input focus. Releasing it leaves the page running with
-        // its scroll position and form contents intact (D12) — this peels
-        // where the keyboard goes, nothing more.
-        if self.doc().view.active_view == ViewKind::Board && self.web.focused.is_some() {
-            return self.web_blur();
-        }
-        if self.doc().view.active_view == ViewKind::Board && self.dismiss_agent_picker() {
-            return true;
-        }
-        if self.doc().view.active_view == ViewKind::Board && self.agents.focused.is_some() {
-            return self.agent_blur();
-        }
-        if self.doc().view.active_view == ViewKind::Board && self.atlas_lenses.focused.is_some() {
-            return self.atlas_blur();
-        }
-        // A saved view held over a model cancels before the viewport it
-        // opened (media D38).
-        if self.doc().view.active_view == ViewKind::Board
-            && (self.dismiss_view_drop_preview() || self.dismiss_image_segment())
-        {
-            return true;
-        }
-        // Any drag that edits nodes live (move, Alt copy, resize, rotate,
-        // crop, grip, fillet) goes back to its press-time nodes before an
-        // entered viewport peels (P0.1).
-        if self.doc().view.active_view == ViewKind::Board && self.cancel_node_drag() {
-            return true;
-        }
-        // A live 3D viewport is entered contents: its measure state, then
-        // the viewport itself, peel before the board's own layers.
-        if self.doc().view.active_view == ViewKind::Board && self.model_cancel_step() {
-            return true;
-        }
-        let board = self.doc().view.active_view == ViewKind::Board;
-        let mut live: Vec<CancelLayer> = Vec::new();
-        // Running drag operations (wire drags, eraser scrubs, direct-
-        // selection edits, the zoom-window marquee) cancel first — restore,
-        // no journal.
-        if self.brush_hud.is_some()
-            || self.zoom_marquee.is_some()
-            || matches!(
-                self.board_drag,
-                Some(
-                    board::BoardDrag::Wire(_)
-                        | board::BoardDrag::Erase { .. }
-                        | board::BoardDrag::Smooth { .. }
-                        | board::BoardDrag::Direct(_)
-                        | board::BoardDrag::DeckStroke { .. }
-                        | board::BoardDrag::Marquee { .. }
-                        | board::BoardDrag::BezierAnchor { .. }
-                        | board::BoardDrag::BezierEdit { .. }
-                )
-            )
-        {
-            live.push(CancelLayer::ActiveOperation);
-        }
-        let direct_live = board
-            && self.board_tool == board::BoardTool::DirectSelect
-            && (!self.direct.anchors.is_empty() || self.direct.node.is_some());
-        if self.board_crop.is_some()
-            || self.board_path_draft.is_some()
-            || self.line_draft.is_some()
-            || self.trim_live_draft()
-            || direct_live
-        {
-            live.push(CancelLayer::Draft);
-        }
-        if self.zoom_tool_active() || (board && self.board_tool != board::BoardTool::Select) {
-            live.push(CancelLayer::Mode);
-        }
-        let has_selection = if board {
-            !self.board_sel.is_empty()
-        } else {
-            !self.selection.is_empty()
-        };
-        if has_selection {
-            live.push(CancelLayer::Selection);
-        }
-        // Chrome: open context menus, the adjust popover, and the inline
-        // new-tag editor. The palette and the search strip own their Esc
-        // (focused text fields); the minimap is pinned chrome — excluded.
-        if self.board_menu.is_some()
-            || self.board_empty_menu.is_some()
-            || self.adjust_popover_open
-            || self.new_tag_edit.is_some()
-        {
-            live.push(CancelLayer::Chrome);
-        }
-        match cancel_target(&live) {
-            Some(CancelLayer::ActiveOperation) => {
-                if self.brush_hud.is_some() {
-                    self.cancel_brush_hud();
-                    return true;
-                }
-                if self.zoom_marquee.is_some() {
-                    // Cancel the zoom window; the tool stays armed.
-                    self.zoom_marquee = None;
-                    return true;
-                }
-                match self.board_drag.take() {
-                    Some(board::BoardDrag::Wire(wd)) => self.cancel_wire_drag(wd),
-                    Some(board::BoardDrag::Direct(d)) => self.cancel_direct_drag(d),
-                    Some(board::BoardDrag::Smooth { .. }) => {
-                        self.smooth_preview.clear();
-                        self.smooth_polylines.clear();
-                    }
-                    // Bézier draft: drop the anchor being placed, or put an
-                    // edited anchor back. Placed anchors stay.
-                    Some(board::BoardDrag::BezierAnchor { .. }) => {
-                        if let Some(board_path::BoardPathDraft::Bezier { placing, .. }) =
-                            &mut self.board_path_draft
-                        {
-                            *placing = None;
-                        }
-                    }
-                    Some(board::BoardDrag::BezierEdit { anchors0, .. }) => {
-                        if let Some(board_path::BoardPathDraft::Bezier { anchors, .. }) =
-                            &mut self.board_path_draft
-                        {
-                            *anchors = anchors0;
-                        }
-                    }
-                    // Eraser: nothing was mutated — dropping the drag and its
-                    // live preview restores the ink.
-                    _ => {
-                        self.erase_live.clear();
-                        self.brush_tiles
-                            .forget_erase_lines(&self.erase_settle.jobs());
-                    }
-                }
-                true
-            }
-            Some(CancelLayer::Draft) => {
-                if self.image_paint.is_some() {
-                    self.clear_image_paint_session();
-                } else if self.board_crop.is_some() {
-                    // First Escape only exits crop mode; the node stays
-                    // selected (press again to clear the selection).
-                    self.board_crop = None;
-                } else if self.line_draft.is_some() {
-                    // Line draft Esc layering (contract D12): a live numeric
-                    // entry clears first, the next press removes the first
-                    // point; the Mode layer below then disarms to Select.
-                    self.line_cancel_step();
-                } else if self.board_path_draft.is_some() {
-                    self.escape_path_draft();
-                } else if self.trim_live_draft() {
-                    self.trim_cancel_step();
-                } else if !self.direct.anchors.is_empty() {
-                    // Direct-selection Esc order: anchors → node → tool.
-                    self.direct.anchors.clear();
-                } else {
-                    self.direct_set_target(None);
-                }
-                true
-            }
-            Some(CancelLayer::Mode) => {
-                if self.zoom_tool_active() {
-                    // Disarm Z first: the previous tool re-arms untouched.
-                    self.zoom_armed = false;
-                    self.zoom_marquee = None;
-                } else {
-                    self.set_board_tool(board::BoardTool::Select);
-                }
-                true
-            }
-            Some(CancelLayer::Selection) => {
-                self.board_sel.clear();
-                self.selection.clear();
-                true
-            }
-            Some(CancelLayer::Chrome) => {
-                self.board_menu = None;
-                self.board_empty_menu = None;
-                self.adjust_popover_open = false;
-                self.new_tag_edit = None;
-                true
-            }
-            // Slate has no readout-owned selection (File Atlas' activity
-            // timeline registers that layer), so it is never live here.
-            Some(CancelLayer::Readout) | None => false,
-        }
-    }
-
     // ---------- the keyboard front-end ----------
 
     pub(crate) fn hotkeys(&mut self, ctx: &egui::Context) {
@@ -1249,6 +1047,11 @@ impl SlateApp {
         let paste_edge = self.take_paste_chord_edge(focused);
         // Presentation mode owns the keyboard (handled in present_frame).
         if self.presenting.is_some() {
+            self.space_tap = SpaceTap::default();
+            self.bare_letter_hold = None;
+            return;
+        }
+        if self.image_selection_keys(ctx) {
             self.space_tap = SpaceTap::default();
             self.bare_letter_hold = None;
             return;
@@ -1745,156 +1548,6 @@ impl SlateApp {
 /// Match the modifier snapshot on the press, not the frame's final state.
 /// A quick Ctrl+Z can arrive with Ctrl already released by the next frame;
 /// reading `i.modifiers` would reinterpret that Undo press as the bare Z tool.
-fn chord_pressed(i: &egui::InputState, chord: Chord) -> bool {
-    let Some(key) = to_egui_key(chord.key) else {
-        return false;
-    };
-    i.events.iter().any(|event| {
-        matches!(event, egui::Event::Key {
-            key: event_key, pressed: true, modifiers, ..
-        } if *event_key == key
-            && modifiers.ctrl == chord.ctrl
-            && modifiers.shift == chord.shift
-            && modifiers.alt == chord.alt)
-    })
-}
-
-/// [`chord_pressed`] by a real press, not a held key's auto-repeat.
-fn chord_fresh(i: &egui::InputState, chord: Chord) -> bool {
-    let Some(key) = to_egui_key(chord.key) else {
-        return false;
-    };
-    i.events.iter().any(|event| {
-        matches!(event, egui::Event::Key {
-            key: event_key, pressed: true, repeat: false, modifiers, ..
-        } if *event_key == key
-            && modifiers.ctrl == chord.ctrl
-            && modifiers.shift == chord.shift
-            && modifiers.alt == chord.alt)
-    })
-}
-
-/// The lowercase character a letter or digit key types.
-fn key_char(key: egui::Key) -> Option<char> {
-    let mut name = key.name().chars();
-    match (name.next(), name.next()) {
-        (Some(c), None) if c.is_ascii_alphanumeric() => Some(c.to_ascii_lowercase()),
-        _ => None,
-    }
-}
-
-/// The pre-registry suppression gates, applied per chord shape:
-/// - Ctrl chords are suppressed while a text field wants the keyboard
-///   (exactly the old `!wants_kb` gate on the Ctrl block);
-/// - bare (modifier-free) non-F-keys are suppressed while typing or text
-///   editing (the old board-keys gate — view scoping now comes from
-///   `Availability`);
-/// - F-keys stay live while typing (F5/F11 always were);
-/// - everything is suppressed while the palette popup is open (it owns
-///   the keyboard).
-fn suppressed(chord: Chord, wants_kb: bool, editing: bool, palette_open: bool) -> bool {
-    if palette_open {
-        return true;
-    }
-    let fkey = matches!(
-        chord.key,
-        Key::F1
-            | Key::F2
-            | Key::F3
-            | Key::F4
-            | Key::F5
-            | Key::F6
-            | Key::F7
-            | Key::F8
-            | Key::F9
-            | Key::F10
-            | Key::F11
-            | Key::F12
-    );
-    if fkey {
-        return false;
-    }
-    if chord.ctrl {
-        return wants_kb;
-    }
-    wants_kb || editing
-}
-
-/// Registry [`Key`] → egui key (the app-edge mapping the pure crate defers).
-fn to_egui_key(key: Key) -> Option<egui::Key> {
-    use egui::Key as E;
-    Some(match key {
-        Key::A => E::A,
-        Key::B => E::B,
-        Key::C => E::C,
-        Key::D => E::D,
-        Key::E => E::E,
-        Key::F => E::F,
-        Key::G => E::G,
-        Key::H => E::H,
-        Key::I => E::I,
-        Key::J => E::J,
-        Key::K => E::K,
-        Key::L => E::L,
-        Key::M => E::M,
-        Key::N => E::N,
-        Key::O => E::O,
-        Key::P => E::P,
-        Key::Q => E::Q,
-        Key::R => E::R,
-        Key::S => E::S,
-        Key::T => E::T,
-        Key::U => E::U,
-        Key::V => E::V,
-        Key::W => E::W,
-        Key::X => E::X,
-        Key::Y => E::Y,
-        Key::Z => E::Z,
-        Key::Num0 => E::Num0,
-        Key::Num1 => E::Num1,
-        Key::Num2 => E::Num2,
-        Key::Num3 => E::Num3,
-        Key::Num4 => E::Num4,
-        Key::Num5 => E::Num5,
-        Key::Num6 => E::Num6,
-        Key::Num7 => E::Num7,
-        Key::Num8 => E::Num8,
-        Key::Num9 => E::Num9,
-        Key::F1 => E::F1,
-        Key::F2 => E::F2,
-        Key::F3 => E::F3,
-        Key::F4 => E::F4,
-        Key::F5 => E::F5,
-        Key::F6 => E::F6,
-        Key::F7 => E::F7,
-        Key::F8 => E::F8,
-        Key::F9 => E::F9,
-        Key::F10 => E::F10,
-        Key::F11 => E::F11,
-        Key::F12 => E::F12,
-        Key::ArrowUp => E::ArrowUp,
-        Key::ArrowDown => E::ArrowDown,
-        Key::ArrowLeft => E::ArrowLeft,
-        Key::ArrowRight => E::ArrowRight,
-        Key::Space => E::Space,
-        Key::Enter => E::Enter,
-        Key::Escape => E::Escape,
-        Key::Tab => E::Tab,
-        Key::Delete => E::Delete,
-        Key::Backspace => E::Backspace,
-        Key::Home => E::Home,
-        Key::End => E::End,
-        Key::PageUp => E::PageUp,
-        Key::PageDown => E::PageDown,
-        Key::OpenBracket => E::OpenBracket,
-        Key::CloseBracket => E::CloseBracket,
-        Key::Comma => E::Comma,
-        Key::Period => E::Period,
-        Key::Plus => E::Plus,
-        Key::Minus => E::Minus,
-    })
-}
-
 #[cfg(test)]
 mod shortcut_tests {
     use super::*;

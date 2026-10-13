@@ -102,50 +102,6 @@ pub(crate) fn portal_content_outline(frame: Rect, body: Rect, corner: Corner, z:
     corner_outline(clip, clip_corner, z)
 }
 
-/// Square-corner leftovers outside a rounded rect. Painted in the frame fill
-/// after contents so a square `clip_rect` cannot oversail the fillet
-/// (P1.portal.clip). Fan-triangulate from the outer corner.
-#[allow(dead_code)] // No caller yet.
-pub(crate) fn fillet_overhangs(rect: Rect, radius: f32) -> [Vec<Pos2>; 4] {
-    let half = rect.width().min(rect.height()) * 0.5;
-    let r = radius.clamp(0.0, half);
-    if r < 0.5 {
-        return [vec![], vec![], vec![], vec![]];
-    }
-    let steps = 8;
-    let corners = [
-        (
-            Pos2::new(rect.max.x, rect.min.y),
-            Pos2::new(rect.max.x - r, rect.min.y + r),
-            -90.0f32,
-        ),
-        (
-            Pos2::new(rect.max.x, rect.max.y),
-            Pos2::new(rect.max.x - r, rect.max.y - r),
-            0.0,
-        ),
-        (
-            Pos2::new(rect.min.x, rect.max.y),
-            Pos2::new(rect.min.x + r, rect.max.y - r),
-            90.0,
-        ),
-        (
-            Pos2::new(rect.min.x, rect.min.y),
-            Pos2::new(rect.min.x + r, rect.min.y + r),
-            180.0,
-        ),
-    ];
-    corners.map(|(outer, center, a0)| {
-        let mut pts = Vec::with_capacity(steps + 2);
-        pts.push(outer);
-        for s in 0..=steps {
-            let a = (a0 + 90.0 * s as f32 / steps as f32).to_radians();
-            pts.push(center + Vec2::new(a.cos() * r, a.sin() * r));
-        }
-        pts
-    })
-}
-
 /// The edge of a rotated rect that faces up on screen, ordered left to right.
 /// Corners wind clockwise, so an edge's outward normal is `(d.y, -d.x)`: the
 /// edge running most nearly rightward faces most nearly up. Ties keep the
@@ -218,16 +174,6 @@ pub(crate) fn frame_label_placement(
         along.angle()
     };
     (center, angle)
-}
-
-#[allow(dead_code)] // No caller yet.
-pub(crate) fn paint_fillet_masks(painter: &egui::Painter, frame: Rect, radius: f32, fill: Color32) {
-    if radius < 0.5 || fill.a() == 0 {
-        return;
-    }
-    for outline in fillet_overhangs(frame, radius) {
-        paint_convex_fan_fill(painter, &outline, fill);
-    }
 }
 
 pub(crate) fn paint_convex_fan_fill(painter: &egui::Painter, outline: &[Pos2], fill: Color32) {
@@ -388,6 +334,7 @@ pub(super) fn paint_clip_fill(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn paint_clipped_texture(
+    cache: &mut board_path::PathMeshCache,
     painter: &egui::Painter,
     xf: &BoardXf,
     tex: &egui::TextureHandle,
@@ -397,15 +344,25 @@ pub(crate) fn paint_clipped_texture(
     mirror: Mirror,
     tint: Color32,
 ) {
-    let bez = board_path::path_data_to_world_bez(clip, node.rect, node.rotation_deg);
-    let contours = vector_ink::flatten_contours(&bez, board_path::curve_tolerance(xf.z));
-    let (verts, idx) = vector_ink::fill_triangles(&contours);
+    let key = board_path::path_fill_hash(
+        clip,
+        node.rect,
+        node.rotation_deg,
+        Corner::Square,
+        board_path::zoom_bucket(xf.z),
+    );
+    let triangles = cache.get_or_fill_tris(node.id, key, || {
+        let bez = board_path::path_data_to_world_bez(clip, node.rect, node.rotation_deg);
+        let contours = vector_ink::flatten_contours(&bez, board_path::curve_tolerance(xf.z));
+        vector_ink::fill_triangles(&contours)
+    });
+    let (verts, idx) = &*triangles;
     if idx.is_empty() {
         return;
     }
     let (cx, cy) = node.rect.center();
     let mut mesh = egui::Mesh::with_texture(tex.id());
-    for v in &verts {
+    for v in verts {
         let local = slate_doc::geom::world_to_local_about(v[0], v[1], cx, cy, node.rotation_deg);
         let uv = local_texture_uv(node.rect, crop, mirror, local);
         mesh.vertices.push(egui::epaint::Vertex {
@@ -414,6 +371,6 @@ pub(crate) fn paint_clipped_texture(
             color: tint,
         });
     }
-    mesh.indices = idx;
+    mesh.indices = idx.clone();
     painter.add(egui::Shape::mesh(mesh));
 }

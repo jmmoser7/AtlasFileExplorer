@@ -147,6 +147,10 @@ impl SlateApp {
     pub(crate) fn frame_chrome_suppressed(&self, id: NodeId) -> bool {
         self.portal_frame_chrome_suppressed(id)
             || self.text_edit.as_ref().is_some_and(|(edit, _)| *edit == id)
+            || self
+                .text_doc_edit
+                .as_ref()
+                .is_some_and(|edit| edit.node == id)
             || self.sheet_edit.as_ref().is_some_and(|edit| edit.node == id)
             || self.sheet_open == Some(id)
             || self.board_crop == Some(id)
@@ -211,7 +215,7 @@ impl SlateApp {
         if layout.pointer_on_chrome(p) {
             return;
         }
-        if layout.body.contains(p) {
+        if layout.body.contains(p) && self.node_is_topmost(id, Some(p), xf) {
             return;
         }
         self.contents_blur();

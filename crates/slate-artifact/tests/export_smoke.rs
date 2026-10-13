@@ -1,4 +1,4 @@
-﻿//! End-to-end export smoke test: one slide exercising every style feature
+//! End-to-end export smoke test: one slide exercising every style feature
 //! (crop, rounded + chamfered corners, dashed stroke, filters, overlay,
 //! serif text with escaping) through the public `export_html` API.
 
@@ -57,19 +57,14 @@ fn smoke_full_feature_export() {
                 overlay: Some(Rgba([255, 0, 0, 60])),
                 ..Default::default()
             },
-            sheet: Default::default(),
-            video: Default::default(),
-            model: Default::default(),
-            agent: None,
-            paint_layers: Vec::new(),
-            flip_x: false,
-            flip_y: false,
+            ..ImageNode::new(item)
         }),
     );
     let text = doc.scene.build_node(
         WorldRect::new(480.0, 80.0, 400.0, 120.0),
         NodeKind::Text(TextNode {
             text: "Hello <world> & friends".into(),
+            style: Default::default(),
             family: Typeface::Serif,
             size: 36.0,
             color: Rgba::opaque(10, 10, 40),
@@ -209,5 +204,37 @@ fn model_poster_html_carries_css_filter() {
     assert!(
         html.contains("filter:grayscale"),
         "expected CSS filter on model poster:\n{html}"
+    );
+}
+
+#[test]
+fn missing_text_source_still_exports_authored_words_without_a_broken_link() {
+    let mut doc = SlateDoc::new("Text without source");
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("slate-missing-authored-text-{stamp}"));
+    let path = dir.join("missing-source.txt");
+    assert!(!path.exists());
+    let item = doc.add_item(path, "missing-source.txt", 0, 0, "missing-text");
+    let mut image = ImageNode::new(item);
+    image.text_override = Some("Authored <words> survive".into());
+    let node = doc.scene.build_node(
+        WorldRect::new(0.0, 0.0, 240.0, 160.0),
+        NodeKind::Image(image),
+    );
+    doc.scene.apply(&SceneCmd::Add { index: 0, node });
+    let report = slate_artifact::export_html(&doc, &dir.join("out"), &Default::default()).unwrap();
+    assert_eq!(report.missing_assets, 1, "source is reported unavailable");
+    let html = std::fs::read_to_string(report.html_path).unwrap();
+    assert!(html.contains("<div class=\"textcard\"><pre>Authored &lt;words&gt; survive</pre>"));
+    assert!(
+        !html.contains("<a class=\"textcard\""),
+        "no unavailable-original link"
+    );
+    assert!(
+        !html.contains("class=\"missing\""),
+        "authored words remain the card"
     );
 }

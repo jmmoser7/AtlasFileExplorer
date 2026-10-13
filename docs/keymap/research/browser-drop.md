@@ -2,6 +2,14 @@
 
 ## Implemented boundary
 
+The 2026-10-12 image refinement adds PNG, DIB/DIBV5, promised image contents,
+HTML `img` sources and direct raster URLs. Browser pictures use the same
+linked PNG asset writer and journaled placement as paste. Picture intent wins
+over accompanying page links; `SourceURL` only resolves a relative image src.
+Network transfer, decode and asset writing are bounded background work.
+See [the implementation amendment](../specs/browser-element-drop.md) and
+web-portal D01. The older linked-card-first proposal is superseded for images.
+
 Slate receives `UniformResourceLocatorW`, `CF_UNICODETEXT`, and UTF-8
 `text/uri-list` through a Windows OLE `IDropTarget`. One HTTP(S) URL creates
 a portal at the drop point, or rebinds an unlocked web portal there. The

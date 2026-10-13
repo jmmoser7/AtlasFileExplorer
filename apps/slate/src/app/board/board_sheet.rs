@@ -110,7 +110,9 @@ impl SlateApp {
     }
 
     pub(crate) fn item_path(&self, item: ItemId) -> Option<PathBuf> {
-        self.doc().item(item).map(|it| it.path.clone())
+        self.doc().item(item).map(|it| {
+            slate_doc::scene::resolve_source(self.tab().path.as_deref(), &it.path.to_string_lossy())
+        })
     }
 
     pub(super) fn push_sheet_mark(&mut self, mark: SheetMark) {
@@ -286,7 +288,7 @@ impl SlateApp {
         }
     }
 
-    pub(super) fn sheet_node(&self, id: NodeId) -> bool {
+    pub(crate) fn sheet_node(&self, id: NodeId) -> bool {
         self.sheets.iter().any(|(item, grid)| {
             grid.as_ref().is_some_and(|rows| !rows.is_empty())
                 && self.doc().scene.node(id).is_some_and(|n| match &n.kind {
@@ -298,7 +300,7 @@ impl SlateApp {
 
     /// Double-click opens the spreadsheet. Until then the card is a picture:
     /// the wheel zooms the board and cells do not take clicks.
-    pub(super) fn enter_sheet(&mut self, node: NodeId) {
+    pub(crate) fn enter_sheet(&mut self, node: NodeId) {
         if self.sheet_open == Some(node) {
             return;
         }

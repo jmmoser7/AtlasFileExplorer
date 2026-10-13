@@ -3,7 +3,7 @@
 use super::*;
 
 /// Double-click anywhere on a closed shape opens center-justified text editing
-/// and the text configuration. A line does not.
+/// with its configuration closed until explicitly opened. A line does not.
 #[test]
 fn double_click_closed_shape_opens_text_editor() {
     use slate_doc::scene::{NodeKind, ShapeKind, ShapeNode, TextAlign};
@@ -34,10 +34,7 @@ fn double_click_closed_shape_opens_text_editor() {
         .text_edit
         .as_ref()
         .is_some_and(|(edit_id, body)| *edit_id == id && body.is_empty()));
-    assert_eq!(
-        h.app.shape_properties.panel,
-        Some(board_properties::Panel::Text)
-    );
+    assert_eq!(h.app.shape_properties.panel, None);
     h.app.text_edit = Some((id, "Hello".into()));
     h.app.commit_text_edit();
     match &h.app.doc().scene.node(id).unwrap().kind {

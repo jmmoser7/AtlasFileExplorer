@@ -30,36 +30,64 @@ cached_key = None
 def segment(request):
     global cached_key
     width, height = request["width"], request["height"]
-    if width < 2 or height < 2 or width * height > 768 * 768:
+    if (not isinstance(width, int) or not isinstance(height, int)
+            or width < 2 or height < 2 or width * height > 768 * 768):
         raise ValueError("Invalid segmentation image size")
+    rgb = request["rgb"]
+    if len(rgb) != width * height * 3:
+        raise ValueError("Invalid segmentation image pixels")
+    prompts = request.get("points")
+    legacy_protocol = prompts is None
+    if prompts is None:
+        # Keep the original point-only JSON protocol valid for older callers.
+        prompts = [{"point": request["point"], "positive": True}]
+    if (not prompts or not any(prompt.get("positive") is True for prompt in prompts)
+            or any(not isinstance(prompt.get("positive"), bool)
+                   or len(prompt.get("point", [])) != 2
+                   or any(not np.isfinite(value) or value < 0 or value > 1
+                          for value in prompt["point"])
+                   for prompt in prompts)):
+        raise ValueError("Segmentation needs finite in-image points and at least one positive point")
+    for polygon in request["window"]:
+        if any(not np.isfinite(value) or value < 0 or value > 1
+               for point in polygon for value in point):
+            raise ValueError("Invalid segmentation window geometry")
     key = (request["key"], width, height)
-    point = np.array([[request["point"][0] * (width - 1),
-                       request["point"][1] * (height - 1)]], dtype=np.float32)
+    points = np.array([[prompt["point"][0] * (width - 1),
+                        prompt["point"][1] * (height - 1)]
+                       for prompt in prompts], dtype=np.float32)
+    labels = np.array([1 if prompt["positive"] else 0 for prompt in prompts],
+                      dtype=np.int32)
     with torch.inference_mode():
         if cached_key != key:
-            pixels = np.array(request["rgb"], dtype=np.uint8).reshape(height, width, 3)
+            pixels = np.array(rgb, dtype=np.uint8).reshape(height, width, 3)
             predictor.set_image(pixels)
             cached_key = key
-        masks, scores, _ = predictor.predict(point_coords=point,
-                                             point_labels=np.array([1]), multimask_output=True)
-    mask = masks[int(scores.argmax())].astype(np.uint8)
-    window = np.zeros_like(mask)
+        masks, scores, _ = predictor.predict(point_coords=points,
+                                             point_labels=labels, multimask_output=True)
+    window = np.zeros_like(masks[0], dtype=np.uint8)
     polygons = [np.rint(np.array(c) * [width, height]).astype(np.int32)
                 for c in request["window"] if len(c) >= 3]
     if not polygons:
-        return {"contours": []}
+        return {"contours": []} if legacy_protocol else {"candidates": []}
     cv2.fillPoly(window, polygons, 1)
-    mask &= window
-    contours, _ = cv2.findContours(mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-    result = []
-    # Even-odd fill preserves holes (arms, handles, etc.). Limit noise and payload.
-    for contour in sorted(contours, key=cv2.contourArea, reverse=True)[:64]:
-        if cv2.contourArea(contour) < 3:
-            continue
-        points = cv2.approxPolyDP(contour, 0.65, True).reshape(-1, 2)
-        if len(points) >= 3:
-            result.append([[float(x) / width, float(y) / height] for x, y in points])
-    return {"contours": result}
+    candidates = []
+    for mask, score in zip(masks, scores):
+        mask = mask.astype(np.uint8) & window
+        contours, _ = cv2.findContours(mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+        result = []
+        # Even-odd fill preserves holes (arms, handles, etc.). Limit noise and payload.
+        for contour in sorted(contours, key=cv2.contourArea, reverse=True)[:64]:
+            if cv2.contourArea(contour) < 3:
+                continue
+            outline = cv2.approxPolyDP(contour, 0.65, True).reshape(-1, 2)
+            if len(outline) >= 3:
+                result.append([[float(x) / width, float(y) / height] for x, y in outline])
+        candidates.append({"quality": float(score), "contours": result})
+    if legacy_protocol:
+        # Old point-only callers expect one contour set selected by SAM score.
+        return {"contours": max(candidates, key=lambda candidate: candidate["quality"])["contours"]}
+    return {"candidates": candidates}
 
 
 for line in sys.stdin:

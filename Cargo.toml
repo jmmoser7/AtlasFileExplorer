@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/atlas-core",
+    "crates/atlas-packs",
     "crates/atlas-update",
     "crates/atlas-shell",
     "crates/atlas-session",
@@ -51,6 +52,7 @@ toml = "0.8"
 syn = { version = "2", features = ["full", "visit"] }
 proc-macro2 = { version = "1", features = ["span-locations"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+url = "2"
 png = "0.18"
 sha2 = "0.10"
 roxmltree = "0.21"
@@ -76,6 +78,7 @@ earcutr = "0.4"
 
 # Workspace crates.
 atlas-core = { path = "crates/atlas-core" }
+atlas-packs = { path = "crates/atlas-packs" }
 atlas-update = { path = "crates/atlas-update" }
 atlas-shell = { path = "crates/atlas-shell" }
 atlas-session = { path = "crates/atlas-session" }

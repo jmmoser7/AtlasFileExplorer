@@ -40,6 +40,8 @@ mod awaits;
 mod bundle;
 mod card_fit;
 mod card_metrics;
+mod chat_edge;
+mod chat_send;
 mod composer;
 mod connection;
 mod context;
@@ -47,7 +49,10 @@ mod cursor_ide;
 mod focus;
 mod generator;
 mod generator_pump;
+mod header_menu;
+mod input_prep;
 mod inputs;
+mod interactive_text;
 mod models;
 mod picture;
 mod portal_bound;
@@ -65,12 +70,13 @@ mod spawn_chrome;
 mod train;
 
 use card_metrics::{
-    agent_pick_columns, bundle_view, card_fold, collapsed_card_height, composer_text_height,
-    composer_wrap, context_label, conversation_card_height, hugging_composer_card,
-    output_circle_center, paint_chevron_glyph, paint_pick_button, paint_responding,
-    parse_artifact_open, tracked_galley, write_fold, CARD_TEXT_PAD, COLLAPSED_ROWS,
-    COMPOSER_BOTTOM, COMPOSER_GAP, COMPOSER_TOP, PICK_BAR_RESERVE, STOP_REACH, STOP_SIDE,
-    SUMMARY_TEXT_TOP,
+    agent_pick_columns, bundle_view, card_fold, chat_dot_center, collapsed_card_height,
+    composer_text_height, composer_wrap, context_label, conversation_card_height, dot_split_travel,
+    handle_dot_radius, hugging_composer_card, output_circle_center, paint_fold_glyph,
+    paint_pick_button, paint_responding, parse_artifact_open, text_column, tracked_label,
+    write_fold, CARD_TEXT_PAD, CARD_TEXT_PX, COLLAPSED_ROWS, COMPOSER_BOTTOM, COMPOSER_GAP,
+    COMPOSER_TOP, HANDLE_HOVER_GROW, PICK_BAR_RESERVE, STOP_REACH, STOP_SIDE, SUMMARY_TEXT_TOP,
+    TEXT_INSET_LEFT,
 };
 pub(crate) use card_metrics::{
     agent_presentations, paint_agent_spinner, paint_handle_dot, paint_overlay_pill,
@@ -157,11 +163,21 @@ pub(crate) fn bind_program(
 #[cfg(test)]
 mod await_tests;
 #[cfg(test)]
+mod chat_card_polish_tests;
+#[cfg(test)]
+mod chat_card_tests;
+#[cfg(test)]
+mod cover_tests;
+#[cfg(test)]
+mod dot_roles;
+#[cfg(test)]
 mod draft_tests;
 #[cfg(test)]
 mod fork_tests;
 #[cfg(test)]
 mod history_tests;
+#[cfg(test)]
+mod input_prep_tests;
 #[cfg(test)]
 mod paint_probe;
 #[cfg(test)]

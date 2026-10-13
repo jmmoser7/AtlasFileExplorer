@@ -5,7 +5,10 @@ use windows::{
         Foundation::{DV_E_FORMATETC, E_NOTIMPL, S_OK},
         Graphics::Gdi::ClientToScreen,
         System::{
-            Com::{IAdviseSink, IDataObject_Impl, IEnumFORMATETC, IEnumSTATDATA, STGMEDIUM_0},
+            Com::{
+                IAdviseSink, IDataObject_Impl, IEnumFORMATETC, IEnumSTATDATA,
+                StructuredStorage::CreateStreamOnHGlobal, STGMEDIUM_0,
+            },
             Memory::{GlobalAlloc, GMEM_MOVEABLE},
         },
         UI::WindowsAndMessaging::{CreateWindowExW, DestroyWindow, WINDOW_EX_STYLE, WINDOW_STYLE},
@@ -13,13 +16,32 @@ use windows::{
 };
 
 #[implement(IDataObject)]
-struct Data(Vec<(u16, Vec<u8>)>);
+struct Data {
+    formats: Vec<(u16, Vec<u8>)>,
+    stream: bool,
+    probe_only: bool,
+}
 #[allow(non_snake_case)]
 impl IDataObject_Impl for Data_Impl {
     fn GetData(&self, format: *const FORMATETC) -> windows::core::Result<STGMEDIUM> {
         let format = unsafe { &*format };
+        assert!(
+            !self.probe_only || format.cfFormat == CF_HDROP.0,
+            "hover requested lazy image bytes"
+        );
+        let contents = unsafe { RegisterClipboardFormatW(w!("FileContents")) } as u16;
+        let tymed = if self.stream {
+            TYMED_ISTREAM
+        } else {
+            TYMED_HGLOBAL
+        };
+        if format.lindex != if format.cfFormat == contents { 0 } else { -1 }
+            || format.tymed & tymed.0 as u32 == 0
+        {
+            return Err(DV_E_FORMATETC.into());
+        }
         let bytes = self
-            .0
+            .formats
             .iter()
             .find(|(id, _)| *id == format.cfFormat)
             .map(|(_, bytes)| bytes)
@@ -30,15 +52,25 @@ impl IDataObject_Impl for Data_Impl {
             assert!(!ptr.is_null());
             std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr.cast(), bytes.len());
             let _ = GlobalUnlock(global);
+            let medium = if self.stream {
+                STGMEDIUM_0 {
+                    pstm: std::mem::ManuallyDrop::new(Some(CreateStreamOnHGlobal(global, true)?)),
+                }
+            } else {
+                STGMEDIUM_0 { hGlobal: global }
+            };
             Ok(STGMEDIUM {
-                tymed: TYMED_HGLOBAL.0 as u32,
-                u: STGMEDIUM_0 { hGlobal: global },
+                tymed: tymed.0 as u32,
+                u: medium,
                 pUnkForRelease: std::mem::ManuallyDrop::new(None),
             })
         }
     }
     fn QueryGetData(&self, f: *const FORMATETC) -> HRESULT {
-        if self.0.iter().any(|(id, _)| *id == unsafe { (*f).cfFormat }) {
+        let format = unsafe { &*f };
+        let contents = unsafe { RegisterClipboardFormatW(w!("FileContents")) } as u16;
+        let expected = if format.cfFormat == contents { 0 } else { -1 };
+        if self.formats.iter().any(|(id, _)| *id == format.cfFormat) && format.lindex == expected {
             S_OK
         } else {
             DV_E_FORMATETC
@@ -83,7 +115,12 @@ fn wide(text: &str) -> Vec<u8> {
         .collect()
 }
 fn data(format: u16, bytes: Vec<u8>) -> IDataObject {
-    Data(vec![(format, bytes)]).into()
+    Data {
+        formats: vec![(format, bytes)],
+        stream: false,
+        probe_only: false,
+    }
+    .into()
 }
 
 #[test]
@@ -94,6 +131,9 @@ fn web_url_drop_ole_decodes_browser_url_and_selected_unicode_text() {
     }] {
         assert!(
             matches!(read_payload(&data(format, wide(url))), Some(Payload::Url(value)) if value == url)
+        );
+        assert!(
+            matches!(read_hover_payload(&data(format, wide(url))), Some(Payload::Url(value)) if value == url)
         );
     }
     let uri = unsafe { RegisterClipboardFormatW(w!("text/uri-list")) as u16 };
@@ -113,9 +153,160 @@ fn web_url_drop_ole_reads_file_names_without_opening_files() {
     bytes[16..20].copy_from_slice(&1u32.to_le_bytes()); // fWide
     bytes.extend(wide(path));
     bytes.extend([0, 0]);
+    let object: IDataObject = Data {
+        formats: vec![
+            (CF_HDROP.0, bytes),
+            (CF_UNICODETEXT.0, wide("https://example.com/page")),
+            (
+                unsafe { RegisterClipboardFormatW(w!("PNG")) } as u16,
+                vec![1; 32],
+            ),
+        ],
+        stream: false,
+        probe_only: false,
+    }
+    .into();
     assert!(
-        matches!(read_payload(&data(CF_HDROP.0, bytes)), Some(Payload::Files(paths)) if paths == [PathBuf::from(path)])
+        matches!(read_payload(&object), Some(Payload::Files(paths)) if paths == [PathBuf::from(path)])
     );
+    assert!(
+        matches!(read_hover_payload(&object), Some(Payload::Files(paths)) if paths == [PathBuf::from(path)])
+    );
+}
+
+#[test]
+fn image_drop_ole_prefers_picture_bytes_to_a_browser_page_url() {
+    let png = atlas_core::clipboard_image::encode_png(1, 1, &[10, 20, 30, 255]).unwrap();
+    for name in [w!("PNG"), w!("image/png")] {
+        let object: IDataObject = Data {
+            formats: vec![
+                (CF_UNICODETEXT.0, wide("https://example.com/page")),
+                (
+                    unsafe { RegisterClipboardFormatW(name) } as u16,
+                    png.clone(),
+                ),
+            ],
+            stream: false,
+            probe_only: false,
+        }
+        .into();
+        assert!(
+            matches!(read_payload(&object), Some(Payload::Image(ImageSource::Encoded(bytes))) if bytes.starts_with(&png))
+        );
+    }
+    for format in [CF_DIBV5.0, CF_DIB.0] {
+        let object: IDataObject = Data {
+            formats: vec![
+                (
+                    unsafe { RegisterClipboardFormatW(w!("PNG")) } as u16,
+                    vec![1; 32],
+                ),
+                (format, vec![1; 40]),
+            ],
+            stream: false,
+            probe_only: false,
+        }
+        .into();
+        assert!(
+            matches!(read_payload(&object), Some(Payload::Image(ImageSource::Bitmap(bytes))) if bytes.starts_with(&[1; 40]))
+        );
+    }
+}
+
+#[test]
+fn image_drop_ole_reads_promised_file_contents_and_bounds_both_media() {
+    let contents = unsafe { RegisterClipboardFormatW(w!("FileContents")) } as u16;
+    let png = atlas_core::clipboard_image::encode_png(1, 1, &[10, 20, 30, 255]).unwrap();
+    for stream in [false, true] {
+        let object: IDataObject = Data {
+            formats: vec![(contents, png.clone())],
+            stream,
+            probe_only: false,
+        }
+        .into();
+        assert!(
+            matches!(read_payload(&object), Some(Payload::Image(ImageSource::Encoded(bytes))) if bytes.starts_with(&png))
+        );
+        assert!(read_raw(&object, contents, 0, 3).is_none());
+        assert!(read_raw(&object, contents, -1, 64).is_none());
+    }
+}
+
+#[test]
+fn image_drop_ole_keeps_virtual_shortcut_contents_as_a_link() {
+    let contents = unsafe { RegisterClipboardFormatW(w!("FileContents")) } as u16;
+    for stream in [false, true] {
+        let object: IDataObject = Data {
+            formats: vec![
+                (
+                    contents,
+                    b"[InternetShortcut]\r\nURL=https://example.com/page\r\n".to_vec(),
+                ),
+                (CF_UNICODETEXT.0, wide("https://example.com/page")),
+            ],
+            stream,
+            probe_only: false,
+        }
+        .into();
+        assert!(
+            matches!(read_payload(&object), Some(Payload::Url(url)) if url == "https://example.com/page")
+        );
+    }
+}
+
+#[test]
+fn image_drop_ole_classifies_html_and_mozilla_image_urls() {
+    let html = unsafe { RegisterClipboardFormatW(w!("HTML Format")) } as u16;
+    let object: IDataObject = Data {
+        formats: vec![
+            (html, b"<!--StartFragment--><img src=\"https://example.com/picture.png\"><!--EndFragment-->\0".to_vec()),
+            (CF_UNICODETEXT.0, wide("https://example.com/page")),
+        ],
+        stream: false,
+        probe_only: false,
+    }.into();
+    assert!(
+        matches!(read_payload(&object), Some(Payload::Image(ImageSource::Url(url))) if url == "https://example.com/picture.png")
+    );
+    let moz = unsafe { RegisterClipboardFormatW(w!("text/x-moz-url")) } as u16;
+    assert!(matches!(
+        read_payload(&data(moz, wide("https://example.com/picture.png\nPicture"))),
+        Some(Payload::Image(ImageSource::Url(_)))
+    ));
+}
+
+#[test]
+fn image_drop_ole_hover_never_requests_pixels_or_promised_contents() {
+    for (format, _) in image_formats() {
+        for stream in [false, true] {
+            let object: IDataObject = Data {
+                formats: vec![(format, vec![1; 32])],
+                stream,
+                probe_only: true,
+            }
+            .into();
+            assert!(matches!(read_hover_payload(&object),
+                Some(Payload::Image(ImageSource::Encoded(bytes))) if bytes.is_empty()));
+        }
+    }
+}
+
+#[test]
+fn image_drop_ole_accepts_pictures_only_in_the_canvas() {
+    let target = Target {
+        hwnd: HWND::default(),
+        ctx: eframe::egui::Context::default(),
+        inbox: Inbox::default(),
+        hover: RefCell::new(None),
+    };
+    let payload = Payload::Image(ImageSource::Encoded(vec![1]));
+    assert!(!target.accepts(&payload, Pos2::new(20.0, 20.0)));
+    target.inbox.set_url_area(Some(Rect::from_min_max(
+        Pos2::ZERO,
+        Pos2::new(100.0, 100.0),
+    )));
+    assert!(target.accepts(&payload, Pos2::new(20.0, 20.0)));
+    assert!(!target.accepts(&payload, Pos2::new(120.0, 20.0)));
 }
 
 #[test]

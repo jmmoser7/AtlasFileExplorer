@@ -45,7 +45,7 @@ reason = "Slate app; extract one concern per module"
 
 [[entry]]
 file = "apps/slate/src/app/board.rs"
-ceiling = 3057
+ceiling = 2541
 reason = "Slate board interpreter; split on banner seams"
 
 [[entry]]
@@ -80,22 +80,22 @@ reason = "Slate app; extract one concern per module"
 
 [[entry]]
 file = "apps/slate/src/app/board_direct.rs"
-ceiling = 1874
+ceiling = 1850
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
 file = "apps/slate/src/app/board_flow.rs"
-ceiling = 2808
+ceiling = 2683
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
 file = "apps/slate/src/app/board_handles.rs"
-ceiling = 910
+ceiling = 884
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
 file = "apps/slate/src/app/board_image_layers.rs"
-ceiling = 1258
+ceiling = 842
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
@@ -105,7 +105,7 @@ reason = "Slate app; extract one concern per module"
 
 [[entry]]
 file = "apps/slate/src/app/board_path.rs"
-ceiling = 7174
+ceiling = 7060
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
@@ -125,7 +125,7 @@ reason = "Slate app; extract one concern per module"
 
 [[entry]]
 file = "apps/slate/src/app/board_properties.rs"
-ceiling = 5457
+ceiling = 4756
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
@@ -145,7 +145,7 @@ reason = "Slate app; extract one concern per module"
 
 [[entry]]
 file = "apps/slate/src/app/board_transform.rs"
-ceiling = 953
+ceiling = 559
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
@@ -175,7 +175,7 @@ reason = "Slate app; extract one concern per module"
 
 [[entry]]
 file = "apps/slate/src/app/board_wire.rs"
-ceiling = 1595
+ceiling = 1155
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
@@ -185,12 +185,12 @@ reason = "Slate board interpreter; split on banner seams"
 
 [[entry]]
 file = "apps/slate/src/app/commands.rs"
-ceiling = 2462
+ceiling = 2403
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
 file = "apps/slate/src/app/dispatch.rs"
-ceiling = 1979
+ceiling = 1632
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
@@ -199,28 +199,13 @@ ceiling = 562
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
-file = "apps/slate/src/app/image_layer_tests.rs"
-ceiling = 635
-reason = "integration tests; split by module under test"
-
-[[entry]]
-file = "apps/slate/src/app/imagefx.rs"
-ceiling = 552
-reason = "Slate app; extract one concern per module"
-
-[[entry]]
 file = "apps/slate/src/app/mod.rs"
-ceiling = 2888
+ceiling = 2810
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
 file = "apps/slate/src/app/model3d.rs"
 ceiling = 5077
-reason = "Slate app; extract one concern per module"
-
-[[entry]]
-file = "apps/slate/src/app/model_screenshot.rs"
-ceiling = 1339
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
@@ -245,7 +230,7 @@ reason = "Slate app; extract one concern per module"
 
 [[entry]]
 file = "apps/slate/src/app/ui/tools.rs"
-ceiling = 1017
+ceiling = 940
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
@@ -339,16 +324,6 @@ ceiling = 594
 reason = "oversized; split along module seam"
 
 [[entry]]
-file = "crates/atlas-shell/examples/shape_palettes.rs"
-ceiling = 560
-reason = "shared chrome/canvas; Art. X owner atlas-shell"
-
-[[entry]]
-file = "crates/atlas-shell/src/canvas_text.rs"
-ceiling = 1368
-reason = "shared chrome/canvas; Art. X owner atlas-shell"
-
-[[entry]]
 file = "crates/atlas-shell/src/covers.rs"
 ceiling = 620
 reason = "shared chrome/canvas; Art. X owner atlas-shell"
@@ -360,17 +335,12 @@ reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]
 file = "crates/atlas-shell/src/dock.rs"
-ceiling = 5336
+ceiling = 5286
 reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]
 file = "crates/atlas-shell/src/dock_advanced.rs"
 ceiling = 1351
-reason = "shared chrome/canvas; Art. X owner atlas-shell"
-
-[[entry]]
-file = "crates/atlas-shell/src/feedback/ui.rs"
-ceiling = 558
 reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]
@@ -380,17 +350,17 @@ reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]
 file = "crates/atlas-shell/src/folder_map/paint.rs"
-ceiling = 1222
+ceiling = 824
 reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]
 file = "crates/atlas-shell/src/home.rs"
-ceiling = 2616
+ceiling = 2477
 reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]
 file = "crates/atlas-shell/src/menu.rs"
-ceiling = 959
+ceiling = 878
 reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]
@@ -400,7 +370,7 @@ reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]
 file = "crates/atlas-shell/src/selection_tools.rs"
-ceiling = 4693
+ceiling = 3964
 reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]
@@ -410,7 +380,7 @@ reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]
 file = "crates/atlas-shell/src/tabs.rs"
-ceiling = 901
+ceiling = 811
 reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]
@@ -420,12 +390,12 @@ reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]
 file = "crates/atlas-shell/src/tokens.rs"
-ceiling = 3047
+ceiling = 2960
 reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]
 file = "crates/atlas-shell/src/tuning.rs"
-ceiling = 1827
+ceiling = 1826
 reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]
@@ -480,7 +450,7 @@ reason = "document model; slate-doc owner"
 
 [[entry]]
 file = "crates/slate-doc/src/agent_inputs.rs"
-ceiling = 2159
+ceiling = 2055
 reason = "document model; slate-doc owner"
 
 [[entry]]
@@ -500,7 +470,7 @@ reason = "document model; slate-doc owner"
 
 [[entry]]
 file = "crates/slate-doc/src/geom.rs"
-ceiling = 1768
+ceiling = 1713
 reason = "document model; slate-doc owner"
 
 [[entry]]
@@ -510,7 +480,7 @@ reason = "document model; slate-doc owner"
 
 [[entry]]
 file = "crates/slate-doc/src/scene.rs"
-ceiling = 6841
+ceiling = 6804
 reason = "document model; slate-doc owner"
 
 [[entry]]

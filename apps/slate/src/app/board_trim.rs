@@ -217,6 +217,10 @@ impl SlateApp {
     }
 
     pub(crate) fn trim_click(&mut self, world: Pos2, shift: bool) -> bool {
+        self.trim_click_modifiers(world, shift, false)
+    }
+
+    pub(crate) fn trim_click_modifiers(&mut self, world: Pos2, shift: bool, ctrl: bool) -> bool {
         let Some(session) = self.trim.clone() else {
             return false;
         };
@@ -225,7 +229,9 @@ impl SlateApp {
                 if let Some(id) = self.trim_pick_node(world) {
                     if self.trim_can_cut(id) {
                         if let Some(s) = self.trim.as_mut() {
-                            if !s.cutters.contains(&id) {
+                            if ctrl {
+                                s.cutters.retain(|cutter| *cutter != id);
+                            } else if !s.cutters.contains(&id) {
                                 s.cutters.push(id);
                             }
                         }
@@ -275,13 +281,10 @@ impl SlateApp {
     }
 
     fn trim_pick_node(&self, world: Pos2) -> Option<NodeId> {
-        self.doc()
-            .scene
-            .nodes
-            .iter()
-            .rev()
-            .find(|n| !n.hidden && n.rect.contains_rotated(world.x, world.y, n.rotation_deg))
-            .map(|n| n.id)
+        super::board_path::board_pick_node_routed(
+            &self.doc().scene, world.x, world.y, self.board_xf().z,
+            true, self.board_wire_routing,
+        )
     }
 
     fn trim_try_extend(&mut self, world: Pos2) -> bool {
@@ -385,20 +388,6 @@ impl SlateApp {
         let z = self.board_xf().z.max(0.05);
         let slop = trim_tokens::SPAN_SLOP / z;
         let p = [world.x, world.y];
-        for n in self.doc().scene.nodes.iter().rev() {
-            if !self.split_can_target(n.id) {
-                continue;
-            }
-            if let Some(poly) = self.node_closed_poly(n) {
-                if !point_in_polygon(&poly, p) {
-                    continue;
-                }
-                let cutters = self.live_cutters(Some(n.id));
-                if split_closed(&poly, &cutters).is_some() {
-                    return Some(TrimHover::SplitTarget { target: n.id });
-                }
-            }
-        }
         let mut best: Option<(f32, NodeId)> = None;
         for n in self.doc().scene.nodes.iter().rev() {
             if !self.split_can_target(n.id) {
@@ -418,7 +407,24 @@ impl SlateApp {
                 }
             }
         }
-        best.map(|(_, target)| TrimHover::SplitTarget { target })
+        if let Some((_, target)) = best {
+            return Some(TrimHover::SplitTarget { target });
+        }
+        for n in self.doc().scene.nodes.iter().rev() {
+            if !self.split_can_target(n.id) {
+                continue;
+            }
+            if let Some(poly) = self.node_closed_poly(n) {
+                if !point_in_polygon(&poly, p) {
+                    continue;
+                }
+                let cutters = self.live_cutters(Some(n.id));
+                if split_closed(&poly, &cutters).is_some() {
+                    return Some(TrimHover::SplitTarget { target: n.id });
+                }
+            }
+        }
+        None
     }
 
     fn select_split_results(&mut self, first: NodeId, count: usize) {
@@ -443,6 +449,26 @@ impl SlateApp {
         let z = self.board_xf().z.max(0.05);
         let slop = trim_tokens::SPAN_SLOP / z;
         let p = [world.x, world.y];
+        let mut best: Option<(f32, NodeId, usize)> = None;
+        for n in self.doc().scene.nodes.iter().rev() {
+            if !self.trim_can_target(n.id) {
+                continue;
+            }
+            let Some(pts) = self.node_open_polyline(n) else {
+                continue;
+            };
+            let cutters = self.live_cutters(Some(n.id));
+            let spans = split_open_at_cutters(&pts, &cutters);
+            if spans.len() < 2 { continue; }
+            if let Some(hit) = closest_polyline_span(&spans, p) {
+                if hit.dist <= slop && best.is_none_or(|(d, _, _)| hit.dist < d) {
+                    best = Some((hit.dist, n.id, hit.span));
+                }
+            }
+        }
+        if let Some((_, target, span)) = best {
+            return Some(TrimHover::OpenSpan { target, span });
+        }
         // Prefer a closed target whose dying piece is a proper subset
         // (hole / half). A filled cutter sitting on top of that piece
         // would otherwise swallow the click and delete itself.
@@ -471,23 +497,7 @@ impl SlateApp {
         if let Some(target) = delete_fallback {
             return Some(TrimHover::ClosedRegion { target });
         }
-        let mut best: Option<(f32, NodeId, usize)> = None;
-        for n in self.doc().scene.nodes.iter().rev() {
-            if !self.trim_can_target(n.id) {
-                continue;
-            }
-            let Some(pts) = self.node_open_polyline(n) else {
-                continue;
-            };
-            let cutters = self.live_cutters(Some(n.id));
-            let spans = split_open_at_cutters(&pts, &cutters);
-            if let Some(hit) = closest_polyline_span(&spans, p) {
-                if hit.dist <= slop && best.is_none_or(|(d, _, _)| hit.dist < d) {
-                    best = Some((hit.dist, n.id, hit.span));
-                }
-            }
-        }
-        best.map(|(_, target, span)| TrimHover::OpenSpan { target, span })
+        None
     }
 
     fn live_cutters(&self, except: Option<NodeId>) -> Vec<Cutter> {

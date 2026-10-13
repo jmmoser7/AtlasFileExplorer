@@ -400,10 +400,12 @@ fn direct_select_picks_closed_form_vertices_as_anchors() {
     h.frame();
     assert_eq!(
         shape_kind_of(&h, id),
-        ShapeKind::Rect,
-        "no silent Rect → Path"
+        ShapeKind::Path,
+        "moving a rectangle vertex promotes it to a closed path"
     );
-    assert_eq!(h.app.doc().scene.node(id).unwrap().rect, rect0);
+    assert_ne!(h.app.doc().scene.node(id).unwrap().rect, rect0);
+    h.app.board_undo();
+    assert_eq!(shape_kind_of(&h, id), ShapeKind::Rect);
 }
 
 /// Per-vertex stroke on a closed form survives save and reload unchanged,

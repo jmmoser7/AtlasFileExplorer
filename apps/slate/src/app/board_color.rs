@@ -8,7 +8,6 @@
 
 use super::board::{to_rgba, BoardTool, MIN_DRAW};
 use super::{board_path, SlateApp};
-use atlas_shell::desktop_color::PickMode;
 use eframe::egui::{self, Color32, Pos2, Stroke as EStroke};
 use slate_doc::scene::{
     Node, NodeKind, Rgba, ShapeKind, ShapeNode, Stroke, StrokeCap, StrokeJoin, StrokeSpan,
@@ -17,6 +16,9 @@ use slate_doc::scene::{
 use slate_doc::vertex_style::PlacedTip;
 use slate_doc::NodeId;
 use vector_ink::kurbo::BezPath;
+
+mod desktop_sample;
+pub(crate) use desktop_sample::{DesktopDestination, DesktopSample};
 
 /// Whether a round pick of radius `slop` touches `node` anywhere on the
 /// segment `from` to `to`. One fast pointer move is one long segment, so the
@@ -207,23 +209,6 @@ pub(crate) fn with_erase_mark(before: &Node, points: &[Pos2], span: StrokeSpan) 
     after
 }
 
-pub(crate) enum DesktopDestination {
-    Tool {
-        background: bool,
-        alt_selects_background: bool,
-    },
-    Nodes {
-        ids: Vec<NodeId>,
-        panel: super::board_properties::Panel,
-        preview: bool,
-    },
-}
-pub struct DesktopSample {
-    picker: atlas_shell::desktop_color::DesktopColorPicker,
-    tab: u64,
-    destination: DesktopDestination,
-}
-
 /// Color transitions at journal boundaries; geometry/alpha-only edits contribute nothing.
 pub(super) fn committed_colors<'a>(
     nodes: impl IntoIterator<
@@ -265,159 +250,6 @@ impl SlateApp {
         }
         if self.doc().view.recent_colors != before {
             self.tab_mut().dirty = true;
-        }
-    }
-
-    pub(crate) fn begin_desktop_sample(&mut self, destination: DesktopDestination, mode: PickMode) {
-        if self.desktop_sample.is_some() {
-            return;
-        }
-        // Headless input tests never create native windows or consume desktop clicks.
-        #[cfg(test)]
-        {
-            self.desktop_sample_requests.push(mode);
-            let _ = destination;
-        }
-        #[cfg(not(test))]
-        {
-            self.desktop_sample = Some(DesktopSample {
-                picker: atlas_shell::desktop_color::DesktopColorPicker::begin(mode),
-                tab: self.tab().id,
-                destination,
-            });
-        }
-    }
-    pub(crate) fn start_tool_desktop_sample(&mut self, background: bool, temporary: bool) {
-        self.begin_desktop_sample(
-            DesktopDestination::Tool {
-                background,
-                alt_selects_background: self.board_tool == BoardTool::Eyedropper,
-            },
-            if temporary {
-                PickMode::AltHeld
-            } else {
-                PickMode::Click
-            },
-        );
-    }
-    #[allow(dead_code)] // No caller yet.
-    pub(crate) fn start_node_desktop_sample(
-        &mut self,
-        ids: &[NodeId],
-        panel: super::board_properties::Panel,
-    ) {
-        self.begin_desktop_sample(
-            DesktopDestination::Nodes {
-                ids: ids.to_vec(),
-                panel,
-                preview: false,
-            },
-            PickMode::Click,
-        );
-    }
-    pub(crate) fn desktop_sample_frame(&mut self, ctx: &egui::Context) {
-        if self.desktop_sample.is_none() {
-            if !self.alt_down {
-                self.desktop_alt_latched = false;
-            }
-            let secondary = ctx.input(|i| {
-                i.pointer.button_down(egui::PointerButton::Secondary)
-                    || i.pointer.button_pressed(egui::PointerButton::Secondary)
-            });
-            let over_window = ctx.input(|i| i.pointer.hover_pos().is_some());
-            // Alt+right-drag is the size / color HUD, so the fullscreen sampler
-            // stays down while the pointer is over this window. It still opens
-            // once Alt is held and the pointer leaves, which is how a sample
-            // reaches another application.
-            if self.board_tool == BoardTool::Brush
-                && self.alt_down
-                && !self.desktop_alt_latched
-                && !over_window
-                && self.brush_hud.is_none()
-                && !secondary
-            {
-                self.desktop_alt_latched = true;
-                self.start_tool_desktop_sample(false, true);
-            }
-        }
-        let Some(session) = &self.desktop_sample else {
-            return;
-        };
-        ctx.request_repaint_after(std::time::Duration::from_millis(30));
-        let Some(result) = session.picker.poll() else {
-            return;
-        };
-        let session = self.desktop_sample.take().unwrap();
-        let sample = match result {
-            Ok(Some(rgb)) => rgb,
-            Ok(None) => return,
-            Err(error) => {
-                self.toast(&error);
-                return;
-            }
-        };
-        let rgb = sample.rgb;
-        if self.tab().id != session.tab {
-            self.toast("Color pick canceled: the requesting workbook changed");
-            return;
-        }
-        use super::board_properties::{Panel, Property, PropertyRequest};
-        match session.destination {
-            DesktopDestination::Tool {
-                background,
-                alt_selects_background,
-            } => {
-                let background = background || (alt_selects_background && sample.alt);
-                let color = if background {
-                    &mut self.board_colors.bg
-                } else {
-                    &mut self.board_colors.fg
-                };
-                color.0[..3].copy_from_slice(&rgb);
-                self.save_board_colors();
-                self.remember_document_colors(vec![rgb]);
-            }
-            DesktopDestination::Nodes {
-                ids,
-                panel,
-                preview,
-            } => {
-                if self.tab().read_only
-                    || ids
-                        .iter()
-                        .any(|id| self.doc().scene.node(*id).is_none_or(|n| n.locked))
-                {
-                    self.toast("Color pick canceled: its target is no longer editable");
-                    return;
-                }
-                let edit = if panel == Panel::Fill {
-                    Property::FillRgb(rgb)
-                } else if panel == Panel::Text {
-                    Property::TextRgb(rgb)
-                } else {
-                    Property::StrokeRgb(rgb)
-                };
-                if preview
-                    && self.shape_properties.panel == Some(panel)
-                    && self.shape_properties.tab == session.tab
-                    && self.shape_properties.ids == ids
-                {
-                    self.preview_shape_property(edit);
-                } else if preview {
-                    self.toast("Color pick canceled: its selection changed");
-                } else {
-                    let request = PropertyRequest {
-                        ids,
-                        edits: vec![edit],
-                        points: Vec::new(),
-                    };
-                    self.dispatch(
-                        ctx,
-                        atlas_commands::CommandId("board.shape.edit"),
-                        serde_json::to_string(&request).ok(),
-                    );
-                }
-            }
         }
     }
 }
@@ -1292,13 +1124,14 @@ impl SlateApp {
         let layer = slate_doc::image_paint::find_layer_node(scene, id);
         let node = match layer {
             None => scene.node(id).cloned(),
-            Some(loc) => scene.node(loc.image).and_then(|host| match &host.kind {
-                NodeKind::Image(img) => img
-                    .paint_layers
-                    .get(loc.layer_index)?
-                    .nodes
-                    .get(loc.node_index)
-                    .map(|local| slate_doc::image_paint::layer_node_to_world(host, img, local)),
+            Some(ref loc) => scene.node(loc.image).and_then(|host| match &host.kind {
+                NodeKind::Image(img) => {
+                    slate_doc::image_paint::layers_for_location(img, loc.result.as_ref())?
+                        .get(loc.layer_index)?
+                        .nodes
+                        .get(loc.node_index)
+                        .map(|local| slate_doc::image_paint::layer_node_to_world(host, img, local))
+                }
                 _ => None,
             }),
         }?;
@@ -2014,7 +1847,10 @@ impl SlateApp {
                 let NodeKind::Image(img) = &host.kind else {
                     continue;
                 };
-                let Some(layer) = img.paint_layers.get(loc.layer_index) else {
+                let Some(layer) =
+                    slate_doc::image_paint::layers_for_location(img, loc.result.as_ref())
+                        .and_then(|layers| layers.get(loc.layer_index))
+                else {
                     continue;
                 };
                 let Some(node) = layer.nodes.get(loc.node_index).cloned() else {
@@ -2362,6 +2198,7 @@ impl SlateApp {
             rect,
             NodeKind::Text(TextNode {
                 text: String::new(),
+                style: Default::default(),
                 family: Typeface::Sans,
                 size: 24.0,
                 color: STICKY_INK,

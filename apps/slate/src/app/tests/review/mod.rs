@@ -6,8 +6,11 @@
 use super::*;
 
 mod board;
+mod chat_polish;
 mod chat_train;
 mod chrome;
+mod image_palettes;
+mod packs;
 mod segment;
 mod text_zoom;
 

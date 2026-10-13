@@ -7,6 +7,8 @@
 //! `slate_doc::agent_inputs`. Runs go through the generator queue. See
 //! `docs/keymap/contracts/portal-agent-link.md` (Flow ports, 23 September 2026).
 
+mod ports;
+
 use std::collections::HashMap;
 
 use atlas_ai::agent::{AgentRequest, PortalView};
@@ -19,6 +21,9 @@ use slate_doc::wire::connector_route_in_scene;
 use super::board::{BoardDrag, BoardXf};
 use super::board_agent::{bind_program, paint_overlay_pill, program_card_size, InputRole};
 use super::SlateApp;
+
+mod image_editor;
+mod image_workflow;
 
 /// Designed width of a picture an agent generates.
 const AGENT_PICTURE_W: f32 = 480.0;
@@ -38,40 +43,8 @@ const NOTE_MAX_H: f32 = 1200.0;
 /// Providers a text block may run on: local, ChatGPT sign-in, OpenAI API.
 const TEXT_ENGINES: [&str; 3] = ["ollama", "codex-text", "openai-text"];
 
-/// Where `choice` sits in a model list: the exact entry, else that provider's
-/// default, else the first (local) entry.
-fn model_index(models: &[(String, String, String)], choice: Option<&(String, String)>) -> usize {
-    let Some((provider, model)) = choice else {
-        return 0;
-    };
-    models
-        .iter()
-        .position(|m| &m.0 == provider && &m.1 == model)
-        .or_else(|| {
-            models
-                .iter()
-                .position(|m| &m.0 == provider && m.1.is_empty())
-        })
-        .or_else(|| models.iter().position(|m| &m.0 == provider))
-        .unwrap_or(0)
-}
-
-/// The key field shows one bullet per key character: the bullets left are
-/// the characters kept, anything else was typed or pasted.
-fn absorb_key(draft: &mut AgentDraft, shown: &str) {
-    let kept = shown.chars().filter(|c| *c == '•').count();
-    let typed: String = shown.chars().filter(|c| *c != '•').collect();
-    let key = draft.key.get_or_insert_with(String::new);
-    *key = key.chars().take(kept).chain(typed.chars()).collect();
-}
-
-/// A seed to lock, from a fresh request id.
-fn fresh_seed() -> u64 {
-    let id = atlas_ai::agent::request_id();
-    id.bytes().fold(0xcbf29ce484222325u64, |h, b| {
-        (h ^ u64::from(b)).wrapping_mul(0x100000001b3)
-    }) >> 1
-}
+mod editor_helpers;
+use editor_helpers::{absorb_key, fresh_seed, model_index};
 
 /// The instruction a text block spawned from a picture starts with.
 const DESCRIBE_STYLE: &str = "Describe the visual style of this image as a comma-separated image prompt of 15 to 30 words: medium, palette, lighting, texture and mood. Leave out the subject.";
@@ -215,6 +188,7 @@ impl Engines {
 /// Derived view state; nothing here is journaled.
 #[derive(Default)]
 pub(crate) struct FlowUi {
+    image_result_drag: Option<image_editor::ImageResultDrag>,
     menu: Option<FlowMenu>,
     press: Option<(NodeId, Pos2)>,
     drafts: HashMap<NodeId, AgentDraft>,
@@ -300,12 +274,26 @@ impl SlateApp {
                 240.0,
                 Some(&mut menu.armed),
                 |ui| {
-                    atlas_shell::menu::heading(ui, "Make with an agent", dark);
+                    let upstream = self.flow_is_upstream(menu.source, menu.grip);
+                    atlas_shell::menu::heading(
+                        ui,
+                        if upstream {
+                            "Add an input"
+                        } else {
+                            "Make with an agent"
+                        },
+                        dark,
+                    );
                     let mut chosen = None;
-                    for m in SPAWN_CHOICES {
+                    let choices = if upstream { MODALITIES } else { SPAWN_CHOICES };
+                    for m in choices {
+                        let label = upstream.then(|| self.flow_input_label(menu.source, m.label));
                         let row = atlas_shell::menu::Row {
                             glyph: m.glyph,
-                            ..atlas_shell::menu::Row::new(m.icon, m.menu)
+                            ..atlas_shell::menu::Row::new(
+                                m.icon,
+                                label.as_deref().unwrap_or(m.menu),
+                            )
                         };
                         if atlas_shell::menu::row(ui, row, dark).clicked() {
                             chosen = Some(m.id);
@@ -361,7 +349,10 @@ impl SlateApp {
     /// point. A generator or note offers it from its output only, since its
     /// left edge holds inputs. False when `from` offers no agent.
     pub(crate) fn flow_wire_released(&mut self, from: (NodeId, Side, f32), cursor: Pos2) -> bool {
-        let offers = if agent_inputs::is_flow_node(&self.doc().scene, from.0) {
+        let upstream = self.flow_is_upstream(from.0, Some((from.1, from.2)));
+        let offers = if upstream {
+            true
+        } else if agent_inputs::is_flow_node(&self.doc().scene, from.0) {
             self.is_flow_output(from)
         } else {
             self.is_agent_media(from.0)
@@ -466,6 +457,9 @@ impl SlateApp {
                 None => (None, None),
             },
         };
+        if self.flow_is_upstream(source, spawn.from) {
+            return self.spawn_flow_input(source, kind, spawn.at, provider, model, spawn.image);
+        }
         let program = match kind {
             SpawnKind::Image => atlas_ai::agent::provider_by_id(
                 provider
@@ -720,7 +714,7 @@ impl SlateApp {
                 _ => None,
             })
             .filter_map(|source| match &self.doc().scene.node(source)?.kind {
-                NodeKind::Image(image) => {
+                NodeKind::Image(image) if image.text_override.is_none() => {
                     let item = self.doc().item(image.item)?;
                     Some((image.item, item.path.clone()))
                 }
@@ -729,111 +723,6 @@ impl SlateApp {
             .collect();
         for (item, path) in sources {
             let _ = self.snippet_for(item, &path);
-        }
-    }
-
-    /// Typed ports of flow nodes the pointer is near, that are selected, or
-    /// while a wire is being drawn.
-    pub(crate) fn paint_flow_ports(&self, painter: &egui::Painter, xf: &BoardXf) {
-        let z = xf.z;
-        if !super::board_wire::port_disc_visible(PORT_RADIUS, z) {
-            return;
-        }
-        let radius = canvas_scale::px(PORT_RADIUS, z);
-        let palette = self.palette();
-        let roles = palette.agent_roles();
-        let pointer = painter.ctx().pointer_latest_pos();
-        let wiring = matches!(self.board_drag, Some(BoardDrag::Wire(_)));
-        let font = canvas_scale::font(PORT_LABEL_PX, z);
-        let labels = canvas_text::legible(font.size);
-        let scene = &self.doc().scene;
-        for node in &scene.nodes {
-            let ports = agent_inputs::input_ports_of(node, false);
-            if node.hidden || ports.is_empty() {
-                continue;
-            }
-            let screen = xf.rect_w2s(node.rect);
-            let near = pointer
-                .is_some_and(|p| screen.expand(canvas_scale::px(PORT_REVEAL, z)).contains(p));
-            if !(near || wiring || self.board_sel.contains(&node.id))
-                || (self.agents.flow.hud_hidden(node.id) && !wiring)
-            {
-                continue;
-            }
-            let bound = agent_inputs::bound_slots(scene, node.id);
-            let sites = self.wire_host(node).ports();
-            for (port, site) in ports.iter().zip(&sites) {
-                let center = xf.w2s(Pos2::new(site.point[0], site.point[1]));
-                let (_, color) = InputRole::of_slot(port.slot).look(&roles);
-                if bound.contains(&port.slot) {
-                    painter.circle_filled(center, radius, color);
-                } else {
-                    painter.circle_filled(center, radius, palette.card);
-                    painter.circle_stroke(
-                        center,
-                        radius,
-                        egui::Stroke::new(canvas_scale::px(1.5, z), color),
-                    );
-                }
-                if labels {
-                    canvas_text::text(
-                        painter,
-                        center - egui::vec2(radius + canvas_scale::px(6.0, z), 0.0),
-                        Align2::RIGHT_CENTER,
-                        port.label,
-                        font.clone(),
-                        color,
-                    );
-                }
-            }
-            if let Some(out) = sites.last() {
-                let center = xf.w2s(Pos2::new(out.point[0], out.point[1]));
-                let hot = pointer.is_some_and(|p| p.distance(center) <= radius * 3.0);
-                let ring = if hot { palette.accent } else { palette.sub };
-                painter.circle_filled(center, radius * 1.2, palette.card);
-                painter.circle_stroke(
-                    center,
-                    radius * 1.2,
-                    egui::Stroke::new(canvas_scale::px(1.5, z), ring),
-                );
-                let arm = radius * 0.6;
-                let stroke = egui::Stroke::new(canvas_scale::px(1.5, z), ring);
-                painter.line_segment(
-                    [center - egui::vec2(arm, 0.0), center + egui::vec2(arm, 0.0)],
-                    stroke,
-                );
-                painter.line_segment(
-                    [center - egui::vec2(0.0, arm), center + egui::vec2(0.0, arm)],
-                    stroke,
-                );
-            }
-        }
-        // A dropped wire waits at its menu until a choice is made.
-        if let Some(menu) = self.agents.flow.menu.as_ref().filter(|m| m.dropped) {
-            if let Some(source) = scene.node(menu.source) {
-                let (side, t) = menu.grip.unwrap_or((Side::Right, OUTPUT_T));
-                let from = ConnectorEnd::Anchored {
-                    node: source.id,
-                    side,
-                    t,
-                };
-                let to = ConnectorEnd::Free {
-                    point: [menu.at.x, menu.at.y],
-                };
-                if let Some(path) =
-                    connector_route_in_scene(scene, None, &from, &to, self.board_wire_routing)
-                {
-                    super::board_wire::paint_route_preview(
-                        painter,
-                        xf,
-                        &path,
-                        egui::Stroke::new(
-                            canvas_scale::px(1.5, z),
-                            palette.sub.gamma_multiply(0.6),
-                        ),
-                    );
-                }
-            }
         }
     }
 
@@ -893,10 +782,9 @@ impl SlateApp {
             .join("\n\n")
     }
 
-    /// Run a text block once: wired prompts, then its instruction, with the
-    /// pictures on its Image port.
+    /// Run a text block once with wired prompts, its instruction, and Image inputs.
     pub(crate) fn queue_text_block(&mut self, id: NodeId) {
-        // A block spawned by the agent editor runs before it is ever painted.
+        self.last_board_edit = None;
         let journaled = self
             .doc()
             .scene
@@ -919,9 +807,6 @@ impl SlateApp {
                 "Type an instruction, or wire a note to Prompt.".to_string(),
             );
             return;
-        }
-        if self.agent_text_window_owned(id) && !self.tab().read_only {
-            self.clear_agent_text_output_file(id);
         }
         let model = self
             .doc()
@@ -952,9 +837,10 @@ impl SlateApp {
             ..Default::default()
         };
         self.enqueue_generation(id, request);
+        self.last_board_edit = None;
     }
 
-    fn agent_text_window_owned(&self, id: NodeId) -> bool {
+    pub(crate) fn agent_text_window_owned(&self, id: NodeId) -> bool {
         let Some(NodeKind::Image(_)) = self.doc().scene.node(id).map(|n| &n.kind) else {
             return matches!(
                 self.doc().scene.node(id).map(|n| &n.kind),
@@ -964,7 +850,7 @@ impl SlateApp {
         self.agents.text_output.file_has_content(id, &self.snippets)
     }
 
-    fn clear_agent_text_output_file(&mut self, id: NodeId) {
+    pub(crate) fn clear_agent_text_output_file(&mut self, id: NodeId) {
         let Some(NodeKind::Image(i)) = self.doc().scene.node(id).map(|n| n.kind.clone()) else {
             return;
         };
@@ -1208,6 +1094,15 @@ impl SlateApp {
         )
     }
 
+    /// Opens the model list of `source`'s Agent editor, as a click would.
+    #[cfg(test)]
+    pub(crate) fn open_agent_model_menu_for_test(&mut self, source: NodeId) {
+        let mut draft = AgentDraft::new();
+        draft.model_open = true;
+        draft.take_focus = false;
+        self.agents.flow.drafts.insert(source, draft);
+    }
+
     /// The model the person last chose for this kind of agent.
     pub(crate) fn default_model(&self, image: bool) -> Option<(String, String)> {
         if image {
@@ -1291,9 +1186,10 @@ impl SlateApp {
             }
             None => &mut draft.prompt,
         };
-        let out = atlas_shell::selection_tools::agent_editor(
+        let out = self.paint_image_agent_editor(
             ui,
             rect,
+            source,
             atlas_shell::selection_tools::AgentEdit {
                 modes: &modes,
                 mode,
@@ -1382,6 +1278,9 @@ impl SlateApp {
             .get(draft.aspect)
             .copied()
             .unwrap_or_default();
+        if draft.image && self.submit_image_in_place(source, draft, &provider, &model, aspect) {
+            return;
+        }
         let detail = serde_json::json!({
             "source": source.0,
             "kind": if draft.image { "image" } else { "text" },
@@ -1480,9 +1379,10 @@ impl SlateApp {
             None => self.agents.prompt_mut(id).clone(),
         };
         let modes = [kind.modality().label];
-        let out = atlas_shell::selection_tools::agent_editor(
+        let out = self.paint_image_agent_editor(
             ui,
             rect,
+            id,
             atlas_shell::selection_tools::AgentEdit {
                 modes: &modes,
                 mode: 0,
@@ -1737,15 +1637,6 @@ impl SlateApp {
         }
     }
 
-    /// Run the agent a picture or note was summoned with, once.
-    pub(crate) fn run_agent_media(&mut self, id: NodeId) {
-        if self.is_text_block(id) {
-            self.queue_text_block(id);
-        } else {
-            self.queue_generation(id);
-        }
-    }
-
     /// Journal the typed prompt now instead of on blur.
     fn commit_instruction(&mut self, id: NodeId) {
         let draft = self.agents.prompt_mut(id).trim().to_string();
@@ -1875,6 +1766,7 @@ impl SlateApp {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    mod image_blister;
     use super::*;
     use slate_doc::agent_inputs::InputKind;
 
@@ -1942,10 +1834,12 @@ pub(crate) mod tests {
         h.app.agents.flow.menu = None;
         assert!(h.app.flow_wire_released(out, Pos2::new(10.0, 10.0)));
         assert!(h.app.agents.flow.menu.is_none());
-        // A left-edge input is not an output.
-        assert!(!h
+        // A left-edge release keeps an upstream-input menu alive.
+        assert!(h
             .app
             .flow_wire_released((generator, Side::Left, 0.5), Pos2::new(1400.0, 0.0)));
+        assert!(h.app.agents.flow.menu.is_some());
+        h.app.agents.flow.menu = None;
 
         let before = h.app.doc().scene.nodes.len();
         let depth = h.app.tab().journal.undo_depth();
@@ -2065,13 +1959,13 @@ pub(crate) mod tests {
         h.app.board_sel.clear();
         let rest = painted(&mut h, Pos2::new(2.0, 890.0));
         assert!(
-            !rest.iter().any(|t| t == "Style"),
+            !rest.iter().any(|t| t == "Style image"),
             "quiet at rest: {rest:?}"
         );
         let xf = h.app.board_xf();
         let near = xf.rect_w2s(r).center();
         let hover = painted(&mut h, near);
-        for label in ["Media", "Prompt", "Style"] {
+        for label in ["Primary image", "Text", "Style image"] {
             assert!(
                 hover.iter().any(|t| t == label),
                 "missing {label}: {hover:?}"
@@ -2140,9 +2034,9 @@ pub(crate) mod tests {
     }
 
     /// An agent's picture is a raster like any other: a Brush on the selected
-    /// picture draws into a paint layer, and drawing hides its overlays.
+    /// picture draws into a paint layer while the idle image stays naked.
     #[test]
-    fn a_brush_on_an_agent_picture_paints_a_layer_and_hides_its_overlays() {
+    fn a_brush_on_an_agent_picture_paints_a_layer_without_generator_overlays() {
         for picked in [false, true] {
             let (mut h, generator) = generator_with_output("agent_picture_paint");
             if picked {
@@ -2153,6 +2047,20 @@ pub(crate) mod tests {
             let rect = h.app.doc().scene.node(generator).unwrap().rect;
             let at = h.app.board_xf().rect_w2s(rect).center();
             let resting = painted(&mut h, at);
+            let shows_generator_overlay = |texts: &[String]| {
+                texts.iter().any(|text| {
+                    text.starts_with("Prompt ·")
+                        || text.starts_with("Geometry ·")
+                        || matches!(
+                            text.as_str(),
+                            "Render" | "Generate" | "Keep" | "Stop" | "ComfyUI · Auto"
+                        )
+                })
+            };
+            assert!(
+                !shows_generator_overlay(&resting),
+                "picked {picked}: idle image keeps generator controls in its Agent blister: {resting:?}"
+            );
             h.app.set_board_tool(super::super::board::BoardTool::Brush);
             h.app.sync_image_paint_for_tool();
             assert!(
@@ -2164,8 +2072,8 @@ pub(crate) mod tests {
             assert!(h.app.agent_picture_draw_mode(generator));
             let drawing = painted(&mut h, at);
             assert!(
-                resting.iter().any(|t| !drawing.contains(t)),
-                "picked {picked}: overlays hide while drawing: {resting:?} vs {drawing:?}"
+                !shows_generator_overlay(&drawing),
+                "picked {picked}: drawing keeps generator controls hidden: {drawing:?}"
             );
             let nodes = h.app.doc().scene.nodes.len();
             let (cx, cy) = rect.center();
@@ -2181,8 +2089,10 @@ pub(crate) mod tests {
             let NodeKind::Image(img) = &h.app.doc().scene.node(generator).unwrap().kind else {
                 panic!("picture");
             };
-            assert_eq!(img.paint_layers.len(), 1, "picked {picked}");
-            assert_eq!(img.paint_layers[0].nodes.len(), 1, "picked {picked}");
+            let result = h.app.image_result_id(generator).unwrap();
+            let layers = slate_doc::image_paint::layers_for_result(img, &result);
+            assert_eq!(layers.len(), 1, "picked {picked}");
+            assert_eq!(layers[0].nodes.len(), 1, "picked {picked}");
         }
     }
 
@@ -2368,7 +2278,7 @@ pub(crate) mod tests {
     }
 
     /// A placed file on the board, like a drop.
-    fn place(h: &mut super::super::tests::Harness, name: &str, x: f32) -> NodeId {
+    pub(crate) fn place(h: &mut super::super::tests::Harness, name: &str, x: f32) -> NodeId {
         let path = h.base.join(name);
         if name.ends_with(".png") {
             image::RgbImage::new(8, 8).save(&path).unwrap();
@@ -2497,16 +2407,9 @@ pub(crate) mod tests {
         // egui sizes a new area on its first frame without painting it.
         painted(&mut h, Pos2::new(2.0, 890.0));
         let shown = painted(&mut h, Pos2::new(2.0, 890.0));
-        for label in [
-            "Text",
-            "Image",
-            "Submit",
-            "ComfyUI · Auto",
-            "Source",
-            "1 img",
-            "Seed",
-            "Live",
-        ] {
+        // Image agents use the image blister: its bare model, ratio, mode,
+        // and settings menus replace the generic Text/Image/Submit capsules.
+        for label in ["ComfyUI · Auto", "Source", "Single", "Settings"] {
             assert!(
                 shown.iter().any(|t| t == label),
                 "missing {label}: {shown:?}"
@@ -2556,8 +2459,8 @@ pub(crate) mod tests {
         painted(&mut h, over);
         let shown = painted(&mut h, over);
         assert!(
-            shown.iter().any(|t| t == "Generate") && !shown.iter().any(|t| t == "ComfyUI · Auto"),
-            "the model is chosen on the Agent squircle: {shown:?}"
+            !shown.iter().any(|t| t == "ComfyUI · Auto") && !shown.iter().any(|t| t == "Generate"),
+            "an idle image is naked; model controls belong to its blister: {shown:?}"
         );
     }
 
@@ -2623,34 +2526,6 @@ pub(crate) mod tests {
         let (id, request) = h.app.agents.dispatched.last().unwrap().clone();
         assert_eq!(id, generator);
         assert_eq!(request.prompt, "a red barn at dusk");
-    }
-
-    #[test]
-    fn a_running_frame_shows_what_it_is_doing_and_for_how_long() {
-        let (mut h, generator) = generator_with_output("progress");
-        h.app.patch_nodes(&[generator], |n| {
-            let a = slate_doc::agent_chat::agent_mut(n).unwrap();
-            a.instruction = "a red barn".into();
-            a.image.count = 3;
-        });
-        h.app.queue_generation(generator);
-        h.app.agent_blur();
-        h.app.board_sel.clear();
-        let r = h.app.doc().scene.node(generator).unwrap().rect;
-        h.app.tab_mut().cam.offset = egui::vec2(r.x + r.w * 0.5, r.y + r.h * 0.5);
-        h.app.tab_mut().cam.z = 1.0;
-        h.frame();
-        let shown = painted(&mut h, Pos2::new(2.0, 890.0));
-        assert!(
-            shown
-                .iter()
-                .any(|t| t.starts_with("Generating image 1 of 3 · 0:0")),
-            "progress without hovering: {shown:?}"
-        );
-        // Selected, the picture shows its dock.
-        h.app.board_sel.insert(generator);
-        let shown = painted(&mut h, Pos2::new(2.0, 890.0));
-        assert!(shown.iter().any(|t| t == "Stop"), "{shown:?}");
     }
 
     #[test]

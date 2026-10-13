@@ -1,6 +1,19 @@
 //! Text compose overlays.
 
+use super::board_text_place::grow_text_rect;
 use super::*;
+
+/// In-flight authored text on a linked card. Source bytes are never edited.
+#[derive(Clone)]
+pub(crate) struct TextDocEdit {
+    pub node: NodeId,
+    pub item: ItemId,
+    pub path: PathBuf,
+    pub rect: WorldRect,
+    pub buffer: String,
+    pub original: String,
+    pub claim_focus: bool,
+}
 
 impl SlateApp {
     /// Inline text editing overlay (double-click a text node).
@@ -16,21 +29,21 @@ impl SlateApp {
             return false;
         }
         if let Some((id, _)) = &self.text_edit {
-            return self
-                .doc()
-                .scene
-                .node(*id)
-                .is_none_or(|n| !xf.rect_w2s(n.rect).expand(4.0).contains(pointer));
+            return self.doc().scene.node(*id).is_none_or(|n| {
+                !xf.rect_w2s(
+                    self.text_edit_rect
+                        .filter(|(edit_id, _)| edit_id == id)
+                        .map_or(n.rect, |(_, r)| r),
+                )
+                .expand(4.0)
+                .contains(pointer)
+            });
         }
         if let Some(draft) = &self.text_box_draft {
             return !xf.rect_w2s(draft.rect).expand(4.0).contains(pointer);
         }
         if let Some(edit) = &self.text_doc_edit {
-            return self
-                .doc()
-                .scene
-                .node(edit.node)
-                .is_none_or(|n| !xf.rect_w2s(n.rect).expand(4.0).contains(pointer));
+            return !xf.rect_w2s(edit.rect).expand(4.0).contains(pointer);
         }
         false
     }
@@ -70,6 +83,7 @@ impl SlateApp {
         let mut cancel = false;
         egui::Area::new(egui::Id::new("slate_text_box_draft"))
             .fixed_pos(sr.min)
+            .constrain(false)
             .order(egui::Order::Middle)
             .show(ctx, |ui| {
                 ui.set_width(box_w);
@@ -101,6 +115,7 @@ impl SlateApp {
                 let resp = ui.add(
                     egui::TextEdit::multiline(&mut draft.buffer)
                         .desired_width(box_w)
+                        .desired_rows(1)
                         .frame(false)
                         .clip_text(true)
                         .margin(egui::Margin::ZERO)
@@ -143,7 +158,7 @@ impl SlateApp {
             .node(edit.node)
             .and_then(|n| match &n.kind {
                 NodeKind::Image(img) if img.item == edit.item => Some((
-                    n.rect,
+                    edit.rect,
                     slate_doc::media::text_card_corner(&edit.path, img.corner),
                 )),
                 _ => None,
@@ -152,19 +167,29 @@ impl SlateApp {
             self.commit_text_doc_edit();
             return;
         };
-        let inner = text_card_inner(xf.rect_w2s(rect), corner, xf.z);
+        let world_inner = text_card_inner(xf.rect_w2s(rect), corner, xf.z);
+        let world_wrap = world_inner.width() / xf.z.max(1.0e-4);
+        edit.rect = grow_text_rect(
+            ctx,
+            rect,
+            &edit.buffer,
+            FontId::monospace(TEXT_CARD_BODY_PX),
+            world_wrap,
+            TextAlign::Left,
+            (rect.w - world_wrap).max(0.0),
+        );
+        let inner = text_card_inner(xf.rect_w2s(edit.rect), corner, xf.z);
         if !editor_rect_ok(inner) {
             return;
         }
         let screen_font = FontId::monospace(canvas_scale::px(TEXT_CARD_BODY_PX, xf.z));
         let world_font = FontId::monospace(TEXT_CARD_BODY_PX);
-        let world_wrap = inner.width() / xf.z.max(1.0e-4);
         let zoom = xf.z;
         let ink = self.palette().ink;
-        let mut changed = false;
         let mut commit = false;
         egui::Area::new(egui::Id::new(("slate_text_doc_edit", edit.node.0)))
             .fixed_pos(inner.min)
+            .constrain(false)
             .order(egui::Order::Middle)
             .show(ctx, |ui| {
                 ui.set_width(inner.width());
@@ -198,16 +223,18 @@ impl SlateApp {
                     resp.request_focus();
                     edit.claim_focus = false;
                 }
-                changed = resp.changed();
                 commit = ui.input(|i| i.key_pressed(egui::Key::Escape));
             });
         ctx.request_repaint_after(Duration::from_secs_f64(0.55));
-        if changed {
-            self.snippets.insert(edit.item, Some(edit.buffer.clone()));
-            self.agents
-                .text_output
-                .sync(edit.node, edit.item, &edit.path, &edit.buffer, true);
-        }
+        edit.rect = grow_text_rect(
+            ctx,
+            edit.rect,
+            &edit.buffer,
+            world_font,
+            world_wrap,
+            TextAlign::Left,
+            (rect.w - world_wrap).max(0.0),
+        );
         self.text_doc_edit = Some(edit);
         if commit {
             self.commit_text_doc_edit();
@@ -268,11 +295,12 @@ impl SlateApp {
                     live.size
                 };
                 Some((
-                    typeface_font(live.family, draw_size),
+                    styled_typeface_font(ctx, live.family, draw_size, live.style),
                     live.color,
                     live.align,
                     t.fill.is_some(),
                     false,
+                    live.style,
                 ))
             }
             NodeKind::Shape(s) if slate_doc::scene::shape_hosts_text(s) => {
@@ -291,20 +319,28 @@ impl SlateApp {
                         slate_doc::scene::ShapeText::new(slate_doc::scene::shape_text_ink(fill))
                     });
                 Some((
-                    typeface_font(block.family, block.size),
+                    styled_typeface_font(ctx, block.family, block.size, block.style),
                     block.color,
                     block.align,
                     true,
                     true,
+                    block.style,
                 ))
             }
             _ => None,
         };
-        let Some((font, color, align, center_block, shape_host)) = hosted else {
+        let Some((font, color, align, center_block, shape_host, style)) = hosted else {
             self.text_edit = None;
             return;
         };
-        let sr = xf.rect_w2s(node.rect);
+        let rect = if matches!(&node.kind, NodeKind::Text(t) if t.fill.is_none()) {
+            let rect = grow_text_rect(ctx, node.rect, &buf, font.clone(), node.rect.w, align, 4.0);
+            self.text_edit_rect = Some((id, rect));
+            rect
+        } else {
+            node.rect
+        };
+        let sr = xf.rect_w2s(rect);
         let inset = if shape_host {
             canvas_scale::px(8.0, xf.z)
         } else {
@@ -319,6 +355,7 @@ impl SlateApp {
         let mut commit = false;
         egui::Area::new(egui::Id::new(("slate_text_edit", id.0)))
             .fixed_pos(area.min)
+            .constrain(false)
             .order(egui::Order::Middle)
             .show(ctx, |ui| {
                 ui.set_width(box_w);
@@ -338,7 +375,7 @@ impl SlateApp {
                 };
                 let zoom = xf.z;
                 let mut layouter = |ui: &egui::Ui, text: &str, _wrap: f32| {
-                    let laid = zoom_text_galley(
+                    let laid = styled_text_galley(
                         ui.ctx(),
                         text,
                         font.clone(),
@@ -346,6 +383,7 @@ impl SlateApp {
                         align,
                         color32,
                         zoom,
+                        style,
                     );
                     let mut owned =
                         std::sync::Arc::try_unwrap(laid).unwrap_or_else(|arc| (*arc).clone());
@@ -358,6 +396,7 @@ impl SlateApp {
                 let resp = ui.add(
                     egui::TextEdit::multiline(&mut buf)
                         .desired_width(box_w)
+                        .desired_rows(1)
                         .frame(false)
                         .clip_text(true)
                         .margin(egui::Margin::ZERO)
@@ -372,6 +411,20 @@ impl SlateApp {
                 }
                 if resp.changed() {
                     self.text_edit = Some((id, buf.clone()));
+                    if !center_block {
+                        self.text_edit_rect = Some((
+                            id,
+                            grow_text_rect(
+                                ui.ctx(),
+                                node.rect,
+                                &buf,
+                                font.clone(),
+                                node.rect.w,
+                                align,
+                                4.0,
+                            ),
+                        ));
+                    }
                 }
                 if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                     commit = true;
@@ -389,29 +442,39 @@ impl SlateApp {
         let Some((id, text)) = self.text_edit.take() else {
             return;
         };
+        let rect = self
+            .text_edit_rect
+            .take()
+            .filter(|(edit_id, _)| *edit_id == id);
         // Leaving an agent's reply as it was keeps it the agent's.
         if self.agent_note_reply(id).is_some_and(|reply| reply == text) {
             self.last_board_edit = None;
             return;
         }
-        self.patch_nodes(&[id], |n| match &mut n.kind {
-            NodeKind::Text(t) => t.text = text.clone(),
-            NodeKind::Shape(s) if slate_doc::scene::shape_hosts_text(s) => {
-                let ink = slate_doc::scene::shape_text_ink(s.fill);
-                let block = s
-                    .text
-                    .get_or_insert_with(|| slate_doc::scene::ShapeText::new(ink));
-                block.body = text.clone();
-                if block.body.is_empty()
-                    && block.family == slate_doc::scene::Typeface::Sans
-                    && block.size == 24.0
-                    && block.align == TextAlign::Center
-                    && block.color == ink
-                {
-                    s.text = None;
-                }
+        self.last_board_edit = None;
+        self.patch_nodes(&[id], |n| {
+            if let Some((_, rect)) = rect {
+                n.rect = rect;
             }
-            _ => {}
+            match &mut n.kind {
+                NodeKind::Text(t) => t.text = text.clone(),
+                NodeKind::Shape(s) if slate_doc::scene::shape_hosts_text(s) => {
+                    let ink = slate_doc::scene::shape_text_ink(s.fill);
+                    let block = s
+                        .text
+                        .get_or_insert_with(|| slate_doc::scene::ShapeText::new(ink));
+                    block.body = text.clone();
+                    if block.body.is_empty()
+                        && block.family == slate_doc::scene::Typeface::Sans
+                        && block.size == 24.0
+                        && block.align == TextAlign::Center
+                        && block.color == ink
+                    {
+                        s.text = None;
+                    }
+                }
+                _ => {}
+            }
         });
         self.last_board_edit = None;
     }

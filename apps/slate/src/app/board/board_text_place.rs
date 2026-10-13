@@ -2,6 +2,24 @@
 
 use super::*;
 
+/// Text boxes retain their wrap width and grow down to include every row.
+pub(super) fn grow_text_rect(
+    ctx: &egui::Context,
+    mut rect: WorldRect,
+    text: &str,
+    font: FontId,
+    wrap: f32,
+    align: TextAlign,
+    padding: f32,
+) -> WorldRect {
+    let laid = canvas_text::world_layout(ctx, text, font, wrap, egui_align(align));
+    let height = laid.height + padding;
+    if height.is_finite() {
+        rect.h = rect.h.max(height);
+    }
+    rect
+}
+
 impl SlateApp {
     pub(crate) fn text_compose_active(&self) -> bool {
         self.text_edit.is_some() || self.text_box_draft.is_some() || self.text_doc_edit.is_some()
@@ -52,7 +70,9 @@ impl SlateApp {
             node,
             item,
             path,
+            rect: self.doc().scene.node(node).unwrap().rect,
             buffer: String::new(),
+            original: String::new(),
             claim_focus: true,
         });
         self.push_history(
@@ -62,15 +82,55 @@ impl SlateApp {
         true
     }
 
-    /// Write the typed words to the linked file and leave the editor.
+    /// Journal the card's authored words and height; leave its source intact.
     pub(crate) fn commit_text_doc_edit(&mut self) {
         let Some(edit) = self.text_doc_edit.take() else {
             return;
         };
-        self.snippets.insert(edit.item, Some(edit.buffer.clone()));
-        self.agents
-            .text_output
-            .write_now(edit.node, edit.item, edit.path, edit.buffer);
+        if edit.buffer != edit.original {
+            self.last_board_edit = None;
+            self.patch_nodes(&[edit.node], |node| {
+                if let NodeKind::Image(image) = &mut node.kind {
+                    image.text_override = Some(edit.buffer.clone());
+                    node.rect = edit.rect;
+                }
+            });
+            self.last_board_edit = None;
+        }
+    }
+
+    pub(super) fn begin_text_document_edit(&mut self, node: &Node) -> bool {
+        let NodeKind::Image(image) = &node.kind else {
+            return false;
+        };
+        let Some(item) = self.doc().item(image.item) else {
+            return false;
+        };
+        let path = item.path.clone();
+        if !slate_doc::media::editable_text_card(&path) {
+            return false;
+        }
+        let buffer = image
+            .text_override
+            .clone()
+            .or_else(|| self.snippets.get(&image.item).cloned().flatten());
+        let Some(buffer) = buffer else {
+            self.toast("Text preview is not available for editing");
+            return true;
+        };
+        self.finish_text_compose_on_click_away();
+        self.board_sel = [node.id].into_iter().collect();
+        self.shape_properties.panel = None;
+        self.text_doc_edit = Some(TextDocEdit {
+            node: node.id,
+            item: image.item,
+            path,
+            rect: node.rect,
+            original: buffer.clone(),
+            buffer,
+            claim_focus: true,
+        });
+        true
     }
 
     pub(super) fn default_text_click_rect(anchor: Pos2) -> WorldRect {
@@ -127,6 +187,7 @@ impl SlateApp {
             draft.rect,
             NodeKind::Text(TextNode {
                 text: draft.buffer,
+                style: Default::default(),
                 family: draft.family,
                 size: draft.size,
                 color: draft.color,

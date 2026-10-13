@@ -106,6 +106,9 @@ is searchable.
   locked nodes still feed smart guides.
 - **P1.node.select** click select, Shift+click add/toggle, Shift+marquee
   adds; hover-resize on an unselected node yields to Shift/Ctrl pick.
+  Shape body picks use the actual outline and stroke geometry; an AABB is
+  only a broad-phase bound. Empty construction-box corners cannot select a
+  shape. Explicit painted grips and rotation halos keep their own regions.
   Group click selects the group, Ctrl+Shift+click a member. A board sweep
   is Window when the pointer's screen x is at or right of the press
   (fully enclosed pick geometry only) and Crossing when it is to the left
@@ -435,7 +438,7 @@ is searchable.
   and the panel closes only when the new vertex pick leaves its squircle
   off the strip. A rectangle or regular-polygon vertex
   (P1.shape.vertex-style) under a strip button leaves the button its click
-  (shape-selection-toolbar D13; `board_direct::curve_knob_under`). One drag moves one point and is one
+  (shape-selection-toolbar D13; `board_properties::property_grip_under`). One drag moves one point and is one
   journaled Patch; Esc mid-drag restores. A handle drag takes the Bézier
   keys (bezier-span D05 / D07): Alt moves only that handle (user pass,
   28 September 2026, pm3), Shift keeps its direction and changes only its
@@ -649,6 +652,8 @@ is searchable.
   any node's body does not start a wire from another node's port, unless
   that body also holds the port (a slide frame around the card). A
   press inside a multi-selection's bounding box moves that selection.
+  Polygon vertex rotation halos occlude the enlarged port targets;
+  hover and press use this same exclusion (polygon D13).
 - **P1.wire.drag** While a wire is dragged from a port, the free end's
   tangent stays on the source side's axis, reversed (horizontal for
   left/right, vertical for top/bottom), matching a wire into a facing
@@ -688,10 +693,34 @@ is searchable.
   `ConnectionZone`), `slate_doc::scene_ortho_lanes`, tokens in
   `slate_doc::CONNECTION_ZONE`.
 
+User refinement, 13 October 2026: empty-canvas right-click exposes canvas-wide
+wire settings (shape-selection-toolbar D01/D03). Shared color/width controls
+and the Bézier/Orthogonal choice author only the edited properties across
+unlocked connectors, hidden ones included, in one scene journal group.
+This explicitly canvas-scoped control preserves selection and creation defaults.
+
 ### P1.text / P1.image
 
 Exist (edit-in-place, crop/adjust); patterns promote here when a second
 text- or image-producing tool appears.
+
+- **P1.image.frame** (user, 13 October 2026): the image blister has smooth,
+  coverage-antialiased sloped shoulders. While attached, image and editor share
+  one exterior frame stroke, with no stroke across their join. The visible
+  selection ring clears that entire exterior and its authored stroke. This is
+  temporary editor chrome; authored image geometry and exports remain unchanged.
+  `atlas-shell::selection_tools::image_frame_geometry` owns the assembly;
+  Slate supplies the model outline and authored style (image-workflow D13;
+  image-paint-layers D13).
+- **P1.image.palette-return** (user, 13 October 2026): clicking away from an
+  expanded image palette starts a 1.5-second recovery window. Selecting the
+  same image within it restores that sub-palette without rearming Brush or
+  lasso. A later return shows the collapsed strip. Time spent editing does
+  not consume this window, and idle selection synchronization never extends
+  it. Explicitly closing a palette, including Escape when it closes the editor,
+  forgets its recovery; idle Brush Escape only disarms the hosted tool.
+  This is session UI state, scoped to the image and workbook, not an authored
+  document edit.
 
 ### P1.portal — portal nodes (generated / document / host)
 
@@ -1101,6 +1130,8 @@ a second contract — stop and promote it.
 ### P1.shape.properties — selection properties and dimensions
 
 Scene capabilities select one shared squircle strip above the selection: Stroke for shapes, images, wires, text boxes and sticky notes, slide frames, and portals; Fill for closed shapes, text sticky-note backgrounds, frames and portals; Corners for rectangles, images, and slide frames; photo filters for images (not 3D model viewports); Viewport display and Measure for a single 3D model viewport (media D13); routing/weight/dash/arrows for wire-only selections. A File Atlas portal adds a Formatting squircle (search, type radios, Ghost/Hide, Zoom to matches, Zoom to fit) owned by `selection_tools::atlas_format_editor`. Frame-only actions (deck order, present) join that same strip. Images nest by drag and drop. Mixed selections expose common controls. Width/height/length belong to separate exterior dimension stringers. Rectangle axes follow rotation; circles use diameter; closed paths use tight local bounds. Open curves (line, arc, polyline, Bézier, pen) and brush strokes show no dimension stringers (user, 26 September 2026), so a selection made only of them shows none. Proposal: a mixed selection that includes a closed shape keeps its union W/H. Groups without wires use union XY dimensions and uniform centroid scaling. Wire-containing selections omit box-dimension edits because attached endpoints follow their hosts. Portal source UI stays on the portal.
+
+Painted vertex/anchor/handle grips, including closed-form seam vertices, line endpoints, side-control glyphs, and corner grips, take their own presses before strip buttons and dimension labels. An overlapping stringer must yield without opening its editor or starting a canvas gesture. Popups retain their higher layer priority. Rotated inline-number hit regions follow their oriented text band, excluding empty AABB corners. Cached measurements refresh on live geometry revisions as well as journal commits. The strip uses the actual rotated outline bounds for polygons. These rules are shared by selection chrome (user refinement, 11 October 2026).
 
 The strip icons expand on selection and collapse when it clears. Palette edits are transient previews until icon change or outside click commits one journal group. A press on empty canvas also deselects. Esc, tool changes, and target changes discard pending previews. Numeric dimensions commit on Enter/focus loss, scale about the measured center, preserve stroke width, and reject invalid values. Locked/read-only selections cannot be mutated. Chrome takes precedence over canvas gestures and follows P0.9. Popups draw above all canvas chrome (`selection_tools::POPUP_ORDER`). The fillet capsule is 30% taller than the 17-unit wire capsule; the photo-filter capsule is twice that fillet height. None clears the adjustment; the other radios are low-resolution filtered thumbnails, and the intensity track is as thick as the radio radius. A chips-only variant (`FilterCapsuleStyle::ChipsOnly`) keeps the same circle chips without the intensity track; width follows the chip count. Heights live in `selection_tools`.
 
