@@ -27,7 +27,9 @@ Windows setup and execution denials stay in [windows-builds.md](../windows-build
    changes are not uploaded by cloud dispatch. Preserve the owner's branch,
    work, and real staging index; use an isolated checkout or a separate temporary
    index when transferring an authorized dirty snapshot. Stage selected paths,
-   excluding secrets and generated outputs. Keep the submitted ref fixed until
+   excluding secrets and generated outputs. Compare through that isolated index
+   too: ordinary working-tree diffs can report snapshot files as deleted when
+   those files are untracked in the owner's real index. Keep the submitted ref fixed until
    the job confirms its HEAD; give later snapshots a distinct ref if necessary.
 
 ## Dispatch an identified snapshot
@@ -47,10 +49,13 @@ Every task prompt includes this handoff, with real values substituted:
 ```text
 Purpose: implementation or validation; named reports and owned files.
 Expected HEAD: full pushed commit SHA; branch and environment.
+The pushed branch selects the source. A local cloud branch named work is
+normal and authorized; its symbolic name is not a provenance failure.
 Read AGENTS.md and the named request ledger. Read CONSTITUTION.md when
 required by AGENTS.md, the user, or the assigned task; use relevant sections.
 Before building, report git rev-parse HEAD and git remote -v.
 If HEAD differs, report the mismatch and stop validation of that snapshot.
+Only the commit SHA mismatch stops this check, not a local branch-name difference.
 Do not silently test the checkout you happened to receive.
 Commands and budget: affected packages, checks, Cargo jobs, runtime prerequisites.
 Evidence: exact HEAD, command, exit, counts, logs, elapsed time if captured.
