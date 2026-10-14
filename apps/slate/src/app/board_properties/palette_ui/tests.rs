@@ -3,6 +3,50 @@ use crate::app::tests::Harness;
 
 mod pointer_ownership;
 
+pub(super) fn record_text_button(
+    app: &SlateApp,
+    ui: &egui::Ui,
+    response: &egui::Response,
+    live: bool,
+    grip_under: bool,
+) {
+    let ctx = ui.ctx();
+    let trace_id = Id::new("text-button-test-trace");
+    if ctx.data(|d| d.get_temp::<Vec<String>>(trace_id)).is_none() {
+        return;
+    }
+    let interaction = ctx.interaction_snapshot(|s| {
+        format!(
+            "clicked={:?} dragged={:?} hovered={:?} contains={:?}",
+            s.clicked, s.dragged, s.hovered, s.contains_pointer
+        )
+    });
+    let pointer = ctx.input(|i| {
+        format!(
+            "time={} pos={:?} origin={:?} down={} pressed={} released={} events={:?}",
+            i.time,
+            i.pointer.latest_pos(),
+            i.pointer.press_origin(),
+            i.pointer.primary_down(),
+            i.pointer.primary_pressed(),
+            i.pointer.primary_released(),
+            i.events
+        )
+    });
+    let owner = ctx.pointer_latest_pos().and_then(|p| ctx.layer_id_at(p));
+    let line = format!(
+        "{pointer}; response id={:?} layer={:?} rect={:?} interact_rect={:?} clip={:?} enabled={} hovered={} contains={} down={} clicked={} live={live} grip_under={grip_under}; owner={owner:?} panel={:?} selected={:?}; {interaction}",
+        response.id, response.layer_id, response.rect, response.interact_rect, ui.clip_rect(),
+        response.enabled(), response.hovered(), response.contains_pointer(),
+        response.is_pointer_button_down_on(), response.clicked(),
+        app.shape_properties.panel, app.board_sel
+    );
+    ctx.data_mut(|d| {
+        d.get_temp_mut_or_default::<Vec<String>>(trace_id)
+            .push(line)
+    });
+}
+
 fn frame(h: &mut Harness, time: &mut f64) -> egui::FullOutput {
     *time += 1.0 / 60.0;
     let xf = h.app.board_xf();

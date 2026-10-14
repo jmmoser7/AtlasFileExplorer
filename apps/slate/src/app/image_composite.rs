@@ -98,7 +98,7 @@ pub fn composite_rgba(
     }
     if node.clip.is_some() {
         let mask = slate_artifact::rasterize_node_clip(node, cw, ch)?;
-        for (pixel, coverage) in rgba.pixels_mut().zip(mask.chunks_exact(4)) {
+        for (pixel, coverage) in rgba.pixels_mut().zip(mask.as_chunks::<4>().0.iter()) {
             pixel.0[3] = ((pixel.0[3] as u16 * coverage[3] as u16 + 127) / 255) as u8;
         }
     }

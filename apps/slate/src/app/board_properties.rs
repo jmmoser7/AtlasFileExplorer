@@ -2834,6 +2834,9 @@ mod tests {
 
     /// Open the selected node's Text editor with a real click on its squircle.
     fn open_text_editor(h: &mut Harness, time: &mut f64) -> Rect {
+        let trace_id = Id::new("text-button-test-trace");
+        h.ctx
+            .data_mut(|d| d.insert_temp(trace_id, Vec::<String>::new()));
         for _ in 0..12 {
             timed_frame(h, time, vec![]);
         }
@@ -2842,7 +2845,12 @@ mod tests {
         timed_frame(h, time, vec![egui::Event::PointerMoved(p)]);
         timed_frame(h, time, vec![primary(p, true)]);
         timed_frame(h, time, vec![primary(p, false)]);
-        assert_eq!(h.app.shape_properties.panel, Some(Panel::Text));
+        let trace = h.ctx.data_mut(|d| d.remove_temp::<Vec<String>>(trace_id));
+        assert_eq!(
+            h.app.shape_properties.panel,
+            Some(Panel::Text),
+            "{trace:#?}"
+        );
         button
     }
 

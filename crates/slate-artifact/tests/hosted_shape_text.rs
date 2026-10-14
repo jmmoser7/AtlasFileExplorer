@@ -50,7 +50,11 @@ fn hosted_shape_emphasis_exports_escaped_words_and_matching_raster_pixels() {
     assert!(svg.contains("font-weight:bold;font-style:italic;text-decoration:underline;"));
     let serialized = slate_artifact::rasterize_paint_layers_svg(&svg, 160, 160).unwrap();
     assert!(
-        serialized.chunks_exact(4).any(|pixel| pixel[3] != 0),
+        serialized
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel[3] != 0),
         "transparent geometry leaves only the hosted words to produce pixels"
     );
     let direct = slate_artifact::rasterize_paint_layers(

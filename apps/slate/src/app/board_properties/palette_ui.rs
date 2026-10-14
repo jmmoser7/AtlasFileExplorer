@@ -234,6 +234,10 @@ impl SlateApp {
                     button_live,
                 )
             };
+            #[cfg(test)]
+            if *item == StripItem::Panel(Panel::Text) {
+                tests::record_text_button(self, &strip_ui, &response, button_live, grip_under);
+            }
             if button_live && response.clicked() {
                 match item {
                     StripItem::Panel(panel) => requested_panel = Some(*panel),
@@ -243,7 +247,7 @@ impl SlateApp {
                     StripItem::ModelScreenshot => requested_screenshot = true,
                 }
             }
-            captures |= button_live && ctx.pointer_latest_pos().is_some_and(|p| r.contains(p));
+            captures |= button_live && grip_probe.is_some_and(|p| r.contains(p));
             if live {
                 self.shape_properties.chrome_hits.push(r);
             }

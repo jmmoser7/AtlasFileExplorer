@@ -28,6 +28,9 @@ Windows setup and execution denials stay in [windows-builds.md](../windows-build
 3. Finish cheap preparation before the expensive integration run: compile
    where available, check formatting and existing audits, validate edited JSON
    and UTF-8, and include required untracked fixtures referenced by `include_str!`.
+   Record `rustc -V` and `cargo -V`, and use the CI lint flags where applicable.
+   An older local Clippy can miss new stable-toolchain warnings promoted by CI's
+   `-D warnings`; a Windows check also cannot establish Linux cfg hygiene.
    A clean compile does not establish runtime behavior.
 4. Freeze and push the intended snapshot on a dedicated branch. Record its
    full SHA and verify the remote branch points there. Uncommitted Windows
