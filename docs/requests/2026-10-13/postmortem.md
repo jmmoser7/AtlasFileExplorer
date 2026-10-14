@@ -1,6 +1,6 @@
 # October 13 feedback batch — incident review
 
-Prepared October 14, with final installer evidence and the actual 4 AM cleanup outcome reconciled. The 7 AM follow-up will check for later material outcomes. This document owns the incident account; workflow rules remain in [cloud validation](../../agent/cloud-validation.md), [health measurement](../../health/README.md#5-log-spend-without-logging-secrets), and [model allocation](../../../.cursor/agents/health-check.md#handoff).
+Finalized in the October 14 **7 AM Eastern follow-up**, with final installer evidence and the actual 4 AM cleanup outcome reconciled. This document owns the incident account; workflow rules remain in [cloud validation](../../agent/cloud-validation.md), [health measurement](../../health/README.md#5-log-spend-without-logging-secrets), and [model allocation](../../../.cursor/agents/health-check.md#handoff).
 
 ## Assessment
 
@@ -85,4 +85,6 @@ The next batch should demonstrate these existing gates in its ledger. The import
 
 ## Morning reconciliation
 
-At 7 AM Eastern, reconcile the Canvas and any later material outcome. The final Windows log/counts, successful installer packaging and actual 4 AM cleanup are already recorded above. Keep the feedback timing cutoff fixed; report overnight follow-up time separately. If native relaunch still awaits a save/close choice, say so. Preserve earlier failures and uncertainties even if the final run is green.
+The 7 AM follow-up reconfirmed unchanged PR source `e3f1fc84`, green Linux and Windows jobs, successful installer verification, and draft/unmerged PR 56. Git lists only the primary checkout; original Slate PID 47568 remains responsive. The interactive Canvas now includes the actual cleanup outcome. No new application build, cloud job or cleanup pass was performed.
+
+Native executable replacement and refreshed GUI verification still await the owner's save/close choice. Earlier intermittent Recycle Bin failures and uncertain historical work remain documented. Feedback time totals retain the fixed 00:29:38 cutoff; postmortem, cleanup and morning follow-up are separate and are not added to that subtotal. All source, main/index and workbook-preservation claims above keep their stated scope.
