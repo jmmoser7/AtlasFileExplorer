@@ -118,10 +118,17 @@ status command or its exit code as the sole polling condition. If they disagree,
 stop the pending loop and inspect the task page/list; record both observations.
 Two such tasks later returned `ready` with reports and source diffs; one
 recovered more than thirty minutes after `error` was observed. The CLI exposed
-no failure reason. A timeout alone does not establish that execution stopped.
+no failure reason; a subsequent older recovery returned more than an hour after
+an observed `error`. A timeout alone does not establish that execution stopped.
 Use bounded rechecks and the live task page when available before replacing a
 disputed job. If recovery work is necessary without that evidence, record the
 possible overlap; keep late results tied to their SHAs and review competing diffs.
+An `error` list entry or a red information icon does not by itself prove that
+execution has stopped: the owner later supplied ongoing command/edit activity
+from a task with that state. Likewise, `Could not open file` beside a cloud
+source preview is not a Cargo failure diagnostic. Reconcile copied activity by
+its task prompt and source SHA, especially when it arrives as a reply to an old
+question, and require the relevant command result before classifying a failure.
 Use bounded waits and back off unchanged polls; avoid sending the same status
 update each minute. Ask the user to inspect a task only when their action can
 resolve a specific blocker unavailable through the tools. CLI task completion
