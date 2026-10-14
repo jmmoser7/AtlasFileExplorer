@@ -18,6 +18,13 @@ Windows setup and execution denials stay in [windows-builds.md](../windows-build
    Environment IDs are separate from ChatGPT project IDs. The owner supplied
    AtlasFileExplorer environment `6acceb0f4b3c8191bafb47522fcbbd23` on 2026-10-13;
    verify access rather than assuming that identifier remains usable.
+   Inspect existing CI before paying for another validator: a draft PR can run
+   the repository's existing hosted tests with retrievable logs, including the
+   Windows runtime suite when configured. Confirm workflow triggers, checkout
+   SHA, prerequisites and publishing conditions rather than assuming a branch
+   push runs tests. CLI, Git transport and connector authentication are separate;
+   use an already authorized connector when the CLI is signed out, without
+   extracting credentials. Record the actual merge SHA tested by PR workflows.
 3. Finish cheap preparation before the expensive integration run: compile
    where available, check formatting and existing audits, validate edited JSON
    and UTF-8, and include required untracked fixtures referenced by `include_str!`.
@@ -31,6 +38,11 @@ Windows setup and execution denials stay in [windows-builds.md](../windows-build
    too: ordinary working-tree diffs can report snapshot files as deleted when
    those files are untracked in the owner's real index. Keep the submitted ref fixed until
    the job confirms its HEAD; give later snapshots a distinct ref if necessary.
+   Preserve baseline source line endings in the review snapshot. If a temporary
+   index normalizes them, verify that only the intended content differs and
+   distinguish EOL-equivalent source from byte-identical Git objects. Do not
+   rewrite the owner's working files or advance an active dispatch ref merely
+   to remove review noise.
 
 ## Dispatch an identified snapshot
 

@@ -217,7 +217,7 @@ pub fn adjust_rgba8(pixels: &mut [u8], adjust: &ImageAdjust) {
         return;
     }
     let filter = PixelFilter::new(adjust);
-    for pixel in pixels.chunks_exact_mut(4) {
+    for pixel in pixels.as_chunks_mut::<4>().0 {
         let out = filter.apply([pixel[0], pixel[1], pixel[2], pixel[3]]);
         pixel.copy_from_slice(&out);
     }
