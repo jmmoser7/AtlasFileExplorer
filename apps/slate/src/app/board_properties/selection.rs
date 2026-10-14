@@ -77,9 +77,11 @@ impl ImagePanelMemory {
 impl SlateApp {
     /// Whether selection properties currently own an editor or numeric entry.
     pub(crate) fn property_editor_open(&self) -> bool {
-        self.shape_properties.panel.is_some()
-            || self.shape_properties.number.is_some()
-            || self.shape_properties.corner_entry.is_some()
+        self.shape_properties.panel.is_some() || self.property_inline_editor_open()
+    }
+
+    pub(crate) fn property_inline_editor_open(&self) -> bool {
+        self.shape_properties.number.is_some() || self.shape_properties.corner_entry.is_some()
     }
 
     pub(crate) fn open_object_panel(&mut self, panel: Panel) -> bool {

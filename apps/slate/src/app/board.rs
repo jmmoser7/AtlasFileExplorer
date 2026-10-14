@@ -916,7 +916,6 @@ impl SlateApp {
                 self.model_measure_hover(p);
             }
         }
-
         let edge_start = !space
             && !panning
             && !zoom_tool
@@ -925,6 +924,7 @@ impl SlateApp {
             && !web_capture
             && !over_dock_strip
             && !self.board_align_eat_press;
+        let resp = self.canvas_grip_drag_response(ui, resp, edge_start);
         self.curve_subselect_input(ui, &xf, pointer, edge_start);
         if resp.drag_started_by(egui::PointerButton::Primary)
             && !ordered_drawing
