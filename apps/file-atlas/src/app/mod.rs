@@ -3814,6 +3814,7 @@ impl AtlasApp {
         let mut created_dirs = Vec::new();
         let mut deleted = Vec::new();
         let mut skipped = 0usize;
+        let mut skipped_reason = None;
         let changed = result.changed_count();
         for outcome in result.outcomes {
             match outcome {
@@ -3842,7 +3843,10 @@ impl AtlasApp {
                     self.mark_deleted_path(&path);
                     deleted.push(path);
                 }
-                FsOutcome::Skipped { .. } => skipped += 1,
+                FsOutcome::Skipped { reason, .. } => {
+                    skipped += 1;
+                    skipped_reason.get_or_insert(reason);
+                }
             }
         }
         match source {
@@ -3896,7 +3900,10 @@ impl AtlasApp {
         if skipped == 0 {
             self.toast(format!("{label}: {changed} item(s) changed"));
         } else {
-            self.toast(format!("{label}: {changed} changed, {skipped} skipped"));
+            self.toast(format!(
+                "{label}: {changed} changed, {skipped} skipped ({})",
+                skipped_reason.as_deref().unwrap_or("unspecified reason")
+            ));
         }
     }
 

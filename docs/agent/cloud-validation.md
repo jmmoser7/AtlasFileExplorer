@@ -130,6 +130,10 @@ Do not describe a stale run as verification of newer local fixes.
   focused checks and then run the integrated suite in the same warm environment.
   Do not launch duplicate cold workspace builds merely because status is quiet.
   Repeat green checks only for a new change or concern.
+  A focused rerun after a failed CI suite may add diagnostics in that same warm
+  job, but must preserve the original suite failure and must not unlock release
+  packaging or publishing. Record the two results separately; a focused pass
+  does not erase an earlier integrated failure.
 - Review returned diffs before applying them to the owner's dirty checkout.
   Passing the reported positive cases does not prove that new input routing
   preserves overlay ownership, cancellation, or foreground occlusion. Review
