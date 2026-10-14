@@ -1,19 +1,21 @@
 # Verified feedback input corrections
 
-At **00:25 Eastern on October 14**, both platforms' workspace test commands pass on the current review source. Installer packaging is still running separately. Native executable replacement/relaunch remains pending the owner's save/close choice.
+At **00:25 Eastern on October 14**, both platforms' workspace test commands passed on the current review source. Installer verification also succeeded at **00:31:53 Eastern**. Native executable replacement/relaunch remains pending the owner's save/close choice.
 
 ## Source identity and commands
 
 - Review head: `e3f1fc841574f7f583a0088feacbbabaa12b32b5`.
 - Base: `1a8c59a8bae376817e5ad1fc4aca4f1ba2283cd4`.
-- Actual Linux checkout: synthetic merge `615782516563ae4e405011b7b0412f60c0a98dfe`.
+- Actual Linux and Windows checkout: synthetic merge `615782516563ae4e405011b7b0412f60c0a98dfe`.
 - [Draft PR 56](https://github.com/jmmoser7/AtlasFileExplorer/pull/56).
 - [Linux CI run 38509661028](https://github.com/jmmoser7/AtlasFileExplorer/actions/runs/38509661028), runtime job 115675004136.
 - [Windows run 38509661059](https://github.com/jmmoser7/AtlasFileExplorer/actions/runs/38509661059), job 115675004183.
 
 Linux ran `cargo test --locked --workspace --no-fail-fast`, with `pipefail` through `tee`, exit **0**: **2,764 passed / 0 failed / 72 ignored**. Compilation took **5m 08s**; Slate reported **1,391 passed / 0 failed / 53 ignored** in **178.31s**. Every nonempty per-binary count matches the Linux list in [the prior source report](ci-input-final.md); the current full output is retained in ignored `target/feedback-ci-linux-fs-reason.log` and the retrievable job log. PDF/Office runtime prerequisites and tests pass. No ignored corpus benchmark was enabled.
 
-Windows ran the same full workspace command. The Actions job reports **Test workspace on Windows: success**, establishing command exit **0**. Its conditional focused rerun was **skipped** because the integrated command passed, and the job proceeded to **Build, package and verify Windows suite**. This verifies the test step, not completion of installer packaging or release publishing. The workflow run identifies head `e3f1fc84`; the current Windows job log was not yet downloadable during packaging (HTTP 404 BlobNotFound), so current per-binary counts, compile/runtime durations and actual checkout log are not invented. The observed job/step metadata is retained in ignored `target/feedback-ci-windows-fs-reason-step.json`.
+Windows ran the same full workspace command: **2,791 passed / 0 failed / 86 ignored**, command exit **0**. Compilation took **9m 56s**; Slate reported **1,402 passed / 0 failed / 61 ignored** in **242.46s**. File Atlas reported **44 passed / 0 failed / 1 ignored**, including `delete_key_removes_the_card_under_the_cursor`. Its conditional focused rerun was **skipped** because the integrated command passed. The completed job log confirms the exact merge SHA above; the full output is retained in ignored `target/feedback-ci-windows-fs-reason.log` and the retrievable Actions job log. Counts are scoped to the workspace step, excluding separate installation/packaging commands.
+
+The real installation/coordinated-upgrade check passed (install, two-process wait, real upgrade, restart and saved data). The release build completed in **5m 57s**. Packaging **1.0.0-preview.78** verified suite contents, channel/version, setup executable and update-package checksum at **00:31:53 Eastern**; the build job completed successfully and preserved installer/update assets. The publish job was **skipped**, as expected for this draft PR. Hosted packaging does not establish replacement or GUI validation of the running local executable.
 
 Linux formatting/all-target workspace Clippy with `-D warnings` and Windows all-target workspace compilation also pass on this source. Local Windows all-target workspace Clippy passed, exit **0**, **23.99s**, retained in `target/feedback-fs-reason-clippy.log`. Formatting and the exact physical-row audit pass: **797 Rust files / 111 unchanged allowlist entries / zero findings**. The workflow YAML parsed successfully and preserves the integrated failure even when a focused rerun passes.
 

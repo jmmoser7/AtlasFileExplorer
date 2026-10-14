@@ -232,6 +232,11 @@ interval; cumulative agent time sums active turns, excluding gaps between turns.
 Both can include tool waits. Cloud submission-to-completion intervals also
 include queues, setup, builds, and tests; label them as job elapsed time.
 An `updated_at` timestamp alone is not a start time or a runtime measurement.
+When local rollouts provide `session_meta` parent links and
+`task_complete.duration_ms`, reconstruct a fixed-cutoff completed-turn subtotal
+for that session family. Exclude later follow-ups and idle gaps; label unmeasured
+cloud agents and open turns separately. Export metadata/counts only, never raw
+prompts or tool output. The October 13 feedback postmortem uses this method.
 Report Cargo duration only when captured, and model compute, tokens, or cost
 only when the corresponding usage record exists. Do not price elapsed hours.
 

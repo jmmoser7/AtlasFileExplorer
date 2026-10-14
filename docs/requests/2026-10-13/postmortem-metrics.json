@@ -1,0 +1,107 @@
+{
+  "scope": "Feedback implementation/verification through the final 00:29 response; excludes postmortem and overnight cleanup/report work",
+  "start_utc": "2026-10-13T15:14:15.576000+00:00",
+  "cutoff_utc": "2026-10-14T04:29:38.465000+00:00",
+  "session_wall_seconds": 47722.889,
+  "coordinator_completed_active_turn_ms": 46988068,
+  "local_helpers_completed_active_turn_ms": 11818136,
+  "recorded_completed_active_turn_ms": 58806204,
+  "active_time_definition": "Sum of task_complete.duration_ms for the matching session family; includes tool waits, excludes idle gaps; not model compute or billable time",
+  "missing": [
+    "Cloud-agent active turns and usage",
+    "Token/cost telemetry not included or inferred"
+  ],
+  "agents": [
+    {
+      "agent": "/root",
+      "completed_turns": 3,
+      "active_turn_ms": 46988068,
+      "models_observed": [
+        "gpt-6.1-sol"
+      ]
+    },
+    {
+      "agent": "/root/find_reports",
+      "completed_turns": 9,
+      "active_turn_ms": 922039,
+      "models_observed": [
+        "gpt-6-luna"
+      ]
+    },
+    {
+      "agent": "/root/text_paste",
+      "completed_turns": 10,
+      "active_turn_ms": 2322742,
+      "models_observed": [
+        "gpt-6.1-sol"
+      ]
+    },
+    {
+      "agent": "/root/image_generation",
+      "completed_turns": 26,
+      "active_turn_ms": 3054704,
+      "models_observed": [
+        "gpt-6.1-sol"
+      ]
+    },
+    {
+      "agent": "/root/geometry_trim",
+      "completed_turns": 12,
+      "active_turn_ms": 2547863,
+      "models_observed": [
+        "gpt-6.1-sol"
+      ]
+    },
+    {
+      "agent": "/root/integration_review",
+      "completed_turns": 33,
+      "active_turn_ms": 1270264,
+      "models_observed": [
+        "gpt-6.1-sol"
+      ]
+    },
+    {
+      "agent": "/root/final_risk_review",
+      "completed_turns": 1,
+      "active_turn_ms": 78050,
+      "models_observed": [
+        "gpt-6.1-sol"
+      ]
+    },
+    {
+      "agent": "/root/text_palette_diagnosis",
+      "completed_turns": 2,
+      "active_turn_ms": 138284,
+      "models_observed": [
+        "gpt-6.1-sol"
+      ]
+    },
+    {
+      "agent": "/root/ci_validation_route",
+      "completed_turns": 10,
+      "active_turn_ms": 446945,
+      "models_observed": [
+        "gpt-6-luna"
+      ]
+    },
+    {
+      "agent": "/root/input_grip_repairs",
+      "completed_turns": 3,
+      "active_turn_ms": 913489,
+      "models_observed": [
+        "gpt-6.1-sol"
+      ]
+    },
+    {
+      "agent": "/root/windows_failure_diagnostics",
+      "completed_turns": 1,
+      "active_turn_ms": 123756,
+      "models_observed": [
+        "gpt-6-luna"
+      ]
+    }
+  ],
+  "measured_ci_compile_seconds": 6155,
+  "measured_ci_slate_runtime_seconds": 2668.99,
+  "ci_time_definition": "Cumulative measured test compilation and Slate execution phases across 6 Linux and 6 Windows runs; overlaps and excludes release packaging, other binaries, setup and earlier cloud builds; not additional session wall time or agent time"
+}
