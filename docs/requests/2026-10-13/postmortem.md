@@ -1,6 +1,6 @@
 # October 13 feedback batch — incident review
 
-Prepared October 14, with installer completion reconciled from the final log. The 7 AM update will add the actual 4 AM cleanup outcome. This document owns the incident account; workflow rules remain in [cloud validation](../../agent/cloud-validation.md), [health measurement](../../health/README.md#5-log-spend-without-logging-secrets), and [model allocation](../../../.cursor/agents/health-check.md#handoff).
+Prepared October 14, with final installer evidence and the actual 4 AM cleanup outcome reconciled. The 7 AM follow-up will check for later material outcomes. This document owns the incident account; workflow rules remain in [cloud validation](../../agent/cloud-validation.md), [health measurement](../../health/README.md#5-log-spend-without-logging-secrets), and [model allocation](../../../.cursor/agents/health-check.md#handoff).
 
 ## Assessment
 
@@ -68,7 +68,7 @@ Current source is `e3f1fc841574f7f583a0088feacbbabaa12b32b5`; both platforms tes
 
 Installer packaging succeeded after the fixed feedback timing cutoff: the release build took **5m 57s**, and preview **1.0.0-preview.78** passed suite-content, version/channel, setup-executable and update-checksum verification at **00:31:53 Eastern**. The real installation/coordinated-upgrade checks also passed. Publishing was excluded for this draft PR. The running Slate executable has not been replaced; native refresh remains separate from hosted packaging. The user's previously unsaved workbook and its 62 linked files were preserved; the separate test workbook was saved independently. Main remains at `d172cca5b9289df806b14842dab7b9693cfa4782`, and the real staging index was preserved. The source and records are backed up in Git; no merge to default remote main was performed.
 
-The 4 AM cleanup is scheduled for `atlas-preview`, `atlas-ws-board`, `atlas-ws-chat` and `atlas-ws-text`. Scheduling is not completion. The morning update must report actual recovery refs, distinct integration, removed folders and retained uncertainty.
+The 4 AM cleanup removed `atlas-preview`, `atlas-ws-board`, `atlas-ws-chat` and `atlas-ws-text` by **04:13:38 Eastern**; final preservation verification passed at **04:15:24**. Twelve recovery refs preserve history, original staging and exact working files. Ignored build/dependency directories were moved intact into the primary recovery area (**12.92 GB preserved, no disk-space reclamation**). No source was merged: uncertain old tests/refinements and divergent preview history remain on the recovery branches. Main HEAD/index/status and the responsive original Slate process were preserved. [Exact recovery refs, evidence and remaining review scope](worktree-cleanup.md).
 
 ## Action plan
 
@@ -85,4 +85,4 @@ The next batch should demonstrate these existing gates in its ledger. The import
 
 ## Morning reconciliation
 
-At 7 AM Eastern, update this report and its Canvas with the actual 4 AM cleanup result and any later material outcome. The final Windows log/counts and successful installer packaging are already reconciled above. Keep the feedback timing cutoff fixed; report overnight follow-up time separately. If native relaunch still awaits a save/close choice, say so. Preserve earlier failures and uncertainties even if the final run is green.
+At 7 AM Eastern, reconcile the Canvas and any later material outcome. The final Windows log/counts, successful installer packaging and actual 4 AM cleanup are already recorded above. Keep the feedback timing cutoff fixed; report overnight follow-up time separately. If native relaunch still awaits a save/close choice, say so. Preserve earlier failures and uncertainties even if the final run is green.
