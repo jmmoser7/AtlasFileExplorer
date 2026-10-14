@@ -228,8 +228,22 @@ impl SlateApp {
         let z = xf.z;
         let theme = self.palette();
         let mut captures = false;
-        let grip_under =
-            live && Self::property_pointer_probe(&ctx).is_some_and(|p| self.property_grip_under(p));
+        // A tiny body's press owns its later threshold-crossing frame too.
+        // Keep this exception local to stringers; real editor captures remain.
+        let tiny_press = Id::new("dimension_tiny_body_press");
+        if ctx.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary)) {
+            let owns = live
+                && !self.property_editor_open()
+                && Self::property_pointer_probe(&ctx)
+                    .is_some_and(|p| self.tiny_body_owns_pointer(p).is_some());
+            ctx.data_mut(|data| data.insert_temp(tiny_press, owns));
+        }
+        let tiny_owns = !self.property_editor_open()
+            && ctx.input(|i| i.pointer.primary_down())
+            && ctx.data(|data| data.get_temp::<bool>(tiny_press).unwrap_or(false));
+        let grip_under = tiny_owns
+            || (live
+                && Self::property_pointer_probe(&ctx).is_some_and(|p| self.property_grip_under(p)));
         // The inline editor is attached to a dimension kind, never a cached screen position.
         // Nested portal edit keeps the frame selected but hides its stringers.
         let dims = if self.selection_stringers_suppressed() || self.property_panel_fades_selection()

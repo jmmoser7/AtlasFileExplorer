@@ -133,7 +133,12 @@ mod tests {
         let svg = paint_layers_svg_with_doc(&host, &img, 32, 32, &doc);
         let exported = rasterize_paint_layers_svg(&svg, 32, 32).unwrap();
         assert_eq!(board.len(), exported.len());
-        for (board, exported) in board.chunks_exact(4).zip(exported.chunks_exact(4)) {
+        for (board, exported) in board
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(exported.as_chunks::<4>().0.iter())
+        {
             assert_eq!(board[3], exported[3], "both renderers preserve alpha");
             // SVG composites authored floating-point opacity; the board
             // composites an 8-bit layer alpha. Their rounding can differ by 1.

@@ -2,6 +2,9 @@
 
 use super::*;
 
+#[cfg(test)]
+mod tests;
+
 pub(super) struct CapsuleMenu {
     pub(super) picked: Option<usize>,
     pub(super) popup: Option<Rect>,
@@ -145,7 +148,11 @@ fn menu_selector(
         Pos2::new(rect.left(), rect.bottom() + 4.0 * zoom),
         Vec2::new(rect.width().max(168.0 * zoom), visible),
     );
-    out.popup = Some(popup);
+    let popup_id = id.with("pop");
+    let previous_popup = egui::containers::AreaState::load(ui.ctx(), popup_id)
+        .map(|state| state.rect())
+        .filter(|rect| rect.is_positive())
+        .map_or(popup, |rect| rect.translate(popup.min - rect.min));
     let click = ui.input(|i| {
         i.pointer
             .any_click()
@@ -153,14 +160,13 @@ fn menu_selector(
             .flatten()
     });
     if let Some(pos) = click {
-        if !rect.contains(pos) && !popup.contains(pos) {
+        if !rect.contains(pos) && !previous_popup.contains(pos) {
             *open = false;
             out.popup = None;
             return out;
         }
     }
-    crate::menu_wheel::claim(ui.ctx(), popup);
-    popup_area(ui.ctx(), id.with("pop"), ui.layer_id())
+    let shown = popup_area(ui.ctx(), popup_id, ui.layer_id())
         .fixed_pos(popup.min)
         .constrain(false)
         .show(ui.ctx(), |ui| {
@@ -213,6 +219,8 @@ fn menu_selector(
                     });
             });
         });
+    out.popup = Some(shown.response.rect);
+    crate::menu_wheel::claim(ui.ctx(), shown.response.rect);
     out
 }
 

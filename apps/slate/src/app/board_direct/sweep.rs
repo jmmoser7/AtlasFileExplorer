@@ -3,6 +3,26 @@
 use super::*;
 
 impl SlateApp {
+    fn curve_edge_under(&self, world: Pos2) -> Option<(NodeId, usize)> {
+        if let Some(id) = board_path::board_pick_node_routed(
+            &self.doc().scene,
+            world.x,
+            world.y,
+            self.tab().cam.z,
+            true,
+            self.board_wire_routing,
+        ) {
+            // A routed body occludes every lower curve, even when locked.
+            return self.curve_edge_at(id, world).map(|edge| (id, edge));
+        }
+        // Filled boundary points can miss area containment while still
+        // hitting a visible edge. Only an empty body pick permits fallback.
+        self.doc().scene.nodes.iter().rev().find_map(|node| {
+            self.curve_edge_at(node.id, world)
+                .map(|edge| (node.id, edge))
+        })
+    }
+
     /// The segment of curve `id` under `world`: a line, or a single-contour
     /// path whose grips are its anchors (an arc's grips are not, and a
     /// stamped brush stroke has none). Locked and hidden nodes have none.
@@ -29,17 +49,7 @@ impl SlateApp {
     /// selects a group member, and the edge with its two end vertices is
     /// picked, or taken off again. Returns whether a segment was hit.
     pub(crate) fn pick_curve_edge(&mut self, world: Pos2) -> bool {
-        let Some(id) = board_path::board_pick_node_routed(
-            &self.doc().scene,
-            world.x,
-            world.y,
-            self.tab().cam.z,
-            true,
-            self.board_wire_routing,
-        ) else {
-            return false;
-        };
-        let Some(seg) = self.curve_edge_at(id, world) else {
+        let Some((id, seg)) = self.curve_edge_under(world) else {
             return false;
         };
         let Some((anchors, _)) = self.direct_anchors_of(id) else {
@@ -61,15 +71,7 @@ impl SlateApp {
             return false;
         }
         let world = self.board_xf().s2w(screen);
-        board_path::board_pick_node_routed(
-            &self.doc().scene,
-            world.x,
-            world.y,
-            self.board_xf().z,
-            true,
-            self.board_wire_routing,
-        )
-        .is_some_and(|id| self.curve_edge_at(id, world).is_some())
+        self.curve_edge_under(world).is_some()
     }
 
     /// Rhino's Ctrl+Shift window/crossing picks segments on one curve. Keep

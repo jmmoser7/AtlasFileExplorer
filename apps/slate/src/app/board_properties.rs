@@ -2775,7 +2775,7 @@ mod tests {
         id
     }
 
-    fn text_node(h: &mut Harness, rect: WorldRect) -> NodeId {
+    pub(super) fn text_node(h: &mut Harness, rect: WorldRect) -> NodeId {
         let node = h.app.doc_mut().scene.build_node(
             rect,
             NodeKind::Text(scene::TextNode {
@@ -2796,7 +2796,7 @@ mod tests {
     }
 
     /// Screen rect of a strip squircle, as the last frame laid it out.
-    fn strip_button(h: &Harness, panel: Panel) -> Rect {
+    pub(super) fn strip_button(h: &Harness, panel: Panel) -> Rect {
         let items = &h.app.shape_properties.last_chrome.as_ref().unwrap().items;
         let index = items
             .iter()
@@ -2834,6 +2834,9 @@ mod tests {
 
     /// Open the selected node's Text editor with a real click on its squircle.
     fn open_text_editor(h: &mut Harness, time: &mut f64) -> Rect {
+        let trace_id = Id::new("text-button-test-trace");
+        h.ctx
+            .data_mut(|d| d.insert_temp(trace_id, Vec::<String>::new()));
         for _ in 0..12 {
             timed_frame(h, time, vec![]);
         }
@@ -2842,7 +2845,12 @@ mod tests {
         timed_frame(h, time, vec![egui::Event::PointerMoved(p)]);
         timed_frame(h, time, vec![primary(p, true)]);
         timed_frame(h, time, vec![primary(p, false)]);
-        assert_eq!(h.app.shape_properties.panel, Some(Panel::Text));
+        let trace = h.ctx.data_mut(|d| d.remove_temp::<Vec<String>>(trace_id));
+        assert_eq!(
+            h.app.shape_properties.panel,
+            Some(Panel::Text),
+            "{trace:#?}"
+        );
         button
     }
 
@@ -3113,54 +3121,7 @@ mod tests {
         });
     }
 
-    /// The typeface list scrolls under the wheel instead of zooming the board.
-    #[test]
-    fn wheel_over_the_typeface_list_does_not_zoom_the_board() {
-        let mut h = board();
-        text_node(&mut h, WorldRect::new(-120.0, -30.0, 240.0, 60.0));
-        let mut time = h.ctx.input(|i| i.time);
-        open_text_editor(&mut h, &mut time);
-        timed_frame(&mut h, &mut time, vec![]);
-        let editor = *h.app.shape_properties.chrome_hits.last().unwrap();
-        let z = h.app.board_xf().z;
-        let family = editor.min + Vec2::new(24.0, chrome::TEXT_ROW_HEIGHT * 0.5) * z;
-        timed_frame(&mut h, &mut time, vec![egui::Event::PointerMoved(family)]);
-        timed_frame(&mut h, &mut time, vec![primary(family, true)]);
-        timed_frame(&mut h, &mut time, vec![primary(family, false)]);
-        assert!(
-            h.app.shape_properties.text_family_open,
-            "typeface list open"
-        );
-        timed_frame(&mut h, &mut time, vec![]);
-        let strip_len = h
-            .app
-            .shape_properties
-            .last_chrome
-            .as_ref()
-            .unwrap()
-            .items
-            .len();
-        let list = h.app.shape_properties.chrome_hits[strip_len];
-        assert!(list.top() > editor.top() && list.height() > 100.0 * z);
-        let before = h.app.tab().cam.z;
-        let over = list.center();
-        for _ in 0..6 {
-            timed_frame(
-                &mut h,
-                &mut time,
-                vec![
-                    egui::Event::PointerMoved(over),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Point,
-                        delta: Vec2::new(0.0, -80.0),
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-            );
-        }
-        assert_eq!(h.app.tab().cam.z, before, "the board must not zoom");
-        assert!(h.app.shape_properties.text_family_open, "list stays open");
-    }
+    mod wheel;
 
     fn corner_grip(h: &Harness, id: NodeId) -> Pos2 {
         let xf = h.app.board_xf();

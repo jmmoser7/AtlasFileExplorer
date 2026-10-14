@@ -3,6 +3,52 @@
 use super::*;
 
 impl SlateApp {
+    /// A painted grip or tiny body keeps its native canvas drag even when
+    /// last frame's overlapping strip/stringer was egui's press target.
+    /// Claim only after the drag threshold; normal clicks keep their owner.
+    pub(super) fn canvas_grip_drag_response(
+        &self,
+        ui: &egui::Ui,
+        response: egui::Response,
+        start_allowed: bool,
+    ) -> egui::Response {
+        let ctx = ui.ctx();
+        if !start_allowed
+            || !ui.is_enabled()
+            || self.tab().read_only
+            || self.board_drag.is_some()
+            || !matches!(self.board_tool, BoardTool::Select | BoardTool::DirectSelect)
+            || self.property_inline_editor_open()
+            || ctx.memory(|m| m.any_popup_open())
+            || !ctx.input(|i| i.pointer.primary_down() && i.pointer.is_decidedly_dragging())
+        {
+            return response;
+        }
+        let origin = ctx.input(|i| i.pointer.press_origin());
+        let owns_origin = origin.is_some_and(|p| {
+            self.canvas_rect.contains(p)
+                && ui.clip_rect().contains(p)
+                && ctx.layer_id_at(p).is_some_and(|layer| {
+                    layer == ui.layer_id()
+                        || (layer == atlas_shell::selection_tools::selection_chrome_layer()
+                            && self
+                                .shape_properties
+                                .chrome_hits
+                                .iter()
+                                .any(|r| r.contains(p)))
+                })
+                && (self.hovered_vertex(p).is_some()
+                    || (self.board_tool == BoardTool::Select
+                        && !self.curve_subselect_under(p)
+                        && self.tiny_body_owns_pointer(p).is_some()))
+        });
+        if owns_origin && ctx.dragged_id() != Some(response.id) {
+            ctx.set_dragged_id(response.id);
+            return ctx.read_response(response.id).unwrap_or(response);
+        }
+        response
+    }
+
     /// Egui chooses a click target from the previous frame's widgets. The
     /// sub-object chord can arrive with the press, after a number chip was
     /// hovered, so this explicit canvas gesture owns ordered press/release.
@@ -17,7 +63,12 @@ impl SlateApp {
             start_allowed
                 && self.canvas_rect.contains(*p)
                 && ui.clip_rect().contains(*p)
-                && ui.ctx().layer_id_at(*p) == Some(ui.layer_id())
+                && ui.ctx().layer_id_at(*p).is_some_and(|layer| {
+                    layer == ui.layer_id()
+                        || (layer == atlas_shell::selection_tools::selection_chrome_layer()
+                            && !self.property_editor_open()
+                            && self.curve_subselect_under(*p))
+                })
                 && !ui.ctx().memory(|m| m.any_popup_open())
         }) {
             if self.board_drag.is_none()
@@ -356,3 +407,6 @@ impl SlateApp {
         }
     }
 }
+
+#[cfg(test)]
+mod input_guards;

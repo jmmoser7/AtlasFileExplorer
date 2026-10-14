@@ -170,11 +170,10 @@ impl SlateApp {
         let mut requested_measure = false;
         let mut requested_screenshot = false;
         let mut captures = false;
+        let strip_ui_id = ui.id().with("selection-strip-input");
+        let mut strip_ui = chrome::object_ui(ui, strip_ui_id, strip);
         if blister {
-            let painter = ui.painter().clone().with_layer_id(egui::LayerId::new(
-                chrome::CANVAS_CHROME_ORDER,
-                Id::new("portal_property_blister"),
-            ));
+            let painter = chrome::object_painter(&strip_ui);
             let open = self.shape_properties.panel.is_some();
             chrome::paint_blister_tab(
                 &painter,
@@ -200,8 +199,8 @@ impl SlateApp {
             let (label, icon, active) = self.property_strip_button_info(item);
             let button_live = live && !grip_under;
             let response = if blister {
-                let response = ui
-                    .interact(
+                let response = chrome::object_hover_text(
+                    strip_ui.interact(
                         r,
                         Id::new(("shape_property", index)),
                         if button_live {
@@ -209,8 +208,9 @@ impl SlateApp {
                         } else {
                             egui::Sense::hover()
                         },
-                    )
-                    .on_hover_text(label);
+                    ),
+                    label,
+                );
                 let ink = if active {
                     theme.accent
                 } else if response.hovered() {
@@ -218,15 +218,12 @@ impl SlateApp {
                 } else {
                     theme.sub
                 };
-                let painter = ui.painter().clone().with_layer_id(egui::LayerId::new(
-                    chrome::CANVAS_CHROME_ORDER,
-                    Id::new("portal_property_blister"),
-                ));
+                let painter = chrome::object_painter(&strip_ui);
                 atlas_shell::icons::paint(&painter, r, icon, ink.gamma_multiply(fade));
                 response
             } else {
                 chrome::button(
-                    ui,
+                    &mut strip_ui,
                     r,
                     Id::new(("shape_property", index)),
                     label,
@@ -238,6 +235,10 @@ impl SlateApp {
                     button_live,
                 )
             };
+            #[cfg(test)]
+            if *item == StripItem::Panel(Panel::Text) {
+                tests::record_text_button(self, &strip_ui, &response, button_live, grip_under);
+            }
             if button_live && response.clicked() {
                 match item {
                     StripItem::Panel(panel) => requested_panel = Some(*panel),
@@ -247,7 +248,7 @@ impl SlateApp {
                     StripItem::ModelScreenshot => requested_screenshot = true,
                 }
             }
-            captures |= button_live && ctx.pointer_latest_pos().is_some_and(|p| r.contains(p));
+            captures |= button_live && grip_probe.is_some_and(|p| r.contains(p));
             if live {
                 self.shape_properties.chrome_hits.push(r);
             }

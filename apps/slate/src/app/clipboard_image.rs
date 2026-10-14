@@ -4,6 +4,7 @@ use eframe::egui::Pos2;
 use std::path::{Path, PathBuf};
 
 impl SlateApp {
+    #[cfg(windows)]
     pub(crate) fn place_pasted_png(&mut self, png: &[u8], at: Pos2) -> bool {
         if self.refuse_read_only_edit() {
             return false;

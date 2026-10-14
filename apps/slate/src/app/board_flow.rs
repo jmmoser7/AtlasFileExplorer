@@ -2403,7 +2403,8 @@ pub(crate) mod tests {
         h.frame();
         h.frame();
         h.app.shape_properties.panel = Some(super::super::board_properties::Panel::Agent);
-        // egui sizes a new area on its first frame without painting it.
+        crate::app::tests::pause(&mut h); // Reveal the lower prompt face before inspecting its hint.
+                                          // egui sizes a new area on its first frame without painting it.
         painted(&mut h, Pos2::new(2.0, 890.0));
         let shown = painted(&mut h, Pos2::new(2.0, 890.0));
         // Image agents use the image blister: its bare model, ratio, mode,

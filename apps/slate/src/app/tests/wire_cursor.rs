@@ -51,6 +51,8 @@ fn wire_grab_zone_uses_a_grab_cursor_on_every_node_kind() {
     assert_eq!(hover_grip(&mut h, "rectangle"), egui::CursorIcon::Grab);
 
     let mut h = web_board("wire_cursor_text");
+    // The authored 40-unit host is eligible at 1:1, not the default 0.8x.
+    h.app.tab_mut().cam.z = 1.0;
     let node = h.app.doc_mut().scene.build_node(
         slate_doc::scene::WorldRect::new(0.0, 0.0, 160.0, 40.0),
         NodeKind::Text(slate_doc::scene::TextNode {
