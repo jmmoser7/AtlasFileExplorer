@@ -1001,7 +1001,6 @@ mod tests {
         assert_eq!(h.app.agents.output_epoch, epoch, "nothing new to lay out");
         assert_eq!(card_views(&h), before);
     }
-
     #[test]
     fn agent_life_publishing_context_never_decodes_pictures_on_the_frame_loop() {
         use slate_doc::scene::{ConnectorEnd, Crop, ImageNode, Side, WorldRect};
@@ -1031,17 +1030,15 @@ mod tests {
         h.app
             .add_connector(anchored(picture, Side::Right), anchored(card, Side::Left))
             .unwrap();
-        let context = h
-            .app
-            .agent_link_dir(card, &ws)
-            .unwrap()
-            .join("context.json");
+        let link = h.app.agent_link_dir(card, &ws).unwrap();
+        let context = link.join("context.json");
         let published =
             |crop: &str| std::fs::read_to_string(&context).is_ok_and(|t| t.contains(crop));
         let first = "-0.2500-0.0000-0.5000-1.0000.png";
-        frames_until(&mut h, "the cropped context", |h| {
+        // Context can publish before this frame fits the card; await its final revision.
+        frames_until(&mut h, "the current revision's cropped context", |h| {
             h.app.agents.context_tick = None;
-            published(first)
+            published(first) && matches!(h.app.published_train_inputs(&[card]), Some(Ok(_)))
         });
         let clipped = std::fs::read_dir(std::env::temp_dir().join("slate-crop"))
             .unwrap()
@@ -1059,13 +1056,18 @@ mod tests {
             .unwrap()
             .set_modified(old)
             .unwrap();
-
         let on_loop = decodes();
+        let revision = (h.app.scene_gen, h.app.doc().scene.scene_gen());
         for _ in 0..3 {
             h.app.agents.context_tick = None;
             h.frame();
             std::thread::sleep(Duration::from_millis(20));
         }
+        assert_eq!(
+            (h.app.scene_gen, h.app.doc().scene.scene_gen()),
+            revision,
+            "the republished scene is unchanged"
+        );
         let when = std::fs::metadata(&clipped).unwrap().modified().unwrap();
         assert_eq!(
             when,
@@ -1073,7 +1075,6 @@ mod tests {
             "an unchanged picture is not encoded again ({} decodes on the frame loop)",
             decodes() - on_loop
         );
-
         h.app.patch_nodes(&[picture], |n| {
             if let NodeKind::Image(img) = &mut n.kind {
                 img.crop = crop(0.5);

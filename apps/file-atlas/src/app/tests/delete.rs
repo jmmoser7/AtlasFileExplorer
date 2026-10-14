@@ -42,7 +42,15 @@ fn delete_key_removes_the_card_under_the_cursor() {
         h.frame();
         std::thread::sleep(Duration::from_millis(5));
     }
-    assert!(!root.join("doomed.jpg").exists(), "the file is still there");
+    assert!(
+        !root.join("doomed.jpg").exists(),
+        "the file is still there: operation={:?}, toasts={:?}",
+        h.app
+            .fs_op
+            .as_ref()
+            .map(|op| (&op.label, op.done, op.total, &op.op)),
+        h.app.toasts
+    );
     assert!(h.app.entries[doomed as usize].dead);
     // The next rebuild agrees with the completed operation.
     h.frame();

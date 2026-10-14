@@ -99,6 +99,12 @@ Do not describe a stale run as verification of newer local fixes.
   report or another retrievable artifact. A VM-only log path is insufficient
   if the coordinator cannot retrieve its content. Include compile errors,
   panics, expected/actual values, and counts per test binary where relevant.
+- Wait on a running Cargo command through the execution tool's process-session
+  protocol when available, preserving its real completion and exit. Shell
+  `pgrep` loops can match their own supervisory command, and `kill -0` can stay
+  true for a zombie; PID existence alone does not prove useful work continues.
+  Keep waits bounded and inspect new output rather than layering long sleeps
+  around an uncertain process identity.
 - Run required commands even when optional telemetry tools are missing. Cloud
   images may lack `/usr/bin/time`; use a shell built-in or leave elapsed time
   unmeasured. Recover routine wrapper failures without changing the required
@@ -110,6 +116,12 @@ Do not describe a stale run as verification of newer local fixes.
 - Update a fixture only when the current approved interaction explains the
   mismatch. Keep its behavioral assertion; reproduce unexplained failures
   before changing production code or widening waits.
+  For asynchronous preparation, await the current captured revision's result,
+  not merely a previously published filename; a later operation in that same
+  frame can invalidate the earlier result. Assert that the revision stays
+  unchanged during a no-change cache test. For paint-based probes, identify the
+  owning UI's clip and semantic label, since overlapping parent text can share
+  screen coordinates without belonging to the control being tested.
 - Reuse an environment and its build cache when the available tooling supports
   it. Give runtime repair to a worker that can execute the failing tests in
   that checkout, especially when local execution is blocked. Supply the known

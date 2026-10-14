@@ -17,13 +17,19 @@ fn row_y(output: &egui::FullOutput, label: &str, list: Rect) -> f32 {
         .iter()
         .find_map(|shape| match &shape.shape {
             egui::Shape::Text(text)
-                if text.galley.text() == label && shape.clip_rect.intersects(list) =>
+                if text.galley.text() == label && list_row_clip(shape.clip_rect, list) =>
             {
                 Some(text.pos.y)
             }
             _ => None,
         })
         .expect("the typeface row is painted")
+}
+
+fn list_row_clip(clip: Rect, list: Rect) -> bool {
+    // The vertical ScrollArea clips rows to the list's height. Parent editor
+    // labels share its location, but their canvas-height clip is unrelated.
+    clip.intersects(list) && clip.top() >= list.top() && clip.bottom() <= list.bottom()
 }
 
 /// Wheel ownership includes the visible extension beyond the nominal width.
@@ -75,13 +81,21 @@ fn wheel_over_the_typeface_list_does_not_zoom_the_board() {
         .iter()
         .find_map(|shape| match &shape.shape {
             egui::Shape::Text(text)
-                if visible.contains(text.pos) && text.pos.y > visible.center().y =>
+                if visible.contains(text.pos)
+                    && text.pos.y > visible.center().y
+                    && list_row_clip(shape.clip_rect, list) =>
             {
                 Some(text.galley.text().to_owned())
             }
             _ => None,
         })
         .expect("a visible middle typeface row");
+    assert!(
+        scene::Typeface::ALL
+            .iter()
+            .any(|face| face.label() == label),
+        "the scrolling probe belongs to the actual typeface options: {label:?}"
+    );
     let before_row = row_y(&output, &label, list);
     let before = (h.app.tab().cam.z, h.app.tab().cam.offset);
     for _ in 0..6 {
@@ -101,9 +115,10 @@ fn wheel_over_the_typeface_list_does_not_zoom_the_board() {
         );
     }
     let output = timed_frame(&mut h, &mut time, vec![]);
+    let after_row = row_y(&output, &label, list);
     assert!(
-        row_y(&output, &label, list) < before_row - 1.0,
-        "the list actually scrolled"
+        after_row < before_row - 1.0,
+        "the list actually scrolled: {label:?} y={before_row}->{after_row}, list={list:?}, pointer={over:?}"
     );
     assert!(h.app.shape_properties.text_family_open, "list stays open");
     assert!(h.app.board_sel.contains(&id));
