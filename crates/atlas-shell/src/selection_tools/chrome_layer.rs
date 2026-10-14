@@ -46,3 +46,34 @@ pub fn object_ui(ui: &mut egui::Ui, id: Id, rect: Rect) -> egui::Ui {
 pub fn object_painter(ui: &egui::Ui) -> egui::Painter {
     ui.painter().clone().with_layer_id(object_layer(ui))
 }
+
+/// Keep egui's first native label tooltip from registering a 400px ghost hit.
+pub fn object_hover_text(response: egui::Response, label: &str) -> egui::Response {
+    let ctx = response.ctx.clone();
+    let tooltip_id = egui::containers::next_tooltip_id(&ctx, response.id);
+    let unmeasured = egui::containers::AreaState::load(&ctx, tooltip_id)
+        .and_then(|area| area.size)
+        .is_none();
+    if !response.enabled() || !response.hovered() || !unmeasured {
+        return response.on_hover_text(label);
+    }
+    let original = ctx.style();
+    let margin = egui::Frame::popup(&original).total_margin().sum();
+    let width = original.spacing.tooltip_width.max(1.0);
+    let galley = ctx.fonts(|fonts| {
+        fonts.layout(
+            label.to_owned(),
+            egui::FontSelection::Default.resolve(&original),
+            original.visuals.text_color(),
+            width,
+        )
+    });
+    let mut measured = (*original).clone();
+    // Native tooltip placement/timing/content stay with egui. Its Area only
+    // specifies default_width; bound the initial height before hit registration.
+    measured.spacing.default_area_size.y = (galley.size().y + margin.y).ceil();
+    ctx.set_style(measured);
+    let response = response.on_hover_text(label);
+    ctx.set_style(original);
+    response
+}

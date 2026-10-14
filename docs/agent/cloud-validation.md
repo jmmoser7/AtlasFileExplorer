@@ -22,7 +22,10 @@ Windows setup and execution denials stay in [windows-builds.md](../windows-build
    the repository's existing hosted tests with retrievable logs, including the
    Windows runtime suite when configured. Confirm workflow triggers, checkout
    SHA, prerequisites and publishing conditions rather than assuming a branch
-   push runs tests. CLI, Git transport and connector authentication are separate;
+   push runs tests. Inspect concurrency and cancellation too: release workflows
+   may serialize PR checks, and pushing a newer commit need not stop the older
+   run. Distinguish that queue from execution before dispatching more work.
+   CLI, Git transport and connector authentication are separate;
    use an already authorized connector when the CLI is signed out, without
    extracting credentials. Record the actual merge SHA tested by PR workflows.
 3. Finish cheap preparation before the expensive integration run: compile

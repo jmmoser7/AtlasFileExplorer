@@ -199,8 +199,8 @@ impl SlateApp {
             let (label, icon, active) = self.property_strip_button_info(item);
             let button_live = live && !grip_under;
             let response = if blister {
-                let response = strip_ui
-                    .interact(
+                let response = chrome::object_hover_text(
+                    strip_ui.interact(
                         r,
                         Id::new(("shape_property", index)),
                         if button_live {
@@ -208,8 +208,9 @@ impl SlateApp {
                         } else {
                             egui::Sense::hover()
                         },
-                    )
-                    .on_hover_text(label);
+                    ),
+                    label,
+                );
                 let ink = if active {
                     theme.accent
                 } else if response.hovered() {

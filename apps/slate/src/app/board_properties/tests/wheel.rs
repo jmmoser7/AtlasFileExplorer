@@ -62,7 +62,8 @@ fn wheel_over_the_typeface_list_does_not_zoom_the_board() {
         .memory(|m| m.area_rect(layer.id))
         .expect("measured Area");
     assert!(list.top() > editor.top() && list.height() > 100.0 * z);
-    let over = Pos2::new(list.right() - 12.0 * z, list.center().y);
+    let visible = list.intersect(h.app.canvas_rect);
+    let over = Pos2::new(visible.right() - 12.0 * z, visible.center().y);
     assert!(
         over.x > list.left() + 168.0 * z,
         "exercise the visible extension"
@@ -73,7 +74,9 @@ fn wheel_over_the_typeface_list_does_not_zoom_the_board() {
         .shapes
         .iter()
         .find_map(|shape| match &shape.shape {
-            egui::Shape::Text(text) if list.contains(text.pos) && text.pos.y > list.center().y => {
+            egui::Shape::Text(text)
+                if visible.contains(text.pos) && text.pos.y > visible.center().y =>
+            {
                 Some(text.galley.text().to_owned())
             }
             _ => None,
@@ -104,8 +107,24 @@ fn wheel_over_the_typeface_list_does_not_zoom_the_board() {
     );
     assert!(h.app.shape_properties.text_family_open, "list stays open");
     assert!(h.app.board_sel.contains(&id));
-    let outside = h.app.canvas_rect.left_top() + Vec2::splat(30.0);
-    assert!(!list.contains(outside));
+    let canvas = h.app.canvas_rect;
+    let outside = [
+        canvas.right_bottom() - Vec2::splat(30.0),
+        canvas.left_bottom() + Vec2::new(30.0, -30.0),
+        canvas.left_top() + Vec2::splat(30.0),
+    ]
+    .into_iter()
+    .find(|p| {
+        !list.contains(*p)
+            && h.ctx.layer_id_at(*p) == Some(egui::LayerId::background())
+            && !h
+                .app
+                .shape_properties
+                .chrome_hits
+                .iter()
+                .any(|r| r.contains(*p))
+    })
+    .expect("uncovered canvas outside the editor and list");
     timed_frame(&mut h, &mut time, vec![egui::Event::PointerMoved(outside)]);
     for _ in 0..6 {
         timed_frame(&mut h, &mut time, wheel(outside));

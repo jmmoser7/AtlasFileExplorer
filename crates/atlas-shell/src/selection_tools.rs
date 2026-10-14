@@ -126,7 +126,7 @@ pub fn popup_area(ctx: &egui::Context, id: Id, opener: egui::LayerId) -> egui::A
 }
 
 mod chrome_layer;
-pub use chrome_layer::{object_painter, object_ui, selection_chrome_layer};
+pub use chrome_layer::{object_hover_text, object_painter, object_ui, selection_chrome_layer};
 
 pub fn strip_fade(ctx: &egui::Context, id: Id, visible: bool) -> f32 {
     ctx.animate_bool_with_time(id, visible, SELECTION_FADE_SECONDS)
@@ -148,7 +148,7 @@ pub fn button(
     interactive: bool,
 ) -> egui::Response {
     let response = if interactive {
-        ui.interact(rect, id, Sense::click()).on_hover_text(label)
+        object_hover_text(ui.interact(rect, id, Sense::click()), label)
     } else {
         ui.allocate_rect(rect, Sense::hover())
     };

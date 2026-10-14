@@ -34,8 +34,11 @@ pub(super) fn record_text_button(
         )
     });
     let owner = ctx.pointer_latest_pos().and_then(|p| ctx.layer_id_at(p));
+    let tooltip_id = response.id.with(0usize);
+    let tooltip = egui::containers::AreaState::load(ctx, tooltip_id);
+    let owner_area = owner.and_then(|layer| egui::containers::AreaState::load(ctx, layer.id));
     let line = format!(
-        "{pointer}; response id={:?} layer={:?} rect={:?} interact_rect={:?} clip={:?} enabled={} hovered={} contains={} down={} clicked={} live={live} grip_under={grip_under}; owner={owner:?} panel={:?} selected={:?}; {interaction}",
+        "{pointer}; response id={:?} layer={:?} rect={:?} interact_rect={:?} clip={:?} enabled={} hovered={} contains={} down={} clicked={} live={live} grip_under={grip_under}; owner={owner:?} owner_area={owner_area:?} text_tooltip_id={tooltip_id:?} text_tooltip={tooltip:?} panel={:?} selected={:?}; {interaction}",
         response.id, response.layer_id, response.rect, response.interact_rect, ui.clip_rect(),
         response.enabled(), response.hovered(), response.contains_pointer(),
         response.is_pointer_button_down_on(), response.clicked(),

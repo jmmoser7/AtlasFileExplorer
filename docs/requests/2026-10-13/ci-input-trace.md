@@ -1,0 +1,29 @@
+# Text-click trace and native tooltip sizing
+
+This report covers the intermediate [CI run 38502768197](https://github.com/jmmoser7/AtlasFileExplorer/actions/runs/38502768197), Linux job 115653309484. PR head was `be2bc154b142e7347eb2ab77e58d0d0d142133be`; Actions tested synthetic merge `9e6bfcbf2688bda7daddc23296416e84babadc98`.
+
+`cargo test --locked --workspace --no-fail-fast` with `pipefail` through `tee` exited **101**: **2,760 passed, 2 failed, 72 ignored** across reported binaries/doctests. Compilation took **4m 39s**; Slate executed **108.93s**, reporting **1,389 passed, 2 failed, 53 ignored**. Tiny-body movement now passes at all original tested zooms, with its movement, size and undo assertions unchanged. All prior grip and negative ownership checks still pass. Hosted Linux Clippy with `-D warnings`, formatting and Windows compilation pass on this source.
+
+Both remaining failures stop in `open_text_editor` before outline/wheel assertions: `None` versus `Some(Text)` at `board_properties.rs:2849`. Test-only tracing retained the actual event owner:
+
+```text
+        "time=0.2833333333333333 pos=Some([738.5 513.5]) origin=None down=false pressed=false released=false events=[PointerMoved([738.5 513.5])]; response id=3D64 layer=LayerId { Foreground C373 } rect=[[723.5 498.5] - [753.5 528.5]] interact_rect=[[723.5 498.5] - [753.5 528.5]] clip=[[0.0 31.0] - [1440.0 878.0]] enabled=true hovered=true contains=true down=false clicked=false live=true grip_under=false; owner=Some(LayerId { Tooltip D9D0 }) panel=None selected={NodeId(1)}; clicked=None dragged=None hovered={3D64} contains={E660, C373, 3D64}",
+        "time=0.3 pos=Some([738.5 513.5]) origin=Some([738.5 513.5]) down=true pressed=true released=false events=[PointerButton { pos: [738.5 513.5], button: Primary, pressed: true, modifiers: Modifiers::NONE }]; response id=3D64 layer=LayerId { Foreground C373 } rect=[[723.5 498.5] - [753.5 528.5]] interact_rect=[[723.5 498.5] - [753.5 528.5]] clip=[[0.0 31.0] - [1440.0 878.0]] enabled=true hovered=false contains=false down=false clicked=false live=true grip_under=false; owner=Some(LayerId { Foreground C373 }) panel=None selected={NodeId(1)}; clicked=None dragged=None hovered={D9D0, 66D8, 97D2, 1AE2} contains={D9D0, 66D8, 97D2, 1AE2}",
+        "time=0.31666666666666665 pos=Some([738.5 513.5]) origin=None down=false pressed=false released=true events=[PointerButton { pos: [738.5 513.5], button: Primary, pressed: false, modifiers: Modifiers::NONE }]; response id=3D64 layer=LayerId { Foreground C373 } rect=[[723.5 498.5] - [753.5 528.5]] interact_rect=[[723.5 498.5] - [753.5 528.5]] clip=[[0.0 31.0] - [1440.0 878.0]] enabled=true hovered=true contains=true down=false clicked=false live=true grip_under=false; owner=Some(LayerId { Foreground C373 }) panel=None selected={NodeId(1)}; clicked=None dragged=None hovered={3D64} contains={E660, C373, 3D64}",
+```
+
+The hover frame has an enabled, live, hovered Text response but a Tooltip layer over its point. On the next press, previous-frame Tooltip widgets own the hit; the current tooltip is already gone and the current layer query again reports selection chrome. On release the Text response is hovered again but never clicked. Full decoded logs are retained in ignored `target/feedback-ci-linux-trace.log` and the retrievable job log; idle frames and the second failing case are present there.
+
+Dependency-source tracing supports a native tooltip sizing defect in egui 0.31.1: placement assumes a small tooltip, but the new Area sets only default width and inherits the generic 400-pixel estimated height. Constraint positioning can push that initial hit region over the button. The final Area rectangle shrinks while previous-frame widget hit rectangles retain the first estimate. The standard Text label tooltip is the identified source path; dimensions have no tooltip-producing path. A later test-only trace also records the native tooltip ID and Area state if the failure recurs.
+
+## Reviewed correction awaiting runtime
+
+The shell-owned `object_hover_text` wrapper preserves native tooltip timing, IDs, content and genuine click routing. Only an enabled, hovered and previously unmeasured native tooltip is premeasured at its native inner label width/default font, plus popup frame height. During the synchronous native call, that height replaces the initial generic Area estimate; the exact original style Arc is immediately restored. Native `next_tooltip_id` handles stacked tooltips. No Area is duplicated, no covering layer is exempted, and no geometric click fallback was added.
+
+New shared tests require an actual first native tooltip, no overlap with its button, immediate real press/release activation and exact style restoration. A separate real covering-popup test retains ownership. Existing app opening events, waits, paint checks, cancellation and layer negatives remain unchanged. The strengthened wheel test probes the visible extension of the actual popup and finds independently uncovered canvas for its outside-zoom assertion.
+
+The reviewed correction passes local Windows `cargo clippy --locked --workspace --all-targets -j2 -- -D warnings`, exit **0**, **27.46s**, with formatting and **797 Rust files / 111 unchanged allowlist entries / zero size findings**. Its runtime result must be taken from the subsequent snapshot, not this failed run.
+
+Release libraries for `be2bc154` built locally in **1m 45s**, exit **0**, using `cargo build --locked --release -p native-file-atlas -p slate --lib -j2`. This predates the tooltip correction. The original Slate process and unsaved workbook remain preserved; a save/close choice is pending before executable replacement.
+
+Matching Windows runtime run [38502768223](https://github.com/jmmoser7/AtlasFileExplorer/actions/runs/38502768223) started after the previous serialized run and is still tracked independently. No result is inferred from Linux or compile-only checks.
