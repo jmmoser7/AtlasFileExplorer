@@ -114,6 +114,9 @@ fn validate_image_source(
     expected_size: u64,
     expected_mtime: i64,
 ) -> Result<PathBuf, String> {
+    if atlas_core::secrets::is_machine_private(&path) {
+        return Err("Machine-private app state is outside portal source access".into());
+    }
     if atlas_core::cloud::is_dehydrated(&path) {
         return Err("Cloud-only placeholder was skipped to avoid downloading it".into());
     }
@@ -125,6 +128,9 @@ fn validate_image_source(
         .map_err(|e| format!("Could not verify image path: {e}"))?;
     if !canonical_path.starts_with(&canonical_root) {
         return Err("Resolved image escaped the granted Atlas root".into());
+    }
+    if atlas_core::secrets::is_machine_private(&canonical_path) {
+        return Err("Resolved source is machine-private app state".into());
     }
     let metadata = std::fs::metadata(&canonical_path).map_err(|e| e.to_string())?;
     let modified = metadata

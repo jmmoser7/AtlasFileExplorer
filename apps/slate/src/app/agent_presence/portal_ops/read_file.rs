@@ -42,6 +42,9 @@ pub(super) fn read_text_page(
     ) {
         return Err("This portal reader supports bounded UTF-8 text files only".into());
     }
+    if atlas_core::secrets::is_machine_private(&path) {
+        return Err("Machine-private app state is outside portal source access".into());
+    }
     if atlas_core::cloud::is_dehydrated(&path) {
         return Err("Cloud-only placeholder was skipped to avoid downloading it".into());
     }
@@ -53,6 +56,9 @@ pub(super) fn read_text_page(
         .map_err(|e| format!("Could not verify file path: {e}"))?;
     if !canonical_path.starts_with(&canonical_root) {
         return Err("Resolved file escaped the granted Atlas root".into());
+    }
+    if atlas_core::secrets::is_machine_private(&canonical_path) {
+        return Err("Resolved source is machine-private app state".into());
     }
     let metadata = std::fs::metadata(&canonical_path).map_err(|e| e.to_string())?;
     if metadata.len() != expected_size
@@ -174,6 +180,18 @@ mod tests {
             cursor,
             limit,
         )
+    }
+
+    #[test]
+    fn granted_folder_does_not_expose_machine_private_app_state() {
+        let root = TestDir::new();
+        let private = root.0.join("NativeFileAtlas").join("secrets");
+        fs::create_dir_all(&private).unwrap();
+        let file = private.join("fixture.txt");
+        fs::write(&file, "synthetic fixture").unwrap();
+        assert!(page(&root.0, &file, 0, 64)
+            .unwrap_err()
+            .contains("Machine-private"));
     }
 
     #[test]
