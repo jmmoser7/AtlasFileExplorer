@@ -11,9 +11,12 @@ struct Fixture {
     time: f64,
     drafts: HashMap<String, String>,
     busy: bool,
+    full_access: bool,
     captured: bool,
     status: String,
     agent_name: String,
+    agent_provider: String,
+    parent_name: Option<String>,
     human_name: String,
     model: String,
     models: Vec<ProviderOption<'static>>,
@@ -22,6 +25,9 @@ struct Fixture {
     screen: Rect,
     proposals: Vec<(String, String, bool)>,
     applying_proposal: Option<String>,
+    activity: Vec<(String, String)>,
+    attachments: Vec<String>,
+    message_attachments: usize,
 }
 impl Fixture {
     fn new() -> Self {
@@ -32,9 +38,12 @@ impl Fixture {
             time: 0.0,
             drafts: HashMap::new(),
             busy: false,
+            full_access: false,
             captured: false,
             status: "Ready in proposal mode".into(),
             agent_name: "Dot".into(),
+            agent_provider: "codex".into(),
+            parent_name: None,
             human_name: "You".into(),
             model: String::new(),
             models: Vec::new(),
@@ -43,6 +52,9 @@ impl Fixture {
             screen: Rect::from_min_size(Pos2::ZERO, Vec2::new(1280.0, 720.0)),
             proposals: Vec::new(),
             applying_proposal: None,
+            activity: Vec::new(),
+            attachments: Vec::new(),
+            message_attachments: 0,
         }
     }
     fn frame(&mut self, events: Vec<egui::Event>) -> (Vec<PresenceAction>, egui::FullOutput) {
@@ -56,8 +68,19 @@ impl Fixture {
             outgoing: self.message_outgoing,
             system: false,
             status: "",
+            attachment_count: self.message_attachments,
         }];
         let empty = String::new();
+        let activity: Vec<_> = self
+            .activity
+            .iter()
+            .map(|(label, text)| super::super::PublicActivity { label, text })
+            .collect();
+        let attachments: Vec<_> = self
+            .attachments
+            .iter()
+            .map(|name| super::super::Attachment { name })
+            .collect();
         let proposals: Vec<_> = self
             .proposals
             .iter()
@@ -80,6 +103,7 @@ impl Fixture {
                 human: true,
                 paused: false,
                 autonomous: false,
+                full_access: false,
                 file_inputs: false,
                 own_chats: false,
                 parent_name: None,
@@ -88,6 +112,8 @@ impl Fixture {
                 photo_texture: None,
                 busy: false,
                 messages: &[],
+                activity: &activity,
+                attachments: &attachments,
                 message_total: 0,
                 proposals: &[],
                 draft: self.drafts.get("self").unwrap_or(&empty),
@@ -100,18 +126,21 @@ impl Fixture {
                 name: &self.agent_name,
                 hat: "cap",
                 status: &self.status,
-                provider: "codex",
+                provider: &self.agent_provider,
                 human: false,
                 paused: false,
                 autonomous: false,
+                full_access: self.full_access,
                 file_inputs: false,
                 own_chats: false,
-                parent_name: None,
+                parent_name: self.parent_name.as_deref(),
                 chats: &[],
                 local_profile: false,
                 photo_texture: None,
                 busy: self.busy,
                 messages: &messages,
+                activity: &activity,
+                attachments: &attachments,
                 message_total: messages.len(),
                 proposals: &proposals,
                 draft: self.drafts.get("dot").unwrap_or(&empty),
@@ -128,6 +157,10 @@ impl Fixture {
             ProviderOption {
                 id: "cursor",
                 label: "Cursor",
+            },
+            ProviderOption {
+                id: "dot",
+                label: "Dot",
             },
         ];
         let output = ctx.run(
@@ -204,7 +237,7 @@ fn text_rect(output: &egui::FullOutput, text: &str) -> Option<Rect> {
 }
 
 #[test]
-fn icon_opens_conversation_and_name_opens_a_right_aligned_profile() {
+fn agent_icon_and_name_open_the_same_conversation() {
     let mut f = Fixture::new();
     let out = f.settle();
     let name = text_rect(&out, "Dot").expect("Dot has a name target");
@@ -214,9 +247,23 @@ fn icon_opens_conversation_and_name_opens_a_right_aligned_profile() {
     assert!(text_rect(&chat, "I am arranging the images in this frame.").is_some());
     f.click(name.center());
     f.settle();
-    assert_eq!(f.state.expansion, Some(Expansion::Profile("dot".into())));
-    assert!((f.state.last_popup_rect.right() - f.state.anchor.right()).abs() < 2.0);
+    assert_eq!(f.state.active_chat(), Some("dot"));
+    assert!((340.0..=380.0).contains(&f.state.last_popup_rect.width()));
     assert!(f.state.last_popup_rect.bottom() < 720.0);
+}
+
+#[test]
+fn chat_remains_open_after_an_outside_click_and_human_name_stays_profile() {
+    let mut f = Fixture::new();
+    f.open_chat("dot");
+    let outside = Pos2::new(1100.0, 650.0);
+    f.click(outside);
+    assert_eq!(f.state.active_chat(), Some("dot"));
+    let out = f.settle();
+    let you = text_rect(&out, "You").expect("human name remains in roster");
+    f.click(you.center());
+    f.settle();
+    assert_eq!(f.state.expansion, Some(Expansion::Profile("self".into())));
 }
 
 #[test]
@@ -373,57 +420,6 @@ fn head_hat_and_animated_book_all_scale_with_the_camera_without_a_floor() {
 }
 
 #[test]
-fn cached_avatar_layers_inherit_the_attached_conversation_transform() {
-    let ctx = egui::Context::default();
-    let mut painter = PresencePainter::default();
-    let pan = Vec2::new(250.0, 180.0);
-    let zoom = 2.0;
-    let output = ctx.run(
-        egui::RawInput {
-            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::splat(1000.0))),
-            ..Default::default()
-        },
-        |ctx| {
-            let layer =
-                egui::LayerId::new(egui::Order::Foreground, Id::new("attached-conversation"));
-            ctx.set_transform_layer(layer, egui::emath::TSTransform::new(pan, zoom));
-            painter.paint_world_avatar(
-                &ctx.layer_painter(layer),
-                AvatarVisual {
-                    id: "dot",
-                    center: Pos2::new(50.0, 50.0),
-                    expression: "neutral",
-                    orientation: "forward",
-                    hat: "cap",
-                    prop: "none",
-                    opacity: 1.0,
-                },
-                0.0,
-                true,
-                1.0,
-            );
-        },
-    );
-    let bounds = ctx
-        .tessellate(output.shapes, output.pixels_per_point)
-        .iter()
-        .fold(Rect::NOTHING, |mut bounds, primitive| {
-            if let egui::epaint::Primitive::Mesh(mesh) = &primitive.primitive {
-                for v in &mesh.vertices {
-                    if v.color.a() > 0 {
-                        bounds.extend_with(v.pos);
-                    }
-                }
-            }
-            bounds
-        });
-    assert!(
-        bounds.left() > 300.0 && bounds.top() > 220.0,
-        "cached head and hat must move and scale with the chat parent: {bounds:?}"
-    );
-}
-
-#[test]
 fn conversation_keeps_status_feedback_and_composer_visible_at_720_pixels() {
     let mut f = Fixture::new();
     f.status = "History could not be saved · your draft is retained".into();
@@ -455,8 +451,20 @@ fn status_changes_are_visible_without_discarding_conversation_drafts() {
 fn own_created_chat_permission_is_an_explicit_advanced_action() {
     let mut f = Fixture::new();
     f.open_chat("dot");
-    f.state.popover = Some(Popover::Advanced);
+    f.click(
+        visual::screen_response(&f, Id::new(("conversation-more", "dot")))
+            .0
+            .center(),
+    );
+    let menu = f.settle();
+    let settings = text_rect(&menu, "Agent settings").expect("settings remain inside chat");
+    f.click(settings.center());
     let out = f.settle();
+    assert!(
+        visual::screen_response(&f, Id::new(("presence-name", "dot")))
+            .0
+            .is_positive()
+    );
     let checkbox = text_rect(&out, "Allow chats created by this agent")
         .expect("the advanced scope choice is visible");
     let actions = f.click(checkbox.center());
@@ -470,17 +478,8 @@ fn own_created_chat_permission_is_an_explicit_advanced_action() {
     )));
 }
 
-#[test]
-fn adapter_history_ranges_share_the_canonical_pagination_and_attached_limit() {
-    let mut state = RosterState::default();
-    state.open_chat("dot");
-    assert_eq!(state.message_range("dot", 100_000), 99_936..100_000);
-    state.history_offsets.insert("dot".into(), 64);
-    assert_eq!(state.message_range("dot", 100_000), 99_872..99_936);
-    state.open_chat_at("dot", Pos2::new(400.0, 300.0), 1.0);
-    assert_eq!(state.message_range("dot", 100_000), 99_996..100_000);
-    assert_eq!(state.message_range("dot", 0), 0..0);
-}
+#[path = "roster_added_tests.rs"]
+mod added_tests;
 
 #[path = "roster_visual_tests.rs"]
 mod visual;

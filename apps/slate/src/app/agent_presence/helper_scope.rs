@@ -58,3 +58,80 @@ impl PresenceRuntime {
         self.helper_endpoints = live;
     }
 }
+
+impl SlateApp {
+    pub(super) fn retire_completed_helper(&mut self, who: &str) -> Result<(), String> {
+        let completed = self
+            .presence
+            .agents
+            .iter()
+            .find(|a| a.profile.id == who)
+            .is_some_and(|a| {
+                a.parent.is_some()
+                    && a.had_response
+                    && !a.inflight
+                    && a.work.is_none()
+                    && a.read.is_none()
+                    && !self.presence.has_pending_for(a)
+                    && a.launched.is_empty()
+                    && a.helper_outcome
+                        .as_ref()
+                        .is_some_and(|o| o.outcome == "success")
+            });
+        if let Some(a) = self.presence.agents.iter().find(|a| a.profile.id == who) {
+            if let Some(parent) = &a.parent {
+                let expired = !completed && a.joined_at.elapsed().as_secs() > TASK_LIMIT_SECS;
+                let outcome = if completed {
+                    "success"
+                } else if let Some(outcome) =
+                    a.helper_outcome.as_ref().filter(|o| o.outcome != "success")
+                {
+                    outcome.outcome
+                } else if expired {
+                    "expired"
+                } else {
+                    "cancel"
+                };
+                let status = if outcome == "expired" {
+                    "Helper reached its 300-second task limit"
+                } else {
+                    a.helper_outcome
+                        .as_ref()
+                        .map_or("Helper task stopped", |o| o.status.as_str())
+                };
+                let request_id = a
+                    .helper_outcome
+                    .as_ref()
+                    .map_or(a.request.as_str(), |o| o.request_id.as_str());
+                let result = self
+                    .presence
+                    .conversations
+                    .get(&a.profile.id)
+                    .as_ref()
+                    .and_then(|s| {
+                        s.turns
+                            .iter()
+                            .rev()
+                            .find(|t| t.request == request_id && t.role == "assistant")
+                    })
+                    .map(|t| t.text.chars().take(2048).collect())
+                    .unwrap_or_default();
+                if self.presence.helper_results.len() >= 32 {
+                    self.presence.helper_results.remove(0);
+                }
+                self.presence.helper_results.push(HelperResult {
+                    id: a.profile.id.clone(),
+                    parent_id: parent.clone(),
+                    request_id: request_id.into(),
+                    name: a.profile.name.clone(),
+                    result,
+                    status: status.chars().take(2048).collect(),
+                    outcome: outcome.into(),
+                    expired,
+                    retired_at: Instant::now(),
+                });
+            }
+        }
+        self.depart_presence(who, "bow", completed)
+    }
+}

@@ -65,6 +65,24 @@ pub fn consume(link_dir: &Path) -> Result<Option<FeedbackResult>, String> {
     Ok(Some(result))
 }
 
+/// Keep a board collaborator's note in its local link folder without filing an
+/// external issue. The person can review it from the feedback log later.
+pub fn record_local(link_dir: &Path, note: FeedbackNote) -> Result<(), String> {
+    if note.what.trim().is_empty() {
+        return Err("Feedback needs a short what sentence".into());
+    }
+    if let Some(why) = refused(&note) {
+        return Err(why.into());
+    }
+    let mut log = load(link_dir);
+    if !log.notes.iter().any(|saved| saved == &note) {
+        log.notes.push(note);
+        crate::agent::atomic_write_json(&link_dir.join("feedback-log.json"), &log)
+            .map_err(|e| format!("Could not save the local feedback note: {e}"))?;
+    }
+    Ok(())
+}
+
 fn reject(link_dir: &Path, error: &str) -> String {
     let _ = crate::agent::atomic_write_json(
         &link_dir.join("feedback.result.json"),
@@ -82,7 +100,7 @@ fn reject(link_dir: &Path, error: &str) -> String {
 /// Notes stay short and free of secrets. The person's prompt is not included.
 fn refused(note: &FeedbackNote) -> Option<&'static str> {
     for field in [&note.what, &note.tried, &note.missing] {
-        if field.len() > 800 {
+        if field.chars().count() > 800 {
             return Some("Keep each feedback field under 800 characters.");
         }
         let lower = field.to_ascii_lowercase();
@@ -221,6 +239,48 @@ mod tests {
         assert!(consume(&link).unwrap_err().contains("key"));
         assert_eq!(load(&link).notes.len(), 1, "a refused note is not logged");
         std::env::remove_var("ATLAS_FEEDBACK");
+        let _ = std::fs::remove_dir_all(link);
+    }
+
+    #[test]
+    fn local_recording_never_creates_an_issue_mailbox_or_external_result() {
+        let link = dir("local-only");
+        let note = FeedbackNote {
+            id: "agent-report-1".into(),
+            what: "Writing an authored text object was hard".into(),
+            tried: "board.objects.create_text".into(),
+            missing: "A registered save command".into(),
+        };
+        record_local(&link, note.clone()).unwrap();
+        record_local(&link, note).unwrap();
+        assert_eq!(load(&link).notes.len(), 1, "recording is idempotent");
+        assert!(!link.join("feedback.json").exists());
+        assert!(!link.join("feedback.result.json").exists());
+        let _ = std::fs::remove_dir_all(link);
+    }
+
+    #[test]
+    fn local_recording_bounds_each_field_and_refuses_secret_markers() {
+        let link = dir("bounds");
+        let overlong = FeedbackNote {
+            id: "a".into(),
+            what: "x".repeat(801),
+            tried: String::new(),
+            missing: String::new(),
+        };
+        assert!(record_local(&link, overlong)
+            .unwrap_err()
+            .contains("800 characters"));
+        let secret = FeedbackNote {
+            id: "b".into(),
+            what: "token sk-abc123456789".into(),
+            tried: String::new(),
+            missing: String::new(),
+        };
+        assert!(record_local(&link, secret)
+            .unwrap_err()
+            .contains("key or token"));
+        assert!(load(&link).notes.is_empty());
         let _ = std::fs::remove_dir_all(link);
     }
 }

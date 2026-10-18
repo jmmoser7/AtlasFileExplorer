@@ -29,9 +29,6 @@ pub struct RosterState {
     pub(super) anchor: Rect,
     pub(super) canvas_anchor: Option<(Pos2, f32)>,
     pub(super) requested_provider: Option<String>,
-    pub(super) add_name: String,
-    pub(super) add_hat: String,
-    pub(super) add_provider: String,
     pub(super) workspace_ready: bool,
     pub(super) retirement: String,
     pub(super) last_popup_rect: Rect,
@@ -53,9 +50,6 @@ impl Default for RosterState {
             anchor: Rect::NOTHING,
             canvas_anchor: None,
             requested_provider: None,
-            add_name: "Agent".into(),
-            add_hat: "cap".into(),
-            add_provider: String::new(),
             workspace_ready: true,
             retirement: "bow".into(),
             last_popup_rect: Rect::NOTHING,
@@ -123,21 +117,8 @@ impl RosterState {
         self.expansion.is_some()
     }
     pub fn captures_pointer(&self, ctx: &eframe::egui::Context) -> bool {
-        let pointer = ctx
-            .input(|i| i.pointer.interact_pos())
-            .is_some_and(|p| self.occludes_point(ctx, p));
-        let focused = ctx.memory(|m| m.focused());
-        let editing = match self.expansion.as_ref() {
-            Some(Expansion::Chat(id)) => {
-                focused == Some(eframe::egui::Id::new(("presence-composer", id.as_str())))
-            }
-            Some(Expansion::Profile(id)) => {
-                focused == Some(eframe::egui::Id::new(("presence-name", id.as_str())))
-            }
-            Some(Expansion::Add) => ctx.wants_keyboard_input(),
-            None => false,
-        };
-        pointer || editing
+        ctx.input(|i| i.pointer.interact_pos())
+            .is_some_and(|p| self.occludes_point(ctx, p))
     }
     /// A panel's own dismissal click stays claimed for the rest of this paint
     /// pass. On the next pass only an actually open surface occludes the board.

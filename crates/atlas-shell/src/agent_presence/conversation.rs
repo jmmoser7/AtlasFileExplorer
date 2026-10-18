@@ -43,7 +43,12 @@ pub(super) fn show(
         }
         occupied += 110.0;
     }
-    let composer_height = if attached { 62.0 } else { 74.0 };
+    let composer_height = (if attached { 62.0 } else { 74.0 })
+        + if p.attachments.is_empty() || p.human {
+            0.0
+        } else {
+            29.0
+        };
     let message_height = (height - occupied - composer_height - 12.0).max(54.0);
     super::transcript::show(
         ui,
@@ -68,11 +73,62 @@ pub(super) fn show(
         egui::Stroke::new(1.0_f32, palette.border),
     );
     ui.add_space(8.0);
+    if !p.human && !p.attachments.is_empty() {
+        egui::ScrollArea::horizontal()
+            .id_salt(("presence-attachments", p.id))
+            .max_height(27.0)
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    for (index, attachment) in p.attachments.iter().enumerate() {
+                        let (chip, _) =
+                            ui.allocate_exact_size(Vec2::new(160.0, 25.0), Sense::hover());
+                        ui.painter().rect_filled(chip, 12, palette.window);
+                        ui.painter().text(
+                            egui::pos2(chip.right() - 10.0, chip.center().y),
+                            Align2::CENTER_CENTER,
+                            "×",
+                            chrome::font(ui, 12.0),
+                            palette.sub,
+                        );
+                        chrome::label(
+                            ui,
+                            Rect::from_min_max(
+                                chip.min + Vec2::new(7.0, 0.0),
+                                Pos2::new(chip.right() - 23.0, chip.bottom()),
+                            ),
+                            attachment.name,
+                            10.0,
+                            palette.sub,
+                            Align2::LEFT_CENTER,
+                        );
+                        if ui
+                            .interact(
+                                Rect::from_min_size(
+                                    egui::pos2(chip.right() - 21.0, chip.top()),
+                                    Vec2::new(21.0, chip.height()),
+                                ),
+                                Id::new(("presence-remove-attachment", p.id, index)),
+                                Sense::click(),
+                            )
+                            .on_hover_text("Remove attachment")
+                            .clicked()
+                        {
+                            actions.push(PresenceAction::RemoveAttachment {
+                                id: p.id.into(),
+                                index,
+                            });
+                        }
+                    }
+                });
+            });
+        ui.add_space(4.0);
+    }
     ui.horizontal_top(|ui| {
         ui.add_space(8.0);
         let edit = state.edits.entry(p.id.into()).or_default();
         let response = ui.add_sized(
-            Vec2::new((width - 70.0).max(80.0), 44.0),
+            Vec2::new((width - if p.human { 74.0 } else { 104.0 }).max(60.0), 44.0),
             egui::TextEdit::multiline(&mut edit.message)
                 .id(Id::new(("presence-composer", p.id)))
                 .frame(false)
@@ -87,8 +143,26 @@ pub(super) fn show(
                 text: edit.message.clone(),
             });
         }
+        if !p.human {
+            let (attach, _) = ui.allocate_exact_size(Vec2::splat(30.0), Sense::hover());
+            let attach_hit = ui
+                .interact(attach, Id::new(("presence-attach", p.id)), Sense::click())
+                .on_hover_text("Attach an image");
+            ui.painter()
+                .circle_filled(attach.center(), 15.0, palette.window);
+            ui.painter().text(
+                attach.center(),
+                Align2::CENTER_CENTER,
+                "+",
+                chrome::font(ui, 20.0),
+                palette.ink,
+            );
+            if attach_hit.clicked() {
+                actions.push(PresenceAction::Attach { id: p.id.into() });
+            }
+        }
         let (send, _) = ui.allocate_exact_size(Vec2::splat(38.0), Sense::hover());
-        let enabled = !edit.message.trim().is_empty();
+        let enabled = !edit.message.trim().is_empty() || !p.attachments.is_empty();
         ui.painter().circle_filled(
             send.center(),
             19.0,
@@ -96,8 +170,10 @@ pub(super) fn show(
         );
         let hit = ui
             .interact(send, Id::new(("presence-send", p.id)), Sense::click())
-            .on_hover_text(if p.paused && p.busy {
-                "Send message · interrupts the paused task"
+            .on_hover_text(if p.busy {
+                "Send message while the task continues"
+            } else if p.paused {
+                "Send message · task remains paused"
             } else {
                 "Send message · Enter"
             });
@@ -145,7 +221,15 @@ fn header_ui(
         .size()
         .x
         .min(if p.human { 220.0 } else { 95.0 });
-    let identity_end = (header.left() + 39.0 + name_width + 5.0).min(header.right() - 120.0);
+    let controls_reserve = if p.human {
+        40.0
+    } else if compact {
+        232.0
+    } else {
+        267.0
+    };
+    let identity_end =
+        (header.left() + 39.0 + name_width + 5.0).min(header.right() - controls_reserve);
     let capsule = Rect::from_min_max(
         header.min + Vec2::new(0.0, 4.0),
         Pos2::new(
@@ -167,15 +251,16 @@ fn header_ui(
         Pos2::new(identity_end, header.bottom() - 4.0),
     );
     chrome::label(ui, identity, p.name, 15.0, palette.sub, Align2::LEFT_CENTER);
-    if ui
-        .interact(
-            identity,
-            Id::new(("conversation-profile", p.id)),
-            Sense::click(),
-        )
-        .on_hover_text("Profile")
-        .clicked()
-    {
+    let profile_response = ui.interact(
+        identity,
+        Id::new(("conversation-profile", p.id)),
+        if p.human {
+            Sense::click()
+        } else {
+            Sense::hover()
+        },
+    );
+    if p.human && profile_response.on_hover_text("Profile").clicked() {
         state.toggle(Expansion::Profile(p.id.into()), state.anchor);
     }
     if p.human {
@@ -183,7 +268,7 @@ fn header_ui(
             ui,
             Rect::from_min_max(
                 Pos2::new(identity_end, header.top()),
-                Pos2::new(right - 32.0, header.bottom()),
+                Pos2::new(right - 40.0, header.bottom()),
             ),
             if p.local_profile {
                 "Personal notes"
@@ -253,7 +338,7 @@ fn header_ui(
             x += if compact { 34.0 } else { 39.0 };
             let provider = Rect::from_min_max(
                 Pos2::new(x, header.top() + 6.0),
-                Pos2::new(right - 34.0, header.bottom() - 6.0),
+                Pos2::new(right - 60.0, header.bottom() - 6.0),
             );
             chrome::provider(
                 ui,
@@ -315,32 +400,38 @@ fn header_ui(
             }
         }
     }
-    let r = Rect::from_center_size(
+    if !p.human && !attached {
+        let more = Rect::from_center_size(
+            Pos2::new(right - 47.0, header.center().y),
+            Vec2::splat(24.0),
+        );
+        if chrome::glyph_button(
+            ui,
+            Id::new(("conversation-more", p.id)),
+            more,
+            chrome::Glyph::More,
+            "Conversation options",
+            palette,
+        )
+        .clicked()
+        {
+            state.toggle_popover(Popover::More);
+        }
+    }
+    let close = Rect::from_center_size(
         Pos2::new(right - 15.0, header.center().y),
-        Vec2::splat(30.0),
+        Vec2::splat(26.0),
     );
     if chrome::glyph_button(
         ui,
-        Id::new(("conversation-more", p.id)),
-        r,
-        if attached {
-            chrome::Glyph::Close
-        } else {
-            chrome::Glyph::More
-        },
-        if attached {
-            "Close conversation"
-        } else {
-            "Conversation options"
-        },
+        Id::new(("conversation-close", p.id)),
+        close,
+        chrome::Glyph::Close,
+        "Close conversation",
         palette,
     )
     .clicked()
     {
-        if attached {
-            state.close_chat();
-        } else {
-            state.toggle_popover(Popover::More);
-        }
+        state.close_chat();
     }
 }

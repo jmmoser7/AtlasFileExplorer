@@ -450,12 +450,29 @@ impl SlateApp {
         let text = self
             .presence_conversation(who)
             .and_then(|c| {
-                c.turns
-                    .iter()
-                    .find(|t| t.id == message && t.role == "user" && t.status == "failed")
+                c.turns.iter().find(|t| {
+                    t.id == message
+                        && t.role == "user"
+                        && (t.status == "failed"
+                            || !who.starts_with("human:")
+                                && matches!(t.status.as_str(), "stopped" | "not-sent" | "unconfirmed"))
+                })
             })
-            .map(|t| t.text.clone())
+            .map(|t| (t.text.clone(), t.request.clone()))
             .ok_or("This message is not awaiting a retry")?;
-        self.presence_send_chat(who, &text)
+        if who.starts_with("human:") {
+            return self.presence_send_chat(who, &text.0);
+        }
+        let c = self.presence.conversations.edit(who)?;
+        let draft = c.draft.clone();
+        let pending = c.draft_images.clone();
+        let images = c.message_images.get(&text.1).cloned().unwrap_or_default();
+        c.set_draft_images(images);
+        let result = self.presence_send_chat(who, &text.0);
+        let c = self.presence.conversations.edit(who)?;
+        c.set_draft(&draft);
+        c.set_draft_images(pending);
+        self.presence.conversations.save(who);
+        result
     }
 }

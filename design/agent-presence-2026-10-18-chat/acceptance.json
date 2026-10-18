@@ -1,0 +1,150 @@
+{
+  "date": "2026-10-18",
+  "reason": "User reopened acceptance after actual multi-turn use exposed UX and recovery failures. Prior native render checks do not establish this revision.",
+  "references": [
+    {
+      "path": "user-reference-1.png",
+      "sha256": "a3a6cfb7c6e13626711f5e70b886d52a9dabbf534ba15e3d786b786536f90a3e"
+    },
+    {
+      "path": "user-reference-2.png",
+      "sha256": "b0f3ae7f898ee1319bd0a7f5f823c82ef3c501af18e0879f37fe3486d0492c5e"
+    },
+    {
+      "path": "user-reference-3.png",
+      "sha256": "0003d949dc0aec543ff6628798044230d63b9b75dd92d8609c834e1be2d99e69"
+    },
+    {
+      "path": "user-reference-4.png",
+      "sha256": "9677191099942233a1568e7a9180f8d93de92cc06cda106f802b9897dd5803a4"
+    }
+  ],
+  "cases": [
+    {
+      "id": "compact-persistent-nonmodal-chat",
+      "implementation": "pending-integration",
+      "automated": "untested",
+      "native": "untested",
+      "user": "awaiting-review"
+    },
+    {
+      "id": "board-select-pan-zoom-while-composer-focused",
+      "implementation": "pending-integration",
+      "automated": "untested",
+      "native": "untested",
+      "user": "awaiting-review"
+    },
+    {
+      "id": "existing-agent-all-segments-open-chat",
+      "implementation": "pending-integration",
+      "automated": "untested",
+      "native": "untested",
+      "user": "awaiting-review"
+    },
+    {
+      "id": "single-harness-click-enters-chat",
+      "implementation": "pending-integration",
+      "automated": "untested",
+      "native": "untested",
+      "user": "awaiting-review"
+    },
+    {
+      "id": "pause-listen-resume-same-conversation",
+      "implementation": "pending-integration",
+      "automated": "untested",
+      "native": "untested",
+      "user": "awaiting-review"
+    },
+    {
+      "id": "stop-error-fresh-request-and-explicit-continue",
+      "implementation": "pending-integration",
+      "automated": "untested",
+      "native": "untested",
+      "user": "awaiting-review"
+    },
+    {
+      "id": "missing-rollout-rebind-visible-history-once",
+      "implementation": "pending-integration",
+      "automated": "untested",
+      "native": "untested",
+      "user": "awaiting-review"
+    },
+    {
+      "id": "codex-steer-provider-acknowledgement",
+      "implementation": "pending-integration",
+      "automated": "untested",
+      "native": "untested",
+      "user": "awaiting-review"
+    },
+    {
+      "id": "other-harness-follow-up-queue",
+      "implementation": "pending-integration",
+      "automated": "untested",
+      "native": "untested",
+      "user": "awaiting-review"
+    },
+    {
+      "id": "public-progress-inline-private-reasoning-excluded",
+      "implementation": "pending-integration",
+      "automated": "untested",
+      "native": "untested",
+      "user": "awaiting-review"
+    },
+    {
+      "id": "text-paste-and-image-attachments",
+      "implementation": "pending-integration",
+      "automated": "untested",
+      "native": "untested",
+      "user": "awaiting-review"
+    },
+    {
+      "id": "attachment-retry-retains-composer-draft",
+      "implementation": "pending-integration",
+      "automated": "untested",
+      "native": "untested",
+      "user": "awaiting-review"
+    },
+    {
+      "id": "retained-identity-harness-workspace-consent",
+      "implementation": "pending-integration",
+      "automated": "untested",
+      "native": "untested",
+      "user": "awaiting-review"
+    },
+    {
+      "id": "revocation-and-helper-scope",
+      "implementation": "pending-integration",
+      "automated": "untested",
+      "native": "untested",
+      "user": "awaiting-review"
+    },
+    {
+      "id": "authored-text-and-autonomous-current-workbook-save",
+      "implementation": "pending-integration",
+      "automated": "untested",
+      "native": "untested",
+      "user": "awaiting-review"
+    },
+    {
+      "id": "pending-proposals-not-silently-saved",
+      "implementation": "pending-integration",
+      "automated": "untested",
+      "native": "untested",
+      "user": "awaiting-review"
+    },
+    {
+      "id": "local-feedback-report-without-outbound-post",
+      "implementation": "pending-integration",
+      "automated": "untested",
+      "native": "untested",
+      "user": "awaiting-review"
+    },
+    {
+      "id": "hat-unclipped-approved-face-and-fits",
+      "implementation": "pending-integration",
+      "automated": "untested",
+      "native": "untested",
+      "user": "awaiting-review"
+    }
+  ]
+}

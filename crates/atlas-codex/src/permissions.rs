@@ -1,9 +1,9 @@
 use super::*;
 
-/// Native collaborators change the board through host tools only. Their model
-/// filesystem sandbox is independent of the board command/autonomy grant.
-pub fn filesystem_policy(request: &AgentRequest) -> TurnPolicy {
-    if request.collaborator.is_some() {
+/// `provider_full_access` is resolved by atlas-ai::access, never by a board grant
+/// or model-authored payload. Explicit read-only turns always remain read-only.
+pub fn filesystem_policy(request: &AgentRequest, provider_full_access: bool) -> TurnPolicy {
+    if request.collaborator.is_some() && !provider_full_access {
         TurnPolicy::ReadOnly
     } else {
         request.policy
@@ -117,7 +117,7 @@ impl TurnPermissions {
 mod board_permission_tests {
     use super::*;
     #[test]
-    fn collaborator_filesystem_is_read_only_even_when_provider_settings_allow_writes() {
+    fn collaborator_filesystem_requires_separate_trusted_provider_permission() {
         let request = AgentRequest {
             collaborator: Some(atlas_agent::collaborator::BoardLinkSession {
                 session_id: "s".into(),
@@ -135,7 +135,7 @@ mod board_permission_tests {
                     }),
                     ..Default::default()
                 };
-                let filesystem = filesystem_policy(&request);
+                let filesystem = filesystem_policy(&request, full_access);
                 let restore = permissions.next(filesystem, full_access);
                 let params = turn_params(
                     "t",
@@ -146,7 +146,10 @@ mod board_permission_tests {
                     full_access,
                     restore.as_ref(),
                 );
-                assert_eq!(params["sandboxPolicy"], json!({"type":"readOnly"}));
+                assert_eq!(
+                    params["sandboxPolicy"],
+                    json!({"type":if full_access { "dangerFullAccess" } else { "readOnly" }})
+                );
                 assert_eq!(params["approvalPolicy"], "never");
                 assert_eq!(
                     request.policy,
@@ -157,13 +160,37 @@ mod board_permission_tests {
         }
     }
     #[test]
+    fn explicit_read_only_collaborator_turn_overrides_provider_full_access() {
+        let request = AgentRequest {
+            collaborator: Some(atlas_agent::collaborator::BoardLinkSession {
+                session_id: "s".into(),
+                grant_id: "g".into(),
+                workspace_id: "w".into(),
+            }),
+            policy: TurnPolicy::ReadOnly,
+            ..Default::default()
+        };
+        assert_eq!(filesystem_policy(&request, true), TurnPolicy::ReadOnly);
+        let params = turn_params(
+            "t",
+            vec![],
+            "r",
+            None,
+            filesystem_policy(&request, true),
+            true,
+            None,
+        );
+        assert_eq!(params["sandboxPolicy"]["type"], "readOnly");
+    }
+    #[test]
     fn ordinary_chat_keeps_its_existing_provider_permission_behavior() {
         for policy in [TurnPolicy::Default, TurnPolicy::ReadOnly] {
             let request = AgentRequest {
                 policy,
                 ..Default::default()
             };
-            assert_eq!(filesystem_policy(&request), policy);
+            assert_eq!(filesystem_policy(&request, false), policy);
+            assert_eq!(filesystem_policy(&request, true), policy);
         }
         let request = AgentRequest::default();
         let params = turn_params(
@@ -171,7 +198,7 @@ mod board_permission_tests {
             vec![],
             "r",
             None,
-            filesystem_policy(&request),
+            filesystem_policy(&request, false),
             false,
             None,
         );
@@ -181,7 +208,7 @@ mod board_permission_tests {
             vec![],
             "r",
             None,
-            filesystem_policy(&request),
+            filesystem_policy(&request, true),
             true,
             None,
         );

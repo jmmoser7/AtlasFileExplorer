@@ -11,6 +11,9 @@ pub(super) fn validate_message_text(text: &str) -> Result<(), String> {
 
 impl SlateApp {
     pub(super) fn send_presence_message(&mut self, who: &str, text: &str) -> Result<(), String> {
+        if self.presence.task_busy(who) {
+            return self.presence_send_update(who, text);
+        }
         self.send_presence_message_from(who, text, None)
     }
     pub(super) fn send_presence_message_from(
@@ -54,7 +57,7 @@ impl SlateApp {
                 || turn
                     .board_origin
                     .as_ref()
-                    .is_none_or(|o| o.recipient != who)
+                    .is_some_and(|o| o.recipient != who)
             {
                 return Err("Queued message identity or delivery state changed".into());
             }
@@ -70,17 +73,14 @@ impl SlateApp {
             .to_path_buf();
         let workbook = self.tab().path.clone();
         let tab = self.tab().id;
-        if queued.is_none()
-            && self
-                .presence
-                .agents
-                .iter()
-                .any(|a| a.profile.id == who && a.paused)
-            && self.presence.task_busy(who)
-        {
-            self.stop_presence(who, false)?;
-        }
         let history = self.presence.conversations.edit(who)?.replay();
+        let images = {
+            let c = self.presence.conversations.edit(who)?;
+            queued
+                .and_then(|q| c.message_images.get(q))
+                .unwrap_or(&c.draft_images)
+                .clone()
+        };
         let pending_proposals = self.presence.has_pending(who);
         let a = self
             .presence
@@ -115,7 +115,8 @@ impl SlateApp {
             at: atlas_ai::context::now_secs(),
             collaborator: Some(a.binding.clone()),
             relayed_from: from.map(str::to_owned),
-            history: if a.snapshot.is_none() {
+            inputs: attachments::image_inputs(&images),
+            history: if provider == "codex" || a.snapshot.is_none() {
                 history
             } else {
                 Vec::new()
@@ -205,6 +206,8 @@ impl SlateApp {
                 "sent",
             );
             conversation.set_draft("");
+            conversation.set_message_images(&request, images);
+            conversation.set_draft_images(Vec::new());
         }
         self.presence.conversations.save(who);
         Ok(())

@@ -113,7 +113,7 @@ fn more_menu(
             actions.push(PresenceAction::Clone { id: p.id.into() });
             state.popover = None;
         }
-        if chrome::menu_row(ui, palette, chrome::Glyph::Lock, "Access settings") {
+        if chrome::menu_row(ui, palette, chrome::Glyph::Lock, "Agent settings") {
             state.popover = Some(Popover::Advanced);
         }
         if chrome::menu_row(ui, palette, chrome::Glyph::Schedule, "Schedule…") {
@@ -268,6 +268,21 @@ fn advanced(
     p: &Participant<'_>,
     actions: &mut Vec<PresenceAction>,
 ) {
+    ui.strong("Agent identity");
+    super::profile::name_editor(ui, state, p, actions);
+    ui.separator();
+    if p.provider == "codex" && p.parent_name.is_none() {
+        ui.strong("Provider access");
+        let mut full_access = p.full_access;
+        if ui.checkbox(&mut full_access, "Codex full access").changed() {
+            actions.push(PresenceAction::SetFullAccess {
+                id: p.id.into(),
+                enabled: full_access,
+            });
+        }
+        ui.small("Provider tools can run commands and write files without approval; board access remains scoped.");
+        ui.separator();
+    }
     ui.strong("Board access");
     ui.small("This board and its named chats. Source files are never edited.");
     let mut autonomous = p.autonomous;

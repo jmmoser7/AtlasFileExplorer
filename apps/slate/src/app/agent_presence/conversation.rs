@@ -44,6 +44,11 @@ pub(crate) struct Conversation {
     pub artifacts: Vec<ConversationArtifact>,
     #[serde(default)]
     pub schedule: Option<atlas_ai::schedule::AgentSchedule>,
+    /// Explicit human attachments; machine-local locators, never implicit board context.
+    #[serde(default)]
+    pub draft_images: Vec<PathBuf>,
+    #[serde(default)]
+    pub message_images: std::collections::BTreeMap<String, Vec<PathBuf>>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub(crate) struct ConversationArtifact {
@@ -96,7 +101,10 @@ impl Conversation {
             .filter(|t| matches!(t.role.as_str(), "user" | "assistant"))
             .filter(|t| {
                 !t.text.is_empty()
-                    && !matches!(t.status.as_str(), "queued" | "dispatching" | "not-sent")
+                    && !matches!(
+                        t.status.as_str(),
+                        "queued" | "dispatching" | "not-sent" | "steering" | "unconfirmed"
+                    )
             })
             .map(|t| atlas_agent::AgentTurn {
                 role: t.role.clone(),
@@ -284,6 +292,15 @@ impl SlateApp {
             return self.presence_send_human(who, text);
         }
         if who != "self" {
+            let text = if text.trim().is_empty()
+                && self
+                    .presence_conversation(who)
+                    .is_some_and(|c| !c.draft_images.is_empty())
+            {
+                "[Attached images]"
+            } else {
+                text
+            };
             return self.send_presence_message(who, text);
         }
         if text.trim().is_empty() || text.len() > 32_768 {

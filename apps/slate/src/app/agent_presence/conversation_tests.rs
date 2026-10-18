@@ -67,7 +67,17 @@ fn listening_pause_allows_a_message_and_failed_send_keeps_the_draft() {
     assert!(h.app.presence_conversation(&who).unwrap().draft.is_empty());
     let first_request = h.app.presence.agents[0].request.clone();
     h.app.presence_send_chat(&who, "One more question").unwrap();
-    assert_ne!(h.app.presence.agents[0].request, first_request);
+    assert_eq!(h.app.presence.agents[0].request, first_request);
+    assert_eq!(
+        h.app
+            .presence_conversation(&who)
+            .unwrap()
+            .turns
+            .last()
+            .unwrap()
+            .status,
+        "queued"
+    );
     assert!(h.app.presence.agents[0].paused);
     assert!(h.app.presence.agents[0].chat_only);
     h.app.presence_save_draft(&who, "Keep this draft").unwrap();
@@ -75,8 +85,8 @@ fn listening_pause_allows_a_message_and_failed_send_keeps_the_draft() {
     let request = h.app.presence.agents[0].request.clone();
     let binding = h.app.presence.agents[0].binding.clone();
     let grant = h.app.presence.agents[0].grant.clone();
-    // A paused chat can replace a request; an unavailable workspace is an
-    // actual send failure and must not cancel that request or consume its draft.
+    // An update preserves the running task; an unavailable workspace must not
+    // consume its draft or silently queue a message that cannot be delivered.
     h.app.ai.config.workspace_dir = None;
     let error = h
         .app

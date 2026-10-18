@@ -1,6 +1,6 @@
 use super::{hats, model::*, state::*, ui as chrome, PresencePainter};
 use crate::theme::Palette;
-use eframe::egui::{self, Id, RichText, Sense, Ui, Vec2};
+use eframe::egui::{self, Id, Rect, RichText, Sense, Ui, Vec2};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn show(
@@ -67,29 +67,8 @@ pub(super) fn show(
         }
     });
     ui.add_space(14.0);
-    if p.local_profile || !p.human {
-        let edit = state.edits.entry(p.id.into()).or_default();
-        let response = ui.add_sized(
-            Vec2::new(ui.available_width(), 36.0),
-            egui::TextEdit::singleline(&mut edit.name)
-                .id(Id::new(("presence-name", p.id)))
-                .horizontal_align(egui::Align::Center)
-                .font(chrome::font(ui, 16.0))
-                .char_limit(32),
-        );
-        if response.changed() && !edit.name.trim().is_empty() {
-            actions.push(PresenceAction::Rename {
-                id: p.id.into(),
-                name: edit.name.trim().into(),
-            });
-        }
-        ui.vertical_centered(|ui| {
-            ui.label(
-                RichText::new("Changes save automatically")
-                    .size(10.0)
-                    .color(palette.sub),
-            );
-        });
+    if p.local_profile {
+        name_editor(ui, state, p, actions);
     } else {
         ui.vertical_centered(|ui| {
             ui.heading(p.name);
@@ -115,6 +94,29 @@ pub(super) fn show(
     }
     ui.add_space(5.0);
 }
+
+pub(super) fn name_editor(
+    ui: &mut Ui,
+    state: &mut RosterState,
+    p: &Participant<'_>,
+    actions: &mut Vec<PresenceAction>,
+) {
+    let edit = state.edits.entry(p.id.into()).or_default();
+    let response = ui.add_sized(
+        Vec2::new(ui.available_width(), 36.0),
+        egui::TextEdit::singleline(&mut edit.name)
+            .id(Id::new(("presence-name", p.id)))
+            .font(chrome::font(ui, 14.0))
+            .char_limit(32),
+    );
+    if response.changed() && !edit.name.trim().is_empty() {
+        actions.push(PresenceAction::Rename {
+            id: p.id.into(),
+            name: edit.name.trim().into(),
+        });
+    }
+}
+
 pub(super) fn add(
     ui: &mut Ui,
     palette: &Palette,
@@ -122,62 +124,76 @@ pub(super) fn add(
     providers: &[ProviderOption<'_>],
     actions: &mut Vec<PresenceAction>,
 ) {
-    ui.add_space(6.0);
-    ui.strong("Add a collaborator");
-    ui.add_space(8.0);
-    ui.add(
-        egui::TextEdit::singleline(&mut state.add_name)
-            .hint_text("Name")
-            .char_limit(32)
-            .desired_width(ui.available_width()),
-    );
-    if state.add_provider.is_empty() {
-        state.add_provider = providers.first().map_or("", |p| p.id).into();
-    }
-    ui.add_space(8.0);
-    for provider in providers {
-        ui.horizontal(|ui| {
-            let (rect, _) = ui.allocate_exact_size(Vec2::splat(20.0), Sense::hover());
-            chrome::provider(ui, rect, provider.id, palette.ink);
-            ui.selectable_value(&mut state.add_provider, provider.id.into(), provider.label);
+    ui.horizontal(|ui| {
+        ui.strong("Add an agent");
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.small_button("×").clicked() {
+                state.close_chat();
+            }
         });
-    }
-    if let Some(hat) = hats::picker(ui, palette, &state.add_hat, Id::new("new-agent-hats")) {
-        state.add_hat = hat;
-    }
-    ui.label(RichText::new("Grants access to this board and named chats. Source files stay private; edits begin as proposals. Save this workbook before requesting board edits.").size(11.0).color(palette.sub));
+    });
     ui.add_space(8.0);
+    let choices: Vec<_> = providers
+        .iter()
+        .filter(|provider| matches!(provider.id, "codex" | "cursor" | "dot"))
+        .collect();
     if !state.workspace_ready {
         ui.label(
-            RichText::new("Choose an AI workspace to connect agents.")
+            RichText::new("Choose an AI workspace before adding an agent.")
                 .size(11.0)
                 .color(palette.sub),
         );
         if ui.link("Set AI workspace…").clicked() {
             actions.push(PresenceAction::SetupWorkspace);
         }
-        ui.add_space(8.0);
+        ui.add_space(6.0);
     }
-    if ui
-        .add_enabled(
-            state.workspace_ready
-                && !state.add_name.trim().is_empty()
-                && !state.add_provider.is_empty(),
-            egui::Button::new("Add collaborator").min_size(Vec2::new(ui.available_width(), 34.0)),
-        )
-        .clicked()
-    {
-        actions.push(PresenceAction::Add {
-            name: state.add_name.trim().into(),
-            hat: state.add_hat.clone(),
-            provider: state.add_provider.clone(),
+    for provider in choices.iter().copied() {
+        let (rect, _) =
+            ui.allocate_exact_size(Vec2::new(ui.available_width(), 42.0), Sense::hover());
+        let response = ui.interact(
+            rect,
+            Id::new(("presence-add-provider", provider.id)),
+            if state.workspace_ready {
+                Sense::click()
+            } else {
+                Sense::hover()
+            },
+        );
+        response.widget_info(|| {
+            egui::WidgetInfo::labeled(
+                egui::WidgetType::Button,
+                state.workspace_ready,
+                provider.label,
+            )
         });
-        state.close_chat();
-    }
-    ui.add_space(4.0);
-    ui.separator();
-    if chrome::menu_row(ui, palette, chrome::Glyph::Chat, "Connect people…") {
-        actions.push(PresenceAction::ConnectPeople);
-        state.close_chat();
+        if response.hovered() {
+            ui.painter().rect_filled(rect, 10, palette.card_hover);
+        }
+        chrome::provider(
+            ui,
+            Rect::from_center_size(
+                egui::pos2(rect.left() + 20.0, rect.center().y),
+                Vec2::splat(24.0),
+            ),
+            provider.id,
+            palette.ink,
+        );
+        chrome::label(
+            ui,
+            Rect::from_min_max(egui::pos2(rect.left() + 42.0, rect.top()), rect.max),
+            provider.label,
+            14.0,
+            palette.ink,
+            egui::Align2::LEFT_CENTER,
+        );
+        if response.clicked() {
+            actions.push(PresenceAction::Add {
+                name: provider.label.into(),
+                hat: "cap".into(),
+                provider: provider.id.into(),
+            });
+            state.close_chat();
+        }
     }
 }

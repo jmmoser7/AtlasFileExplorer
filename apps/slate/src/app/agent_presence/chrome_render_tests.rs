@@ -3,6 +3,8 @@
 mod activity;
 #[path = "chrome_render_catalogue.rs"]
 mod catalogue;
+#[path = "chat_firstuse_render.rs"]
+mod chat_firstuse;
 #[path = "chrome_render_departures.rs"]
 mod departures;
 #[path = "chrome_render_harness.rs"]

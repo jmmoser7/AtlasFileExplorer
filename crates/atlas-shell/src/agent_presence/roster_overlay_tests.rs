@@ -121,7 +121,7 @@ fn overlay_rows_keep_their_actual_actions_and_current_harness_is_inert() {
 }
 
 #[test]
-fn short_identity_is_intrinsic_and_profile_name_remains_focusable() {
+fn short_identity_is_intrinsic_and_agent_name_stays_in_chat() {
     let mut f = Fixture::new();
     f.open_chat("dot");
     let mut widths = Vec::new();
@@ -136,16 +136,32 @@ fn short_identity_is_intrinsic_and_profile_name_remains_focusable() {
     }
     assert!(widths[0] < widths[1] && widths[1] < widths[2]);
     assert!(
-        (widths[2] - 100.0).abs() < 0.1,
-        "95px name plus 5px inset: {widths:?}"
+        (60.0..80.0).contains(&widths[2]),
+        "compact agent identity leaves room for task, hat, harness, More and Close: {widths:?}"
     );
+    let controls = [
+        Id::new(("dot", "Find on board")),
+        Id::new(("dot", "Pause")),
+        Id::new(("dot", "Stop task")),
+        Id::new(("hat-toggle", "dot")),
+        Id::new(("provider-toggle", "dot")),
+        Id::new(("conversation-more", "dot")),
+        Id::new(("conversation-close", "dot")),
+    ]
+    .map(|id| response_rect(&f, id));
+    for (index, rect) in controls.iter().enumerate() {
+        for other in controls.iter().skip(index + 1) {
+            assert!(
+                !rect.intersects(*other),
+                "compact header controls overlap: {controls:?}"
+            );
+        }
+    }
     let name = response_rect(&f, Id::new(("conversation-profile", "dot")));
     f.click(name.center());
     f.settle();
-    assert_eq!(f.state.expansion, Some(Expansion::Profile("dot".into())));
-    let edit = Id::new(("presence-name", "dot"));
-    f.click(response_rect(&f, edit).center());
-    assert_eq!(f.ctx.memory(|memory| memory.focused()), Some(edit));
+    assert_eq!(f.state.active_chat(), Some("dot"));
+    assert_eq!(f.ctx.memory(|memory| memory.focused()), None);
 }
 
 #[test]
@@ -250,13 +266,13 @@ fn long_human_identity_keeps_the_approved_larger_bound_and_clear_profile_target(
     f.human_name = "A human collaborator with a deliberately long display name".into();
     let out = f.open_chat("self");
     let profile = response_rect(&f, Id::new(("conversation-profile", "self")));
-    let more = response_rect(&f, Id::new(("conversation-more", "self")));
+    let close = response_rect(&f, Id::new(("conversation-close", "self")));
     let notes = text_rect(&out, "Personal notes").unwrap();
     assert!(
         (profile.width() - 225.0).abs() < 0.1,
         "220px human name plus inset: {profile:?}"
     );
-    assert!(profile.right() < notes.left() && notes.right() <= more.left());
+    assert!(profile.right() < notes.left() && notes.right() <= close.left());
     assert!(f.state.last_popup_rect.contains_rect(profile));
     f.click(profile.center());
     f.settle();

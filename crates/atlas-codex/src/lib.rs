@@ -1,7 +1,7 @@
 //! Codex app-server protocol adapter; no renderer or scene dependencies.
 use atlas_agent::{
-    AgentArtifact, AgentRequest, AgentSession, AgentStatus, AgentTurn, ArtifactKind, Conversation,
-    TurnPolicy,
+    AgentActivity, AgentActivityAction, AgentActivityKind, AgentActivitySemantics, AgentArtifact,
+    AgentRequest, AgentSession, AgentStatus, AgentTurn, ArtifactKind, Conversation, TurnPolicy,
 };
 use serde_json::{json, Value};
 use std::{
@@ -49,6 +49,75 @@ pub struct Client {
     board_session: Option<atlas_agent::collaborator::BoardLinkSession>,
     board_cloud_guard: Option<fn(&Path) -> bool>,
     deadline: Option<Instant>,
+    replay_visible_history: bool,
+}
+
+/// A host message queued for the current Codex request. `id` is stable across
+/// queueing and the eventual public activity acknowledgement.
+#[derive(Clone, Debug)]
+pub struct SteerCommand {
+    pub id: String,
+    pub expected_request_id: String,
+    pub text: String,
+}
+
+/// An app-server failure that identifies the one resume error recoverable by
+/// starting a new thread. Keep this narrow: other resume failures are visible.
+fn missing_rollout(error: &str) -> bool {
+    let Ok(value) = serde_json::from_str::<Value>(error) else {
+        return false;
+    };
+    let error = &value;
+    error["code"].as_i64() == Some(-32600)
+        && error["message"].as_str().is_some_and(|message| {
+            message
+                .to_ascii_lowercase()
+                .contains("no rollout found for thread id")
+        })
+}
+
+fn start_or_resume(
+    cwd: &Path,
+    thread: Option<&str>,
+    mut rpc: impl FnMut(&str, Value) -> Result<Value, String>,
+) -> Result<(Value, bool), String> {
+    let response = rpc(
+        if thread.is_some() {
+            "thread/resume"
+        } else {
+            "thread/start"
+        },
+        if let Some(id) = thread {
+            json!({"threadId":id})
+        } else {
+            thread_params(cwd, None)
+        },
+    );
+    match response {
+        Ok(value) => Ok((value, thread.is_none())),
+        Err(error) if thread.is_some() && missing_rollout(&error) => {
+            Ok((rpc("thread/start", thread_params(cwd, None))?, true))
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn steer_params(thread_id: &str, expected_turn_id: &str, text: &str) -> Value {
+    json!({
+        "threadId": thread_id,
+        "expectedTurnId": expected_turn_id,
+        "input": [{"type":"text", "text":text}]
+    })
+}
+
+fn accepted_steer_turn(result: &Value, expected_turn_id: &str) -> Result<String, String> {
+    result
+        .get("turnId")
+        .or_else(|| result.get("acceptedTurnId"))
+        .and_then(Value::as_str)
+        .filter(|id| *id == expected_turn_id)
+        .map(str::to_owned)
+        .ok_or_else(|| "Codex did not confirm the steering message.".into())
 }
 
 impl Drop for Client {
@@ -111,6 +180,7 @@ impl Client {
             board_session: None,
             board_cloud_guard: None,
             deadline,
+            replay_visible_history: false,
         };
         c.rpc("initialize",json!({"clientInfo":{"name":"slate","title":"Slate agent portal","version":"0.1.0"},"capabilities":{"experimentalApi":true}}))?;
         c.write(json!({"method":"initialized","params":{}}))?;
@@ -208,24 +278,17 @@ impl Client {
             return Err("Codex time budget expired before connection.".into());
         }
         let mut c = Self::connect_before(executable, cwd, deadline)?;
-        let response = c.rpc(
-            if thread.is_some() {
-                "thread/resume"
-            } else {
-                "thread/start"
-            },
-            if let Some(id) = thread {
-                json!({"threadId":id})
-            } else {
-                thread_params(cwd, None)
-            },
-        )?;
+        // A stale binding gets one fresh thread only for the known missing-
+        // rollout error; its visible request history is replayed on that thread.
+        let (response, replay_visible_history) =
+            start_or_resume(cwd, thread, |method, params| c.rpc(method, params))?;
         c.thread = response
             .pointer("/thread/id")
             .and_then(Value::as_str)
             .ok_or("Codex did not return a conversation id")?
             .into();
         c.permissions.own = Permissions::from_thread_response(&response);
+        c.replay_visible_history = replay_visible_history;
         Ok(c)
     }
     pub fn set_approval_dir(&mut self, path: &Path) {
@@ -247,6 +310,17 @@ impl Client {
     }
     pub fn thread_id(&self) -> &str {
         &self.thread
+    }
+    /// Add input to an active provider turn. This never starts a new turn.
+    pub fn steer(&mut self, expected_turn_id: &str, text: &str) -> Result<String, String> {
+        if text.trim().is_empty() {
+            return Err("Steering text is empty.".into());
+        }
+        let result = self.rpc(
+            "turn/steer",
+            steer_params(&self.thread, expected_turn_id, text),
+        )?;
+        accepted_steer_turn(&result, expected_turn_id)
     }
     fn write(&mut self, value: Value) -> Result<(), String> {
         serde_json::to_writer(&mut self.input, &value).map_err(|e| e.to_string())?;
@@ -270,7 +344,7 @@ impl Client {
                 .map_err(|e| format!("Codex {method}: {e}"))??;
             if event["id"] == id && event.get("method").is_none() {
                 if let Some(error) = event.get("error") {
-                    return Err(format!("Codex: {error}"));
+                    return Err(error.to_string());
                 }
                 return Ok(event["result"].clone());
             }

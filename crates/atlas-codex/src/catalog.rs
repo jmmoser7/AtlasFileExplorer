@@ -5,6 +5,19 @@ impl Client {
         client.model_catalog()
     }
 
+    /// Read the installed model catalog within a worker-owned time budget.
+    pub fn models_bounded(
+        executable: &Path,
+        cwd: &Path,
+        timeout: Duration,
+    ) -> Result<Vec<atlas_agent::AgentModel>, String> {
+        let deadline = Instant::now()
+            .checked_add(timeout)
+            .ok_or("Invalid Codex time budget")?;
+        let mut client = Self::connect_before(executable, cwd, Some(deadline))?;
+        client.model_catalog()
+    }
+
     pub(super) fn model_catalog(&mut self) -> Result<Vec<atlas_agent::AgentModel>, String> {
         let mut models = Vec::new();
         let mut cursor: Option<String> = None;

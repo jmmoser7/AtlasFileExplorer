@@ -98,6 +98,9 @@ impl SnapReach {
 pub struct SlateSettings {
     /// Saved identities only; active sessions and grants are never restored.
     pub collaborators: Vec<super::agent_presence::StoredAgent>,
+    /// Explicit consent preferences, always rebound to a fresh live grant.
+    #[serde(default)]
+    pub(crate) agent_consent_policies: Vec<super::agent_presence::AgentConsentPolicy>,
     pub presence_identity: super::agent_presence::HumanProfile,
     pub presence_contacts: Vec<super::agent_presence::StoredHuman>,
     pub presence_reduced_motion: bool,
@@ -155,6 +158,7 @@ impl Default for SlateSettings {
     fn default() -> Self {
         SlateSettings {
             collaborators: Vec::new(),
+            agent_consent_policies: Vec::new(),
             presence_identity: Default::default(),
             presence_contacts: Vec::new(),
             presence_reduced_motion: false,

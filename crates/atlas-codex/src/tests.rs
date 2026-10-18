@@ -1,4 +1,118 @@
 use super::*;
+
+#[test]
+fn stale_rollout_recovery_matches_only_the_documented_missing_rollout_error() {
+    assert!(missing_rollout(
+        r#"{"code":-32600,"message":"No rollout found for thread id abc"}"#
+    ));
+    assert!(!missing_rollout(
+        r#"{"code":-32600,"message":"Invalid thread parameters"}"#
+    ));
+    assert!(!missing_rollout(
+        r#"{"code":-32000,"message":"Rollout not found"}"#
+    ));
+    assert!(!missing_rollout("connection closed"));
+}
+
+#[test]
+fn stale_rollout_resume_starts_a_fresh_thread_and_preserves_unrelated_errors() {
+    let mut methods = Vec::new();
+    let (thread, replay) = start_or_resume(Path::new("C:/project"), Some("stale"), |method, _| {
+        methods.push(method.to_string());
+        match method {
+            "thread/resume" => {
+                Err(r#"{"code":-32600,"message":"no rollout found for thread id stale"}"#.into())
+            }
+            "thread/start" => Ok(json!({"thread":{"id":"fresh"}})),
+            _ => unreachable!(),
+        }
+    })
+    .unwrap();
+    assert_eq!(methods, ["thread/resume", "thread/start"]);
+    assert_eq!(
+        thread.pointer("/thread/id").and_then(Value::as_str),
+        Some("fresh")
+    );
+    assert!(replay);
+
+    let mut methods = Vec::new();
+    let failure = start_or_resume(Path::new("C:/project"), Some("still-valid"), |method, _| {
+        methods.push(method.to_string());
+        Err(r#"{"code":-32600,"message":"Invalid resume parameters"}"#.into())
+    });
+    assert!(failure.is_err());
+    assert_eq!(methods, ["thread/resume"]);
+}
+
+#[test]
+fn steer_protocol_targets_the_expected_active_turn_and_only_text_input() {
+    assert_eq!(
+        steer_params("thread-7", "turn-9", "Keep the selected layout."),
+        json!({
+            "threadId":"thread-7",
+            "expectedTurnId":"turn-9",
+            "input":[{"type":"text","text":"Keep the selected layout."}]
+        })
+    );
+}
+
+#[test]
+fn steer_response_uses_official_turn_id_and_rejects_another_turn() {
+    assert_eq!(
+        accepted_steer_turn(&json!({"turnId":"turn_456"}), "turn_456").unwrap(),
+        "turn_456"
+    );
+    assert!(accepted_steer_turn(&json!({"turnId":"turn_other"}), "turn_456").is_err());
+    assert!(accepted_steer_turn(&json!({"acceptedTurnId":"turn_456"}), "turn_456").is_ok());
+}
+
+#[test]
+fn steering_feedback_is_recorded_under_the_active_request() {
+    let mut session = AgentSession {
+        request: "request-1".into(),
+        ..Default::default()
+    };
+    session.record_activity(AgentActivity {
+        id: "codex-steer:codex-steer-1:accepted".into(),
+        request: "request-1".into(),
+        kind: AgentActivityKind::Commentary,
+        text: "Steering message accepted".into(),
+        at: 1,
+        semantics: Some(AgentActivitySemantics::new(AgentActivityAction::Chat)),
+    });
+    assert_eq!(session.activity.len(), 1);
+    assert_eq!(session.activity[0].request, "request-1");
+}
+
+#[test]
+fn a_fresh_thread_replays_the_visible_history_checkpoint_once() {
+    let request = AgentRequest {
+        id: "next".into(),
+        prompt: "Continue".into(),
+        ..Default::default()
+    };
+    let session = AgentSession {
+        turns: vec![
+            AgentTurn {
+                role: "user".into(),
+                text: "First question".into(),
+                at: 1,
+            },
+            AgentTurn {
+                role: "assistant".into(),
+                text: "First answer".into(),
+                at: 2,
+            },
+        ],
+        ..Default::default()
+    };
+    let replay = recover_request_history(&request, &session).unwrap();
+    assert_eq!(replay.history, session.turns);
+    let text = replay.prompt_with_history();
+    assert_eq!(text.matches("Prior conversation checkpoint").count(), 1);
+    assert_eq!(text.matches("First question").count(), 1);
+    assert_eq!(text.matches("First answer").count(), 1);
+}
 #[test]
 fn history_artifacts_require_successful_structured_results() {
     let state = session_from_thread(&json!({"id":"existing","turns":[{"id":"t1","items":[

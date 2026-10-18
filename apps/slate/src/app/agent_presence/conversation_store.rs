@@ -330,12 +330,10 @@ fn load(dir: &std::path::Path) -> (HashMap<String, Conversation>, Option<String>
                 }
                 let mut interrupted = Vec::new();
                 for turn in &mut stored.conversation.turns {
-                    if turn.board_origin.is_some()
-                        && matches!(turn.status.as_str(), "queued" | "dispatching")
-                    {
+                    if matches!(turn.status.as_str(), "queued" | "dispatching" | "steering") {
                         interrupted.push(if turn.status == "dispatching" {
-                            "Board message delivery is uncertain after restart; it was not retried."
-                        } else { "Queued board message was not sent after restart; send a new message to resume." });
+                            "Message delivery is uncertain after restart; it was not retried."
+                        } else { "Queued message was not sent after restart; send a new message to resume." });
                         turn.status = "not-sent".into();
                     }
                     if matches!(turn.status.as_str(), "streaming" | "sent") {

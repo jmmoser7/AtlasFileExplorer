@@ -14,6 +14,18 @@ pub struct ConversationMessage<'a> {
     pub outgoing: bool,
     pub system: bool,
     pub status: &'a str,
+    /// Number of locally persisted images attached to this turn.
+    pub attachment_count: usize,
+}
+/// Public, user-facing task progress supplied by the application adapter.
+/// Provider-private reasoning is never part of this view.
+pub struct PublicActivity<'a> {
+    pub label: &'a str,
+    pub text: &'a str,
+}
+/// A bounded display label for a pending or attached chat item.
+pub struct Attachment<'a> {
+    pub name: &'a str,
 }
 /// Application-selected pending work. The shell owns presentation, never the
 /// command payload, session policy, or the decision's authority.
@@ -33,6 +45,8 @@ pub struct Participant<'a> {
     pub human: bool,
     pub paused: bool,
     pub autonomous: bool,
+    /// Provider-controlled workspace write access, separate from board grants.
+    pub full_access: bool,
     pub file_inputs: bool,
     pub own_chats: bool,
     pub parent_name: Option<&'a str>,
@@ -42,6 +56,10 @@ pub struct Participant<'a> {
     pub busy: bool,
     /// The bounded slice selected by RosterState::message_range.
     pub messages: &'a [ConversationMessage<'a>],
+    /// Public task progress, already filtered by the application adapter.
+    pub activity: &'a [PublicActivity<'a>],
+    /// Locally pending composer attachments; source ownership stays in the app.
+    pub attachments: &'a [Attachment<'a>],
     /// Full durable history length, including turns outside the visible page.
     pub message_total: usize,
     pub proposals: &'a [ProposalDecision<'a>],
@@ -122,6 +140,13 @@ pub enum PresenceAction {
         id: String,
         text: String,
     },
+    Attach {
+        id: String,
+    },
+    RemoveAttachment {
+        id: String,
+        index: usize,
+    },
     Pause {
         id: String,
         paused: bool,
@@ -130,6 +155,10 @@ pub enum PresenceAction {
         id: String,
     },
     SetAutonomy {
+        id: String,
+        enabled: bool,
+    },
+    SetFullAccess {
         id: String,
         enabled: bool,
     },

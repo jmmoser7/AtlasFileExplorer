@@ -14,6 +14,7 @@
 //! arrows (nudge with a selection, pan without), and Board type-to-command
 //! (bare letter shortcuts hold ~700 ms so a second character can open the
 //! canvas palette instead).
+mod feedback;
 mod input_state;
 mod keys;
 pub use input_state::{BareLetterHold, SpaceTap};
@@ -257,10 +258,8 @@ impl SlateApp {
                 self.toggle_canvas_fullscreen();
                 true
             }
-            "app.feedback.open" => {
-                self.feedback.open_picker();
-                true
-            }
+            "app.feedback.open" => self.feedback_open_command(),
+            "app.feedback.report" => self.feedback_report_command(),
             "app.feedback.finish_recording" => {
                 self.feedback.finish_recording();
                 self.feedback.phase = self.feedback.form_after_recording();

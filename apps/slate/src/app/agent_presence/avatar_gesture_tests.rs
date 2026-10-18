@@ -6,6 +6,8 @@ use crate::app::tests::{add_filled_rect, painted_strings, primary_button, Harnes
 use eframe::egui::{Id, Pos2, Rect, Vec2};
 use serde_json::json;
 use std::time::Duration;
+#[path = "chat_canvas_tests.rs"]
+mod chat_canvas_tests;
 
 struct Gesture {
     h: Harness,

@@ -98,11 +98,13 @@ impl SlateApp {
                 {
                     let mut current_turn = false;
                     if let Ok(thread) = self.presence.conversations.edit(&a.profile.id) {
+                        updates::acknowledge_updates(thread, &snapshot);
                         current_turn = thread.reply_start(a, &snapshot).is_some();
                         if thread.absorb(a, &snapshot) {
                             self.presence.conversations.dirty(&a.profile.id);
                         }
                     }
+                    self.presence.conversations.dirty(&a.profile.id);
                     if a.inflight
                         && matches!(
                             snapshot.status,
@@ -282,6 +284,7 @@ impl SlateApp {
             {
                 a.status = reason;
                 a.activity = "error".into();
+                a.paused = true;
             }
         }
         for (who, call) in calls {
@@ -322,6 +325,7 @@ impl SlateApp {
             let _ = self.retire_completed_helper(&who);
         }
         self.finish_presence_handoffs();
+        self.presence_pump_updates();
         self.pump_presence_mentions(board_visible && !pointer_press);
         let forgotten: Vec<_> = self
             .presence

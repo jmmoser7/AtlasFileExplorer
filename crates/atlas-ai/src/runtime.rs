@@ -107,6 +107,7 @@ pub fn codex_projects() -> Vec<(String, PathBuf)> {
 
 pub struct CodexLink {
     tx: Sender<AgentRequest>,
+    steer_tx: std::sync::mpsc::SyncSender<atlas_codex::SteerCommand>,
     cancel: Arc<AtomicBool>,
     preview: atlas_comfy::PreviewSink,
 }
@@ -256,10 +257,11 @@ impl Engine {
         request: &AgentRequest,
         session: &mut AgentSession,
         stop: &AtomicBool,
+        steering: &std::sync::mpsc::Receiver<atlas_codex::SteerCommand>,
         changed: impl FnMut(&AgentSession),
     ) -> Result<(), String> {
         match self {
-            Self::Codex(c) => c.run(request, session, stop, changed),
+            Self::Codex(c) => c.run_with_steering(request, session, stop, Some(steering), changed),
             Self::Ollama(c) => c.run(request, session, stop, changed),
             Self::Comfy(c) => c.run(request, session, stop, changed),
             Self::OpenAi(c) => c.run(request, session, stop, changed),
@@ -287,6 +289,7 @@ impl CodexLink {
         workbook: Option<PathBuf>,
     ) -> Self {
         let (tx, rx) = bounded::<AgentRequest>(1);
+        let (steer_tx, steer_rx) = std::sync::mpsc::sync_channel::<atlas_codex::SteerCommand>(16);
         let cancel = Arc::new(AtomicBool::new(false));
         let stop = cancel.clone();
         let preview = atlas_comfy::PreviewSink::default();
@@ -383,12 +386,15 @@ impl CodexLink {
                     }
                     // Persist before submission: a crash never silently replays a paid turn.
                     std::fs::write(&ledger, &request.id).map_err(|e| e.to_string())?;
-                    client
-                        .as_mut()
-                        .unwrap()
-                        .run(&request, &mut session, &stop, |state| {
+                    client.as_mut().unwrap().run(
+                        &request,
+                        &mut session,
+                        &stop,
+                        &steer_rx,
+                        |state| {
                             let _ = atomic_write_json(&dir.join("session.json"), state);
-                        })?;
+                        },
+                    )?;
                     record_image_sidecars(&session, &request);
                     Ok(())
                 })();
@@ -403,6 +409,7 @@ impl CodexLink {
         });
         Self {
             tx,
+            steer_tx,
             cancel,
             preview,
         }
@@ -420,6 +427,30 @@ impl CodexLink {
     }
     pub fn stop(&self) {
         self.cancel.store(true, Ordering::Relaxed);
+    }
+
+    /// Queue text for the active Codex turn. Provider acceptance is reported
+    /// later in `AgentSession.activity` as `codex-steer:<id>:accepted|error`.
+    pub fn steer(&self, expected_request_id: &str, text: &str) -> Result<String, String> {
+        if expected_request_id.is_empty() {
+            return Err("A request id is required to steer Codex.".into());
+        }
+        if text.trim().is_empty() {
+            return Err("Steering text is empty.".into());
+        }
+        if text.len() > 8 * 1024 {
+            return Err("Steering text exceeds 8 KiB.".into());
+        }
+        let id = format!("codex-steer-{}", atlas_agent::request_id());
+        let command = atlas_codex::SteerCommand {
+            id: id.clone(),
+            expected_request_id: expected_request_id.into(),
+            text: text.into(),
+        };
+        self.steer_tx
+            .try_send(command)
+            .map_err(|_| "The Codex steering queue is full or closed.".to_string())?;
+        Ok(id)
     }
 }
 
@@ -443,6 +474,8 @@ pub fn turn_full_access(granted: bool, relay_granted: bool, request: &AgentReque
     request.policy.is_default() && granted && (request.relayed_from.is_none() || relay_granted)
 }
 
+#[cfg(test)]
+mod chat_live;
 #[cfg(test)]
 mod live;
 #[cfg(test)]

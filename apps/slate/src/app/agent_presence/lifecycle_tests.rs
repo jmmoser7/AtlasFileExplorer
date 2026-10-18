@@ -3,6 +3,8 @@ pub(super) mod session_support;
 use super::super::tests::Harness;
 use super::*;
 
+#[path = "calls_tests.rs"]
+mod calls;
 pub(super) mod delivery;
 #[path = "participant_read_tests.rs"]
 mod participant_reads;

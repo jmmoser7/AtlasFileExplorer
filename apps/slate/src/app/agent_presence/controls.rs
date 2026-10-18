@@ -26,7 +26,23 @@ impl SlateApp {
             decision @ (AcceptProposal { .. } | RejectProposal { .. }) => {
                 self.dispatch_presence_action(ctx, decision);
             }
-            SetOwnChats { id, enabled } => self.presence_set_own_chats(&id, enabled)?,
+            SetOwnChats { id, enabled } => {
+                let was_paused = self
+                    .presence
+                    .agents
+                    .iter()
+                    .find(|a| a.profile.id == id)
+                    .is_some_and(|a| a.paused);
+                self.presence_set_own_chats(&id, enabled)?;
+                if !enabled {
+                    self.set_presence_paused(&id, was_paused, PauseCause::InputHold)?;
+                }
+                self.persist_consent_preference(
+                    &id,
+                    consent_policy::ConsentPreference::OwnChats,
+                    enabled,
+                )?;
+            }
             Retry { id, message } => self.presence_retry_message(&id, &message)?,
             ConnectPeople => self.presence.human_chat.setup.open = true,
             SetupWorkspace => self.ai.pick_workspace(),
@@ -76,6 +92,12 @@ impl SlateApp {
             }
             Schedule { id } => self.presence_open_schedule(&id)?,
             SetFileInputs { id, enabled } => {
+                let primary = self
+                    .presence
+                    .agents
+                    .iter()
+                    .find(|a| a.profile.id == id)
+                    .is_some_and(|a| a.parent.is_none());
                 if enabled {
                     if let Some(parent) = self
                         .presence
@@ -101,7 +123,14 @@ impl SlateApp {
                     }
                 }
                 if !enabled {
+                    let was_paused = self
+                        .presence
+                        .agents
+                        .iter()
+                        .find(|a| a.profile.id == id)
+                        .is_some_and(|a| a.paused);
                     self.stop_presence(&id, false)?;
+                    self.set_presence_paused(&id, was_paused, PauseCause::InputHold)?;
                 }
                 let a = self
                     .presence
@@ -120,6 +149,13 @@ impl SlateApp {
                         .set_session(&a.dir, a.binding.clone(), grant.clone(), a.request.clone())
                         .map_err(str::to_owned)?;
                 }
+                if primary {
+                    self.persist_consent_preference(
+                        &id,
+                        consent_policy::ConsentPreference::BoardFileInputs,
+                        enabled,
+                    )?;
+                }
             }
             CopyIdentity { id } => ctx.copy_text(format!("@{id}")),
             CopyLink { id } => {
@@ -136,9 +172,10 @@ impl SlateApp {
                 hat,
                 provider,
             } => {
+                let id = atlas_agent::request_id();
                 self.join_presence(
                     StoredAgent {
-                        id: atlas_agent::request_id(),
+                        id: id.clone(),
                         name,
                         hat,
                         provider,
@@ -146,6 +183,7 @@ impl SlateApp {
                     },
                     None,
                 )?;
+                self.presence.chrome.open_chat(&id);
             }
             Restore { id } => {
                 let mut profile = self
@@ -191,11 +229,22 @@ impl SlateApp {
                 self.tab_mut().cam.offset = egui::vec2(p.x as f32, p.y as f32);
                 ctx.request_repaint();
             }
-            ShowActivity { id } => self.presence.inspect = Some(id),
+            ShowActivity { id } => self.presence.chrome.open_chat(&id),
             ShowConversation { id } | OpenChat { id, .. } => self.presence.chrome.open_chat(&id),
-            Cancel { id } => self.stop_presence(&id, false)?,
+            Attach { id } => self.presence_attach_image(ctx, &id)?,
+            RemoveAttachment { id, index } => self.presence_remove_attachment(&id, index)?,
+            Cancel { id } => {
+                self.stop_presence(&id, false)?;
+                self.set_presence_paused(&id, true, PauseCause::InputHold)?;
+            }
             Revoke { id } => self.stop_presence(&id, true)?,
-            Pause { id, paused } => self.set_presence_paused(&id, paused, PauseCause::Human)?,
+            Pause { id, paused } => {
+                if paused {
+                    self.set_presence_paused(&id, true, PauseCause::Human)?;
+                } else {
+                    self.presence_resume_chat(&id)?;
+                }
+            }
             Retire { id, style } => self.retire_presence(&id, &style)?,
             SetAutonomy { id, enabled } => {
                 if enabled
@@ -208,7 +257,14 @@ impl SlateApp {
                     return Err("Temporary helpers use proposal mode; add an independent collaborator for autonomous edits".into());
                 }
                 if !enabled {
+                    let was_paused = self
+                        .presence
+                        .agents
+                        .iter()
+                        .find(|a| a.profile.id == id)
+                        .is_some_and(|a| a.paused);
                     self.stop_presence(&id, false)?;
+                    self.set_presence_paused(&id, was_paused, PauseCause::InputHold)?;
                 }
                 let a = self
                     .presence
@@ -227,6 +283,36 @@ impl SlateApp {
                         .set_session(&a.dir, a.binding.clone(), grant.clone(), a.request.clone())
                         .map_err(str::to_owned)?;
                 }
+                self.persist_consent_preference(
+                    &id,
+                    consent_policy::ConsentPreference::MutationAutonomy,
+                    enabled,
+                )?;
+            }
+            SetFullAccess { id, enabled } => {
+                let (session, provider, primary) = self
+                    .presence
+                    .agents
+                    .iter()
+                    .find(|a| a.profile.id == id)
+                    .map(|a| {
+                        (
+                            a.binding.session_id.clone(),
+                            a.profile.provider.clone(),
+                            a.parent.is_none(),
+                        )
+                    })
+                    .ok_or("Unknown collaborator")?;
+                if !primary || provider != "codex" {
+                    return Err("Provider full access is available only for independent Codex collaborators".into());
+                }
+                self.presence_consent_scope()?;
+                self.set_agent_session_access(&session, enabled)?;
+                self.persist_consent_preference(
+                    &id,
+                    consent_policy::ConsentPreference::ProviderFullAccess,
+                    enabled,
+                )?;
             }
             Rename { id, name } => {
                 if id == "self" {
@@ -277,12 +363,19 @@ impl SlateApp {
         if cause == PauseCause::Human {
             self.presence_forget_avatar_hold(who);
         }
+        let busy = self.presence.task_busy(who);
         let a = self
             .presence
             .agents
             .iter_mut()
             .find(|a| a.profile.id == who)
             .ok_or("Unknown collaborator")?;
+        if paused && !a.paused {
+            a.resume_task = busy;
+        }
+        if !paused && cause == PauseCause::InputHold {
+            a.resume_task = false;
+        }
         a.paused = paused;
         if cause == PauseCause::Human {
             a.control_epoch = a.control_epoch.wrapping_add(1);

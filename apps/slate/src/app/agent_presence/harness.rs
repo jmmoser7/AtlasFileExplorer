@@ -1,4 +1,5 @@
 //! Validated task-local harness handoff. It grants no additional authority.
+use super::controls::PauseCause;
 use super::conversation::{ModelChoice, ProviderBinding};
 use super::*;
 
@@ -128,7 +129,16 @@ impl SlateApp {
                     a.switch_offer = None;
                     return Ok(());
                 }
-                "stop" => self.stop_presence(who, false)?,
+                "stop" => {
+                    let was_paused = self
+                        .presence
+                        .agents
+                        .iter()
+                        .find(|a| a.profile.id == who)
+                        .is_some_and(|a| a.paused);
+                    self.stop_presence(who, false)?;
+                    self.set_presence_paused(who, was_paused, PauseCause::InputHold)?;
+                }
                 _ => return Err("Choose After this task, Stop task and switch, or Cancel".into()),
             }
         }
