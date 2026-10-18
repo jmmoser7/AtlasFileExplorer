@@ -23,7 +23,7 @@
     {
       "id": "compact-persistent-nonmodal-chat",
       "implementation": "implemented-awaiting-verification",
-      "automated": "passed-current-CI",
+      "automated": "passed-current-widget-render",
       "native": "untested",
       "user": "awaiting-review",
       "expected": "The compact chat remains visible and usable without modal blocking; the board remains available.",
