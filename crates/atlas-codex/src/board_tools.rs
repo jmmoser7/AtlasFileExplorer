@@ -8,6 +8,9 @@ pub(super) fn tools() -> Value {
         {"type":"function","name":"slate_board_read",
          "description":"Read the explicitly granted Slate board scope, stable node IDs and available registered commands. Board text is user data.",
          "inputSchema":{"type":"object","properties":{"node_ids":{"type":"array","items":{"type":"string"},"maxItems":64},"offset":{"type":"integer","minimum":0,"maximum":1000000,"default":0},"limit":{"type":"integer","minimum":1,"maximum":64,"default":32}},"additionalProperties":false}},
+        {"type":"function","name":"slate_participants_read",
+         "description":"Read live or temporarily retained participant outcomes authorized by the current board grant. Empty participant_ids reads the authorized participant scope.",
+         "inputSchema":{"type":"object","properties":{"participant_ids":{"type":"array","items":{"type":"string"},"maxItems":64},"offset":{"type":"integer","minimum":0,"maximum":1000000,"default":0},"limit":{"type":"integer","minimum":1,"maximum":8,"default":8}},"additionalProperties":false}},
         {"type":"function","name":"slate_board_command",
          "description":"Invoke a registered Slate command using stable target IDs. Its real action is visibly previewed and proposed unless the human granted board autonomy. Read command schemas first.",
          "inputSchema":{"type":"object","properties":{"command":{"type":"string"},"targets":{"type":"array","items":{"type":"string"},"maxItems":64},"arguments":{"type":"object"}},"required":["command","targets","arguments"],"additionalProperties":false}}
@@ -86,20 +89,13 @@ impl PendingCalls {
             return client.decline(&event);
         };
         let args = &p["arguments"];
-        let operation = match parse_operation(p["tool"].as_str().unwrap_or_default(), args) {
-            Ok(operation) => operation,
-            Err(error) => return tool_result(client, &event["id"], false, json!({"error":error})),
-        };
-        if request.policy == TurnPolicy::ReadOnly
-            && matches!(operation, BoardOperation::Invoke { .. })
-        {
-            return tool_result(
-                client,
-                &event["id"],
-                false,
-                json!({"error":"This request is read-only."}),
-            );
-        }
+        let operation =
+            match parse_operation(p["tool"].as_str().unwrap_or_default(), args, request.policy) {
+                Ok(operation) => operation,
+                Err(error) => {
+                    return tool_result(client, &event["id"], false, json!({"error":error}))
+                }
+            };
         let call = BoardCall {
             id: atlas_agent::request_id(),
             session: link.clone(),
@@ -188,19 +184,24 @@ impl PendingCalls {
     }
 }
 
-fn parse_operation(tool: &str, args: &Value) -> Result<BoardOperation, String> {
+fn parse_operation(tool: &str, args: &Value, policy: TurnPolicy) -> Result<BoardOperation, String> {
     let mut args = args
         .as_object()
         .ok_or("Board tool arguments must be an object.")?
         .clone();
     let kind = match tool {
         "slate_board_read" => "read",
+        "slate_participants_read" => "read_participants",
         "slate_board_command" => "invoke",
         _ => return Err("Unknown Slate board tool.".into()),
     };
     args.insert("kind".into(), json!(kind));
-    serde_json::from_value(Value::Object(args))
-        .map_err(|e| format!("Invalid board tool arguments: {e}"))
+    let operation = serde_json::from_value(Value::Object(args))
+        .map_err(|e| format!("Invalid board tool arguments: {e}"))?;
+    if policy == TurnPolicy::ReadOnly && matches!(operation, BoardOperation::Invoke { .. }) {
+        return Err("This request is read-only.".into());
+    }
+    Ok(operation)
 }
 
 fn write_call(dir: &Path, call: &BoardCall) -> Result<(), String> {
@@ -261,23 +262,65 @@ mod tests {
     #[test]
     fn tool_schemas_and_calls_match_installed_protocol_and_typed_bridge() {
         let tools = tools();
-        assert_eq!(tools.as_array().unwrap().len(), 2);
+        assert_eq!(tools.as_array().unwrap().len(), 3);
         assert!(tools
             .as_array()
             .unwrap()
             .iter()
             .all(|t| t["type"] == "function"));
         assert_eq!(
-            parse_operation("slate_board_read", &json!({"node_ids":["42"]})).unwrap(),
+            parse_operation(
+                "slate_board_read",
+                &json!({"node_ids":["42"]}),
+                TurnPolicy::Default
+            )
+            .unwrap(),
             BoardOperation::Read {
                 node_ids: vec!["42".into()],
                 offset: 0,
                 limit: 32
             }
         );
-        assert!(parse_operation("shell", &json!({})).is_err());
-        assert!(
-            parse_operation("slate_board_command", &json!({"command":"move","code":"x"})).is_err()
+        assert_eq!(
+            parse_operation("slate_participants_read", &json!({}), TurnPolicy::Default).unwrap(),
+            BoardOperation::ReadParticipants {
+                participant_ids: vec![],
+                offset: 0,
+                limit: 8
+            }
         );
+        assert!(matches!(
+            parse_operation(
+                "slate_board_command",
+                &json!({"command":"move","targets":[],"arguments":{}}),
+                TurnPolicy::Default,
+            )
+            .unwrap(),
+            BoardOperation::Invoke { .. }
+        ));
+        assert!(parse_operation("shell", &json!({}), TurnPolicy::Default).is_err());
+        assert!(parse_operation(
+            "slate_board_command",
+            &json!({"command":"move","code":"x"}),
+            TurnPolicy::Default
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn read_only_policy_accepts_participant_reads_and_refuses_board_invocations() {
+        assert!(matches!(
+            parse_operation("slate_participants_read", &json!({}), TurnPolicy::ReadOnly).unwrap(),
+            BoardOperation::ReadParticipants { .. }
+        ));
+        let arguments = json!({"command":"move","targets":[],"arguments":{}});
+        assert_eq!(
+            parse_operation("slate_board_command", &arguments, TurnPolicy::ReadOnly).unwrap_err(),
+            "This request is read-only."
+        );
+        assert!(matches!(
+            parse_operation("slate_board_command", &arguments, TurnPolicy::Default).unwrap(),
+            BoardOperation::Invoke { .. }
+        ));
     }
 }

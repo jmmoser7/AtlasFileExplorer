@@ -77,6 +77,17 @@ the final page. Scope filtering precedes pagination, so private nodes neither
 consume a page nor leak into its total. Providers follow successive offsets
 to discover large boards and can lower the limit for text-heavy objects.
 
+Participant outcomes use the separate compatible read operation
+`{"kind":"read_participants","participant_ids":[],"offset":0,"limit":8}`.
+Its offset defaults to 0 and its limit defaults to 8 and cannot exceed 8. Empty
+IDs enumerate only the live grant's conversation scope; explicit IDs allow a
+known outcome to be retrieved directly and must also be in that scope. Retained
+helper results additionally require the caller to be that helper's parent. The
+reply's `participants`, `total`, and `next_offset` form an independent cursor.
+The caller is included when its own ID is granted. The host may emit fewer
+records than the requested limit to keep the serialized reply bounded; always
+follow the returned `next_offset`. Board object offsets and replies are unchanged.
+
 Messages and replies are limited to 64 KiB, target lists to 64 IDs, simultaneous
 Codex tools to eight, the worker output queue to 16, and each task to at most
 128 calls. Calls include a sequence number; duplicate sequences and stale
@@ -86,7 +97,8 @@ the provider to request fewer nodes.
 
 ## Providers
 
-Codex registers `slate_board_read` and `slate_board_command` through app-server
+Codex registers `slate_board_read`, `slate_participants_read`, and
+`slate_board_command` through app-server
 `thread/start.dynamicTools` only for a fresh explicit collaborator session.
 The adapter handles `item/tool/call` and sends a dynamic-tool result after the
 native host replies. The actual installed app-server schema was generated

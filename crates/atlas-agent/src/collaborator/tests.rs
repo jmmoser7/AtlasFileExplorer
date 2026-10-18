@@ -126,3 +126,33 @@ fn read_pagination_defaults_remain_compatible_and_bounded() {
     };
     assert!(call.validate().is_ok());
 }
+
+#[test]
+fn participant_reads_are_typed_bounded_and_grant_scoped() {
+    let (mut grant, mut call) = fixture();
+    grant.conversation_ids = vec!["helper-1".into()];
+    call.operation = serde_json::from_str(r#"{"kind":"read_participants"}"#).unwrap();
+    assert_eq!(
+        call.operation,
+        BoardOperation::ReadParticipants {
+            participant_ids: vec![],
+            offset: 0,
+            limit: 8,
+        }
+    );
+    assert!(grant.authorize(&call, &call.session, "r").is_ok());
+    call.operation = BoardOperation::ReadParticipants {
+        participant_ids: vec!["helper-2".into()],
+        offset: 0,
+        limit: 8,
+    };
+    assert!(grant.authorize(&call, &call.session, "r").is_err());
+    for (offset, limit) in [(1_000_001, 8), (0, 0), (0, 9)] {
+        call.operation = BoardOperation::ReadParticipants {
+            participant_ids: vec![],
+            offset,
+            limit,
+        };
+        assert!(call.validate().is_err());
+    }
+}

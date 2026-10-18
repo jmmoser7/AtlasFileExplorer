@@ -9,14 +9,12 @@ use i_overlay::float::slice::FloatSlice;
 use crate::geom::EPS;
 
 mod overlay;
-pub use overlay::{boolean_difference_raw, boolean_union_all_raw};
+pub use overlay::boolean_difference_raw;
 use overlay::{overlay_shapes, shapes_from_overlay};
 mod fill;
 #[cfg(test)]
 use fill::signed_area;
-pub use fill::{
-    fill_triangles, fill_triangles_with_boundaries, point_in_mesh, point_in_polygon, FillBoundary,
-};
+pub use fill::{fill_triangles, point_in_mesh, point_in_polygon};
 
 /// A closed region: first contour is the outer, the rest are holes.
 pub type Polygon = Vec<Vec<[f32; 2]>>;

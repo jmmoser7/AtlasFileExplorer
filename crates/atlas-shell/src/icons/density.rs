@@ -56,6 +56,10 @@ fn stroke_style(width: f32) -> StrokeStyle {
 
 fn build(icon: Icon, feather: f32) -> InkMesh {
     let source = &sources()[icon.name()];
+    build_source(source, source.width, feather)
+}
+
+fn build_source(source: &Source, width: f32, feather: f32) -> InkMesh {
     let mut mesh = InkMesh::default();
     if source.filled {
         let (vertices, indices) =
@@ -66,7 +70,7 @@ fn build(icon: Icon, feather: f32) -> InkMesh {
             .collect();
         mesh.indices = indices;
     }
-    let stroke = vector_ink::stroke_mesh(&source.path, &stroke_style(source.width), feather, 0.02);
+    let stroke = vector_ink::stroke_mesh(&source.path, &stroke_style(width), feather, 0.02);
     let base = mesh.vertices.len() as u32;
     mesh.vertices.extend(stroke.vertices);
     mesh.indices

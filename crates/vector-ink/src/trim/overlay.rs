@@ -15,35 +15,6 @@ pub fn boolean_difference_raw(subj: &Polygon, clip: &Polygon) -> TrimPolys {
     overlay_shapes_raw(&s, &c, OverlayRule::Difference)
 }
 
-/// Union polygons through the float overlay without authored-CAD cleanup.
-///
-/// Each input polygon's contours are evaluated together with even-odd fill so
-/// its holes remain holes. Overlaying each polygon into the accumulated region
-/// also avoids the empty-clip shortcut that would turn its contours into
-/// separate filled shapes.
-pub fn boolean_union_all_raw(polys: &[Polygon]) -> TrimPolys {
-    let mut acc: TrimPolys = Vec::new();
-    for poly in polys {
-        let clip: Vec<Vec<[f64; 2]>> = poly.iter().map(|c| close_ring(c)).collect();
-        if clip.is_empty() {
-            continue;
-        }
-        let subj: Vec<Vec<[f64; 2]>> = acc
-            .iter()
-            .flat_map(|piece| piece.iter().map(|c| close_ring(c)))
-            .collect();
-        let raw = if subj.is_empty() {
-            let mut overlay = FloatOverlay::with_subj(&clip);
-            overlay.overlay(OverlayRule::Union, FillRule::EvenOdd)
-        } else {
-            let mut overlay = FloatOverlay::with_subj_and_clip(&subj, &clip);
-            overlay.overlay(OverlayRule::Union, FillRule::EvenOdd)
-        };
-        acc = shapes_from_overlay(raw);
-    }
-    acc
-}
-
 pub(super) fn overlay_shapes(
     subj: &[Vec<[f64; 2]>],
     clip: &[Vec<[f64; 2]>],
@@ -90,9 +61,4 @@ pub(super) fn shapes_from_overlay(raw: Vec<Vec<Vec<[f64; 2]>>>) -> TrimPolys {
             (!contours.is_empty()).then_some(contours)
         })
         .collect()
-}
-
-#[cfg(test)]
-mod raw_union_tests {
-    include!("raw_union_tests.rs");
 }
