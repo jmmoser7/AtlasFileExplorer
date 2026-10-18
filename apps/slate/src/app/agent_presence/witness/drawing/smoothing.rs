@@ -62,7 +62,7 @@ impl SmoothPreview {
             .map(|point| Pos2::new(point.x as f32, point.y as f32))
             .collect();
         let tip = Pos2::new(at.position.x as f32, at.position.y as f32);
-        if prefix.last().map_or(true, |point| *point != tip) {
+        if prefix.last().is_none_or(|point| *point != tip) {
             prefix.push(tip);
         }
         crate::app::board_smooth::prepare_smooth(

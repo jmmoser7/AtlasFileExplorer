@@ -3,14 +3,16 @@ use slate_doc::scene::{PathData, PathSeg, Rgba, ShapeKind, ShapeNode, Stroke, Wo
 use std::sync::Arc;
 
 fn add_smoothable_path(f: &mut Fixture) -> Node {
-    let mut path = PathData::default();
-    path.start = [0.0, 0.5];
-    path.segs = vec![
-        PathSeg::Line { to: [0.25, 0.32] },
-        PathSeg::Line { to: [0.5, 0.68] },
-        PathSeg::Line { to: [0.75, 0.32] },
-        PathSeg::Line { to: [1.0, 0.5] },
-    ];
+    let path = PathData {
+        start: [0.0, 0.5],
+        segs: vec![
+            PathSeg::Line { to: [0.25, 0.32] },
+            PathSeg::Line { to: [0.5, 0.68] },
+            PathSeg::Line { to: [0.75, 0.32] },
+            PathSeg::Line { to: [1.0, 0.5] },
+        ],
+        ..PathData::default()
+    };
     let shape = ShapeNode {
         shape: ShapeKind::Path,
         fill: None,

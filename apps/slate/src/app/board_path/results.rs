@@ -128,6 +128,7 @@ pub(crate) fn arc_points_define_circle(points: [Pos2; 3]) -> bool {
 }
 
 /// Instantiate one of the board kit's parametric shape results for a witnessed draw.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn parametric_shape_node(
     app: &SlateApp,
     scene: &mut Scene,

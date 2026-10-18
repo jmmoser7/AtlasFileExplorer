@@ -33,7 +33,8 @@ fn prepared_result_matches_the_human_pass_kernel_and_does_not_mutate_source() {
     let strength = 0.65;
     let zoom = 1.25;
 
-    let prepared = prepare_smooth(&[source.clone()], &route, width, strength, zoom).unwrap();
+    let prepared =
+        prepare_smooth(std::slice::from_ref(&source), &route, width, strength, zoom).unwrap();
     let mut curve = init_smooth_polyline(&source).unwrap();
     let radius = width * 0.5;
     let mut centers = vec![[route[0].x, route[0].y]];
@@ -54,7 +55,7 @@ fn untouched_targets_are_local_and_excessive_route_work_is_refused() {
     let source = line();
     let far_route = [Pos2::new(500.0, 500.0)];
     assert!(
-        prepare_smooth(&[source.clone()], &far_route, 12.0, 0.5, 1.0)
+        prepare_smooth(std::slice::from_ref(&source), &far_route, 12.0, 0.5, 1.0)
             .unwrap()
             .is_empty()
     );
