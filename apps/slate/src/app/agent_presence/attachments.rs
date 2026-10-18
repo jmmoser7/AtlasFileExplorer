@@ -80,29 +80,41 @@ impl SlateApp {
         self.presence.conversations.save(who);
         Ok(())
     }
-    pub(super) fn presence_poll_attachments(&mut self, ctx: &egui::Context) {
+    pub(crate) fn presence_poll_attachments(
+        &mut self,
+        ctx: &egui::Context,
+        native_paste_edge: bool,
+    ) -> bool {
         for (who, result) in self.presence.attachments.drain_ready() {
             let result = result.and_then(|path| self.presence_add_attachment(&who, path));
             if let Err(error) = result {
                 self.toast(error);
             }
         }
+        if self.at_home
+            || self.doc().view.active_view != slate_doc::ViewKind::Board
+            || self.presenting.is_some()
+        {
+            return false;
+        }
         let Some(who) = self.presence.chrome.active_chat().map(str::to_owned) else {
-            return;
+            return false;
         };
         let focused =
             ctx.memory(|m| m.focused()) == Some(egui::Id::new(("presence-composer", who.as_str())));
-        let paste = focused
-            && ctx.input(|i| {
-                i.events.iter().any(|e| matches!(e, egui::Event::Paste(_)))
-                    || i.key_pressed(egui::Key::V) && i.modifiers.command
-            });
+        let native_owned =
+            native_paste_edge && focused && who != "self" && !who.starts_with("human:");
+        let frame_paste = ctx.input(|i| {
+            i.events.iter().any(|e| matches!(e, egui::Event::Paste(_)))
+                || i.key_pressed(egui::Key::V) && i.modifiers.command
+        });
+        let paste = composer_owns_paste(focused, frame_paste, native_paste_edge);
         if !paste
             || who == "self"
             || who.starts_with("human:")
             || self.presence.attachments.pending.len() >= 2
         {
-            return;
+            return native_owned;
         }
         // OS clipboard decode and disk writes stay off the frame loop. Text paste
         // remains an ordinary TextEdit event, including when no bitmap is present.
@@ -119,7 +131,12 @@ impl SlateApp {
             }
         });
         self.presence.attachments.pending.push((who, rx));
+        native_owned
     }
+}
+
+fn composer_owns_paste(focused: bool, frame_paste: bool, native_paste_edge: bool) -> bool {
+    focused && (frame_paste || native_paste_edge)
 }
 
 pub(super) fn image_inputs(paths: &[PathBuf]) -> atlas_agent::InputSnapshot {
@@ -144,6 +161,13 @@ pub(super) fn image_inputs(paths: &[PathBuf]) -> atlas_agent::InputSnapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn bitmap_paste_edge_routes_only_to_the_focused_composer() {
+        assert!(composer_owns_paste(true, false, true));
+        assert!(!composer_owns_paste(true, false, false));
+        assert!(!composer_owns_paste(false, false, true));
+    }
+
     #[test]
     fn a_text_only_paste_worker_disconnects_instead_of_leaving_a_pending_job() {
         let mut jobs = AttachmentJobs::default();

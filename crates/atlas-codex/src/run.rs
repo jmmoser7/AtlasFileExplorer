@@ -14,6 +14,15 @@ fn recover_request_history(request: &AgentRequest, session: &AgentSession) -> Op
     (!replay.history.is_empty()).then_some(replay)
 }
 
+fn completed_before_interrupt(status: Option<&str>, error: Option<&str>) -> bool {
+    status == Some("completed")
+        && error
+            .and_then(|error| serde_json::from_str::<Value>(error).ok())
+            .is_some_and(|error| {
+                error["code"] == -32600 && error["message"] == "no active turn to interrupt"
+            })
+}
+
 impl Client {
     pub fn run(
         &mut self,
@@ -280,6 +289,13 @@ impl Client {
                                 .unwrap_or("Codex turn failed")
                                 .into(),
                         )
+                    } else if completed_before_interrupt(
+                        p.pointer("/turn/status").and_then(Value::as_str),
+                        interruption_error.as_deref(),
+                    ) {
+                        // The completion belongs to this turn. A late Stop cannot
+                        // interrupt it, and must not turn a finished reply into an error.
+                        AgentStatus::Idle
                     } else if interrupted
                         || p.pointer("/turn/status").and_then(Value::as_str) == Some("interrupted")
                     {
@@ -319,6 +335,24 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn only_a_completed_turn_resolves_the_known_inactive_interrupt_race() {
+        let inactive = r#"{"code":-32600,"message":"no active turn to interrupt"}"#;
+        assert!(completed_before_interrupt(
+            Some("completed"),
+            Some(inactive)
+        ));
+        for status in [None, Some("failed"), Some("interrupted")] {
+            assert!(!completed_before_interrupt(status, Some(inactive)));
+        }
+        for error in [
+            None,
+            Some("transport error"),
+            Some(r#"{"code":-32600,"message":"no rollout found for thread id x"}"#),
+        ] {
+            assert!(!completed_before_interrupt(Some("completed"), error));
+        }
+    }
     #[test]
     fn a_fresh_thread_replays_the_visible_history_checkpoint_once() {
         let request = AgentRequest {

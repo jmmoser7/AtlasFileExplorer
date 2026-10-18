@@ -270,7 +270,7 @@ fn chat_remains_open_after_an_outside_click_and_human_name_stays_profile() {
 fn a_profile_dismissal_claims_its_own_click_but_not_the_next_board_frame() {
     let mut f = Fixture::new();
     let out = f.settle();
-    let name = text_rect(&out, "Dot").unwrap();
+    let name = text_rect(&out, "You").unwrap();
     f.click(name.center());
     let out = f.settle();
     let close = text_rect(&out, "×").expect("profile close button");

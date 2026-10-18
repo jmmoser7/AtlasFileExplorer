@@ -41,7 +41,6 @@ impl SlateApp {
     pub(crate) fn presence_capsules(&mut self, ctx: &egui::Context) -> bool {
         self.ensure_agent_programs();
         self.presence_poll_photo(ctx);
-        self.presence_poll_attachments(ctx);
         for provider in ["codex", "cursor"] {
             self.agents.want_catalog(provider);
         }

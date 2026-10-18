@@ -113,6 +113,7 @@ fn live_codex_sequential_history_steer_interrupt_and_retry() {
         .any(|turn| turn.role == "assistant" && turn.text.contains("blue-kite-294")));
 
     let mut interrupted = false;
+    let mut stop_outcome = "not-run";
     if started.elapsed() < Duration::from_secs(35) {
         let third_id = format!("smoke-{}", atlas_agent::request_id());
         let third = readonly_request(
@@ -130,10 +131,14 @@ fn live_codex_sequential_history_steer_interrupt_and_retry() {
             })
             .unwrap_or_else(|_| panic!("active-turn interruption failed"));
         assert!(
-            matches!(&session.status, AgentStatus::Error(message) if message.contains("stopped")),
-            "expected a confirmed stop, received {:?}",
-            session.status
+            stop.load(Ordering::Relaxed),
+            "the active-turn stop was requested"
         );
+        stop_outcome = match &session.status {
+            AgentStatus::Error(message) if message == "Response stopped." => "stopped",
+            AgentStatus::Idle => "completed-before-stop",
+            status => panic!("stop did not settle normally: {status:?}"),
+        };
         interrupted = true;
 
         let fourth_id = format!("smoke-{}", atlas_agent::request_id());
@@ -161,7 +166,7 @@ fn live_codex_sequential_history_steer_interrupt_and_retry() {
         AgentStatus::Error(_) => "error",
     };
     eprintln!(
-        "Codex live smoke receipt: turns={}, steer_ack=1, public_activity={}, interruption_retry={}, status={status}",
+        "Codex live smoke receipt: turns={}, steer_ack=1, public_activity={}, interruption_retry={}, stop_outcome={stop_outcome}, status={status}",
         session.turns.iter().filter(|turn| turn.role == "user").count(),
         session.activity.len(),
         interrupted,

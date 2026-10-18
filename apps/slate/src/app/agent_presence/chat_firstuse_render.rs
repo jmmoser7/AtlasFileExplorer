@@ -7,9 +7,10 @@ use serde_json::json;
 #[ignore = "retains actual full-app compact chat renders; native interaction is separate"]
 fn compact_chat_firstuse_retains_actual_ui_states() {
     let mut f = Fixture::for_scenario(Scenario::Harness);
+    let who = f.who.clone();
+    f.declare_harnesses(&who);
     // Display the Codex controls without starting a provider or granting access.
     f.h.app.presence.agents[0].profile.provider = "codex".into();
-    let who = f.who.clone();
     f.settle();
     let out = f.click(Id::new(("presence-chat", who.as_str())));
     f.save(

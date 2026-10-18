@@ -985,7 +985,10 @@ impl SlateApp {
         // Paste only when the clipboard has text. Track the chord here so a
         // copied image or file still reaches `board.paste`.
         let focused = ctx.input(|i| i.focused);
-        let paste_edge = self.take_paste_chord_edge(focused);
+        let mut paste_edge = self.take_paste_chord_edge(focused);
+        if self.presence_poll_attachments(ctx, paste_edge.is_some()) {
+            paste_edge = None;
+        }
         // Presentation mode owns the keyboard (handled in present_frame).
         if self.presenting.is_some() {
             self.space_tap = SpaceTap::default();

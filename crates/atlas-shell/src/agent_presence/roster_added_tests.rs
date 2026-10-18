@@ -122,7 +122,7 @@ fn codex_full_access_is_a_provider_grant_separate_from_board_access() {
         .expect("independent Codex provider control is available");
     assert!(text_rect(
         &out,
-        "Provider tools can write in the AI workspace; board access remains scoped."
+        "Provider tools can run commands and write files without approval; board access remains scoped."
     )
     .is_some());
     assert!(f

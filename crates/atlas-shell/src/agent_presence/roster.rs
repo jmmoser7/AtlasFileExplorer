@@ -307,7 +307,7 @@ fn capsules_ui(
 pub fn retired_profiles_ui(ui: &mut Ui, profiles: &[RetiredProfile<'_>]) -> Vec<PresenceAction> {
     let mut actions = Vec::new();
     ui.strong("Retired collaborators");
-    ui.small("Restore identity and conversation. Work and permissions start fresh.");
+    ui.small("Restore identity, conversation, and saved access choices.");
     for profile in profiles {
         ui.horizontal(|ui| {
             ui.label(profile.name);

@@ -335,10 +335,10 @@ fn header_ui(
             {
                 state.toggle_popover(Popover::Hats);
             }
-            x += if compact { 34.0 } else { 39.0 };
+            x += if compact { 38.0 } else { 43.0 };
             let provider = Rect::from_min_max(
                 Pos2::new(x, header.top() + 6.0),
-                Pos2::new(right - 60.0, header.bottom() - 6.0),
+                Pos2::new(right - 64.0, header.bottom() - 6.0),
             );
             chrome::provider(
                 ui,

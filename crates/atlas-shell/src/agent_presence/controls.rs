@@ -91,7 +91,7 @@ pub(super) fn show(
             })
     });
     // A model combo box owns its nested popup until that popup is dismissed.
-    if outside && !ctx.memory(|memory| memory.any_popup_open()) {
+    if outside && !state.model_menu_open {
         state.popover = None;
         state.requested_provider = None;
         state.model_menu_open = false;
