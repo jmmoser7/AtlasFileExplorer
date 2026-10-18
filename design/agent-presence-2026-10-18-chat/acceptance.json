@@ -23,7 +23,7 @@
     {
       "id": "compact-persistent-nonmodal-chat",
       "implementation": "implemented-awaiting-verification",
-      "automated": "pending-current-checks",
+      "automated": "passed-current-CI",
       "native": "untested",
       "user": "awaiting-review",
       "expected": "The compact chat remains visible and usable without modal blocking; the board remains available.",
@@ -36,7 +36,7 @@
     {
       "id": "board-select-pan-zoom-while-composer-focused",
       "implementation": "implemented-awaiting-verification",
-      "automated": "pending-current-checks",
+      "automated": "passed-current-CI",
       "native": "untested",
       "user": "awaiting-review",
       "expected": "Board selection and camera gestures still work while chat remains open and composer focus is retained where appropriate.",
@@ -50,7 +50,7 @@
     {
       "id": "existing-agent-all-segments-open-chat",
       "implementation": "implemented-awaiting-verification",
-      "automated": "pending-current-checks",
+      "automated": "passed-current-CI",
       "native": "untested",
       "user": "awaiting-review",
       "expected": "Both targets open the intended agent chat, and the popup tracks its roster segment after resize.",
@@ -63,7 +63,7 @@
     {
       "id": "single-harness-click-enters-chat",
       "implementation": "implemented-awaiting-verification",
-      "automated": "pending-current-checks",
+      "automated": "passed-current-CI",
       "native": "untested",
       "user": "awaiting-review",
       "expected": "A single harness choice adds the collaborator and reaches its chat/message flow.",
@@ -76,7 +76,7 @@
     {
       "id": "pause-listen-resume-same-conversation",
       "implementation": "implemented-awaiting-verification",
-      "automated": "pending-current-checks",
+      "automated": "passed-current-CI",
       "native": "untested",
       "user": "awaiting-review",
       "expected": "The message stays in the same conversation; paused work waits for explicit resume.",
@@ -90,7 +90,7 @@
     {
       "id": "stop-error-fresh-request-and-explicit-continue",
       "implementation": "implemented-awaiting-verification",
-      "automated": "pending-current-checks",
+      "automated": "passed-current-CI",
       "native": "untested",
       "user": "awaiting-review",
       "expected": "A fresh request starts without losing visible history; errors do not silently resume board work.",
@@ -105,7 +105,7 @@
     {
       "id": "missing-rollout-rebind-visible-history-once",
       "implementation": "implemented-awaiting-verification",
-      "automated": "pending-current-checks",
+      "automated": "passed-current-CI",
       "native": "untested",
       "user": "awaiting-review",
       "expected": "Recovery starts a fresh thread when required and visible turns appear once without markers or duplicate answers.",
@@ -119,7 +119,7 @@
     {
       "id": "codex-steer-provider-acknowledgement",
       "implementation": "implemented-awaiting-verification",
-      "automated": "pending-current-checks",
+      "automated": "passed-current-CI",
       "native": "untested",
       "user": "awaiting-review",
       "expected": "Steering is associated with the matching active request and is shown as delivered only after matching acknowledgement.",
@@ -133,7 +133,7 @@
     {
       "id": "other-harness-follow-up-queue",
       "implementation": "implemented-awaiting-verification",
-      "automated": "pending-current-checks",
+      "automated": "passed-current-CI",
       "native": "untested",
       "user": "awaiting-review",
       "expected": "Follow-ups queue in order on the intended harness and do not replace its active request or leak across harnesses.",
@@ -147,7 +147,7 @@
     {
       "id": "public-progress-inline-private-reasoning-excluded",
       "implementation": "implemented-awaiting-verification",
-      "automated": "pending-current-checks",
+      "automated": "passed-current-CI-synthetic-contract-live-provider-unverified",
       "native": "untested",
       "user": "awaiting-review",
       "expected": "Public activity appears inline while private reasoning and tool payloads are excluded.",
@@ -161,7 +161,7 @@
     {
       "id": "text-paste-and-image-attachments",
       "implementation": "implemented-awaiting-verification",
-      "automated": "pending-current-checks",
+      "automated": "passed-current-CI-input-contract-native-clipboard-unverified",
       "native": "untested",
       "user": "awaiting-review",
       "expected": "Text remains intact in the composer and sends through the existing action; image is represented as explicit media input.",
@@ -176,7 +176,7 @@
     {
       "id": "attachment-retry-retains-composer-draft",
       "implementation": "implemented-awaiting-verification",
-      "automated": "pending-current-checks",
+      "automated": "passed-current-CI",
       "native": "untested",
       "user": "awaiting-review",
       "expected": "Retry preserves the composed text and image draft until the retry is submitted.",
@@ -189,7 +189,7 @@
     {
       "id": "retained-identity-harness-workspace-consent",
       "implementation": "implemented-awaiting-verification",
-      "automated": "pending-current-checks",
+      "automated": "passed-current-CI",
       "native": "untested",
       "user": "awaiting-review",
       "expected": "Consent is restored only for the exact identity/provider/scope and confers no live session authority by itself.",
@@ -203,7 +203,7 @@
     {
       "id": "revocation-and-helper-scope",
       "implementation": "implemented-awaiting-verification",
-      "automated": "pending-current-checks",
+      "automated": "passed-current-CI",
       "native": "untested",
       "user": "awaiting-review",
       "expected": "Revocation removes live authority and helper scope cannot exceed the grant; retired work cannot continue.",
@@ -218,7 +218,7 @@
     {
       "id": "authored-text-and-autonomous-current-workbook-save",
       "implementation": "implemented-awaiting-verification",
-      "automated": "pending-current-checks",
+      "automated": "passed-current-CI",
       "native": "untested",
       "user": "awaiting-review",
       "expected": "The opted-in collaborator saves current authored text to the current workbook.",
@@ -231,7 +231,7 @@
     {
       "id": "pending-proposals-not-silently-saved",
       "implementation": "implemented-awaiting-verification",
-      "automated": "pending-current-checks",
+      "automated": "passed-current-CI",
       "native": "untested",
       "user": "awaiting-review",
       "expected": "An agent with a review-required grant cannot invoke app.save. Human Save persists committed board content; pending previews remain uncommitted until accepted and are not silently included in the saved file.",
@@ -244,7 +244,7 @@
     {
       "id": "local-feedback-report-without-outbound-post",
       "implementation": "implemented-awaiting-verification",
-      "automated": "pending-current-checks",
+      "automated": "passed-current-CI",
       "native": "untested",
       "user": "awaiting-review",
       "expected": "Feedback is bounded and local; no outbound post is issued.",
@@ -257,7 +257,7 @@
     {
       "id": "hat-unclipped-approved-face-and-fits",
       "implementation": "implemented-awaiting-verification",
-      "automated": "pending-current-checks",
+      "automated": "passed-current-CI",
       "native": "untested",
       "user": "awaiting-review",
       "expected": "Approved face and hat remain fitted and unclipped within the viewport.",
@@ -269,5 +269,16 @@
       "actions": "Render the approved avatar face with its existing hat artwork at the supported view/scale, including near the viewport edge."
     }
   ],
-  "evidence_note": "Six actual-widget software renders were captured for source 254201a7 and failed the wide anchor; corrected source 9a1aa579 needs new captures. Luna smoke passed history, steer acknowledgement, completed-before-stop, and retry; public activity was 0. Final native app interaction validation is pending safe closure of the existing old session."
+  "widget_capture_review": {
+    "status": "passed",
+    "source_revision": "9a1aa579b46cd4500a887e0d0e70eb367ab6955b",
+    "production_equivalent_through": "2ea15a8e1566d8c73d0185646fa839d52b2ed675",
+    "manifest": "widget-captures-9a1aa579/manifest.json",
+    "reviewers": [
+      "root",
+      "chat_intent_visual_review (gpt-6-luna)"
+    ],
+    "scope": "Actual Slate widgets rendered in six fixture states on Windows; this is separate from native desktop interaction and user acceptance."
+  },
+  "evidence_note": "Current code revision 2ea15a8e1566d8c73d0185646fa839d52b2ed675 passed GitHub CI run 39158973622: Windows check job 117768026991, Linux fmt+full workspace test job 117768027084, and strict Linux Clippy job 117768027146. The listed existing test symbols are covered by the passing workspace tests/checks; this records automated code evidence, not native interaction or user acceptance. Six actual-widget fixture captures from 9a1aa579 (production equivalent through 2ea15a8e; later source changes are fixtures only) passed root and independent visual review. Live Luna smoke had 0 public activity events, so real provider progress remains unverified. Stop/cancel coverage includes a completed-before-stop race, not proof of cancellation of active work. Clipboard tests cover composer routing and explicit media input; native bitmap clipboard behavior remains unverified. Native desktop interaction and user acceptance remain pending."
 }

@@ -1,0 +1,63 @@
+{
+  "capturedSourceRevision": "9a1aa579b46cd4500a887e0d0e70eb367ab6955b",
+  "productionEquivalentThrough": "2ea15a8e1566d8c73d0185646fa839d52b2ed675",
+  "binary": {
+    "path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\target\\release\\deps\\slate-fc7790602d20a07c.exe",
+    "sha256": "42606dbbb133b3b74a12d9d2f3be42e866465a7d8115a3f8ba6f416b3f3a957a",
+    "modifiedUtc": "2026-10-18T19:33:57.8286396Z",
+    "sourceRevision": "9a1aa579b46cd4500a887e0d0e70eb367ab6955b",
+    "productionEquivalentThrough": "2ea15a8e1566d8c73d0185646fa839d52b2ed675",
+    "method": "Actual Slate widgets via SlateFrameRaster; not native desktop interaction"
+  },
+  "method": "Actual production Slate widgets rendered through SlateFrameRaster on Windows with egui fixture input",
+  "content": "Synthetic conversation and public progress; no provider task launched by these captures",
+  "reviewedUtc": "2026-10-18T19:35:47.0886055Z",
+  "reviewers": [
+    "root",
+    "chat_intent_visual_review (gpt-6-luna)"
+  ],
+  "nativeDesktopInteractionVerified": false,
+  "userAcceptance": "awaiting-review",
+  "limitations": [
+    "Agent settings Copy @identity row is partly visible at the scroll viewport edge.",
+    "The short live Luna smoke emitted no public activity; progress appearance is verified synthetically."
+  ],
+  "states": [
+    {
+      "state": "compact",
+      "file": "chat-firstuse-compact.png",
+      "sha256": "ec4bcf72982d1689b3b8720953036e75728a8f8bf510dd910902ad376f9526c0",
+      "visualReview": "pass"
+    },
+    {
+      "state": "working",
+      "file": "chat-firstuse-working.png",
+      "sha256": "3a56569602147ff36fb1bbc99ba963a859148e7d45ef2c8a79960eb9c41ecdc5",
+      "visualReview": "pass"
+    },
+    {
+      "state": "working-narrow",
+      "file": "chat-firstuse-working-narrow.png",
+      "sha256": "0db3123161d2685cd9fa7c4c2adebd94852f7d398a87331dfc1eccc7b0b087ad",
+      "visualReview": "pass"
+    },
+    {
+      "state": "settings",
+      "file": "chat-firstuse-settings.png",
+      "sha256": "d80337ec231a66042164b08492aacb81bb11f666d8c336690cf7848e198d8a8e",
+      "visualReview": "pass"
+    },
+    {
+      "state": "agent-settings",
+      "file": "chat-firstuse-agent-settings.png",
+      "sha256": "0c000d7d44b21d77073de859e0c64b776ff28cd2a9024995e79ce380e590d6f9",
+      "visualReview": "pass"
+    },
+    {
+      "state": "harness-picker",
+      "file": "chat-firstuse-harness-picker.png",
+      "sha256": "ff2bc8089758377ba14352eddf659281a8d728e797f12f7beee5a4384f2d2268",
+      "visualReview": "pass"
+    }
+  ]
+}
