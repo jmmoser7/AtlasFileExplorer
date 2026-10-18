@@ -70,20 +70,16 @@ impl SlateApp {
             self.settings.presence_reduced_motion || chrome::system_reduced_motion(painter.ctx());
         let tab = self.tab().id;
         let now = painter.ctx().input(|i| i.time);
-        let portal = if self
-            .presence
-            .agents
-            .iter()
-            .any(|a| a.tab == tab && a.departure.as_ref().is_some_and(|d| d.1 == "portal"))
+        self.presence.drawing_farewells.begin_frame();
+        let portal = if !self.presence.drawing_farewells.is_empty()
+            || self
+                .presence
+                .agents
+                .iter()
+                .any(|a| a.tab == tab && a.departure.as_ref().is_some_and(|d| d.1 == "portal"))
         {
-            self.doc()
-                .scene
-                .query_rect(self.board_paint_view(self.canvas_rect))
-                .into_iter()
-                .filter_map(|id| self.doc().scene.node(id))
-                .filter(|n| matches!(n.kind, NodeKind::Portal(_)))
-                .map(|n| xf.rect_w2s(n.rect))
-                .find(|r| r.intersects(self.canvas_rect))
+            self.presence_departure_portal_rect()
+                .map(|r| xf.rect_w2s(r))
         } else {
             None
         };
@@ -167,6 +163,9 @@ impl SlateApp {
             }
             if let Some(work) = &a.work {
                 for (helper, position) in work.drawing_helpers() {
+                    self.presence
+                        .drawing_farewells
+                        .observe(tab, helper, position, &a.profile.hat);
                     let helper_center = xf.w2s(egui::pos2(position.x as f32, position.y as f32));
                     self.presence.painter.paint_world_avatar(
                         painter,
@@ -196,6 +195,42 @@ impl SlateApp {
                 );
             }
         }
+        self.presence.drawing_farewells.finish_frame(
+            tab,
+            now,
+            portal.is_some(),
+            &mut self.presence.departures,
+        );
+        if self.presence.drawing_farewells.paint(
+            painter,
+            &mut self.presence.painter,
+            xf,
+            tab,
+            now,
+            reduced,
+            self.canvas_rect,
+            portal,
+        ) {
+            painter
+                .ctx()
+                .request_repaint_after(std::time::Duration::from_millis(16));
+        }
+    }
+
+    /// The same visible portal is used to admit and paint portal departures.
+    pub(super) fn presence_departure_portal_rect(&self) -> Option<slate_doc::scene::WorldRect> {
+        if !self.canvas_rect.is_finite() || !self.canvas_rect.is_positive() {
+            return None;
+        }
+        let xf = self.board_xf();
+        self.doc()
+            .scene
+            .query_rect(self.board_paint_view(self.canvas_rect))
+            .into_iter()
+            .filter_map(|id| self.doc().scene.node(id))
+            .filter(|n| matches!(n.kind, NodeKind::Portal(_)))
+            .map(|n| n.rect)
+            .find(|r| xf.rect_w2s(*r).intersects(self.canvas_rect))
     }
     pub(super) fn presence_activity_window(&mut self, ctx: &egui::Context) {
         let Some(who) = self.presence.inspect.clone() else {

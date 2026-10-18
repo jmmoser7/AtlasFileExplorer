@@ -353,6 +353,11 @@ fn retirement(
             .size(15.0)
             .color(palette.ink),
     );
+    ui.selectable_value(
+        &mut state.retirement,
+        super::RANDOM_DEPARTURE.into(),
+        "Surprise me",
+    );
     for departure in &art::master().departures {
         ui.selectable_value(
             &mut state.retirement,

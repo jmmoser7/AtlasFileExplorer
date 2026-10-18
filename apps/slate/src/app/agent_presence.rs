@@ -13,6 +13,7 @@ mod controls;
 pub(crate) use consent_policy::AgentConsentPolicy;
 mod attachments;
 mod brush_preview;
+mod drawing_farewells;
 pub(crate) use brush_preview::BrushCoverage;
 mod conversation;
 mod conversation_store;
@@ -174,6 +175,8 @@ pub struct PresenceRuntime {
     links: atlas_ai::board_link::BoardLinks,
     sources: atlas_ai::agent::AgentSources,
     painter: chrome::PresencePainter,
+    departures: chrome::DepartureSequence,
+    drawing_farewells: drawing_farewells::DrawingFarewells,
     chrome: chrome::RosterState,
     avatar_hold: Option<avatar_input::InputHold>,
     avatar_gesture_captured: bool,
@@ -334,7 +337,10 @@ impl SlateApp {
             "presence.cancel" => chrome::PresenceAction::Cancel { id: who },
             "presence.retire" => chrome::PresenceAction::Retire {
                 id: who,
-                style: value["style"].as_str().unwrap_or("bow").into(),
+                style: value["style"]
+                    .as_str()
+                    .unwrap_or(chrome::RANDOM_DEPARTURE)
+                    .into(),
             },
             "presence.restore" => chrome::PresenceAction::Restore { id: who },
             "presence.locate" => chrome::PresenceAction::Locate { id: who },
