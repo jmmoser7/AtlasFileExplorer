@@ -19,9 +19,17 @@ impl SlateApp {
         };
         let mut value = json!({
             "id":node.id.0.to_string(), "kind":node.kind.kind_name(),
-            "rect":node.rect,"locked":node.locked,"hidden":node.hidden,"text":text,
+            "rect":node.rect,"rotation_deg":node.rotation_deg,"locked":node.locked,"hidden":node.hidden,"text":text,
         });
         if let NodeKind::Image(image) = &node.kind {
+            value["crop"] = json!(image.crop);
+            value["mirror"] = json!({"x":image.flip_x,"y":image.flip_y});
+            value["croppable"] = json!(self.croppable_image(node.id));
+            value["mask"] = json!({"present":node.clip.is_some(),
+                "closed":node.clip.as_ref().map(|clip|clip.closed),
+                "segments":node.clip.as_ref().map(|clip|clip.segs.len()),
+                "extra_contours":node.clip.as_ref().map(|clip|clip.extra.len()),
+                "fill_rule":node.clip.as_ref().map(|clip|clip.fill_rule)});
             value["item"] = json!({"id":image.item.0.to_string()});
             if let Some(item) = self.doc().item(image.item) {
                 // Names are board metadata, not permission to open source bytes.

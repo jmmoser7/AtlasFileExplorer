@@ -14,6 +14,9 @@ mod chrome_render;
 #[path = "proposal_chat_tests.rs"]
 mod proposal_chat;
 
+#[path = "crop_tests.rs"]
+mod crop;
+
 #[test]
 fn mentions_resolve_exact_names_and_disambiguate_by_identity() {
     let roster = [("one", "Dot"), ("two", "Dot helper")];
@@ -32,14 +35,14 @@ fn mentions_resolve_exact_names_and_disambiguate_by_identity() {
     );
 }
 
-fn host() -> Harness {
+pub(super) fn host() -> Harness {
     let mut h = Harness::new("native_presence");
     h.app.at_home = false;
     h.app.doc_mut().view.active_view = slate_doc::ViewKind::Board;
     h.app.ai.config.workspace_dir = Some(h.base.clone());
     h
 }
-fn add(h: &mut Harness, name: &str) -> String {
+pub(super) fn add(h: &mut Harness, name: &str) -> String {
     let profile = StoredAgent {
         id: atlas_agent::request_id(),
         name: name.into(),
@@ -375,7 +378,8 @@ fn a_carried_frame_keeps_its_contents_at_the_same_visible_offset() {
         position: point(250.0, 170.0),
         phase: MotionPhase::Work,
         progress: 0.5,
-    });
+    })
+    .unwrap();
     let visible_frame = &work.previews[&frame.id];
     let visible_child = &work.previews[&child.id];
     assert_eq!(visible_frame.rect.x, 100.0);

@@ -1,7 +1,7 @@
 {
   "schema": "slate-presence-validation/v1",
   "date": "2026-10-17",
-  "implementation": "Integration remains incomplete. Pre-index full atlas-shell passed386 with seven ignored, exact195-case material export passed but retained97.954-143.541ms seven-glyph cold cost blockers, full relay v2 passed12, and candidate-index vector package passed171 with one ignored. Fresh agent45 and vector SAT164 passes remain retained. Candidate-index shared/parity/cost checks and central test-only catalog-hold app execution remain pending. Final app/workspace/build/native workflows and human acceptance remain unverified.",
+  "implementation": "Integration remains incomplete. The private candidate index was removed and coverage.rs restored exactly to projection-SAT SHA8074271c; the current combined post-restore app/workspace validation is pending. Vector171/0/1, shared386/0/8, exact195 parity and123 structural zoom frames are historical candidate-index results; earlier164 SAT validation is historical too. New-size stalls remain unresolved, with no speedup established. The diagnostic compiler exited0 but profiler did not start; cause unknown, no retry/timing. Final six-file crop geometry and nine-test inventory are applied source only; agent adapter scratch v2 timing correction and current app/workspace/releases/native/human validation remain pending.",
   "finalBinary": null,
   "coordinatedBuild": {
     "command": "cargo build --locked --release -p slate --jobs 1",
@@ -3080,21 +3080,608 @@
         "sha256": "b6a7c08a98c8748c3d350fa00768c2f1016b70bd501a5741f84fd9622a8c0406"
       },
       "boundary": "Actual complete vector package pass for the private candidate-index source:165 unit,2 pen-fit,4 texture cases; one ignored benchmark remains unexecuted. This establishes the identified geometry/index regression layer only. Fresh shared tests, exact195 MIM1 and texture-ID parity, changing-zoom CPU costs, app/native performance and human acceptance remain separate pending gates."
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "atlas-shell",
+        "--jobs",
+        "1",
+        "--no-fail-fast",
+        "--lib"
+      ],
+      "result": "passed",
+      "exitCode": 0,
+      "exitCodeScope": "Direct Cargo process exit retained by normal package runner",
+      "passed": 386,
+      "failed": 0,
+      "ignored": 8,
+      "runtimeSeconds": 5.91,
+      "elapsedSeconds": 501.06834840000374,
+      "startedUtc": "2026-10-18T03:27:35.073708+00:00",
+      "finishedUtc": "2026-10-18T03:35:58.193523+00:00",
+      "identity": "target/presence-shell-candidate-index-20261018.json",
+      "identitySha256": "a071ed721dbfe3e9cfb6fa69cdc26e7a3610433db5ad523032f61066439e5880",
+      "sourceStable": true,
+      "sourceIdentityCount": 596,
+      "libtestSummaries": [
+        "test result: ok. 386 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 5.91s"
+      ],
+      "harnesses": [
+        {
+          "path": "target/release/deps/atlas_shell-feec840f2954a4d7.exe",
+          "bytes": 15319552,
+          "sha256": "269bb18bd6d93e0161172016148bd0033f02790c3b58008bc3e81c074789e9eb"
+        }
+      ],
+      "rawLog": {
+        "path": "target/presence-shell-candidate-index-20261018.log",
+        "bytes": 36341,
+        "sha256": "c11bef9ac97618cd0989fbc0c2336e5f48ac3ab32d9a2558f0923d8c3dc05734"
+      },
+      "boundary": "Actual complete candidate-index atlas-shell library pass. Eight ignored tests are unexecuted by this normal suite. Material parity and cost probes are separately retained. This is no full-app, native/GPU, performance or human acceptance."
+    },
+    {
+      "command": [
+        "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\target\\release\\deps\\atlas_shell-feec840f2954a4d7.exe",
+        "icons::media_tests::coverage::export_media_icon_pixels_for_visual_audit",
+        "--ignored",
+        "--exact",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "result": "passed",
+      "exitCode": 0,
+      "exitCodeScope": "Direct identified shared harness export process; full package verdict is separate",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 393,
+      "runtimeSeconds": 27.61,
+      "startedUtc": "2026-10-18T03:36:15.118661+00:00",
+      "finishedUtc": "2026-10-18T03:36:43.391465+00:00",
+      "identity": "target/presence-candidate-index-matrix-20261018.json",
+      "identitySha256": "57ec2b8dbbaee9e6ddc5591b751627b2642c78631002ae1668acd26c9d580305",
+      "sourceStable": true,
+      "harnessStable": true,
+      "harness": {
+        "path": "target/release/deps/atlas_shell-feec840f2954a4d7.exe",
+        "bytes": 15319552,
+        "sha256": "269bb18bd6d93e0161172016148bd0033f02790c3b58008bc3e81c074789e9eb"
+      },
+      "suiteReceipt": {
+        "path": "target/presence-shell-candidate-index-20261018.json",
+        "bytes": 215957,
+        "sha256": "a071ed721dbfe3e9cfb6fa69cdc26e7a3610433db5ad523032f61066439e5880"
+      },
+      "rawLog": {
+        "path": "design/media-ui-2026-10-17/native/presence-candidate-index-matrix-20261018/export.log",
+        "bytes": 199,
+        "sha256": "663d6bcc98944693717e418574f502e1058a45f22a45c43264d2a12e55eb922b"
+      },
+      "libtestSummaries": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 393 filtered out; finished in 27.61s"
+      ],
+      "output": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\design\\media-ui-2026-10-17\\native\\presence-candidate-index-matrix-20261018",
+      "artifactCount": 209,
+      "exactAudit": {
+        "path": "target/presence-candidate-index-matrix-audit-20261018.json",
+        "bytes": 93441,
+        "sha256": "015581ba263a5595e7ec6bdff8fa53ce1ba6a8828c1a5139527bf74a1973d5bc"
+      },
+      "cases": 195,
+      "exactGeometryAndTextureIdsEqual": true,
+      "mismatches": [],
+      "missing": [],
+      "allWarmGeometryReuse": true,
+      "coldTotalUs": 2929245,
+      "preIndexColdTotalUs": 2488748,
+      "sevenGlyphBundles": [
+        {
+          "slot_points": 15.600000381469727,
+          "ppp": 1,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 170397,
+          "warm_us": 15
+        },
+        {
+          "slot_points": 15.600000381469727,
+          "ppp": 1.5,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 126006,
+          "warm_us": 12
+        },
+        {
+          "slot_points": 15.600000381469727,
+          "ppp": 2,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 118257,
+          "warm_us": 13
+        },
+        {
+          "slot_points": 16,
+          "ppp": 1,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 149595,
+          "warm_us": 14
+        },
+        {
+          "slot_points": 16,
+          "ppp": 1.5,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 86656,
+          "warm_us": 12
+        },
+        {
+          "slot_points": 16,
+          "ppp": 2,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 109011,
+          "warm_us": 15
+        },
+        {
+          "slot_points": 20,
+          "ppp": 1,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 146559,
+          "warm_us": 14
+        },
+        {
+          "slot_points": 20,
+          "ppp": 1.5,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 108811,
+          "warm_us": 13
+        },
+        {
+          "slot_points": 20,
+          "ppp": 2,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 116455,
+          "warm_us": 56
+        },
+        {
+          "slot_points": 24,
+          "ppp": 1,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 146640,
+          "warm_us": 13
+        },
+        {
+          "slot_points": 24,
+          "ppp": 1.5,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 114798,
+          "warm_us": 17
+        },
+        {
+          "slot_points": 24,
+          "ppp": 2,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 118418,
+          "warm_us": 15
+        },
+        {
+          "slot_points": 31.200000762939453,
+          "ppp": 1,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 118125,
+          "warm_us": 14
+        },
+        {
+          "slot_points": 31.200000762939453,
+          "ppp": 1.5,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 102211,
+          "warm_us": 12
+        },
+        {
+          "slot_points": 31.200000762939453,
+          "ppp": 2,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 112792,
+          "warm_us": 14
+        }
+      ],
+      "maxColdCase": {
+        "key": "Sliders/24/1",
+        "cold_us": 73705,
+        "exact_mesh_file": "geometry/Sliders-41c00000-3f800000.mesh",
+        "icon": "Sliders",
+        "ppp": 1,
+        "slot_points": 24,
+        "texture_id": "Managed(0)",
+        "triangles": 2939,
+        "vertices": 6848,
+        "warm_reused_geometry": true,
+        "warm_us": 2,
+        "bytes": 172240,
+        "sha256": "03028c45d47d3cbddb6fc4aa0d115fa789ee04a72786c2c17748d3b63b9b73b0"
+      },
+      "performanceVerdict": "BLOCKED; no speedup established by these actual measurements",
+      "boundary": "Actual candidate-index export passed and the retained Node audit reports all195 exact geometry/texture identities equal. This documentation update independently compares all195 SHA/byte-count/texture identities and verifies209 artifact hashes; it executes no Node/build/test. Cold total2,929,245us exceeds the retained pre-index2,488,748us observation. Exact appearance preservation is established only at this material layer, not native full-app interaction or GPU smoothness."
+    },
+    {
+      "command": [
+        "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\target\\release\\deps\\atlas_shell-feec840f2954a4d7.exe",
+        "icons::media_tests::coverage::export_media_changing_zoom_paint_cost",
+        "--ignored",
+        "--exact",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "result": "passed",
+      "resultScope": "Structural probe and retained measurements only; performance remains BLOCKED",
+      "exitCode": 0,
+      "exitCodeScope": "Direct identified shared harness probe process",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 393,
+      "runtimeSeconds": 4.95,
+      "startedUtc": "2026-10-18T03:36:55.890736+00:00",
+      "finishedUtc": "2026-10-18T03:37:01.634609+00:00",
+      "identity": "target/presence-candidate-index-changing-zoom-20261018.json",
+      "identitySha256": "52a7a3b285eb333531dd69c4786421a8f7fb89473af0bcdf7d5336b77b1f9d07",
+      "sourceStable": true,
+      "harnessStable": true,
+      "suiteReceiptStable": true,
+      "harness": {
+        "path": "target/release/deps/atlas_shell-feec840f2954a4d7.exe",
+        "bytes": 15319552,
+        "sha256": "269bb18bd6d93e0161172016148bd0033f02790c3b58008bc3e81c074789e9eb"
+      },
+      "rawLog": {
+        "path": "design/media-ui-2026-10-17/native/presence-candidate-index-changing-zoom-20261018/paint.log",
+        "bytes": 194,
+        "sha256": "f9fb04905787f07470482a4ff515769f0d3e76a227ddfa695611a041faff6b3c"
+      },
+      "libtestSummaries": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 393 filtered out; finished in 4.95s"
+      ],
+      "measurements": {
+        "records": 123,
+        "percentileMethod": "nearest rank, ceil(p * count)",
+        "allDpi": {
+          "all": {
+            "frames": 123,
+            "total_us": 4919392,
+            "max_us": 123901,
+            "p50_us": 60782,
+            "p95_us": 110585
+          },
+          "new_size": {
+            "frames": 63,
+            "total_us": 4918989,
+            "max_us": 123901,
+            "p50_us": 66961,
+            "p95_us": 116476
+          },
+          "returning_size": {
+            "frames": 60,
+            "total_us": 403,
+            "max_us": 27,
+            "p50_us": 5,
+            "p95_us": 10
+          }
+        },
+        "perDpi": [
+          {
+            "ppp": 1.0,
+            "all": {
+              "frames": 41,
+              "total_us": 1410345,
+              "max_us": 77527,
+              "p50_us": 61531,
+              "p95_us": 72039
+            },
+            "new_size": {
+              "frames": 21,
+              "total_us": 1410241,
+              "max_us": 77527,
+              "p50_us": 65900,
+              "p95_us": 76834
+            },
+            "returning_size": {
+              "frames": 20,
+              "total_us": 104,
+              "max_us": 17,
+              "p50_us": 5,
+              "p95_us": 6
+            }
+          },
+          {
+            "ppp": 1.5,
+            "all": {
+              "frames": 41,
+              "total_us": 1376950,
+              "max_us": 85717,
+              "p50_us": 59762,
+              "p95_us": 69582
+            },
+            "new_size": {
+              "frames": 21,
+              "total_us": 1376852,
+              "max_us": 85717,
+              "p50_us": 63234,
+              "p95_us": 77175
+            },
+            "returning_size": {
+              "frames": 20,
+              "total_us": 98,
+              "max_us": 17,
+              "p50_us": 4,
+              "p95_us": 8
+            }
+          },
+          {
+            "ppp": 2.0,
+            "all": {
+              "frames": 41,
+              "total_us": 2132097,
+              "max_us": 123901,
+              "p50_us": 64815,
+              "p95_us": 117423
+            },
+            "new_size": {
+              "frames": 21,
+              "total_us": 2131896,
+              "max_us": 123901,
+              "p50_us": 105706,
+              "p95_us": 120166
+            },
+            "returning_size": {
+              "frames": 20,
+              "total_us": 201,
+              "max_us": 27,
+              "p50_us": 9,
+              "p95_us": 10
+            }
+          }
+        ],
+        "measurementMetadata": {
+          "boundary": "shared CPU component measurement only; no timing pass or app/native smoothness inference",
+          "cache_scope": "fresh thread/context per DPI; returning sizes are identified, not presumed cache hits",
+          "excluded": "Context construction, output counting, serialization, tessellation, GPU and app frame work",
+          "source": "production BlisterLayout::paint_icon overlay, seven actual image glyphs",
+          "timed": "Context::run including layout and icon paint; no glyph prewarm"
+        }
+      },
+      "performanceVerdict": "BLOCKED: new-size CPU paint p50/p95/max66.961/116.476/123.901ms; returning-size p9510us",
+      "boundary": "Shared CPU Context::run layout/icon paint only; no tessellation, GPU, app frame or native smoothness verdict. No timing threshold. Structural123-frame pass has no timing threshold and cannot establish60fps. New-size shared CPU paint alone exceeds the frame budget before excluded tessellation/GPU/app work. No native smoothness or acceptance pass."
+    },
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "result": "failed",
+      "exitCode": 1,
+      "elapsedSeconds": 12.379960799997207,
+      "finishedUtc": "2026-10-18T03:30:50.208911+00:00",
+      "identity": "target/presence-formatting-final-20261018.json",
+      "identitySha256": "065f110fec7d73b91bde23f8db648226571661ca4afa2c752099b81196e1657f",
+      "sourceStable": true,
+      "sourceIdentityCount": 1296,
+      "rawLog": {
+        "path": "target/presence-formatting-final-20261018.log",
+        "bytes": 1708,
+        "sha256": "ff7d3b78aae06670e969b8dd523aa8ec86ddfa11816204bea45cf03819bd9c3c"
+      },
+      "boundary": "Formatting only; no compile, runtime or appearance verdict Initial two-test-file formatting failure and later corrected pass are retained separately; no runtime case is passed by formatting."
+    },
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "result": "passed",
+      "exitCode": 0,
+      "elapsedSeconds": 10.513730799997575,
+      "finishedUtc": "2026-10-18T03:31:51.951384+00:00",
+      "identity": "target/presence-formatting-corrected-20261018.json",
+      "identitySha256": "80e2825693900bd4415e0fdd158ab621074ff51c37dba790dbce2e7e9f8b30ea",
+      "sourceStable": true,
+      "sourceIdentityCount": 1294,
+      "rawLog": {
+        "path": "target/presence-formatting-corrected-20261018.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "boundary": "Formatting only; no compile, runtime or appearance verdict Initial two-test-file formatting failure and later corrected pass are retained separately; no runtime case is passed by formatting."
+    },
+    {
+      "command": "target/media-max-coverage-profile-run.ps1 (one diagnostic compile and one attempted profiler start)",
+      "result": "attempted",
+      "executionStatus": "profiler-not-started; diagnostic blocked before execution",
+      "exitCode": 1,
+      "exitCodeScope": "Diagnostic wrapper exit; compiler separately exited0 and profiler never started, so no profiler exit exists",
+      "observedUtc": "2026-10-18T03:47:08.104330+00:00",
+      "identity": "target/media-max-coverage-profile-root-20261018/root-attempt.json",
+      "identitySha256": "f459c50b1e7a20da62fffc2d82b4e90f8afb3a24b396197d5ea254937817322d",
+      "compile": {
+        "started": true,
+        "exit_code": 0,
+        "error": null
+      },
+      "profiler": {
+        "started": false,
+        "exitCode": null,
+        "errorType": "ApplicationFailedException wrapping InvalidOperationException",
+        "diagnostic": "StandardOutputEncoding is only supported when standard output is redirected."
+      },
+      "outputExists": false,
+      "timingProduced": false,
+      "comparatorProduced": false,
+      "retry": false,
+      "preRunIdentity": {
+        "label": "pre-run",
+        "source_sha256": "c0ece66be5e81d85aa4c194185b08859cad7710d795a08d0867c8577ec6c4de9",
+        "input_sha256": "4b2396f049b5ae8539b6108f92e5489f1845135db8337521ab4f1bdb4f903ab6",
+        "rlib_sha256": "ea82518ed323f72c7b2d7f788f810422b611ca66884f1c2043145f3ee044b959",
+        "rustc_launcher_sha256": "86478e53f769379d7f0ebfa7c9aa97cb76ca92233f79aa2cc0dbee2efaac73c7",
+        "toolchain_rustc_path": "C:\\Users\\jmoser\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\rustc.exe",
+        "toolchain_rustc_sha256": "cf79cfd77b0a144c56a0a6af6bf10bcdf095a73718cd4bf2b9d4fe2d2cbded55",
+        "profiler_exe_sha256": "c89574e294f0566b642d6f005c98d52ba899de69c91aead9f4883e5ed041c3c9"
+      },
+      "postRunIdentity": {
+        "label": "post-run",
+        "source_sha256": "c0ece66be5e81d85aa4c194185b08859cad7710d795a08d0867c8577ec6c4de9",
+        "input_sha256": "4b2396f049b5ae8539b6108f92e5489f1845135db8337521ab4f1bdb4f903ab6",
+        "rlib_sha256": "ea82518ed323f72c7b2d7f788f810422b611ca66884f1c2043145f3ee044b959",
+        "rustc_launcher_sha256": "86478e53f769379d7f0ebfa7c9aa97cb76ca92233f79aa2cc0dbee2efaac73c7",
+        "toolchain_rustc_path": "C:\\Users\\jmoser\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\rustc.exe",
+        "toolchain_rustc_sha256": "cf79cfd77b0a144c56a0a6af6bf10bcdf095a73718cd4bf2b9d4fe2d2cbded55",
+        "profiler_exe_sha256": "c89574e294f0566b642d6f005c98d52ba899de69c91aead9f4883e5ed041c3c9"
+      },
+      "enforcementConclusion": "Unknown; no matching events in queried CodeIntegrity/AppLocker/Defender logs. Do not infer an IT or firewall block.",
+      "boundary": "Actual root attempt compiled successfully but failed to start the profiler. No kernel timing, comparison, runtime validation or speedup result exists. Static PE metadata established AMD64 PE only; it is not launch proof. Read-only event audit found no matching CodeIntegrity/AppLocker/Defender event; cause remains UNKNOWN. Do not infer an IT, managed-policy or firewall denial. No retry or policy/flags/output-shape change is recorded."
     }
   ],
   "pendingChecks": [
+    "Complete agent adapter scratch v2 actual primary-press timing correction and fresh combined source guard; final geometry nine-test inventory is source-only. Preserve and execute original move/resize/crop workflow; no source-only pass",
     "Execute three new source-approved test-only catalog-hold regressions in the fresh full app harness; do not synthesize ready catalogs or permit automatic provider probes in synthetic factories",
     "Complete readback of new full-app chrome captures; normal native fixture catalog queries are possible and no zero-provider-contact claim is allowed",
     "Both exact ignored witnessed-motion tests after updated catalog-pin source identity; retained software evidence is separate from native/GPU smoothness",
     "Fresh external Brush/Layers fallback interaction test and all 37 retained app UI cases after source freeze",
-    "Candidate-index vector 171/0/1 pass is recorded; fresh full shared, exact 195 MIM1 and texture-ID equality against retained pre-index baseline, cold/warm costs and 123-frame changing-zoom CPU paint probe remain pending",
-    "Pre-index full shared386/0/7 pass is recorded; later index source and full app/native gates remain separate",
-    "New coordinated source continuity backup after39ed for later candidate-index/zoom, central test-only catalog hold and updated evidence; current owner/ref state must remain preserved",
+    "Index removed and exact SAT coverage restored; run current combined-source validation and fresh material/zoom costs. Retained candidate171/386/parity/123-frame results are historical, with unresolved cost blocker",
+    "Historical candidate-index shared386/0/8 does not validate current restored source; finish adapter v2 timing correction and execute final guarded current app/workspace/native gates",
+    "Source snapshotd2bb preserves removed index/catalog and60-record docs; exact index reversion, final crop/adapter work and this66-record update need a later immutable backup preserving owner/ref state",
     "Fresh six-file portal/Capture test corrections and separate real Capture host-retention regression; source checks discharge none of the retained UI blockers",
     "All37 retained UI contract blockers: seven nonmedia source diagnoses and thirty media cases need fresh representative app execution; shared narrow-image Brush/Layers fallback source is approved/frozen, runtime pending",
     "V4 real-wheel shared test passed in pre-index386 suite; fresh app proposal decisions and v3 font/capture readiness/request/configuration tests, hosted app repairs and relay draft fixture remain pending",
     "Execute ten source-approved screenshot/recovery isolation regressions, then obtain clean six-state production captures from a fresh identified Slate executable; no native input while the human is away",
-    "Agent caller-opacity regression now passed in identified pre-index shared386 suite; later candidate-index source still needs fresh full shared validation and exact material parity",
+    "Agent caller-opacity and exact material parity passed in historical candidate-index shared386; current post-restore full app/shared/performance/native validation remains pending",
     "Fresh Slate app conversation, durability, image-read, harness, helper, temporary-input-hold and corrected failed-send tests",
     "Two actual Slate app adapters over TLS and independent transcript stores; the separately identified relay v2 package passed12, but fresh app adapter execution remains pending",
     "Relay v2 package12/0/0 pass is recorded without erasing earlier hostile failures; fresh Slate app adapters and transcript durability remain pending",
@@ -3126,7 +3713,7 @@
     "hostedFixtureRepairs": "Four-file root app test-only repairs source-approved: exact request-arrival publication ownership, unchanged real 32-session capacity and approved 12-command schema. Relay draft fixture uses existing no-provider dispatch seam without changing selection/caret/sender assertions. Fresh app runtime remains pending; all 37other UI failures stay open.",
     "proposalScrollV4": "Two-file correction independently source-approved. Actual pre-index full atlas-shell suite passed386/0/7, including corrected real first/last Accept clicks at25/80/100/200%, fixed composer/draft/Send assertions and unchanged production policy. App proposal decision handling, native input and later candidate-index source remain separate. Evidence: target/presence-proposal-scroll-correction-source-v4.json and target/presence-shell-projection-sat-20261018.json.",
     "portalCaptureCorrections": "Six test-only files retain the original narrow fixture and real retention regression; scoped formatting, whitespace, size and DRY plan checks are recorded. Real Capture host-retention production change is separately frozen through the existing canonical locked-node hit path. Fresh app execution remains pending, and material-isolated probes do not prove final overlay visibility/native pixels.",
-    "mediaProjectionSat": "Canonical SAT source passed full vector 164/0/1 and pre-index shared 386/0/7. The exact 195 MIM1 material export passed and retained all warm geometry reuse; 97.954-143.541 ms seven-glyph cold costs remain blocking. Candidate index/zoom source is DRY-approved/frozen and its full vector suite passed 171/0/1. Fresh shared, exact parity, costs and app/native/human gates remain pending.",
+    "mediaProjectionSat": "Retained pre-index SAT and candidate-index reviews/tests are historical. Candidate vector171/0/1 and shared386/0/8 plus exact195 material parity did not establish speedup; the private index was subsequently removed by exact SAT restoration. Current combined-source validation and fresh costs remain pending; no native/human pass.",
     "witnessedMotion": "Independent intent review approved three test-only source files with two ignored witnessed-motion regressions. No compile/run/native claim. Subsequent catalog pin must update support source identity; retained software frames cannot establish native GPU appearance or wall-clock motion smoothness.",
     "catalogProbeIsolation": "Independent intent guardian approved all seven exact source hashes in target/presence-catalog-isolation-source-v2.json. Explicit cfg(test) hold is activated by three synthetic factories only, after queued-result ingestion and before original provider selection. No readiness is fabricated; refresh/adoption behavior is covered by new unexecuted regressions. Production factories and provider behavior remain unchanged.",
     "lateChromeReadinessHealth": {
@@ -3145,7 +3732,8 @@
         "observedFailure": false
       },
       "boundary": "No dedicated on-disk health receipt is known. Coordinator relayed the read-only source finding; no runtime failure, fix or waived check is claimed."
-    }
+    },
+    "cropWitnessedWork": "Final reviewed six-file geometry extension is applied and nine new normal source tests inventoried in the final crop freeze/inventory. No runtime count or pass. Agent adapter scratch v2 still needs primary-press timing correction. Original witness-moving-resizing crop requirement remains unchanged/Untested."
   },
   "nativeInteraction": {
     "result": "Initial 83d build observed after human unlock and manual Add collaborator. User reports UI looks terrible. Actual defects retained; final native workflows and user acceptance remain Untested",
@@ -3162,11 +3750,11 @@
   },
   "evaluation": "native-acceptance.html",
   "coordination": {
-    "cargo": "Coordinator reports sole Cargo session49575 running the fresh candidate-index full shared suite. Candidate-index full vector session74515 completed171/0/1, direct0/sourceStabletrue; no new shared/parity/cost verdict supplied. Pre-index full shared session97565 completed386/0/7 and is retained separately.",
-    "currentJob": "Actual pre-index full shared suite passed386/0/7, exact195-case export passed with all warm geometry reused but seven-glyph cold costs97.954-143.541ms remain blocking, strict relay v2 passed12/0/0, and candidate-index vector passed171/0/1. Later private index and123-frame changing-zoom probe are source-frozen/DRY-approved; fresh full shared session49575 is pending, followed by exact parity/cost checks. Central cfg(test) catalog hold for three synthetic factories is source-frozen/guardian-approved, app execution pending. Latest remote-verified backup is39ed; index/hold and this update are later unbacked changes. User away; no native input.",
-    "nextQueue": "Collect the fresh candidate-index full shared result after its vector 171/0/1 pass, then exact 195 MIM1 plus texture-ID equality against the immutable pre-index baseline, and the changing-zoom CPU shared paint probe. Compile the fully guarded current app after catalog-isolation source freeze; run its new isolation regressions, all 37 retained UI blockers, external Brush/Layers, Capture retention, app messaging/proposals, and exact ignored chrome/motion tests with actual frame readback. Build identified releases and production fixtures, complete normal workspace verification and native/human acceptance when available. Preserve later source backup needs and the no-input restriction while away.",
-    "followupCheck": "Pre-index full shell386/0/7, relay v2 package12/0/0, agent45/0/0, vector SAT164/0/1 and candidate-index vector171/0/1 have actual source-stable receipts. Candidate-index shared/parity/cost checks, the app, native appearance and human acceptance remain pending. The exact195 pre-index export established a baseline and unresolved cold-cost blocker. All37 retained app UI blockers remain open pending fresh app execution.",
-    "workspaceHold": "Candidate-index/shared sources are frozen for the coordinator sole Cargo lease. Central test-only catalog hold is frozen and independently approved; no full app execution is supplied. Source snapshot39ed includes earlier portal/Capture, v4, relay, fallback and chrome/motion fixtures; later index/zoom, central hold and this operational update are outside it. The strengthened app runner source guard includes known shared/app assets and builtin kit, coordinator-reported SHA8cc35f4f0dd44d494ba09cc37c79734e0087b3a3b4dd4cc8399ce4a7f94d1871; AST parse is not execution.",
+    "cargo": "No current post-restore combined-source result is supplied. Normal workspace/app validation remains pending after index removal and active adapter work. Historical candidate-index vector171/0/1 and shared386/0/8 do not validate the current restored source.",
+    "currentJob": "Private candidate index removed: coverage.rs exactly restored to pre-index projection-SAT8074271c, index.rs deleted, final35-file media slice frozen. Historical candidate-index vector171/0/1, shared386/0/8, exact195 parity and123-frame zoom measurements remain retained; neither those nor the old164 SAT pass validate the current combined source. Root diagnostic attempt finished wrapper1/compiler0/profiler-not-started, no output/timing/comparator, unknown cause, no retry. Final six-file crop geometry and nine new normal source tests are inventoried/applied, unexecuted; agent adapter scratch v2 still needs primary-press timing correction. Current normal workspace/app/native/release validation pending; user away, no native input.",
+    "nextQueue": "Complete the agent adapter scratch v2 primary-press timing correction and review its final source, then establish the current combined source/asset guard after exact SAT restoration and crop integration. Run normal app/workspace validation and retained37 UI cases, crop/adapter/motion/catalog/proposal/delivery tests and exact ignored chrome/motion readback. Remeasure current shared material/zoom costs after normal validation; historical index timings are not current post-restore evidence. Do not retry the failed profiler or infer a managed-policy cause. Build identified releases and complete native/executable-bound human acceptance when supported.",
+    "followupCheck": "Current material owner uses exact restored SAT source and no private index. Every earlier vector/shared/material/zoom result belongs to its recorded historical snapshot. Current combined app/workspace validation remains pending. Diagnostic compile0 supplied no profiler execution or timing; cause unknown and no retry. All37 app UI blockers and final/native/human gates remain open.",
+    "workspaceHold": "The35-file final media slice is frozen after exact index reversion, and final six-file crop geometry is source-frozen; the adapter scratch v2 primary-press timing correction is still pending. This is not a final whole-app validated identity or an all-source freeze. Latest remote backupd2bb retains the removed index and prior60-record docs; reversion, later geometry/adapter work and this66-record update are later changes.",
     "native": "User away since 01:41 UTC; no native input or unlock requests. Existing native fixture may perform normal production catalog queries but submits no agent task; isolated cfg(test) frame fixtures pin catalogs. Full-app chrome source is guardian-approved, but its captures have not executed or passed. A later native interaction lease still requires a fresh exact executable, explicit coordinated ownership and human availability.",
     "mediaThread": "01a14b0f-1bf4-71c2-9d4a-bce26d5611ed",
     "tagsThread": "01a14b10-6380-7883-8c19-18cd8972745f",
@@ -4734,14 +5322,14 @@
     },
     "publishedSourceCheckpoint": {
       "state": "source-checkpoint-published-and-verified",
-      "branch": "codex/presence-checkpoint-20261018-905b4451",
-      "commit": "39edbe742f4782669975357445233a17eed76fd8",
-      "tree": "136e37dbfd7a90f5664081b6b03729f1a5442237",
-      "parent": "d309e9ced4a5f63761525961ee32ad74bfbb481e",
+      "branch": "codex/presence-checkpoint-20261018-75cd2aed",
+      "commit": "d2bb139f6c076527f0ceeef9ba5bed10a99fd631",
+      "tree": "ffc357dbd7abf831452991e9ba029ca90bd2ab69",
+      "parent": "39edbe742f4782669975357445233a17eed76fd8",
       "pushed": true,
       "pushExitCode": 0,
-      "verifiedRemoteCommit": "39edbe742f4782669975357445233a17eed76fd8",
-      "finishedUtc": "2026-10-18T03:05:41.600487+00:00",
+      "verifiedRemoteCommit": "d2bb139f6c076527f0ceeef9ba5bed10a99fd631",
+      "finishedUtc": "2026-10-18T03:43:33.082615+00:00",
       "realIndexPreserved": true,
       "ownerHeadAfter": "d172cca5b9289df806b14842dab7b9693cfa4782",
       "ownerBranchAfter": "main",
@@ -4750,16 +5338,19 @@
       "headMainPreserved": true,
       "sourceHashesPreserved": true,
       "receiptHashesPreserved": true,
-      "evidence": "target/presence-checkpoint-later-repairs-905b4451ed3f4b4abf4c53a9bb457f39/publication-b1fe921834cc42649c5963321d44404b/publication.json",
-      "evidenceSha256": "2b6ac6b3e5f21a5b0dad75c2d666eb36fe8d9c9fd1891159e5226c4f4ae3005e",
-      "session": 42271,
-      "exitCode": 0,
+      "evidence": "target/presence-checkpoint-index-catalog-75cd2aedf7ea48b5b2b03012c22ea768/publication-bb7f3087a1e04a7183c54284f8248f30/publication.json",
+      "evidenceSha256": "0644801d85d1a8a01b822a6af6b587d9b4207799c754dbe6863643297476fb33",
+      "review": {
+        "path": "target/presence-checkpoint-index-catalog-75cd2aedf7ea48b5b2b03012c22ea768/review.json",
+        "bytes": 62053,
+        "sha256": "a685e751791785d2c7fe32f6fd813ac653954dc9e0b171691d5e4594bdeb601a"
+      },
       "sourceCheckpointOnly": true,
-      "selectedPathCount": 54,
-      "changedPathCount": 33,
-      "guardedSourceCount": 102,
-      "receiptCount": 13,
-      "boundary": "Fifth source continuity checkpoint39ed is published and remote-verified, parentd309, tree136e37db. Owner main/HEAD/index and all inherited refs, earlier checkpoints and PR57 head remain preserved. Includes pre-index SAT/fallback/Capture/proposal/relay/chrome/motion source repairs. Later candidate-index/zoom and central catalog hold are excluded by chronology. Source publication establishes no runtime/native/performance or human verdict."
+      "selectedPathCount": 14,
+      "changedPathCount": 14,
+      "guardedSourceCount": 109,
+      "receiptCount": 36,
+      "boundary": "Sixth source continuity snapshotd2bb, parent39ed, treeffc357db is published and remote-verified with inherited refs and owner main/HEAD/index preserved. Includes index/catalog source and prior60-record evidence docs. This update and later crop edits are outside the snapshot. Source continuity is no runtime/performance/native/user verdict; PR57 remains on its earlier head."
     },
     "hostedCheckpointValidation": {
       "observedUtc": "2026-10-18T02:20:58.152Z",
@@ -5303,6 +5894,35 @@
         "guardedSourceCount": 79,
         "receiptCount": 9,
         "boundary": "Fourth source continuity checkpoint d309/tree 9f published and remote-verified; parent aab and original 976/58b/aab refs plus owner main/HEAD/index preserved. Later relay-draft dispatch fixture is explicitly excluded. PR 57 remains on 58b against 976 and its hosted failures do not validate this source. Publication has no runtime/native/performance/user verdict."
+      },
+      {
+        "state": "source-checkpoint-published-and-verified",
+        "branch": "codex/presence-checkpoint-20261018-905b4451",
+        "commit": "39edbe742f4782669975357445233a17eed76fd8",
+        "tree": "136e37dbfd7a90f5664081b6b03729f1a5442237",
+        "parent": "d309e9ced4a5f63761525961ee32ad74bfbb481e",
+        "pushed": true,
+        "pushExitCode": 0,
+        "verifiedRemoteCommit": "39edbe742f4782669975357445233a17eed76fd8",
+        "finishedUtc": "2026-10-18T03:05:41.600487+00:00",
+        "realIndexPreserved": true,
+        "ownerHeadAfter": "d172cca5b9289df806b14842dab7b9693cfa4782",
+        "ownerBranchAfter": "main",
+        "allInheritedLocalRefsPreserved": true,
+        "fixedRemoteRefsPreserved": true,
+        "headMainPreserved": true,
+        "sourceHashesPreserved": true,
+        "receiptHashesPreserved": true,
+        "evidence": "target/presence-checkpoint-later-repairs-905b4451ed3f4b4abf4c53a9bb457f39/publication-b1fe921834cc42649c5963321d44404b/publication.json",
+        "evidenceSha256": "2b6ac6b3e5f21a5b0dad75c2d666eb36fe8d9c9fd1891159e5226c4f4ae3005e",
+        "session": 42271,
+        "exitCode": 0,
+        "sourceCheckpointOnly": true,
+        "selectedPathCount": 54,
+        "changedPathCount": 33,
+        "guardedSourceCount": 102,
+        "receiptCount": 13,
+        "boundary": "Fifth source continuity checkpoint39ed is published and remote-verified, parentd309, tree136e37db. Owner main/HEAD/index and all inherited refs, earlier checkpoints and PR57 head remain preserved. Includes pre-index SAT/fallback/Capture/proposal/relay/chrome/motion source repairs. Later candidate-index/zoom and central catalog hold are excluded by chronology. Source publication establishes no runtime/native/performance or human verdict."
       }
     ],
     "captureRecoveryIsolation": {
@@ -6030,13 +6650,14 @@
       ],
       "vectorCompleted": "target/presence-vector-projection-sat-20261018.json",
       "sharedCurrent": {
-        "evidence": "target/presence-shell-projection-sat-20261018.json",
-        "directCargoExitCode": 0,
-        "passed": 386,
-        "failed": 0,
-        "ignored": 7,
-        "sourceStable": true,
-        "snapshot": "pre-index"
+        "state": "Current post-restore combined-source validation pending",
+        "sourceFreeze": {
+          "path": "target/media-final-app-validation-freeze.json",
+          "bytes": 9369,
+          "sha256": "a392f250e468d705d37de77da1907e7d1354ffb15e0952f591fdefb73114d2cd"
+        },
+        "coverageSha256": "8074271c0ba57eae39da00e5b00670b47f73d406ea012300881944735d40c758",
+        "privateIndexPresent": false
       },
       "externalBrushLayersTest": {
         "evidence": "target/media-fallback-interaction-tests-source-freeze.json",
@@ -6048,15 +6669,20 @@
         "evidence": "target/media-matrix-exact-bits-export-source-freeze.json",
         "scope": "Existing195case production cold/warm exporter now retains exact MIM1 binary meshes: position/UV f32 bits, RGBA bytes, ordered indices; texture_id recorded in manifest. Both timers stop before serialization.",
         "unchanged": "All normal alpha/counter assertions, production material/placement path and ordinary icon behavior",
-        "runtime": {
-          "evidence": "target/presence-projection-sat-matrix-20261018.json",
-          "audit": "target/presence-projection-sat-matrix-audit-20261018.json",
-          "passed": 1,
+        "runtime": "Current post-restore export/cost validation pending; earlier pre-index and candidate-index material exports remain historical records",
+        "historicalCandidateRuntime": {
+          "evidence": "target/presence-candidate-index-matrix-20261018.json",
+          "audit": {
+            "path": "target/presence-candidate-index-matrix-audit-20261018.json",
+            "bytes": 93441,
+            "sha256": "015581ba263a5595e7ec6bdff8fa53ce1ba6a8828c1a5139527bf74a1973d5bc"
+          },
           "cases": 195,
-          "artifactCount": 209,
+          "geometryAndTextureIdsEqual": true,
+          "mismatches": [],
+          "missing": [],
           "sourceStable": true,
-          "harnessStable": true,
-          "boundary": "Pre-index exact material baseline and CPU costs; not native/app acceptance"
+          "harnessStable": true
         }
       },
       "performance": {
@@ -6067,11 +6693,33 @@
           97954,
           143541
         ],
-        "implemented": "Source candidate with full vector 171/0/1 pass; fresh shared, exact parity and performance verdicts remain pending",
+        "implemented": "Private candidate index REMOVED after no established speedup; exact SAT source restored",
         "candidateEvidence": "target/media-candidate-index-and-zoom-source-freeze.json",
-        "boundary": "No appearance/tolerance/AA waiver and no native smoothness claim; exact195 byte hashes plus texture IDs must match the immutable baseline after indexing"
+        "boundary": "No appearance/tolerance/AA waiver; all195 exact geometry/texture identities match. No measured speedup or native smoothness pass.",
+        "candidateColdTotalUs": 2929245,
+        "preIndexColdTotalUs": 2488748,
+        "speedupEstablished": false,
+        "changingZoomEvidence": "target/presence-candidate-index-changing-zoom-20261018.json",
+        "changingZoomNewSize": {
+          "frames": 63,
+          "total_us": 4918989,
+          "max_us": 123901,
+          "p50_us": 66961,
+          "p95_us": 116476
+        },
+        "currentPostRestoreValidation": "Pending normal combined-source validation and fresh measurement"
       },
-      "boundary": "The combined 35-file source approval does not establish full app validation. Pre-index vector and shared suites passed and the exact 195-case material baseline was exported; its cold costs remain blocking. The later index passed vector 171/0/1, with fresh shared, exact material parity and costs pending. App representatives, Brush/Layers, native and human gates remain open."
+      "boundary": "Final35-file media source freeze is source identity only. Candidate171/386 and pre-index164/386 test results remain historical and do not validate the current combined source. All37 app UI cases, current performance, native and human gates remain open.",
+      "historicalSharedCandidate": {
+        "evidence": "target/presence-shell-candidate-index-20261018.json",
+        "evidenceSha256": "a071ed721dbfe3e9cfb6fa69cdc26e7a3610433db5ad523032f61066439e5880",
+        "passed": 386,
+        "failed": 0,
+        "ignored": 8,
+        "sourceStable": true,
+        "directCargoExitCode": 0,
+        "snapshot": "candidate-index"
+      }
     },
     "witnessedMotionRenderTests": {
       "evidence": "target/presence-witnessed-motion-render-source-freeze.json",
@@ -6137,7 +6785,7 @@
     "candidateIndexAndZoomValidation": {
       "evidence": "target/media-candidate-index-and-zoom-source-freeze.json",
       "evidenceSha256": "cdbb214283fb6a1a0ca2eb06c2afce85024700585088b4b1d55d07239c7b270e",
-      "state": "Full vector passed171/0/1; fresh shared, exact195 parity and costs pending",
+      "state": "HISTORICAL candidate-index results; index subsequently removed, current post-restore validation pending",
       "sourceFileCount": 3,
       "baseline": {
         "sourceFreeze": "target/media-current-shared-app-validation-freeze.json",
@@ -6168,7 +6816,7 @@
         "Cold/warmcostmatrix and newignoredchangingzoomprobe",
         "Thenfreshapprepresentatives/fullsuite/builds/fixtures/native"
       ],
-      "boundary": "Do not infer a pass from source approval or the earlier pre-index suites. Zoom probe times CPU Context::run canonical shared layout/paint only, excluding tessellation/GPU/app work. No timing pass or native smoothness verdict.",
+      "boundary": "All retained candidate-index vector/shared/parity/zoom outcomes are historical. The exact restored SAT source and current combined app require fresh validation; the old pre-index164 pass is also historical. Historical123-frame structural success does not pass performance or native/human acceptance.",
       "vectorCompleted": {
         "evidence": "target/presence-vector-candidate-index-20261018.json",
         "evidenceSha256": "c796af1f0118f231bb5493381cfe067b516baf0f8386949f09fc2221a051955d",
@@ -6177,7 +6825,68 @@
         "ignored": 1,
         "directCargoExitCode": 0,
         "sourceStable": true
-      }
+      },
+      "sharedCompleted": {
+        "evidence": "target/presence-shell-candidate-index-20261018.json",
+        "evidenceSha256": "a071ed721dbfe3e9cfb6fa69cdc26e7a3610433db5ad523032f61066439e5880",
+        "passed": 386,
+        "failed": 0,
+        "ignored": 8,
+        "sourceStable": true,
+        "directCargoExitCode": 0,
+        "snapshot": "candidate-index"
+      },
+      "materialParityCompleted": {
+        "evidence": "target/presence-candidate-index-matrix-20261018.json",
+        "audit": {
+          "path": "target/presence-candidate-index-matrix-audit-20261018.json",
+          "bytes": 93441,
+          "sha256": "015581ba263a5595e7ec6bdff8fa53ce1ba6a8828c1a5139527bf74a1973d5bc"
+        },
+        "cases": 195,
+        "geometryAndTextureIdsEqual": true,
+        "mismatches": [],
+        "missing": [],
+        "sourceStable": true,
+        "harnessStable": true
+      },
+      "changingZoomCompleted": {
+        "evidence": "target/presence-candidate-index-changing-zoom-20261018.json",
+        "evidenceSha256": "52a7a3b285eb333531dd69c4786421a8f7fb89473af0bcdf7d5336b77b1f9d07",
+        "frames": 123,
+        "structuralTestPassed": true,
+        "newSize": {
+          "frames": 63,
+          "total_us": 4918989,
+          "max_us": 123901,
+          "p50_us": 66961,
+          "p95_us": 116476
+        },
+        "returningSize": {
+          "frames": 60,
+          "total_us": 403,
+          "max_us": 27,
+          "p50_us": 5,
+          "p95_us": 10
+        },
+        "performanceVerdict": "BLOCKED",
+        "boundary": "Shared CPU Context::run layout/icon paint only; no tessellation, GPU, app frame or native smoothness verdict. No timing threshold."
+      },
+      "performance": {
+        "state": "BLOCKED",
+        "coldTotalUs": 2929245,
+        "preIndexColdTotalUs": 2488748,
+        "speedupEstablished": false,
+        "boundary": "Actual observed cost total is higher in the later run; no causal regression or speedup is inferred from these single retained measurements. Changing-zoom new-size CPU paint alone exceeds frame budget."
+      },
+      "historicalSnapshotOnly": true,
+      "removedFromCurrentSource": true,
+      "reversion": {
+        "path": "target/media-index-reversion-20261018/receipt.json",
+        "bytes": 3824,
+        "sha256": "edde39f19e4229dc3d27b1d92fe001394b415088e04bb5973991f5c0ad484d03"
+      },
+      "currentCoverageSha256": "8074271c0ba57eae39da00e5b00670b47f73d406ea012300881944735d40c758"
     },
     "lateSourceHealthReview": {
       "state": "coordinator-reported-read-only-source-review",
@@ -6195,6 +6904,139 @@
         "observedFailure": false
       },
       "boundary": "No dedicated on-disk health receipt is known. Coordinator relayed the read-only source finding; no runtime failure, fix or waived check is claimed."
+    },
+    "cropWitnessedWork": {
+      "state": "final-six-file-geometry-source-applied-nine-normal-tests-inventoried-runtime-unexecuted",
+      "sourcePlan": "Canonical crop geometry extraction reuses existing geometry/command owners",
+      "liveSourceFreeze": {
+        "path": "target/presence-crop-geometry-final-source-freeze.json",
+        "bytes": 4751,
+        "sha256": "79b6731643e0c8c4957c0597fcf77ab899b48842feddbaf83815ebea046436ec"
+      },
+      "reviewedPreparation": {
+        "path": "target/presence-crop-geometry-preparation-9669ed2d8e3f48ce88a2a3c032b0dfb8/preparation-v4.json",
+        "bytes": 4571,
+        "sha256": "8b25a8e8f9f399abbde793570998923cb48c0f91c60b11b5f8c681c39308af64"
+      },
+      "sourceFileCount": 6,
+      "normalNewTests": [
+        "app::board_crop::gesture_tests::world_gesture_matches_existing_unrotated_handle_and_pan_math",
+        "app::board_crop::gesture_tests::rotated_primary_and_peers_keep_surviving_displayed_source_anchors",
+        "app::board_crop::gesture_tests::fixed_mask_grips_keep_holes_frame_and_uniform_source_cover",
+        "app::board_crop::gesture_tests::complete_crop_patch_inverse_and_serialized_export_keep_the_same_model",
+        "app::tests::crop::gesture_owner::human_crop_keeps_rotated_mirrored_primary_and_peer_pixels_at_world_anchors",
+        "app::tests::crop::gesture_owner::real_human_pan_uses_the_same_immutable_start_gesture_and_one_undo",
+        "app::board_crop::gesture_tests::effective_pan_follows_clamped_displayed_source_travel_across_rotations_and_mirrors",
+        "app::board_crop::gesture_tests::effective_handles_end_on_the_painted_clamped_window_or_uniform_source_grip",
+        "app::board_crop::gesture_tests::effective_pan_uses_the_same_clamped_display_coordinates_as_existing_paint"
+      ],
+      "adapterAndMotion": "Agent adapter scratch v2 still pending actual primary-press timing correction; no live app/runtime pass supplied",
+      "acceptanceCase": "witness-moving-resizing",
+      "acceptanceTitle": "Moves, resize and crop show actual targets",
+      "acceptanceClausePreserved": true,
+      "acceptanceFile": "design/agent-presence-2026-10-17/native-acceptance.cases.json",
+      "acceptanceFileSha256": "049ab77ac2274c049076d7144b6d31f8b99e4fb3d95ff8dc56e30be13f3920dc",
+      "boundary": "Final geometry source and nine source #[test] functions are not executed test counts. Original move/resize/crop acceptance remains unchanged/Untested. Adapter correction, current combined app/workspace and native/user validation remain pending.",
+      "previousLiveSourceFreeze": {
+        "path": "target/presence-crop-geometry-v4-live-source-freeze.json",
+        "bytes": 2960,
+        "sha256": "c0bb2ed987c364cbe40f84bf3e5722d5433103d8d6a7580eab542d9244159db3"
+      },
+      "normalTestInventory": {
+        "path": "target/presence-crop-geometry-final-test-inventory.json",
+        "bytes": 3333,
+        "sha256": "fe6a4dc55ef28dae171054d9c035cddf994922b34753418f8abef5088d337466"
+      }
+    },
+    "sharedPaintAttribution": {
+      "state": "attempt-completed-compiler0-profiler-not-started-unknown-cause-no-retry",
+      "rootSession": 99833,
+      "receipt": {
+        "path": "target/media-max-coverage-profile-root-20261018/root-attempt.json",
+        "bytes": 7603,
+        "sha256": "f459c50b1e7a20da62fffc2d82b4e90f8afb3a24b396197d5ea254937817322d"
+      },
+      "wrapperExitCode": 1,
+      "compilerStarted": true,
+      "compilerExitCode": 0,
+      "profilerStarted": false,
+      "profilerExitCode": null,
+      "outputExists": false,
+      "timingProduced": false,
+      "comparatorProduced": false,
+      "enforcementConclusion": "Unknown; no matching events in queried CodeIntegrity/AppLocker/Defender logs. Do not infer an IT or firewall block.",
+      "retry": false,
+      "boundary": "Actual root attempt compiled successfully but failed to start the profiler. No kernel timing, comparison, runtime validation or speedup result exists. Static PE metadata established AMD64 PE only; it is not launch proof. Read-only event audit found no matching CodeIntegrity/AppLocker/Defender event; cause remains UNKNOWN. Do not infer an IT, managed-policy or firewall denial. No retry or policy/flags/output-shape change is recorded."
+    },
+    "formattingCurrentValidation": {
+      "firstFailure": {
+        "path": "target/presence-formatting-final-20261018.json",
+        "bytes": 419,
+        "sha256": "065f110fec7d73b91bde23f8db648226571661ca4afa2c752099b81196e1657f"
+      },
+      "correctedPass": {
+        "path": "target/presence-formatting-corrected-20261018.json",
+        "bytes": 419,
+        "sha256": "80e2825693900bd4415e0fdd158ab621074ff51c37dba790dbce2e7e9f8b30ea"
+      },
+      "sourceCorrection": {
+        "path": "target/presence-formatting-correction-20261018/manifest.json",
+        "bytes": 781,
+        "sha256": "2d2f4748b9333882fdd6523846d9e30b5a0f3fbecdc6ebf937b01c20ec4e6c20"
+      },
+      "correctedFiles": [
+        {
+          "path": "apps/slate/src/app/board_agent/image_album_tests.rs",
+          "beforeSha256": "650dcaed229a52dfc75860b5b9b7d6d3a0cb74d8c2cd99440f8a3ec645e526c7",
+          "afterSha256": "e1210f5a8dbeee8418daf96a504b73757847444b2894eda43d7bc6a72813a162",
+          "beforeCrlf": 0,
+          "afterCrlf": 0,
+          "scope": "Only cargo fmt reported importorder/assert wrapping; no behavior change"
+        },
+        {
+          "path": "apps/slate/src/app/board_flow/result_actions/tests.rs",
+          "beforeSha256": "88a40932f4f42aad656fcfd3fa53017285540a1d3156a6ea98a5fef909439e08",
+          "afterSha256": "b9b288510017fcb3c5a4c3ca95ea0b60646aae23218be5d6b0487b69df85c5d5",
+          "beforeCrlf": 0,
+          "afterCrlf": 0,
+          "scope": "Only cargo fmt reported importorder/assert wrapping; no behavior change"
+        }
+      ],
+      "state": "Failed then corrected pass; both preserved in automated history",
+      "scope": "Two test-only Rust files: import sorting and rustfmt assertion wrapping; no production behavior change",
+      "boundary": "Formatting is no compile/test/native verdict. Active crop edits are later source and need their own scoped format/identity checks."
+    },
+    "mediaIndexReversion": {
+      "state": "exact-source-restoration-completed-no-build-tests",
+      "receipt": {
+        "path": "target/media-index-reversion-20261018/receipt.json",
+        "bytes": 3824,
+        "sha256": "edde39f19e4229dc3d27b1d92fe001394b415088e04bb5973991f5c0ad484d03"
+      },
+      "currentFreeze": {
+        "path": "target/media-final-app-validation-freeze.json",
+        "bytes": 9369,
+        "sha256": "a392f250e468d705d37de77da1907e7d1354ffb15e0952f591fdefb73114d2cd"
+      },
+      "restoredCoverage": {
+        "path": "crates/vector-ink/src/mesh/coverage.rs",
+        "bytes": 12899,
+        "lines": 409,
+        "sha256": "8074271c0ba57eae39da00e5b00670b47f73d406ea012300881944735d40c758"
+      },
+      "deletedIndex": {
+        "path": "crates/vector-ink/src/mesh/coverage/index.rs",
+        "exists": false
+      },
+      "preserved": [
+        "Projection-interval SAT repair",
+        "Exact captured quartet regression and all existing geometry assertions/tolerances",
+        "Current shared actual-icon coverage/counter tests and changing-zoom exporter",
+        "All app media fixtures/assertions unchanged pending fresh failures"
+      ],
+      "oldFixtureExpectationsChanged": false,
+      "appearanceOrToleranceChanged": false,
+      "boundary": "Mechanical restoration is no post-restore test/performance/native pass. Removed index source remains preserved in backups and published snapshotd2bb. Current new-size cost remains unresolved."
     }
   }
 }

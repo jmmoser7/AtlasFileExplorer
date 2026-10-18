@@ -5,7 +5,7 @@ use crate::app::{
     tests::{capture_frame, picture_from, picture_item, rasterize, review_shot, FrameRaster},
 };
 use slate_doc::NodeId;
-use std::{io::Write, time::Duration};
+use std::{collections::HashMap, io::Write, time::Duration};
 
 pub(super) struct Fixture {
     pub h: Harness,
@@ -15,10 +15,19 @@ pub(super) struct Fixture {
     case: String,
     camera: (egui::Vec2, f32),
     rows: Vec<serde_json::Value>,
+    image_textures: HashMap<NodeId, egui::TextureId>,
 }
 
 impl Fixture {
     pub fn new(source_x: f32) -> Self {
+        Self::with_multicolour(source_x, false)
+    }
+
+    pub fn multicolour(source_x: f32) -> Self {
+        Self::with_multicolour(source_x, true)
+    }
+
+    fn with_multicolour(source_x: f32, multicolour: bool) -> Self {
         let mut h = host();
         for provider in ["codex", "cursor"] {
             h.app.agents.set_catalog_for_test(provider, Vec::new());
@@ -31,6 +40,19 @@ impl Fixture {
             picture_from(&mut h, "moving.png", source_x),
             picture_from(&mut h, "target.png", 280.0),
         ];
+        if multicolour {
+            // Replace only fixture-owned pixels before any texture is loaded;
+            // task execution never writes these sources or changes their links.
+            for image in images {
+                let item = picture_item(&h, image);
+                let path = &h.app.doc().item(item).unwrap().path;
+                image::RgbaImage::from_fn(64, 64, |x, y| {
+                    image::Rgba([(x * 4) as u8, (y * 4) as u8, ((x + y) * 2) as u8, 255])
+                })
+                .save(path)
+                .unwrap();
+            }
+        }
         h.app.board_sel.clear();
         h.frame();
         let who = add(&mut h, "Dot");
@@ -47,6 +69,7 @@ impl Fixture {
         h.app.presence.agents.push(agent);
         // Upload the actual local PNG pixels through the existing ready-cache seam.
         // No worker wait or placeholder may stand in for the image being moved.
+        let mut image_textures = HashMap::new();
         for image in images {
             let item = picture_item(&h, image);
             let (key, path, _, _) = h.app.resolved_item_preview(item).unwrap();
@@ -60,6 +83,7 @@ impl Fixture {
                 pixels.clone(),
                 egui::TextureOptions::LINEAR,
             );
+            image_textures.insert(image, tex.id());
             h.app.preview_cache.insert(
                 key,
                 PreviewEntry {
@@ -81,6 +105,7 @@ impl Fixture {
             case: format!("presence-motion-{}", atlas_agent::request_id()),
             camera,
             rows: Vec::new(),
+            image_textures,
         }
     }
 
@@ -187,6 +212,34 @@ impl Fixture {
                 .zip([90.0, 140.0, 200.0])
                 .all(|(actual, expected)| (actual * 255.0 - expected).abs() < 3.0),
         )
+    }
+
+    pub fn pixel(&self, world: egui::Pos2) -> [f32; 4] {
+        let point = self.h.app.board_xf().w2s(world);
+        assert!(self.h.app.canvas_rect.contains(point));
+        self.raster.px[point.y as usize * self.raster.w + point.x as usize]
+    }
+
+    pub fn image_uvs(&self, out: &egui::FullOutput, image: NodeId) -> Vec<[f32; 2]> {
+        fn walk(shape: &egui::Shape, texture: egui::TextureId, uvs: &mut Vec<[f32; 2]>) {
+            match shape {
+                egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| walk(s, texture, uvs)),
+                egui::Shape::Mesh(mesh) if mesh.texture_id == texture => {
+                    uvs.extend(
+                        mesh.vertices
+                            .iter()
+                            .map(|vertex| [vertex.uv.x, vertex.uv.y]),
+                    );
+                }
+                _ => {}
+            }
+        }
+        let mut uvs = Vec::new();
+        for clipped in &out.shapes {
+            walk(&clipped.shape, self.image_textures[&image], &mut uvs);
+        }
+        assert!(!uvs.is_empty(), "the real linked-image texture must paint");
+        uvs
     }
 
     fn directory(&self) -> PathBuf {

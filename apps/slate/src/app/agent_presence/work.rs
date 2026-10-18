@@ -6,6 +6,7 @@ pub(super) fn command_activity(command: &str) -> &'static str {
     match command {
         "board.objects.move" => "moving",
         "board.objects.resize" => "resizing",
+        "board.objects.crop" => "resizing",
         "board.objects.create_frame" => "frames",
         "board.objects.create_text" => "writing",
         "board.objects.wire" => "wiring",
@@ -27,6 +28,7 @@ impl SlateApp {
             .last_tick
             .replace(now)
             .map_or(Duration::ZERO, |t| now.duration_since(t));
+        let pointer_press = ctx.input(|i| i.pointer.primary_pressed());
         let active_tab = self.tab().id;
         let native_view_active = self.enscape_shown_node().is_some();
         let board_visible = !self.at_home
@@ -203,7 +205,7 @@ impl SlateApp {
             }
             for call in self.presence.links.poll_limit(
                 &a.dir,
-                if !a.paused || a.chat_only {
+                if !pointer_press && (!a.paused || a.chat_only) {
                     4usize.saturating_sub(calls.len())
                 } else {
                     0
@@ -270,7 +272,7 @@ impl SlateApp {
         for index in 0..self.presence.agents.len() {
             let mut a = self.presence.agents.remove(index);
             if board_visible && a.tab == active_tab && a.departure.is_none() {
-                if let Some(reply) = if !a.paused || a.chat_only {
+                if let Some(reply) = if !pointer_press && (!a.paused || a.chat_only) {
                     self.advance_presence_read(&mut a, &mut read_budget, elapsed)
                 } else {
                     None
@@ -288,20 +290,23 @@ impl SlateApp {
                     }
                     let result = if !applicable {
                         Err("A human changed an action target; preview cancelled".to_owned())
+                    } else if pointer_press {
+                        // Keep the displayed preview through late foreground/board routing.
+                        Ok(false)
                     } else if let Some(motion) = self.presence.roster.session_mut(&a.motion) {
                         let start = if !work.started {
                             work.begin_step(motion)
                         } else {
                             Ok(())
                         };
-                        start.map(|()| {
+                        start.and_then(|()| {
                             let sample = motion.advance(elapsed);
-                            work.preview(sample);
+                            work.preview(sample)?;
                             if sample.phase == MotionPhase::ReadyToCommit {
                                 let _ = motion.resolve_ready(|_| true);
                                 work.complete_step();
                             }
-                            work.index == work.steps.len()
+                            Ok(work.index == work.steps.len())
                         })
                     } else {
                         Err("Session ended".into())

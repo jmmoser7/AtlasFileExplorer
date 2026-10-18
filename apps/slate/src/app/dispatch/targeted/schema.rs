@@ -34,6 +34,10 @@ pub(super) const DEFINITIONS: &[Definition] = &[
         arguments: &[("width", "positive finite world width"), ("height", "positive finite world height"), ("x", "optional world x"), ("y", "optional world y")],
     },
     Definition {
+        command: "board.objects.crop", targets: "Exactly one existing stable croppable image ID. Nondestructive board crop only; no source file reads or writes. Ordinary frames and fixed masks use the same human crop gesture.",
+        arguments: &[("mode", "handle or pan; mutually exclusive exact argument sets"), ("handle", "handle mode only: integer 0–7, clockwise Nw N Ne E Se S Sw W"), ("x", "handle mode only: finite absolute world x"), ("y", "handle mode only: finite absolute world y"), ("dx", "pan mode only: finite world x delta from gesture start"), ("dy", "pan mode only: finite world y delta from gesture start")],
+    },
+    Definition {
         command: "board.objects.order", targets: "One stable node ID for z, or frame IDs for deck order. Supply z or order, never both.",
         arguments: &[("z", "nonnegative board z-index below object count"), ("order", "nonnegative integer slide order, frames only")],
     },

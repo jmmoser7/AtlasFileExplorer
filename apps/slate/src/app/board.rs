@@ -2320,37 +2320,30 @@ impl SlateApp {
                 let node_id = *id;
                 let handle = *handle;
                 let peers = peers.clone();
-                let (before_rect, before_crop, rot) = match &before.kind {
-                    NodeKind::Image(image) => (before.rect, image.crop, before.rotation_deg),
-                    _ => return,
+                let NodeKind::Image(image) = &before.kind else {
+                    return;
                 };
-                // Rotated nodes: do the rect math in the node's local axes
-                // about the gesture-start center (see board_crop docs).
-                let (cx, cy) = before_rect.center();
-                let local = board_crop::to_local(world.x, world.y, cx, cy, rot);
-                let (r, c) = board_crop::edge_drag_node(before, handle, local);
-                if let Some(n) = self.doc_mut().scene.node_mut(node_id) {
-                    n.rect = r;
-                    if let NodeKind::Image(img) = &mut n.kind {
-                        img.crop = c;
-                    }
+                let before_crop = image.crop;
+                let Some(after) = board_crop::apply_gesture(
+                    before,
+                    board_crop::CropGesture::Handle {
+                        handle,
+                        world: (world.x, world.y),
+                    },
+                ) else {
+                    return;
+                };
+                let NodeKind::Image(image) = &after.kind else {
+                    return;
+                };
+                let crop = image.crop;
+                if let Some(node) = self.doc_mut().scene.node_mut(node_id) {
+                    board_crop::copy_crop_geometry(node, &after);
                 }
                 for peer in peers {
-                    let NodeKind::Image(img) = &peer.kind else {
-                        continue;
-                    };
-                    let (rect, crop) = if peer.clip.is_some() {
-                        (
-                            peer.rect,
-                            board_crop::peer_content_crop(before_crop, c, img.crop),
-                        )
-                    } else {
-                        board_crop::place_crop(peer.rect, img.crop, c)
-                    };
-                    if let Some(n) = self.doc_mut().scene.node_mut(peer.id) {
-                        n.rect = rect;
-                        if let NodeKind::Image(live) = &mut n.kind {
-                            live.crop = crop;
+                    if let Some(after) = board_crop::apply_peer_crop(&peer, before_crop, crop) {
+                        if let Some(node) = self.doc_mut().scene.node_mut(peer.id) {
+                            board_crop::copy_crop_geometry(node, &after);
                         }
                     }
                 }
@@ -2361,16 +2354,15 @@ impl SlateApp {
                 start_world,
             }) => {
                 let node_id = *id;
-                let (before_rect, before_crop, rot) = match &before.kind {
-                    NodeKind::Image(img) => (before.rect, img.crop, before.rotation_deg),
-                    _ => return,
-                };
-                let d = world - *start_world;
-                let delta = board_crop::delta_local(d.x, d.y, rot);
-                let c = board_crop::pan_drag(before_rect, before_crop, delta);
-                if let Some(n) = self.doc_mut().scene.node_mut(node_id) {
-                    if let NodeKind::Image(img) = &mut n.kind {
-                        img.crop = c;
+                let delta = world - *start_world;
+                if let Some(after) = board_crop::apply_gesture(
+                    before,
+                    board_crop::CropGesture::Pan {
+                        delta_world: (delta.x, delta.y),
+                    },
+                ) {
+                    if let Some(node) = self.doc_mut().scene.node_mut(node_id) {
+                        board_crop::copy_crop_geometry(node, &after);
                     }
                 }
             }

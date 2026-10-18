@@ -284,6 +284,7 @@ fn public_command_schema_and_argument_validation_share_one_catalogue() {
         "board.objects.create_shape",
         "board.objects.create_text",
         "board.objects.create_train",
+        "board.objects.crop",
         "board.objects.delete",
         "board.objects.move",
         "board.objects.order",
@@ -307,6 +308,11 @@ fn public_command_schema_and_argument_validation_share_one_catalogue() {
     let frame_args = &schema["board.objects.create_frame"]["arguments"];
     assert!(frame_args.get("title").is_some());
     assert!(frame_args.get("text").is_none());
+    let crop_args = &schema["board.objects.crop"]["arguments"];
+    for field in ["mode", "handle", "x", "y", "dx", "dy"] {
+        assert!(crop_args.get(field).is_some(), "missing crop field {field}");
+    }
+    assert_eq!(crop_args.as_object().unwrap().len(), 6);
     let good = json!({"x":0,"y":0,"width":960,"height":540,"title":"Intro"});
     assert!(h
         .app

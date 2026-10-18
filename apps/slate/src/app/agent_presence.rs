@@ -43,6 +43,7 @@ mod work;
 pub(crate) const BOARD_COMMANDS: &[&str] = &[
     "board.objects.move",
     "board.objects.resize",
+    "board.objects.crop",
     "board.objects.order",
     "board.objects.create_frame",
     "board.objects.create_text",

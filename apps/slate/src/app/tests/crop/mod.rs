@@ -2,5 +2,6 @@
 
 use super::*;
 
+mod gesture_owner;
 mod handles;
 mod transform;

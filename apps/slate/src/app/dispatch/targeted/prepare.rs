@@ -6,6 +6,56 @@ use std::collections::HashSet;
 const MAX_TARGETS: usize = 128;
 const WORLD_LIMIT: f32 = 1.0e9;
 
+pub(super) fn crop(
+    app: &SlateApp,
+    ids: &[NodeId],
+    args: &Value,
+) -> Result<
+    (
+        Vec<SceneCmd>,
+        Vec<NodeId>,
+        crate::app::board_crop::CropGesture,
+    ),
+    String,
+> {
+    use crate::app::board_crop::{apply_gesture, CropGesture};
+    validate_keys(args, super::schema::arguments("board.objects.crop")?)?;
+    let object = args.as_object().ok_or("Arguments must be an object")?;
+    let gesture = match args.get("mode").and_then(Value::as_str) {
+        Some("handle") if object.len() == 4 => CropGesture::Handle {
+            handle: args
+                .get("handle")
+                .and_then(Value::as_u64)
+                .filter(|handle| *handle < 8)
+                .ok_or("Crop handle must be an integer 0–7")? as u8,
+            world: (number(args, "x")?, number(args, "y")?),
+        },
+        Some("pan") if object.len() == 3 => CropGesture::Pan {
+            delta_world: (number(args, "dx")?, number(args, "dy")?),
+        },
+        _ => {
+            return Err(
+                "Use exactly mode/handle/x/y or mode/dx/dy; coordinates are world units".into(),
+            )
+        }
+    };
+    if ids.len() != 1 || !app.croppable_image(ids[0]) {
+        return Err("Crop requires one existing croppable image".into());
+    }
+    let before = app
+        .doc()
+        .scene
+        .node(ids[0])
+        .ok_or("Crop target is missing")?;
+    let after =
+        apply_gesture(before, gesture).ok_or("The crop gesture cannot apply to this image")?;
+    if before == &after {
+        return Err("The crop gesture would make no changes".into());
+    }
+    let cmd = patch(&app.doc().scene, ids[0], |node| *node = after)?;
+    Ok((vec![cmd], ids.to_vec(), gesture))
+}
+
 pub(super) fn target_ids(scene: &Scene, values: &[String]) -> Result<Vec<NodeId>, String> {
     if values.len() > MAX_TARGETS {
         return Err("At most 128 targets are allowed per action".into());

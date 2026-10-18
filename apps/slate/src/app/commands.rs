@@ -1,9 +1,7 @@
 //! Slate keyboard, mouse, and navigation commands.
-//!
 //! **Rule:** every user-facing shortcut or input command must be registered in
 //! [`SPECS`] and will appear automatically in Advanced → Commands & shortcuts.
 //! See `COMMANDS.md` and `docs/keymap/` before adding or changing bindings.
-//!
 //! Commands are data ([`atlas_commands::CommandSpec`]): the reference UI, the
 //! canvas palette, keyboard dispatch (`dispatch.rs`), and the F2 history all
 //! read this one table, so they can never disagree (Constitution Art. VII).
@@ -67,6 +65,7 @@ pub static SPECS: &[CommandSpec] = &[
     spec("presence.reject", "Participants", "Reject collaborator proposal", "Participant capsule → Reject: removes the preview and records the decision", None, Repeat::Never, BOARD, &[]),
     spec("board.objects.move", "Board objects", "Move explicit objects", "Typed targets and dx/dy, or one target and x/y; frames carry their geometric members", None, Repeat::Never, BOARD, &[]),
     spec("board.objects.resize", "Board objects", "Resize explicit objects", "Typed targets and width/height in board units", None, Repeat::Never, BOARD, &[]),
+    spec("board.objects.crop", "Board objects", "Crop explicit image", "One stable image ID; exact world handle gesture or content-pan delta; source stays unchanged", None, Repeat::Never, BOARD, &[]),
     spec("board.objects.order", "Board objects", "Order explicit objects", "One target and z, or frame targets and slide order", None, Repeat::Never, BOARD, &[]),
     spec("board.objects.create_frame", "Board objects", "Create frame at coordinates", "Typed x/y/width/height and optional title, using the board's frame recipe", None, Repeat::Never, BOARD, &[]),
     spec("board.objects.create_text", "Board objects", "Create authored board text", "Typed x/y/width/height and text; no source filesystem write", None, Repeat::Never, BOARD, &[]),

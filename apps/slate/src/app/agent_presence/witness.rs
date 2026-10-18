@@ -2,6 +2,10 @@ use super::super::dispatch::PreparedBoardCommand;
 use super::*;
 use slate_doc::scene::{Node, NodeKind, SceneCmd};
 
+#[cfg(test)]
+#[path = "crop_witness_tests.rs"]
+mod crop_tests;
+
 pub(super) struct WitnessedCommand {
     pub call: BoardCall,
     pub prepared: PreparedBoardCommand,
@@ -13,6 +17,7 @@ pub(super) struct WitnessedCommand {
     cohorts: HashMap<usize, Vec<usize>>,
     skipped: std::collections::HashSet<usize>,
     wire_ends: HashMap<slate_doc::NodeId, (WorldPoint, WorldPoint)>,
+    crop_contact: Option<WorldPoint>,
 }
 
 impl WitnessedCommand {
@@ -100,6 +105,7 @@ impl WitnessedCommand {
             wire_ends,
             cohorts,
             skipped,
+            crop_contact: None,
         })
     }
     pub(super) fn begin_step(&mut self, motion: &mut PresenceSession) -> Result<(), String> {
@@ -107,14 +113,42 @@ impl WitnessedCommand {
         let reference = before.as_ref().or(after.as_ref()).ok_or("Missing target")?;
         let (cx, cy) = reference.rect.center();
         let (ex, ey) = after.as_ref().unwrap_or(reference).rect.center();
+        let (contact, placement) = if let Some(ends) = self.wire_ends.get(&reference.id) {
+            *ends
+        } else if let Some(requested) = self.prepared.crop_gesture() {
+            use crate::app::board_crop::{effective_gesture, gesture_contact, CropGesture};
+            let gesture =
+                effective_gesture(reference, requested).ok_or("Missing effective crop gesture")?;
+            match gesture {
+                CropGesture::Handle { world, .. } => {
+                    let (x, y) =
+                        gesture_contact(reference, gesture).ok_or("Missing crop handle")?;
+                    (point(x, y), point(world.0, world.1))
+                }
+                CropGesture::Pan { delta_world } => {
+                    let contact = body_contact(reference)?;
+                    (
+                        contact,
+                        WorldPoint {
+                            x: contact.x + f64::from(delta_world.0),
+                            y: contact.y + f64::from(delta_world.1),
+                        },
+                    )
+                }
+            }
+        } else {
+            let contact = body_contact(reference)?;
+            (
+                contact,
+                WorldPoint {
+                    x: contact.x + f64::from(ex - cx),
+                    y: contact.y + f64::from(ey - cy),
+                },
+            )
+        };
+        self.crop_contact = self.prepared.crop_gesture().map(|_| contact);
         let start = motion.sample().position;
-        let distance =
-            ((start.x - f64::from(cx)).powi(2) + (start.y - f64::from(cy)).powi(2)).sqrt();
-        let (contact, placement) = self
-            .wire_ends
-            .get(&reference.id)
-            .copied()
-            .unwrap_or((point(cx, cy), point(ex, ey)));
+        let distance = ((start.x - contact.x).powi(2) + (start.y - contact.y).powi(2)).sqrt();
         motion
             .enqueue(MotionPlan {
                 session_id: motion.id().clone(),
@@ -141,9 +175,44 @@ impl WitnessedCommand {
         }
         self.started = false;
     }
-    pub(super) fn preview(&mut self, sample: MotionSample) {
+    pub(super) fn preview(&mut self, sample: MotionSample) -> Result<(), String> {
         if !matches!(sample.phase, MotionPhase::Work | MotionPhase::ReadyToCommit) {
-            return;
+            return Ok(());
+        }
+        if let Some(gesture) = self.prepared.crop_gesture() {
+            use crate::app::board_crop::{apply_gesture, CropGesture};
+            let before = self.steps[self.index]
+                .0
+                .as_ref()
+                .ok_or("Missing crop before-state")?;
+            if sample.phase == MotionPhase::ReadyToCommit {
+                // Preparation already used the canonical geometry owner. Keep
+                // its exact endpoint instead of a world/local float roundtrip.
+                let after = self.steps[self.index]
+                    .1
+                    .as_ref()
+                    .ok_or("Missing crop endpoint")?;
+                self.previews.insert(before.id, after.clone());
+                return Ok(());
+            }
+            let contact = self.crop_contact.ok_or("Missing crop contact")?;
+            // Motion already supplies the eased pointer position. Replay that
+            // input against the immutable start, never interpolate UV endpoints.
+            let input = match gesture {
+                CropGesture::Handle { handle, .. } => CropGesture::Handle {
+                    handle,
+                    world: (sample.position.x as f32, sample.position.y as f32),
+                },
+                CropGesture::Pan { .. } => CropGesture::Pan {
+                    delta_world: (
+                        (sample.position.x - contact.x) as f32,
+                        (sample.position.y - contact.y) as f32,
+                    ),
+                },
+            };
+            let preview = apply_gesture(before, input).ok_or("Crop preview no longer applies")?;
+            self.previews.insert(before.id, preview);
+            return Ok(());
         }
         Self::preview_pair(&self.steps[self.index], sample, &mut self.previews);
         if let Some(children) = self.cohorts.get(&self.index) {
@@ -151,6 +220,7 @@ impl WitnessedCommand {
                 Self::preview_pair(&self.steps[*index], sample, &mut self.previews);
             }
         }
+        Ok(())
     }
     fn preview_pair(
         pair: &(Option<Node>, Option<Node>),
@@ -197,4 +267,32 @@ impl WitnessedCommand {
             _ => {}
         }
     }
+}
+
+/// One body-contact policy for ordinary work and crop pan. A known outline
+/// never falls back into a hole; the fixed candidate budget can refuse contact.
+fn body_contact(node: &Node) -> Result<WorldPoint, String> {
+    let (cx, cy) = node.rect.center();
+    let Some(outline) = slate_doc::geom::node_closed_poly(node, 0.05) else {
+        if node.clip.is_some() {
+            return Err("The authored mask has no visible body contact".into());
+        }
+        return Ok(point(cx, cy));
+    };
+    if vector_ink::point_in_polygon(&outline, [cx, cy]) {
+        return Ok(point(cx, cy));
+    }
+    for row in 0..8 {
+        for column in 0..8 {
+            let local = [
+                node.rect.x + node.rect.w * (column as f32 + 0.5) / 8.0,
+                node.rect.y + node.rect.h * (row as f32 + 0.5) / 8.0,
+            ];
+            let candidate = node.rect.rotate_point(local, node.rotation_deg);
+            if vector_ink::point_in_polygon(&outline, candidate) {
+                return Ok(point(candidate[0], candidate[1]));
+            }
+        }
+    }
+    Err("No visible body contact was found within the bounded outline search".into())
 }

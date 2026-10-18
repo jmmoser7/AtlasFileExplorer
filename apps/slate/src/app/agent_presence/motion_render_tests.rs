@@ -6,6 +6,9 @@ use slate_doc::scene::{CmdAuthor, ConnectorEnd, NodeKind, Side};
 mod support;
 use support::Fixture;
 
+#[path = "crop_render_tests.rs"]
+mod crop;
+
 fn move_image(f: &mut Fixture, dx: f32, dy: f32) {
     let source = f.h.app.doc().scene.node(f.images[0]).unwrap().clone();
     let scene = f.h.app.doc().scene.clone();

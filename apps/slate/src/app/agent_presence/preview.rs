@@ -72,16 +72,29 @@ impl SlateApp {
             return;
         };
         let xf = self.board_xf();
+        let world = xf.s2w(at);
         let hit = self
             .presence
             .agents
             .iter()
             .filter(|a| a.tab == self.tab().id)
             .filter_map(|a| a.work.as_ref().map(|w| (a.profile.id.clone(), w)))
+            .filter(|(_, work)| work.prepared.expected_matches(&self.doc().scene).is_ok())
             .find_map(|(who, w)| {
                 w.previews
                     .values()
-                    .find(|n| !n.hidden && n.opacity > 0.01 && xf.rect_w2s(n.rect).contains(at))
+                    .find(|n| {
+                        !n.hidden
+                            && n.opacity > 0.01
+                            && match &n.kind {
+                                slate_doc::scene::NodeKind::Image(_) => {
+                                    slate_doc::geom::point_in_node_outline(
+                                        n, world.x, world.y, 0.05,
+                                    )
+                                }
+                                _ => xf.rect_w2s(n.rect).contains(at),
+                            }
+                    })
                     .cloned()
                     .map(|n| (who, n))
             });
@@ -95,11 +108,17 @@ impl SlateApp {
                 .filter_map(|id| {
                     let before = self.doc().scene.node(id)?.clone();
                     let preview = self.presence_preview(id)?;
-                    if before.rect == preview.rect {
+                    let mut after = before.clone();
+                    if matches!(&after.kind, slate_doc::scene::NodeKind::Image(_)) {
+                        if !crate::app::board_crop::copy_crop_geometry(&mut after, preview) {
+                            return None;
+                        }
+                    } else {
+                        after.rect = preview.rect;
+                    }
+                    if before == after {
                         return None;
                     }
-                    let mut after = before.clone();
-                    after.rect = preview.rect;
                     Some(SceneCmd::Patch {
                         before: Box::new(before),
                         after: Box::new(after),

@@ -22,10 +22,15 @@ pub(crate) struct PreparedBoardCommand {
     expected: Vec<Node>,
     order: Option<Vec<NodeId>>,
     invocation: Option<invocation::DeferredInvocation>,
+    crop: Option<super::super::board_crop::CropGesture>,
     linked_items: Vec<slate_doc::SlateItem>,
 }
 
 impl PreparedBoardCommand {
+    pub(crate) fn crop_gesture(&self) -> Option<super::super::board_crop::CropGesture> {
+        self.crop
+    }
+
     pub(crate) fn created_ids(&self) -> Vec<NodeId> {
         self.cmds
             .iter()
@@ -141,13 +146,19 @@ impl SlateApp {
         {
             return Err("Unknown board command".into());
         }
+        if command == "board.objects.crop" && targets.len() != 1 {
+            return Err("Crop requires exactly one stable image ID".into());
+        }
         let ids = prepare::target_ids(&self.doc().scene, targets)?;
-        let (cmds, targets, invocation) = if command == "portal.agent.run" {
+        let (cmds, targets, invocation, crop) = if command == "board.objects.crop" {
+            let (cmds, targets, gesture) = prepare::crop(self, &ids, arguments)?;
+            (cmds, targets, None, Some(gesture))
+        } else if command == "portal.agent.run" {
             let (cmds, targets, invocation) = invocation::prepare(self, &ids, arguments)?;
-            (cmds, targets, Some(invocation))
+            (cmds, targets, Some(invocation), None)
         } else {
             let (cmds, targets) = prepare::commands(self, command, &ids, arguments)?;
-            (cmds, targets, None)
+            (cmds, targets, None, None)
         };
         if cmds.is_empty() && invocation.is_none() {
             return Err("The command would make no changes".into());
@@ -181,6 +192,7 @@ impl SlateApp {
             order: matches!(command, "board.objects.order" | "board.objects.delete")
                 .then(|| self.doc().scene.nodes.iter().map(|node| node.id).collect()),
             invocation,
+            crop,
             linked_items,
         };
         prepared.applicable(&self.doc().scene)?;
