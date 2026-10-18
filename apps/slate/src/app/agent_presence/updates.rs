@@ -274,6 +274,27 @@ mod tests {
         );
     }
     #[test]
+    fn a_new_human_message_after_stop_starts_work_without_discarding_history() {
+        let (mut h, who) = host();
+        h.app.presence_send_chat(&who, "First task").unwrap();
+        h.app
+            .apply_presence_action(&h.ctx, chrome::PresenceAction::Cancel { id: who.clone() })
+            .unwrap();
+        assert!(h.app.presence.agents[0].paused);
+        h.app
+            .presence_send_chat(&who, "Try this new task instead")
+            .unwrap();
+        assert!(!h.app.presence.agents[0].paused);
+        assert!(h.app.presence.agents[0].inflight);
+        assert!(h
+            .app
+            .presence_conversation(&who)
+            .unwrap()
+            .turns
+            .iter()
+            .any(|t| t.text == "First task"));
+    }
+    #[test]
     fn explicit_resume_restarts_a_task_that_ended_while_board_work_was_paused() {
         let (mut h, who) = host();
         h.app

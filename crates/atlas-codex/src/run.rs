@@ -315,3 +315,37 @@ impl Client {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn a_fresh_thread_replays_the_visible_history_checkpoint_once() {
+        let request = AgentRequest {
+            id: "next".into(),
+            prompt: "Continue".into(),
+            ..Default::default()
+        };
+        let session = AgentSession {
+            turns: vec![
+                AgentTurn {
+                    role: "user".into(),
+                    text: "First question".into(),
+                    at: 1,
+                },
+                AgentTurn {
+                    role: "assistant".into(),
+                    text: "First answer".into(),
+                    at: 2,
+                },
+            ],
+            ..Default::default()
+        };
+        let replay = recover_request_history(&request, &session).unwrap();
+        assert_eq!(replay.history, session.turns);
+        let text = replay.prompt_with_history();
+        assert_eq!(text.matches("Prior conversation checkpoint").count(), 1);
+        assert_eq!(text.matches("First question").count(), 1);
+        assert_eq!(text.matches("First answer").count(), 1);
+    }
+}

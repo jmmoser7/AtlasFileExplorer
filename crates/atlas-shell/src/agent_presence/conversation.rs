@@ -173,7 +173,7 @@ pub(super) fn show(
             .on_hover_text(if p.busy {
                 "Send message while the task continues"
             } else if p.paused {
-                "Send message · task remains paused"
+                "Send message"
             } else {
                 "Send message · Enter"
             });

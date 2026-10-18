@@ -95,6 +95,10 @@ impl SlateApp {
             .grant
             .clone()
             .ok_or("Board grant was revoked; restore a fresh session")?;
+        let resume_after_stop = from.is_none()
+            && queued.is_none()
+            && a.paused
+            && matches!(a.activity.as_str(), "cancel" | "error");
         let request = queued
             .map(str::to_owned)
             .unwrap_or_else(atlas_agent::request_id);
@@ -108,7 +112,11 @@ impl SlateApp {
             .ok_or("Session has retired")?
             .begin_request(id(&request)?)
             .map_err(|e| e.to_string())?;
-        a.reply_from = a.snapshot.as_ref().map_or(history.len(), |s| s.turns.len());
+        a.reply_from = if provider == "codex" && a.runtime.is_none() {
+            history.len()
+        } else {
+            a.snapshot.as_ref().map_or(history.len(), |s| s.turns.len())
+        };
         let req = atlas_agent::AgentRequest {
             id: request.clone(),
             prompt: text.trim().into(),
@@ -174,6 +182,12 @@ impl SlateApp {
                 m.cancel_request();
             }
             return Err(error);
+        }
+        if resume_after_stop {
+            a.paused = false;
+            a.resume_task = false;
+            a.chat_only = false;
+            a.control_epoch = a.control_epoch.wrapping_add(1);
         }
         self.presence.sources.expect(&a.dir, &request);
         a.status = if a.profile.provider == "codex" {

@@ -143,13 +143,20 @@ impl Conversation {
             .and_then(|index| self.turns.get(index))
             .filter(|t| t.role == "user")
             .map(|t| t.text.as_str())?;
-        snapshot
+        let mut matches = snapshot
             .turns
             .iter()
             .enumerate()
             .skip(a.reply_from)
-            .rfind(|(_, t)| t.role == "user" && t.text == prompt)
-            .map(|(index, _)| index + 1)
+            .filter(|(_, t)| t.role == "user" && t.text == prompt);
+        // Native steering may repeat the original prompt verbatim. Its first
+        // request-scoped user row remains the response boundary.
+        let start = if a.profile.provider == "codex" {
+            matches.next()
+        } else {
+            matches.next_back()
+        };
+        start.map(|(index, _)| index + 1)
     }
     /// Import only visible turns after the current submitted prompt, beyond the
     /// captured provider prefix. A new request ID alone is insufficient: native
@@ -191,7 +198,7 @@ impl Conversation {
         }
         let visible: Vec<_> = snapshot.turns[start..]
             .iter()
-            .filter(|t| t.role == "assistant" && !t.text.is_empty())
+            .filter(|t| matches!(t.role.as_str(), "user" | "assistant") && !t.text.is_empty())
             .collect();
         let old_indices: Vec<_> = self
             .request_indices(&a.request)
@@ -204,7 +211,8 @@ impl Conversation {
             .map(|index| (&self.turns[*index].text, &self.turns[*index].status))
             .collect();
         let status = if terminal { "complete" } else { "streaming" };
-        if old.len() == visible.len()
+        if visible.iter().all(|t| t.role == "assistant")
+            && old.len() == visible.len()
             && old
                 .iter()
                 .zip(&visible)
@@ -216,18 +224,34 @@ impl Conversation {
             .iter()
             .map(|index| self.turns[*index].id.clone())
             .collect();
-        let first = old_indices.first().copied().unwrap_or(self.turns.len());
-        let end = old_indices.last().map_or(first, |index| index + 1);
-        let mut replacement: Vec<_> = self.turns[first..end]
+        let first = self
+            .request_index(&a.request)
+            .map_or(self.turns.len(), |i| i + 1);
+        let end = self.turns.len();
+        let mut remaining: Vec<_> = self.turns[first..end]
             .iter()
             .filter(|turn| turn.request != a.request || turn.role != "assistant")
             .cloned()
             .collect();
-        for (index, turn) in visible.into_iter().enumerate() {
+        let mut replacement = Vec::new();
+        let mut answer_index = 0;
+        for turn in visible {
+            if turn.role == "user" {
+                if let Some(index) = remaining.iter().position(|row| {
+                    row.role == "user"
+                        && row.text == turn.text
+                        && matches!(row.status.as_str(), "steering" | "complete" | "unconfirmed")
+                }) {
+                    let mut row = remaining.remove(index);
+                    row.status = "complete".into();
+                    replacement.push(row);
+                }
+                continue;
+            }
             replacement.push(ConversationTurn {
                 board_origin: None,
                 id: old_ids
-                    .get(index)
+                    .get(answer_index)
                     .cloned()
                     .unwrap_or_else(atlas_agent::request_id),
                 role: "assistant".into(),
@@ -238,6 +262,11 @@ impl Conversation {
                 at: turn.at,
                 status: status.into(),
             });
+            answer_index += 1;
+        }
+        replacement.extend(remaining);
+        if self.turns[first..end] == replacement {
+            return self.acknowledge(&a.dir) || changed;
         }
         self.replace_turn_span(first, end, replacement);
         self.acknowledge(&a.dir);

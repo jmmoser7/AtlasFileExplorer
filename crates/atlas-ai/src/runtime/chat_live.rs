@@ -130,7 +130,9 @@ fn live_codex_sequential_history_steer_interrupt_and_retry() {
             })
             .unwrap_or_else(|_| panic!("active-turn interruption failed"));
         assert!(
-            matches!(&session.status, AgentStatus::Error(message) if message.contains("stopped"))
+            matches!(&session.status, AgentStatus::Error(message) if message.contains("stopped")),
+            "expected a confirmed stop, received {:?}",
+            session.status
         );
         interrupted = true;
 

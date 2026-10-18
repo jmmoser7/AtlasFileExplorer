@@ -8,6 +8,10 @@ struct Message {
     commentary: bool,
     known: bool,
 }
+enum StreamItem {
+    Message(usize),
+    User(AgentTurn),
+}
 
 /// Commentary belongs to the public activity log. Only answer
 /// items enter conversation history or become the next chat-train reply.
@@ -15,6 +19,7 @@ pub(super) struct MessageStream {
     start: usize,
     at: u64,
     items: Vec<Message>,
+    order: Vec<StreamItem>,
 }
 
 impl MessageStream {
@@ -23,16 +28,17 @@ impl MessageStream {
             start,
             at,
             items: Vec::new(),
+            order: Vec::new(),
         }
     }
 
     pub(super) fn push_user(&mut self, session: &mut AgentSession, text: &str) {
-        self.start += 1;
-        session.turns.push(AgentTurn {
+        self.order.push(StreamItem::User(AgentTurn {
             role: "user".into(),
             text: text.into(),
             at: now(),
-        });
+        }));
+        self.rebuild(session);
     }
 
     pub(super) fn apply(&mut self, method: &str, params: &Value, session: &mut AgentSession) {
@@ -53,6 +59,7 @@ impl MessageStream {
             .iter()
             .position(|message| message.id == id)
             .unwrap_or_else(|| {
+                self.order.push(StreamItem::Message(self.items.len()));
                 self.items.push(Message {
                     id: id.into(),
                     ..Default::default()
@@ -62,8 +69,11 @@ impl MessageStream {
         let message = &mut self.items[index];
         if is_item {
             message.known = true;
-            // Older app-server builds omit phase: preserve their answer text.
-            message.commentary = item["phase"] == "commentary";
+            // Older app-server builds omit phase. Preserve a known item's phase
+            // across sparse updates; a newly discovered legacy item defaults to answer.
+            if let Some(phase) = item["phase"].as_str() {
+                message.commentary = phase == "commentary";
+            }
             if let Some(text) = item["text"].as_str() {
                 message.text = text.into();
             }
@@ -84,17 +94,23 @@ impl MessageStream {
                 )),
             });
         }
+        self.rebuild(session);
+    }
+    fn rebuild(&self, session: &mut AgentSession) {
         session.turns.truncate(self.start);
-        session.turns.extend(
-            self.items
-                .iter()
-                .filter(|message| message.known && !message.commentary)
-                .map(|message| AgentTurn {
-                    role: "assistant".into(),
-                    text: message.text.clone(),
-                    at: self.at,
-                }),
-        );
+        session
+            .turns
+            .extend(self.order.iter().filter_map(|item| match item {
+                StreamItem::User(turn) => Some(turn.clone()),
+                StreamItem::Message(index) => {
+                    let message = &self.items[*index];
+                    (message.known && !message.commentary).then(|| AgentTurn {
+                        role: "assistant".into(),
+                        text: message.text.clone(),
+                        at: self.at,
+                    })
+                }
+            }));
     }
 }
 

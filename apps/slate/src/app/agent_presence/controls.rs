@@ -236,6 +236,10 @@ impl SlateApp {
             Cancel { id } => {
                 self.stop_presence(&id, false)?;
                 self.set_presence_paused(&id, true, PauseCause::InputHold)?;
+                if let Some(a) = self.presence.agents.iter_mut().find(|a| a.profile.id == id) {
+                    a.activity = "cancel".into();
+                    a.status = "Stopped. Resume or send a new task.".into();
+                }
             }
             Revoke { id } => self.stop_presence(&id, true)?,
             Pause { id, paused } => {

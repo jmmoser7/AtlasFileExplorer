@@ -1,6 +1,38 @@
 use super::*;
 
 #[test]
+fn steering_preserves_user_rows_and_streamed_answers_without_duplicates() {
+    let mut session = AgentSession::default();
+    session.turns.push(AgentTurn {
+        role: "user".into(),
+        text: "First task".into(),
+        at: 0,
+    });
+    let mut stream = MessageStream::new(1, 1);
+    stream.apply("item/started", &json!({"item":{"id":"answer-1","type":"agentMessage","phase":"final_answer","text":"First part"}}), &mut session);
+    stream.push_user(&mut session, "First task");
+    stream.apply(
+        "item/agentMessage/delta",
+        &json!({"itemId":"answer-1","delta":" completed"}),
+        &mut session,
+    );
+    stream.apply("item/started", &json!({"item":{"id":"answer-2","type":"agentMessage","phase":"final_answer","text":"Follow-up answer"}}), &mut session);
+    assert_eq!(
+        session
+            .turns
+            .iter()
+            .map(|t| (t.role.as_str(), t.text.as_str()))
+            .collect::<Vec<_>>(),
+        vec![
+            ("user", "First task"),
+            ("assistant", "First part completed"),
+            ("user", "First task"),
+            ("assistant", "Follow-up answer")
+        ]
+    );
+}
+
+#[test]
 fn activity_uses_observed_categories_and_never_guesses_targets() {
     use atlas_agent::AgentActivityAction;
     let mut session = AgentSession {
@@ -114,6 +146,11 @@ fn commentary_streams_as_activity_and_final_is_the_only_answer() {
     messages.apply(
         "item/completed",
         &item("progress", json!("commentary"), "Checking."),
+        &mut session,
+    );
+    messages.apply(
+        "item/completed",
+        &json!({"item":{"type":"agentMessage","id":"progress","text":"Checking."}}),
         &mut session,
     );
     assert!(session.turns.is_empty());

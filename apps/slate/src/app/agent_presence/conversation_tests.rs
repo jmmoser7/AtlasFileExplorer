@@ -43,6 +43,47 @@ fn self_chat_is_durable_visible_text_without_a_provider_or_live_membership() {
     let restored: conversation::Conversation = serde_json::from_str(&encoded).unwrap();
     assert_eq!(&restored, c);
 }
+
+#[test]
+fn identical_live_updates_keep_both_answers_and_the_original_response_boundary() {
+    let mut h = host();
+    let who = add(&mut h);
+    h.app.presence_send_chat(&who, "hey!").unwrap();
+    h.app.presence.agents[0].profile.provider = "codex".into(); // Display/merge fixture only; no provider starts.
+    let a = &h.app.presence.agents[0];
+    let mut c = h.app.presence_conversation(&who).unwrap().clone();
+    let turn = |role: &str, text: &str| atlas_agent::AgentTurn {
+        role: role.into(),
+        text: text.into(),
+        at: 1,
+    };
+    let mut snapshot = AgentSession {
+        request: a.request.clone(),
+        status: atlas_agent::AgentStatus::Thinking,
+        turns: vec![turn("user", "hey!"), turn("assistant", "First reply")],
+        ..Default::default()
+    };
+    c.absorb(a, &snapshot);
+    c.push("user", "hey!", "You", Some("codex"), "steer-2", "complete");
+    snapshot
+        .turns
+        .extend([turn("user", "hey!"), turn("assistant", "Second reply")]);
+    assert_eq!(c.reply_start(a, &snapshot), Some(1));
+    c.absorb(a, &snapshot);
+    assert_eq!(
+        c.turns
+            .iter()
+            .filter(|t| matches!(t.role.as_str(), "user" | "assistant"))
+            .map(|t| (t.role.as_str(), t.text.as_str()))
+            .collect::<Vec<_>>(),
+        vec![
+            ("user", "hey!"),
+            ("assistant", "First reply"),
+            ("user", "hey!"),
+            ("assistant", "Second reply")
+        ]
+    );
+}
 #[test]
 fn same_harness_and_invalid_destination_leave_a_running_request_untouched() {
     let mut h = host();
