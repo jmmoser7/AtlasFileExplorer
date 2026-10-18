@@ -648,7 +648,6 @@ mod tests {
         write_session(&dir, &answered);
         let waiting = tail(&h);
         frames_until(&mut h, "the reply", |h| !h.app.agent_is_awaiting(waiting));
-
         let path = h.base.join("train.slate");
         let tab = h.app.tab().id;
         h.app.save_doc_to(tab, path.clone());
@@ -658,9 +657,9 @@ mod tests {
         assert!(!h.app.agents.life.sidecar_dirs.contains_key(&session));
         assert!(!h.app.agents.sidecar_spawned.contains(&session));
         assert!(!h.app.agents.life.rejoined.contains(&session));
-
         h.app.open_doc_at(path);
-        h.frame();
+        frames_until(&mut h, "the reopened workbook", |h| !h.app.tabs.is_empty());
+        assert!(!h.app.tab().read_only, "the reopened workbook is writable");
         let first_card = h
             .app
             .doc()
@@ -1250,7 +1249,8 @@ mod tests {
         let tab = h.app.tab().id;
         h.app.save_doc_to(tab, path.clone());
         h.app.close_tab(h.app.active_tab);
-
+        // A real process exit drains releases before its replacement starts.
+        slate_doc::Lease::flush_pending_releases(Duration::from_secs(2)).unwrap();
         let mut relaunched = Harness::new("agent_life_relaunched");
         relaunched.app.ai.config.workspace_dir = Some(ws.clone());
         relaunched.app.agents.life.hold_loads = true;

@@ -267,8 +267,9 @@ fn cleanup_cannot_unlink_a_matching_marker_without_exclusive_guard_authority() {
         .open(append_suffix(&lock_path, ".guard"))
         .unwrap();
     successor_guard.try_lock().unwrap();
-    old.release();
+    let released = old.release();
     maintenance::settle();
+    assert!(released.is_complete());
     assert_eq!(fs::read(&lock_path).unwrap(), bytes);
     assert!(matches!(Lease::acquire(&doc).unwrap(), LeaseState::Held(_)));
 }
@@ -292,4 +293,56 @@ fn unparsable_fresh_lock_is_held_not_stolen() {
         LeaseState::Acquired(_) => panic!("a fresh unparsable lock was stolen"),
     }
     assert_eq!(fs::read_to_string(&lock).expect("lock"), "not json at all");
+}
+
+#[test]
+fn release_completion_waits_for_cleanup_and_the_last_guard_owner() {
+    let doc = workbook("slate-lease-release-completion");
+    let LeaseState::Acquired(mut lease) = Lease::acquire(&doc).unwrap() else {
+        panic!("acquisition");
+    };
+    let retained = lease.inner.as_ref().unwrap().clone();
+    let (worker, queued) = mpsc::channel();
+    lease.worker = worker;
+    let released = lease.release();
+    assert!(!released.is_complete(), "the release is still queued");
+    let maintenance::Task::Release(inner) = queued.try_recv().unwrap() else {
+        panic!("release task");
+    };
+    inner.remove_if_ours();
+    assert!(
+        !released.is_complete(),
+        "marker cleanup still holds the guard"
+    );
+    assert!(matches!(Lease::acquire(&doc).unwrap(), LeaseState::Held(_)));
+    drop(inner);
+    assert!(
+        !released.is_complete(),
+        "another strong owner retains the guard"
+    );
+    drop(retained);
+    maintenance::settle();
+    assert!(released.is_complete());
+    assert!(matches!(
+        Lease::acquire(&doc).unwrap(),
+        LeaseState::Acquired(_)
+    ));
+}
+
+#[test]
+fn release_completion_after_queue_failure_does_not_authorize_a_fresh_marker() {
+    let doc = workbook("slate-lease-release-worker-gone");
+    let LeaseState::Acquired(mut lease) = Lease::acquire(&doc).unwrap() else {
+        panic!("acquisition");
+    };
+    let (worker, queued) = mpsc::channel();
+    drop(queued);
+    lease.worker = worker;
+    let released = lease.release();
+    maintenance::settle();
+    assert!(
+        released.is_complete(),
+        "dropped handles complete even without cleanup"
+    );
+    assert!(matches!(Lease::acquire(&doc).unwrap(), LeaseState::Held(_)));
 }

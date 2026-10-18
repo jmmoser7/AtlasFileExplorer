@@ -1,12 +1,132 @@
 //! Workbook tab transitions and unsaved-close lifecycle.
 
-use super::{SlateApp, SlateTab, UnsavedClose};
+use super::{Lease, LeaseInfo, LeaseState, SlateApp, SlateDoc, SlateTab, UnsavedClose};
 use eframe::egui;
+use std::path::PathBuf;
 
 #[cfg(test)]
 mod tests;
 
 impl SlateApp {
+    pub(super) fn open_doc_at(&mut self, path: PathBuf) {
+        self.pending_lease_releases
+            .retain(|(_, release)| !release.is_complete());
+        if self
+            .pending_lease_releases
+            .iter()
+            .any(|(closed, _)| closed == &path)
+        {
+            if !self.pending_workbooks.contains(&path) {
+                self.pending_workbooks.push(path);
+            }
+            return;
+        }
+        // Same workbook already open (compare canonical paths): focus that
+        // tab instead of opening a second copy that would race it on save.
+        // This is also the "load a workbook into itself" guard — re-opening
+        // the active workbook is a no-op with a toast.
+        let canon = |p: &std::path::Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.into());
+        let target = canon(&path);
+        if let Some((closed, _)) = self
+            .pending_lease_releases
+            .iter()
+            .find(|(closed, _)| atlas_core::workbook_assets::same_path(&target, &canon(closed)))
+        {
+            // Retry with the stored key: subsequent frames need no filesystem probe.
+            if !self.pending_workbooks.contains(closed) {
+                self.pending_workbooks.push(closed.clone());
+            }
+            return;
+        }
+        if let Some(i) = self
+            .tabs
+            .iter()
+            .position(|t| t.path.as_deref().map(canon) == Some(target.clone()))
+        {
+            self.switch_tab(i);
+            self.leave_home();
+            self.toast("Workbook is already open — switched to its tab");
+            return;
+        }
+        match SlateDoc::load_from(&path) {
+            Ok(doc) => {
+                if !self.tabs.is_empty() && !self.finish_text_compose_on_click_away() {
+                    return;
+                }
+                if self.tabs.is_empty() {
+                    self.ensure_work_tab();
+                } else if !self.tab().is_blank() {
+                    self.new_tab();
+                }
+                // A reused blank tab keeps its id; its old board's runtime must not.
+                self.release_agent_doc(self.active_tab);
+                let tab_id = self.tab().id;
+                self.recovery_forget_tab(tab_id);
+                self.brush_chain.forget_tab(tab_id);
+                self.pen_chain.forget_tab(tab_id);
+                if self.eraser_anchor.is_some_and(|(t, _)| t == tab_id) {
+                    self.eraser_anchor = None;
+                }
+                self.record_recent_workbook(&path, &doc);
+                let (lease, read_only, holder, held_toast) = match Lease::acquire(&path) {
+                    Ok(LeaseState::Acquired(lease)) => (Some(lease), false, None, None),
+                    Ok(LeaseState::Held(info)) => {
+                        let msg = format!(
+                            "Opened read-only — {} has this workbook open",
+                            info.describe()
+                        );
+                        (None, true, Some(info), Some(msg))
+                    }
+                    Err(e) => {
+                        let msg = format!("Opened read-only — could not take write lease ({e})");
+                        (None, true, Some(LeaseInfo::unknown()), Some(msg))
+                    }
+                };
+                {
+                    let tab = self.tab_mut();
+                    // Replacing a blank tab: drop any prior lease (untitled has none).
+                    if let Some(old) = tab.lease.take() {
+                        old.release();
+                    }
+                    tab.doc = doc;
+                    tab.recovered = false;
+                    tab.link_health_revision = None;
+                    tab.path = Some(path);
+                    tab.dirty = false;
+                    tab.lease = lease;
+                    tab.read_only = read_only;
+                    tab.lease_holder = holder;
+                    let view = tab.doc.view.clone();
+                    tab.cam.offset = egui::Vec2::new(view.cam_x, view.cam_y);
+                    tab.cam.z = atlas_core::display::SLATE_CANVAS.clamp(view.zoom);
+                }
+                self.load_create_style_from_doc();
+                self.selection.clear();
+                self.note_scene_change();
+                self.leave_home();
+                self.publish_session_tags();
+                if let Some(msg) = held_toast {
+                    self.toast(msg);
+                }
+            }
+            Err(e) => self.toast(format!("Could not open workbook: {e}")),
+        }
+    }
+
+    /// Open queued `.slate` files as tabs (deduped inside `open_doc_at`).
+    /// Runs after drop placement so item placement targets the tab the drop
+    /// landed on, not a tab a workbook drop just switched to.
+    pub(super) fn drain_pending_workbooks(&mut self, ctx: &egui::Context) {
+        self.pending_lease_releases
+            .retain(|(_, release)| !release.is_complete());
+        for path in std::mem::take(&mut self.pending_workbooks) {
+            self.open_doc_at(path);
+        }
+        if !self.pending_workbooks.is_empty() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(16));
+        }
+    }
+
     pub(crate) fn tab_has_unsaved_changes(&self, index: usize) -> bool {
         self.tabs.get(index).is_some_and(|tab| {
             tab.dirty || (index == self.active_tab && self.recovery_has_text_drafts())
@@ -135,7 +255,11 @@ impl SlateApp {
         self.deferred_workbook_actions.clear_tab(tab_id);
         self.release_agent_doc(i);
         if let Some(lease) = self.tabs[i].lease.take() {
-            lease.release();
+            let path = self.tabs[i]
+                .path
+                .clone()
+                .expect("leased workbook has a path");
+            self.pending_lease_releases.push((path, lease.release()));
         }
         let closed = self.tabs.remove(i);
         self.recovery_forget_tab(closed.id);

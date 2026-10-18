@@ -83,7 +83,7 @@ impl SlateApp {
             self.ingest_dropped_paths(dropped, at, alt, screen);
         }
         // Dropped/added .slate files open as tabs, after placement above.
-        self.drain_pending_workbooks();
+        self.drain_pending_workbooks(ctx);
         drop(_drop_span);
     }
 

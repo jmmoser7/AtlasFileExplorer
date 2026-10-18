@@ -104,6 +104,28 @@ struct LeaseInner {
     record: Mutex<Record>,
     failure: Mutex<Option<String>>,
     active: AtomicBool,
+    // Declared last: completion follows destruction of the record's file handles.
+    released: ReleaseSignal,
+}
+
+/// Nonblocking confirmation that a released lease's old handles are gone.
+/// This does not grant ownership: reacquisition must still use [`Lease::acquire`].
+#[derive(Clone, Debug)]
+pub struct LeaseRelease(Arc<AtomicBool>);
+
+impl LeaseRelease {
+    pub fn is_complete(&self) -> bool {
+        self.0.load(Ordering::Acquire)
+    }
+}
+
+#[derive(Debug, Default)]
+struct ReleaseSignal(Arc<AtomicBool>);
+
+impl Drop for ReleaseSignal {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Release);
+    }
 }
 
 /// An owned lease. Maintenance is independent of any window or active tab.
@@ -156,6 +178,7 @@ impl Lease {
             }),
             failure: Mutex::new(None),
             active: AtomicBool::new(true),
+            released: ReleaseSignal::default(),
         });
         worker
             .send(maintenance::Task::Register(Arc::downgrade(&inner)))
@@ -203,8 +226,16 @@ impl Lease {
         result
     }
 
-    pub fn release(self) {
-        // Drop queues the release on the same worker as maintenance.
+    pub fn release(self) -> LeaseRelease {
+        // Drop queues cleanup; the final inner field signals after its handles close.
+        LeaseRelease(
+            self.inner
+                .as_ref()
+                .expect("unreleased lease")
+                .released
+                .0
+                .clone(),
+        )
     }
 
     /// Drain already queued releases at process exit, with a bounded wait.

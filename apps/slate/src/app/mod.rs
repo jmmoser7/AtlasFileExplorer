@@ -516,6 +516,7 @@ pub struct SlateApp {
     /// never become items — they open as tabs at a safe point in the frame
     /// (after drop placement runs against the tab that received the drop).
     pub pending_workbooks: Vec<PathBuf>,
+    pending_lease_releases: Vec<(PathBuf, slate_doc::lease::LeaseRelease)>,
 
     /// Cached PDF page counts keyed by absolute path string.
     documents: pdf::documents::Documents,
@@ -946,6 +947,7 @@ impl SlateApp {
             trim: None,
             path_mesh_cache: board_path::PathMeshCache::default(),
             pending_workbooks: Vec::new(),
+            pending_lease_releases: Vec::new(),
             documents: pdf::documents::Documents::default(),
             queued_unbundles: Vec::new(),
             frame_no: 0,
@@ -1508,88 +1510,6 @@ impl SlateApp {
         });
     }
 
-    fn open_doc_at(&mut self, path: PathBuf) {
-        // Same workbook already open (compare canonical paths): focus that
-        // tab instead of opening a second copy that would race it on save.
-        // This is also the "load a workbook into itself" guard — re-opening
-        // the active workbook is a no-op with a toast.
-        let canon = |p: &std::path::Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.into());
-        let target = canon(&path);
-        if let Some(i) = self
-            .tabs
-            .iter()
-            .position(|t| t.path.as_deref().map(canon) == Some(target.clone()))
-        {
-            self.switch_tab(i);
-            self.leave_home();
-            self.toast("Workbook is already open — switched to its tab");
-            return;
-        }
-        match SlateDoc::load_from(&path) {
-            Ok(doc) => {
-                if !self.tabs.is_empty() && !self.finish_text_compose_on_click_away() {
-                    return;
-                }
-                if self.tabs.is_empty() {
-                    self.ensure_work_tab();
-                } else if !self.tab().is_blank() {
-                    self.new_tab();
-                }
-                // A reused blank tab keeps its id; its old board's runtime must not.
-                self.release_agent_doc(self.active_tab);
-                let tab_id = self.tab().id;
-                self.recovery_forget_tab(tab_id);
-                self.brush_chain.forget_tab(tab_id);
-                self.pen_chain.forget_tab(tab_id);
-                if self.eraser_anchor.is_some_and(|(t, _)| t == tab_id) {
-                    self.eraser_anchor = None;
-                }
-                self.record_recent_workbook(&path, &doc);
-                let (lease, read_only, holder, held_toast) = match Lease::acquire(&path) {
-                    Ok(LeaseState::Acquired(lease)) => (Some(lease), false, None, None),
-                    Ok(LeaseState::Held(info)) => {
-                        let msg = format!(
-                            "Opened read-only — {} has this workbook open",
-                            info.describe()
-                        );
-                        (None, true, Some(info), Some(msg))
-                    }
-                    Err(e) => {
-                        let msg = format!("Opened read-only — could not take write lease ({e})");
-                        (None, true, Some(LeaseInfo::unknown()), Some(msg))
-                    }
-                };
-                {
-                    let tab = self.tab_mut();
-                    // Replacing a blank tab: drop any prior lease (untitled has none).
-                    if let Some(old) = tab.lease.take() {
-                        old.release();
-                    }
-                    tab.doc = doc;
-                    tab.recovered = false;
-                    tab.link_health_revision = None;
-                    tab.path = Some(path);
-                    tab.dirty = false;
-                    tab.lease = lease;
-                    tab.read_only = read_only;
-                    tab.lease_holder = holder;
-                    let view = tab.doc.view.clone();
-                    tab.cam.offset = Vec2::new(view.cam_x, view.cam_y);
-                    tab.cam.z = atlas_core::display::SLATE_CANVAS.clamp(view.zoom);
-                }
-                self.load_create_style_from_doc();
-                self.selection.clear();
-                self.note_scene_change();
-                self.leave_home();
-                self.publish_session_tags();
-                if let Some(msg) = held_toast {
-                    self.toast(msg);
-                }
-            }
-            Err(e) => self.toast(format!("Could not open workbook: {e}")),
-        }
-    }
-
     /// Add files to the active workbook (uncategorized). Returns new ids.
     ///
     /// `.slate` files are diverted: a workbook can't be an item of a workbook
@@ -1638,15 +1558,6 @@ impl SlateApp {
             self.toast("Workbooks open as tabs (they can't be placed as items)");
         }
         added
-    }
-
-    /// Open queued `.slate` files as tabs (deduped inside `open_doc_at`).
-    /// Runs after drop placement so item placement targets the tab the drop
-    /// landed on, not a tab a workbook drop just switched to.
-    fn drain_pending_workbooks(&mut self) {
-        for path in std::mem::take(&mut self.pending_workbooks) {
-            self.open_doc_at(path);
-        }
     }
 
     /// Open an item's file: workbooks open in Slate as a tab, everything

@@ -88,3 +88,27 @@ fn opening_a_workbook_preserves_a_never_saved_text_draft_in_its_own_tab() {
     assert!(harness.app.doc().scene.nodes.is_empty());
     assert!(harness.app.text_box_draft.is_none());
 }
+
+#[test]
+fn reopening_after_release_still_respects_a_new_external_holder() {
+    let mut h = Harness::new("reopen-external-holder");
+    h.seed();
+    let path = h.base.join("board.slate");
+    let tab = h.app.tab().id;
+    h.app.save_doc_to(tab, path.clone());
+    h.app.close_tab(h.app.active_tab);
+    assert!(h.app.tabs.is_empty());
+    slate_doc::Lease::flush_pending_releases(std::time::Duration::from_secs(2)).unwrap();
+    let slate_doc::LeaseState::Acquired(holder) = slate_doc::Lease::acquire(&path).unwrap() else {
+        panic!("new external holder");
+    };
+    h.app.drain_pending_workbooks(&h.ctx);
+    assert!(
+        h.app.tabs.is_empty(),
+        "release completion alone never reopens a tab"
+    );
+    h.app.open_doc_at(path);
+    assert!(h.app.tab().read_only);
+    assert_eq!(h.app.tab().lease_holder.as_ref(), Some(holder.info()));
+    assert!(h.app.tab().lease.is_none());
+}
