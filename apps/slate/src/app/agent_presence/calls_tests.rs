@@ -19,6 +19,8 @@ fn invoke(h: &mut Harness, command: &str, arguments: serde_json::Value) -> Board
     let mut agent = h.app.presence.agents.remove(0);
     std::fs::create_dir_all(&agent.dir).unwrap();
     agent.request = atlas_agent::request_id();
+    agent.sequences = 0;
+    agent.calls = 0;
     h.app
         .presence
         .roster
@@ -161,13 +163,17 @@ fn scoped_collaborator_feedback_is_local_bounded_and_does_not_open_ui() {
     let too_long = invoke(
         &mut h,
         "app.feedback.report",
-        json!({"what":"x".repeat(801)}),
+        json!({"what":"x".repeat(801),"tried":"app.save","missing":"Save As support"}),
     );
     assert!(!too_long.success);
-    assert!(too_long.result["error"]
-        .as_str()
-        .unwrap_or_default()
-        .contains("800 characters"));
+    assert!(
+        too_long.result["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("800 characters"),
+        "unexpected validation result: {:?}",
+        too_long.result
+    );
 }
 
 #[test]

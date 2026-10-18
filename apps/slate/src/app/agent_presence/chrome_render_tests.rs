@@ -374,7 +374,7 @@ fn zero_roster_ui_adds_a_local_collaborator_and_delivers_its_first_scoped_messag
     let grant = a.grant.clone().unwrap();
     let dir = a.dir.clone();
     assert_eq!(a.profile.provider, "local");
-    assert_eq!(a.profile.name, "Agent");
+    assert_eq!(a.profile.name, "Dot");
     assert_eq!(a.profile.hat, "cap");
     assert!(a.request.is_empty() && !a.inflight);
     assert!(a.runtime.is_none() && a.cursor.is_none() && a.launched.is_empty());
