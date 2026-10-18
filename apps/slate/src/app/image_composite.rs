@@ -192,7 +192,8 @@ fn safe_image_source(path: &Path) -> Option<PathBuf> {
 
 fn bounded_presence_image(image: RgbaImage) -> RgbaImage {
     const MAX_EDGE: u32 = 2048;
-    const MAX_OUTPUT_PIXELS: u64 = 4_000_000;
+    // Even incompressible RGBA fits below the transport's 8 MiB PNG bound.
+    const MAX_OUTPUT_PIXELS: u64 = 2_000_000;
     let (width, height) = image.dimensions();
     let pixels = u64::from(width) * u64::from(height);
     let scale = (f64::from(MAX_EDGE) / f64::from(width))

@@ -168,7 +168,9 @@ only host-prepared PNGs directly inside the AI workspace's
 `collaborator-previews`, `portal-previews`, or `portal-captures` directories;
 original source files and arbitrary paths in other tool results are refused.
 Cloud checks precede reads, and PNG decoding and transport have explicit bounds
-(8 MiB encoded, 16 million pixels). A rejected artifact returns a recoverable
+(8 MiB encoded, 16,777,216 pixels). Explicit board-image exports are reduced to
+at most 2,000,000 pixels so even noisy RGBA images fit that encoded bound.
+A rejected artifact returns a recoverable
 tool error. File-bridge providers receive the artifact locator and use their
 existing image-view tool. The exact installed response schema is retained in
 `target/review/agent-tools-20261018/codex-schema/DynamicToolCallResponse.json`.
