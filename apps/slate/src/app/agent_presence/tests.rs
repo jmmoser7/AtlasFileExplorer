@@ -9,6 +9,8 @@ mod avatar_gestures;
 mod chrome_render;
 #[path = "motion_render_tests.rs"]
 mod motion_render;
+#[path = "motion_render_support.rs"]
+mod motion_support;
 #[path = "perf_tests.rs"]
 mod perf;
 #[path = "proposal_chat_tests.rs"]

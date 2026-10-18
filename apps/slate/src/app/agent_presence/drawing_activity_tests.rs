@@ -2,9 +2,7 @@
 use super::*;
 use slate_doc::scene::{CmdAuthor, Node, NodeKind, PathSeg};
 
-#[path = "motion_render_support.rs"]
-mod support;
-use support::Fixture;
+use super::motion_support::Fixture;
 
 fn drawing_arguments() -> serde_json::Value {
     json!({"strokes":[
@@ -90,6 +88,15 @@ fn drawing_shows_real_tool_geometry_helpers_then_commits_once_with_undo_redo() {
 
         let sample = f.sample();
         if sample.phase != MotionPhase::Work {
+            assert!(
+                f.h.app.presence.agents[0]
+                    .work
+                    .as_ref()
+                    .unwrap()
+                    .previews
+                    .is_empty(),
+                "ink cannot appear before the agent reaches its contact"
+            );
             continue;
         }
         let work = f.h.app.presence.agents[0].work.as_ref().unwrap();

@@ -64,6 +64,7 @@ fn path_node(
 }
 
 /// Canonical vector path node used by the human curve commit and agent adapter.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn drawn_path_node(
     scene: &mut Scene,
     rect: WorldRect,

@@ -6,6 +6,8 @@
 //! See `docs/keymap/specs/brush-color.md`. All stroke creation/removal goes
 //! through the journal (Art. VI); color state is tool state (never journaled).
 
+mod erase_cleanup;
+
 use super::board::{to_rgba, BoardTool, MIN_DRAW};
 use super::{board_path, SlateApp};
 use eframe::egui::{self, Color32, Pos2, Stroke as EStroke};
@@ -2000,43 +2002,6 @@ impl SlateApp {
                     self.board_sel.remove(&id);
                 }
             }
-        }
-    }
-
-    /// Start the bounded raster check that completes an already committed
-    /// targeted erase. The check is tied to that exact group and author, so
-    /// a later edit or another author's group cannot be amended by its reply.
-    pub(crate) fn queue_targeted_erase_cleanup(
-        &mut self,
-        cmds: &[slate_doc::scene::SceneCmd],
-        author: slate_doc::scene::CmdAuthor,
-    ) {
-        let Some(token) = self.tab().journal.top_token() else {
-            return;
-        };
-        if self.tab().journal.last_author() != Some(&author) {
-            return;
-        }
-        let pending: Vec<_> = cmds
-            .iter()
-            .filter_map(|cmd| {
-                let slate_doc::scene::SceneCmd::Patch { before, after } = cmd else {
-                    return None;
-                };
-                let key = board_path::node_stamp_key(after)?;
-                (board_path::node_stamp_key(before) != Some(key)
-                    && self
-                        .doc()
-                        .scene
-                        .node(after.id)
-                        .and_then(board_path::node_stamp_key)
-                        == Some(key))
-                .then(|| (after.id, key, (**after).clone()))
-            })
-            .collect();
-        for (id, key, after) in pending {
-            self.brush_tiles.ask_ink(&after, key);
-            self.erase_settle.check_as(id, key, token, author.clone());
         }
     }
 

@@ -149,7 +149,7 @@ impl WorkPath {
             }
             remaining -= stroke_measure(stroke, mode);
         }
-        let (stroke_index, stroke) = self.strokes.iter().enumerate().last().unwrap();
+        let (stroke_index, stroke) = self.strokes.iter().enumerate().next_back().unwrap();
         let vertex_index = stroke.len() - 1;
         PathProgress {
             position: stroke[vertex_index],

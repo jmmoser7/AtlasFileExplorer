@@ -2,9 +2,7 @@
 use super::*;
 use slate_doc::scene::{CmdAuthor, ConnectorEnd, NodeKind, Side};
 
-#[path = "motion_render_support.rs"]
-mod support;
-use support::Fixture;
+use super::motion_support::Fixture;
 
 #[path = "crop_render_tests.rs"]
 mod crop;
