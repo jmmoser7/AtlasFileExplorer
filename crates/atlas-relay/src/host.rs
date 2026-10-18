@@ -163,11 +163,10 @@ fn peer(
     stop: &AtomicBool,
     connection: u64,
 ) -> Result<(), RelayError> {
-    let mut socket = open(tcp, config).map_err(|error| {
+    let mut socket = open(tcp, config).inspect_err(|error| {
         let mut summary = error.to_string();
         summary.truncate(256);
         let _ = errors.try_send(summary);
-        error
     })?;
     let hello = socket.read().map_err(ws_error)?;
     let authorized = match hello {
