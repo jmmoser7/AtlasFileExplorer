@@ -358,6 +358,23 @@ fn a_live_brush_stays_below_a_later_pen_in_the_same_drawing() {
         if !pen.is_some_and(|node| world_path_points(node).last().unwrap()[0] > -100.0) {
             continue;
         }
+        let expected: Vec<_> = work
+            .steps
+            .iter()
+            .filter_map(|(_, after)| after.as_ref())
+            .filter(|node| work.previews.contains_key(&node.id))
+            .map(|node| node.id)
+            .collect();
+        let actual: Vec<_> =
+            f.h.app
+                .presence_preview_additions(f.h.app.canvas_rect)
+                .iter()
+                .map(|node| node.id)
+                .collect();
+        assert_eq!(
+            actual, expected,
+            "preview order must match the eventual commit"
+        );
         f.draw_exact(out);
         let pixel = f.pixel(egui::pos2(-200.0, 100.0));
         assert!(

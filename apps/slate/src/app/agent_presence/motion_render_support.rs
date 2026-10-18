@@ -2,7 +2,7 @@
 use super::*;
 use crate::app::{
     preview::{PreviewEntry, PX_EXACT},
-    tests::{capture_frame, picture_from, picture_item, rasterize, review_shot, FrameRaster},
+    tests::{capture_frame, picture_from, picture_item, rasterize, FrameRaster},
 };
 use slate_doc::NodeId;
 use std::{collections::HashMap, io::Write, time::Duration};
@@ -172,29 +172,18 @@ impl Fixture {
     }
 
     pub fn save(&mut self, phase: &str, out: egui::FullOutput) {
-        assert_eq!(
-            self.h.app.brush_tiles.last.pending_jobs,
-            0,
-            "saving {phase} must not drain extra frames; whole strokes={}, previews={:?}",
-            self.h.app.brush_tiles.strokes_pending(),
-            self.h.app.presence.agents[0].work.as_ref().map(|work| work
-                .previews
-                .values()
-                .map(|node| (
-                    node.id,
-                    crate::app::board_path::node_stamp_key(node),
-                    self.h.app.agent_brush_coverage(node.id, None)
-                ))
-                .collect::<Vec<_>>())
-        );
         let before = self.state();
-        review_shot(&mut self.h, &mut self.raster, out, &self.case, phase);
+        // The general review helper drains worker frames. Retain this exact
+        // output instead, including the currently visible raster fallbacks.
+        self.draw_exact(out);
         assert_eq!(
             self.state(),
             before,
             "phase labels must match the exact captured frame"
         );
         let path = self.directory().join(format!("{phase}.png"));
+        std::fs::create_dir_all(self.directory()).unwrap();
+        self.raster.save(&path);
         let row = json!({"phase":phase,"file":path.file_name().unwrap().to_string_lossy(),
             "bytes":std::fs::metadata(&path).unwrap().len(),"state":before});
         self.write_json(&format!("{phase}.json"), &row);

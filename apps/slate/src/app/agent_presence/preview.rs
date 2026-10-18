@@ -44,10 +44,16 @@ impl SlateApp {
                 a.work
                     .as_ref()
                     .filter(|w| w.purpose.replaces_objects())
-                    .map(|w| &w.previews)
                     .into_iter()
             })
-            .flat_map(|p| p.values())
+            // The prepared command owns scene order. Hash-map iteration here
+            // would reshuffle overlapping additions until their final commit.
+            .flat_map(|work| {
+                work.steps.iter().filter_map(|(before, after)| {
+                    let node = after.as_ref().or(before.as_ref())?;
+                    work.previews.get(&node.id)
+                })
+            })
             .filter(|n| super::super::board::paints_in_view(n, &view))
             .cloned()
             .collect()
