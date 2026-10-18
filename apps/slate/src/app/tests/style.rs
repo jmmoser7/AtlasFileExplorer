@@ -136,6 +136,10 @@ fn per_tool_style_memory_survives_save_and_reopen() {
     let tab_id = h.app.tab().id;
     h.app.save_doc_to(tab_id, path.clone());
     drop(h);
+    // App teardown queues lease cleanup on the shared maintenance worker. Model
+    // process exit before reopening so the next app cannot race that release.
+    slate_doc::Lease::flush_pending_releases(std::time::Duration::from_secs(2))
+        .expect("saved workbook lease release completes before relaunch");
 
     let mut h2 = Harness::new("tool_style_reopen");
     h2.app.open_doc_at(path);

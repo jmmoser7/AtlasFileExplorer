@@ -191,3 +191,38 @@ fn parametric_shape_draw_retains_recipe_node_kinds_and_bounded_sides() {
         .prepare_targeted_command_with_context(&h.ctx, "board.paths.draw", &[], &invalid)
         .is_err());
 }
+
+#[test]
+fn parametric_shape_draw_preserves_inherited_opacity_and_explicit_override() {
+    let mut h = host();
+    let rect = WorldRect::new(0.0, 0.0, 20.0, 30.0);
+    let recipe = h.app.kits.recipe_for_id("rect").cloned().unwrap();
+    let mut seed = h.app.prepare_recipe_nodes(&recipe, rect)[0].clone();
+    seed.opacity = 0.37;
+    h.app.note_last_style(&seed);
+
+    for tool in ["rect", "ellipse", "polygon"] {
+        let recipe = h.app.kits.recipe_for_id(tool).cloned().unwrap();
+        let expected = h.app.prepare_recipe_nodes(&recipe, rect)[0].opacity;
+        let args = json!({"strokes":[{"tool":tool,"points":[[0,0],[20,30]]}]});
+        let plan = h
+            .app
+            .prepare_targeted_command_with_context(&h.ctx, "board.paths.draw", &[], &args)
+            .unwrap();
+        let SceneCmd::Add { node, .. } = &plan.cmds[0] else {
+            panic!("shape should add one node")
+        };
+        assert_eq!(node.opacity, expected);
+    }
+
+    let override_args =
+        json!({"strokes":[{"tool":"rect","points":[[0,0],[20,30]],"opacity":0.73}]});
+    let override_plan = h
+        .app
+        .prepare_targeted_command_with_context(&h.ctx, "board.paths.draw", &[], &override_args)
+        .unwrap();
+    let SceneCmd::Add { node, .. } = &override_plan.cmds[0] else {
+        panic!("shape should add one node")
+    };
+    assert_eq!(node.opacity, 0.73);
+}

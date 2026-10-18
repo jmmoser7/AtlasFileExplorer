@@ -149,7 +149,8 @@ pub(crate) fn parametric_shape_node(
         return Err("The board shape recipe must produce one parametric shape".into());
     }
     let prepared = nodes.pop().ok_or("The board shape recipe is unavailable")?;
-    let mut node = scene.build_node(prepared.rect, prepared.kind);
+    let mut node = prepared;
+    node.id = scene.build_node(node.rect, node.kind.clone()).id;
     let NodeKind::Shape(shape) = &mut node.kind else {
         return Err("The board shape recipe did not produce a shape".into());
     };
