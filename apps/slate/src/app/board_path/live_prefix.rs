@@ -1,6 +1,28 @@
 use super::*;
 
 impl BrushLiveCanvas {
+    #[cfg(test)]
+    pub(crate) fn preview_debug(&self) -> serde_json::Value {
+        let meshes: Vec<_> = self
+            .meshes
+            .next
+            .iter()
+            .map(|(_, draft)| {
+                draft.screen.as_ref().map(|(_, mesh)| {
+                    (
+                        mesh.vertices.len(),
+                        mesh.indices.len(),
+                        mesh.vertices
+                            .first()
+                            .map(|v| (v.pos.x, v.pos.y, v.color.to_array())),
+                    )
+                })
+            })
+            .collect();
+        serde_json::json!({"idle":self.idle,"line":self.line.map(|(a,b)| (a.pos,b.pos)),
+            "meshes":meshes,"exact":self.line_exact()})
+    }
+
     /// Stamp the newly reached points of a cached, monotonically growing
     /// route. The active endpoint is supplied separately with [`set_line`],
     /// so a moving tip never gets stranded behind an unchanged point count.

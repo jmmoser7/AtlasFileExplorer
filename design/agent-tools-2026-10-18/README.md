@@ -46,6 +46,10 @@ for every moving endpoint. The cache is bounded and is discarded on cancel.
 
 ## Evidence boundaries
 
+The [interactive evaluation document](acceptance.html) records each case as
+Pass, Fail, Blocked or Untested, with notes and portable result export. Every
+new build starts Untested; automated results never prefill native verdicts.
+
 The pull request records executed unit and headless integration results. Local
 logs and phase metadata are retained under `target/review/agent-tools-20261018`
 and the request-specific motion capture folders under `target/review/`.

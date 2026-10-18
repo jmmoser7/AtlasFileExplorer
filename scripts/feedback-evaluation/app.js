@@ -232,7 +232,9 @@ window.addEventListener('message', event => {
   bridgeReady = true; render();
 });
 for (const group of [...new Set(DATA.cases.map(c => c.group))].sort()) {const o = node('option', group); o.value = group.toLowerCase(); $('group').append(o);}
-$('candidate').textContent = `Prefilled candidate: ${DATA.candidateBuild.version}, modified ${DATA.candidateBuild.modified_utc}. This is an available binary, not proof of which build is running. Confirm or replace its identity.`;
+$('candidate').textContent = DATA.candidateBuild.available === false
+  ? `Source candidate: ${DATA.candidateBuild.version}. Native binary delivery is pending. Confirm the actual running binary before beginning a run.`
+  : `Prefilled candidate: ${DATA.candidateBuild.version}, modified ${DATA.candidateBuild.modified_utc}. This is an available binary, not proof of which build is running. Confirm or replace its identity.`;
 $('automated-evidence').textContent = DATA.automatedEvidence;
 $('document-date').textContent = `Slate / interactive acceptance document / ${DATA.createdLabel}`;
 render();

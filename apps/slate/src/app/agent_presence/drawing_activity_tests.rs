@@ -64,6 +64,11 @@ fn assert_visible_brush_prefix(f: &Fixture) {
         .values()
         .find(|node| matches!(&node.kind, NodeKind::Shape(shape) if shape.stroke.stamp))
         .expect("the brush helper has begun drawing");
+    assert_eq!(
+        f.h.app.agent_brush_coverage(brush.id, None),
+        Some(BrushCoverage::Active),
+        "a visible helper stroke must use its incremental live canvas"
+    );
     let points = world_path_points(brush);
     let [start, tip, ..] = points.as_slice() else {
         panic!("the brush must have a visible traced segment")
@@ -74,7 +79,8 @@ fn assert_visible_brush_prefix(f: &Fixture) {
     let pixel = f.pixel(egui::pos2((start[0] + tip[0]) * 0.5, start[1]));
     assert!(
         pixel[1] > pixel[0] + 0.10 && pixel[1] > pixel[2] + 0.05,
-        "the actual green brush ink must follow its helper: {pixel:?}"
+        "the actual green brush ink must follow its helper: {pixel:?}; {}",
+        f.h.app.drawing_brush_debug(brush.id)
     );
 }
 
@@ -259,9 +265,20 @@ fn cancelling_partial_drawing_leaves_scene_and_journal_untouched() {
 
 #[test]
 fn translucent_brush_keeps_its_ink_and_opacity_through_the_exact_raster_handoff() {
+    brush_handoff_opacity(false);
+}
+
+#[test]
+fn live_brush_keeps_search_dimming_through_the_exact_raster_handoff() {
+    brush_handoff_opacity(true);
+}
+
+fn brush_handoff_opacity(dimmed: bool) {
     // Keep the source image clear of the sampled stroke: this measures ink
     // opacity against the board, rather than a blend over the blue fixture.
     let mut f = Fixture::new(-600.0);
+    f.h.app.search.open = dimmed;
+    f.h.app.search.query = "target".into();
     f.invoke(
         0,
         "board.paths.draw",
@@ -292,9 +309,13 @@ fn translucent_brush_keeps_its_ink_and_opacity_through_the_exact_raster_handoff(
         // drain: a one-frame blank or double-painted handoff must remain visible.
         f.draw_exact(out);
         let pixel = f.pixel(egui::pos2(-220.0, 100.0));
-        assert!(pixel[0] > 0.60 && pixel[0] < 0.95, "opacity: {pixel:?}");
+        let (red_floor, green_delta) = if dimmed { (0.85, 0.015) } else { (0.60, 0.06) };
         assert!(
-            pixel[1] > pixel[0] + 0.06 && pixel[1] > pixel[2] + 0.03,
+            pixel[0] > red_floor && pixel[0] < 0.98,
+            "opacity: {pixel:?}"
+        );
+        assert!(
+            pixel[1] > pixel[0] + green_delta && pixel[1] > pixel[2] + green_delta * 0.5,
             "brush ink cannot disappear between live and canonical paint: {pixel:?}"
         );
         if let Some(first) = reference {

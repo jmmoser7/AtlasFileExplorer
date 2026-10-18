@@ -12,6 +12,9 @@ const PREVIEW_POINT_BUDGET: usize = 32_768;
 /// the total bounded even when many helper lanes draw at once.
 const PREVIEW_PIXEL_BUDGET: u64 = 16_000_000;
 
+#[cfg(test)]
+mod diagnostics;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BrushCoverage {
     Active,

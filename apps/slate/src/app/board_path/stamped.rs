@@ -45,6 +45,7 @@ pub(crate) fn paint_stamped_stroke(
     }
     let key = stamp_key(node, shape, path);
     if !nested {
+        app.sync_agent_brush_previews();
         app.update_agent_brush_opacity(node.id, node.opacity);
     }
     let mut agent_stand_in = !nested

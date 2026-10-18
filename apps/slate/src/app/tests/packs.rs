@@ -103,14 +103,9 @@ fn a_cursor_install_shows_in_the_chooser_without_a_restart() {
     h.app.tab_mut().cam.offset = egui::vec2(40_000.0, 40_000.0);
     shown(&mut h);
     look_at(&mut h, portal);
-    let mut texts = Vec::new();
-    for _ in 0..200 {
-        texts = painted(&mut h, Pos2::new(2.0, 890.0));
-        if texts.iter().any(|t| t == "Cursor") {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
+    shown(&mut h); // Reopening paints the chooser and starts its new probe.
+    settle(&mut h);
+    let texts = shown(&mut h);
     assert!(
         h.app.ai.packs.probes() > probes,
         "opening the chooser probed"
