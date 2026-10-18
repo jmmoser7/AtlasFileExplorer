@@ -1,3 +1,21 @@
+# Current native review build — 18 October 2026
+
+Source `705db1c3` is built as `target/release/slate.exe` (49,753,600 bytes; SHA256 `b268b34f88b8fb99ad47520db48d9bf73bc00ae51d489c7b2582d924cc0b4e5a`). This is the current review candidate. Human acceptance remains **Untested**; the legacy `finalBinary: null` records that final acceptance has not occurred. `currentCandidateBinary` and `currentEvidence20261018V23` in the [validation ledger](native-validation.json) hold the current result.
+
+The normal Windows Slate release library suite passed **1,954 tests, zero failed, 79 ignored**. All seven actual-app render, witnessed-motion and performance producers passed. Current main CI passed Linux workspace tests, strict Clippy and Windows compilation. The unchanged shared UI owner passed 398 Windows tests. Three image/generator producers and the isolated installed-Codex read → proposal → visible move/undo probe passed before the two test-only fixture changes; production source is identical for those slices.
+
+All eight [native captures](../../target/review/presence-native-v23-20261018/capture-manifest.json) succeeded: closed, chat, four attached zooms, proposal and attached proposal. Each 1440 × 900 Screenshot event recorded PPP 1.0 at frame 602. No OS input, wake or unlock operation was used. Requested MSAA 4 does not establish actual driver sampling or hardware GPU identity. The intent reviewer approved sampled native core appearance; the earlier 85-pair review verified all 26 manual hat fits, no straps, animated book pages, Listening, independent expression/gaze samples, farewell effects and restoration. Stills do not establish wall-clock motion pacing or human first-use.
+
+Remaining results are explicit: the separate hosted Windows debug workspace fails one hover-strip test (`held_hover.rs:41`, 1,953 passed / 1 failed / 79 ignored), despite local release and Linux passes; its cause is unestablished and installer publication was skipped. A separate media fixture retained 12 panels then failed generic video-thumbnail readiness. Minor stress observations remain: two pixels of empty profile-button padding lack hit coverage while its chevron and actual click work; dense long-name labels overlap; the settled narrow Add hat preview remains unverified after an opening/loading capture. No timeout, security-policy or source workaround was used to hide these results.
+
+The collaborator API remains a finite set of journaled commands. Existing-wire endpoint retargeting and universal human-tool/export parity are outside this implementation. Human conversations use the existing encrypted relay; a hosted people directory and board synchronization are not provided. Remote-human first-use and final interactive acceptance remain untested.
+
+Source is backed up on 22 verified branches and [draft PR 58](https://github.com/jmmoser7/AtlasFileExplorer/pull/58). Owner HEAD/index and earlier evidence are preserved. The 121 original automated records remain unchanged; the prepared 166-record historical catalog is retained as an unapplied artifact. The current ledger links exact receipts and review hashes.
+
+## Earlier integration notes (retained verbatim)
+
+The following notes describe earlier checkpoints. The current status above takes precedence.
+
 # Native integration ledger
 
 Latest completed evidence (18 October): the frozen local workspace and six-app queue failed their integrated gates; projected c9 remains unapplied locally. The dated completed-evidence addendum below supersedes earlier pending-run wording. All 37 UI blockers and final binary/native/provider/human gates remain open.

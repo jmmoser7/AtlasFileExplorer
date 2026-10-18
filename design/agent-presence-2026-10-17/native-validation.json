@@ -1,7 +1,7 @@
 {
   "schema": "slate-presence-validation/v1",
   "date": "2026-10-17",
-  "implementation": "Integration remains incomplete. Completed source-stable local workspace failed101 (Slate1865pass/35fail/76ignored; shell386pass/0fail/8ignored; theme assertion and three separate OS5 doctest starts). Six app diagnostics ran4pass/2fail. Shared zoom/matrix exports and195-case exact parity are component evidence only. Projected c9 and later scratch stages remain unapplied/unvalidated locally. All37 UI blockers, provider/native/human and finalBinary gates remain OPEN.",
+  "implementation": "Current705d native review candidate built and captured; local Slate1954PASS, app7PASS and sampled native core approved. Hosted debug hover test, separate video fixture, minor stress residuals, pacing and human acceptance remain open. Read currentEvidence20261018V23 for exact scope; older records are historical.",
   "finalBinary": null,
   "coordinatedBuild": {
     "command": "cargo build --locked --release -p slate --jobs 1",
@@ -8502,32 +8502,13 @@
     }
   ],
   "pendingChecks": [
-    "After active source lease, address original proposal-witness preview/instantAccept and stale mode-status gaps through approved extract-first owner; scratch fix not applied/tested",
-    "Repair guardian-observed software differences: floating More/harness menus, compact short identity capsule and blue selected-hat tint; no native/UI acceptance inferred from nine retained images",
-    "Collect completed third workspace run69441 after both test-only compile errors were source-fixed; no partial-log test verdict. Preserve both completed compile failures and all original assertions",
-    "Review scratch-only nominal36-versus-opaque-AA35 sizing diagnostic correction after active compile lease; retain all original9 plus4 added chrome phases, with no product-size or actual render pass inferred",
-    "Execute three new source-approved test-only catalog-hold regressions in the fresh full app harness; do not synthesize ready catalogs or permit automatic provider probes in synthetic factories",
-    "Complete readback of new full-app chrome captures; normal native fixture catalog queries are possible and no zero-provider-contact claim is allowed",
-    "Both exact ignored witnessed-motion tests after updated catalog-pin source identity; retained software evidence is separate from native/GPU smoothness",
-    "Fresh external Brush/Layers fallback interaction test and all 37 retained app UI cases after source freeze",
-    "Index removed and exact SAT coverage restored; run current combined-source validation and fresh material/zoom costs. Retained candidate171/386/parity/123-frame results are historical, with unresolved cost blocker",
-    "Historical candidate-index shared386/0/8 does not validate current restored source; agent adapter v2 source is applied; test-only compile fixes are applied; collect active third-run result and execute current app/native gates",
-    "Source snapshot7e05d8ce includes compile/copy/Work/chrome source and67-record docs; this68-record update and unapplied scratch AA diagnostic correction need a later immutable backup preserving owner/ref state",
-    "Fresh six-file portal/Capture test corrections and separate real Capture host-retention regression; source checks discharge none of the retained UI blockers",
-    "All37 retained UI contract blockers: seven nonmedia source diagnoses and thirty media cases need fresh representative app execution; shared narrow-image Brush/Layers fallback source is approved/frozen, runtime pending",
-    "V4 real-wheel shared test passed in pre-index386 suite; fresh app proposal decisions and v3 font/capture readiness/request/configuration tests, hosted app repairs and relay draft fixture remain pending",
-    "Execute ten source-approved screenshot/recovery isolation regressions, then obtain clean six-state production captures from a fresh identified Slate executable; no native input while the human is away",
-    "Agent caller-opacity and exact material parity passed in historical candidate-index shared386; current post-restore full app/shared/performance/native validation remains pending",
-    "Fresh Slate app conversation, durability, image-read, harness, helper, temporary-input-hold and corrected failed-send tests",
-    "Two actual Slate app adapters over TLS and independent transcript stores; the separately identified relay v2 package passed12, but fresh app adapter execution remains pending",
-    "Relay v2 package12/0/0 pass is recorded without erasing earlier hostile failures; fresh Slate app adapters and transcript durability remain pending",
-    "Fresh app targeted creation and selected-result importer/retry tests, plus named-tag canvas-drop, media host-identity/overlay and capture-chrome9 regressions",
-    "Current normal r2 shared palette example rebuild and exact artifact identity; component native review remains separate from full-app presence acceptance",
-    "Final coordinated Slate release executable build and exact SHA256/version/mtime",
-    "Corrected media video fixture first, canonical native fixture next, then isolated-v2 fixture, sequentially with temporary environment restored",
-    "Final normal whole-workspace command and required File Atlas release build",
-    "Actual final native profile/chat/hats/harness and zoom workflows under coordinated desktop ownership",
-    "Final binary-bound acceptance catalog and validation refresh; human acceptance remains Untested"
+    "Human first-use and final client acceptance remain Untested.",
+    "Hosted Windows debug workspace fails held_hover.rs41:1953PASS/1FAIL/79ignored; local release1954PASS and Linux1940PASS. Cause unestablished; installer publish skipped.",
+    "Separate media capture retains12panels then fails video generic-thumbnail readiness; four later video/PDF captures remain unreached. Production cause unestablished.",
+    "Stress residual:2px trailing empty profile-button padding lacks hit coverage; chevron is visible and the actual click works.",
+    "Dense12-agent long world-name labels overlap; settled narrow Add hat preview remains unverified after its first-opening loading capture.",
+    "Native stills do not establish wall-clock motion pacing, remote-human first-use, driver MSAA, or hardware-GPU identity.",
+    "Collaborator commands are finite: existing-wire endpoint retargeting and universal human-tool/export parity remain outside this implementation."
   ],
   "criticalPartialInventory": "target/presence-critical-results-partial.json reconciles22 named critical tests:20 actual passes (19 early Slate app +1 final pure document-model allocator test),2 actual early DM failures. Fresh final app/relay tests remain pending; no final-native pass inferred.",
   "independentReviews": {
@@ -13331,5 +13312,171 @@
     },
     "humanAcceptance": "Untested",
     "finalBinary": null
+  },
+  "historicalRootStatusBeforeCurrentCloseout": {
+    "implementation": "Integration remains incomplete. Completed source-stable local workspace failed101 (Slate1865pass/35fail/76ignored; shell386pass/0fail/8ignored; theme assertion and three separate OS5 doctest starts). Six app diagnostics ran4pass/2fail. Shared zoom/matrix exports and195-case exact parity are component evidence only. Projected c9 and later scratch stages remain unapplied/unvalidated locally. All37 UI blockers, provider/native/human and finalBinary gates remain OPEN.",
+    "pendingChecks": [
+      "After active source lease, address original proposal-witness preview/instantAccept and stale mode-status gaps through approved extract-first owner; scratch fix not applied/tested",
+      "Repair guardian-observed software differences: floating More/harness menus, compact short identity capsule and blue selected-hat tint; no native/UI acceptance inferred from nine retained images",
+      "Collect completed third workspace run69441 after both test-only compile errors were source-fixed; no partial-log test verdict. Preserve both completed compile failures and all original assertions",
+      "Review scratch-only nominal36-versus-opaque-AA35 sizing diagnostic correction after active compile lease; retain all original9 plus4 added chrome phases, with no product-size or actual render pass inferred",
+      "Execute three new source-approved test-only catalog-hold regressions in the fresh full app harness; do not synthesize ready catalogs or permit automatic provider probes in synthetic factories",
+      "Complete readback of new full-app chrome captures; normal native fixture catalog queries are possible and no zero-provider-contact claim is allowed",
+      "Both exact ignored witnessed-motion tests after updated catalog-pin source identity; retained software evidence is separate from native/GPU smoothness",
+      "Fresh external Brush/Layers fallback interaction test and all 37 retained app UI cases after source freeze",
+      "Index removed and exact SAT coverage restored; run current combined-source validation and fresh material/zoom costs. Retained candidate171/386/parity/123-frame results are historical, with unresolved cost blocker",
+      "Historical candidate-index shared386/0/8 does not validate current restored source; agent adapter v2 source is applied; test-only compile fixes are applied; collect active third-run result and execute current app/native gates",
+      "Source snapshot7e05d8ce includes compile/copy/Work/chrome source and67-record docs; this68-record update and unapplied scratch AA diagnostic correction need a later immutable backup preserving owner/ref state",
+      "Fresh six-file portal/Capture test corrections and separate real Capture host-retention regression; source checks discharge none of the retained UI blockers",
+      "All37 retained UI contract blockers: seven nonmedia source diagnoses and thirty media cases need fresh representative app execution; shared narrow-image Brush/Layers fallback source is approved/frozen, runtime pending",
+      "V4 real-wheel shared test passed in pre-index386 suite; fresh app proposal decisions and v3 font/capture readiness/request/configuration tests, hosted app repairs and relay draft fixture remain pending",
+      "Execute ten source-approved screenshot/recovery isolation regressions, then obtain clean six-state production captures from a fresh identified Slate executable; no native input while the human is away",
+      "Agent caller-opacity and exact material parity passed in historical candidate-index shared386; current post-restore full app/shared/performance/native validation remains pending",
+      "Fresh Slate app conversation, durability, image-read, harness, helper, temporary-input-hold and corrected failed-send tests",
+      "Two actual Slate app adapters over TLS and independent transcript stores; the separately identified relay v2 package passed12, but fresh app adapter execution remains pending",
+      "Relay v2 package12/0/0 pass is recorded without erasing earlier hostile failures; fresh Slate app adapters and transcript durability remain pending",
+      "Fresh app targeted creation and selected-result importer/retry tests, plus named-tag canvas-drop, media host-identity/overlay and capture-chrome9 regressions",
+      "Current normal r2 shared palette example rebuild and exact artifact identity; component native review remains separate from full-app presence acceptance",
+      "Final coordinated Slate release executable build and exact SHA256/version/mtime",
+      "Corrected media video fixture first, canonical native fixture next, then isolated-v2 fixture, sequentially with temporary environment restored",
+      "Final normal whole-workspace command and required File Atlas release build",
+      "Actual final native profile/chat/hats/harness and zoom workflows under coordinated desktop ownership",
+      "Final binary-bound acceptance catalog and validation refresh; human acceptance remains Untested"
+    ]
+  },
+  "currentCandidateBinary": {
+    "path": "target/release/slate.exe",
+    "bytes": 49753600,
+    "sha256": "b268b34f88b8fb99ad47520db48d9bf73bc00ae51d489c7b2582d924cc0b4e5a"
+  },
+  "currentEvidence20261018V23": {
+    "capturedUtc": "2026-10-18T16:10:41.352290+00:00",
+    "status": "BUILT_NATIVE_REVIEW_CANDIDATE; HUMAN_ACCEPTANCE_UNTESTED; RESIDUALS_RETAINED",
+    "sourceCommit": "705db1c330b918d72017122da197613be53d0463",
+    "sourceTree": "d4585fb7f58d41862f952706b6ae008563c907a0",
+    "pullRequest": "https://github.com/jmmoser7/AtlasFileExplorer/pull/58",
+    "candidateBinary": {
+      "path": "target/release/slate.exe",
+      "bytes": 49753600,
+      "sha256": "b268b34f88b8fb99ad47520db48d9bf73bc00ae51d489c7b2582d924cc0b4e5a"
+    },
+    "validation": {
+      "windowsSlateRelease": "1954PASS/0FAIL/79ignored; actual normal full library suite",
+      "sharedUiWindows": "398PASS/0FAIL/8ignored; unchanged production owner since3bd7",
+      "mainCI": "Current705d Linux workspace tests, strict Clippy and Windows check allPASS; LinuxSlate1940/0/67",
+      "appRenderMotionPerf": "7PASS/0FAIL;398freshartifacts; source/harness/suite/log stable",
+      "photo": "3exactproducersPASS;47freshrequestedstates at3bd7 with identical production source",
+      "provider": "InstalledCodex scoped read/propose/witnessedmove and undo/replay PASS; provider exit corroborated; prebound scope, not human first-use",
+      "native": "All8 actual executable Screenshot-event captures PASS,1440x900/PPP1/frame602; requestedMSAA4 only",
+      "intentReview": "85software image/metadata pairs plus8native states inspected;26userfits exact,no straps,book/listening/transitions/departures andR2core preserved"
+    },
+    "productionEquivalenceForInheritedSlices": "Only two cfg(test) fixture files changed3bd7→705d; production styles, adapters and commands unchanged.",
+    "acceptance": {
+      "nativeSampledCoreAppearance": "Approved by intent reviewer",
+      "human": "Untested",
+      "wallClockMotionPacing": "Untested",
+      "remoteHumanFirstUse": "Untested"
+    },
+    "remainingChecks": [
+      "Human first-use and final client acceptance remain Untested.",
+      "Hosted Windows debug workspace fails held_hover.rs41:1953PASS/1FAIL/79ignored; local release1954PASS and Linux1940PASS. Cause unestablished; installer publish skipped.",
+      "Separate media capture retains12panels then fails video generic-thumbnail readiness; four later video/PDF captures remain unreached. Production cause unestablished.",
+      "Stress residual:2px trailing empty profile-button padding lacks hit coverage; chevron is visible and the actual click works.",
+      "Dense12-agent long world-name labels overlap; settled narrow Add hat preview remains unverified after its first-opening loading capture.",
+      "Native stills do not establish wall-clock motion pacing, remote-human first-use, driver MSAA, or hardware-GPU identity.",
+      "Collaborator commands are finite: existing-wire endpoint retargeting and universal human-tool/export parity remain outside this implementation."
+    ],
+    "evidence": [
+      {
+        "path": "target/presence-v23-format-check-20261018.json",
+        "bytes": 494702,
+        "sha256": "bba73248d645a896f06f22c9858dc7b1f7ab231a8a74031acd53a04a0e206fda"
+      },
+      {
+        "path": "target/presence-v22-r2-shell-tests-20261018.json",
+        "bytes": 495073,
+        "sha256": "029c6e7709ea085a97ea229e6eec5227b044ffdfea175909a976345b92171490"
+      },
+      {
+        "path": "target/presence-v23-slate-tests-20261018.json",
+        "bytes": 495058,
+        "sha256": "ff7bafe4c25c35aeb4ebadaa058309f467af05406ef21dea2b9c05e7d0f86105"
+      },
+      {
+        "path": "target/presence-v23-slate-tests-20261018.sidecar-after.json",
+        "bytes": 5733,
+        "sha256": "fb406642ce448021b6e4a0c1f081bea163f4e5ac1c322a9e75c26ba703871e69"
+      },
+      {
+        "path": "target/presence-v23-app-artifacts-20261018.json",
+        "bytes": 599138,
+        "sha256": "ded3f772a69a12efb32eaa24c10f5c006677d9cb7362f9a4eaf1f08a731b611d"
+      },
+      {
+        "path": "target/presence-v22-photo-renders-20261018/receipt.json",
+        "bytes": 581905,
+        "sha256": "daf87bd056f4bcb2b060e1a59b442991c04a262223c49e1d851acc8d095f90d4"
+      },
+      {
+        "path": "target/presence-v22-live-codex-20261018/receipt.json",
+        "bytes": 592920,
+        "sha256": "c42ca76544c5553644c51f41a2440ae4f6f2f2a8f1730dcacbabf945c22c8278"
+      },
+      {
+        "path": "target/presence-v22-additional16-20261018.json",
+        "bytes": 510321,
+        "sha256": "11d366e79da98c3a65637a4007d8f071817d4d1c098dea24f0ff85dc91fabead"
+      },
+      {
+        "path": "target/presence-v23-slate-release-20261018.json",
+        "bytes": 495704,
+        "sha256": "f9a90e4be546b5c5744187554dde027d2f38c7bf9ada0a4b7f04b2c3540bee4d"
+      },
+      {
+        "path": "target/review/presence-v23-native-readback-20261018.json",
+        "bytes": 10927,
+        "sha256": "0ba98bc081900e6f4a606384187792160ac70e0dd3e760fe5a14926d26352520"
+      },
+      {
+        "path": "target/review/presence-intent-current705d-crops-20261018/review.json",
+        "bytes": 3790,
+        "sha256": "fe14ad4384b47415030bb8fbb2293b3da863fbe57a4c1de017075342f59dca80"
+      },
+      {
+        "path": "target/review/presence-intent-native705d-20261018/review.json",
+        "bytes": 6934,
+        "sha256": "ebf45a2f22dd788be0aaa202cb58d2dec55ca5406f311257979b8226f035276b"
+      },
+      {
+        "path": "target/review/presence-v23-cloud-ci-pass-20261018.json",
+        "bytes": 1312,
+        "sha256": "80bc8df86948922c3c27b5740d124ef5dc579e07bbf6ee19290d0ae9a92d50f2"
+      },
+      {
+        "path": "target/review/presence-v23-windows-hosted-hover-failure-20261018.json",
+        "bytes": 2430,
+        "sha256": "aa238b56edd032d356cdd50e0ca55239336857b143b25a633de5b0291981693f"
+      },
+      {
+        "path": "target/presence-v23-checkpoint-20261018-f8e421693c0a/publication-current-09fcffb27e014dba9f4e87fad75d23bc/publication.json",
+        "bytes": 132378,
+        "sha256": "f833d9ae48881e6cd6ff07b9b9c80d3e359efe9ce28a2bdb9a5f3e3eca906cee"
+      },
+      {
+        "path": "target/review/presence-evidence-166-preparation-20261018-b4ea6e19c444/manifest.json",
+        "bytes": 8668,
+        "sha256": "0f1a47dc198d7313a0d6ff9fd73e2029727d439fc49004e39c7fe5f26418aa68"
+      }
+    ],
+    "preservation": {
+      "originalAutomatedRecords": 121,
+      "earlierPrepared166Catalog": "Retained immutable preparation, unapplied; no earlier verdict silently promoted",
+      "sourceInputs": 1385,
+      "supplementalInputs": 26,
+      "workflows": 2,
+      "sourceBackupBranches": 22,
+      "ownerHeadAndIndexPreserved": true
+    },
+    "precedence": "This current object and candidateBinary supersede earlier status wording. Legacy finalBinary remains null pending final accepted release; userAcceptance is unchanged."
   }
 }
