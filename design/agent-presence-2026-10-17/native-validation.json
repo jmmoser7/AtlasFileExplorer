@@ -7101,6 +7101,1017 @@
       "enforcingControl": "UNIDENTIFIED",
       "testsExecuted": false,
       "boundary": "Each retained query says unavailable-or-no-matches with no events. This does not establish which security/control component denied execution, that a named log was available, or that the doctest code failed. No retry, elevation, flags/paths, settings or security change."
+    },
+    {
+      "operation": "reviewed v3 source-batch application",
+      "result": "APPLIED 78/78 verified writes",
+      "receipt": {
+        "path": "target/presence-source-batch-composition-6ed1cea06f0d474689351873beb1753f/apply-attempts/7dde3f5acbd64dfea7d3a15f71b86077/apply-receipt.json",
+        "bytes": 25235,
+        "sha256": "9318bd251af1066dc1e89bf4d244ea3b1a95e53173e3978f8ea79c8f73c8ad9a"
+      },
+      "writeCount": 78,
+      "finishedUtc": "2026-10-18T06:50:47.920149+00:00",
+      "boundary": "Source application/publication evidence only; not a build, test, provider, native UX, performance, or human acceptance pass."
+    },
+    {
+      "operation": "immutable applied-v3 backup publication and existing draft PR58 review-head update",
+      "result": "SOURCE-ONLY published and exact remote verified; draft PR58 review head 47eb22939368082f9c24973814742e85c9ca310b",
+      "receipt": {
+        "path": "target/presence-v3-checkpoint-dace521dc5db42f3b42c900b219656de/publication-r3-609b1ae9876841aaa940a610e300bed9/publication.json",
+        "bytes": 144161,
+        "sha256": "b2872df6f45fec2234c570069640abce18dfbb1cd7a5654abc2220c40c559483"
+      },
+      "reviewHeadUpdate": {
+        "path": "target/presence-v3-pr58-head-update-20261018.json",
+        "bytes": 863,
+        "sha256": "395e40dad4efae6d1c687b545331763388bccd30539fec821f7e4adc8e6d362e"
+      },
+      "commit": "47eb22939368082f9c24973814742e85c9ca310b",
+      "tree": "2d6e41a6586aa40eecc653815e454895771c037d",
+      "parent": "c9a3fba8659780de5946a76597df92ad295d7411",
+      "newRef": "refs/heads/codex/presence-v3-checkpoint-20261018-dace521d",
+      "actualHostedMerge": "7b57303f6a91d0657634bb374daf2135ff9cf0ec",
+      "boundary": "Source application/publication evidence only; not a build, test, provider, native UX, performance, or human acceptance pass."
+    },
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "result": "PASS formatting check; zero tests executed",
+      "environment": "local Windows ordinary release Cargo invocation; retained completed receipt",
+      "receipt": {
+        "path": "target/presence-v3-format-check-20261018.json",
+        "bytes": 487530,
+        "sha256": "e7b7ff2b9d024cd26c2045c36a3fd217760e172da763cdc958b0e51a8eddfde0"
+      },
+      "rawLog": {
+        "path": "target/presence-v3-format-check-20261018.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "cargoExitCode": 0,
+      "runnerExitCode": 0,
+      "sourceStable": true,
+      "configurationStable": true,
+      "runnerStable": true,
+      "sourceBuildInputCount": 1366,
+      "libtestSummaries": [],
+      "startedUtc": "2026-10-18T06:51:40.664713+00:00",
+      "finishedUtc": "2026-10-18T06:51:58.002239+00:00",
+      "boundary": "Result belongs only to the source and configuration identities in this receipt; does not validate later source applications or native/human acceptance.",
+      "testsExecuted": 0
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "atlas-shell",
+        "--lib",
+        "--jobs",
+        "1"
+      ],
+      "result": "FAIL: 393 passed / 2 failed / 8 ignored; Cargo101",
+      "environment": "local Windows ordinary release Cargo invocation; retained completed receipt",
+      "receipt": {
+        "path": "target/presence-v3-shared-tests-20261018.json",
+        "bytes": 487916,
+        "sha256": "6d504ec17aab1a7d4ac1256aacfe0f9184bc79ee617e292fa875343aa1201c31"
+      },
+      "rawLog": {
+        "path": "target/presence-v3-shared-tests-20261018.log",
+        "bytes": 38519,
+        "sha256": "364dbb8eaf4f59dcd8e27317e6dfe425516e3b7872edd1af9b3fc4ca2f778b24"
+      },
+      "cargoExitCode": 101,
+      "runnerExitCode": 101,
+      "sourceStable": true,
+      "configurationStable": true,
+      "runnerStable": true,
+      "sourceBuildInputCount": 1366,
+      "libtestSummaries": [
+        "test result: FAILED. 393 passed; 2 failed; 8 ignored; 0 measured; 0 filtered out; finished in 6.62s"
+      ],
+      "startedUtc": "2026-10-18T06:52:21.418440+00:00",
+      "finishedUtc": "2026-10-18T07:01:09.551959+00:00",
+      "boundary": "Result belongs only to the source and configuration identities in this receipt; does not validate later source applications or native/human acceptance.",
+      "counts": {
+        "passed": 393,
+        "failed": 2,
+        "ignored": 8
+      }
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "atlas-agent",
+        "--lib",
+        "--jobs",
+        "1"
+      ],
+      "result": "PASS: 46 passed / 0 failed / 0 ignored",
+      "environment": "local Windows ordinary release Cargo invocation; retained completed receipt",
+      "receipt": {
+        "path": "target/presence-v3-agent-tests-20261018.json",
+        "bytes": 487888,
+        "sha256": "d78ff84028f3475334119b757b7aca77d0e0d4249b820a19e023e8abae5c412b"
+      },
+      "rawLog": {
+        "path": "target/presence-v3-agent-tests-20261018.log",
+        "bytes": 4429,
+        "sha256": "b15e0085e2e3af2a1c8a74518445d7c214356491b28289006991ce6aa66c653d"
+      },
+      "cargoExitCode": 0,
+      "runnerExitCode": 0,
+      "sourceStable": true,
+      "configurationStable": true,
+      "runnerStable": true,
+      "sourceBuildInputCount": 1366,
+      "libtestSummaries": [
+        "test result: ok. 46 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s"
+      ],
+      "startedUtc": "2026-10-18T07:08:04.450101+00:00",
+      "finishedUtc": "2026-10-18T07:09:34.199108+00:00",
+      "boundary": "Result belongs only to the source and configuration identities in this receipt; does not validate later source applications or native/human acceptance.",
+      "counts": {
+        "passed": 46,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "xtask",
+        "--tests",
+        "--jobs",
+        "1",
+        "--no-fail-fast"
+      ],
+      "result": "PASS: 43 total tests, comprising 30 library unit tests and 13 integration audit tests",
+      "environment": "local Windows ordinary release Cargo invocation; retained completed receipt",
+      "receipt": {
+        "path": "target/presence-v3-contract-tests-20261018.json",
+        "bytes": 489626,
+        "sha256": "8f0133c84520dd3d353262dab13bd8efe5fa67dde3ef03d618c92c28b6a7479f"
+      },
+      "rawLog": {
+        "path": "target/presence-v3-contract-tests-20261018.log",
+        "bytes": 4703,
+        "sha256": "379313e10929c64696b2074fa8b482645f765f54acb9b2808c8a760c8fb6a3cd"
+      },
+      "cargoExitCode": 0,
+      "runnerExitCode": 0,
+      "sourceStable": true,
+      "configurationStable": true,
+      "runnerStable": true,
+      "sourceBuildInputCount": 1366,
+      "libtestSummaries": [
+        "test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.37s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.93s",
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.83s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s"
+      ],
+      "startedUtc": "2026-10-18T07:09:57.870882+00:00",
+      "finishedUtc": "2026-10-18T07:22:29.057823+00:00",
+      "boundary": "Result belongs only to the source and configuration identities in this receipt; does not validate later source applications or native/human acceptance.",
+      "counts": {
+        "passed": 43,
+        "failed": 0,
+        "ignored": 0
+      },
+      "integrationAuditTests": 13,
+      "libraryUnitTests": 30
+    },
+    {
+      "operation": "reviewed nine-file source follow-up application",
+      "result": "APPLIED and verified 9/9 writes; includes the later sort_by_key Clippy source repair",
+      "receipt": {
+        "path": "target/review/presence-followup-application-ba034c919510422f83cb480f2dfe9fbe/receipt.json",
+        "bytes": 573490,
+        "sha256": "aa0d51164a29adf686e64d7c715cd3dbca67488bfbd3dc764061c86e5d0aab5e"
+      },
+      "reviewedPlan": {
+        "path": "target/presence-reviewed-followups-and-lint-plan-20261018.json",
+        "bytes": 6968,
+        "sha256": "d8b292614a9b94bde08f62314cb1486f28d9481e8dafaf0936813eb9842fa80e"
+      },
+      "writeCount": 9,
+      "verifiedWrites": 9,
+      "buildInputsAfter": 1367,
+      "finishedUtc": "2026-10-18T07:23:02.814193+00:00",
+      "boundary": "Source application/publication evidence only; not a build, test, provider, native UX, performance, or human acceptance pass. The old PR47eb Clippy failure is retained; no new hosted CI pass is implied."
+    },
+    {
+      "command": [
+        "cargo",
+        "check",
+        "--locked",
+        "--release",
+        "-p",
+        "atlas-shell",
+        "-p",
+        "slate",
+        "--tests",
+        "--jobs",
+        "1"
+      ],
+      "result": "PASS affected atlas-shell and Slate test-target compile check; zero tests executed",
+      "environment": "local Windows ordinary release Cargo invocation; retained completed receipt",
+      "receipt": {
+        "path": "target/presence-v4-affected-tests-check-20261018.json",
+        "bytes": 488037,
+        "sha256": "98c56bdac8912b08712427f99ac6243be85810afc978902756a4c506da33157f"
+      },
+      "rawLog": {
+        "path": "target/presence-v4-affected-tests-check-20261018.log",
+        "bytes": 7959,
+        "sha256": "e9f760c8291ae07ef1ca74ff98d406e1463d0fe7cccb7bed418227d590cb264c"
+      },
+      "cargoExitCode": 0,
+      "runnerExitCode": 0,
+      "sourceStable": true,
+      "configurationStable": true,
+      "runnerStable": true,
+      "sourceBuildInputCount": 1367,
+      "libtestSummaries": [],
+      "startedUtc": "2026-10-18T07:23:34.756651+00:00",
+      "finishedUtc": "2026-10-18T07:28:32.989894+00:00",
+      "boundary": "Result belongs only to the source and configuration identities in this receipt; does not validate later source applications or native/human acceptance.",
+      "testsExecuted": 0
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "atlas-shell",
+        "--lib",
+        "--jobs",
+        "1"
+      ],
+      "result": "FAIL: 393 passed / 2 failed / 8 ignored; Cargo101",
+      "environment": "local Windows ordinary release Cargo invocation; retained completed receipt",
+      "receipt": {
+        "path": "target/presence-v4-shared-diagnostics-tests-20261018.json",
+        "bytes": 488333,
+        "sha256": "7ea50da9fc32da8cae807f75a40b0fff0f7fddb22178caa0b10132f6c2f0438c"
+      },
+      "rawLog": {
+        "path": "target/presence-v4-shared-diagnostics-tests-20261018.log",
+        "bytes": 40211,
+        "sha256": "1554c8e63f7898a68f059a5c15b52c9088ae4f9d8c05c278d7c9b9c5e446367a"
+      },
+      "cargoExitCode": 101,
+      "runnerExitCode": 101,
+      "sourceStable": true,
+      "configurationStable": true,
+      "runnerStable": true,
+      "sourceBuildInputCount": 1367,
+      "libtestSummaries": [
+        "test result: FAILED. 393 passed; 2 failed; 8 ignored; 0 measured; 0 filtered out; finished in 10.43s"
+      ],
+      "startedUtc": "2026-10-18T07:30:01.186399+00:00",
+      "finishedUtc": "2026-10-18T07:41:06.288025+00:00",
+      "boundary": "Result belongs only to the source and configuration identities in this receipt; does not validate later source applications or native/human acceptance.",
+      "counts": {
+        "passed": 393,
+        "failed": 2,
+        "ignored": 8
+      },
+      "remainingFailures": "busy-harness in-flight state choice and nested menu-selector zoom-width fixture; approved later corrections require fresh execution"
+    },
+    {
+      "command": [
+        "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\target\\release\\deps\\atlas_shell-feec840f2954a4d7.exe",
+        "icons::media_tests::coverage::export_media_icon_pixels_for_visual_audit",
+        "--ignored",
+        "--exact",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "result": "Diagnostic export exit0 after FAILED 393/2/8 ordinary shared parent; 209 artifacts retained",
+      "receipt": {
+        "path": "target/presence-v4-ab-exact-icon-matrix-20261018.json",
+        "bytes": 553697,
+        "sha256": "d9202480e78efd9e87bfa2ca252cb4a2c98b754dd0986c3c390606f207e0d032"
+      },
+      "exitCode": 0,
+      "parentSuitePassed": false,
+      "diagnosticAfterFailedSuite": true,
+      "sourceStable": true,
+      "harnessStable": true,
+      "suiteReceiptStable": true,
+      "suiteRawLogStable": true,
+      "artifactCount": 209,
+      "boundary": "Existing normal harness diagnostic only; does not clear parent failure or establish native appearance."
+    },
+    {
+      "operation": "independent retained exact195 matrix comparison",
+      "result": "195/195 exact meshes and structural counters match; zero mismatches/invalid MIM1; all12 light/dark host/theme/PPP raster outputs byte/pixel identical",
+      "receipt": {
+        "path": "target/presence-v4-ab-matrix-independent-audit-20261018.json",
+        "bytes": 391293,
+        "sha256": "d49dece07619e10b8865a750dc1b6c6c1d4ba18a597453b765be46660521036b"
+      },
+      "caseCounts": {
+        "expected": 195,
+        "trialRows": 195,
+        "baselineRows": 195,
+        "trialUnique": 195,
+        "baselineUnique": 195,
+        "identitiesEqual": true
+      },
+      "geometryFileCounts": {
+        "expected": 195,
+        "trial": 195,
+        "baseline": 195,
+        "fileNamesEqual": true
+      },
+      "geometryEqual": true,
+      "geometryMismatchCount": 0,
+      "invalidMim1Count": 0,
+      "manifestMetadataEqual": {
+        "cell_points": true,
+        "columns_slot_points": true,
+        "rows_icons": true,
+        "rows_per_icon_alpha": true,
+        "outputs": true
+      },
+      "allWarmGeometryReused": true,
+      "allTextureIdsEqual": true,
+      "alphaRowsEqual": true,
+      "boundary": "Offline exact retained-artifact comparison; not native UI/human acceptance, new-size CPU acceptance, or a full-suite pass."
+    },
+    {
+      "command": [
+        "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\target\\release\\deps\\atlas_shell-feec840f2954a4d7.exe",
+        "icons::media_tests::coverage::export_media_changing_zoom_paint_cost",
+        "--ignored",
+        "--exact",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "result": "Diagnostic export exit0; 123 changing-zoom frames, observer OFF; ordinary shared parent remains FAILED393/2/8",
+      "receipt": {
+        "path": "target/presence-v4-ab-observer-off-zoom-20261018.json",
+        "bytes": 504267,
+        "sha256": "d0adef09eaca81d566337575541f9f8ef81877a53e3e4d472fb010dacd91e98a"
+      },
+      "exitCode": 0,
+      "sourceStable": true,
+      "harnessStable": true,
+      "suiteReceiptStable": true,
+      "suiteRawLogStable": true,
+      "parentSuitePassed": false,
+      "profileEnabledRequested": false,
+      "measurements": {
+        "records": 123,
+        "percentileMethod": "nearest rank, ceil(p * count)",
+        "allDpi": {
+          "all": {
+            "frames": 123,
+            "total_us": 3058128,
+            "max_us": 95156,
+            "p50_us": 41032,
+            "p95_us": 55131
+          },
+          "new_size": {
+            "frames": 63,
+            "total_us": 3057776,
+            "max_us": 95156,
+            "p50_us": 46802,
+            "p95_us": 57978
+          },
+          "returning_size": {
+            "frames": 60,
+            "total_us": 352,
+            "max_us": 25,
+            "p50_us": 4,
+            "p95_us": 8
+          }
+        },
+        "perDpi": [
+          {
+            "ppp": 1,
+            "all": {
+              "frames": 41,
+              "total_us": 973678,
+              "max_us": 53834,
+              "p50_us": 40467,
+              "p95_us": 48959
+            },
+            "new_size": {
+              "frames": 21,
+              "total_us": 973585,
+              "max_us": 53834,
+              "p50_us": 46802,
+              "p95_us": 50664
+            },
+            "returning_size": {
+              "frames": 20,
+              "total_us": 93,
+              "max_us": 15,
+              "p50_us": 4,
+              "p95_us": 5
+            }
+          },
+          {
+            "ppp": 1.5,
+            "all": {
+              "frames": 41,
+              "total_us": 996809,
+              "max_us": 57290,
+              "p50_us": 41880,
+              "p95_us": 53847
+            },
+            "new_size": {
+              "frames": 21,
+              "total_us": 996713,
+              "max_us": 57290,
+              "p50_us": 45496,
+              "p95_us": 56795
+            },
+            "returning_size": {
+              "frames": 20,
+              "total_us": 96,
+              "max_us": 16,
+              "p50_us": 4,
+              "p95_us": 6
+            }
+          },
+          {
+            "ppp": 2,
+            "all": {
+              "frames": 41,
+              "total_us": 1087641,
+              "max_us": 95156,
+              "p50_us": 43775,
+              "p95_us": 59850
+            },
+            "new_size": {
+              "frames": 21,
+              "total_us": 1087478,
+              "max_us": 95156,
+              "p50_us": 48588,
+              "p95_us": 60128
+            },
+            "returning_size": {
+              "frames": 20,
+              "total_us": 163,
+              "max_us": 25,
+              "p50_us": 7,
+              "p95_us": 8
+            }
+          }
+        ],
+        "measurementMetadata": {
+          "attribution_scope": "disabled; null attribution is not evidence of a cache hit",
+          "boundary": "shared CPU component measurement only; no timing pass or app/native smoothness inference",
+          "cache_scope": "fresh thread/context per DPI; returning sizes are identified, not presumed cache hits",
+          "excluded": "Context construction, output counting, serialization, tessellation, GPU and app frame work",
+          "measurement_kind": "unprofiled measurement; retain as a separate baseline result",
+          "profile_enabled": false,
+          "profile_opt_in": "Set SLATE_MEDIA_ICON_PROFILE=1 to enable; default is off.",
+          "source": "production BlisterLayout::paint_icon overlay, seven actual image glyphs",
+          "timed": "Context::run including layout and icon paint; no glyph prewarm",
+          "unprofiled_baseline": "Keep the previously collected 127512us fresh123 new-size p95 result separate from this export."
+        }
+      },
+      "boundary": "CPU Context/layout/icon-paint sample excludes context creation, counting, serialization, tessellation, GPU, app-frame and native presentation; no native smoothness or full-suite pass."
+    },
+    {
+      "operation": "matched observer-OFF123 independent CPU and schedule comparison",
+      "result": "All123 schedules/geometry counters match; no profile instrumentation enabled; matched new-size63 p95 134946us -> 57978us",
+      "receipt": {
+        "path": "target/media-v4-ab-off-benchmark-independent-audit-20261018.json",
+        "bytes": 8986,
+        "sha256": "234d3e9b466d0abc4226053acd7a19083306fd98dae5e9e8782b16133727f0f1"
+      },
+      "comparison": {
+        "frames": {
+          "v3": 123,
+          "v4": 123
+        },
+        "scheduleAndGeometryCounterMismatches": [],
+        "allProfileDisabled": true,
+        "v3": {
+          "newSize": {
+            "frames": 63,
+            "total_us": 6707163,
+            "p50_us": 110048,
+            "p95_us": 134946,
+            "max_us": 170932
+          },
+          "returnSize": {
+            "frames": 60,
+            "total_us": 626,
+            "p50_us": 10,
+            "p95_us": 17,
+            "max_us": 41
+          }
+        },
+        "v4": {
+          "newSize": {
+            "frames": 63,
+            "total_us": 3057776,
+            "p50_us": 46802,
+            "p95_us": 57978,
+            "max_us": 95156
+          },
+          "returnSize": {
+            "frames": 60,
+            "total_us": 352,
+            "p50_us": 4,
+            "p95_us": 8,
+            "max_us": 25
+          }
+        },
+        "newSizeReductionsPct": {
+          "p50": 57.47128525734225,
+          "p95": 57.03614779245032,
+          "total": 54.41029239933486
+        },
+        "perDpi": [
+          {
+            "ppp": 1,
+            "v3New": {
+              "frames": 21,
+              "total_us": 1986514,
+              "p50_us": 84193,
+              "p95_us": 131409,
+              "max_us": 170932
+            },
+            "v4New": {
+              "frames": 21,
+              "total_us": 973585,
+              "p50_us": 46802,
+              "p95_us": 50664,
+              "max_us": 53834
+            },
+            "v3Return": {
+              "frames": 20,
+              "total_us": 331,
+              "p50_us": 15,
+              "p95_us": 19,
+              "max_us": 41
+            },
+            "v4Return": {
+              "frames": 20,
+              "total_us": 93,
+              "p50_us": 4,
+              "p95_us": 5,
+              "max_us": 15
+            }
+          },
+          {
+            "ppp": 1.5,
+            "v3New": {
+              "frames": 21,
+              "total_us": 2270197,
+              "p50_us": 107787,
+              "p95_us": 135032,
+              "max_us": 160666
+            },
+            "v4New": {
+              "frames": 21,
+              "total_us": 996713,
+              "p50_us": 45496,
+              "p95_us": 56795,
+              "max_us": 57290
+            },
+            "v3Return": {
+              "frames": 20,
+              "total_us": 89,
+              "p50_us": 4,
+              "p95_us": 5,
+              "max_us": 16
+            },
+            "v4Return": {
+              "frames": 20,
+              "total_us": 96,
+              "p50_us": 4,
+              "p95_us": 6,
+              "max_us": 16
+            }
+          },
+          {
+            "ppp": 2,
+            "v3New": {
+              "frames": 21,
+              "total_us": 2450452,
+              "p50_us": 116763,
+              "p95_us": 130701,
+              "max_us": 134946
+            },
+            "v4New": {
+              "frames": 21,
+              "total_us": 1087478,
+              "p50_us": 48588,
+              "p95_us": 60128,
+              "max_us": 95156
+            },
+            "v3Return": {
+              "frames": 20,
+              "total_us": 206,
+              "p50_us": 9,
+              "p95_us": 12,
+              "max_us": 28
+            },
+            "v4Return": {
+              "frames": 20,
+              "total_us": 163,
+              "p50_us": 7,
+              "p95_us": 8,
+              "max_us": 25
+            }
+          }
+        ]
+      },
+      "boundary": "One matched CPU sample for each implementation; excludes tessellation/GPU/native/app work. Null attribution is not evidence of cache hits. No relaxed timing threshold or native/human acceptance."
+    },
+    {
+      "operation": "A/B allocation optimization retention recommendation, updated after actual Ink158 completion",
+      "result": "retain AB allocation reuse/projection-iterator optimization in the working source batch",
+      "receipt": {
+        "path": "target/media-v4-ab-retention-recommendation-20261018.json",
+        "bytes": 2285,
+        "sha256": "e49654c6478e842bf4b05626eeeb0f843b2f978d4778912a25b2cde16007d2b3"
+      },
+      "capturedVersion": "Owner-updated recommendation at 2026-10-18T07:44:56.416Z; earlier recommendation versions are not relabelled immutable",
+      "productionPath": "crates/vector-ink/src/mesh/coverage.rs",
+      "originalSha256": "8074271c0ba57eae39da00e5b00670b47f73d406ea012300881944735d40c758",
+      "abSha256": "f25174b2944e99a4ae557ace093724d30bb55338c57764ca43b7608e4122de89",
+      "boundary": "Source retention decision with bounded exact-artifact and CPU evidence; normal shared parent still failed and whole-workspace/native/human acceptance stays open."
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "vector-ink",
+        "--lib",
+        "--jobs",
+        "1"
+      ],
+      "result": "PASS: normal vector-ink library 158 passed / 0 failed / 0 ignored",
+      "environment": "local Windows ordinary release Cargo invocation; retained completed receipt",
+      "receipt": {
+        "path": "target/presence-v4-ab-vector-ink-tests-20261018.json",
+        "bytes": 488296,
+        "sha256": "1e214d39ef240976b3b2629ef8903db0416930aa166ed09d5f7fe4fdb3e70e26"
+      },
+      "rawLog": {
+        "path": "target/presence-v4-ab-vector-ink-tests-20261018.log",
+        "bytes": 11206,
+        "sha256": "dc6d5739815862f51aa2e67c2b97e48bce590f14da518255a63e93ee4f9ee063"
+      },
+      "cargoExitCode": 0,
+      "runnerExitCode": 0,
+      "sourceStable": true,
+      "configurationStable": true,
+      "runnerStable": true,
+      "sourceBuildInputCount": 1367,
+      "libtestSummaries": [
+        "test result: ok. 158 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s"
+      ],
+      "startedUtc": "2026-10-18T07:45:33.667000+00:00",
+      "finishedUtc": "2026-10-18T07:47:44.979522+00:00",
+      "boundary": "Result belongs only to the source and configuration identities in this receipt; does not validate later source applications or native/human acceptance.",
+      "counts": {
+        "passed": 158,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": "set -o pipefail; cargo test --locked --workspace --no-fail-fast 2>&1 | tee test-output.log",
+      "result": "FAIL ordinary hosted Linux workspace: 3671 passed / 12 failed / 88 ignored across105 reported binaries and doctests; workflow exit101",
+      "environment": "GitHub Actions Linux; PR58 applied-v3 source head",
+      "jobId": 117614678560,
+      "runId": 39106921056,
+      "pullRequest": 58,
+      "candidateHead": "47eb22939368082f9c24973814742e85c9ca310b",
+      "actualCheckout": "7b57303f6a91d0657634bb374daf2135ff9cf0ec",
+      "summaryCount": 105,
+      "counts": {
+        "passed": 3671,
+        "failed": 12,
+        "ignored": 88,
+        "measured": 0,
+        "filteredOut": 0
+      },
+      "summaryIdentity": {
+        "path": "target/presence-v3-hosted-observer-98077d251d9e4aba965a81d6066d4461/job-117614678560.evidence.json",
+        "bytes": 33813,
+        "sha256": "a16121132987ff9da153b0f3f82fbd503eed230e8da9b09efe79935d796661f8"
+      },
+      "rawLog": {
+        "path": "target/presence-v3-hosted-observer-98077d251d9e4aba965a81d6066d4461/job-117614678560.raw.log",
+        "bytes": 543346,
+        "sha256": "5b2a2dd42a45dded4618e0ef361ee06f0dab0c0132b8d2390289de4697b899aa"
+      },
+      "assertionFailureCount": 12,
+      "compileErrorCount": 0,
+      "perBinaryHighlights": {
+        "atlasRelay": {
+          "passed": 6,
+          "failed": 1,
+          "ignored": 0
+        },
+        "atlasShell": {
+          "passed": 392,
+          "failed": 2,
+          "ignored": 5
+        },
+        "slate": {
+          "passed": 1894,
+          "failed": 9,
+          "ignored": 65
+        }
+      },
+      "boundary": "All105 precise rows and12 panic blocks retained in pinned evidence. No compile failure; failing suite remains failed. This checkout predates nine-file and69-file followups."
+    },
+    {
+      "command": [
+        "cargo",
+        "clippy",
+        "--workspace",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "result": "FAIL first Clippy at PR47eb: unnecessary_sort_by in crates/slate-doc/src/recovery/discovery.rs:27-28; workflow101",
+      "environment": "GitHub Actions Linux",
+      "jobId": 117614678831,
+      "runId": 39106921056,
+      "candidateHead": "47eb22939368082f9c24973814742e85c9ca310b",
+      "actualCheckout": "7b57303f6a91d0657634bb374daf2135ff9cf0ec",
+      "summaryIdentity": {
+        "path": "target/presence-v3-hosted-observer-98077d251d9e4aba965a81d6066d4461/job-117614678831.evidence.json",
+        "bytes": 6928,
+        "sha256": "929648ff2c4c01cf62e297407b5f0c9fba65f8a9973da8fef5799a1128f352c6"
+      },
+      "rawLog": {
+        "path": "target/presence-v3-hosted-observer-98077d251d9e4aba965a81d6066d4461/job-117614678831.raw.log",
+        "bytes": 55982,
+        "sha256": "7aa0ecb6a1f6b9b8ad01895ca6e21e0d2a79383d0c336246f89c2493a21414c5"
+      },
+      "testsExecuted": 0,
+      "boundary": "Later nine-file source application includes sort_by_key(Reverse(saved_at_ms)); this record preserves the actual old lint failure. Fresh hosted lint evidence for later source remains pending."
+    },
+    {
+      "command": "cargo check --workspace",
+      "result": "PASS hosted Windows cargo check --workspace; zero executable tests run",
+      "environment": "GitHub Actions Windows",
+      "jobId": 117614678966,
+      "runId": 39106921056,
+      "candidateHead": "47eb22939368082f9c24973814742e85c9ca310b",
+      "actualCheckout": "7b57303f6a91d0657634bb374daf2135ff9cf0ec",
+      "summaryIdentity": {
+        "path": "target/presence-v3-hosted-observer-98077d251d9e4aba965a81d6066d4461/job-117614678966.evidence.json",
+        "bytes": 681,
+        "sha256": "1564def65ac18a0ad502a83e2fc4eaff421ce714ae675fac59f471e8530a0bff"
+      },
+      "rawLog": {
+        "path": "target/presence-v3-hosted-observer-98077d251d9e4aba965a81d6066d4461/job-117614678966.raw.log",
+        "bytes": 72108,
+        "sha256": "7eb580c3d17b919fb530ebdfa9cba96a603253e9f2fee1b3b71cb4dc32325d43"
+      },
+      "testsExecuted": 0,
+      "boundary": "Compile check only for PR47eb; no runtime/native/human acceptance and does not validate later source batches."
+    },
+    {
+      "environment": "GitHub Actions Windows installer workflow",
+      "jobId": 117614678793,
+      "runId": 39106921036,
+      "pullRequest": 58,
+      "candidateHead": "47eb22939368082f9c24973814742e85c9ca310b",
+      "actualCheckout": "7b57303f6a91d0657634bb374daf2135ff9cf0ec",
+      "terminalReport": {
+        "path": "target/presence-evidence-successor-20261018-3c8bb28b4ced4bdb85715c5e25d4ba63/terminal-hosted-windows.json",
+        "bytes": 44168,
+        "sha256": "5c4ca0e3e27d93dfad793a9a3a7e8e4a38af1ab3114f169b388128fa97c3151a"
+      },
+      "rawLog": {
+        "path": "target/presence-v3-windows-installer-final-20261018.log",
+        "bytes": 682465,
+        "sha256": "0b9120f75fa5e2098d2c1686dc052ca8364277059ec5ed6a097502b8ae5df191"
+      },
+      "originalToolResult": {
+        "path": "target/presence-v3-windows-installer-final-20261018.tool-result.json",
+        "bytes": 710180,
+        "sha256": "8558d3cfa4f11ee9fb4b034a3a1a2dbc51703805e213f78222b508feb0e32bf4"
+      },
+      "command": "./scripts/test-windows-update.ps1",
+      "result": "PASS Windows install/update prerequisites: install, two-process wait, real upgrade, restart and saved data",
+      "exactResult": [
+        "PASS: install, two-process wait, real upgrade, restart and saved data."
+      ],
+      "boundary": "Installer/update fixture evidence only; does not clear subsequent workspace failure or establish final Slate package/native UX."
+    },
+    {
+      "environment": "GitHub Actions Windows installer workflow",
+      "jobId": 117614678793,
+      "runId": 39106921036,
+      "pullRequest": 58,
+      "candidateHead": "47eb22939368082f9c24973814742e85c9ca310b",
+      "actualCheckout": "7b57303f6a91d0657634bb374daf2135ff9cf0ec",
+      "terminalReport": {
+        "path": "target/presence-evidence-successor-20261018-3c8bb28b4ced4bdb85715c5e25d4ba63/terminal-hosted-windows.json",
+        "bytes": 44168,
+        "sha256": "5c4ca0e3e27d93dfad793a9a3a7e8e4a38af1ab3114f169b388128fa97c3151a"
+      },
+      "rawLog": {
+        "path": "target/presence-v3-windows-installer-final-20261018.log",
+        "bytes": 682465,
+        "sha256": "0b9120f75fa5e2098d2c1686dc052ca8364277059ec5ed6a097502b8ae5df191"
+      },
+      "originalToolResult": {
+        "path": "target/presence-v3-windows-installer-final-20261018.tool-result.json",
+        "bytes": 710180,
+        "sha256": "8558d3cfa4f11ee9fb4b034a3a1a2dbc51703805e213f78222b508feb0e32bf4"
+      },
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--workspace",
+        "--no-fail-fast"
+      ],
+      "result": "FAIL first ordinary Windows workspace: 3737 passed / 12 failed / 106 ignored across105 reported binaries/doctests; workflow step exit1",
+      "counts": {
+        "passed": 3737,
+        "failed": 12,
+        "ignored": 106,
+        "measured": 0,
+        "filteredOut": 0
+      },
+      "summaryCount": 105,
+      "reportedWorkflowStepExitCode": 1,
+      "explicitSeparateCargoExitCode": null,
+      "compileErrorCount": 0,
+      "assertionFailureCount": 12,
+      "perBinaryHighlights": {
+        "atlasShell": {
+          "passed": 393,
+          "failed": 2,
+          "ignored": 8
+        },
+        "slate": {
+          "passed": 1907,
+          "failed": 10,
+          "ignored": 77
+        }
+      },
+      "extraSlateFailureComparedWithLinux": {
+        "test": "app::board_flow::result_actions::tests::hover_only_strip_survives_the_gap_and_a_held_click_without_selecting_the_host_first",
+        "location": "apps/slate/src/app/board_flow/result_actions/tests.rs:225:14",
+        "panic": "called Option::unwrap() on a None value"
+      },
+      "boundary": "All105 summaries and12 panic blocks retained separately from the focused diagnostic. Windows has extra hover-only-strip Slate failure and does not have Linux relay BrokenPipe failure. No separately printed Cargo exit code is inferred."
+    },
+    {
+      "environment": "GitHub Actions Windows installer workflow",
+      "jobId": 117614678793,
+      "runId": 39106921036,
+      "pullRequest": 58,
+      "candidateHead": "47eb22939368082f9c24973814742e85c9ca310b",
+      "actualCheckout": "7b57303f6a91d0657634bb374daf2135ff9cf0ec",
+      "terminalReport": {
+        "path": "target/presence-evidence-successor-20261018-3c8bb28b4ced4bdb85715c5e25d4ba63/terminal-hosted-windows.json",
+        "bytes": 44168,
+        "sha256": "5c4ca0e3e27d93dfad793a9a3a7e8e4a38af1ab3114f169b388128fa97c3151a"
+      },
+      "rawLog": {
+        "path": "target/presence-v3-windows-installer-final-20261018.log",
+        "bytes": 682465,
+        "sha256": "0b9120f75fa5e2098d2c1686dc052ca8364277059ec5ed6a097502b8ae5df191"
+      },
+      "originalToolResult": {
+        "path": "target/presence-v3-windows-installer-final-20261018.tool-result.json",
+        "bytes": 710180,
+        "sha256": "8558d3cfa4f11ee9fb4b034a3a1a2dbc51703805e213f78222b508feb0e32bf4"
+      },
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "native-file-atlas",
+        "delete_key_removes_the_card_under_the_cursor",
+        "-j2",
+        "--",
+        "--nocapture"
+      ],
+      "result": "PASS existing focused File Atlas delete-key diagnostic: 1 passed / 0 failed / 64 filtered; printed Cargo exit0",
+      "counts": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "measured": 0,
+        "filteredOut": 64
+      },
+      "summaryCount": 2,
+      "perBinary": [
+        {
+          "phase": "focused-File-Atlas-diagnostic",
+          "rawLine": 5678,
+          "binary": "Running unittests src\\lib.rs (target\\debug\\deps\\native_file_atlas-4d2cad24decb3756.exe)",
+          "state": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filteredOut": 64,
+          "seconds": 0.26
+        },
+        {
+          "phase": "focused-File-Atlas-diagnostic",
+          "rawLine": 5684,
+          "binary": "Running unittests src\\main.rs (target\\debug\\deps\\native_file_atlas-487aa5a87262a38b.exe)",
+          "state": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filteredOut": 0,
+          "seconds": 0
+        }
+      ],
+      "cargoExitCode": 0,
+      "initiatedByObserver": false,
+      "boundary": "The workflow itself ran this focused failure diagnostic. Its two summaries are not added to the ordinary105 rows or used to overwrite the ordinary failed workspace."
+    },
+    {
+      "environment": "GitHub Actions Windows installer workflow",
+      "jobId": 117614678793,
+      "runId": 39106921036,
+      "pullRequest": 58,
+      "candidateHead": "47eb22939368082f9c24973814742e85c9ca310b",
+      "actualCheckout": "7b57303f6a91d0657634bb374daf2135ff9cf0ec",
+      "terminalReport": {
+        "path": "target/presence-evidence-successor-20261018-3c8bb28b4ced4bdb85715c5e25d4ba63/terminal-hosted-windows.json",
+        "bytes": 44168,
+        "sha256": "5c4ca0e3e27d93dfad793a9a3a7e8e4a38af1ab3114f169b388128fa97c3151a"
+      },
+      "rawLog": {
+        "path": "target/presence-v3-windows-installer-final-20261018.log",
+        "bytes": 682465,
+        "sha256": "0b9120f75fa5e2098d2c1686dc052ca8364277059ec5ed6a097502b8ae5df191"
+      },
+      "originalToolResult": {
+        "path": "target/presence-v3-windows-installer-final-20261018.tool-result.json",
+        "bytes": 710180,
+        "sha256": "8558d3cfa4f11ee9fb4b034a3a1a2dbc51703805e213f78222b508feb0e32bf4"
+      },
+      "operation": "Windows package/assets/publish phase",
+      "result": "SKIPPED after ordinary workspace failure; no final Slate package produced",
+      "testsExecuted": 0,
+      "boundary": "No successful package/build/asset-publish claim or final executable identity; finalBinary remains null."
+    },
+    {
+      "operation": "root-reviewed final69-path source application",
+      "result": "APPLIED and verified69/69 writes including14 new files; all runtime validation for this latest application PENDING",
+      "receipt": {
+        "path": "target/review/presence-followup-application-f504d33d47e14c25b512e5c75ace8afe/receipt.json",
+        "bytes": 592154,
+        "sha256": "ebf3cdc5271cf0ee0a94bff67444e7e96960b6a656e675fd6d94a11612a96141"
+      },
+      "reviewedPlan": {
+        "path": "target/review/presence-final-source-plan-20261018-81723dcfb8/root-apply-format-REVIEWED.json",
+        "bytes": 579638,
+        "sha256": "054e51a2d822c5c0f69363cea974d207cc93040d3521955e2ff890f4f71143e1"
+      },
+      "writeCount": 69,
+      "verifiedWrites": 69,
+      "newFileCount": 14,
+      "buildInputsAfter": 1381,
+      "finishedUtc": "2026-10-18T07:51:19.813360+00:00",
+      "boundary": "Source application/publication evidence only; not a build, test, provider, native UX, performance, or human acceptance pass. Earlier v3/v4 test outcomes do not validate these latest bytes. The former61-path plan was superseded by the actual69-path application; no pending policy/source approval is described as execution."
     }
   ],
   "pendingChecks": [
@@ -11591,5 +12602,73 @@
       },
       "evidenceRules": "All69 older automated records and existing history branches are retained. New per-command records describe execution only where a real completed harness or audit ran. No source test, plan, fixture definition or formatting result is counted as test execution."
     }
+  },
+  "currentEvidence20261018V3V4": {
+    "schema": "presence-completed-evidence-operational-amendment-v1",
+    "createdUtc": "2026-10-18T07:53:36.920Z",
+    "mode": "SCRATCH successor; not applied to live design documents",
+    "supersedesHistoricalOperationalNarrative": "All existing85 automated records and old status strings are preserved as historical evidence. Statements describing c9/projected-v2 as unapplied or v3/followups as pending are superseded only by the exact applied/publication receipts below; their old test results remain scoped to their old identities.",
+    "appliedSource": {
+      "v3Writes78": {
+        "path": "target/presence-source-batch-composition-6ed1cea06f0d474689351873beb1753f/apply-attempts/7dde3f5acbd64dfea7d3a15f71b86077/apply-receipt.json",
+        "bytes": 25235,
+        "sha256": "9318bd251af1066dc1e89bf4d244ea3b1a95e53173e3978f8ea79c8f73c8ad9a"
+      },
+      "v3PublishedCommit": "47eb22939368082f9c24973814742e85c9ca310b",
+      "v3PublishedTree": "2d6e41a6586aa40eecc653815e454895771c037d",
+      "nineFollowups": {
+        "path": "target/review/presence-followup-application-ba034c919510422f83cb480f2dfe9fbe/receipt.json",
+        "bytes": 573490,
+        "sha256": "aa0d51164a29adf686e64d7c715cd3dbca67488bfbd3dc764061c86e5d0aab5e"
+      },
+      "latest69Writes": {
+        "path": "target/review/presence-followup-application-f504d33d47e14c25b512e5c75ace8afe/receipt.json",
+        "bytes": 592154,
+        "sha256": "ebf3cdc5271cf0ee0a94bff67444e7e96960b6a656e675fd6d94a11612a96141"
+      },
+      "latestFinishedUtc": "2026-10-18T07:51:19.813360+00:00",
+      "currentBuildInputsReportedByLatestApplication": 1381,
+      "latestRuntimeStatus": "PENDING; no completed test, lint, formatting, native or provider result for these latest69-path bytes is asserted here"
+    },
+    "hostedSourceBoundary": {
+      "head": "47eb22939368082f9c24973814742e85c9ca310b",
+      "merge": "7b57303f6a91d0657634bb374daf2135ff9cf0ec",
+      "linuxOrdinary": "3671/12/88 FAILED,105 summaries",
+      "windowsOrdinary": "3737/12/106 FAILED,105 summaries",
+      "windowsSlate": "1907/10/77 FAILED",
+      "linuxSlate": "1894/9/65 FAILED",
+      "windowsFocused": "1/0/0,64 filtered PASS; separate existing diagnostic",
+      "windowsCheck": "PASS compile only",
+      "clippy": "FAIL at old PR47eb; later source repair applied, fresh CI pending",
+      "package": "SKIPPED"
+    },
+    "cpuBoundary": {
+      "matrix": "195 exact cases match;12 raster outputs identical",
+      "observerOff": "123 matching schedules/structural counters, profile disabled",
+      "matchedNewSizeP95Us": {
+        "before": 134946,
+        "after": 57978
+      },
+      "retentionRecommendation": {
+        "path": "target/media-v4-ab-retention-recommendation-20261018.json",
+        "bytes": 2285,
+        "sha256": "e49654c6478e842bf4b05626eeeb0f843b2f978d4778912a25b2cde16007d2b3"
+      },
+      "nativeSmoothness": "UNVERIFIED; CPU sample excludes tessellation/GPU/native/app work"
+    },
+    "openGates": {
+      "appUiBlockers": 37,
+      "allAppUiBlockers": "OPEN",
+      "integratedWorkspacePass": "OPEN",
+      "commandPerformanceProbe": "OPEN",
+      "newSizeCpuCost": "OPEN",
+      "finalBinary": null,
+      "nativeGpuUx": "OPEN",
+      "liveProvider": "OPEN",
+      "humanAcceptance": "Untested"
+    },
+    "finalBinary": null,
+    "humanAcceptance": "Untested",
+    "sourceAndEvidenceBoundary": "This successor records source-only applications and completed historical commands. It performs no live source/doc writes, Git/network/ref mutation, process launch, Cargo/provider/native command, workflow dispatch or retry. Latest root formatting/workspace/native checks remain pending. No gate is closed by source approval or diagnostic exports."
   }
 }

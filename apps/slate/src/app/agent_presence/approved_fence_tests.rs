@@ -186,6 +186,7 @@ fn fresh_idle_provider_snapshot_cannot_cancel_the_humans_already_approved_action
         }],
         ..Default::default()
     };
+    std::fs::create_dir_all(&dir).unwrap();
     atlas_ai::agent::atomic_write_json(&dir.join("session.json"), &snapshot).unwrap();
     h.app.presence.sources.expect(&dir, &snapshot.request);
     let deadline = Instant::now() + Duration::from_secs(5);

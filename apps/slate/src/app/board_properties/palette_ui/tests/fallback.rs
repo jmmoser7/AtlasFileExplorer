@@ -99,11 +99,21 @@ fn fallback_image_body_inspection_retains_the_editor_including_locked_hosts() {
             );
             crate::app::tests::click_board(&mut h, point);
             if let Some(other) = other {
+                h.frame();
+                assert_eq!(h.app.board_sel, std::iter::once(other).collect());
                 assert!(
                     h.app.shape_properties.panel.is_none(),
-                    "the topmost object is not the image host"
+                    "the synchronized selection is no longer the image host"
                 );
-                assert_eq!(h.app.board_sel, std::iter::once(other).collect());
+                assert_eq!(
+                    h.app
+                        .shape_properties
+                        .last_chrome
+                        .as_ref()
+                        .and_then(|chrome| chrome.host),
+                    Some((h.app.tab().id, other)),
+                    "the synchronized property strip belongs to the topmost object"
+                );
             } else {
                 assert_eq!(
                     h.app.shape_properties.panel,
@@ -151,6 +161,9 @@ fn fallback_images_keep_external_brush_and_layers_controls_at_full_width() {
 
         click_external_image_panel(&mut h, &mut time, Panel::Brush);
         assert_eq!(h.app.shape_properties.panel, Some(Panel::Brush), "{name}");
+        for _ in 0..12 {
+            frame(&mut h, &mut time);
+        }
         let (attached, brush_layout, _) =
             h.app
                 .observed_image_palette_layout_for_test(&h.ctx, id, chrome::ImagePanelKind::Brush);
@@ -169,6 +182,9 @@ fn fallback_images_keep_external_brush_and_layers_controls_at_full_width() {
 
         click_external_image_panel(&mut h, &mut time, Panel::Layers);
         assert_eq!(h.app.shape_properties.panel, Some(Panel::Layers), "{name}");
+        for _ in 0..12 {
+            frame(&mut h, &mut time);
+        }
         let (attached, layers_layout, _) = h.app.observed_image_palette_layout_for_test(
             &h.ctx,
             id,

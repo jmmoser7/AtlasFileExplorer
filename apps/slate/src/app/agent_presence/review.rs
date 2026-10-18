@@ -296,7 +296,9 @@ impl SlateApp {
                         arguments: json!({"dx":80,"dy":20}),
                     },
                 };
-                let admitted = self.presence_call(&mut agent, &call).is_none();
+                let admitted = self
+                    .presence_call_with_context(ctx, &mut agent, &call)
+                    .is_none();
                 self.presence.agents.insert(index, agent);
                 if !admitted {
                     return Err("Fixture move was not admitted".into());

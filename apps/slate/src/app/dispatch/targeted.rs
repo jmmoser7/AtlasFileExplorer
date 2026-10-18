@@ -4,6 +4,7 @@ mod creation;
 mod invocation;
 mod prepare;
 mod schema;
+mod text_style;
 
 use super::super::SlateApp;
 use atlas_commands::CmdAuthor;
@@ -137,6 +138,24 @@ impl SlateApp {
         targets: &[String],
         arguments: &Value,
     ) -> Result<PreparedBoardCommand, String> {
+        self.prepare_targeted_command_context(None, command, targets, arguments)
+    }
+    pub(crate) fn prepare_targeted_command_with_context(
+        &self,
+        ctx: &eframe::egui::Context,
+        command: &str,
+        targets: &[String],
+        arguments: &Value,
+    ) -> Result<PreparedBoardCommand, String> {
+        self.prepare_targeted_command_context(Some(ctx), command, targets, arguments)
+    }
+    pub(crate) fn prepare_targeted_command_context(
+        &self,
+        ctx: Option<&eframe::egui::Context>,
+        command: &str,
+        targets: &[String],
+        arguments: &Value,
+    ) -> Result<PreparedBoardCommand, String> {
         if self.tab().read_only {
             return Err("This workbook is read-only".into());
         }
@@ -153,6 +172,12 @@ impl SlateApp {
         let (cmds, targets, invocation, crop) = if command == "board.objects.crop" {
             let (cmds, targets, gesture) = prepare::crop(self, &ids, arguments)?;
             (cmds, targets, None, Some(gesture))
+        } else if matches!(
+            command,
+            "board.objects.set_text" | "board.shape.edit" | "board.wire.edit"
+        ) {
+            let (cmds, targets) = text_style::prepare(self, ctx, command, &ids, arguments)?;
+            (cmds, targets, None, None)
         } else if command == "portal.agent.run" {
             let (cmds, targets, invocation) = invocation::prepare(self, &ids, arguments)?;
             (cmds, targets, Some(invocation), None)
@@ -310,6 +335,22 @@ impl SlateApp {
     }
 
     pub(crate) fn dispatch_targeted_human(&mut self, command: &str, detail: Option<&str>) -> bool {
+        self.dispatch_targeted_human_context(None, command, detail)
+    }
+    pub(crate) fn dispatch_targeted_human_with_context(
+        &mut self,
+        ctx: &eframe::egui::Context,
+        command: &str,
+        detail: Option<&str>,
+    ) -> bool {
+        self.dispatch_targeted_human_context(Some(ctx), command, detail)
+    }
+    fn dispatch_targeted_human_context(
+        &mut self,
+        ctx: Option<&eframe::egui::Context>,
+        command: &str,
+        detail: Option<&str>,
+    ) -> bool {
         let result = (|| {
             let value: Value = serde_json::from_str(
                 detail.ok_or("This command requires explicit targets and arguments")?,
@@ -322,7 +363,8 @@ impl SlateApp {
                     .unwrap_or_else(|| Value::Array(vec![])),
             )
             .map_err(|_| "Targets must be stable object ID strings")?;
-            let mut prepared = self.prepare_targeted_command(
+            let mut prepared = self.prepare_targeted_command_context(
+                ctx,
                 command,
                 &targets,
                 value.get("arguments").unwrap_or(&Value::Null),

@@ -4,22 +4,6 @@ use super::*;
 pub(super) mod image_import;
 
 impl SlateApp {
-    /// Participant menus project the session cache instead of scanning the board.
-    pub(crate) fn participant_chat_entries(&self) -> Vec<(String, String)> {
-        self.agents
-            .bindings
-            .iter()
-            .filter_map(|(id, session)| {
-                self.doc().scene.node(*id).map(|node| {
-                    let name = match &node.kind {
-                        NodeKind::Portal(p) if !p.title.is_empty() => p.title.clone(),
-                        _ => session.chars().take(40).collect(),
-                    };
-                    (id.0.to_string(), name)
-                })
-            })
-            .collect()
-    }
     pub(crate) fn agent_pump(&mut self, ctx: &egui::Context) {
         self.ai.packs.begin_frame();
         self.paint_pack_key_entry(ctx);

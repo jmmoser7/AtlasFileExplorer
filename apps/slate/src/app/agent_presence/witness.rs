@@ -9,7 +9,7 @@ mod crop_tests;
 pub(super) struct WitnessedCommand {
     pub(super) purpose: WitnessPurpose,
     pub call: BoardCall,
-    pub prepared: PreparedBoardCommand,
+    pub(super) action: WitnessAction,
     pub(super) steps: Vec<(Option<Node>, Option<Node>)>,
     pub(super) index: usize,
     pub previews: HashMap<slate_doc::NodeId, Node>,
@@ -21,19 +21,81 @@ pub(super) struct WitnessedCommand {
     crop_contact: Option<WorldPoint>,
 }
 
+pub(super) enum WitnessAction {
+    Board(PreparedBoardCommand),
+    Relay(messaging::PreparedRelay),
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum WitnessPurpose {
+    Interaction,
     ProposalPreview,
     Autonomous,
     ApprovedProposal(String),
 }
 impl WitnessPurpose {
     pub(super) fn replaces_objects(&self) -> bool {
-        !matches!(self, Self::ProposalPreview)
+        matches!(self, Self::Autonomous | Self::ApprovedProposal(_))
     }
 }
 
 impl WitnessedCommand {
+    pub(super) fn relay(call: BoardCall, relay: messaging::PreparedRelay) -> Self {
+        Self {
+            purpose: WitnessPurpose::Interaction,
+            call,
+            action: WitnessAction::Relay(relay),
+            steps: Vec::new(),
+            index: 0,
+            previews: HashMap::new(),
+            started: false,
+            checked_generation: None,
+            cohorts: HashMap::new(),
+            skipped: Default::default(),
+            wire_ends: HashMap::new(),
+            crop_contact: None,
+        }
+    }
+    pub(super) fn board_prepared(&self) -> Option<&PreparedBoardCommand> {
+        match &self.action {
+            WitnessAction::Board(p) => Some(p),
+            WitnessAction::Relay(_) => None,
+        }
+    }
+    pub(super) fn command(&self) -> &str {
+        self.board_prepared()
+            .map_or("presence.send", |p| p.command.as_str())
+    }
+    pub(super) fn targets(&self) -> &[slate_doc::NodeId] {
+        self.board_prepared().map_or(&[], |p| p.targets.as_slice())
+    }
+    pub(super) fn total_steps(&self) -> usize {
+        if matches!(self.action, WitnessAction::Relay(_)) {
+            1
+        } else {
+            self.steps.len()
+        }
+    }
+    pub(super) fn tab_id(&self) -> u64 {
+        match &self.action {
+            WitnessAction::Board(p) => p.tab_id(),
+            WitnessAction::Relay(r) => r.tab,
+        }
+    }
+    pub(super) fn expected_matches(&self, scene: &slate_doc::Scene) -> Result<(), String> {
+        match &self.action {
+            WitnessAction::Board(p) => p.expected_matches(scene),
+            WitnessAction::Relay(r) => r.expected_matches(scene),
+        }
+    }
+    pub(super) fn relay_epoch_changed(&self, epoch: u64) -> bool {
+        matches!(&self.action, WitnessAction::Relay(r) if r.control_epoch != epoch)
+    }
+    pub(super) fn look_at(&self) -> Option<WorldPoint> {
+        match &self.action {
+            WitnessAction::Relay(r) => Some(r.contact),
+            _ => None,
+        }
+    }
     pub(super) fn new(
         call: BoardCall,
         prepared: PreparedBoardCommand,
@@ -110,7 +172,7 @@ impl WitnessedCommand {
         Ok(Self {
             purpose: WitnessPurpose::Autonomous,
             call,
-            prepared,
+            action: WitnessAction::Board(prepared),
             steps,
             index,
             previews: HashMap::new(),
@@ -123,13 +185,21 @@ impl WitnessedCommand {
         })
     }
     pub(super) fn begin_step(&mut self, motion: &mut PresenceSession) -> Result<(), String> {
+        if let WitnessAction::Relay(relay) = &self.action {
+            enqueue_motion(motion, &relay.witness_id(), relay.contact, relay.contact)?;
+            self.started = true;
+            return Ok(());
+        }
         let (before, after) = &self.steps[self.index];
         let reference = before.as_ref().or(after.as_ref()).ok_or("Missing target")?;
         let (cx, cy) = reference.rect.center();
         let (ex, ey) = after.as_ref().unwrap_or(reference).rect.center();
         let (contact, placement) = if let Some(ends) = self.wire_ends.get(&reference.id) {
             *ends
-        } else if let Some(requested) = self.prepared.crop_gesture() {
+        } else if let Some(requested) = self
+            .board_prepared()
+            .and_then(PreparedBoardCommand::crop_gesture)
+        {
             use crate::app::board_crop::{effective_gesture, gesture_contact, CropGesture};
             let gesture =
                 effective_gesture(reference, requested).ok_or("Missing effective crop gesture")?;
@@ -160,33 +230,20 @@ impl WitnessedCommand {
                 },
             )
         };
-        self.crop_contact = self.prepared.crop_gesture().map(|_| contact);
-        let start = motion.sample().position;
-        let distance = ((start.x - contact.x).powi(2) + (start.y - contact.y).powi(2)).sqrt();
-        motion
-            .enqueue(MotionPlan {
-                session_id: motion.id().clone(),
-                request_id: motion.request_id().cloned().ok_or("Missing request")?,
-                action_id: id(&atlas_agent::request_id())?,
-                target_nodes: vec![id(&reference.id.0.to_string())?],
-                start,
-                end: contact,
-                work_end: Some(placement),
-                durations: MotionDurations {
-                    travel_ms: (distance / 1.8).clamp(180.0, 650.0) as u32,
-                    grab_ms: 90,
-                    work_ms: 360,
-                },
-            })
-            .map_err(|e| e.to_string())?;
+        self.crop_contact = self
+            .board_prepared()
+            .and_then(PreparedBoardCommand::crop_gesture)
+            .map(|_| contact);
+        enqueue_motion(motion, &reference.id.0.to_string(), contact, placement)?;
         self.started = true;
         Ok(())
     }
     /// Control samples drive canonical crop math; actual grips own the avatar.
     pub(super) fn display_position(&self, sample: MotionSample) -> WorldPoint {
         if matches!(sample.phase, MotionPhase::Work | MotionPhase::ReadyToCommit) {
-            if let Some(gesture @ crate::app::board_crop::CropGesture::Handle { .. }) =
-                self.prepared.crop_gesture()
+            if let Some(gesture @ crate::app::board_crop::CropGesture::Handle { .. }) = self
+                .board_prepared()
+                .and_then(PreparedBoardCommand::crop_gesture)
             {
                 if let Some((_, Some(after))) = self.steps.get(self.index) {
                     if let Some(preview) = self.previews.get(&after.id) {
@@ -217,10 +274,15 @@ impl WitnessedCommand {
         self.started = false;
     }
     pub(super) fn preview(&mut self, sample: MotionSample) -> Result<(), String> {
-        if !matches!(sample.phase, MotionPhase::Work | MotionPhase::ReadyToCommit) {
+        if matches!(self.action, WitnessAction::Relay(_))
+            || !matches!(sample.phase, MotionPhase::Work | MotionPhase::ReadyToCommit)
+        {
             return Ok(());
         }
-        if let Some(gesture) = self.prepared.crop_gesture() {
+        if let Some(gesture) = self
+            .board_prepared()
+            .and_then(PreparedBoardCommand::crop_gesture)
+        {
             use crate::app::board_crop::{gesture_geometry, CropGesture};
             let before = self.steps[self.index]
                 .0
@@ -319,7 +381,7 @@ impl WitnessedCommand {
 
 /// One body-contact policy for ordinary work and crop pan. A known outline
 /// never falls back into a hole; the fixed candidate budget can refuse contact.
-fn body_contact(node: &Node) -> Result<WorldPoint, String> {
+pub(super) fn body_contact(node: &Node) -> Result<WorldPoint, String> {
     let (cx, cy) = node.rect.center();
     let Some(outline) = slate_doc::geom::node_closed_poly(node, 0.05) else {
         if node.clip.is_some() {
@@ -343,4 +405,32 @@ fn body_contact(node: &Node) -> Result<WorldPoint, String> {
         }
     }
     Err("No visible body contact was found within the bounded outline search".into())
+}
+
+/// One motion construction policy for board actions and conversation contact.
+fn enqueue_motion(
+    motion: &mut PresenceSession,
+    target: &str,
+    contact: WorldPoint,
+    placement: WorldPoint,
+) -> Result<(), String> {
+    let start = motion.sample().position;
+    let distance = ((start.x - contact.x).powi(2) + (start.y - contact.y).powi(2)).sqrt();
+    motion
+        .enqueue(MotionPlan {
+            session_id: motion.id().clone(),
+            request_id: motion.request_id().cloned().ok_or("Missing request")?,
+            action_id: id(&atlas_agent::request_id())?,
+            target_nodes: vec![id(target)?],
+            start,
+            end: contact,
+            work_end: Some(placement),
+            durations: MotionDurations {
+                travel_ms: (distance / 1.8).clamp(180.0, 650.0) as u32,
+                grab_ms: 90,
+                work_ms: 360,
+            },
+        })
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }

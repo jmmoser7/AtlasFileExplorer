@@ -114,7 +114,8 @@ fn witnessed_linked_image_wire_and_cancellation_retain_actual_motion_frames() {
         .work
         .as_ref()
         .unwrap()
-        .prepared
+        .board_prepared()
+        .unwrap()
         .created_ids()[0];
     let mut free_points = Vec::<[f32; 2]>::new();
     let (mut wire_early, mut wire_late) = (false, false);

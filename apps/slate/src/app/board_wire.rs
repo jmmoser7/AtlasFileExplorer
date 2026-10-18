@@ -24,8 +24,8 @@ use slate_doc::scene::{
     Scene, SceneCmd, Side, Stroke, StrokeCap, StrokeJoin, WidthProfile, WireDisplay, WorldRect,
 };
 use slate_doc::wire::{
-    connector_aabb_routed, filleted_polyline, retreat_off_hosts, scene_wire_hosts,
-    scene_wire_obstacles, ConnectorPath, OrthoLane, PathCmd, WireRouting, ORTHO_CORNER_RADIUS,
+    connector_aabb_routed, filleted_polyline, retreat_off_hosts, scene_wire_obstacles,
+    ConnectorPath, OrthoLane, PathCmd, WireRouting, ORTHO_CORNER_RADIUS,
 };
 use slate_doc::WireHost;
 use slate_doc::{connector_anchor_on, NodeId};
@@ -167,31 +167,6 @@ pub(crate) fn connector_cache_key(
     h.finish()
 }
 
-/// Stroke hit-test for connectors (used by the shared point pick). Skips
-/// connectors whose anchored node is hidden — they are not painted either.
-pub fn hit_connector_routed(
-    scene: &Scene,
-    id: NodeId,
-    conn: &ConnectorNode,
-    wx: f32,
-    wy: f32,
-    zoom: f32,
-    routing: WireRouting,
-) -> bool {
-    hit_connector_filtered(
-        scene,
-        id,
-        conn,
-        [wx, wy],
-        zoom,
-        routing,
-        &WirePickGeometry {
-            accepts: &|_| true,
-            host_of: &scene_wire_hosts(scene),
-        },
-    )
-}
-
 /// Borrowed geometry for one point pick. The route and its stroke retreat
 /// share the same current hosts; this never copies or edits the scene.
 pub(crate) struct WirePickGeometry<'a> {
@@ -264,6 +239,7 @@ fn wire_blocked_by_node(
     })
 }
 
+#[cfg(test)]
 /// Painted stroke (twice the stored width) and the same curve pulled just
 /// outside each anchored host so the stroke does not cross that face.
 pub(crate) fn drawn_connector(
@@ -271,7 +247,7 @@ pub(crate) fn drawn_connector(
     path: ConnectorPath,
     conn: &ConnectorNode,
 ) -> (ConnectorPath, Stroke) {
-    drawn_connector_with_hosts(path, conn, scene_wire_hosts(scene))
+    drawn_connector_with_hosts(path, conn, slate_doc::wire::scene_wire_hosts(scene))
 }
 
 fn drawn_connector_with_hosts(

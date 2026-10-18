@@ -369,7 +369,7 @@ fn admission(f: &mut Fixture, warm: bool) {
             .work
             .take()
             .expect("admitted action must have its real witness");
-        assert_eq!(work.prepared.targets.len(), 64);
+        assert_eq!(work.targets().len(), 64);
         assert_eq!(work.steps.len(), 64);
         f.assert_unmodified(&items);
         f.h.app.presence.agents.insert(0, agent);

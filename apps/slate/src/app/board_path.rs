@@ -1386,10 +1386,10 @@ pub fn marquee_hits_node(
     }
 }
 
-#[cfg(test)]
-pub use picking::board_pick_node_ex;
 use picking::brush_dab_disc;
-pub use picking::{board_pick_node, board_pick_node_filtered, board_pick_node_routed};
+pub use picking::{board_pick_node, board_pick_node_filtered};
+#[cfg(test)]
+pub use picking::{board_pick_node_ex, board_pick_node_routed};
 
 #[cfg(test)]
 pub fn default_draw_stroke(accent: Rgba) -> Stroke {

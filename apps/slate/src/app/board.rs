@@ -42,7 +42,6 @@
 //! - Frames drag their members with them (geometric membership, captured at
 //!   gesture start).
 mod paint_node;
-
 use super::{
     board_color, board_crop, board_forcefield, board_handles, board_osnap, board_path, board_place,
     board_snap, board_web, kits, model3d, SlateApp, ThumbState,
@@ -293,7 +292,7 @@ mod board_sheet;
 mod board_sheet_resize;
 mod board_sticky;
 mod board_text_overlay;
-mod board_text_place;
+pub(crate) mod board_text_place;
 pub(crate) use board_dialogs::*;
 #[cfg(test)]
 mod board_tests;

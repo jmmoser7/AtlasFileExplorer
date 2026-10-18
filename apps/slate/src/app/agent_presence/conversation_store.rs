@@ -7,6 +7,12 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ReceiptConsumer {
+    Default,
+    BoardMentions,
+}
+
 pub(super) struct ConversationStore {
     threads: HashMap<String, Conversation>,
     ready: bool,
@@ -21,6 +27,7 @@ pub(super) struct ConversationStore {
     saved: Vec<u64>,
     failed: Vec<u64>,
     outstanding: HashSet<u64>,
+    consumers: HashMap<u64, ReceiptConsumer>,
 }
 struct PendingSave {
     id: String,
@@ -48,6 +55,7 @@ impl Default for ConversationStore {
             saved: Vec::new(),
             failed: Vec::new(),
             outstanding: HashSet::new(),
+            consumers: HashMap::new(),
         };
         if !cfg!(test) {
             let dir = atlas_core::index::data_dir().join("presence-conversations");
@@ -98,16 +106,54 @@ impl ConversationStore {
         self.enqueue(id, 0);
     }
     pub(super) fn save_with_receipt(&mut self, id: &str) -> u64 {
+        self.save_with_receipt_for(id, ReceiptConsumer::Default)
+            .expect("default receipts retain the existing caller budget")
+    }
+    /// Ownership is installed before enqueue can synchronously fail. Canceled
+    /// claims still count until their terminal event is drained by their owner.
+    pub(super) fn save_with_receipt_for(
+        &mut self,
+        id: &str,
+        consumer: ReceiptConsumer,
+    ) -> Result<u64, String> {
+        if consumer == ReceiptConsumer::BoardMentions
+            && self.consumers.values().filter(|c| **c == consumer).count() >= 64
+        {
+            return Err("Board message persistence queue is full".into());
+        }
         self.receipt = self.receipt.wrapping_add(1).max(1);
+        self.consumers.insert(self.receipt, consumer);
         self.outstanding.insert(self.receipt);
         self.enqueue(id, self.receipt);
-        self.receipt
+        Ok(self.receipt)
     }
     pub(super) fn take_receipts(&mut self) -> Vec<u64> {
-        std::mem::take(&mut self.saved)
+        self.take_receipts_for(ReceiptConsumer::Default, false)
     }
     pub(super) fn take_failed_receipts(&mut self) -> Vec<u64> {
-        std::mem::take(&mut self.failed)
+        self.take_receipts_for(ReceiptConsumer::Default, true)
+    }
+    pub(super) fn take_receipts_for(
+        &mut self,
+        consumer: ReceiptConsumer,
+        failed: bool,
+    ) -> Vec<u64> {
+        let events = if failed {
+            &mut self.failed
+        } else {
+            &mut self.saved
+        };
+        let mut owned = Vec::new();
+        events.retain(|id| {
+            if self.consumers.get(id) == Some(&consumer) {
+                self.consumers.remove(id);
+                owned.push(*id);
+                false
+            } else {
+                true
+            }
+        });
+        owned
     }
     fn enqueue(&mut self, id: &str, receipt: u64) {
         self.dirty.remove(id);
@@ -282,10 +328,24 @@ fn load(dir: &std::path::Path) -> (HashMap<String, Conversation>, Option<String>
                         }
                     }
                 }
+                let mut interrupted = Vec::new();
                 for turn in &mut stored.conversation.turns {
+                    if turn.board_origin.is_some()
+                        && matches!(turn.status.as_str(), "queued" | "dispatching")
+                    {
+                        interrupted.push(if turn.status == "dispatching" {
+                            "Board message delivery is uncertain after restart; it was not retried."
+                        } else { "Queued board message was not sent after restart; send a new message to resume." });
+                        turn.status = "not-sent".into();
+                    }
                     if matches!(turn.status.as_str(), "streaming" | "sent") {
                         turn.status = "stopped".into();
                     }
+                }
+                for reason in interrupted {
+                    stored
+                        .conversation
+                        .push("system", reason, "Slate", None, "", "complete");
                 }
                 stored.conversation.rebuild_runtime();
                 threads.insert(stored.id, stored.conversation);
@@ -347,134 +407,5 @@ fn run(dir: PathBuf, rx: mpsc::Receiver<PendingSave>, tx: mpsc::Sender<StoreEven
 #[path = "conversation_store_durability_tests.rs"]
 mod durability_tests;
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn a_full_worker_queue_coalesces_only_deltas_and_preserves_every_receipt_in_order() {
-        let mut store = ConversationStore::default();
-        let (tx, rx) = mpsc::sync_channel(1);
-        store.tx = Some(tx);
-        let conversation = store.edit("self").unwrap();
-        for index in 0..1000 {
-            conversation.push(
-                "user",
-                "Retained",
-                "Jamie",
-                None,
-                &format!("old-{index}"),
-                "complete",
-            );
-        }
-        store.save("self"); // fills the bounded queue; the next two saves coalesce
-        store
-            .edit("self")
-            .unwrap()
-            .push("user", "New", "Jamie", None, "new", "pending");
-        let first = store.save_with_receipt("self");
-        store
-            .edit("self")
-            .unwrap()
-            .set_turn_status(1000, "accepted");
-        let second = store.save_with_receipt("self");
-        let baseline = rx.try_recv().unwrap();
-        let mut mirror = Conversation::default();
-        mirror.apply_changes(baseline.changes);
-        store.flush();
-        let update = rx.try_recv().unwrap();
-        assert_eq!(update.receipts, vec![first, second]);
-        assert_eq!(update.changes.len(), 2);
-        assert!(matches!(&update.changes[0],ConversationChange::Append(turn) if turn.text=="New"));
-        assert!(
-            matches!(&update.changes[1],ConversationChange::Status {index:1000,status} if status=="accepted")
-        );
-        mirror.apply_changes(update.changes);
-        assert_eq!(&mirror, store.get("self").unwrap());
-        assert!(
-            store.take_receipts().is_empty(),
-            "a queued update is never a durable receipt"
-        );
-    }
-    #[test]
-    fn disconnected_storage_never_acknowledges_later_saves_as_memory_only_success() {
-        let mut store = ConversationStore::default();
-        let (tx, rx) = mpsc::sync_channel(1);
-        store.tx = Some(tx);
-        drop(rx);
-        store.edit("human:peer").unwrap().push(
-            "user",
-            "Keep this",
-            "Jamie",
-            None,
-            "one",
-            "pending",
-        );
-        let first = store.save_with_receipt("human:peer");
-        assert_eq!(store.take_failed_receipts(), vec![first]);
-        store.tx.take();
-        store
-            .edit("human:peer")
-            .unwrap()
-            .set_draft("Still available");
-        let second = store.save_with_receipt("human:peer");
-        assert_eq!(store.take_failed_receipts(), vec![second]);
-        assert!(store.take_receipts().is_empty());
-        assert_eq!(store.get("human:peer").unwrap().turns[0].text, "Keep this");
-        assert_eq!(store.get("human:peer").unwrap().draft, "Still available");
-    }
-    fn wait_ready(store: &mut ConversationStore) {
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while !store.ready {
-            store.poll();
-            assert!(Instant::now() < deadline);
-            std::thread::yield_now();
-        }
-    }
-    #[test]
-    fn persistence_receipt_follows_atomic_write_and_restart_keeps_visible_history_and_draft() {
-        let dir =
-            std::env::temp_dir().join(format!("slate-conversation-{}", atlas_agent::request_id()));
-        let mut store = ConversationStore::at_directory(dir.clone());
-        wait_ready(&mut store);
-        let c = store.edit("self").unwrap();
-        c.push("user", "First", "Jamie", None, "request", "complete");
-        c.set_draft("unfinished");
-        let one = store.save_with_receipt("self");
-        store.edit("self").unwrap().push(
-            "assistant",
-            "Partial",
-            "Dot",
-            Some("local"),
-            "stream",
-            "streaming",
-        );
-        let two = store.save_with_receipt("self");
-        let mut receipts = Vec::new();
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while !receipts.contains(&one) || !receipts.contains(&two) {
-            store.poll();
-            receipts.extend(store.take_receipts());
-            assert!(Instant::now() < deadline);
-            std::thread::yield_now();
-        }
-        let saved: StoredConversation =
-            serde_json::from_slice(&std::fs::read(dir.join(file_name("self"))).unwrap()).unwrap();
-        assert_eq!(saved.conversation.turns.len(), 2);
-        assert_eq!(saved.conversation.draft, "unfinished");
-        drop(store);
-        let mut restored = ConversationStore::at_directory(dir.clone());
-        wait_ready(&mut restored);
-        let c = restored.get("self").unwrap();
-        assert_eq!(c.turns[0].status, "complete");
-        assert_eq!(c.turns[1].status, "stopped");
-        assert_eq!(c.draft, "unfinished");
-        drop(restored);
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-    #[test]
-    fn opaque_identity_never_becomes_a_relative_path() {
-        let name = file_name("../../human:example");
-        assert!(name.ends_with(".json"));
-        assert!(!name.contains('/'));
-        assert!(!name.contains('\\'));
-    }
-}
+#[path = "conversation_store_tests.rs"]
+mod tests;

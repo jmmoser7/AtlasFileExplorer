@@ -66,6 +66,21 @@ fn frame(
                             if let Some(response) =
                                 ctx.read_response(ui.id().with(("image-agent-history", index)))
                             {
+                                if index == 0 && std::env::var_os("SLATE_TEST_CHROME_TRACE").is_some() {
+                                    let (time, events) = ctx.input(|i| (i.time, i.events.clone()));
+                                    eprintln!(
+                                        "[SLATE_TEST_CHROME_TRACE] expanded history[0] time={time} events={events:?} rect={:?} interact_rect={:?} layer={:?} owner={:?} hovered={} contains={} clicked={} drag_started={} menu_after_paint={}",
+                                        response.rect,
+                                        response.interact_rect,
+                                        response.layer_id,
+                                        ctx.layer_id_at(response.rect.center()),
+                                        response.hovered(),
+                                        response.contains_pointer(),
+                                        response.clicked(),
+                                        response.drag_started(),
+                                        h.app.agents.flow.results.menu.is_some(),
+                                    );
+                                }
                                 chips.push(response.rect);
                             }
                         }

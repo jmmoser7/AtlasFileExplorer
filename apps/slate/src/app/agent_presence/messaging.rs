@@ -1,4 +1,16 @@
 use super::*;
+#[path = "messaging_relay.rs"]
+mod relay;
+#[cfg(test)]
+#[path = "messaging_relay_tests.rs"]
+mod relay_tests;
+pub(super) use relay::PreparedRelay;
+#[cfg(test)]
+#[path = "messaging_mention_tests.rs"]
+mod mention_tests;
+#[path = "messaging_mentions.rs"]
+mod mentions;
+pub(super) use mentions::MentionQueue;
 use serde_json::{json, Value};
 use slate_doc::scene::{NodeKind, SceneCmd};
 
@@ -38,79 +50,6 @@ impl SlateApp {
             .take(129)
             .collect()
     }
-    pub(super) fn relay_presence_message(
-        &mut self,
-        from: &mut Collaborator,
-        targets: &[String],
-        arguments: &Value,
-    ) -> Result<Value, String> {
-        if !targets.is_empty() {
-            return Err(
-                "Conversation recipients belong in arguments.recipient, not board node targets"
-                    .into(),
-            );
-        }
-        let target = arguments["recipient"]
-            .as_str()
-            .ok_or("Choose one explicitly permitted conversation")?;
-        let grant = from.grant.as_ref().ok_or("Grant revoked")?;
-        if !grant.conversation_ids.iter().any(|id| id == target) {
-            return Err("Conversation is outside the collaborator grant".into());
-        }
-        let text = arguments["text"]
-            .as_str()
-            .filter(|s| !s.trim().is_empty() && s.len() <= 16_384)
-            .ok_or("Supply a bounded message")?;
-        if from.relays >= 32 {
-            return Err(
-                "This session reached its 32-message relay limit; start a fresh human task".into(),
-            );
-        }
-        if let Some(recipient) = self.presence.agents.iter().find(|a| a.profile.id == target) {
-            if recipient.relays >= 32 {
-                return Err("Recipient reached its relay limit".into());
-            }
-            self.send_presence_message_from(target, text, Some(&from.profile.name))?;
-            if let Some(recipient) = self
-                .presence
-                .agents
-                .iter_mut()
-                .find(|a| a.profile.id == target)
-            {
-                recipient.relays += 1;
-            }
-        } else {
-            let portal = self
-                .doc()
-                .scene
-                .nodes
-                .iter()
-                .rev()
-                .find(|n| slate_doc::agent_chat::agent(n).is_some_and(|a| a.session == target))
-                .map(|n| n.id)
-                .ok_or("Conversation no longer exists")?;
-            let inputs = self.agent_input_snapshot(portal)?;
-            if inputs.context.iter().chain(&inputs.wired).any(|item| {
-                !grant.allows_node(&item.node.to_string())
-                    || ((!item.images.is_empty() || item.depth.is_some())
-                        && !grant
-                            .readable_sources
-                            .iter()
-                            .any(|s| s == "board-file-inputs"))
-            }) {
-                return Err("This conversation's inputs exceed the collaborator grant".into());
-            }
-            self.send_scoped_collaborator_relay(portal, &from.profile.name, text)?;
-        }
-        from.relays += 1;
-        from.activity = "exchanging".into();
-        self.push_history_as(
-            atlas_commands::CommandId("presence.send"),
-            Some(format!("to {target}")),
-            atlas_commands::CmdAuthor::Agent(from.profile.name.clone()),
-        );
-        Ok(json!({"status":"sent","recipient":target}))
-    }
     /// Human-authored message cards can address a named board collaborator.
     /// Edits made by providers never auto-route more messages.
     pub(crate) fn route_presence_mentions(&mut self, cmds: &[SceneCmd]) {
@@ -122,21 +61,16 @@ impl SlateApp {
                 _ => None,
             })
             .filter_map(|node| match &node.kind {
-                NodeKind::Text(t) => Some((node.id, t.text.clone())),
+                NodeKind::Text(t) if t.text.len() <= submission::MESSAGE_BYTES => {
+                    Some((node.id, t.text.clone()))
+                }
                 _ => None,
             })
             .collect();
         for (node, text) in texts {
-            use std::hash::{Hash, Hasher};
-            let mut hash = std::collections::hash_map::DefaultHasher::new();
-            text.hash(&mut hash);
-            let hash = hash.finish();
+            let hash = mentions::text_hash(&text);
             if self.presence.mention_hashes.get(&node) == Some(&hash) {
                 continue;
-            }
-            self.presence.mention_hashes.insert(node, hash);
-            if self.presence.mention_hashes.len() > 1024 {
-                self.presence.mention_hashes.clear();
             }
             let roster: Vec<_> = self
                 .presence
@@ -149,8 +83,14 @@ impl SlateApp {
                 Ok(Some((who, message))) => {
                     let who = who.to_owned();
                     let message = message.to_owned();
-                    if let Err(e) = self.send_presence_message(&who, &message) {
-                        self.toast(e);
+                    match self.queue_presence_mention(&who, node, hash, &message) {
+                        Ok(()) => {
+                            if self.presence.mention_hashes.len() >= 1024 {
+                                self.presence.mention_hashes.clear();
+                            }
+                            self.presence.mention_hashes.insert(node, hash);
+                        }
+                        Err(e) => self.toast(e),
                     }
                 }
                 Err(e) => self.toast(e),

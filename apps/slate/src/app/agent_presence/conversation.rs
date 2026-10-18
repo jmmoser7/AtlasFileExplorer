@@ -61,6 +61,8 @@ pub(crate) struct ModelChoice {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub(crate) struct ConversationTurn {
     #[serde(default)]
+    pub board_origin: Option<BoardMessageOrigin>,
+    #[serde(default)]
     pub id: String,
     pub role: String,
     pub text: String,
@@ -69,6 +71,16 @@ pub(crate) struct ConversationTurn {
     pub request: String,
     pub at: u64,
     pub status: String,
+}
+/// Durable provenance only; this never restores a grant or execution job.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct BoardMessageOrigin {
+    pub tab: u64,
+    pub workbook: Option<PathBuf>,
+    pub node: slate_doc::NodeId,
+    pub text_hash: u64,
+    pub recipient: String,
+    pub human: String,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub(crate) struct ProviderBinding {
@@ -82,7 +94,10 @@ impl Conversation {
         self.turns
             .iter()
             .filter(|t| matches!(t.role.as_str(), "user" | "assistant"))
-            .filter(|t| !t.text.is_empty())
+            .filter(|t| {
+                !t.text.is_empty()
+                    && !matches!(t.status.as_str(), "queued" | "dispatching" | "not-sent")
+            })
             .map(|t| atlas_agent::AgentTurn {
                 role: t.role.clone(),
                 text: t.text.clone(),
@@ -100,6 +115,7 @@ impl Conversation {
         status: &str,
     ) {
         self.append_turn(ConversationTurn {
+            board_origin: None,
             id: atlas_agent::request_id(),
             role: role.into(),
             text: text.into(),
@@ -204,6 +220,7 @@ impl Conversation {
             .collect();
         for (index, turn) in visible.into_iter().enumerate() {
             replacement.push(ConversationTurn {
+                board_origin: None,
                 id: old_ids
                     .get(index)
                     .cloned()

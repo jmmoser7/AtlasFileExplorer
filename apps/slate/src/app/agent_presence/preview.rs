@@ -106,7 +106,7 @@ impl SlateApp {
             .filter(|a| a.tab == self.tab().id)
             .filter_map(|a| a.work.as_ref().map(|w| (a.profile.id.clone(), w)))
             .filter(|(_, work)| work.purpose.replaces_objects())
-            .filter(|(_, work)| work.prepared.expected_matches(&self.doc().scene).is_ok())
+            .filter(|(_, work)| work.expected_matches(&self.doc().scene).is_ok())
             .find_map(|(who, w)| {
                 w.previews
                     .values()

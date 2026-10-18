@@ -311,7 +311,16 @@ fn nested_menu_preserves_identity_explicit_zoom_and_inherited_transform_contract
             }
             let (response, _, _) = frame(vec![]);
             let popup = response.popup.unwrap();
-            assert!((popup.width() / zoom - 168.0).abs() < 0.1);
+            assert!(
+                (popup.width() / zoom - 168.0).abs() < 0.1,
+                "nested popup width: inherited={inherited}, zoom={zoom}, explicit_zoom={explicit_zoom}, popup={popup:?}, popup_width={:.9}, logical_width={:.9}, logical_error={:.9}, local={:?}, transform={transform:?}, stored={:?}, pixels_per_point={}",
+                popup.width(),
+                popup.width() / zoom,
+                popup.width() / zoom - 168.0,
+                transform.inverse() * popup,
+                egui::containers::AreaState::load(&ctx, popup_layer.id).map(|area| area.rect()),
+                ctx.pixels_per_point(),
+            );
             assert!(screen.contains_rect(popup));
             assert_eq!(
                 ctx.layer_transform_to_global(popup_layer)

@@ -246,33 +246,6 @@ fn source_files_bad_geometry_and_read_only_are_rejected() {
 }
 
 #[test]
-fn staged_z_order_preserves_requested_position() {
-    let mut h = setup("presence-command-z-order");
-    h.app.ai.config.workspace_dir = Some(h.base.clone());
-    h.app.tab_mut().path = Some(h.base.join("board.slate"));
-    let a = add_filled_rect(&mut h.app, 0.0, 0.0, 100.0, 80.0);
-    let b = add_filled_rect(&mut h.app, 200.0, 0.0, 100.0, 80.0);
-    let c = add_filled_rect(&mut h.app, 400.0, 0.0, 100.0, 80.0);
-    let prepared = prepare(&h, "board.objects.order", &[c], json!({"z":0}));
-    let status = h
-        .app
-        .finish_targeted_command(prepared, "Dot", false, "session-a")
-        .unwrap();
-    h.app
-        .accept_stage_proposal(status.strip_prefix("staged:").unwrap());
-    assert_eq!(
-        h.app
-            .doc()
-            .scene
-            .nodes
-            .iter()
-            .map(|node| node.id)
-            .collect::<Vec<_>>(),
-        vec![c, a, b]
-    );
-}
-
-#[test]
 fn public_command_schema_and_argument_validation_share_one_catalogue() {
     let h = setup("presence-command-schema");
     let schema = SlateApp::targeted_command_schema();

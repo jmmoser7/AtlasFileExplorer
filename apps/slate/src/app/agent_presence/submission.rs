@@ -1,4 +1,13 @@
 use super::*;
+/// One envelope for typed/relayed/queued task bodies. Check bytes before trim
+/// so an oversized whitespace prefix cannot make unbounded frame work.
+pub(super) const MESSAGE_BYTES: usize = 32_768;
+pub(super) fn validate_message_text(text: &str) -> Result<(), String> {
+    if text.len() > MESSAGE_BYTES || text.trim().is_empty() {
+        return Err("Message is empty or too long (maximum 32768 UTF-8 bytes)".into());
+    }
+    Ok(())
+}
 
 impl SlateApp {
     pub(super) fn send_presence_message(&mut self, who: &str, text: &str) -> Result<(), String> {
@@ -10,9 +19,18 @@ impl SlateApp {
         text: &str,
         from: Option<&str>,
     ) -> Result<(), String> {
-        if text.trim().is_empty() || text.len() > 32_768 {
-            return Err("Message is empty or too long".into());
-        }
+        self.submit_presence_message(who, text, from, None)
+    }
+    /// Queued board messages reuse their durable prompt/request; no second row
+    /// and no mutation of the human's unsent composer draft.
+    pub(super) fn submit_presence_message(
+        &mut self,
+        who: &str,
+        text: &str,
+        from: Option<&str>,
+        queued: Option<&str>,
+    ) -> Result<(), String> {
+        validate_message_text(text)?;
         let provider = self
             .presence
             .agents
@@ -24,7 +42,23 @@ impl SlateApp {
             .clone();
         let choice = self.presence_model_choice(who, &provider);
         self.validate_presence_model(&provider, choice.model.as_deref(), &choice.parameters)?;
-        self.presence.conversations.edit(who)?;
+        let c = self.presence.conversations.edit(who)?;
+        if let Some(request) = queued {
+            let turn = c
+                .request_index(request)
+                .and_then(|i| c.turns.get(i))
+                .ok_or("Queued message disappeared")?;
+            if turn.role != "user"
+                || turn.text != text
+                || turn.status != "dispatching"
+                || turn
+                    .board_origin
+                    .as_ref()
+                    .is_none_or(|o| o.recipient != who)
+            {
+                return Err("Queued message identity or delivery state changed".into());
+            }
+        }
         let author = from
             .unwrap_or(&self.settings.presence_identity.name)
             .to_owned();
@@ -36,11 +70,12 @@ impl SlateApp {
             .to_path_buf();
         let workbook = self.tab().path.clone();
         let tab = self.tab().id;
-        if self
-            .presence
-            .agents
-            .iter()
-            .any(|a| a.profile.id == who && a.paused)
+        if queued.is_none()
+            && self
+                .presence
+                .agents
+                .iter()
+                .any(|a| a.profile.id == who && a.paused)
             && self.presence.task_busy(who)
         {
             self.stop_presence(who, false)?;
@@ -60,7 +95,9 @@ impl SlateApp {
             .grant
             .clone()
             .ok_or("Board grant was revoked; restore a fresh session")?;
-        let request = atlas_agent::request_id();
+        let request = queued
+            .map(str::to_owned)
+            .unwrap_or_else(atlas_agent::request_id);
         self.presence
             .links
             .set_session(&a.dir, a.binding.clone(), grant, request.clone())
@@ -153,15 +190,22 @@ impl SlateApp {
         let dir = a.dir.clone();
         self.note_presence_binding(who, &provider, &dir)?;
         let conversation = self.presence.conversations.edit(who)?;
-        conversation.push(
-            "user",
-            text.trim(),
-            &author,
-            Some(&provider),
-            &request,
-            "sent",
-        );
-        conversation.set_draft("");
+        if let Some(request) = queued {
+            let index = conversation
+                .request_index(request)
+                .ok_or("Queued message disappeared")?;
+            conversation.set_turn_status(index, "sent");
+        } else {
+            conversation.push(
+                "user",
+                text.trim(),
+                &author,
+                Some(&provider),
+                &request,
+                "sent",
+            );
+            conversation.set_draft("");
+        }
         self.presence.conversations.save(who);
         Ok(())
     }

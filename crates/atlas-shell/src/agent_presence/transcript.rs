@@ -271,6 +271,9 @@ fn message_row(
     }
     if message.outgoing {
         let status = match message.status {
+            "queued" => Some("Queued · not sent"),
+            "dispatching" => Some("Preparing delivery…"),
+            "not-sent" => Some("Not sent"),
             "pending" => Some("Saving…"),
             "accepted" => Some("Awaiting receipt"),
             "delivered" => Some("Delivered"),

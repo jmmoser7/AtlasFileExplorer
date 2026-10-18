@@ -261,7 +261,11 @@ pub(super) fn commands(
     }
 }
 
-fn patch(scene: &Scene, id: NodeId, edit: impl FnOnce(&mut Node)) -> Result<SceneCmd, String> {
+pub(super) fn patch(
+    scene: &Scene,
+    id: NodeId,
+    edit: impl FnOnce(&mut Node),
+) -> Result<SceneCmd, String> {
     let before = scene.node(id).ok_or("Target is missing")?;
     if before.locked {
         return Err(format!("Object {} is locked", id.0));

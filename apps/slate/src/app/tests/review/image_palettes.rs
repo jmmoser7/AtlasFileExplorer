@@ -236,6 +236,7 @@ fn fixture(
     }
     h.app.sync_shape_properties();
     h.app.shape_properties.panel = state.panel();
+    h.app.toasts.clear();
     (h, host, item, bootstrap_textures)
 }
 

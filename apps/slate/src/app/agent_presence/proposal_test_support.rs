@@ -2,12 +2,12 @@
 use super::*;
 use std::time::Duration;
 
-pub(super) fn tick(h: &mut Harness) {
+pub(in crate::app::agent_presence) fn tick(h: &mut Harness) {
     h.app.presence.last_tick = Some(Instant::now() - Duration::from_millis(50));
     h.app.presence_pump(&h.ctx);
 }
 
-pub(super) fn begin_command(
+pub(in crate::app::agent_presence) fn begin_command(
     h: &mut Harness,
     who: &str,
     command: &str,

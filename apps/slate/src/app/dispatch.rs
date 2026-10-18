@@ -18,13 +18,12 @@ mod input_state;
 mod keys;
 pub use input_state::{BareLetterHold, SpaceTap};
 mod media;
-use keys::*;
-
 use super::{board, board_align, board_path, commands, SlateApp};
 use atlas_commands::{
     cancel_target, Availability, CancelLayer, Chord, CmdAuthor, CommandId, HistoryEntry, Key,
 };
 use eframe::egui;
+use keys::*;
 use slate_doc::scene::NodeKind;
 use slate_doc::{ItemId, NodeId, ViewKind};
 use std::time::{Duration, Instant};
@@ -101,7 +100,7 @@ impl SlateApp {
                 self.dispatch_presence(ctx, command, detail.as_deref())
             }
             command if command.starts_with("board.objects.") => {
-                return self.dispatch_targeted_human(command, detail.as_deref());
+                return self.dispatch_targeted_human_with_context(ctx, command, detail.as_deref());
             }
             "board.wire.canvas" => self.open_canvas_wire_settings(ctx),
             "board.image.shape_fill" => return self.shape_fill_command(detail.as_deref()),

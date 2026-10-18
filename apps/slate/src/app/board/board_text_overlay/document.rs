@@ -5,7 +5,7 @@ fn fit_text_document(ctx: &egui::Context, edit: &mut TextDocEdit) {
     let layout = canvas_text::world_layout(
         ctx,
         &edit.buffer,
-        FontId::monospace(TEXT_CARD_BODY_PX),
+        document_text_font(),
         f32::INFINITY,
         egui::Align::LEFT,
     );
@@ -21,14 +21,16 @@ impl SlateApp {
         if edit.auto_size {
             fit_text_document(ctx, &mut edit);
         }
-        let Some((rect, corner)) = self
+        let Some(layout) = self
             .doc()
             .scene
             .node(edit.node)
             .and_then(|n| match &n.kind {
-                NodeKind::Image(img) if img.item == edit.item => Some((
+                NodeKind::Image(img) if img.item == edit.item => Some(document_text_layout(
                     edit.rect,
-                    slate_doc::media::text_card_corner(&edit.path, img.corner),
+                    img.corner,
+                    xf,
+                    Some(&edit.path),
                 )),
                 _ => None,
             })
@@ -36,23 +38,17 @@ impl SlateApp {
             self.commit_text_doc_edit();
             return;
         };
-        let world_inner = text_card_inner(xf.rect_w2s(rect), corner, xf.z);
-        let world_wrap = world_inner.width() / xf.z.max(1.0e-4);
-        edit.rect = grow_text_rect(
-            ctx,
-            rect,
-            &edit.buffer,
-            FontId::monospace(TEXT_CARD_BODY_PX),
-            world_wrap,
-            TextAlign::Left,
-            (rect.w - world_wrap).max(0.0),
-        );
-        let inner = text_card_inner(xf.rect_w2s(edit.rect), corner, xf.z);
+        edit.rect = layout.grow(ctx, edit.rect, &edit.buffer);
+        let inner = layout.inner(xf, edit.rect);
         if !editor_rect_ok(inner) {
             return;
         }
-        let screen_font = FontId::monospace(canvas_scale::px(TEXT_CARD_BODY_PX, xf.z));
-        let world_font = FontId::monospace(TEXT_CARD_BODY_PX);
+        let world_font = layout.growth.font.clone();
+        let world_wrap = layout.growth.wrap;
+        let screen_font = FontId::new(
+            canvas_scale::px(world_font.size, xf.z),
+            world_font.family.clone(),
+        );
         let zoom = xf.z;
         let ink = self.palette().ink;
         let mut commit = false;
@@ -73,7 +69,7 @@ impl SlateApp {
                         text,
                         world_font.clone(),
                         world_wrap,
-                        TextAlign::Left,
+                        layout.growth.align,
                         ink,
                         zoom,
                     )
@@ -98,15 +94,7 @@ impl SlateApp {
         if edit.auto_size {
             fit_text_document(ctx, &mut edit);
         }
-        edit.rect = grow_text_rect(
-            ctx,
-            edit.rect,
-            &edit.buffer,
-            world_font,
-            world_wrap,
-            TextAlign::Left,
-            (rect.w - world_wrap).max(0.0),
-        );
+        edit.rect = layout.grow(ctx, edit.rect, &edit.buffer);
         self.text_doc_edit = Some(edit);
         if commit {
             self.commit_text_doc_edit();

@@ -25,7 +25,7 @@ impl RecoveryStore {
             }
         }
         scan.entries
-            .sort_by(|a, b| b.saved_at_ms.cmp(&a.saved_at_ms));
+            .sort_by_key(|entry| std::cmp::Reverse(entry.saved_at_ms));
         Ok(scan)
     }
 

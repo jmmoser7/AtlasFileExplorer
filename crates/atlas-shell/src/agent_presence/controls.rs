@@ -55,10 +55,14 @@ pub(super) fn show(
                 .shadow(chrome::shadow(palette))
                 .show(ui, |ui| {
                     ui.set_width(width - 20.0);
+                    // Area remembers the previous content size. Let a newly
+                    // expanded timing choice grow instead of clipping to it.
+                    let max_content_height = (local_screen.height() - 48.0).min(420.0).max(0.0);
+                    ui.set_max_height(max_content_height);
                     ui.spacing_mut().item_spacing.y = if more { 0.0 } else { 6.0 };
                     egui::ScrollArea::vertical()
                         .id_salt(("presence-options-scroll", p.id, popover))
-                        .max_height((local_screen.height() - 48.0).min(420.0))
+                        .max_height(max_content_height)
                         .auto_shrink([false, true])
                         .show(ui, |ui| match popover {
                             Popover::More => more_menu(ui, palette, state, p, actions),

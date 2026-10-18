@@ -1,4 +1,9 @@
 use super::*;
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum PauseCause {
+    Human,
+    InputHold,
+}
 
 impl SlateApp {
     pub(super) fn apply_presence_action(
@@ -189,31 +194,7 @@ impl SlateApp {
             ShowConversation { id } | OpenChat { id, .. } => self.presence.chrome.open_chat(&id),
             Cancel { id } => self.stop_presence(&id, false)?,
             Revoke { id } => self.stop_presence(&id, true)?,
-            Pause { id, paused } => {
-                let a = self
-                    .presence
-                    .agents
-                    .iter_mut()
-                    .find(|a| a.profile.id == id)
-                    .ok_or("Unknown collaborator")?;
-                a.paused = paused;
-                a.control_epoch = a.control_epoch.wrapping_add(1);
-                a.chat_only = false;
-                a.status = if paused {
-                    "Listening; task suspended"
-                } else {
-                    "Resumed"
-                }
-                .into();
-                a.activity = if paused {
-                    "listening"
-                } else if a.inflight {
-                    "working"
-                } else {
-                    "idle"
-                }
-                .into();
-            }
+            Pause { id, paused } => self.set_presence_paused(&id, paused, PauseCause::Human)?,
             Retire { id, style } => self.retire_presence(&id, &style)?,
             SetAutonomy { id, enabled } => {
                 if enabled
@@ -281,6 +262,45 @@ impl SlateApp {
         if durable {
             self.persist_presence_profiles();
         }
+        Ok(())
+    }
+}
+
+impl SlateApp {
+    pub(super) fn set_presence_paused(
+        &mut self,
+        who: &str,
+        paused: bool,
+        cause: PauseCause,
+    ) -> Result<(), String> {
+        if cause == PauseCause::Human {
+            self.presence_forget_avatar_hold(who);
+        }
+        let a = self
+            .presence
+            .agents
+            .iter_mut()
+            .find(|a| a.profile.id == who)
+            .ok_or("Unknown collaborator")?;
+        a.paused = paused;
+        if cause == PauseCause::Human {
+            a.control_epoch = a.control_epoch.wrapping_add(1);
+        }
+        a.chat_only = false;
+        a.status = if paused {
+            "Listening; task suspended"
+        } else {
+            "Resumed"
+        }
+        .into();
+        a.activity = if paused {
+            "listening"
+        } else if a.inflight {
+            "working"
+        } else {
+            "idle"
+        }
+        .into();
         Ok(())
     }
 }

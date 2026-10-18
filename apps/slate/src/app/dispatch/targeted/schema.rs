@@ -7,7 +7,19 @@ pub(super) struct Definition {
     pub arguments: &'static [(&'static str, &'static str)],
 }
 
+const STYLE_ARGUMENTS: &[(&str, &str)] = &[("edits", "1–16 typed edits: FillRgb([r,g,b]), StrokeRgb([r,g,b]), StrokeWidth(0..10000), TextFamily(existing Typeface), TextSize(1..512), TextAlign(left/center/right), TextRgb([r,g,b]), TextBold(bool), TextItalic(bool), TextUnderline(bool). Serde enum objects, e.g. {\"TextSize\":24}. Unsupported target/property pairs and net no-ops are refused; no source edits or vertex scope.")];
+
 pub(super) const DEFINITIONS: &[Definition] = &[
+    Definition {
+        command: "presence.read_text", targets: "Exactly one readable authored Text, shape text, or existing authored card override. No linked-source fallback or extra source authority.",
+        arguments: &[("cursor", "optional UTF-8 byte cursor, default zero; must be a character boundary"), ("limit", "optional 4–4096 bytes, default 4096"), ("generation", "required for nonzero continuation cursor; echo the prior page generation, restart at zero if stale")],
+    },
+    Definition {
+        command: "board.objects.set_text", targets: "Exactly one authored Text, eligible shape, or existing authored card override. Replaces authored words, including explicit empty text; source stays intact.",
+        arguments: &[("text", "required replacement, up to 16384 characters, empty allowed")],
+    },
+    Definition { command: "board.shape.edit", targets: "1–128 explicit objects supporting each requested basic property", arguments: STYLE_ARGUMENTS },
+    Definition { command: "board.wire.edit", targets: "1–128 explicit connectors; only supported basic stroke properties", arguments: STYLE_ARGUMENTS },
     Definition {
         command: "board.objects.create_train", targets: "Empty. Creates a fresh chat train, without sending, provider Full access, or new conversation authority. Existing human opt-in for this agent's own new conversations is required to send to it; otherwise the human must grant that endpoint.",
         arguments: &[("x", "finite world x"), ("y", "finite world y"), ("width", "positive world width"), ("height", "positive world height"), ("provider", "optional codex (default), cursor or local"), ("model", "optional model identifier, up to 256 characters"), ("title", "optional title up to 256 characters"), ("prompt", "optional authored instruction up to 16384 characters; not sent automatically")],

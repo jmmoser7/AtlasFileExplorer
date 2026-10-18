@@ -193,13 +193,7 @@ impl SlateApp {
                     && a.departure.is_none()
             })
         {
-            let _ = self.apply_presence_action(
-                ctx,
-                chrome::PresenceAction::Pause {
-                    id: hold.who,
-                    paused: false,
-                },
-            );
+            let _ = self.set_presence_paused(&hold.who, false, controls::PauseCause::InputHold);
         }
     }
     pub(crate) fn presence_choose_photo(
@@ -350,13 +344,7 @@ impl SlateApp {
                 .map(|a| a.request.clone())
                 .unwrap_or_default();
             if self
-                .apply_presence_action(
-                    ctx,
-                    chrome::PresenceAction::Pause {
-                        id: who.clone(),
-                        paused: true,
-                    },
-                )
+                .set_presence_paused(&who, true, controls::PauseCause::InputHold)
                 .is_ok()
             {
                 self.presence.avatar_hold = Some(InputHold {

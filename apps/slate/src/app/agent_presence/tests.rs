@@ -1,21 +1,21 @@
 use super::super::tests::Harness;
 use super::*;
 use serde_json::json;
-
-#[path = "perf_tests.rs"]
-mod perf;
-
-#[path = "motion_render_tests.rs"]
-mod motion_render;
-
+#[path = "authored_text_tests.rs"]
+mod authored_text;
+#[path = "avatar_gesture_tests.rs"]
+mod avatar_gestures;
 #[path = "chrome_render_tests.rs"]
 mod chrome_render;
-
+#[path = "motion_render_tests.rs"]
+mod motion_render;
+#[path = "perf_tests.rs"]
+mod perf;
 #[path = "proposal_chat_tests.rs"]
 mod proposal_chat;
 
 #[path = "proposal_test_support.rs"]
-mod proposal_support;
+pub(super) mod proposal_support;
 
 #[path = "approved_motion_tests.rs"]
 mod approved_motion;

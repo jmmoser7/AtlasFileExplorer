@@ -24,41 +24,10 @@ impl TextBoxDraft {
 }
 
 pub(in crate::app::board) fn apply_document_edit(node: &mut Node, edit: &TextDocEdit) {
-    if let NodeKind::Image(image) = &mut node.kind {
-        image.text_override = Some(edit.buffer.clone());
-        node.rect = edit.rect;
-    }
+    slate_doc::authored_text::apply_document_text(node, &edit.buffer, edit.rect);
 }
 
-pub(in crate::app::board) fn apply_inline_edit(
-    node: &mut Node,
-    text: &str,
-    rect: Option<WorldRect>,
-) {
-    if let Some(rect) = rect {
-        node.rect = rect;
-    }
-    match &mut node.kind {
-        NodeKind::Text(t) => t.text = text.to_owned(),
-        NodeKind::Shape(s) if slate_doc::scene::shape_hosts_text(s) => {
-            let ink = slate_doc::scene::shape_text_ink(s.fill);
-            let block = s
-                .text
-                .get_or_insert_with(|| slate_doc::scene::ShapeText::new(ink));
-            block.body = text.to_owned();
-            if block.body.is_empty()
-                && block.style == slate_doc::scene::TextStyle::default()
-                && block.family == slate_doc::scene::Typeface::Sans
-                && block.size == 24.0
-                && block.align == TextAlign::Center
-                && block.color == ink
-            {
-                s.text = None;
-            }
-        }
-        _ => {}
-    }
-}
+pub(in crate::app::board) use slate_doc::authored_text::apply_inline_edit;
 
 pub(super) fn inline_edit_differs(node: &Node, text: &str, rect: Option<WorldRect>) -> bool {
     let words = match &node.kind {

@@ -14,7 +14,7 @@ mod conversation_store;
 #[cfg(test)]
 mod conversation_tests;
 mod harness;
-pub(crate) use conversation::{Conversation, HumanProfile};
+pub(crate) use conversation::HumanProfile;
 mod avatar_input;
 mod helper_scope;
 mod human_chat;
@@ -25,6 +25,8 @@ mod lifecycle_tests;
 mod messaging;
 mod surface;
 pub(crate) use messaging::message_text_changed;
+#[cfg(test)]
+mod live_codex_tests;
 mod own_chats;
 mod preview;
 mod proposals;
@@ -34,7 +36,6 @@ mod review;
 mod schedule_surface;
 mod scheduling;
 mod submission;
-pub(crate) use scheduling::ScheduleDraft;
 #[cfg(test)]
 mod tests;
 mod view;
@@ -57,6 +58,10 @@ pub(crate) const BOARD_COMMANDS: &[&str] = &[
     "presence.send",
     "presence.helper",
     "presence.read_image",
+    "presence.read_text",
+    "board.objects.set_text",
+    "board.shape.edit",
+    "board.wire.edit",
     "portal.agent.run",
 ];
 
@@ -144,6 +149,7 @@ pub struct PresenceRuntime {
     inspect: Option<String>,
     activity_view: atlas_shell::selection_tools::generator::activity::ActivityState,
     mention_hashes: HashMap<slate_doc::NodeId, u64>,
+    mentions: messaging::MentionQueue,
     helper_results: Vec<helper_scope::HelperResult>,
     helper_endpoints: std::collections::HashSet<String>,
     held_nodes: std::collections::HashSet<slate_doc::NodeId>,

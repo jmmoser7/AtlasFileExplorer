@@ -4,8 +4,25 @@ use super::*;
 use serde_json::{json, Value};
 
 impl SlateApp {
+    #[cfg(test)]
     pub(super) fn presence_call(
         &mut self,
+        a: &mut Collaborator,
+        call: &BoardCall,
+    ) -> Option<BoardReply> {
+        self.presence_call_context(None, a, call)
+    }
+    pub(super) fn presence_call_with_context(
+        &mut self,
+        ctx: &egui::Context,
+        a: &mut Collaborator,
+        call: &BoardCall,
+    ) -> Option<BoardReply> {
+        self.presence_call_context(Some(ctx), a, call)
+    }
+    fn presence_call_context(
+        &mut self,
+        ctx: Option<&egui::Context>,
         a: &mut Collaborator,
         call: &BoardCall,
     ) -> Option<BoardReply> {
@@ -21,7 +38,7 @@ impl SlateApp {
                         matches!(w.purpose, witness::WitnessPurpose::ApprovedProposal(_))
                     }))
                 || (a.paused
-                    && matches!(&call.operation, BoardOperation::Invoke { command, .. } if command != "presence.read_image"))
+                    && matches!(&call.operation, BoardOperation::Invoke { command, .. } if !matches!(command.as_str(), "presence.read_image" | "presence.read_text")))
             {
                 return Err("Board is inactive or collaborator paused".into());
             }
@@ -46,12 +63,20 @@ impl SlateApp {
                     if a.work.is_some() || a.read.is_some() {
                         return Err("Wait for the current action or proposal decision".into());
                     }
-                    if command == "presence.read_image" {
+                    if matches!(
+                        command.as_str(),
+                        "presence.read_image" | "presence.read_text"
+                    ) {
                         self.begin_presence_read(a, call)?;
                         return Ok(None);
                     }
                     if command == "presence.send" {
-                        return self.relay_presence_message(a, targets, arguments).map(Some);
+                        let relay = self.prepare_presence_relay(a, targets, arguments)?;
+                        a.observed_target = relay.node();
+                        a.activity = "exchanging".into();
+                        a.status = "Approaching conversation · visible relay".into();
+                        a.work = Some(WitnessedCommand::relay(call.clone(), relay));
+                        return Ok(None);
                     }
                     if command == "presence.helper" {
                         let task = arguments["task"]
@@ -94,7 +119,12 @@ impl SlateApp {
                             json!({"helper":who,"status":"assigned","limit_seconds":300}),
                         ));
                     }
-                    let prepared = self.prepare_targeted_command(command, targets, arguments)?;
+                    let prepared = match ctx {
+                        Some(ctx) => self.prepare_targeted_command_with_context(
+                            ctx, command, targets, arguments,
+                        )?,
+                        None => self.prepare_targeted_command(command, targets, arguments)?,
+                    };
                     self.validate_presence_action(a, call, &prepared)?;
                     a.activity = command_activity(command).into();
                     a.observed_target = prepared.targets.first().copied();

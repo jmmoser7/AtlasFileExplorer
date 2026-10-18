@@ -267,7 +267,8 @@ fn busy_harness_selection_requires_a_timing_choice_and_same_harness_is_inert() {
     assert!(actions.is_empty());
     assert_eq!(f.state.requested_provider.as_deref(), Some("cursor"));
     let out = f.settle();
-    let after = text_rect(&out, "After this task").expect("explicit timing choice");
+    let after = overlay::timing_choice(&f, &out);
+    assert!(f.state.last_popover_rect.contains_rect(after));
     assert_eq!(
         f.click(after.center()),
         vec![PresenceAction::SwitchProvider {

@@ -239,25 +239,6 @@ impl SlateApp {
             armed: false,
         })
     }
-    pub(crate) fn presence_schedule_label(&self, who: &str) -> Option<String> {
-        if let Some(entry) = self.presence.scheduling.entries.get(who) {
-            Some(if entry.waiting {
-                "Scheduled message waiting for the board task to be resumed and idle".into()
-            } else {
-                format!(
-                    "{} · only while present on this open board",
-                    entry.plan.describe()
-                )
-            })
-        } else {
-            self.presence_conversation(who)
-                .and_then(|c| c.schedule.as_ref())
-                .map(|_| {
-                    "Saved schedule is inactive; open Schedule and Save to arm this live session"
-                        .into()
-                })
-        }
-    }
     pub(crate) fn pump_presence_schedules(&mut self, ctx: &egui::Context) {
         let tick = Instant::now();
         if self

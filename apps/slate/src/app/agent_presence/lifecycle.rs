@@ -286,6 +286,7 @@ impl SlateApp {
                 .iter_mut()
                 .find(|a| a.profile.id == who)
                 .unwrap();
+            a.control_epoch = a.control_epoch.wrapping_add(1);
             if let Some(runtime) = &a.runtime {
                 runtime.stop();
             }

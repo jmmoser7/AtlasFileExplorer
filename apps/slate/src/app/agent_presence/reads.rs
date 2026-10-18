@@ -1,6 +1,7 @@
 //! Incremental, generation-fenced board reads. No whole-board pass on a frame.
 use super::*;
 use serde_json::{json, Value};
+mod text_page;
 
 pub(super) struct ReadJob {
     pub call: BoardCall,
@@ -15,9 +16,11 @@ pub(super) struct ReadJob {
     image: Option<crate::app::board_agent::ScopedImageInput>,
     image_source: Option<PathBuf>,
     participant_ids: Option<Vec<String>>,
+    text_page: Option<text_page::TextPage>,
 }
 impl ReadJob {
     pub(super) fn new(call: BoardCall, generation: u64) -> Result<Self, String> {
+        let text_page = text_page::TextPage::parse(&call, generation)?;
         let (node_ids, participant_ids, offset, limit): (
             &[String],
             Option<Vec<String>>,
@@ -37,7 +40,10 @@ impl ReadJob {
             BoardOperation::Invoke {
                 command, targets, ..
             } if command == "presence.read_image" && targets.len() == 1 => (targets, None, 0, 1),
-            _ => return Err("Choose one explicit image node".into()),
+            BoardOperation::Invoke {
+                command, targets, ..
+            } if command == "presence.read_text" && targets.len() == 1 => (targets, None, 0, 1),
+            _ => return Err("Choose one explicit image or authored text node".into()),
         };
         let explicit = node_ids
             .iter()
@@ -60,6 +66,7 @@ impl ReadJob {
             image: None,
             image_source: None,
             participant_ids,
+            text_page,
         })
     }
 }
@@ -88,6 +95,9 @@ impl SlateApp {
                 );
             }
             job.image = Some(self.prepare_scoped_image_input(node, &call.id)?);
+        }
+        if let Some(page) = &job.text_page {
+            page.validate(self)?;
         }
         a.observed_target = job.explicit.first().copied();
         if let Some((target_id, (x, y))) = (!a.paused)
@@ -155,6 +165,13 @@ impl SlateApp {
                     return Ok(false);
                 }
             }
+            if job.text_page.is_some() {
+                if *budget == 0 {
+                    return Ok(false);
+                }
+                *budget -= 1;
+                job.done = true;
+            }
             let nodes = &self.doc().scene.nodes;
             while !job.done && *budget > 0 {
                 let node = if job.explicit.is_empty() {
@@ -209,6 +226,19 @@ impl SlateApp {
                 None
             }
             Ok(true) => {
+                if let Some(page) = &job.text_page {
+                    a.activity = "working".into();
+                    return Some(match page.value(self) {
+                        Ok(result) => BoardReply {
+                            id: job.call.id.clone(),
+                            session_id: a.binding.session_id.clone(),
+                            request_id: a.request.clone(),
+                            success: true,
+                            result,
+                        },
+                        Err(error) => BoardReply::error(&job.call, &error),
+                    });
+                }
                 if let Some(participant_ids) = &job.participant_ids {
                     let grant = a.grant.as_ref().unwrap();
                     let result =

@@ -260,7 +260,7 @@ fn is_surface(shape: &egui::Shape, panel: Rect, fill: egui::Color32) -> bool {
     }
 }
 
-fn world_opaque_head(out: &egui::FullOutput, center: Pos2, zoom: f32) -> Rect {
+pub(super) fn world_opaque_head(out: &egui::FullOutput, center: Pos2, zoom: f32) -> Rect {
     fn collect(shape: &egui::Shape, center: Pos2, heads: &mut Vec<Rect>) {
         match shape {
             egui::Shape::Vec(shapes) => shapes

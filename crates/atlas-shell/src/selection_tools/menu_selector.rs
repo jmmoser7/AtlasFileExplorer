@@ -1,6 +1,7 @@
 //! Shared dropdown presentation and popup behavior for selection chrome.
 
 use super::*;
+use eframe::egui::emath::GuiRounding;
 
 #[cfg(test)]
 mod tests;
@@ -207,7 +208,9 @@ fn menu_selector(
     let desired_content_height = count.min(if rows.is_some() { 14 } else { 8 }) as f32 * row_h;
     let frame = egui::Frame::NONE
         .fill(theme.panel)
-        .stroke(Stroke::new(0.8 * zoom, theme.border_strong))
+        // Frame margins and egui widget allocations must share the logical
+        // layout grid; a fractional border otherwise grows the measured Area.
+        .stroke(Stroke::new((0.8 * zoom).round_ui(), theme.border_strong))
         .corner_radius(egui::CornerRadius::same((10.0 * zoom).round() as u8))
         .inner_margin(egui::Margin::same((4.0 * zoom).round() as i8));
     let margin = frame.total_margin().sum();

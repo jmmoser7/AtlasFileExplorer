@@ -5,6 +5,7 @@
 
 pub mod agent_chat;
 pub mod agent_inputs;
+pub mod authored_text;
 pub mod bumper;
 pub mod create_style;
 pub mod crosstalk;
@@ -23,6 +24,7 @@ pub mod locators;
 pub mod media;
 pub mod mirror;
 pub mod osnap;
+pub mod property;
 pub mod recovery;
 pub mod scene;
 mod spatial;

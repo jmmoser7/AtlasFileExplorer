@@ -205,6 +205,26 @@ fn a_generator_popup_keeps_its_visible_hits_while_the_image_apron_opens() {
             let xf = h.app.board_xf();
             let image = xf.rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
             let canvas = h.app.canvas_rect;
+            if atlas_shell::canvas_scale::too_small(12.0 * zoom) {
+                assert!(h.app.shape_properties.chrome_hits.is_empty());
+                assert!(
+                    output.shapes.iter().all(|shape| {
+                        !matches!(&shape.shape, egui::Shape::Text(text) if text.galley.text().contains('·'))
+                    }),
+                    "a hidden popup exposes no model-row text at this zoom"
+                );
+                assert_eq!(h.app.shape_properties.panel, Some(Panel::Agent));
+                assert_eq!(
+                    h.app
+                        .shape_properties
+                        .last_chrome
+                        .as_ref()
+                        .and_then(|chrome| chrome.host),
+                    Some((h.app.tab().id, id))
+                );
+                assert_eq!(h.app.board_sel, std::iter::once(id).collect());
+                continue;
+            }
             let (point, row_clip) = output
                 .shapes
                 .iter()

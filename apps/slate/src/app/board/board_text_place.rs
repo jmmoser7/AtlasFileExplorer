@@ -4,23 +4,8 @@ use super::*;
 pub(super) mod drafts;
 mod recovery;
 
-/// Text boxes retain their wrap width and grow down to include every row.
-pub(super) fn grow_text_rect(
-    ctx: &egui::Context,
-    mut rect: WorldRect,
-    text: &str,
-    font: FontId,
-    wrap: f32,
-    align: TextAlign,
-    padding: f32,
-) -> WorldRect {
-    let laid = canvas_text::world_layout(ctx, text, font, wrap, egui_align(align));
-    let height = laid.height + padding;
-    if height.is_finite() {
-        rect.h = rect.h.max(height);
-    }
-    rect
-}
+mod layout;
+pub(crate) use layout::{document_text_font, document_text_layout, inline_text_layout};
 
 impl SlateApp {
     pub(crate) fn text_compose_active(&self) -> bool {

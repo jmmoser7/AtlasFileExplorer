@@ -9,7 +9,8 @@ struct Catalog {
 #[derive(Deserialize)]
 struct Activity {
     id: String,
-    label: String,
+    #[serde(rename = "label")]
+    _label: String,
     expression: String,
     orientation: String,
     prop: String,
@@ -97,7 +98,7 @@ impl SlateApp {
             let target_rect = a
                 .work
                 .as_ref()
-                .and_then(|w| w.prepared.targets.first().copied())
+                .and_then(|w| w.targets().first().copied())
                 .or(a.observed_target)
                 .and_then(|id| {
                     self.presence_preview(id)
@@ -109,6 +110,12 @@ impl SlateApp {
                     .map(|rect| {
                         let (x, y) = rect.center();
                         direction(xf.w2s(egui::pos2(x, y)) - center)
+                    })
+                    .or_else(|| {
+                        a.work
+                            .as_ref()
+                            .and_then(|w| w.look_at())
+                            .map(|p| direction(xf.w2s(egui::pos2(p.x as f32, p.y as f32)) - center))
                     })
                     .unwrap_or("forward"),
                 "toward-human" => {

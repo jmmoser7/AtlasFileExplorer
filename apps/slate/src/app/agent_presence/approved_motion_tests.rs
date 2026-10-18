@@ -86,8 +86,17 @@ fn proposed_ghost_primary_press_cannot_materialize_it_or_hold_authored_images() 
     let depth = h.app.tab().journal.undo_depth();
     let proposal = stage_move(&mut h, &who, target);
     let ghost = h.app.presence.proposals[&proposal].previews[&target].clone();
-    let (x, y) = ghost.rect.center();
-    let at = h.app.board_xf().w2s(egui::pos2(x, y));
+    let xf = h.app.board_xf();
+    let at = xf.w2s(egui::pos2(ghost.rect.x + 8.0, ghost.rect.y + 8.0));
+    let p = h.app.presence.agents[0]
+        .position(&h.app.presence.roster)
+        .unwrap();
+    let avatar = xf.w2s(egui::pos2(p.x as f32, p.y as f32));
+    assert!(xf.rect_w2s(ghost.rect).contains(at) && h.app.canvas_rect.contains(at));
+    assert!(
+        avatar.distance(at) > (18.0 * xf.z).max(12.0),
+        "staged ghost press stays outside the actual avatar target"
+    );
     h.app.presence.refresh_held(h.app.tab().id);
     assert!(!h.app.presence.holds_node(target));
     assert!(h.app.presence_preview(target).is_none());
@@ -125,8 +134,17 @@ fn proposed_ghost_primary_press_cannot_materialize_it_or_hold_authored_images() 
         }
     }
     let active = &h.app.presence.agents[0].work.as_ref().unwrap().previews[&target];
-    let (x, y) = active.rect.center();
-    let at = h.app.board_xf().w2s(egui::pos2(x, y));
+    let xf = h.app.board_xf();
+    let at = xf.w2s(egui::pos2(active.rect.x + 8.0, active.rect.y + 8.0));
+    let p = h.app.presence.agents[0]
+        .position(&h.app.presence.roster)
+        .unwrap();
+    let avatar = xf.w2s(egui::pos2(p.x as f32, p.y as f32));
+    assert!(xf.rect_w2s(active.rect).contains(at) && h.app.canvas_rect.contains(at));
+    assert!(
+        avatar.distance(at) > (18.0 * xf.z).max(12.0),
+        "active ghost press stays outside the actual avatar target"
+    );
     h.app.presence.refresh_held(h.app.tab().id);
     assert!(!h.app.presence.holds_node(target));
     assert!(h.app.presence_preview(target).is_none());
@@ -208,6 +226,7 @@ fn listening_accept_moves_only_the_approved_action_and_leaves_queued_read_and_ca
     h.app.presence.agents.insert(0, a);
     h.app.presence_address(&h.ctx, &who).unwrap();
     let path = dir.join("board-calls").join(format!("{}.json", call.id));
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     atlas_ai::agent::atomic_write_json(&path, &call).unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
     while path.exists() {
@@ -361,4 +380,39 @@ fn revoke_stop_retire_reject_and_request_replacement_cancel_approved_motion_with
             .get(&proposal)
             .is_some_and(|p| p.approval.is_some()));
     }
+}
+
+#[test]
+fn staged_z_order_preserves_requested_position() {
+    let (mut h, who, a) = setup();
+    let b = add_filled_rect(&mut h.app, 200.0, 0.0, 100.0, 80.0);
+    let c = add_filled_rect(&mut h.app, 400.0, 0.0, 100.0, 80.0);
+    let original = h.app.doc().scene.clone();
+    let depth = h.app.tab().journal.undo_depth();
+    let proposal = stage_command(&mut h, &who, "board.objects.order", &[c], json!({"z":0}));
+    assert_eq!(h.app.doc().scene, original);
+    assert_eq!(h.app.tab().journal.undo_depth(), depth);
+    h.app.accept_stage_proposal(&proposal);
+    assert_eq!(h.app.doc().scene, original);
+    assert_eq!(h.app.tab().journal.undo_depth(), depth);
+    finish(&mut h, &who);
+    assert_eq!(
+        h.app
+            .doc()
+            .scene
+            .nodes
+            .iter()
+            .map(|node| node.id)
+            .collect::<Vec<_>>(),
+        vec![c, a, b]
+    );
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
+    assert_eq!(
+        h.app.tab().journal.last_author(),
+        Some(&CmdAuthor::Agent("Dot".into()))
+    );
+    let tab = h.app.tab_mut();
+    assert!(tab.journal.undo(&mut tab.doc.scene));
+    assert_eq!(h.app.doc().scene, original);
+    assert_eq!(h.app.tab().journal.undo_depth(), depth);
 }

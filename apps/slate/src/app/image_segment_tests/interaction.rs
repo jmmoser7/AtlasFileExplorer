@@ -134,11 +134,14 @@ fn locked_and_read_only_images_disable_active_layer_controls() {
         pause(&mut h);
         let host = h.app.doc().scene.node(id).unwrap().clone();
         let depth = h.app.tab().journal.undo_depth();
-        let rect = h.app.board_xf().rect_w2s(host.rect);
-        let presentation = chrome::image_presentation_layout(
-            rect,
-            h.app.tab().cam.z,
+        let (attached, presentation, _) = h.app.observed_image_palette_layout_for_test(
+            &h.ctx,
+            id,
             chrome::ImagePanelKind::Layers,
+        );
+        assert!(
+            !attached,
+            "the 400x320 segment fixture uses the external image editor"
         );
         let layout =
             chrome::image_layer_palette_layout(&presentation, 0, 0, h.app.tab().cam.z, None);

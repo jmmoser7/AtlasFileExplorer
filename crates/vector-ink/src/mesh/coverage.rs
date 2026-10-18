@@ -56,6 +56,7 @@ pub fn max_coverage_mesh(mesh: &InkMesh) -> InkMesh {
     let mut output = InkMesh::default();
     for (source_index, source) in triangles.iter().enumerate() {
         let mut pieces = vec![source.vertices.to_vec()];
+        let mut next_pieces = Vec::new();
         for (other_index, other) in triangles.iter().enumerate() {
             if source_index == other_index || !bounds_overlap(source.bounds, other.bounds) {
                 continue;
@@ -65,18 +66,17 @@ pub fn max_coverage_mesh(mesh: &InkMesh) -> InkMesh {
                 continue;
             }
             let winner_bounds = bounds_positions(&winner);
-            pieces = pieces
-                .into_iter()
-                .flat_map(|piece| {
-                    if bounds_overlap(bounds_vertices(&piece), winner_bounds)
-                        && convex_polygons_overlap(&piece, &winner)
-                    {
-                        subtract_convex(piece, &winner)
-                    } else {
-                        vec![piece]
-                    }
-                })
-                .collect();
+            next_pieces.clear();
+            for piece in pieces.drain(..) {
+                if bounds_overlap(bounds_vertices(&piece), winner_bounds)
+                    && convex_polygons_overlap(&piece, &winner)
+                {
+                    next_pieces.extend(subtract_convex(piece, &winner));
+                } else {
+                    next_pieces.push(piece);
+                }
+            }
+            std::mem::swap(&mut pieces, &mut next_pieces);
             if pieces.is_empty() {
                 break;
             }
@@ -279,32 +279,56 @@ fn convex_polygons_overlap(subject: &[Vertex], cutter: &[[f64; 2]]) -> bool {
     if subject.len() < 3 || cutter.len() < 3 {
         return false;
     }
-    let subject_positions: Vec<[f64; 2]> = subject.iter().map(|vertex| vertex.pos).collect();
-    !separated_on_polygon_edges(&subject_positions, cutter)
-        && !separated_on_polygon_edges(cutter, &subject_positions)
+    let subject_positions = subject.iter().map(|vertex| vertex.pos);
+    let cutter_positions = cutter.iter().copied();
+    !separated_on_polygon_edges(subject_positions.clone(), cutter_positions.clone())
+        && !separated_on_polygon_edges(cutter_positions, subject_positions)
 }
 
-fn separated_on_polygon_edges(edges: &[[f64; 2]], other: &[[f64; 2]]) -> bool {
-    (0..edges.len()).any(|index| {
-        let a = edges[index];
-        let b = edges[(index + 1) % edges.len()];
-        if a == b {
-            return false;
+fn separated_on_polygon_edges<E, O>(edges: E, other: O) -> bool
+where
+    E: Iterator<Item = [f64; 2]> + Clone,
+    O: Iterator<Item = [f64; 2]> + Clone,
+{
+    let mut edge_iter = edges.clone();
+    let Some(first) = edge_iter.next() else {
+        return false;
+    };
+    let mut a = first;
+    for b in edge_iter {
+        if separated_on_axis(a, b, edges.clone(), other.clone()) {
+            return true;
         }
-        // Clipping can leave a tiny backward edge. It is an axis, but may no
-        // longer support its polygon, so both projection intervals are needed.
-        let interval = |polygon: &[[f64; 2]]| {
-            polygon
-                .iter()
-                .map(|&point| edge_side(a, b, point))
-                .fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), value| {
-                    (min.min(value), max.max(value))
-                })
-        };
-        let (edge_min, edge_max) = interval(edges);
-        let (other_min, other_max) = interval(other);
-        edge_max <= other_min || other_max <= edge_min
-    })
+        a = b;
+    }
+    separated_on_axis(a, first, edges, other)
+}
+
+fn separated_on_axis<E, O>(a: [f64; 2], b: [f64; 2], edges: E, other: O) -> bool
+where
+    E: Iterator<Item = [f64; 2]>,
+    O: Iterator<Item = [f64; 2]>,
+{
+    if a == b {
+        return false;
+    }
+    // Clipping can leave a tiny backward edge. It is an axis, but may no
+    // longer support its polygon, so both projection intervals are needed.
+    let (edge_min, edge_max) = projection_interval(a, b, edges);
+    let (other_min, other_max) = projection_interval(a, b, other);
+    edge_max <= other_min || other_max <= edge_min
+}
+
+fn projection_interval<I: Iterator<Item = [f64; 2]>>(
+    a: [f64; 2],
+    b: [f64; 2],
+    polygon: I,
+) -> (f64, f64) {
+    polygon
+        .map(|point| edge_side(a, b, point))
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), value| {
+            (min.min(value), max.max(value))
+        })
 }
 
 fn split_edge_halfplane(

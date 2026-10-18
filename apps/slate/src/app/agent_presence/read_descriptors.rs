@@ -12,11 +12,12 @@ impl SlateApp {
         node: &Node,
         grant: &CollaboratorGrant,
     ) -> Value {
-        let text = match &node.kind {
-            NodeKind::Text(t) => Some(excerpt(&t.text, 384)),
-            NodeKind::Frame(f) => Some(excerpt(&f.title, 128)),
-            _ => None,
-        };
+        let text = slate_doc::authored_text::text(node)
+            .map(|text| excerpt(text, 384))
+            .or_else(|| match &node.kind {
+                NodeKind::Frame(frame) => Some(excerpt(&frame.title, 128)),
+                _ => None,
+            });
         let mut value = json!({
             "id":node.id.0.to_string(), "kind":node.kind.kind_name(),
             "rect":node.rect,"rotation_deg":node.rotation_deg,"locked":node.locked,"hidden":node.hidden,"text":text,

@@ -949,21 +949,9 @@ Busy changes offer after-task or stop-and-switch; selecting the same harness is
 a no-op and never resends a task. `presence.schedule` arms a bounded live-board
 schedule; reopening does not restore a running job or grant.
 
-Advanced access uses `presence.grant`, `presence.file_inputs` and
-`presence.own_chats` independently. The last permits only conversations created
-by that live agent after an actual witnessed or accepted commit. It defaults
-off and does not grant unrelated conversations, file inputs or Full access.
-`presence.helper` adds a scoped temporary helper; `presence.clone` copies
-configuration into a fresh identity. `presence.retire` revokes work before its
-farewell; `presence.restore` restores identity/history with fresh authority.
+Advanced access uses `presence.grant`, `presence.file_inputs` and `presence.own_chats` independently. The last permits only conversations created by that live agent after an actual witnessed or accepted commit. It defaults off and does not grant unrelated conversations, file inputs or Full access. `presence.helper` adds a scoped temporary helper; `presence.clone` copies configuration into a fresh identity. `presence.retire` revokes work before its farewell; `presence.restore` restores identity/history with fresh authority.
 
-The targeted collaborator catalog includes `board.objects.create_train`,
-`board.objects.create_generator` and `board.objects.place_images`. Construction
-does not start a provider, import arbitrary files or change grants. Existing
-`portal.agent.run` starts an eligible generator separately. `presence.read_image`
-prepares one explicitly permitted source through the existing image-input pool;
-ordinary board reads remain bounded metadata. All authored board changes keep
-the normal journal, proposal, stale-input and witnessed-motion checks.
+The targeted collaborator catalog includes `board.objects.create_train`, `board.objects.create_generator` and `board.objects.place_images`. Construction does not start a provider, import arbitrary files or change grants. Existing `portal.agent.run` starts an eligible generator separately. `presence.read_image` prepares one explicitly permitted source through the existing image-input pool; ordinary board reads remain bounded metadata. All authored board changes keep the normal journal, proposal, stale-input and witnessed-motion checks.
 
 ### Canvas wire settings and plain-image inputs (13 October 2026)
 
@@ -972,3 +960,11 @@ Right-click empty Board canvas → **Canvas wire settings** (`board.wire.canvas`
 Dragging a wire near any placed image reveals **Primary image**, **Text**, and **Style image** inputs. Text, sticky notes and imported text documents default to Text on a body drop. A compatible connection enables the existing image generator in place, keeping the linked original and layers. The wire and capability change undo together. Connecting does not run a model; Run and Live retain their existing semantics.
 
 Image-palette click-away recovery lasts **1.5 seconds from dismissal**. Returning to the same image within that window restores the expanded sub-palette without rearming Brush or lasso; returning later shows the collapsed strip. See `P1.image.palette-return`.
+
+## Authored text and basic style commands
+
+`presence.read_text` pages one explicitly readable authored text field using a UTF-8 byte cursor (4–4096 bytes per page). Continuations echo the returned scene generation. Text nodes, eligible shape text and an existing card `text_override` are supported; linked documents are not opened and a missing override never falls back to source bytes. Empty authored text remains readable.
+
+`board.objects.set_text` takes explicit targets and `{text:"..."}` arguments, replacing one authored text field through the same text transformations and world-layout growth as normal composition. The direct human dispatch receives the real UI context; scoped collaborators use the existing witnessed proposal/approval/journal path. Replacement `@text` from an agent is authored content rather than a human message.
+
+Targeted `board.shape.edit` / `board.wire.edit` take `{edits:[...]}` and reuse the existing Property transform with no vertex scope. Supported edits are FillRgb, StrokeRgb, StrokeWidth (0–10000), TextFamily, TextSize (1–512), TextAlign, TextRgb, TextBold, TextItalic and TextUnderline. Each call contains 1–16 typed edits; unsupported target/property pairs, unknown arguments, locked targets and net no-ops are refused. The ordinary human property palette keeps its existing full property request. These commands do not modify linked files, select objects, open a caret, or reposition the camera.

@@ -97,6 +97,9 @@ fn hostile_network_frame_and_forged_sender_are_rejected_by_server() {
                 }
             }
             Err(tungstenite::Error::Io(error)) if connection_reset(&error) => {}
+            // Early oversized-frame rejection can close TCP during the TLS write.
+            Err(tungstenite::Error::Io(error))
+                if id == "oversize" && error.kind() == std::io::ErrorKind::BrokenPipe => {}
             Err(error) => panic!("Unexpected {id} hostile-frame write error: {error:?}"),
         }
         wait_for(&observer, |event| {

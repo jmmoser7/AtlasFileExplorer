@@ -368,3 +368,19 @@ fn model_dropdown_reuses_shared_selector_above_its_parent_without_mutating_model
         }
     }
 }
+
+// Failure-only observations for the existing registered busy-harness regression.
+// The original visible-text matcher and real timing-choice click stay intact.
+pub(super) fn timing_choice(f: &Fixture, out: &egui::FullOutput) -> Rect {
+    text_rect(out, "After this task").unwrap_or_else(|| {
+        let labels: Vec<_> = out.shapes.iter().filter_map(|shape| {
+            if let egui::Shape::Text(text) = &shape.shape {
+                Some((text.galley.text().chars().take(160).collect::<String>(),
+                    text.visual_bounding_rect(), shape.clip_rect))
+            } else { None }
+        }).take(128).collect();
+        panic!("explicit timing choice missing: active={:?}, popover={:?}, requested={:?}, menu={:?}, labels={labels:?}",
+            f.state.active_chat(), f.state.popover, f.state.requested_provider,
+            f.state.last_popover_rect);
+    })
+}

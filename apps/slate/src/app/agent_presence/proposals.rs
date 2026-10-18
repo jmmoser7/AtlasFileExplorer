@@ -60,10 +60,15 @@ impl SlateApp {
         work: WitnessedCommand,
         now: Instant,
     ) {
-        let created = work.prepared.created_ids();
-        let generator_target = (work.prepared.command == "portal.agent.run")
+        if matches!(work.action, witness::WitnessAction::Relay(_)) {
+            self.finish_contacted_presence_relay(a, &work, now);
+            return;
+        }
+        let prepared = work.board_prepared().expect("board action variant").clone();
+        let created = prepared.created_ids();
+        let generator_target = (prepared.command == "portal.agent.run")
             .then(|| {
-                work.prepared
+                prepared
                     .witness_nodes(&self.doc().scene)
                     .first()
                     .map(|n| n.id)
@@ -75,7 +80,7 @@ impl SlateApp {
                 return Err("Review pending proposals before requesting more".into());
             }
             self.finish_targeted_command(
-                work.prepared.clone(),
+                prepared.clone(),
                 &a.profile.name,
                 autonomy,
                 &a.binding.session_id,
@@ -89,7 +94,7 @@ impl SlateApp {
                         participant: a.profile.id.clone(),
                         tab: a.tab,
                         call: work.call.clone(),
-                        prepared: work.prepared,
+                        prepared,
                         previews: work.previews,
                         approval: None,
                     },
@@ -302,8 +307,7 @@ impl SlateApp {
             .filter_map(|other| other.work.as_ref())
             .filter(|work| work.purpose.replaces_objects())
             .any(|work| {
-                work.prepared
-                    .targets
+                work.targets()
                     .iter()
                     .any(|id| prepared.targets.contains(id))
             })
@@ -318,7 +322,17 @@ impl SlateApp {
         a: &Collaborator,
         work: &WitnessedCommand,
     ) -> Result<(), String> {
-        self.validate_presence_action(a, &work.call, &work.prepared)?;
+        if let witness::WitnessAction::Relay(relay) = &work.action {
+            if work.purpose != WitnessPurpose::Interaction {
+                return Err("Invalid conversation witness purpose".into());
+            }
+            return self.validate_presence_relay(a, &work.call, relay);
+        }
+        self.validate_presence_action(
+            a,
+            &work.call,
+            work.board_prepared().ok_or("Missing board action")?,
+        )?;
         match &work.purpose {
             WitnessPurpose::ApprovedProposal(id) => {
                 let proposal = self

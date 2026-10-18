@@ -306,7 +306,7 @@ impl SavedWindow {
         unsafe { SetWindowPlacement(child, &self.placement) }
             .map_err(|_| win32("SetWindowPlacement"))?;
         unsafe {
-            ShowWindow(
+            let _ = ShowWindow(
                 child,
                 if self.visible {
                     SHOW_WINDOW_CMD(self.placement.showCmd as i32)

@@ -1,6 +1,8 @@
 //! Text compose overlays.
 
-use super::board_text_place::{drafts::apply_inline_edit, grow_text_rect};
+use super::board_text_place::{
+    document_text_font, document_text_layout, drafts::apply_inline_edit, inline_text_layout,
+};
 use super::*;
 mod document;
 
@@ -227,13 +229,18 @@ impl SlateApp {
                 } else {
                     live.size
                 };
+                let growth = inline_text_layout(ctx, &node, Some(&live));
                 Some((
-                    styled_typeface_font(ctx, live.family, draw_size, live.style),
+                    growth.as_ref().map_or_else(
+                        || styled_typeface_font(ctx, live.family, draw_size, live.style),
+                        |layout| layout.font.clone(),
+                    ),
                     live.color,
-                    live.align,
+                    growth.as_ref().map_or(live.align, |layout| layout.align),
                     t.fill.is_some(),
                     false,
                     live.style,
+                    growth,
                 ))
             }
             NodeKind::Shape(s) if slate_doc::scene::shape_hosts_text(s) => {
@@ -258,16 +265,17 @@ impl SlateApp {
                     true,
                     true,
                     block.style,
+                    None,
                 ))
             }
             _ => None,
         };
-        let Some((font, color, align, center_block, shape_host, style)) = hosted else {
+        let Some((font, color, align, center_block, shape_host, style, growth)) = hosted else {
             self.text_edit = None;
             return;
         };
-        let rect = if matches!(&node.kind, NodeKind::Text(t) if t.fill.is_none()) {
-            let rect = grow_text_rect(ctx, node.rect, &buf, font.clone(), node.rect.w, align, 4.0);
+        let rect = if let Some(layout) = &growth {
+            let rect = layout.grow(ctx, node.rect, &buf);
             self.text_edit_rect = Some((id, rect));
             rect
         } else {
@@ -301,7 +309,9 @@ impl SlateApp {
                     ui.visuals_mut().text_cursor.blink = true;
                 }
                 let color32 = rgba32(color);
-                let world_wrap = if shape_host {
+                let world_wrap = if let Some(layout) = &growth {
+                    layout.wrap.max(0.0)
+                } else if shape_host {
                     (node.rect.w - 16.0).max(0.0)
                 } else {
                     node.rect.w.max(0.0)
@@ -344,19 +354,8 @@ impl SlateApp {
                 }
                 if resp.changed() {
                     self.text_edit = Some((id, buf.clone()));
-                    if !center_block {
-                        self.text_edit_rect = Some((
-                            id,
-                            grow_text_rect(
-                                ui.ctx(),
-                                node.rect,
-                                &buf,
-                                font.clone(),
-                                node.rect.w,
-                                align,
-                                4.0,
-                            ),
-                        ));
+                    if let Some(layout) = &growth {
+                        self.text_edit_rect = Some((id, layout.grow(ui.ctx(), node.rect, &buf)));
                     }
                 }
                 if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
