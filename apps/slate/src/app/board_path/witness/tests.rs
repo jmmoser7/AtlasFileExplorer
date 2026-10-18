@@ -169,7 +169,7 @@ fn unsupported_shapes_invalid_tolerance_and_oversized_paths_are_rejected() {
     assert!(StrokePreview::new(&source, f64::NAN).is_none());
     let mut unsupported = source.clone();
     if let NodeKind::Shape(shape) = &mut unsupported.kind {
-        shape.shape = ShapeKind::Rect;
+        shape.shape = ShapeKind::Line;
     }
     assert!(StrokePreview::new(&unsupported, 0.1).is_none());
     let mut large = source.clone();

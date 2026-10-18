@@ -294,6 +294,10 @@ fn public_command_schema_and_argument_validation_share_one_catalogue() {
     );
     for (command, definition) in entries {
         assert!(commands::SPECS.iter().any(|spec| spec.id.0 == command));
+        assert!(
+            crate::app::agent_presence::BOARD_COMMANDS.contains(&command.as_str()),
+            "{command} is registered but missing from collaborator tool grants"
+        );
         assert!(definition["arguments"].is_object());
         assert!(definition["targets"].is_string());
     }

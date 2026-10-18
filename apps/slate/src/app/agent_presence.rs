@@ -75,6 +75,7 @@ pub(crate) const BOARD_COMMANDS: &[&str] = &[
     "app.feedback.report",
     "board.paths.draw",
     "board.eraser.stroke",
+    "board.smooth.stroke",
     "board.path.join",
     "board.objects.create_portal",
     "portal.atlas.list",

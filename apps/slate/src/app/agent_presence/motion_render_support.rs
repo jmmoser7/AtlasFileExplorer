@@ -128,7 +128,8 @@ impl Fixture {
                 arguments,
             },
         };
-        assert!(self.h.app.presence_call(&mut agent, &call).is_none());
+        let reply = self.h.app.presence_call(&mut agent, &call);
+        assert!(reply.is_none(), "{command} must be admitted: {reply:?}");
         assert!(agent.work.is_some(), "the real command must be admitted");
         self.h.app.presence.agents.push(agent);
     }
