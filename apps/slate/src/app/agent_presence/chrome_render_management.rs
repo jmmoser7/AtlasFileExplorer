@@ -194,7 +194,11 @@ pub(super) fn run() {
     let advanced = egui::AreaState::load(&f.h.ctx, Id::new("Advanced"))
         .expect("actual Advanced window area")
         .rect();
-    assert!(screen().contains_rect(advanced));
+    assert!(
+        screen().contains_rect(advanced),
+        "Advanced {advanced:?} is outside {:?}",
+        screen()
+    );
     assert!(advanced.contains_rect(required(&out, "Advanced")));
     let out = seek(&mut f, "Retired collaborators", advanced);
     let out = seek_from(&mut f, out, "Restore", advanced);

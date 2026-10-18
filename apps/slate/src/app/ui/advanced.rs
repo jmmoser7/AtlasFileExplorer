@@ -14,6 +14,8 @@ pub fn window(app: &mut SlateApp, ctx: &egui::Context) {
     egui::Window::new("Advanced")
         .open(&mut open)
         .default_width(340.0)
+        .max_width((ctx.screen_rect().width() - 32.0).max(64.0))
+        .max_height((ctx.screen_rect().height() - 64.0).max(64.0))
         .vscroll(true)
         .show(ctx, |ui| {
             if atlas_shell::updates::section(ui, &app.updater) {
