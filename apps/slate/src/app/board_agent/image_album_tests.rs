@@ -120,7 +120,7 @@ fn a_picked_result_keeps_its_relative_workbook_locator_and_its_album_index() {
 
 #[test]
 fn a_closed_image_blister_keeps_all_result_thumbnail_squares_visible() {
-    use crate::app::preview::{PX_EXACT, PreviewEntry, linked_image_key};
+    use crate::app::preview::{linked_image_key, PreviewEntry, PX_EXACT};
     use std::sync::Arc;
 
     let (mut h, id) = generator_with_output("album-closed-blister-thumbnails");

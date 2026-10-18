@@ -171,6 +171,9 @@ pub struct AgentRuntime {
     pub(super) models: HashMap<String, Vec<atlas_ai::agent::AgentModel>>,
     pub(super) models_rx: Option<Receiver<ModelsResult>>,
     pub(super) models_started: HashSet<String>,
+    /// Synthetic test hosts suppress automatic discovery without inventing readiness.
+    #[cfg(test)]
+    pub(super) hold_catalog_probes: bool,
     /// Catalogs an open agent editor lists before any card uses them.
     pub(super) models_wanted: HashSet<String>,
     pub(super) models_error: HashMap<String, String>,

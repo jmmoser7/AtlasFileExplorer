@@ -49,6 +49,10 @@ impl AgentRuntime {
         swap(&mut self.life.sidecar_dirs, &mut other.life.sidecar_dirs);
         #[cfg(test)]
         {
+            swap(
+                &mut self.hold_catalog_probes,
+                &mut other.hold_catalog_probes,
+            );
             swap(&mut self.dispatched, &mut other.dispatched);
             swap(&mut self.life.stopped, &mut other.life.stopped);
             swap(&mut self.life.hold_loads, &mut other.life.hold_loads);
@@ -63,6 +67,7 @@ impl AgentRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::tests::Harness;
     use slate_doc::scene::NodeId;
 
     #[test]
@@ -103,5 +108,29 @@ mod tests {
         assert!(first.dashboard_full_access);
         assert!(first.sidecar_startups["dashboard"].current(generation));
         assert!(!first.access_snapshot.artifact_granted("denied"));
+    }
+
+    #[test]
+    fn process_adoption_carries_test_catalog_hold_without_inventing_readiness() {
+        let mut host = Harness::new("catalog_hold_adoption");
+        let mut first = std::mem::take(&mut host.app.agents);
+        let mut second = AgentRuntime::default();
+        assert!(first.hold_catalog_probes);
+        assert!(
+            !second.hold_catalog_probes,
+            "raw runtime retains automatic discovery"
+        );
+        second.adopt_process(&mut first);
+        assert!(second.hold_catalog_probes);
+        assert!(!first.hold_catalog_probes);
+        second.refresh_catalog("codex");
+        assert!(second.hold_catalog_probes);
+        assert!(!second.catalog_ready("codex"));
+        assert!(second.models_rx.is_none());
+        first.adopt_process(&mut second);
+        assert!(first.hold_catalog_probes);
+        assert!(!second.hold_catalog_probes);
+        assert!(!first.catalog_ready("codex"));
+        assert!(first.models_rx.is_none());
     }
 }

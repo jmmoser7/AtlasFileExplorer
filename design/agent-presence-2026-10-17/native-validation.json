@@ -1,7 +1,7 @@
 {
   "schema": "slate-presence-validation/v1",
   "date": "2026-10-17",
-  "implementation": "Integration remains incomplete. Full atlas-agent passed 45 after the EOL repair, and full vector projection SAT passed 164 with one ignored benchmark. Two relay package runs each retained a hostile-client library failure despite four integration passes; strict terminal-read v2 is source-only and root-review/runtime pending. Sole full-shell session 97565 has no supplied result. Combined media source, external Brush/Layers test, exact 195-case MIM1 export and witnessed-motion tests still need their runtime gates. Full-app chrome captures are under readback, not accepted. All 37 UI blockers remain open; app-only work prevents a global freeze. D309 remains the latest published backup and later repairs are unbacked. Normal native fixtures may query provider catalogs but submit no agent task. Final binary is unset, old 83d remains rejected and human acceptance is Untested.",
+  "implementation": "Integration remains incomplete. Pre-index full atlas-shell passed386 with seven ignored, exact195-case material export passed but retained97.954-143.541ms seven-glyph cold cost blockers, full relay v2 passed12, and candidate-index vector package passed171 with one ignored. Fresh agent45 and vector SAT164 passes remain retained. Candidate-index shared/parity/cost checks and central test-only catalog-hold app execution remain pending. Final app/workspace/build/native workflows and human acceptance remain unverified.",
   "finalBinary": null,
   "coordinatedBuild": {
     "command": "cargo build --locked --release -p slate --jobs 1",
@@ -2599,23 +2599,505 @@
         "stage": "post-authentication hostile terminal read",
         "diagnostic": "Io Custom UnexpectedEof: peer closed connection without sending TLS close_notify"
       }
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "atlas-shell",
+        "--jobs",
+        "1",
+        "--no-fail-fast",
+        "--lib"
+      ],
+      "result": "passed",
+      "exitCode": 0,
+      "exitCodeScope": "Direct Cargo process exit retained by the normal package runner",
+      "passed": 386,
+      "failed": 0,
+      "ignored": 7,
+      "elapsedSeconds": 511.80724579999514,
+      "startedUtc": "2026-10-18T02:58:28.292275+00:00",
+      "finishedUtc": "2026-10-18T03:07:00.440267+00:00",
+      "identity": "target/presence-shell-projection-sat-20261018.json",
+      "identitySha256": "661bb1318ff5ce07f8d37cf888fa9a618292ff0edb4447d15133ddae2b37c43d",
+      "sourceStable": true,
+      "sourceIdentityCount": 595,
+      "libtestSummaries": [
+        "test result: ok. 386 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 3.79s"
+      ],
+      "harnesses": [
+        {
+          "path": "target/release/deps/atlas_shell-feec840f2954a4d7.exe",
+          "bytes": 15269888,
+          "sha256": "b77d78a782d8b65a965a7a25cc9c0f975dbc207590723b36e7d9b898345abc34"
+        }
+      ],
+      "rawLog": {
+        "path": "target/presence-shell-projection-sat-20261018.log",
+        "bytes": 36184,
+        "sha256": "efc996d710fdee06528bbb0b0beb4754c31c91d2805bbd93523dfd2b5e71b23b"
+      },
+      "boundary": "Actual complete atlas-shell library pass for the pre-index projection-SAT/v4 snapshot. The previously failing Agent caller-opacity and real-wheel proposal Accept tests now pass in this identified suite. Seven ignored cases are not executed by this run. Candidate-index source was added later and requires fresh tests and exact mesh comparison. No full-app, native/GPU or human acceptance follows.",
+      "runtimeSeconds": 3.79
+    },
+    {
+      "command": [
+        "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\target\\release\\deps\\atlas_shell-feec840f2954a4d7.exe",
+        "icons::media_tests::coverage::export_media_icon_pixels_for_visual_audit",
+        "--ignored",
+        "--exact",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "result": "passed",
+      "exitCode": 0,
+      "exitCodeScope": "Direct identified shared harness export process exit; package verdict is separately retained",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 392,
+      "runtimeSeconds": 26.59,
+      "startedUtc": "2026-10-18T03:07:13.840995+00:00",
+      "finishedUtc": "2026-10-18T03:07:41.114729+00:00",
+      "identity": "target/presence-projection-sat-matrix-20261018.json",
+      "identitySha256": "e9b0a35cf3b2dcefddb6055d2e40ca1d1eecd1573a113c6bd6217ec5c3b984ae",
+      "suiteReceipt": {
+        "path": "target/presence-shell-projection-sat-20261018.json",
+        "bytes": 215587,
+        "sha256": "661bb1318ff5ce07f8d37cf888fa9a618292ff0edb4447d15133ddae2b37c43d"
+      },
+      "harness": {
+        "path": "target/release/deps/atlas_shell-feec840f2954a4d7.exe",
+        "bytes": 15269888,
+        "sha256": "b77d78a782d8b65a965a7a25cc9c0f975dbc207590723b36e7d9b898345abc34"
+      },
+      "sourceStable": true,
+      "harnessStable": true,
+      "libtestSummaries": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 392 filtered out; finished in 26.59s"
+      ],
+      "rawLog": {
+        "path": "design/media-ui-2026-10-17/native/presence-projection-sat-matrix-20261018/export.log",
+        "bytes": 199,
+        "sha256": "2f495214d9a52075a0a4fdda5e9a17dc255c188dcd373991e33456aad8ea7a2f"
+      },
+      "output": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\design\\media-ui-2026-10-17\\native\\presence-projection-sat-matrix-20261018",
+      "artifactCount": 209,
+      "exactAudit": {
+        "path": "target/presence-projection-sat-matrix-audit-20261018.json",
+        "bytes": 93197,
+        "sha256": "521d03cf0760daa6420094374c5481b12bde0b5155576506f444fff5e168781e"
+      },
+      "cases": 195,
+      "allWarmGeometryReuse": true,
+      "manifestSha256": "587091f0f44f24751bfff068e7feafb528654540ae0e2a58e49c624053f17033",
+      "coldTotalUs": 2488748,
+      "sevenGlyphBundles": [
+        {
+          "slot_points": 15.600000381469727,
+          "ppp": 1,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 137732,
+          "warm_us": 8
+        },
+        {
+          "slot_points": 15.600000381469727,
+          "ppp": 1.5,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 115911,
+          "warm_us": 9
+        },
+        {
+          "slot_points": 15.600000381469727,
+          "ppp": 2,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 106626,
+          "warm_us": 8
+        },
+        {
+          "slot_points": 16,
+          "ppp": 1,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 143541,
+          "warm_us": 11
+        },
+        {
+          "slot_points": 16,
+          "ppp": 1.5,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 97978,
+          "warm_us": 11
+        },
+        {
+          "slot_points": 16,
+          "ppp": 2,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 105963,
+          "warm_us": 8
+        },
+        {
+          "slot_points": 20,
+          "ppp": 1,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 131266,
+          "warm_us": 9
+        },
+        {
+          "slot_points": 20,
+          "ppp": 1.5,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 106027,
+          "warm_us": 7
+        },
+        {
+          "slot_points": 20,
+          "ppp": 2,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 106460,
+          "warm_us": 6
+        },
+        {
+          "slot_points": 24,
+          "ppp": 1,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 97954,
+          "warm_us": 10
+        },
+        {
+          "slot_points": 24,
+          "ppp": 1.5,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 110534,
+          "warm_us": 8
+        },
+        {
+          "slot_points": 24,
+          "ppp": 2,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 108199,
+          "warm_us": 7
+        },
+        {
+          "slot_points": 31.200000762939453,
+          "ppp": 1,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 108666,
+          "warm_us": 7
+        },
+        {
+          "slot_points": 31.200000762939453,
+          "ppp": 1.5,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 107151,
+          "warm_us": 8
+        },
+        {
+          "slot_points": 31.200000762939453,
+          "ppp": 2,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 105416,
+          "warm_us": 8
+        }
+      ],
+      "maxColdCase": {
+        "key": "Agent/16/1",
+        "cold_us": 44019,
+        "exact_mesh_file": "geometry/Agent-41800000-3f800000.mesh",
+        "icon": "Agent",
+        "ppp": 1,
+        "slot_points": 16,
+        "texture_id": "Managed(0)",
+        "triangles": 4829,
+        "vertices": 10320,
+        "warm_reused_geometry": true,
+        "warm_us": 1,
+        "bytes": 264360,
+        "sha256": "1ae259546e15e88f5afe90a2db8adb3582a476c829e9255295790eddebd87896"
+      },
+      "boundary": "Actual pre-index production material export and retained exact MIM1/texture-ID baseline, independently hash-verified here. The Node audit artifact is retained; this documentation update runs no tests or Node audit. Seven-glyph cold costs 97.954-143.541 ms remain a performance blocker. Root reported inspecting two actual 1x light/dark component sheets; component/software images do not establish native full-app appearance, GPU timing or human acceptance."
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "atlas-relay",
+        "--jobs",
+        "1",
+        "--no-fail-fast"
+      ],
+      "result": "passed",
+      "exitCode": 0,
+      "exitCodeScope": "Direct Cargo process exit retained by the normal package runner",
+      "passed": 12,
+      "failed": 0,
+      "ignored": 0,
+      "elapsedSeconds": 92.46245859999908,
+      "startedUtc": "2026-10-18T03:08:41.711223+00:00",
+      "finishedUtc": "2026-10-18T03:10:14.184628+00:00",
+      "identity": "target/presence-relay-hostile-v2-20261018.json",
+      "identitySha256": "773a763908bacd72d8b5a6a3448a2da4b63b3927b53170aebdceb8de7d8679f2",
+      "sourceStable": true,
+      "sourceIdentityCount": 13,
+      "libtestSummaries": [
+        "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.03s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.97s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ],
+      "harnesses": [
+        {
+          "path": "target/release/deps/atlas_relay-131ecbfe969ab3e4.exe",
+          "bytes": 3557376,
+          "sha256": "b442547503e8e17c532102a1ab3f629bdad5a1113967c0922ada35c0118c2100"
+        },
+        {
+          "path": "target/release/deps/atlas_relay-7d5bea8078ca500f.exe",
+          "bytes": 714240,
+          "sha256": "90250b4b656c215210bf65e93fd1e1a2c4d25f52f764f7bfab75f951b2717026"
+        },
+        {
+          "path": "target/release/deps/participants-33bce357b4edf115.exe",
+          "bytes": 3624960,
+          "sha256": "1cbb30a823bb9ddc5e36ad29f6afea6921d5d0af13a5667c241f37e6a8f44c7a"
+        }
+      ],
+      "rawLog": {
+        "path": "target/presence-relay-hostile-v2-20261018.log",
+        "bytes": 170682,
+        "sha256": "dc9c419cd224ea818b1922010ba18c31979faa86000ff678e6b44eb5732b4118"
+      },
+      "boundary": "Actual complete atlas-relay package pass after independently source-approved hostile terminal-read v2: eight unit/security and four participant integration cases. The test-only classification preserves the healthy-client canary, exact ACK, observer removal and production TLS/auth/pinning. Earlier two package failures remain retained. No fresh Slate adapter, native UI or human acceptance is established.",
+      "breakdown": {
+        "library": {
+          "passed": 8,
+          "failed": 0,
+          "ignored": 0,
+          "runtimeSeconds": 4.03
+        },
+        "participantIntegration": {
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0,
+          "runtimeSeconds": 0.97
+        },
+        "binary": {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      },
+      "docTests": {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0
+      },
+      "sourceRepair": "target/relay-hostile-security-20261018/v2/manifest.json"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "vector-ink",
+        "--jobs",
+        "1",
+        "--no-fail-fast"
+      ],
+      "result": "passed",
+      "exitCode": 0,
+      "exitCodeScope": "Direct Cargo process exit retained by the normal package runner",
+      "passed": 171,
+      "failed": 0,
+      "ignored": 1,
+      "elapsedSeconds": 462.9918437000015,
+      "startedUtc": "2026-10-18T03:18:26.927316+00:00",
+      "finishedUtc": "2026-10-18T03:26:10.044331+00:00",
+      "identity": "target/presence-vector-candidate-index-20261018.json",
+      "identitySha256": "c796af1f0118f231bb5493381cfe067b516baf0f8386949f09fc2221a051955d",
+      "sourceStable": true,
+      "sourceIdentityCount": 34,
+      "libtestSummaries": [
+        "test result: ok. 165 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.48s",
+        "test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.29s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ],
+      "harnesses": [
+        {
+          "path": "target/release/deps/vector_ink-310ab78c5a016596.exe",
+          "bytes": 1880576,
+          "sha256": "cf50fdaaa82bee2e8b9ace8fece706280b654629ed877f9a4740d6d777b6c00e"
+        },
+        {
+          "path": "target/release/deps/bench_grain-75e6c7bcf37b37cd.exe",
+          "bytes": 929280,
+          "sha256": "24ef0d33b7831a5a7684bd3e57a9a69ce547cbc5cc3198f2c3929822793de584"
+        },
+        {
+          "path": "target/release/deps/pen_fit-f087c44765275673.exe",
+          "bytes": 772096,
+          "sha256": "a99db6f6adcacb988daff9c6315cea9f4a9fd2368be51bd4a94c1a44608e8042"
+        },
+        {
+          "path": "target/release/deps/texture_rules-bd300c3236b5ca0a.exe",
+          "bytes": 770048,
+          "sha256": "4e2d98d5370c3e58fc1556c00ae5e62d03172a5afeb7da8ee71982f74d913bbf"
+        }
+      ],
+      "rawLog": {
+        "path": "target/presence-vector-candidate-index-20261018.log",
+        "bytes": 13031,
+        "sha256": "b6a7c08a98c8748c3d350fa00768c2f1016b70bd501a5741f84fd9622a8c0406"
+      },
+      "boundary": "Actual complete vector package pass for the private candidate-index source:165 unit,2 pen-fit,4 texture cases; one ignored benchmark remains unexecuted. This establishes the identified geometry/index regression layer only. Fresh shared tests, exact195 MIM1 and texture-ID parity, changing-zoom CPU costs, app/native performance and human acceptance remain separate pending gates."
     }
   ],
   "pendingChecks": [
+    "Execute three new source-approved test-only catalog-hold regressions in the fresh full app harness; do not synthesize ready catalogs or permit automatic provider probes in synthetic factories",
     "Complete readback of new full-app chrome captures; normal native fixture catalog queries are possible and no zero-provider-contact claim is allowed",
     "Both exact ignored witnessed-motion tests after updated catalog-pin source identity; retained software evidence is separate from native/GPU smoothness",
     "Fresh external Brush/Layers fallback interaction test and all 37 retained app UI cases after source freeze",
-    "Existing exact 195-case post-SAT MIM1 export and measured cold/warm costs; optional AABB index remains conditional and unimplemented",
-    "Actual sole full-shell session 97565 outcome; full vector SAT 164 and agent 45 package passes do not establish shared opacity/app/native acceptance",
-    "New coordinated source freeze and continuity backup after active media shared/vector/image-fallback and app motion-test work; d309 excludes subsequent repairs",
+    "Candidate-index vector 171/0/1 pass is recorded; fresh full shared, exact 195 MIM1 and texture-ID equality against retained pre-index baseline, cold/warm costs and 123-frame changing-zoom CPU paint probe remain pending",
+    "Pre-index full shared386/0/7 pass is recorded; later index source and full app/native gates remain separate",
+    "New coordinated source continuity backup after39ed for later candidate-index/zoom, central test-only catalog hold and updated evidence; current owner/ref state must remain preserved",
     "Fresh six-file portal/Capture test corrections and separate real Capture host-retention regression; source checks discharge none of the retained UI blockers",
-    "All 37 retained UI contract blockers: seven nonmedia source diagnoses and thirty media cases need fresh representative app execution; narrow-image BrushLayers fallback owner plan remains OPEN",
-    "Fresh corrected v4 real-wheel proposal test and v3 font/capture readiness/request/configuration tests, plus four hosted app test repairs and relay draft fixture; source approval is not runtime",
+    "All37 retained UI contract blockers: seven nonmedia source diagnoses and thirty media cases need fresh representative app execution; shared narrow-image Brush/Layers fallback source is approved/frozen, runtime pending",
+    "V4 real-wheel shared test passed in pre-index386 suite; fresh app proposal decisions and v3 font/capture readiness/request/configuration tests, hosted app repairs and relay draft fixture remain pending",
     "Execute ten source-approved screenshot/recovery isolation regressions, then obtain clean six-state production captures from a fresh identified Slate executable; no native input while the human is away",
-    "Correct the actual Agent composited alpha 69 > caller 64 failure and obtain a fresh normal full shared-shell result; completed diagnostic exports are not acceptance",
+    "Agent caller-opacity regression now passed in identified pre-index shared386 suite; later candidate-index source still needs fresh full shared validation and exact material parity",
     "Fresh Slate app conversation, durability, image-read, harness, helper, temporary-input-hold and corrected failed-send tests",
-    "Two actual app adapters over TLS and independent transcript stores; relay candidate socket-mode fix remains runtime-unverified",
-    "Fresh strict hostile terminal-read v2 validation and complete relay package pass; actual integration 4 passes do not erase hostile failures or validate Slate app adapters",
+    "Two actual Slate app adapters over TLS and independent transcript stores; the separately identified relay v2 package passed12, but fresh app adapter execution remains pending",
+    "Relay v2 package12/0/0 pass is recorded without erasing earlier hostile failures; fresh Slate app adapters and transcript durability remain pending",
     "Fresh app targeted creation and selected-result importer/retry tests, plus named-tag canvas-drop, media host-identity/overlay and capture-chrome9 regressions",
     "Current normal r2 shared palette example rebuild and exact artifact identity; component native review remains separate from full-app presence acceptance",
     "Final coordinated Slate release executable build and exact SHA256/version/mtime",
@@ -2631,7 +3113,7 @@
     "dry": "Shared creation owners approved after extraction; allocator-only preparation and existing result importer required and implemented",
     "health": "No remaining P1 in reviewed paths after delta/index and failed-import retry fixes; generic targeted whole-scene applicability preflight remains open P2",
     "visualRepair": "Independent source-only review of the frozen visual repair found no P1/P2: inverse-scaled Area constraints agree with input at 0.8/1/2 and nonzero origins; registered-font fallback and theme-derived muted text remain presence-local; world labels retain canvas_text/scaling. All five regressions actually passed in the final 375-test consolidated shell suite. Every touched Rust source is below 500 rows; scoped rustfmt check exited 0. Source identity is retained in target/presence-visual-repair-source.json; runtime identity is target/presence-shell-final-consolidated-identity.json. Full-app native appearance remains unverified.",
-    "relayModeFix": "Independent source review approved restoring blocking mode in the existing worker-owned Transport::handshake after Winsock accept inherits its listener mode. A real-socket regression retains the original absolute deadline. TLS/pin/auth, scoped authority, Saved/Ack and bounded sanitized diagnostics are unchanged. Runtime validation remains pending; no successful connection is inferred.",
+    "relayModeFix": "Independent source review approved restoring blocking mode in the existing worker-owned Transport::handshake after Winsock accept inherits its listener mode. A real-socket regression retains the original absolute deadline. TLS/pin/auth, scoped authority, Saved/Ack and bounded sanitized diagnostics are unchanged. Subsequent actual complete relay v2 package validation passed 12 cases in target/presence-relay-hostile-v2-20261018.json. This does not validate the fresh Slate app adapters or independent transcript stores.",
     "rendererSampleHistory": "Dedicated intent guardian source-reviewed the existing double-gated full-app renderer fixture extension: four approved sample bubbles in randomly identified empty in-memory conversations, through the existing Conversation::push owner. No dirty/save/provider/profile call added. Merely opening conversations, double-clicking/zooming or viewing pickers does not persist these samples. Do not edit, send, select hats/providers or operate permission controls during this review; captures establish layout/artwork/typography only, not provider replies, persistence, live delivery or granted execution.",
     "shellRuntimeCorrections": "Source-proved test setup/assertion issues corrected after actual failures: nested Shape::Vec shadowed Frame Rect, tightly proportional transformed logical Galley.rect rather than bitmap rung padding, and real ctx.run/fonts before unchanged fractional rounded geometry/4xMSAA zero-crack assertion. No production implementation changed in those test repairs. They all passed in the final consolidated 375-test suite; the tag test-only 0.001 px tolerance correction and final media r2 shared regressions passed there too.",
     "finalHealth": "Final scoped read-only health found one P2 inspectability gap: presence.read_image Invoke was advertised/granted but absent canonical SPECS. Exactly one descriptive registry row was added at commands.rs:60; no handler, authority or read behavior changed. Independent reviewer confirmed all33 presence IDs now registered once, commands.rs2352 rows below existing2357 ceiling, no ratchet increase. Scoped rustfmt and diff checks exited0. No other new scoped finding; known whole-scene applicability P2 remains open.",
@@ -2642,10 +3124,28 @@
     "rendererStateFraming": "Currentfixedattached80mode nowreproducesactuallower-screenclipregion viarealcameraPan, unchangedworldpoint/canonicaladdress. DedicatedintentapprovedQAonly; exactidentitytarget/presence-renderer-fixture-source.json. Fixedcloud976predatesthis3lineQAframingdelta; no sourcebranchrewrite. Actualnativecapturestillrequired.",
     "proposalCaptureV3": "Corrected 14-file source and fresh-tab/readiness fixture v3 independently approved; rejected v2 never ran. Extra configured request-boundary and Capture guards preserve human recovery. Three initial proposal tests passed in older 385/1/7 shell run before queued wheel/font/f32 corrections. Corrected source runtime and production captures remain pending; see target/presence-proposal-chat-source-v3.json and presence-proposal-fixture-source-v3.json.",
     "hostedFixtureRepairs": "Four-file root app test-only repairs source-approved: exact request-arrival publication ownership, unchanged real 32-session capacity and approved 12-command schema. Relay draft fixture uses existing no-provider dispatch seam without changing selection/caret/sender assertions. Fresh app runtime remains pending; all 37other UI failures stay open.",
-    "proposalScrollV4": "Two-file source-only test-settling correction preserves actual first/last Accept clicks at 25/80/100/200 percent, composer/draft/Send assertions and production policy. Existing egui scroll timing plus unchanged target/interaction rectangles replace a blind nine-frame wait; bounded detailed diagnostics are test-only. Readback was delegated; no approval or runtime pass is inferred. Evidence: target/presence-proposal-scroll-correction-source-v4.json.",
+    "proposalScrollV4": "Two-file correction independently source-approved. Actual pre-index full atlas-shell suite passed386/0/7, including corrected real first/last Accept clicks at25/80/100/200%, fixed composer/draft/Send assertions and unchanged production policy. App proposal decision handling, native input and later candidate-index source remain separate. Evidence: target/presence-proposal-scroll-correction-source-v4.json and target/presence-shell-projection-sat-20261018.json.",
     "portalCaptureCorrections": "Six test-only files retain the original narrow fixture and real retention regression; scoped formatting, whitespace, size and DRY plan checks are recorded. Real Capture host-retention production change is separately frozen through the existing canonical locked-node hit path. Fresh app execution remains pending, and material-isolated probes do not prove final overlay visibility/native pixels.",
-    "mediaProjectionSat": "Canonical projection-interval SAT correction independently source-approved and now passed actual full vector package: 164 passed, 0 failed, 1 ignored benchmark, including backward clip-edge regression. Full shared opacity, exact MIM1 matrix/costs and app/native validation remain separate pending gates. Optional AABB index is conditional on actual costs and is not implemented.",
-    "witnessedMotion": "Independent intent review approved three test-only source files with two ignored witnessed-motion regressions. No compile/run/native claim. Subsequent catalog pin must update support source identity; retained software frames cannot establish native GPU appearance or wall-clock motion smoothness."
+    "mediaProjectionSat": "Canonical SAT source passed full vector 164/0/1 and pre-index shared 386/0/7. The exact 195 MIM1 material export passed and retained all warm geometry reuse; 97.954-143.541 ms seven-glyph cold costs remain blocking. Candidate index/zoom source is DRY-approved/frozen and its full vector suite passed 171/0/1. Fresh shared, exact parity, costs and app/native/human gates remain pending.",
+    "witnessedMotion": "Independent intent review approved three test-only source files with two ignored witnessed-motion regressions. No compile/run/native claim. Subsequent catalog pin must update support source identity; retained software frames cannot establish native GPU appearance or wall-clock motion smoothness.",
+    "catalogProbeIsolation": "Independent intent guardian approved all seven exact source hashes in target/presence-catalog-isolation-source-v2.json. Explicit cfg(test) hold is activated by three synthetic factories only, after queued-result ingestion and before original provider selection. No readiness is fabricated; refresh/adoption behavior is covered by new unexecuted regressions. Production factories and provider behavior remain unchanged.",
+    "lateChromeReadinessHealth": {
+      "state": "coordinator-reported-read-only-source-review",
+      "dedicatedReceipt": null,
+      "newFinding": {
+        "priority": "P2",
+        "path": "apps/slate/src/app/agent_presence/chrome_render_support.rs",
+        "lines": [
+          177,
+          235,
+          369
+        ],
+        "issue": "Fixed five-second readiness limits may be flaky in new chrome capture support",
+        "recommendation": "Prefer deterministic completion/readiness if actual execution exposes failure",
+        "observedFailure": false
+      },
+      "boundary": "No dedicated on-disk health receipt is known. Coordinator relayed the read-only source finding; no runtime failure, fix or waived check is claimed."
+    }
   },
   "nativeInteraction": {
     "result": "Initial 83d build observed after human unlock and manual Add collaborator. User reports UI looks terrible. Actual defects retained; final native workflows and user acceptance remain Untested",
@@ -2662,11 +3162,11 @@
   },
   "evaluation": "native-acceptance.html",
   "coordination": {
-    "cargo": "Root owns sole Cargo session 97565 for the normal full atlas-shell library suite. Expected target/presence-shell-projection-sat-20261018.json and .log remain pending at this handoff; no test result is supplied. Guarded inputs include all crate Rust/manifests except unrelated atlas-relay, shared assets and root Cargo files. No second Cargo job.",
-    "currentJob": "Fresh relay validation reproduced post-auth write reset 10054, then its corrected fixture run failed on hostile terminal READ UnexpectedEof missing TLS close_notify; each package run had library 7 passes/1 failure and four integration passes. Strict test-only v2 has root source approval; runtime remains pending. Atlas-agent passed 45, and vector projection SAT passed 164 with one ignored benchmark, all recorded sources stable. Root sole Cargo 97565 now runs the complete shared library suite, with no result supplied. Combined 35-file media source and two ignored witnessed-motion tests have source approval but no full runtime/native verdict. Full-app chrome source v2 has guardian approval; execution and pixel inspection remain pending. All current source owners report frozen, but no final whole-app identity or validation is established. D309 is latest published backup; later repairs remain unbacked. User away; no native input.",
-    "nextQueue": "Collect sole full-shell 97565 result and immutable identities. If it passes, run the existing exact 195-case MIM1 material export and retain cold/warm costs before deciding whether a conditional AABB index is needed; none is implemented. Execute source-reviewed strict hostile terminal-read v2 in a fresh relay package under the next coordinated Cargo lease. Compile the current app/source freeze including approved chrome and catalog-pin tests, then run all 37 retained UI cases, external Brush/Layers regression, v4 wheel, Capture retention and app messaging/proposal workflows. Execute both exact ignored witnessed-motion tests and inspect retained state/software frames; headless evidence does not pass native smoothness. Build identified releases, review eight renderer states with catalog-query boundary explicit, then complete full workspace and human/native acceptance when available. Preserve later-source backup needs and no-input restriction while away.",
-    "followupCheck": "Actual full atlas-agent is 45 passed/0 failed; actual full vector projection SAT is 164 passed/0 failed/1 ignored. Neither supplies the current shared opacity, performance or native verdict. Relay package remained failed in both actual runs despite four integration passes per run; strict terminal-read v2 has root source approval and remains untested. Sole full-shell 97565 has no supplied result, and all 37 app UI blockers remain open pending fresh app validation.",
-    "workspaceHold": "Shell/vector and all guarded crate inputs are held for sole full-shell 97565. Relay v2 is source-frozen and independently approved in target/relay-hostile-security-20261018/v2/root-review.json, runtime pending. Final five-file chrome/catalog-isolation source is frozen and guardian-approved in target/presence-chrome-headless-source-v2.json, including final parent/motion-support identities. Current source owners report frozen; a final whole-app guard and execution have not yet begun. D309 remains the latest published backup; subsequent repairs and this operational update are unbacked.",
+    "cargo": "Coordinator reports sole Cargo session49575 running the fresh candidate-index full shared suite. Candidate-index full vector session74515 completed171/0/1, direct0/sourceStabletrue; no new shared/parity/cost verdict supplied. Pre-index full shared session97565 completed386/0/7 and is retained separately.",
+    "currentJob": "Actual pre-index full shared suite passed386/0/7, exact195-case export passed with all warm geometry reused but seven-glyph cold costs97.954-143.541ms remain blocking, strict relay v2 passed12/0/0, and candidate-index vector passed171/0/1. Later private index and123-frame changing-zoom probe are source-frozen/DRY-approved; fresh full shared session49575 is pending, followed by exact parity/cost checks. Central cfg(test) catalog hold for three synthetic factories is source-frozen/guardian-approved, app execution pending. Latest remote-verified backup is39ed; index/hold and this update are later unbacked changes. User away; no native input.",
+    "nextQueue": "Collect the fresh candidate-index full shared result after its vector 171/0/1 pass, then exact 195 MIM1 plus texture-ID equality against the immutable pre-index baseline, and the changing-zoom CPU shared paint probe. Compile the fully guarded current app after catalog-isolation source freeze; run its new isolation regressions, all 37 retained UI blockers, external Brush/Layers, Capture retention, app messaging/proposals, and exact ignored chrome/motion tests with actual frame readback. Build identified releases and production fixtures, complete normal workspace verification and native/human acceptance when available. Preserve later source backup needs and the no-input restriction while away.",
+    "followupCheck": "Pre-index full shell386/0/7, relay v2 package12/0/0, agent45/0/0, vector SAT164/0/1 and candidate-index vector171/0/1 have actual source-stable receipts. Candidate-index shared/parity/cost checks, the app, native appearance and human acceptance remain pending. The exact195 pre-index export established a baseline and unresolved cold-cost blocker. All37 retained app UI blockers remain open pending fresh app execution.",
+    "workspaceHold": "Candidate-index/shared sources are frozen for the coordinator sole Cargo lease. Central test-only catalog hold is frozen and independently approved; no full app execution is supplied. Source snapshot39ed includes earlier portal/Capture, v4, relay, fallback and chrome/motion fixtures; later index/zoom, central hold and this operational update are outside it. The strengthened app runner source guard includes known shared/app assets and builtin kit, coordinator-reported SHA8cc35f4f0dd44d494ba09cc37c79734e0087b3a3b4dd4cc8399ce4a7f94d1871; AST parse is not execution.",
     "native": "User away since 01:41 UTC; no native input or unlock requests. Existing native fixture may perform normal production catalog queries but submits no agent task; isolated cfg(test) frame fixtures pin catalogs. Full-app chrome source is guardian-approved, but its captures have not executed or passed. A later native interaction lease still requires a fresh exact executable, explicit coordinated ownership and human availability.",
     "mediaThread": "01a14b0f-1bf4-71c2-9d4a-bce26d5611ed",
     "tagsThread": "01a14b10-6380-7883-8c19-18cd8972745f",
@@ -4234,14 +4734,14 @@
     },
     "publishedSourceCheckpoint": {
       "state": "source-checkpoint-published-and-verified",
-      "branch": "codex/presence-checkpoint-20261018-b4598d3c",
-      "commit": "d309e9ced4a5f63761525961ee32ad74bfbb481e",
-      "tree": "9f7567ff5eca473d0d80d7af32b930b050e3e1e1",
-      "parent": "aab329d27a5de3a46fd475b66f71e25a32936453",
+      "branch": "codex/presence-checkpoint-20261018-905b4451",
+      "commit": "39edbe742f4782669975357445233a17eed76fd8",
+      "tree": "136e37dbfd7a90f5664081b6b03729f1a5442237",
+      "parent": "d309e9ced4a5f63761525961ee32ad74bfbb481e",
       "pushed": true,
       "pushExitCode": 0,
-      "verifiedRemoteCommit": "d309e9ced4a5f63761525961ee32ad74bfbb481e",
-      "finishedUtc": "2026-10-18T02:33:39.071301+00:00",
+      "verifiedRemoteCommit": "39edbe742f4782669975357445233a17eed76fd8",
+      "finishedUtc": "2026-10-18T03:05:41.600487+00:00",
       "realIndexPreserved": true,
       "ownerHeadAfter": "d172cca5b9289df806b14842dab7b9693cfa4782",
       "ownerBranchAfter": "main",
@@ -4250,15 +4750,16 @@
       "headMainPreserved": true,
       "sourceHashesPreserved": true,
       "receiptHashesPreserved": true,
-      "evidence": "target/presence-checkpoint-continuity-b4598d3c22c4433d915a1b0c5974ffdf/publication-ccf776e29c484adba8b4f5f44d800134/publication.json",
-      "evidenceSha256": "48bb4b95e6ee76d70882914fdfeda0bea30fcd2f67c6ca1c653ff4172ea7b320",
-      "session": 9326,
+      "evidence": "target/presence-checkpoint-later-repairs-905b4451ed3f4b4abf4c53a9bb457f39/publication-b1fe921834cc42649c5963321d44404b/publication.json",
+      "evidenceSha256": "2b6ac6b3e5f21a5b0dad75c2d666eb36fe8d9c9fd1891159e5226c4f4ae3005e",
+      "session": 42271,
       "exitCode": 0,
       "sourceCheckpointOnly": true,
-      "changedPathCount": 41,
-      "guardedSourceCount": 79,
-      "receiptCount": 9,
-      "boundary": "Fourth source continuity checkpoint d309/tree 9f published and remote-verified; parent aab and original 976/58b/aab refs plus owner main/HEAD/index preserved. Later relay-draft dispatch fixture is explicitly excluded. PR 57 remains on 58b against 976 and its hosted failures do not validate this source. Publication has no runtime/native/performance/user verdict."
+      "selectedPathCount": 54,
+      "changedPathCount": 33,
+      "guardedSourceCount": 102,
+      "receiptCount": 13,
+      "boundary": "Fifth source continuity checkpoint39ed is published and remote-verified, parentd309, tree136e37db. Owner main/HEAD/index and all inherited refs, earlier checkpoints and PR57 head remain preserved. Includes pre-index SAT/fallback/Capture/proposal/relay/chrome/motion source repairs. Later candidate-index/zoom and central catalog hold are excluded by chronology. Source publication establishes no runtime/native/performance or human verdict."
     },
     "hostedCheckpointValidation": {
       "observedUtc": "2026-10-18T02:20:58.152Z",
@@ -4774,6 +5275,34 @@
         "sourceCheckpointOnly": true,
         "changedPathCount": 26,
         "boundary": "Third source-only backup aab is published and remote-verified, parent 58b and tree 4e. Original 976 and second 58b backups, owner main/HEAD/index and inherited refs are preserved. PR57 remains on 58b against 976; no hosted validation of aab is claimed. The later seven-file recovery isolation fix and this operational-doc update are not in aab. Publication does not pass shell, performance, app, native or user acceptance."
+      },
+      {
+        "state": "source-checkpoint-published-and-verified",
+        "branch": "codex/presence-checkpoint-20261018-b4598d3c",
+        "commit": "d309e9ced4a5f63761525961ee32ad74bfbb481e",
+        "tree": "9f7567ff5eca473d0d80d7af32b930b050e3e1e1",
+        "parent": "aab329d27a5de3a46fd475b66f71e25a32936453",
+        "pushed": true,
+        "pushExitCode": 0,
+        "verifiedRemoteCommit": "d309e9ced4a5f63761525961ee32ad74bfbb481e",
+        "finishedUtc": "2026-10-18T02:33:39.071301+00:00",
+        "realIndexPreserved": true,
+        "ownerHeadAfter": "d172cca5b9289df806b14842dab7b9693cfa4782",
+        "ownerBranchAfter": "main",
+        "allInheritedLocalRefsPreserved": true,
+        "fixedRemoteRefsPreserved": true,
+        "headMainPreserved": true,
+        "sourceHashesPreserved": true,
+        "receiptHashesPreserved": true,
+        "evidence": "target/presence-checkpoint-continuity-b4598d3c22c4433d915a1b0c5974ffdf/publication-ccf776e29c484adba8b4f5f44d800134/publication.json",
+        "evidenceSha256": "48bb4b95e6ee76d70882914fdfeda0bea30fcd2f67c6ca1c653ff4172ea7b320",
+        "session": 9326,
+        "exitCode": 0,
+        "sourceCheckpointOnly": true,
+        "changedPathCount": 41,
+        "guardedSourceCount": 79,
+        "receiptCount": 9,
+        "boundary": "Fourth source continuity checkpoint d309/tree 9f published and remote-verified; parent aab and original 976/58b/aab refs plus owner main/HEAD/index preserved. Later relay-draft dispatch fixture is explicitly excluded. PR 57 remains on 58b against 976 and its hosted failures do not validate this source. Publication has no runtime/native/performance/user verdict."
       }
     ],
     "captureRecoveryIsolation": {
@@ -5290,7 +5819,7 @@
         "count": 30,
         "runtime": "Pending fresh representative app executions and approved interaction/pixel comparison"
       },
-      "narrowImageFallback": "May lose BrushLayers; canonical DRY owner plan OPEN, no behavior waiver",
+      "narrowImageFallback": "Canonical shared fallback/lifecycle source plan and final interaction regression approved/frozen; actual app runtime remains pending, no behavior waiver",
       "boundary": "Do not dismiss these failures because the hosted checkout is older or classify them as missing environment data. New source approval and fixture repairs do not establish runtime/contract/native passes.",
       "newSourceCandidates": {
         "testCorrections": "target/portal-capture-test-corrections-source-freeze.json",
@@ -5385,7 +5914,7 @@
     "proposalScrollCorrectionV4": {
       "evidence": "target/presence-proposal-scroll-correction-source-v4.json",
       "evidenceSha256": "eeac93a9abf149fe9f3a166a642d9315d37e5fa00f7f1183fad1fae8c16654ce",
-      "state": "source-only correction frozen; independent readback delegated by root to active intent_guard_final; fresh runtime pending",
+      "state": "Independently source-approved and actual pre-index full shared-suite pass386/0/7; app decision paths and native interactions remain pending",
       "sourceFileCount": 2,
       "frozenAtUtc": "2026-10-18T02:42:37.057443+00:00",
       "priorSourceManifest": {
@@ -5405,7 +5934,15 @@
       "productionSemantics": "No scrolling, input, geometry, authorization or app code changes. Transcript delta only retains its existing return value for cfg(test) diagnostics.",
       "focusedTest": "agent_presence::roster::tests::proposals::pending_cards_scroll_while_the_attached_composer_remains_reachable_at_all_zooms",
       "runtimeValidation": "Not run by this worker. Root will compile once with media correction, then validate current exact harness; no blind rerun of old failing harness.",
-      "boundary": "Source-only test-settling and cfg(test) diagnostics correction. Actual egui scroll smoothing and stable target rectangles now gate the same real clicks; the old log does not prove this was its exact failure cause. Independent readback was delegated; no approval or runtime pass is inferred from delegation."
+      "boundary": "Source-only test-settling and cfg(test) diagnostics correction. Actual egui scroll smoothing and stable target rectangles now gate the same real clicks; the old log does not prove this was its exact failure cause. Independent readback was delegated; no approval or runtime pass is inferred from delegation.",
+      "runtime": {
+        "evidence": "target/presence-shell-projection-sat-20261018.json",
+        "directCargoExitCode": 0,
+        "passed": 386,
+        "failed": 0,
+        "ignored": 7,
+        "boundary": "Full shared-library slice including corrected real-wheel proposal clicks; app proposal dispatch and native appearance are separate"
+      }
     },
     "portalCaptureTestCorrections": {
       "evidence": "target/portal-capture-test-corrections-source-freeze.json",
@@ -5452,17 +5989,25 @@
     "relayCurrentValidation": {
       "firstFailure": "target/presence-relay-fresh-20261018.json",
       "secondFailure": "target/presence-relay-hostile-corrected-20261018.json",
-      "packageState": "Failed twice; each run library 7 passed/1 failed and participant integration 4 passed",
+      "packageState": "Latest strict v2 source-stable package passed12/0/0 (8unit/security+4participant integration); both earlier failed runs remain retained",
       "strictV2": {
         "evidence": "target/relay-hostile-security-20261018/v2/manifest.json",
         "evidenceSha256": "639a483b06af6f6eb9f1bfa66d3f6278319a44a266db49380c51a538094dad1c",
         "sourceOnly": true,
         "classification": "Only the post-authentication hostile rejection READ accepts Io UnexpectedEof whose message begins the exact observed rustls close_notify-missing diagnostic. This condition is absent from writes, hello, and healthy client handling.",
         "preserved": "Observer membership removal, no attack admission, same-host canary and exact ACK, existing deadlines and all production TLS/auth/pinning code remain unchanged.",
-        "runtimeValidation": "None. No Cargo or native input; root owns the fresh normal package validation.",
-        "review": "Pending root review at this handoff"
+        "runtimeValidation": {
+          "evidence": "target/presence-relay-hostile-v2-20261018.json",
+          "evidenceSha256": "773a763908bacd72d8b5a6a3448a2da4b63b3927b53170aebdceb8de7d8679f2",
+          "passed": 12,
+          "failed": 0,
+          "ignored": 0,
+          "directCargoExitCode": 0,
+          "sourceStable": true
+        },
+        "review": "Root source approval retained at target/relay-hostile-security-20261018/v2/root-review.json"
       },
-      "boundary": "Four real package integration cases passed; Slate app adapters and their independent transcript stores remain untested in a fresh app harness. Strict hostile terminal-read classification is test-only, not a production TLS relaxation or a successful relay verdict."
+      "boundary": "Actual current package pass establishes the identified relay layer only. Earlier hostile reset/EOF failures remain in automated history. Slate app adapters and their independent transcript stores require fresh app execution; no production TLS relaxation or native/user verdict follows."
     },
     "mediaCombinedValidation": {
       "evidence": "target/media-current-shared-app-validation-freeze.json",
@@ -5484,7 +6029,15 @@
         "Fresh ReadyFilefixtures/softwarecaptures/nativecomponent and real app review"
       ],
       "vectorCompleted": "target/presence-vector-projection-sat-20261018.json",
-      "sharedCurrent": "Session 97565 running; no result supplied",
+      "sharedCurrent": {
+        "evidence": "target/presence-shell-projection-sat-20261018.json",
+        "directCargoExitCode": 0,
+        "passed": 386,
+        "failed": 0,
+        "ignored": 7,
+        "sourceStable": true,
+        "snapshot": "pre-index"
+      },
       "externalBrushLayersTest": {
         "evidence": "target/media-fallback-interaction-tests-source-freeze.json",
         "test": "fallback_images_keep_external_brush_and_layers_controls_at_full_width",
@@ -5495,14 +6048,30 @@
         "evidence": "target/media-matrix-exact-bits-export-source-freeze.json",
         "scope": "Existing195case production cold/warm exporter now retains exact MIM1 binary meshes: position/UV f32 bits, RGBA bytes, ordered indices; texture_id recorded in manifest. Both timers stop before serialization.",
         "unchanged": "All normal alpha/counter assertions, production material/placement path and ordinary icon behavior",
-        "runtime": "Pending actual 195-case export and post-SAT costs"
+        "runtime": {
+          "evidence": "target/presence-projection-sat-matrix-20261018.json",
+          "audit": "target/presence-projection-sat-matrix-audit-20261018.json",
+          "passed": 1,
+          "cases": 195,
+          "artifactCount": 209,
+          "sourceStable": true,
+          "harnessStable": true,
+          "boundary": "Pre-index exact material baseline and CPU costs; not native/app acceptance"
+        }
       },
       "performance": {
-        "aabbIndexPlan": "Approved only conditionally on measured current cost; not implemented",
-        "priorColdBlocker": "Retain prior 166-232 ms native-slot cold latency until actual post-SAT matrix",
-        "implemented": false
+        "aabbIndexPlan": "Actual pre-index costs satisfied the conditional go criterion; private candidate index and changing-zoom probe are now source-frozen and DRY-approved",
+        "priorColdBlocker": "Historical166-232ms seven-glyph costs remain retained",
+        "currentPreIndexColdTotalUs": 2488748,
+        "currentPreIndexSevenGlyphColdRangeUs": [
+          97954,
+          143541
+        ],
+        "implemented": "Source candidate with full vector 171/0/1 pass; fresh shared, exact parity and performance verdicts remain pending",
+        "candidateEvidence": "target/media-candidate-index-and-zoom-source-freeze.json",
+        "boundary": "No appearance/tolerance/AA waiver and no native smoothness claim; exact195 byte hashes plus texture IDs must match the immutable baseline after indexing"
       },
-      "boundary": "Combined 35-file source approval is not full runtime validation. Complete vector passed separately; current full shell, fresh app representatives, Brush/Layers regression, exact MIM1 export, costs and native/user gates remain pending."
+      "boundary": "The combined 35-file source approval does not establish full app validation. Pre-index vector and shared suites passed and the exact 195-case material baseline was exported; its cold costs remain blocking. The later index passed vector 171/0/1, with fresh shared, exact material parity and costs pending. App representatives, Brush/Layers, native and human gates remain open."
     },
     "witnessedMotionRenderTests": {
       "evidence": "target/presence-witnessed-motion-render-source-freeze.json",
@@ -5525,7 +6094,7 @@
         "No pending brush jobs and exact unchanged frame/motion/document state around retained-frame raster saves"
       ],
       "runtime": null,
-      "catalogPin": "A subsequent test-only catalog pin will require an updated motion-support source identity; not treated as part of this earlier freeze or executed here",
+      "catalogPin": "Final parent and motion-support catalog-pin identities are retained in target/presence-chrome-headless-source-v2.json. The later models.rs identity is superseded by the explicit test-only hold in target/presence-catalog-isolation-source-v2.json. All ignored motion execution/readback remains pending.",
       "limitation": "Headless software motion evidence only; no native GPU appearance, wall-clock motion smoothness, desktop interaction or user acceptance is established."
     },
     "nativeFixtureBoundaryClarification": {
@@ -5538,9 +6107,94 @@
       "boundary": "Comment and runner boundary wording only. Normal native renderer fixtures may issue production provider catalog queries; the fixture submits no agent task. Isolated cfg(test) frame fixtures separately pin catalogs. Do not infer zero provider contact from prior no-agent-task/no-provider-work wording."
     },
     "fullAppChromeCaptureStatus": {
-      "state": "Under source/readback review; not passed",
-      "evidenceBasis": "Coordinator handoff; no completed runtime or native acceptance receipt supplied",
-      "boundary": "No native input while user away. Static/software app chrome captures, source review and catalog pinning do not establish native/GPU interaction or human acceptance."
+      "state": "Source-frozen and guardian-approved; execution/readback pending",
+      "evidence": "target/presence-chrome-headless-source-v2.json",
+      "catalogHold": "target/presence-catalog-isolation-source-v2.json",
+      "evidenceBasis": "Source manifests and independent readback only; no completed runtime/native acceptance receipt supplied",
+      "boundary": "No native input while user away. Software full-app captures and catalog isolation do not establish native/GPU interaction, live provider replies or human acceptance."
+    },
+    "catalogProbeIsolation": {
+      "evidence": "target/presence-catalog-isolation-source-v2.json",
+      "evidenceSha256": "f84ade8d4e6a65b25bca37b847f3d86a4c73f26f8200461a910517859a8d08b1",
+      "state": "source-frozen-independently-approved-execution-pending",
+      "sourceFileCount": 7,
+      "activation": [
+        "tests/support/harness.rs Harness::new",
+        "bench_web.rs Bench::new",
+        "bench_brush_tiles.rs Bench::new"
+      ],
+      "guardOrder": "result ingestion, existing pending receiver return, cfg(test) hold, original provider selection/launch",
+      "readiness": "no models, models_started, errors, receiver or readiness injected/cleared by hold",
+      "adoption": "hold swaps in existing cfg(test) process-owned state block",
+      "production": "field, setter and guard compile only under cfg(test); native/raw factories unchanged",
+      "regressions": [
+        "app::board_agent::models::catalog_isolation_tests::synthetic_full_app_frames_keep_wanted_and_refreshed_catalogs_unready_without_probes",
+        "app::board_agent::models::catalog_isolation_tests::held_catalog_pump_ingests_pending_success_and_error_without_launching_a_follow_on",
+        "app::board_agent::life::process::tests::process_adoption_carries_test_catalog_hold_without_inventing_readiness"
+      ],
+      "boundary": "Explicit cfg(test) hold blocks only automatic catalog launch in three synthetic factories; queued result ingestion and real readiness semantics remain. Native/raw production factories are unchanged. No Cargo/provider/SDK/native execution was performed by the source worker or this documentation update."
+    },
+    "candidateIndexAndZoomValidation": {
+      "evidence": "target/media-candidate-index-and-zoom-source-freeze.json",
+      "evidenceSha256": "cdbb214283fb6a1a0ca2eb06c2afce85024700585088b4b1d55d07239c7b270e",
+      "state": "Full vector passed171/0/1; fresh shared, exact195 parity and costs pending",
+      "sourceFileCount": 3,
+      "baseline": {
+        "sourceFreeze": "target/media-current-shared-app-validation-freeze.json",
+        "sourceArchive": "target/media-frozen-source-20261018-0306/source-manifest.json",
+        "vector": "target/presence-vector-projection-sat-20261018.json",
+        "shell": "target/presence-shell-projection-sat-20261018.json",
+        "exact195": "target/presence-projection-sat-matrix-audit-20261018.json",
+        "directory": "design/media-ui-2026-10-17/native/presence-projection-sat-matrix-20261018"
+      },
+      "appearanceOrToleranceChanged": false,
+      "zoomProbe": {
+        "test": "export_media_changing_zoom_paint_cost",
+        "frames": 123,
+        "dpi": [
+          1,
+          1.5,
+          2
+        ],
+        "zoom": "0.5->1->0.5;21newsize+20returnframesperDPI",
+        "timed": "Context::run includingcanonicalOverlaylayout/paint; no measuredglyph/contextframeprewarm",
+        "excluded": "Contextconstruction, outputcounting, serialization, tessellation, GPU/appwork",
+        "claim": "CPUsharedcomponentonly, no timingpass/nativesmoothness"
+      },
+      "required": [
+        "Normalfullvector",
+        "Normalfullshellunchangedalpha/counter",
+        "195exactMIMoutputallbytehashes+textureIDsmatchimmutablebaseline",
+        "Cold/warmcostmatrix and newignoredchangingzoomprobe",
+        "Thenfreshapprepresentatives/fullsuite/builds/fixtures/native"
+      ],
+      "boundary": "Do not infer a pass from source approval or the earlier pre-index suites. Zoom probe times CPU Context::run canonical shared layout/paint only, excluding tessellation/GPU/app work. No timing pass or native smoothness verdict.",
+      "vectorCompleted": {
+        "evidence": "target/presence-vector-candidate-index-20261018.json",
+        "evidenceSha256": "c796af1f0118f231bb5493381cfe067b516baf0f8386949f09fc2221a051955d",
+        "passed": 171,
+        "failed": 0,
+        "ignored": 1,
+        "directCargoExitCode": 0,
+        "sourceStable": true
+      }
+    },
+    "lateSourceHealthReview": {
+      "state": "coordinator-reported-read-only-source-review",
+      "dedicatedReceipt": null,
+      "newFinding": {
+        "priority": "P2",
+        "path": "apps/slate/src/app/agent_presence/chrome_render_support.rs",
+        "lines": [
+          177,
+          235,
+          369
+        ],
+        "issue": "Fixed five-second readiness limits may be flaky in new chrome capture support",
+        "recommendation": "Prefer deterministic completion/readiness if actual execution exposes failure",
+        "observedFailure": false
+      },
+      "boundary": "No dedicated on-disk health receipt is known. Coordinator relayed the read-only source finding; no runtime failure, fix or waived check is claimed."
     }
   }
 }

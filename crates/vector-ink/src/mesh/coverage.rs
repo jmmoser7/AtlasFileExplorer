@@ -2,6 +2,8 @@
 
 use crate::{InkMesh, InkVertex};
 
+mod index;
+
 #[derive(Clone, Copy)]
 struct Vertex {
     pos: [f64; 2],
@@ -52,11 +54,17 @@ pub fn max_coverage_mesh(mesh: &InkMesh) -> InkMesh {
             })
         })
         .collect();
+    let candidate_index =
+        index::CandidateIndex::new(triangles.iter().map(|triangle| triangle.bounds));
 
     let mut output = InkMesh::default();
+    let mut candidates = Vec::new();
     for (source_index, source) in triangles.iter().enumerate() {
         let mut pieces = vec![source.vertices.to_vec()];
-        for (other_index, other) in triangles.iter().enumerate() {
+        candidate_index.query(source.bounds, &mut candidates);
+        candidates.sort_unstable();
+        for &other_index in &candidates {
+            let other = &triangles[other_index];
             if source_index == other_index || !bounds_overlap(source.bounds, other.bounds) {
                 continue;
             }

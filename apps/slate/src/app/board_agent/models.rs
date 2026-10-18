@@ -2,6 +2,10 @@
 
 use super::*;
 
+#[cfg(test)]
+#[path = "catalog_isolation_tests.rs"]
+mod catalog_isolation_tests;
+
 impl AgentRuntime {
     pub(crate) fn catalog_ready(&self, key: &str) -> bool {
         self.models.contains_key(key)
@@ -9,6 +13,12 @@ impl AgentRuntime {
 
     pub(crate) fn catalog_error(&self, key: &str) -> Option<&str> {
         self.models_error.get(key).map(String::as_str)
+    }
+
+    /// Synthetic hosts may ingest injected results, but must not probe installed providers.
+    #[cfg(test)]
+    pub(crate) fn hold_catalog_probes_for_test(&mut self) {
+        self.hold_catalog_probes = true;
     }
 
     #[cfg(test)]
@@ -45,6 +55,10 @@ impl SlateApp {
             self.agents.fit_revision = None;
         }
         if self.agents.models_rx.is_some() {
+            return;
+        }
+        #[cfg(test)]
+        if self.agents.hold_catalog_probes {
             return;
         }
         let provider = self

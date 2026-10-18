@@ -179,10 +179,9 @@ fn hover_only_strip_survives_the_gap_and_a_held_click_without_selecting_the_host
         .rect_w2s(h.app.doc().scene.node(host).unwrap().rect);
     let at = point(&h, host, 1);
     tick(&mut h, vec![egui::Event::PointerMoved(at)]);
-    assert!(
-        !h.app
-            .result_strip_hovered(&h.ctx, host, body, h.app.board_xf().z)
-    );
+    assert!(!h
+        .app
+        .result_strip_hovered(&h.ctx, host, body, h.app.board_xf().z));
     assert!(h.app.agents.flow.results.menu.is_none());
     assert!(h.app.board_sel.is_empty());
     tick(&mut h, vec![egui::Event::PointerMoved(body.center())]);
@@ -363,14 +362,13 @@ fn painted_strip_corridor_follows_host_and_zoom_without_rescaling_its_spacing() 
         assert!(!h.app.result_strip_hovered(ctx, host, body, zoom));
     });
     h.app.remember_result_strip(host, body, Rect::NOTHING, zoom);
-    assert!(
-        !h.app
-            .agents
-            .flow
-            .results
-            .strips
-            .contains_key(&(h.app.tab().id, host))
-    );
+    assert!(!h
+        .app
+        .agents
+        .flow
+        .results
+        .strips
+        .contains_key(&(h.app.tab().id, host)));
 }
 
 #[test]

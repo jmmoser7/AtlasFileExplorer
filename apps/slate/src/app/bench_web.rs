@@ -185,14 +185,13 @@ impl Bench {
     fn new() -> Bench {
         let ctx = egui::Context::default();
         let mut app = SlateApp::with_ctx(&ctx, None);
+        app.agents.hold_catalog_probes_for_test();
         app.kits = kits::KitState::builtin_only();
         app.leave_home();
         app.ensure_work_tab();
         app.doc_mut().view.active_view = ViewKind::Board;
-
         let host = BenchHost::default();
         app.web.set_host(Box::new(host.clone()));
-
         // The same grid the staged climate proposal builds, and the same trust
         // the human grants once on open.
         let mut nodes = Vec::with_capacity(PORTALS);

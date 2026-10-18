@@ -331,3 +331,112 @@ fn write_material_mesh_bits(path: &std::path::Path, mesh: &egui::Mesh) {
     }
     std::fs::write(path, bytes).unwrap();
 }
+
+/// Shared CPU paint only; the real app, tessellation and GPU remain separate gates.
+#[test]
+#[ignore = "set ATLAS_MEDIA_ICON_AUDIT_DIR to record changing-zoom component paint"]
+fn export_media_changing_zoom_paint_cost() {
+    let dir = std::path::PathBuf::from(
+        std::env::var("ATLAS_MEDIA_ICON_AUDIT_DIR").expect("audit output directory"),
+    );
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut records = Vec::new();
+    for ppp in [1.0_f32, 1.5, 2.0] {
+        records.extend(
+            std::thread::spawn(move || {
+                use crate::selection_tools::{blister_layout, BlisterPresentation};
+                let icons: Vec<_> = CASES
+                    .iter()
+                    .copied()
+                    .filter(|icon| {
+                        matches!(
+                            icon,
+                            Icon::Fill
+                                | Icon::Ellipse
+                                | Icon::Corners
+                                | Icon::Sliders
+                                | Icon::Brush
+                                | Icon::Media
+                                | Icon::Agent
+                        )
+                    })
+                    .collect();
+                let ctx = egui::Context::default();
+                ctx.set_pixels_per_point(ppp);
+                let theme = crate::theme::Palette::dark();
+                let mut seen = std::collections::HashSet::new();
+                let mut frames = Vec::new();
+                for frame in 0..=40 {
+                    let step = if frame <= 20 { frame } else { 40 - frame };
+                    let z = 0.5 + step as f32 * 0.025;
+                    let repeated_size = !seen.insert(z.to_bits());
+                    // No measured glyph or context frame is prewarmed.
+                    let start = std::time::Instant::now();
+                    let output = ctx.run(
+                        egui::RawInput {
+                            screen_rect: Some(Rect::from_min_size(
+                                egui::Pos2::ZERO,
+                                egui::vec2(900.0, 700.0),
+                            )),
+                            time: Some(frame as f64 / 60.0),
+                            ..Default::default()
+                        },
+                        |ctx| {
+                            assert_eq!(ctx.pixels_per_point(), ppp);
+                            let host = Rect::from_center_size(
+                                egui::pos2(450.0, 300.0),
+                                egui::vec2(680.0, 380.0) * z,
+                            );
+                            let layout =
+                                blister_layout(host, z, icons.len(), BlisterPresentation::Overlay);
+                            let painter = ctx.layer_painter(egui::LayerId::new(
+                                egui::Order::Foreground,
+                                egui::Id::new("media-changing-zoom-paint"),
+                            ));
+                            for (index, &icon) in icons.iter().enumerate() {
+                                layout.paint_icon(&painter, index, icon, theme.ink, theme);
+                            }
+                        },
+                    );
+                    let paint_us = start.elapsed().as_micros();
+                    let (meshes, vertices, triangles) =
+                        output
+                            .shapes
+                            .iter()
+                            .fold((0, 0, 0), |counts, shape| match &shape.shape {
+                                egui::Shape::Mesh(mesh) => (
+                                    counts.0 + 1,
+                                    counts.1 + mesh.vertices.len(),
+                                    counts.2 + mesh.indices.len() / 3,
+                                ),
+                                _ => counts,
+                            });
+                    assert_eq!(meshes, 7, "all seven visible image glyphs were painted");
+                    assert!(triangles > 0);
+                    frames.push(serde_json::json!({
+                        "ppp": ppp, "frame": frame, "zoom": z,
+                        "phase": if frame <= 20 { "outbound-new-size" } else { "returning-size" },
+                        "repeated_size": repeated_size, "paint_us": paint_us,
+                        "meshes": meshes, "vertices": vertices, "triangles": triangles,
+                    }));
+                }
+                frames
+            })
+            .join()
+            .expect("changing-zoom paint worker"),
+        );
+    }
+    let evidence = serde_json::json!({
+        "source": "production BlisterLayout::paint_icon overlay, seven actual image glyphs",
+        "timed": "Context::run including layout and icon paint; no glyph prewarm",
+        "excluded": "Context construction, output counting, serialization, tessellation, GPU and app frame work",
+        "cache_scope": "fresh thread/context per DPI; returning sizes are identified, not presumed cache hits",
+        "boundary": "shared CPU component measurement only; no timing pass or app/native smoothness inference",
+        "frames": records,
+    });
+    std::fs::write(
+        dir.join("changing-zoom-paint.json"),
+        serde_json::to_vec_pretty(&evidence).unwrap(),
+    )
+    .unwrap();
+}
