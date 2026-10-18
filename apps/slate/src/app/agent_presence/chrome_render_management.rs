@@ -28,7 +28,7 @@ pub(super) fn run() {
     );
     let before = ids(&f);
     let out = f.settle();
-    let out = click_text_in(&mut f, &out, "Dot", add);
+    click_text_in(&mut f, &out, "Dot", add);
     let added: Vec<_> = ids(&f).difference(&before).cloned().collect();
     assert_eq!(added.len(), 1, "real Add must create exactly one identity");
     let who = added[0].clone();

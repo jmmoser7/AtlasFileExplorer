@@ -98,6 +98,34 @@ fn composer_exposes_attachment_picker_and_removable_local_chips() {
 }
 
 #[test]
+fn focused_composer_paste_preserves_multiline_utf8_and_sends_through_existing_action() {
+    let mut f = Fixture::new();
+    f.open_chat("dot");
+    let composer = visual::screen_response(&f, Id::new(("presence-composer", "dot"))).0;
+    f.click(composer.center());
+    assert_eq!(
+        f.ctx.memory(|memory| memory.focused()),
+        Some(Id::new(("presence-composer", "dot")))
+    );
+
+    let pasted = "First line\nSecond line — café 🌿";
+    let actions = f.frame(vec![egui::Event::Paste(pasted.into())]).0;
+    assert!(actions.contains(&PresenceAction::Draft {
+        id: "dot".into(),
+        text: pasted.into(),
+    }));
+    assert_eq!(f.drafts["dot"], pasted);
+
+    let send = visual::screen_response(&f, Id::new(("presence-send", "dot")))
+        .0
+        .center();
+    assert!(f.click(send).contains(&PresenceAction::Send {
+        id: "dot".into(),
+        text: pasted.into(),
+    }));
+}
+
+#[test]
 fn new_agent_dialog_only_picks_a_harness_then_emits_the_existing_add_action() {
     let mut f = Fixture::new();
     f.state.toggle(
