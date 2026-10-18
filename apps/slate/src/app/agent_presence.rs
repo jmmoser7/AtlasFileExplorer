@@ -12,6 +12,8 @@ mod consent_policy;
 mod controls;
 pub(crate) use consent_policy::AgentConsentPolicy;
 mod attachments;
+mod brush_preview;
+pub(crate) use brush_preview::BrushCoverage;
 mod conversation;
 mod conversation_store;
 #[cfg(test)]
@@ -29,6 +31,7 @@ mod lifecycle_tests;
 mod messaging;
 mod surface;
 pub(crate) use messaging::message_text_changed;
+mod creation_conflicts;
 #[cfg(test)]
 mod live_codex_tests;
 mod own_chats;
@@ -186,6 +189,7 @@ pub struct PresenceRuntime {
     photo: avatar_input::ProfilePhoto,
     human_chat: human_chat::HumanChat,
     scheduling: scheduling::PresenceSchedules,
+    brush_preview: brush_preview::DrawingBrushPreview,
 }
 impl PresenceRuntime {
     fn next_helper_name(&self, parent: &str, parent_name: &str) -> String {

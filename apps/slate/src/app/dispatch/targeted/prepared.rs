@@ -85,6 +85,15 @@ impl PreparedBoardCommand {
 
     /// Cheap conflict check for live previews; full preflight runs at commit.
     pub(crate) fn expected_matches(&self, scene: &Scene) -> Result<(), String> {
+        if self.cmds.iter().any(|cmd| {
+            matches!(cmd, SceneCmd::Add { node, .. }
+                if !self.expected.iter().any(|old| old.id == node.id)
+                    && scene.node(node.id).is_some())
+        }) {
+            return Err(
+                "A new object was added while this action was prepared; retry the command".into(),
+            );
+        }
         for expected in &self.expected {
             if scene.node(expected.id) != Some(expected) {
                 return Err(format!(

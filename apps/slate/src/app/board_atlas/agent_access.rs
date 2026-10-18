@@ -180,11 +180,18 @@ impl SlateApp {
     }
 
     pub(crate) fn build_bound_atlas(
-        &self,
+        &mut self,
         rect: WorldRect,
         path: &Path,
         files: Vec<String>,
     ) -> Node {
+        let portal = self.bound_atlas_portal(path, files);
+        self.doc_mut()
+            .scene
+            .build_node(rect, NodeKind::Portal(portal))
+    }
+
+    pub(crate) fn bound_atlas_portal(&self, path: &Path, files: Vec<String>) -> PortalNode {
         let locator = source_locator(self.tab().path.as_deref(), path);
         let title = path
             .file_name()
@@ -192,8 +199,7 @@ impl SlateApp {
             .unwrap_or("File Atlas");
         let mut portal = PortalNode::bound_file_atlas(title, locator);
         portal.atlas.files = files;
-        let mut prepared = self.doc().scene.node_preparation();
-        prepared.build_node(rect, NodeKind::Portal(portal))
+        portal
     }
 }
 

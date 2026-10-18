@@ -3,6 +3,22 @@
 
 use super::*;
 
+/// Whether a screen point belongs to the live page rather than Slate's frame
+/// band or chrome (D17/D22). Chrome takes priority where the inset page hit
+/// region overlaps it; native scrollbar tracks remain reachable at the edge.
+pub(crate) fn page_owns_point(layout: &PortalChromeLayout, p: Pos2) -> bool {
+    if layout.pointer_on_chrome(p) {
+        return false;
+    }
+    let page = layout.body;
+    let scrollbar_width = atlas_shell::tabs::portal_scrollbar_width(
+        layout.bar.or(layout.reveal).map_or(0.0, |r| r.height()),
+    );
+    layout.page.contains(p)
+        || (page.contains(p)
+            && (p.x >= page.right() - scrollbar_width || p.y >= page.bottom() - scrollbar_width))
+}
+
 #[derive(Clone, Copy, PartialEq)]
 pub(super) struct PointerSample(f32, f32, u8);
 

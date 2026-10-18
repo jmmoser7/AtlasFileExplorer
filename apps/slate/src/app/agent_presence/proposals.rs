@@ -172,6 +172,7 @@ impl SlateApp {
         let prepared = context.prepared.clone();
         let call = context.call.clone();
         let drawing_helpers = a.grant.as_ref().map_or(0, |grant| grant.helper_limit);
+        self.validate_creation_admission(a, &call, &prepared)?;
         self.check_presence_proposal_decision(proposal)?;
         self.check_targeted_command(&prepared)?;
         let mut work =

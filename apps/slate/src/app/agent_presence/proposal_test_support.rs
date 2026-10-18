@@ -52,7 +52,7 @@ pub(in crate::app::agent_presence) fn begin_command(
     call
 }
 
-pub(super) fn stage_command(
+pub(in crate::app::agent_presence) fn stage_command(
     h: &mut Harness,
     who: &str,
     command: &str,

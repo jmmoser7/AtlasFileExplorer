@@ -7,8 +7,13 @@ pub(crate) use results::{
     brush_path_node, drawn_path_node, fit_freehand, node_stamp_key, path_tool,
 };
 use results::{stamp_key, stamp_key_at};
+#[path = "board_path/live_prefix.rs"]
+mod live_prefix;
+#[path = "board_path/stamped.rs"]
+mod stamped;
 #[path = "board_path/tiles.rs"]
 pub(crate) mod tiles;
+pub(crate) use stamped::paint_stamped_stroke;
 
 mod picking;
 
@@ -2526,7 +2531,7 @@ fn tend_erase_settle(app: &mut SlateApp, painter: &egui::Painter, xf: &BoardXf) 
 
 /// Stroke `node` of the open document paints its exact raster for content
 /// `key` at `want`.
-fn stroke_raster_current(app: &SlateApp, node: &Node, key: u64, want: f32) -> bool {
+pub(crate) fn stroke_raster_current(app: &SlateApp, node: &Node, key: u64, want: f32) -> bool {
     if app.brush_tiles_enabled && tiles::plain_stamp(app, node).is_some() {
         return app.brush_tiles.last.settled;
     }
@@ -2764,136 +2769,6 @@ pub(crate) fn has_stand_in(app: &SlateApp, id: NodeId, key: Option<u64>) -> bool
             .brush_live
             .as_ref()
             .is_some_and(|c| c.stands_in(id, key))
-}
-
-fn paint_stamped_stroke(
-    app: &mut SlateApp,
-    painter: &egui::Painter,
-    xf: &BoardXf,
-    node: &Node,
-    shape: &ShapeNode,
-    path: &PathData,
-    fade: &impl Fn(Color32) -> Color32,
-) {
-    // A nested board numbers its strokes as the host does: they go by
-    // their cache id, never meet the host's eraser or live canvas, and no
-    // tile paints them.
-    let nested = app.slate_nesting();
-    let cache = app.stroke_cache_id(node.id);
-    let want = stamp_pixel_for_zoom(xf.z, painter.ctx().pixels_per_point());
-    if let Some(super::board::BoardDrag::Erase {
-        points,
-        spot,
-        straight,
-        ..
-    }) = &app.board_drag
-    {
-        if !nested && spot.contains(&node.id) {
-            let (points, straight) = (points.clone(), *straight);
-            let tip = app.eraser_tip();
-            if !app.erase_live.contains_key(&node.id) {
-                start_erase_live(app, painter, node, want);
-            }
-            if let Some(live) = app.erase_live.get_mut(&node.id) {
-                live.feed(&points, tip, straight);
-                live.pump(
-                    &mut app.brush_tiles,
-                    tiles::erase_lane(node.id),
-                    painter.ctx(),
-                );
-                live.paint(painter, xf, fade(Color32::WHITE), [0.0; 2]);
-                return;
-            }
-        }
-    }
-    if !nested && paint_settling_erase(app, painter, xf, node, fade) {
-        return;
-    }
-    let key = stamp_key(node, shape, path);
-    promote_stamp_fallback(app, cache, key);
-    let exact = |app: &SlateApp| {
-        app.brush_stamps
-            .get(&cache)
-            .is_some_and(|(k, g)| g.exact && *k == key && g.wanted_pixel == want)
-    };
-    let tab = app.tab().id;
-    if !exact(app) {
-        if let Some(r) = app.brush_tiles.take_stroke(cache) {
-            let current = r.key == key && r.pixel == want;
-            // A stale bitmap replaces neither an eraser stand-in whose pass
-            // is applied nor a bitmap of this very content.
-            let shown = app
-                .brush_stamps
-                .get(&cache)
-                .is_some_and(|(k, g)| *k == key || g.seal.is_some_and(|s| !s.undone(app)));
-            match r.stamp {
-                Some(stamp) if current || !shown => {
-                    let name = format!("brush-stamp-{}", cache.0);
-                    let mut gpu = upload_stamp(painter, &name, stamp, r.image, r.pixel, r.rect);
-                    gpu.exact = current;
-                    gpu.fallback = stand_in_fallback(app, cache, r.key);
-                    gpu.tab = tab;
-                    app.brush_stamps.insert(cache, (r.key, gpu));
-                    evict_brush_stamps(&mut app.brush_stamps, app.frame_no);
-                }
-                Some(_) => {}
-                None if current => {
-                    app.brush_stamps.remove(&cache);
-                    return;
-                }
-                None => {}
-            }
-        }
-    }
-    if !exact(app) {
-        if take_sync_budget(app, stamp_area_px(node, shape, want)) {
-            let Some(stamp) = stroke_stamp(node, shape, path, want) else {
-                app.brush_stamps.remove(&cache);
-                return;
-            };
-            let name = format!("brush-stamp-{}", cache.0);
-            let mut gpu = upload_stamp(painter, &name, stamp, None, want, node.rect);
-            gpu.fallback = stand_in_fallback(app, cache, key);
-            gpu.tab = tab;
-            app.brush_stamps.insert(cache, (key, gpu));
-            evict_brush_stamps(&mut app.brush_stamps, app.frame_no);
-        } else {
-            // Tiles already rasterize a plain stroke of the host off the
-            // frame loop.
-            let tiled =
-                !nested && app.brush_tiles_enabled && tiles::plain_stamp(app, node).is_some();
-            if !tiled {
-                app.brush_tiles.request_stroke(cache, tab, node, key, want);
-            }
-            painter.ctx().request_repaint();
-        }
-    }
-    let stand_in = app
-        .brush_live
-        .as_ref()
-        .filter(|c| !nested && !exact(app) && c.stands_in(node.id, Some(key)))
-        .map(|c| c.awaits_anchor());
-    if let Some(adds) = stand_in {
-        // A canvas that adds only this drag's segments paints over the
-        // stroke as it was: the tiles show that, or its last bitmap where
-        // it was.
-        if adds && !(app.brush_tiles_enabled && tiles::plain_stamp(app, node).is_some()) {
-            if let Some((_, gpu)) = app.brush_stamps.get_mut(&cache) {
-                gpu.used = app.frame_no;
-                paint_stamp_quad(painter, xf, gpu, gpu.rect, fade(Color32::WHITE));
-            }
-        }
-        if let Some(canvas) = app.brush_live.as_mut() {
-            canvas.paint(painter, xf);
-        }
-        return;
-    }
-    if let Some((built, gpu)) = app.brush_stamps.get_mut(&cache) {
-        gpu.used = app.frame_no;
-        let moved = gpu.rect == node.rect || stamp_key_at(node, shape, path, gpu.rect) == *built;
-        let rect = if moved { node.rect } else { gpu.rect };
-        paint_stamp_quad(painter, xf, gpu, rect, fade(Color32::WHITE));
-    }
 }
 
 /// One committed stroke's stamp bitmap at `pixel` world units per pixel:
@@ -3813,36 +3688,6 @@ impl BrushLiveCanvas {
     fn upload(&mut self, dirty: [u32; 4]) {
         let sub = vector_ink::finished_region(&self.img, self.grain, dirty);
         upload_rows(&mut self.tex, dirty, &sub);
-    }
-
-    /// Stamp freehand points not yet on the canvas, each with its own tip
-    /// (`tips`, one per point).
-    pub fn add_freehand(&mut self, points: &[Pos2], tips: &[StrokeSpan]) {
-        let at = |i: usize| TipPoint {
-            pos: [points[i].x, points[i].y],
-            tip: stamp_style(tips[i.min(tips.len().saturating_sub(1))]),
-        };
-        if tips.is_empty() {
-            return;
-        }
-        let mut dirty: Option<[u32; 4]> = None;
-        let start = self.freehand_done.max(1);
-        let mut segs: Vec<(TipPoint, TipPoint)> = Vec::new();
-        if self.freehand_done == 0 && !points.is_empty() {
-            segs.push((at(0), at(0)));
-        }
-        for i in start..points.len() {
-            segs.push((at(i - 1), at(i)));
-        }
-        for (a, b) in segs {
-            if let Some(bx) = self.stamp(a, b) {
-                dirty = Some(union_box(dirty, bx));
-            }
-        }
-        self.freehand_done = points.len();
-        if let Some(d) = dirty {
-            self.upload(d);
-        }
     }
 
     #[cfg(test)]

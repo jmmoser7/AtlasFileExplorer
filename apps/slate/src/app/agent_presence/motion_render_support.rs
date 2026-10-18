@@ -197,6 +197,15 @@ impl Fixture {
         assert_eq!(self.state(), before);
     }
 
+    pub fn draw_exact(&mut self, out: egui::FullOutput) {
+        let before = self.state();
+        self.raster.sync_fonts(&self.h.ctx);
+        let prims = self.h.ctx.tessellate(out.shapes, out.pixels_per_point);
+        self.raster.px.fill([0.0, 0.0, 0.0, 1.0]);
+        self.raster.draw(&prims);
+        assert_eq!(self.state(), before, "drawing must not advance any frames");
+    }
+
     pub fn set_zoom(&mut self, zoom: f32) {
         self.h.app.tab_mut().cam.z = zoom;
         self.camera = (self.h.app.tab().cam.offset, zoom);

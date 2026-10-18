@@ -10,6 +10,9 @@ agents share result builders, join preparation, eraser math, WebHost and the
 File Atlas session/folder-map painter. Temporary drawing avatars execute a
 single multi-stroke command; they do not create model sessions. Authoritative
 scene changes occur once at completion, preserving ordinary Undo/proposals.
+Stamped prefixes use the human brush's viewport-sized live canvas, including
+its variable tips and final raster handoff, rather than queuing a new bitmap
+for every moving endpoint. The cache is bounded and is discarded on cancel.
 
 ## Acceptance paths
 
@@ -23,6 +26,10 @@ scene changes occur once at completion, preserving ordinary Undo/proposals.
   removes only ephemeral previews and retains completed unrelated work.
 - Concurrent human target edits, locks, grant revocation or tab changes fence
   the operation before it can commit stale geometry.
+- Colliding pending creations receive a recoverable wait/retry result before
+  a second avatar can preview the same object IDs. A human creation that
+  collides during a preview cancels that preview without ending the provider
+  conversation or changing the human's object.
 - Erase stamped strokes and vector paths using the human eraser result; show
   only the swept prefix. Deferred empty-stamp removal retains the same author
   and undo group, and never amends a later unrelated edit.
@@ -39,7 +46,9 @@ scene changes occur once at completion, preserving ordinary Undo/proposals.
 
 ## Evidence boundaries
 
-Unit and headless integration results will be recorded after execution.
+The pull request records executed unit and headless integration results. Local
+logs and phase metadata are retained under `target/review/agent-tools-20261018`
+and the request-specific motion capture folders under `target/review/`.
 Software captures use the production board painter with synthetic fixture
 content; they are not native pointer/GPU or human acceptance. The user's open
 Slate session is protected and must be safely closed before its executable can

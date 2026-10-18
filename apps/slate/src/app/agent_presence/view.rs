@@ -65,6 +65,7 @@ impl SlateApp {
         painter: &egui::Painter,
         xf: &super::super::board::BoardXf,
     ) {
+        self.paint_agent_brush_previews(painter, xf);
         let reduced =
             self.settings.presence_reduced_motion || chrome::system_reduced_motion(painter.ctx());
         let tab = self.tab().id;
@@ -181,14 +182,6 @@ impl SlateApp {
                         now,
                         reduced,
                         xf.z,
-                    );
-                    chrome::world_participant_name(
-                        painter,
-                        helper_center,
-                        "Helper",
-                        &self.palette(),
-                        xf.z,
-                        self.presence.chrome.font_family(),
                     );
                 }
             }

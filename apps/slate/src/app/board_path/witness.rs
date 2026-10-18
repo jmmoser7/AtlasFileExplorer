@@ -10,6 +10,7 @@ pub(crate) struct StrokePreview {
     source: Node,
     contours: Vec<Vec<WorldPoint>>,
     tips: Vec<Vec<StrokeSpan>>,
+    tip_anchors: Vec<Vec<[f64; 2]>>,
 }
 
 impl StrokePreview {
@@ -39,6 +40,7 @@ impl StrokePreview {
         }
         let mut contours = Vec::with_capacity(flat.len());
         let mut tips = Vec::with_capacity(flat.len());
+        let mut tip_anchors = Vec::with_capacity(flat.len());
         for (index, points) in flat.iter().enumerate() {
             let world = points
                 .iter()
@@ -53,16 +55,37 @@ impl StrokePreview {
                 node,
                 source.tip_offset,
             ));
+            tip_anchors.push(
+                points
+                    .iter()
+                    .map(|point| [f64::from(point[0]), f64::from(point[1])])
+                    .collect(),
+            );
         }
         Some(Self {
             source: node.clone(),
             contours,
             tips,
+            tip_anchors,
         })
     }
 
     pub(crate) fn contours(&self) -> &[Vec<WorldPoint>] {
         &self.contours
+    }
+
+    /// The flattened brush route and its canonical tip spans, both prepared
+    /// once with the preview geometry.
+    pub(crate) fn brush_contour(&self, index: usize) -> Option<(&[WorldPoint], &[StrokeSpan])> {
+        Some((self.contours.get(index)?, self.tips.get(index)?))
+    }
+
+    /// Interpolate the same authored tip data used by the stamped renderer.
+    pub(crate) fn brush_tip_at(&self, index: usize, point: WorldPoint) -> Option<StrokeSpan> {
+        let anchors = self.tip_anchors.get(index)?;
+        let tips = self.tips.get(index)?;
+        (!anchors.is_empty() && anchors.len() == tips.len())
+            .then(|| tip_at([point.x as f32, point.y as f32], anchors, tips, false))
     }
 
     /// Build a temporary node containing completed contour prefixes. The

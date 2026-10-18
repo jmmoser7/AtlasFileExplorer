@@ -38,7 +38,24 @@ pub(super) struct DrawingRun {
     last_sample: Option<(MotionPhase, u32)>,
     helpers_visible: bool,
 }
+
+pub(in crate::app::agent_presence) struct BrushPathSample<'a> {
+    pub lane_id: &'a str,
+    pub node: &'a Node,
+    pub points: &'a [WorldPoint],
+    pub tips: &'a [StrokeSpan],
+    pub vertex_index: usize,
+    pub position: WorldPoint,
+    pub tip: StrokeSpan,
+    pub finished: bool,
+}
+
 impl DrawingRun {
+    pub(super) fn owns_brush_lane(&self, lane_id: &str, id: slate_doc::NodeId) -> bool {
+        self.lanes.iter().any(|lane| lane.id == lane_id)
+            && self.ink.iter().any(|stroke| stroke.node.id == id)
+    }
+
     pub(super) fn prepare(
         prepared: &PreparedBoardCommand,
         steps: &[(Option<Node>, Option<Node>)],
@@ -303,6 +320,64 @@ impl DrawingRun {
             .skip(1)
             .filter(|_| self.helpers_visible)
             .map(|l| (l.id.as_str(), l.position))
+    }
+
+    /// Visit the already-flattened stamped paths that this lane has reached.
+    /// Completed contours remain available for the live-canvas handoff;
+    /// the current contour carries its exact route prefix and interpolated
+    /// authored tip without rebuilding path geometry.
+    pub(super) fn for_each_brush_path(
+        &self,
+        sample: MotionSample,
+        mut visit: impl FnMut(BrushPathSample<'_>),
+    ) {
+        if !matches!(sample.phase, MotionPhase::Work | MotionPhase::ReadyToCommit) {
+            return;
+        }
+        let ready = sample.phase == MotionPhase::ReadyToCommit;
+        for lane in &self.lanes {
+            let at = lane.route.position(sample.progress);
+            let Some(current) = at.stroke_index.checked_sub(lane.birth_marker) else {
+                continue;
+            };
+            for (order, index) in lane.strokes.iter().enumerate() {
+                let stroke = &self.ink[*index];
+                let NodeKind::Shape(shape) = &stroke.node.kind else {
+                    continue;
+                };
+                if !shape.stroke.paints_as_stamp() || shape.stroke.is_none() {
+                    continue;
+                }
+                let is_finished = ready || order < current;
+                if !is_finished && (order != current || !at.pen_down) {
+                    continue;
+                }
+                let Some((points, tips)) = stroke.geometry.brush_contour(0) else {
+                    continue;
+                };
+                if points.len() != tips.len() || points.is_empty() {
+                    continue;
+                }
+                let (vertex_index, position) = if is_finished {
+                    (points.len() - 1, *points.last().expect("nonempty points"))
+                } else {
+                    (at.vertex_index.min(points.len() - 1), at.position)
+                };
+                let Some(tip) = stroke.geometry.brush_tip_at(0, position) else {
+                    continue;
+                };
+                visit(BrushPathSample {
+                    lane_id: &lane.id,
+                    node: &stroke.node,
+                    points,
+                    tips,
+                    vertex_index,
+                    position,
+                    tip,
+                    finished: is_finished,
+                });
+            }
+        }
     }
     pub(super) fn look_at(&self) -> Option<WorldPoint> {
         self.lanes.first().map(|lane| lane.position)

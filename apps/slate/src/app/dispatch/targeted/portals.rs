@@ -39,7 +39,9 @@ pub(super) fn prepare(
     let node = match kind {
         "atlas" => {
             let path = PathBuf::from(source);
-            app.build_bound_atlas(rect, &path, Vec::new())
+            let portal = app.bound_atlas_portal(&path, Vec::new());
+            let mut scratch = app.doc().scene.node_preparation();
+            scratch.build_node(rect, NodeKind::Portal(portal))
         }
         "web" => {
             if let Some(url) = super::super::super::board_web::web_url_text(source) {

@@ -6,6 +6,7 @@ use slate_doc::scene::{Node, NodeKind, SceneCmd};
 #[path = "crop_witness_tests.rs"]
 mod crop_tests;
 mod drawing;
+pub(super) use drawing::BrushPathSample;
 mod pairs;
 
 pub(super) struct WitnessedCommand {
@@ -49,6 +50,20 @@ impl WitnessedCommand {
     }
     pub(super) fn drawing_helpers(&self) -> impl Iterator<Item = (&str, WorldPoint)> {
         self.drawing.iter().flat_map(|drawing| drawing.helpers())
+    }
+    pub(super) fn for_each_drawing_brush_path(
+        &self,
+        sample: MotionSample,
+        visit: impl FnMut(drawing::BrushPathSample<'_>),
+    ) {
+        if let Some(drawing) = &self.drawing {
+            drawing.for_each_brush_path(sample, visit);
+        }
+    }
+    pub(super) fn owns_drawing_brush_lane(&self, lane_id: &str, id: slate_doc::NodeId) -> bool {
+        self.drawing
+            .as_ref()
+            .is_some_and(|drawing| drawing.owns_brush_lane(lane_id, id))
     }
     pub(super) fn relay(call: BoardCall, relay: messaging::PreparedRelay) -> Self {
         Self {

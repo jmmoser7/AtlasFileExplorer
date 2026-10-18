@@ -2928,19 +2928,7 @@ pub(super) fn web_frame_has_content(image: &egui::ColorImage) -> bool {
     !(near_black || near_white)
 }
 
-/// Whether a screen point belongs to the live page rather than Slate's frame
-/// band or chrome (D17/D22). Every pointer button over this area is the page's.
-/// UVs follow the painted body, not the inset frame hit band; native scrollbar
-/// tracks stay reachable where they overlap that band.
-pub(crate) fn page_owns_point(layout: &PortalChromeLayout, p: Pos2) -> bool {
-    let page = layout.body;
-    let scrollbar_width = atlas_shell::tabs::portal_scrollbar_width(
-        layout.bar.or(layout.reveal).map_or(0.0, |r| r.height()),
-    );
-    layout.page.contains(p)
-        || (page.contains(p)
-            && (p.x >= page.right() - scrollbar_width || p.y >= page.bottom() - scrollbar_width))
-}
+pub(crate) use input::page_owns_point;
 
 /// Physical-pixel quality tiers, bounded by the display rather than deep zoom.
 pub fn raster_for(

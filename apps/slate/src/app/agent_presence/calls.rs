@@ -198,6 +198,7 @@ impl SlateApp {
                         None => self.prepare_targeted_command(command, targets, arguments)?,
                     };
                     self.validate_presence_action(a, call, &prepared)?;
+                    self.validate_creation_admission(a, call, &prepared)?;
                     a.activity = command_activity(command).into();
                     a.observed_target = prepared.targets.first().copied();
                     a.status = "Approaching target · visible action".into();
