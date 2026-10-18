@@ -6,6 +6,30 @@ struct Frame {
     chips: Vec<Rect>,
     text: Vec<(String, Pos2)>,
     opener: egui::LayerId,
+    trace: Vec<PointerProbe>,
+}
+
+#[derive(Clone, Debug)]
+#[expect(
+    dead_code,
+    reason = "Fields are retained for failure-only Debug diagnostics."
+)]
+struct PointerProbe {
+    pointer: Option<Pos2>,
+    primary: (bool, bool, bool),
+    shift: bool,
+    chip_rect: Option<Rect>,
+    chip_response: Option<(bool, bool, bool, bool, bool, bool)>,
+    chip_sense: Option<egui::Sense>,
+    chip_layer: Option<egui::LayerId>,
+    preview_rect: Option<Rect>,
+    preview_widget_rect: Option<Rect>,
+    preview_sense: Option<egui::Sense>,
+    top_layer: Option<egui::LayerId>,
+    top_area_rect: Option<Rect>,
+    top_area_widget_rect: Option<Rect>,
+    top_area_sense: Option<egui::Sense>,
+    menu_opener: Option<egui::LayerId>,
 }
 
 fn frame(
@@ -16,6 +40,7 @@ fn frame(
 ) -> Frame {
     let mut chips = Vec::new();
     let mut opener = egui::LayerId::background();
+    let mut trace = Vec::new();
     let ctx = h.ctx.clone();
     let output = ctx.run(
         egui::RawInput {
@@ -66,54 +91,72 @@ fn frame(
                             if let Some(response) =
                                 ctx.read_response(ui.id().with(("image-agent-history", index)))
                             {
-                                if index == 0 && std::env::var_os("SLATE_TEST_CHROME_TRACE").is_some() {
-                                    let (time, events, latest_pos, interact_pos, primary_down, primary_pressed, primary_released) = ctx.input(|i| (
-                                        i.time,
-                                        i.events.clone(),
-                                        i.pointer.latest_pos(),
-                                        i.pointer.interact_pos(),
-                                        i.pointer.button_down(egui::PointerButton::Primary),
-                                        i.pointer.button_pressed(egui::PointerButton::Primary),
-                                        i.pointer.button_released(egui::PointerButton::Primary),
-                                    ));
-                                    let (clicked, drag_started, dragged, drag_stopped, hovered_ids, contained_ids) =
-                                        ctx.interaction_snapshot(|s| (
-                                            s.clicked,
-                                            s.drag_started,
-                                            s.dragged,
-                                            s.drag_stopped,
-                                            s.hovered.iter().copied().collect::<Vec<_>>(),
-                                            s.contains_pointer.iter().copied().collect::<Vec<_>>(),
-                                        ));
-                                    let mut observed_ids = hovered_ids.clone();
-                                    observed_ids.extend(contained_ids.iter().copied());
-                                    observed_ids.extend([clicked, drag_started, dragged, drag_stopped].into_iter().flatten());
-                                    let observed_widgets: Vec<_> = observed_ids.into_iter().filter_map(|id| {
-                                        ctx.read_response(id).map(|r| format!(
-                                            "id={:?} rect={:?} interact_rect={:?} layer={:?} sense={:?} enabled={} down_on={} interact_pointer={:?}",
-                                            r.id, r.rect, r.interact_rect, r.layer_id, r.sense, r.enabled(),
-                                            r.is_pointer_button_down_on(), r.interact_pointer_pos,
-                                        ))
-                                    }).collect();
-                                    eprintln!(
-                                        "[SLATE_TEST_CHROME_TRACE] expanded history[0] time={time} events={events:?} pointer_latest={latest_pos:?} pointer_interact={interact_pos:?} primary_down={primary_down} primary_pressed={primary_pressed} primary_released={primary_released} response_id={:?} response_sense={:?} response_enabled={} response_down_on={} response_interact_pointer={:?} rect={:?} interact_rect={:?} layer={:?} owner={:?} hovered={} contains={} clicked={} drag_started={} snapshot_clicked={clicked:?} snapshot_drag_started={drag_started:?} snapshot_dragged={dragged:?} snapshot_drag_stopped={drag_stopped:?} hovered_ids={hovered_ids:?} contained_ids={contained_ids:?} observed_widgets={observed_widgets:?} menu_after_paint={}",
-                                        response.id,
-                                        response.sense,
-                                        response.enabled(),
-                                        response.is_pointer_button_down_on(),
-                                        response.interact_pointer_pos,
-                                        response.rect,
-                                        response.interact_rect,
-                                        response.layer_id,
-                                        ctx.layer_id_at(response.rect.center()),
-                                        response.hovered(),
-                                        response.contains_pointer(),
-                                        response.clicked(),
-                                        response.drag_started(),
-                                        h.app.agents.flow.results.menu.is_some(),
-                                    );
-                                }
                                 chips.push(response.rect);
+                                if index == 0 {
+                                    let pointer = ctx.pointer_latest_pos();
+                                    let top_layer = pointer.and_then(|at| ctx.layer_id_at(at));
+                                    let top_area_rect = top_layer.and_then(|layer| {
+                                        egui::containers::AreaState::load(ctx, layer.id)
+                                            .map(|area| area.rect())
+                                    });
+                                    let top_area_response = top_layer
+                                        .and_then(|layer| ctx.read_response(layer.id.with("move")));
+                                    let top_area_widget_rect =
+                                        top_area_response.as_ref().map(|response| response.rect);
+                                    let top_area_sense =
+                                        top_area_response.map(|response| response.sense);
+                                    let preview_id = ui.id().with(("image-agent-preview", 0usize));
+                                    let preview_rect =
+                                        egui::containers::AreaState::load(ctx, preview_id)
+                                            .map(|area| area.rect());
+                                    let preview_response =
+                                        ctx.read_response(preview_id.with("move"));
+                                    let preview_widget_rect =
+                                        preview_response.as_ref().map(|response| response.rect);
+                                    let preview_sense =
+                                        preview_response.map(|response| response.sense);
+                                    let (primary, shift) = ctx.input(|input| {
+                                        (
+                                            (
+                                                input.pointer.primary_pressed(),
+                                                input.pointer.primary_released(),
+                                                input.pointer.primary_down(),
+                                            ),
+                                            input.modifiers.shift,
+                                        )
+                                    });
+                                    trace.push(PointerProbe {
+                                        pointer,
+                                        primary,
+                                        shift,
+                                        chip_rect: Some(response.rect),
+                                        chip_response: Some((
+                                            response.enabled(),
+                                            response.hovered(),
+                                            response.clicked(),
+                                            response.secondary_clicked(),
+                                            response.contains_pointer(),
+                                            response.is_pointer_button_down_on(),
+                                        )),
+                                        chip_sense: Some(response.sense),
+                                        chip_layer: Some(response.layer_id),
+                                        preview_rect,
+                                        preview_widget_rect,
+                                        preview_sense,
+                                        top_layer,
+                                        top_area_rect,
+                                        top_area_widget_rect,
+                                        top_area_sense,
+                                        menu_opener: h
+                                            .app
+                                            .agents
+                                            .flow
+                                            .results
+                                            .menu
+                                            .as_ref()
+                                            .map(|menu| menu.opener),
+                                    });
+                                }
                             }
                         }
                     });
@@ -139,6 +182,7 @@ fn frame(
         chips,
         text: words,
         opener,
+        trace,
     }
 }
 
@@ -147,21 +191,27 @@ fn click(h: &mut Harness, host: NodeId, at: Pos2, shift: bool) -> Frame {
         shift,
         ..Default::default()
     };
-    frame(h, host, vec![egui::Event::PointerMoved(at)], modifiers);
+    let mut trace = frame(h, host, vec![egui::Event::PointerMoved(at)], modifiers).trace;
     for pressed in [true, false] {
-        frame(
-            h,
-            host,
-            vec![egui::Event::PointerButton {
-                pos: at,
-                button: egui::PointerButton::Primary,
-                pressed,
+        trace.extend(
+            frame(
+                h,
+                host,
+                vec![egui::Event::PointerButton {
+                    pos: at,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers,
+                }],
                 modifiers,
-            }],
-            modifiers,
+            )
+            .trace,
         );
     }
-    frame(h, host, vec![], modifiers)
+    let mut out = frame(h, host, vec![], modifiers);
+    trace.extend(out.trace);
+    out.trace = trace;
+    out
 }
 
 #[test]
@@ -170,8 +220,23 @@ fn expanded_history_actions_and_batch_name_field_are_reachable_above_the_editor(
     frame(&mut h, host, vec![], egui::Modifiers::NONE);
     let initial = frame(&mut h, host, vec![], egui::Modifiers::NONE);
     assert_eq!(initial.chips.len(), 5);
-    click(&mut h, host, initial.chips[0].center(), false);
+    let first_click = click(&mut h, host, initial.chips[0].center(), false);
     let selected = frame(&mut h, host, vec![], egui::Modifiers::NONE);
+    if h.app
+        .agents
+        .flow
+        .results
+        .menu
+        .as_ref()
+        .map(|menu| menu.opener)
+        != Some(initial.opener)
+    {
+        panic!(
+            "first history click failed the expected menu opener; click frames={:#?}; following frame={:#?}",
+            first_click.trace,
+            selected.trace,
+        );
+    }
     assert_eq!(
         h.app.agents.flow.results.menu.as_ref().unwrap().opener,
         initial.opener

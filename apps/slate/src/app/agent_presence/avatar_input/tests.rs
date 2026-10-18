@@ -87,3 +87,74 @@ fn removing_photo_fences_pending_import_and_retains_conversation_and_draft() {
     assert_eq!(c.turns[0].text, "Keep this note");
     assert_eq!(c.draft, "Keep this draft");
 }
+
+#[test]
+fn stale_provider_progress_cannot_expire_an_addressed_listening_pause() {
+    let (mut h, who) = host();
+    let quiet = Instant::now() - std::time::Duration::from_secs(9);
+    h.app.presence.agents[0].last_active = quiet;
+    let binding = h.app.presence.agents[0].binding.clone();
+    h.app.presence_address(&h.ctx, &who).unwrap();
+    for _ in 0..9 {
+        h.frame();
+        let a = &h.app.presence.agents[0];
+        assert!(a.paused);
+        assert_eq!(a.activity, "listening");
+        assert_eq!(a.status, "Listening; task suspended");
+        assert_eq!(h.app.presence.avatar_activity(a), "listening");
+        assert_eq!(
+            a.last_active, quiet,
+            "local addressing is not provider progress"
+        );
+        assert_eq!(a.binding, binding);
+        assert!(a.request.is_empty() && !a.inflight);
+        assert!(a.work.is_none() && a.read.is_none());
+        assert!(a.runtime.is_none() && a.cursor.is_none());
+    }
+    h.app.presence.chrome.close_chat();
+    h.frame();
+    let a = &h.app.presence.agents[0];
+    assert!(a.paused);
+    assert_eq!(a.activity, "listening");
+    assert_eq!(h.app.presence.avatar_activity(a), "listening");
+    assert_eq!(a.last_active, quiet);
+    h.app
+        .apply_presence_action(
+            &h.ctx,
+            chrome::PresenceAction::Pause {
+                id: who,
+                paused: false,
+            },
+        )
+        .unwrap();
+    assert_eq!(h.app.presence.agents[0].activity, "idle");
+    h.frame();
+    let a = &h.app.presence.agents[0];
+    assert!(!a.paused);
+    assert_eq!(
+        a.activity, "resting",
+        "ordinary quiet fallback remains active after Resume"
+    );
+    assert_eq!(a.last_active, quiet);
+}
+
+#[test]
+fn paused_quiet_fallback_preserves_existing_failure_diagnostics() {
+    let (mut h, who) = host();
+    h.app
+        .set_presence_paused(&who, true, controls::PauseCause::Human)
+        .unwrap();
+    let quiet = Instant::now() - std::time::Duration::from_secs(9);
+    for diagnostic in ["error", "offline", "blocked"] {
+        let a = &mut h.app.presence.agents[0];
+        a.last_active = quiet;
+        a.activity = diagnostic.into();
+        a.status = "Keep this real diagnostic".into();
+        h.frame();
+        let a = &h.app.presence.agents[0];
+        assert!(a.paused);
+        assert_eq!(a.activity, diagnostic);
+        assert_eq!(a.status, "Keep this real diagnostic");
+        assert_eq!(a.last_active, quiet);
+    }
+}

@@ -242,6 +242,9 @@ fn actual_avatar_press_double_click_close_escape_and_wheel_keep_the_canvas_contr
             f.h.app.presence.agents[0].paused,
             "closing chat retains the explicit listening pause"
         );
+        // This is a new gesture after the close-button click. Egui counts
+        // triples globally, so age that prior click past its configured window.
+        f.time += 2.0 * f.h.ctx.options(|o| o.input_options.max_double_click_delay);
         let out = f.paint();
         let head = f.head(&out);
         f.double_click(head.center());
@@ -401,7 +404,7 @@ fn actual_overlapped_avatar_double_click_addresses_only_the_last_painted_actor()
     // a second one; the shared head helper correctly refuses ambiguous meshes.
     let out = h.frame_output(|_| {});
     let center = h.app.board_xf().w2s(egui::pos2(p.x as f32, p.y as f32));
-    let at = world_opaque_head(&out, center, 1.0).center();
+    let at = world_opaque_head(&out, center, h.app.tab().cam.z).center();
     let front = add(&mut h, "Front");
     let motion = h.app.presence.agents[1].motion.clone();
     // Deliberate overlap fixtures the recovery case, not normal admission.

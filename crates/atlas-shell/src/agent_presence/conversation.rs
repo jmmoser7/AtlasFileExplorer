@@ -77,7 +77,7 @@ pub(super) fn show(
                 .id(Id::new(("presence-composer", p.id)))
                 .frame(false)
                 .font(chrome::font(ui, if attached { 14.0 } else { 17.0 }))
-                .hint_text("Message")
+                .hint_text(egui::RichText::new("Message").color(palette.sub))
                 .desired_rows(2),
         );
         if response.changed() {

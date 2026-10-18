@@ -467,7 +467,7 @@ fn paint_chevron(painter: &egui::Painter, c: Pos2, size: f32, stroke: f32, color
     );
 }
 
-fn paint_icon(
+pub(crate) fn paint_icon(
     painter: &egui::Painter,
     icon: MenuIcon,
     c: Pos2,

@@ -171,7 +171,7 @@ fn full_app_presence_chrome_retains_actual_ui_states() {
         assert_eq!(f.h.app.presence.chrome.canvas_chat(), Some(who.as_str()));
         assert_eq!(f.h.app.presence.chrome.active_chat(), Some(who.as_str()));
         for text in [
-            "Board task paused · listening",
+            "Listening; task suspended",
             "How is the interface feeling?",
             "Ready to help organize this board.",
         ] {
@@ -316,4 +316,176 @@ pub(super) fn world_opaque_head(out: &egui::FullOutput, center: Pos2, zoom: f32)
     );
     assert!(support::screen().contains_rect(head));
     head
+}
+
+#[test]
+fn zero_roster_ui_adds_a_local_collaborator_and_delivers_its_first_scoped_message() {
+    use super::super::{conversation_store, lifecycle_tests::delivery, messaging};
+    use crate::app::tests::{primary_button, pump_until};
+    use std::time::{Duration, Instant};
+
+    // Exercise the app widgets without the capture Fixture's preseeded Dot or
+    // its deliberate no-request invariant. A local sidecar only gets a file.
+    let mut h = super::host();
+    h.app.ensure_work_tab();
+    let ctx = h.ctx.clone();
+    h.app.set_agent_programs_for_test(&[]);
+    h.app.settings.recovery.enabled = false;
+    h.app.presence.conversations =
+        conversation_store::ConversationStore::at_directory(h.base.join("first-messages"));
+    messaging::mention_tests::until(&mut h, |app| app.presence.conversations.status().is_none());
+    assert!(h.app.presence.agents.is_empty());
+    assert!(h.app.settings.collaborators.is_empty());
+    assert_eq!(h.app.presence.roster.profiles().count(), 0);
+    assert!(
+        h.app.tab().path.is_none(),
+        "first chat also works before Save"
+    );
+    for _ in 0..8 {
+        h.frame();
+    }
+    let plus = ctx.read_response(Id::new("presence-add")).unwrap();
+    let at = ctx
+        .layer_transform_to_global(plus.layer_id)
+        .unwrap_or_default()
+        * plus.rect.center();
+    h.frame_with(primary_button(at, true, false));
+    h.frame_with(primary_button(at, false, false));
+    for _ in 0..8 {
+        h.frame();
+    }
+    let out = h.frame_output(|_| {});
+    for label in ["Add a collaborator", "Codex", "Cursor", "Dot / local"] {
+        management::required(&out, label);
+    }
+    has(&out, "Source files stay private; edits begin as proposals");
+    has(&out, "Save this workbook before requesting board edits");
+    let at = management::required(&out, "Dot / local").center();
+    h.frame_with(primary_button(at, true, false));
+    h.frame_with(primary_button(at, false, false));
+    let out = h.frame_output(|_| {});
+    let at = management::required(&out, "Add collaborator").center();
+    h.frame_with(primary_button(at, true, false));
+    h.frame_with(primary_button(at, false, false));
+    assert_eq!(h.app.presence.agents.len(), 1);
+    assert_eq!(h.app.settings.collaborators.len(), 1);
+    let a = &h.app.presence.agents[0];
+    let who = a.profile.id.clone();
+    let session = a.binding.clone();
+    let grant = a.grant.clone().unwrap();
+    let dir = a.dir.clone();
+    assert_eq!(a.profile.provider, "local");
+    assert_eq!(a.profile.name, "Agent");
+    assert_eq!(a.profile.hat, "cap");
+    assert!(a.request.is_empty() && !a.inflight);
+    assert!(a.runtime.is_none() && a.cursor.is_none() && a.launched.is_empty());
+    assert!(
+        !dir.join("request.json").exists(),
+        "Add never submits a task"
+    );
+    assert!(grant.readable_board && grant.readable_nodes.is_empty());
+    assert!(grant.readable_sources.is_empty() && !grant.mutation_autonomy);
+    assert_eq!(grant.conversation_ids, vec![who.clone()]);
+    assert_eq!(grant.id, session.grant_id);
+    assert_eq!(grant.workspace_id, session.workspace_id);
+    assert!(h
+        .app
+        .presence_conversation(&who)
+        .is_none_or(|c| { c.turns.is_empty() && c.bindings.is_empty() && c.draft.is_empty() }));
+    for _ in 0..8 {
+        h.frame();
+    }
+    let icon = ctx
+        .read_response(Id::new(("presence-chat", who.as_str())))
+        .unwrap();
+    let at = ctx
+        .layer_transform_to_global(icon.layer_id)
+        .unwrap_or_default()
+        * icon.rect.center();
+    h.frame_with(primary_button(at, true, false));
+    h.frame_with(primary_button(at, false, false));
+    for _ in 0..8 {
+        h.frame();
+    }
+    let out = h.frame_output(|_| {});
+    assert_eq!(h.app.presence.chrome.active_chat(), Some(who.as_str()));
+    assert_eq!(h.app.presence.chrome.canvas_chat(), None);
+    let panel = ctx
+        .memory(|m| m.area_rect(Id::new("presence-expansion")))
+        .unwrap();
+    assert!(support::screen().contains_rect(panel));
+    assert!(out
+        .shapes
+        .iter()
+        .any(|s| is_surface(&s.shape, panel, h.app.palette().card)));
+    let composer = Id::new(("presence-composer", who.as_str()));
+    for id in [
+        Id::new(("conversation-profile", who.as_str())),
+        composer,
+        Id::new(("presence-send", who.as_str())),
+    ] {
+        let response = ctx.read_response(id).expect("actual enclosed chat control");
+        let transform = ctx
+            .layer_transform_to_global(response.layer_id)
+            .unwrap_or_default();
+        let rect = transform * response.rect;
+        assert!(panel.contains_rect(rect));
+        assert!((transform * response.interact_rect).contains(rect.center()));
+    }
+    let edit = ctx.read_response(composer).unwrap();
+    let at = ctx
+        .layer_transform_to_global(edit.layer_id)
+        .unwrap_or_default()
+        * edit.rect.center();
+    h.frame_with(primary_button(at, true, false));
+    h.frame_with(primary_button(at, false, false));
+    assert_eq!(ctx.memory(|m| m.focused()), Some(composer));
+    let message = "Hello; please read this board.";
+    h.frame_with(|input| input.events.push(egui::Event::Text(message.into())));
+    let c = h.app.presence_conversation(&who).unwrap();
+    assert_eq!(c.draft, message);
+    assert!(c.turns.is_empty());
+    let send = ctx
+        .read_response(Id::new(("presence-send", who.as_str())))
+        .unwrap();
+    let at = ctx
+        .layer_transform_to_global(send.layer_id)
+        .unwrap_or_default()
+        * send.rect.center();
+    h.frame_with(primary_button(at, true, false));
+    h.frame_with(primary_button(at, false, false));
+    let request_id = h.app.presence.agents[0].request.clone();
+    assert!(!request_id.is_empty());
+    let request = delivery::wait_request_until(
+        &dir.join("request.json"),
+        &request_id,
+        Instant::now() + Duration::from_secs(15),
+    );
+    assert_eq!(request.id, request_id);
+    assert_eq!(request.prompt, message);
+    assert_eq!(request.collaborator.as_ref(), Some(&session));
+    assert!(request.history.is_empty() && request.relayed_from.is_none());
+    assert!(request.inputs.context.is_empty() && request.inputs.wired.is_empty());
+    assert!(pump_until(&mut h, |_| {
+        std::fs::read(dir.join("board-session.json"))
+            .ok()
+            .and_then(|bytes| {
+                serde_json::from_slice::<atlas_ai::board_link::BoardBinding>(&bytes).ok()
+            })
+            .is_some_and(|b| b.session == session && b.request_id == request_id)
+    }));
+    let binding: atlas_ai::board_link::BoardBinding =
+        serde_json::from_slice(&std::fs::read(dir.join("board-session.json")).unwrap()).unwrap();
+    assert_eq!(binding.session, session);
+    assert_eq!(binding.request_id, request_id);
+    assert_eq!(binding.grant, grant);
+    let c = h.app.presence_conversation(&who).unwrap();
+    assert_eq!(c.turns.len(), 1);
+    assert_eq!(c.turns[0].text, message);
+    assert_eq!(c.turns[0].request, request_id);
+    assert_eq!(c.turns[0].status, "sent"); // Adapter enqueue, not provider acknowledgement.
+    assert!(c.draft.is_empty());
+    let a = &h.app.presence.agents[0];
+    assert!(a.runtime.is_none() && a.cursor.is_none() && a.launched.is_empty());
+    has(&h.frame_output(|_| {}), message);
 }

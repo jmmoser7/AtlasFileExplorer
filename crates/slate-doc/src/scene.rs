@@ -3207,7 +3207,7 @@ impl Scene {
                         self.node_positions.borrow_mut().len = usize::MAX;
                     }
                 } else {
-                    self.invalidate_derived();
+                    self.spatial.borrow_mut().invalidate();
                 }
                 true
             }
@@ -3591,6 +3591,10 @@ impl SceneJournal {
 }
 
 #[cfg(test)]
+#[path = "scene/lookup_tests.rs"]
+mod lookup_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -3880,7 +3884,7 @@ mod tests {
         assert_eq!(path.vector_widths(&stroke), None);
     }
 
-    fn scene_with_frame_and_image() -> (Scene, NodeId, NodeId) {
+    pub(super) fn scene_with_frame_and_image() -> (Scene, NodeId, NodeId) {
         let mut scene = Scene::default();
         let frame = scene.build_node(
             WorldRect::new(0.0, 0.0, 800.0, 450.0),
@@ -3909,92 +3913,6 @@ mod tests {
             node: img,
         });
         (scene, frame_id, img_id)
-    }
-
-    #[test]
-    fn node_lookup_survives_live_edits_journal_and_reload() {
-        let (mut scene, frame, image) = scene_with_frame_and_image();
-        assert_eq!(scene.index_of(image), Some(1));
-        let before = scene.node(image).unwrap().clone();
-        scene.node_mut(image).unwrap().rect.x += 35.0;
-        let after = scene.node(image).unwrap().clone();
-        let mut journal = SceneJournal::default();
-        journal.record(vec![SceneCmd::Patch {
-            before: Box::new(before.clone()),
-            after: Box::new(after.clone()),
-        }]);
-        assert!(journal.undo(&mut scene));
-        assert_eq!(scene.node(image), Some(&before));
-        assert!(journal.redo(&mut scene));
-        assert_eq!(scene.node(image), Some(&after));
-        let removed = scene.node(frame).unwrap().clone();
-        assert!(journal.commit(
-            &mut scene,
-            vec![SceneCmd::Remove {
-                index: 0,
-                node: removed
-            }]
-        ));
-        assert_eq!(scene.index_of(image), Some(0));
-        assert!(scene.node(frame).is_none());
-        assert!(journal.undo(&mut scene));
-        assert_eq!(scene.index_of(image), Some(1));
-        let json = serde_json::to_string(&scene).unwrap();
-        assert!(!json.contains("node_positions"));
-        let restored: Scene = serde_json::from_str(&json).unwrap();
-        assert_eq!(restored.node(image), Some(&after));
-        assert_eq!(scene, restored);
-    }
-
-    #[test]
-    fn node_lookup_recovers_from_importer_vector_changes() {
-        let (mut scene, frame, image) = scene_with_frame_and_image();
-        assert_eq!(scene.index_of(image), Some(1));
-        scene.nodes.swap(0, 1);
-        assert_eq!(scene.index_of(image), Some(0));
-        assert_eq!(scene.index_of(frame), Some(1));
-        let replacement = scene.build_duplicate(&scene.nodes[0].clone(), 0.0, 0.0);
-        let replacement_id = replacement.id;
-        scene.nodes[0] = replacement;
-        assert_eq!(scene.index_of(replacement_id), Some(0));
-        assert!(scene.node(image).is_none());
-        scene.nodes.clear();
-        assert!(scene.node(frame).is_none());
-    }
-
-    #[test]
-    fn node_lookup_survives_bulk_add_and_identity_replacement() {
-        let (mut scene, frame, image) = scene_with_frame_and_image();
-        assert_eq!(scene.index_of(image), Some(1));
-        let source = scene.node(image).unwrap().clone();
-        let first = scene.build_duplicate(&source, 10.0, 0.0);
-        let second = scene.build_duplicate(&source, 20.0, 0.0);
-        let ids = [first.id, second.id];
-        let mut journal = SceneJournal::default();
-        assert!(journal.commit(
-            &mut scene,
-            vec![
-                SceneCmd::Add {
-                    index: 2,
-                    node: first
-                },
-                SceneCmd::Add {
-                    index: 3,
-                    node: second
-                },
-            ]
-        ));
-        assert_eq!(scene.index_of(ids[0]), Some(2));
-        assert_eq!(scene.index_of(ids[1]), Some(3));
-        assert!(journal.undo(&mut scene));
-        assert!(scene.node(ids[0]).is_none());
-        assert_eq!(scene.index_of(frame), Some(0));
-        assert!(journal.redo(&mut scene));
-        assert_eq!(scene.index_of(ids[1]), Some(3));
-        // Importer misuse must not return the old identity's node.
-        scene.node_mut(ids[1]).unwrap().id = NodeId(100);
-        assert!(scene.node(ids[1]).is_none());
-        assert_eq!(scene.index_of(NodeId(100)), Some(3));
     }
 
     #[test]

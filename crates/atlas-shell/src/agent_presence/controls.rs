@@ -161,13 +161,13 @@ fn provider_menu(
             Align2::LEFT_CENTER,
         );
         if option.id == p.provider {
-            chrome::label(
-                ui,
-                Rect::from_min_max(Pos2::new(rect.right() - 20.0, rect.top()), rect.max),
-                "✓",
+            crate::menu::paint_icon(
+                ui.painter(),
+                crate::menu::MenuIcon::Check,
+                Pos2::new(rect.right() - 10.0, rect.center().y),
                 13.0,
+                crate::menu::tokens().icon_stroke,
                 palette.sub,
-                Align2::CENTER_CENTER,
             );
         }
         if response.clicked() && option.id != p.provider {

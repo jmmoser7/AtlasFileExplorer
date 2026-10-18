@@ -12,7 +12,23 @@ test('only an explicit collaborator receives shared bridge instructions',()=>{
   assert.ok(prompt.includes('"offset":0,"limit":32'));
   assert.ok(prompt.includes('next_offset'));
   assert.ok(!prompt.includes('place.json'));
-  assert.ok(!prompt.includes('selection'));
+  const privateValues=[
+    'PRIVATE-AMBIENT-SELECTION',
+    'PRIVATE-AMBIENT-VIEWPORT',
+    'PRIVATE-AMBIENT-REVISION',
+    'PRIVATE-AMBIENT-BEACON',
+    'PRIVATE-AMBIENT-INPUT-CONTEXT',
+  ];
+  const ambient={
+    ...req,
+    selection:[privateValues[0]],
+    viewport:{description:privateValues[1]},
+    revision:privateValues[2],
+    beacon:{note:privateValues[3]},
+    inputs:{context:[{node:1,text:privateValues[4],images:[]}],wired:[]},
+  };
+  assert.equal(boardLinkPrompt(ambient,'C:/quoted "folder"'),prompt);
+  for(const value of privateValues)assert.ok(!prompt.includes(value));
   const profile=readFileSync(new URL('./board-link-v1.md',import.meta.url),'utf8');
   assert.ok(profile.startsWith('You are a scoped Slate board collaborator.'));
   assert.ok(!/\{\{[a-z_]+\}\}/.test(prompt));

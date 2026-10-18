@@ -31,9 +31,12 @@ pub(in crate::app::agent_presence) fn publish_and_observe_until(
         .unwrap()
         .dir
         .clone();
+    let deadline = Instant::now() + std::time::Duration::from_secs(15);
+    // Request delivery creates the link directory on its worker. A synthetic
+    // backend must receive this request before publishing a matching reply.
+    super::delivery::wait_request_until(&dir.join("request.json"), &session.request, deadline);
     atlas_ai::agent::atomic_write_json(&dir.join("session.json"), &session).unwrap();
     h.app.presence.sources.expect(&dir, &session.request);
-    let deadline = Instant::now() + std::time::Duration::from_secs(15);
     loop {
         h.app.presence_pump(&h.ctx);
         if observed(h) {

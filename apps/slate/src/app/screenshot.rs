@@ -124,6 +124,39 @@ impl Capture {
             image
                 .save(&self.path)
                 .unwrap_or_else(|error| fatal(&error.to_string()));
+            if self.presence_workspace.is_some() {
+                let screen = ctx.screen_rect();
+                let (inner, outer, native_ppp, time) = ctx.input(|input| {
+                    let viewport = input.viewport();
+                    (
+                        viewport.inner_rect,
+                        viewport.outer_rect,
+                        viewport.native_pixels_per_point,
+                        input.time,
+                    )
+                });
+                let receipt = serde_json::json!({
+                    "kind": "slate-presence-render-capture",
+                    "requestedState": std::env::var("SLATE_PRESENCE_REVIEW_STATE").unwrap_or_default(),
+                    "metadataObservedOnScreenshotEvent": true,
+                    "eventFrame": frame,
+                    "eguiTimeSeconds": time,
+                    "pixelsPerPoint": ctx.pixels_per_point(),
+                    "screenRectPoints": [screen.min.x, screen.min.y, screen.max.x, screen.max.y],
+                    "viewportInnerRectPoints": inner.map(|r| [r.min.x, r.min.y, r.max.x, r.max.y]),
+                    "viewportOuterRectPoints": outer.map(|r| [r.min.x, r.min.y, r.max.x, r.max.y]),
+                    "nativePixelsPerPoint": native_ppp,
+                    "imagePixels": [width, height],
+                    "msaaSamplesRequested": atlas_shell::NATIVE_MSAA_SAMPLES
+                });
+                let file = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(self.path.with_extension("capture.json"))
+                    .unwrap_or_else(|error| fatal(&error.to_string()));
+                serde_json::to_writer_pretty(file, &receipt)
+                    .unwrap_or_else(|error| fatal(&error.to_string()));
+            }
             std::process::exit(0);
         }
         ctx.request_repaint();

@@ -100,21 +100,29 @@ pub(crate) fn undo_a_settled_eraser_pass(tag: &str, redo: bool, zoom: bool) {
     let lit = half_lit(&h, &raster, cross);
     release_a_settling_pass(&mut h, &mut raster, id);
     h.app.erase_settle.hold = false;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    // Cut, undo, zoom and redo await independent worker results.
+    let settle_budget = std::time::Duration::from_secs(20);
+    let cut_started = std::time::Instant::now();
     while h.app.erase_settle.holds(h.app.tab().id, id) {
-        assert!(std::time::Instant::now() < deadline, "the cut never landed");
+        assert!(
+            cut_started.elapsed() < settle_budget,
+            "the cut never landed after {:?}",
+            cut_started.elapsed()
+        );
         std::thread::sleep(std::time::Duration::from_millis(5));
         shot(&mut h, &mut raster, |_| {});
     }
     let erased = h.app.doc().scene.node(id).unwrap().clone();
     let mut prepare = ctrl_key(egui::Key::Z);
     let mut frames = 0;
+    let mut undo_started = None;
     loop {
         shot(
             &mut h,
             &mut raster,
             std::mem::replace(&mut prepare, Box::new(|_| {})),
         );
+        let started = *undo_started.get_or_insert_with(std::time::Instant::now);
         assert_eq!(
             h.app.doc().scene.node(id),
             Some(&before),
@@ -133,8 +141,9 @@ pub(crate) fn undo_a_settled_eraser_pass(tag: &str, redo: bool, zoom: bool) {
             break;
         }
         assert!(
-            std::time::Instant::now() < deadline,
-            "the restored bar never settled"
+            started.elapsed() < settle_budget,
+            "the restored bar never settled after {:?}, frame {frames}",
+            started.elapsed()
         );
         std::thread::sleep(std::time::Duration::from_millis(5));
         frames += 1;
@@ -143,8 +152,10 @@ pub(crate) fn undo_a_settled_eraser_pass(tag: &str, redo: bool, zoom: bool) {
         h.app.tab_mut().cam.z *= 0.5;
         let want = board_path::stamp_pixel_for_zoom(h.app.tab().cam.z, h.ctx.pixels_per_point());
         let mut frames = 0;
+        let mut zoom_started = None;
         loop {
             shot(&mut h, &mut raster, |_| {});
+            let started = *zoom_started.get_or_insert_with(std::time::Instant::now);
             let xf = h.app.board_xf();
             for p in cut_points(cross) {
                 let r = redness(&raster, &xf, p);
@@ -159,8 +170,9 @@ pub(crate) fn undo_a_settled_eraser_pass(tag: &str, redo: bool, zoom: bool) {
                 break;
             }
             assert!(
-                std::time::Instant::now() < deadline,
-                "the zoomed bar never settled"
+                started.elapsed() < settle_budget,
+                "the zoomed bar never settled after {:?}, frame {frames}",
+                started.elapsed()
             );
             std::thread::sleep(std::time::Duration::from_millis(5));
             frames += 1;
@@ -173,9 +185,11 @@ pub(crate) fn undo_a_settled_eraser_pass(tag: &str, redo: bool, zoom: bool) {
     h.app.brush_tiles.hold_rasters = true;
     let mut prepare = ctrl_key(egui::Key::Y);
     let mut frames = 0;
+    let mut redo_started = None;
     loop {
         if frames == 5 {
             h.app.brush_tiles.hold_rasters = false;
+            redo_started = Some(std::time::Instant::now());
         }
         shot(
             &mut h,
@@ -199,10 +213,13 @@ pub(crate) fn undo_a_settled_eraser_pass(tag: &str, redo: bool, zoom: bool) {
         if frames >= 5 && current {
             break;
         }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "the redone bar never settled"
-        );
+        if let Some(started) = redo_started {
+            assert!(
+                started.elapsed() < settle_budget,
+                "the redone bar never settled after {:?}, frame {frames}, exact={current}",
+                started.elapsed()
+            );
+        }
         std::thread::sleep(std::time::Duration::from_millis(5));
         frames += 1;
     }

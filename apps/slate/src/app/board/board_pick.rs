@@ -211,6 +211,17 @@ impl SlateApp {
             }
             return;
         }
+        // Keep inspection of the already-selected locked host when its body
+        // is the topmost hit. Modifiers retain their existing pick behavior.
+        if self.board_tool == BoardTool::Select && mods.is_none() {
+            let topmost = self.board_pick_node_with_locked(world.x, world.y, true);
+            if topmost.is_some_and(|id| {
+                self.board_sel.contains(&id)
+                    && self.doc().scene.node(id).is_some_and(|node| node.locked)
+            }) {
+                return;
+            }
+        }
         match self.board_pick_node(world.x, world.y) {
             Some(id) => {
                 self.apply_select_pick(id, mods, false);

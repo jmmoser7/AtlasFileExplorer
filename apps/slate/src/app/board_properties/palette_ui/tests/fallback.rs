@@ -119,7 +119,11 @@ fn fallback_image_body_inspection_retains_the_editor_including_locked_hosts() {
                     Some(Panel::Fill),
                     "body inspection retains the local editor, locked={locked}"
                 );
-                assert_eq!(h.app.board_sel, std::iter::once(id).collect());
+                assert_eq!(
+                    h.app.board_sel,
+                    std::iter::once(id).collect(),
+                    "locked={locked}, covered={covered}"
+                );
             }
         }
     }
@@ -282,4 +286,49 @@ fn click_point(h: &mut Harness, time: &mut f64, point: Pos2) {
             }],
         );
     }
+}
+
+#[test]
+fn a_selected_locked_image_keeps_inspection_above_an_unlocked_underlay() {
+    let mut h = Harness::new("image-fallback-locked-over-underlay");
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.set_board_tool(BoardTool::Select);
+    h.frame();
+    let underlay = crate::app::board_properties::tests::rectangle(
+        &mut h,
+        WorldRect::new(-20.0, -20.0, 40.0, 40.0),
+        0.0,
+    );
+    let id = crate::app::board_flow::tests::place(&mut h, "photo.png", 0.0);
+    h.app.patch_nodes(&[id], |node| {
+        node.rect = WorldRect::new(-90.0, -90.0, 180.0, 180.0);
+        node.locked = true;
+    });
+    h.app.board_sel = std::iter::once(id).collect();
+    h.frame();
+    h.frame();
+    h.app.shape_properties.panel = Some(Panel::Fill);
+    for _ in 0..12 {
+        h.frame();
+    }
+    assert_eq!(h.app.board_pick_node(0.0, 0.0), Some(underlay));
+    assert_eq!(h.app.board_pick_node_with_locked(0.0, 0.0, true), Some(id));
+    let point = h
+        .app
+        .board_xf()
+        .rect_w2s(h.app.doc().scene.node(id).unwrap().rect)
+        .center();
+    crate::app::tests::click_board(&mut h, point);
+    h.frame();
+    assert_eq!(h.app.board_sel, std::iter::once(id).collect());
+    assert_eq!(h.app.shape_properties.panel, Some(Panel::Fill));
+    assert_eq!(
+        h.app
+            .shape_properties
+            .last_chrome
+            .as_ref()
+            .and_then(|chrome| chrome.host),
+        Some((h.app.tab().id, id))
+    );
 }

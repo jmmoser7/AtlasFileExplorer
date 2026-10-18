@@ -250,7 +250,9 @@ impl SlateApp {
             ) {
                 calls.push((a.profile.id.clone(), call));
             }
-            if a.work.is_none()
+            // A human listening pause outlives provider-observation freshness.
+            if !a.paused
+                && a.work.is_none()
                 && a.read.is_none()
                 && a.launched.is_empty()
                 && a.last_active.elapsed().as_secs() > 8
@@ -259,14 +261,7 @@ impl SlateApp {
                     "error" | "approval" | "offline" | "blocked" | "question"
                 )
             {
-                a.activity = if a.paused {
-                    "resting"
-                } else if a.inflight {
-                    "reasoning"
-                } else {
-                    "resting"
-                }
-                .into();
+                a.activity = if a.inflight { "reasoning" } else { "resting" }.into();
             }
         }
         for (who, reason) in ended {

@@ -1,4 +1,4 @@
-//! Passive trace for the held result-strip interaction.
+//! Pointer interaction for the held result strip.
 use super::*;
 
 #[test]
@@ -53,24 +53,8 @@ fn hover_only_strip_survives_the_gap_and_a_held_click_without_selecting_the_host
             modifiers: egui::Modifiers::NONE,
         }],
     );
-    for held_frame in 0..20 {
+    for _ in 0..20 {
         tick(&mut h, vec![]);
-        if std::env::var_os("SLATE_TEST_CHROME_TRACE").is_some() {
-            let current_host_rect = h
-                .app
-                .doc()
-                .scene
-                .node(host)
-                .map(|node| h.app.board_xf().rect_w2s(node.rect));
-            eprintln!(
-                "[SLATE_TEST_CHROME_TRACE] held_hover frame={held_frame} time={} pointer={:?} at={at:?} original_body={body:?} host={current_host_rect:?} retained_strip={:?} selection={:?} hud_hidden={}",
-                h.ctx.input(|input| input.time),
-                h.ctx.pointer_latest_pos(),
-                h.app.agents.flow.results.strips.get(&(h.app.tab().id, host)),
-                h.app.board_sel,
-                h.app.agents.flow.hud_hidden(host),
-            );
-        }
     }
     assert!(h.app.board_sel.is_empty(), "press belongs to the thumbnail");
     assert!(

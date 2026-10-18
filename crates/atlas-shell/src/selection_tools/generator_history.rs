@@ -233,7 +233,7 @@ pub(super) fn history_row(
         if response.dragged() {
             out.history_drag_position = response.interact_pointer_pos();
         }
-        if response.on_hover_text(item.label.as_ref()).hovered() {
+        if object_hover_text(response, item.label.as_ref()).hovered() {
             if let Some(texture) = item.thumb {
                 let preview = Rect::from_center_size(
                     circle.center() - Vec2::new(0.0, 54.0 * zoom),
@@ -242,6 +242,7 @@ pub(super) fn history_row(
                 egui::Area::new(ui.id().with(("image-agent-preview", index)))
                     .order(egui::Order::Tooltip)
                     .fixed_pos(preview.min)
+                    .default_size(preview.size())
                     .interactable(false)
                     .show(ui.ctx(), |ui| {
                         ui.add(

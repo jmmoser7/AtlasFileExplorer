@@ -5,7 +5,14 @@ use std::{
 };
 
 pub(super) fn wait_request(path: &Path, expected: &str) -> atlas_agent::AgentRequest {
-    let deadline = Instant::now() + Duration::from_secs(15);
+    wait_request_until(path, expected, Instant::now() + Duration::from_secs(15))
+}
+
+pub(in crate::app::agent_presence) fn wait_request_until(
+    path: &Path,
+    expected: &str,
+    deadline: Instant,
+) -> atlas_agent::AgentRequest {
     loop {
         if let Ok(bytes) = std::fs::read(path) {
             if let Ok(request) = serde_json::from_slice::<atlas_agent::AgentRequest>(&bytes) {
