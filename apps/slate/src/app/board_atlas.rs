@@ -1817,6 +1817,8 @@ mod tests {
     use super::*;
     use crate::app::tests::Harness;
 
+    mod surface;
+
     /// A completed in-memory scan keeps camera tests independent of workers,
     /// thumbnail I/O, and the developer's folders.
     fn atlas_camera_board(tag: &str, zoom: f32) -> (Harness, NodeId) {
@@ -2125,32 +2127,7 @@ mod tests {
 
     #[test]
     fn atlas_surface_follows_theme_without_changing_the_document() {
-        let (mut h, id) = atlas_camera_board("atlas_theme", 0.65);
-        let scene = serde_json::to_value(&h.app.doc().scene).unwrap();
-        for dark in [true, false, true] {
-            h.app.dark_mode = dark;
-            let input = egui::RawInput {
-                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))),
-                ..Default::default()
-            };
-            let output = h.ctx.run(input, |ctx| h.app.update_app(ctx));
-            let rect = h
-                .app
-                .board_xf()
-                .rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
-            let palette = h.app.palette();
-            assert!(output.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Rect(r) if r.rect == rect && r.fill == palette.card)), "portal background must use the elevated card slot");
-            assert!(
-                output.shapes.iter().any(|s| match &s.shape {
-                    egui::Shape::Rect(r) => {
-                        r.stroke.width > 0.0 && r.stroke.color == palette.border_strong
-                    }
-                    _ => false,
-                }),
-                "unauthored File Atlas must paint a theme hairline so the window has an outline"
-            );
-            assert_eq!(serde_json::to_value(&h.app.doc().scene).unwrap(), scene);
-        }
+        surface::theme_immutability();
     }
 
     #[test]
@@ -2303,42 +2280,7 @@ mod tests {
 
     #[test]
     fn atlas_authored_fill_and_stroke_paint_the_window() {
-        let (mut h, id) = atlas_camera_board("atlas_fill_stroke", 0.65);
-        let fill = slate_doc::scene::Rgba([40, 90, 140, 255]);
-        h.app.patch_nodes(&[id], |node| {
-            if let NodeKind::Portal(p) = &mut node.kind {
-                p.fill = fill;
-                p.stroke.width = 4.0;
-                p.stroke.color = slate_doc::scene::Rgba([200, 40, 40, 255]);
-            }
-        });
-        let input = egui::RawInput {
-            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))),
-            ..Default::default()
-        };
-        let output = h.ctx.run(input, |ctx| h.app.update_app(ctx));
-        let rect = h
-            .app
-            .board_xf()
-            .rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
-        let want = crate::app::board::rgba32(fill);
-        assert!(
-            output.shapes.iter().any(
-                |s| matches!(&s.shape, egui::Shape::Rect(r) if r.rect == rect && r.fill == want)
-            ),
-            "authored fill must paint the File Atlas window"
-        );
-        assert!(
-            output.shapes.iter().any(|s| match &s.shape {
-                egui::Shape::Rect(r) => {
-                    r.stroke.width > 0.0
-                        && r.stroke.color
-                            == crate::app::board::rgba32(slate_doc::scene::Rgba([200, 40, 40, 255]))
-                }
-                _ => false,
-            }),
-            "authored stroke must paint the File Atlas border"
-        );
+        surface::authored_style();
     }
 
     #[test]

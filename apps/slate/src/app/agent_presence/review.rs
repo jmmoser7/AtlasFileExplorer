@@ -1,5 +1,6 @@
 //! Opt-in production-renderer fixture, paired with the existing SLATE_SHOT harness.
-//! It never contacts a provider or saves user profile preferences. Proposal
+//! It never submits an agent task or saves user profile preferences. Normal
+//! provider catalog probes may still run. Proposal
 //! states save only a fresh synthetic workbook inside their capture workspace.
 use super::*;
 use serde_json::json;
@@ -59,7 +60,7 @@ impl SlateApp {
                     }
                 }
             }
-            // Fixed renderer states exercise the real UI without provider work
+            // Fixed renderer states exercise the real UI without agent task submission
             // or synthetic input. They do not establish interaction acceptance.
             let selected = match state.as_str() {
                 "chat" | "proposal" => Some((false, 1.0)),

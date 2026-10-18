@@ -4,7 +4,8 @@ use super::*;
 fn board(tag: &str) -> (super::super::tests::Harness, NodeId) {
     let mut h = test_support::board(tag);
     h.app.ai.config.workspace_dir = Some(h.base.clone());
-    let portal = test_support::train(&mut h, Pos2::ZERO, "cursor");
+    // Codex uses the no-provider test dispatch hook in submission.rs.
+    let portal = test_support::train(&mut h, Pos2::ZERO, "codex");
     *h.app.agents.prompt_mut(portal) = "My unfinished human message".into();
     h.app.agents.composer_editing = Some(portal);
     h.app.agents.composer_focus = Some(portal);

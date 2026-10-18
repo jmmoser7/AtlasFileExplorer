@@ -10,6 +10,59 @@ fn opened(tag: &str) -> (Harness, NodeId) {
     (h, source)
 }
 
+fn opened_attached(tag: &str) -> (Harness, NodeId) {
+    let (mut h, source) = selected_portal(tag, PortalNode::unbound_web("Web"));
+    h.app.patch_nodes(&[source], |node| {
+        node.rect.w = 520.0;
+        node.rect.h = 280.0;
+    });
+    for _ in 0..2 {
+        h.frame();
+    }
+    let host = h.app.portal_capture_source_rect(source).unwrap();
+    let button = h.app.model_screenshot_button().expect("Capture is painted");
+    assert!(
+        host.contains(button.center()),
+        "this fixture uses attached chrome"
+    );
+    assert!((button.center().y - host.bottom()).abs() < 0.01);
+    h.app.open_portal_capture_menu(&h.ctx, source);
+    for _ in 0..3 {
+        h.frame();
+    }
+    (h, source)
+}
+
+#[test]
+fn narrow_capture_host_keeps_the_external_squircle_fallback() {
+    let (mut h, source) =
+        selected_portal("capture_narrow_fallback", PortalNode::unbound_web("Web"));
+    let host = h.app.portal_capture_source_rect(source).unwrap();
+    let button = h
+        .app
+        .model_screenshot_button()
+        .expect("external Capture control");
+    assert!(button.top() > host.bottom());
+    click(&mut h, button.center());
+    assert_eq!(h.app.portal_capture_launch_source(), Some(source));
+    assert!(
+        apron(&h).is_positive(),
+        "the external fallback still opens Capture"
+    );
+    for command in [
+        "portal.capture.still.canvas",
+        "portal.capture.still.file",
+        "portal.capture.video.start",
+    ] {
+        assert!(
+            h.ctx
+                .data(|data| data.get_temp::<Rect>(Id::new(("portal_capture_action", command))))
+                .is_some(),
+            "{command}"
+        );
+    }
+}
+
 fn apron(h: &Harness) -> Rect {
     h.ctx
         .data(|data| data.get_temp(Id::new("portal_capture_launch_rect")))
@@ -61,7 +114,7 @@ fn pan(h: &mut Harness, source: NodeId, start: Pos2, kind: egui::PointerButton) 
 
 #[test]
 fn capture_apron_shares_the_host_transform_through_zoom_and_pan() {
-    let (mut h, source) = opened("capture_attached_transform");
+    let (mut h, source) = opened_attached("capture_attached_transform");
     for zoom in [0.75, 1.5] {
         h.app.tab_mut().cam.z = zoom;
         h.frame();
@@ -128,6 +181,60 @@ fn source_body_clicks_and_crossing_the_strip_gap_retain_capture() {
     click(&mut h, host.center());
     assert_eq!(h.app.portal_capture_launch_source(), Some(source));
     assert!(h.app.board_sel.contains(&source));
+}
+
+#[test]
+fn rotated_source_body_retains_capture_outside_its_unrotated_frame() {
+    let (mut h, source) = selected_portal("capture_rotated_body", PortalNode::unbound_web("Web"));
+    h.app
+        .patch_nodes(&[source], |node| node.rotation_deg = 30.0);
+    h.frame();
+    h.frame();
+    h.app.open_portal_capture_menu(&h.ctx, source);
+    h.frame();
+    h.frame();
+    let node = h.app.doc().scene.node(source).unwrap();
+    let world = node.rect.rotate_point(
+        [
+            node.rect.x + node.rect.w * 0.85,
+            node.rect.y + node.rect.h * 0.85,
+        ],
+        node.rotation_deg,
+    );
+    let point = h.app.board_xf().w2s(Pos2::from(world));
+    assert!(!h.app.board_xf().rect_w2s(node.rect).contains(point));
+    assert_eq!(
+        h.app.board_pick_node_with_locked(world[0], world[1], true),
+        Some(source)
+    );
+    click(&mut h, point);
+    assert_eq!(h.app.portal_capture_launch_source(), Some(source));
+    assert!(h.app.board_sel.contains(&source));
+}
+
+#[test]
+fn primary_click_inside_rotated_bounds_but_outside_the_body_dismisses_capture() {
+    let (mut h, source) =
+        selected_portal("capture_rotated_click_away", PortalNode::unbound_web("Web"));
+    h.app
+        .patch_nodes(&[source], |node| node.rotation_deg = 30.0);
+    h.frame();
+    h.frame();
+    h.app.open_portal_capture_menu(&h.ctx, source);
+    h.frame();
+    h.frame();
+    let bounds = h.app.portal_capture_source_rect(source).unwrap();
+    let point = bounds.min + Vec2::splat(4.0);
+    assert!(bounds.contains(point));
+    assert!(!apron(&h).contains(point));
+    let world = h.app.board_xf().s2w(point);
+    assert_eq!(
+        h.app.board_pick_node_with_locked(world.x, world.y, true),
+        None
+    );
+    click(&mut h, point);
+    assert!(h.app.portal_capture_launch_source().is_none());
+    assert!(h.app.board_sel.is_empty());
 }
 
 #[test]

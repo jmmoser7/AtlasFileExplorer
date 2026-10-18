@@ -1,28 +1,59 @@
 use super::*;
 
+pub(in crate::app::board_properties) fn handles(app: &SlateApp, live: bool) -> bool {
+    if !live || app.shape_properties.nodes.len() != 1 {
+        return false;
+    }
+    let Some(node) = app.shape_properties.nodes.first() else {
+        return false;
+    };
+    app.image_controls_eligible(node.id)
+}
+
+pub(in crate::app::board_properties) fn attached(app: &SlateApp, live: bool) -> bool {
+    handles(app, live) && app.image_blister_eligible(&app.shape_properties.nodes[0])
+}
+
+pub(in crate::app::board_properties) fn panels(app: &SlateApp, node: &Node) -> Option<Vec<Panel>> {
+    app.image_controls_eligible(node.id).then(|| {
+        IMAGE_PANELS
+            .iter()
+            .copied()
+            .filter(|panel| *panel != Panel::Corners || slate_doc::scene::supports_corners(node))
+            .collect()
+    })
+}
+
+pub(in crate::app::board_properties) fn control_count(
+    app: &SlateApp,
+    node: &Node,
+) -> Option<usize> {
+    panels(app, node).map(|panels| {
+        panels.len() + usize::from(app.image_agent_has_wired_image_and_prompt(node.id))
+    })
+}
+
 pub(super) fn panel_buttons(
     app: &mut SlateApp,
     ctx: &egui::Context,
     layout: &chrome::ImagePresentationLayout,
     enabled: bool,
     closing_panel: Option<Panel>,
+    external_strip: Option<Rect>,
+    z: f32,
 ) -> (bool, Option<Panel>, bool) {
     let theme = app.palette();
     let image = app.shape_properties.nodes[0].id;
     let mut captures = false;
     let mut requested_panel = None;
     let mut close_requested = false;
-    let panels: Vec<_> = IMAGE_PANELS
-        .iter()
-        .copied()
-        .filter(|panel| {
-            *panel != Panel::Corners
-                || slate_doc::scene::supports_corners(&app.shape_properties.nodes[0])
-        })
-        .collect();
+    let panels = panels(app, &app.shape_properties.nodes[0]).unwrap_or_default();
     let quick_generate = app.image_agent_has_wired_image_and_prompt(image);
     for (index, panel) in panels.iter().copied().enumerate() {
-        let button = layout.blister.icon_rect(index);
+        let button = external_strip.map_or_else(
+            || layout.blister.icon_rect(index),
+            |strip| chrome::strip_button_rect(strip, index, z),
+        );
         egui::Area::new(Id::new(("image_palette_icon_area", image.0, index)))
             .order(chrome::CANVAS_CHROME_ORDER)
             .fixed_pos(button.min)
@@ -33,21 +64,44 @@ pub(super) fn panel_buttons(
             .show(ctx, |ui| {
                 ctx.move_to_top(ui.layer_id());
                 ui.set_clip_rect(app.canvas_rect);
-                let response = ui
-                    .allocate_rect(button, Sense::click())
-                    .on_hover_text(panel_label(panel));
                 let active = app.shape_properties.panel == Some(panel)
                     || (app.shape_properties.panel.is_none() && closing_panel == Some(panel));
-                let color = if active {
-                    theme.accent
-                } else if response.hovered() {
-                    theme.ink
+                let response = if external_strip.is_some() {
+                    chrome::strip_button(
+                        ui,
+                        button,
+                        Id::new(("image_external_panel", image.0, index)),
+                        panel_label(panel),
+                        panel_icon(panel),
+                        active,
+                        z,
+                        theme,
+                        1.0,
+                        enabled,
+                    )
                 } else {
-                    theme.ink.gamma_multiply(0.82)
+                    let response = ui
+                        .allocate_rect(
+                            button,
+                            if enabled {
+                                Sense::click()
+                            } else {
+                                Sense::hover()
+                            },
+                        )
+                        .on_hover_text(panel_label(panel));
+                    let color = if active {
+                        theme.accent
+                    } else if response.hovered() {
+                        theme.ink
+                    } else {
+                        theme.ink.gamma_multiply(0.82)
+                    };
+                    layout
+                        .blister
+                        .paint_icon(ui.painter(), index, panel_icon(panel), color, theme);
+                    response
                 };
-                layout
-                    .blister
-                    .paint_icon(ui.painter(), index, panel_icon(panel), color, theme);
                 if response.clicked() && enabled {
                     if app.shape_properties.panel == Some(panel) {
                         close_requested = true;
@@ -60,10 +114,13 @@ pub(super) fn panel_buttons(
         app.shape_properties.chrome_hits.push(button);
     }
     if quick_generate {
-        let play = layout.blister.icon_rect(panels.len());
-        let z = layout.blister.band.height() / chrome::BLISTER_TAB_HEIGHT;
+        let play = external_strip.map_or_else(
+            || layout.blister.icon_rect(panels.len()),
+            |strip| chrome::strip_button_rect(strip, panels.len(), z),
+        );
+        let datum = external_strip.unwrap_or(layout.blister.band);
         let count_rect = Rect::from_center_size(
-            egui::pos2(play.center().x, layout.blister.band.top() - 9.0 * z),
+            egui::pos2(play.center().x, datum.top() - 9.0 * z),
             egui::vec2(32.0 * z, 14.0 * z),
         );
         egui::Area::new(Id::new(("image_palette_quick_generate", image.0)))

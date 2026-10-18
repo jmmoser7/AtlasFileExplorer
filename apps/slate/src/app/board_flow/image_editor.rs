@@ -200,13 +200,18 @@ impl SlateApp {
     }
 
     pub(crate) fn image_agent_body_height(&self, painter: &egui::Painter, id: NodeId) -> f32 {
-        let width = self
-            .doc()
-            .scene
-            .node(id)
-            .map_or(480.0, |n| n.rect.w)
-            .max(80.0);
-        self.image_agent_body_layout(painter, id, width).height
+        let width = self.doc().scene.node(id).map_or(480.0, |n| n.rect.w);
+        self.image_agent_body_height_for_width(painter, id, width)
+    }
+
+    pub(crate) fn image_agent_body_height_for_width(
+        &self,
+        painter: &egui::Painter,
+        id: NodeId,
+        width_units: f32,
+    ) -> f32 {
+        self.image_agent_body_layout(painter, id, width_units.max(80.0))
+            .height
     }
 
     pub(super) fn paint_image_agent_editor(

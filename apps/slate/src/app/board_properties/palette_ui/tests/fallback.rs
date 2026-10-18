@@ -124,3 +124,158 @@ fn fallback_image_body_inspection_retains_the_editor_including_locked_hosts() {
         }
     }
 }
+
+#[test]
+fn fallback_images_keep_external_brush_and_layers_controls_at_full_width() {
+    for (name, width, height, rotation) in [
+        ("360", 360.0, 100.0, 0.0),
+        ("400", 400.0, 100.0, 0.0),
+        ("rotated", 360.0, 240.0, 24.0),
+    ] {
+        let mut h = Harness::new(&format!("fallback-external-editors-{name}"));
+        h.app.leave_home();
+        h.app.ensure_work_tab();
+        h.app.set_board_tool(BoardTool::Select);
+        let id = crate::app::board_flow::tests::place(&mut h, "photo.png", 0.0);
+        h.app.patch_nodes(&[id], |node| {
+            node.rect = WorldRect::new(-width * 0.5, -height * 0.5, width, height);
+            node.rotation_deg = rotation;
+        });
+        h.app.tab_mut().cam.offset = egui::Vec2::ZERO;
+        h.app.tab_mut().cam.z = 1.0;
+        h.app.board_sel = std::iter::once(id).collect();
+        h.frame();
+
+        let mut time = h.ctx.input(|input| input.time);
+        for _ in 0..12 {
+            frame(&mut h, &mut time);
+        }
+        let state = h.app.shape_properties.last_chrome.as_ref().unwrap();
+        assert!(
+            !state.image && !state.blister,
+            "{name} stays on external chrome"
+        );
+        assert!(state.items.contains(&StripItem::Panel(Panel::Brush)));
+        assert!(state.items.contains(&StripItem::Panel(Panel::Layers)));
+
+        click_external_image_panel(&mut h, &mut time, Panel::Brush);
+        assert_eq!(h.app.shape_properties.panel, Some(Panel::Brush), "{name}");
+        let brush_layout = external_image_layout(&h, id, chrome::ImagePanelKind::Brush);
+        let brush_header = brush_layout
+            .brush_header
+            .expect("Brush header in shared layout");
+        assert!(
+            h.app
+                .shape_properties
+                .chrome_hits
+                .iter()
+                .any(|hit| hit.intersects(brush_header)),
+            "the external Brush body paints its visible header, {name}"
+        );
+
+        click_external_image_panel(&mut h, &mut time, Panel::Layers);
+        assert_eq!(h.app.shape_properties.panel, Some(Panel::Layers), "{name}");
+        let layers_layout = external_image_layout(&h, id, chrome::ImagePanelKind::Layers);
+        let layer_layout = chrome::image_layer_palette_layout(
+            &layers_layout,
+            h.app.image_paint_layer_choices(id).len(),
+            0,
+            h.app.board_xf().z,
+            Some(0),
+        );
+        assert!(
+            h.app
+                .shape_properties
+                .chrome_hits
+                .iter()
+                .any(|hit| hit.contains(layer_layout.add.center())),
+            "the external Layers body paints its Add control, {name}"
+        );
+        let before = h.app.image_paint_layer_choices(id).len();
+        let undo_before = h.app.tab().journal.undo_depth();
+        click_point(&mut h, &mut time, layer_layout.add.center());
+        assert_eq!(
+            h.app.image_paint_layer_choices(id).len(),
+            before + 1,
+            "the visible Add control creates a layer, {name}"
+        );
+        assert_eq!(h.app.tab().journal.undo_depth(), undo_before + 1, "{name}");
+        h.app.board_undo();
+        assert_eq!(
+            h.app.image_paint_layer_choices(id).len(),
+            before,
+            "undo removes the layer created by the visible control, {name}"
+        );
+        if name == "360" {
+            h.app.patch_nodes(&[id], |node| node.locked = true);
+            for _ in 0..2 {
+                frame(&mut h, &mut time);
+            }
+            let locked_layout = external_image_layout(&h, id, chrome::ImagePanelKind::Layers);
+            let add = chrome::image_layer_palette_layout(
+                &locked_layout,
+                before,
+                0,
+                h.app.board_xf().z,
+                Some(0),
+            )
+            .add;
+            let undo_locked = h.app.tab().journal.undo_depth();
+            click_point(&mut h, &mut time, add.center());
+            assert_eq!(h.app.image_paint_layer_choices(id).len(), before);
+            assert_eq!(h.app.tab().journal.undo_depth(), undo_locked);
+        }
+    }
+}
+
+fn click_external_image_panel(h: &mut Harness, time: &mut f64, panel: Panel) {
+    let xf = h.app.board_xf();
+    let state = h.app.shape_properties.last_chrome.as_ref().unwrap();
+    let index = state
+        .items
+        .iter()
+        .position(|item| *item == StripItem::Panel(panel))
+        .expect("external strip includes the requested image control");
+    let strip = chrome::strip_rect_below(
+        state.bottom,
+        state.count,
+        xf.z,
+        chrome::strip_fade(&h.ctx, egui::Id::new("selection_property_strip"), true),
+    );
+    let rect = chrome::strip_button_rect(strip, index, xf.z);
+    click_point(h, time, rect.center());
+}
+
+fn click_point(h: &mut Harness, time: &mut f64, point: Pos2) {
+    frame_with_events(h, time, vec![egui::Event::PointerMoved(point)]);
+    for pressed in [true, false] {
+        frame_with_events(
+            h,
+            time,
+            vec![egui::Event::PointerButton {
+                pos: point,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+    }
+}
+
+fn external_image_layout(
+    h: &Harness,
+    id: slate_doc::NodeId,
+    kind: chrome::ImagePanelKind,
+) -> chrome::ImagePresentationLayout {
+    let xf = h.app.board_xf();
+    let host = h.app.doc().scene.node(id).unwrap();
+    let host_screen = xf.rect_w2s(host.rect.rotated_bounds(host.rotation_deg));
+    let state = h.app.shape_properties.last_chrome.as_ref().unwrap();
+    let strip = chrome::strip_rect_below(
+        state.bottom,
+        state.count,
+        xf.z,
+        chrome::strip_fade(&h.ctx, egui::Id::new("selection_property_strip"), true),
+    );
+    chrome::image_editor_presentation_layout(host_screen, strip, xf.z, kind, h.app.canvas_rect)
+}

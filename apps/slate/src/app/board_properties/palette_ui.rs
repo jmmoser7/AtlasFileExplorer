@@ -12,6 +12,7 @@ pub(super) struct LastChrome {
     pub(super) host: Option<(u64, NodeId)>,
     pub(super) bounds: WorldRect,
     pub(super) items: Vec<StripItem>,
+    count: usize,
     generation: (u64, u64),
     picked_vertices: bool,
     bottom: Pos2,
@@ -59,6 +60,10 @@ impl SlateApp {
         image_palette::dismiss_if_inactive(&ctx, self, live);
         if live {
             let items = live_property_strip_items(self, &self.shape_properties.nodes);
+            let count = match self.shape_properties.nodes.as_slice() {
+                [node] => image_palette::control_count(self, node).unwrap_or(items.len()),
+                _ => items.len(),
+            };
             // D13 / D11: a panel whose squircle a vertex pick took off the
             // strip commits its pending edits and closes.
             if self
@@ -77,7 +82,7 @@ impl SlateApp {
                     .as_ref()
                     .filter(|last| {
                         last.bounds == bounds
-                            && last.items.len() == items.len()
+                            && last.count == count
                             && last.generation == generation
                             && last.picked_vertices == vertex_bounds.is_some()
                     })
@@ -97,7 +102,7 @@ impl SlateApp {
                                 Vec2::new(bounds.w, bounds.h),
                             ),
                             &outlines,
-                            chrome::strip_size(items.len()).x,
+                            chrome::strip_size(count).x,
                         )
                     });
                 self.shape_properties.last_chrome = Some(LastChrome {
@@ -107,6 +112,7 @@ impl SlateApp {
                     },
                     bounds,
                     items: items.clone(),
+                    count,
                     generation,
                     picked_vertices: vertex_bounds.is_some(),
                     bottom,
@@ -115,7 +121,7 @@ impl SlateApp {
                         &self.shape_properties.nodes,
                         items.len(),
                     ),
-                    image: image_palette::handles(self, true),
+                    image: image_palette::attached(self, true),
                     media: None,
                 });
             }
@@ -163,16 +169,10 @@ impl SlateApp {
             self.shape_properties.edits.clear();
             self.shape_properties.number = None;
         }
-        let items = chrome_state.items;
-        if image_palette::handles(self, live) {
-            let dimensions_capture = if image_palette::dimensions_visible(&ctx, self) {
-                self.paint_property_dimensions(ui, xf, live, enabled)
-            } else {
-                self.shape_properties.number = None;
-                false
-            };
-            return image_palette::show(self, ui, xf, bounds, enabled) || dimensions_capture;
+        if let Some(captures) = self.paint_image_properties(ui, xf, &chrome_state, live, enabled) {
+            return captures;
         }
+        let items = chrome_state.items;
         let blister = chrome_state.blister;
         let presentation = if self.shape_properties.panel.is_some() {
             chrome::BlisterPresentation::Overlay
@@ -450,7 +450,9 @@ impl SlateApp {
                         if self.result_strip_contains(&ctx, host.id, xf.rect_w2s(host.rect), z) {
                             return true;
                         }
-                        if self.image_palette_eligible(host.id) {
+                        if self.image_palette_eligible(host.id)
+                            || self.shape_properties.panel == Some(Panel::Capture)
+                        {
                             let world = xf.s2w(p);
                             return self.board_pick_node_with_locked(world.x, world.y, true)
                                 == Some(host.id);

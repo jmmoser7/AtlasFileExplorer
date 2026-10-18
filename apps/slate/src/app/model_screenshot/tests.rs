@@ -154,10 +154,20 @@ fn the_screenshot_button_opens_a_menu_that_stays_open() {
 fn the_screenshot_menu_opens_clear_of_its_icon_on_a_higher_layer() {
     let (mut h, id) = selected_model("shot_menu_clear");
     // Exercise the attached apron, rather than a narrow host's squircle fallback.
-    h.app.patch_nodes(&[id], |node| node.rect.w = 480.0);
+    h.app.patch_nodes(&[id], |node| {
+        node.rect.w = 560.0;
+        node.rect.h = 240.0;
+    });
     h.app.tab_mut().cam.z = 1.0;
     h.frame();
     h.frame();
+    let source = h.app.portal_capture_source_rect(id).unwrap();
+    let capture = h.app.model_screenshot_button().expect("Capture is painted");
+    assert!(
+        source.contains(capture.center()),
+        "this fixture uses attached chrome"
+    );
+    assert!((capture.center().y - source.bottom()).abs() < 0.01);
     click_screenshot_button(&mut h);
     h.frame();
     let button = h.app.model_screenshot_button().expect("the strip is up");

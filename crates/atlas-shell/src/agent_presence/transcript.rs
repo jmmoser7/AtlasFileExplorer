@@ -78,7 +78,7 @@ pub(super) fn show(
         state.history_offsets.insert(p.id.into(), offset);
     }
     let message_height = (message_height - if paged { 24.0 } else { 0.0 }).max(30.0);
-    egui::ScrollArea::vertical()
+    let _scroll = egui::ScrollArea::vertical()
         .id_salt(("participant-messages", p.id, attached))
         .max_height(message_height)
         .min_scrolled_height(message_height)
@@ -128,6 +128,25 @@ pub(super) fn show(
                     ui.add_space(if attached { 14.0 } else { 20.0 });
                 });
         });
+    #[cfg(test)]
+    if p.proposals.len() > 1
+        && ui.input(|input| {
+            input.raw_scroll_delta != Vec2::ZERO
+                || input.pointer.any_pressed()
+                || input.pointer.any_released()
+        })
+    {
+        let transform = ui
+            .ctx()
+            .layer_transform_to_global(ui.layer_id())
+            .unwrap_or_default();
+        eprintln!(
+            "proposal ScrollArea id={:?} layer={:?} transform={transform:?} offset={:?} velocity={:?} content={:?} inner_local={:?} inner_screen={:?} parent_clip_local={:?} parent_clip_screen={:?}",
+            _scroll.id, ui.layer_id(), _scroll.state.offset, _scroll.state.velocity(),
+            _scroll.content_size, _scroll.inner_rect, transform * _scroll.inner_rect,
+            ui.clip_rect(), transform * ui.clip_rect(),
+        );
+    }
 }
 
 fn proposal_row(

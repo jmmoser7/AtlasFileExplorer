@@ -2,6 +2,83 @@
 
 use super::*;
 
+pub(super) fn node_strip_items(app: &SlateApp, nodes: &[Node]) -> Vec<StripItem> {
+    if nodes.is_empty() {
+        return Vec::new();
+    }
+    if let [node] = nodes {
+        if let Some(panels) = image_palette::panels(app, node) {
+            return panels.into_iter().map(StripItem::Panel).collect();
+        }
+    }
+    if nodes
+        .iter()
+        .all(|n| slate_doc::agent_chat::agent(n).is_some())
+    {
+        let mut items = vec![
+            StripItem::Panel(Panel::Fill),
+            StripItem::Panel(Panel::Stroke),
+        ];
+        let ids: Vec<_> = nodes.iter().map(|n| n.id).collect();
+        if slate_doc::agent_chat::bundle_run(&app.doc().scene, &ids).is_some() {
+            items.push(StripItem::Agent(false));
+            return items;
+        }
+        if nodes.len() == 1
+            && slate_doc::agent_chat::agent(&nodes[0])
+                .is_some_and(|a| a.chat.train && !a.chat.bundled.is_empty())
+        {
+            items.push(StripItem::Agent(true));
+            return items;
+        }
+        // A generated picture or text is media too; a picture takes photo
+        // filters like any placed image.
+        if nodes.len() == 1 && app.is_agent_media(nodes[0].id) {
+            if SlateApp::supports_image_paint(nodes[0].id, app) {
+                items.push(StripItem::Panel(Panel::Filter));
+            }
+            items.push(StripItem::Panel(Panel::Agent));
+        }
+        return items;
+    }
+    // Crosswires own their red styling and mid-span capsule (crosstalk D16).
+    if nodes
+        .iter()
+        .any(|n| slate_doc::crosstalk::crosstalk(n).is_some())
+    {
+        return Vec::new();
+    }
+    let mut items = property_strip_items(nodes);
+    if nodes.iter().any(|n| image_is_text(app, n)) {
+        items.retain(|item| *item != StripItem::Panel(Panel::Filter));
+    }
+    if nodes.len() == 1 && app.model_has_viewport(nodes[0].id) {
+        items.retain(|item| *item != StripItem::Panel(Panel::Filter));
+        items.extend([
+            StripItem::Panel(Panel::ModelDisplay),
+            StripItem::ModelMeasure,
+            StripItem::ModelScreenshot,
+            StripItem::Panel(Panel::Filter),
+        ]);
+    }
+    if nodes.len() == 1 && image_is_model(app, &nodes[0]) && !app.model_has_viewport(nodes[0].id) {
+        items.retain(|item| *item != StripItem::Panel(Panel::Filter));
+    }
+    if nodes.len() == 1 && image_has_pages(app, &nodes[0]) {
+        items.push(StripItem::Panel(Panel::Pages));
+    }
+    if hosted_text_on_strip(app, nodes) {
+        items.push(StripItem::Panel(Panel::Text));
+    }
+    if nodes.len() == 1 && app.is_agent_media(nodes[0].id) {
+        items.push(StripItem::Panel(Panel::Agent));
+    }
+    if app.settings.optional_bumper_cars && nodes.iter().all(slate_doc::bumper::supports_bumper) {
+        items.push(StripItem::Panel(Panel::Bumper));
+    }
+    items
+}
+
 /// Portal property presentation changes; capability categories stay in the
 /// existing node strip registry, including 3D/PDF/video image-backed portals.
 pub(super) fn rectangular_blister(app: &SlateApp, nodes: &[Node], count: usize) -> bool {

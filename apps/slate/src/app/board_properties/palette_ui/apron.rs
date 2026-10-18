@@ -40,6 +40,67 @@ impl EditorHost<'_> {
             |layout| layout.editor_rect(self.zoom),
         );
         let area = layout.map_or(rect, |layout| layout.overall);
+        self.show_area(ctx, id, layer, area, |content| {
+            if let Some(layout) = &layout {
+                chrome::paint_blister_surface(
+                    content.painter(),
+                    layout.overall,
+                    self.strip,
+                    self.zoom,
+                    self.theme,
+                    0.0,
+                );
+                if let Some(host) = self.node.filter(|host| host.rotation_deg.abs() < 0.001) {
+                    let (chamfer, radius) = scene::resolved_corner_effective(host, None);
+                    chrome::paint_blister_corner_backing(
+                        content.painter(),
+                        Id::new(("portal_blister_corners", host.id.0)),
+                        self.bounds,
+                        radius * self.zoom,
+                        chamfer,
+                        self.theme,
+                    );
+                }
+            }
+            content
+                .add_enabled_ui(enabled, |ui| paint(ui, rect, layout.as_ref()))
+                .inner
+        })
+    }
+
+    pub(crate) fn show_image<T>(
+        &self,
+        ctx: &egui::Context,
+        id: Id,
+        layer: egui::LayerId,
+        layout: &chrome::ImagePresentationLayout,
+        enabled: bool,
+        paint: impl FnOnce(&mut egui::Ui) -> T,
+    ) -> Option<EditorResponse<T>> {
+        self.show_area(ctx, id, layer, layout.overall, |ui| {
+            chrome::paint_blister_surface(
+                ui.painter(),
+                layout.overall,
+                self.strip,
+                self.zoom,
+                self.theme,
+                0.0,
+            );
+            ui.add_enabled_ui(enabled, paint).inner
+        })
+    }
+
+    fn show_area<T>(
+        &self,
+        ctx: &egui::Context,
+        id: Id,
+        layer: egui::LayerId,
+        area: Rect,
+        paint: impl FnOnce(&mut egui::Ui) -> T,
+    ) -> Option<EditorResponse<T>> {
+        if canvas_scale::too_small(12.0 * self.zoom) {
+            return None;
+        }
         let hit = area.intersect(self.canvas);
         if !hit.is_positive() {
             return None;
@@ -55,30 +116,7 @@ impl EditorHost<'_> {
                 ui.set_min_size(hit.size());
                 ui.set_clip_rect(self.canvas);
                 let mut content = ui.new_child(egui::UiBuilder::new().max_rect(area));
-                if let Some(layout) = &layout {
-                    chrome::paint_blister_surface(
-                        content.painter(),
-                        layout.overall,
-                        self.strip,
-                        self.zoom,
-                        self.theme,
-                        0.0,
-                    );
-                    if let Some(host) = self.node.filter(|host| host.rotation_deg.abs() < 0.001) {
-                        let (chamfer, radius) = scene::resolved_corner_effective(host, None);
-                        chrome::paint_blister_corner_backing(
-                            content.painter(),
-                            Id::new(("portal_blister_corners", host.id.0)),
-                            self.bounds,
-                            radius * self.zoom,
-                            chamfer,
-                            self.theme,
-                        );
-                    }
-                }
-                content
-                    .add_enabled_ui(enabled, |ui| paint(ui, rect, layout.as_ref()))
-                    .inner
+                paint(&mut content)
             });
         Some(EditorResponse {
             inner: shown.inner,
@@ -88,6 +126,35 @@ impl EditorHost<'_> {
 }
 
 impl SlateApp {
+    pub(super) fn paint_image_properties(
+        &mut self,
+        ui: &mut egui::Ui,
+        xf: &BoardXf,
+        state: &LastChrome,
+        live: bool,
+        enabled: bool,
+    ) -> Option<bool> {
+        if !image_palette::handles(self, live) {
+            return None;
+        }
+        let ctx = ui.ctx().clone();
+        let dimensions = if image_palette::dimensions_visible(&ctx, self) {
+            self.paint_property_dimensions(ui, xf, live, enabled)
+        } else {
+            self.shape_properties.number = None;
+            false
+        };
+        let external = (!state.image).then(|| {
+            chrome::strip_rect_below(
+                xf.w2s(state.bottom),
+                state.count,
+                xf.z,
+                chrome::strip_fade(&ctx, Id::new("selection_property_strip"), live),
+            )
+        });
+        Some(image_palette::show(self, ui, xf, external, enabled) || dimensions)
+    }
+
     pub(crate) fn property_editor_kind(
         &self,
         painter: &egui::Painter,

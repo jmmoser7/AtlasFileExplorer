@@ -391,6 +391,58 @@ fn edge_touching_triangles_with_overlapping_bounds_remain_unsplit() {
 }
 
 #[test]
+fn a_backward_clip_edge_cannot_hide_an_opaque_foreground_triangle() {
+    // Actual Agent 36px input triangles 308, 309, 315 and 2025. Sequential
+    // cuts create a one-ulp backward edge that is not a supporting boundary.
+    let triangles = [
+        [
+            [0x40acc2da, 0x41a0c298],
+            [0x40cd38f9, 0x4197e7a9],
+            [0x40c0615b, 0x4194b1c2],
+        ],
+        [
+            [0x40acc2da, 0x41a0c298],
+            [0x40c0615b, 0x4194b1c2],
+            [0x409cf5a1, 0x419ccf4a],
+        ],
+        [
+            [0x409cf5a1, 0x419ccf4a],
+            [0x40c0615b, 0x4194b1c2],
+            [0x409a474b, 0x419c02ed],
+        ],
+        [
+            [0x40993031, 0x419dc0a6],
+            [0x40c47af8, 0x4193d571],
+            [0x4095e957, 0x419cc6df],
+        ],
+    ]
+    .map(|triangle| triangle.map(|point| point.map(f32::from_bits)));
+    let foreground = [[1.0, 0.0, 0.0, 1.0]; 3];
+    let background = [[0.0, 0.0, 0.0, 1.0]; 3];
+    let mesh = build_mesh(
+        &triangles,
+        &[[1.0; 3]; 4],
+        Some(&[foreground, foreground, foreground, background]),
+    );
+    let output = max_coverage_mesh(&mesh);
+    let point = [f32::from_bits(0x40a40000), f32::from_bits(0x419a8000)];
+    let (count, alpha) = strict_coverage(&output, point);
+    assert_eq!(
+        count, 1,
+        "the opaque undercoat must not survive below foreground"
+    );
+    assert!((alpha.unwrap() - 1.0).abs() < 1e-5);
+    let (_, color) = sample(&output, point).unwrap();
+    assert!(
+        color
+            .unwrap()
+            .iter()
+            .zip([1.0, 0.0, 0.0, 1.0])
+            .all(|(actual, expected)| (*actual - expected).abs() < 1e-5)
+    );
+}
+
+#[test]
 fn narrow_positive_area_remainders_are_not_filtered() {
     let outer = right_triangle([0.0, 0.0], 2.0);
     let inset = right_triangle([0.01, 0.01], 1.98);

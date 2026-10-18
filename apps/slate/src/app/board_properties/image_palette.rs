@@ -12,7 +12,7 @@ use slate_doc::{
 mod brush;
 mod buttons;
 use buttons::panel_buttons;
-pub(super) use buttons::panel_kind;
+pub(super) use buttons::{attached, control_count, handles, panel_kind, panels};
 mod outline;
 
 const IMAGE_PANELS: [Panel; 7] = [
@@ -24,16 +24,6 @@ const IMAGE_PANELS: [Panel; 7] = [
     Panel::Layers,
     Panel::Agent,
 ];
-
-pub(super) fn handles(app: &SlateApp, live: bool) -> bool {
-    if !live || app.shape_properties.nodes.len() != 1 {
-        return false;
-    }
-    let Some(node) = app.shape_properties.nodes.first() else {
-        return false;
-    };
-    app.image_blister_eligible(node)
-}
 
 pub(super) fn editing(app: &SlateApp) -> bool {
     let mut selected = app.board_sel.iter();
@@ -142,13 +132,12 @@ impl SlateApp {
     }
 
     pub(crate) fn image_blister_eligible(&self, node: &Node) -> bool {
-        !self.portal_capture_owns_viewport(node.id)
-            && self.image_palette_eligible(node.id)
-            && super::property_strip::media_blister_fits(
-                node,
-                IMAGE_PANELS.len() - usize::from(!slate_doc::scene::supports_corners(node))
-                    + usize::from(self.image_agent_has_wired_image_and_prompt(node.id)),
-            )
+        control_count(self, node)
+            .is_some_and(|count| super::property_strip::media_blister_fits(node, count))
+    }
+
+    pub(crate) fn image_controls_eligible(&self, id: NodeId) -> bool {
+        !self.portal_capture_owns_viewport(id) && self.image_palette_eligible(id)
     }
 }
 
@@ -156,7 +145,7 @@ pub(super) fn show(
     app: &mut SlateApp,
     ui: &mut egui::Ui,
     xf: &BoardXf,
-    _selection_bounds: Rect,
+    external_strip: Option<Rect>,
     enabled: bool,
 ) -> bool {
     let Some(host) = app.shape_properties.nodes.first().cloned() else {
@@ -178,7 +167,15 @@ pub(super) fn show(
     let theme = app.palette();
     let requested_kind = if panel == Some(Panel::Agent) {
         chrome::ImagePanelKind::Custom {
-            main_height: app.image_agent_body_height(ui.painter(), host.id),
+            main_height: app.image_agent_body_height_for_width(
+                ui.painter(),
+                host.id,
+                if external_strip.is_some() {
+                    chrome::EDITOR_WIDTH
+                } else {
+                    image_rect.width() / z
+                },
+            ),
         }
     } else {
         panel_kind(panel)
@@ -220,21 +217,24 @@ pub(super) fn show(
     } else {
         chrome::BlisterPresentation::Collapsed
     };
-    let mut layout = chrome::image_presentation_layout(image_rect, z, kind);
-    let count = IMAGE_PANELS.len() - usize::from(!slate_doc::scene::supports_corners(&host))
-        + usize::from(app.image_agent_has_wired_image_and_prompt(host.id));
-    layout.blister = chrome::blister_layout(image_rect, z, count, presentation);
+    let mut layout = external_strip.map_or_else(
+        || chrome::image_presentation_layout(image_rect, z, kind),
+        |strip| chrome::image_editor_presentation_layout(image_rect, strip, z, kind, canvas),
+    );
+    let count = control_count(app, &host).unwrap_or_default();
+    if external_strip.is_none() {
+        layout.blister = chrome::blister_layout(image_rect, z, count, presentation);
+    }
     let mut captures = false;
     let mut sample = None;
     let mut popup_hits = 0..0;
     if showing_panel {
-        let full_overall_height = layout.overall.height();
-        layout.overall.max.y = layout.overall.top() + full_overall_height * expansion;
+        layout.overall.max.y = layout.overall.top() + layout.overall.height() * expansion;
     } else {
         layout.main.max.y = layout.main.top();
         layout.overall.max.y = layout.technical.bottom();
     }
-    let area_rect = if clear_tab {
+    let area_rect = if external_strip.is_some() || clear_tab {
         layout.overall
     } else if showing_panel {
         layout.overall.union(layout.blister.band)
@@ -245,16 +245,9 @@ pub(super) fn show(
     if showing_panel {
         app.occupy_result_chrome(owner, layout.overall);
     }
-    app.occupy_result_chrome(owner, layout.blister.band);
-
-    egui::Area::new(outline::layer(id).id)
-        .order(chrome::CANVAS_CHROME_ORDER)
-        .fixed_pos(area_rect.min)
-        .constrain(false)
-        .movable(false)
-        .sense(Sense::hover())
-        .fade_in(false)
-        .show(&ctx, |ui| {
+    app.occupy_result_chrome(owner, external_strip.unwrap_or(layout.blister.band));
+    let mut paint = |ui: &mut egui::Ui| {
+        if external_strip.is_none() {
             ui.set_clip_rect(canvas.intersect(image_rect.union(layout.overall).expand(16.0 * z)));
             ui.set_min_size(area_rect.size());
             if showing_panel {
@@ -272,83 +265,77 @@ pub(super) fn show(
                 }
                 chrome::paint_image_blister(ui.painter(), &layout, z, theme, tab_opacity);
             }
-            let tab_hover = !clear_tab
-                && ctx
+            if !clear_tab {
+                captures |= ctx
                     .pointer_latest_pos()
                     .is_some_and(|p| layout.blister.band.contains(p));
-            captures |= tab_hover;
-            if !clear_tab {
                 app.shape_properties.chrome_hits.push(layout.blister.band);
             }
-            // Reveal the surface without shrinking/reflowing its content.
-            // Inset editors must never acquire negative heights mid-animation;
-            // this clip also keeps hidden controls from receiving pointer input.
-            ui.set_clip_rect(canvas.intersect(layout.overall));
-            if panel.is_none() {
-                if showing_panel {
-                    if let Some(last_panel) = closing_panel {
-                        ui.add_enabled_ui(false, |ui| match last_panel {
-                            Panel::Brush => {
-                                let _ = brush::body(ui, &layout, id, z, theme, false, app);
-                            }
-                            Panel::Layers => {
-                                let _ = app.image_layer_palette_body(ui, &layout, id, z, theme);
-                            }
-                            _ => {
-                                let _ = app.shape_property_body(
-                                    ui,
-                                    layout.editor_rect(z),
-                                    last_panel,
-                                    z,
-                                    Some(&layout),
-                                );
-                            }
-                        });
-                    }
-                    captures |= ctx
-                        .pointer_latest_pos()
-                        .is_some_and(|p| canvas.contains(p) && layout.overall.contains(p));
-                    app.shape_properties.chrome_hits.push(layout.overall);
-                }
-                return;
-            }
-            if let Some(selected_panel) = panel {
-                ui.add_enabled_ui(enabled, |ui| {
-                    if selected_panel == Panel::Brush {
-                        let brush = brush::body(ui, &layout, id, z, theme, enabled, app);
-                        captures |= brush.captures;
-                        sample = brush.sample;
-                    } else if selected_panel == Panel::Layers {
-                        let hits = app.image_layer_palette_body(ui, &layout, id, z, theme);
-                        captures |= ctx
-                            .pointer_latest_pos()
-                            .is_some_and(|p| hits.iter().any(|rect| rect.contains(p)));
-                        app.shape_properties.chrome_hits.extend(hits);
-                    } else {
-                        let popup_start = app.shape_properties.chrome_hits.len();
-                        sample = app.shape_property_body(
-                            ui,
-                            layout.editor_rect(z),
-                            selected_panel,
-                            z,
-                            Some(&layout),
-                        );
-                        popup_hits = popup_start..app.shape_properties.chrome_hits.len();
-                    }
-                });
-                captures |= ctx.pointer_latest_pos().is_some_and(|p| {
-                    canvas.contains(p)
-                        && (layout.overall.contains(p)
-                            || app
-                                .shape_properties
-                                .chrome_hits
-                                .iter()
-                                .any(|hit| hit.contains(p)))
-                });
-                app.shape_properties.chrome_hits.push(layout.overall);
-            }
+        }
+        ui.set_clip_rect(canvas.intersect(layout.overall));
+        let Some(body_panel) = panel.or(closing_panel).filter(|_| showing_panel) else {
+            return;
+        };
+        let body_enabled = enabled && panel.is_some();
+        let (body_captures, gesture, body_popups) = ui
+            .add_enabled_ui(body_enabled, |ui| {
+                paint_panel_body(app, ui, &layout, id, body_panel, z, theme, body_enabled)
+            })
+            .inner;
+        popup_hits = body_popups;
+        if panel.is_some() {
+            captures |= body_captures;
+            sample = gesture;
+        }
+        captures |= ctx.pointer_latest_pos().is_some_and(|p| {
+            canvas.contains(p)
+                && (layout.overall.contains(p)
+                    || app
+                        .shape_properties
+                        .chrome_hits
+                        .iter()
+                        .any(|hit| hit.contains(p)))
         });
-
+        app.shape_properties.chrome_hits.push(layout.overall);
+    };
+    let editor_area = if let Some(strip) = external_strip {
+        showing_panel
+            .then(|| {
+                super::EditorHost {
+                    node: Some(&host),
+                    bounds: image_rect,
+                    strip,
+                    zoom: z,
+                    blister: false,
+                    canvas,
+                    theme,
+                }
+                .show_image(
+                    &ctx,
+                    outline::layer(id).id,
+                    ui.layer_id(),
+                    &layout,
+                    true,
+                    &mut paint,
+                )
+            })
+            .flatten()
+            .map(|editor| editor.area)
+    } else {
+        egui::Area::new(outline::layer(id).id)
+            .order(chrome::CANVAS_CHROME_ORDER)
+            .fixed_pos(area_rect.min)
+            .constrain(false)
+            .movable(false)
+            .sense(Sense::hover())
+            .fade_in(false)
+            .show(&ctx, &mut paint);
+        None
+    };
+    drop(paint);
+    if let Some(area) = editor_area {
+        app.occupy_result_chrome(owner, area);
+    }
     if showing_panel && expansion < 1.0 {
         let visible = canvas.intersect(layout.overall);
         let on_popup = ctx.pointer_latest_pos().is_some_and(|p| {
@@ -375,18 +362,22 @@ pub(super) fn show(
                     .pointer_latest_pos()
                     .is_some_and(|p| visible.contains(p));
     }
-    if layout.blister.band.intersect(canvas).is_positive() {
+    if external_strip.is_none() && layout.blister.band.intersect(canvas).is_positive() {
         app.prepare_media_blister(count, presentation);
     } else {
         app.clear_prepared_media_blister();
     }
-    app.update_image_palette_frame(&ctx, xf, &host, &layout, showing_panel);
+    if external_strip.is_none() {
+        app.update_image_palette_frame(&ctx, xf, &host, &layout, showing_panel);
+    }
     let (icon_captures, requested_panel, close_requested) = panel_buttons(
         app,
         &ctx,
         &layout,
         enabled && (panel.is_some() || expansion <= 0.0),
         closing_panel,
+        external_strip,
+        z,
     );
     captures |= icon_captures;
     if close_requested {
@@ -465,3 +456,36 @@ pub(super) fn show(
 
 // Separate icon Areas leave the transparent spaces between them in the canvas
 // hit-test world. An image-spanning Area would still block the brush there.
+
+#[allow(clippy::too_many_arguments)]
+fn paint_panel_body(
+    app: &mut SlateApp,
+    ui: &mut egui::Ui,
+    layout: &chrome::ImagePresentationLayout,
+    id: NodeId,
+    panel: Panel,
+    z: f32,
+    theme: atlas_shell::theme::Palette,
+    enabled: bool,
+) -> (bool, Option<chrome::SampleGesture>, std::ops::Range<usize>) {
+    match panel {
+        Panel::Brush => {
+            let response = brush::body(ui, layout, id, z, theme, enabled, app);
+            (response.captures, response.sample, response.popup_hits)
+        }
+        Panel::Layers => {
+            let hits = app.image_layer_palette_body(ui, layout, id, z, theme);
+            let captures = ui
+                .ctx()
+                .pointer_latest_pos()
+                .is_some_and(|p| hits.iter().any(|rect| rect.contains(p)));
+            app.shape_properties.chrome_hits.extend(hits);
+            (captures, None, 0..0)
+        }
+        _ => {
+            let start = app.shape_properties.chrome_hits.len();
+            let sample = app.shape_property_body(ui, layout.editor_rect(z), panel, z, Some(layout));
+            (false, sample, start..app.shape_properties.chrome_hits.len())
+        }
+    }
+}

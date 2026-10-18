@@ -18,6 +18,8 @@ impl AgentRuntime {
         models: Vec<atlas_ai::agent::AgentModel>,
     ) {
         self.models.insert(key.to_owned(), models);
+        // An injected catalog also pins its probe lifecycle for full-app tests.
+        self.models_started.insert(key.to_owned());
         self.models_error.remove(key);
     }
 }

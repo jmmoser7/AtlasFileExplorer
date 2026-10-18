@@ -10,10 +10,11 @@ use atlas_shell::selection_tools as chrome;
 use eframe::egui::{self, Id};
 use slate_doc::{scene::Rgba, NodeId};
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Default)]
 pub(super) struct BrushResponse {
     pub captures: bool,
     pub sample: Option<chrome::SampleGesture>,
+    pub popup_hits: std::ops::Range<usize>,
 }
 
 #[derive(Clone, Copy)]
@@ -33,6 +34,7 @@ pub(super) fn body(
 ) -> BrushResponse {
     let (_, _, opacity) = brush_tip(app);
     let mut captures = false;
+    let mut popup_hits = 0..0;
     if let Some(header) = layout.brush_header {
         let key = Id::new(("image_brush_header", image.0));
         let mut layer_open = ui
@@ -66,9 +68,11 @@ pub(super) fn body(
             .chrome_hits
             .extend(chrome::image_brush_header_groups(header, zoom));
         app.occupy_property_popups(&response.popups);
+        let popup_start = app.shape_properties.chrome_hits.len();
         app.shape_properties
             .chrome_hits
             .extend(response.popups.iter().copied());
+        popup_hits = popup_start..app.shape_properties.chrome_hits.len();
         ui.ctx()
             .data_mut(|data| data.insert_temp(key.with("layer_open"), layer_open));
         if enabled {
@@ -144,7 +148,11 @@ pub(super) fn body(
     if sample.is_some() && !enabled {
         sample = None;
     }
-    BrushResponse { captures, sample }
+    BrushResponse {
+        captures,
+        sample,
+        popup_hits,
+    }
 }
 
 pub(super) fn start_brush_sample(app: &mut SlateApp, gesture: chrome::SampleGesture) {

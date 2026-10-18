@@ -1,15 +1,14 @@
 //! Decisions are real input targets inside the existing scrollable conversation.
 use super::*;
 
+fn decision_id(proposal: &str, accept: bool) -> Id {
+    Id::new(("presence-proposal-decision", "dot", proposal, accept))
+}
+
 fn decision(f: &Fixture, proposal: &str, accept: bool) -> (Rect, Rect) {
     let response = f
         .ctx
-        .read_response(Id::new((
-            "presence-proposal-decision",
-            "dot",
-            proposal,
-            accept,
-        )))
+        .read_response(decision_id(proposal, accept))
         .expect("the transcript painted its decision target");
     let transform = f
         .ctx
@@ -19,6 +18,60 @@ fn decision(f: &Fixture, proposal: &str, accept: bool) -> (Rect, Rect) {
         transform * response.rect,
         transform * response.interact_rect,
     )
+}
+
+fn decision_trace(f: &Fixture, proposal: &str) -> String {
+    let id = decision_id(proposal, true);
+    let target = f.ctx.read_response(id).map(|response| {
+        let transform = f.ctx.layer_transform_to_global(response.layer_id).unwrap_or_default();
+        format!(
+            "id={id:?} layer={:?} transform={transform:?} local={:?} local_hit={:?} screen={:?} screen_hit={:?} hovered={} contains_pointer={} pointer_down={} top_layer={:?}",
+            response.layer_id, response.rect, response.interact_rect,
+            transform * response.rect, transform * response.interact_rect,
+            response.hovered(), response.contains_pointer(), response.is_pointer_button_down_on(),
+            f.ctx.layer_id_at(transform * response.rect.center()),
+        )
+    });
+    let input = f.ctx.input(|i| format!(
+        "pointer={:?} raw_scroll={:?} remaining_smooth_scroll={:?} seconds_since_scroll={} any_down={}",
+        i.pointer.interact_pos(), i.raw_scroll_delta, i.smooth_scroll_delta,
+        i.time_since_last_scroll(), i.pointer.any_down(),
+    ));
+    let interaction = f.ctx.interaction_snapshot(|s| {
+        format!(
+            "clicked={:?} dragged={:?} hovered={:?} contains={:?}",
+            s.clicked, s.dragged, s.hovered, s.contains_pointer,
+        )
+    });
+    format!(
+        "target={target:?}; {input}; {interaction}; panel={:?}; active_chat={:?}",
+        f.state.last_popup_rect,
+        f.state.active_chat()
+    )
+}
+
+fn settle_wheel(f: &mut Fixture, proposal: &str, zoom: f32) {
+    let mut previous = None;
+    for _ in 0..90 {
+        f.frame(vec![]);
+        let current = f
+            .ctx
+            .read_response(decision_id(proposal, true))
+            .map(|response| (response.rect, response.interact_rect));
+        // ScrollArea consumes smooth_scroll_delta, so its post-frame zero is
+        // not evidence that egui's queued wheel smoothing has finished.
+        let quiet = f
+            .ctx
+            .input(|input| input.time_since_last_scroll() > 2.0 / 60.0);
+        if quiet && current.is_some() && current == previous {
+            return;
+        }
+        previous = current;
+    }
+    panic!(
+        "wheel did not settle for {proposal} at {zoom}: {}",
+        decision_trace(f, proposal)
+    );
 }
 
 #[test]
@@ -105,20 +158,29 @@ fn pending_cards_scroll_while_the_attached_composer_remains_reachable_at_all_zoo
                         modifiers: egui::Modifiers::NONE,
                     },
                 ]);
-                f.settle();
+                settle_wheel(&mut f, &proposal, zoom);
                 let (button, hit) = decision(&f, &proposal, true);
                 if hit.contains(button.center()) {
-                    assert!(f
-                        .click(button.center())
-                        .contains(&PresenceAction::AcceptProposal {
+                    let before = decision_trace(&f, &proposal);
+                    let pressed_actions = f.frame(pointer(button.center(), true)).0;
+                    let pressed = decision_trace(&f, &proposal);
+                    let released_actions = f.frame(pointer(button.center(), false)).0;
+                    let released = decision_trace(&f, &proposal);
+                    assert!(released_actions.contains(&PresenceAction::AcceptProposal {
                             participant: "dot".into(),
                             id: proposal.clone(),
-                        }));
+                        }),
+                        "exact decision click failed: zoom={zoom} proposal={proposal} target={button:?} hit={hit:?} press_actions={pressed_actions:?} release_actions={released_actions:?}\nbefore: {before}\npressed: {pressed}\nreleased: {released}",
+                    );
                     reachable = true;
                     break;
                 }
             }
-            assert!(reachable, "wheel reaches {proposal} at {zoom}");
+            assert!(
+                reachable,
+                "wheel reaches {proposal} at {zoom}: {}",
+                decision_trace(&f, &proposal)
+            );
         }
         let (composer_after, hit_after) =
             super::visual::screen_response(&f, Id::new(("presence-composer", "dot")));

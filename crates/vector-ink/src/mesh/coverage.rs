@@ -280,21 +280,30 @@ fn convex_polygons_overlap(subject: &[Vertex], cutter: &[[f64; 2]]) -> bool {
         return false;
     }
     let subject_positions: Vec<[f64; 2]> = subject.iter().map(|vertex| vertex.pos).collect();
-    !separated_on_polygon_edges(&subject_positions, signed_area(subject).signum(), cutter)
-        && !separated_on_polygon_edges(
-            cutter,
-            signed_area_points(cutter).signum(),
-            &subject_positions,
-        )
+    !separated_on_polygon_edges(&subject_positions, cutter)
+        && !separated_on_polygon_edges(cutter, &subject_positions)
 }
 
-fn separated_on_polygon_edges(edges: &[[f64; 2]], orientation: f64, other: &[[f64; 2]]) -> bool {
+fn separated_on_polygon_edges(edges: &[[f64; 2]], other: &[[f64; 2]]) -> bool {
     (0..edges.len()).any(|index| {
         let a = edges[index];
         let b = edges[(index + 1) % edges.len()];
-        other
-            .iter()
-            .all(|&point| edge_side(a, b, point) * orientation <= 0.0)
+        if a == b {
+            return false;
+        }
+        // Clipping can leave a tiny backward edge. It is an axis, but may no
+        // longer support its polygon, so both projection intervals are needed.
+        let interval = |polygon: &[[f64; 2]]| {
+            polygon
+                .iter()
+                .map(|&point| edge_side(a, b, point))
+                .fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), value| {
+                    (min.min(value), max.max(value))
+                })
+        };
+        let (edge_min, edge_max) = interval(edges);
+        let (other_min, other_max) = interval(other);
+        edge_max <= other_min || other_max <= edge_min
     })
 }
 

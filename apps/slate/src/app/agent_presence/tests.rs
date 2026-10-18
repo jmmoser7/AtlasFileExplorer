@@ -5,6 +5,12 @@ use serde_json::json;
 #[path = "perf_tests.rs"]
 mod perf;
 
+#[path = "motion_render_tests.rs"]
+mod motion_render;
+
+#[path = "chrome_render_tests.rs"]
+mod chrome_render;
+
 #[path = "proposal_chat_tests.rs"]
 mod proposal_chat;
 

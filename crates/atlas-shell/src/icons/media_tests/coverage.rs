@@ -255,7 +255,7 @@ fn export_media_icon_pixels_for_visual_audit() {
         "columns_slot_points": SIZES,
         "rows_icons": CASES.iter().map(|i| i.name()).collect::<Vec<_>>(),
         "rows_per_icon_alpha": [64, 128, 255], "cell_points": CELL,
-        "geometry_cost": cold_geometry_metrics(),
+        "geometry_cost": cold_geometry_metrics(&dir),
         "ellipse_material_mesh_24px": {
             "vertex_columns": ["master_x", "master_y", "premult_material_red", "coverage_alpha"],
             "vertices": ellipse.vertices.iter().map(|v| [v.pos.x, v.pos.y, v.color.r() as f32, v.color.a() as f32]).collect::<Vec<_>>(),
@@ -270,11 +270,19 @@ fn export_media_icon_pixels_for_visual_audit() {
     .unwrap();
 }
 
-fn cold_geometry_metrics() -> Vec<serde_json::Value> {
+fn cold_geometry_metrics(dir: &std::path::Path) -> Vec<serde_json::Value> {
+    std::fs::create_dir_all(dir.join("geometry")).unwrap();
     let mut records = Vec::new();
     for &icon in CASES {
         for &size in SIZES {
             for ppp in [1.0, 1.5, 2.0] {
+                let mesh_file = format!(
+                    "geometry/{}-{:08x}-{:08x}.mesh",
+                    icon.name(),
+                    size.to_bits(),
+                    f32::to_bits(ppp),
+                );
+                let mesh_path = dir.join(&mesh_file);
                 records.push(
                     std::thread::spawn(move || {
                         // Each fresh thread starts with an empty production geometry
@@ -284,11 +292,16 @@ fn cold_geometry_metrics() -> Vec<serde_json::Value> {
                         let cold_us = start.elapsed().as_micros();
                         let start = std::time::Instant::now();
                         let warm = density::media::mesh(icon, size * ppp);
+                        let warm_us = start.elapsed().as_micros();
+                        // Serialization is outside both production timing intervals.
+                        write_material_mesh_bits(&mesh_path, &mesh);
                         serde_json::json!({
                             "icon": icon.name(), "slot_points": size, "ppp": ppp,
-                            "cold_us": cold_us, "warm_us": start.elapsed().as_micros(),
+                            "cold_us": cold_us, "warm_us": warm_us,
                             "vertices": mesh.vertices.len(), "triangles": mesh.indices.len() / 3,
                             "warm_reused_geometry": Arc::ptr_eq(&mesh, &warm),
+                            "exact_mesh_file": mesh_file,
+                            "texture_id": format!("{:?}", mesh.texture_id),
                         })
                     })
                     .join()
@@ -298,4 +311,23 @@ fn cold_geometry_metrics() -> Vec<serde_json::Value> {
         }
     }
     records
+}
+
+/// MIM1: magic, little-endian u32 counts, position/UV f32 bits and RGBA bytes,
+/// then little-endian u32 indices. Retains exact production output for comparison.
+fn write_material_mesh_bits(path: &std::path::Path, mesh: &egui::Mesh) {
+    let mut bytes = Vec::with_capacity(12 + mesh.vertices.len() * 20 + mesh.indices.len() * 4);
+    bytes.extend_from_slice(b"MIM1");
+    bytes.extend_from_slice(&(mesh.vertices.len() as u32).to_le_bytes());
+    bytes.extend_from_slice(&(mesh.indices.len() as u32).to_le_bytes());
+    for vertex in &mesh.vertices {
+        for value in [vertex.pos.x, vertex.pos.y, vertex.uv.x, vertex.uv.y] {
+            bytes.extend_from_slice(&value.to_bits().to_le_bytes());
+        }
+        bytes.extend_from_slice(&vertex.color.to_array());
+    }
+    for index in &mesh.indices {
+        bytes.extend_from_slice(&index.to_le_bytes());
+    }
+    std::fs::write(path, bytes).unwrap();
 }

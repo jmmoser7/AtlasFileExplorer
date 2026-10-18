@@ -2037,10 +2037,8 @@ mod tests {
         }
         h.frame();
     }
-    fn click_empty_board(h: &mut Harness) {
-        let canvas = h.app.canvas_rect;
-        click(h, canvas.right_top() + egui::vec2(-48.0, 48.0));
-    }
+    mod empty_board;
+    use empty_board::click_empty_board;
     fn escape(h: &mut Harness) {
         h.frame_with(|i| {
             i.events.push(egui::Event::Key {

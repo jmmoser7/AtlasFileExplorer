@@ -106,7 +106,7 @@ pub struct ImageTechnicalLayout {
 /// Geometry shared by the image technical datum, main field, and blister.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ImagePresentationLayout {
-    /// The image edge is exactly this rect's top edge.
+    /// The image edge or external editor origin is exactly this rect's top edge.
     pub technical: Rect,
     /// Brush's parameter strip immediately below the image, when present.
     pub brush_header: Option<Rect>,
@@ -114,7 +114,7 @@ pub struct ImagePresentationLayout {
     pub layer_header: Option<Rect>,
     /// Main editor below the technical datum.
     pub main: Rect,
-    /// Combined surface, spanning the image's full width.
+    /// Combined surface, spanning the image or external editor width.
     pub overall: Rect,
     /// Small raised center tab that overlaps the image edge.
     pub blister: BlisterLayout,
@@ -133,6 +133,27 @@ impl ImagePresentationLayout {
         } else {
             self.main
         }
+    }
+
+    fn translated(mut self, offset: Vec2) -> Self {
+        self.technical = self.technical.translate(offset);
+        self.brush_header = self.brush_header.map(|rect| rect.translate(offset));
+        self.layer_header = self.layer_header.map(|rect| rect.translate(offset));
+        self.main = self.main.translate(offset);
+        self.overall = self.overall.translate(offset);
+        self.blister.band = self.blister.band.translate(offset);
+        self.blister.cutout = self.blister.cutout.map(|rect| rect.translate(offset));
+        let controls = &mut self.technical_controls;
+        controls.panel_buttons = controls.panel_buttons.map(|rect| rect.translate(offset));
+        controls.eyedropper = controls.eyedropper.translate(offset);
+        controls.recent_colors = controls.recent_colors.map(|rect| rect.translate(offset));
+        controls.divider = controls.divider.translate(offset);
+        controls.rgb_values = controls.rgb_values.map(|rect| rect.translate(offset));
+        if let Some(color) = &mut self.color {
+            color.field = color.field.translate(offset);
+            color.rails = color.rails.map(|rect| rect.translate(offset));
+        }
+        self
     }
 }
 
@@ -164,8 +185,51 @@ pub fn image_presentation_layout_with_choice(
     choice: ImageLayoutChoice,
 ) -> ImagePresentationLayout {
     let scale = zoom.max(f32::EPSILON);
-    let width_units = image.width() / scale;
-    let aspect = image.width() / image.height().max(f32::EPSILON);
+    image_presentation_layout_at(
+        image.left_bottom(),
+        image.width(),
+        image.width() / image.height().max(f32::EPSILON),
+        scale,
+        kind,
+        choice,
+        blister_layout(image, scale, 7, BlisterPresentation::Overlay),
+    )
+}
+
+/// Place the shared image controls at the external strip's popup location,
+/// using the canonical editor width in the host's camera.
+pub fn image_editor_presentation_layout(
+    host: Rect,
+    strip: Rect,
+    zoom: f32,
+    kind: ImagePanelKind,
+    canvas: Rect,
+) -> ImagePresentationLayout {
+    let scale = zoom.max(f32::EPSILON);
+    let layout = image_presentation_layout_at(
+        host.left_bottom(),
+        super::EDITOR_WIDTH * scale,
+        host.width() / host.height().max(f32::EPSILON),
+        scale,
+        kind,
+        ImageLayoutChoice::Responsive,
+        blister_layout(host, scale, 7, BlisterPresentation::Overlay),
+    );
+    let placement =
+        super::editor_placement(strip, host, layout.overall.height() / scale, scale, canvas);
+    layout.translated(placement.min - layout.overall.min)
+}
+
+fn image_presentation_layout_at(
+    origin: Pos2,
+    width: f32,
+    aspect: f32,
+    scale: f32,
+    kind: ImagePanelKind,
+    choice: ImageLayoutChoice,
+    blister: BlisterLayout,
+) -> ImagePresentationLayout {
+    let width_units = width / scale;
     let wide = match choice {
         ImageLayoutChoice::Responsive => width_units >= IMAGE_WIDE_THRESHOLD && aspect >= 1.4,
         ImageLayoutChoice::Narrow => false,
@@ -190,7 +254,7 @@ pub fn image_presentation_layout_with_choice(
         0.0
     };
     let main_height = kind.main_height(width_units, wide) * scale;
-    let technical = Rect::from_min_size(image.left_bottom(), Vec2::new(image.width(), datum));
+    let technical = Rect::from_min_size(origin, Vec2::new(width, datum));
     let brush_header = (kind == ImagePanelKind::Brush).then(|| {
         Rect::from_min_size(
             technical.min + Vec2::new(IMAGE_PANEL_INSET * scale, 0.0),
@@ -202,10 +266,9 @@ pub fn image_presentation_layout_with_choice(
     });
     let layer_header = (kind == ImagePanelKind::Layers).then_some(technical);
     let main = Rect::from_min_size(
-        Pos2::new(image.left(), technical.bottom() + gap),
-        Vec2::new(image.width(), main_height),
+        Pos2::new(origin.x, technical.bottom() + gap),
+        Vec2::new(width, main_height),
     );
-    let blister = blister_layout(image, scale, 7, BlisterPresentation::Overlay);
     let color_datum = brush_header.map_or(technical, |header| {
         Rect::from_min_max(
             Pos2::new(header.right() + 6.0 * scale, technical.top()),
