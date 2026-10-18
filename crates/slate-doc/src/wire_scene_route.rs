@@ -187,8 +187,8 @@ mod tests {
     fn memory_rail_uses_the_same_transient_hosts_before_generic_routing() {
         let (mut scene, source, target, a, b) = hosts();
         let conn = ConnectorNode {
-            a: a.clone(),
-            b: b.clone(),
+            a,
+            b,
             stroke: Stroke::none(),
             color: None,
             routing: None,

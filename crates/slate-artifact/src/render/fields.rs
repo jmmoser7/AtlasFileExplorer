@@ -19,7 +19,7 @@ pub(super) fn push_field(
         shape.corner,
         0.25,
     );
-    for (triangle, indices) in mesh.indices.chunks_exact(3).enumerate() {
+    for (triangle, indices) in mesh.indices.as_chunks::<3>().0.iter().enumerate() {
         let points: [[f32; 2]; 3] = std::array::from_fn(|i| mesh.vertices[indices[i] as usize].pos);
         let d = format!(
             "M{} {}L{} {}L{} {}Z",

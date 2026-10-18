@@ -271,7 +271,7 @@ fn clip_mesh(source: &egui::Mesh, cuts: &[&Vec<Pos2>]) -> egui::Mesh {
         .collect();
     let mut mesh = egui::Mesh::with_texture(source.texture_id);
     mesh.vertices.extend_from_slice(&source.vertices);
-    for tri in source.indices.chunks_exact(3) {
+    for tri in source.indices.as_chunks::<3>().0 {
         let original = [
             source.vertices[tri[0] as usize],
             source.vertices[tri[1] as usize],

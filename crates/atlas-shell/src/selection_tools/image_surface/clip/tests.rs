@@ -141,7 +141,7 @@ fn clipped_texture_really_exposes_the_scene_and_preserves_uvs() {
     ];
     let clipped = clip_mesh(&source, &[&cut]);
     assert_eq!(clipped.texture_id, source.texture_id);
-    for tri in clipped.indices.chunks_exact(3) {
+    for tri in clipped.indices.as_chunks::<3>().0 {
         let points: Vec<_> = tri
             .iter()
             .map(|i| clipped.vertices[*i as usize].pos)
@@ -212,7 +212,7 @@ fn fractional_rounded_body_has_no_interior_msaa_cracks_after_a_notch() {
                 [0.625, 0.875],
             ] {
                 let p = Vec2::new(x as f32 + sample[0], y as f32 + sample[1]);
-                let covered = clipped.indices.chunks_exact(3).any(|tri| {
+                let covered = clipped.indices.as_chunks::<3>().0.iter().any(|tri| {
                     let [a, b, c] = std::array::from_fn(|i| vertices[tri[i] as usize]);
                     let cross =
                         |a: Vec2, b: Vec2| a.x as f64 * b.y as f64 - a.y as f64 * b.x as f64;

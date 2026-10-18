@@ -128,11 +128,13 @@ mod board_permission_tests {
         };
         for configured in ["workspaceWrite", "dangerFullAccess"] {
             for full_access in [false, true] {
-                let mut permissions = TurnPermissions::default();
-                permissions.own = Some(Permissions {
-                    approval: json!("never"),
-                    sandbox: json!({"type":configured}),
-                });
+                let mut permissions = TurnPermissions {
+                    own: Some(Permissions {
+                        approval: json!("never"),
+                        sandbox: json!({"type":configured}),
+                    }),
+                    ..Default::default()
+                };
                 let filesystem = filesystem_policy(&request);
                 let restore = permissions.next(filesystem, full_access);
                 let params = turn_params(

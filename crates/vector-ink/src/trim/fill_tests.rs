@@ -3,7 +3,9 @@ use crate::trim::point_in_mesh;
 
 fn triangle_area(vertices: &[[f32; 2]], indices: &[u32]) -> f32 {
     indices
-        .chunks_exact(3)
+        .as_chunks::<3>()
+        .0
+        .iter()
         .map(|triangle| {
             let a = vertices[triangle[0] as usize];
             let b = vertices[triangle[1] as usize];

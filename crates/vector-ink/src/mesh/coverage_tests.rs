@@ -24,7 +24,7 @@ fn build_mesh(
 }
 
 fn sample(mesh: &InkMesh, point: [f32; 2]) -> Option<(f32, Option<[f32; 4]>)> {
-    for triangle in mesh.indices.chunks_exact(3) {
+    for triangle in mesh.indices.as_chunks::<3>().0 {
         let a = mesh.vertices[triangle[0] as usize];
         let b = mesh.vertices[triangle[1] as usize];
         let c = mesh.vertices[triangle[2] as usize];
@@ -49,7 +49,7 @@ fn sample(mesh: &InkMesh, point: [f32; 2]) -> Option<(f32, Option<[f32; 4]>)> {
 fn strict_coverage(mesh: &InkMesh, point: [f32; 2]) -> (usize, Option<f32>) {
     let mut count = 0;
     let mut alpha = None;
-    for triangle in mesh.indices.chunks_exact(3) {
+    for triangle in mesh.indices.as_chunks::<3>().0 {
         let a = mesh.vertices[triangle[0] as usize];
         let b = mesh.vertices[triangle[1] as usize];
         let c = mesh.vertices[triangle[2] as usize];
@@ -75,7 +75,9 @@ fn cross(a: [f32; 2], b: [f32; 2]) -> f32 {
 
 fn area(mesh: &InkMesh) -> f64 {
     mesh.indices
-        .chunks_exact(3)
+        .as_chunks::<3>()
+        .0
+        .iter()
         .map(|triangle| {
             let a = mesh.vertices[triangle[0] as usize].pos.map(f64::from);
             let b = mesh.vertices[triangle[1] as usize].pos.map(f64::from);
@@ -306,7 +308,7 @@ fn mixed_winding_and_disjoint_triangles_keep_their_coverage() {
     assert!((sample(&output, [3.2, 0.2]).unwrap().0 - 0.4).abs() < 1e-6);
     assert_eq!(strict_coverage(&output, [0.2, 0.2]).0, 1);
     assert_eq!(strict_coverage(&output, [3.2, 0.2]).0, 1);
-    for triangle in output.indices.chunks_exact(3) {
+    for triangle in output.indices.as_chunks::<3>().0 {
         let a = output.vertices[triangle[0] as usize].pos;
         let b = output.vertices[triangle[1] as usize].pos;
         let c = output.vertices[triangle[2] as usize].pos;
@@ -351,8 +353,10 @@ fn many_bbox_overlapping_skinny_islands_keep_bounded_coverage() {
     assert_eq!(triangle_count(&output), triangles.len());
     for (source_triangle, output_triangle) in mesh
         .indices
-        .chunks_exact(3)
-        .zip(output.indices.chunks_exact(3))
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(output.indices.as_chunks::<3>().0.iter())
     {
         assert_eq!(
             sorted_vertex_bits(&mesh, source_triangle),

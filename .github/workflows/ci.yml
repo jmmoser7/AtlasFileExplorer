@@ -92,7 +92,7 @@ jobs:
           restore-keys: ${{ runner.os }}-cargo-lint-
 
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --keep-going -- -D warnings
 
   windows:
     name: check (windows)
