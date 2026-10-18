@@ -11,8 +11,8 @@ use crate::scene::{self, NodeKind};
 use crate::SlateDoc;
 
 mod linked;
-pub use linked::{absolutize_document, rebase_linked_scene};
 pub(crate) use linked::rebase_linked_command;
+pub use linked::{absolutize_document, rebase_linked_scene};
 
 const ASSETS_DIR: &str = "assets";
 

@@ -193,10 +193,10 @@ mod activity;
 pub use activity::*;
 mod activity_semantics;
 pub use activity_semantics::*;
-pub mod presence;
 pub mod collaborator;
 #[cfg(test)]
 mod manifest_tests;
+pub mod presence;
 #[cfg(test)]
 mod prompt_tests;
 #[cfg(test)]

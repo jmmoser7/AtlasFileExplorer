@@ -2,6 +2,9 @@ use super::super::tests::Harness;
 use super::*;
 use serde_json::json;
 
+#[path = "perf_tests.rs"]
+mod perf;
+
 #[test]
 fn mentions_resolve_exact_names_and_disambiguate_by_identity() {
     let roster = [("one", "Dot"), ("two", "Dot helper")];

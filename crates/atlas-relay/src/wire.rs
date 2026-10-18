@@ -5,10 +5,23 @@ use std::time::{Duration, Instant};
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum Command {
-    Hello { version: u8, room: String, credential: String, profile: Profile },
-    Send { recipient: String, message_id: String, text: String },
-    Ack { message_id: String },
-    UpdateProfile { profile: Profile },
+    Hello {
+        version: u8,
+        room: String,
+        credential: String,
+        profile: Profile,
+    },
+    Send {
+        recipient: String,
+        message_id: String,
+        text: String,
+    },
+    Ack {
+        message_id: String,
+    },
+    UpdateProfile {
+        profile: Profile,
+    },
     Disconnect,
 }
 
@@ -34,7 +47,12 @@ pub(crate) struct Rate {
 }
 
 impl Rate {
-    pub fn new() -> Self { Self { period: Instant::now(), count: 0 } }
+    pub fn new() -> Self {
+        Self {
+            period: Instant::now(),
+            count: 0,
+        }
+    }
     pub fn allow(&mut self) -> bool {
         if self.period.elapsed() >= Duration::from_secs(1) {
             self.period = Instant::now();

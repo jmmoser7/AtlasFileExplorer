@@ -29,7 +29,9 @@ pub fn max_coverage_mesh(mesh: &InkMesh) -> InkMesh {
     let has_colors = mesh.colors.len() == mesh.vertices.len() && !mesh.colors.is_empty();
     let triangles: Vec<Triangle> = mesh
         .indices
-        .chunks_exact(3)
+        .as_chunks::<3>()
+        .0
+        .iter()
         .filter_map(|indices| {
             let vertices = [
                 *mesh.vertices.get(indices[0] as usize)?,

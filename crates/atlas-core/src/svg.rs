@@ -43,11 +43,11 @@ fn looks_like_svg(data: &[u8]) -> bool {
 
 /// Rasterize bounded, already-resident SVG artwork without consulting a path.
 /// Embedded shell assets use this on a worker; file extraction remains above.
-pub fn rasterize_bytes(data: &[u8], target_px: u32) -> Option<(u32,u32,Vec<u8>)> {
+pub fn rasterize_bytes(data: &[u8], target_px: u32) -> Option<(u32, u32, Vec<u8>)> {
     if data.is_empty() || data.len() as u64 > MAX_SVG_BYTES || !looks_like_svg(data) {
         return None;
     }
-    render_bytes(data,target_px.clamp(1,MAX_PIXMAP_EDGE))
+    render_bytes(data, target_px.clamp(1, MAX_PIXMAP_EDGE))
 }
 
 fn render_bytes(data: &[u8], target_px: u32) -> Option<(u32, u32, Vec<u8>)> {

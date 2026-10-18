@@ -73,16 +73,29 @@ fn cross(a: [f32; 2], b: [f32; 2]) -> f32 {
     a[0] * b[1] - a[1] * b[0]
 }
 
-fn area(mesh: &InkMesh) -> f32 {
+fn area(mesh: &InkMesh) -> f64 {
     mesh.indices
         .chunks_exact(3)
         .map(|triangle| {
-            let a = mesh.vertices[triangle[0] as usize].pos;
-            let b = mesh.vertices[triangle[1] as usize].pos;
-            let c = mesh.vertices[triangle[2] as usize].pos;
-            cross(sub(b, a), sub(c, a)).abs() * 0.5
+            let a = mesh.vertices[triangle[0] as usize].pos.map(f64::from);
+            let b = mesh.vertices[triangle[1] as usize].pos.map(f64::from);
+            let c = mesh.vertices[triangle[2] as usize].pos.map(f64::from);
+            ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])).abs() * 0.5
         })
         .sum()
+}
+
+fn sorted_vertex_bits(mesh: &InkMesh, triangle: &[u32]) -> [(u32, u32, u32); 3] {
+    let mut bits = std::array::from_fn(|index| {
+        let vertex = mesh.vertices[triangle[index] as usize];
+        (
+            vertex.pos[0].to_bits(),
+            vertex.pos[1].to_bits(),
+            vertex.alpha.to_bits(),
+        )
+    });
+    bits.sort_unstable();
+    bits
 }
 
 fn triangle_count(mesh: &InkMesh) -> usize {
@@ -336,7 +349,22 @@ fn many_bbox_overlapping_skinny_islands_keep_bounded_coverage() {
     let output = max_coverage_mesh(&mesh);
 
     assert_eq!(triangle_count(&output), triangles.len());
-    assert!((area(&output) - expected_area).abs() < 1e-5);
+    for (source_triangle, output_triangle) in mesh
+        .indices
+        .chunks_exact(3)
+        .zip(output.indices.chunks_exact(3))
+    {
+        assert_eq!(
+            sorted_vertex_bits(&mesh, source_triangle),
+            sorted_vertex_bits(&output, output_triangle)
+        );
+    }
+    let actual_area = area(&output);
+    let error = (actual_area - expected_area).abs();
+    println!(
+        "skinny-island area: actual={actual_area:.17}, expected={expected_area:.17}, abs_error={error:.17}"
+    );
+    assert!(error < 1e-5);
     for (index, triangle) in triangles.iter().enumerate() {
         let point = [
             (triangle[0][0] + triangle[1][0] + triangle[2][0]) / 3.0,

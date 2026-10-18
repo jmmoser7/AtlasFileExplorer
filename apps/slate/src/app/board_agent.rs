@@ -187,13 +187,13 @@ mod history_tests;
 #[cfg(test)]
 mod input_prep_tests;
 #[cfg(test)]
-mod relay_draft_tests;
-#[cfg(test)]
 mod paint_probe;
 #[cfg(test)]
 mod picker_tests;
 #[cfg(test)]
 mod present_tests;
+#[cfg(test)]
+mod relay_draft_tests;
 #[cfg(test)]
 mod stop_tests;
 #[cfg(test)]

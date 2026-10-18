@@ -167,7 +167,10 @@ impl AgentRequest {
         let mut text = self.prompt_with_history();
         let link = link_dir.map(|d| d.to_string_lossy());
         if self.collaborator.is_some() {
-            text.push_str(&collaborator::board_link_guide(self, link.as_deref().unwrap_or(".")));
+            text.push_str(&collaborator::board_link_guide(
+                self,
+                link.as_deref().unwrap_or("."),
+            ));
             self.append_wired_inputs(&mut text);
             return text;
         }

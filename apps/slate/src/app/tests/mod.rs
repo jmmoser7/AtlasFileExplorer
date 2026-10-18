@@ -7,9 +7,9 @@ use eframe::egui::{Pos2, Rect as ERect, Vec2 as EVec2};
 use slate_doc::scene::{FrameNode, NodeKind, Rgba, WorldRect};
 use slate_doc::{NodeId, ViewKind};
 
-mod support;
 mod presence_commands;
 mod presence_generator;
+mod support;
 
 pub(super) use support::*;
 
@@ -51,8 +51,8 @@ mod split_gp;
 mod stacking;
 mod stroke;
 mod style;
-mod tags;
 mod subobject;
+mod tags;
 mod text;
 mod text_zoom;
 mod tip_direct;

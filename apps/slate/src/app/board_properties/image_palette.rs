@@ -5,8 +5,8 @@ use super::{BoardXf, Panel, SlateApp};
 use atlas_shell::{icons::Icon, selection_tools as chrome};
 use eframe::egui::{self, Id, Rect, Sense};
 use slate_doc::{
-    NodeId,
     scene::{Node, NodeKind},
+    NodeId,
 };
 
 mod brush;

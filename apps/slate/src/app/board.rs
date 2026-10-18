@@ -327,11 +327,14 @@ impl SlateApp {
         self.sync_connector_rects();
         let palette = self.palette();
         let presence_capture = self.presence_capsules(ui.ctx());
-        if !presence_capture { self.presence_takeover(ui.ctx()); }
+        if !presence_capture {
+            self.presence_takeover(ui.ctx());
+        }
         let painter = ui.painter_at(rect);
         let resp = ui.allocate_rect(rect, Sense::click_and_drag());
         let pointer = ui.ctx().pointer_latest_pos();
-        let popup_capture = pointer.and_then(|p| ui.ctx().layer_id_at(p))
+        let popup_capture = pointer
+            .and_then(|p| ui.ctx().layer_id_at(p))
             .is_some_and(|layer| layer.order >= atlas_shell::selection_tools::POPUP_ORDER);
         let tag_popup = popup_capture && super::ui::tools::tags::editor_open(self, ui.ctx());
         let xf = self.board_xf();
@@ -345,8 +348,11 @@ impl SlateApp {
             | self.tip_numeric_ui(ui, &xf)
             | self.image_paint_palette_ui(ui, &xf);
         let shot_captures = self.paint_model_screenshot_popup(ui.ctx());
-        let model_toolbar_captures =
-            popup_capture || presence_capture || agent_controls_capture || other_toolbar_captures || shot_captures;
+        let model_toolbar_captures = popup_capture
+            || presence_capture
+            || agent_controls_capture
+            || other_toolbar_captures
+            || shot_captures;
         let selection_capture = !model_toolbar_captures && self.image_selection_input(ui, &xf);
         let model_toolbar_captures = model_toolbar_captures || selection_capture;
         self.lock_models_pressed_outside(ui, &xf, pointer, model_toolbar_captures);
@@ -488,8 +494,12 @@ impl SlateApp {
                     && self.shift_down
                     && !self.ctrl_down
                     && !self.alt_down));
-        let turbo_pan_active = self.board_turbo_pan(ui.ctx(), rect, pointer,
-            tag_popup || claim_right || page_capture || model_pointer);
+        let turbo_pan_active = self.board_turbo_pan(
+            ui.ctx(),
+            rect,
+            pointer,
+            tag_popup || claim_right || page_capture || model_pointer,
+        );
         if turbo_pan_active {
             canvas_nav = true;
         }
@@ -510,7 +520,8 @@ impl SlateApp {
                 .send_viewport_cmd(egui::ViewportCommand::CursorPosition(target));
         }
         let hold_right = claim_right || brush_right;
-        let panning = !tag_popup && !web_capture
+        let panning = !tag_popup
+            && !web_capture
             && (resp.dragged_by(egui::PointerButton::Middle)
                 || (space && resp.dragged_by(egui::PointerButton::Primary))
                 || (resp.dragged_by(egui::PointerButton::Secondary)
@@ -1324,7 +1335,9 @@ impl SlateApp {
         self.maintain_shape_fill_preview(ui.ctx());
         let mut nodes = self.board_paint_nodes(rect);
         for preview in self.presence_preview_additions(rect) {
-            if !nodes.iter().any(|n| n.id == preview.id) { nodes.push(preview); }
+            if !nodes.iter().any(|n| n.id == preview.id) {
+                nodes.push(preview);
+            }
         }
         // A Shift preview that continues a stroke paints that stroke inside
         // its own canvas once the workers have stamped it there, so the

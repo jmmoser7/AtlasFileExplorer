@@ -1024,7 +1024,9 @@ impl SlateApp {
                 && ((chord.key == Key::Delete && agent_delete.0)
                     || (chord.key == Key::Backspace && agent_delete.1))
         };
-        if board && !typing_sink && !wants_kb && self.selected_slate_enter(ctx) { return; }
+        if board && !typing_sink && !wants_kb && self.selected_slate_enter(ctx) {
+            return;
+        }
         let palette_open = self.palette_state.open;
         let cmd_ctx = self.command_ctx();
         // Type-to-command / bare-letter hold: Board only, and never while a

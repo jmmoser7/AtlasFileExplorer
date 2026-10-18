@@ -1,14 +1,14 @@
 //! Brush parameter and color controls embedded in the selected-image blister.
 
 use crate::app::{
-    SlateApp,
     board::BoardTool,
     board_color::{BrushSettingUndo, DesktopDestination},
+    SlateApp,
 };
 use atlas_commands::CommandId;
 use atlas_shell::selection_tools as chrome;
 use eframe::egui::{self, Id};
-use slate_doc::{NodeId, scene::Rgba};
+use slate_doc::{scene::Rgba, NodeId};
 
 #[derive(Clone, Copy, Default)]
 pub(super) struct BrushResponse {

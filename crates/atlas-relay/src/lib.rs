@@ -8,16 +8,16 @@
 mod client;
 mod host;
 mod room;
+#[cfg(test)]
+mod security_tests;
 mod tls;
 mod transport;
 mod wire;
-#[cfg(test)]
-mod security_tests;
 
 pub use client::Client;
 pub use host::Host;
-pub use tls::Invite;
 use serde::{Deserialize, Serialize};
+pub use tls::Invite;
 
 pub const MAX_TEXT_BYTES: usize = 32 * 1024;
 /// Tiny display portrait, encoded by the app. The relay never decodes images.
@@ -39,15 +39,25 @@ pub struct Profile {
 
 impl Profile {
     pub fn new(id: impl Into<String>, name: impl Into<String>) -> Self {
-        Self { id: id.into(), name: name.into(), avatar: None }
+        Self {
+            id: id.into(),
+            name: name.into(),
+            avatar: None,
+        }
     }
 
     pub(crate) fn validate(&self) -> Result<(), RelayError> {
         if !valid_id(&self.id) || self.name.trim().is_empty() || self.name.len() > 160 {
             return Err(RelayError::Invalid("Invalid participant profile"));
         }
-        if self.avatar.as_ref().is_some_and(|bytes| bytes.is_empty() || bytes.len() > MAX_AVATAR_BYTES) {
-            return Err(RelayError::Invalid("Participant portrait must contain 1–2048 bytes"));
+        if self
+            .avatar
+            .as_ref()
+            .is_some_and(|bytes| bytes.is_empty() || bytes.len() > MAX_AVATAR_BYTES)
+        {
+            return Err(RelayError::Invalid(
+                "Participant portrait must contain 1–2048 bytes",
+            ));
         }
         Ok(())
     }
@@ -56,15 +66,35 @@ impl Profile {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Event {
-    Connected { peers: Vec<Profile> },
-    Peers { peers: Vec<Profile> },
-    Profile { profile: Profile },
-    Incoming { from: Profile, message_id: String, text: String },
-    Accepted { message_id: String },
-    Ack { message_id: String, recipient: String },
-    Rejected { message_id: String, reason: String },
+    Connected {
+        peers: Vec<Profile>,
+    },
+    Peers {
+        peers: Vec<Profile>,
+    },
+    Profile {
+        profile: Profile,
+    },
+    Incoming {
+        from: Profile,
+        message_id: String,
+        text: String,
+    },
+    Accepted {
+        message_id: String,
+    },
+    Ack {
+        message_id: String,
+        recipient: String,
+    },
+    Rejected {
+        message_id: String,
+        reason: String,
+    },
     Disconnected,
-    Error { message: String },
+    Error {
+        message: String,
+    },
 }
 
 #[derive(Debug)]
@@ -95,13 +125,17 @@ impl From<std::io::Error> for RelayError {
 }
 
 pub(crate) fn valid_id(s: &str) -> bool {
-    !s.is_empty() && s.len() <= 128
-        && s.bytes().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b'.' | b':'))
+    !s.is_empty()
+        && s.len() <= 128
+        && s.bytes()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b'.' | b':'))
 }
 
 pub(crate) fn validate_message(recipient: &str, id: &str, text: &str) -> Result<(), RelayError> {
     if !valid_id(recipient) || !valid_id(id) {
-        return Err(RelayError::Invalid("Invalid message or recipient identifier"));
+        return Err(RelayError::Invalid(
+            "Invalid message or recipient identifier",
+        ));
     }
     if text.trim().is_empty() || text.len() > MAX_TEXT_BYTES {
         return Err(RelayError::Invalid("Message must contain 1–32768 bytes"));

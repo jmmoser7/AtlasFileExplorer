@@ -255,10 +255,9 @@ fn dragging_the_image_keeps_the_editor_visible_and_attached() {
 fn transparent_tab_gaps_allow_painting_without_collapsing_the_editor() {
     let (mut h, image) = blister_board("image_clear_tab_paint");
     h.app.shape_properties.panel = Some(Panel::Brush);
-    assert!(
-        h.app
-            .dispatch(&h.ctx, atlas_commands::CommandId("board.tool.brush"), None)
-    );
+    assert!(h
+        .app
+        .dispatch(&h.ctx, atlas_commands::CommandId("board.tool.brush"), None));
     h.frame();
     settle_image_panel(&mut h);
     assert_eq!(

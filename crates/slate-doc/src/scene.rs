@@ -40,7 +40,10 @@ mod web;
 pub use web::{WebPortalRef, WEB_DEFAULT_ENTRY};
 
 mod capabilities;
-pub use capabilities::{fill_of, set_fill, set_stroke, stroke_of, supports_corners, supports_fill, supports_image_adjust, supports_stroke};
+pub use capabilities::{
+    fill_of, set_fill, set_stroke, stroke_of, supports_corners, supports_fill,
+    supports_image_adjust, supports_stroke,
+};
 
 // ---------- geometry ----------
 
@@ -3367,7 +3370,9 @@ impl SceneJournal {
     /// Save As keeps every historical source aimed at its original target.
     /// No authored content changes and no undo/redo entries are added or lost.
     pub fn rebase_linked_sources(&mut self, from: &Path, to: &Path) {
-        if from.parent() == to.parent() { return; }
+        if from.parent() == to.parent() {
+            return;
+        }
         for group in self.done.iter_mut().chain(&mut self.undone) {
             for command in &mut group.cmds {
                 crate::locators::rebase_linked_command(command, from, to);
@@ -3592,18 +3597,27 @@ mod tests {
     #[test]
     fn node_preparation_copies_only_allocator_and_leaves_document_untouched() {
         let mut scene = Scene::default();
-        let node = scene.build_node(WorldRect::new(1.0, 2.0, 3.0, 4.0), NodeKind::Image(ImageNode::new(crate::ItemId(1))));
+        let node = scene.build_node(
+            WorldRect::new(1.0, 2.0, 3.0, 4.0),
+            NodeKind::Image(ImageNode::new(crate::ItemId(1))),
+        );
         assert!(scene.apply(&SceneCmd::Add { index: 0, node }));
         let before = scene.clone();
         let mut scratch = scene.node_preparation();
         assert!(scratch.nodes.is_empty());
         assert_eq!(scratch.spatial_rebuilds(), 0);
-        let a = scratch.build_node(WorldRect::new(0.0, 0.0, 8.0, 8.0), NodeKind::Image(ImageNode::new(crate::ItemId(2))));
+        let a = scratch.build_node(
+            WorldRect::new(0.0, 0.0, 8.0, 8.0),
+            NodeKind::Image(ImageNode::new(crate::ItemId(2))),
+        );
         let b = scratch.build_node(a.rect, a.kind.clone());
         assert_ne!(a.id, b.id);
         assert!(a.id.0 > scene.nodes[0].id.0);
         assert_eq!(scene, before);
-        assert!(scene.apply(&SceneCmd::Add { index: 1, node: a.clone() }));
+        assert!(scene.apply(&SceneCmd::Add {
+            index: 1,
+            node: a.clone()
+        }));
         assert!(!scene.apply(&SceneCmd::Add { index: 2, node: a }));
     }
 

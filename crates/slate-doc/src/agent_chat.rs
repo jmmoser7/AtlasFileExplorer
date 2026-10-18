@@ -75,7 +75,10 @@ impl ChatView {
 
 /// The connected conversation, including hidden presentation members.
 pub fn conversation(scene: &Scene, id: NodeId) -> Vec<NodeId> {
-    if scene.node(id).is_some_and(|node| crate::scene::artifact(node).is_some()) {
+    if scene
+        .node(id)
+        .is_some_and(|node| crate::scene::artifact(node).is_some())
+    {
         return Vec::new();
     }
     let mut root = id;

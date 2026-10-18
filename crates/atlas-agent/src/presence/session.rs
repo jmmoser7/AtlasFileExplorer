@@ -297,7 +297,9 @@ impl PresenceSession {
     }
     /// Cancel only witnessed motion after a conflict; keep the task identity and
     /// replay fences so the provider can read again and propose a fresh action.
-    pub fn cancel_motion(&mut self)->Vec<PresenceSignal> { self.cancel_pending() }
+    pub fn cancel_motion(&mut self) -> Vec<PresenceSignal> {
+        self.cancel_pending()
+    }
 
     pub(super) fn cancel_pending(&mut self) -> Vec<PresenceSignal> {
         let mut signals = Vec::with_capacity(self.queue.len() + usize::from(self.active.is_some()));

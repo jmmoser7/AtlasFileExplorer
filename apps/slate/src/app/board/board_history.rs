@@ -48,14 +48,24 @@ impl SlateApp {
                 }
             }));
         self.brush_tiles.note_ids(cmds.iter().map(cmd_node_id));
-        let mentions: Vec<_> = if matches!(&author, slate_doc::scene::CmdAuthor::Human) && !self.presence.agents_empty() {
-            cmds.iter().filter(|cmd| match cmd {
-                SceneCmd::Add { node, .. } => super::super::agent_presence::message_text_changed(None, node),
-                SceneCmd::Patch { before, after } => super::super::agent_presence::message_text_changed(Some(before), after),
-                _ => false,
-            })
-                .cloned().collect()
-        } else { Vec::new() };
+        let mentions: Vec<_> = if matches!(&author, slate_doc::scene::CmdAuthor::Human)
+            && !self.presence.agents_empty()
+        {
+            cmds.iter()
+                .filter(|cmd| match cmd {
+                    SceneCmd::Add { node, .. } => {
+                        super::super::agent_presence::message_text_changed(None, node)
+                    }
+                    SceneCmd::Patch { before, after } => {
+                        super::super::agent_presence::message_text_changed(Some(before), after)
+                    }
+                    _ => false,
+                })
+                .cloned()
+                .collect()
+        } else {
+            Vec::new()
+        };
         let tab = self.tab_mut();
         tab.dirty = true;
         let doc = &mut tab.doc;
@@ -69,7 +79,9 @@ impl SlateApp {
             tab.edit_redo.clear();
         }
         self.note_scene_change();
-        if ok && !mentions.is_empty() { self.route_presence_mentions(&mentions); }
+        if ok && !mentions.is_empty() {
+            self.route_presence_mentions(&mentions);
+        }
         ok
     }
 
