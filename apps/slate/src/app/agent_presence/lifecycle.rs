@@ -266,12 +266,13 @@ impl SlateApp {
     }
 
     pub(super) fn stop_presence(&mut self, who: &str, revoke: bool) -> Result<(), String> {
-        self.stop_presence_with(who, revoke, true)
+        self.stop_presence_with(who, revoke, revoke, true)
     }
     fn stop_presence_with(
         &mut self,
         who: &str,
         revoke: bool,
+        forget_preferences: bool,
         cancel_ancestors: bool,
     ) -> Result<(), String> {
         if cancel_ancestors {
@@ -282,26 +283,26 @@ impl SlateApp {
         if !self.presence.agents.iter().any(|a| a.profile.id == who) {
             return Err("Unknown collaborator".into());
         }
-        if revoke {
+        if forget_preferences {
             self.settings
                 .agent_consent_policies
                 .retain(|policy| !ids.contains(&policy.identity_id));
             self.settings.save();
-            if self.agent_session_access_available() {
-                let sessions: Vec<_> = ids
-                    .iter()
-                    .filter_map(|id| {
-                        self.presence
-                            .agents
-                            .iter()
-                            .find(|a| a.profile.id == *id && a.profile.provider == "codex")
-                            .map(|a| a.binding.session_id.clone())
-                    })
-                    .collect();
-                for session in sessions {
-                    if let Err(error) = self.set_agent_session_access(&session, false) {
-                        self.toast(error);
-                    }
+        }
+        if revoke && self.agent_session_access_available() {
+            let sessions: Vec<_> = ids
+                .iter()
+                .filter_map(|id| {
+                    self.presence
+                        .agents
+                        .iter()
+                        .find(|a| a.profile.id == *id && a.profile.provider == "codex")
+                        .map(|a| a.binding.session_id.clone())
+                })
+                .collect();
+            for session in sessions {
+                if let Err(error) = self.set_agent_session_access(&session, false) {
+                    self.toast(error);
                 }
             }
         }
@@ -425,7 +426,7 @@ impl SlateApp {
         style: &str,
         completed_helper: bool,
     ) -> Result<(), String> {
-        self.stop_presence_with(who, true, !completed_helper)?;
+        self.stop_presence_with(who, true, false, !completed_helper)?;
         let descendants = self.presence.descendants(who);
         let ids: Vec<_> = self
             .presence
