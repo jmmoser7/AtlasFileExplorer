@@ -243,7 +243,7 @@ fn draw(
 }
 
 fn bezier_path(points: &[Pos2], closed: bool) -> Result<(WorldRect, PathData), String> {
-    if points.len() < 4 || (points.len() - 1) % 3 != 0 {
+    if points.len() < 4 || !(points.len() - 1).is_multiple_of(3) {
         return Err("Bezier points must be cubic control points in 3n+1 order".into());
     }
     let mut bez = BezPath::new();

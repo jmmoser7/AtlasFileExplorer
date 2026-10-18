@@ -194,11 +194,7 @@ pub(crate) fn prepare_join_nodes(
                 (anchors, *id, styles, ends, stroke.arrow_sizes)
             }
             Some((first, style_id, first_styles, first_ends, first_sizes)) => {
-                let Some((joined, _, trace)) =
-                    join_endpoints_traced(&first, Some(&anchors), radius)
-                else {
-                    return None;
-                };
+                let (joined, _, trace) = join_endpoints_traced(&first, Some(&anchors), radius)?;
                 // The first node's base cap wins; a later node brings
                 // only the conditions set on its own ends.
                 let base = StrokeEnd {
@@ -242,12 +238,8 @@ pub(crate) fn prepare_join_nodes(
             }
         });
     }
-    let Some((joined, style_id, styles, ends, sizes)) = acc else {
-        return None;
-    };
-    let Some(style_node) = app.doc().scene.node(style_id).cloned() else {
-        return None;
-    };
+    let (joined, style_id, styles, ends, sizes) = acc?;
+    let style_node = app.doc().scene.node(style_id).cloned()?;
     let bez = bezpath_from_anchors(&joined, false);
     let (rect, mut data) = board_path::bezpath_to_path_data(&bez, false);
     let rect = WorldRect::new(

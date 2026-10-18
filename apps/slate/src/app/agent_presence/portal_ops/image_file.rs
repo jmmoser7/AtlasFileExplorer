@@ -82,7 +82,7 @@ pub(super) fn read_image(app: &mut SlateApp, op: &mut PortalOp) -> Result<Option
     let rgba: Vec<u8> = pixels
         .pixels
         .iter()
-        .flat_map(|pixel| pixel.to_array())
+        .flat_map(|pixel| pixel.to_srgba_unmultiplied())
         .collect();
     let (tx, rx) = mpsc::channel();
     op.text_rx = Some(rx);
@@ -173,6 +173,7 @@ fn image_output_path(
     ))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn write_preview_png(
     output: PathBuf,
     width: u32,
