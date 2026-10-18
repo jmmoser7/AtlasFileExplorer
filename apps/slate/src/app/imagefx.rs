@@ -5,123 +5,15 @@
 //! board preview matches the exported HTML artifact.
 
 use eframe::egui::{Color32, ColorImage};
-use slate_doc::scene::{Crop, ImageAdjust, Rgba};
+#[cfg(test)]
+use slate_doc::scene::Rgba;
+use slate_doc::scene::{Crop, ImageAdjust};
 use std::path::{Path, PathBuf};
 
-/// 3×3 row-major color matrix (W3C Filter Effects).
-#[derive(Clone, Copy)]
-struct Mat3([f32; 9]);
+mod cache;
+pub(crate) use cache::{TextureCache, TextureClass};
 
-impl Mat3 {
-    fn saturate(s: f32) -> Self {
-        Self([
-            0.213 + 0.787 * s,
-            0.715 - 0.715 * s,
-            0.072 - 0.072 * s,
-            0.213 - 0.213 * s,
-            0.715 + 0.285 * s,
-            0.072 - 0.072 * s,
-            0.213 - 0.213 * s,
-            0.715 - 0.715 * s,
-            0.072 + 0.928 * s,
-        ])
-    }
-
-    fn grayscale(g: f32) -> Self {
-        let t = 1.0 - g;
-        Self([
-            0.2126 + 0.7874 * t,
-            0.7152 - 0.7152 * t,
-            0.0722 - 0.0722 * t,
-            0.2126 - 0.2126 * t,
-            0.7152 + 0.2848 * t,
-            0.0722 - 0.0722 * t,
-            0.2126 - 0.2126 * t,
-            0.7152 - 0.7152 * t,
-            0.0722 + 0.9278 * t,
-        ])
-    }
-
-    fn sepia(p: f32) -> Self {
-        let t = 1.0 - p;
-        Self([
-            0.393 + 0.607 * t,
-            0.769 - 0.769 * t,
-            0.189 - 0.189 * t,
-            0.349 - 0.349 * t,
-            0.686 + 0.314 * t,
-            0.168 - 0.168 * t,
-            0.272 - 0.272 * t,
-            0.534 - 0.534 * t,
-            0.131 + 0.869 * t,
-        ])
-    }
-
-    fn hue_rotate(deg: f32) -> Self {
-        let rad = deg.to_radians();
-        let (c, s) = (rad.cos(), rad.sin());
-        Self([
-            0.213 + c * 0.787 - s * 0.213,
-            0.715 - c * 0.715 - s * 0.715,
-            0.072 - c * 0.072 + s * 0.928,
-            0.213 - c * 0.213 + s * 0.143,
-            0.715 + c * 0.285 + s * 0.140,
-            0.072 - c * 0.072 - s * 0.283,
-            0.213 - c * 0.213 - s * 0.787,
-            0.715 - c * 0.715 + s * 0.715,
-            0.072 + c * 0.928 + s * 0.072,
-        ])
-    }
-
-    fn mul(self, rhs: Self) -> Self {
-        let a = &self.0;
-        let b = &rhs.0;
-        Self([
-            a[0] * b[0] + a[1] * b[3] + a[2] * b[6],
-            a[0] * b[1] + a[1] * b[4] + a[2] * b[7],
-            a[0] * b[2] + a[1] * b[5] + a[2] * b[8],
-            a[3] * b[0] + a[4] * b[3] + a[5] * b[6],
-            a[3] * b[1] + a[4] * b[4] + a[5] * b[7],
-            a[3] * b[2] + a[4] * b[5] + a[5] * b[8],
-            a[6] * b[0] + a[7] * b[3] + a[8] * b[6],
-            a[6] * b[1] + a[7] * b[4] + a[8] * b[7],
-            a[6] * b[2] + a[7] * b[5] + a[8] * b[8],
-        ])
-    }
-
-    fn transform(self, r: f32, g: f32, b: f32) -> (f32, f32, f32) {
-        let m = &self.0;
-        (
-            m[0] * r + m[1] * g + m[2] * b,
-            m[3] * r + m[4] * g + m[5] * b,
-            m[6] * r + m[7] * g + m[8] * b,
-        )
-    }
-}
-
-fn clamp01(v: f32) -> f32 {
-    v.clamp(0.0, 1.0)
-}
-
-fn lerp_channel(a: f32, b: f32, t: f32) -> f32 {
-    a + (b - a) * t
-}
-
-fn to_u8(v: f32) -> u8 {
-    (clamp01(v) * 255.0).round() as u8
-}
-
-fn build_color_matrix(adjust: &ImageAdjust) -> Mat3 {
-    Mat3::hue_rotate(adjust.hue_deg)
-        .mul(Mat3::sepia(adjust.sepia))
-        .mul(Mat3::grayscale(adjust.grayscale))
-        .mul(Mat3::saturate(adjust.saturate))
-}
-
-/// W3C color-matrix coefficients (row-major 3×3) shared by CPU and GPU filters.
-pub fn color_matrix_coefficients(adjust: &ImageAdjust) -> [f32; 9] {
-    build_color_matrix(adjust).0
-}
+pub use slate_doc::image_adjust::{color_matrix_coefficients, filter_shader_overlay, filter_tone};
 
 /// OpenGL column-major upload of the W3C row-major color matrix.
 pub fn gl_color_mat3(adjust: &ImageAdjust) -> [f32; 9] {
@@ -129,66 +21,22 @@ pub fn gl_color_mat3(adjust: &ImageAdjust) -> [f32; 9] {
     [m[0], m[3], m[6], m[1], m[4], m[7], m[2], m[5], m[8]]
 }
 
-/// Uniforms for the model viewport GPU filter pass (`brightness * contrast`, offset).
-pub fn filter_tone(adjust: &ImageAdjust) -> (f32, f32) {
-    (
-        adjust.brightness * adjust.contrast,
-        0.5 * (1.0 - adjust.contrast),
-    )
-}
-
-/// Overlay + invert terms for the GPU filter pass.
-pub fn filter_shader_overlay(adjust: &ImageAdjust) -> ([f32; 4], f32) {
-    let overlay = adjust.overlay.map(|Rgba([r, g, b, a])| {
-        [
-            r as f32 / 255.0,
-            g as f32 / 255.0,
-            b as f32 / 255.0,
-            a as f32 / 255.0,
-        ]
-    });
-    (overlay.unwrap_or([0.0; 4]), adjust.invert.clamp(0.0, 1.0))
-}
-
 /// Returns an adjusted copy of `src`. Identity adjustments return a plain clone.
 pub fn adjusted(src: &ColorImage, adjust: &ImageAdjust) -> ColorImage {
-    if adjust.is_identity() {
-        return src.clone();
-    }
-
-    let matrix = build_color_matrix(adjust);
-    let (scale, offset) = filter_tone(adjust);
-    let (overlay, invert) = filter_shader_overlay(adjust);
-    let inv_oa = 1.0 - overlay[3];
-
     let mut out = src.clone();
-    for pix in &mut out.pixels {
-        let alpha = pix.a();
-        let r = clamp01(scale * (pix.r() as f32 / 255.0) + offset);
-        let g = clamp01(scale * (pix.g() as f32 / 255.0) + offset);
-        let b = clamp01(scale * (pix.b() as f32 / 255.0) + offset);
-
-        let (r, g, b) = matrix.transform(r, g, b);
-        let (mut r, mut g, mut b) = (clamp01(r), clamp01(g), clamp01(b));
-
-        // CSS filters apply in list order and `css_filter()` appends
-        // invert(1) last, after the hue/sat/brightness pipeline.
-        if invert != 0.0 {
-            r = clamp01(lerp_channel(r, 1.0 - r, invert));
-            g = clamp01(lerp_channel(g, 1.0 - g, invert));
-            b = clamp01(lerp_channel(b, 1.0 - b, invert));
-        }
-
-        if overlay[3] > 0.0 {
-            r = clamp01(r * inv_oa + overlay[0] * overlay[3]);
-            g = clamp01(g * inv_oa + overlay[1] * overlay[3]);
-            b = clamp01(b * inv_oa + overlay[2] * overlay[3]);
-        }
-
-        *pix = Color32::from_rgba_unmultiplied(to_u8(r), to_u8(g), to_u8(b), alpha);
-    }
-
+    filter_pixels(&mut out, adjust);
     out
+}
+
+fn filter_pixels(out: &mut ColorImage, adjust: &ImageAdjust) {
+    if adjust.is_identity() {
+        return;
+    }
+    let filter = slate_doc::image_adjust::PixelFilter::new(adjust);
+    for pixel in &mut out.pixels {
+        let [r, g, b, a] = filter.apply(pixel.to_srgba_unmultiplied());
+        *pixel = Color32::from_rgba_unmultiplied(r, g, b, a);
+    }
 }
 
 /// Longest edge of a filter-radio thumbnail. Small on purpose: the swatch is
@@ -247,18 +95,50 @@ fn path_key(path: &Path) -> u64 {
 pub fn square_swatch(src: &ColorImage, edge: usize) -> ColorImage {
     let edge = edge.max(1);
     let (w, h) = (src.size[0], src.size[1]);
-    let mut out = ColorImage::new([edge, edge], Color32::TRANSPARENT);
-    if w == 0 || h == 0 {
-        return out;
-    }
     let side = w.min(h);
     let x0 = (w - side) / 2;
     let y0 = (h - side) / 2;
-    for y in 0..edge {
-        let sy = y0 + y * side / edge;
-        for x in 0..edge {
-            let sx = x0 + x * side / edge;
-            out.pixels[y * edge + x] = src.pixels[sy * w + sx];
+    nearest_region(src, [x0, y0, side, side], [edge, edge])
+}
+
+/// Aspect-preserving FX fallback; never upscale or copy the full preview.
+pub(crate) fn thumbnail_size([width, height]: [usize; 2], edge: usize) -> [usize; 2] {
+    if width == 0 || height == 0 {
+        return [0, 0];
+    }
+    let longest = width.max(height);
+    let edge = edge.max(1).min(longest);
+    [width, height].map(|side| ((side as u128 * edge as u128 / longest as u128) as usize).max(1))
+}
+
+pub(crate) fn adjusted_thumbnail(
+    src: &ColorImage,
+    edge: usize,
+    adjust: &ImageAdjust,
+) -> ColorImage {
+    let mut out = nearest_region(
+        src,
+        [0, 0, src.size[0], src.size[1]],
+        thumbnail_size(src.size, edge),
+    );
+    filter_pixels(&mut out, adjust);
+    out
+}
+
+fn nearest_region(
+    src: &ColorImage,
+    [x0, y0, width, height]: [usize; 4],
+    [out_width, out_height]: [usize; 2],
+) -> ColorImage {
+    let mut out = ColorImage::new([out_width, out_height], Color32::TRANSPARENT);
+    if width == 0 || height == 0 {
+        return out;
+    }
+    for y in 0..out_height {
+        let sy = y0 + y * height / out_height;
+        for x in 0..out_width {
+            let sx = x0 + x * width / out_width;
+            out.pixels[y * out_width + x] = src.pixels[sy * src.size[0] + sx];
         }
     }
     out
@@ -347,7 +227,12 @@ mod tests {
             },
         ];
         for adjust in cases {
-            let cpu = build_color_matrix(&adjust).transform(color[0], color[1], color[2]);
+            let m = color_matrix_coefficients(&adjust);
+            let cpu = (
+                m[0] * color[0] + m[1] * color[1] + m[2] * color[2],
+                m[3] * color[0] + m[4] * color[1] + m[5] * color[2],
+                m[6] * color[0] + m[7] * color[1] + m[8] * color[2],
+            );
             let gl = gl_color_mat3(&adjust);
             let gpu = (
                 gl[0] * color[0] + gl[3] * color[1] + gl[6] * color[2],
@@ -502,12 +387,10 @@ mod tests {
             sepia: 1.0,
             ..ImageAdjust::default()
         };
-        let m = Mat3::sepia(1.0);
-        let (er, eg, eb) = m.transform(1.0, 1.0, 1.0);
         let [r, g, b, _] = pixel(&adjusted(&src, &adjust));
-        approx_eq(r, to_u8(er), 2);
-        approx_eq(g, to_u8(eg), 2);
-        approx_eq(b, to_u8(eb), 2);
+        approx_eq(r, 255, 2);
+        approx_eq(g, 255, 2);
+        approx_eq(b, 239, 2);
     }
 
     #[test]

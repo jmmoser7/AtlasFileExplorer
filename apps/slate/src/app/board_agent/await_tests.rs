@@ -85,8 +85,7 @@ fn provider_tiles_accept_first_click_near_their_edges() {
         h.app.doc_mut().view.active_view = slate_doc::ViewKind::Board;
         h.app.place_agent_portal_at(Pos2::ZERO);
         let id = h.app.doc().scene.nodes[0].id;
-        h.app.agents.programs_started = true;
-        h.app.agents.programs = vec![atlas_ai::agent::provider_by_id("local")];
+        h.app.set_agent_programs_for_test(&["local"]);
         h.app.agents.focused = None;
         h.app.portals.contents = None;
         let r = h.app.doc().scene.node(id).unwrap().rect;
@@ -260,6 +259,7 @@ fn local_dropdown_changes_model_without_replacing_conversation() {
         vec![atlas_ai::agent::AgentModel {
             id: "local-model".into(),
             name: "local-model".into(),
+            ..Default::default()
         }],
     );
     assert!(h.app.agent_set_model("local-model"));
@@ -287,6 +287,7 @@ fn comfy_checkpoint_choice_keeps_the_image_portal() {
         vec![atlas_ai::agent::AgentModel {
             id: "sd_xl_base_1.0.safetensors".into(),
             name: "sd_xl_base_1.0.safetensors".into(),
+            ..Default::default()
         }],
     );
     assert!(h.app.agent_set_model("sd_xl_base_1.0.safetensors"));

@@ -1,3 +1,9 @@
+mod arrows;
+mod fields;
+mod image;
+mod image_filter;
+mod shape_text;
+use image::render_image;
 use std::collections::BTreeMap;
 
 use slate_doc::media::{ext_badge, media_kind, web_safe_video, MediaKind};
@@ -711,98 +717,6 @@ fn render_web_portal(
     html.push_str("</div>\n");
 }
 
-fn render_image(
-    html: &mut String,
-    doc: &SlateDoc,
-    assets: &AssetMap,
-    node: &Node,
-    img: &slate_doc::scene::ImageNode,
-    rel: WorldRect,
-) {
-    let item = doc.item(img.item);
-    let (file_name, path_opt) = match item {
-        Some(item) => (item.file_name.as_str(), Some(&item.path)),
-        None => ("?", None),
-    };
-
-    let mut style = geometry_style(rel, node.rotation_deg);
-    append_opacity(&mut style, node.opacity);
-    append_clip(&mut style, node, rel);
-    let corner = path_opt
-        .map(|path| slate_doc::media::text_card_corner(path, img.corner))
-        .unwrap_or(img.corner);
-    append_corner(&mut style, corner, rel.w, rel.h);
-    append_stroke(&mut style, &img.stroke);
-    style.push_str("overflow:hidden;");
-
-    html.push_str("<div class=\"node\" style=\"");
-    html.push_str(&style);
-    html.push_str("\">");
-
-    // A picture an agent makes shows its newest result until one is picked;
-    // the app lists the shown result first, as the board paints it.
-    let shown = (img.agent.is_some() && img.item.is_none())
-        .then(|| assets.agent_images(node.id).and_then(|v| v.first()))
-        .flatten();
-    let missing = item.is_none() || path_opt.is_none_or(|p| assets.get(p).is_none());
-    if let Some(url) = shown {
-        render_img_tag(html, url, img);
-    } else if img.agent.is_some() && img.item.is_none() {
-        // Not generated yet: an empty picture, not a missing file.
-    } else if missing {
-        html.push_str("<div class=\"missing\">");
-        html.push_str(&escape_html(file_name));
-        html.push_str("</div>");
-    } else {
-        let path = path_opt.unwrap();
-        let url = assets.get(path).unwrap();
-
-        match media_kind(path) {
-            MediaKind::Image => render_img_tag(html, url, img),
-            MediaKind::Video if web_safe_video(path) => {
-                render_video_tag(html, url, img, path, assets.item_thumb(img.item, path));
-            }
-            MediaKind::Text => {
-                if let Some(sheet) = assets.sheet(path) {
-                    render_sheet_card(html, url, file_name, sheet, &img.sheet);
-                } else {
-                    render_text_card(html, url, file_name, assets.snippet(path), path);
-                }
-            }
-            // 3D models: the frozen-camera poster for exactly this node,
-            // falling back to the item thumbnail, always linking to the
-            // copied original. No extension badge, matching the board.
-            MediaKind::Model => {
-                let poster = assets
-                    .model_poster(node.id)
-                    .or_else(|| assets.item_thumb(img.item, path));
-                render_model_poster_card(html, url, poster, img);
-            }
-            // PDFs, docs, non-web-safe video, workbooks (legacy docs may
-            // still carry one as an item), anything else: poster thumbnail
-            // when available, labeled card otherwise — always linking to the
-            // copied original.
-            _ => render_file_card(
-                html,
-                url,
-                file_name,
-                &ext_badge(path),
-                assets.item_thumb(img.item, path),
-            ),
-        }
-    }
-
-    if let Some(overlay) = img.adjust.overlay {
-        html.push_str("<div class=\"ovl\" style=\"background:");
-        html.push_str(&overlay.css());
-        html.push_str(";\"></div>");
-    }
-
-    render_image_paint_layers(html, doc, assets, node, img, rel);
-
-    html.push_str("</div>\n");
-}
-
 fn render_model_poster_card(
     html: &mut String,
     url: &str,
@@ -867,28 +781,15 @@ fn render_image_paint_layers(
                 child.rect.w / node.rect.w.max(1e-6) * hw,
                 child.rect.h / node.rect.h.max(1e-6) * hh,
             );
-            html.push_str("<div class=\"paint-layer-node\" style=\"position:absolute;inset:0;pointer-events:none\">");
+            let clip_style = crate::paint_layers::clips::html_style(html, &child, child_px);
+            html.push_str("<div class=\"paint-layer-node\" style=\"position:absolute;inset:0;pointer-events:none;");
+            html.push_str(&clip_style);
+            html.push_str("\">");
             match &child.kind {
                 NodeKind::Shape(shape) => render_shape(html, &child, shape, child_px),
                 NodeKind::Text(text) => render_text(html, &child, text, &text.text, child_px),
                 NodeKind::Image(layer_img) => {
-                    if let Some(item) = doc.item(layer_img.item) {
-                        if let Some(url) = assets.get(&item.path) {
-                            let mut style = geometry_style(child_px, local.rotation_deg);
-                            if let Some((sx, sy)) = layer_img.mirror().scale() {
-                                style.push_str(&format!(
-                                    "transform:rotate({:.3}deg) scale({sx},{sy});",
-                                    local.rotation_deg
-                                ));
-                            }
-                            append_opacity(&mut style, child.opacity);
-                            html.push_str("<img src=\"");
-                            html.push_str(&escape_attr(url));
-                            html.push_str("\" alt=\"\" style=\"");
-                            html.push_str(&style);
-                            html.push_str("\" draggable=\"false\">");
-                        }
-                    }
+                    render_image(html, doc, assets, &child, layer_img, child_px);
                 }
                 _ => {}
             }
@@ -898,13 +799,13 @@ fn render_image_paint_layers(
     }
 }
 
-fn render_img_tag(html: &mut String, url: &str, img: &slate_doc::scene::ImageNode) {
+fn render_img_tag(html: &mut String, url: &str, img: &slate_doc::scene::ImageNode, id: NodeId) {
+    let filter = image_filter::html_filter(html, &img.adjust, id);
     html.push_str("<img src=\"");
     html.push_str(&escape_attr(url));
     html.push_str("\" alt=\"\" style=\"");
     html.push_str(&crop_style(&img.crop));
     push_mirror_transform(html, img.mirror());
-    let filter = img.adjust.css_filter();
     if !filter.is_empty() {
         html.push_str("filter:");
         html.push_str(&filter);
@@ -1027,29 +928,6 @@ fn render_sheet_card(
     html.push_str("</table></div><span class=\"fname\">");
     html.push_str(&escape_html(file_name));
     html.push_str("</span></a>");
-}
-
-/// Excerpt card for text files: monospace snippet + filename, linked to the
-/// copied original.
-fn render_text_card(
-    html: &mut String,
-    url: &str,
-    file_name: &str,
-    snippet: Option<&str>,
-    path: &std::path::Path,
-) {
-    match snippet {
-        Some(snippet) => {
-            html.push_str("<a class=\"textcard\" href=\"");
-            html.push_str(&escape_attr(url));
-            html.push_str("\" target=\"_blank\"><pre>");
-            html.push_str(&escape_html(snippet));
-            html.push_str("</pre><span class=\"fname\">");
-            html.push_str(&escape_html(file_name));
-            html.push_str("</span></a>");
-        }
-        None => render_file_card(html, url, file_name, &ext_badge(path), None),
-    }
 }
 
 /// Poster-thumbnail card (when the app supplied one) or a labeled card,
@@ -1277,6 +1155,7 @@ pub(crate) fn render_shape_svg(
             }
         }
     }
+    shape_text::render_hosted_shape_text_svg(svg, node, shape, rel, stroke_scale);
     svg.push_str("</g>");
 }
 
@@ -1340,10 +1219,11 @@ pub(crate) fn render_text_svg(
     let y = rel.y + rel.h * 0.5;
     let _ = write!(
         svg,
-        "<text x=\"{x:.3}\" y=\"{y:.3}\" dominant-baseline=\"middle\" text-anchor=\"{anchor}\" font-family=\"{}\" font-size=\"{:.3}\" fill=\"{}\">{}</text>",
+        "<text x=\"{x:.3}\" y=\"{y:.3}\" dominant-baseline=\"middle\" text-anchor=\"{anchor}\" font-family=\"{}\" font-size=\"{:.3}\" fill=\"{}\" style=\"{}\">{}</text>",
         escape_attr(text.family.css_stack()),
         text.size * scale,
         text.color.css(),
+        text.style.css(),
         escape_html(shown)
     );
     svg.push_str("</g>");
@@ -1391,6 +1271,8 @@ fn render_rect_shape(
     if let Some(text) = shape.text.as_ref().filter(|t| !t.body.is_empty()) {
         html.push_str("<div style=\"width:100%;font-family:");
         html.push_str(text.family.css_stack());
+        html.push(';');
+        html.push_str(&text.style.css());
         html.push_str(";font-size:");
         html.push_str(&fmt_px(text.size));
         html.push_str("px;color:");
@@ -1607,15 +1489,15 @@ fn append_contour(
 }
 
 fn encode_png(stamp: &vector_ink::StampImage) -> Option<Vec<u8>> {
-    use image::ImageEncoder;
+    use ::image::ImageEncoder;
     let mut bytes = Vec::new();
-    let encoder = image::codecs::png::PngEncoder::new(&mut bytes);
+    let encoder = ::image::codecs::png::PngEncoder::new(&mut bytes);
     encoder
         .write_image(
             &stamp.rgba,
             stamp.width,
             stamp.height,
-            image::ExtendedColorType::Rgba8,
+            ::image::ExtendedColorType::Rgba8,
         )
         .ok()?;
     Some(bytes)
@@ -1643,8 +1525,14 @@ fn render_path(
     let arrows = shape.stroke.arrows();
     let d = if arrows.contains(&true) && !path.closed && !shape.stroke.is_none() {
         let width = shape.stroke.width;
-        let bez =
-            slate_doc::geom::trim_arrow_ends(&path_data_to_bez(path, w, h), arrows, [width; 2]);
+        let bez = slate_doc::geom::trim_arrow_sizes(
+            &path_data_to_bez(path, w, h),
+            arrows,
+            [
+                shape.stroke.arrow_size(0, width),
+                shape.stroke.arrow_size(1, width),
+            ],
+        );
         bezpath_to_d(&bez)
     } else if slate_doc::geom::path_is_line_polyline(path) {
         let bez = slate_doc::geom::path_data_to_world_bez_with_fillet(
@@ -1684,6 +1572,7 @@ fn render_vector_path_d(
     let h = rel.h;
     let fill_css = shape
         .fill
+        .filter(|_| path.is_none_or(|p| p.field_colors.is_empty()))
         .map(|f| f.css())
         .unwrap_or_else(|| "none".to_string());
 
@@ -1735,6 +1624,7 @@ fn render_vector_path_d(
     // Two different end caps are not one `stroke-linecap`: the outline
     // carries them.
     let own_ends = open && shape.stroke.end_caps() != [shape.stroke.cap; 2];
+    fields::push_field(html, node.id.0, shape, path, w, h);
     match (taper, &tipped) {
         (None, None) if !own_ends => {
             push_path_open(html, d, &fill_css, fill_rule);
@@ -1784,9 +1674,22 @@ fn render_vector_path_d(
                     dash: stroke_dash_ink(&shape.stroke),
                 };
                 let ends = shape.stroke.end_caps().map(ink_cap);
-                let body = tipped
-                    .as_ref()
-                    .map(|t| slate_doc::geom::trim_tipped_arrow_ends(t, arrows));
+                let body = tipped.as_ref().map(|t| {
+                    slate_doc::geom::trim_tipped_arrow_sizes(
+                        t,
+                        arrows,
+                        [
+                            shape.stroke.arrow_size(
+                                0,
+                                t.widths.first().copied().unwrap_or(shape.stroke.width),
+                            ),
+                            shape.stroke.arrow_size(
+                                1,
+                                t.widths.last().copied().unwrap_or(shape.stroke.width),
+                            ),
+                        ],
+                    )
+                });
                 if let Some((t, colors)) = body
                     .as_ref()
                     .and_then(|t| t.colors.as_ref().map(|c| (t, c)))
@@ -1818,7 +1721,14 @@ fn render_vector_path_d(
                                 shape.corner,
                             );
                             let width = shape.stroke.width;
-                            let bez = slate_doc::geom::trim_arrow_ends(&bez, arrows, [width; 2]);
+                            let bez = slate_doc::geom::trim_arrow_sizes(
+                                &bez,
+                                arrows,
+                                [
+                                    shape.stroke.arrow_size(0, width),
+                                    shape.stroke.arrow_size(1, width),
+                                ],
+                            );
                             vector_ink::stroke_outline_ends(
                                 &bez,
                                 &style,
@@ -1850,35 +1760,7 @@ fn render_vector_path_d(
         }
     }
 
-    if arrows.contains(&true) && !shape.stroke.is_none() {
-        if let Some(path) = path {
-            let bez = tipped
-                .as_ref()
-                .map_or_else(|| path_data_to_bez(path, w, h), |t| t.bez.clone());
-            for end in (0..2).filter(|&i| arrows[i]) {
-                let at = |t: &slate_doc::geom::TippedStroke| {
-                    let i = if end == 0 {
-                        0
-                    } else {
-                        t.widths.len().saturating_sub(1)
-                    };
-                    (
-                        t.widths.get(i).copied(),
-                        t.colors.as_ref().and_then(|c| c.get(i).copied()),
-                    )
-                };
-                let (head, color) = tipped.as_ref().map_or((None, None), at);
-                let head = head.unwrap_or(shape.stroke.width);
-                if let Some((tip, into)) = slate_doc::geom::path_arrow(&bez, end, head) {
-                    let fill = color.map_or_else(
-                        || shape.stroke.color.css(),
-                        |c| Rgba(c.map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8)).css(),
-                    );
-                    push_arrow_triangle(html, tip, into, head, &fill);
-                }
-            }
-        }
-    }
+    arrows::push_curve_heads(html, node.id.0, shape, path, tipped.as_ref(), w, h);
     html.push_str("</svg></div>\n");
     push_shape_text_overlay(html, node, shape, rel);
 }
@@ -1910,6 +1792,8 @@ fn push_shape_text_overlay(
     html.push_str(&style);
     html.push_str("\"><div style=\"width:100%;font-family:");
     html.push_str(text.family.css_stack());
+    html.push(';');
+    html.push_str(&text.style.css());
     html.push_str(";font-size:");
     html.push_str(&fmt_px(text.size));
     html.push_str("px;color:");
@@ -2143,108 +2027,8 @@ fn bezpath_to_d_local(bez: &BezPath, rect: WorldRect, w: f32, h: f32) -> String 
     d
 }
 
-fn path_data_d(path: &PathData, w: f32, h: f32) -> String {
-    let mut d = String::new();
-    let (x, y) = denorm_pt(path.start, w, h);
-    d.push_str("M ");
-    d.push_str(&fmt_px(x));
-    d.push(' ');
-    d.push_str(&fmt_px(y));
-    for seg in &path.segs {
-        match seg {
-            PathSeg::Line { to } => {
-                let (x, y) = denorm_pt(*to, w, h);
-                d.push_str(" L ");
-                d.push_str(&fmt_px(x));
-                d.push(' ');
-                d.push_str(&fmt_px(y));
-            }
-            PathSeg::Quad { ctrl, to } => {
-                let (cx, cy) = denorm_pt(*ctrl, w, h);
-                let (x, y) = denorm_pt(*to, w, h);
-                d.push_str(" Q ");
-                d.push_str(&fmt_px(cx));
-                d.push(' ');
-                d.push_str(&fmt_px(cy));
-                d.push(' ');
-                d.push_str(&fmt_px(x));
-                d.push(' ');
-                d.push_str(&fmt_px(y));
-            }
-            PathSeg::Cubic { c1, c2, to } => {
-                let (c1x, c1y) = denorm_pt(*c1, w, h);
-                let (c2x, c2y) = denorm_pt(*c2, w, h);
-                let (x, y) = denorm_pt(*to, w, h);
-                d.push_str(" C ");
-                d.push_str(&fmt_px(c1x));
-                d.push(' ');
-                d.push_str(&fmt_px(c1y));
-                d.push(' ');
-                d.push_str(&fmt_px(c2x));
-                d.push(' ');
-                d.push_str(&fmt_px(c2y));
-                d.push(' ');
-                d.push_str(&fmt_px(x));
-                d.push(' ');
-                d.push_str(&fmt_px(y));
-            }
-        }
-    }
-    if path.closed {
-        d.push_str(" Z");
-    }
-    for extra in &path.extra {
-        let (x, y) = denorm_pt(extra.start, w, h);
-        d.push_str(" M ");
-        d.push_str(&fmt_px(x));
-        d.push(' ');
-        d.push_str(&fmt_px(y));
-        for seg in &extra.segs {
-            match seg {
-                PathSeg::Line { to } => {
-                    let (x, y) = denorm_pt(*to, w, h);
-                    d.push_str(" L ");
-                    d.push_str(&fmt_px(x));
-                    d.push(' ');
-                    d.push_str(&fmt_px(y));
-                }
-                PathSeg::Quad { ctrl, to } => {
-                    let (cx, cy) = denorm_pt(*ctrl, w, h);
-                    let (x, y) = denorm_pt(*to, w, h);
-                    d.push_str(" Q ");
-                    d.push_str(&fmt_px(cx));
-                    d.push(' ');
-                    d.push_str(&fmt_px(cy));
-                    d.push(' ');
-                    d.push_str(&fmt_px(x));
-                    d.push(' ');
-                    d.push_str(&fmt_px(y));
-                }
-                PathSeg::Cubic { c1, c2, to } => {
-                    let (c1x, c1y) = denorm_pt(*c1, w, h);
-                    let (c2x, c2y) = denorm_pt(*c2, w, h);
-                    let (x, y) = denorm_pt(*to, w, h);
-                    d.push_str(" C ");
-                    d.push_str(&fmt_px(c1x));
-                    d.push(' ');
-                    d.push_str(&fmt_px(c1y));
-                    d.push(' ');
-                    d.push_str(&fmt_px(c2x));
-                    d.push(' ');
-                    d.push_str(&fmt_px(c2y));
-                    d.push(' ');
-                    d.push_str(&fmt_px(x));
-                    d.push(' ');
-                    d.push_str(&fmt_px(y));
-                }
-            }
-        }
-        if extra.closed {
-            d.push_str(" Z");
-        }
-    }
-    d
-}
+mod path_data;
+pub(crate) use path_data::path_data_d;
 
 fn path_data_to_bez(path: &PathData, w: f32, h: f32) -> BezPath {
     let mut bez = BezPath::new();
@@ -2357,7 +2141,7 @@ fn stroke_dash_ink(stroke: &slate_doc::scene::Stroke) -> Option<(Vec<f32>, f32)>
 const FAINT_OPACITY: f32 = 0.4;
 /// Unauthored wire color when the caller passes no theme: the light `wire`
 /// slot in `atlas-shell/ui-tokens.toml`.
-const WIRE_FALLBACK: slate_doc::scene::Rgba = slate_doc::scene::Rgba([0x6e, 0x76, 0x80, 255]);
+const WIRE_FALLBACK: slate_doc::scene::Rgba = slate_doc::scene::Rgba([0xcc, 0xcf, 0xcf, 255]);
 /// Connector label font size (world units) — labels have no size in the
 /// model yet, so both interpreters pin the same constant.
 const CONNECTOR_LABEL_SIZE: f32 = 14.0;
@@ -2613,6 +2397,8 @@ pub(crate) fn render_text(
     append_stroke(&mut style, &text.stroke);
     style.push_str("font-family:");
     style.push_str(text.family.css_stack());
+    style.push(';');
+    style.push_str(&text.style.css());
     style.push_str(";font-size:");
     style.push_str(&fmt_px(text.size));
     style.push_str("px;color:");
@@ -2901,6 +2687,7 @@ mod tests {
             bumper: None,
             kind: NodeKind::Text(slate_doc::scene::TextNode {
                 text: "Boxed".into(),
+                style: Default::default(),
                 family: Default::default(),
                 size: 24.0,
                 color: slate_doc::scene::Rgba::BLACK,
@@ -3223,7 +3010,7 @@ mod tests {
             .nth(1)
             .and_then(|s| s.split('"').next())
             .expect("embedded PNG");
-        let img = image::load_from_memory(&base64_decode(b64))
+        let img = ::image::load_from_memory(&base64_decode(b64))
             .expect("PNG decodes")
             .to_rgba8();
         let (w, h) = img.dimensions();

@@ -76,6 +76,30 @@ impl ViewState {
     /// Equal slots on the brush color wheel, index 0 at 6 o'clock, then clockwise.
     pub const WHEEL_COLOR_LIMIT: usize = 24;
 
+    /// Compact editors share the six most recently accepted RGB values.
+    /// The wheel's clockwise slot order is independent of this projection.
+    pub fn recent_color_swatches(&self) -> RecentColorSwatches {
+        let colors = self.recent_colors.as_deref().unwrap_or(&[]);
+        let count = colors.len().min(Self::WHEEL_COLOR_LIMIT);
+        let mut order: [usize; Self::WHEEL_COLOR_LIMIT] = std::array::from_fn(|i| i);
+        order[..count].sort_unstable_by_key(|&i| {
+            let age = if self.recent_color_used.len() == colors.len() {
+                self.recent_color_used[i]
+            } else {
+                (colors.len() - i) as u64
+            };
+            (std::cmp::Reverse(age), i)
+        });
+        let mut swatches = RecentColorSwatches {
+            colors: [[0; 3]; Self::RECENT_COLOR_LIMIT],
+            len: count.min(Self::RECENT_COLOR_LIMIT),
+        };
+        for (color, &i) in swatches.colors.iter_mut().zip(&order[..swatches.len]) {
+            *color = colors[i];
+        }
+        swatches
+    }
+
     fn sync_color_ages(&mut self) {
         let n = self.recent_colors.as_ref().map(|c| c.len()).unwrap_or(0);
         if self.recent_color_used.len() == n {
@@ -150,9 +174,80 @@ impl ViewState {
     }
 }
 
+/// Stack-backed recent colors for compact panels; unused slots are never exposed.
+pub struct RecentColorSwatches {
+    colors: [[u8; 3]; ViewState::RECENT_COLOR_LIMIT],
+    len: usize,
+}
+
+impl RecentColorSwatches {
+    pub fn as_slice(&self) -> &[[u8; 3]] {
+        &self.colors[..self.len]
+    }
+}
+
 #[cfg(test)]
 mod color_tests {
     use super::*;
+    #[test]
+    fn compact_swatches_follow_usage_without_reordering_wheel_slots() {
+        let mut view = ViewState::default();
+        for n in 0..10 {
+            view.remember_color([n, 2, 3]);
+        }
+        let wheel = view.recent_colors.clone();
+        assert_eq!(
+            view.recent_color_swatches().as_slice(),
+            &[
+                [9, 2, 3],
+                [8, 2, 3],
+                [7, 2, 3],
+                [6, 2, 3],
+                [5, 2, 3],
+                [4, 2, 3]
+            ]
+        );
+        assert_eq!(
+            view.recent_colors, wheel,
+            "reading swatches preserves the wheel"
+        );
+        view.remember_color([2, 2, 3]);
+        assert_eq!(view.recent_colors.as_ref().unwrap()[0], [2, 2, 3]);
+        assert_eq!(
+            view.recent_color_swatches().as_slice(),
+            &[
+                [2, 2, 3],
+                [9, 2, 3],
+                [8, 2, 3],
+                [7, 2, 3],
+                [6, 2, 3],
+                [5, 2, 3]
+            ]
+        );
+        let restored: ViewState =
+            serde_json::from_str(&serde_json::to_string(&view).unwrap()).unwrap();
+        assert_eq!(
+            restored.recent_color_swatches().as_slice(),
+            view.recent_color_swatches().as_slice()
+        );
+    }
+
+    #[test]
+    fn compact_swatches_keep_legacy_order_until_a_color_is_accepted() {
+        let mut view = ViewState::default();
+        assert!(view.recent_color_swatches().as_slice().is_empty());
+        view.recent_colors = Some(vec![[10, 20, 30], [40, 50, 60], [70, 80, 90]]);
+        assert_eq!(
+            view.recent_color_swatches().as_slice(),
+            view.recent_colors.as_ref().unwrap()
+        );
+        view.remember_color([100, 110, 120]);
+        assert_eq!(
+            view.recent_color_swatches().as_slice(),
+            &[[100, 110, 120], [10, 20, 30], [40, 50, 60], [70, 80, 90]]
+        );
+    }
+
     #[test]
     fn recent_colors_are_bounded_unique_and_survive_serialization() {
         let mut view = ViewState::default();

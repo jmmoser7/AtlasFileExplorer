@@ -1,0 +1,286 @@
+{
+  "version": 1,
+  "headPoints": 32,
+  "propPoints": 19,
+  "propStyle": {
+    "fill": "none",
+    "stroke": "#81966c",
+    "strokeWidth": 1.3
+  },
+  "props": {
+    "book": "<path d=\"M3 5.8c3.3-.7 6-.2 9 1.4 3-1.6 5.7-2.1 9-1.4v13c-3.3-.7-6-.2-9 1.2-3-1.4-5.7-1.9-9-1.2Z\" fill=\"#fffef7\"/><path d=\"M12 7.2V20M6 9h3M6 12h3M15 9h3M15 12h3\"/><path class=\"page-flip\" d=\"M12 7.2c2-1.7 4-2.8 7-2.7v12.2c-2.5.4-4.8 1.5-7 3.3Z\" fill=\"#e5edd8\"/>",
+    "pencil": "<path d=\"M3 19.5h12M4 16.5h6\" opacity=\".45\"/><g class=\"pencil-nib\"><path d=\"m8 15 9-11 3 2-9 11-4 1Z\" fill=\"#e0c89c\"/><path d=\"m7 18 1-3 3 2ZM16 5l3 2\" fill=\"#6e8060\"/></g>",
+    "cards": "<rect x=\"3\" y=\"4\" width=\"13\" height=\"15\" rx=\"2\" fill=\"#eef3e6\" transform=\"rotate(-12 10 12)\"/><rect x=\"8\" y=\"6\" width=\"13\" height=\"15\" rx=\"2\" fill=\"#fffef6\"/><path d=\"m10 17 3-4 2 2 2-3 2 5Z\" fill=\"#d3dfc1\"/><circle cx=\"17\" cy=\"10\" r=\"1.3\" fill=\"#c1d0ae\" stroke=\"none\"/>",
+    "magnifier": "<g class=\"scan-lens\"><circle cx=\"10\" cy=\"10\" r=\"6\" fill=\"#f5f9ef\"/><path d=\"m14.5 14.5 6 6\" stroke-width=\"2.5\"/><path d=\"M7 10a3 3 0 0 1 3-3\" opacity=\".4\"/></g>",
+    "canvas": "<rect x=\"3\" y=\"4\" width=\"18\" height=\"15\" rx=\"2\" fill=\"#fffef8\"/><path d=\"m6 16 4-5 3 3 2-2 3 4\" fill=\"#e5edd9\"/><circle class=\"canvas-mark\" cx=\"16\" cy=\"8\" r=\"2\" fill=\"#d5c594\" stroke=\"none\"/><path d=\"M8 21h8\"/>",
+    "frame": "<rect x=\"3\" y=\"4\" width=\"18\" height=\"15\" rx=\"1.5\" fill=\"#f4f8ed\"/><path d=\"M7 8h10M7 11h6M7 14h8\" opacity=\".65\"/>",
+    "slides": "<rect x=\"2\" y=\"3\" width=\"16\" height=\"13\" rx=\"1.5\" fill=\"#e9f0df\"/><rect x=\"6\" y=\"7\" width=\"16\" height=\"13\" rx=\"1.5\" fill=\"#fffef7\"/><path d=\"M10 11h8M10 14h5\"/>",
+    "wire": "<path d=\"M3 5c11-4 4 18 17 13\" stroke-width=\"2\"/><circle cx=\"3\" cy=\"5\" r=\"2\" fill=\"#e3edd8\"/><circle cx=\"20\" cy=\"18\" r=\"2\" fill=\"#e3edd8\"/>",
+    "bubbles": "<path d=\"M3 4h18v13h-8l-5 4v-4H3Z\" fill=\"#fffef7\"/><g fill=\"#82996d\" stroke=\"none\"><circle class=\"talk-dot\" cx=\"7\" cy=\"10\" r=\"1.3\"/><circle class=\"talk-dot\" cx=\"12\" cy=\"10\" r=\"1.3\"/><circle class=\"talk-dot\" cx=\"17\" cy=\"10\" r=\"1.3\"/></g>",
+    "relay": "<path d=\"M3 6h13l-3-3M21 18H8l3 3M16 6l-3 3M8 18l3-3\"/><circle cx=\"3\" cy=\"6\" r=\"2\" fill=\"#e0ecd3\"/><circle cx=\"21\" cy=\"18\" r=\"2\" fill=\"#e0ecd3\"/>",
+    "hourglass": "<path d=\"M6 3h12M6 21h12M7 3v5l5 4-5 4v5M17 3v5l-5 4 5 4v5\" fill=\"#fcfff5\"/><path class=\"canvas-mark\" d=\"m9 6 3 3 3-3M9 18h6\" stroke-width=\"2\"/>",
+    "check": "<circle cx=\"12\" cy=\"12\" r=\"9\" fill=\"#eff6e5\"/><path d=\"m7 12 3.5 3.5L17 9\" stroke-width=\"2\"/>",
+    "question": "<path d=\"M7 8a5 5 0 1 1 7 4.6c-1.5.6-2 1.5-2 3\" fill=\"none\"/><circle cx=\"12\" cy=\"20\" r=\"1\" fill=\"#7e956a\"/>",
+    "warning": "<path d=\"m12 3 10 18H2Z\" fill=\"#f5efda\"/><path d=\"M12 9v5M12 17v1\" stroke-width=\"2\"/>",
+    "constellation": "<path d=\"m12 5-7 13h14Z\" opacity=\".5\"/><circle cx=\"12\" cy=\"5\" r=\"3\" fill=\"#e1edd5\"/><circle cx=\"5\" cy=\"18\" r=\"3\" fill=\"#fffef7\"/><circle cx=\"19\" cy=\"18\" r=\"3\" fill=\"#fffef7\"/>",
+    "working": "<g class=\"work-wheel\"><path d=\"m10 2 4 0 1 3 3 1 3 3-2 3 0 3-3 3-3-1-3 1-3-3 1-3-2-3 3-3 3-1Z\" fill=\"#ecf3e3\"/><circle cx=\"12\" cy=\"12\" r=\"3.5\" fill=\"#fffef7\"/></g>",
+    "thought-orbit": "<path d=\"M4 15h16M5 10h10M7 5h12\" opacity=\".6\"/><circle class=\"canvas-mark\" cx=\"18\" cy=\"10\" r=\"2\" fill=\"#d9e5ca\"/>",
+    "checklist": "<rect x=\"3\" y=\"2\" width=\"18\" height=\"20\" rx=\"2\" fill=\"#fffef7\"/><path class=\"canvas-mark\" d=\"m6 7 1.5 1.5L10 6M12 7h6m-12 6 1.5 1.5L10 12M12 13h6\"/><path d=\"M6 18h3M12 18h6\" opacity=\".45\"/>",
+    "resize-grips": "<path d=\"M6 4H4v5M18 4h2v5M4 15v5h5M20 15v5h-5\"/><rect x=\"7\" y=\"7\" width=\"10\" height=\"10\" fill=\"#f2f6eb\"/>",
+    "stop": "<rect x=\"5\" y=\"5\" width=\"14\" height=\"14\" rx=\"3\" fill=\"#edf1e7\"/>",
+    "offline": "<path d=\"M4 7a12 12 0 0 1 16 0M7 11a7 7 0 0 1 10 0M3 3l18 18\"/><circle cx=\"12\" cy=\"17\" r=\"1.5\" fill=\"#8e9a7e\"/>"
+  },
+  "aliases": {
+    "carry": "cards",
+    "approval": "question",
+    "blocked": "warning",
+    "team": "constellation",
+    "discovery": "canvas",
+    "restore": "check",
+    "retire": "check",
+    "planning": "checklist"
+  },
+  "motions": {
+    "page-flip": {
+      "duration": 1.45,
+      "origin": [
+        12,
+        12
+      ],
+      "frames": [
+        {
+          "at": 0,
+          "scaleX": 1
+        },
+        {
+          "at": 0.18,
+          "scaleX": 1
+        },
+        {
+          "at": 0.65,
+          "scaleX": -1
+        },
+        {
+          "at": 0.85,
+          "scaleX": -1
+        },
+        {
+          "at": 1,
+          "scaleX": 1
+        }
+      ]
+    },
+    "pencil-nib": {
+      "duration": 0.7,
+      "origin": [
+        13,
+        12
+      ],
+      "frames": [
+        {
+          "at": 0,
+          "x": 0,
+          "y": 0,
+          "rotate": 0
+        },
+        {
+          "at": 0.5,
+          "x": 2,
+          "y": -1,
+          "rotate": -8
+        },
+        {
+          "at": 1,
+          "x": 0,
+          "y": 0,
+          "rotate": 0
+        }
+      ]
+    },
+    "talk-dot": {
+      "duration": 1.2,
+      "origin": [
+        12,
+        12
+      ],
+      "delays": [
+        0,
+        0.15,
+        0.3
+      ],
+      "frames": [
+        {
+          "at": 0,
+          "opacity": 0.25
+        },
+        {
+          "at": 0.4,
+          "opacity": 1
+        },
+        {
+          "at": 0.8,
+          "opacity": 0.25
+        },
+        {
+          "at": 1,
+          "opacity": 0.25
+        }
+      ]
+    },
+    "scan-lens": {
+      "duration": 1.7,
+      "origin": [
+        12,
+        12
+      ],
+      "frames": [
+        {
+          "at": 0,
+          "x": -2
+        },
+        {
+          "at": 0.5,
+          "x": 2
+        },
+        {
+          "at": 1,
+          "x": -2
+        }
+      ]
+    },
+    "canvas-mark": {
+      "duration": 1.3,
+      "origin": [
+        12,
+        12
+      ],
+      "frames": [
+        {
+          "at": 0,
+          "opacity": 0.3
+        },
+        {
+          "at": 0.5,
+          "opacity": 1
+        },
+        {
+          "at": 1,
+          "opacity": 0.3
+        }
+      ]
+    },
+    "work-wheel": {
+      "duration": 4,
+      "origin": [
+        12,
+        12
+      ],
+      "linear": true,
+      "frames": [
+        {
+          "at": 0,
+          "rotate": 0
+        },
+        {
+          "at": 1,
+          "rotate": 360
+        }
+      ]
+    }
+  },
+  "departures": [
+    {
+      "id": "bow",
+      "label": "Bow & puff",
+      "duration": 1.5,
+      "drop": 4,
+      "bowUntil": 0.6,
+      "shrink": 0.1,
+      "fadeStart": 0.68,
+      "effectStart": 0.6,
+      "effectPoints": 54,
+      "effectScaleFrom": 0.6,
+      "effectScaleTravel": 0.8,
+      "effectOpacity": 0.9,
+      "bowAngle": 13
+    },
+    {
+      "id": "sunset",
+      "label": "Into the sunset",
+      "duration": 1.5,
+      "shrink": 0.6,
+      "fadeStart": 0.75,
+      "bob": 1.5,
+      "bobTurns": 30,
+      "effectPoints": 90,
+      "targetInset": [
+        20,
+        42
+      ],
+      "effectInset": [
+        32,
+        48
+      ],
+      "effectOpacity": 0.75
+    },
+    {
+      "id": "edge",
+      "label": "Walk off the edge",
+      "duration": 1.5,
+      "bob": 1.3,
+      "bobTurns": 35,
+      "edgeMargin": 48
+    },
+    {
+      "id": "portal",
+      "label": "Under a portal",
+      "duration": 1.5,
+      "turnStart": 0.65,
+      "turnAngle": -65,
+      "shrinkStart": 0.7,
+      "shrink": 0.8,
+      "fadeStart": 0.86,
+      "effectStart": 0.6,
+      "effectEnd": 0.98,
+      "effectPoints": 42,
+      "cornerInset": [
+        8,
+        8
+      ],
+      "effectOpacity": 0.9
+    }
+  ],
+  "propOffset": [
+    15.5,
+    16
+  ],
+  "effects": {
+    "puff": {
+      "viewBox": [
+        0,
+        0,
+        24,
+        24
+      ],
+      "svg": "<g fill=\"#eff4e7\" stroke=\"#dbe4ce\" stroke-width=\".4\"><circle cx=\"8\" cy=\"12\" r=\"5\"/><circle cx=\"14\" cy=\"7\" r=\"5\"/><circle cx=\"18\" cy=\"14\" r=\"5\"/><circle cx=\"12\" cy=\"18\" r=\"5\"/></g>"
+    },
+    "sunset": {
+      "viewBox": [
+        0,
+        0,
+        44,
+        25
+      ],
+      "svg": "<path d=\"M1 20h43\" stroke=\"#c2c6a1\" fill=\"none\"/><circle cx=\"22\" cy=\"19\" r=\"11\" fill=\"#e3cf9b\"/><path d=\"M0 20h44v5H0Z\" fill=\"#e9ead6\" stroke=\"none\"/>"
+    },
+    "flap": {
+      "viewBox": [
+        0,
+        0,
+        42,
+        42
+      ],
+      "svg": "<path d=\"M42 0V42H0Z\" fill=\"#e3ecd7\" stroke=\"#cbd6be\" stroke-width=\".8\"/>"
+    }
+  }
+}

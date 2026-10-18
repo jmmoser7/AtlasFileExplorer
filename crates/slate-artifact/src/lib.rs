@@ -9,7 +9,6 @@
 mod assets;
 mod paint_layers;
 mod render;
-
 use std::collections::BTreeMap;
 use std::fs;
 use std::io;
@@ -19,7 +18,7 @@ use slate_doc::{ItemId, SlateDoc, WireRouting};
 
 pub use assets::{read_snippet, AssetMap};
 pub use paint_layers::{
-    paint_layers_svg, paint_layers_svg_with_doc, rasterize_paint_layers,
+    paint_layers_svg, paint_layers_svg_with_doc, rasterize_node_clip, rasterize_paint_layers,
     rasterize_paint_layers_svg, LayerStamps,
 };
 pub use render::render_html;
@@ -238,13 +237,7 @@ mod tests {
                 corner,
                 stroke,
                 adjust,
-                sheet: Default::default(),
-                video: Default::default(),
-                model: Default::default(),
-                agent: None,
-                paint_layers: Vec::new(),
-                flip_x: false,
-                flip_y: false,
+                ..ImageNode::new(item)
             }),
         );
         let id = node.id;
@@ -258,6 +251,7 @@ mod tests {
             rect,
             NodeKind::Text(TextNode {
                 text: text.into(),
+                style: Default::default(),
                 family: Default::default(),
                 size: 24.0,
                 color: Rgba::BLACK,
@@ -494,6 +488,7 @@ mod tests {
             WorldRect::new(100.0, 50.0, 80.0, 60.0),
             NodeKind::Text(TextNode {
                 text: "solo".into(),
+                style: Default::default(),
                 family: Default::default(),
                 size: 16.0,
                 color: Rgba::BLACK,
@@ -624,13 +619,12 @@ mod tests {
             Stroke::none(),
             adjust,
         );
-
         let mut assets = AssetMap::default();
         assets.insert(path, "assets/c.png".into());
         let html = render_html(&doc, &assets);
         assert!(html.contains("filter:brightness(1.200)"));
-        assert!(html.contains("class=\"ovl\""));
-        assert!(html.contains("rgba(255,0,0,1.000)"));
+        assert!(html.contains("image-tint-") && !html.contains("class=\"ovl\""));
+        assert!(html.contains("color-interpolation-filters=\"sRGB\""));
     }
 
     #[test]
@@ -727,6 +721,7 @@ mod tests {
             WorldRect::new(20.0, 20.0, 200.0, 200.0),
             NodeKind::Text(TextNode {
                 text: "sticky".into(),
+                style: Default::default(),
                 family: Default::default(),
                 size: 18.0,
                 color: Rgba::BLACK,
@@ -862,7 +857,7 @@ mod tests {
         assert_eq!(html.matches(&stroke(ink)).count(), 1, "{html}");
 
         let fallback = render_html(&doc, &AssetMap::default());
-        assert!(fallback.contains(&stroke(Rgba::opaque(0x6e, 0x76, 0x80))));
+        assert!(fallback.contains(&stroke(Rgba::opaque(0xcc, 0xcf, 0xcf))));
     }
 
     #[test]
@@ -949,6 +944,7 @@ mod tests {
             WorldRect::new(10.0, 10.0, 100.0, 50.0),
             NodeKind::Text(TextNode {
                 text: "ghost".into(),
+                style: Default::default(),
                 family: Default::default(),
                 size: 14.0,
                 color: Rgba::BLACK,
@@ -1802,6 +1798,7 @@ mod tests {
                     }],
                     fill_rule: PathFillRule::EvenOdd,
                     tips: Vec::new(),
+                    field_colors: Vec::new(),
                     erase: Vec::new(),
                     corner_amounts: Vec::new(),
                 })),
@@ -1824,6 +1821,7 @@ mod tests {
             WorldRect::new(0.0, 0.0, 100.0, 40.0),
             NodeKind::Text(TextNode {
                 text: "HELLO".into(),
+                style: Default::default(),
                 family: Default::default(),
                 size: 24.0,
                 color: Rgba::BLACK,
@@ -1852,6 +1850,7 @@ mod tests {
             }],
             fill_rule: PathFillRule::EvenOdd,
             tips: Vec::new(),
+            field_colors: Vec::new(),
             erase: Vec::new(),
             corner_amounts: Vec::new(),
         });

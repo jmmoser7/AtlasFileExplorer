@@ -146,6 +146,13 @@ fn text_document_ext(ext: &str) -> bool {
         || ext == "msg"
 }
 
+/// Plain text cards support authored edits without changing linked source bytes.
+/// Office excerpts and spreadsheets retain their specialized readers.
+pub fn editable_text_card(path: &Path) -> bool {
+    extension_lc(path)
+        .is_some_and(|ext| CODE.contains(&ext.as_str()) || PLAIN.contains(&ext.as_str()))
+}
+
 pub fn is_powerpoint(path: &Path) -> bool {
     path.extension()
         .and_then(|s| s.to_str())

@@ -11,8 +11,10 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 use atlas_agent::{AgentRequest, AgentSession, AgentStatus};
-use chrono::{Datelike, Local, Months, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
+use chrono::{Datelike, Local, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use serde::{Deserialize, Serialize};
+mod cadence;
+pub use cadence::next_local_seconds;
 
 /// A single run may take at most this long before it is stopped.
 const RUN_LIMIT: Duration = Duration::from_secs(60 * 60);
@@ -110,14 +112,10 @@ impl AgentSchedule {
 
 /// The same clock time one month and one year after `start`.
 pub fn end_presets(start: NaiveDateTime) -> (NaiveDateTime, NaiveDateTime) {
-    (months_after(start, 1), months_after(start, 12))
-}
-
-fn months_after(t: NaiveDateTime, months: u32) -> NaiveDateTime {
-    t.date()
-        .checked_add_months(Months::new(months))
-        .map(|d| d.and_time(t.time()))
-        .unwrap_or(t)
+    (
+        cadence::months_after(start, 1),
+        cadence::months_after(start, 12),
+    )
 }
 
 /// `end` must fall after `start`. An empty date is refused.

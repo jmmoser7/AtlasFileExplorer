@@ -19,12 +19,16 @@
 //!   of times, not every frame.
 
 use super::{SlateApp, ThumbState};
-use atlas_core::preview::{tier_for, PreviewRequest};
+use atlas_core::preview::{tier_for, PreviewOutcome, PreviewRequest};
 use atlas_core::thumbs::THUMB_PX;
 use eframe::egui::{self, TextureHandle};
 use slate_doc::ItemId;
 
 use super::pdf;
+pub(crate) mod upload;
+use upload::UploadBudget;
+#[cfg(test)]
+use upload::{READY_UPLOADS_PER_FRAME, RESULTS_PER_FRAME};
 
 /// Don't start a full-res decode until the thumbnail is visibly upscaled.
 const UPGRADE_FACTOR: f32 = 1.15;
@@ -161,15 +165,28 @@ impl SlateApp {
 
     /// Upload finished decodes. Runs once per frame before painting.
     pub(super) fn drain_previews(&mut self, ctx: &egui::Context) {
-        while let Ok(res) = self.previews.rx.try_recv() {
+        let mut budget = UploadBudget::default();
+        while budget.may_receive() {
+            let Ok(res) = self.previews.rx.try_recv() else {
+                break;
+            };
+            budget.received(matches!(res.outcome, PreviewOutcome::Ready(..)));
+            let Some(res) = self.consume_generation_preview(res, ctx) else {
+                continue;
+            };
             let Some((key, tier)) = self.preview_slots.remove(&res.id) else {
                 continue;
             };
             if self.preview_inflight.get(&key) == Some(&tier) {
                 self.preview_inflight.remove(&key);
             }
-            match res.image {
-                Some((w, h, rgba)) => {
+            match res.outcome {
+                PreviewOutcome::Ready(w, h, rgba) => {
+                    let size = [w as usize, h as usize];
+                    let Some(bytes) = upload::rgba_texture_bytes(ctx, size, &rgba) else {
+                        self.preview_failed.insert(key);
+                        continue;
+                    };
                     // Smaller than requested = the source itself ran out of
                     // pixels; no higher tier will ever exist.
                     let px = if w.max(h) < tier { PX_EXACT } else { tier };
@@ -178,8 +195,7 @@ impl SlateApp {
                     if matches!(self.preview_cache.get(&key), Some(e) if e.px >= px) {
                         continue;
                     }
-                    let img =
-                        egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba);
+                    let img = egui::ColorImage::from_rgba_unmultiplied(size, &rgba);
                     let tex = ctx.load_texture(
                         format!("slate-preview-{key}-{px}"),
                         img.clone(),
@@ -191,7 +207,7 @@ impl SlateApp {
                             tex,
                             pixels: img.into(),
                             px,
-                            bytes: (w as usize) * (h as usize) * 4,
+                            bytes,
                             last_used: self.frame_no,
                         },
                     );
@@ -199,10 +215,16 @@ impl SlateApp {
                 }
                 // Undecodable, or no sharper than the thumbnail: remember so
                 // the paint loop stops asking every frame.
-                None => {
+                PreviewOutcome::Unavailable => {
                     self.preview_failed.insert(key);
                 }
+                // Queue pressure only retires this request's bookkeeping;
+                // an item coming back into view must be able to ask again.
+                PreviewOutcome::Cancelled => {}
             }
+        }
+        if !self.previews.rx.is_empty() {
+            ctx.request_repaint();
         }
     }
 
@@ -247,3 +269,6 @@ impl SlateApp {
         self.preview_failed.clear();
     }
 }
+
+#[cfg(test)]
+mod tests;

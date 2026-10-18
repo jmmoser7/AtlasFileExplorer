@@ -1,8 +1,12 @@
 //! Conversation presentation, not provider history. Rails are derived from
 //! immutable checkpoint references and cannot be disconnected with wire tools.
+use crate::link_inset::{port_inset, rail_inset};
 use crate::scene::{AgentPortalRef, ConnectorBezier, Node, NodeId, NodeKind, Scene, WorldRect};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+
+mod binding;
+pub use binding::{agent, agent_mut, is_agent_node, is_chat_host, paste_is_train_fork, remap_view};
 
 pub const CARD_WIDTH: f32 = 320.0;
 pub const CARD_HEIGHT: f32 = 200.0;
@@ -32,7 +36,7 @@ pub enum Detail {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ChatView {
-    /// One provider-owned stream; checkpoint branching is not available.
+    /// One provider-owned session along an unbranched tail. A fork mints another.
     pub linear: bool,
     pub train: bool,
     /// View reference only; each session source owns its checkpoint transcript.
@@ -71,6 +75,9 @@ impl ChatView {
 
 /// The connected conversation, including hidden presentation members.
 pub fn conversation(scene: &Scene, id: NodeId) -> Vec<NodeId> {
+    if scene.node(id).is_some_and(|node| crate::scene::artifact(node).is_some()) {
+        return Vec::new();
+    }
     let mut root = id;
     let mut seen = HashSet::new();
     while seen.insert(root) {
@@ -121,42 +128,12 @@ pub fn segments(scene: &Scene, id: NodeId) -> Vec<Vec<NodeId>> {
     result
 }
 
-/// The agent bound to a node: a chat card's portal binding, or the agent an
-/// image or a text note was summoned with. The one owner of that lookup.
-pub fn agent(node: &Node) -> Option<&AgentPortalRef> {
-    match &node.kind {
-        NodeKind::Portal(p) => p.agent.as_deref(),
-        NodeKind::Image(i) => i.agent.as_deref(),
-        NodeKind::Text(t) => t.agent.as_deref(),
-        _ => None,
-    }
-}
-
-pub fn agent_mut(node: &mut Node) -> Option<&mut AgentPortalRef> {
-    match &mut node.kind {
-        NodeKind::Portal(p) => p.agent.as_deref_mut(),
-        NodeKind::Image(i) => i.agent.as_deref_mut(),
-        NodeKind::Text(t) => t.agent.as_deref_mut(),
-        _ => None,
-    }
-}
-
-/// An agent card of any kind: a chat portal, a generating image, a text note
-/// an agent writes, or a not-yet-converted generator or text block.
-pub fn is_agent_node(node: &Node) -> bool {
-    match &node.kind {
-        NodeKind::Portal(p) => p.kind == crate::scene::PortalKind::Agent,
-        _ => agent(node).is_some(),
-    }
-}
-
 /// One common outgoing datum, horizontal tangents, variable-height cards.
 pub fn rail(from: WorldRect, to: WorldRect) -> ConnectorBezier {
-    let p0 = [from.x + from.w - PORT_INSET, from.y + RAIL_INSET];
-    let p3 = [to.x + PORT_INSET, to.y + RAIL_INSET];
+    let p0 = [from.x + from.w - port_inset(), from.y + rail_inset()];
+    let p3 = [to.x + port_inset(), to.y + rail_inset()];
     crate::scene::connector_bezier_from_dirs(p0, [1.0, 0.0], p3, [-1.0, 0.0])
 }
-
 /// Immediate fork strands stack downward from their parent datum.
 /// Both native and exported history use these same curves.
 #[derive(Clone)]
@@ -192,7 +169,7 @@ pub fn history_rails(scene: &Scene) -> Vec<HistoryRail> {
         // Only immediate outgoing edges fan out. Keep every departure below the
         // primary datum and within the card, even for unusually large forks.
         let pitch = STRAND_PITCH.min(
-            (parent.rect.h - RAIL_INSET - PORT_INSET).max(0.0)
+            (parent.rect.h - rail_inset() - port_inset()).max(0.0)
                 / kids.len().saturating_sub(1).max(1) as f32,
         );
         for (index, id) in kids.iter().enumerate() {
@@ -304,28 +281,6 @@ pub fn bundle_run(scene: &Scene, ids: &[NodeId]) -> Option<Vec<NodeId>> {
         next = kids[0].id;
     }
     Some(run)
-}
-
-/// True when the clipboard payload is a chat train that must fork on paste.
-pub fn paste_is_train_fork(payload: &[crate::scene::Node]) -> bool {
-    payload.iter().any(|n| {
-        agent(n)
-            .is_some_and(|a| a.chat.train && matches!(n.kind, crate::scene::NodeKind::Portal(_)))
-    })
-}
-
-/// A copied card is a new view of the same checkpoint, never a new history edge
-/// into a different workbook. Copying a whole train preserves internal refs.
-pub fn remap_view(node: &mut Node, remap: impl Fn(NodeId) -> Option<NodeId>) {
-    if let NodeKind::Portal(p) = &mut node.kind {
-        if let Some(a) = &mut p.agent {
-            a.chat.parent = a.chat.parent.and_then(&remap);
-            a.chat.bundled = a.chat.bundled.iter().filter_map(|id| remap(*id)).collect();
-            for layer in &mut a.chat.bundle_layers {
-                *layer = layer.iter().filter_map(|id| remap(*id)).collect();
-            }
-        }
-    }
 }
 
 /// Place visible projections by depth and branch lanes; height never changes the rail datum.

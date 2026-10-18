@@ -10,6 +10,10 @@ use crate::ids::ItemId;
 use crate::scene::{self, NodeKind};
 use crate::SlateDoc;
 
+mod linked;
+pub use linked::{absolutize_document, rebase_linked_scene};
+pub(crate) use linked::rebase_linked_command;
+
 const ASSETS_DIR: &str = "assets";
 
 /// One item whose locator changes. `before` is the path the item holds when

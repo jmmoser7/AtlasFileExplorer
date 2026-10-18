@@ -5,6 +5,19 @@ use super::*;
 pub(super) use super::paint_probe::*;
 pub(super) use super::train_setup::*;
 
+impl SlateApp {
+    /// Deliver a fixture session through the same binding identity the pump uses.
+    pub(crate) fn set_agent_session_for_test(&mut self, id: NodeId, session: AgentSession) {
+        if let Some((binding, _)) = self.agent_session_for(id) {
+            self.agents.bindings.insert(id, binding);
+        }
+        self.agents
+            .sessions
+            .insert(id, std::sync::Arc::new(session));
+        self.agents.output_epoch += 1;
+    }
+}
+
 /// A ComfyUI generator with a sticky note wired to an edge that is not the
 /// left midpoint, and a workspace to write its link folder into.
 pub(super) fn generator_with_note(
@@ -24,6 +37,7 @@ pub(super) fn generator_with_note(
         slate_doc::WorldRect::new(-400.0, 0.0, 220.0, 220.0),
         NodeKind::Text(slate_doc::scene::TextNode {
             text: note.into(),
+            style: Default::default(),
             family: slate_doc::scene::Typeface::Sans,
             size: 24.0,
             color: slate_doc::scene::Rgba::opaque(20, 20, 20),
@@ -48,6 +62,12 @@ pub(super) fn generator_with_note(
     );
     h.app.add_nodes(vec![sticky, wire]);
     h.app.board_sel = [portal].into_iter().collect();
+    let (session, _) = h
+        .app
+        .agent_session_for(portal)
+        .expect("the fixture generator has a program session");
+    // Production's session pump fills this cache before generator previews run.
+    h.app.agents.bindings.insert(portal, session);
     (h, portal, note_id)
 }
 
@@ -85,6 +105,7 @@ pub(super) fn note(h: &mut super::super::tests::Harness, at: Pos2, text: &str) -
         slate_doc::WorldRect::new(at.x, at.y, 180.0, 120.0),
         NodeKind::Text(slate_doc::scene::TextNode {
             text: text.into(),
+            style: Default::default(),
             family: slate_doc::scene::Typeface::Sans,
             size: 18.0,
             color: slate_doc::scene::Rgba::opaque(20, 20, 20),

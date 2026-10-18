@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "defaults": {
+    "eyeRadius": 18, "eyeSpacing": 120, "bridgeWidth": 4,
+    "expressionStrength": 1, "gazeAmount": 1
+  },
+  "presentationDefaults": {
+    "settings": {"eyeRadius":16.5,"eyeSpacing":130,"bridgeWidth":3.5,"expressionStrength":1.35,"gazeAmount":0.95},
+    "motion": {"expressionDuration":180,"lookDuration":475}
+  },
+  "settingsLimits": {
+    "eyeRadius": [6, 32], "eyeSpacing": [54, 155], "bridgeWidth": [1, 10],
+    "expressionStrength": [0, 1.5], "gazeAmount": [0, 1.5]
+  },
+  "expressions": [
+    {"id": "neutral", "label": "Neutral"},
+    {"id": "concentrating", "label": "Concentrating"},
+    {"id": "questioning", "label": "Questioning"},
+    {"id": "curious", "label": "Curious"},
+    {"id": "unsure", "label": "Unsure"},
+    {"id": "pleased", "label": "Pleased"},
+    {"id": "surprised", "label": "Surprised"},
+    {"id": "concerned", "label": "Concerned"},
+    {"id": "resting", "label": "Resting"}
+  ],
+  "orientations": [
+    {"id": "up-left", "label": "Up-left", "x": -1, "y": -1},
+    {"id": "up", "label": "Up", "x": 0, "y": -1},
+    {"id": "up-right", "label": "Up-right", "x": 1, "y": -1},
+    {"id": "left", "label": "Left", "x": -1, "y": 0},
+    {"id": "forward", "label": "Forward", "x": 0, "y": 0},
+    {"id": "right", "label": "Right", "x": 1, "y": 0},
+    {"id": "down-left", "label": "Down-left", "x": -1, "y": 1},
+    {"id": "down", "label": "Down", "x": 0, "y": 1},
+    {"id": "down-right", "label": "Down-right", "x": 1, "y": 1}
+  ],
+  "shapeFields": ["width", "height", "verticalOffset", "bend", "slope", "upperContourBias"],
+  "shapes": {
+    "neutral": [[1, 1, 0, 0, 0, 0], [1, 1, 0, 0, 0, 0]],
+    "concentrating": [[1.02, 0.80, 2, 0, -0.35, 0.65], [1, 0.85, 1, 0, 0.25, 0.4]],
+    "questioning": [[0.97, 0.88, 5, 0, -1.1, 0.6], [0.95, 1.12, -8, 0, -1.2, -0.4]],
+    "curious": [[0.98, 1.08, 1, 0, -0.35, 0], [0.96, 0.98, -2, 0, -0.6, 0.25]],
+    "unsure": [[0.96, 1.04, -2, 0, 1, -0.2], [1.03, 0.77, 4, 0, 1.25, 0.65]],
+    "pleased": [[1.02, 0.72, 2, 1.8, -0.12, 0.2], [1, 0.68, 2.3, 1.5, 0.12, 0.1]],
+    "surprised": [[0.99, 1.18, -1, 0, -0.2, 0], [0.96, 1.08, 1, 0, 0.2, 0]],
+    "concerned": [[0.97, 0.92, 0, 0, -1.5, -0.4], [0.96, 0.88, 2, 0, 1.25, -0.3]],
+    "resting": [[1.21, 0.26, 4.5, -8.5, 0, 0], [1.19, 0.25, 4.8, -8.2, 0, 0]]
+  },
+  "geometry": {
+    "viewBox": [0, 0, 320, 320],
+    "head": {
+      "cx": 160, "cy": 150, "radius": 112, "stroke": "#c9c8c5", "strokeWidth": 0.85,
+      "gradient": {
+        "cx": "35%", "cy": "24%", "radius": "78%",
+        "stops": [
+          {"offset": "0", "color": "#ffffff"},
+          {"offset": ".62", "color": "#f2f1ef"},
+          {"offset": ".88", "color": "#dfdedb"},
+          {"offset": "1", "color": "#bebdbb"}
+        ]
+      }
+    },
+    "shadow": {"cx": 160, "cy": 269, "rx": 94, "ry": 14, "color": "#38312b", "opacity": 0.22},
+    "ink": "#080908",
+    "gaze": {
+      "farCompression": 0.36, "nearCompression": 0.07, "separationCompression": 0.15,
+      "verticalCompression": 0.08, "verticalOffset": 20, "horizontalOffset": 25,
+      "diagonalOffset": 4.5, "edgeRadius": 105, "edgeMinimumSquared": 100, "minEyeHeight": 0.8
+    },
+    "contour": {
+      "samples": 40, "precision": 3, "splineDivisor": 6,
+      "closedBlendMinimum": 1, "closedBlendRadius": 0.35,
+      "capMaxRadius": 0.45, "capSafety": 0.92,
+      "bridgeReach": 0.96, "bridgeBendOffset": 0.0784
+    },
+    "blink": {"duration": 190, "closeFraction": 0.42, "openFraction": 0.58, "minEyeHeight": 1.1},
+    "motion": {"fallbackDuration": 480, "maximumDuration": 15000, "settledEpsilon": 1e-10}
+  }
+}

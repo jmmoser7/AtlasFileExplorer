@@ -133,14 +133,7 @@ fn sticky_fit_is_the_same_world_size_at_every_zoom() {
                 160.0,
                 egui::Align::Center,
             );
-            let galley = canvas_text::zoom_galley(
-                ctx,
-                text,
-                &layout,
-                typeface_font(Typeface::Sans, fitted * zoom),
-                Color32::BLACK,
-                zoom,
-            );
+            let galley = canvas_text::zoom_galley(ctx, &layout, Color32::BLACK, zoom);
             let got: Vec<String> = galley.rows.iter().map(|row| row.text()).collect();
             match &rows {
                 None => rows = Some(got),

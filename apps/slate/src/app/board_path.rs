@@ -1,7 +1,10 @@
 //! Board vector paths: world ↔ `PathData`, tessellation cache, hit-testing.
 
+pub(crate) mod multi_point;
 #[path = "board_path/tiles.rs"]
 pub(crate) mod tiles;
+
+mod picking;
 
 use eframe::egui::{self, Color32, Pos2, Shape, Stroke as EStroke, Vec2};
 use slate_doc::scene::{
@@ -16,9 +19,9 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc as Shared;
 use vector_ink::kurbo::{self, Arc, BezPath, PathEl, Point};
 use vector_ink::{
-    bezpath_from_anchors, classify_kind, drag_handle, flatten, flatten_contours, hit_stroke,
-    stamp_segment, tipped_contours, Anchor, AnchorKind, Cap, HandleEnd, InkMesh, Join, StampStyle,
-    StrokeStyle, TipPoint,
+    bezpath_from_anchors, classify_kind, drag_handle, flatten, flatten_contours, stamp_segment,
+    tipped_contours, Anchor, AnchorKind, Cap, HandleEnd, InkMesh, Join, StampStyle, StrokeStyle,
+    TipPoint,
 };
 
 use super::board::{rgba32, BoardXf};
@@ -635,6 +638,7 @@ fn hash_path_data(h: &mut impl Hasher, path: &PathData) {
     path.closed.hash(h);
     (path.fill_rule as u8).hash(h);
     path.tips.len().hash(h);
+    path.field_colors.iter().for_each(|c| c.0.hash(h));
     for tip in &path.tips {
         hash_f32(h, tip.width);
         hash_f32(h, tip.softness);
@@ -747,6 +751,12 @@ fn hash_stroke(h: &mut impl Hasher, stroke: &Stroke) {
     }
     stroke.arrow_end.hash(h);
     stroke.arrow_start.hash(h);
+    for size in stroke.arrow_sizes {
+        for value in size.into_iter().flatten() {
+            hash_f32(h, value);
+        }
+        size.is_some().hash(h);
+    }
     stroke.cap_start.map(|c| c as u8).hash(h);
     stroke.cap_end.map(|c| c as u8).hash(h);
     (stroke.texture as u8).hash(h);
@@ -813,7 +823,7 @@ fn path_content_hash(
     h.finish()
 }
 
-fn path_fill_hash(
+pub(crate) fn path_fill_hash(
     path: &PathData,
     rect: WorldRect,
     rotation_deg: f32,
@@ -986,17 +996,6 @@ fn stroke_picks(shape: &ShapeNode) -> bool {
     stroke.width > 0.0 && (!stroke.is_none() || stroke.paints_as_stamp() || !filled)
 }
 
-/// The ink disc of a single-click brush stroke: world center and radius.
-/// `None` for anything that is not a lone stamp dab.
-fn brush_dab_disc(node: &Node, shape: &ShapeNode) -> Option<(Pos2, f32)> {
-    let path = shape.path.as_ref()?;
-    if !path.is_empty() || !stroke_picks(shape) || !shape.stroke.paints_as_stamp() {
-        return None;
-    }
-    let (cx, cy) = node.rect.center();
-    Some((Pos2::new(cx, cy), shape.stroke.width.max(0.0) * 0.5))
-}
-
 fn hit_brush_dab(node: &Node, shape: &ShapeNode, wx: f32, wy: f32, zoom: f32) -> bool {
     let Some((c, r)) = brush_dab_disc(node, shape) else {
         return false;
@@ -1023,13 +1022,16 @@ pub fn hit_shape_stroke(node: &Node, shape: &ShapeNode, wx: f32, wy: f32, zoom: 
     };
     let style = stroke_style_world(&shape.stroke, zoom);
     let slop = pick_slop_world(zoom);
-    if stroke_picks(shape) && hit_stroke(&bez, &style, [wx, wy], slop) {
+    if stroke_picks(shape) && picking::hit_painted_stroke(node, shape, &bez, &style, [wx, wy], slop)
+    {
         return true;
     }
     false
 }
 
 pub fn hit_path_node(node: &Node, shape: &ShapeNode, wx: f32, wy: f32, zoom: f32) -> bool {
+    let styled = slate_doc::vertex_style::closed_form_paint_shape(shape, node.rect);
+    let shape = styled.as_ref().unwrap_or(shape);
     if erased_at(node, shape, wx, wy) {
         return false;
     }
@@ -1039,16 +1041,15 @@ pub fn hit_path_node(node: &Node, shape: &ShapeNode, wx: f32, wy: f32, zoom: f32
     if shape_uses_stroke_pick(node, shape) {
         return hit_shape_stroke(node, shape, wx, wy, zoom);
     }
-    let Some(path) = shape.path.as_ref() else {
-        return node.rect.contains_rotated(wx, wy, node.rotation_deg);
+    let Some(path) = shape.path.as_ref().filter(|p| !p.is_empty()) else {
+        return slate_doc::geom::point_in_node_outline(node, wx, wy, 0.25)
+            || hit_shape_stroke(node, shape, wx, wy, zoom);
     };
-    if path.is_empty() {
-        return node.rect.contains_rotated(wx, wy, node.rotation_deg);
-    }
     let bez = shape_path_world_bez(node, shape, path);
     let style = stroke_style_world(&shape.stroke, zoom);
     let slop = pick_slop_world(zoom);
-    if stroke_picks(shape) && hit_stroke(&bez, &style, [wx, wy], slop) {
+    if stroke_picks(shape) && picking::hit_painted_stroke(node, shape, &bez, &style, [wx, wy], slop)
+    {
         return true;
     }
     if path.closed {
@@ -1385,86 +1386,10 @@ pub fn marquee_hits_node(
     }
 }
 
-pub fn board_pick_node(
-    scene: &slate_doc::scene::Scene,
-    wx: f32,
-    wy: f32,
-    zoom: f32,
-) -> Option<NodeId> {
-    board_pick_node_ex(scene, wx, wy, zoom, false)
-}
-
-/// Point pick honoring the scene flags: hidden nodes are never hit; locked
-/// nodes only when `include_locked` (the Ctrl+Shift+click escape hatch and
-/// eyedropper sampling). Connectors hit on their stroke (8 px pick width),
-/// never on their AABB.
-pub fn board_pick_node_ex(
-    scene: &slate_doc::scene::Scene,
-    wx: f32,
-    wy: f32,
-    zoom: f32,
-    include_locked: bool,
-) -> Option<NodeId> {
-    board_pick_node_routed(
-        scene,
-        wx,
-        wy,
-        zoom,
-        include_locked,
-        slate_doc::WireRouting::Bezier,
-    )
-}
-
-/// Point pick with the session wire routing. A node under the pointer, and
-/// the pick slop just outside that node, beats a wire.
-pub fn board_pick_node_routed(
-    scene: &slate_doc::scene::Scene,
-    wx: f32,
-    wy: f32,
-    zoom: f32,
-    include_locked: bool,
-    routing: slate_doc::WireRouting,
-) -> Option<NodeId> {
-    let eligible = |n: &Node| !n.hidden && (!n.locked || include_locked) && !n.is_frame();
-    for n in scene.nodes.iter().rev().filter(|n| eligible(n)) {
-        if matches!(n.kind, NodeKind::Connector(_)) {
-            continue;
-        }
-        if let NodeKind::Shape(s) = &n.kind {
-            if shape_uses_stroke_pick(n, s) {
-                if hit_shape_stroke(n, s, wx, wy, zoom) {
-                    return Some(n.id);
-                }
-                continue;
-            }
-            if s.shape == ShapeKind::Path {
-                if hit_path_node(n, s, wx, wy, zoom) {
-                    return Some(n.id);
-                }
-                continue;
-            }
-        }
-        if n.rect.contains_rotated(wx, wy, n.rotation_deg) {
-            return Some(n.id);
-        }
-    }
-    for n in scene.nodes.iter().rev().filter(|n| eligible(n)) {
-        let NodeKind::Connector(c) = &n.kind else {
-            continue;
-        };
-        if super::board_wire::hit_connector_routed(scene, n.id, c, wx, wy, zoom, routing) {
-            return Some(n.id);
-        }
-    }
-    scene
-        .nodes
-        .iter()
-        .rev()
-        .find(|n| {
-            n.is_frame() && !n.hidden && (include_locked || !n.locked) && n.rect.contains(wx, wy)
-        })
-        .map(|n| n.id)
-}
+#[cfg(test)]
+pub use picking::board_pick_node_ex;
+use picking::brush_dab_disc;
+pub use picking::{board_pick_node, board_pick_node_filtered, board_pick_node_routed};
 
 #[cfg(test)]
 pub fn default_draw_stroke(accent: Rgba) -> Stroke {
@@ -1481,6 +1406,7 @@ pub fn default_draw_stroke(accent: Rgba) -> Stroke {
         gaussian_blur: 0.0,
         arrow_end: false,
         arrow_start: false,
+        arrow_sizes: [None; 2],
         cap_start: None,
         cap_end: None,
         texture: Default::default(),
@@ -1503,6 +1429,7 @@ pub fn default_curve_stroke(color: Rgba) -> Stroke {
         gaussian_blur: 0.0,
         arrow_end: false,
         arrow_start: false,
+        arrow_sizes: [None; 2],
         cap_start: None,
         cap_end: None,
         texture: Default::default(),
@@ -1671,7 +1598,9 @@ pub fn paint_path_shape(
     // Both a fill and a stroke may miss together. Build their shared path only
     // then; a warm paint does not allocate a BezPath or walk its segments twice.
     let mut bez = None;
-    if shape.fill.is_some() && path.closed {
+    if shape.fill.is_some() && path.closed && !path.field_colors.is_empty() {
+        fields::paint_field(app, painter, xf, node, shape, path, fade);
+    } else if shape.fill.is_some() && path.closed {
         // egui PathShape fills with a triangle fan from vertex 0 — convex
         // only (emilk/egui#513). Join/Trim boolean results are concave, so
         // every closed path fill goes through cached earcut.
@@ -1725,161 +1654,14 @@ pub fn paint_path_shape(
     painter.add(Shape::mesh(mesh));
 }
 
-/// The arrowhead at end `end` (0 = first point, 1 = last) of an open curve
-/// ([`slate_doc::geom::arrow_head`] aimed by [`slate_doc::geom::path_arrow`]),
-/// added to its stroke ink with the same feathered edge so it caches with
-/// the stroke. `color` is that end's tip on a stroke with per-vertex colors.
-pub(crate) fn push_arrow_ink(
-    ink: &mut InkMesh,
-    bez: &BezPath,
-    end: usize,
-    width: f32,
-    feather: f32,
-    color: Option<[f32; 4]>,
-) {
-    let Some((tip, into)) = slate_doc::geom::path_arrow(bez, end, width) else {
-        return;
-    };
-    let tri = slate_doc::geom::arrow_head(tip, into, width);
-    let unit = |v: [f32; 2]| {
-        let l = v[0].hypot(v[1]).max(1e-6);
-        [v[0] / l, v[1] / l]
-    };
-    let first = ink.vertices.len() as u32;
-    for p in tri {
-        ink.vertices
-            .push(vector_ink::InkVertex { pos: p, alpha: 1.0 });
-    }
-    for i in 0..3 {
-        let p = tri[i];
-        let a = unit([tri[(i + 1) % 3][0] - p[0], tri[(i + 1) % 3][1] - p[1]]);
-        let b = unit([tri[(i + 2) % 3][0] - p[0], tri[(i + 2) % 3][1] - p[1]]);
-        let out = unit([-(a[0] + b[0]), -(a[1] + b[1])]);
-        let half = ((a[0] * b[0] + a[1] * b[1]).clamp(-1.0, 1.0).acos() * 0.5).sin();
-        let d = feather / half.max(0.2);
-        ink.vertices.push(vector_ink::InkVertex {
-            pos: [p[0] + out[0] * d, p[1] + out[1] * d],
-            alpha: 0.0,
-        });
-    }
-    ink.indices.extend([first, first + 1, first + 2]);
-    for i in 0..3u32 {
-        let j = (i + 1) % 3;
-        ink.indices.extend([first + i, first + j, first + 3 + j]);
-        ink.indices
-            .extend([first + i, first + 3 + j, first + 3 + i]);
-    }
-    if !ink.colors.is_empty() {
-        let c = color
-            .or_else(|| ink.colors.last().copied())
-            .unwrap_or([1.0; 4]);
-        ink.colors.resize(ink.vertices.len(), c);
-    }
-}
-
-/// World-space mesh of a vector path stroke. A path with per-vertex tips
-/// (`PathData::vector_widths`) paints its varying width.
+mod arrows;
+mod fade;
+mod fields;
+pub(crate) use arrows::push_arrow_ink;
 #[cfg(test)]
-pub(crate) fn vector_stroke_ink(
-    node: &Node,
-    shape: &ShapeNode,
-    path: &PathData,
-    zoom: f32,
-) -> InkMesh {
-    vector_stroke_ink_for(
-        node,
-        &shape_path_world_bez(node, shape, path),
-        shape,
-        path,
-        zoom,
-    )
-}
-
-fn vector_stroke_ink_for(
-    node: &Node,
-    bez: &BezPath,
-    shape: &ShapeNode,
-    path: &PathData,
-    zoom: f32,
-) -> InkMesh {
-    let arrows = if path.closed {
-        [false; 2]
-    } else {
-        shape.stroke.arrows()
-    };
-    let ends = shape.stroke.end_caps().map(ink_cap);
-    let full = bez;
-    let trimmed_body;
-    let bez = if arrows.contains(&true) {
-        let w = shape.stroke.width;
-        trimmed_body = slate_doc::geom::trim_arrow_ends(bez, arrows, [w, w]);
-        &trimmed_body
-    } else {
-        bez
-    };
-    let mut style = stroke_style_world(&shape.stroke, zoom);
-    let (ink_width, soft) = shape.stroke.paint_profile();
-    style.width = ink_width;
-    let feather = soft
-        + if soft <= 0.0 {
-            FEATHER_PX / zoom.max(0.05)
-        } else {
-            0.0
-        };
-    let tolerance = curve_tolerance(zoom);
-    let tipped = (soft <= 0.0)
-        .then(|| {
-            slate_doc::geom::tipped_stroke(
-                path,
-                &shape.stroke,
-                node.rect,
-                node.rotation_deg,
-                shape.corner,
-            )
-        })
-        .flatten();
-    match tipped {
-        Some(t) => {
-            let body = slate_doc::geom::trim_tipped_arrow_ends(&t, arrows);
-            let mut ink = vector_ink::stroke_mesh_ends(
-                &body.bez,
-                &style,
-                ends,
-                Some(&body.widths),
-                body.colors.as_deref(),
-                body.ease,
-                feather,
-                tolerance,
-            );
-            for end in (0..2).filter(|&i| arrows[i]) {
-                let pick = |v: &[f32]| if end == 0 { v.first() } else { v.last() }.copied();
-                let head = pick(&t.widths).unwrap_or(shape.stroke.width);
-                let color = t
-                    .colors
-                    .as_ref()
-                    .and_then(|c| if end == 0 { c.first() } else { c.last() }.copied());
-                push_arrow_ink(&mut ink, &t.bez, end, head, feather, color);
-            }
-            ink
-        }
-        None => {
-            let mut ink = vector_ink::stroke_mesh_ends(
-                bez,
-                &style,
-                ends,
-                None,
-                None,
-                vector_ink::TipEase::Linear,
-                feather,
-                tolerance,
-            );
-            for end in (0..2).filter(|&i| arrows[i]) {
-                push_arrow_ink(&mut ink, full, end, shape.stroke.width, feather, None);
-            }
-            ink
-        }
-    }
-}
+pub(crate) use arrows::vector_stroke_ink;
+use arrows::vector_stroke_ink_for;
+pub(crate) use fade::FadingCurve;
 
 /// The Pen's live stroke as one mesh: its samples, each with the tip it was
 /// drawn with (`tips`), then the pointer with `cursor_tip`. It blends
@@ -5463,47 +5245,6 @@ pub const FREEHAND_SAMPLE_SPACING_PX: f32 = 1.75;
 pub const FREEHAND_FIT_ERROR_PX: f32 = 2.0;
 
 impl SlateApp {
-    pub(crate) fn cancel_path_draft(&mut self) {
-        self.board_path_draft = None;
-    }
-
-    pub(crate) fn finish_path_draft(&mut self) -> bool {
-        let Some(draft) = self.board_path_draft.take() else {
-            return false;
-        };
-        let (tool, rect, path_data, closed, tips) = match draft {
-            BoardPathDraft::Polyline {
-                mut points,
-                mut tips,
-            } => {
-                if points.len() < 2 {
-                    return false;
-                }
-                let closed = points.len() >= 4 && points.first() == points.last();
-                if closed {
-                    points.pop();
-                    tips.truncate(points.len());
-                }
-                let (r, d) = points_to_path_data(&points, closed);
-                (StrokeTool::Polyline, r, d, closed, tips)
-            }
-            BoardPathDraft::Bezier { anchors, tips, .. } => {
-                if anchors.len() < 2 {
-                    return false;
-                }
-                let bez = bezier_anchors_to_bezpath(&anchors);
-                let (r, d) = bezpath_to_path_data(&bez, false);
-                (StrokeTool::Bezier, r, d, false, tips)
-            }
-            BoardPathDraft::Arc { .. } => return false,
-        };
-        if path_data.is_empty() {
-            return false;
-        }
-        self.commit_drawn_path(tool, rect, path_data, closed, DrawnTips::Grips(&tips));
-        true
-    }
-
     #[cfg(test)]
     pub(crate) fn commit_path_node(
         &mut self,
@@ -5536,6 +5277,7 @@ impl SlateApp {
         closed: bool,
         tips: DrawnTips<'_>,
     ) -> Vec<NodeId> {
+        self.begin_curve_fade_creation();
         let mut path_data = path_data;
         path_data.closed = closed;
         let current = self.placed_tip(tool);
@@ -5602,20 +5344,31 @@ impl SlateApp {
         match self.board_tool {
             super::board::BoardTool::Polyline => {
                 let tip = self.placed_tip(StrokeTool::Polyline);
+                if !matches!(self.board_path_draft, Some(BoardPathDraft::Polyline { .. })) {
+                    self.board_path_draft = Some(BoardPathDraft::Polyline {
+                        points: vec![],
+                        tips: vec![],
+                    });
+                }
                 if let Some(BoardPathDraft::Polyline { points, tips }) = &mut self.board_path_draft
                 {
-                    if points.last().copied() != Some(world) {
-                        points.push(world);
+                    let close = points.first().copied() == Some(world);
+                    let before = points.len();
+                    let result = multi_point::collect(
+                        points,
+                        multi_point::Event::Pick {
+                            point: world,
+                            close,
+                            finish: false,
+                        },
+                        multi_point::POLYLINE,
+                    );
+                    if points.len() != before {
                         tips.push(tip);
                     }
-                    if points.len() >= 4 && points.first() == points.last() {
+                    if result == multi_point::Transition::Finish {
                         self.finish_path_draft();
                     }
-                } else {
-                    self.board_path_draft = Some(BoardPathDraft::Polyline {
-                        points: vec![world],
-                        tips: vec![tip],
-                    });
                 }
             }
             super::board::BoardTool::Arc => {
@@ -5866,13 +5619,13 @@ impl SlateApp {
         }
     }
 
-    /// Esc on a path draft: a span of two or more anchors commits as it
-    /// stands (D12); anything else cancels.
+    /// Esc commits a polyline or Bezier with two points; incomplete drafts cancel.
     pub(crate) fn escape_path_draft(&mut self) {
-        let commit = matches!(
-            &self.board_path_draft,
-            Some(BoardPathDraft::Bezier { anchors, .. }) if anchors.len() >= 2
-        );
+        let commit = match &self.board_path_draft {
+            Some(BoardPathDraft::Bezier { anchors, .. }) => anchors.len() >= 2,
+            Some(BoardPathDraft::Polyline { points, .. }) => points.len() >= 2,
+            _ => false,
+        };
         if !(commit && self.finish_path_draft()) {
             self.cancel_path_draft();
         }

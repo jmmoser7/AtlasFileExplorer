@@ -11,7 +11,9 @@ pub(crate) fn paints_in_view(n: &Node, view: &WorldRect) -> bool {
         return false;
     }
     let ink = match &n.kind {
-        NodeKind::Shape(s) if !s.stroke.is_none() => s.stroke.width.max(0.0) * 0.5,
+        NodeKind::Shape(s) if !s.stroke.is_none() => {
+            (s.stroke.width.max(0.0) * 0.5).max(s.stroke.arrow_reach())
+        }
         _ => 0.0,
     };
     let r = n.rect.normalized();
@@ -79,12 +81,20 @@ impl SlateApp {
                     if let Some(p) = self.smooth_preview.get(&id) {
                         return p.clone();
                     }
-                    self.shape_properties
-                        .preview
-                        .iter()
-                        .find(|p| p.id == id)
+                    let mut painted = self
+                        .presence_preview(id)
+                        .or_else(|| self.shape_properties.preview.iter().find(|p| p.id == id))
                         .unwrap_or(n)
-                        .clone()
+                        .clone();
+                    if let Some((edit_id, rect)) = self.text_edit_rect {
+                        if edit_id == id {
+                            painted.rect = rect;
+                        }
+                    }
+                    if let Some(edit) = self.text_doc_edit.as_ref().filter(|edit| edit.node == id) {
+                        painted.rect = edit.rect;
+                    }
+                    painted
                 })
             })
             .collect()
@@ -133,6 +143,8 @@ impl SlateApp {
     /// Switch the board tool through one place: the brush chain breaks on
     /// every re-arm, and direct-selection state clears when leaving A.
     pub(crate) fn set_board_tool(&mut self, tool: BoardTool) {
+        atlas_core::session_log::event("slate.tool.arm", tool.label());
+        self.image_segments.cancel_tool_gestures();
         if let Some(draft) = self.text_box_draft.take() {
             if draft.buffer.is_empty() {
                 // Tool switch discards an empty compose (no journal).
@@ -141,7 +153,10 @@ impl SlateApp {
                 self.commit_text_box_draft();
             }
         }
+        let remembered_image_panels =
+            std::mem::take(&mut self.shape_properties.remembered_image_panels);
         self.shape_properties = Default::default();
+        self.shape_properties.remembered_image_panels = remembered_image_panels;
         self.desktop_sample = None;
         self.armed_kit_id = None;
         self.brush_straight = None;
@@ -198,5 +213,57 @@ impl SlateApp {
             }
         }
         self.kits.recipe_for(tool).cloned()
+    }
+}
+
+impl SlateApp {
+    /// View overlays share their existing owners and run after scene content.
+    pub(super) fn paint_board_view_overlays(
+        &mut self,
+        ui: &mut egui::Ui,
+        painter: &egui::Painter,
+        xf: &BoardXf,
+        rect: Rect,
+        palette: &atlas_shell::theme::Palette,
+    ) {
+        // 3D viewport captions (double-click hint, measure prompt, auto-lock).
+        self.model_status_hints(ui, xf);
+        self.place_enscape_window(ui, xf);
+
+        // In-viewport measurement overlays (live only).
+        self.paint_model_measurements(painter, xf);
+        self.paint_view_drop_file(painter, xf);
+        self.paint_shape_fill_file(painter, xf);
+
+        // A live collaborator already occupies the board's central welcome area.
+        if self.doc().scene.is_empty() && !self.presence.has_live_agents(self.tab().id) {
+            painter.text(
+                rect.center(),
+                Align2::CENTER_CENTER,
+                "An open board — choose Frame in the create toolbar for a slide,\n\
+                 drop files anywhere, or place images from the Grid view (right-click).",
+                FontId::proportional(14.0),
+                palette.sub,
+            );
+        }
+
+        // Shared minimap overlay (M): board model = node rects by kind.
+        if let Some(model) = self
+            .minimap_on
+            .then(|| self.board_minimap_model())
+            .flatten()
+        {
+            self.show_minimap(ui, rect, model);
+        }
+
+        // Overlays. (The create toolbar now lives in the shared bottom dock —
+        // see `ui/tools.rs::floating_tools_dock`.)
+        self.frame_custom_dialog(ui.ctx(), rect);
+        self.sheet_edit_overlay(ui.ctx());
+        self.sheet_prompt_frame(ui.ctx());
+        self.text_edit_overlay(ui.ctx(), xf);
+        self.wire_label_overlay(ui.ctx(), xf);
+        self.board_action_menu(ui.ctx());
+        self.board_empty_canvas_menu(ui.ctx());
     }
 }

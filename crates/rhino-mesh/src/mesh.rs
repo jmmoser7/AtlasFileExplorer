@@ -5,8 +5,8 @@
 //!
 //! Scope: we only recover what a viewport needs — vertex positions (double
 //! precision preferred when the 3.7+ chunk is present), the optional vertex
-//! normal array, and the face array. Texture coordinates, curvatures, vertex
-//! colors, surface parameters, ngons and mapping tags are parsed past but
+//! normal/UV arrays, and the face array. Curvatures, vertex colors, surface
+//! parameters, ngons and mapping tags are parsed past but
 //! discarded. Chunk-version-1 (uncompressed, pre-Rhino 3) meshes are not
 //! supported; every Rhino 5+ file writes major version 3.
 
@@ -23,6 +23,7 @@ const MAX_BUFFER: usize = 256 * 1024 * 1024;
 pub struct RawMesh {
     pub positions: Vec<[f32; 3]>,
     pub normals: Option<Vec<[f32; 3]>>,
+    pub texcoords: Vec<[f32; 2]>,
     pub faces: Vec<[u32; 4]>,
 }
 
@@ -190,6 +191,7 @@ pub fn parse_mesh(data: &[u8]) -> Option<RawMesh> {
     // Only written when vcount > 0.
     let mut positions = Vec::new();
     let mut normals = None;
+    let mut texcoords = Vec::new();
     if vcount > 0 {
         let vbuf = read_compressed_buffer(&mut cur)?;
         if vbuf.len() != vcount as usize * 12 {
@@ -204,8 +206,22 @@ pub fn parse_mesh(data: &[u8]) -> Option<RawMesh> {
             return None;
         }
 
-        // m_T, m_K, m_C — parse the framing, discard the data.
-        for _ in 0..3 {
+        let tbuf = read_compressed_buffer(&mut cur)?;
+        if tbuf.len() == vcount as usize * 8 {
+            texcoords = tbuf
+                .as_chunks::<8>()
+                .0
+                .iter()
+                .map(|b| {
+                    [
+                        f32::from_le_bytes(b[..4].try_into().unwrap()),
+                        f32::from_le_bytes(b[4..].try_into().unwrap()),
+                    ]
+                })
+                .collect();
+        }
+        // m_K, m_C — parse the framing, discard the data.
+        for _ in 0..2 {
             read_compressed_buffer(&mut cur)?;
         }
     }
@@ -264,6 +280,7 @@ pub fn parse_mesh(data: &[u8]) -> Option<RawMesh> {
     Some(RawMesh {
         positions,
         normals,
+        texcoords,
         faces,
     })
 }

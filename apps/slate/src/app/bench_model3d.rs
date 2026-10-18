@@ -22,6 +22,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+mod display;
+use display::CAPTURE_CASES;
+
 const WARM: usize = 40;
 const MEASURED: usize = 150;
 const NATURAL: Duration = Duration::from_secs(2);
@@ -58,15 +61,6 @@ const SCENARIOS: [Scenario; 10] = [
     Scenario::ClickOff,
     Scenario::LiveMatchesPoster,
     Scenario::CaptureMatchesLive,
-];
-
-/// Display passes the screenshot must match live; `true` adds a photo filter.
-const CAPTURE_CASES: [(ModelDisplay, bool); 5] = [
-    (ModelDisplay::Shaded, false),
-    (ModelDisplay::Arctic, false),
-    (ModelDisplay::Material, false),
-    (ModelDisplay::Depth, false),
-    (ModelDisplay::Shaded, true),
 ];
 
 /// Mean absolute difference allowed between screenshot and live, per channel.
@@ -249,8 +243,7 @@ fn write_sphere_obj(path: &Path, rings: usize, segments: usize) {
         for s in 0..segments {
             let a = r * segments + s + 1;
             let b = r * segments + (s + 1) % segments + 1;
-            let c = a + segments;
-            let d = b + segments;
+            let (c, d) = (a + segments, b + segments);
             let _ = writeln!(obj, "f {a} {b} {d}");
             let _ = writeln!(obj, "f {a} {d} {c}");
         }
@@ -273,6 +266,7 @@ impl Bench {
         app.doc_mut().view.active_view = slate_doc::ViewKind::Board;
         app.place_items_on_board(&items, egui::Pos2::ZERO);
         let id = app.doc().scene.nodes.last().unwrap().id;
+        app.set_model_display(id, display::benchmark_mode());
         let rect = app.doc().scene.node(id).unwrap().rect;
         // Room around the node so "empty canvas" exists on screen.
         app.zoom_to_rect(slate_doc::scene::WorldRect::new(
@@ -298,25 +292,6 @@ impl Bench {
             shot: ShotCheck::default(),
             capture: CaptureCheck::default(),
         }
-    }
-
-    fn apply_capture_case(&mut self, case: usize) {
-        let (mode, filtered) = CAPTURE_CASES[case];
-        self.app.set_model_display(self.model, mode);
-        let adjust = if filtered {
-            ImageAdjust {
-                brightness: 1.15,
-                contrast: 0.9,
-                sepia: 0.4,
-                hue_deg: 25.0,
-                ..ImageAdjust::default()
-            }
-        } else {
-            ImageAdjust::default()
-        };
-        self.app.patch_nodes(&[self.model], |n| {
-            slate_doc::scene::set_adjust(n, adjust);
-        });
     }
 
     /// Live, then per case: settle, read the live slot back, render the
@@ -780,7 +755,10 @@ fn bench_model3d() {
         "release"
     };
     let vsync = if vsync { "on" } else { "off" };
-    println!("profile={profile} model=39200 triangles window=1440x900 vsync={vsync}");
+    println!(
+        "profile={profile} model=39200 triangles window=1440x900 vsync={vsync} display={:?}",
+        display::benchmark_mode()
+    );
     eframe::run_native(
         "Slate 3D bench",
         options,

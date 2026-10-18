@@ -2,10 +2,13 @@ import { Agent, Cursor, CursorAgentError } from "@cursor/sdk";
 import fs from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import path from "node:path";
-import { artifactFromTool, artifactGuide, GOAL_MARKER, goalGuide, SLATE_LINK_LINE, transcript } from './artifacts.mjs';
+import { artifactFromTool, artifactGuide, artifactGenerationPrompt, GOAL_MARKER, goalGuide, SLATE_LINK_LINE, transcript } from './artifacts.mjs';
 import { userMessage } from './attachments.mjs';
 import { refusal, sendMode, withPolicy } from './policy.mjs';
 import { claimLink, releaseLink, supervisionLost } from './supervise.mjs';
+import { modelSelection, projectModels } from './models.mjs';
+import { boundedActivity, recordActivity } from './activity.mjs';
+import { boardLinkPrompt } from './board-link.mjs';
 
 // process.exit while the SDK is closing a libuv handle aborts on Windows
 // (src/win/async.c: "UV_HANDLE_CLOSING"). Unref instead and let the loop drain.
@@ -45,7 +48,7 @@ if (query === "--models" || query === "--list" || query === "--read") {
   try {
     if (query === "--models") {
       const models = await Cursor.models.list();
-      console.log(JSON.stringify(models.map((m) => ({ id: m.id, name: m.displayName || m.id }))));
+      console.log(JSON.stringify(projectModels(models)));
     } else {
       const cwd = workspaceRef(process.argv[3]);
       if (query === "--list") {
@@ -91,6 +94,7 @@ let lastRequestId = await fs.readFile(ledgerPath, "utf8").catch(() => "");
 const saved = await readJson(sessionPath).catch(() => null);
 let turns = saved?.turns ?? [];
 let artifacts = saved?.artifacts ?? [];
+let activity = boundedActivity(saved?.activity);
 const pinned = (await fs.readFile(threadPath, "utf8").catch(() => "")).trim();
 let conversation = pinned || saved?.conversation || '';
 let sessionWrite = Promise.resolve();
@@ -185,6 +189,7 @@ async function failStartup(err) {
 }
 
   async function handleRequest(agent, req) {
+    activity = [];
     const refused = refusal(req, process.env);
     if (refused) {
       await writeSession({ status: { error: refused }, provider: "cursor", turns, updated_at: now() });
@@ -199,7 +204,7 @@ async function failStartup(err) {
     if (turns.length === 0 && Array.isArray(req.history)) turns.push(...req.history);
   const linkDir = process.env.ATLAS_AGENT_LINK_DIR ? String(process.env.ATLAS_AGENT_LINK_DIR).replace(/\\/g, "/") : "";
   const outputDir = typeof req.output_dir === "string" && req.output_dir.trim() ? req.output_dir : "";
-  const prompt = [
+  const prompt = req.collaborator ? boardLinkPrompt(req, linkDir || dir) : req.artifact ? artifactGenerationPrompt(req, linkDir) : [
     // TWIN: crates/atlas-agent/src/lib.rs FILE_ATLAS_PLACE_GUIDE and artifact_guide
     `Slate board: you cannot draw shapes or wires by describing them. To put a folder on the board as File Atlas, write ${linkDir ? linkDir + "/" : ""}place.json (beside session.json) with {"id":"a-new-id","kind":"file_atlas","path":"folder-relative-to-the-project"}. Slate places that portal beside this card. Do not say you cannot place a File Atlas node, and do not send the person to the changed-documents dot for a folder you were asked to show. ${artifactGuide(outputDir, linkDir)}${outputDir ? "" : " Write files in the project folder you were given."}${req.goal ? GOAL_MARKER + goalGuide(req.goal, linkDir) : ""}`,
     SLATE_LINK_LINE,
@@ -231,17 +236,26 @@ async function failStartup(err) {
   };
   try {
     const modelId = typeof req.model === "string" && req.model ? req.model : model;
+    const parameters = req.model_parameters;
+    const catalog = parameters && Object.keys(parameters).length ? await Cursor.models.list() : [];
+    const selectedModel = modelSelection(modelId, parameters, catalog);
     const mode = sendMode(req, process.env);
     run = await agent.send(await userMessage(prompt, req.inputs?.wired), {
       idempotencyKey: req.id,
-      model: { id: modelId },
+      model: selectedModel,
       ...(mode ? { mode } : {}),
       onDelta: async ({ update }) => {
+        const nextActivity = recordActivity(activity, update, req.id, now());
+        const activityChanged = nextActivity !== activity;
+        activity = nextActivity;
         if (update.type === 'tool-call-completed') {
           const artifact=artifactFromTool(update.toolCall,req.id+':'+update.callId,artifactTurn,process.env.ATLAS_AGENT_CWD ?? workspace);
           if (artifact) { const i=artifacts.findIndex(a=>a.id===artifact.id); if(i<0) artifacts.push(artifact); else artifacts[i]=artifact; await publishPartial(); }
         }
-        if (update.type !== "text-delta") return;
+        if (update.type !== "text-delta") {
+          if (activityChanged) await publishPartial();
+          return;
+        }
         receivedDeltas = true;
         assistant += update.text;
         if (Date.now() - lastFlush >= 100) {
@@ -250,19 +264,23 @@ async function failStartup(err) {
         }
       },
     });
-    for await (const event of run.stream()) {
-      if (event.type !== "assistant") continue;
-      for (const block of event.message.content ?? []) {
-        if (block.type === "text") normalized += block.text;
+    let result;
+    try {
+      for await (const event of run.stream()) {
+        if (event.type !== "assistant") continue;
+        for (const block of event.message.content ?? []) {
+          if (block.type === "text") normalized += block.text;
+        }
+        // Older runtimes can still deliver whole-message updates. Never append
+        // these over text already received through the raw delta callback.
+        if (!receivedDeltas) {
+          assistant = normalized;
+          await publishPartial();
+        }
       }
-      // Older runtimes can still deliver whole-message updates. Never append
-      // these over text already received through the raw delta callback.
-      if (!receivedDeltas) {
-        assistant = normalized;
-        await publishPartial();
-      }
+    } finally {
+      result = await run.wait();
     }
-    const result = await run.wait();
     if (result.status === "cancelled" || await cancelled(req.id)) {
       if (assistant) turns.push({ role: "assistant", text: assistant, at: req.at ?? now() });
       await writeSession({ status: { error: "Response stopped." }, provider: "cursor", turns, updated_at: now() });
@@ -311,7 +329,7 @@ async function readJson(file) {
 
 async function writeSession(value) {
   const tmp = `${sessionPath}.tmp`;
-  const payload=JSON.stringify({ ...value, conversation, artifacts, request: lastRequestId }, null, 2);
+  const payload=JSON.stringify({ ...value, conversation, artifacts, activity, request: lastRequestId }, null, 2);
   sessionWrite=sessionWrite.catch(()=>{}).then(async()=>{await fs.writeFile(tmp,payload);await fs.rename(tmp,sessionPath);});
   await sessionWrite;
 }

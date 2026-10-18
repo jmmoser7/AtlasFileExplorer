@@ -22,10 +22,12 @@ struct WriteJob {
     text: String,
 }
 
+#[derive(Debug)]
 struct WriteDone {
     node: NodeId,
     gen: u64,
     item: ItemId,
+    path: PathBuf,
     ok: bool,
 }
 
@@ -88,6 +90,7 @@ impl AgentTextOutputWriter {
                         node: job.node,
                         gen: job.gen,
                         item: job.item,
+                        path: job.path,
                         ok,
                     })
                     .is_err()
@@ -191,23 +194,30 @@ impl AgentTextOutputWriter {
         }
     }
 
-    /// Drain completed writes; returns item ids whose snippet cache should reload.
-    pub(crate) fn pump(&mut self) -> Vec<ItemId> {
+    /// Successful source writes invalidate previews of that captured file in
+    /// every originating tab, even after selection or writer-slot changes.
+    pub(crate) fn pump(&mut self) -> Vec<(ItemId, PathBuf)> {
         let Some(rx) = &self.results else {
             return Vec::new();
         };
         let mut stale = Vec::new();
         let mut follow_ups = Vec::new();
-        loop {
+        for _ in 0..QUEUE_DEPTH {
             match rx.try_recv() {
                 Ok(done) => {
+                    if done.ok {
+                        stale.push((done.item, done.path.clone()));
+                    }
                     let Some(slot) = self.slots.get(&done.node) else {
                         continue;
                     };
-                    if done.gen != slot.gen || !done.ok {
+                    if done.gen != slot.gen
+                        || done.item != slot.item
+                        || done.path != slot.path
+                        || !done.ok
+                    {
                         continue;
                     }
-                    stale.push(done.item);
                     if let Some(slot) = self.slots.get(&done.node) {
                         let Some(deferred) = slot.deferred.clone() else {
                             continue;
@@ -247,18 +257,15 @@ impl AgentTextOutputWriter {
     }
 
     /// Whether the linked document already has authored bytes (snippet cache only).
-    pub(crate) fn file_has_content(
+    pub(crate) fn file_has_content<'a>(
         &self,
         id: NodeId,
-        snippets: &HashMap<ItemId, Option<String>>,
+        snippet: impl FnOnce(ItemId) -> Option<&'a str>,
     ) -> bool {
         let Some(slot) = self.slots.get(&id) else {
             return false;
         };
-        snippets
-            .get(&slot.item)
-            .and_then(|s| s.as_ref())
-            .is_some_and(|t| !t.trim().is_empty())
+        snippet(slot.item).is_some_and(|text| !text.trim().is_empty())
     }
 }
 
@@ -291,5 +298,34 @@ mod tests {
         let t0 = Instant::now();
         p.record_flush(t0, "partial".into());
         assert!(p.should_flush(t0 + Duration::from_millis(50), "partial done", false));
+    }
+
+    #[test]
+    fn a_rebound_writer_slot_keeps_the_completed_source_attribution() {
+        let old = std::env::temp_dir().join("slate-write-original.txt");
+        let new = std::env::temp_dir().join("slate-write-rebound.txt");
+        for (current_item, current_path) in [(ItemId(2), old.clone()), (ItemId(1), new)] {
+            let mut writer = AgentTextOutputWriter::default();
+            let node = NodeId(1);
+            let item = ItemId(1);
+            let current = writer.slot_mut(node, current_item, current_path);
+            current.deferred = Some("must not follow an unrelated completion".into());
+            let generation = current.gen;
+            let (tx, rx) = crossbeam_channel::bounded(2);
+            writer.results = Some(rx);
+            tx.send(WriteDone {
+                node,
+                gen: generation,
+                item,
+                path: old.clone(),
+                ok: true,
+            })
+            .unwrap();
+            assert_eq!(writer.pump(), [(item, old.clone())]);
+            assert!(
+                writer.jobs.is_none(),
+                "item/path mismatch must not send a deferred write"
+            );
+        }
     }
 }

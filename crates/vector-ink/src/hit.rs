@@ -5,7 +5,31 @@ use kurbo::BezPath;
 use crate::flatten::flatten_contours;
 use crate::geom::{cumulative_arclength, dist_to_segment, half_width_at, EPS};
 use crate::stroke::valid_style;
-use crate::StrokeStyle;
+use crate::{Cap, StrokeStyle, TipEase};
+
+/// Pick the actual painted boundary, including variable widths, caps, joins,
+/// dashes and taper. Slop expands only that boundary, never the widest tip.
+pub fn hit_stroke_outline(
+    path: &BezPath,
+    style: &StrokeStyle,
+    ends: [Cap; 2],
+    widths: Option<&[f32]>,
+    ease: TipEase,
+    point: [f32; 2],
+    slop: f32,
+) -> bool {
+    if !valid_style(style) || !point.into_iter().all(f32::is_finite) {
+        return false;
+    }
+    let outline = crate::stroke_outline_ends(path, style, ends, widths, ease, 0.25);
+    let contours = flatten_contours(&outline, 0.25);
+    crate::point_in_polygon(&contours, point)
+        || contours.iter().any(|contour| {
+            contour
+                .windows(2)
+                .any(|p| dist_to_segment(point, p[0], p[1]) <= slop.max(0.0))
+        })
+}
 
 /// Hit-test a point against the stroked region (world units).
 ///
@@ -69,6 +93,35 @@ mod tests {
     use super::*;
     use crate::{Cap, Join, StrokeStyle};
     use kurbo::BezPath;
+
+    #[test]
+    fn variable_width_pick_follows_outline_and_cap() {
+        let style = StrokeStyle {
+            width: 100.0,
+            cap: Cap::Butt,
+            join: Join::Miter,
+            taper: None,
+            dash: None,
+        };
+        let hit = |p| {
+            hit_stroke_outline(
+                &hline(),
+                &style,
+                [Cap::Butt; 2],
+                Some(&[2.0, 100.0]),
+                TipEase::Linear,
+                p,
+                4.0,
+            )
+        };
+        assert!(hit([5.0, 4.0]));
+        assert!(
+            !hit([5.0, 30.0]),
+            "the widest tip must not expand the narrow end"
+        );
+        assert!(!hit([-8.0, 0.0]), "flat cap has only screen slop");
+        assert!(hit([95.0, 40.0]));
+    }
 
     fn hline() -> BezPath {
         let mut p = BezPath::new();

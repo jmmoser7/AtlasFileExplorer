@@ -11,6 +11,8 @@ atlas-ollama.workspace = true
 atlas-comfy.workspace = true
 atlas-openai.workspace = true
 atlas-core = { workspace = true }
+atlas-packs = { workspace = true }
+atlas-segment = { workspace = true }
 atlas-shell = { workspace = true }
 eframe = { workspace = true }
 crossbeam-channel = { workspace = true }
@@ -18,3 +20,4 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }
 rusqlite = { workspace = true }
+sha2.workspace = true

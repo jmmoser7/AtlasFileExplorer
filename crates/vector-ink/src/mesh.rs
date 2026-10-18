@@ -6,6 +6,8 @@ use crate::geom::{
     MITER_LIMIT,
 };
 use crate::{Cap, InkMesh, InkVertex, Join, StrokeStyle, TintPiece};
+mod caps;
+use caps::push_cap;
 
 #[derive(Clone, Copy)]
 struct Edge {
@@ -104,6 +106,7 @@ fn stations(
             points[0],
             first,
             half(0),
+            (half(1) - half(0)) / crate::geom::dist(points[1], points[0]).max(EPS),
             ends[0],
             true,
             tolerance,
@@ -134,6 +137,7 @@ fn stations(
             points[n - 1],
             last,
             half(n - 1),
+            (half(n - 1) - half(n - 2)) / crate::geom::dist(points[n - 1], points[n - 2]).max(EPS),
             ends[1],
             false,
             tolerance,
@@ -243,65 +247,6 @@ pub(crate) fn run_outline(
     } else {
         first.extend(second);
         vec![first]
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn push_cap(
-    out: &mut Vec<Station>,
-    pos: [f32; 2],
-    tangent: [f32; 2],
-    half: f32,
-    cap: Cap,
-    start: bool,
-    tolerance: f64,
-    feather: f32,
-) {
-    let normal = perp_left(tangent);
-    match cap {
-        Cap::Butt => out.push(section(pos, normal, half)),
-        Cap::Square => {
-            let extended = section(
-                add(pos, scale(tangent, if start { -half } else { half })),
-                normal,
-                half,
-            );
-            let end = section(pos, normal, half);
-            if start {
-                out.extend([extended, end]);
-            } else {
-                out.extend([end, extended]);
-            }
-        }
-        Cap::Round => {
-            let count = arc_steps(half + feather * 0.5, std::f32::consts::FRAC_PI_2, tolerance);
-            for i in 0..=count {
-                // Longitudinal sections travel from tip to end (start cap), or
-                // end to tip (end cap). No rotating diameters/bow-tie triangles.
-                let fraction = if start {
-                    i as f32 / count as f32
-                } else {
-                    1.0 - i as f32 / count as f32
-                };
-                let angle = fraction * std::f32::consts::FRAC_PI_2;
-                let (sin, cos) = if fraction == 0.0 {
-                    (0.0, 1.0)
-                } else if fraction == 1.0 {
-                    (1.0, 0.0)
-                } else {
-                    angle.sin_cos()
-                };
-                let axial = scale(tangent, if start { -cos } else { cos });
-                let edges = [-1.0, 1.0].map(|sign| {
-                    let outward = add(axial, scale(normal, sign * sin));
-                    Edge {
-                        pos: add(pos, scale(outward, half)),
-                        normal: outward,
-                    }
-                });
-                out.push(Station { edges, half, at: 0 });
-            }
-        }
     }
 }
 

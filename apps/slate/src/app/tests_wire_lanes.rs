@@ -176,9 +176,8 @@ pub(super) fn export_matches_board(h: &Harness, wires: &[NodeId]) {
             panic!("a connector");
         };
         // `render_html` passes no theme, so unauthored wires take the light gray.
-        css = c
-            .paint_color(slate_doc::scene::Rgba::opaque(0x6e, 0x76, 0x80))
-            .css();
+        let light = atlas_shell::theme::Palette::light().wire;
+        css = c.paint_color(super::board::to_rgba(light)).css();
         let path = h.app.connector_path_visible(wire, c).unwrap();
         let (path, _) = drawn_connector(&h.app.doc().scene, path, c);
         let pts: Vec<[f32; 2]> = match &path {

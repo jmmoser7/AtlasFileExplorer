@@ -2,6 +2,50 @@
 
 use super::*;
 
+#[test]
+fn a_copy_and_paste_with_native_and_key_events_adds_one_selection_per_press() {
+    use atlas_commands::CommandId;
+    use slate_doc::scene::WorldRect;
+    let mut h = web_board("clipboard_duplicate_events");
+    let (id, _) = add_two_tone_picture(&mut h, "one.png", WorldRect::new(0.0, 0.0, 200.0, 100.0));
+    h.app.board_sel = [id].into_iter().collect();
+    h.frame_with(|i| {
+        i.modifiers = egui::Modifiers::CTRL;
+        i.events.push(egui::Event::Copy);
+        i.events.push(egui::Event::Copy);
+    });
+    // Test clipboard writes are synchronous; the same event stream is used
+    // by eframe when both clipboard and shortcut delivery are present.
+    for expected in [2, 3] {
+        let before = h.app.tab().journal.undo_depth();
+        h.frame_with(|i| {
+            i.modifiers = egui::Modifiers::CTRL;
+            i.events.push(egui::Event::Key {
+                key: egui::Key::V,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::CTRL,
+            });
+            i.events.push(egui::Event::Paste(String::new()));
+            i.events.push(egui::Event::Paste(String::new()));
+        });
+        assert_eq!(h.app.doc().scene.nodes.len(), expected);
+        assert_eq!(h.app.tab().journal.undo_depth(), before + 1);
+        h.frame_with(|i| {
+            i.events.push(egui::Event::Key {
+                key: egui::Key::V,
+                physical_key: None,
+                pressed: false,
+                repeat: false,
+                modifiers: egui::Modifiers::CTRL,
+            })
+        });
+    }
+    assert!(h.app.dispatch(&h.ctx, CommandId("app.undo"), None));
+    assert_eq!(h.app.doc().scene.nodes.len(), 2);
+}
+
 /// Copying one picture puts a real bitmap on the clipboard at the picture's
 /// own resolution, plus the linked file and Slate's own format. The text
 /// slot is empty, never the node JSON.
@@ -25,6 +69,48 @@ fn copying_a_picture_puts_its_bitmap_on_the_clipboard() {
     let nodes: Vec<slate_doc::scene::Node> = serde_json::from_str(&write.nodes_json).unwrap();
     assert_eq!(nodes.len(), 1);
     assert!(matches!(nodes[0].kind, slate_doc::NodeKind::Image(_)));
+}
+
+/// A picture stored as a workbook-relative `assets/pasted/…` locator still
+/// copies as a bitmap and names the resolved file on disk.
+#[test]
+fn copying_a_pasted_assets_picture_puts_its_bitmap_on_the_clipboard() {
+    use slate_doc::scene::{ImageNode, WorldRect};
+    let mut h = web_board("copy_pasted_assets_picture");
+    let book = h.base.join("Book.slate");
+    h.app.tab_mut().path = Some(book.clone());
+    let pasted =
+        atlas_core::workbook_assets::paste_dir(Some(&book), &atlas_core::index::data_dir())
+            .join("copy-paste.png");
+    if let Some(dir) = pasted.parent() {
+        std::fs::create_dir_all(dir).unwrap();
+    }
+    image::RgbaImage::from_fn(40, 20, |x, _| image::Rgba(if x < 20 { RED } else { BLUE }))
+        .save(&pasted)
+        .unwrap();
+    let item = h.app.item_for_path(&pasted).unwrap();
+    assert!(
+        h.app
+            .doc()
+            .item(item)
+            .unwrap()
+            .path
+            .to_string_lossy()
+            .replace('\\', "/")
+            .starts_with("assets/pasted/"),
+        "stored locator stays relative"
+    );
+    let node = h.app.doc_mut().scene.build_node(
+        WorldRect::new(0.0, 0.0, 200.0, 100.0),
+        slate_doc::NodeKind::Image(ImageNode::new(item)),
+    );
+    let id = h.app.add_nodes(vec![node])[0];
+    copy_selection(&mut h, &[id]);
+    let bitmap = copied_bitmap(&h);
+    assert_eq!(bitmap.dimensions(), (40, 20));
+    assert_eq!(bitmap.get_pixel(5, 10).0, RED);
+    let write = h.app.os_clipboard.last_write().unwrap();
+    assert_eq!(write.files, vec![pasted]);
 }
 
 /// The bitmap is the picture as displayed: rotation, crop, mirror, filters,
@@ -136,6 +222,7 @@ fn a_mixed_copy_offers_plain_text_and_still_pastes_nodes() {
         WorldRect::new(300.0, 0.0, 200.0, 50.0),
         slate_doc::NodeKind::Text(slate_doc::scene::TextNode {
             text: "Hello board".into(),
+            style: Default::default(),
             family: Default::default(),
             size: 24.0,
             color: slate_doc::scene::Rgba::BLACK,

@@ -4,6 +4,7 @@ use super::*;
 
 mod frame_budget;
 mod marks;
+mod membership;
 mod rasters;
 mod sample;
 mod shift_chain;

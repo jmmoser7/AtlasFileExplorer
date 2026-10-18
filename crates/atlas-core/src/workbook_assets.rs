@@ -15,6 +15,14 @@ use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+mod paths;
+use paths::under;
+pub use paths::{generated_provider_dir, same_path};
+mod tree_copy;
+pub use tree_copy::{
+    copy_file, copy_tree, require_copy_destination, require_local_source, write_file,
+};
+
 /// Directory name beside the workbook file.
 pub const ASSETS: &str = "assets";
 pub const PASTED: &str = "pasted";
@@ -22,6 +30,7 @@ pub const GENERATED: &str = "generated";
 pub const WEB: &str = "web";
 pub const DOCUMENTS: &str = "documents";
 pub const AGENT: &str = "agent";
+pub const CAPTURES: &str = "captures";
 
 /// App-data children that are caches, secrets, or other machine state.
 /// A pasted or generated image never lives in one of these.
@@ -57,10 +66,7 @@ pub fn pasted_dir(workbook: &Path) -> PathBuf {
 /// `assets/generated/<provider>/<yyyy-mm>`. `provider` and `year_month` are
 /// single path components; separators in a provider id become hyphens.
 pub fn generated_dir(workbook: &Path, provider: &str, year_month: &str) -> PathBuf {
-    assets_root(workbook)
-        .join(GENERATED)
-        .join(provider_component(provider))
-        .join(year_month_component(year_month))
+    generated_provider_dir(workbook, provider).join(year_month_component(year_month))
 }
 
 pub fn web_dir(workbook: &Path) -> PathBuf {
@@ -245,7 +251,7 @@ impl CollectOutcome {
     }
 }
 
-/// Copy pasted and generated images that live under `data_dir` into the
+/// Copy pasted/generated images and owned portal recordings under `data_dir` into the
 /// workbook layout. Paths outside that directory, machine-private files,
 /// infrastructure caches, and cloud placeholders are refused and not read.
 ///
@@ -392,7 +398,7 @@ fn plan_data_dir_asset(data_dir: &Path, workbook: &Path, source: &Path, now_secs
     {
         return Plan::Refuse("not a pasted or generated image");
     }
-    if !is_raster(source) {
+    if !is_raster(source) && !is_capture_video(data_dir, source, &child) {
         return Plan::Refuse("not a pasted or generated image");
     }
     if cloud_blocked(source) {
@@ -425,6 +431,21 @@ fn plan_data_dir_asset(data_dir: &Path, workbook: &Path, source: &Path, now_secs
         locator: format!("assets/{folder}/{stored_name}"),
         generated,
     }
+}
+
+fn is_capture_video(data_dir: &Path, source: &Path, child: &str) -> bool {
+    child.eq_ignore_ascii_case(CAPTURES)
+        && source
+            .parent()
+            .is_some_and(|p| same_path(p, &data_dir.join(CAPTURES)))
+        && source
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.starts_with("capture-"))
+        && source
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("mp4"))
 }
 
 fn copy_asset(from: &Path, to: &Path, generated: bool) -> Result<(), &'static str> {
@@ -648,29 +669,6 @@ fn strip_under(root: &Path, path: &Path) -> Option<PathBuf> {
     }
 }
 
-fn under(root: &Path, path: &Path) -> bool {
-    let root_n = norm(root);
-    let path_n = norm(path);
-    path_n.len() > root_n.len()
-        && path_n.starts_with(&root_n)
-        && path_n.as_bytes().get(root_n.len()) == Some(&b'/')
-}
-
-pub fn same_path(a: &Path, b: &Path) -> bool {
-    norm(a) == norm(b)
-}
-
-fn norm(path: &Path) -> String {
-    let mut text = path.to_string_lossy().replace('\\', "/");
-    if cfg!(windows) {
-        text.make_ascii_lowercase();
-    }
-    while text.ends_with('/') {
-        text.pop();
-    }
-    text
-}
-
 /// UTC calendar date (proleptic Gregorian) of a Unix time.
 fn civil_date(secs: u64) -> (i64, u32, u32) {
     let z = (secs / 86_400) as i64 + 719_468;
@@ -686,239 +684,4 @@ fn civil_date(secs: u64) -> (i64, u32, u32) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    fn temp_dir(prefix: &str) -> PathBuf {
-        static N: AtomicU64 = AtomicU64::new(0);
-        let n = N.fetch_add(1, Ordering::Relaxed);
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let dir = std::env::temp_dir().join(format!("{prefix}-{nanos}-{n}"));
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
-    #[test]
-    fn layout_paths_sit_beside_the_workbook() {
-        let workbook = Path::new("/boards/deck/Board.slate");
-        assert_eq!(assets_root(workbook), PathBuf::from("/boards/deck/assets"));
-        assert_eq!(
-            pasted_dir(workbook),
-            PathBuf::from("/boards/deck/assets/pasted")
-        );
-        assert_eq!(
-            generated_dir(workbook, "openai-image", "2026-10"),
-            PathBuf::from("/boards/deck/assets/generated/openai-image/2026-10")
-        );
-        assert_eq!(
-            generated_dir(workbook, "ollama/llava", "2026-10"),
-            PathBuf::from("/boards/deck/assets/generated/ollama-llava/2026-10")
-        );
-        assert_eq!(
-            web_package_dir(workbook, "Dash"),
-            PathBuf::from("/boards/deck/assets/web/Dash")
-        );
-        assert_eq!(
-            documents_dir(workbook),
-            PathBuf::from("/boards/deck/assets/documents")
-        );
-        assert_eq!(
-            agent_dir(workbook),
-            PathBuf::from("/boards/deck/assets/agent")
-        );
-        let data = Path::new("/app-data");
-        assert_eq!(paste_dir(None, data), PathBuf::from("/app-data/pasted"));
-        assert_eq!(paste_dir(Some(workbook), data), pasted_dir(workbook));
-        assert_eq!(
-            generated_output_dir(None, data, "comfy", "session", "2026-10"),
-            PathBuf::from("/app-data/comfy/session")
-        );
-        assert_eq!(
-            unsaved_agent_dir(data),
-            PathBuf::from("/app-data/assets/agent")
-        );
-        let pages =
-            document_pages_dir(Some(workbook), data, "Essay", Path::new("/docs/Essay.docx"));
-        let name = pages.file_name().unwrap().to_string_lossy();
-        assert!(name.starts_with("Essay-") && name.len() == "Essay-".len() + 8);
-        assert!(pages.starts_with(documents_dir(workbook)));
-        let unsaved = document_pages_dir(None, data, "Essay", Path::new("/docs/Essay.docx"));
-        assert!(unsaved.starts_with(data.join("document-pages")));
-        assert_eq!(pages.file_name(), unsaved.file_name());
-    }
-
-    #[test]
-    fn year_month_is_utc() {
-        assert_eq!(year_month(0), "1970-01");
-        assert_eq!(year_month(86_400), "1970-01");
-        assert_eq!(year_month(31 * 86_400), "1970-02");
-    }
-
-    #[test]
-    fn sidecar_has_no_secret_slot_and_scrub_drops_keys() {
-        let sidecar = GeneratedSidecar {
-            prompt: "a red barn".into(),
-            model: "gpt-image".into(),
-            seed: Some(7),
-            params: BTreeMap::from([("aspect".into(), "3:2".into())]),
-            created: 1,
-            source_run: "req-1".into(),
-        };
-        let json = serde_json::to_string(&sidecar).unwrap();
-        assert!(json.contains("a red barn"));
-        assert!(!json.contains("api_key"));
-        let mut dirty: serde_json::Value = serde_json::from_str(
-            r#"{"prompt":"hi","api_key":"sk-secret","params":{"access_token":"no","seed":"1"}}"#,
-        )
-        .unwrap();
-        scrub_sidecar(&mut dirty);
-        let text = dirty.to_string();
-        assert!(text.contains("hi"));
-        assert!(!text.contains("sk-secret"));
-        assert!(!text.contains("access_token"));
-        assert!(text.contains("seed"));
-    }
-
-    #[test]
-    fn collect_copies_data_dir_images_and_refuses_the_rest() {
-        let root = temp_dir("wb-assets");
-        let data = root.join("NativeFileAtlas");
-        let workbook = root.join("boards").join("Board.slate");
-        std::fs::create_dir_all(data.join("pasted")).unwrap();
-        std::fs::create_dir_all(data.join("openai-image").join("sess")).unwrap();
-        std::fs::create_dir_all(data.join("thumbs")).unwrap();
-        std::fs::create_dir_all(data.join("web-stills")).unwrap();
-        let pasted = data.join("pasted").join("paste-9.png");
-        let generated = data.join("openai-image").join("sess").join("req-1.png");
-        let thumb = data.join("thumbs").join("a.png");
-        let still = data.join("web-stills").join("shot.png");
-        let user = root.join("desktop").join("holiday.png");
-        std::fs::create_dir_all(user.parent().unwrap()).unwrap();
-        std::fs::write(&pasted, b"pasted-bytes").unwrap();
-        std::fs::write(&generated, b"gen-bytes").unwrap();
-        std::fs::write(
-            sidecar_path(&generated),
-            br#"{"prompt":"barn","api_key":"sk-live","model":"gpt"}"#,
-        )
-        .unwrap();
-        std::fs::write(&thumb, b"thumb").unwrap();
-        std::fs::write(&still, b"still").unwrap();
-        std::fs::write(&user, b"user").unwrap();
-        let old_paste = root.join("boards").join("assets").join("paste-old.png");
-        std::fs::create_dir_all(old_paste.parent().unwrap()).unwrap();
-        std::fs::write(&old_paste, b"old").unwrap();
-
-        let outcome = collect_data_dir_assets(
-            &data,
-            &workbook,
-            &[
-                pasted.clone(),
-                generated.clone(),
-                thumb.clone(),
-                still.clone(),
-                user.clone(),
-                PathBuf::from("assets/paste-old.png"),
-            ],
-            1_760_000_000,
-        );
-        assert_eq!(outcome.collected.len(), 2, "{outcome:?}");
-        let pasted_to = pasted_dir(&workbook).join("paste-9.png");
-        let gen_to = outcome
-            .collected
-            .iter()
-            .find(|c| c.from == generated)
-            .unwrap();
-        assert!(gen_to.locator.starts_with("assets/generated/openai-image/"));
-        assert!(gen_to.locator.ends_with("/req-1.png"), "{}", gen_to.locator);
-        assert_eq!(std::fs::read(&pasted_to).unwrap(), b"pasted-bytes");
-        assert_eq!(std::fs::read(&gen_to.to).unwrap(), b"gen-bytes");
-        let sidecar: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(sidecar_path(&gen_to.to)).unwrap()).unwrap();
-        assert_eq!(sidecar["prompt"], "barn");
-        assert!(sidecar.get("api_key").is_none());
-        assert!(outcome
-            .refused
-            .iter()
-            .any(|r| r.path == user && r.reason == "outside the app data folder"));
-        assert!(outcome
-            .refused
-            .iter()
-            .any(|r| r.path == still && r.reason == "machine-private"));
-        assert!(outcome
-            .refused
-            .iter()
-            .any(|r| r.path == thumb && r.reason == "not a pasted or generated image"));
-        assert!(!outcome
-            .refused
-            .iter()
-            .any(|r| r.path.ends_with("paste-old.png")));
-        assert!(old_paste.is_file());
-        assert!(!pasted_dir(&workbook).join("paste-old.png").exists());
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn save_as_copies_only_assets_the_workbook_references() {
-        let root = temp_dir("wb-saveas");
-        let from = root.join("a").join("Board.slate");
-        let to = root.join("b").join("Board.slate");
-        let pasted = root
-            .join("a")
-            .join("assets")
-            .join("pasted")
-            .join("paste-1.png");
-        let photo = root.join("a").join("photos").join("north.png");
-        std::fs::create_dir_all(pasted.parent().unwrap()).unwrap();
-        std::fs::create_dir_all(photo.parent().unwrap()).unwrap();
-        std::fs::write(&pasted, b"paste").unwrap();
-        std::fs::write(&photo, b"photo").unwrap();
-        let outcome = copy_referenced_assets(
-            &from,
-            &to,
-            &[PathBuf::from("assets/pasted/paste-1.png"), photo.clone()],
-        );
-        assert_eq!(outcome.collected.len(), 1, "{outcome:?}");
-        assert!(outcome.refused.is_empty(), "{outcome:?}");
-        let copied = root
-            .join("b")
-            .join("assets")
-            .join("pasted")
-            .join("paste-1.png");
-        assert_eq!(std::fs::read(copied).unwrap(), b"paste");
-        assert!(!root.join("b").join("photos").join("north.png").exists());
-        assert_eq!(std::fs::read(photo).unwrap(), b"photo");
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn collect_refuses_a_dehydrated_placeholder_without_copying_it() {
-        let root = temp_dir("wb-cloud");
-        let data = root.join("NativeFileAtlas");
-        let workbook = root.join("Board.slate");
-        let src = data.join("pasted").join("paste-cloud.png");
-        std::fs::create_dir_all(src.parent().unwrap()).unwrap();
-        std::fs::write(&src, b"cloud").unwrap();
-        assert!(
-            crate::cloud::mark_offline(&src),
-            "could not mark the fixture offline"
-        );
-        let outcome = collect_data_dir_assets(&data, &workbook, std::slice::from_ref(&src), 0);
-        assert!(
-            outcome
-                .refused
-                .iter()
-                .any(|r| r.reason == "cloud placeholder"),
-            "{outcome:?}"
-        );
-        assert!(outcome.collected.is_empty());
-        assert!(!pasted_dir(&workbook).join("paste-cloud.png").exists());
-        crate::cloud::clear_offline(&src);
-        let _ = std::fs::remove_dir_all(root);
-    }
-}
+mod tests;

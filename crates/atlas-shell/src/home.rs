@@ -12,6 +12,8 @@
 //! [`HomeModel::interactive`] to false until contents-focus
 //! (`P1.portal.contents-focus`).
 
+use crate::mesh_aa::feather_boundary;
+
 use crate::recent::{RecentEntry, RecentList};
 use crate::theme::Palette;
 use crate::tokens::{self, HomeTokens};
@@ -64,6 +66,7 @@ pub struct HomeScreen {
     awaiting_bake: HashSet<PathBuf>,
     /// Decoded images waiting for the per-frame upload budget.
     ready: Vec<CoverMsg>,
+    metadata: metadata::HomeMetadata,
 }
 
 /// What the user asked the home shelf to do.
@@ -72,6 +75,8 @@ pub enum HomeScreenAction {
     Open(PathBuf),
     /// Start a new workspace (folder pick / blank workbook).
     New,
+    /// Remove only the recent-list entry; the source remains on disk.
+    Remove(PathBuf),
 }
 
 impl HomeScreen {
@@ -88,6 +93,7 @@ impl HomeScreen {
             failed: HashSet::new(),
             awaiting_bake: HashSet::new(),
             ready: Vec::new(),
+            metadata: metadata::HomeMetadata::default(),
         }
     }
 
@@ -108,8 +114,10 @@ impl HomeScreen {
         recents: &RecentList,
     ) -> Option<HomeScreenAction> {
         self.sync_covers(ui.ctx(), recents);
+        self.metadata.poll(ui.ctx(), recents);
         let mut covers = covers_or_placeholders(&recents.entries, self.kind, 20);
         for c in &mut covers {
+            c.modified_at = self.metadata.modified_at(&c.path);
             if let Some((tex, theme_mask)) = self.textures.get(&c.path) {
                 c.texture = Some(HomeArtwork {
                     texture: tex.id(),
@@ -139,6 +147,9 @@ impl HomeScreen {
             Some(HomeAction::Open(i)) => {
                 let c = covers.get(i)?;
                 Some(HomeScreenAction::Open(c.path.clone()))
+            }
+            Some(HomeAction::Remove(i)) => {
+                Some(HomeScreenAction::Remove(covers.get(i)?.path.clone()))
             }
             None => None,
         }
@@ -295,121 +306,9 @@ pub struct AlbumInput {
     pub host_paints_rest: bool,
 }
 
-/// Image-only presentation of the shared album motion. At rest the active image
-/// fills its portal; browsing reveals neighbors and then settles back to full bleed.
-pub fn image_album(
-    ui: &egui::Ui,
-    id: Id,
-    rect: Rect,
-    images: &[AlbumImage],
-    focus: usize,
-    input: AlbumInput,
-) -> usize {
-    if images.is_empty() {
-        return 0;
-    }
-    let several = images.len() > 1;
-    let response = ui.interact(
-        rect,
-        id.with("album-hit"),
-        if input.drag && several {
-            Sense::click_and_drag()
-        } else {
-            Sense::hover()
-        },
-    );
-    let state_id = id.with("album-motion");
-    let mut flow = ui.ctx().data_mut(|d| {
-        d.get_temp_mut_or_insert_with(state_id, CoverFlowState::default)
-            .clone()
-    });
-    let tokens = tokens::current().home.clone();
-    let tuning = CoverFlowTuning::from_tokens(&tokens, rect.width() * ALBUM_BROWSE_SCALE);
-    let (focus, _, _) = advance_flow(
-        ui,
-        &response,
-        &mut flow,
-        images.len(),
-        focus,
-        FlowInput {
-            drag: input.drag && several,
-            wheel: input.wheel && several,
-        },
-        &tuning,
-    );
-    let resting = flow.phase == InteractionPhase::Idle;
-    let expansion =
-        ui.ctx()
-            .animate_bool_with_time(id.with("album-settle"), resting, ALBUM_SETTLE_SECONDS);
-    ui.ctx()
-        .data_mut(|d| d.insert_temp(id.with("album-expansion"), expansion));
-    let painter = ui.painter_at(rect);
-    if resting && expansion > 0.999 {
-        if input.host_paints_rest {
-            ui.ctx().data_mut(|d| d.insert_temp(state_id, flow));
-            return focus;
-        }
-        if let Some(texture) = images[focus].texture {
-            painter.image(
-                texture,
-                rect,
-                album_uv(images[focus].size, rect.size()),
-                Color32::WHITE,
-            );
-        }
-    } else {
-        let scale = ALBUM_BROWSE_SCALE + (1.0 - ALBUM_BROWSE_SCALE) * expansion;
-        for (slot, logical) in visible_slots(flow.position, images.len(), 3) {
-            let off = slot_visual_offset(flow.position, slot, images.len());
-            let image = images[logical];
-            if let Some(texture) = image.texture {
-                let size = rect.size() * scale;
-                let uv = album_uv(image.size, size);
-                let key = Id::new((
-                    rect.min.x.to_bits(),
-                    rect.min.y.to_bits(),
-                    size.x.to_bits(),
-                    size.y.to_bits(),
-                    off.to_bits(),
-                    texture,
-                ));
-                let cache_id = id.with(("album-art", slot));
-                let cached = painter
-                    .ctx()
-                    .data(|d| d.get_temp::<CachedCoverPaint>(cache_id));
-                if let Some(cached) = cached.filter(|c| c.key == key) {
-                    painter.extend(cached.shapes.iter().cloned());
-                } else {
-                    let mut mesh = artwork_mesh(
-                        rect.center(),
-                        size.x,
-                        size.y,
-                        off,
-                        &tuning,
-                        Some(texture),
-                        Color32::WHITE,
-                        FacePass {
-                            reflected: false,
-                            height: 1.0,
-                            opacity: 1.0,
-                        },
-                        0.0,
-                    );
-                    for v in &mut mesh.vertices {
-                        v.uv = uv.min + v.uv.to_vec2() * uv.size();
-                    }
-                    let shapes: Arc<[egui::Shape]> = vec![egui::Shape::mesh(mesh)].into();
-                    painter.extend(shapes.iter().cloned());
-                    painter
-                        .ctx()
-                        .data_mut(|d| d.insert_temp(cache_id, CachedCoverPaint { key, shapes }));
-                }
-            }
-        }
-    }
-    ui.ctx().data_mut(|d| d.insert_temp(state_id, flow));
-    focus
-}
+mod album;
+mod album_wheel;
+pub use album::{image_album, image_album_picker};
 
 /// How far the album with this `id` is from rest: 0 settled, 1 browsing.
 pub fn album_browsing(ctx: &egui::Context, id: Id) -> f32 {
@@ -418,132 +317,8 @@ pub fn album_browsing(ctx: &egui::Context, id: Id) -> f32 {
         .unwrap_or(1.0)
 }
 
-/// Designed size of one album index square and the gap between them.
-const STRIP_SQUARE: f32 = 22.0;
-const STRIP_GAP: f32 = 5.0;
-/// A wider gap separates pictures from different runs.
-const STRIP_RUN_GAP: f32 = 12.0;
-const STRIP_OFFSET: f32 = 10.0;
-/// At most this many squares show, centered on the shown picture.
-const STRIP_MAX: usize = 24;
-
-/// Where the index strip sits under an album, in the album's board units.
-pub fn album_strip_rect(album: Rect, count: usize, zoom: f32) -> Rect {
-    let n = count.min(STRIP_MAX) as f32;
-    let width = n * STRIP_SQUARE + (n - 1.0).max(0.0) * STRIP_RUN_GAP;
-    Rect::from_center_size(
-        Pos2::new(
-            album.center().x,
-            album.bottom() + (STRIP_OFFSET + STRIP_SQUARE * 0.5) * zoom,
-        ),
-        Vec2::new(width, STRIP_SQUARE) * zoom,
-    )
-}
-
-/// Square thumbnails under an album while it is browsed (or `shown`), marking
-/// the picture on display among every picture the album holds. `runs[i]` names
-/// the run that made picture `i`; a wider gap separates runs. Returns a square
-/// the pointer clicked.
-#[allow(clippy::too_many_arguments)]
-pub fn album_index_strip(
-    ui: &egui::Ui,
-    id: Id,
-    album: Rect,
-    images: &[AlbumImage],
-    runs: &[&str],
-    focus: usize,
-    shown: bool,
-    zoom: f32,
-    theme: crate::theme::Palette,
-    min_images: usize,
-    disabled_hover: Option<&str>,
-) -> Option<usize> {
-    if images.len() < min_images.max(1) {
-        return None;
-    }
-    let fade = album_browsing(ui.ctx(), id).max(ui.ctx().animate_bool_with_time(
-        id.with("album-strip"),
-        shown,
-        ALBUM_SETTLE_SECONDS,
-    ));
-    if fade <= 0.01 {
-        return None;
-    }
-    let side = STRIP_SQUARE * zoom;
-    if side < 2.0 {
-        return None;
-    }
-    let start = focus
-        .saturating_sub(STRIP_MAX / 2)
-        .min(images.len().saturating_sub(STRIP_MAX));
-    let end = (start + STRIP_MAX).min(images.len());
-    let gaps: Vec<f32> = (start..end)
-        .map(|i| {
-            if i == start {
-                0.0
-            } else if runs.get(i) != runs.get(i - 1) {
-                STRIP_RUN_GAP * zoom
-            } else {
-                STRIP_GAP * zoom
-            }
-        })
-        .collect();
-    let width = side * (end - start) as f32 + gaps.iter().sum::<f32>();
-    let top = album.bottom() + STRIP_OFFSET * zoom;
-    let mut x = album.center().x - width * 0.5;
-    let mut painter = ui.painter().clone();
-    painter.multiply_opacity(fade);
-    let mut clicked = None;
-    for (offset, i) in (start..end).enumerate() {
-        x += gaps[offset];
-        let square = Rect::from_min_size(Pos2::new(x, top), Vec2::splat(side));
-        x += side;
-        let enabled = images[i].enabled;
-        let mut response = ui.interact(
-            square,
-            id.with(("album-index", i)),
-            if enabled {
-                egui::Sense::click()
-            } else {
-                egui::Sense::hover()
-            },
-        );
-        if !enabled {
-            if let Some(tip) = disabled_hover {
-                response = response.on_hover_text(tip);
-            }
-        }
-        if enabled && response.clicked() {
-            clicked = Some(i);
-        }
-        let radius = 3.0 * zoom;
-        let image = images[i];
-        match image.texture {
-            Some(texture) => painter.add(
-                egui::epaint::RectShape::filled(square, radius, Color32::WHITE)
-                    .with_texture(texture, album_uv(image.size, square.size())),
-            ),
-            None => painter.add(egui::epaint::RectShape::filled(square, radius, theme.card)),
-        };
-        let active = i == focus;
-        painter.rect_stroke(
-            square,
-            radius,
-            egui::Stroke::new(
-                (if active { 1.6 } else { 0.8 }) * zoom,
-                if active {
-                    theme.select
-                } else if response.hovered() {
-                    theme.ink
-                } else {
-                    theme.border_strong
-                },
-            ),
-            egui::StrokeKind::Outside,
-        );
-    }
-    clicked
-}
+mod album_strip;
+pub use album_strip::{album_index_rects, album_index_strip, album_result_strip, album_strip_rect};
 
 fn album_uv(source: Vec2, host: Vec2) -> Rect {
     let ratio = (host.x / host.y.max(1.0)) / (source.x / source.y.max(1.0)).max(0.001);
@@ -563,6 +338,8 @@ pub struct HomeCover {
     pub texture: Option<HomeArtwork>,
     /// Template / empty-shelf placeholders (synthetic paths — apps decide how to open).
     pub placeholder: bool,
+    /// Source modified time, resolved off the frame loop.
+    pub modified_at: Option<u64>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -571,6 +348,7 @@ pub enum HomeAction {
     Open(usize),
     /// Start a new workspace (folder pick / blank workbook).
     New,
+    Remove(usize),
 }
 
 /// Where the sole CTA (New / Select folder) sits on the shelf.
@@ -739,6 +517,7 @@ struct CoverFlowState {
     /// Detent the spring is easing toward (same unwrapped space as `position`).
     target: f32,
     wheel_accum: f32,
+    album_wheel: album_wheel::AlbumWheel,
     phase: InteractionPhase,
     /// Press that only stopped momentum — must not open on release.
     stop_gesture: bool,
@@ -753,6 +532,7 @@ impl Default for CoverFlowState {
             velocity: 0.0,
             target: 0.0,
             wheel_accum: 0.0,
+            album_wheel: Default::default(),
             phase: InteractionPhase::Idle,
             stop_gesture: false,
             cover_count: 0,
@@ -767,17 +547,6 @@ fn mod_index(i: i32, count: usize) -> usize {
     }
     let n = count as i32;
     (((i % n) + n) % n) as usize
-}
-
-/// Shortest signed circular distance from `position` to `index` in album units.
-fn circular_offset(position: f32, index: usize, count: usize) -> f32 {
-    if count == 0 {
-        return 0.0;
-    }
-    let n = count as f32;
-    let mut d = index as f32 - position;
-    d -= (d / n).round() * n;
-    d
 }
 
 /// Slot-based visual offset for cyclic rack painting (may repeat indices when count is small).
@@ -913,6 +682,8 @@ fn normalize_position(position: &mut f32, count: usize) {
 struct FlowInput {
     drag: bool,
     wheel: bool,
+    discrete_album_wheel: bool,
+    keyboard: bool,
 }
 
 /// Draw the Cover Flow home into `ui`'s full available rect.
@@ -937,6 +708,7 @@ fn advance_flow(
         flow.velocity = 0.0;
         flow.target = flow.position;
         flow.wheel_accum = 0.0;
+        flow.album_wheel = Default::default();
         flow.phase = InteractionPhase::Idle;
         flow.stop_gesture = false;
         flow.cover_count = count;
@@ -975,7 +747,22 @@ fn advance_flow(
     if (interactive || input.wheel) && count > 0 {
         // Wheel / trackpad: accumulate px, then step the target one detent at
         // a time so every advance is spring-animated (never a teleport).
-        if input.wheel && resp.hovered() {
+        if input.wheel && resp.hovered() && input.discrete_album_wheel {
+            let step = ui.input(|i| {
+                flow.album_wheel
+                    .step(i.time, &i.events, tuning.wheel_px_per_album)
+            });
+            if step != 0.0 && flow.phase != InteractionPhase::Dragging {
+                let base = if flow.phase == InteractionPhase::Snapping {
+                    flow.target
+                } else {
+                    flow.position.round()
+                };
+                flow.target = base + step;
+                flow.phase = InteractionPhase::Snapping;
+                flow.stop_gesture = false;
+            }
+        } else if input.wheel && resp.hovered() {
             let scroll = ui.input(|i| i.smooth_scroll_delta.x + i.smooth_scroll_delta.y);
             if scroll.abs() > 0.01 && flow.phase != InteractionPhase::Dragging {
                 flow.wheel_accum += -scroll / tuning.wheel_px_per_album;
@@ -1020,7 +807,7 @@ fn advance_flow(
         }
 
         // Keyboard: animated single-detent steps (repeat presses queue up).
-        let arrow = if interactive {
+        let arrow = if interactive && input.keyboard {
             ui.input(|i| {
                 i.key_pressed(egui::Key::ArrowRight) as i32
                     - i.key_pressed(egui::Key::ArrowLeft) as i32
@@ -1038,7 +825,7 @@ fn advance_flow(
             flow.phase = InteractionPhase::Snapping;
             flow.stop_gesture = false;
         }
-        if interactive && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+        if interactive && input.keyboard && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
             let focus = mod_index(flow.position.round() as i32, count);
             action = Some(HomeAction::Open(focus));
         }
@@ -1069,164 +856,10 @@ fn advance_flow(
     (focus, action, pointer_down)
 }
 
-pub fn cover_flow_home(ui: &Ui, palette: &Palette, model: HomeModel<'_>) -> HomeResult {
-    let rect = model
-        .host
-        .unwrap_or_else(|| ui.available_rect_before_wrap());
-    let resp = ui.interact(
-        rect,
-        model.id.with("home_flow_hit"),
-        if model.interactive {
-            Sense::click_and_drag()
-        } else {
-            Sense::hover()
-        },
-    );
-    let painter = ui.painter_at(rect);
-    let count = model.covers.len();
-
-    // Background: subtle mesh gradient (soft color blobs over the theme bg).
-    if model.backdrop {
-        paint_mesh_gradient(&painter, model.id.with("backdrop"), rect, palette);
-    }
-
-    // Square covers (album-art aspect), sized and centered by the live tokens.
-    let home_tokens = tokens::current().home.clone();
-    let flow_center = Pos2::new(
-        rect.center().x,
-        rect.min.y + rect.height() * home_tokens.center_y_frac,
-    );
-    let raw_cover = rect.height() * home_tokens.cover_frac;
-    let cover = if model.honor_cover_limits {
-        raw_cover.clamp(home_tokens.cover_min, home_tokens.cover_max)
-    } else {
-        raw_cover
-    };
-    // Keep the reflecting plane and caption clear of the bottom CTA on short
-    // windows too. The configured minimum is a preference, not an overflow.
-    let cover = cover.min(
-        rect.height() * (0.90 - home_tokens.center_y_frac).max(0.01)
-            / (0.5 + home_tokens.reflection_height_frac + 0.09),
-    );
-    let (cover_w, cover_h) = (cover, cover);
-    let tuning = CoverFlowTuning::from_tokens(&home_tokens, cover);
-
-    let state_id = model.id.with("home_flow_state");
-    let mut flow = ui.ctx().data_mut(|d| {
-        d.get_temp_mut_or_insert_with(state_id, CoverFlowState::default)
-            .clone()
-    });
-
-    let (focus, keyboard_action, pointer_down) = advance_flow(
-        ui,
-        &resp,
-        &mut flow,
-        count,
-        model.focus,
-        FlowInput {
-            drag: model.interactive,
-            wheel: model.interactive,
-        },
-        &tuning,
-    );
-    let mut action = keyboard_action;
-
-    if count > 0 {
-        // Full bleed: paint enough slots that the rack runs off both screen
-        // edges (projected side spacing shrinks with depth).
-        let projected_step =
-            tuning.side_step * tuning.focal / (tuning.focal + tuning.depth_max).max(1.0);
-        let max_slot =
-            (((rect.width() * 0.5 + cover_w) / projected_step.max(8.0)).ceil() as i32).clamp(3, 64);
-        let slots = visible_slots(flow.position, count, max_slot);
-        let pointer = ui.input(|i| i.pointer.interact_pos());
-        let mut hit: Option<(i32, usize)> = None;
-
-        for &(slot, logical) in &slots {
-            let off = slot_visual_offset(flow.position, slot, count);
-            let quad = project_cover(flow_center, cover_w, cover_h, off, &tuning);
-            let cover = &model.covers[logical];
-            paint_cover(
-                &painter,
-                model.id.with(("cover_paint", slot)),
-                palette,
-                flow_center,
-                cover_w,
-                cover_h,
-                off,
-                &tuning,
-                cover.texture,
-                cover.placeholder,
-                &cover.title,
-                &model.title_font,
-            );
-            if let Some(p) = pointer {
-                if point_in_quad(p, &quad) {
-                    hit = Some((slot, logical));
-                }
-            }
-        }
-
-        // Subtle label under the focused projected cover.
-        if let Some(cover) = model.covers.get(focus) {
-            let focused_off = circular_offset(flow.position, focus, count);
-            let quad = project_cover(flow_center, cover_w, cover_h, focused_off, &tuning);
-            let bottom = quad.bl.y.max(quad.br.y);
-            painter.text(
-                Pos2::new(
-                    rect.center().x,
-                    bottom + cover_h * (tuning.reflection_height + 0.045),
-                ),
-                Align2::CENTER_TOP,
-                &cover.title,
-                FontId::proportional(cover_h * 0.033),
-                palette.sub,
-            );
-        }
-
-        // Click / tap — suppressed when the press only stopped momentum.
-        if model.interactive && resp.clicked() && !flow.stop_gesture {
-            if let Some((_slot, logical)) = hit {
-                if logical == focus {
-                    action = Some(HomeAction::Open(logical));
-                } else {
-                    let off = slot_visual_offset(flow.position, _slot, count);
-                    flow.target = (flow.position + off).round();
-                    flow.phase = InteractionPhase::Snapping;
-                    ui.ctx().request_repaint();
-                }
-            }
-        }
-    }
-
-    if flow.stop_gesture && (!pointer_down || resp.clicked()) {
-        flow.stop_gesture = false;
-    }
-
-    ui.ctx().data_mut(|d| d.insert_temp(state_id, flow));
-
-    // Sole CTA — New / Select folder. Opening is the album flow.
-    if model.interactive && !model.new_label.is_empty() {
-        let type_px = rect.height() * (14.0 / 780.0);
-        let cta = match model.cta {
-            HomeCta::Bottom => Pos2::new(rect.center().x, rect.max.y - type_px * 3.7),
-            HomeCta::Center => rect.center(),
-        };
-        if pill_button(
-            ui,
-            &painter,
-            cta,
-            model.new_label,
-            palette.accent,
-            Color32::WHITE,
-            type_px,
-        ) {
-            action = Some(HomeAction::New);
-        }
-    }
-
-    HomeResult { action, focus }
-}
+mod metadata;
+pub mod preview;
+mod shelf;
+pub use shelf::cover_flow_home;
 
 /// Build covers from persisted recents (textures filled by the app).
 pub fn covers_from_recents(entries: &[RecentEntry]) -> Vec<HomeCover> {
@@ -1237,6 +870,7 @@ pub fn covers_from_recents(entries: &[RecentEntry]) -> Vec<HomeCover> {
             title: e.title.clone(),
             texture: None,
             placeholder: false,
+            modified_at: None,
         })
         .collect()
 }
@@ -1253,6 +887,7 @@ pub fn placeholder_covers(kind: HomeShelfKind, count: usize) -> Vec<HomeCover> {
             title: format!("{prefix} {i}"),
             texture: None,
             placeholder: true,
+            modified_at: None,
         })
         .collect()
 }
@@ -1870,46 +1505,6 @@ fn artwork_mesh(
     })
 }
 
-/// Raw epaint meshes bypass path AA. Give only the silhouette a one-device-pixel
-/// coverage fringe; internal column seams stay solid. UVs stay on the edge so
-/// clamp sampling cannot pull unrelated texels into the fringe.
-fn feather_boundary(mesh: &mut Mesh, boundary: &[u32], width: f32) {
-    let n = boundary.len();
-    let area: f32 = (0..n)
-        .map(|i| {
-            let a = mesh.vertices[boundary[i] as usize].pos;
-            let b = mesh.vertices[boundary[(i + 1) % n] as usize].pos;
-            a.x * b.y - b.x * a.y
-        })
-        .sum();
-    let original: Vec<Vertex> = boundary
-        .iter()
-        .map(|&i| mesh.vertices[i as usize])
-        .collect();
-    let start = mesh.vertices.len() as u32;
-    for i in 0..n {
-        let p = original[i].pos;
-        let normal = |edge: Vec2| {
-            let d = edge.normalized();
-            Vec2::new(d.y, -d.x) * area.signum()
-        };
-        let a = normal(p - original[(i + n - 1) % n].pos);
-        let b = normal(original[(i + 1) % n].pos - p);
-        let miter = (a + b) / (1.0 + a.dot(b)).max(0.25);
-        mesh.vertices[boundary[i] as usize].pos -= miter * width * 0.5;
-        mesh.vertices.push(Vertex {
-            pos: p + miter * width * 0.5,
-            color: Color32::TRANSPARENT,
-            ..original[i]
-        });
-    }
-    for i in 0..n {
-        let j = (i + 1) % n;
-        mesh.add_triangle(boundary[i], boundary[j], start + j as u32);
-        mesh.add_triangle(boundary[i], start + j as u32, start + i as u32);
-    }
-}
-
 /// Normalized sigmoid falloff over `t ∈ [0, 1]`: 1 at the card edge, 0 at the
 /// halo rim, with a logistic (soft shoulder → steep middle → soft tail) curve
 /// instead of a linear ramp.
@@ -2466,15 +2061,6 @@ mod tests {
         assert_eq!(mod_index(5, 5), 0);
         assert_eq!(mod_index(7, 5), 2);
         assert_eq!(mod_index(0, 0), 0);
-    }
-
-    #[test]
-    fn circular_offset_shortest_path_across_seam() {
-        assert!((circular_offset(0.0, 0, 5) - 0.0).abs() < 1e-5);
-        assert!((circular_offset(0.2, 4, 5) - (-1.2)).abs() < 1e-4);
-        assert!((circular_offset(4.8, 0, 5) - 0.2).abs() < 1e-4);
-        assert!((circular_offset(0.0, 3, 5) - (-2.0)).abs() < 1e-4);
-        assert!((circular_offset(0.0, 3, 5) - 3.0).abs() > 1.0); // not the long way
     }
 
     #[test]

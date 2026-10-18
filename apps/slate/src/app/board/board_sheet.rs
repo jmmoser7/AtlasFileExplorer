@@ -110,7 +110,9 @@ impl SlateApp {
     }
 
     pub(crate) fn item_path(&self, item: ItemId) -> Option<PathBuf> {
-        self.doc().item(item).map(|it| it.path.clone())
+        self.doc().item(item).map(|it| {
+            slate_doc::scene::resolve_source(self.tab().path.as_deref(), &it.path.to_string_lossy())
+        })
     }
 
     pub(super) fn push_sheet_mark(&mut self, mark: SheetMark) {
@@ -123,12 +125,12 @@ impl SlateApp {
         self.commit_text_edit();
         self.commit_sheet_edit();
         let text = self
-            .sheets
-            .get(&hit.item)
-            .and_then(|grid| grid.as_ref())
-            .and_then(|rows| rows.get(hit.row))
-            .and_then(|row| row.get(hit.col))
-            .map(|cell| cell.text.clone())
+            .cached_sheet(hit.item)
+            .and_then(|rows| {
+                rows.get(hit.row)
+                    .and_then(|row| row.get(hit.col))
+                    .map(|cell| cell.text.clone())
+            })
             .unwrap_or_default();
         let font_px = canvas_scale::px(10.0, self.board_xf().z);
         self.board_sel.clear();
@@ -158,13 +160,11 @@ impl SlateApp {
         }) else {
             return false;
         };
-        let Some((cols, nrows)) = self.sheets.get(&item).and_then(|grid| {
-            grid.as_ref().map(|rows| {
-                (
-                    rows.iter().map(|row| row.len()).max().unwrap_or(1),
-                    rows.len(),
-                )
-            })
+        let Some((cols, nrows)) = self.cached_sheet(item).map(|rows| {
+            (
+                rows.iter().map(|row| row.len()).max().unwrap_or(1),
+                rows.len(),
+            )
         }) else {
             return false;
         };
@@ -238,9 +238,8 @@ impl SlateApp {
             self.toast("That spreadsheet is online-only");
             return;
         }
-        let loaded = atlas_core::table::read_sheet_card(&path);
-        let grid = self.sheets.entry(hit.item).or_insert(loaded);
-        let Some(rows) = grid.as_mut() else {
+        self.prepare_document_card(hit.item);
+        let Some(rows) = self.cached_sheet_mut(hit.item) else {
             self.toast("Couldn't read that spreadsheet");
             return;
         };
@@ -256,6 +255,7 @@ impl SlateApp {
             text: String::new(),
             fill: None,
         });
+        self.refresh_document_card_size(hit.item);
         self.sheet_dirty = true;
         self.reveal_sheet_cell(hit.node, 0, col);
         let font_px = canvas_scale::px(10.0, self.board_xf().z);
@@ -286,19 +286,20 @@ impl SlateApp {
         }
     }
 
-    pub(super) fn sheet_node(&self, id: NodeId) -> bool {
-        self.sheets.iter().any(|(item, grid)| {
-            grid.as_ref().is_some_and(|rows| !rows.is_empty())
-                && self.doc().scene.node(id).is_some_and(|n| match &n.kind {
-                    NodeKind::Image(img) => img.item == *item,
-                    _ => false,
-                })
-        })
+    pub(crate) fn sheet_node(&self, id: NodeId) -> bool {
+        self.doc()
+            .scene
+            .node(id)
+            .and_then(|node| match &node.kind {
+                NodeKind::Image(image) => self.cached_sheet(image.item),
+                _ => None,
+            })
+            .is_some_and(|rows| !rows.is_empty())
     }
 
     /// Double-click opens the spreadsheet. Until then the card is a picture:
     /// the wheel zooms the board and cells do not take clicks.
-    pub(super) fn enter_sheet(&mut self, node: NodeId) {
+    pub(crate) fn enter_sheet(&mut self, node: NodeId) {
         if self.sheet_open == Some(node) {
             return;
         }
@@ -314,7 +315,8 @@ impl SlateApp {
             NodeKind::Image(img) => Some(img.item),
             _ => None,
         });
-        self.sheet_baseline = item.and_then(|item| self.sheets.get(&item).cloned().flatten());
+        self.sheet_baseline =
+            item.and_then(|item| self.cached_sheet(item).map(|rows| (*rows).clone()));
         self.board_sel = std::iter::once(node).collect();
     }
 
@@ -325,13 +327,14 @@ impl SlateApp {
         self.sheet_baseline = None;
         self.sheet_prompt = false;
         self.sheet_resize = None;
+        self.mark_document_cache_changed();
     }
 
     pub(super) fn discard_sheet(&mut self) {
         if let Some(node) = self.sheet_open {
             if let Some(NodeKind::Image(img)) = self.doc().scene.node(node).map(|n| &n.kind) {
                 let item = img.item;
-                self.sheets.remove(&item);
+                self.invalidate_document_card(item);
             }
         }
         self.close_sheet();
@@ -345,12 +348,11 @@ impl SlateApp {
         if edit.buf == edit.origin {
             return;
         }
-        let loaded = self
-            .item_path(edit.item)
-            .as_deref()
-            .and_then(atlas_core::table::read_sheet_card);
-        let grid = self.sheets.entry(edit.item).or_insert(loaded);
-        let Some(rows) = grid.as_mut() else {
+        if !self.prepare_document_card(edit.item) {
+            self.sheet_edit = Some(edit);
+            return;
+        }
+        let Some(rows) = self.cached_sheet_mut(edit.item) else {
             return;
         };
         while rows.len() <= edit.row {
@@ -363,6 +365,7 @@ impl SlateApp {
             });
         }
         rows[edit.row][edit.col].text = edit.buf;
+        self.refresh_document_card_size(edit.item);
         self.sheet_dirty = true;
     }
 
@@ -390,7 +393,7 @@ impl SlateApp {
             self.toast("That spreadsheet is online-only");
             return false;
         }
-        let Some(grid) = self.sheets.get(&item).cloned().flatten() else {
+        let Some(grid) = self.cached_sheet(item) else {
             return false;
         };
         let base = self.sheet_baseline.clone().unwrap_or_default();
@@ -432,7 +435,7 @@ impl SlateApp {
             self.toast("Couldn't write that spreadsheet");
             return false;
         }
-        self.sheet_baseline = Some(grid);
+        self.sheet_baseline = Some((*grid).clone());
         self.sheet_dirty = false;
         self.toast("Spreadsheet saved");
         true

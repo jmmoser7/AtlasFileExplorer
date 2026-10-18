@@ -2,6 +2,10 @@
 
 use super::*;
 
+#[cfg(test)]
+#[path = "results/presence_stop_tests.rs"]
+mod presence_stop_tests;
+
 impl SlateApp {
     pub(crate) fn unbundle_selected_agent(&mut self) -> bool {
         let Some(id) = self.selected_agent_portal() else {
@@ -56,11 +60,31 @@ impl SlateApp {
                 continue;
             };
             let at = rect.translated((nodes.len() as f32 + 1.0) * (rect.w + 24.0), 0.0);
-            nodes.push(
-                self.doc_mut()
-                    .scene
-                    .build_node(at, NodeKind::Image(slate_doc::scene::ImageNode::new(item))),
-            );
+            let mut placed = slate_doc::scene::ImageNode::new(item);
+            if let Some(source) = self.doc().scene.node(id).and_then(|node| match &node.kind {
+                NodeKind::Image(img) => Some(img.clone()),
+                _ => None,
+            }) {
+                placed.result_layers = slate_doc::image_paint::clone_result_layers_to_item(
+                    &source,
+                    &slate_doc::image_paint::ImageResultId::Output(image.id.clone()),
+                    item,
+                    || {
+                        self.doc_mut()
+                            .scene
+                            .build_node(
+                                at,
+                                NodeKind::Image(slate_doc::scene::ImageNode::new(
+                                    slate_doc::ItemId::NONE,
+                                )),
+                            )
+                            .id
+                    },
+                )
+                .into_iter()
+                .collect();
+            }
+            nodes.push(self.doc_mut().scene.build_node(at, NodeKind::Image(placed)));
         }
         if nodes.is_empty() {
             self.toast("This picture has no other results to place.");
@@ -74,22 +98,95 @@ impl SlateApp {
         let Some(id) = self.selected_agent_portal() else {
             return false;
         };
-        let Some((session, _)) = self.agent_session_for(id) else {
+        self.stop_agent_at(id, None)
+    }
+
+    /// Stop only the request this collaborator launched. A newer human request
+    /// at the same generator must keep running; unrelated queued work stays.
+    pub(crate) fn stop_agent_request_at(&mut self, id: NodeId, expected_request: &str) -> bool {
+        if expected_request.is_empty() {
             return false;
+        }
+        let active = self
+            .agents
+            .requests
+            .get(&id)
+            .is_some_and(|request| request == expected_request);
+        let queued = self.agents.comfy_queue.get(&id).is_some_and(|queue| {
+            queue
+                .iter()
+                .any(|entry| entry.request.id == expected_request)
+        });
+        if !active {
+            if !queued {
+                return false;
+            }
+            if let Some(queue) = self.agents.comfy_queue.get_mut(&id) {
+                let removed_front = queue
+                    .front()
+                    .is_some_and(|entry| entry.request.id == expected_request);
+                queue.retain(|entry| entry.request.id != expected_request);
+                if removed_front {
+                    self.agents.capture_wait.remove(&id);
+                }
+                if queue.is_empty() {
+                    self.agents.comfy_queue.remove(&id);
+                    self.agents.capture_wait.remove(&id);
+                }
+            }
+            return true;
+        }
+        self.agents
+            .cancelled_generations
+            .insert(id, expected_request.to_owned());
+        self.stop_agent_at(id, Some(expected_request))
+    }
+
+    fn stop_agent_at(&mut self, id: NodeId, expected_request: Option<&str>) -> bool {
+        let artifact = self
+            .doc()
+            .scene
+            .node(id)
+            .and_then(slate_doc::scene::artifact)
+            .is_some();
+        let request = self.agents.requests.get(&id).cloned();
+        let submitted = artifact && self.artifact_request_submitted(id);
+        let canceled = artifact && self.cancel_artifact_generation(id);
+        if canceled && !submitted {
+            self.agents.awaiting.remove(&id);
+            self.toast("Artifact preparation canceled.");
+            return true;
+        }
+        if self.cancel_preparing_agent_send(id) {
+            return true;
+        }
+        let Some((session, _)) = self.agent_session_for(id) else {
+            return canceled;
         };
-        let generator = slate_doc::agent_inputs::is_flow_node(&self.doc().scene, id)
-            || self
-                .agent_session_for(id)
-                .is_some_and(|(_, p)| atlas_ai::agent::local_image_engine(&p));
+        let generator = !artifact
+            && (slate_doc::agent_inputs::is_flow_node(&self.doc().scene, id)
+                || self
+                    .agent_session_for(id)
+                    .is_some_and(|(_, p)| atlas_ai::agent::local_image_engine(&p)));
         if generator {
-            self.agents.comfy_queue.remove(&id);
+            if let Some(expected) = expected_request {
+                if let Some(queue) = self.agents.comfy_queue.get_mut(&id) {
+                    queue.retain(|entry| entry.request.id != expected);
+                    if queue.is_empty() {
+                        self.agents.comfy_queue.remove(&id);
+                    }
+                }
+            } else {
+                self.agents.comfy_queue.remove(&id);
+            }
             self.agents.capture_wait.remove(&id);
-            if self
-                .doc()
-                .scene
-                .node(id)
-                .and_then(slate_doc::agent_chat::agent)
-                .is_some_and(|a| a.live)
+            if expected_request.is_none()
+                && self
+                    .doc()
+                    .scene
+                    .node(id)
+                    .and_then(slate_doc::agent_chat::agent)
+                    .is_some_and(|a| a.live)
             {
                 self.set_generator_live(id, false);
             }
@@ -108,7 +205,7 @@ impl SlateApp {
             self.toast("Stop this run in its source program.");
             return false;
         }
-        let Some(request) = self.agents.requests.get(&id).cloned() else {
+        let Some(request) = request else {
             self.toast("This Cursor response has not started yet.");
             return false;
         };
@@ -137,10 +234,11 @@ impl SlateApp {
         true
     }
     pub(super) fn detach_cursor_sidecar(&mut self, session: &str) {
-        if let Some(mut child) = self.agents.sidecar_child.remove(session) {
-            let _ = child.kill();
-            let _ = child.try_wait();
-        }
+        self.agents
+            .sidecar_startups
+            .entry(session.to_owned())
+            .or_default()
+            .retire(self.agents.sidecar_child.remove(session));
         self.agents.sidecar_spawned.remove(session);
         self.agents.sidecar_booting.remove(session);
     }
@@ -368,104 +466,9 @@ impl SlateApp {
             if let Some(a) = slate_doc::agent_chat::agent_mut(n) {
                 a.provider = provider.to_string();
                 a.model = chosen.clone();
+                a.model_parameters.clear();
             }
         });
         self.remember_model(image, provider, model);
-    }
-    /// Decode the newest sampling frame of each running generator once.
-    pub(super) fn pump_generation_previews(&mut self, ctx: &egui::Context) {
-        let running: Vec<(NodeId, String, String)> = self
-            .agents
-            .requests
-            .iter()
-            .filter(|(id, _)| self.agent_is_running(**id))
-            .filter_map(|(id, request)| {
-                let session = self.agents.bindings.get(id)?;
-                Some((*id, request.clone(), session.clone()))
-            })
-            .collect();
-        self.agents
-            .previews
-            .retain(|id, _| running.iter().any(|(r, _, _)| r == id));
-        for (id, request, session) in running {
-            let Some(frame) = self
-                .agents
-                .codex
-                .get(&session)
-                .and_then(|link| link.preview())
-                .filter(|p| p.request == request)
-            else {
-                continue;
-            };
-            if self
-                .agents
-                .previews
-                .get(&id)
-                .is_some_and(|p| p.request == request && p.frame == frame.frame)
-            {
-                continue;
-            }
-            let Ok(decoded) = image::load_from_memory(&frame.image) else {
-                continue;
-            };
-            let rgba = decoded.to_rgba8();
-            let size = [rgba.width() as usize, rgba.height() as usize];
-            let pixels = egui::ColorImage::from_rgba_unmultiplied(size, rgba.as_raw());
-            let texture = match self.agents.previews.remove(&id) {
-                Some(mut p) => {
-                    p.texture.set(pixels, egui::TextureOptions::LINEAR);
-                    p.texture
-                }
-                None => ctx.load_texture(
-                    format!("generation-preview-{}", id.0),
-                    pixels,
-                    egui::TextureOptions::LINEAR,
-                ),
-            };
-            self.agents.previews.insert(
-                id,
-                LivePreview {
-                    request,
-                    frame: frame.frame,
-                    step: frame.step,
-                    steps: frame.steps,
-                    texture,
-                },
-            );
-            ctx.request_repaint();
-        }
-    }
-    /// The image coming into focus while it samples, with a thin step bar.
-    pub(super) fn paint_generation_preview(
-        &self,
-        painter: &egui::Painter,
-        id: NodeId,
-        body: Rect,
-        z: f32,
-    ) {
-        let Some(preview) = self.agents.previews.get(&id) else {
-            return;
-        };
-        if self.agents.requests.get(&id) != Some(&preview.request) {
-            return;
-        }
-        let size = preview.texture.size_vec2();
-        let scale = (body.width() / size.x).min(body.height() / size.y);
-        let rect = Rect::from_center_size(body.center(), size * scale);
-        painter.image(
-            preview.texture.id(),
-            rect,
-            Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-            Color32::WHITE,
-        );
-        if preview.steps > 0 {
-            let t = (preview.step as f32 / preview.steps as f32).clamp(0.0, 1.0);
-            let h = canvas_scale::px(3.0, z);
-            let bar = Rect::from_min_size(
-                egui::pos2(rect.left(), rect.bottom() - h),
-                egui::vec2(rect.width() * t, h),
-            );
-            painter.rect_filled(bar, 0.0, self.palette().accent);
-        }
     }
 }

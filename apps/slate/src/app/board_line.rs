@@ -262,6 +262,7 @@ impl SlateApp {
         b: Pos2,
         start_tip: Option<PlacedTip>,
     ) -> Option<NodeId> {
+        self.begin_curve_fade_creation();
         let (rect, mut data) = board_path::points_to_path_data(&[a, b], false);
         if data.is_empty() {
             return None;

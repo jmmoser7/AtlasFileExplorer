@@ -3,12 +3,22 @@
 use super::*;
 
 impl SlateApp {
+    pub(super) fn discard_generation_request(&mut self, id: NodeId, request_id: &str) {
+        if let Some(queue) = self.agents.comfy_queue.get_mut(&id) {
+            queue.retain(|entry| entry.request.id != request_id);
+            if queue.is_empty() {
+                self.agents.comfy_queue.remove(&id);
+            }
+        }
+        self.agents.capture_wait.remove(&id);
+    }
+
     pub(crate) fn pump_comfy_queue(&mut self) {
         let ready: Vec<NodeId> = self
             .agents
             .comfy_queue
             .iter()
-            .filter(|(id, queue)| !queue.is_empty() && !self.agent_is_running(**id))
+            .filter(|(id, queue)| !queue.is_empty() && !self.agent_generation_dispatched(**id))
             .map(|(id, _)| *id)
             .collect();
         for id in ready {
@@ -20,6 +30,22 @@ impl SlateApp {
             else {
                 continue;
             };
+            if request.doc != self.tab().id {
+                self.discard_generation_request(id, &request.request.id);
+                self.toast(
+                    "The queued generation belongs to a different open tab; send it again there.",
+                );
+                continue;
+            }
+            match self.poll_agent_input_preparation(&mut request.inputs) {
+                Ok(true) => request.request.inputs = request.inputs.inputs.clone(),
+                Ok(false) => continue,
+                Err(error) => {
+                    self.discard_generation_request(id, &request.request.id);
+                    self.fail_agent_await(id, error);
+                    continue;
+                }
+            }
             let since = self
                 .agents
                 .capture_wait
@@ -27,7 +53,7 @@ impl SlateApp {
                 .copied()
                 .unwrap_or_else(Instant::now);
             let allow_stale = since.elapsed() > CAPTURE_TIMEOUT;
-            match self.capture_generator_inputs(id, &mut request, allow_stale) {
+            match self.capture_generator_inputs(id, &mut request.request, allow_stale) {
                 Ok(true) => {}
                 Ok(false) => {
                     let since = *self
@@ -36,8 +62,7 @@ impl SlateApp {
                         .entry(id)
                         .or_insert_with(Instant::now);
                     if since.elapsed() > CAPTURE_TIMEOUT {
-                        self.agents.capture_wait.remove(&id);
-                        self.agents.comfy_queue.remove(&id);
+                        self.discard_generation_request(id, &request.request.id);
                         self.fail_agent_await(
                             id,
                             "The wired 3D model, video or web page did not finish loading.".into(),
@@ -46,17 +71,29 @@ impl SlateApp {
                     continue;
                 }
                 Err(error) => {
-                    self.agents.capture_wait.remove(&id);
-                    self.agents.comfy_queue.remove(&id);
+                    self.discard_generation_request(id, &request.request.id);
                     self.fail_agent_await(id, error);
                     continue;
                 }
             }
             self.agents.capture_wait.remove(&id);
-            if let Some(queue) = self.agents.comfy_queue.get_mut(&id) {
+            let queue_empty = if let Some(queue) = self.agents.comfy_queue.get_mut(&id) {
                 queue.pop_front();
+                queue.is_empty()
+            } else {
+                false
+            };
+            if queue_empty {
+                self.agents.comfy_queue.remove(&id);
             }
-            self.dispatch_generation(id, request);
+            if request.request.oneshot
+                && self.is_text_block(id)
+                && self.agent_text_window_owned(id)
+                && !self.tab().read_only
+            {
+                self.clear_agent_text_output_file(id);
+            }
+            self.dispatch_generation(id, request.request, request.author);
         }
     }
     /// A wired 3D model is captured when its run starts, from its current camera.
@@ -139,7 +176,12 @@ impl SlateApp {
         }
         Ok(true)
     }
-    fn dispatch_generation(&mut self, id: NodeId, request: AgentRequest) {
+    fn dispatch_generation(
+        &mut self,
+        id: NodeId,
+        request: AgentRequest,
+        author: slate_doc::scene::CmdAuthor,
+    ) {
         let Some((session, provider)) = self.agent_session_for(id) else {
             return;
         };
@@ -162,12 +204,14 @@ impl SlateApp {
             .and_then(slate_doc::agent_chat::agent)
             .is_some_and(|a| a.bundle.is_none())
         {
-            self.patch_nodes(&[id], |n| {
-                if let Some(a) = slate_doc::agent_chat::agent_mut(n) {
+            self.patch_nodes_as(&[id], author.clone(), |node| {
+                if let Some(a) = slate_doc::agent_chat::agent_mut(node) {
                     a.bundle.get_or_insert_with(|| manifest.clone());
                 }
             });
         }
+        self.agents.cancelled_generations.remove(&id);
+        self.agents.generation_authors.insert(id, author);
         self.agents.requests.insert(id, request.id.clone());
         self.agents.bindings.insert(id, session.clone());
         self.agents.awaiting.insert(
@@ -352,7 +396,31 @@ impl SlateApp {
         ui.ctx().request_repaint();
     }
     /// Fit the card to the newest image once, so browsing never resizes it.
-    pub(super) fn fit_generator_frame(&mut self, id: NodeId, image: &str, size: egui::Vec2) {
+    pub(super) fn fit_generator_frame(
+        &mut self,
+        id: NodeId,
+        image: &str,
+        image_request: &str,
+        size: egui::Vec2,
+    ) {
+        // Old output A may arrive after replacement B. Only B can automatically
+        // resize this frame, and its recorded caller must own that journal edit.
+        if self
+            .agents
+            .requests
+            .get(&id)
+            .is_some_and(|current| current != image_request)
+        {
+            return;
+        }
+        if self
+            .agents
+            .cancelled_generations
+            .get(&id)
+            .is_some_and(|cancelled| cancelled == image_request)
+        {
+            return;
+        }
         if self.agents.fitted_image.get(&id).map(String::as_str) == Some(image)
             || size.x < 2.0
             || size.y < 2.0
@@ -372,7 +440,21 @@ impl SlateApp {
             .node(id)
             .is_some_and(|n| (n.rect.h - height).abs() > 2.0)
         {
-            self.patch_nodes(&[id], |n| n.rect.h = height);
+            let author = if self
+                .agents
+                .requests
+                .get(&id)
+                .is_some_and(|request| request == image_request)
+            {
+                self.agents
+                    .generation_authors
+                    .get(&id)
+                    .cloned()
+                    .unwrap_or(slate_doc::scene::CmdAuthor::Human)
+            } else {
+                slate_doc::scene::CmdAuthor::Human
+            };
+            self.patch_nodes_as(&[id], author, |node| node.rect.h = height);
         }
     }
 }

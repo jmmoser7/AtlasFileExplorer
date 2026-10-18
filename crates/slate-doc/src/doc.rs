@@ -1,16 +1,16 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::io;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::SlateLoadError;
 use crate::ids::{GroupId, ItemId, TagId};
 use crate::item::SlateItem;
 use crate::link::{link_status, LinkStatus};
 use crate::scene::Scene;
 use crate::tags::{Tag, TagGroup};
 use crate::view::ViewState;
+
+mod io;
 
 /// Canonical file extension for Slate workbooks (without the leading dot).
 pub const SLATE_EXTENSION: &str = "slate";
@@ -42,8 +42,8 @@ pub struct SlateDoc {
     /// Cargo workspace or crate root for the Lens view; absent in older workbooks.
     #[serde(default)]
     pub lens_root: Option<std::path::PathBuf>,
-    next_group_id: u64,
-    next_tag_id: u64,
+    pub(crate) next_group_id: u64,
+    pub(crate) next_tag_id: u64,
     next_item_id: u64,
 }
 
@@ -326,59 +326,6 @@ impl SlateDoc {
         buckets
     }
 
-    /// Writes pretty JSON atomically (temp file in the same directory, then rename).
-    pub fn save_to(&self, path: &Path) -> io::Result<()> {
-        let parent = path.parent().unwrap_or_else(|| Path::new("."));
-        let file_name = path
-            .file_name()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no file name"))?;
-        let mut temp_name = file_name.to_os_string();
-        temp_name.push(".tmp");
-        let temp_path = parent.join(temp_name);
-
-        let mut stored = self.clone();
-        crate::locators::persist_asset_locators(&mut stored, path);
-        let json = serde_json::to_string_pretty(&stored).map_err(io::Error::other)?;
-        std::fs::write(&temp_path, json)?;
-        std::fs::rename(temp_path, path)?;
-        Ok(())
-    }
-
-    /// Loads a workbook from disk, rejecting unknown future format versions.
-    pub fn load_from(path: &Path) -> Result<Self, SlateLoadError> {
-        let bytes = std::fs::read(path).map_err(|err| SlateLoadError::Io {
-            path: path.to_path_buf(),
-            source: err.kind(),
-        })?;
-        let mut value: serde_json::Value =
-            serde_json::from_slice(&bytes).map_err(|err| SlateLoadError::Parse {
-                path: path.to_path_buf(),
-                message: err.to_string(),
-            })?;
-        // Repository Lens and Status Board are not part of the product. Drop
-        // those nodes before decode so a mixed workbook still opens.
-        drop_retired_portals(&mut value);
-        let mut doc: SlateDoc =
-            serde_json::from_value(value).map_err(|err| SlateLoadError::Parse {
-                path: path.to_path_buf(),
-                message: err.to_string(),
-            })?;
-        if doc.format_version > Self::CURRENT {
-            return Err(SlateLoadError::UnsupportedVersion {
-                found: doc.format_version,
-            });
-        }
-        // Older documents upgrade in place: the next save writes CURRENT.
-        doc.format_version = Self::CURRENT;
-        doc.view.active_view = doc.view.active_view.normalized();
-        // Legacy bbox lines convert to parametric two-point paths
-        // (contracts/line.md migration decision).
-        doc.scene.migrate_legacy_lines();
-        doc.scene.migrate_agent_cards();
-        crate::image_paint::sanitize_paint_layers(&mut doc.scene);
-        Ok(doc)
-    }
-
     /// Checks whether the item's linked path still exists.
     pub fn link_status(&self, item: &SlateItem) -> LinkStatus {
         link_status(item)
@@ -440,25 +387,6 @@ impl SlateDoc {
     }
 }
 
-/// Removes board nodes whose portal kind is a retired subtype
-/// (`repo_lens`, `status_board`). Other nodes in the same workbook stay.
-fn drop_retired_portals(doc: &mut serde_json::Value) {
-    let Some(nodes) = doc
-        .get_mut("scene")
-        .and_then(|scene| scene.get_mut("nodes"))
-        .and_then(|nodes| nodes.as_array_mut())
-    else {
-        return;
-    };
-    nodes.retain(|node| {
-        !matches!(
-            node.pointer("/kind/portal/kind")
-                .and_then(|kind| kind.as_str()),
-            Some("repo_lens" | "status_board")
-        )
-    });
-}
-
 impl Default for SlateDoc {
     fn default() -> Self {
         Self::new("Untitled")
@@ -468,6 +396,7 @@ impl Default for SlateDoc {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::SlateLoadError;
     use std::fs;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};

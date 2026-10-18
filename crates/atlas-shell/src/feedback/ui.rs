@@ -1,59 +1,8 @@
 use super::bundle::{self, ReportJson};
 use super::{FeedbackHub, FeedbackKind, FeedbackPhase, FeedbackPrefs};
-use crate::icons::{self, Icon};
 use crate::theme::Palette;
-use crate::tokens;
-use eframe::egui::{
-    self, Color32, CornerRadius, Id, Rect, RichText, Sense, Stroke, StrokeKind, Vec2,
-};
+use eframe::egui::{self, Color32, CornerRadius, Id, Rect, RichText, Stroke, StrokeKind, Vec2};
 use std::path::PathBuf;
-
-pub fn suggestion_button(
-    ctx: &egui::Context,
-    palette: &Palette,
-    dock_id: &str,
-    canvas: Rect,
-    hub: &mut FeedbackHub,
-) -> bool {
-    let t = tokens::current().readouts.clone();
-    let hit = t.chevron_hit.max(20.0);
-    let chevron = canvas.left_bottom() + Vec2::new(t.chevron_inset_x, -t.chevron_inset_y);
-    let pos = chevron + Vec2::new(-hit - 6.0, 0.0);
-    let mut open = false;
-    egui::Area::new(Id::new(("suggestion_box", dock_id)))
-        .fixed_pos(pos)
-        .pivot(egui::Align2::LEFT_BOTTOM)
-        .order(egui::Order::Middle)
-        .show(ctx, |ui| {
-            let (rect, resp) = ui.allocate_exact_size(Vec2::splat(hit), Sense::click());
-            let hovered = resp.hovered();
-            if hovered {
-                ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
-                ui.painter().rect_filled(
-                    rect,
-                    CornerRadius::same(4),
-                    palette.ink.gamma_multiply(t.chevron_hover_fill),
-                );
-            }
-            let ink = palette.ink.gamma_multiply(if hovered {
-                t.chevron_hover_opacity
-            } else {
-                t.chevron_idle_opacity
-            });
-            let glyph = Rect::from_center_size(rect.center(), Vec2::splat(hit * 0.7));
-            icons::paint(ui.painter(), glyph, Icon::Feedback, ink);
-            if resp
-                .on_hover_text("Suggestion box — report a bug or request a feature")
-                .clicked()
-            {
-                open = true;
-            }
-        });
-    if open {
-        hub.open_picker();
-    }
-    open
-}
 
 pub fn paint_recording_chrome(ctx: &egui::Context, canvas: Rect, palette: &Palette) {
     if !canvas.is_positive() {
@@ -136,194 +85,7 @@ pub fn dialogs(
 
     poll_screenshot(ctx, hub);
 
-    match hub.phase {
-        FeedbackPhase::Closed | FeedbackPhase::Recording => return out,
-        FeedbackPhase::KindPicker => {
-            let mut open = true;
-            egui::Window::new("Suggestion box")
-                .open(&mut open)
-                .collapsible(false)
-                .resizable(false)
-                .default_width(320.0)
-                .show(ctx, |ui| {
-                    ui.label("What would you like to send?");
-                    ui.add_space(8.0);
-                    if ui.button("Report a bug").clicked() {
-                        hub.begin_form(FeedbackKind::Bug);
-                    }
-                    if ui.button("Request a feature").clicked() {
-                        hub.begin_form(FeedbackKind::Feature);
-                    }
-                });
-            if !open {
-                hub.phase = FeedbackPhase::Closed;
-            }
-        }
-        FeedbackPhase::BugForm | FeedbackPhase::FeatureForm => {
-            let kind = hub.kind.unwrap();
-            let title = match kind {
-                FeedbackKind::Bug => "Report a bug",
-                FeedbackKind::Feature => "Request a feature",
-            };
-            let mut open = true;
-            let mut close_after = false;
-            egui::Window::new(title)
-                .open(&mut open)
-                .collapsible(false)
-                .resizable(true)
-                .default_width(420.0)
-                .show(ctx, |ui| {
-                    ui.label(RichText::new("Description").strong());
-                    ui.add(
-                        egui::TextEdit::multiline(&mut hub.description)
-                            .desired_width(f32::INFINITY)
-                            .desired_rows(4),
-                    );
-                    ui.add_space(6.0);
-                    attachments_ui(ui, palette, hub, ctx);
-                    ui.add_space(6.0);
-                    ui.label(RichText::new("Links (one per line)").strong());
-                    ui.add(
-                        egui::TextEdit::multiline(&mut hub.links_text)
-                            .desired_width(f32::INFINITY)
-                            .desired_rows(2),
-                    );
-                    if matches!(kind, FeedbackKind::Bug) {
-                        ui.add_space(6.0);
-                        ui.checkbox(&mut hub.reproduce_wanted, "Reproduce (record steps)");
-                        if !hub.recorded_steps.is_empty() {
-                            ui.label(RichText::new("Recorded steps").strong());
-                            let mut remove: Option<usize> = None;
-                            for (i, step) in hub.recorded_steps.iter().enumerate() {
-                                ui.horizontal(|ui| {
-                                    ui.label(format!("{} ms — {}", step.at_ms, step.label));
-                                    if ui.small_button("✕").clicked() {
-                                        remove = Some(i);
-                                    }
-                                });
-                            }
-                            if let Some(i) = remove {
-                                hub.recorded_steps.remove(i);
-                            }
-                        }
-                        if hub.reproduce_wanted
-                            && hub.recorded_steps.is_empty()
-                            && ui.button("Start recording").clicked()
-                        {
-                            hub.start_recording();
-                            close_after = true;
-                        }
-                    }
-                    ui.add_space(8.0);
-                    ui.horizontal(|ui| {
-                        let ready = !hub.description.trim().is_empty();
-                        let submit_clicked = ui.button("Submit").clicked();
-                        let email_clicked = ui
-                            .add_enabled(ready, egui::Button::new("Email…"))
-                            .on_disabled_hover_text("Add a short description first.")
-                            .on_hover_text("Saves the report folder, then opens a mail draft")
-                            .clicked();
-                        if submit_clicked || email_clicked {
-                            match submit(hub, app_name, version) {
-                                Ok(dir) => {
-                                    hub.set_last_bundle(dir.clone());
-                                    if email_clicked {
-                                        if let Some(body) = hub.mailto_summary(app_name, version) {
-                                            open_mailto(&hub.mailto_subject(app_name), &body);
-                                        }
-                                        out.toast = Some(format!(
-                                            "Saved report — attach files from {}",
-                                            dir.display()
-                                        ));
-                                    } else {
-                                        out.toast =
-                                            Some(format!("Saved report to {}", dir.display()));
-                                    }
-                                    hub.reset_after_submit();
-                                    close_after = true;
-                                }
-                                Err(e) => out.toast = Some(e),
-                            }
-                        }
-                        if ui.button("Cancel").clicked() {
-                            hub.phase = FeedbackPhase::Closed;
-                            close_after = true;
-                        }
-                    });
-                });
-            if close_after {
-                open = false;
-            }
-            if !open && hub.owns_drops() {
-                hub.phase = FeedbackPhase::Closed;
-            }
-        }
-    }
-    out
-}
-
-fn attachments_ui(
-    ui: &mut egui::Ui,
-    palette: &Palette,
-    hub: &mut FeedbackHub,
-    ctx: &egui::Context,
-) {
-    ui.label(RichText::new("Images").strong());
-    ui.label(
-        RichText::new("Drop image files here or paste from the clipboard.")
-            .small()
-            .color(palette.sub),
-    );
-    let drop_size = Vec2::new(ui.available_width(), 72.0);
-    let (drop, _) = ui.allocate_exact_size(drop_size, Sense::hover());
-    let hovering_files = ctx.input(|i| !i.raw.hovered_files.is_empty());
-    ui.painter().rect_stroke(
-        drop,
-        CornerRadius::same(4),
-        Stroke::new(
-            1.0_f32,
-            if hovering_files {
-                palette.accent
-            } else {
-                palette.sub.gamma_multiply(0.35)
-            },
-        ),
-        StrokeKind::Inside,
-    );
-    let mut paste = false;
-    ui.scope_builder(egui::UiBuilder::new().max_rect(drop.shrink(8.0)), |ui| {
-        ui.horizontal(|ui| {
-            if ui.button("Capture window").clicked() {
-                hub.request_screenshot(ctx);
-            }
-            paste = ui.button("Paste image").clicked();
-        });
-        if !hub.attachments.is_empty() {
-            ui.label(format!("{} attachment(s)", hub.attachments.len()));
-        }
-    });
-    let paste_key = ui.ui_contains_pointer()
-        && ctx.input(|i| {
-            i.events.iter().any(|e| matches!(e, egui::Event::Paste(_)))
-                || (i.modifiers.command && i.key_pressed(egui::Key::V))
-        })
-        && !ctx.wants_keyboard_input();
-    if paste || paste_key {
-        hub.attach_clipboard_image();
-    }
-    let dropped = ctx.input(|i| {
-        i.raw
-            .dropped_files
-            .iter()
-            .filter_map(|f| f.path.clone())
-            .collect::<Vec<_>>()
-    });
-    if !dropped.is_empty() {
-        hub.attach_dropped(&dropped);
-    }
-    if let Some(note) = &hub.attach_note {
-        ui.label(RichText::new(note).small().color(palette.sub));
-    }
+    super::panels::show(ctx, palette, hub, app_name, version)
 }
 
 /// The capture arrives as an event; its PNG encode runs on a worker so a
@@ -371,7 +133,11 @@ fn color_image_to_png(img: &egui::ColorImage) -> Option<Vec<u8>> {
     atlas_core::clipboard_image::encode_png(w as u32, h as u32, &rgba)
 }
 
-fn submit(hub: &mut FeedbackHub, app_name: &str, version: &str) -> Result<PathBuf, String> {
+pub(super) fn submit(
+    hub: &mut FeedbackHub,
+    app_name: &str,
+    version: &str,
+) -> Result<PathBuf, String> {
     if hub.description.trim().is_empty() {
         return Err("Add a short description first.".into());
     }
@@ -413,7 +179,7 @@ fn submit(hub: &mut FeedbackHub, app_name: &str, version: &str) -> Result<PathBu
 /// Mail clients and the shell cap a mailto URL; the bundle holds the rest.
 const MAILTO_BODY_CHARS: usize = 1500;
 
-fn open_mailto(subject: &str, body: &str) {
+pub(super) fn open_mailto(subject: &str, body: &str) {
     let subject = urlencoding(subject);
     let body = urlencoding(&super::truncate(body, MAILTO_BODY_CHARS));
     let url = format!("mailto:?subject={subject}&body={body}");

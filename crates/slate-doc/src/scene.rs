@@ -26,6 +26,22 @@ use std::sync::Arc;
 use crate::ids::{GroupId, ItemId, TagId};
 use crate::spatial::SpatialIndex;
 
+mod agent;
+pub use agent::{AgentContextScope, AgentPortalRef, ImageSettings};
+mod image;
+pub use image::ImageNode;
+
+mod model_camera;
+pub use model_camera::{ModelCamera, ModelDisplay};
+
+mod artifact;
+pub use artifact::*;
+mod web;
+pub use web::{WebPortalRef, WEB_DEFAULT_ENTRY};
+
+mod capabilities;
+pub use capabilities::{fill_of, set_fill, set_stroke, stroke_of, supports_corners, supports_fill, supports_image_adjust, supports_stroke};
+
 // ---------- geometry ----------
 
 /// Axis-aligned rectangle in board world coordinates.
@@ -341,220 +357,8 @@ fn texture_smooth(t: &BrushTexture) -> bool {
     *t == BrushTexture::Smooth
 }
 
-/// Outline stroke. `width == 0` means no stroke.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct Stroke {
-    pub width: f32,
-    pub color: Rgba,
-    pub dash: Dash,
-    #[serde(default)]
-    pub cap: StrokeCap,
-    #[serde(default)]
-    pub join: StrokeJoin,
-    #[serde(default)]
-    pub profile: WidthProfile,
-    /// Edge falloff, 0 = hard. Above zero, both painters stamp a radial
-    /// bitmap instead of an offset stroke. `blur_sigma` remains the vector
-    /// fallback for a stroke that is not stamped.
-    #[serde(default, skip_serializing_if = "softness_zero")]
-    pub softness: f32,
-    /// Brush commits set this so a hard stroke is still the radial bitmap.
-    /// Softness above zero stamps even when this is false.
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub stamp: bool,
-    /// Legacy two-tip tween from before per-vertex tips. Read only: new
-    /// strokes store [`PathData::tips`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tween_from: Option<StrokeSpan>,
-    /// Whole-stroke Gaussian blur (SVG `feGaussianBlur` / CSS `blur`), in
-    /// world units as stdDeviation. Distinct from edge softness.
-    #[serde(default, skip_serializing_if = "gaussian_blur_zero")]
-    pub gaussian_blur: f32,
-    /// An arrowhead at the path's last point (open curves).
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub arrow_end: bool,
-    /// An arrowhead at the path's first point (open curves).
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub arrow_start: bool,
-    /// The cap at the first / last point of an open curve where it differs
-    /// from `cap`, which still caps dash ends in between.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cap_start: Option<StrokeCap>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cap_end: Option<StrokeCap>,
-    /// Grain of a stamped brush stroke. Vector strokes ignore it.
-    #[serde(default, skip_serializing_if = "texture_smooth")]
-    pub texture: BrushTexture,
-}
-
-fn gaussian_blur_zero(v: &f32) -> bool {
-    *v <= 0.0
-}
-
-/// One brush tip on a path vertex.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct StrokeSpan {
-    pub width: f32,
-    pub softness: f32,
-    pub color: Rgba,
-    #[serde(default, skip_serializing_if = "texture_smooth")]
-    pub texture: BrushTexture,
-}
-
-impl StrokeSpan {
-    pub fn of(stroke: &Stroke) -> StrokeSpan {
-        StrokeSpan {
-            width: stroke.width,
-            softness: stroke.softness,
-            color: stroke.color,
-            texture: stroke.texture,
-        }
-    }
-
-    /// The tip both stamp interpreters paint for this span.
-    pub fn stamp_style(self) -> vector_ink::StampStyle {
-        vector_ink::StampStyle {
-            diameter: self.width.max(0.0),
-            softness: self.softness,
-            rgba: self.color.0,
-            grain: self.texture.grain(),
-        }
-    }
-}
-
-fn softness_zero(value: &f32) -> bool {
-    *value == 0.0
-}
-
-impl Default for Stroke {
-    fn default() -> Self {
-        Self {
-            width: 0.0,
-            color: Rgba::BLACK,
-            dash: Dash::Solid,
-            cap: StrokeCap::default(),
-            join: StrokeJoin::default(),
-            profile: WidthProfile::default(),
-            softness: 0.0,
-            stamp: false,
-            tween_from: None,
-            gaussian_blur: 0.0,
-            arrow_end: false,
-            arrow_start: false,
-            cap_start: None,
-            cap_end: None,
-            texture: Default::default(),
-        }
-    }
-}
-
-impl Stroke {
-    /// The caps an open curve paints at its first and last point.
-    pub fn end_caps(&self) -> [StrokeCap; 2] {
-        [
-            self.cap_start.unwrap_or(self.cap),
-            self.cap_end.unwrap_or(self.cap),
-        ]
-    }
-
-    /// Arrowheads at the first and last point of an open curve.
-    pub fn arrows(&self) -> [bool; 2] {
-        [self.arrow_start, self.arrow_end]
-    }
-
-    /// The condition at end `i` (0 = first point, 1 = last).
-    pub fn end(&self, i: usize) -> StrokeEnd {
-        let i = i.min(1);
-        StrokeEnd {
-            cap: self.end_caps()[i],
-            arrow: self.arrows()[i],
-            narrow: self.profile.narrow_ends()[i],
-        }
-    }
-
-    /// Set the condition at end `i` (0 = first point, 1 = last); the other
-    /// end keeps its own.
-    pub fn set_end(&mut self, i: usize, end: StrokeEnd) {
-        let i = i.min(1);
-        let mut arrows = self.arrows();
-        arrows[i] = end.arrow;
-        [self.arrow_start, self.arrow_end] = arrows;
-        let mut narrow = self.profile.narrow_ends();
-        narrow[i] = end.narrow;
-        self.profile = self.profile.with_narrow_ends(narrow);
-        let mut caps = self.end_caps();
-        caps[i] = end.cap;
-        self.cap_start = (caps[0] != self.cap).then_some(caps[0]);
-        self.cap_end = (caps[1] != self.cap).then_some(caps[1]);
-    }
-
-    /// A piece cut from this stroke keeps the condition of each original
-    /// end it still owns (`keep`); a new cut end takes the plain base cap,
-    /// with no arrowhead and no narrowing.
-    pub fn keep_ends(&mut self, keep: [bool; 2]) {
-        let plain = StrokeEnd {
-            cap: self.cap,
-            arrow: false,
-            narrow: false,
-        };
-        for (i, kept) in keep.into_iter().enumerate() {
-            if !kept {
-                self.set_end(i, plain);
-            }
-        }
-    }
-
-    /// `width` is the outer diameter, matching the on-canvas tip. The fade
-    /// sits inside that diameter: opaque out to `(1 - softness)` of the
-    /// radius, clear at the rim. Returns `(stroke width, feather)` for
-    /// `stroke_mesh`, where the mesh's outer edge is `width / 2`.
-    pub fn paint_profile(self) -> (f32, f32) {
-        let softness = self.softness.clamp(0.0, 1.0);
-        let width = self.width.max(0.0);
-        if softness <= 0.0 {
-            return (width, 0.0);
-        }
-        let outer = width * 0.5;
-        let solid = outer * (1.0 - softness);
-        let half = (solid + outer) * 0.5;
-        let feather = (outer - solid).max(0.0);
-        (half * 2.0, feather)
-    }
-
-    pub fn blur_sigma(self) -> f32 {
-        let (_, feather) = self.paint_profile();
-        self.gaussian_blur.max(feather * 0.5)
-    }
-
-    /// Radial bitmap of the centerline. Brush strokes set [`Self::stamp`];
-    /// any softness above zero uses the same picture so older soft ink
-    /// matches the tip.
-    pub fn paints_as_stamp(self) -> bool {
-        self.stamp || self.softness > 0.001
-    }
-
-    /// The same stroke as a hard vector line: no edge softness, no stamp,
-    /// no tween, no blur. Pen, line, arc, polyline, and Bézier strokes are
-    /// always hard; only the normal anti-aliased edge remains.
-    #[must_use]
-    pub fn hard_vector(self) -> Stroke {
-        Stroke {
-            softness: 0.0,
-            stamp: false,
-            tween_from: None,
-            gaussian_blur: 0.0,
-            ..self
-        }
-    }
-
-    pub fn none() -> Stroke {
-        Stroke::default()
-    }
-
-    pub fn is_none(&self) -> bool {
-        self.width <= 0.0 || self.color.0[3] == 0
-    }
-}
+mod stroke;
+pub use stroke::{Stroke, StrokeSpan};
 
 /// Corner treatment; maps to `border-radius` (rounded) or a `clip-path`
 /// octagon polygon (chamfer — the "jammed corners" option).
@@ -1070,6 +874,7 @@ pub struct Crop {
 }
 
 impl Crop {
+    pub const MIN_SPAN: f32 = 1e-6;
     pub fn full() -> Crop {
         Crop {
             x: 0.0,
@@ -1084,8 +889,8 @@ impl Crop {
     }
 
     pub fn clamped(&self) -> Crop {
-        let w = self.w.clamp(0.05, 1.0);
-        let h = self.h.clamp(0.05, 1.0);
+        let w = self.w.clamp(Self::MIN_SPAN, 1.0);
+        let h = self.h.clamp(Self::MIN_SPAN, 1.0);
         Crop {
             x: self.x.clamp(0.0, 1.0 - w),
             y: self.y.clamp(0.0, 1.0 - h),
@@ -1164,12 +969,15 @@ impl FontChoice {
 macro_rules! typefaces {
     ($first:ident, $first_label:literal, $first_css:literal, $first_file:expr, $first_egui:expr;
      $($variant:ident, $label:literal, $css:literal, $file:expr, $egui:expr;)*) => {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
         #[serde(rename_all = "snake_case")]
         pub enum Typeface {
-            #[default]
             $first,
             $($variant,)*
+        }
+
+        impl Default for Typeface {
+            fn default() -> Self { Self::Sans }
         }
 
         impl Typeface {
@@ -1203,6 +1011,13 @@ macro_rules! typefaces {
                 self.meta().3
             }
 
+            pub fn bold_egui_family(self) -> &'static str {
+                match self {
+                    Self::$first => concat!("slate-bold-", stringify!($first)),
+                    $(Self::$variant => concat!("slate-bold-", stringify!($variant)),)*
+                }
+            }
+
             pub fn index(self) -> usize {
                 Self::ALL.iter().position(|face| *face == self).unwrap_or(0)
             }
@@ -1211,11 +1026,13 @@ macro_rules! typefaces {
 }
 
 typefaces! {
+    Replica, "Replica", "'Replica Std', Replica, Arial, sans-serif", Some("ReplicaStd-Regular.otf"), Some("slate-replica");
+    Arial, "Arial", "Arial, Helvetica, sans-serif", Some("arial.ttf"), Some("slate-arial");
+    Courier, "Courier New", "'Courier New', Courier, monospace", Some("cour.ttf"), Some("slate-courier");
     Sans, "Sans", "system-ui, 'Segoe UI', Helvetica, Arial, sans-serif", None, None;
     Serif, "Serif", "Georgia, 'Times New Roman', serif", None, Some("slate-serif");
     Mono, "Mono", "'Cascadia Mono', Consolas, 'SF Mono', monospace", None, None;
     Segoe, "Segoe UI", "'Segoe UI', system-ui, sans-serif", Some("segoeui.ttf"), Some("slate-segoe");
-    Arial, "Arial", "Arial, Helvetica, sans-serif", Some("arial.ttf"), Some("slate-arial");
     Calibri, "Calibri", "Calibri, 'Segoe UI', sans-serif", Some("calibri.ttf"), Some("slate-calibri");
     Verdana, "Verdana", "Verdana, sans-serif", Some("verdana.ttf"), Some("slate-verdana");
     Tahoma, "Tahoma", "Tahoma, sans-serif", Some("tahoma.ttf"), Some("slate-tahoma");
@@ -1233,7 +1050,6 @@ typefaces! {
     Constantia, "Constantia", "Constantia, serif", Some("constan.ttf"), Some("slate-constantia");
     Century, "Century Schoolbook", "'Century Schoolbook', serif", Some("CENTURY.TTF"), Some("slate-century");
     Consolas, "Consolas", "Consolas, monospace", Some("consola.ttf"), Some("slate-consolas");
-    Courier, "Courier New", "'Courier New', Courier, monospace", Some("cour.ttf"), Some("slate-courier");
     Cascadia, "Cascadia Mono", "'Cascadia Mono', Consolas, monospace", Some("CascadiaMono.ttf"), Some("slate-cascadia");
     SegoeScript, "Segoe Script", "'Segoe Script', cursive", Some("segoesc.ttf"), Some("slate-segoe-script");
     SegoePrint, "Segoe Print", "'Segoe Print', cursive", Some("segoepr.ttf"), Some("slate-segoe-print");
@@ -1248,6 +1064,37 @@ impl From<FontChoice> for Typeface {
             FontChoice::Serif => Typeface::Serif,
             FontChoice::Mono => Typeface::Mono,
         }
+    }
+}
+
+impl Typeface {
+    /// Matching bold face where Windows ships one. Remaining faces use the
+    /// original face as fallback, preserving the requested typeface.
+    pub fn bold_font_file(self) -> Option<&'static str> {
+        Some(match self {
+            Self::Replica => "ReplicaStd-Bold.otf",
+            Self::Sans | Self::Segoe => "segoeuib.ttf",
+            Self::Arial => "arialbd.ttf",
+            Self::Mono | Self::Consolas => "consolab.ttf",
+            Self::Serif | Self::Georgia => "georgiab.ttf",
+            Self::Courier => "courbd.ttf",
+            Self::Calibri => "calibrib.ttf",
+            Self::Verdana => "verdanab.ttf",
+            Self::Tahoma => "tahomabd.ttf",
+            Self::Trebuchet => "trebucbd.ttf",
+            Self::Candara => "Candarab.ttf",
+            Self::Corbel => "corbelb.ttf",
+            Self::Franklin => "framd.ttf",
+            Self::Comic => "comicbd.ttf",
+            Self::Times => "timesbd.ttf",
+            Self::Palatino => "palab.ttf",
+            Self::Garamond => "GARABD.TTF",
+            Self::Constantia => "constanb.ttf",
+            Self::Century => "SCHLBKB.TTF",
+            Self::SegoeScript => "segoescb.ttf",
+            Self::SegoePrint => "segoeprb.ttf",
+            _ => return self.font_file(),
+        })
     }
 }
 
@@ -1367,71 +1214,6 @@ pub enum AtlasSort {
     Kind,
 }
 
-/// Scope of board context an agent portal publishes to its linked local agent.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AgentContextScope {
-    #[default]
-    Selection,
-    Frame,
-    Board,
-}
-
-/// Journaled agent-portal binding. The provider is resolved by name from user
-/// settings so durable scene data never depends on a vendor protocol (Art. I.2).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AgentPortalRef {
-    pub provider: String,
-    pub session: String,
-    #[serde(default)]
-    pub context: AgentContextScope,
-    /// Opaque provider conversation id. The adapter resumes supported saved
-    /// conversations; the provider retains history and execution ownership.
-    #[serde(default)]
-    pub channel: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-    /// Image output manifest, resolved by the shared SourceUri owner.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub bundle: Option<SourceUri>,
-    /// A child created by Unbundle begins with this immutable output.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub seed: Option<atlas_agent::ImageOutput>,
-    #[serde(default)]
-    pub view: atlas_agent::PortalView,
-    /// Authored presentation of linked history. Transcript bytes stay in the source.
-    #[serde(default)]
-    pub chat: crate::agent_chat::ChatView,
-    /// When set, a connected 3D model view is restyled as its camera moves.
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub live: bool,
-    /// The authored prompt: a text block's instruction, or the style guide an
-    /// image agent was submitted with. Wired prompts are read before it.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub instruction: String,
-    /// How a generator's runs are shaped: pictures per run, aspect, seed lock.
-    #[serde(default, skip_serializing_if = "ImageSettings::is_default")]
-    pub image: ImageSettings,
-}
-
-/// Journaled image-agent settings (D20). A locked seed makes runs repeatable.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub struct ImageSettings {
-    /// Pictures per run; 0 and 1 both mean one.
-    #[serde(default)]
-    pub count: u8,
-    #[serde(default)]
-    pub aspect: atlas_agent::Aspect,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub seed: Option<u64>,
-}
-
-impl ImageSettings {
-    pub fn is_default(&self) -> bool {
-        *self == Self::default()
-    }
-}
-
 /// How a web portal's rendered page is fitted into its frame (D20).
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1487,39 +1269,6 @@ pub enum WebPosterCapture {
     #[default]
     OnBind,
     Manual,
-}
-
-/// Journaled web-portal parameters. The locator itself lives in
-/// [`PortalNode::source`]; everything derived from loading it — poster texture,
-/// scroll offset, page history, pool membership — is never stored here (D31).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct WebPortalRef {
-    /// Entry file for a directory source. Ignored for file and URL sources.
-    pub entry: String,
-    pub viewport: WebViewport,
-    /// `None` means "decide from the source kind": iframe for local material,
-    /// poster for a remote page.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub export: Option<WebExport>,
-    /// A presentation-only dashboard can be pinned to its poster.
-    pub interactive_allowed: bool,
-    pub poster_capture: WebPosterCapture,
-}
-
-/// Default entry file for a directory source.
-pub const WEB_DEFAULT_ENTRY: &str = "index.html";
-
-impl Default for WebPortalRef {
-    fn default() -> Self {
-        Self {
-            entry: WEB_DEFAULT_ENTRY.to_string(),
-            viewport: WebViewport::default(),
-            export: None,
-            interactive_allowed: true,
-            poster_capture: WebPosterCapture::OnBind,
-        }
-    }
 }
 
 /// What a web portal's locator turned out to be (D19).
@@ -1791,6 +1540,7 @@ impl PortalNode {
                 context: AgentContextScope::Selection,
                 channel: None,
                 model: None,
+                model_parameters: Default::default(),
                 bundle: None,
                 seed: None,
                 view: atlas_agent::PortalView::Chat,
@@ -2039,104 +1789,6 @@ impl VideoOpts {
     }
 }
 
-/// Saved viewport pose for placed 3D models (`MediaKind::Model`). Like
-/// [`VideoOpts`], this is media behavior, not styling: the pose selects
-/// *which view* of the model both renderers show. The board renders the
-/// model from this camera (live while unlocked, as a frozen poster while
-/// locked); the artifact embeds the poster image rendered from the same
-/// pose. Duplicated nodes keep independent poses, which is how one model
-/// appears from several perspectives across slides.
-///
-/// Orbit convention follows Rhino: Z-up world, `yaw` spins around +Z.
-///
-/// How a model viewport draws. Shaded is the working view. The others are
-/// display passes: white clay, a flat segmentation mask, or a Z-buffer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ModelDisplay {
-    #[default]
-    Shaded,
-    /// White surfaces, soft light. Rhino's Arctic display, without textures.
-    Arctic,
-    /// Flat color per mesh part. Authored colors stay together; parts with
-    /// no color get a stable palette color. This is the segmentation mask.
-    Material,
-    /// Inverse view depth: nearest geometry is white, far geometry is black.
-    Depth,
-}
-
-impl ModelDisplay {
-    /// Stable command, XMP, and serde spelling for this display pass.
-    pub const fn key(self) -> &'static str {
-        match self {
-            Self::Shaded => "shaded",
-            Self::Arctic => "arctic",
-            Self::Material => "material",
-            Self::Depth => "depth",
-        }
-    }
-
-    pub fn from_key(key: &str) -> Option<Self> {
-        match key {
-            "shaded" => Some(Self::Shaded),
-            "arctic" => Some(Self::Arctic),
-            "material" => Some(Self::Material),
-            "depth" => Some(Self::Depth),
-            _ => None,
-        }
-    }
-}
-
-/// `pitch` tilts above/below the XY plane, the eye sits `distance` from
-/// `target` along that direction.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct ModelCamera {
-    /// Orbit target in model space. Non-finite/unset = model bounds center.
-    pub target: [f32; 3],
-    /// Rotation around +Z, radians.
-    pub yaw: f32,
-    /// Elevation above the XY plane, radians (clamped near ±π/2).
-    pub pitch: f32,
-    /// Eye distance from the target. `<= 0` = auto-fit to the model bounds
-    /// (the state of a freshly placed node, resolved on first render).
-    pub distance: f32,
-    /// Viewport display pass. Missing on older files, which stay shaded.
-    #[serde(default)]
-    pub display: ModelDisplay,
-}
-
-impl Default for ModelCamera {
-    fn default() -> Self {
-        // Rhino's default perspective view: three-quarter view from
-        // south-west, looking slightly down.
-        Self {
-            target: [0.0, 0.0, 0.0],
-            yaw: -std::f32::consts::FRAC_PI_4,
-            pitch: 0.5,
-            distance: 0.0,
-            display: ModelDisplay::Shaded,
-        }
-    }
-}
-
-impl ModelCamera {
-    /// Stable hash identifying this pose (poster caching: one rendered
-    /// poster per (model file, camera) pair).
-    pub fn cache_hash(&self) -> u64 {
-        use std::hash::{Hash, Hasher};
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        for v in self.target {
-            v.to_bits().hash(&mut h);
-        }
-        self.yaw.to_bits().hash(&mut h);
-        self.pitch.to_bits().hash(&mut h);
-        self.distance.to_bits().hash(&mut h);
-        self.display.hash(&mut h);
-        h.finish()
-    }
-}
-
 /// Authored column widths and row heights for a spreadsheet card, in world
 /// units. Empty means the card's default cell size.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -2147,85 +1799,9 @@ pub struct SheetLayout {
     pub rows: Vec<f32>,
 }
 
-/// Never pixels — the pool item owns the file link.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ImageNode {
-    pub item: ItemId,
-    /// Column and row sizes when this card shows a spreadsheet.
-    #[serde(default, skip_serializing_if = "SheetLayout::is_empty")]
-    pub sheet: SheetLayout,
-    #[serde(default = "Crop::full")]
-    pub crop: Crop,
-    #[serde(default)]
-    pub corner: Corner,
-    #[serde(default)]
-    pub stroke: Stroke,
-    #[serde(default)]
-    pub adjust: ImageAdjust,
-    /// Playback settings when the linked item is a video; default otherwise.
-    #[serde(default)]
-    pub video: VideoOpts,
-    /// Saved viewport pose when the linked item is a 3D model; default
-    /// otherwise.
-    #[serde(default)]
-    pub model: ModelCamera,
-    /// The agent generating this picture. Its results are the card's album;
-    /// `item` is the result a person picked, and [`ItemId::NONE`] shows the
-    /// newest (see [`crate::agent_inputs::newest_image`]).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent: Option<Box<AgentPortalRef>>,
-    /// Trace-paper overlays (brush, pen, shapes, text) clipped to this image.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub paint_layers: Vec<crate::image_paint::PaintLayer>,
-    /// Pixels mirrored left to right inside the crop window. `crop` and the
-    /// paint layers are stored as displayed; see [`crate::mirror`].
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub flip_x: bool,
-    /// Pixels mirrored top to bottom inside the crop window.
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub flip_y: bool,
-}
-
 impl SheetLayout {
     pub fn is_empty(&self) -> bool {
         self.cols.is_empty() && self.rows.is_empty()
-    }
-}
-
-impl ImageNode {
-    /// A freshly-placed item: full crop, square corners, no stroke, identity
-    /// adjust, default playback.
-    pub fn new(item: ItemId) -> ImageNode {
-        ImageNode {
-            item,
-            sheet: SheetLayout::default(),
-            crop: Crop::full(),
-            corner: Corner::Square,
-            stroke: Stroke::none(),
-            adjust: ImageAdjust::default(),
-            video: VideoOpts::default(),
-            model: ModelCamera::default(),
-            agent: None,
-            paint_layers: Vec::new(),
-            flip_x: false,
-            flip_y: false,
-        }
-    }
-
-    pub fn mirror(&self) -> Mirror {
-        Mirror {
-            x: self.flip_x,
-            y: self.flip_y,
-        }
-    }
-
-    /// A picture an agent will generate; it shows the newest result until a
-    /// person picks one.
-    pub fn generated(agent: AgentPortalRef) -> ImageNode {
-        ImageNode {
-            agent: Some(Box::new(agent)),
-            ..ImageNode::new(ItemId::NONE)
-        }
     }
 }
 
@@ -2291,6 +1867,9 @@ pub struct PathData {
     /// softness, color, or opacity along its length.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tips: Vec<StrokeSpan>,
+    /// Fill colors at boundary vertices, independent of stroke tips.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub field_colors: Vec<Rgba>,
     /// Spot erases on a stamped brush path, oldest first. Each is an eraser
     /// polyline in this path's normalized coordinates. The painters stamp it
     /// as a mask and scale the ink's alpha by `1 - mask`.
@@ -2323,6 +1902,7 @@ impl Default for PathData {
             extra: Vec::new(),
             fill_rule: PathFillRule::NonZero,
             tips: Vec::new(),
+            field_colors: Vec::new(),
             erase: Vec::new(),
             corner_amounts: Vec::new(),
         }
@@ -2423,60 +2003,11 @@ pub enum ShapeKind {
     Path,
 }
 
-pub fn default_regular_sides() -> u8 {
-    6
-}
-
-pub const REGULAR_POLYGON_SIDES_MIN: u8 = 3;
-pub const REGULAR_POLYGON_SIDES_MAX: u8 = 12;
-
-pub fn clamp_regular_sides(sides: u8) -> u8 {
-    sides.clamp(REGULAR_POLYGON_SIDES_MIN, REGULAR_POLYGON_SIDES_MAX)
-}
-
-/// Vertices of a regular n-gon inscribed in `rect`. Vertex `i` sits at
-/// parameter angle `-90° + phase_deg + i·360°/n` on the inscribed ellipse,
-/// so phase 0 puts the first vertex at top center.
-pub fn regular_polygon_vertices(rect: WorldRect, sides: u8, phase_deg: f32) -> Vec<[f32; 2]> {
-    let n = clamp_regular_sides(sides) as f32;
-    let (cx, cy) = rect.center();
-    let rx = rect.w * 0.5;
-    let ry = rect.h * 0.5;
-    let start = -std::f32::consts::FRAC_PI_2 + phase_deg.to_radians();
-    (0..clamp_regular_sides(sides) as usize)
-        .map(|i| {
-            let a = start + i as f32 * (std::f32::consts::TAU / n);
-            [cx + rx * a.cos(), cy + ry * a.sin()]
-        })
-        .collect()
-}
-
-/// Side count and phase after adding (`add`) or removing one side at
-/// vertex `k` (P1.shape.polygon-sides). Removing keeps a vertex exactly at
-/// vertex `k`: the new vertex 0 takes its angle. Adding keeps vertex `k`
-/// at that same angle and re-spaces the others around it. `None` at the
-/// 3 / 12 limits.
-pub fn regular_polygon_resided(
-    sides: u8,
-    phase_deg: f32,
-    k: usize,
-    add: bool,
-) -> Option<(u8, f32)> {
-    let n = clamp_regular_sides(sides);
-    let next = if add { n + 1 } else { n - 1 };
-    if next != clamp_regular_sides(next) {
-        return None;
-    }
-    let k = k % n as usize;
-    let at = phase_deg + k as f32 * 360.0 / n as f32;
-    let phase = if add {
-        at - k as f32 * 360.0 / next as f32
-    } else {
-        at
-    };
-    let phase = phase.rem_euclid(360.0);
-    Some((next, if phase >= 360.0 { 0.0 } else { phase }))
-}
+mod polygon;
+pub use polygon::{
+    clamp_regular_sides, default_regular_sides, regular_polygon_resided, regular_polygon_vertex,
+    regular_polygon_vertices, REGULAR_POLYGON_SIDES_MAX, REGULAR_POLYGON_SIDES_MIN,
+};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShapeNode {
@@ -2509,9 +2040,33 @@ pub struct ShapeNode {
 }
 
 /// Paragraph text hosted by a closed shape. One style for the whole block.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TextStyle {
+    #[serde(default)]
+    pub bold: bool,
+    #[serde(default)]
+    pub italic: bool,
+    #[serde(default)]
+    pub underline: bool,
+}
+
+impl TextStyle {
+    pub fn css(self) -> String {
+        format!(
+            "font-weight:{};font-style:{};text-decoration:{};",
+            if self.bold { "bold" } else { "normal" },
+            if self.italic { "italic" } else { "normal" },
+            if self.underline { "underline" } else { "none" }
+        )
+    }
+}
+
+/// Paragraph text hosted by a closed shape. One style for the whole block.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShapeText {
     pub body: String,
+    #[serde(default)]
+    pub style: TextStyle,
     #[serde(default)]
     pub family: Typeface,
     #[serde(default = "default_shape_text_size")]
@@ -2533,6 +2088,7 @@ impl ShapeText {
     pub fn new(color: Rgba) -> Self {
         Self {
             body: String::new(),
+            style: TextStyle::default(),
             family: Typeface::Sans,
             size: default_shape_text_size(),
             color,
@@ -2581,6 +2137,8 @@ pub fn ensure_shape_text(node: &mut Node) -> Option<&mut ShapeText> {
 pub struct TextNode {
     pub text: String,
     #[serde(default)]
+    pub style: TextStyle,
+    #[serde(default)]
     pub family: Typeface,
     pub size: f32,
     pub color: Rgba,
@@ -2618,6 +2176,7 @@ impl TextNode {
     pub fn agent_note(agent: AgentPortalRef) -> TextNode {
         TextNode {
             text: String::new(),
+            style: Default::default(),
             family: Typeface::Sans,
             size: AGENT_NOTE_SIZE,
             color: STICKY_INK,
@@ -3028,14 +2587,7 @@ pub fn connector_bezier_from_dirs(
     }
 }
 
-/// AABB of the derived curve — the connector node's `rect` is kept equal to
-/// this so marquee/hit systems keep working. `None` when unresolvable.
-pub fn connector_aabb(
-    conn: &ConnectorNode,
-    rect_of: impl Fn(NodeId) -> Option<WorldRect>,
-) -> Option<WorldRect> {
-    connector_bezier(&conn.a, &conn.b, rect_of).map(|bez| bez.aabb())
-}
+pub use crate::wire::connector_aabb;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -3190,6 +2742,18 @@ impl PartialEq for Scene {
 }
 
 impl Scene {
+    /// Empty scratch scene carrying only this scene's node-ID allocator.
+    /// Use for pure node preparation, then commit ordinary `Add` commands.
+    /// It contains no authored nodes, spatial indexes or group allocations;
+    /// applying prepared commands still checks collisions against the live
+    /// scene. This does not reserve IDs in the live document.
+    pub fn node_preparation(&self) -> Self {
+        Self {
+            next_node_id: self.next_node_id,
+            ..Self::default()
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.nodes.is_empty()
     }
@@ -3561,7 +3125,14 @@ fn paint_layer_slot(
     let NodeKind::Image(img) = &mut nodes[idx].kind else {
         return None;
     };
-    img.paint_layers.iter_mut().find(|l| l.id == layer)
+    img.paint_layers
+        .iter_mut()
+        .chain(
+            img.result_layers
+                .iter_mut()
+                .flat_map(|stack| &mut stack.layers),
+        )
+        .find(|candidate| candidate.id == layer)
 }
 
 impl Scene {
@@ -3793,12 +3364,26 @@ pub struct SceneJournal {
 }
 
 impl SceneJournal {
+    /// Save As keeps every historical source aimed at its original target.
+    /// No authored content changes and no undo/redo entries are added or lost.
+    pub fn rebase_linked_sources(&mut self, from: &Path, to: &Path) {
+        if from.parent() == to.parent() { return; }
+        for group in self.done.iter_mut().chain(&mut self.undone) {
+            for command in &mut group.cmds {
+                crate::locators::rebase_linked_command(command, from, to);
+            }
+        }
+    }
+
+    /// A new workbook metadata step abandons the same scene redo branch.
+    pub fn discard_redo(&mut self) {
+        self.undone.clear();
+    }
     /// Applies a command group to the scene and records it. Returns whether
     /// the group applied cleanly.
     pub fn commit(&mut self, scene: &mut Scene, cmds: Vec<SceneCmd>) -> bool {
         self.commit_as(scene, cmds, CmdAuthor::Human)
     }
-
     /// Like [`Self::commit`], with an explicit author.
     pub fn commit_as(&mut self, scene: &mut Scene, cmds: Vec<SceneCmd>, author: CmdAuthor) -> bool {
         if cmds.is_empty() || !crate::agent_chat::valid_commands(scene, &cmds) {
@@ -3810,7 +3395,6 @@ impl SceneJournal {
         self.push_done(cmds, author);
         true
     }
-
     fn push_done(&mut self, cmds: Vec<SceneCmd>, author: CmdAuthor) {
         self.last_token += 1;
         let token = GroupToken(self.last_token);
@@ -3821,12 +3405,10 @@ impl SceneJournal {
         });
         self.undone.clear();
     }
-
     /// The newest done group, the one [`Self::undo`] reverts next.
     pub fn top_token(&self) -> Option<GroupToken> {
         self.done.last().map(|g| g.token)
     }
-
     /// Group `token` is applied to the scene: committed and not undone, or
     /// redone since. Amending a group keeps its token.
     pub fn is_applied(&self, token: GroupToken) -> bool {
@@ -4006,6 +3588,50 @@ impl SceneJournal {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn node_preparation_copies_only_allocator_and_leaves_document_untouched() {
+        let mut scene = Scene::default();
+        let node = scene.build_node(WorldRect::new(1.0, 2.0, 3.0, 4.0), NodeKind::Image(ImageNode::new(crate::ItemId(1))));
+        assert!(scene.apply(&SceneCmd::Add { index: 0, node }));
+        let before = scene.clone();
+        let mut scratch = scene.node_preparation();
+        assert!(scratch.nodes.is_empty());
+        assert_eq!(scratch.spatial_rebuilds(), 0);
+        let a = scratch.build_node(WorldRect::new(0.0, 0.0, 8.0, 8.0), NodeKind::Image(ImageNode::new(crate::ItemId(2))));
+        let b = scratch.build_node(a.rect, a.kind.clone());
+        assert_ne!(a.id, b.id);
+        assert!(a.id.0 > scene.nodes[0].id.0);
+        assert_eq!(scene, before);
+        assert!(scene.apply(&SceneCmd::Add { index: 1, node: a.clone() }));
+        assert!(!scene.apply(&SceneCmd::Add { index: 2, node: a }));
+    }
+
+    #[test]
+    fn typography_defaults_keep_old_workbooks_and_preferred_faces_compatible() {
+        assert_eq!(
+            &Typeface::ALL[..3],
+            &[Typeface::Replica, Typeface::Arial, Typeface::Courier]
+        );
+        assert_eq!(Typeface::default(), Typeface::Sans);
+        let old: ShapeText =
+            serde_json::from_value(serde_json::json!({"body":"old note", "color":[1,2,3,255]}))
+                .unwrap();
+        assert_eq!(old.style, TextStyle::default());
+        let style = TextStyle {
+            bold: true,
+            italic: true,
+            underline: true,
+        };
+        let styled = ShapeText { style, ..old };
+        let roundtrip: ShapeText =
+            serde_json::from_str(&serde_json::to_string(&styled).unwrap()).unwrap();
+        assert_eq!(roundtrip.style, style);
+        assert_eq!(
+            style.css(),
+            "font-weight:bold;font-style:italic;text-decoration:underline;"
+        );
+    }
 
     #[test]
     fn end_conditions_are_per_end_and_round_trip() {
@@ -5410,23 +5036,6 @@ mod tests {
     }
 
     #[test]
-    fn model_display_keys_match_serde_names() {
-        for mode in [
-            ModelDisplay::Shaded,
-            ModelDisplay::Arctic,
-            ModelDisplay::Material,
-            ModelDisplay::Depth,
-        ] {
-            assert_eq!(ModelDisplay::from_key(mode.key()), Some(mode));
-            assert_eq!(
-                serde_json::to_string(&mode).unwrap(),
-                format!("\"{}\"", mode.key())
-            );
-        }
-        assert_eq!(ModelDisplay::from_key("unknown"), None);
-    }
-
-    #[test]
     fn photo_filter_recipes_round_trip_through_intensity() {
         for kind in PhotoFilter::ALL {
             let full = kind.at(1.0);
@@ -5520,22 +5129,6 @@ mod tests {
     }
 
     #[test]
-    fn model_camera_defaults_and_hash() {
-        let cam = ModelCamera::default();
-        assert!(cam.distance <= 0.0, "fresh nodes auto-fit");
-
-        let mut moved = cam;
-        moved.yaw += 0.25;
-        assert_ne!(cam.cache_hash(), moved.cache_hash());
-        assert_eq!(cam.cache_hash(), ModelCamera::default().cache_hash());
-
-        // Round-trips through the document JSON.
-        let json = serde_json::to_string(&moved).unwrap();
-        let back: ModelCamera = serde_json::from_str(&json).unwrap();
-        assert_eq!(moved, back);
-    }
-
-    #[test]
     fn crop_clamps_into_unit_square() {
         let c = Crop {
             x: 0.9,
@@ -5570,6 +5163,7 @@ mod tests {
                 gaussian_blur: 0.0,
                 arrow_end: false,
                 arrow_start: false,
+                arrow_sizes: [None; 2],
                 cap_start: None,
                 cap_end: None,
                 texture: Default::default(),
@@ -5641,6 +5235,7 @@ mod tests {
             gaussian_blur: 0.0,
             arrow_end: false,
             arrow_start: false,
+            arrow_sizes: [None; 2],
             cap_start: None,
             cap_end: None,
             texture: Default::default(),
@@ -5825,6 +5420,7 @@ mod tests {
             WorldRect::new(0.0, 0.0, 10.0, 10.0),
             NodeKind::Text(TextNode {
                 text: "x".into(),
+                style: Default::default(),
                 family: Default::default(),
                 size: 12.0,
                 color: Rgba::BLACK,
@@ -6294,55 +5890,6 @@ pub fn agent_card_as_media(node: &mut Node) -> bool {
     }
 }
 
-// Shared scene style access, used by every property-edit surface.
-pub fn stroke_of(node: &Node) -> Option<Stroke> {
-    match &node.kind {
-        NodeKind::Shape(s) => Some(s.stroke),
-        NodeKind::Image(i) => Some(i.stroke),
-        NodeKind::Connector(c) => Some(c.stroke),
-        NodeKind::Frame(f) => Some(f.stroke),
-        NodeKind::Text(t) => Some(t.stroke),
-        // TWIN: docs/audit/deviations.md DV-21 — an agent portal keeps its
-        // outline in `agent.chat.stroke`; every other portal uses
-        // `PortalNode::stroke`. Collapse onto the field.
-        NodeKind::Portal(p) => Some(match p.agent.as_ref() {
-            Some(a) => a.chat.stroke.unwrap_or(Stroke {
-                width: 0.0,
-                ..Stroke::default()
-            }),
-            None => p.stroke,
-        }),
-        _ => None,
-    }
-}
-
-/// Stroke editor applies to shapes, images, wires, text boxes, slide frames,
-/// and portal frames.
-pub fn supports_stroke(node: &Node) -> bool {
-    stroke_of(node).is_some()
-}
-
-pub fn set_stroke(node: &mut Node, stroke: Stroke) {
-    match &mut node.kind {
-        NodeKind::Shape(s) => s.stroke = stroke,
-        NodeKind::Image(i) => i.stroke = stroke,
-        // A wire's color is authored only through `ConnectorNode::set_color`.
-        NodeKind::Connector(c) => {
-            let color = c.color;
-            c.stroke = stroke;
-            c.set_color(color);
-        }
-        NodeKind::Frame(f) => f.stroke = stroke,
-        NodeKind::Text(t) => t.stroke = stroke,
-        // TWIN: see `stroke_of` above (DV-21).
-        NodeKind::Portal(p) => match p.agent.as_mut() {
-            Some(a) => a.chat.stroke = Some(stroke),
-            None => p.stroke = stroke,
-        },
-        _ => {}
-    }
-}
-
 pub fn corner_of(node: &Node) -> Option<Corner> {
     match &node.kind {
         NodeKind::Shape(s) => Some(s.corner),
@@ -6360,22 +5907,6 @@ pub fn set_corner(node: &mut Node, corner: Corner) {
         NodeKind::Frame(f) => f.corner = corner,
         NodeKind::Portal(p) => p.corner = corner,
         _ => {}
-    }
-}
-
-/// Fillet/chamfer applies to rectangles, images, slide frames, and portals.
-/// Other shapes store a corner field that is not a user-facing treatment.
-pub fn supports_corners(node: &Node) -> bool {
-    match &node.kind {
-        NodeKind::Shape(s) => {
-            matches!(s.shape, ShapeKind::Rect | ShapeKind::RegularPolygon)
-                || (s.shape == ShapeKind::Path
-                    && s.path
-                        .as_ref()
-                        .is_some_and(|p| crate::geom::path_is_line_polyline(p)))
-        }
-        NodeKind::Image(_) | NodeKind::Frame(_) | NodeKind::Portal(_) => true,
-        _ => false,
     }
 }
 
@@ -6483,56 +6014,6 @@ pub fn set_adjust(node: &mut Node, adjust: ImageAdjust) {
     }
 }
 
-/// Photo-filter / ImageAdjust editors apply to placed images, including 3D
-/// model viewports (over the live render or frozen poster).
-pub fn supports_image_adjust(node: &Node) -> bool {
-    matches!(node.kind, NodeKind::Image(_))
-}
-
-pub fn fill_of(node: &Node) -> Option<Rgba> {
-    match &node.kind {
-        NodeKind::Shape(s) => s.fill,
-        NodeKind::Text(t) => t.fill,
-        NodeKind::Frame(f) => Some(f.fill),
-        NodeKind::Portal(p) => Some(p.fill),
-        _ => None,
-    }
-}
-pub fn set_fill(node: &mut Node, fill: Option<Rgba>) {
-    match &mut node.kind {
-        NodeKind::Shape(s) => s.fill = fill,
-        NodeKind::Text(t) => t.fill = fill,
-        NodeKind::Frame(f) => {
-            if let Some(c) = fill {
-                f.fill = c;
-                f.fill_authored = true;
-            }
-        }
-        NodeKind::Portal(p) => {
-            if let Some(c) = fill {
-                p.fill = c;
-                if let Some(a) = &mut p.agent {
-                    a.chat.custom_fill = true;
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
-/// Fill editor authors closed-shape paint, text sticky-note background, and
-/// frame/portal frame color. Text ink stays on `TextNode.color`.
-pub fn supports_fill(node: &Node) -> bool {
-    match &node.kind {
-        NodeKind::Shape(s) => {
-            s.shape != ShapeKind::Line
-                && (s.shape != ShapeKind::Path || s.path.as_ref().is_some_and(|p| p.closed))
-        }
-        NodeKind::Text(_) | NodeKind::Frame(_) | NodeKind::Portal(_) => true,
-        _ => false,
-    }
-}
-
 #[cfg(test)]
 mod corner_percentage_tests {
     use super::*;
@@ -6614,6 +6095,7 @@ mod corner_percentage_tests {
         let image = node(NodeKind::Image(ImageNode::new(crate::ItemId(1))));
         let text = node(NodeKind::Text(TextNode {
             text: "Note".into(),
+            style: Default::default(),
             family: Typeface::default(),
             size: 16.0,
             color: Rgba([0, 0, 0, 255]),

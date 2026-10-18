@@ -158,11 +158,10 @@ fn split_closed_polyline_keeps_corner_overrides_and_tips() {
     }
 }
 
-/// User request (2026-09-26): a Direct Select join that merges the two
-/// ends drops the merged end's entry; every other vertex keeps its width,
-/// color and corner override.
+/// User refinement (2026-10-15): a Direct Select join averages the merged
+/// endpoints; every other vertex keeps its width, color and corner override.
 #[test]
-fn direct_join_merge_drops_only_the_merged_vertex_style() {
+fn direct_join_merge_averages_only_the_merged_vertex_style() {
     let mut h = grip_board("direct_join_vertex_style");
     let pts = [
         Pos2::new(0.0, 0.0),
@@ -188,7 +187,7 @@ fn direct_join_merge_drops_only_the_merged_vertex_style() {
     assert!(s.path.as_ref().unwrap().closed, "the join closed the path");
     let tips = painted_vertex_tips(&h, id);
     assert_eq!(tips.len(), 4, "the merged end is gone");
-    for (k, (w, r)) in [(2.0, 0.0), (4.0, 40.0), (6.0, 80.0), (8.0, 120.0)]
+    for (k, (w, r)) in [(6.0, 80.0), (4.0, 40.0), (6.0, 80.0), (8.0, 120.0)]
         .into_iter()
         .enumerate()
     {
@@ -345,7 +344,7 @@ fn object_join_concatenates_vertex_style_in_joined_order() {
 }
 
 /// An object-level Join that reverses the first source and merges a
-/// coincident seam keeps the first source's style at the seam.
+/// coincident seam averages both endpoints (user, 15 October 2026).
 #[test]
 fn object_join_reverses_the_first_source_and_merges_the_seam() {
     let mut h = grip_board("object_join_vertex_style_merge");
@@ -389,7 +388,7 @@ fn object_join_reverses_the_first_source_and_merges_the_seam() {
     let want = [
         (2.0, 0.0),
         (4.0, 40.0),
-        (6.0, 80.0),
+        (13.0, 165.0),
         (10.0, 160.0),
         (12.0, 200.0),
     ];

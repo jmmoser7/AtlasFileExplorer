@@ -203,6 +203,7 @@ fn pasted_chat_train_forks_source_and_undo_removes_cards() {
         },
     ];
     let state = atlas_ai::agent::AgentSession {
+        activity: Vec::new(),
         usage: None,
         approval: None,
         conversation: "provider-1".into(),

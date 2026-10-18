@@ -30,13 +30,22 @@ hidden on home. Opening is the shelf; **New** starts a blank workbook.
 | Canvas | `canvas.rs` | Board entry point, shared camera helpers, and Home |
 | Board | `board.rs` | Authored open-world canvas: frames, shapes, text, placed images, gestures (draw tools live in the shared bottom dock). A **dropped toolbar** is a journaled `DockStrip` node (`board_dock_embed.rs`, `P1.dock-strip`): the same `atlas-shell::dock` fieldset strip as the docked flyout (unlabeled capsules, contain-scaled — no second painter); click an icon to arm, click-hold-drag anywhere on the node to move it; selection chrome follows the painted card fillet. Armed create-tool chrome (tinted pointer + 22 px ghost) lives in `board_place.rs`. **Trim** (`board_trim.rs`, Ctrl+T) picks cutters then clicks the dying piece — open paths rewrite spans, closed shapes become compound even-odd paths, text/images store `Node.clip`. **Split** (same session, Ctrl+Shift+T) keeps every piece as its own Path. **Join** (`board_join.rs`, Ctrl+J) merges open paths at nearest ends, or boolean-unions connected closed regions (open operands become stroke-weight ribbons; disjoint operands stay put). Object snaps (`board_osnap.rs`, syntax in `slate-doc::osnap`) live in Document Settings as session aids. Wire routing (`slate-doc::wire`, Bezier / Square) is authored per connector from the object-local property palette, alongside weight, dash and arrows; `None` preserves the legacy session fallback. Wire ports follow object features (`P1.wire.ports`), not the world AABB. Wires paint under host nodes. A Grasshopper-style align widget (`board_align.rs`) appears around a 2+ selection. Canvas objects follow **P0.9** (scale with zoom). Agent portals have no identity tab; an unbound portal embeds `atlas-shell::home::cover_flow_home` (`HomeModel.interactive` only in contents-focus) and journals the chosen folder on `PortalNode.source`. Bound posters split Cursor IDE status from file-link sidecar status. |
 | Presentation | `present.rs` | Fullscreen slide playback of the board's frames |
-| Image filters | `imagefx.rs` | CSS-filter math on pixels (board preview parity with the HTML artifact) |
+| Image filters | `imagefx.rs` | Board pixel adapter for shared `slate-doc::image_adjust` filter math (artifact parity) |
 | 3D viewports | `model3d.rs` | One viewport for every placed 3D file. Readers live in `crates/model-preview` (Rhino via `rhino-mesh`, plus OBJ, STL, glTF). Offscreen glow render, lock/unlock, poster cache |
 | Previews | `preview.rs` | Lazy full-resolution texture tier above the thumbnails (see below) |
 | Settings | `settings.rs` | Persisted UI settings (`slate-settings.json` next to the index DB) |
 | Bottom readouts | `ui/readouts.rs` | Item/tag counts, link health, zoom |
 | Advanced | `ui/advanced.rs` | Floating window (canvas preview settings, workbook info, commands reference) |
 | Commands | `commands.rs` | Canonical bindings; see `COMMANDS.md` |
+
+## Crash diagnostics
+
+The standalone launcher (`src/crash.rs`) monitors a separate GUI process.
+`atlas_core::crash_report` owns bounded local evidence, Rust panic hooks,
+retention and interrupted-run recovery; `src/crash/native.rs` adds best-effort
+Windows exception metadata. The launcher offers new reports on the next start,
+and Advanced calls the shared `atlas_shell::crash_report` section. See
+[`docs/crash-reports.md`](../../../../docs/crash-reports.md) for coverage.
 
 ## The tag model (`slate-doc`)
 
@@ -103,8 +112,9 @@ the workbook. Two invariants carry the whole design:
    `crates/vector-ink`) and the HTML writer (`crates/slate-artifact`) are
    two interpreters of one model, so the exported artifact shows exactly
    what the board shows: uniform strokes as native SVG stroke attributes,
-   tapered strokes as filled outline paths. `imagefx.rs` implements the
-   same filter math on pixels for the live preview. Do not add board
+   tapered strokes as filled outline paths. `slate-doc::image_adjust` owns
+   pixel filter math; `imagefx.rs` and hosted-image artifact adapters call it.
+   Do not add board
    styling that no web standard can express.
 2. **Every mutation is an invertible, authored `SceneCmd`.** Gestures mutate
    the scene live but journal their net effect on release (`SceneJournal`);
@@ -140,7 +150,7 @@ Other board rules:
   the icon's command, or selects the node if the press missed an icon
   (`P1.dock-strip`).
 - **Align widget** (`board_align.rs`) is selection chrome, not a tool: two
-  icon clusters (bottom + left) sit outside a 2+ Select-tool group box.
+  T-shaped icon clusters (bottom + left, shared shell layout/paint) sit outside a 2+ Select-tool group box.
   Selection chrome is a silhouette outline (no grip squares) that follows
   fillets and ellipses. Press commits `board.align.*` / `board.distribute.*`
   through one `patch_nodes` group. Ctrl+Alt+Shift on a group grip
@@ -205,11 +215,17 @@ The node paints nothing over its render but one bottom caption (the
 double-click hint, the measure prompt, the auto-lock countdown). A single
 selected mesh model adds two squircles to the shared selection strip:
 
-- **Viewport display** (Model cube) — `selection_tools::segments` in one
-  default capsule: Shaded, Arctic, Material mask, Z-buffer. A click
-  dispatches `board.model_display`, one journaled patch of
-  `ModelCamera::display`, live or frozen. `model3d_frame` pushes undo/redo
-  of that field into a live viewport.
+- **Viewport display** (Model cube) — shared `selection_tools::filter_capsule`
+  thumbnail chips: Shaded, Arctic, Hidden line, Material mask, Z-buffer.
+  `ModelDisplay::ALL` owns their order. A click dispatches
+  `board.model_display`, one journaled patch of `ModelCamera::display`, live
+  or frozen. Shaded and Hidden line also offer a default capsule with
+  **Materials off / on** (`board.model_materials`), a journaled
+  `ModelCamera::materials` flag. Older workbooks default to On. Arctic stays
+  white; Material mask and Depth remain diagnostic passes. `model3d_frame`
+  pushes undo/redo of both fields into a live viewport, and both participate
+  in poster cache identity. Controls live in `board_properties/model_display.rs`;
+  the renderer-free camera/display model lives in `slate-doc::scene::model_camera`.
 - **Measure** (Ruler) — `board.model_measure` enters the viewport if needed
   and arms point to point (Rhino `Distance`). Navigate is the resting tool.
 
@@ -274,6 +290,33 @@ Submit dispatches the same `portal.agent.spawn` with a prompt and
 `ImageSettings`, and the spawned frame runs at once. Engines are chosen per
 frame by provider: `comfy`, `codex-image` (ChatGPT sign-in) or `openai-image`.
 
+Artifact is the fourth `SPAWN_CHOICES` result. It is an existing Web portal
+with an `ArtifactGeneratorRef` and an independent agent binding; selecting
+Cursor or Codex never replaces its browser locator, frame or viewport.
+`board_agent::artifact` adapts the shared shell generator controls and the
+shared prepared-request sender. Play is explicit. Preparation, input freezing,
+history reconstruction and publication run on bounded workers; replies are
+checked against their requesting tab, node, run and accepted revision.
+Validated output previews before Apply makes one attributed journal commit.
+
+`agent_inputs::WireBinding` distinguishes pinned Artifact content from Memory.
+Downstream creation adds both in one undo group. Memory uses the chat rail's
+geometry without `ChatView.parent`; deleting it preserves content and starts
+a fresh conversation on the next run. Native continuation requires the exact
+persisted transcript head. Earlier branches replay only their pinned prefix.
+`atlas-ai::versions` owns immutable HTML revisions, SHA-256 verification,
+compact reversible deltas and periodic full snapshots. Scene nodes store
+locators and revision IDs; source, embedded data and assets remain external.
+Export and package workers verify the pinned revision before copying it.
+Packages use revision-specific destinations and an explicit source hash pin,
+so portable HTML can be verified without copying private conversation history.
+Save As rebases linked locators and their undo/redo snapshots after a successful
+write, preserving the same external targets.
+Live browser controls are session state. Both harnesses consume the canonical
+`docs/agent/cursor-sidecar/artifact-generation-v1.md` profile, which requires
+offline HTML and fidelity to explicit references. The contract is
+`artifact-generation`.
+
 ### Agent outputs (`board_agent_outputs.rs`)
 
 A child module of `board_agent.rs`. A chat card's right output circle opens
@@ -332,7 +375,7 @@ A web portal is a host-class portal whose contents are a page — an `http(s)`
 URL, or a local `.html` file or folder. The frame, the locator, and the
 viewport parameters are journaled; the rendered page never is.
 
-`board_web.rs` is the whole feature except pixels: states, LOD buckets, pool
+`board_web` owns the feature except pixels: states, LOD buckets, pool
 admission, painting, entry paths, and the commands. Shared portal chrome —
 identity tab (web-only, slimmer than the dashboard top bar), maximize
 overlay, corner clip — lives in `board_portal_chrome.rs` and is painted by
@@ -353,6 +396,64 @@ and it is what the two budgets exist for: at most `LIVE_POOL` webviews, and at
 most `UPLOADS_PER_FRAME` texture uploads per frame with the rest carried in a
 backlog. Keyboard is forwarded through DevTools rather than window focus, so
 egui still decides what reaches the page and Esc can peel focus off it.
+
+`board_web/input.rs` forwards changed pointer samples rather than synthesizing
+a move on every paint. Real hover movement, dragging, scrolling, and typing
+activate the existing 60 Hz interaction cadence; a parked pointer returns to
+idle. `board_web/scheduler.rs` separates capture acquisition from nonblocking
+completion polling, so a finished focused GPU copy can upload between capture
+deadlines. `board_web_win/readback.rs` keeps two pending staging slots, prefers
+the newest completed copy, and never waits on a GPU map. Existing readback and
+upload budgets still apply. The ignored `local_dashboard_pointer_latency`
+test measures a local page's pointer-to-captured-frame latency without network
+or dashboard instrumentation; it reports native-host timing, not full display
+latency.
+
+The latency probe shows its own parent window without activating it: a hidden
+parent triggers Chromium occlusion throttling and misrepresents the live app.
+It does not change browser feature flags or touch another Slate window.
+
+All portal Capture commands use `board_portal/capture`: one source identity,
+recording lifecycle, asynchronous GPU readback, and background still/MP4 writer.
+Paint hooks run immediately after portal content and before board chrome.
+Two GPU slots and three recycled CPU buffers bound memory and never wait for a
+fence on the frame loop. Video samples retain actual timestamps when dropped;
+the first frame fixes an even, aspect-preserving size within 1080p/30 fps.
+Resizing letterboxes subsequent frames. Tab changes, deletion, rebinding, and
+unavailable content cancel capture. Outputs publish from sibling drafts only
+after encoding succeeds. Canvas captures use durable workbook assets (or the
+per-user captures directory for an unsaved workbook) and one journaled image
+or video node beside the source. Existing 3D stills retain their camera metadata.
+Shared output and placement also own the existing web/File Atlas bake paths.
+
+Video starts into a private per-user draft. `RecordingClock` starts with the
+first accepted frame and projects timestamps across Pause/Resume, excluding
+paused time from both the timer and MP4. Pausing retains the encoder and offers
+File/Canvas destination commands; picker replies carry the capture generation,
+and picker cancellation retains the paused draft. Final publication copies the
+owned recording into a sibling atomic draft on its worker, then removes the
+private intermediate. Saving status spans encoding and publication.
+
+`selection_tools::capture` owns capture-specific inner controls, using shared
+segments and canvas type. Launch joins `Panel::Capture` in the existing property
+pipeline; its attached apron uses the shared image-presentation and blister
+surface owners. Runtime feedback remains source-bound independently of selection.
+Panel, type, icons, borders and hit geometry share the host transform (P0.9);
+ordinary clipping and LOD apply. Camera navigation retains the editor through
+the existing property-dismiss and chrome-pan owners. No capture path fits or
+clamps the board camera. In maximized view, `capture_layout` fits source and its
+board-unit apron as one derived assembly through `fit_xf`; the normal web
+caption owner remains unchanged. Frame starvation measures accepted frames,
+never the cadence at which readbacks were requested.
+
+`board_web/table_links.rs` owns dashboard table refresh and script caching.
+One worker checks metadata and the cloud guard before parsing linked tables;
+at most eight requests are pending, with one request per resolved path. Paint
+uses accepted cached data while refreshing, and an unresolved first read says
+`Unknown`. Unchanged metadata avoids parsing, unchanged inputs avoid repeated
+script serialization, and workbook-relative paths resolve through
+`board_portal::resolve_source` before entering the cache. No table filesystem
+probe or byte read occurs on the frame loop.
 
 The page has no channel back into Slate — web messages and host objects are
 disabled — which is what makes Art. VII.4 structural rather than a promise.
@@ -466,8 +567,18 @@ document must reset `link_health_revision`.
    tab opens **read-only**: view / present / export still work; saves and
    board mutations refuse with a toast. Read-only is shown as a
    ` (read-only)` tab-title suffix and the holder's name in the bottom
-   readout — never a new chrome banner. The active tab's lease is
-   heartbeated each frame; `close_tab` and app exit release it.
+   readout — never a new chrome banner. `slate_doc::lease` maintains all
+   owned leases on one worker, including inactive tabs and Home; frame pumps
+   observe cached failures without filesystem I/O. A persistent zero-byte
+   `.slate.lock.guard` holds the OS lock while the readable `.slate.lock`
+   records an acquisition token and heartbeat. Guard files must not be
+   deleted. Save As reserves the destination before any document change or
+   write and retains the old lease until success (`workbook_save.rs`);
+   asynchronous asset completion uses the same ownership check. Close/drop
+   queues marker cleanup to the worker and leaves replacements untouched.
+   Process exit drains queued releases with a two-second maximum wait.
+   Legacy clients do not honour the OS guard; their marker replacement makes
+   ownership checks fail closed rather than authorizing another save.
 
 `tests.rs` drives the real frame loop headlessly over these invariants.
 

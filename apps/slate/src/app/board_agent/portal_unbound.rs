@@ -3,6 +3,15 @@
 use super::*;
 
 impl SlateApp {
+    pub(crate) fn agent_capture_picker_open(&self, id: NodeId) -> bool {
+        self.agents.project_picker == Some(id)
+            || self
+                .agents
+                .chat_picker
+                .as_ref()
+                .is_some_and(|picker| picker.portal == id)
+    }
+
     pub(crate) fn paint_agent_portal(
         &mut self,
         ui: &egui::Ui,
@@ -76,6 +85,8 @@ impl SlateApp {
             self.paint_agent_bound(ui, painter, xf, &layout, node, portal, maximized);
         }
 
+        self.paint_pack_caption(painter, node, layout.body, xf.z);
+
         if portal
             .agent
             .as_ref()
@@ -96,6 +107,8 @@ impl SlateApp {
                 false,
                 xf.z,
             );
+        } else {
+            self.paint_portal_capture(painter, node.id, layout.body);
         }
     }
     fn paint_agent_unbound(
@@ -106,6 +119,7 @@ impl SlateApp {
         _maximized: bool,
         zoom: f32,
     ) {
+        self.note_program_chooser();
         self.ensure_agent_programs();
         let interactive = !self.tab().read_only;
         // A fit while redo waits would clear it, and Undo could never get
@@ -146,7 +160,11 @@ impl SlateApp {
             interactive,
             zoom,
         ) {
-            self.set_agent_program(id, &provider);
+            if self.ai.packs.needs_key(&provider) {
+                self.ai.packs.key_entry = true;
+            } else {
+                self.set_agent_program(id, &provider);
+            }
         }
     }
 }

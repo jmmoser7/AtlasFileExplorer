@@ -95,10 +95,19 @@ impl SnapReach {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SlateSettings {
+    /// Saved identities only; active sessions and grants are never restored.
+    pub collaborators: Vec<super::agent_presence::StoredAgent>,
+    pub presence_identity: super::agent_presence::HumanProfile,
+    pub presence_contacts: Vec<super::agent_presence::StoredHuman>,
+    pub presence_reduced_motion: bool,
+    /// Last explicitly chosen appearance; old settings retain dark mode.
+    pub dark_mode: bool,
     /// Primary NodeKind names whose passive hover outline is disabled.
     /// Empty preserves the existing behavior for old settings files.
     pub hover_highlight_disabled: std::collections::BTreeSet<String>,
     pub preview: PreviewSettings,
+    /// Local recovery copies, including workbooks that have never been saved.
+    pub recovery: super::recovery::RecoveryPreferences,
     /// Board ortho constraint toggle (F8). The toggle + readout land now;
     /// the 45° gesture math arrives with the board-tools wave.
     pub board_ortho: bool,
@@ -130,10 +139,12 @@ pub struct SlateSettings {
     /// Medium texture of the Brush and of the Eraser.
     pub brush_texture: slate_doc::scene::BrushTexture,
     pub eraser_texture: slate_doc::scene::BrushTexture,
-    /// The (provider, model) last chosen for image agents and text agents.
+    /// The (provider, model) last chosen independently for each generator kind.
     /// New frames and editors start from it until another is chosen.
     pub agent_image_model: Option<(String, String)>,
     pub agent_text_model: Option<(String, String)>,
+    #[serde(default)]
+    pub agent_artifact_model: Option<(String, String)>,
     /// Preferences → Configure → Tools → Bumper cars. Off until turned on;
     /// while off, nodes keep their Bumper settings and nothing collides.
     pub optional_bumper_cars: bool,
@@ -142,8 +153,14 @@ pub struct SlateSettings {
 impl Default for SlateSettings {
     fn default() -> Self {
         SlateSettings {
+            collaborators: Vec::new(),
+            presence_identity: Default::default(),
+            presence_contacts: Vec::new(),
+            presence_reduced_motion: false,
+            dark_mode: true,
             hover_highlight_disabled: Default::default(),
             preview: PreviewSettings::default(),
+            recovery: super::recovery::RecoveryPreferences::default(),
             board_ortho: false,
             board_osnap: slate_doc::ObjectSnapSet::default(),
             board_smart_guides: true,
@@ -161,6 +178,7 @@ impl Default for SlateSettings {
             eraser_texture: Default::default(),
             agent_image_model: None,
             agent_text_model: None,
+            agent_artifact_model: None,
             optional_bumper_cars: false,
         }
     }
@@ -205,6 +223,8 @@ impl SlateSettings {
 
     /// Hand-edited or stale files snap back into the supported ranges.
     fn clamped(mut self) -> SlateSettings {
+        self.presence_contacts.truncate(64);
+        self.recovery = self.recovery.clamped();
         self.preview.max_px = self.preview.max_px.clamp(MAX_PX_MIN, MAX_PX_MAX);
         self.preview.budget_mb = self.preview.budget_mb.clamp(BUDGET_MB_MIN, BUDGET_MB_MAX);
         if !self.brush_width.is_finite() {
@@ -272,6 +292,7 @@ mod tests {
     #[test]
     fn roundtrip_preserves_values() {
         let s = SlateSettings {
+            dark_mode: false,
             preview: PreviewSettings {
                 enabled: false,
                 max_px: 1024,

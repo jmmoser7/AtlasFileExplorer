@@ -1,0 +1,261 @@
+{
+  "schemaVersion": 1,
+  "revision": "conversation-redesign-2",
+  "status": "prototype-review",
+  "units": "logical-css-pixel-at-100-percent",
+  "referenceAuthority": "User feedback and supplied images, 17 October 2026. Latest explicit correction: the conversation shell encloses its capsule and controls; scroll hats using shared Cover Flow; gentle retirement; provider visuals. Approved face and all26 manually calibrated hat fits remain authoritative.",
+  "references": [
+    {
+      "id": "chat",
+      "file": "reference-chat.png",
+      "width": 1024,
+      "height": 1536,
+      "sha256": "7ac4ddd27855b60cd7c55042cd919fd3bd1a143aa9acbc32c68a8706b931c626"
+    },
+    {
+      "id": "overflow",
+      "file": "reference-overflow.png",
+      "width": 1024,
+      "height": 1024,
+      "sha256": "8fdc3f42958181f41579e31d3438457e41b390531163dce2d3d6c2a694a9307a"
+    },
+    {
+      "id": "quick-hats",
+      "file": "reference-quick-hats.png",
+      "width": 1024,
+      "height": 1536,
+      "sha256": "83b03917a4d2cb736e4b5ba91e892a918ae389f83211e55325664d8660ea2dfa"
+    },
+    {
+      "id": "hat-inventory",
+      "file": "reference-hat-inventory.png",
+      "width": 1024,
+      "height": 1024,
+      "sha256": "541319d593b2bc414741b0452bd5b084485219acdec45b1ad169c7d6172bca8f"
+    },
+    {
+      "id": "enclosure-feedback",
+      "file": "reference-enclosure-feedback.png",
+      "width": 618,
+      "height": 766,
+      "sha256": "e8bbb6ab0344f6613138565bd80858b28ebf1f5877802b3d576e451038151497",
+      "authority": "Screenshot shows prior separated surfaces; user text requests a continuous enclosing shell."
+    }
+  ],
+  "measurementMethod": "Operator-selected bounds from supplied original pixels; estimates have +/-4 source-pixel uncertainty. Uniform width normalization only. No automated edge detection or inferred exact font identity.",
+  "observations": {
+    "chatHeader": {
+      "reference": "chat",
+      "bounds": [
+        24,
+        16,
+        1000,
+        119
+      ],
+      "radiusSourcePx": 36
+    },
+    "chatBody": {
+      "reference": "chat",
+      "bounds": [
+        16,
+        139,
+        1008,
+        1519
+      ]
+    },
+    "composerRule": {
+      "reference": "chat",
+      "bounds": [
+        52,
+        1113,
+        972,
+        1115
+      ]
+    },
+    "replyBubble": {
+      "reference": "chat",
+      "bounds": [
+        184,
+        317,
+        843,
+        491
+      ]
+    },
+    "overflowMenu": {
+      "reference": "overflow",
+      "bounds": [
+        706,
+        84,
+        1009,
+        458
+      ]
+    },
+    "quickHats": {
+      "reference": "quick-hats",
+      "bounds": [
+        110,
+        138,
+        913,
+        337
+      ]
+    },
+    "hatGrid": {
+      "reference": "hat-inventory",
+      "bounds": [
+        27,
+        48,
+        1000,
+        970
+      ],
+      "columns": 5,
+      "rows": 5
+    }
+  },
+  "parameters": {
+    "dialogWidth": {
+      "value": 480,
+      "unit": "logical-px",
+      "evidence": "desktop adaptation of width-normalized reference",
+      "tolerance": 2
+    },
+    "headerHeight": {
+      "value": 48,
+      "unit": "logical-px",
+      "observedSourcePx": 103,
+      "evidence": "103 * 480 / 1024 = 48.28",
+      "tolerance": 2
+    },
+    "contentInset": {
+      "value": 16,
+      "unit": "logical-px",
+      "evidence": "rounded desktop adaptation; source insets vary with bubble/avatar gutter",
+      "tolerance": 2
+    },
+    "avatarDiameter": {
+      "value": 36,
+      "unit": "logical-px-in-chrome-or-world-units-on-board",
+      "evidence": "small approved face retained; world size corrected by user",
+      "tolerance": 1
+    },
+    "rosterHeight": {
+      "value": 40,
+      "unit": "logical-px",
+      "evidence": "proposed compact desktop capsule; no roster image was supplied",
+      "tolerance": 2
+    },
+    "bubbleFont": {
+      "value": 18,
+      "unit": "logical-px",
+      "evidence": "desktop type adaptation; source estimated 48px at 1024px width",
+      "tolerance": 1
+    },
+    "bubbleLineHeight": {
+      "value": 1.35,
+      "unit": "ratio",
+      "evidence": "reference multiline rhythm adaptation",
+      "tolerance": 0.05
+    },
+    "bubbleRadius": {
+      "value": 24,
+      "unit": "logical-px",
+      "evidence": "rounded reference silhouette desktop adaptation",
+      "tolerance": 2
+    },
+    "composerMinHeight": {
+      "value": 64,
+      "unit": "logical-px",
+      "evidence": "reference divider and spacious editor adapted to desktop",
+      "tolerance": 2
+    },
+    "canvasChatWidth": {
+      "value": 340,
+      "unit": "world-unit-at-100-percent",
+      "evidence": "proposed attached conversation desktop adaptation; prototype review",
+      "tolerance": 2
+    },
+    "canvasChatMaxHeight": {
+      "value": 330,
+      "unit": "world-unit-at-100-percent",
+      "evidence": "proposed attached conversation desktop adaptation; prototype review",
+      "tolerance": 2
+    },
+    "canvasChatMessageMaxHeight": {
+      "value": 238,
+      "unit": "world-unit-at-100-percent",
+      "evidence": "proposed attached conversation desktop adaptation; prototype review",
+      "tolerance": 2
+    },
+    "canvasChatAnchorOffset": {
+      "value": 38,
+      "unit": "world-unit-at-100-percent",
+      "evidence": "proposed attached conversation desktop adaptation; prototype review",
+      "tolerance": 2
+    },
+    "canvasChatGap": {
+      "value": 17,
+      "unit": "world-unit-at-100-percent",
+      "evidence": "proposed attached conversation desktop adaptation; prototype review",
+      "tolerance": 2
+    },
+    "canvasChatFont": {
+      "value": 14,
+      "unit": "world-unit-at-100-percent",
+      "evidence": "proposed attached conversation desktop adaptation; prototype review",
+      "tolerance": 2
+    },
+    "canvasChatLineHeight": {
+      "value": 1.45,
+      "unit": "ratio",
+      "evidence": "proposed attached conversation desktop adaptation; prototype review",
+      "tolerance": 0.05
+    },
+    "conversationInset": {
+      "value": 8,
+      "unit": "logical-px",
+      "evidence": "Proposed inset for the enclosing shell around the existing 48px header",
+      "tolerance": 2
+    },
+    "conversationRadius": {
+      "value": 24,
+      "unit": "logical-px",
+      "evidence": "Retained rounded silhouette, applied to the whole conversation",
+      "tolerance": 2
+    },
+    "hatFlowHeight": {
+      "value": 110,
+      "unit": "logical-px",
+      "evidence": "Compact desktop strip; all hats reachable by scroll",
+      "tolerance": 2
+    },
+    "hatFlowCover": {
+      "value": 78,
+      "unit": "logical-px",
+      "evidence": "Shared owner pose export cover size",
+      "tolerance": 2
+    }
+  },
+  "constraints": [
+    "sourceScale = dialogWidth / reference.width; normalize both axes with sourceScale",
+    "roster right edge remains fixed; participant segments grow left",
+    "profile right edge equals corresponding participant segment right edge; profile opens below and left",
+    "message bubble maximum width is 80% of conversation inner width",
+    "board avatar painted diameter = avatarDiameter * cameraZoom; no screen-size floor or ceiling",
+    "board-attached chat defaults to world layout and scale; prototype also compares a readable anchored overlay as a proposed P0.9 exception. Avatar always world-scaled.",
+    "at 720px host height, header and composer remain reachable and history scrolls",
+    "icon and name/caret have distinct non-overlapping hit regions",
+    "One enclosing conversation shell contains identity capsule, controls, pickers, history and composer.",
+    "Hat picker consumes its own wheel input; scroll/snap motion is approximate in HTML, projection poses come from atlas-shell::home.",
+    "Harness identity changes never erase participant history or automatically resend a task; same harness is a no-op."
+  ],
+  "motion": {
+    "expressionMs": 180,
+    "gazeMs": 475,
+    "source": "accepted existing independent face transition rig; retained"
+  },
+  "agreement": {
+    "status": "accepted",
+    "date": "2026-10-17",
+    "source": "User: i think it all looks good ... procede to build ... final board",
+    "scope": "Revision2 visual and interaction design; native behavior requires separate verification"
+  }
+}

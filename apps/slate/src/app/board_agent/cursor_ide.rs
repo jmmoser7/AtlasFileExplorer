@@ -75,7 +75,9 @@ pub(super) fn classify_agent_failure(reason: String) -> (String, Vec<AgentRecove
             "Cursor needs an API key to reach an agent. Get one, then paste it here — you do not have to set a system environment variable.".into(),
             actions,
         )
-    } else if lower.contains("workspace") {
+    } else if lower.starts_with("set an ai workspace before ")
+        || lower.starts_with("choose an ai workspace folder ")
+    {
         (
             "Choose an AI workspace folder so this portal has a place to write the agent link."
                 .into(),

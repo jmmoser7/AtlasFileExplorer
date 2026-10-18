@@ -234,7 +234,7 @@ fn fillet_grip_press_beats_edge_band_but_nw_corner_still_resizes() {
         Some(board::BoardDrag::FilletRadius { id: hit, .. }) if hit == id
     ));
 
-    let nw = geom.corners[0];
+    let nw = geom.corners[0] - EVec2::new(9.0, 0.0);
     assert!(matches!(
         h.app
             .begin_gesture(nw, xf.s2w(nw), egui::Modifiers::NONE),
@@ -396,8 +396,8 @@ fn selection_outline_follows_silhouette() {
     );
 }
 
-/// P1.node.corner-grip: a selected portal's painted outline is its authored
-/// corner — a chamfer as well as a fillet — not the frame box.
+/// P1.image.frame: a single portal casts a shadow; its multi-selection outline
+/// follows the authored chamfer or fillet instead of the frame box.
 #[test]
 fn selected_portal_outline_follows_its_authored_corner() {
     let mut h = web_board("sel_portal_corner");
@@ -435,10 +435,19 @@ fn selected_portal_outline_follows_its_authored_corner() {
             same(&h.app.node_screen_outline(&h.ctx, &xf, node)),
             "{corner:?}: the selection outline is the corner outline"
         );
+        assert!(painted_shadow_encloses(&out, xf.rect_w2s(node.rect)));
+        assert!(
+            !painted_closed_paths(&out).iter().any(|pts| same(pts)),
+            "{corner:?}: single selection uses its shadow without a ring"
+        );
+        let other = add_rect(&mut h.app, 360.0, 0.0);
+        h.app.board_sel.insert(other);
+        let out = h.frame_output(|_| {});
         assert!(
             painted_closed_paths(&out).iter().any(|pts| same(pts)),
-            "{corner:?}: the painted selection ring is the corner outline"
+            "{corner:?}: the multi-selection ring is the corner outline"
         );
+        h.app.delete_board_nodes(&[other]);
     }
 }
 

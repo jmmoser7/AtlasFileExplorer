@@ -1,6 +1,10 @@
 //! Process supervision. Vendor protocol stays in the renderer-free leaf crate.
+mod artifact;
+mod models;
 use crate::agent::{atomic_write_json, AgentRequest, AgentSession, AgentStatus};
+pub use artifact::validate_artifact_submission;
 use crossbeam_channel::{bounded, Sender};
+pub use models::{image_models, text_models};
 use std::{
     path::{Path, PathBuf},
     sync::{
@@ -8,36 +12,6 @@ use std::{
         Arc,
     },
 };
-
-/// Installed programs plus explicitly configured file-link adapters. Discovery is
-/// performed off the UI thread; unavailable future engines never appear as ready.
-pub fn discover_programs(workspace: Option<&Path>) -> Vec<crate::agent::AgentProvider> {
-    let mut programs = Vec::new();
-    if crate::launch::cursor_available() {
-        programs.push(crate::agent::provider_by_id("cursor"));
-    }
-    if codex_executable().is_some() {
-        programs.push(crate::agent::provider_by_id("codex"));
-    }
-    // Ollama and ComfyUI are reached from media (the Agent squircle), not as
-    // programs; `provider_by_id` still resolves cards that already use them.
-    if let Some(ws) = workspace {
-        if let Ok(bytes) = std::fs::read(ws.join(".atlas-ai/programs.json")) {
-            if let Ok(custom) = serde_json::from_slice::<Vec<crate::agent::AgentProvider>>(&bytes) {
-                for mut p in custom {
-                    if !p.id.is_empty()
-                        && !p.id.starts_with("ollama/")
-                        && !programs.iter().any(|v| v.id == p.id)
-                    {
-                        p.launch = crate::agent::LaunchKind::None;
-                        programs.push(p);
-                    }
-                }
-            }
-        }
-    }
-    programs
-}
 
 pub fn codex_executable() -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("CODEX_BIN")
@@ -99,6 +73,7 @@ pub fn comfy_models() -> Result<Vec<atlas_agent::AgentModel>, String> {
         .map(|name| atlas_agent::AgentModel {
             id: name.clone(),
             name,
+            ..Default::default()
         })
         .collect())
 }
@@ -110,6 +85,7 @@ pub fn local_models() -> Result<Vec<atlas_agent::AgentModel>, String> {
         .map(|name| atlas_agent::AgentModel {
             id: name.clone(),
             name,
+            ..Default::default()
         })
         .collect())
 }
@@ -120,20 +96,8 @@ pub fn codex_models() -> Result<Vec<atlas_agent::AgentModel>, String> {
     )
 }
 pub fn cursor_models() -> Result<Vec<atlas_agent::AgentModel>, String> {
-    let value = crate::sidecar::query_cursor_models()?;
-    let models = value
-        .as_array()
-        .ok_or("Cursor model catalog was not a list")?;
-    Ok(models
-        .iter()
-        .filter_map(|model| {
-            let id = model["id"].as_str()?;
-            Some(atlas_agent::AgentModel {
-                id: id.into(),
-                name: model["name"].as_str().unwrap_or(id).into(),
-            })
-        })
-        .collect())
+    serde_json::from_value(crate::sidecar::query_cursor_models()?)
+        .map_err(|e| format!("Cursor model catalog: {e}"))
 }
 pub fn codex_projects() -> Vec<(String, PathBuf)> {
     codex_executable()
@@ -212,6 +176,8 @@ fn record_image_sidecars(session: &AgentSession, request: &AgentRequest) {
 
 /// Credential Manager slot for the person's OpenAI API key.
 pub use atlas_openai::KEY_SLOT as OPENAI_KEY_SLOT;
+/// GPT Image models that stand in until the key's catalog arrives.
+pub use atlas_openai::{DEFAULT_TEXT_MODEL as OPENAI_TEXT_MODEL, MODELS as OPENAI_IMAGE_MODELS};
 
 /// GPT Image models the stored key may call, newest first. Worker-only: it
 /// reads Credential Manager and asks the API.
@@ -219,7 +185,11 @@ pub fn openai_image_models() -> Result<Vec<atlas_agent::AgentModel>, String> {
     let key = atlas_core::secrets::load(OPENAI_KEY_SLOT).ok_or("Add an OpenAI API key.")?;
     Ok(atlas_openai::models(&key)?
         .into_iter()
-        .map(|(id, name)| atlas_agent::AgentModel { id, name })
+        .map(|(id, name)| atlas_agent::AgentModel {
+            id,
+            name,
+            ..Default::default()
+        })
         .collect())
 }
 
@@ -228,117 +198,14 @@ pub fn openai_text_models() -> Result<Vec<atlas_agent::AgentModel>, String> {
     let key = atlas_core::secrets::load(OPENAI_KEY_SLOT).ok_or("Add an OpenAI API key.")?;
     Ok(atlas_openai::text_models(&key)?
         .into_iter()
-        .map(|(id, name)| atlas_agent::AgentModel { id, name })
+        .map(|(id, name)| atlas_agent::AgentModel {
+            id,
+            name,
+            ..Default::default()
+        })
         .collect())
 }
 
-/// Every text model a text agent offers, as (provider, model, label): local
-/// models first (the default needs no account, Art. I.4), then ChatGPT
-/// through the Codex sign-in, then OpenAI API models.
-pub fn text_models(
-    local: &[atlas_agent::AgentModel],
-    codex: Option<&[atlas_agent::AgentModel]>,
-    openai: bool,
-    api: &[atlas_agent::AgentModel],
-) -> Vec<(String, String, String)> {
-    let mut models = vec![(
-        "ollama".to_string(),
-        String::new(),
-        "Local · Auto".to_string(),
-    )];
-    models.extend(local.iter().map(|m| {
-        (
-            "ollama".to_string(),
-            m.id.clone(),
-            format!("Local · {}", crate::agent::model_label(&m.name)),
-        )
-    }));
-    if let Some(codex) = codex {
-        models.push((
-            "codex-text".into(),
-            String::new(),
-            "ChatGPT · your sign-in".into(),
-        ));
-        models.extend(codex.iter().map(|m| {
-            (
-                "codex-text".to_string(),
-                m.id.clone(),
-                format!("ChatGPT · {}", crate::agent::model_label(&m.name)),
-            )
-        }));
-    }
-    if openai && api.is_empty() {
-        // The key's catalog has not arrived yet.
-        models.push((
-            "openai-text".into(),
-            atlas_openai::DEFAULT_TEXT_MODEL.into(),
-            format!("OpenAI · {}", atlas_openai::DEFAULT_TEXT_MODEL),
-        ));
-    } else if openai {
-        models.extend(api.iter().map(|m| {
-            (
-                "openai-text".to_string(),
-                m.id.clone(),
-                format!("OpenAI · {}", m.name),
-            )
-        }));
-    } else {
-        models.push((
-            "openai-text".into(),
-            atlas_openai::DEFAULT_TEXT_MODEL.into(),
-            "OpenAI · add API key".into(),
-        ));
-    }
-    models
-}
-
-/// Every image model the image agent offers, as (provider, model, label). An
-/// empty model is that provider's default. ComfyUI checkpoints and the GPT
-/// Image models a key may call come from their catalogs; before the key's
-/// catalog arrives the known GPT Image models stand in.
-pub fn image_models(
-    comfy: &[atlas_agent::AgentModel],
-    codex: bool,
-    openai: bool,
-    gpt: &[atlas_agent::AgentModel],
-) -> Vec<(String, String, String)> {
-    let mut models = vec![(
-        "comfy".to_string(),
-        String::new(),
-        "ComfyUI · Auto".to_string(),
-    )];
-    models.extend(comfy.iter().map(|m| {
-        (
-            "comfy".to_string(),
-            m.id.clone(),
-            format!("ComfyUI · {}", m.name),
-        )
-    }));
-    if codex {
-        models.push((
-            "codex-image".into(),
-            String::new(),
-            "ChatGPT · your sign-in".into(),
-        ));
-    }
-    let known: Vec<(String, String)> = if gpt.is_empty() {
-        atlas_openai::MODELS
-            .iter()
-            .map(|(id, name)| (id.to_string(), name.to_string()))
-            .collect()
-    } else {
-        gpt.iter().map(|m| (m.id.clone(), m.name.clone())).collect()
-    };
-    models.extend(known.into_iter().map(|(id, name)| {
-        let label = if openai {
-            format!("{name} · API key")
-        } else {
-            format!("{name} · add API key")
-        };
-        ("openai-image".to_string(), id, label)
-    }));
-    models
-}
 impl Engine {
     fn start(
         provider: &str,
@@ -348,18 +215,19 @@ impl Engine {
         preview: &atlas_comfy::PreviewSink,
         workbook: Option<&Path>,
     ) -> Result<Self, String> {
-        if provider == "ollama" || provider.starts_with("ollama/") {
+        let leaf = crate::packs::leaf(provider);
+        if leaf == Some("atlas-ollama") {
             return atlas_ollama::Client::start(provider.strip_prefix("ollama/"), cancel)
                 .map(Self::Ollama);
         }
         let (images, tag) = image_output_dir(workbook, provider, dir);
-        if provider == "comfy" {
+        if leaf == Some("atlas-comfy") {
             let mut client = atlas_comfy::Client::start(cancel)?;
             client.set_output_dir(images, &tag);
             client.set_preview_sink(preview.clone());
             return Ok(Self::Comfy(client));
         }
-        if provider == "openai-image" || provider == "openai-text" {
+        if leaf == Some("atlas-openai") {
             let key = atlas_core::secrets::load(atlas_openai::KEY_SLOT)
                 .ok_or("Add an OpenAI API key to use OpenAI models.")?;
             return Ok(Self::OpenAi(atlas_openai::Client::new(key, images)));
@@ -379,6 +247,7 @@ impl Engine {
         }
         let mut c = atlas_codex::Client::start(&executable, cwd, previous.as_deref())?;
         c.set_approval_dir(dir);
+        c.set_board_cloud_guard(atlas_core::cloud::is_dehydrated);
         std::fs::write(dir.join("codex-thread.txt"), c.thread_id()).map_err(|e| e.to_string())?;
         Ok(Self::Codex(c))
     }
@@ -428,6 +297,7 @@ impl CodexLink {
                 .ok()
                 .and_then(|v| serde_json::from_slice::<AgentSession>(&v).ok())
                 .unwrap_or(AgentSession {
+                    activity: Vec::new(),
                     usage: None,
                     approval: None,
                     conversation: String::new(),
@@ -441,6 +311,7 @@ impl CodexLink {
                 });
             while let Ok(request) = rx.recv() {
                 session.request = request.id.clone();
+                session.activity.clear();
                 if request.oneshot {
                     session.turns.clear();
                 }
@@ -449,6 +320,7 @@ impl CodexLink {
                 }
 
                 let result = (|| -> Result<(), String> {
+                    validate_artifact_submission(&request, &provider)?;
                     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
                     session.status = AgentStatus::Thinking;
                     session.updated_at = crate::context::now_secs();
@@ -502,7 +374,9 @@ impl CodexLink {
                         let session = crate::access::session_of(&dir);
                         let session = session.as_deref();
                         c.set_full_access(turn_full_access(
-                            session.is_some_and(crate::access::granted),
+                            session.is_some_and(|session| {
+                                crate::access::granted_for_request(session, &request)
+                            }),
                             session.is_some_and(crate::access::relay_granted),
                             &request,
                         ));
@@ -538,6 +412,7 @@ impl CodexLink {
         self.preview.lock().ok()?.clone()
     }
     pub fn send(&self, request: AgentRequest) -> Result<(), String> {
+        request.validate_artifact_request()?;
         self.cancel.store(false, Ordering::Relaxed);
         self.tx
             .try_send(request)
@@ -569,113 +444,6 @@ pub fn turn_full_access(granted: bool, relay_granted: bool, request: &AgentReque
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use atlas_agent::TurnPolicy;
-
-    #[test]
-    fn a_saved_workbook_receives_generated_images_beside_it() {
-        let workbook = Path::new("/boards/deck/Board.slate");
-        let link = Path::new("/links/session-a");
-        let (dir, _) = image_output_dir(Some(workbook), "openai-image", link);
-        let text = dir.to_string_lossy().replace('\\', "/");
-        assert!(
-            text.contains("/boards/deck/assets/generated/openai-image/"),
-            "{text}"
-        );
-        let (unsaved, tag) = image_output_dir(None, "openai-image", link);
-        assert_eq!(tag, "session-a");
-        assert!(unsaved.ends_with(Path::new("openai-image").join("session-a")));
-    }
-
-    #[test]
-    fn relayed_turns_need_the_relay_grant_and_read_only_never_gets_full_access() {
-        let own = AgentRequest::default();
-        let relayed = AgentRequest {
-            relayed_from: Some("Codex · reviewer".into()),
-            ..Default::default()
-        };
-        let read_only = AgentRequest {
-            policy: TurnPolicy::ReadOnly,
-            ..Default::default()
-        };
-        assert!(turn_full_access(true, false, &own));
-        assert!(!turn_full_access(false, true, &own));
-        assert!(!turn_full_access(true, false, &relayed));
-        assert!(turn_full_access(true, true, &relayed));
-        assert!(!turn_full_access(false, true, &relayed));
-        for (granted, relay) in [(true, true), (true, false), (false, false)] {
-            assert!(!turn_full_access(granted, relay, &read_only));
-            let relayed_read_only = AgentRequest {
-                relayed_from: Some("Cursor · builder".into()),
-                ..read_only.clone()
-            };
-            assert!(!turn_full_access(granted, relay, &relayed_read_only));
-        }
-    }
-}
-
+mod live;
 #[cfg(test)]
-mod live {
-    use super::*;
-
-    /// One short text reply on the person's OpenAI API key.
-    #[test]
-    #[ignore = "spends one short OpenAI text reply on the stored key"]
-    fn live_openai_text_through_the_stored_key() {
-        let models = openai_text_models().unwrap();
-        eprintln!(
-            "text models: {:?}",
-            models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>()
-        );
-        let key = atlas_core::secrets::load(OPENAI_KEY_SLOT).unwrap();
-        let mut client = atlas_openai::Client::new(key, std::env::temp_dir());
-        let request: AgentRequest = serde_json::from_value(serde_json::json!({
-            "id": "live-text", "prompt": "Name three colors, comma separated.", "at": 0,
-            "oneshot": true, "model": models.first().map(|m| m.id.clone()),
-            "inputs": {"revision": "1", "context": [], "wired": []}
-        }))
-        .unwrap();
-        let mut session: AgentSession =
-            serde_json::from_str(r#"{"provider":"openai-text"}"#).unwrap();
-        let started = std::time::Instant::now();
-        client
-            .run(&request, &mut session, &AtomicBool::new(false), |_| {})
-            .unwrap();
-        eprintln!(
-            "{:?} in {:?}: {}",
-            request.model,
-            started.elapsed(),
-            session.turns.last().unwrap().text
-        );
-    }
-
-    /// Spends one picture on the person's OpenAI API key. The key is read from
-    /// Credential Manager inside the adapter and never printed.
-    #[test]
-    #[ignore = "spends one GPT Image picture on the stored OpenAI API key"]
-    fn live_gpt_image_through_the_stored_key() {
-        let models = openai_image_models().unwrap();
-        eprintln!(
-            "models: {:?}",
-            models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>()
-        );
-        let dir = std::env::temp_dir().join(format!("atlas-openai-live-{}", std::process::id()));
-        let key = atlas_core::secrets::load(OPENAI_KEY_SLOT).unwrap();
-        let mut client = atlas_openai::Client::new(key, dir.clone());
-        let request: AgentRequest = serde_json::from_value(serde_json::json!({
-            "id": "live-gpt", "prompt": "a small green cube on a plain white background", "at": 0,
-            "image": {"count": 1, "aspect": "square"},
-            "inputs": {"revision": "1", "context": [], "wired": []}
-        }))
-        .unwrap();
-        let mut session: AgentSession =
-            serde_json::from_str(r#"{"provider":"openai-image"}"#).unwrap();
-        let started = std::time::Instant::now();
-        let result = client.run(&request, &mut session, &AtomicBool::new(false), |_| {});
-        eprintln!("{result:?} in {:?}", started.elapsed());
-        result.unwrap();
-        assert_eq!(session.bundle.images.len(), 1);
-        eprintln!("{}", session.bundle.images[0].source);
-    }
-}
+mod tests;

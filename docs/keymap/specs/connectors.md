@@ -184,3 +184,7 @@ wires; with no wire selected they set the creation/legacy default.
   anchors still resolve to start/mid/end.
 - slate-artifact: golden SVG snippet for an anchored + a free-ended
   connector with arrowhead + label.
+
+## Canvas-wide settings (13 October 2026)
+
+Empty-canvas right-click always offers `board.wire.canvas`. The settings draft reuses shared color/opacity/width controls and the Bézier/Orthogonal toggle. Apply patches every unlocked connector, hidden ones included, with only the edited properties, as one undo group. Selection and the creation defaults remain unchanged. Close/Escape discards the draft. See shape-selection-toolbar D01/D03.

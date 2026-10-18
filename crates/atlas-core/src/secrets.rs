@@ -21,10 +21,12 @@ const MAX_BLOB: usize = 2560;
 
 /// `true` when `path` is the WebView2 profile folder, the file secret store,
 /// a legacy API-key file, or a per-user trust grant (web origin consent,
-/// agent full access) under the Atlas data directory. Packaging and HTML
+/// agent full access) under the Atlas data directory, or ephemeral board-link
+/// queues under `.atlas-ai/agent/<session>`. Packaging and HTML
 /// export must refuse these paths.
 pub fn is_machine_private(path: &Path) -> bool {
     let mut in_atlas = false;
+    let mut link_parts = 0;
     for component in path.components() {
         let Component::Normal(raw) = component else {
             continue;
@@ -32,6 +34,20 @@ pub fn is_machine_private(path: &Path) -> bool {
         let Some(name) = raw.to_str() else {
             continue;
         };
+        if name.eq_ignore_ascii_case(".atlas-ai") {
+            link_parts = 1;
+        } else if link_parts == 1 {
+            link_parts = if name.eq_ignore_ascii_case("agent") {
+                2
+            } else {
+                0
+            };
+        } else if link_parts >= 2 {
+            link_parts += 1;
+            if link_parts >= 4 && is_board_link_private(name) {
+                return true;
+            }
+        }
         if !in_atlas && name.eq_ignore_ascii_case("NativeFileAtlas") {
             in_atlas = true;
             continue;
@@ -50,6 +66,13 @@ fn is_private_component(name: &str) -> bool {
         || name.eq_ignore_ascii_case("web-consent.json")
         || name.eq_ignore_ascii_case("agent-access.json")
         || name.eq_ignore_ascii_case("web-stills")
+        || is_board_link_private(name)
+}
+
+fn is_board_link_private(name: &str) -> bool {
+    name.eq_ignore_ascii_case("board-session.json")
+        || name.eq_ignore_ascii_case("board-calls")
+        || name.eq_ignore_ascii_case("board-replies")
 }
 
 /// Read a secret. `None` means this user does not have one.
@@ -334,5 +357,28 @@ mod tests {
             &root.join("assets").join("web").join("index.html")
         ));
         assert!(!is_machine_private(&root.join("assets").join("agent")));
+    }
+
+    #[test]
+    fn board_link_membership_and_queues_never_travel_with_a_workbook() {
+        let root = std::env::temp_dir().join("slate-private-test");
+        let link = root.join(".atlas-ai").join("agent").join("session-id");
+        for private in [
+            "board-session.json",
+            "board-calls/call.json",
+            "board-replies/call.json",
+        ] {
+            assert!(is_machine_private(&link.join(private)));
+        }
+        assert!(is_machine_private(
+            &root.join(".ATLAS-AI/AGENT/session-id/BOARD-CALLS/a.json")
+        ));
+        assert!(!is_machine_private(
+            &root.join("assets/board-calls/diagram.png")
+        ));
+        assert!(!is_machine_private(
+            &root.join(".atlas-ai/assets/board-calls/diagram.png")
+        ));
+        assert!(!is_machine_private(&link.join("deliverable.svg")));
     }
 }

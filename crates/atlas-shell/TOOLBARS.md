@@ -1,14 +1,33 @@
 # Shared toolbar / dock interaction notes
 
 Cross-app contract for File Atlas and Slate palette docks. Implementation lives
-in `dock.rs` + panel bodies; apps must not diverge.
+in `dock.rs` + panel bodies. Shared chrome chooses presentation from item kind:
+Slate's Tool families are icon palettes; File Atlas's Dashboard menus are forms.
 
 Object-attached selection strips and property editors follow
 [DYNAMIC_PANELS.md](DYNAMIC_PANELS.md) and `selection_tools.rs`. The dock's
 pinning, Minimize/Drop controls, stacked inspector forms, and viewport
 reflow below do not apply to those editors.
 
-## Interaction model (palette icons)
+## Bottom-edge Tool palette interaction
+
+Primary circles live at the **left** of their own capsule, matching every
+secondary circle's size and spacing, with a solid fill contrasting with the display mode. Feedback is the
+cherry-red Action singleton at the far left. Click a family primary once
+to reveal secondaries to the right; click again to collapse. Multiple open
+families persist until explicitly closed. There is no hover-open or
+double-click pin distinction on this edge.
+
+Capsule widths and neighboring positions follow the same 200 ms smoothstep
+ease in either direction, including an interrupted transition. The row
+stays on one datum; narrow windows scroll horizontally. The readout blister
+collapses and restores the entire row, including open families. Drop to
+canvas is in the primary's context menu and on primary-icon drag to the canvas.
+The release point places the existing journaled palette copy. File Atlas's Dashboard menus retain
+classic form bodies and the primary bar on either edge. Inspector forms keep
+their separate placement. See `DOCK.md` for ownership and tokens.
+
+## Left-edge interaction model (palette icons)
 
 | Gesture | Result |
 |---------|--------|
@@ -33,8 +52,8 @@ behind (single-click) or beneath (pinned). Close-delay must not keep a
 name chip up just because the pointer is still "inside" the dock.
 Chip fill uses `HOVER_CHIP_OPACITY` so the canvas stays readable underneath.
 
-**Body layout:** palettes are an unlabeled icon strip. Inspectors
-stay stacked forms. Minimize and Drop sit on every
+**Body layout:** Tool palettes are an unlabeled icon strip. Dashboards and
+Inspectors stay stacked forms. Minimize and Drop sit on every
 palette. Hover labels appear in one place, centered above the dots.
 Icon-strip mode uses fieldset groups of secondary circular
 icons with no pallet name on the capsule. Tertiary dot toggles

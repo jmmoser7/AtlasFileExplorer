@@ -2,6 +2,24 @@
 
 use super::*;
 
+mod transcript;
+
+impl SlateApp {
+    /// Replace an agent card's transcript with one assistant turn, as a stream
+    /// delivering `text` would.
+    pub(crate) fn set_assistant_turn_for_test(&mut self, id: NodeId, text: &str) {
+        self.agents.local_turns.insert(
+            id,
+            vec![AgentTurn {
+                role: "assistant".into(),
+                text: text.into(),
+                at: 0,
+            }],
+        );
+        self.agents.output_epoch += 1;
+    }
+}
+
 #[test]
 fn agent_history_cache_tracks_live_drag_and_grip_suppresses_resize() {
     let mut h = super::super::tests::Harness::new("live_chat_rails");
@@ -34,43 +52,9 @@ fn agent_history_cache_tracks_live_drag_and_grip_suppresses_resize() {
         ) * xf.z;
     assert_eq!(
         h.app.agent_output_at(p, &xf),
-        None,
-        "the first train card has no output grip"
+        Some(root),
+        "the first train card's output grip is live with no second card"
     );
-}
-
-#[test]
-fn agent_full_transcript_scales_without_rewrapping_between_raster_steps() {
-    let mut h = super::super::tests::Harness::new("full_chat_zoom");
-    h.app.leave_home();
-    h.app.ensure_work_tab();
-    h.app.doc_mut().view.active_view = slate_doc::ViewKind::Board;
-    h.app.place_agent_portal_at(Pos2::ZERO);
-    let id = h.app.doc().scene.nodes[0].id;
-    h.app.set_agent_program(id, "local");
-    h.frame();
-    h.app.agents.local_turns.insert(
-        id,
-        vec![AgentTurn {
-            role: "assistant".into(),
-            text: "A stable conversation line".into(),
-            at: 0,
-        }],
-    );
-    h.app.agents.output_epoch += 1;
-    h.frame();
-    let first = h.app.agents.transcript_cache[&(id, 0)].clone();
-    let logical_width = first.3.size().x * first.4;
-    let r = h.app.doc().scene.node(id).unwrap().rect;
-    h.app.tab_mut().cam.offset.x = r.x + r.w * 0.5;
-    h.app.tab_mut().cam.offset.y = r.y + r.h * 0.5;
-    for z in [1.01, 1.02, 1.03] {
-        h.app.tab_mut().cam.z = z;
-        h.frame();
-        let current = &h.app.agents.transcript_cache[&(id, 0)];
-        assert_eq!(current.3.rows.len(), first.3.rows.len());
-        assert!((current.3.size().x * current.4 - logical_width).abs() < 0.5);
-    }
 }
 
 #[test]
@@ -209,45 +193,6 @@ fn agent_draft_focus_enter_send_and_text_sizing() {
 }
 
 #[test]
-fn agent_summary_cache_refreshes_for_theme_and_zoom() {
-    let mut h = super::super::tests::Harness::new("agent_summary_raster");
-    h.app.leave_home();
-    h.app.ensure_work_tab();
-    h.app.doc_mut().view.active_view = slate_doc::ViewKind::Board;
-    h.app.place_agent_portal_at(Pos2::ZERO);
-    let id = h.app.doc().scene.nodes[0].id;
-    h.app.set_agent_program(id, "local");
-    h.frame();
-    h.app.agents.local_turns.insert(
-        id,
-        vec![AgentTurn {
-            role: "assistant".into(),
-            text: "Readable in both themes".into(),
-            at: 0,
-        }],
-    );
-    h.app.agents.output_epoch += 1;
-    let node = h.app.doc().scene.node(id).unwrap();
-    let center = egui::vec2(
-        node.rect.x + node.rect.w * 0.5,
-        node.rect.y + node.rect.h * 0.5,
-    );
-    h.app.tab_mut().cam.offset = center;
-    h.app.tab_mut().cam.z = 1.0;
-    h.app.dark_mode = true;
-    h.frame();
-    let dark = h.app.agents.transcript_cache[&(id, 0)].2;
-    h.app.dark_mode = false;
-    h.frame();
-    let light = h.app.agents.transcript_cache[&(id, 0)].2;
-    assert_ne!(dark, light, "theme changes must invalidate colored glyphs");
-    h.app.tab_mut().cam.z = 3.0;
-    h.frame();
-    let zoom = h.app.agents.transcript_cache[&(id, 0)].2;
-    assert_ne!(zoom, light, "high zoom must re-rasterize text");
-}
-
-#[test]
 fn an_older_assistant_turn_is_not_this_reply() {
     let turns = vec![
         AgentTurn {
@@ -365,6 +310,34 @@ To install them by hand, run in PowerShell:\n  cd \"C:\\workspace\\Slate\\docs\\
             .any(|a| matches!(a, AgentRecover::PickWorkspace)),
         "a folder named workspace is not a missing AI workspace"
     );
+}
+
+#[test]
+fn filesystem_failures_keep_workspace_path_operation_and_os_error() {
+    for raw in [
+        r"Could not prepare artifact history in C:\demo-ai-workspace\.atlas-ai\artifact-sources: Incorrect function. (os error 1)",
+        r"Could not write agent request C:\demo-ai-workspace\.atlas-ai\agent\run\request.json: Access is denied. (os error 5)",
+    ] {
+        let (reason, actions) = classify_agent_failure(raw.into());
+        assert_eq!(reason, raw);
+        assert!(!actions
+            .iter()
+            .any(|action| matches!(action, AgentRecover::PickWorkspace)));
+    }
+}
+
+#[test]
+fn missing_workspace_configuration_keeps_specific_recovery() {
+    let expected =
+        "Choose an AI workspace folder so this portal has a place to write the agent link.";
+    for raw in [
+        "Set an AI workspace before generating an artifact.",
+        expected,
+    ] {
+        let (reason, actions) = classify_agent_failure(raw.into());
+        assert_eq!(reason, expected);
+        assert!(matches!(actions.as_slice(), [AgentRecover::PickWorkspace]));
+    }
 }
 
 #[test]

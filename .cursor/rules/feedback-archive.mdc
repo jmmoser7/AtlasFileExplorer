@@ -1,0 +1,24 @@
+---
+description: Judge UI task outcomes and verify client feedback before closure
+alwaysApply: true
+---
+
+# UI outcome and feedback acceptance
+
+For every UI implementation or review, use the
+[completed-task acceptance checks](../../feedback/README.md#judge-the-completed-user-task),
+including consequential states absent from supplied mockups.
+
+When addressing Suggestion box reports, follow the acceptance and archive
+procedure owned by [feedback/README.md](../../feedback/README.md#resolution-and-interactive-acceptance).
+Reconcile reports older than 48 hours with prior ledgers and actual evidence;
+age, a prior “fixed” label, compilation and test counts never establish closure.
+For appearance, feel or user flow, require exact-build native interactive
+evidence and user acceptance. After overnight or substantial multi-report UI
+work, supply the interactive Pass/Fail/Blocked/Untested document defined there.
+For substantial UI batches, use its independent intent/experience reviewer as
+a second filter on implementation scope and actual native verification evidence.
+Start each new build's cases Untested; preserve earlier results separately.
+Keep unmet clauses, blocked verification and deferred work open. A user-reported
+recurrence reopens the issue despite prior tests or archival. Preserve originals
+and history; archive only when the owner's resolution requirements are met.

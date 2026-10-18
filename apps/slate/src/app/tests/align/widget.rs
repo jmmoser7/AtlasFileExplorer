@@ -85,20 +85,62 @@ fn align_gp5_widget_hit_misses_the_box() {
         None,
         "inner bottom edge is resize, not align"
     );
-    let cluster = 4.0 * board_align::ICON_PX + 3.0 * board_align::ICON_GAP_PX;
+    let pitch = board_align::ICON_PX + board_align::ICON_GAP_PX;
     let icon = Pos2::new(
-        bbox.center().x - cluster * 0.5 + board_align::ICON_PX * 0.5,
-        bbox.bottom() + board_align::bottom_outset_px(xf.z),
+        bbox.center().x - pitch,
+        bbox.bottom() + board_align::bottom_outset_px(xf.z) + pitch,
     );
     assert_eq!(
         h.app.align_action_at(icon),
         Some(board_align::AlignAction::Align(board::BoardAlign::Left))
     );
     let old_top = Pos2::new(
-        bbox.center().x - cluster * 0.5 + board_align::ICON_PX * 0.5,
+        bbox.center().x - pitch,
         bbox.top() - board_align::FRAME_OUTSET_PX,
     );
     assert_eq!(h.app.align_action_at(old_top), None, "top cluster is gone");
+}
+
+#[test]
+#[ignore = "visual review: captures actual alignment chrome in both themes"]
+fn capture_alignment_widget() {
+    for (theme, dark) in [("light", false), ("dark", true)] {
+        for count in [2, 3] {
+            let mut h = align_board(&format!("align_capture_{theme}_{count}"));
+            h.app.dark_mode = dark;
+            h.ctx.set_visuals(if dark {
+                atlas_shell::theme::dark_visuals()
+            } else {
+                atlas_shell::theme::light_visuals()
+            });
+            let ids: Vec<_> = (0..count)
+                .map(|i| {
+                    add_rect(
+                        &mut h.app,
+                        240.0 + i as f32 * 110.0,
+                        180.0 + i as f32 * 40.0,
+                    )
+                })
+                .collect();
+            select_ids(&mut h.app, &ids);
+            let mut raster = FrameRaster::new(1440, 900);
+            capture_frame(&mut h, &mut raster, |_| {});
+            let out = capture_frame(&mut h, &mut raster, |_| {});
+            let bbox = h
+                .app
+                .board_xf()
+                .rect_w2s(h.app.board_group_bounds().unwrap());
+            review_shot_crop(
+                &mut h,
+                &mut raster,
+                out,
+                "alignment",
+                &format!("{theme}_{count}"),
+                bbox.expand(100.0),
+                2,
+            );
+        }
+    }
 }
 
 /// P1.node.select — Shift+click adds a rectangle instead of replacing.

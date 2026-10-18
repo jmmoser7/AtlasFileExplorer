@@ -1,10 +1,21 @@
 //! Agent pump and session pump.
 
 use super::*;
+pub(super) mod image_import;
 
 impl SlateApp {
+    /// Participant menus project the session cache instead of scanning the board.
+    pub(crate) fn participant_chat_entries(&self)->Vec<(String,String)> {
+        self.agents.bindings.iter().filter_map(|(id,session)|self.doc().scene.node(*id).map(|node|{
+            let name=match &node.kind {NodeKind::Portal(p) if !p.title.is_empty()=>p.title.clone(),_=>session.chars().take(40).collect()};
+            (id.0.to_string(),name)
+        })).collect()
+    }
     pub(crate) fn agent_pump(&mut self, ctx: &egui::Context) {
+        self.ai.packs.begin_frame();
+        self.paint_pack_key_entry(ctx);
         self.sync_agent_doc();
+        self.pump_agent_approval_deliveries(ctx);
         let front_span = atlas_core::session_log::span("slate.agents.front");
         let mut existing: HashSet<String> = self
             .tabs
@@ -45,10 +56,21 @@ impl SlateApp {
         drop(front_span);
         let ws = self.ai.config.workspace_dir.clone().unwrap_or_default();
         self.pump_agent_sessions(ctx, &ws);
+        self.pump_known_agent_image_imports(ctx);
         let tail_span = atlas_core::session_log::span("slate.agents.tail");
         self.pump_agent_awaits(ctx, &ws);
         self.pump_crosstalk(ctx);
+        self.pump_pending_chat_sends(ctx);
         self.pump_comfy_queue();
+        self.pump_artifact_generations(ctx);
+        if self
+            .agents
+            .comfy_queue
+            .values()
+            .any(|queue| !queue.is_empty())
+        {
+            ctx.request_repaint_after(Duration::from_millis(30));
+        }
         self.pump_live_generators();
         if !self.agents.live_settle.is_empty() {
             ctx.request_repaint_after(LIVE_TYPING_SETTLE);
@@ -129,6 +151,9 @@ impl SlateApp {
             let Some(agent) = agent else {
                 continue;
             };
+            if atlas_ai::agent::local_image_engine(&agent.provider) {
+                self.agents.image_imports.note_candidate(id);
+            }
             if agent.provider.is_empty() {
                 continue;
             }

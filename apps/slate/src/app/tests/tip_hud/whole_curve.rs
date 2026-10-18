@@ -372,7 +372,7 @@ fn select_tool_style_row_restyles_the_whole_selected_curve() {
         Some(board_color::BrushHud::Size { .. })
     ));
     let n = h.app.tip_choices().len();
-    assert_eq!(n, 5, "the curve style row");
+    assert_eq!(n, 3, "Square, Round and Arrow; Fade is for armed tools");
     let r = (h.app.active_tip().0 * 0.5 * h.app.tab().cam.z).max(1.5);
     let arrow = palette_slot(away, r, 2, n);
     h.frame_with(alt_right(Pos2::new(away.x, (away.y + arrow.y) * 0.5), None));

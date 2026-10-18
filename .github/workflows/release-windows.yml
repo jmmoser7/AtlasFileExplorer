@@ -59,7 +59,16 @@ jobs:
       - name: Test real installation and coordinated upgrade
         run: ./scripts/test-windows-update.ps1
       - name: Test workspace on Windows
+        id: workspace_tests
         run: cargo test --locked --workspace --no-fail-fast
+      - name: Rerun focused File Atlas failure diagnostic
+        if: failure() && steps.workspace_tests.outcome == 'failure'
+        shell: pwsh
+        run: |
+          & cargo test --locked -p native-file-atlas delete_key_removes_the_card_under_the_cursor -j2 -- --nocapture
+          $cargoExit = $LASTEXITCODE
+          Write-Host "Focused diagnostic Cargo exit code: $cargoExit"
+          exit $cargoExit
       - name: Prepare optional publisher certificate
         if: github.event_name != 'pull_request'
         shell: pwsh

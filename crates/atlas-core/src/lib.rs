@@ -8,6 +8,7 @@
 
 pub mod clipboard_image;
 pub mod cloud;
+pub mod crash_report;
 pub mod dirmeta;
 pub mod display;
 pub mod export;
@@ -23,6 +24,7 @@ pub mod office;
 pub mod owners;
 pub mod pack_sheet;
 pub mod pdf;
+pub mod pdf_media;
 pub mod preview;
 pub mod rasterthumb;
 pub mod scanner;

@@ -30,15 +30,36 @@ impl SlateApp {
                     let on_image = self.press_on_selected_crop(world);
                     if !on_image {
                         self.board_crop = None;
+                    } else if let Some(drag) = self.begin_crop_pan(world) {
+                        return Some(drag);
+                    }
+                }
+                // Agent controls own their grip regions, so a press there
+                // cannot also begin a board selection or transform drag.
+                let xf = self.board_xf();
+                if self.agent_grip_owns(screen, &xf) {
+                    return None;
+                }
+                if !(mods.ctrl && mods.shift) {
+                    if let Some(id) = self.tiny_body_owns_pointer(screen) {
+                        return self.begin_select_body_drag(id, world, mods);
                     }
                 }
                 // Match hover priority: the visible fillet grip wins any
                 // overlap with wire/resize bands, and a curve grip only
                 // where it is nearer (`fillet_grip_hit_at`).
-                if let Some(drag) = self.begin_fillet_drag(screen, world) {
+                if let Some(drag) = self
+                    .field_selection()
+                    .is_none()
+                    .then(|| self.begin_fillet_drag(screen, world))
+                    .flatten()
+                {
                     return Some(drag);
                 }
                 // Endpoint grips on a selected simple line — these replace
+                if let Some(drag) = self.begin_picked_line_group_drag(screen, world) {
+                    return Some(BoardDrag::Direct(drag));
+                }
                 // the resize bbox entirely (P1.curve.grips, contract D13).
                 if self.board_sel.len() == 1 {
                     let id = *self.board_sel.iter().next().unwrap();
@@ -57,6 +78,15 @@ impl SlateApp {
                 // Vertex / handle / arc grips on a selected curve.
                 if let Some(drag) = self.begin_curve_grip_drag(screen, mods) {
                     return Some(BoardDrag::Direct(drag));
+                }
+                if mods.ctrl && mods.shift {
+                    return Some(BoardDrag::Direct(
+                        super::super::board_direct::DirectDrag::Marquee {
+                            start_screen: screen,
+                            add: true,
+                            edges: true,
+                        },
+                    ));
                 }
                 if let Some(drag) = self.begin_picked_edge_drag(world) {
                     return Some(BoardDrag::Direct(drag));
@@ -104,14 +134,7 @@ impl SlateApp {
                 // selected via Ctrl+Shift+click (the one-off edit hatch).
                 let mut picked = self.board_pick_node(world.x, world.y);
                 if picked.is_none() {
-                    let forced = board_path::board_pick_node_routed(
-                        &self.doc().scene,
-                        world.x,
-                        world.y,
-                        self.tab().cam.z,
-                        true,
-                        self.board_wire_routing,
-                    );
+                    let forced = self.board_pick_node_with_locked(world.x, world.y, true);
                     if let Some(f) = forced {
                         if self.board_sel.contains(&f) {
                             picked = Some(f);
@@ -125,37 +148,18 @@ impl SlateApp {
                             frame: Some(hit),
                         })
                     }
-                    Some(hit) => {
-                        self.apply_select_pick(hit, mods, true);
-                        let sel: Vec<NodeId> = self.board_sel.iter().copied().collect();
-                        if self.alt_down {
-                            // Alt-drag duplicate: insert copies (journaled on release).
-                            let expanded = self.expand_with_members(&sel);
-                            let sources: Vec<Node> = expanded
-                                .iter()
-                                .filter_map(|i| self.doc().scene.node(*i).cloned())
-                                .collect();
-                            let (ids, before) = self.stage_unjournaled_duplicates(&sources);
-                            Some(BoardDrag::Move {
-                                ids,
-                                before,
-                                start_world: world,
-                                dup: true,
-                            })
-                        } else {
-                            let expanded = self.expand_with_members(&sel);
-                            let before: Vec<Node> = expanded
-                                .iter()
-                                .filter_map(|i| self.doc().scene.node(*i).cloned())
-                                .collect();
-                            let ids = before.iter().map(|n| n.id).collect();
-                            Some(BoardDrag::Move {
-                                ids,
-                                before,
-                                start_world: world,
-                                dup: false,
-                            })
-                        }
+                    Some(hit) => self.begin_select_body_drag(hit, world, mods),
+                    None if self.curve_grip_target().is_some()
+                        || self.closed_form_target().is_some()
+                        || self.selected_line_for_point_window() =>
+                    {
+                        Some(BoardDrag::Direct(
+                            super::super::board_direct::DirectDrag::Marquee {
+                                start_screen: screen,
+                                add: mods.shift,
+                                edges: false,
+                            },
+                        ))
                     }
                     None => Some(BoardDrag::Marquee {
                         start_screen: screen,
@@ -248,8 +252,46 @@ impl SlateApp {
         }
     }
 
-    /// True when `id` is a frame large enough on screen that a body drag
-    /// should marquee its members instead of moving the frame.
+    /// The shared Select body-move path, including group/duplicate policy.
+    fn begin_select_body_drag(
+        &mut self,
+        hit: NodeId,
+        world: Pos2,
+        mods: egui::Modifiers,
+    ) -> Option<BoardDrag> {
+        self.apply_select_pick(hit, mods, true);
+        let sel: Vec<NodeId> = self.board_sel.iter().copied().collect();
+        if self.alt_down {
+            // Alt-drag duplicate: insert copies (journaled on release).
+            let expanded = self.expand_with_members(&sel);
+            let sources: Vec<Node> = expanded
+                .iter()
+                .filter_map(|i| self.doc().scene.node(*i).cloned())
+                .collect();
+            let (ids, before) = self.stage_unjournaled_duplicates(&sources);
+            Some(BoardDrag::Move {
+                ids,
+                before,
+                start_world: world,
+                dup: true,
+            })
+        } else {
+            let expanded = self.expand_with_members(&sel);
+            let before: Vec<Node> = expanded
+                .iter()
+                .filter_map(|i| self.doc().scene.node(*i).cloned())
+                .collect();
+            let ids = before.iter().map(|n| n.id).collect();
+            Some(BoardDrag::Move {
+                ids,
+                before,
+                start_world: world,
+                dup: false,
+            })
+        }
+    }
+
+    /// True when a frame body drag should marquee its members.
     pub(super) fn frame_body_selects_contents(&self, id: NodeId) -> bool {
         let Some(n) = self.doc().scene.node(id) else {
             return false;
@@ -264,13 +306,23 @@ impl SlateApp {
     }
 
     pub(crate) fn board_pick_node(&self, x: f32, y: f32) -> Option<NodeId> {
-        board_path::board_pick_node_routed(
+        self.board_pick_node_with_locked(x, y, false)
+    }
+
+    pub(crate) fn board_pick_node_with_locked(
+        &self,
+        x: f32,
+        y: f32,
+        include_locked: bool,
+    ) -> Option<NodeId> {
+        board_path::board_pick_node_filtered(
             &self.doc().scene,
-            x,
-            y,
+            [x, y],
             self.tab().cam.z,
-            false,
+            include_locked,
             self.board_wire_routing,
+            |node| !self.presence.holds_node(node.id),
+            |id| self.visible_wire_host(id),
         )
     }
 

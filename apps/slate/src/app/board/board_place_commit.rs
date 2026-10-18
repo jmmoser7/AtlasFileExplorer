@@ -298,15 +298,33 @@ impl SlateApp {
         recipe: &slate_kit::Recipe,
         rect: WorldRect,
     ) -> Vec<Node> {
+        let mut nodes = self.prepare_recipe_nodes(recipe, rect);
+        for node in &mut nodes {
+            node.id = self
+                .doc_mut()
+                .scene
+                .build_node(node.rect, node.kind.clone())
+                .id;
+        }
+        nodes
+    }
+
+    /// Reuse the kit result and inherited style for typed command previews.
+    pub(crate) fn prepare_recipe_nodes(
+        &self,
+        recipe: &slate_kit::Recipe,
+        rect: WorldRect,
+    ) -> Vec<Node> {
         let ctx = kits::build_ctx(
             to_rgba(self.palette().accent),
             self.doc().scene.next_frame_order(),
         );
+        let mut scratch = self.doc().scene.clone();
         recipe
             .instantiate(rect, &ctx)
             .into_iter()
             .map(|s| {
-                let mut node = self.doc_mut().scene.build_node(s.rect, s.kind);
+                let mut node = scratch.build_node(s.rect, s.kind);
                 if recipe.inherits_create_style() {
                     let closed = recipe.inherits_closed_shape_style();
                     self.apply_inherited_style(&mut node, closed);

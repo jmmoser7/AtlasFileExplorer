@@ -3,6 +3,20 @@
 use super::*;
 
 impl SlateApp {
+    /// Rhino's Perspective navigation: right orbit, Shift pan, Ctrl dolly.
+    pub(super) fn drag_live_model(&mut self, id: NodeId, delta: Vec2, zoom: f32) {
+        if self.ctrl_down {
+            self.model_scroll(id, -delta.y * 4.0);
+        } else {
+            let viewport_h = self
+                .doc()
+                .scene
+                .node(id)
+                .map(|node| node.rect.h * zoom)
+                .unwrap_or(1.0);
+            self.model_drag(id, delta.x, delta.y, self.shift_down, viewport_h);
+        }
+    }
     /// A placed 3D model (`MediaKind::Model`, or a confirmed Enscape
     /// standalone): live offscreen render while the viewport is unlocked,
     /// cached frozen-camera poster while locked, item thumbnail while the
@@ -129,6 +143,8 @@ impl SlateApp {
                 }
             }
         }
+
+        self.paint_portal_capture(painter, node_id, srect);
 
         // Load bar while the mesh parse blocks this node's render (live
         // unlock, or first poster generation for a locked node). The worker

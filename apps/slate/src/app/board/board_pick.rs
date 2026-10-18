@@ -3,7 +3,107 @@
 use super::*;
 
 impl SlateApp {
-    pub(super) fn board_click(&mut self, world: Pos2, mods: egui::Modifiers) {
+    /// A painted grip or tiny body keeps its native canvas drag even when
+    /// last frame's overlapping strip/stringer was egui's press target.
+    /// Claim only after the drag threshold; normal clicks keep their owner.
+    pub(super) fn canvas_grip_drag_response(
+        &self,
+        ui: &egui::Ui,
+        response: egui::Response,
+        start_allowed: bool,
+    ) -> egui::Response {
+        let ctx = ui.ctx();
+        if !start_allowed
+            || !ui.is_enabled()
+            || self.tab().read_only
+            || self.board_drag.is_some()
+            || !matches!(self.board_tool, BoardTool::Select | BoardTool::DirectSelect)
+            || self.property_inline_editor_open()
+            || ctx.memory(|m| m.any_popup_open())
+            || !ctx.input(|i| i.pointer.primary_down() && i.pointer.is_decidedly_dragging())
+        {
+            return response;
+        }
+        let origin = ctx.input(|i| i.pointer.press_origin());
+        let owns_origin = origin.is_some_and(|p| {
+            self.canvas_rect.contains(p)
+                && ui.clip_rect().contains(p)
+                && ctx.layer_id_at(p).is_some_and(|layer| {
+                    layer == ui.layer_id()
+                        || (layer == atlas_shell::selection_tools::selection_chrome_layer()
+                            && self
+                                .shape_properties
+                                .chrome_hits
+                                .iter()
+                                .any(|r| r.contains(p)))
+                })
+                && (self.hovered_vertex(p).is_some()
+                    || self.arrow_size_handle_under(p)
+                    || (self.board_tool == BoardTool::Select
+                        && !self.curve_subselect_under(p)
+                        && self.tiny_body_owns_pointer(p).is_some()))
+        });
+        if owns_origin && ctx.dragged_id() != Some(response.id) {
+            ctx.set_dragged_id(response.id);
+            return ctx.read_response(response.id).unwrap_or(response);
+        }
+        response
+    }
+
+    /// Egui chooses a click target from the previous frame's widgets. The
+    /// sub-object chord can arrive with the press, after a number chip was
+    /// hovered, so this explicit canvas gesture owns ordered press/release.
+    pub(super) fn curve_subselect_input(
+        &mut self,
+        ui: &egui::Ui,
+        xf: &BoardXf,
+        pointer: Option<Pos2>,
+        start_allowed: bool,
+    ) {
+        if let Some(p) = pointer.filter(|p| {
+            start_allowed
+                && self.canvas_rect.contains(*p)
+                && ui.clip_rect().contains(*p)
+                && ui.ctx().layer_id_at(*p).is_some_and(|layer| {
+                    layer == ui.layer_id()
+                        || (layer == atlas_shell::selection_tools::selection_chrome_layer()
+                            && !self.property_editor_open()
+                            && self.curve_subselect_under(*p))
+                })
+                && !ui.ctx().memory(|m| m.any_popup_open())
+        }) {
+            if self.board_drag.is_none()
+                && ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary))
+                && self.curve_subselect_under(p)
+                && self.hovered_vertex(p).is_none()
+            {
+                self.board_drag = Some(BoardDrag::Direct(
+                    super::super::board_direct::DirectDrag::Marquee {
+                        start_screen: p,
+                        add: true,
+                        edges: true,
+                    },
+                ));
+            }
+        }
+        if matches!(
+            self.board_drag,
+            Some(BoardDrag::Direct(
+                super::super::board_direct::DirectDrag::Marquee { edges: true, .. }
+            ))
+        ) {
+            self.board_align_eat_press = true;
+            if ui.input(|i| i.pointer.button_released(egui::PointerButton::Primary)) {
+                if let Some(p) = pointer {
+                    self.end_gesture(xf.s2w(p), Some(p), ui.input(|i| i.modifiers));
+                } else {
+                    self.board_drag = None;
+                }
+            }
+        }
+    }
+
+    pub(crate) fn board_click(&mut self, world: Pos2, mods: egui::Modifiers) {
         if self.board_tool == BoardTool::Deck {
             return;
         }
@@ -75,11 +175,14 @@ impl SlateApp {
                 return;
             }
             BoardTool::Trim | BoardTool::Split => {
-                self.trim_click(world, mods.shift);
+                self.trim_click_modifiers(world, mods.shift, mods.ctrl);
                 return;
             }
             BoardTool::Select => {
                 let screen = self.board_xf().w2s(world);
+                if !(mods.ctrl && mods.shift) && self.hovered_vertex(screen).is_none() {
+                    self.direct.field = None;
+                }
                 // Ctrl+Shift+click on a curve segment picks that edge; on
                 // a grip it adds or removes the point like Shift.
                 if mods.ctrl
@@ -98,14 +201,7 @@ impl SlateApp {
         // Ctrl+Shift+click: sub-object select — a single group member, or a
         // locked node (force-selected for one-off edits). No expansion.
         if mods.ctrl && mods.shift {
-            let hit = board_path::board_pick_node_routed(
-                &self.doc().scene,
-                world.x,
-                world.y,
-                self.tab().cam.z,
-                true,
-                self.board_wire_routing,
-            );
+            let hit = self.board_pick_node_with_locked(world.x, world.y, true);
             match hit {
                 Some(id) => {
                     self.board_sel.clear();
@@ -174,6 +270,9 @@ impl SlateApp {
     }
 
     pub(super) fn board_double_click(&mut self, world: Pos2) {
+        if !self.finish_text_compose_on_click_away() {
+            return;
+        }
         let screen = self.board_xf().w2s(world);
         if self.sheet_add_hit(screen).is_some() {
             return;
@@ -230,6 +329,8 @@ impl SlateApp {
         };
         match &node.kind {
             NodeKind::Text(t) => {
+                self.shape_properties.panel = None;
+                self.text_edit_rect = None;
                 if t.fill.is_some() {
                     self.board_sel.clear();
                     self.board_sel.insert(id);
@@ -272,10 +373,13 @@ impl SlateApp {
                         .collect();
                 let body = s.text.as_ref().map(|t| t.body.clone()).unwrap_or_default();
                 self.text_edit = Some((id, body));
-                self.shape_properties.panel = Some(super::super::board_properties::Panel::Text);
+                self.shape_properties.panel = None;
             }
-            NodeKind::Image(img) => {
-                if let Some(path) = self.doc().item(img.item).map(|it| it.path.clone()) {
+            NodeKind::Image(_) => {
+                if self.begin_text_document_edit(&node) {
+                    return;
+                }
+                if let Some(path) = self.image_item_path(id) {
                     if self
                         .model_node_info(id)
                         .is_some_and(|info| self.model3d.external.contains(&info.cache_key))
@@ -303,3 +407,6 @@ impl SlateApp {
         }
     }
 }
+
+#[cfg(test)]
+mod input_guards;

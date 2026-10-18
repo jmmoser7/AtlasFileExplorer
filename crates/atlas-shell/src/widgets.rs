@@ -725,14 +725,13 @@ pub fn canvas_mini_menu(
 ) -> Option<MiniMenuAction> {
     let mut action = None;
     let t = tokens::current().readouts.clone();
-    let hit = t.chevron_hit.max(t.chevron_size);
-    let pos = canvas.left_bottom() + Vec2::new(t.chevron_inset_x, -t.chevron_inset_y);
+    let chevron = crate::canvas_corner::readout_chevron_hit_rect(canvas);
     egui::Area::new(Id::new(("readout_chevron", id)))
-        .fixed_pos(pos)
+        .fixed_pos(chevron.left_bottom())
         .pivot(egui::Align2::LEFT_BOTTOM)
         .order(egui::Order::Middle)
         .show(ctx, |ui| {
-            let (rect, resp) = ui.allocate_exact_size(Vec2::splat(hit), Sense::click());
+            let (rect, resp) = ui.allocate_exact_size(Vec2::splat(chevron.width()), Sense::click());
             let hovered = resp.hovered();
             if hovered {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -777,10 +776,9 @@ pub fn canvas_mini_menu(
         });
 
     if let Some(pct) = model.zoom_pct {
-        let zoom_pos = pos + Vec2::new(hit + 6.0, 0.0);
         egui::Area::new(Id::new(("canvas_zoom_cluster", id)))
-            .fixed_pos(zoom_pos)
-            .pivot(egui::Align2::LEFT_BOTTOM)
+            .fixed_pos(crate::canvas_corner::zoom_cluster_anchor(canvas))
+            .pivot(egui::Align2::LEFT_CENTER)
             .order(egui::Order::Middle)
             .show(ctx, |ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;

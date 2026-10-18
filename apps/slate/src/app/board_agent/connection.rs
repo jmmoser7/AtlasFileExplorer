@@ -102,57 +102,114 @@ impl SlateApp {
             }
             groups.entry(a.session.clone()).or_default().push(index);
         }
-        for (old_session, indices) in groups {
-            let sample = &payload[indices[0]];
-            let Some(agent) = slate_doc::agent_chat::agent(sample).cloned() else {
-                continue;
-            };
-            let turns = self.fork_source_turns(&agent, base).unwrap_or_default();
-            let new_session = slate_doc::scene::new_agent_session_id();
-            let dir = atlas_ai::agent::agent_dir(&ws, &new_session);
-            let _ = std::fs::create_dir_all(&dir);
-            let session = atlas_ai::agent::AgentSession {
-                usage: None,
-                approval: None,
-                conversation: String::new(),
-                artifacts: vec![],
-                status: atlas_ai::agent::AgentStatus::Idle,
-                provider: agent.provider.clone(),
-                turns,
-                updated_at: atlas_ai::context::now_secs(),
-                bundle: Default::default(),
-                request: String::new(),
-            };
-            let _ = atlas_ai::agent::atomic_write_json(&dir.join("session.json"), &session);
-            let manifest = slate_doc::SourceUri {
-                locator: super::super::board_portal::source_locator(
-                    base,
-                    &dir.join("session.json"),
-                ),
-            };
+        for (_old_session, indices) in groups {
+            // A copied root forks its source. A coding card pasted back onto
+            // its host is another branch: its own session, seeded through the
+            // fork point. A model card keeps its session until send.
+            let mut rooted = Vec::new();
+            let mut linear_forks = Vec::new();
             for index in indices {
-                let node = &mut payload[index];
-                if let Some(a) = slate_doc::agent_chat::agent_mut(node) {
-                    a.session = new_session.clone();
-                    a.channel = None;
-                    a.bundle = Some(manifest.clone());
+                let external = slate_doc::agent_chat::agent(&payload[index])
+                    .and_then(|a| a.chat.parent)
+                    .is_some_and(|parent| payload.iter().all(|n| n.id != parent));
+                if !external {
+                    rooted.push(index);
+                    continue;
                 }
-                if slate_doc::agent_chat::agent(node).is_some_and(|a| a.chat.parent.is_none()) {
-                    if let NodeKind::Portal(p) = &mut node.kind {
-                        if !p.title.contains("Forked from") {
-                            let name = p.title.trim();
-                            p.title = if name.is_empty() {
-                                "Forked from conversation · replayed".into()
-                            } else {
-                                format!("Forked from {name} · replayed")
-                            };
-                        }
+                let linear = slate_doc::agent_chat::agent(&payload[index]).is_some_and(|a| {
+                    a.chat.linear || atlas_ai::runtime::linear_provider(&a.provider)
+                });
+                if linear {
+                    linear_forks.push(index);
+                }
+            }
+            if let Some(agent) = rooted
+                .first()
+                .and_then(|&index| slate_doc::agent_chat::agent(&payload[index]).cloned())
+            {
+                let turns = self.fork_source_turns(&agent, base).unwrap_or_default();
+                self.write_forked_session(payload, &rooted, &agent, turns, &ws, base);
+            }
+            for index in linear_forks {
+                let Some(agent) = slate_doc::agent_chat::agent(&payload[index]).cloned() else {
+                    continue;
+                };
+                let turns = self.fork_source_turns(&agent, base).unwrap_or_default();
+                let seeded = atlas_ai::agent::checkpoint(&turns, agent.chat.end)
+                    .map(|turns| turns.to_vec())
+                    .unwrap_or(turns);
+                self.write_forked_session(payload, &[index], &agent, seeded, &ws, base);
+            }
+        }
+        true
+    }
+    /// One new session file for a pasted train, the owner of paste-as-fork.
+    fn write_forked_session(
+        &self,
+        payload: &mut [Node],
+        indices: &[usize],
+        agent: &slate_doc::scene::AgentPortalRef,
+        turns: Vec<AgentTurn>,
+        ws: &std::path::Path,
+        base: Option<&std::path::Path>,
+    ) {
+        if indices.is_empty() {
+            return;
+        }
+        let new_session = slate_doc::scene::new_agent_session_id();
+        let dir = atlas_ai::agent::agent_dir(ws, &new_session);
+        let _ = std::fs::create_dir_all(&dir);
+        let session = atlas_ai::agent::AgentSession {
+            activity: Vec::new(),
+            usage: None,
+            approval: None,
+            conversation: String::new(),
+            artifacts: vec![],
+            status: atlas_ai::agent::AgentStatus::Idle,
+            provider: agent.provider.clone(),
+            turns,
+            updated_at: atlas_ai::context::now_secs(),
+            bundle: Default::default(),
+            request: String::new(),
+        };
+        let _ = atlas_ai::agent::atomic_write_json(&dir.join("session.json"), &session);
+        let manifest = slate_doc::SourceUri {
+            locator: super::super::board_portal::source_locator(base, &dir.join("session.json")),
+        };
+        for &index in indices {
+            let node = &mut payload[index];
+            if let Some(a) = slate_doc::agent_chat::agent_mut(node) {
+                a.session = new_session.clone();
+                a.channel = None;
+                a.bundle = Some(manifest.clone());
+            }
+            if slate_doc::agent_chat::agent(node).is_some_and(|a| a.chat.parent.is_none()) {
+                if let NodeKind::Portal(p) = &mut node.kind {
+                    if !p.title.contains("Forked from") {
+                        let name = p.title.trim();
+                        p.title = if name.is_empty() {
+                            "Forked from conversation · replayed".into()
+                        } else {
+                            format!("Forked from {name} · replayed")
+                        };
                     }
                 }
             }
-            let _ = old_session;
         }
-        true
+    }
+    /// A pasted chat whose parent stayed on the board is another fork of that host.
+    pub(crate) fn keep_external_chat_hosts(&self, nodes: &mut [Node], sources: &[Node]) {
+        for (node, src) in nodes.iter_mut().zip(sources.iter()) {
+            let Some(parent) = slate_doc::agent_chat::agent(src).and_then(|a| a.chat.parent) else {
+                continue;
+            };
+            if sources.iter().any(|n| n.id == parent) || self.doc().scene.node(parent).is_none() {
+                continue;
+            }
+            if let Some(a) = slate_doc::agent_chat::agent_mut(node) {
+                a.chat.parent = Some(parent);
+            }
+        }
     }
     fn fork_source_turns(
         &self,
@@ -185,6 +242,12 @@ impl SlateApp {
     }
     pub(super) fn agent_folder_for(&self, portal: NodeId) -> Option<PathBuf> {
         let node = self.doc().scene.node(portal)?;
+        if let Some(artifact) = slate_doc::scene::artifact(node) {
+            return artifact
+                .workspace
+                .as_ref()
+                .map(|workspace| resolve_source(self.tab().path.as_deref(), &workspace.locator));
+        }
         let NodeKind::Portal(p) = &node.kind else {
             return None;
         };

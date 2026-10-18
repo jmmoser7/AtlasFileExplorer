@@ -1,5 +1,4 @@
 //! File Atlas lens portal — host surface over `atlas-core`.
-//!
 //! The inner map is `atlas-shell::folder_map` (same camera, leaders, collapse
 //! grips, and cards as standalone File Atlas). Slate does not import
 //! `apps/file-atlas` or instantiate `AtlasApp` (Art. I / contract D15).
@@ -822,7 +821,7 @@ impl SlateApp {
         let NodeKind::Portal(portal) = &node.kind else {
             return false;
         };
-        if portal.kind != PortalKind::FileAtlas {
+        if portal.kind != PortalKind::FileAtlas || !self.portal_owns_pointer(ui.ctx(), id) {
             return false;
         }
         let srect = xf.rect_w2s(node.rect);
@@ -1617,56 +1616,11 @@ impl SlateApp {
             .map(|s| s.entries.iter().filter(|e| !e.dead).count())
             .unwrap_or(0);
         let img = atlas_poster_image(count);
-        let Some(path) = self.write_atlas_poster_png(id, img) else {
-            self.toast("Could not write the poster into the workbook.");
-            return true;
-        };
-        let items = self.add_paths(&[path]);
-        let Some(item) = items.first().copied() else {
-            self.toast("Could not add the baked poster to the workbook.");
-            return true;
-        };
-        let rect = node.rect;
-        let image = self.doc_mut().scene.build_node(
-            rect,
-            NodeKind::Image(slate_doc::scene::ImageNode::new(item)),
-        );
-        let note = self.doc_mut().scene.build_node(
-            WorldRect::new(rect.x, rect.y + rect.h + 8.0, rect.w.max(120.0), 20.0),
-            NodeKind::Text(slate_doc::scene::TextNode {
-                text: format!("{locator} · {count} files · File Atlas lens"),
-                family: slate_doc::scene::Typeface::Sans,
-                size: 12.0,
-                color: slate_doc::scene::Rgba::opaque(198, 208, 224),
-                align: slate_doc::scene::TextAlign::Left,
-                fill: None,
-                stroke: Default::default(),
-                agent: None,
-            }),
-        );
-        let ids = self.add_nodes(vec![image, note]);
-        self.board_sel = ids.into_iter().collect();
-        self.toast("Baked the poster and its provenance; the portal is still live.");
-        true
-    }
-
-    fn write_atlas_poster_png(&mut self, id: NodeId, img: egui::ColorImage) -> Option<PathBuf> {
-        let dir = self
-            .tab()
-            .path
-            .as_ref()
-            .map(|p| atlas_core::workbook_assets::assets_root(p))
-            .unwrap_or_else(std::env::temp_dir);
-        std::fs::create_dir_all(&dir).ok()?;
-        let path = dir.join(format!("atlas-poster-{}.png", id.0));
-        let [w, h] = [img.width() as u32, img.height() as u32];
-        let rgba: Vec<u8> = img
-            .pixels
-            .iter()
-            .flat_map(|p| [p.r(), p.g(), p.b(), p.a()])
-            .collect();
-        image::RgbaImage::from_raw(w, h, rgba)?.save(&path).ok()?;
-        Some(path)
+        self.bake_portal_snapshot(
+            id,
+            &img,
+            format!("{locator} · {count} files · File Atlas lens"),
+        )
     }
 
     pub(crate) fn atlas_open_in_file_atlas(

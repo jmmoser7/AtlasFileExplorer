@@ -13,10 +13,7 @@ use super::super::{
 use crate::app::chrome::ToolPanel;
 use atlas_core::pack_sheet::SheetSort;
 use atlas_core::types::{ExtGroup, FAMILIES};
-use atlas_shell::dock::{
-    current_body_layout, floating_dock, flyout_items, DockBodyLayout, DockIcon, DockItem,
-    DockItemKind, FlyoutItem, FlyoutRole,
-};
+use atlas_shell::dock::{floating_dock, DockIcon, DockItem, DockItemKind};
 use atlas_shell::sidebar::{
     sidebar_checkbox_row, sidebar_family_master_row, sidebar_fold_region, sidebar_mode_row,
     sidebar_nested_checkbox_row, sidebar_option_group, sidebar_slider_block,
@@ -37,7 +34,7 @@ fn sidebar_theme(app: &AtlasApp) -> SidebarTheme {
 
 pub fn floating_tools_dock(app: &mut AtlasApp, ctx: &egui::Context) {
     let chrome = app.active_chrome().clone();
-    // All File Atlas dock icons are Dashboards (settings panels). List them
+    // All File Atlas dock icons are Dashboard forms, including Filters. List them
     // as one contiguous group — no visible separator (see DOCK.md).
     let items = [
         DockItem {
@@ -120,23 +117,7 @@ pub fn floating_tools_dock(app: &mut AtlasApp, ctx: &egui::Context) {
             "mode" => mode_body(app, ui, theme),
             "workflow" => workflow_body(app, ui),
             "ai" => {
-                if current_body_layout(ui.ctx()) != DockBodyLayout::List {
-                    let items = [FlyoutItem {
-                        id: "ai.launch",
-                        label: "Launch Cursor",
-                        description: "Open Cursor in the AI workspace folder.",
-                        hotkey: None,
-                        icon: DockIcon::Ai,
-                        active: false,
-                        group: Some("ai"),
-                        role: FlyoutRole::Icon,
-                    }];
-                    if flyout_items(ui, &items).is_some() {
-                        app.ai.launch_cursor();
-                    }
-                } else {
-                    atlas_ai::ui::ai_body(&mut app.ai, ui, theme);
-                }
+                atlas_ai::ui::ai_body(&mut app.ai, ui, theme);
             }
             _ => {}
         },
@@ -180,44 +161,6 @@ pub fn floating_tools_dock(app: &mut AtlasApp, ctx: &egui::Context) {
 }
 
 fn mode_body(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {
-    if current_body_layout(ui.ctx()) != DockBodyLayout::List {
-        let items = [
-            FlyoutItem {
-                id: "mode.view",
-                label: "View",
-                description: "Safe browsing — no rename, move, copy, or delete.",
-                hotkey: None,
-                icon: DockIcon::View,
-                active: app.edit_mode == EditMode::View,
-                group: Some("mode"),
-                role: FlyoutRole::Icon,
-            },
-            FlyoutItem {
-                id: "mode.edit",
-                label: "Edit",
-                description: "Explorer-style file edits (human-directed).",
-                hotkey: None,
-                icon: DockIcon::ModeEdit,
-                active: app.edit_mode == EditMode::Edit,
-                group: Some("mode"),
-                role: FlyoutRole::Icon,
-            },
-        ];
-        if let Some(id) = flyout_items(ui, &items) {
-            match id {
-                "mode.view" => {
-                    app.set_edit_mode(EditMode::View);
-                    app.push_history("atlas.mode_view", None);
-                }
-                "mode.edit" => {
-                    app.set_edit_mode(EditMode::Edit);
-                    app.push_history("atlas.mode_edit", None);
-                }
-                _ => {}
-            }
-        }
-        return;
-    }
     ui.label(
         RichText::new("View is safe browsing. Edit unlocks real filesystem changes.")
             .small()
@@ -253,10 +196,6 @@ fn mode_body(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {
 }
 
 fn basic_filters_body(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {
-    if current_body_layout(ui.ctx()) != DockBodyLayout::List {
-        filters_icon_strip(app, ui);
-        return;
-    }
     // Stable id: Ctrl+F (`canvas.search`) targets this field; Esc while it
     // has focus hands focus back to the canvas (see `hotkeys`).
     let search = egui::TextEdit::singleline(&mut app.search)
@@ -544,10 +483,6 @@ fn display_settings_body(
     ctx: &egui::Context,
     theme: SidebarTheme,
 ) {
-    if current_body_layout(ui.ctx()) != DockBodyLayout::List {
-        display_icon_strip(app, ui, ctx);
-        return;
-    }
     sidebar_option_group(ui, "layout", theme, |ui| {
         if ui
             .selectable_label(app.map_view == MapView::Tree, "tree")
@@ -837,170 +772,10 @@ fn display_settings_body(
 }
 
 fn workflow_body(app: &mut AtlasApp, ui: &mut egui::Ui) {
-    if current_body_layout(ui.ctx()) != DockBodyLayout::List {
-        let items = [FlyoutItem {
-            id: "workflow.unassigned",
-            label: "Unassigned only",
-            description: "Focus the canvas on files that have no destination yet.",
-            hotkey: None,
-            icon: DockIcon::Workflow,
-            active: app.only_unassigned,
-            group: Some("workflow"),
-            role: FlyoutRole::Toggle,
-        }];
-        if flyout_items(ui, &items).is_some() {
-            app.only_unassigned = !app.only_unassigned;
-            app.filter_dirty = true;
-        }
-        return;
-    }
     if sidebar_checkbox_row(ui, &mut app.only_unassigned, "Unassigned only") {
         app.filter_dirty = true;
     }
 }
 
-fn filters_icon_strip(app: &mut AtlasApp, ui: &mut egui::Ui) {
-    let items = [
-        FlyoutItem {
-            id: "filters.ghost",
-            label: "Ghost",
-            description: "Dim items that fail the current filters.",
-            hotkey: None,
-            icon: DockIcon::Ghost,
-            active: app.filter_mode == FilterMode::Ghost,
-            group: Some("filters"),
-            role: FlyoutRole::Icon,
-        },
-        FlyoutItem {
-            id: "filters.hide",
-            label: "Hide",
-            description: "Remove failing items from the layout.",
-            hotkey: None,
-            icon: DockIcon::Hide,
-            active: app.filter_mode == FilterMode::Hide,
-            group: Some("filters"),
-            role: FlyoutRole::Icon,
-        },
-        FlyoutItem {
-            id: "filters.zoom",
-            label: "Zoom to matches",
-            description: "Camera follows the filter and fits again when it clears.",
-            hotkey: None,
-            icon: DockIcon::Fit,
-            active: app.auto_zoom_matches,
-            group: Some("filters"),
-            role: FlyoutRole::Toggle,
-        },
-        FlyoutItem {
-            id: "filters.dupes",
-            label: "Hide duplicates",
-            description: "Same name and size — keep the newest.",
-            hotkey: None,
-            icon: DockIcon::Duplicates,
-            active: app.dedupe_twins,
-            group: Some("filters"),
-            role: FlyoutRole::Toggle,
-        },
-    ];
-    if let Some(id) = flyout_items(ui, &items) {
-        match id {
-            "filters.ghost" => {
-                app.filter_mode = FilterMode::Ghost;
-                app.filter_dirty = true;
-            }
-            "filters.hide" => {
-                app.filter_mode = FilterMode::Hide;
-                app.filter_dirty = true;
-            }
-            "filters.zoom" => {
-                app.auto_zoom_matches = !app.auto_zoom_matches;
-                app.refit_matches_now();
-            }
-            "filters.dupes" => {
-                app.dedupe_twins = !app.dedupe_twins;
-                app.filter_dirty = true;
-            }
-            _ => {}
-        }
-    }
-}
-
-fn display_icon_strip(app: &mut AtlasApp, ui: &mut egui::Ui, ctx: &egui::Context) {
-    let items = [
-        FlyoutItem {
-            id: "display.tree",
-            label: "Tree",
-            description: "Folder map with leaders and cards.",
-            hotkey: None,
-            icon: DockIcon::Display,
-            active: app.map_view == MapView::Tree,
-            group: Some("layout"),
-            role: FlyoutRole::Icon,
-        },
-        FlyoutItem {
-            id: "display.packed",
-            label: "Packed",
-            description: "Flush grid of images — no borders or fillets.",
-            hotkey: None,
-            icon: DockIcon::Grid,
-            active: app.map_view == MapView::Packed,
-            group: Some("layout"),
-            role: FlyoutRole::Icon,
-        },
-        FlyoutItem {
-            id: "display.fit",
-            label: "Fit",
-            description: "Fit the tree to the canvas (F).",
-            hotkey: Some("F"),
-            icon: DockIcon::Fit,
-            active: false,
-            group: Some("display"),
-            role: FlyoutRole::Icon,
-        },
-        FlyoutItem {
-            id: "display.orient",
-            label: "Flow direction",
-            description: "Toggle branch direction.",
-            hotkey: None,
-            icon: DockIcon::Display,
-            active: false,
-            group: Some("display"),
-            role: FlyoutRole::Icon,
-        },
-        FlyoutItem {
-            id: "display.dark",
-            label: "Dark",
-            description: "Toggle the dark theme.",
-            hotkey: None,
-            icon: DockIcon::Dark,
-            active: app.dark_mode,
-            group: Some("display"),
-            role: FlyoutRole::Toggle,
-        },
-    ];
-    if let Some(id) = flyout_items(ui, &items) {
-        match id {
-            "display.tree" => app.set_map_view(MapView::Tree),
-            "display.packed" => app.set_map_view(MapView::Packed),
-            "display.fit" => app.pending_view = Some(ViewCmd::Fit),
-            "display.orient" => {
-                app.orient = match app.orient {
-                    Orient::V => Orient::H,
-                    Orient::H => Orient::V,
-                };
-                app.relayout();
-                app.pending_view = Some(ViewCmd::Fit);
-            }
-            "display.dark" => {
-                let dark = !app.dark_mode;
-                app.set_dark_mode(dark, ctx);
-                if let Some(session) = &app.session {
-                    if let Ok(mut s) = session.lock() {
-                        s.dark_mode = dark;
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-}
+#[cfg(test)]
+mod tests;

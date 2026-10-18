@@ -1,23 +1,31 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use base64::Engine;
 use gltf::mesh::Mode;
 
 use crate::geom::indexed_mesh;
-use crate::{LoadError, PreviewScene};
+use crate::{LoadError, PreviewMaterial, PreviewScene, TextureSource};
 
 /// glTF 2.0 / GLB triangle meshes.
 ///
-/// Positions, indexes, normals, and a flat base color are read. Skins,
-/// animations, textures, and Draco-compressed primitives are skipped. Lines
+/// Positions, indexes, normals, UV0, PBR scalar factors and base-color texture
+/// sources are read. Skins, animations and Draco primitives are skipped. Lines
 /// and points are skipped. External buffer URIs must be files next to the
 /// `.gltf`; `http` URIs are refused.
-pub fn load(path: &Path, bytes: &[u8]) -> Result<PreviewScene, LoadError> {
+pub fn load(
+    path: &Path,
+    bytes: &[u8],
+    read: &mut dyn FnMut(&Path) -> std::io::Result<Vec<u8>>,
+) -> Result<PreviewScene, LoadError> {
     let gltf =
         gltf::Gltf::from_slice(bytes).map_err(|e| LoadError::Malformed(format!("glTF: {e}")))?;
     let bin = gltf.blob.as_deref();
-    let buffers = load_buffers(path, &gltf.document, bin)?;
+    let buffers = load_buffers(path, &gltf.document, bin, read)?;
     let mut meshes = Vec::new();
+    // Material instances share their source image. In particular, an embedded
+    // image keeps one Arc identity so downstream decode/upload caches reuse it.
+    let mut image_sources: HashMap<usize, Option<TextureSource>> = HashMap::new();
     let mut notes = Vec::new();
     let mut skipped_lines = false;
     let mut skipped_sparse = false;
@@ -59,7 +67,21 @@ pub fn load(path: &Path, bytes: &[u8]) -> Result<PreviewScene, LoadError> {
                 _ => {}
             }
             let color = base_color(&prim);
-            if let Some(mesh) = indexed_mesh(positions, normals, indices, color) {
+            if let Some(mut mesh) = indexed_mesh(positions, normals, indices, color) {
+                mesh.texcoords = reader
+                    .read_tex_coords(0)
+                    .map(|uv| uv.into_f32().collect())
+                    .unwrap_or_default();
+                let mut material = material(path, &prim, &buffers, &mut image_sources);
+                if mesh.texcoords.len() != mesh.positions.len()
+                    || mesh.texcoords.iter().flatten().any(|v| !v.is_finite())
+                {
+                    mesh.texcoords.clear();
+                    if material.base_color_texture.take().is_some() {
+                        notes.push("A glTF base-color bitmap had no complete UV0 coordinates and was not applied.".into());
+                    }
+                }
+                mesh.material = Some(material);
                 meshes.push(mesh);
             }
         }
@@ -76,8 +98,72 @@ pub fn load(path: &Path, bytes: &[u8]) -> Result<PreviewScene, LoadError> {
     if skipped_sparse {
         notes.push("Sparse glTF accessors were skipped.".into());
     }
+    if gltf.document.materials().any(|m| {
+        m.normal_texture().is_some()
+            || m.pbr_metallic_roughness()
+                .metallic_roughness_texture()
+                .is_some()
+            || m.occlusion_texture().is_some()
+            || m.emissive_texture().is_some()
+    }) {
+        notes.push("glTF normal, metallic/roughness, occlusion, and emission maps are not previewed; scalar material factors are retained.".into());
+    }
     PreviewScene::from_meshes("gltf", meshes, notes)
         .map_err(|_| LoadError::Empty("This glTF has no triangle meshes to preview.".into()))
+}
+
+fn material(
+    path: &Path,
+    primitive: &gltf::Primitive<'_>,
+    buffers: &[Vec<u8>],
+    image_sources: &mut HashMap<usize, Option<TextureSource>>,
+) -> PreviewMaterial {
+    let material = primitive.material();
+    let pbr = material.pbr_metallic_roughness();
+    let base_color_texture = pbr
+        .base_color_texture()
+        .filter(|info| info.tex_coord() == 0)
+        .and_then(|info| {
+            let image = info.texture().source();
+            image_sources
+                .entry(image.index())
+                .or_insert_with(|| texture_source(path, image, buffers))
+                .clone()
+        });
+    PreviewMaterial {
+        base_color: pbr.base_color_factor(),
+        metallic: pbr.metallic_factor(),
+        roughness: pbr.roughness_factor(),
+        emissive: material.emissive_factor(),
+        base_color_texture,
+    }
+}
+
+fn texture_source(
+    path: &Path,
+    image: gltf::Image<'_>,
+    buffers: &[Vec<u8>],
+) -> Option<TextureSource> {
+    match image.source() {
+        gltf::image::Source::View { view, mime_type } => {
+            let end = view.offset().checked_add(view.length())?;
+            let bytes = buffers
+                .get(view.buffer().index())?
+                .get(view.offset()..end)?;
+            Some(TextureSource::Embedded {
+                bytes: bytes.into(),
+                mime_type: Some(mime_type.into()),
+            })
+        }
+        gltf::image::Source::Uri { uri, mime_type } if uri.starts_with("data:") => {
+            let bytes = decode_data_uri(uri).ok()?;
+            Some(TextureSource::Embedded {
+                bytes: bytes.into(),
+                mime_type: mime_type.map(str::to_owned),
+            })
+        }
+        gltf::image::Source::Uri { uri, .. } => local_uri(path, uri).map(TextureSource::LocalPath),
+    }
 }
 
 fn base_color(prim: &gltf::Primitive<'_>) -> Option<[u8; 3]> {
@@ -123,6 +209,7 @@ fn load_buffers(
     path: &Path,
     doc: &gltf::Document,
     bin: Option<&[u8]>,
+    read: &mut dyn FnMut(&Path) -> std::io::Result<Vec<u8>>,
 ) -> Result<Vec<Vec<u8>>, LoadError> {
     let mut buffers = Vec::new();
     for buffer in doc.buffers() {
@@ -130,7 +217,7 @@ fn load_buffers(
             gltf::buffer::Source::Bin => bin
                 .ok_or_else(|| LoadError::Malformed("GLB is missing its binary chunk.".into()))?
                 .to_vec(),
-            gltf::buffer::Source::Uri(uri) => load_uri(path, uri)?,
+            gltf::buffer::Source::Uri(uri) => load_uri(path, uri, read)?,
         };
         if data.len() < buffer.length() {
             return Err(LoadError::Malformed(format!(
@@ -143,7 +230,7 @@ fn load_buffers(
     Ok(buffers)
 }
 
-fn load_uri(gltf_path: &Path, uri: &str) -> Result<Vec<u8>, LoadError> {
+fn decode_data_uri(uri: &str) -> Result<Vec<u8>, LoadError> {
     if let Some(rest) = uri.strip_prefix("data:") {
         let Some((meta, data)) = rest.split_once(',') else {
             return Err(LoadError::Malformed("glTF data URI has no payload.".into()));
@@ -155,21 +242,53 @@ fn load_uri(gltf_path: &Path, uri: &str) -> Result<Vec<u8>, LoadError> {
         } else {
             Ok(percent_decode(data))
         }
-    } else if uri.starts_with("http://") || uri.starts_with("https://") || uri.starts_with("file:")
-    {
-        Err(LoadError::Malformed(
-            "glTF buffers must sit next to the file. Remote buffers are not loaded.".into(),
-        ))
     } else {
-        let relative = percent_decode_str(uri);
-        let parent = gltf_path.parent().unwrap_or_else(|| Path::new("."));
-        let full = parent.join(relative);
-        std::fs::read(&full).map_err(|e| {
+        Err(LoadError::Malformed("Not a data URI.".into()))
+    }
+}
+
+fn local_uri(model_path: &Path, uri: &str) -> Option<std::path::PathBuf> {
+    if uri.contains(':') || uri.starts_with('/') || uri.starts_with('\\') {
+        return None;
+    }
+    let relative = percent_decode_str(uri);
+    let relative = Path::new(&relative);
+    if relative.is_absolute()
+        || relative.components().any(|c| {
+            matches!(
+                c,
+                std::path::Component::Prefix(_) | std::path::Component::RootDir
+            )
+        })
+    {
+        return None;
+    }
+    Some(
+        model_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(relative),
+    )
+}
+
+fn load_uri(
+    gltf_path: &Path,
+    uri: &str,
+    read: &mut dyn FnMut(&Path) -> std::io::Result<Vec<u8>>,
+) -> Result<Vec<u8>, LoadError> {
+    if uri.starts_with("data:") {
+        decode_data_uri(uri)
+    } else if let Some(full) = local_uri(gltf_path, uri) {
+        read(&full).map_err(|e| {
             LoadError::Malformed(format!(
                 "glTF buffer {} could not be read ({e}).",
                 full.display()
             ))
         })
+    } else {
+        Err(LoadError::Malformed(
+            "glTF buffers must sit next to the file. Remote buffers are not loaded.".into(),
+        ))
     }
 }
 

@@ -1,15 +1,59 @@
 //! Input snapshots and image export.
 
 use super::*;
+mod document_cards;
+mod presence;
+pub(crate) use presence::ScopedImageInput;
 
 impl SlateApp {
+    /// A direct run on a picture edits that picture when no upstream Media was
+    /// authored. Style references keep their separate role. Chat context and
+    /// live runs stay wire-only so outputs never feed themselves automatically.
+    pub(crate) fn generator_input_refs(
+        &self,
+        id: NodeId,
+        current_image: bool,
+    ) -> Result<atlas_ai::agent::InputSnapshot, String> {
+        let mut inputs = self.agent_input_refs(id)?;
+        if !current_image || inputs.on(atlas_agent::InputSlot::Media).next().is_some() {
+            return Ok(inputs);
+        }
+        let Some(node) = self.doc().scene.node(id) else {
+            return Ok(inputs);
+        };
+        if !matches!(&node.kind, NodeKind::Image(_))
+            || slate_doc::agent_chat::agent(node).is_some_and(|agent| {
+                agent.view != atlas_ai::agent::PortalView::Images
+                    || !atlas_ai::agent::local_image_engine(&agent.provider)
+            })
+        {
+            return Ok(inputs);
+        }
+        if let Some(path) = self.image_item_path(id) {
+            inputs.wired.push(atlas_ai::agent::ContextItem {
+                node: id.0,
+                text: String::new(),
+                images: vec![
+                    resolve_source(self.tab().path.as_deref(), &path.to_string_lossy())
+                        .to_string_lossy()
+                        .into_owned(),
+                ],
+                outputs: Default::default(),
+                active: None,
+                depth: None,
+                slot: Some(atlas_agent::InputSlot::Media),
+            });
+        }
+        Ok(inputs)
+    }
+
+    /// Resolve authored inputs to references only; request paths prepare clips
+    /// asynchronously before dispatching any image-consuming operation.
     pub(crate) fn agent_input_snapshot(
         &self,
         id: NodeId,
     ) -> Result<atlas_ai::agent::InputSnapshot, String> {
-        let mut inputs = self.agent_input_refs(id)?;
-        self.clip_agent_images(&mut inputs);
-        Ok(inputs)
+        self.agent_input_refs(id)
     }
     /// The context publish's snapshot, with each wired picture's clip made
     /// off the frame loop. `None` while one is still being made: the last
@@ -18,75 +62,171 @@ impl SlateApp {
         &self,
         id: NodeId,
     ) -> Option<Result<atlas_ai::agent::InputSnapshot, String>> {
-        let mut inputs = match self.agent_input_refs(id) {
+        let inputs = match self.agent_input_refs(id) {
             Ok(inputs) => inputs,
             Err(error) => return Some(Err(error)),
         };
+        let mut prep = match self.begin_agent_input_preparation(inputs) {
+            Ok(prep) => prep,
+            Err(error) => return Some(Err(error)),
+        };
+        match self.poll_agent_input_preparation(&mut prep) {
+            Ok(true) => Some(Ok(prep.inputs)),
+            Ok(false) => None,
+            Err(error) => Some(Err(error)),
+        }
+    }
+
+    /// Schedules any image work against the selected result captured now.
+    pub(crate) fn begin_agent_input_preparation(
+        &self,
+        inputs: atlas_ai::agent::InputSnapshot,
+    ) -> Result<input_prep::InputPreparation, String> {
         let revision = (self.scene_gen, self.doc().scene.scene_gen());
-        let mut clips = self.agents.publish_clips.borrow_mut();
+        let workbook = self.tab().path.clone();
+        let mut replacements = Vec::new();
+        let mut bake_dependencies = Vec::new();
+        let tab_id = self.tab().id;
+        let mut clips = self.agents.image_prep.borrow_mut();
         clips.receive();
-        let mut waiting = false;
-        for item in inputs.context.iter_mut().chain(inputs.wired.iter_mut()) {
+        for item in inputs.context.iter().chain(inputs.wired.iter()) {
             let Some(node) = self.doc().scene.node(NodeId(item.node)) else {
                 continue;
             };
-            let NodeKind::Image(img) = &node.kind else {
-                continue;
-            };
-            let painted = img
-                .paint_layers
+            for source in item
+                .images
                 .iter()
-                .any(|layer| layer.visible && !layer.nodes.is_empty());
-            if !painted && img.crop.is_full() {
-                continue;
-            }
-            let Some(source) = self.doc().item(img.item).map(|i| i.path.clone()) else {
-                continue;
-            };
-            let key = clips.key(node, img, revision);
-            match clips.ready.get(&key) {
-                Some(Some(clip)) => {
-                    let clip = clip.to_string_lossy().into_owned();
-                    for slot in item.images.iter_mut().chain(item.depth.as_mut()) {
-                        if std::path::Path::new(&*slot) == source {
-                            *slot = clip.clone();
-                        }
-                    }
+                .chain(item.depth.as_ref())
+                .map(PathBuf::from)
+            {
+                let Some(img) = self.image_for_captured_input(item, &source)? else {
+                    continue;
+                };
+                let painted = img
+                    .paint_layers
+                    .iter()
+                    .any(|layer| layer.visible && !layer.nodes.is_empty());
+                let composed = painted
+                    || img.mirror().any()
+                    || img.adjust != Default::default()
+                    || node.clip.is_some();
+                let bake = self.layer_bakes.readiness_for(tab_id, img.item);
+                let bake_state = bake.as_ref().and_then(|bake| bake.result());
+                if let Some(Err(error)) = &bake_state {
+                    return Err(format!(
+                        "The copied paint layer could not be baked: {error}."
+                    ));
                 }
-                Some(None) => {}
-                None => {
-                    waiting = true;
-                    if !clips.pending.insert(key) {
-                        continue;
+                let bake_pending = bake.is_some() && bake_state.is_none();
+                if bake_pending {
+                    bake_dependencies.extend(bake.iter().cloned());
+                }
+                if !bake_pending && !composed && img.crop.is_full() {
+                    continue;
+                }
+                let key = clips.key(node, &img, &source, revision);
+                replacements.push((node.id, key, source.clone()));
+                if composed {
+                    let mut doc = self.doc().clone();
+                    let node = node.clone();
+                    let img = img.clone();
+                    let source = source.clone();
+                    let workbook = workbook.clone();
+                    if clips
+                        .schedule(
+                            key,
+                            bake.filter(|_| bake_pending),
+                            Box::new(move || {
+                                super::super::board_image_layers::resolve_image_doc_paths(
+                                    &mut doc,
+                                    workbook.as_deref(),
+                                );
+                                super::super::image_composite::agent_wired_image_file_from_source(
+                                    &doc, &node, &img, &source,
+                                )
+                            }),
+                        )
+                        .is_err()
+                    {
+                        return Err("Image preparation is busy; try the send again shortly.".into());
                     }
-                    let tx = clips.sender();
-                    if painted {
-                        let doc = self.doc().clone();
-                        let node = node.clone();
-                        std::thread::spawn(move || {
-                            let clip = match &node.kind {
-                                NodeKind::Image(img) => {
-                                    super::super::image_composite::agent_wired_image_file(
-                                        &doc, &node, img,
-                                    )
+                } else {
+                    let crop = img.crop;
+                    let source = source.clone();
+                    if clips
+                        .schedule(
+                            key,
+                            bake.filter(|_| bake_pending),
+                            Box::new(move || {
+                                if crop.is_full() {
+                                    Some(source)
+                                } else {
+                                    super::super::imagefx::visible_crop_file(&source, crop)
                                 }
-                                _ => None,
-                            };
-                            let _ = tx.send((key, clip));
-                        });
-                    } else {
-                        let crop = img.crop;
-                        std::thread::spawn(move || {
-                            let _ = tx.send((
-                                key,
-                                super::super::imagefx::visible_crop_file(&source, crop),
-                            ));
-                        });
+                            }),
+                        )
+                        .is_err()
+                    {
+                        return Err("Image preparation is busy; try the send again shortly.".into());
                     }
                 }
             }
         }
-        (!waiting).then_some(Ok(inputs))
+        Ok(input_prep::InputPreparation {
+            inputs,
+            replacements,
+            bake_dependencies,
+        })
+    }
+
+    /// Polls captured clip keys and only substitutes a successful result.
+    pub(super) fn poll_agent_input_preparation(
+        &self,
+        prep: &mut input_prep::InputPreparation,
+    ) -> Result<bool, String> {
+        let mut clips = self.agents.image_prep.borrow_mut();
+        clips.receive();
+        for bake in &prep.bake_dependencies {
+            match bake.result() {
+                None => return Ok(false),
+                Some(Ok(())) => {}
+                Some(Err(error)) => {
+                    return Err(format!(
+                        "The copied paint layer could not be baked: {error}."
+                    ));
+                }
+            }
+        }
+        let mut made = Vec::with_capacity(prep.replacements.len());
+        for (node, key, source) in &prep.replacements {
+            match clips.result(*key) {
+                None if clips.pending(*key) => return Ok(false),
+                None => {
+                    return Err("An image preparation result expired; send again to retry.".into());
+                }
+                Some(None) => return Err("Could not prepare a wired image input.".into()),
+                Some(Some(path)) => made.push((*node, source, path.to_string_lossy().into_owned())),
+            }
+        }
+        for item in prep
+            .inputs
+            .context
+            .iter_mut()
+            .chain(prep.inputs.wired.iter_mut())
+        {
+            for (node, source, clip) in &made {
+                if item.node != node.0 {
+                    continue;
+                }
+                for slot in item.images.iter_mut().chain(item.depth.as_mut()) {
+                    if std::path::Path::new(&*slot) == source.as_path() {
+                        *slot = clip.clone();
+                    }
+                }
+            }
+        }
+        prep.replacements.clear();
+        Ok(true)
     }
     /// One link folder's context: every card of a chat train shares the
     /// folder, so each card's inputs are published, in card order. `None`
@@ -127,7 +267,12 @@ impl SlateApp {
     }
     /// Wired and context inputs as board references, before any picture is
     /// clipped.
-    fn agent_input_refs(&self, id: NodeId) -> Result<atlas_ai::agent::InputSnapshot, String> {
+    pub(super) fn agent_input_refs(
+        &self,
+        id: NodeId,
+    ) -> Result<atlas_ai::agent::InputSnapshot, String> {
+        #[cfg(test)]
+        super::runtime::INPUT_RESOLVES_ON_THIS_THREAD.with(|count| count.set(count.get() + 1));
         let mut outputs = std::collections::BTreeMap::new();
         for node in &self.doc().scene.nodes {
             if slate_doc::agent_chat::is_agent_node(node) {
@@ -181,11 +326,10 @@ impl SlateApp {
                     slate_doc::media_kind(&item.path) == slate_doc::MediaKind::Text
                 });
                 if text_doc {
-                    let text = self
-                        .snippets
-                        .get(&image.item)
-                        .cloned()
-                        .flatten()
+                    let text = image
+                        .text_override
+                        .clone()
+                        .or_else(|| self.cached_snippet(image.item).map(str::to_string))
                         .unwrap_or_default();
                     outputs.insert(
                         node.id,
@@ -202,13 +346,26 @@ impl SlateApp {
                 }
             }
         }
-        let mut inputs = slate_doc::agent_inputs::snapshot(
+        let mut inputs = slate_doc::agent_inputs::snapshot_with_source_check(
             self.doc(),
             id,
             AgentContextScope::Selection,
             &[],
             &outputs,
+            |source| self.check_document_input_preview(source),
         )?;
+        for item in inputs.context.iter_mut().chain(inputs.wired.iter_mut()) {
+            for source in item
+                .images
+                .iter_mut()
+                .chain(item.depth.as_mut())
+                .chain(item.outputs.values_mut())
+            {
+                *source = resolve_source(self.tab().path.as_deref(), source)
+                    .to_string_lossy()
+                    .into_owned();
+            }
+        }
         // A prompt being typed steers before the edit commits.
         if let Some((editing, text)) = &self.text_edit {
             for item in &mut inputs.wired {
@@ -218,45 +375,6 @@ impl SlateApp {
             }
         }
         Ok(inputs)
-    }
-    /// Replace wired image inputs with their visible crop and paint composite.
-    fn clip_agent_images(&self, inputs: &mut atlas_ai::agent::InputSnapshot) {
-        for item in inputs.context.iter_mut().chain(inputs.wired.iter_mut()) {
-            let Some(node) = self.doc().scene.node(NodeId(item.node)) else {
-                continue;
-            };
-            let NodeKind::Image(img) = &node.kind else {
-                continue;
-            };
-            if img.mirror().any()
-                || img
-                    .paint_layers
-                    .iter()
-                    .any(|layer| layer.visible && !layer.nodes.is_empty())
-            {
-                super::super::image_composite::replace_wired_image_slots(
-                    self,
-                    item,
-                    NodeId(item.node),
-                );
-                continue;
-            }
-            if img.crop.is_full() {
-                continue;
-            }
-            let Some(source) = self.doc().item(img.item).map(|i| i.path.clone()) else {
-                continue;
-            };
-            let Some(clipped) = super::super::imagefx::visible_crop_file(&source, img.crop) else {
-                continue;
-            };
-            let clipped = clipped.to_string_lossy().into_owned();
-            for slot in item.images.iter_mut().chain(item.depth.as_mut()) {
-                if std::path::Path::new(&*slot) == source {
-                    *slot = clipped.clone();
-                }
-            }
-        }
     }
     pub(crate) fn export_agent_images(&self) -> std::collections::BTreeMap<NodeId, Vec<PathBuf>> {
         self.doc()
@@ -278,6 +396,29 @@ impl SlateApp {
             .collect()
     }
     pub(crate) fn agent_is_running(&self, id: NodeId) -> bool {
+        self.artifact_is_busy(id)
+            || self.agents.chat_preparing.contains_key(&id)
+            || self
+                .agents
+                .comfy_queue
+                .get(&id)
+                .is_some_and(|queue| !queue.is_empty())
+            || matches!(
+                self.agents.awaiting.get(&id),
+                Some(
+                    AgentAwait::Sent { .. }
+                        | AgentAwait::Thinking { .. }
+                        | AgentAwait::Responding { .. }
+                )
+            )
+            || self
+                .agents
+                .sessions
+                .get(&id)
+                .is_some_and(|s| s.status == AgentStatus::Thinking)
+    }
+
+    pub(in crate::app) fn agent_generation_dispatched(&self, id: NodeId) -> bool {
         matches!(
             self.agents.awaiting.get(&id),
             Some(

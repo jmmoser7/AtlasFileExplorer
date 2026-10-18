@@ -3,7 +3,7 @@ param([Parameter(Mandatory)][string]$AppDirectory, [Parameter(Mandatory)][string
     [Parameter(Mandatory)][string]$Channel, [Parameter(Mandatory)][string]$Version)
 $ErrorActionPreference = 'Stop'
 foreach ($file in @('slate.exe', 'native-file-atlas.exe', 'pdfium.dll', 'runtime/node.exe', 'runtime/node_modules/npm/bin/npm-cli.js',
-    'runtime/LICENSE', 'cursor-sidecar/index.mjs', 'cursor-sidecar/artifacts.mjs', 'cursor-sidecar/attachments.mjs',
+    'runtime/LICENSE', 'cursor-sidecar/index.mjs', 'cursor-sidecar/artifacts.mjs', 'cursor-sidecar/artifact-generation-v1.md', 'cursor-sidecar/board-link.mjs', 'cursor-sidecar/board-link-v1.md', 'cursor-sidecar/attachments.mjs', 'cursor-sidecar/models.mjs', 'cursor-sidecar/activity.mjs', 'cursor-sidecar/policy.mjs',
     'cursor-sidecar/install.mjs', 'cursor-sidecar/supervise.mjs', 'cursor-sidecar/package-lock.json', 'PDFium-LICENSE', 'DEJAVU-LICENSE.txt', 'install-shortcuts.ps1')) {
     if (-not (Test-Path -LiteralPath (Join-Path $AppDirectory $file) -PathType Leaf)) { throw "Package is missing $file" }
 }

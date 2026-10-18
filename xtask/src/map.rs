@@ -37,20 +37,33 @@ pub(crate) struct SymbolRow {
 }
 
 pub(crate) fn collect(root: &Path) -> Result<(Vec<FileMap>, Vec<SymbolRow>), MetricsError> {
-    let mut cache = map_cache::load(root);
-    map_cache::retain_existing(root, &mut cache);
+    collect_sources(root, true)
+}
+
+fn collect_sources(
+    root: &Path,
+    use_cache: bool,
+) -> Result<(Vec<FileMap>, Vec<SymbolRow>), MetricsError> {
+    let cache = if use_cache {
+        map_cache::load(root)
+    } else {
+        map_cache::empty_store()
+    };
     let mut next_cache = map_cache::empty_store();
     let mut files = Vec::new();
     let mut symbols = Vec::new();
 
     for path in scoped_files(root) {
         let rel = normalize_rel(&path, root);
-        let fm = if let Some(hit) = map_cache::try_hit(&cache, &rel, &path) {
+        let source = std::fs::read_to_string(&path).map_err(|e| MetricsError::io(&path, e))?;
+        let fm = if let Some(hit) = map_cache::try_hit(&cache, &rel, &source) {
             hit
         } else {
-            parse_file_map(&path, &rel)?
+            parse_file_map(&path, &rel, &source)?
         };
-        map_cache::insert(&mut next_cache, rel.clone(), &fm, &path);
+        if use_cache {
+            map_cache::insert(&mut next_cache, rel.clone(), &fm, &source);
+        }
 
         for item in &fm.items {
             symbols.push(SymbolRow {
@@ -62,19 +75,20 @@ pub(crate) fn collect(root: &Path) -> Result<(Vec<FileMap>, Vec<SymbolRow>), Met
         files.push(fm);
     }
 
-    map_cache::save(root, &next_cache)?;
+    if use_cache {
+        map_cache::save(root, &next_cache)?;
+    }
 
     files.sort_by(|a, b| a.path.cmp(&b.path));
     symbols.sort();
     Ok((files, symbols))
 }
 
-fn parse_file_map(path: &Path, rel: &str) -> Result<FileMap, MetricsError> {
-    let text = std::fs::read_to_string(path).map_err(|e| MetricsError::io(path, e))?;
-    let lines = count_physical_lines(&text);
-    let purpose = file_purpose(&text);
-    let file = syn::parse_file(&text).map_err(|e| MetricsError::syntax(path, e.to_string()))?;
-    let mut items = extract_items(&file, &text);
+fn parse_file_map(path: &Path, rel: &str, text: &str) -> Result<FileMap, MetricsError> {
+    let lines = count_physical_lines(text);
+    let purpose = file_purpose(text);
+    let file = syn::parse_file(text).map_err(|e| MetricsError::syntax(path, e.to_string()))?;
+    let mut items = extract_items(&file, text);
     items.sort_by(|a, b| (a.line, &a.name, &a.kind).cmp(&(b.line, &b.name, &b.kind)));
     Ok(FileMap {
         path: rel.to_string(),
@@ -117,7 +131,9 @@ pub fn write(root: &Path) -> Result<(), MetricsError> {
 }
 
 pub fn check(root: &Path) -> Result<(), MetricsError> {
-    let (files, symbols) = collect(root)?;
+    // Validation must parse current source independently of cached output,
+    // and leave every generated file (including the cache) untouched.
+    let (files, symbols) = collect_sources(root, false)?;
     let (jsonl, tsv) = render(&files, &symbols);
     let jsonl_path = root.join(JSONL);
     let tsv_path = root.join(SYMBOLS);
@@ -315,6 +331,104 @@ fn first_doc_line(attrs: &[syn::Attribute]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct Fixture(std::path::PathBuf);
+
+    impl Fixture {
+        fn new(name: &str) -> Self {
+            let nonce = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let root = std::env::temp_dir()
+                .join(format!("xtask_map_{name}_{}_{nonce}", std::process::id()));
+            std::fs::create_dir_all(root.join("crates/demo/src")).unwrap();
+            std::fs::write(root.join("crates/demo/src/lib.rs"), "pub fn alpha() {}\n").unwrap();
+            Self(root)
+        }
+
+        fn edit_preserving_stamp(&self) {
+            let path = self.0.join("crates/demo/src/lib.rs");
+            let before = std::fs::metadata(&path).unwrap();
+            std::fs::write(&path, "pub fn bravo() {}\n").unwrap();
+            std::fs::OpenOptions::new()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_times(std::fs::FileTimes::new().set_modified(before.modified().unwrap()))
+                .unwrap();
+            let after = std::fs::metadata(&path).unwrap();
+            assert_eq!(before.len(), after.len());
+            assert_eq!(before.modified().unwrap(), after.modified().unwrap());
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn cache_detects_equal_length_edits_with_the_exact_same_timestamp() {
+        let fixture = Fixture::new("stamp");
+        let (before, _) = collect(&fixture.0).unwrap();
+        assert_eq!(before[0].items[0].name, "alpha");
+        fixture.edit_preserving_stamp();
+        let (after, _) = collect(&fixture.0).unwrap();
+        assert_eq!(after[0].items[0].name, "bravo");
+    }
+
+    #[test]
+    fn check_ignores_cached_symbols_and_never_writes_generated_files() {
+        let fixture = Fixture::new("readonly");
+        write(&fixture.0).unwrap();
+        let (old_files, _) = collect(&fixture.0).unwrap();
+        fixture.edit_preserving_stamp();
+        let source = std::fs::read_to_string(fixture.0.join("crates/demo/src/lib.rs")).unwrap();
+        // Even a cache claiming the current bytes contain old symbols must
+        // not make validation accept the old generated map.
+        let mut poisoned = map_cache::empty_store();
+        map_cache::insert(
+            &mut poisoned,
+            old_files[0].path.clone(),
+            &old_files[0],
+            &source,
+        );
+        map_cache::save(&fixture.0, &poisoned).unwrap();
+        let paths = [map_cache::CACHE_PATH, JSONL, SYMBOLS];
+        let before: Vec<_> = paths
+            .iter()
+            .map(|rel| {
+                let path = fixture.0.join(rel);
+                (
+                    std::fs::read(&path).unwrap(),
+                    std::fs::metadata(path).unwrap().modified().unwrap(),
+                )
+            })
+            .collect();
+        assert!(
+            check(&fixture.0).is_err(),
+            "current source makes the map stale"
+        );
+        for (rel, (bytes, modified)) in paths.iter().zip(before) {
+            let path = fixture.0.join(rel);
+            assert_eq!(std::fs::read(&path).unwrap(), bytes);
+            assert_eq!(
+                std::fs::metadata(path).unwrap().modified().unwrap(),
+                modified
+            );
+        }
+    }
+
+    #[test]
+    fn successful_check_does_not_create_a_cache() {
+        let fixture = Fixture::new("no_cache");
+        write(&fixture.0).unwrap();
+        std::fs::remove_file(fixture.0.join(map_cache::CACHE_PATH)).unwrap();
+        check(&fixture.0).unwrap();
+        assert!(!fixture.0.join(map_cache::CACHE_PATH).exists());
+    }
 
     #[test]
     fn purpose_reads_first_inner_doc_line() {

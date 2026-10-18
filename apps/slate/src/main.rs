@@ -1,6 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-fn main() -> eframe::Result {
+mod crash;
+
+fn main() -> std::process::ExitCode {
     atlas_core::session_log::note_process_start();
     // Task Scheduler runs a conversation's repeating message with no window.
     let args: Vec<String> = std::env::args().collect();
@@ -13,7 +15,7 @@ fn main() -> eframe::Result {
                 let _ = std::fs::remove_file(dir.join("schedule.result.txt"));
             }
         }
-        return Ok(());
+        return std::process::ExitCode::SUCCESS;
     }
     let _install_guard = match atlas_update::startup() {
         Ok(guard) => guard,
@@ -22,8 +24,8 @@ fn main() -> eframe::Result {
                 .set_title("Slate update")
                 .set_description(error)
                 .show();
-            return Ok(());
+            return std::process::ExitCode::FAILURE;
         }
     };
-    slate::run()
+    crash::run()
 }

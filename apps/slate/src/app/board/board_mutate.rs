@@ -18,7 +18,7 @@ impl SlateApp {
     /// the scene, so one Undo still returns the whole gesture. `false`
     /// changes nothing; the caller journals the edit on its own.
     pub(crate) fn fold_into_last_step(&mut self, after: &Node) -> bool {
-        if self.tab().journal.can_redo() || !self.tab_mut().journal.fold_into_last(after) {
+        if !self.can_amend_scene_step() || !self.tab_mut().journal.fold_into_last(after) {
             return false;
         }
         if let Some(node) = self.doc_mut().scene.node_mut(after.id) {
@@ -31,6 +31,15 @@ impl SlateApp {
     /// Applies an edit to several nodes and journals one coalescible patch
     /// group (continuous slider scrubs collapse into a single undo step).
     pub fn patch_nodes(&mut self, ids: &[NodeId], f: impl Fn(&mut Node)) {
+        self.patch_nodes_as(ids, slate_doc::scene::CmdAuthor::Human, f);
+    }
+
+    pub(crate) fn patch_nodes_as(
+        &mut self,
+        ids: &[NodeId],
+        author: slate_doc::scene::CmdAuthor,
+        f: impl Fn(&mut Node),
+    ) {
         let _span = atlas_core::session_log::span("slate.scene.patch");
         if self.refuse_read_only_edit() {
             return;
@@ -52,6 +61,22 @@ impl SlateApp {
         if afters.is_empty() {
             return;
         }
+        let mentions: Vec<SceneCmd> =
+            if author == slate_doc::scene::CmdAuthor::Human && !self.presence.agents_empty() {
+                befores
+                    .iter()
+                    .zip(&afters)
+                    .filter(|(before, after)| {
+                        crate::app::agent_presence::message_text_changed(Some(before), after)
+                    })
+                    .map(|(before, after)| SceneCmd::Patch {
+                        before: Box::new(before.clone()),
+                        after: Box::new(after.clone()),
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
         {
             let scene = &mut self.doc_mut().scene;
             for a in &afters {
@@ -64,12 +89,16 @@ impl SlateApp {
             befores.iter().zip(&afters).map(|(b, a)| (Some(b), a)),
         );
         let first = afters[0].id;
-        let coalesce = matches!(
-            self.last_board_edit,
-            Some((id, t)) if id == first && t.elapsed() < COALESCE
-        );
+        let coalesce = self.can_amend_scene_step()
+            && matches!(
+                self.last_board_edit,
+                Some((id, t)) if id == first && t.elapsed() < COALESCE
+            );
         let tab = self.tab_mut();
-        let amended = coalesce && afters.len() == 1 && tab.journal.amend_last_patch(&afters[0]);
+        let amended = coalesce
+            && afters.len() == 1
+            && tab.journal.last_author() == Some(&author)
+            && tab.journal.amend_last_patch(&afters[0]);
         if !amended {
             let cmds: Vec<SceneCmd> = befores
                 .into_iter()
@@ -79,8 +108,11 @@ impl SlateApp {
                     after: Box::new(a.clone()),
                 })
                 .collect();
-            tab.journal.record(cmds);
+            tab.journal.record_as(cmds, author);
+            tab.edits.push(BoardMark::Scene);
+            tab.edit_redo.clear();
         }
+        tab.dirty = true;
         self.remember_document_colors(colors);
         self.last_board_edit = Some((first, Instant::now()));
         self.brush_tiles.note_ids(afters.iter().map(|n| n.id));
@@ -88,10 +120,15 @@ impl SlateApp {
         if afters.len() == 1 {
             self.note_last_style(&afters[0]);
         }
+        self.route_presence_mentions(&mentions);
     }
 
     /// Drawing-tool commit: paint layer when hosting, else z-list `Add`.
     pub(crate) fn commit_created_nodes(&mut self, nodes: Vec<Node>) -> Vec<NodeId> {
+        if self.creates_fading_curves(&nodes) {
+            self.queue_fading_curves(nodes);
+            return Vec::new();
+        }
         if self.image_paint.is_some() {
             return self.commit_paint_layer_nodes(nodes).unwrap_or_default();
         }
@@ -164,6 +201,25 @@ impl SlateApp {
         if self.refuse_read_only_edit() {
             return;
         }
+        let (cmds, removed, ended) = self.prepare_board_node_deletion(ids);
+        if cmds.is_empty() {
+            return;
+        }
+        self.stop_pruned_agent_runs(&removed);
+        self.agents.text_output.retire(&removed);
+        if self.commit_scene(cmds) {
+            self.forget_deleted_agent_cards(&removed);
+        }
+        for id in removed.iter().chain(&ended) {
+            self.board_sel.remove(id);
+        }
+    }
+
+    /// One deletion planner, shared by direct commands and witnessed proposals.
+    pub(crate) fn prepare_board_node_deletion(
+        &self,
+        ids: &[NodeId],
+    ) -> (Vec<SceneCmd>, Vec<NodeId>, Vec<NodeId>) {
         // A deleted crosswire ends its crosstalk there but stays, hidden, so
         // the message it carried keeps its provenance (crosstalk D17).
         let ended_wires: Vec<NodeId> = ids
@@ -221,8 +277,6 @@ impl SlateApp {
             .collect();
         deleted.extend(crosswires);
         let ids: Vec<_> = deleted.iter().copied().collect();
-        self.stop_pruned_agent_runs(&ids);
-        self.agents.text_output.retire(&ids);
         // Surviving connectors anchored to a deleted node degrade to `Free`
         // at their last world position — same command group, so undo
         // restores the anchor (connectors spec).
@@ -273,7 +327,6 @@ impl SlateApp {
                 before: Box::new(before),
                 after: Box::new(after),
             });
-            self.board_sel.remove(id);
         }
         // Remove in descending index order so recorded indices stay valid on
         // revert (revert_all replays in reverse).
@@ -286,17 +339,12 @@ impl SlateApp {
             .collect();
         idx.sort_by_key(|(i, _)| std::cmp::Reverse(*i));
         if idx.is_empty() && cmds.is_empty() {
-            return;
+            return (Vec::new(), ids, ended_wires);
         }
         cmds.extend(
             idx.into_iter()
                 .map(|(index, node)| SceneCmd::Remove { index, node }),
         );
-        if self.commit_scene(cmds) {
-            self.forget_deleted_agent_cards(&ids);
-        }
-        for id in &ids {
-            self.board_sel.remove(id);
-        }
+        (cmds, ids, ended_wires)
     }
 }

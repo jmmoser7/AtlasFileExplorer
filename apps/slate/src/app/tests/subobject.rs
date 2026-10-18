@@ -2,6 +2,150 @@
 
 use super::*;
 
+mod guards;
+
+#[test]
+fn tiny_shape_body_moves_before_overlapping_transform_grips() {
+    use slate_doc::scene::ShapeKind;
+    for zoom in [0.5, 1.0, 8.0] {
+        let (mut h, id, _) = closed_form_board("tiny_body_move", ShapeKind::Rect);
+        let center = h.app.board_xf().s2w(h.app.canvas_rect.center());
+        h.app.patch_nodes(&[id], |n| {
+            n.rect = WorldRect::new(center.x, center.y, 4.0, 3.0);
+        });
+        h.app.tab_mut().cam.z = zoom;
+        h.app.tab_mut().cam.offset = center.to_vec2();
+        h.frame();
+        let before = h.app.doc().scene.node(id).unwrap().clone();
+        let xf = h.app.board_xf();
+        let grab = xf.w2s(Pos2::new(before.rect.x + 2.0, before.rect.y + 1.5));
+        assert_eq!(h.app.tiny_body_owns_pointer(grab), Some(id));
+        assert_eq!(
+            h.app.transform_hit_at(grab),
+            Some((Some(id), board_handles::BoardHitTarget::Body))
+        );
+        drag_screen(&mut h, grab, grab + EVec2::new(50.0, 35.0), false);
+        let after = h.app.doc().scene.node(id).unwrap();
+        assert_eq!(shape_kind_of(&h, id), ShapeKind::Rect);
+        assert_eq!(after.rect.w, before.rect.w);
+        assert_eq!(after.rect.h, before.rect.h);
+        assert_ne!(
+            after.rect.x, before.rect.x,
+            "tiny body moves at zoom {zoom}"
+        );
+        h.app.board_undo();
+        assert_eq!(h.app.doc().scene.node(id).unwrap(), &before);
+    }
+}
+
+#[test]
+fn ctrl_shift_sweeps_pick_contained_or_crossing_segments() {
+    let mut h = grip_board("edge_sweep");
+    let (id, pts) = edge_polyline(&mut h);
+    let xf = h.app.board_xf();
+    let depth = h.app.tab().journal.undo_depth();
+    let a = xf.w2s(pts[0] + EVec2::new(-20.0, -20.0));
+    let b = xf.w2s(pts[2] + EVec2::new(20.0, 20.0));
+    let pointer = |h: &mut Harness, pos, button| {
+        h.frame_with(|i| {
+            i.modifiers = SUB_OBJECT;
+            i.events.push(egui::Event::PointerMoved(pos));
+            if let Some(pressed) = button {
+                i.events.push(egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: SUB_OBJECT,
+                });
+            }
+        })
+    };
+    pointer(&mut h, a, Some(true));
+    pointer(&mut h, mid(a, b), None);
+    pointer(&mut h, b, None);
+    pointer(&mut h, b, Some(false));
+    assert_eq!(
+        h.app
+            .direct
+            .grip_points
+            .edges
+            .keys()
+            .copied()
+            .collect::<Vec<_>>(),
+        vec![0, 1]
+    );
+    assert_eq!(h.app.board_sel, [id].into_iter().collect());
+    assert_eq!(h.app.tab().journal.undo_depth(), depth);
+    // Right-to-left crossing touches edge 2 without enclosing its ends.
+    let a = xf.w2s(mid(pts[2], pts[3]) + EVec2::new(10.0, -10.0));
+    let b = a - EVec2::new(20.0, -20.0);
+    pointer(&mut h, a, Some(true));
+    pointer(&mut h, b, None);
+    pointer(&mut h, b, Some(false));
+    assert_eq!(
+        h.app
+            .direct
+            .grip_points
+            .edges
+            .keys()
+            .copied()
+            .collect::<Vec<_>>(),
+        vec![0, 1, 2]
+    );
+}
+
+#[test]
+fn deleting_a_primitive_vertex_promotes_it_and_undo_restores_it() {
+    use slate_doc::scene::ShapeKind;
+    for kind in [ShapeKind::Rect, ShapeKind::RegularPolygon] {
+        let (mut h, id, v) = closed_form_board("primitive_delete_vertex", kind);
+        let before = h.app.doc().scene.node(id).unwrap().clone();
+        let count = v.len();
+        let at = h.app.board_xf().w2s(v[1]);
+        press_primary(&mut h, at, egui::Modifiers::NONE);
+        assert_eq!(h.app.picked_vertices(), Some((id, vec![1])));
+        press_key_with(&mut h, egui::Key::Delete, egui::Modifiers::NONE);
+        assert_eq!(shape_kind_of(&h, id), ShapeKind::Path);
+        let (anchors, closed) = h.app.direct_anchors_of(id).unwrap();
+        assert!(closed);
+        assert_eq!(anchors.len(), count - 1);
+        let NodeKind::Shape(s) = &h.app.doc().scene.node(id).unwrap().kind else {
+            panic!("shape")
+        };
+        let NodeKind::Shape(old) = &before.kind else {
+            panic!("shape")
+        };
+        assert_eq!(s.fill, old.fill);
+        assert_eq!(s.stroke, old.stroke);
+        h.app.board_undo();
+        assert_eq!(h.app.doc().scene.node(id).unwrap(), &before);
+    }
+}
+
+#[test]
+fn deleting_a_rectangle_edge_opens_its_outline() {
+    use slate_doc::scene::ShapeKind;
+    let (mut h, id, v) = closed_form_board("primitive_delete_edge", ShapeKind::Rect);
+    let before = h.app.doc().scene.node(id).unwrap().clone();
+    let at = h.app.board_xf().w2s(mid(v[1], v[2]));
+    press_primary(&mut h, at, SUB_OBJECT);
+    assert_eq!(
+        h.app
+            .direct
+            .grip_points
+            .edges
+            .keys()
+            .copied()
+            .collect::<Vec<_>>(),
+        vec![1]
+    );
+    press_key_with(&mut h, egui::Key::Delete, egui::Modifiers::NONE);
+    assert_eq!(shape_kind_of(&h, id), ShapeKind::Path);
+    assert!(!h.app.direct_anchors_of(id).unwrap().1);
+    h.app.board_undo();
+    assert_eq!(h.app.doc().scene.node(id).unwrap(), &before);
+}
+
 /// User (28 September 2026, "dig selection": "lok at rhino president for
 /// selecting sub elements. would be good to seect single edges of objects
 /// like polylines"): Ctrl+Shift+click on a segment selects that curve alone

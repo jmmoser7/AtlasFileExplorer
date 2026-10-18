@@ -9,7 +9,6 @@ use eframe::egui::{self, Id, Rect, Ui};
 use model_preview::view_meta;
 use slate_doc::agent_inputs;
 use slate_doc::scene::{ModelCamera, NodeId, NodeKind};
-use slate_doc::wire_host::WireHost;
 
 use atlas_shell::canvas_scale;
 use atlas_shell::home::{album_index_strip, AlbumImage};
@@ -36,12 +35,6 @@ struct WiredViewEntry {
 }
 
 impl SlateApp {
-    /// A model keeps the plain host: View wires land through the ordinary
-    /// edge snap, so no port is drawn or hit at rest.
-    pub(crate) fn wire_host(&self, node: &slate_doc::scene::Node) -> WireHost {
-        WireHost::from_node(node)
-    }
-
     pub(crate) fn note_view_wires_added(&mut self, ids: &[NodeId]) {
         let tab_id = self.tab().id;
         for id in ids {
@@ -271,8 +264,9 @@ impl SlateApp {
         }
     }
 
-    fn image_item_path(&self, image: NodeId) -> Option<PathBuf> {
-        self.image_item(image).and_then(|item| self.item_path(item))
+    pub(crate) fn image_item_path(&self, image: NodeId) -> Option<PathBuf> {
+        self.agent_shown_path(image)
+            .or_else(|| self.image_item(image).and_then(|item| self.item_path(item)))
     }
 
     fn image_item_cache_key(&self, image: NodeId) -> Option<String> {

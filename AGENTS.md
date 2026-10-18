@@ -241,6 +241,13 @@ Release binaries: `target/release/native-file-atlas.exe` and
 previews. Slate registers the `.slate` file association (per-user, HKCU) on
 first run and embeds `apps/slate/assets/slate.ico`.
 
+## Client feedback
+
+Report triage, interactive acceptance after substantial UI batches, prior-pass
+reconciliation and evidence-preserving archival are owned by
+[feedback/README.md](feedback/README.md#resolution-and-interactive-acceptance), enforced
+by `.cursor/rules/feedback-archive.mdc`.
+
 ## Session activity log (read this before asking what froze)
 
 Both apps record frame time and named work to
@@ -347,6 +354,9 @@ Semantic cluster labels come from Cursor agents via
 for analysis, layout, overlay matching, and the AI beacon.
 
 ## Cursor Cloud specific instructions
+
+Before dispatching cloud work, read [`docs/agent/cloud-validation.md`](docs/agent/cloud-validation.md).
+It owns snapshot handoff, retained test evidence, and economical verification.
 
 Cloud agents run on **Linux VMs**. These crates target **Windows** (Win32
 shell thumbnails, `windows` crate), but non-Windows stubs keep

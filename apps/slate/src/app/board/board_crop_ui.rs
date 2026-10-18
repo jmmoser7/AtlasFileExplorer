@@ -76,15 +76,18 @@ impl SlateApp {
         let NodeKind::Image(img) = &n.kind else {
             return false;
         };
-        let Some(item) = self.doc().item(img.item) else {
+        let Some(path) = self.image_item_path(id) else {
             return false;
         };
         !matches!(
-            slate_doc::media_kind(&item.path),
+            slate_doc::media_kind(&path),
             slate_doc::MediaKind::Model
                 | slate_doc::MediaKind::Text
                 | slate_doc::MediaKind::Workbook
-        ) && !self.model3d.external.contains(&item.cache_key)
+        ) && !self
+            .doc()
+            .item(img.item)
+            .is_some_and(|item| self.model3d.external.contains(&item.cache_key))
     }
 
     /// Enter crop mode on an eligible image node (selects it and switches
@@ -111,6 +114,20 @@ impl SlateApp {
         })
     }
 
+    pub(super) fn begin_crop_pan(&self, world: Pos2) -> Option<BoardDrag> {
+        let id = self.board_sel.iter().copied().find(|id| {
+            self.croppable_image(*id)
+                && self.doc().scene.node(*id).is_some_and(|node| {
+                    slate_doc::geom::point_in_node_outline(node, world.x, world.y, 0.05)
+                })
+        })?;
+        Some(BoardDrag::CropPan {
+            id,
+            before: self.doc().scene.node(id)?.clone(),
+            start_world: world,
+        })
+    }
+
     /// The crop handle under the pointer across every selected croppable
     /// image. Corners beat edges, then the nearest wins, so press, cursor,
     /// and hover paint always agree.
@@ -131,7 +148,8 @@ impl SlateApp {
             let Some(n) = self.doc().scene.node(*id) else {
                 continue;
             };
-            let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
+            let geom =
+                board_handles::selection_geom(&xf, board_crop::handle_rect(n), n.rotation_deg);
             let Some((handle, dist)) = board_handles::crop_handle_pick(screen, &geom) else {
                 continue;
             };
@@ -257,8 +275,14 @@ impl SlateApp {
             .width()
             .max(xf.rect_w2s(content).height()))
             * ui.ctx().pixels_per_point();
-        if let Some(tex) = self.board_texture(ui.ctx(), node.id, img.item, &img.adjust, desired_px)
-        {
+        let texture = if img.agent.is_some() {
+            self.image_item_path(node.id).and_then(|path| {
+                self.agent_picture_texture(ui.ctx(), &path, &img.adjust, desired_px)
+            })
+        } else {
+            self.board_texture(ui.ctx(), node.id, img.item, &img.adjust, desired_px)
+        };
+        if let Some(tex) = texture {
             let vertices = node_texture_vertices(
                 xf,
                 node.rect,
@@ -314,7 +338,8 @@ impl SlateApp {
             let Some(n) = self.doc().scene.node(id) else {
                 continue;
             };
-            let geom = board_handles::selection_geom(xf, n.rect, n.rotation_deg);
+            let geom =
+                board_handles::selection_geom(xf, board_crop::handle_rect(n), n.rotation_deg);
             painter.add(egui::Shape::closed_line(
                 geom.corners.to_vec(),
                 EStroke::new(canvas_scale::px(1.0, geom.zoom), Color32::WHITE),
@@ -333,7 +358,11 @@ impl SlateApp {
                     painter,
                     at + Vec2::new(0.0, canvas_scale::px(14.0, z)),
                     Align2::CENTER_TOP,
-                    "Drag an edge to crop · Enter / Esc to finish",
+                    if node.clip.is_some() {
+                        "Drag inside to move pixels · Drag a content grip to scale · Enter / Esc to finish"
+                    } else {
+                        "Drag an edge to crop · Enter / Esc to finish"
+                    },
                     FontId::proportional(hint),
                     palette.sub,
                 );

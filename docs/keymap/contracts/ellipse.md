@@ -18,7 +18,7 @@ D01–D17 are every tool-scoped dimension. D18–D35 are portal-only and do not 
 | D02 | Stickiness & repeat | One-shot creation; return to Select. Repeat follows P0.4. | pattern | 85 |
 | D03 | Gesture grammar | P2.DragShape: click default ellipse/circle; drag sizes freely; Shift constrains a circle. | pattern | 85 |
 | D04 | Click vs drag rule | P2.DragShape; snap movement never changes click-vs-drag classification. | pattern | 85 |
-| D05 | Modifiers | Shift locks a circle (P1.shape.aspect). Ctrl during DragScale draws from the press point as center. Later resize is P1.node.transform, including Alt-at-press scale copies. Fill and stroke sample the ellipse to a 0.1px screen chord so the circle is not a coarse polygon. | stated | 100 |
+| D05 | Modifiers | Shift locks a circle (P1.shape.aspect). Ctrl during DragScale draws from the press point as center. Later resize is P1.node.transform, including Alt-at-press scale copies. Fill and stroke sample the ellipse to a 0.1px screen chord so the circle is not a coarse polygon. Ctrl+Shift sub-object selection follows P1.shape.field-style. | stated | 100 |
 | D06 | Constraints & snapping | P1.node.osnap: one resolved point feeds preview and commit; Alt suspends, ortho/direction constraints retain priority. | pattern | 85 |
 | D07 | Direction / value locks | No new lock binding. Preserve existing locks; numeric property editing is separate from drawing. | pattern | 85 |
 | D08 | Numeric / manual entry | one diameter stringer for a circle; two local-axis diameters for an ellipse. Edits stay centered; a circle stays circular. Alternative: radius/radii labels instead of diameter. No size fields in the toolbar. | guess | 55 |
@@ -26,8 +26,8 @@ D01–D17 are every tool-scoped dimension. D18–D35 are portal-only and do not 
 | D10 | Cursor | Crosshair while armed over the board (stated 2026-09-25). The P2.GhostFollow silhouette still follows it until the press, without the tinted pointer. Controls use shell hover and focus feedback. | stated | 100 |
 | D11 | Commit | P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history. | pattern | 85 |
 | D12 | Cancel | P1.shape.properties: Esc cancels the pending property edit and preserves selection. Existing creation cancellation remains unchanged. | pattern | 85 |
-| D13 | Selected presentation | P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers. | pattern | 85 |
-| D14 | Post-edit | Circular Fill and Stroke buttons; no corner button. Color editors open outward and use the shared desktop eyedropper. Dimension alternatives are in shape-property-editing.md. | guess | 55 |
+| D13 | Selected presentation | P1.shape.properties: squircle Fill / Stroke / Corners controls below the actual silhouette, with full-width clearance and concave-notch support, gated by geometry; dimensions use separate exterior stringers. Field presentation and fill attributes follow P1.shape.field-style. | stated | 100 |
+| D14 | Post-edit | Circular Fill and Stroke buttons; no corner button. Color editors open outward and use the shared desktop eyedropper. Dimension alternatives are in shape-property-editing.md. Field presentation and fill attributes follow P1.shape.field-style. | stated | 100 |
 | D15 | Non-goals | P1.shape.properties: no dimensions, independent opacity, or unsupported geometry controls in the strip. | pattern | 85 |
 | D16 | Create-style inheritance | **Closed-form** create-style memory (P1.shape.style): inherit last closed-shape stroke/fill when the kit recipe is inherit. Open-curve edits do not overwrite ellipse defaults. | stated | 100 |
 | D17 | Hit-testing & pick | P1.shape.properties: controls consume their input before canvas gestures; locked/read-only targets cannot be changed. | pattern | 85 |

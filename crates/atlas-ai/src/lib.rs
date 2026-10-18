@@ -21,6 +21,7 @@
 
 pub mod access;
 pub mod agent;
+pub mod board_link;
 pub mod config;
 pub mod context;
 pub mod cursor_chats;
@@ -30,6 +31,7 @@ pub mod deliverables;
 pub mod feedback;
 pub mod launch;
 pub mod outputs;
+pub mod packs;
 pub mod projects;
 pub mod runtime;
 pub mod schedule;

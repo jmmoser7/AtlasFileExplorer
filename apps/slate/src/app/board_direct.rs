@@ -4,10 +4,14 @@
 //! I); this module routes input, paints the anchor adornment, and journals
 //! one Patch per drag through the existing gesture convention. A `Line`
 //! shape promotes to a 2-anchor `Path` on its first direct edit (one Patch
-//! covers the promotion + the edit). Rotated paths bake their rotation into
-//! the path on the first direct edit (world shape unchanged).
-//!
-//! See `docs/keymap/specs/direct-selection.md`.
+//! covers the promotion + the edit). Rotated paths bake rotation on edit.
+//! Contract: `docs/keymap/specs/direct-selection.md`.
+
+mod arrows;
+mod field;
+mod join;
+mod sweep;
+pub(crate) use field::apply_field_property;
 
 use super::board::{BoardXf, MIN_DRAW};
 use super::path_edit_overlay::{
@@ -56,6 +60,11 @@ pub(crate) fn picked_edges_flattened_on_this_thread() -> u64 {
 /// Direct-selection state: the target path node + selected anchor indices.
 #[derive(Default)]
 pub struct DirectState {
+    pub fade_armed: bool,
+    pub fade_dirty_before: Option<bool>,
+    pub fading: Vec<board_path::FadingCurve>,
+    pub field: Option<NodeId>,
+    field_paint_cache: Option<field::CachedFieldPaint>,
     pub node: Option<NodeId>,
     pub anchors: HashSet<usize>,
     /// Points picked on the Select tool's curve grips.
@@ -165,6 +174,15 @@ pub(crate) enum CurveGrips {
 
 /// A live direct-selection drag (one journaled Patch on release).
 pub enum DirectDrag {
+    ArrowSize {
+        node: NodeId,
+        before: Node,
+        end: usize,
+        axis: usize,
+        start: Pos2,
+        into: [f32; 2],
+        original: [f32; 2],
+    },
     /// Move the selected anchors (Shift/ortho = 45° constraint).
     Anchors {
         node: NodeId,
@@ -201,9 +219,14 @@ pub enum DirectDrag {
         before: Node,
         points: [Pos2; 3],
         idx: usize,
+        indices: Vec<usize>,
     },
     /// Rubber-band over anchors of the target path (Shift = add).
-    Marquee { start_screen: Pos2, add: bool },
+    Marquee {
+        start_screen: Pos2,
+        add: bool,
+        edges: bool,
+    },
 }
 
 fn to_point(p: Pos2) -> Point {
@@ -239,7 +262,11 @@ fn rebuild_from_world_bez(n: &mut Node, bez: &BezPath, closed: bool, sources: Op
     let NodeKind::Shape(s) = &mut n.kind else {
         return;
     };
-    if let Some(old) = s.path.clone() {
+    if let Some(old) = if s.shape == ShapeKind::Path {
+        s.path.as_deref().cloned()
+    } else {
+        vertex_style::closed_form_path(s)
+    } {
         match sources.filter(|s| !s.is_empty()) {
             Some(sources) => {
                 // A closing copy of the start comes from anchor 0.
@@ -263,6 +290,7 @@ fn rebuild_from_world_bez(n: &mut Node, bez: &BezPath, closed: bool, sources: Op
             }
         }
         // Erase passes are world ink, not vertices: keep them on the rebuilt
+        slate_doc::field::carry_colors(&old, &mut data, sources);
         // node by mapping old normalized points through world space.
         data.erase = old
             .erase
@@ -287,7 +315,7 @@ fn rebuild_from_world_bez(n: &mut Node, bez: &BezPath, closed: bool, sources: Op
 
 impl SlateApp {
     /// Is this node direct-editable (a Path, or a Line that would promote)?
-    /// A closed form is too, for picking its vertices only
+    /// Closed-form vertices promote on their first geometric edit
     /// (P1.shape.vertex-style).
     pub(crate) fn direct_editable(&self, id: NodeId) -> bool {
         matches!(
@@ -318,7 +346,7 @@ impl SlateApp {
     }
 
     /// The Select tool's one selected closed form, with its world vertices.
-    fn closed_form_target(&self) -> Option<(NodeId, Vec<Pos2>)> {
+    pub(crate) fn closed_form_target(&self) -> Option<(NodeId, Vec<Pos2>)> {
         if self.board_sel.len() != 1 {
             return None;
         }
@@ -345,8 +373,8 @@ impl SlateApp {
     }
 
     /// World-space anchors of a node: Paths lift through `vector_ink::edit`;
-    /// Lines synthesize their 2 endpoint anchors (promotion happens on the
-    /// first edit, not on inspection).
+    /// Lines and closed primitives synthesize anchors through their existing
+    /// geometry owner; promotion happens on the first edit, not inspection.
     pub(crate) fn direct_anchors_of(&self, id: NodeId) -> Option<(Vec<Anchor>, bool)> {
         let node = self.doc().scene.node(id)?;
         let NodeKind::Shape(s) = &node.kind else {
@@ -365,7 +393,11 @@ impl SlateApp {
                     false,
                 ))
             }
-            _ => None,
+            _ => {
+                let path = vertex_style::closed_form_path(s)?;
+                let bez = board_path::path_data_to_world_bez(&path, node.rect, node.rotation_deg);
+                Some(anchors_from_bezpath(&bez))
+            }
         }
     }
 
@@ -462,14 +494,6 @@ impl SlateApp {
     /// the Select tool's grip picks on its one selected curve. An arc's
     /// remaining grips become a straight segment. One undo step.
     pub(crate) fn delete_picked_vertices(&mut self) -> bool {
-        if let Some((id, _)) = self.picked_vertices() {
-            // A closed form cannot lose a vertex without changing its kind;
-            // Delete with its vertices picked does nothing
-            // (P1.shape.vertex-style).
-            if self.closed_form_points(id).is_some() {
-                return true;
-            }
-        }
         if self.board_tool == super::board::BoardTool::DirectSelect {
             return self.direct_delete_anchors();
         }
@@ -810,6 +834,9 @@ impl SlateApp {
     /// A grip of the selected curve sits under `screen`, so a press edits it
     /// rather than resizing.
     pub(crate) fn curve_grip_under(&self, screen: Pos2) -> bool {
+        if self.arrow_size_handle_under(screen) {
+            return true;
+        }
         let Some((id, grips)) = self.curve_grip_target() else {
             return false;
         };
@@ -818,30 +845,6 @@ impl SlateApp {
             screen,
         )
         .is_some()
-    }
-
-    /// A painted path-edit grip under `screen` (P1.curve.grips): an anchor
-    /// square or handle knob of the Select tool's grip target, an end point
-    /// of the selected simple line, or any anchor or knob Direct Select
-    /// paints on its target. Closed-form vertices (P1.shape.vertex-style)
-    /// do not count.
-    pub(crate) fn curve_knob_under(&self, screen: Pos2) -> bool {
-        match self.board_tool {
-            super::board::BoardTool::Select => {
-                self.curve_grip_under(screen)
-                    || (self.board_sel.len() == 1
-                        && self.board_sel.iter().next().is_some_and(|&id| {
-                            self.line_grip_at(id, screen, &self.board_xf()).is_some()
-                        }))
-            }
-            super::board::BoardTool::DirectSelect => {
-                self.direct
-                    .node
-                    .is_some_and(|id| self.direct_anchors_of(id).is_some())
-                    && self.hovered_vertex(screen).is_some()
-            }
-            _ => false,
-        }
     }
 
     /// Screen distance from `screen` to the grip of curve `id` a press there
@@ -869,7 +872,14 @@ impl SlateApp {
         screen: Pos2,
         mods: egui::Modifiers,
     ) -> Option<DirectDrag> {
-        let (id, grips) = self.curve_grip_target()?;
+        if let Some(drag) = self.begin_arrow_size_drag(screen) {
+            return Some(drag);
+        }
+        let (id, grips) = self.curve_grip_target().or_else(|| {
+            let (id, _) = self.closed_form_target()?;
+            let (anchors, closed) = self.direct_anchors_of(id)?;
+            Some((id, CurveGrips::Anchors { anchors, closed }))
+        })?;
         let xf = self.board_xf();
         let hit = path_edit_hit(&self.curve_grip_overlay(id, &grips, &xf), screen)?;
         let before = self.doc().scene.node(id)?.clone();
@@ -884,6 +894,7 @@ impl SlateApp {
                 before,
                 points,
                 idx,
+                indices: self.direct.grip_points.picked.iter().copied().collect(),
             },
             (CurveGrips::Arc(_), PathEditHit::Handle(..)) => return None,
             (CurveGrips::Anchors { anchors, closed }, PathEditHit::Handle(idx, end)) => {
@@ -904,7 +915,7 @@ impl SlateApp {
                     before,
                     anchors0: anchors,
                     closed,
-                    indices: vec![idx],
+                    indices: self.direct.grip_points.picked.iter().copied().collect(),
                     start,
                 }
             }
@@ -921,51 +932,6 @@ impl SlateApp {
             return false;
         };
         self.direct.grip_points.pick(id, idx, shift);
-        true
-    }
-
-    /// The segment of curve `id` under `world`: a line, or a single-contour
-    /// path whose grips are its anchors (an arc's grips are not, and a
-    /// stamped brush stroke has none). Locked and hidden nodes have none.
-    fn curve_edge_at(&self, id: NodeId, world: Pos2) -> Option<usize> {
-        let n = self.doc().scene.node(id)?;
-        if n.locked || n.hidden {
-            return None;
-        }
-        let line = board_line::line_endpoints(n).is_some();
-        if !line && !matches!(self.curve_grips_of(id), Some(CurveGrips::Anchors { .. })) {
-            return None;
-        }
-        let (anchors, closed) = self.direct_anchors_of(id)?;
-        let bez = bezpath_from_anchors(&anchors, closed);
-        let radius = (SEGMENT_HIT_PX / self.board_xf().z.max(0.05)) as f64;
-        segment_hit(&bez, to_point(world), radius)
-    }
-
-    /// Ctrl+Shift+click with the Select tool on a curve segment (Rhino
-    /// sub-object pick): that curve alone is selected, as the chord already
-    /// selects a group member, and the edge with its two end vertices is
-    /// picked, or taken off again. Returns whether a segment was hit.
-    pub(crate) fn pick_curve_edge(&mut self, world: Pos2) -> bool {
-        let Some(id) = board_path::board_pick_node_routed(
-            &self.doc().scene,
-            world.x,
-            world.y,
-            self.tab().cam.z,
-            true,
-            self.board_wire_routing,
-        ) else {
-            return false;
-        };
-        let Some(seg) = self.curve_edge_at(id, world) else {
-            return false;
-        };
-        let Some((anchors, _)) = self.direct_anchors_of(id) else {
-            return false;
-        };
-        self.board_sel.clear();
-        self.board_sel.insert(id);
-        self.direct.grip_points.toggle_edge(id, seg, anchors.len());
         true
     }
 
@@ -1090,6 +1056,7 @@ impl SlateApp {
     }
 
     pub(crate) fn paint_curve_grips(&self, painter: &egui::Painter, xf: &BoardXf) {
+        self.paint_arrow_size_handles(painter, xf);
         let Some((id, grips)) = self.curve_grip_target() else {
             // A closed form's resize handles already mark its corners: only
             // its picked vertices and the one under the pointer show.
@@ -1104,7 +1071,11 @@ impl SlateApp {
                 let shown: Vec<PathEditAnchorPaint> = overlay
                     .into_iter()
                     .enumerate()
-                    .filter(|(i, a)| a.selected || hovered == Some(PathEditHit::Anchor(*i)))
+                    .filter(|(i, a)| {
+                        self.field_selection() == Some(id)
+                            || a.selected
+                            || hovered == Some(PathEditHit::Anchor(*i))
+                    })
                     .map(|(_, a)| a)
                     .collect();
                 paint_path_edit_anchors(painter, None, &shown, self.path_edit_colors());
@@ -1153,30 +1124,11 @@ impl SlateApp {
         world: Pos2,
         mods: egui::Modifiers,
     ) -> Option<DirectDrag> {
+        if let Some(drag) = self.begin_arrow_size_drag(screen) {
+            return Some(drag);
+        }
         let xf = self.board_xf();
-        if let Some(id) = self
-            .direct
-            .node
-            .filter(|&id| self.direct_anchors_of(id).is_none())
-        {
-            // A closed form's vertices pick but never move: moving one would
-            // change the form's kind (P1.shape.vertex-style).
-            if self.closed_form_points(id).is_none() {
-                self.direct_set_target(None);
-                return None;
-            }
-            if let Some(idx) = self.direct_anchor_at(screen, &xf) {
-                if mods.shift {
-                    if !self.direct.anchors.remove(&idx) {
-                        self.direct.anchors.insert(idx);
-                    }
-                } else {
-                    self.direct.anchors.clear();
-                    self.direct.anchors.insert(idx);
-                }
-                return None;
-            }
-        } else if let Some(id) = self.direct.node {
+        if let Some(id) = self.direct.node {
             let Some((anchors, closed)) = self.direct_anchors_of(id) else {
                 self.direct_set_target(None);
                 return None;
@@ -1254,12 +1206,16 @@ impl SlateApp {
         Some(DirectDrag::Marquee {
             start_screen: screen,
             add: mods.shift,
+            edges: false,
         })
     }
 
     /// Live drag update: recompute from the gesture-start anchors through
     /// the pure edit fns, write back into the node.
     pub(crate) fn update_direct_drag(&mut self, world: Pos2, mods: egui::Modifiers) {
+        if self.update_arrow_size_drag(world) {
+            return;
+        }
         let anchors_drag = match &self.board_drag {
             Some(super::board::BoardDrag::Direct(DirectDrag::Anchors {
                 node,
@@ -1288,6 +1244,13 @@ impl SlateApp {
             };
             if !d.x.is_finite() || !d.y.is_finite() {
                 d = egui::Vec2::ZERO;
+            }
+            // egui can update a direct drag on the press frame. A vertex
+            // pick must retain a primitive until that vertex actually moves.
+            if ((world - start).length_sq() <= f32::EPSILON || d.length_sq() <= f32::EPSILON)
+                && self.closed_form_points(node).is_some()
+            {
+                return;
             }
             let delta = KVec2::new(d.x as f64, d.y as f64);
             for idx in indices {
@@ -1350,14 +1313,26 @@ impl SlateApp {
                 self.direct_write_back(node, &anchors, closed);
             }
             DirectDrag::Arc {
-                node, points, idx, ..
+                node,
+                points,
+                idx,
+                indices,
+                ..
             } => {
                 let (node, mut points, idx) = (*node, *points, *idx);
-                points[idx] = self.resolve_point_snap(world, &[node], None, false, false);
+                let indices = indices.clone();
+                let delta =
+                    self.resolve_point_snap(world, &[node], None, false, false) - points[idx];
+                for i in indices {
+                    if let Some(point) = points.get_mut(i) {
+                        *point += delta;
+                    }
+                }
                 let bez = board_path::arc_through_three_points(points[0], points[1], points[2]);
                 self.write_back_world_bez(node, &bez, false, None);
             }
             DirectDrag::Marquee { .. } => {}
+            DirectDrag::ArrowSize { .. } => {}
             DirectDrag::Anchors { .. } => {}
         }
     }
@@ -1368,7 +1343,8 @@ impl SlateApp {
             DirectDrag::Anchors { node, before, .. }
             | DirectDrag::Segment { node, before, .. }
             | DirectDrag::Handle { node, before, .. }
-            | DirectDrag::Arc { node, before, .. } => {
+            | DirectDrag::Arc { node, before, .. }
+            | DirectDrag::ArrowSize { node, before, .. } => {
                 if let Some(after) = self.doc().scene.node(node).cloned() {
                     if after != before {
                         self.tab_mut().journal.record(vec![SceneCmd::Patch {
@@ -1380,22 +1356,21 @@ impl SlateApp {
                     }
                 }
             }
-            DirectDrag::Marquee { start_screen, add } => {
+            DirectDrag::Marquee {
+                start_screen,
+                add,
+                edges,
+            } => {
                 let Some(p) = pointer else { return };
-                let xf = self.board_xf();
-                let rect = Rect::from_two_pos(xf.s2w(start_screen), xf.s2w(p));
-                let Some(id) = self.direct.node else { return };
-                let Some(points) = self.direct_pick_points(id) else {
-                    return;
-                };
-                if !add {
-                    self.direct.anchors.clear();
-                }
-                for (i, p) in points.iter().enumerate() {
-                    if rect.contains(*p) {
-                        self.direct.anchors.insert(i);
+                if edges {
+                    if start_screen.distance(p) <= board_path::DRAFT_DRAG_THRESHOLD_PX {
+                        self.pick_curve_edge(self.board_xf().s2w(start_screen));
+                    } else {
+                        self.pick_curve_edges_in_window(start_screen, p);
                     }
+                    return;
                 }
+                self.pick_curve_points_in_window(start_screen, p, add);
             }
         }
     }
@@ -1407,7 +1382,8 @@ impl SlateApp {
             DirectDrag::Anchors { node, before, .. }
             | DirectDrag::Segment { node, before, .. }
             | DirectDrag::Handle { node, before, .. }
-            | DirectDrag::Arc { node, before, .. } => {
+            | DirectDrag::Arc { node, before, .. }
+            | DirectDrag::ArrowSize { node, before, .. } => {
                 let tab = self.tab_mut();
                 if let Some(n) = tab.doc.scene.node_mut(node) {
                     *n = before;
@@ -1465,6 +1441,11 @@ impl SlateApp {
         let Some(id) = self.direct.node else {
             return false;
         };
+        // Primitive vertices retain pick-only double-click semantics. Once a
+        // geometric edit promotes the node, Path corner/smooth editing applies.
+        if self.closed_form_points(id).is_some() {
+            return true;
+        }
         let Some(idx) = self.direct_anchor_at(screen, &xf) else {
             return false;
         };
@@ -1512,251 +1493,6 @@ impl SlateApp {
         true
     }
 
-    // ---------- Join (Ctrl+J) ----------
-
-    /// Selection-driven join per the spec: two selected endpoints of the
-    /// A-tool target merge-or-bridge; one selected open Path closes; two+
-    /// selected open Paths join at nearest endpoints keeping the first
-    /// node's style (Remove+Add group). Returns whether anything ran.
-    pub(crate) fn cmd_join(&mut self) -> bool {
-        // Case 1: A tool, both endpoints of the open target selected.
-        if self.board_tool == super::board::BoardTool::DirectSelect {
-            if let Some(id) = self.direct.node {
-                if let Some((anchors, closed)) = self.direct_anchors_of(id) {
-                    let last = anchors.len().saturating_sub(1);
-                    let endpoints: HashSet<usize> = [0usize, last].into_iter().collect();
-                    if !closed && anchors.len() >= 2 && self.direct.anchors == endpoints {
-                        let radius = (self.board_snap_threshold_pub()) as f64;
-                        return self.join_close_node(id, &anchors, radius);
-                    }
-                }
-            }
-        }
-        // Joinable shapes in selection (z-order). Closed operands switch
-        // the whole set to region union (`P2.RhinoJoin.region`).
-        let mut opens = Vec::new();
-        let mut closeds = Vec::new();
-        let mut joinable = Vec::new();
-        for n in &self.doc().scene.nodes {
-            if !self.board_sel.contains(&n.id) || n.hidden || n.locked {
-                continue;
-            }
-            let NodeKind::Shape(s) = &n.kind else {
-                continue;
-            };
-            let closed = match s.shape {
-                ShapeKind::Rect | ShapeKind::Ellipse | ShapeKind::RegularPolygon => true,
-                ShapeKind::Path => s.path.as_ref().is_some_and(|p| p.closed),
-                ShapeKind::Line => false,
-            };
-            let open = match s.shape {
-                ShapeKind::Line => true,
-                ShapeKind::Path => s.path.as_ref().is_some_and(|p| !p.closed && !p.is_empty()),
-                _ => false,
-            };
-            if !closed && !open {
-                continue;
-            }
-            joinable.push(n.id);
-            if closed {
-                closeds.push(n.id);
-            } else {
-                opens.push(n.id);
-            }
-        }
-        if !closeds.is_empty() {
-            return self.join_regions(&joinable);
-        }
-        match opens.len() {
-            0 => false,
-            // Case 2: close the single open path (merge within 24 world
-            // units, else bridge with a straight closing segment).
-            1 => {
-                let id = opens[0];
-                let Some((anchors, _)) = self.direct_anchors_of(id) else {
-                    return false;
-                };
-                self.join_close_node(id, &anchors, 24.0)
-            }
-            // Case 3: object-level join — fold nearest endpoint pairs,
-            // first node's style wins, per-vertex style follows its vertex,
-            // one Remove+Add group.
-            _ => self.join_nodes(&opens),
-        }
-    }
-
-    fn join_close_node(&mut self, id: NodeId, anchors: &[Anchor], radius: f64) -> bool {
-        let Some((joined, closed)) = join_endpoints(anchors, None, radius) else {
-            return false;
-        };
-        let Some(before) = self.doc().scene.node(id).cloned() else {
-            return false;
-        };
-        // The open path's anchors are its vertices, in order; a merge drops
-        // the last into the first.
-        let sources: Vec<f32> = (0..joined.len()).map(|i| i as f32).collect();
-        let bez = bezpath_from_anchors(&joined, closed);
-        self.write_back_world_bez(id, &bez, closed, Some(&sources));
-        if closed {
-            if let Some(NodeKind::Shape(s)) = self.doc_mut().scene.node_mut(id).map(|n| &mut n.kind)
-            {
-                s.stroke.keep_ends([false; 2]);
-            }
-        }
-        if let Some(after) = self.doc().scene.node(id).cloned() {
-            if after != before {
-                self.tab_mut().journal.record(vec![SceneCmd::Patch {
-                    before: Box::new(before),
-                    after: Box::new(after),
-                }]);
-                self.tab_mut().dirty = true;
-                self.note_scene_change();
-            }
-        }
-        self.direct.anchors.clear();
-        true
-    }
-
-    fn join_nodes(&mut self, ids: &[NodeId]) -> bool {
-        let radius = self.board_snap_threshold_pub() as f64;
-        type Joined = (Vec<Anchor>, NodeId, Vec<VertexStyle>, [StrokeEnd; 2]);
-        let mut acc: Option<Joined> = None;
-        let mut base_cap = StrokeCap::default();
-        let mut styled = false;
-        for id in ids {
-            let Some((anchors, closed)) = self.direct_anchors_of(*id) else {
-                continue;
-            };
-            if closed {
-                continue;
-            }
-            let Some(NodeKind::Shape(s)) = self.doc().scene.node(*id).map(|n| &n.kind) else {
-                continue;
-            };
-            styled |= s
-                .path
-                .as_deref()
-                .is_some_and(vertex_style::has_vertex_style);
-            let styles = vertex_style::vertex_styles(s.path.as_deref(), &s.stroke, anchors.len());
-            let stroke = s.stroke;
-            acc = Some(match acc {
-                None => {
-                    base_cap = stroke.cap;
-                    let ends = [stroke.end(0), stroke.end(1)];
-                    (anchors, *id, styles, ends)
-                }
-                Some((first, style_id, first_styles, first_ends)) => {
-                    let Some((joined, _, trace)) =
-                        join_endpoints_traced(&first, Some(&anchors), radius)
-                    else {
-                        return false;
-                    };
-                    // The first node's base cap wins; a later node brings
-                    // only the conditions set on its own ends.
-                    let base = StrokeEnd {
-                        cap: base_cap,
-                        arrow: false,
-                        narrow: false,
-                    };
-                    let second_end = |i: usize| {
-                        let e = stroke.end(i);
-                        StrokeEnd {
-                            cap: if stroke.end_caps()[i] != stroke.cap {
-                                e.cap
-                            } else {
-                                base.cap
-                            },
-                            ..e
-                        }
-                    };
-                    let (first_last, second_last) = (
-                        first.len().saturating_sub(1),
-                        anchors.len().saturating_sub(1),
-                    );
-                    let free_end = |from: Option<&JoinSource>| match from.copied() {
-                        Some(JoinSource::First(0)) => first_ends[0],
-                        Some(JoinSource::First(i)) if i == first_last => first_ends[1],
-                        Some(JoinSource::Second(0)) => second_end(0),
-                        Some(JoinSource::Second(i)) if i == second_last => second_end(1),
-                        _ => base,
-                    };
-                    let ends = [free_end(trace.first()), free_end(trace.last())];
-                    let styles = trace
-                        .iter()
-                        .map(|from| match *from {
-                            JoinSource::First(i) => first_styles[i],
-                            JoinSource::Second(i) => styles[i],
-                        })
-                        .collect();
-                    (joined, style_id, styles, ends)
-                }
-            });
-        }
-        let Some((joined, style_id, styles, ends)) = acc else {
-            return false;
-        };
-        let Some(style_node) = self.doc().scene.node(style_id).cloned() else {
-            return false;
-        };
-        let bez = bezpath_from_anchors(&joined, false);
-        let (rect, mut data) = board_path::bezpath_to_path_data(&bez, false);
-        let rect = WorldRect::new(
-            rect.x,
-            rect.y,
-            rect.w.max(MIN_DRAW * 0.1),
-            rect.h.max(MIN_DRAW * 0.1),
-        );
-        let mut new_node = {
-            let scene = &mut self.doc_mut().scene;
-            let mut n = scene.build_node(rect, style_node.kind.clone());
-            n.opacity = style_node.opacity;
-            n.group = style_node.group;
-            n
-        };
-        if let NodeKind::Shape(s) = &mut new_node.kind {
-            // Unstyled sources keep the first node's style everywhere.
-            if styled {
-                vertex_style::apply_vertex_styles(&mut data, &mut s.stroke, &styles);
-            }
-            for (i, end) in ends.into_iter().enumerate() {
-                s.stroke.set_end(i, end);
-            }
-            s.shape = ShapeKind::Path;
-            s.flip = false;
-            s.path = Some(data.into());
-        }
-        // One group: Removes (descending index) + the Add.
-        let mut removes: Vec<(usize, Node)> = ids
-            .iter()
-            .filter_map(|id| {
-                Some((
-                    self.doc().scene.index_of(*id)?,
-                    self.doc().scene.node(*id)?.clone(),
-                ))
-            })
-            .collect();
-        removes.sort_by_key(|(i, _)| std::cmp::Reverse(*i));
-        let mut cmds: Vec<SceneCmd> = removes
-            .into_iter()
-            .map(|(index, node)| SceneCmd::Remove { index, node })
-            .collect();
-        let new_id = new_node.id;
-        cmds.push(SceneCmd::Add {
-            index: self.doc().scene.nodes.len().saturating_sub(ids.len()),
-            node: new_node,
-        });
-        if !self.commit_scene(cmds) {
-            return false;
-        }
-        self.board_sel.clear();
-        self.board_sel.insert(new_id);
-        if self.board_tool == super::board::BoardTool::DirectSelect {
-            self.direct.node = Some(new_id);
-            self.direct.anchors.clear();
-        }
-        true
-    }
-
     /// Public wrapper over the private snap threshold (world units).
     fn board_snap_threshold_pub(&self) -> f32 {
         super::board_snap::SNAP_SCREEN_PX / self.tab().cam.z.max(0.05)
@@ -1767,6 +1503,7 @@ impl SlateApp {
     /// Anchor adornment for the target path: hollow squares (selected =
     /// filled); selected smooth anchors show handle lines + round dots.
     pub(crate) fn paint_direct_overlay(&mut self, painter: &egui::Painter, xf: &BoardXf) {
+        self.paint_arrow_size_handles(painter, xf);
         let Some(id) = self.direct.node else { return };
         let Some((anchors, closed)) = self.direct_anchors_of(id) else {
             if let Some(overlay) = self.direct_overlay(xf) {

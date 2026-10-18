@@ -1,6 +1,5 @@
 ﻿//! One verbatim workbook per historical on-disk format version, and the
 //! harness that proves each one still opens.
-//!
 //! Convention: a card that bumps `SlateDoc::CURRENT` adds a fixture for the
 //! version it supersedes plus a `vN_fixture_upgrades_to_current` test; it never
 //! edits an existing fixture. The committed JSON is the source of truth —
@@ -567,6 +566,7 @@ fn v2_document() -> SlateDoc {
         WorldRect::new(640.0, 460.0, 420.0, 120.0),
         NodeKind::Text(TextNode {
             text: "Harbour frontage — draft".into(),
+            style: Default::default(),
             family: Typeface::Serif,
             size: 34.0,
             color: Rgba::opaque(20, 20, 40),

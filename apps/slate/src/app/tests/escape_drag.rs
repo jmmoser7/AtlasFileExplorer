@@ -63,7 +63,7 @@ fn esc_mid_resize_restores_the_node() {
     let depth = h.app.tab().journal.undo_depth();
     let rect = h.app.doc().scene.node(ids[1]).unwrap().rect;
     let xf = h.app.board_xf();
-    let corner = board_handles::selection_geom(&xf, rect, 0.0).corners[2];
+    let corner = board_handles::selection_geom(&xf, rect, 0.0).corners[2] + EVec2::new(9.0, 0.0);
     let from = xf.s2w(corner);
     let to = from + egui::vec2(60.0, 40.0);
     hold_drag(&mut h, from, to, egui::Modifiers::NONE);
@@ -89,7 +89,7 @@ fn esc_mid_rotate_restores_the_node() {
     let depth = h.app.tab().journal.undo_depth();
     let rect = h.app.doc().scene.node(ids[1]).unwrap().rect;
     let xf = h.app.board_xf();
-    let zone = board_handles::selection_geom(&xf, rect, 0.0).rotate_points[2];
+    let zone = board_handles::selection_geom(&xf, rect, 0.0).rotate_points[1];
     let from = xf.s2w(zone);
     let to = Pos2::new(rect.x - 30.0, rect.y + rect.h + 60.0);
     hold_drag(&mut h, from, to, egui::Modifiers::NONE);

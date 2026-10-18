@@ -42,6 +42,7 @@ fn overlapping_frames_do_not_duplicate_a_slide_member() {
         WorldRect::new(600.0, 210.0, 200.0, 120.0),
         NodeKind::Text(TextNode {
             text: MARKER.into(),
+            style: Default::default(),
             family: Typeface::Sans,
             size: 32.0,
             color: Rgba::opaque(10, 10, 10),

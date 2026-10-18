@@ -261,6 +261,8 @@ pub fn top_bar(app: &mut SlateApp, ctx: &egui::Context) {
         }
         Some("view.dark") => {
             app.dark_mode = !app.dark_mode;
+            app.settings.dark_mode = app.dark_mode;
+            app.settings.save();
             app.apply_theme(ctx);
         }
         Some("dock.left") => {

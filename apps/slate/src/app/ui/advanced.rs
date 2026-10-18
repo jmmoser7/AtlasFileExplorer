@@ -14,6 +14,7 @@ pub fn window(app: &mut SlateApp, ctx: &egui::Context) {
     egui::Window::new("Advanced")
         .open(&mut open)
         .default_width(340.0)
+        .vscroll(true)
         .show(ctx, |ui| {
             if atlas_shell::updates::section(ui, &app.updater) {
                 app.dispatch(ctx, atlas_commands::CommandId("app.updates.check"), None);
@@ -42,6 +43,10 @@ pub fn window(app: &mut SlateApp, ctx: &egui::Context) {
             ui.separator();
             ui.add_space(6.0);
             preview_section(app, ui);
+            ui.separator();
+            super::super::recovery::recovery_settings_ui(app, ui);
+            ui.separator();
+            app.presence_advanced(ui);
             ui.separator();
             let mut hover_rows = slate_doc::scene::NodeKind::KIND_NAMES
                 .map(|name| (name, app.settings.hover_highlight(name)));
@@ -79,10 +84,48 @@ pub fn window(app: &mut SlateApp, ctx: &egui::Context) {
             ui.add_space(12.0);
             ui.separator();
             ui.add_space(6.0);
+            if atlas_shell::crash_report::section(ui, &palette) {
+                app.dispatch(
+                    ctx,
+                    atlas_commands::CommandId("app.crash_reports.open"),
+                    None,
+                );
+            }
+            ui.add_space(12.0);
+            ui.separator();
+            ui.add_space(6.0);
+            if let Some(error) = atlas_ai::ui::connections_section(&mut app.ai, ui, palette.sub) {
+                app.toast(error);
+            }
+            ui.add_space(12.0);
+            ui.separator();
+            ui.add_space(6.0);
             commands::shortcuts_reference_ui(ui);
         });
     if !open {
         app.tab_mut().chrome.advanced_open = false;
+    }
+}
+
+impl SlateApp {
+    pub(in crate::app) fn open_crash_reports(&mut self) -> bool {
+        match std::thread::Builder::new()
+            .name("slate-reveal-crash-reports".into())
+            .spawn(|| {
+                if let Err(error) = atlas_shell::crash_report::reveal("slate") {
+                    rfd::MessageDialog::new()
+                        .set_title("Could not open crash reports")
+                        .set_description(error.to_string())
+                        .set_level(rfd::MessageLevel::Error)
+                        .show();
+                }
+            }) {
+            Ok(_) => true,
+            Err(error) => {
+                self.toast(format!("Could not open crash reports: {error}"));
+                false
+            }
+        }
     }
 }
 

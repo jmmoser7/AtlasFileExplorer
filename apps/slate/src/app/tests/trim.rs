@@ -319,6 +319,7 @@ fn trim_text_clip_punches_a_hole() {
             rect,
             slate_doc::scene::NodeKind::Text(TextNode {
                 text: "HELLO".into(),
+                style: Default::default(),
                 family: Typeface::Sans,
                 size: 24.0,
                 color: slate_doc::scene::Rgba::BLACK,

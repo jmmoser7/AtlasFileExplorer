@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Slate · Presence design review</title>
+  <link rel="stylesheet" href="prototype.css">
+</head>
+<body>
+  <div id="prototype-loading" class="initialization-status" role="status">Loading design review…</div>
+  <main id="slate" aria-label="Slate presence design prototype" inert aria-busy="true">
+    <div class="workbook-title"><span class="slate-mark" aria-hidden="true">S</span><span>Studio workbook</span><span class="title-rule"></span><span class="board-label">Board</span></div>
+    <div id="canvas" aria-label="Board canvas. Drag the background to pan.">
+      <div id="world">
+        <article class="canvas-note"><span class="note-kicker">A SMALL COLLECTION</span><h1>Room to think.</h1><p>Ideas, pictures, and a little help<br>putting things together.</p></article>
+        <article class="board-card landscape" id="card-landscape"><svg viewBox="0 0 240 150" aria-hidden="true"><rect width="240" height="150" fill="#e6ddcc"/><circle cx="176" cy="39" r="16" fill="#f5edda"/><path d="M0 98Q45 37 113 82T260 67V160H0" fill="#c4b79a"/><path d="M0 132Q71 65 146 113T250 103V160H0" fill="#a5aa91"/></svg><div>Desert light<span>IMAGE</span></div></article>
+        <article class="board-card arch" id="card-arch"><svg viewBox="0 0 240 150" aria-hidden="true"><rect width="240" height="150" fill="#d7d9c9"/><path d="M46 150V67a74 74 0 0 1 148 0v83Z" fill="#b8b9a1"/><path d="M80 150V71a40 40 0 0 1 80 0v79Z" fill="#eee8da"/><path d="M91 150V74a29 29 0 0 1 58 0v76Z" fill="#9da88f"/></svg><div>A quiet entrance<span>IMAGE</span></div></article>
+        <article class="paper-card"><span>STORY NOTES</span><h2>Begin with a little space.</h2><i></i><i></i><i class="short"></i></article>
+        <button id="board-agent" class="board-agent" aria-label="Agent on the board. Double-click to pause and chat."><span class="board-agent-visual"></span><span class="listening-ring"></span><span class="agent-caption">Agent</span><span class="agent-activity">Reading</span></button>
+        <div id="book" class="activity-book" aria-label="Reading"><svg viewBox="0 0 56 42" aria-hidden="true"><path d="M28 11Q16 3 3 8v27q13-5 25 3 12-8 25-3V8q-13-5-25 3Z" fill="#fafaf8" stroke="#8b918c" stroke-width="1.7"/><path d="M28 11v27M9 14q7-1 13 2M9 20q7-1 13 2M34 16q6-3 13-2M34 22q6-3 13-2" fill="none" stroke="#b5bab1" stroke-width="1.4"/><path class="turning-page" d="M28 11q8-8 18-6v25q-10 0-18 8Z" fill="#efeee9" stroke="#b5bab1" stroke-width="1"/></svg></div>
+      </div>
+    </div>
+    <nav id="roster" class="roster" aria-label="People and agents"></nav>
+    <div id="profile-layer"></div>
+    <div id="chat-layer"></div>
+    <div id="canvas-chat-layer"></div>
+    <div class="canvas-bottom"><span class="canvas-hint">Double-click the little agent to talk.</span><div class="zoom-control" aria-label="Canvas zoom"><button data-zoom-step="-1" aria-label="Zoom out">−</button><button id="zoom-label" aria-label="Reset zoom to 100 percent">100%</button><button data-zoom-step="1" aria-label="Zoom in">+</button></div></div>
+    <aside class="review-panel" id="review-panel" aria-label="Prototype design review controls">
+      <button class="review-toggle" id="review-toggle" aria-expanded="true"><span>Design review</span><span id="review-chevron">⌄</span></button>
+      <div class="review-body">
+        <p>Visual prototype · sample conversations saved in this browser. No provider or human messages are sent.</p>
+        <div class="review-group"><span>Canvas zoom</span><div class="segmented"><button data-zoom="0.25">25%</button><button data-zoom="1" class="selected">100%</button><button data-zoom="2">200%</button></div></div>
+        <div class="review-group"><span>Attached chat</span><div class="segmented"><button data-chat-scale="canvas" class="selected" aria-pressed="true">Canvas scale</button><button data-chat-scale="overlay" aria-pressed="false">Readable overlay</button></div><small class="scale-review-note">Readable overlay is a proposed exception for review.</small></div>
+        <div class="review-group"><span>Inspect</span><div class="review-actions"><button data-review="agent-chat">Agent chat</button><button data-review="self-profile">My profile</button><button data-review="self-chat">Self chat</button><button data-review="hats">Hat picker</button><button data-review="face-sizes">Face sizes</button><button data-review="listening">Listening</button><button data-review="work">Visible work</button><button data-review="long-names">Long names + 5 peers</button><button data-review="people">Add person</button><button data-review="empty">Empty thread</button><button data-review="close">Close panels</button></div></div>
+        <div id="face-size-review" class="face-size-review" hidden aria-label="Fitted hat size review"></div>
+        <div class="review-group"><label for="dialog-width">Conversation width <output id="dialog-width-value">480</output> px</label><input type="range" id="dialog-width" min="380" max="620" step="4" value="480"></div>
+        <button class="snapshot-button" id="export-snapshot">Export parameter snapshot</button>
+        <details id="snapshot-details"><summary>Current snapshot</summary><textarea id="snapshot" readonly aria-label="Current prototype parameter snapshot"></textarea></details>
+        <output id="review-status" aria-live="polite">Local sample agent · paused work remains paused until resumed.</output>
+      </div>
+    </aside>
+  </main>
+  <script src="../agent-avatar-2026-10-16/avatar-presets.js"></script>
+  <script src="../agent-avatar-2026-10-16/avatar-engine.js"></script>
+  <script src="hats.js"></script>
+  <script src="prototype.js"></script>
+</body>
+</html>
