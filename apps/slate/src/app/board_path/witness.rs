@@ -29,7 +29,30 @@ impl StrokePreview {
         let bez = shape_path_world_bez(node, shape, path);
         let safe_tolerance =
             tolerance.max(control_length(path, node) / PREVIEW_VERTEX_LIMIT as f64);
-        let flat = vector_ink::flatten_contours(&bez, safe_tolerance);
+        // Reuse the canonical stamped-path interpreter for legacy two-tip
+        // tweens. It adds the same curve easing samples as the final raster.
+        let legacy_tween = (path.tips.is_empty() && shape.stroke.tween_from.is_some()).then(|| {
+            let tips = path
+                .paint_tips(&shape.stroke)
+                .into_iter()
+                .map(StrokeSpan::stamp_style)
+                .collect::<Vec<_>>();
+            vector_ink::tipped_contours(
+                &bez,
+                &tips,
+                StrokeSpan::of(&shape.stroke).stamp_style(),
+                safe_tolerance,
+            )
+        });
+        let flat = legacy_tween.as_ref().map_or_else(
+            || vector_ink::flatten_contours(&bez, safe_tolerance),
+            |contours| {
+                contours
+                    .iter()
+                    .map(|contour| contour.iter().map(|point| point.pos).collect())
+                    .collect()
+            },
+        );
         let point_count = flat.iter().map(Vec::len).sum::<usize>();
         if point_count == 0 || point_count > PREVIEW_VERTEX_LIMIT {
             return None;
@@ -48,13 +71,15 @@ impl StrokePreview {
                 .collect::<Option<Vec<_>>>()?;
             let source = &source_contours[index];
             contours.push(world);
-            tips.push(interpolate_tips(
-                path,
-                source,
-                points,
-                node,
-                source.tip_offset,
-            ));
+            let contour_tips = legacy_tween.as_ref().map(|contours| {
+                contours[index]
+                    .iter()
+                    .map(|point| span_from_stamp(point.tip))
+                    .collect()
+            });
+            tips.push(contour_tips.unwrap_or_else(|| {
+                interpolate_tips(path, source, points, node, source.tip_offset)
+            }));
             tip_anchors.push(
                 points
                     .iter()
@@ -351,13 +376,13 @@ fn interpolate_tips(
     node: &Node,
     tip_offset: usize,
 ) -> Vec<StrokeSpan> {
-    if path.tips.is_empty() {
-        return Vec::new();
-    }
     let fallback = StrokeSpan::of(&match &node.kind {
         NodeKind::Shape(shape) => shape.stroke,
         _ => unreachable!(),
     });
+    if path.tips.is_empty() {
+        return vec![fallback; points.len()];
+    }
     let total_anchors = path_vertex_count(path);
     if path.tips.len() != total_anchors || contour.anchors.len() < 2 {
         return vec![fallback; points.len()];
@@ -375,6 +400,22 @@ fn interpolate_tips(
         .iter()
         .map(|point| tip_at(*point, &anchors, &path.tips[range.clone()], contour.closed))
         .collect()
+}
+
+fn span_from_stamp(tip: vector_ink::StampStyle) -> StrokeSpan {
+    use slate_doc::scene::BrushTexture;
+    StrokeSpan {
+        width: tip.diameter,
+        softness: tip.softness,
+        color: slate_doc::scene::Rgba(tip.rgba),
+        texture: match tip.grain {
+            vector_ink::Grain::Smooth => BrushTexture::Smooth,
+            vector_ink::Grain::Graphite => BrushTexture::Graphite,
+            vector_ink::Grain::Pencil => BrushTexture::Pencil,
+            vector_ink::Grain::Ink => BrushTexture::Ink,
+            vector_ink::Grain::Watercolor => BrushTexture::Watercolor,
+        },
+    }
 }
 
 fn tip_at(point: [f32; 2], anchors: &[[f64; 2]], tips: &[StrokeSpan], closed: bool) -> StrokeSpan {

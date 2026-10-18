@@ -92,7 +92,7 @@
       "checks": [
         {
           "id": "stop-preview",
-          "expected": "Cancel or pause immediately stops visible motion and removes only ephemeral preview geometry; the unrelated completed object remains."
+          "expected": "Pause immediately stops visible progress and can resume the same operation. Cancel removes only ephemeral previews; unrelated completed objects remain."
         },
         {
           "id": "fence",
@@ -142,19 +142,24 @@
         "agent-tools-2026-10-18"
       ],
       "setup": [
-        "Use a disposable workbook and a File Atlas portal granted access to a small local fixture folder with distinct filenames and readable contents. Preserve the human's current camera and selection."
+        "Use a disposable workbook and grant access to a small local fixture folder with distinct filenames and readable contents. Start without an Atlas portal. Preserve the human camera and selection."
       ],
       "steps": [
-        "Ask the agent to enumerate the portal, identify one named file, highlight it, and read that file."
+        "Ask the agent to add/open File Atlas on the board, enumerate its fixture folder, identify one named file, highlight it, and read that file.",
+        "Keep analysis running long enough to inspect the target highlight, then complete or cancel the request."
       ],
       "checks": [
+        {
+          "id": "create-open",
+          "expected": "The agent visibly approaches and adds/opens the existing File Atlas interface on the board without moving the human camera or creating a second folder-map implementation."
+        },
         {
           "id": "enumeration",
           "expected": "The agent waits for the existing enumeration and lists only a bounded set of entries within the granted root."
         },
         {
           "id": "identity",
-          "expected": "The highlighted board entry and reported contents correspond to the exact analyzed file path and fixture identity."
+          "expected": "The highlighted board entry and reported contents correspond to the exact analyzed file path and fixture identity. The analysis highlight remains bound to that file during the read and clears on completion/cancel."
         },
         {
           "id": "human-state",
@@ -171,12 +176,17 @@
         "agent-tools-2026-10-18"
       ],
       "setup": [
-        "Use a disposable workbook and a test origin with no sensitive account data. Grant portal consent explicitly and keep the portal in its existing board position."
+        "Use a disposable workbook and a test origin with no sensitive account data. Start without a Web portal; grant origin consent explicitly when requested."
       ],
       "steps": [
+        "Ask the agent to add/open the test Web portal on the board, then leave it at that board position during the following interactions.",
         "Ask the agent to inspect the live portal, navigate to a benign page, type into a test field, click, scroll, send a key, and capture the displayed state."
       ],
       "checks": [
+        {
+          "id": "create-open",
+          "expected": "The agent adds/opens a Web portal through the existing portal owner, requires consent for its origin, and preserves the human camera."
+        },
         {
           "id": "live-host",
           "expected": "The agent waits for the existing consented Web host and reads/captures the live displayed portal contents."

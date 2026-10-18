@@ -114,6 +114,9 @@ impl DrawingBrushPreview {
         let tab = app.tab().id;
         for entry in self.entries.values_mut() {
             entry.seen = false;
+            // A per-frame pixel-budget miss must retry on the next frame.
+            // The node painter keeps the canonical fallback if that retry fails.
+            entry.rejected = false;
         }
 
         {

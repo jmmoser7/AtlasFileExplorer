@@ -1373,6 +1373,7 @@ pub(crate) fn paint_rest(
     screen: egui::Rect,
     nodes: &[Node],
 ) {
+    app.sync_agent_brush_previews();
     app.brush_tiles.now = app.frame_no;
     if !app.brush_tiles_enabled {
         for n in nodes

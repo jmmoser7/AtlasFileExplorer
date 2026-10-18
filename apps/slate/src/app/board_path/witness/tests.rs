@@ -189,3 +189,53 @@ fn world_coordinates_over_presence_limit_are_rejected_before_flattening() {
     );
     assert!(StrokePreview::new(&source, 0.1).is_none());
 }
+
+#[test]
+fn uniform_brush_without_path_tips_gets_one_stroke_style_per_route_point() {
+    let mut source = source_node(
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 100.0, 100.0),
+        0.0,
+    );
+    let NodeKind::Shape(shape) = &mut source.kind else {
+        unreachable!()
+    };
+    let mut path = shape.path.as_deref().unwrap().clone();
+    path.tips.clear();
+    shape.path = Some(path.into());
+    let expected = StrokeSpan::of(&shape.stroke);
+
+    let preview = StrokePreview::new(&source, 0.1).unwrap();
+    let (points, tips) = preview.brush_contour(0).unwrap();
+    assert_eq!(points.len(), tips.len());
+    assert!(tips.iter().all(|tip| *tip == expected));
+    assert_eq!(preview.brush_tip_at(0, points[1]), Some(expected));
+}
+
+#[test]
+fn legacy_tween_without_path_tips_uses_canonical_tipped_contour() {
+    let mut source = source_node(
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 100.0, 100.0),
+        0.0,
+    );
+    let NodeKind::Shape(shape) = &mut source.kind else {
+        unreachable!()
+    };
+    let mut path = shape.path.as_deref().unwrap().clone();
+    path.tips.clear();
+    let mut from = StrokeSpan::of(&shape.stroke);
+    from.width = 2.0;
+    shape.stroke.tween_from = Some(from);
+    shape.path = Some(path.into());
+    let current_width = shape.stroke.width;
+
+    let preview = StrokePreview::new(&source, 0.1).unwrap();
+    let (points, tips) = preview.brush_contour(0).unwrap();
+    assert_eq!(points.len(), tips.len());
+    assert_eq!(tips.first().unwrap().width, 2.0);
+    assert_eq!(tips.last().unwrap().width, current_width);
+    let end_of_first_segment = points
+        .iter()
+        .position(|point| (point.x - 50.0).abs() < 0.01 && (point.y - 20.0).abs() < 0.01)
+        .expect("canonical tipped contour retains the authored corner");
+    assert!((tips[end_of_first_segment].width - current_width).abs() < 1e-4);
+}

@@ -67,7 +67,8 @@ fn assert_visible_brush_prefix(f: &Fixture) {
     assert_eq!(
         f.h.app.agent_brush_coverage(brush.id, None),
         Some(BrushCoverage::Active),
-        "a visible helper stroke must use its incremental live canvas"
+        "a visible helper stroke must use its incremental live canvas: {}",
+        f.h.app.drawing_brush_debug(brush.id)
     );
     let points = world_path_points(brush);
     let [start, tip, ..] = points.as_slice() else {
@@ -447,7 +448,6 @@ fn a_human_creation_conflict_removes_only_the_preview_and_keeps_the_chat_running
 }
 
 #[test]
-#[ignore = "retains actual production board-render frames; native/GPU acceptance is separate"]
 fn drawing_partial_geometry_renders_early_mid_late_at_multiple_zooms() {
     for zoom in [0.5, 1.0, 2.0] {
         let mut f = Fixture::new(-320.0);
