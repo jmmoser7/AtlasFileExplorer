@@ -53,9 +53,9 @@ pub(crate) fn paint_stamped_stroke(
     if !nested
         && app.agent_brush_coverage(node.id, Some(key))
             == Some(crate::app::agent_presence::BrushCoverage::Active)
+        && app.paint_agent_brush_preview(painter, xf, node.id)
     {
-        // The live canvas paints this prefix later in the same frame. A
-        // changing partial key must not queue or paint a whole-node raster.
+        // The cached live prefix paints at this stroke's z-order slot.
         return;
     }
     if agent_stand_in && stroke_raster_current(app, node, key, want) {
@@ -147,7 +147,7 @@ pub(crate) fn paint_stamped_stroke(
         app.release_agent_brush_preview(node.id, key);
         agent_stand_in = false;
     }
-    if agent_stand_in {
+    if agent_stand_in && app.paint_agent_brush_preview(painter, xf, node.id) {
         return;
     }
     if let Some((built, gpu)) = app.brush_stamps.get_mut(&cache) {

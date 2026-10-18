@@ -173,8 +173,19 @@ impl Fixture {
 
     pub fn save(&mut self, phase: &str, out: egui::FullOutput) {
         assert_eq!(
-            self.h.app.brush_tiles.last.pending_jobs, 0,
-            "saving must not drain extra frames"
+            self.h.app.brush_tiles.last.pending_jobs,
+            0,
+            "saving {phase} must not drain extra frames; whole strokes={}, previews={:?}",
+            self.h.app.brush_tiles.strokes_pending(),
+            self.h.app.presence.agents[0].work.as_ref().map(|work| work
+                .previews
+                .values()
+                .map(|node| (
+                    node.id,
+                    crate::app::board_path::node_stamp_key(node),
+                    self.h.app.agent_brush_coverage(node.id, None)
+                ))
+                .collect::<Vec<_>>())
         );
         let before = self.state();
         review_shot(&mut self.h, &mut self.raster, out, &self.case, phase);

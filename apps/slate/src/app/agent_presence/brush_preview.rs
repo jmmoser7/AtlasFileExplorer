@@ -47,6 +47,9 @@ struct BrushEntry {
 #[derive(Default)]
 pub(crate) struct DrawingBrushPreview {
     entries: BTreeMap<BrushKey, BrushEntry>,
+    synced_frame: Option<u64>,
+    painted: BTreeMap<BrushKey, bool>,
+    pixel_budget: u64,
 }
 
 impl DrawingBrushPreview {
@@ -97,7 +100,14 @@ impl DrawingBrushPreview {
         (!entry.rejected && entry.motion == motion).then_some(entry.lane.as_str())
     }
 
-    fn paint(&mut self, app: &mut SlateApp, painter: &egui::Painter, xf: &BoardXf) {
+    fn sync(&mut self, app: &mut SlateApp) {
+        let frame = app.frame_no;
+        if self.synced_frame == Some(frame) {
+            return;
+        }
+        self.synced_frame = Some(frame);
+        self.pixel_budget = PREVIEW_PIXEL_BUDGET;
+        self.painted.clear();
         let tab = app.tab().id;
         for entry in self.entries.values_mut() {
             entry.seen = false;
@@ -120,24 +130,11 @@ impl DrawingBrushPreview {
             }
         }
 
-        let clip = painter.clip_rect();
-        let ppp = painter.ctx().pixels_per_point().max(0.25);
         // Drop canvases for inactive tabs. Their routes can be replayed from
         // the still-live witness when the tab becomes visible again.
         self.entries.retain(|key, _| key.tab == tab);
-        let mut pixel_budget = PREVIEW_PIXEL_BUDGET;
         self.entries.retain(|_, entry| {
             if entry.seen {
-                let used = paint_entry(
-                    entry,
-                    &mut app.brush_tiles,
-                    painter,
-                    xf,
-                    clip,
-                    ppp,
-                    pixel_budget,
-                );
-                pixel_budget = pixel_budget.saturating_sub(used);
                 return true;
             }
             let still_running = app.presence.agents.iter().any(|agent| {
@@ -148,16 +145,6 @@ impl DrawingBrushPreview {
                     })
             });
             if still_running {
-                let used = paint_entry(
-                    entry,
-                    &mut app.brush_tiles,
-                    painter,
-                    xf,
-                    clip,
-                    ppp,
-                    pixel_budget,
-                );
-                pixel_budget = pixel_budget.saturating_sub(used);
                 return true;
             }
             let Some(node) = app.doc().scene.node(entry.key.node).cloned() else {
@@ -176,18 +163,42 @@ impl DrawingBrushPreview {
                 canvas.clear_live_line();
                 canvas.hold(entry.key.node, Some(entry.content_key));
             }
-            let used = paint_entry(
-                entry,
-                &mut app.brush_tiles,
-                painter,
-                xf,
-                clip,
-                ppp,
-                pixel_budget,
-            );
-            pixel_budget = pixel_budget.saturating_sub(used);
             true
         });
+    }
+
+    fn paint_one(
+        &mut self,
+        app: &mut SlateApp,
+        painter: &egui::Painter,
+        xf: &BoardXf,
+        node: NodeId,
+    ) -> bool {
+        self.sync(app);
+        let key = BrushKey {
+            tab: app.tab().id,
+            node,
+        };
+        if let Some(painted) = self.painted.get(&key) {
+            return *painted;
+        }
+        let Some(entry) = self.entries.get_mut(&key) else {
+            self.painted.insert(key, false);
+            return false;
+        };
+        let cost = paint_entry(
+            entry,
+            &mut app.brush_tiles,
+            painter,
+            xf,
+            painter.clip_rect(),
+            painter.ctx().pixels_per_point().max(0.25),
+            self.pixel_budget,
+        );
+        self.pixel_budget = self.pixel_budget.saturating_sub(cost);
+        let painted = cost > 0;
+        self.painted.insert(key, painted);
+        painted
     }
 
     fn observe(&mut self, tab: u64, motion: &str, path: super::witness::BrushPathSample<'_>) {
@@ -364,12 +375,24 @@ fn entry_screen(entry: &BrushEntry, xf: &BoardXf, clip: Rect) -> Rect {
 }
 
 impl SlateApp {
-    /// Paint agent-authored stamp prefixes with the same incremental canvas
-    /// and final raster handoff used by the human brush.
-    pub(crate) fn paint_agent_brush_previews(&mut self, painter: &egui::Painter, xf: &BoardXf) {
+    /// Refresh paths and cache lifecycle once before scene-node painting.
+    pub(crate) fn sync_agent_brush_previews(&mut self) {
         let mut cache = std::mem::take(&mut self.presence.brush_preview);
-        cache.paint(self, painter, xf);
+        cache.sync(self);
         self.presence.brush_preview = cache;
+    }
+
+    /// Paint one cached stroke at its normal scene-node z-order slot.
+    pub(crate) fn paint_agent_brush_preview(
+        &mut self,
+        painter: &egui::Painter,
+        xf: &BoardXf,
+        node: NodeId,
+    ) -> bool {
+        let mut cache = std::mem::take(&mut self.presence.brush_preview);
+        let painted = cache.paint_one(self, painter, xf, node);
+        self.presence.brush_preview = cache;
+        painted
     }
 
     pub(crate) fn agent_brush_coverage(

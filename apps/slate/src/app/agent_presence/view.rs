@@ -65,7 +65,7 @@ impl SlateApp {
         painter: &egui::Painter,
         xf: &super::super::board::BoardXf,
     ) {
-        self.paint_agent_brush_previews(painter, xf);
+        self.sync_agent_brush_previews();
         let reduced =
             self.settings.presence_reduced_motion || chrome::system_reduced_motion(painter.ctx());
         let tab = self.tab().id;

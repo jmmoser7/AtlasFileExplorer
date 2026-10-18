@@ -259,7 +259,9 @@ fn cancelling_partial_drawing_leaves_scene_and_journal_untouched() {
 
 #[test]
 fn translucent_brush_keeps_its_ink_and_opacity_through_the_exact_raster_handoff() {
-    let mut f = Fixture::new(-320.0);
+    // Keep the source image clear of the sampled stroke: this measures ink
+    // opacity against the board, rather than a blend over the blue fixture.
+    let mut f = Fixture::new(-600.0);
     f.invoke(
         0,
         "board.paths.draw",
@@ -281,6 +283,9 @@ fn translucent_brush_keeps_its_ink_and_opacity_through_the_exact_raster_handoff(
         let pending = f.pending();
         let sample = f.sample();
         if pending && (sample.phase != MotionPhase::Work || sample.progress < 0.45) {
+            continue;
+        }
+        if pending && reference.is_some() && sample.progress < 0.95 {
             continue;
         }
         // Deliberately rasterize this output without the usual helper's worker
@@ -314,6 +319,55 @@ fn translucent_brush_keeps_its_ink_and_opacity_through_the_exact_raster_handoff(
         reference.is_some() && handed_off,
         "the exact final raster must take over"
     );
+}
+
+#[test]
+fn a_live_brush_stays_below_a_later_pen_in_the_same_drawing() {
+    let mut f = Fixture::new(-600.0);
+    f.h.app.presence.agents[0]
+        .grant
+        .as_mut()
+        .unwrap()
+        .helper_limit = 2;
+    f.invoke(
+        0,
+        "board.paths.draw",
+        &[],
+        json!({"strokes":[
+            {"tool":"brush","points":[[-250,100],[250,100]],
+                "width":12,"softness":0.4,"color":[20,120,60,255]},
+            {"tool":"pen","points":[[-250,100],[250,100]],
+                "width":20,"color":[180,30,40,255]}
+        ]}),
+    );
+    let mut checked = false;
+    for _ in 0..190 {
+        let out = f.step();
+        if !f.pending() {
+            break;
+        }
+        let sample = f.sample();
+        if sample.phase != MotionPhase::Work || sample.progress < 0.65 {
+            continue;
+        }
+        let work = f.h.app.presence.agents[0].work.as_ref().unwrap();
+        let pen = work
+            .previews
+            .values()
+            .find(|node| matches!(&node.kind, NodeKind::Shape(shape) if !shape.stroke.stamp));
+        if !pen.is_some_and(|node| world_path_points(node).last().unwrap()[0] > -100.0) {
+            continue;
+        }
+        f.draw_exact(out);
+        let pixel = f.pixel(egui::pos2(-200.0, 100.0));
+        assert!(
+            pixel[0] > pixel[1] + 0.25 && pixel[0] > pixel[2] + 0.25,
+            "the later red pen must cover the earlier live green brush: {pixel:?}"
+        );
+        checked = true;
+        break;
+    }
+    assert!(checked, "overlapping strokes must be checked before commit");
 }
 
 #[test]

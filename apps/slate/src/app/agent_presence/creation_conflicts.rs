@@ -253,6 +253,8 @@ mod tests {
     #[test]
     fn another_proposal_by_the_same_agent_waits_for_its_pending_creation() {
         let mut h = host();
+        h.app.ensure_work_tab();
+        h.app.tab_mut().path = Some(h.base.join("board.slate"));
         let who = add(&mut h, "Dot");
         let proposal = proposal_support::stage_command(
             &mut h,
