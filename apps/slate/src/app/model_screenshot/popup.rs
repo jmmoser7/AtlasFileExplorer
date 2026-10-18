@@ -115,10 +115,12 @@ impl SlateApp {
             ctx,
             Id::new("shape_property_editor"),
             egui::LayerId::background(),
-            chrome::ImagePanelKind::Custom {
-                main_height: height,
-            },
-            height,
+            (
+                chrome::ImagePanelKind::Custom {
+                    main_height: height,
+                },
+                height,
+            ),
             true,
             |ui, rect, _| self.paint_portal_capture_launch(ui, rect, node, z),
         );
@@ -168,10 +170,12 @@ impl SlateApp {
             ctx,
             Id::new(("portal_capture_transport", self.tab().id, status.node.0)),
             egui::LayerId::background(),
-            chrome::ImagePanelKind::Custom {
-                main_height: height,
-            },
-            height,
+            (
+                chrome::ImagePanelKind::Custom {
+                    main_height: height,
+                },
+                height,
+            ),
             true,
             |ui, rect, _| capture::active(ui, rect, phase, status.elapsed, z, theme),
         );
