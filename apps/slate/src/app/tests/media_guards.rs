@@ -56,6 +56,7 @@ fn an_occupied_board_can_insert_a_dropped_workbook() {
         slate_doc::scene::WorldRect::new(0.0, 0.0, 80.0, 40.0),
         slate_doc::scene::NodeKind::Text(slate_doc::scene::TextNode {
             text: "keep".into(),
+            style: Default::default(),
             family: slate_doc::scene::Typeface::Sans,
             size: 24.0,
             color: slate_doc::scene::Rgba::opaque(20, 20, 20),
@@ -72,6 +73,7 @@ fn an_occupied_board_can_insert_a_dropped_workbook() {
         slate_doc::scene::WorldRect::new(0.0, 0.0, 120.0, 40.0),
         slate_doc::scene::NodeKind::Text(slate_doc::scene::TextNode {
             text: "NESTED-MARK".into(),
+            style: Default::default(),
             family: slate_doc::scene::Typeface::Sans,
             size: 24.0,
             color: slate_doc::scene::Rgba::opaque(20, 20, 20),
@@ -203,6 +205,9 @@ fn video_pan_scrubs_the_full_trim_and_does_not_journal() {
     use slate_doc::scene::VideoOpts;
 
     let mut h = Harness::new("video_pan");
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = slate_doc::ViewKind::Board;
     let clip = h.base.join("clip.mp4");
     std::fs::write(&clip, b"not really mp4").unwrap();
     let ids = h.app.add_paths(&[clip]);

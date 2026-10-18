@@ -102,7 +102,7 @@ impl SlateBoards {
         }
     }
 
-    fn nesting(&self) -> bool {
+    pub(crate) fn nesting(&self) -> bool {
         self.depth > 0
     }
 }
@@ -152,6 +152,10 @@ impl SlateApp {
 
     pub(crate) fn slate_nesting(&self) -> bool {
         self.slate_boards.nesting()
+    }
+    #[cfg(test)]
+    pub(crate) fn set_slate_nesting_for_test(&mut self, nesting: bool) {
+        self.slate_boards.depth = u32::from(nesting);
     }
 
     /// Nested boards loaded and ready to paint.
@@ -843,8 +847,7 @@ pub fn collect_slate_boards(
     workbook: Option<&Path>,
 ) -> std::collections::BTreeMap<String, (PathBuf, SlateDoc)> {
     let mut out = std::collections::BTreeMap::new();
-    let mut ancestors = Vec::new();
-    walk_slate_boards(doc, workbook, 0, &mut ancestors, &mut out);
+    walk_slate_boards(doc, workbook, 0, &mut Vec::new(), &mut out);
     out
 }
 
@@ -870,13 +873,10 @@ fn walk_slate_boards(
         };
         let path = resolve_source(workbook, &src.locator);
         let key = workbook_key(&path);
-        if ancestors.iter().any(|ancestor| ancestor == &key) {
-            continue;
-        }
-        if workbook.is_some_and(|parent| workbook_key(parent) == key) {
-            continue;
-        }
-        if out.contains_key(&key) {
+        if ancestors.iter().any(|ancestor| ancestor == &key)
+            || workbook.is_some_and(|parent| workbook_key(parent) == key)
+            || out.contains_key(&key)
+        {
             continue;
         }
         let Ok(child) = SlateDoc::load_from(&path) else {

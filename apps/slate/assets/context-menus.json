@@ -1,0 +1,832 @@
+{
+  "schemaVersion": 1,
+  "revision": "right-click-menu-studio-v1",
+  "metrics": {
+    "menuWidth": 256,
+    "rowHeight": 33,
+    "iconSize": 18,
+    "panelInset": 8,
+    "dividerHeight": 12,
+    "cornerRadius": 10
+  },
+  "menus": [
+    {
+      "id": "image",
+      "label": "Image",
+      "entries": [
+        "board.to_front",
+        "board.to_back",
+        "sep:stack",
+        "board.open_file",
+        "board.crop",
+        "menu.layers",
+        "menu.tags",
+        "sep:lock",
+        "board.lock",
+        "sep:edit",
+        "board.duplicate",
+        "board.delete",
+        "board.open_location"
+      ]
+    },
+    {
+      "id": "image-selection",
+      "label": "Image · pinned selection",
+      "entries": [
+        "board.image.selection.layer",
+        "menu.clear_selection",
+        "sep:selection",
+        "board.to_front",
+        "board.to_back",
+        "sep:stack",
+        "board.open_file",
+        "board.crop",
+        "menu.layers",
+        "menu.tags",
+        "sep:lock",
+        "board.lock",
+        "sep:edit",
+        "board.duplicate",
+        "board.delete",
+        "board.open_location"
+      ]
+    },
+    {
+      "id": "image-layer",
+      "label": "Image · layer icon",
+      "entries": [
+        "menu.layer_name",
+        "board.image.layer.visibility",
+        "board.image.layer.add_image",
+        "board.image.layer.duplicate",
+        "board.image.layer.delete"
+      ]
+    },
+    {
+      "id": "pdf",
+      "label": "PDF / presentation",
+      "entries": [
+        "board.media.unbundle",
+        "sep:header",
+        "board.to_front",
+        "board.to_back",
+        "sep:stack",
+        "board.lock",
+        "board.crop",
+        "board.open_file",
+        "sep:tags",
+        "menu.tags",
+        "sep:delete",
+        "board.copy",
+        "board.duplicate",
+        "board.delete",
+        "board.open_location"
+      ]
+    },
+    {
+      "id": "video",
+      "label": "Video / poster",
+      "entries": [
+        "board.to_front",
+        "board.to_back",
+        "sep:stack",
+        "board.lock",
+        "board.crop",
+        "board.open_file",
+        "sep:tags",
+        "menu.tags",
+        "sep:delete",
+        "board.copy",
+        "board.duplicate",
+        "board.delete",
+        "board.open_location"
+      ]
+    },
+    {
+      "id": "document",
+      "label": "Document thumbnail",
+      "entries": [
+        "board.to_front",
+        "board.to_back",
+        "sep:stack",
+        "board.lock",
+        "board.crop",
+        "board.open_file",
+        "sep:tags",
+        "menu.tags",
+        "sep:delete",
+        "board.copy",
+        "board.duplicate",
+        "board.delete",
+        "board.open_location"
+      ]
+    },
+    {
+      "id": "model",
+      "label": "3D model",
+      "entries": [
+        "board.model_screenshot_canvas",
+        "board.model_display",
+        "sep:header",
+        "board.to_front",
+        "board.to_back",
+        "sep:stack",
+        "board.lock",
+        "board.open_file",
+        "sep:tags",
+        "menu.tags",
+        "sep:delete",
+        "board.copy",
+        "board.duplicate",
+        "board.delete",
+        "board.open_location"
+      ]
+    },
+    {
+      "id": "text-file",
+      "label": "Linked text document",
+      "entries": [
+        "board.to_front",
+        "board.to_back",
+        "sep:stack",
+        "board.lock",
+        "board.hide",
+        "board.open_file",
+        "sep:tags",
+        "menu.tags",
+        "sep:delete",
+        "board.copy",
+        "board.duplicate",
+        "board.delete",
+        "board.open_location"
+      ]
+    },
+    {
+      "id": "spreadsheet",
+      "label": "Spreadsheet",
+      "entries": [
+        "board.sheet.edit",
+        "sep:custom-mv5hknmv-3",
+        "board.to_front",
+        "board.to_back",
+        "sep:stack",
+        "board.lock",
+        "board.open_file",
+        "sep:tags",
+        "menu.tags",
+        "sep:delete",
+        "board.copy",
+        "board.duplicate",
+        "board.delete",
+        "board.open_location"
+      ]
+    },
+    {
+      "id": "rect",
+      "label": "Rectangle",
+      "entries": [
+        "board.shape.edit",
+        "sep:custom-mv5hll88-4",
+        "board.to_front",
+        "board.to_back",
+        "sep:stack",
+        "board.lock",
+        "sep:delete",
+        "board.copy",
+        "board.duplicate",
+        "board.delete",
+        "board.open_location"
+      ]
+    },
+    {
+      "id": "ellipse",
+      "label": "Ellipse",
+      "entries": [
+        "board.shape.edit",
+        "sep:custom-mv5hqf0e-8",
+        "board.to_front",
+        "board.to_back",
+        "sep:stack",
+        "board.lock",
+        "sep:delete",
+        "board.copy",
+        "board.duplicate",
+        "board.delete",
+        "board.open_location"
+      ]
+    },
+    {
+      "id": "polygon",
+      "label": "Polygon",
+      "entries": [
+        "board.shape.edit",
+        "sep:custom-mv5hq6ar-7",
+        "board.to_front",
+        "board.to_back",
+        "sep:stack",
+        "board.lock",
+        "sep:delete",
+        "board.copy",
+        "board.duplicate",
+        "board.delete",
+        "board.open_location"
+      ]
+    },
+    {
+      "id": "line",
+      "label": "Line",
+      "entries": [
+        "board.shape.edit",
+        "sep:custom-mv5hptlz-6",
+        "board.to_front",
+        "board.to_back",
+        "sep:stack",
+        "board.lock",
+        "sep:delete",
+        "board.copy",
+        "board.duplicate",
+        "board.delete",
+        "board.open_location"
+      ]
+    },
+    {
+      "id": "path",
+      "label": "Path / freehand",
+      "entries": [
+        "board.shape.edit",
+        "sep:custom-mv5hpdmu-5",
+        "board.to_front",
+        "board.to_back",
+        "sep:stack",
+        "board.lock",
+        "sep:delete",
+        "board.copy",
+        "board.duplicate",
+        "board.delete",
+        "board.open_location"
+      ]
+    },
+    {
+      "id": "text",
+      "label": "Text / sticky note",
+      "entries": [
+        "board.shape.edit",
+        "sep:header",
+        "board.to_front",
+        "board.to_back",
+        "sep:stack",
+        "board.lock",
+        "sep:delete",
+        "board.copy",
+        "board.duplicate",
+        "board.delete",
+        "board.open_location"
+      ]
+    },
+    {
+      "id": "frame",
+      "label": "Frame / slide",
+      "entries": [
+        "board.shape.edit",
+        "sep:custom-mv5hrsrh-9",
+        "board.to_front",
+        "board.to_back",
+        "sep:stack",
+        "board.lock",
+        "sep:delete",
+        "board.copy",
+        "board.duplicate",
+        "board.delete",
+        "board.open_location"
+      ]
+    },
+    {
+      "id": "dock",
+      "label": "Dropped toolbar",
+      "entries": [
+        "board.shape.edit",
+        "sep:custom-mv5ht36z-10",
+        "board.to_front",
+        "board.to_back",
+        "sep:stack",
+        "app.select_all",
+        "board.copy",
+        "board.duplicate",
+        "board.delete",
+        "board.open_location"
+      ]
+    },
+    {
+      "id": "wire",
+      "label": "Connector / wire",
+      "entries": [
+        "board.to_front",
+        "board.to_back",
+        "sep:stack",
+        "board.lock",
+        "board.hide",
+        "sep:wire",
+        "menu.arrow_start",
+        "menu.arrow_end",
+        "menu.faint",
+        "board.wire.label",
+        "sep:delete",
+        "board.delete",
+        "board.open_location"
+      ]
+    },
+    {
+      "id": "multi",
+      "label": "Multiple selected",
+      "entries": [
+        "heading:multi",
+        "board.shape.edit",
+        "sep:header",
+        "board.to_front",
+        "board.to_back",
+        "sep:stack",
+        "board.group",
+        "board.lock",
+        "sep:tags",
+        "menu.tags",
+        "sep:delete",
+        "board.copy",
+        "board.duplicate",
+        "board.delete",
+        "board.open_location"
+      ]
+    },
+    {
+      "id": "grouped",
+      "label": "Grouped selection",
+      "entries": [
+        "heading:multi",
+        "board.shape.edit",
+        "sep:header",
+        "board.to_front",
+        "board.to_back",
+        "sep:stack",
+        "board.group",
+        "board.ungroup",
+        "board.lock",
+        "sep:delete",
+        "board.copy",
+        "board.duplicate",
+        "board.delete",
+        "board.open_location"
+      ]
+    },
+    {
+      "id": "web",
+      "label": "Web portal",
+      "entries": [
+        "portal.maximize",
+        "sep:custom-mv5hzzhd-11",
+        "board.to_front",
+        "board.to_back",
+        "sep:portal",
+        "portal.web.open_external",
+        "portal.web.paste_url",
+        "portal.web.copy_url",
+        "portal.web.reload",
+        "portal.chrome.toggle",
+        "sep:stack",
+        "board.lock",
+        "sep:delete",
+        "board.duplicate",
+        "board.delete",
+        "board.open_location"
+      ]
+    },
+    {
+      "id": "atlas",
+      "label": "File Atlas · bound",
+      "entries": [
+        "portal.maximize",
+        "sep:custom-mv5i1lkd-12",
+        "portal.atlas.source",
+        "portal.atlas.open",
+        "portal.atlas.fit",
+        "portal.atlas.refresh",
+        "sep:portal",
+        "board.to_front",
+        "board.to_back",
+        "sep:stack",
+        "board.lock",
+        "sep:delete",
+        "board.copy",
+        "board.duplicate",
+        "board.delete",
+        "board.open_location"
+      ]
+    },
+    {
+      "id": "atlas-empty",
+      "label": "File Atlas · unbound",
+      "entries": [
+        "portal.maximize",
+        "sep:custom-mv5i4ud5-13",
+        "portal.atlas.source",
+        "sep:portal",
+        "board.to_front",
+        "board.to_back",
+        "sep:stack",
+        "board.lock",
+        "sep:delete",
+        "board.copy",
+        "board.duplicate",
+        "board.delete",
+        "board.open_location"
+      ]
+    },
+    {
+      "id": "slate",
+      "label": "Slate workbook · bound",
+      "entries": [
+        "heading:objects",
+        "sep:header",
+        "heading:portal",
+        "portal.maximize",
+        "portal.slate.open",
+        "portal.slate.source",
+        "portal.slate.refresh",
+        "sep:portal",
+        "board.duplicate",
+        "board.to_front",
+        "board.to_back",
+        "sep:stack",
+        "board.lock",
+        "board.hide",
+        "sep:delete",
+        "board.delete",
+        "board.open_location"
+      ]
+    },
+    {
+      "id": "slate-empty",
+      "label": "Slate workbook · unbound",
+      "entries": [
+        "portal.maximize",
+        "sep:custom-mv5i6ju1-14",
+        "portal.slate.open",
+        "portal.slate.source",
+        "sep:portal",
+        "board.to_front",
+        "board.to_back",
+        "sep:stack",
+        "board.lock",
+        "sep:delete",
+        "board.copy",
+        "board.duplicate",
+        "board.delete",
+        "board.open_location"
+      ]
+    },
+    {
+      "id": "agent",
+      "label": "Agent · bound",
+      "entries": [
+        "portal.agent.rename",
+        "sep:header",
+        "portal.agent.bind",
+        "portal.agent.fork",
+        "portal.agent.launch",
+        "portal.agent.switch_chat",
+        "portal.agent.unbundle",
+        "portal.agent.focus",
+        "portal.agent.fit",
+        "sep:portal",
+        "board.to_front",
+        "board.to_back",
+        "sep:stack",
+        "board.lock",
+        "sep:delete",
+        "board.duplicate",
+        "board.delete",
+        "board.open_location"
+      ]
+    },
+    {
+      "id": "agent-empty",
+      "label": "Agent · unbound",
+      "entries": [
+        "heading:objects",
+        "sep:header",
+        "heading:portal",
+        "portal.agent.unbundle",
+        "portal.agent.focus",
+        "sep:portal",
+        "board.duplicate",
+        "board.to_front",
+        "board.to_back",
+        "sep:stack",
+        "board.lock",
+        "board.hide",
+        "sep:delete",
+        "board.delete",
+        "board.open_location"
+      ]
+    },
+    {
+      "id": "canvas",
+      "label": "Blank canvas",
+      "entries": [
+        "board.wire.canvas",
+        "board.show_all",
+        "board.unlock_all"
+      ]
+    }
+  ],
+  "actions": {
+    "board.wire.canvas": {
+      "label": "Canvas wire settings…",
+      "icon": "settings"
+    },
+    "board.duplicate": {
+      "label": "Duplicate",
+      "icon": "copy",
+      "shortcut": "Ctrl+D"
+    },
+    "board.to_front": {
+      "label": "Bring to front",
+      "icon": "bring-to-front",
+      "shortcut": ""
+    },
+    "board.to_back": {
+      "label": "Send to back",
+      "icon": "send-to-back",
+      "shortcut": ""
+    },
+    "board.lock": {
+      "label": "Lock",
+      "icon": "lock",
+      "shortcut": "Ctrl+L"
+    },
+    "board.hide": {
+      "label": "Hide",
+      "icon": "eye-off",
+      "shortcut": "Ctrl+H"
+    },
+    "board.delete": {
+      "label": "Delete",
+      "icon": "trash-2",
+      "shortcut": "Del",
+      "danger": true
+    },
+    "board.group": {
+      "label": "Group",
+      "icon": "group",
+      "shortcut": "Ctrl+G"
+    },
+    "board.ungroup": {
+      "label": "Ungroup",
+      "icon": "ungroup",
+      "shortcut": "Ctrl+Shift+G"
+    },
+    "board.crop": {
+      "label": "Crop image",
+      "icon": "crop",
+      "shortcut": ""
+    },
+    "board.open_location": {
+      "label": "Open file location",
+      "icon": "folder"
+    },
+    "board.open_file": {
+      "label": "Open file",
+      "icon": "external-link",
+      "shortcut": ""
+    },
+    "board.media.unbundle": {
+      "label": "Unbundle pages",
+      "icon": "files",
+      "shortcut": ""
+    },
+    "board.show_all": {
+      "label": "Show all hidden",
+      "icon": "eye",
+      "shortcut": "Ctrl+Shift+H"
+    },
+    "board.unlock_all": {
+      "label": "Unlock all",
+      "icon": "lock-open",
+      "shortcut": "Ctrl+Shift+L"
+    },
+    "board.copy": {
+      "label": "Copy",
+      "icon": "copy",
+      "shortcut": "Ctrl+C"
+    },
+    "app.select_all": {
+      "label": "Select all",
+      "icon": "scan",
+      "shortcut": "Ctrl+A"
+    },
+    "board.shape.edit": {
+      "label": "Object properties",
+      "icon": "sliders-horizontal",
+      "shortcut": ""
+    },
+    "board.wire.label": {
+      "label": "Edit label…",
+      "icon": "text-cursor-input",
+      "shortcut": ""
+    },
+    "board.image.selection.layer": {
+      "label": "Create layer from selection",
+      "icon": "layers",
+      "shortcut": ""
+    },
+    "board.image.layer.add_image": {
+      "label": "Add image as layer",
+      "icon": "image-plus",
+      "shortcut": ""
+    },
+    "board.image.layer.duplicate": {
+      "label": "Duplicate layer",
+      "icon": "copy",
+      "shortcut": ""
+    },
+    "board.image.layer.visibility": {
+      "label": "Visible",
+      "icon": "check",
+      "shortcut": ""
+    },
+    "board.image.layer.delete": {
+      "label": "Delete layer",
+      "icon": "trash-2",
+      "shortcut": "",
+      "danger": true
+    },
+    "board.sheet.edit": {
+      "label": "Edit spreadsheet",
+      "icon": "table-2",
+      "shortcut": ""
+    },
+    "board.model_display": {
+      "label": "Display mode",
+      "icon": "box",
+      "shortcut": ""
+    },
+    "board.model_screenshot_canvas": {
+      "label": "Screenshot to canvas",
+      "icon": "image-plus",
+      "shortcut": ""
+    },
+    "portal.maximize": {
+      "label": "Maximize",
+      "icon": "maximize",
+      "shortcut": ""
+    },
+    "portal.chrome.toggle": {
+      "label": "Hide tab",
+      "icon": "panel-top",
+      "shortcut": ""
+    },
+    "portal.web.copy_url": {
+      "label": "Copy URL",
+      "icon": "copy",
+      "shortcut": ""
+    },
+    "portal.web.paste_url": {
+      "label": "Paste URL",
+      "icon": "clipboard-paste",
+      "shortcut": ""
+    },
+    "portal.web.reload": {
+      "label": "Reload",
+      "icon": "rotate-cw",
+      "shortcut": ""
+    },
+    "portal.web.open_external": {
+      "label": "Open in browser",
+      "icon": "external-link",
+      "shortcut": ""
+    },
+    "portal.slate.open": {
+      "label": "Open workbook",
+      "icon": "external-link",
+      "shortcut": ""
+    },
+    "portal.slate.source": {
+      "label": "Rebind",
+      "icon": "folder",
+      "shortcut": ""
+    },
+    "portal.slate.refresh": {
+      "label": "Refresh",
+      "icon": "refresh-cw",
+      "shortcut": ""
+    },
+    "portal.atlas.open": {
+      "label": "Open in File Atlas",
+      "icon": "folder-open",
+      "shortcut": ""
+    },
+    "portal.atlas.refresh": {
+      "label": "Refresh",
+      "icon": "refresh-cw",
+      "shortcut": ""
+    },
+    "portal.atlas.source": {
+      "label": "Choose folder",
+      "icon": "folder",
+      "shortcut": ""
+    },
+    "portal.atlas.fit": {
+      "label": "Fit folder map",
+      "icon": "scan",
+      "shortcut": ""
+    },
+    "portal.agent.launch": {
+      "label": "Open in Cursor",
+      "icon": "external-link",
+      "shortcut": ""
+    },
+    "portal.agent.switch_chat": {
+      "label": "Switch agent",
+      "icon": "messages-square",
+      "shortcut": ""
+    },
+    "portal.agent.unbundle": {
+      "label": "Unbundle images",
+      "icon": "images",
+      "shortcut": ""
+    },
+    "portal.agent.focus": {
+      "label": "Enter contents",
+      "icon": "log-in",
+      "shortcut": ""
+    },
+    "portal.agent.bind": {
+      "label": "Choose workspace",
+      "icon": "folder",
+      "shortcut": ""
+    },
+    "portal.agent.rename": {
+      "label": "Rename conversation",
+      "icon": "pencil",
+      "shortcut": ""
+    },
+    "portal.agent.fork": {
+      "label": "Fork chat here",
+      "icon": "git-branch",
+      "shortcut": ""
+    },
+    "portal.agent.fit": {
+      "label": "Fit to text",
+      "icon": "scan-text",
+      "shortcut": ""
+    },
+    "menu.layers": {
+      "label": "Layers",
+      "icon": "layers",
+      "shortcut": ""
+    },
+    "menu.tags": {
+      "label": "Tags",
+      "icon": "tag",
+      "shortcut": ""
+    },
+    "menu.clear_selection": {
+      "label": "Clear selection",
+      "icon": "x",
+      "shortcut": ""
+    },
+    "menu.layer_name": {
+      "label": "Layer name",
+      "icon": "text-cursor-input",
+      "shortcut": ""
+    },
+    "menu.arrow_start": {
+      "label": "Arrowhead at start",
+      "icon": "check",
+      "shortcut": ""
+    },
+    "menu.arrow_end": {
+      "label": "Arrowhead at end",
+      "icon": "check",
+      "shortcut": ""
+    },
+    "menu.faint": {
+      "label": "Faint",
+      "icon": "check",
+      "shortcut": ""
+    },
+    "heading:objects": {
+      "label": "1 object(s)",
+      "icon": "",
+      "shortcut": ""
+    },
+    "heading:multi": {
+      "label": "2 object(s)",
+      "icon": "",
+      "shortcut": ""
+    },
+    "heading:portal": {
+      "label": "Portal",
+      "icon": "",
+      "shortcut": ""
+    }
+  }
+}

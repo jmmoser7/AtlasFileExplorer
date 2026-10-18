@@ -7,6 +7,9 @@
 //! Tabs render inline inside [`crate::menubar::unified_top_bar`] — they no
 //! longer occupy a separate panel row.
 
+mod bubble;
+pub use bubble::{paint_tab_bubble, tab_bubble_outline, tab_scanline_x, TabBubble, TabHost};
+
 use crate::theme::Palette;
 use crate::tokens::TopBarTokens;
 use crate::widgets::trunc;
@@ -44,83 +47,6 @@ impl TabChromeColors {
             divider: p.border.gamma_multiply(theme.divider_strength),
             accent_stroke: lerp_color(p.accent, Color32::WHITE, theme.accent_white_mix),
         }
-    }
-}
-
-/// Chrome-tab bubble: convex far edge + concave shoulders that flare into the host.
-/// The dock readout blister calls this so it cannot drift from the top-bar tab.
-#[derive(Clone, Copy)]
-pub struct TabBubble {
-    pub far_radius: f32,
-    pub shoulder_radius: f32,
-}
-
-impl TabBubble {
-    pub fn from_topbar(metrics: &TopBarTokens) -> Self {
-        Self {
-            far_radius: metrics.tab_top_radius,
-            shoulder_radius: metrics.tab_shoulder_radius,
-        }
-    }
-}
-
-/// Which edge of the rect is the host the bubble blends into.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum TabHost {
-    /// Shoulders on the bottom (top-bar tab; blister rising into the canvas).
-    Bottom,
-    /// Shoulders on the top (blister hanging down into the readout).
-    Top,
-}
-
-/// Scanline x-bounds of a tab bubble. `host` flips the silhouette vertically.
-pub fn tab_scanline_x(rect: Rect, y: f32, bubble: TabBubble, host: TabHost) -> (f32, f32) {
-    let y = match host {
-        TabHost::Bottom => y,
-        TabHost::Top => rect.top() + rect.bottom() - y,
-    };
-    let depth = rect.height().max(1.0);
-    let shoulder = bubble.shoulder_radius.max(0.0).min(depth * 0.45);
-    let radius = bubble.far_radius.max(0.0).min(depth * 0.45);
-    let body_left = rect.left() + shoulder;
-    let body_right = rect.right() - shoulder;
-
-    if y < rect.top() + radius {
-        let dy = y - (rect.top() + radius);
-        let dx = (radius * radius - dy * dy).max(0.0).sqrt();
-        (body_left + radius - dx, body_right - radius + dx)
-    } else if y > rect.bottom() - shoulder && shoulder > 0.0 {
-        let t = ((y - (rect.bottom() - shoulder)) / shoulder).clamp(0.0, 1.0);
-        let flare = shoulder * (1.0 - (1.0 - t * t).sqrt());
-        (body_left - flare, body_right + flare)
-    } else {
-        (body_left, body_right)
-    }
-}
-
-/// Opaque tab-shaped fill. Glow / emboss stay with the top-bar painter.
-pub fn paint_tab_bubble(
-    painter: &egui::Painter,
-    rect: Rect,
-    fill_top: Color32,
-    fill_bottom: Color32,
-    bubble: TabBubble,
-    host: TabHost,
-) {
-    let y0 = rect.top().floor();
-    let y1 = rect.bottom().ceil();
-    let h = (y1 - y0).max(1.0);
-    let mut y = y0;
-    while y <= y1 {
-        let t = ((y - y0) / h).clamp(0.0, 1.0);
-        let (left, right) = tab_scanline_x(rect, y, bubble, host);
-        if right - left >= 0.5 {
-            painter.line_segment(
-                [Pos2::new(left, y), Pos2::new(right, y)],
-                Stroke::new(1.35_f32, lerp_color(fill_top, fill_bottom, t)),
-            );
-        }
-        y += 1.0;
     }
 }
 
@@ -237,22 +163,6 @@ fn portal_top_corner_inset(corner: PortalTabCorner, radius: f32, y: f32) -> f32 
         }
         PortalTabCorner::Square => 0.0,
     }
-}
-
-/// Closed silhouette of a tab bubble. The dock blister and the top-bar
-/// active tab share this so the accent stroke cannot drift.
-pub fn tab_bubble_outline(rect: Rect, bubble: TabBubble, host: TabHost) -> Vec<Pos2> {
-    let mut points = Vec::new();
-    let samples = (rect.height() * 1.5).ceil().max(2.0) as usize;
-    for i in (0..=samples).rev() {
-        let y = rect.top() + rect.height() * i as f32 / samples as f32;
-        points.push(Pos2::new(tab_scanline_x(rect, y, bubble, host).0, y));
-    }
-    for i in 0..=samples {
-        let y = rect.top() + rect.height() * i as f32 / samples as f32;
-        points.push(Pos2::new(tab_scanline_x(rect, y, bubble, host).1, y));
-    }
-    points
 }
 
 /// The active-tab cyan falloff (three nested strokes). `fade` is 1 for a
@@ -860,7 +770,7 @@ mod tests {
     #[test]
     fn flipped_tab_scanline_mirrors_the_host_edge() {
         let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(48.0, 16.0));
-        let bubble = TabBubble {
+        let bubble = TabBubble::Rounded {
             far_radius: 5.0,
             shoulder_radius: 7.0,
         };

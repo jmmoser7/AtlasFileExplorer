@@ -3,165 +3,47 @@
 
 use std::path::{Path, PathBuf};
 
-/// How far a chat card is opened.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum CardFold {
-    /// Three-line capsule.
-    Collapsed,
-    /// Twice the capsule, scrolling.
-    Partial,
-    /// The card fits its text.
-    Open,
-}
-
-/// Where the pointer sits on the collapse chevron, in screen pixels from its center.
-/// Negative is above. Bands are designed pixels scaled by the board zoom (P0.9).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ChevronZone {
-    /// Further above center: collapse all the way.
-    FullCollapse,
-    /// Slightly above center: collapse one level.
-    PartialCollapse,
-    /// Dead center: open one level.
-    OneStep,
-    /// Below center: open all the way. The full-expand zone paints a double chevron.
-    FullExpand,
-}
-
-const ZONE_CENTER: f32 = 2.0;
-const ZONE_NEAR: f32 = 7.0;
-
-impl ChevronZone {
-    pub(crate) fn detail(self) -> &'static str {
-        match self {
-            Self::OneStep => "one",
-            Self::FullExpand => "full",
-            Self::PartialCollapse => "partial",
-            Self::FullCollapse => "collapse",
-        }
-    }
-
-    pub(crate) fn parse(detail: &str) -> Option<Self> {
-        Some(match detail {
-            "one" => Self::OneStep,
-            "full" => Self::FullExpand,
-            "partial" => Self::PartialCollapse,
-            "collapse" => Self::FullCollapse,
-            _ => return None,
-        })
-    }
-}
-
-/// `dy` is `pointer.y - center.y` in screen pixels. `z` is the board zoom.
-pub(crate) fn chevron_zone(dy: f32, z: f32) -> ChevronZone {
-    let z = if z.is_finite() && z > 0.0 { z } else { 0.01 };
-    let center = atlas_shell::canvas_scale::px(ZONE_CENTER, z);
-    let near = atlas_shell::canvas_scale::px(ZONE_NEAR, z);
-    if dy < -near {
-        ChevronZone::FullCollapse
-    } else if dy < -center {
-        ChevronZone::PartialCollapse
-    } else if dy <= center {
-        ChevronZone::OneStep
-    } else {
-        ChevronZone::FullExpand
-    }
-}
-
-/// `(points_up, double)`. The full-expand zone is the animated double chevron.
-pub(crate) fn chevron_glyph(zone: ChevronZone, fold: CardFold) -> (bool, bool) {
-    match zone {
-        ChevronZone::FullExpand => (false, true),
-        ChevronZone::FullCollapse => (true, true),
-        ChevronZone::PartialCollapse => (true, false),
-        ChevronZone::OneStep => (matches!(fold, CardFold::Open), false),
-    }
-}
-
-pub(crate) fn apply_chevron(fold: CardFold, zone: ChevronZone) -> CardFold {
-    match zone {
-        ChevronZone::FullCollapse => CardFold::Collapsed,
-        ChevronZone::PartialCollapse => match fold {
-            CardFold::Open => CardFold::Partial,
-            CardFold::Partial | CardFold::Collapsed => CardFold::Collapsed,
-        },
-        ChevronZone::OneStep => match fold {
-            CardFold::Collapsed => CardFold::Partial,
-            CardFold::Partial | CardFold::Open => CardFold::Open,
-        },
-        ChevronZone::FullExpand => CardFold::Open,
-    }
-}
-
-/// Streaming default: twice the collapsed capsule, so new text can scroll.
-pub(crate) fn stream_card_height(capsule: f32) -> f32 {
-    capsule * 2.0
-}
-
-/// Auto-follow of a streaming transcript. Offsets are in the same units as the viewport.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct FollowScroll {
-    pub follow: bool,
-    pub offset: f32,
-}
-
-impl Default for FollowScroll {
-    fn default() -> Self {
-        Self {
-            follow: true,
-            offset: 0.0,
-        }
-    }
-}
-
-fn max_offset(content: f32, view: f32) -> f32 {
-    (content - view).max(0.0)
-}
-
-/// The offset to hand the scroller this frame.
-pub(crate) fn requested_offset(state: &FollowScroll, content: f32, view: f32) -> f32 {
-    let max = max_offset(content, view);
-    if state.follow {
-        max
-    } else {
-        state.offset.clamp(0.0, max)
-    }
-}
-
-/// What the scroller actually landed on. A move away from the bottom we asked
-/// for stops following; returning to the bottom starts it again.
-pub(crate) fn settle_follow(
-    state: &mut FollowScroll,
-    requested: f32,
-    got: f32,
-    content: f32,
-    view: f32,
-) -> f32 {
-    const SLACK: f32 = 2.0;
-    let max = max_offset(content, view);
-    let got = if got.is_finite() { got } else { 0.0 };
-    let at_bottom = got + SLACK >= max;
-    if state.follow {
-        if !at_bottom && (requested - got).abs() > SLACK {
-            state.follow = false;
-            state.offset = got.clamp(0.0, max);
-        } else {
-            state.offset = max;
-        }
-    } else if at_bottom {
-        state.follow = true;
-        state.offset = max;
-    } else {
-        state.offset = got.clamp(0.0, max);
-    }
-    state.offset
-}
+pub(crate) use atlas_shell::selection_tools::generator::activity::{
+    apply_fold, chevron_detail, chevron_metrics, chevron_offers, glyph_slot_of, parse_chevron,
+    requested_offset, settle_follow, stream_card_height, CardFold, FollowScroll,
+};
+#[cfg(test)]
+use atlas_shell::selection_tools::generator::activity::{
+    glyph_double_gap, glyph_double_height, glyph_single_height, FoldDir, FoldStep, GLYPH_STROKE,
+};
 
 /// Provider total when `reported` is set, otherwise `~` plus characters divided by 4.
+/// Counts from 1000 compact to `1.2k`.
 pub(crate) fn token_readout(reported: Option<u64>, chars: usize) -> String {
     match reported {
-        Some(n) => n.to_string(),
-        None => format!("~{}", chars / 4),
+        Some(n) => compact_count(n),
+        None => format!("~{}", compact_count((chars / 4) as u64)),
+    }
+}
+
+fn compact_count(n: u64) -> String {
+    if n < 1000 {
+        n.to_string()
+    } else if n < 10_000 {
+        let tenths = ((n as f32 / 100.0).round() / 10.0 * 10.0).round() as u64;
+        let whole = tenths / 10;
+        let frac = tenths % 10;
+        if frac == 0 {
+            format!("{whole}k")
+        } else {
+            format!("{whole}.{frac}k")
+        }
+    } else if n < 1_000_000 {
+        format!("{}k", n / 1000)
+    } else {
+        let tenths = ((n as f32 / 100_000.0).round() / 10.0 * 10.0).round() as u64;
+        let whole = tenths / 10;
+        let frac = tenths % 10;
+        if frac == 0 {
+            format!("{whole}m")
+        } else {
+            format!("{whole}.{frac}m")
+        }
     }
 }
 
@@ -182,55 +64,36 @@ mod tests {
     use super::*;
 
     #[test]
-    fn chevron_zones_follow_the_center_and_scale() {
-        assert_eq!(chevron_zone(0.0, 1.0), ChevronZone::OneStep);
-        assert_eq!(chevron_zone(1.5, 1.0), ChevronZone::OneStep);
-        assert_eq!(chevron_zone(3.0, 1.0), ChevronZone::FullExpand);
-        assert_eq!(chevron_zone(-4.0, 1.0), ChevronZone::PartialCollapse);
-        assert_eq!(chevron_zone(-8.0, 1.0), ChevronZone::FullCollapse);
-        assert_eq!(chevron_zone(3.0, 2.0), ChevronZone::OneStep);
-        assert_eq!(chevron_zone(-10.0, 2.0), ChevronZone::PartialCollapse);
-        assert_eq!(chevron_zone(-16.0, 2.0), ChevronZone::FullCollapse);
-        assert_eq!(chevron_zone(5.0, 2.0), ChevronZone::FullExpand);
-    }
-
-    #[test]
-    fn chevron_clicks_step_and_jump() {
-        assert_eq!(
-            apply_chevron(CardFold::Collapsed, ChevronZone::OneStep),
-            CardFold::Partial
+    fn every_chevron_steps_one_level_or_two() {
+        use CardFold::*;
+        use FoldDir::*;
+        use FoldStep::*;
+        let cases = [
+            (Open, Collapse, Single, Partial),
+            (Open, Collapse, Double, Collapsed),
+            (Collapsed, Expand, Single, Partial),
+            (Collapsed, Expand, Double, Open),
+            (Partial, Expand, Single, Open),
+            (Partial, Collapse, Single, Collapsed),
+            (Partial, Expand, Double, Open),
+            (Partial, Collapse, Double, Collapsed),
+            (Open, Expand, Single, Open),
+            (Collapsed, Collapse, Single, Collapsed),
+        ];
+        for (from, dir, step, to) in cases {
+            assert_eq!(apply_fold(from, dir, step), to, "{from:?} {dir:?} {step:?}");
+        }
+        assert!(glyph_double_height() <= glyph_single_height() * 1.4 + 0.01);
+        assert!(
+            glyph_double_gap() >= GLYPH_STROKE * 0.6,
+            "the double's marks merge: gap {} for stroke {GLYPH_STROKE}",
+            glyph_double_gap()
         );
+        assert!(chevron_offers(Partial).iter().any(|(d, _)| *d == Expand));
+        assert!(chevron_offers(Partial).iter().any(|(d, _)| *d == Collapse));
         assert_eq!(
-            apply_chevron(CardFold::Partial, ChevronZone::OneStep),
-            CardFold::Open
-        );
-        assert_eq!(
-            apply_chevron(CardFold::Open, ChevronZone::OneStep),
-            CardFold::Open
-        );
-        assert_eq!(
-            apply_chevron(CardFold::Collapsed, ChevronZone::FullExpand),
-            CardFold::Open
-        );
-        assert_eq!(
-            apply_chevron(CardFold::Open, ChevronZone::PartialCollapse),
-            CardFold::Partial
-        );
-        assert_eq!(
-            apply_chevron(CardFold::Partial, ChevronZone::PartialCollapse),
-            CardFold::Collapsed
-        );
-        assert_eq!(
-            apply_chevron(CardFold::Partial, ChevronZone::FullCollapse),
-            CardFold::Collapsed
-        );
-        assert_eq!(
-            chevron_glyph(ChevronZone::FullExpand, CardFold::Collapsed),
-            (false, true)
-        );
-        assert_eq!(
-            chevron_glyph(ChevronZone::FullCollapse, CardFold::Open),
-            (true, true)
+            parse_chevron(chevron_detail(Expand, Single)),
+            Some((Expand, Single))
         );
     }
 
@@ -260,6 +123,32 @@ mod tests {
         assert_eq!(token_readout(None, 8), "~2");
         assert_eq!(token_readout(None, 3), "~0");
         assert_eq!(token_readout(Some(40), 8), "40");
+        assert_eq!(token_readout(Some(1200), 8), "1.2k");
+        assert_eq!(token_readout(Some(2000), 0), "2k");
+    }
+
+    #[test]
+    fn text_insets_match_in_every_fold() {
+        let (left, right, wrap) = super::super::text_column(320.0);
+        assert_eq!(left, super::super::TEXT_INSET_LEFT);
+        assert_eq!(right, super::super::card_metrics::TEXT_INSET_RIGHT);
+        assert_eq!(left, right, "left and right insets are the same datum");
+        assert!((wrap - (320.0 - left - right)).abs() < 0.01);
+        assert_eq!(
+            super::super::text_column(176.0),
+            super::super::text_column(176.0)
+        );
+    }
+
+    #[test]
+    fn a_split_dot_gaps_by_half_its_radius() {
+        let radius = 3.5;
+        let travel = super::super::dot_split_travel(radius);
+        let gap = travel * 2.0 - radius * 2.0;
+        assert!(
+            (gap - radius * 0.5).abs() < 0.01,
+            "edge gap {gap} is not half the radius {radius}"
+        );
     }
 
     #[test]

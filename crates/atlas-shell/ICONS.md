@@ -44,6 +44,9 @@ settings (page + sliders) for a size.
 
 ## State and sizing
 
+Text emphasis uses the shared Bold, Italic and Underline glyphs. Their
+independent toggles use the same selected accent as the justification segments.
+
 Apps supply state colors through the shared Palette/dock tokens. This rollout
 does not change existing hover, active, pinned, focus, or disabled semantics.
 Do not hardcode colors into glyphs. Keep geometry fixed between these states.
@@ -51,8 +54,23 @@ View/Edit is an explicit semantic exception: Mode shows a lock for View and a
 pencil for Edit; the label and existing human-only control remain authoritative.
 
 Glyph bounds are separate from hit targets. Preserve dock and canvas-space
-scaling; do not add per-app size clamps. Parsing and tessellation are cached once;
-the bounded transformed-mesh cache avoids allocation for unchanged chrome.
+scaling; do not add per-app size clamps. Paths are parsed once; stroke meshes
+are cached by icon and physical size. Coverage feathering stays one physical
+pixel at every size and display density, and the transformed cache includes
+pixels-per-point so moving between monitors cannot reuse stale coverage.
+Unchanged chrome reuses cached meshes. For wireframe controls painted over
+photographs, `icons::paint_on_media` builds one material mesh from the canonical
+catalog paths: the original glyph region stays foreground, and the expanded
+stroke and fringe use the palette keyline. Both materials use the canonical
+density stroke builder; the vector-ink maximum-coverage pass resolves overlaps,
+with foreground winning exact ties. Caller opacity is applied once at
+placement. The geometry cache is keyed by icon and physical density; the
+placement cache also includes slot, colors, keyline width, and density.
+Ordinary `icons::paint` remains bare.
+
+`Camera` is the shared still/video Capture glyph: a quiet outline camera body
+and circular lens. It maps to `portal.capture` and the existing model Screenshot
+alias. It replaces the ambiguous eye on these capture controls.
 
 ## Review and maintenance
 
@@ -80,7 +98,19 @@ changes require actual-size visual review, not just enlarged artwork.
 
 The shape-selection strip uses the catalog Fill bucket, Ellipse stroke ring, Corners outline, Filters funnel, Pages grid, and Display for File Atlas Formatting. These share the same path stroke and squircle chrome as the primary dock; applications do not paint private substitute glyphs. [DYNAMIC_PANELS.md](DYNAMIC_PANELS.md) owns the surrounding panel composition and distinguishes squircle icon buttons from circular color swatches, filter radios, and rail handles.
 
+Image-specific editing controls inside the shared selection blister use the
+same catalog glyphs at canvas scale, presented bare in the compact technical
+datum. They do not inherit the selection strip's squircle button silhouette;
+color and filter circles remain their named circular exceptions.
+
 ## Justification
+
+The selection alignment widget uses `AlignLeft`, `AlignCenterH`, `AlignRight`,
+`AlignTop`, `AlignCenterV`, `AlignBottom`, `DistributeHorizontal`, and
+`DistributeVertical`. Arrow-and-datum marks distinguish edge/centre actions;
+three parallel rules identify distribution. The centre arrows point toward
+the selection, matching the user's 14 October reference. Their compact
+button surfaces and T layout belong to `selection_tools::alignment`.
 
 `JustifyLeft`, `JustifyCenter`, and `JustifyRight` are the standard four-line
 paragraph marks: full-width lines alternate with short lines held to the left
@@ -103,6 +133,20 @@ It is not Ellipse (one ring) or Join.
 
 `Pages` is a 2×2 grid of sheets: the poster-page album and `board.media.unbundle` (spread a PDF/PowerPoint deck onto the board). It is not Media (stacked family sheets), Image (landscape frame), or Frame (dog-eared page). Command mapping: selection-strip squircle → album browse (`board.media.page`) and Unbundle (`board.media.unbundle`).
 
+## Image palette glyphs
+
+`Sliders` is the bare two-rail control glyph for the selected-image Filters
+panel. `Media`'s offset sheets identify the selected-image Layers panel; the
+separate `Pages` grid remains the album/unbundle action.
+
+## Polygonal lasso
+
+`Lasso` is the polygonal-selection glyph: an irregular closed selection outline
+with a short looped rope tail at its starting vertex. It is distinct from the
+regular six-sided `Polygon` drawing tool and the pointer-shaped `Select` tool.
+Image-palette adapters use this shared catalog entry rather than painting a
+private lasso mark.
+
 ## Conversation presentation glyphs
 
 ChatTrain uses two separated linked cards; ChatWindow uses a single tall transcript with alternating lines. ChatBundle encloses miniature cards in one container, matching the supplied bundle reference. ChatUnbundle separates those cards with outward arrows. Bundle/Unbundle map to the agent selection strip; Train/Window accompany the contextual presentation menu. These use the shared 24-unit outline catalog and avoid reusing the unrelated geometric Join/Split tools.
@@ -111,10 +155,11 @@ ChatPairs is the ChatWindow card holding one pair: a short message bubble at the
 
 ## Suggestion box
 
-`Feedback` is the suggestion-box button left of the readout chevron in both
-apps: a speech bubble with a tail at the lower left and two message lines.
-It shares the 24-unit outline catalog and stroke weight so it sits beside
-the chevron as one family, instead of the emoji it replaces (9 October 2026).
+`Feedback` is a speech bubble with a lower-left tail and two comment lines.
+In Slate Board it is the cherry-red Action singleton at the far left of the
+bottom toolstrip. It uses the same circle size and glyph inset as its neighbors.
+File Atlas and Slate views without the Board strip retain the readout-edge
+launcher. All hosts use the same 24-unit vector catalog asset.
 
 ## Agent portal
 

@@ -1,10 +1,13 @@
 //! Paged-document poster page and unbundle. Album motion is `image_album`.
 
 pub(crate) mod documents;
+pub(crate) mod pages_album;
+
+use pages_album::{pages_album_layout, PagesAlbumOutcome};
 
 use super::{SlateApp, ThumbState};
 use atlas_core::thumbs::{cache_key_page, ThumbRequest};
-use eframe::egui::{self, Pos2, Rect, Stroke, Vec2};
+use eframe::egui::{self, Rect, Vec2};
 use slate_doc::ItemId;
 use std::path::{Path, PathBuf};
 
@@ -130,18 +133,33 @@ impl SlateApp {
         if page >= self.pdf_page_count(&item.path) {
             return;
         }
-        let ids: Vec<_> = self
+        let board_view = self.doc().view.active_view == slate_doc::ViewKind::Board;
+        let matching: Vec<_> = self
             .doc()
             .scene
             .nodes
             .iter()
             .filter_map(|n| match &n.kind {
-                slate_doc::NodeKind::Image(i) if i.item == item_id => Some(n.id),
+                slate_doc::NodeKind::Image(i) if i.item == item_id => Some((n.id, n.locked)),
                 _ => None,
             })
             .collect();
-        if self.doc().view.active_view != slate_doc::ViewKind::Board || ids.is_empty() {
+        let ids: Vec<_> = matching
+            .iter()
+            .filter_map(|(id, locked)| (!locked).then_some(*id))
+            .collect();
+        if !board_view {
             // Preserve Grid/Venn item selection. Board page changes below are scene commands.
+            self.doc_mut().set_pdf_page(item_id, page);
+            self.request_thumb(item_id);
+            return;
+        }
+        if ids.is_empty() {
+            // A locked board poster is frozen even when every linked instance
+            // of this item is locked.
+            if matching.iter().any(|(_, locked)| *locked) {
+                return;
+            }
             self.doc_mut().set_pdf_page(item_id, page);
             self.request_thumb(item_id);
             return;
@@ -534,6 +552,10 @@ impl SlateApp {
         theme: atlas_shell::theme::Palette,
         focus: u16,
     ) -> PagesAlbumOutcome {
+        let Some(node) = self.doc().scene.node(node_id) else {
+            return PagesAlbumOutcome::default();
+        };
+        let writable = !self.tab().read_only && !node.locked;
         let Some(item) = self.node_pdf_item(node_id) else {
             return PagesAlbumOutcome::default();
         };
@@ -577,7 +599,6 @@ impl SlateApp {
                 enabled: true,
             });
         }
-        let writable = !self.tab().read_only;
         let canvas = self.canvas_rect;
         let mut next = focus;
         let mut unbundle = false;
@@ -595,12 +616,13 @@ impl SlateApp {
             .show(ui.ctx(), |ui| {
                 ui.set_clip_rect(canvas);
                 ui.set_min_size(layout.pallet.size());
-                atlas_shell::dock::paint_squircle(
+                atlas_shell::selection_tools::paint_blister_surface(
                     ui.painter(),
                     layout.pallet,
-                    theme.card,
-                    Stroke::new(0.8 * zoom, theme.border_strong),
-                    atlas_shell::tokens::current().dock.squircle_exponent,
+                    atlas_shell::selection_tools::blister_tab_rect(host, zoom, 1),
+                    zoom,
+                    theme,
+                    0.0,
                 );
                 next = atlas_shell::home::image_album(
                     ui,
@@ -609,8 +631,8 @@ impl SlateApp {
                     &images,
                     focus as usize,
                     atlas_shell::home::AlbumInput {
-                        drag: count > 1,
-                        wheel: count > 1,
+                        drag: writable && count > 1,
+                        wheel: writable && count > 1,
                         host_paints_rest: false,
                     },
                 ) as u16;
@@ -635,53 +657,11 @@ impl SlateApp {
         let idle = ui.input(|i| !i.pointer.any_down() && i.smooth_scroll_delta.y.abs() < 0.1);
         PagesAlbumOutcome {
             focus: next,
-            commit_page: idle && next != item.pdf_page,
+            commit_page: writable && idle && next != item.pdf_page,
             unbundle,
             hover,
         }
     }
-}
-
-/// Low-profile tool pallet along the bottom of a selected paged image.
-pub(crate) fn pages_album_layout(host: Rect, zoom: f32) -> PagesAlbumLayout {
-    let pad = 8.0 * zoom;
-    let btn = atlas_shell::selection_tools::BUTTON_SIZE * zoom;
-    let inner = 5.0 * zoom;
-    let height = btn + inner * 2.0;
-    let pallet = Rect::from_min_max(
-        Pos2::new(host.left() + pad, host.bottom() - height - pad),
-        Pos2::new(host.right() - pad, host.bottom() - pad),
-    );
-    let unbundle = Rect::from_center_size(
-        Pos2::new(pallet.right() - inner - btn * 0.5, pallet.center().y),
-        Vec2::splat(btn),
-    );
-    let album = Rect::from_min_max(
-        Pos2::new(pallet.left() + inner, pallet.top() + inner),
-        Pos2::new(
-            (unbundle.left() - inner).max(pallet.left() + inner + 8.0 * zoom),
-            pallet.bottom() - inner,
-        ),
-    );
-    PagesAlbumLayout {
-        pallet,
-        album,
-        unbundle,
-    }
-}
-
-pub(crate) struct PagesAlbumLayout {
-    pub pallet: Rect,
-    pub album: Rect,
-    pub unbundle: Rect,
-}
-
-#[derive(Default)]
-pub(crate) struct PagesAlbumOutcome {
-    pub focus: u16,
-    pub commit_page: bool,
-    pub unbundle: bool,
-    pub hover: bool,
 }
 
 fn document_stem(file_name: &str) -> String {
@@ -752,20 +732,4 @@ fn write_word_pages(
         });
     }
     Ok(written)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn pages_album_is_a_thin_pallet_over_the_host() {
-        let host = Rect::from_min_size(Pos2::new(40.0, 20.0), Vec2::new(320.0, 240.0));
-        let layout = pages_album_layout(host, 1.0);
-        assert!(layout.pallet.height() <= 48.0);
-        assert!(layout.pallet.bottom() <= host.bottom());
-        assert!(layout.album.width() > layout.unbundle.width());
-        assert!(layout.pallet.contains(layout.album.center()));
-        assert!(layout.pallet.contains(layout.unbundle.center()));
-    }
 }

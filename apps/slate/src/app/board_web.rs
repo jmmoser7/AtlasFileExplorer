@@ -28,6 +28,13 @@ use super::board::{self, rgba32, BoardXf};
 use super::board_portal_chrome::{layout_portal_chrome, PortalChromeLayout};
 use super::SlateApp;
 
+mod input;
+mod package;
+mod presentation;
+mod scheduler;
+
+mod table_links;
+
 // ---------------------------------------------------------------------------
 // Feel constants (contract "Feel constants" table)
 // ---------------------------------------------------------------------------
@@ -68,15 +75,16 @@ pub const LIVE_POOL: usize = 6;
 pub const IDLE_FPS: f32 = 30.0;
 /// Readback cadence for a focused portal that is sitting still.
 pub const FOCUSED_FPS: f32 = 30.0;
-/// Readback cadence while the focused page is being scrolled, dragged, or
-/// typed into. Idle stays at [`FOCUSED_FPS`] so a parked cursor does not
+/// Capture cadence while the focused page is being hovered, scrolled, dragged,
+/// or typed into. Idle stays at [`FOCUSED_FPS`] so a parked cursor does not
 /// restart the busy readback loop that used to jutter the board.
 pub const INTERACTIVE_FPS: f32 = 60.0;
 /// How long after the last page input the interactive cadence holds.
 pub const INTERACTIVE_HOLD_SECS: f32 = 0.18;
 /// Contents textures uploaded per frame; the rest wait in the backlog.
 pub const UPLOADS_PER_FRAME: usize = atlas_core::display::WEB_UPLOADS_PER_FRAME;
-/// GPU readbacks issued on one frame. Matches the upload budget (D29).
+/// New GPU copies issued on one frame. Completed copies have this same,
+/// separate probe/retirement ceiling and share the upload budget (D29).
 pub const READS_PER_FRAME: usize = UPLOADS_PER_FRAME;
 /// Pool-scheduler targets the ignored `bench_web` cases describe. No scheduler
 /// in this build spends them, so they exist for those benches only.
@@ -98,8 +106,6 @@ pub const POOL_CHANGE_MIN_SECS: f32 = 0.35;
 pub fn bench_legacy() -> bool {
     std::env::var_os("ATLAS_BENCH_LEGACY").is_some()
 }
-/// Border band that stays a Slate target while a portal holds input focus.
-pub const BORDER_HIT_PX: f32 = 6.0;
 /// Floor on how often a local source's mtime is checked, on a worker.
 pub const POLL_SECS: f32 = 1.0;
 /// Poster alpha while a recapture is in flight.
@@ -113,75 +119,8 @@ pub const POPUP_MIN_CSS: (u32, u32) = (240, 160);
 // States (D30) and level of detail (D23)
 // ---------------------------------------------------------------------------
 
-/// Every state a web portal can be in, each of which says itself on the frame
-/// rather than leaving it blank (D30).
-#[derive(Debug, Clone, PartialEq)]
-pub enum WebState {
-    /// No locator yet — the draw grammar always commits here (D03).
-    Unbound,
-    /// Not yet resolved. Neutral, never blocking (P1.portal.health).
-    Unknown,
-    /// A remote origin the human has not permitted yet (D32).
-    Blocked {
-        origin: String,
-    },
-    Loading,
-    /// Holding a pool slot and rendering.
-    Live,
-    /// Eligible, but the pool was full — showing its last frame (D29).
-    Budgeted,
-    /// Stale by construction, and the age is stated.
-    Poster {
-        age: Duration,
-    },
-    Missing {
-        locator: String,
-    },
-    Refused {
-        reason: String,
-    },
-    /// No WebView2 runtime on this machine.
-    NoRuntime,
-    /// Painted smaller than `LIVE_MIN_PX`.
-    TooSmall,
-}
-
-impl WebState {
-    /// The short word the chrome strip shows.
-    pub fn label(&self) -> String {
-        match self {
-            WebState::Unbound => "unbound".into(),
-            WebState::Unknown => "resolving…".into(),
-            WebState::Blocked { origin } => format!("blocked · {origin}"),
-            WebState::Loading => "loading…".into(),
-            WebState::Live => "live".into(),
-            WebState::Budgeted => "budgeted".into(),
-            WebState::Poster { age } => format!("poster · {}", ago(*age)),
-            WebState::Missing { .. } => "missing".into(),
-            WebState::Refused { reason } => format!("refused · {reason}"),
-            WebState::NoRuntime => "no WebView2 runtime".into(),
-            WebState::TooSmall => "zoom in to run".into(),
-        }
-    }
-
-    /// The health dot of P1.portal.health — three states, never more.
-    pub fn health(&self) -> WebHealth {
-        match self {
-            WebState::Live | WebState::Budgeted | WebState::Poster { .. } | WebState::Loading => {
-                WebHealth::Ok
-            }
-            WebState::Missing { .. } | WebState::Refused { .. } => WebHealth::Missing,
-            _ => WebHealth::Unknown,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WebHealth {
-    Ok,
-    Unknown,
-    Missing,
-}
+mod state;
+pub use state::{WebHealth, WebState};
 
 /// What a portal is worth drawing at its current on-screen size (D23).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -337,6 +276,24 @@ pub trait WebHost {
     fn evict(&mut self, id: NodeId);
     /// The newest frame, if one arrived since the last call.
     fn take_frame(&mut self, id: NodeId) -> Option<WebFrame>;
+    /// Retire an already-issued copy without waiting or acquiring a new frame.
+    /// Hosts with immediate frames can keep the default implementation.
+    fn poll_frame(&mut self, _id: NodeId) -> Option<WebFrame> {
+        None
+    }
+    fn has_pending_frame(&self, _id: NodeId) -> bool {
+        false
+    }
+    /// Queue-only hosts return true: `request_frame` never returns CPU pixels,
+    /// so acquisition can proceed after this frame's upload budget is spent.
+    fn frame_requests_are_async(&self) -> bool {
+        false
+    }
+    /// Acquire the newest browser frame on the capture cadence. A split host
+    /// queues its GPU copy here and returns pixels later through `poll_frame`.
+    fn request_frame(&mut self, id: NodeId) -> Option<WebFrame> {
+        self.take_frame(id)
+    }
     /// A one-off capture for the poster cache (D21). Must not be called from
     /// `web_pump` on demotion — that path retains the accepted poster texture.
     fn capture_poster(&mut self, id: NodeId) -> Option<WebFrame>;
@@ -560,21 +517,22 @@ pub struct WebRuntime {
     /// Buttons held inside the focused page (1 = left, 2 = right, 4 = middle).
     /// A drag that starts in the page keeps the pointer until release.
     pointer_down: u8,
+    pointer_sample: Option<input::PointerSample>,
     host: Box<dyn WebHost>,
     next_generation: u64,
     /// Texture uploads already spent this frame (D29).
     uploads_this_frame: usize,
     /// Portals with a frame waiting for an upload slot.
     backlog: Vec<NodeId>,
-    /// Last wheel / drag / key that reached the focused page. Drives the
-    /// interactive readback burst (D29).
+    /// Last changed pointer sample / wheel / key that reached the focused
+    /// page. Drives the interactive capture burst (D29).
     last_page_input: Option<Instant>,
     /// Off-thread local-source probes (Art. II.2 — never `metadata` on the
     /// frame loop; a share can take seconds).
     poll_tx: crossbeam_channel::Sender<SourcePoll>,
     poll_rx: crossbeam_channel::Receiver<SourcePoll>,
-    /// Parsed tables for dashboard wires, refreshed at most once a second.
-    link_cache: HashMap<std::path::PathBuf, (std::time::Instant, i64, u64, serde_json::Value)>,
+    /// Bounded off-thread table refresh and cached dashboard scripts.
+    link_cache: table_links::TableLinks,
     /// Pages whose text an agent run is waiting on.
     text_pending: HashSet<NodeId>,
     /// Disk stills and the visible-text cache. Derived, per-user, off the
@@ -589,6 +547,7 @@ pub struct WebRuntime {
     host_open: HashSet<NodeId>,
     /// `(when, opened)` transitions, for the probe's churn window.
     host_events: Vec<(Instant, bool)>,
+    package: Option<package::PackageJob>,
     pixel_ms: f32,
     host_ms: f32,
 }
@@ -606,6 +565,7 @@ impl Default for WebRuntime {
             focused: None,
             pointer_inside: false,
             pointer_down: 0,
+            pointer_sample: None,
             host: default_host(),
             next_generation: 1,
             uploads_this_frame: 0,
@@ -613,7 +573,7 @@ impl Default for WebRuntime {
             last_page_input: None,
             poll_tx,
             poll_rx,
-            link_cache: HashMap::new(),
+            link_cache: table_links::TableLinks::default(),
             text_pending: HashSet::new(),
             stills: super::board_web_stills::StillCache::default(),
             still_inbox: Vec::new(),
@@ -621,6 +581,7 @@ impl Default for WebRuntime {
             restored: 0,
             host_open: HashSet::new(),
             host_events: Vec::new(),
+            package: None,
             pixel_ms: 0.0,
             host_ms: 0.0,
         }
@@ -628,25 +589,6 @@ impl Default for WebRuntime {
 }
 
 impl WebRuntime {
-    fn note_page_input(&mut self) {
-        self.last_page_input = Some(Instant::now());
-    }
-
-    fn recently_interactive(&self) -> bool {
-        self.last_page_input
-            .is_some_and(|t| t.elapsed().as_secs_f32() < INTERACTIVE_HOLD_SECS)
-    }
-
-    fn focused_frame_interval(&self, id: NodeId) -> Duration {
-        if self.focused == Some(id) && self.recently_interactive() {
-            Duration::from_secs_f32(1.0 / INTERACTIVE_FPS)
-        } else if self.focused == Some(id) {
-            Duration::from_secs_f32(1.0 / FOCUSED_FPS)
-        } else {
-            Duration::from_secs_f32(1.0 / IDLE_FPS)
-        }
-    }
-
     pub fn set_stills(&mut self, cache: super::board_web_stills::StillCache) {
         self.stills = cache;
         self.still_inbox.clear();
@@ -737,6 +679,7 @@ impl WebRuntime {
             }
         }
         self.host_open.clear();
+        self.reset_page_input();
         self.host = host;
     }
 
@@ -1105,19 +1048,6 @@ pub fn web_source_locator(workbook: Option<&Path>, path: &Path) -> String {
 // ---------------------------------------------------------------------------
 
 impl SlateApp {
-    /// Every web portal on the board, with the node rect each one occupies.
-    fn web_portals(&self) -> Vec<(NodeId, PortalNode, slate_doc::scene::WorldRect)> {
-        self.doc()
-            .scene
-            .nodes
-            .iter()
-            .filter_map(|n| match &n.kind {
-                NodeKind::Portal(p) if p.kind == PortalKind::Web => Some((n.id, p.clone(), n.rect)),
-                _ => None,
-            })
-            .collect()
-    }
-
     /// Drop each exported PNG on the board directly under its dashboard, then
     /// under the previous export, and pan just enough to show the new one.
     fn place_canvas_exports(&mut self, drops: Vec<(NodeId, PathBuf)>) {
@@ -1187,6 +1117,7 @@ impl SlateApp {
     /// budget. Nothing here blocks, and nothing here reaches the network.
     pub(crate) fn web_pump(&mut self, ctx: &egui::Context) {
         let _span = atlas_core::session_log::span("slate.web.pump");
+        self.web_package_pump(ctx);
         let workbook = if self.tabs.is_empty() {
             self.fallback_tab.path.as_deref()
         } else {
@@ -1258,6 +1189,9 @@ impl SlateApp {
             let key = view_key(portal, &web);
             let regenerate = self.web.views.get(id).is_none_or(|v| v.key != key);
             if regenerate {
+                if self.web.focused == Some(*id) {
+                    self.web.reset_page_input();
+                }
                 self.remember_web_visit(*id);
                 let locator = portal
                     .source
@@ -1384,81 +1318,7 @@ impl SlateApp {
         }
         self.web.host_ms += host_started.elapsed().as_secs_f32() * 1000.0;
 
-        // Spend the upload budget, newest-first, carrying the rest forward.
-        let mut pending: Vec<NodeId> = std::mem::take(&mut self.web.backlog);
-        for id in admitted {
-            if !pending.contains(&id) {
-                pending.push(id);
-            }
-        }
-        if let Some(fid) = self.web.focused {
-            if pending.contains(&fid) {
-                pending.retain(|id| *id != fid);
-                pending.insert(0, fid);
-            }
-        }
-        let mut carried = Vec::new();
-        let mut next_upload_due: Option<Duration> = None;
-        let mut reads = 0usize;
-        let now = Instant::now();
-        for id in pending {
-            if self.web.uploads_this_frame >= UPLOADS_PER_FRAME || reads >= READS_PER_FRAME {
-                carried.push(id);
-                next_upload_due = Some(Duration::ZERO);
-                continue;
-            }
-            let interactive = self.web.focused == Some(id) && self.web.recently_interactive();
-            let frame_interval = self.web.focused_frame_interval(id);
-            let Some(view) = self.web.views.get_mut(&id) else {
-                continue;
-            };
-            if !view.live || (view.height_px < LOD_STRIP_PX && self.web.focused != Some(id)) {
-                continue;
-            }
-            if !interactive {
-                if let Some(last) = view.last_frame_probe {
-                    let elapsed = last.elapsed();
-                    if elapsed < frame_interval {
-                        carried.push(id);
-                        let remaining = frame_interval - elapsed;
-                        next_upload_due =
-                            Some(next_upload_due.map_or(remaining, |d| d.min(remaining)));
-                        continue;
-                    }
-                }
-            }
-            view.last_frame_probe = Some(now);
-            let _ = view;
-            reads += 1;
-            let read_at = Instant::now();
-            let frame = self.web.host.take_frame(id);
-            self.web.pixel_ms += read_at.elapsed().as_secs_f32() * 1000.0;
-            if let Some(img) = frame {
-                self.upload_poster(ctx, id, img);
-                self.web.uploads_this_frame += 1;
-            } else if self.web.views.get(&id).is_some_and(|v| v.live) {
-                carried.push(id);
-                next_upload_due =
-                    Some(next_upload_due.map_or(frame_interval, |d| d.min(frame_interval)));
-            }
-        }
-        if !carried.is_empty() {
-            let cap = atlas_core::display::WEB_BACKLOG_CAP;
-            if carried.len() > cap {
-                let drop = carried.len() - cap;
-                carried.drain(0..drop);
-            }
-            self.web.backlog = carried;
-            ctx.request_repaint_after(next_upload_due.unwrap_or(Duration::ZERO));
-        }
-        if self.web.views.values().any(|v| v.live) {
-            let after = if let Some(fid) = self.web.focused {
-                self.web.focused_frame_interval(fid)
-            } else {
-                Duration::from_secs_f32(1.0 / IDLE_FPS)
-            };
-            ctx.request_repaint_after(after);
-        }
+        self.pump_web_pixels(ctx, admitted);
         // Painting renews visibility. A culled/hidden portal must not keep a
         // stale on-screen flag (and browser slot) forever.
         for view in self.web.views.values_mut() {
@@ -1604,7 +1464,7 @@ impl SlateApp {
                         reason: reason.to_string(),
                     },
                     false,
-                )
+                );
             }
         };
 
@@ -1658,7 +1518,7 @@ impl SlateApp {
         // agree with what the pool will do.
         let focused = self.web.focused == Some(id);
         if let Some(err) = self.web.host.load_error(id) {
-            return (WebState::Missing { locator: err }, true);
+            return (WebState::Failed { reason: err }, true);
         }
         if !portal.web_ref().interactive_allowed {
             let age = view.and_then(|v| v.poster_at.map(|_| poster_age(v)));
@@ -1735,7 +1595,7 @@ impl SlateApp {
         let link_script = if matches!(kind, WebSourceKind::Remote) {
             String::new()
         } else {
-            self.dashboard_link_script(id)
+            self.dashboard_link_script(id, ctx)
         };
         let anchor_px = self.web.views.get(&id).and_then(|v| v.anchor_px);
         Some(WebRequest {
@@ -1749,101 +1609,6 @@ impl SlateApp {
             anchor_px,
             profile,
         })
-    }
-
-    /// Tables wired into this page, as the script the host runs after load.
-    fn dashboard_link_script(&mut self, id: NodeId) -> String {
-        use slate_doc::agent_inputs::{endpoint_node, InputKind};
-        use slate_doc::scene::NodeKind;
-        let mut wires = Vec::new();
-        for node in &self.doc().scene.nodes {
-            let NodeKind::Connector(conn) = &node.kind else {
-                continue;
-            };
-            let Some(binding) = &conn.binding else {
-                continue;
-            };
-            if binding.kind != InputKind::Table {
-                continue;
-            }
-            // TWIN: slate_doc::agent_inputs::WireBinding::source 2026-09-25
-            let (source, target) = if binding.input_b {
-                (&conn.a, &conn.b)
-            } else {
-                (&conn.b, &conn.a)
-            };
-            if endpoint_node(target) != Some(id) {
-                continue;
-            }
-            let Some(source_id) = endpoint_node(source) else {
-                continue;
-            };
-            let slot = binding
-                .slot
-                .clone()
-                .filter(|s| !s.is_empty())
-                .unwrap_or_else(|| "data".into());
-            let order = if binding.order.is_empty() {
-                vec![node.id.0]
-            } else {
-                binding.order.clone()
-            };
-            wires.push((order, slot, source_id));
-        }
-        wires.sort_by(|a, b| a.0.cmp(&b.0));
-        let mut inputs = serde_json::Map::new();
-        let mut used = std::collections::HashSet::new();
-        for (_, mut slot, source_id) in wires {
-            if used.contains(&slot) {
-                slot = format!("{slot}-{}", used.len() + 1);
-            }
-            used.insert(slot.clone());
-            let value = self.linked_table_value(source_id).unwrap_or_else(
-                || serde_json::json!({ "health": "missing", "columns": [], "rows": [] }),
-            );
-            inputs.insert(slot, value);
-        }
-        atlas_agent::slate_link_script(&serde_json::Value::Object(inputs))
-    }
-
-    fn linked_table_value(
-        &mut self,
-        source: slate_doc::scene::NodeId,
-    ) -> Option<serde_json::Value> {
-        let path = {
-            let doc = self.doc();
-            let node = doc.scene.node(source)?;
-            let slate_doc::scene::NodeKind::Image(image) = &node.kind else {
-                return None;
-            };
-            doc.item(image.item)?.path.clone()
-        };
-        if atlas_core::cloud::is_dehydrated(&path) {
-            return Some(serde_json::json!({ "health": "missing", "columns": [], "rows": [] }));
-        }
-        let meta = std::fs::metadata(&path).ok()?;
-        let mtime = meta
-            .modified()
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
-        let len = meta.len();
-        if let Some((checked, cached_mtime, cached_len, value)) = self.web.link_cache.get(&path) {
-            if checked.elapsed().as_secs() < 1 && *cached_mtime == mtime && *cached_len == len {
-                return Some(value.clone());
-            }
-        }
-        let table = atlas_core::table::read_linked_table(&path)?;
-        let value = serde_json::json!({
-            "health": "ok",
-            "columns": table.columns,
-            "rows": table.rows,
-        });
-        self.web
-            .link_cache
-            .insert(path, (std::time::Instant::now(), mtime, len, value.clone()));
-        Some(value)
     }
 
     /// While maximized the page is laid out at the screen's aspect, not the
@@ -2022,6 +1787,9 @@ impl SlateApp {
             .node(id)
             .is_some_and(|n| matches!(&n.kind, NodeKind::Portal(p) if p.kind == PortalKind::Web))
         {
+            if self.web.focused != Some(id) {
+                self.web.reset_page_input();
+            }
             self.web.focused = Some(id);
             if let Some(v) = self.web.views.get_mut(&id) {
                 v.last_focus = Some(Instant::now());
@@ -2047,7 +1815,7 @@ impl SlateApp {
             if std::mem::take(&mut self.web.pointer_inside) {
                 self.web.host.send_input(id, WebInput::Leave);
             }
-            self.web.pointer_down = 0;
+            self.web.reset_page_input();
             self.web.host.release_keyboard();
         }
         had.is_some()
@@ -2559,16 +2327,10 @@ impl SlateApp {
             return false;
         };
         let at = self.board_xf().s2w(screen);
-        let hit = self.portal_chrome.maximized.or_else(|| {
-            super::board_path::board_pick_node_routed(
-                &self.doc().scene,
-                at.x,
-                at.y,
-                self.tab().cam.z,
-                true,
-                self.board_wire_routing,
-            )
-        });
+        let hit = self
+            .portal_chrome
+            .maximized
+            .or_else(|| self.board_pick_node_with_locked(at.x, at.y, true));
         if let Some(node) = hit.and_then(|id| self.doc().scene.node(id)) {
             if matches!(&node.kind, NodeKind::Portal(p) if p.kind == PortalKind::Web) {
                 if node.locked {
@@ -2597,7 +2359,7 @@ impl SlateApp {
         let mut sources = std::collections::BTreeMap::new();
         let mut posters = std::collections::BTreeMap::new();
         let workbook = self.tab().path.clone();
-        for (id, portal, _) in self.web_portals() {
+        for (id, portal, _) in self.authored_web_portals() {
             let Some(locator) = portal.source.as_ref().map(|s| s.locator.clone()) else {
                 continue;
             };
@@ -2677,21 +2439,6 @@ impl SlateApp {
         )
     }
 
-    /// `portal.web.source` for a multi-file dashboard: the folder holding the
-    /// entry file.
-    #[allow(dead_code)] // No caller yet.
-    pub(crate) fn web_pick_folder_for_selection(&mut self) -> bool {
-        let Some(portal) = self.selected_web_portal() else {
-            return false;
-        };
-        self.picker.open(PickRequest::folder(), move |picked| {
-            super::PickerMsg::WebPortalSource {
-                portal,
-                path: file_picker::first(picked),
-            }
-        })
-    }
-
     /// `portal.web.allow_origin`.
     pub(crate) fn web_allow_selected_origin(&mut self) -> bool {
         let Some(id) = self.selected_web_portal() else {
@@ -2760,29 +2507,6 @@ impl SlateApp {
         }
     }
 
-    /// `portal.web.open_external` — hand the locator to the system browser,
-    /// which is the honest place for a page Slate is only framing.
-    pub(crate) fn web_open_external(&mut self) -> bool {
-        let Some((_, locator)) = self.selected_web_locator() else {
-            return false;
-        };
-        let workbook = self.tab().path.clone();
-        let target = if web_origin(&locator).is_some() {
-            locator
-        } else {
-            resolve_web_source(workbook.as_deref(), &locator)
-                .to_string_lossy()
-                .into_owned()
-        };
-        match open_externally(&target) {
-            Ok(()) => true,
-            Err(e) => {
-                self.toast(format!("Could not open {target}: {e}"));
-                false
-            }
-        }
-    }
-
     /// `portal.web.bake` — one journaled batch adding the captured poster plus
     /// a provenance note. The portal stays: bake copies, it does not convert
     /// (D25).
@@ -2806,141 +2530,27 @@ impl SlateApp {
             self.toast("Nothing to bake — no captured page yet.");
             return true;
         };
-        let Some(path) = self.write_poster_png(id, img) else {
-            self.toast("Could not write the poster into the workbook.");
-            return true;
-        };
-        let items = self.add_paths(&[path]);
-        let Some(item) = items.first().copied() else {
-            self.toast("Could not add the baked poster to the workbook.");
-            return true;
-        };
-
-        let rect = node.rect;
         let captured = chrono_stamp();
         let kind = if web_origin(&locator).is_some() {
             "live page"
         } else {
             "local page"
         };
-        let image = self.doc_mut().scene.build_node(
-            rect,
-            NodeKind::Image(slate_doc::scene::ImageNode::new(item)),
-        );
-        let note = self.doc_mut().scene.build_node(
-            slate_doc::scene::WorldRect::new(
-                rect.x,
-                rect.y + rect.h + 8.0,
-                rect.w.max(120.0),
-                20.0,
-            ),
-            NodeKind::Text(slate_doc::scene::TextNode {
-                text: format!("{locator} · {kind} · captured {captured}"),
-                family: slate_doc::scene::Typeface::Sans,
-                size: 12.0,
-                color: slate_doc::scene::Rgba::opaque(198, 208, 224),
-                align: slate_doc::scene::TextAlign::Left,
-                fill: None,
-                stroke: Default::default(),
-                agent: None,
-            }),
-        );
-        let ids = self.add_nodes(vec![image, note]);
-        self.board_sel = ids.into_iter().collect();
-        self.toast("Baked the poster and its provenance; the portal is still live.");
-        true
+        self.bake_portal_snapshot(
+            id,
+            &img,
+            format!("{locator} · {kind} · captured {captured}"),
+        )
     }
 
     fn write_poster_png(&mut self, id: NodeId, img: WebFrame) -> Option<PathBuf> {
-        let dir = self
-            .tab()
-            .path
-            .as_ref()
-            .map(|p| atlas_core::workbook_assets::assets_root(p))
-            .unwrap_or_else(std::env::temp_dir);
-        std::fs::create_dir_all(&dir).ok()?;
-        let path = dir.join(format!("web-poster-{}.png", id.0));
-        let [w, h] = [img.width() as u32, img.height() as u32];
-        let rgba: Vec<u8> = img
-            .pixels
-            .iter()
-            .flat_map(|p| [p.r(), p.g(), p.b(), p.a()])
-            .collect();
-        image::RgbaImage::from_raw(w, h, rgba)?.save(&path).ok()?;
+        let path = super::board_portal::capture::output::capture_path(
+            self.tab().path.as_deref(),
+            id,
+            "png",
+        );
+        super::board_portal::capture::output::write_color_png(&path, &img).ok()?;
         Some(path)
-    }
-
-    /// `portal.web.package` — copy local material beside the workbook and
-    /// rebind to the copy. A permanent fork that names its origin (Art. IX.4).
-    pub(crate) fn web_package_selected(&mut self) -> bool {
-        let Some((id, locator)) = self.selected_web_locator() else {
-            return false;
-        };
-        if web_origin(&locator).is_some() {
-            self.toast("Only local pages can be packaged; a URL stays a link.");
-            return true;
-        }
-        let Some(workbook_dir) = self
-            .tab()
-            .path
-            .as_ref()
-            .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-        else {
-            self.toast("Save the workbook first — packaging copies material beside it.");
-            return true;
-        };
-        let source = resolve_web_source(self.tab().path.as_deref(), &locator);
-        if !source.exists() {
-            self.toast(format!("Cannot package: {locator} is missing."));
-            return true;
-        }
-        let name = source
-            .file_stem()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "page".into());
-        if atlas_core::secrets::is_machine_private(&source) {
-            self.toast("That page stays on this machine and is not copied into the workbook.");
-            return true;
-        }
-        if atlas_core::cloud::is_dehydrated(&source)
-            || atlas_core::cloud::copy_cloud_cost(std::slice::from_ref(&source)).files > 0
-        {
-            self.toast(
-                "That page is a cloud placeholder. Make it available locally before packaging.",
-            );
-            return true;
-        }
-        let workbook_file = self
-            .tab()
-            .path
-            .clone()
-            .unwrap_or(workbook_dir.join("workbook.slate"));
-        let dest_dir = atlas_core::workbook_assets::web_package_dir(&workbook_file, &name);
-        let result = if source.is_dir() {
-            copy_tree(&source, &dest_dir).map(|_| dest_dir.clone())
-        } else {
-            std::fs::create_dir_all(&dest_dir).and_then(|_| {
-                let file = dest_dir.join(source.file_name().unwrap_or_default());
-                std::fs::copy(&source, &file).map(|_| file)
-            })
-        };
-        match result {
-            Ok(copied) => {
-                // The fork names where it came from, on disk, permanently.
-                let _ = std::fs::write(
-                    dest_dir.join("origin.txt"),
-                    format!("{}\n", source.display()),
-                );
-                let new_locator = web_source_locator(self.tab().path.as_deref(), &copied);
-                self.bind_web_source(id, new_locator);
-                self.toast("Packaged beside the workbook; the portal now points at the copy.");
-                true
-            }
-            Err(e) => {
-                self.toast(format!("Could not package: {e}"));
-                true
-            }
-        }
     }
 
     /// Route this frame's pointer and keyboard to the focused portal's page.
@@ -3066,299 +2676,9 @@ impl SlateApp {
         self.web_input_page(ui, id, &web, css_rect, layout, pointer)
     }
 
-    fn web_input_page(
-        &mut self,
-        ui: &egui::Ui,
-        id: NodeId,
-        web: &WebPortalRef,
-        css_rect: slate_doc::scene::WorldRect,
-        layout: &PortalChromeLayout,
-        pointer: Option<Pos2>,
-    ) -> bool {
-        let page = layout.body;
-        let inside = pointer.is_some_and(|p| page_owns_point(layout, p))
-            && self.portal_owns_pointer(ui.ctx(), id);
-        let dragging = self.web.pointer_down != 0;
-        if !inside && !dragging {
-            if ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary)) {
-                self.web_blur();
-                return false;
-            }
-            if std::mem::take(&mut self.web.pointer_inside) {
-                self.web.host.send_input(id, WebInput::Leave);
-                self.web.pointer_down = 0;
-            }
-            return false;
-        }
-        self.web.pointer_inside = true;
-
-        let (css_w, css_h) = css_size(web, css_rect);
-        let p = pointer.unwrap_or(page.center());
-        let u = ((p.x - page.left()) / page.width().max(1.0)).clamp(0.0, 1.0);
-        let v = ((p.y - page.top()) / page.height().max(1.0)).clamp(0.0, 1.0);
-        let x = u * css_w as f32;
-        let y = v * css_h as f32;
-
-        let mut events = Vec::new();
-        let mut buttons = self.web.pointer_down;
-        ui.input(|i| {
-            for (button, bit) in [
-                (egui::PointerButton::Primary, 1u8),
-                (egui::PointerButton::Secondary, 2),
-                (egui::PointerButton::Middle, 4),
-            ] {
-                if i.pointer.button_pressed(button) {
-                    buttons |= bit;
-                }
-                if i.pointer.button_released(button) {
-                    buttons &= !bit;
-                }
-            }
-            events.push(WebInput::Move { x, y, buttons });
-            for (button, code) in [
-                (egui::PointerButton::Primary, 0u8),
-                (egui::PointerButton::Secondary, 1),
-                (egui::PointerButton::Middle, 2),
-            ] {
-                if i.pointer.button_pressed(button) {
-                    events.push(WebInput::Down { x, y, button: code });
-                }
-                if i.pointer.button_released(button) {
-                    events.push(WebInput::Up { x, y, button: code });
-                }
-            }
-            if !i.modifiers.command {
-                let d = i.raw_scroll_delta;
-                if d.y != 0.0 {
-                    events.push(WebInput::Wheel {
-                        x,
-                        y,
-                        delta: d.y,
-                        horizontal: false,
-                    });
-                }
-                if d.x != 0.0 {
-                    events.push(WebInput::Wheel {
-                        x,
-                        y,
-                        delta: d.x,
-                        horizontal: true,
-                    });
-                }
-            }
-        });
-        self.web.pointer_down = buttons;
-        events.extend(self.web_keyboard_events(ui));
-        let interacting = events.iter().any(page_input_is_interactive);
-        for event in events {
-            self.web.host.send_input(id, event);
-        }
-        if interacting {
-            self.web.note_page_input();
-            ui.ctx().request_repaint();
-        }
-        ui.ctx().set_cursor_icon(
-            self.web
-                .host
-                .cursor(id)
-                .unwrap_or(egui::CursorIcon::Default),
-        );
-        true
-    }
-
-    /// Keys the focused page is allowed to hear. Esc is Slate's, always: it is
-    /// how focus is peeled back off the page (D22).
-    fn web_keyboard_events(&self, ui: &egui::Ui) -> Vec<WebInput> {
-        let mut events = Vec::new();
-        ui.input(|i| {
-            for event in &i.events {
-                match event {
-                    egui::Event::Key { key, pressed, .. } if *key != egui::Key::Escape => {
-                        events.push(WebInput::Key {
-                            key: *key,
-                            pressed: *pressed,
-                        });
-                    }
-                    egui::Event::Text(t) => {
-                        events.extend(t.chars().map(WebInput::Text));
-                    }
-                    _ => {}
-                }
-            }
-        });
-        events
-    }
-
     // -----------------------------------------------------------------------
     // Painting
     // -----------------------------------------------------------------------
-
-    pub(crate) fn paint_web_portal(
-        &mut self,
-        ui: &egui::Ui,
-        painter: &egui::Painter,
-        xf: &BoardXf,
-        node: &Node,
-        portal: &PortalNode,
-    ) {
-        let srect = xf.rect_w2s(node.rect);
-        self.note_web_geometry(node.id, srect, ui.clip_rect(), ui.ctx().pixels_per_point());
-        let collapsed = self.portal_chrome_collapsed(node.id);
-        let mut layout = layout_portal_chrome(
-            srect,
-            collapsed,
-            false,
-            self.node_resolved_corner(node),
-            xf.z,
-        );
-        layout.retract_when_idle(ui.ctx(), node.id, self.web.focused == Some(node.id));
-        self.paint_web_portal_in_rect(ui, painter, node, portal, &layout, xf.z);
-        let visiting = self.web_visiting_label(node.id, portal);
-        let focused = self.web.focused == Some(node.id);
-        let alpha = node.opacity.clamp(0.0, 1.0);
-        let palette = self.palette();
-        let border = if focused {
-            palette.select
-        } else {
-            atlas_shell::theme::Palette::alpha(palette.sub, 150)
-        };
-        self.paint_portal_shell_finish(
-            ui,
-            painter,
-            &layout,
-            node.id,
-            portal,
-            visiting.as_deref(),
-            border.gamma_multiply(alpha),
-            focused,
-            xf.z,
-        );
-    }
-
-    pub(crate) fn paint_web_portal_in_rect(
-        &mut self,
-        ui: &egui::Ui,
-        painter: &egui::Painter,
-        node: &Node,
-        portal: &PortalNode,
-        layout: &PortalChromeLayout,
-        zoom: f32,
-    ) {
-        let alpha = node.opacity.clamp(0.0, 1.0);
-        let fade = |c: Color32| c.gamma_multiply(alpha);
-        let state = self.web.state(node.id);
-        let css_rect = self.web_layout_world(node.id, node.rect, ui.ctx());
-        let (css_width, _) = css_size(&portal.web_ref(), css_rect);
-        let chrome_height = if self.portal_is_maximized(node.id) {
-            atlas_shell::tokens::current().topbar.height
-        } else {
-            super::board_portal_chrome::tab_bar_height() * zoom
-        };
-        let scrollbar_css = atlas_shell::tabs::portal_scrollbar_width(chrome_height)
-            * css_width as f32
-            / layout.body.width().max(1.0);
-        let scrollbar_color = self.palette().sub;
-        self.web.host.set_scrollbars(
-            node.id,
-            layout.bar.is_some() || layout.reveal.is_some(),
-            scrollbar_css,
-            scrollbar_color,
-        );
-        self.note_web_geometry(
-            node.id,
-            layout.frame,
-            ui.clip_rect(),
-            ui.ctx().pixels_per_point(),
-        );
-
-        self.paint_portal_frame_fill(painter, layout, fade(rgba32(portal.fill)));
-
-        let body = layout.body;
-        if body.width() < 2.0 || body.height() < 2.0 {
-            return;
-        }
-        let clip = body.intersect(layout.frame);
-        let poster = self.web.views.get(&node.id).and_then(|v| v.poster.clone());
-        if let Some(tex) = poster {
-            // A resource-saving still frame is the page, not a disabled slide.
-            let stale = matches!(state, WebState::Missing { .. });
-            let tint =
-                Color32::WHITE.gamma_multiply(if stale { STALE_ALPHA * alpha } else { alpha });
-            let outline = board::portal_content_outline(layout.frame, clip, layout.corner, zoom);
-            if !outline.is_empty() {
-                board::textured_polygon(
-                    painter,
-                    &tex,
-                    &outline,
-                    clip,
-                    slate_doc::scene::Crop::full(),
-                    tint,
-                );
-            }
-        } else {
-            let clipped = painter.with_clip_rect(clip.intersect(painter.clip_rect()));
-            self.paint_web_empty_state(&clipped, clip, &state, alpha, zoom);
-        }
-    }
-
-    /// Every failure says itself in the frame rather than blanking it (D30).
-    fn paint_web_empty_state(
-        &self,
-        painter: &egui::Painter,
-        body: Rect,
-        state: &WebState,
-        alpha: f32,
-        zoom: f32,
-    ) {
-        let fade = |c: Color32| c.gamma_multiply(alpha);
-        let (headline, detail) = match state {
-            WebState::Unbound => (
-                "Choose page or file…".to_string(),
-                "URL, an .html file, or a folder with index.html".to_string(),
-            ),
-            WebState::Blocked { origin } => (
-                format!("{origin} is not permitted yet"),
-                "Allow this origin in the Portal inspector".into(),
-            ),
-            WebState::Missing { locator } => ("Source is missing".to_string(), locator.clone()),
-            WebState::Refused { reason } => ("Refused".to_string(), reason.clone()),
-            WebState::NoRuntime => (
-                "No WebView2 runtime".to_string(),
-                "Install the Microsoft Edge WebView2 Evergreen runtime".into(),
-            ),
-            WebState::TooSmall => ("Zoom in to run this page".to_string(), String::new()),
-            WebState::Budgeted => (
-                "Waiting for a live slot".to_string(),
-                format!("{LIVE_POOL} pages run at once"),
-            ),
-            WebState::Loading => ("Loading…".to_string(), String::new()),
-            _ => ("Resolving…".to_string(), String::new()),
-        };
-        let head = atlas_shell::canvas_scale::px(15.0, zoom);
-        if atlas_shell::canvas_text::legible(head) {
-            atlas_shell::canvas_text::text(
-                painter,
-                body.center() - egui::vec2(0.0, atlas_shell::canvas_scale::px(10.0, zoom)),
-                Align2::CENTER_CENTER,
-                headline,
-                FontId::proportional(head),
-                fade(self.palette().ink.gamma_multiply(0.85)),
-            );
-        }
-        if !detail.is_empty() {
-            let sub = atlas_shell::canvas_scale::px(12.0, zoom);
-            if atlas_shell::canvas_text::legible(sub) {
-                atlas_shell::canvas_text::text(
-                    painter,
-                    body.center() + egui::vec2(0.0, atlas_shell::canvas_scale::px(12.0, zoom)),
-                    Align2::CENTER_CENTER,
-                    detail,
-                    FontId::proportional(sub),
-                    fade(self.palette().sub),
-                );
-            }
-        }
-    }
 }
 
 use slate_doc::scene::{PORTAL_DEFAULT_H as PORTAL_H, PORTAL_DEFAULT_W as PORTAL_W};
@@ -3395,21 +2715,6 @@ fn os_clipboard_text() -> Option<String> {
     }
 }
 
-/// Recursive copy for packaging a dashboard folder.
-fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(to)?;
-    for entry in std::fs::read_dir(from)? {
-        let entry = entry?;
-        let target = to.join(entry.file_name());
-        if entry.file_type()?.is_dir() {
-            copy_tree(&entry.path(), &target)?;
-        } else {
-            std::fs::copy(entry.path(), target)?;
-        }
-    }
-    Ok(())
-}
-
 /// A capture timestamp for provenance captions. Local date, no dependency.
 fn chrono_stamp() -> String {
     let secs = SystemTime::now()
@@ -3437,7 +2742,7 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 }
 
 /// Hand a URL or path to the platform's own handler.
-fn open_externally(target: &str) -> Result<(), std::io::Error> {
+pub(crate) fn open_externally(target: &str) -> Result<(), std::io::Error> {
     #[cfg(test)]
     {
         let _ = target;
@@ -3640,18 +2945,6 @@ pub(crate) fn page_owns_point(layout: &PortalChromeLayout, p: Pos2) -> bool {
     layout.page.contains(p)
         || (page.contains(p)
             && (p.x >= page.right() - scrollbar_width || p.y >= page.bottom() - scrollbar_width))
-}
-
-fn page_input_is_interactive(event: &WebInput) -> bool {
-    match event {
-        WebInput::Wheel { .. }
-        | WebInput::Down { .. }
-        | WebInput::Up { .. }
-        | WebInput::Key { .. }
-        | WebInput::Text(_) => true,
-        WebInput::Move { buttons, .. } => *buttons != 0,
-        WebInput::Leave => false,
-    }
 }
 
 /// Physical-pixel quality tiers, bounded by the display rather than deep zoom.
@@ -4133,39 +3426,6 @@ mod tests {
             was_live: false,
             pinned: false,
         }
-    }
-
-    #[test]
-    fn page_scroll_is_interactive_hover_is_not() {
-        assert!(page_input_is_interactive(&WebInput::Wheel {
-            x: 0.0,
-            y: 0.0,
-            delta: 40.0,
-            horizontal: false,
-        }));
-        assert!(!page_input_is_interactive(&WebInput::Move {
-            x: 1.0,
-            y: 1.0,
-            buttons: 0,
-        }));
-        assert!(page_input_is_interactive(&WebInput::Move {
-            x: 1.0,
-            y: 1.0,
-            buttons: 1,
-        }));
-        let mut rt = WebRuntime::default();
-        assert!(!rt.recently_interactive());
-        rt.note_page_input();
-        assert!(rt.recently_interactive());
-        assert_eq!(
-            rt.focused_frame_interval(NodeId(1)),
-            Duration::from_secs_f32(1.0 / IDLE_FPS)
-        );
-        rt.focused = Some(NodeId(1));
-        assert_eq!(
-            rt.focused_frame_interval(NodeId(1)),
-            Duration::from_secs_f32(1.0 / INTERACTIVE_FPS)
-        );
     }
 
     #[test]

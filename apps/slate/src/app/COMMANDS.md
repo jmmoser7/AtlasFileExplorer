@@ -26,6 +26,67 @@ kind as its detail (`frame`, `image`, `shape`, `text`, `connector`, `portal`,
 are under Preferences → Advanced settings → Board hover highlights and
 persist in `slate-settings.json`.
 
+Browser pictures paste as linked image nodes, using offered PNG/DIB pixels,
+promised image contents, an HTML image source, or a direct image URL. Image
+intent wins over the hosting-page URL; each placement preserves aspect ratio
+and undoes in one step. Image transfer/decode runs in the background.
+
+The bottom **Tags** capsule shows each tag's color disc and readable name.
+Hover reveals Show on the top half and Hide on the bottom half. Shift/Ctrl-click
+selects several tags; Show/Hide on a selected tag applies to that batch.
+`board.tags.visibility` receives `{tags:[id,...],visible:true|false}` and
+journals the existing hidden flag in one undo step. Matching any selected
+tag is the current implementation choice. Linked-image assignments and
+tagged-frame content participate; hidden frame membership remains available
+for Show. It never changes tags or source files.
+
+The **+** in the Tags capsule opens tag creation. `board.tags.add` receives
+`{name:"Tag name",color:[r,g,b],group?:id}` and journals its metadata in one
+undo step. Without an explicit facet, each tag gets an independent group so
+several UI tags can apply together; an existing group keeps facet exclusivity.
+
+Drag a tool capsule's primary icon onto the canvas to place a journaled
+toolbar copy at the release point, including Tags. Existing context-menu
+Drop remains available. Once a generator has an explicit upstream image and
+Prompt, its collapsed blister offers **Generate** directly; hover reveals
+the count. `portal.agent.run` receives `{node:id}` and
+`portal.agent.image_count` receives `{node:id,count:1..8}`. The expanded
+generator reuses the same controls and keeps image-history chips on their
+own full-width row.
+
+Blank-wire menus offer **Artifact** as the fourth choice. Its Web host uses
+shared generator prompt, model, Play/Stop and history controls. `portal.agent.run`
+receives `{node:id}` for both images and artifacts. Artifact commands receive
+`{node:id}`: `portal.artifact.accept`, `.reject`, `.fork`, `.memory_disconnect`,
+`.memory_inspect`, and `.source_open`. `portal.artifact.revision` additionally
+receives `revision`. Apply journals the completed revision; Discard restores the
+previous view. Content and its pinned revision stay independent of the removable
+memory trace. Showing an earlier revision never rewrites later history.
+
+Every portal blister offers **Capture**, shared with the existing 3D viewport
+capture control. `portal.capture` opens still-image and silent-video choices;
+`portal.capture.still.canvas` / `.file` save PNG, JPEG, or WebP, and
+`portal.capture.video.start` starts one private MP4 recording, up to 1080p at
+30 fps. Its exterior timer stays visible after dismissing the launch palette
+or changing selection. `portal.capture.pause` freezes capture and opens
+`portal.capture.save.file` / `.save.canvas`; `portal.capture.resume` continues
+without including the paused interval. Cancelling the save picker retains the
+paused draft. `portal.capture.cancel` discards it. The old
+`portal.capture.video.canvas` / `.file` IDs now start the same deferred-output
+flow, and `portal.capture.stop` is a compatibility alias for Pause.
+Canvas output adds one linked media node beside its source in one undo step.
+Recording leaves source interaction live and shows Starting, Recording, Paused
+or Saving with elapsed time. Pause exposes Save File, Place Board, Resume and
+Discard. Capture follows the ordinary attached blister: its host, controls and
+hit regions pan and scale together. Right/middle drag keeps the panel open;
+a completed outside click follows the existing property-panel dismissal rule.
+Maximized capture fits the source and its board-unit apron together without
+changing the board camera.
+Esc closes the menu before leaving portal focus. Switching away
+from the source tab, deleting/rebinding its source, or closing the tab cancels
+the draft. Existing `board.model_screenshot*` IDs remain aliases and preserve
+3D view metadata. No capture hotkeys are added.
+
 Web portals accept dropped page links and selected HTTP(S) URL text on the
 Board: empty canvas creates a portal; an unlocked web portal receives a new
 URL. Both are undoable. Native Chrome/Edge tab-strip docking is not supported;
@@ -48,6 +109,15 @@ drag the address-bar URL or a page link instead.
 
 ## Module map
 
+Board right-click menus use the approved recipes in
+`apps/slate/assets/context-menus.json`; studio checkpoints and measurements
+are under `design/right-click-menu-studio/`. Eligibility remains with native
+capability owners. Object properties opens the existing object-local panel,
+Edit spreadsheet enters the existing editor, and Agent rename opens its
+inline title field. Right-clicking a layer also offers Add image as layer:
+the asynchronous picker adds a separate layer in one undo step. Existing
+image-drop behavior still places its pixels on the active layer.
+
 | Concern | Location |
 |---------|----------|
 | Canonical `SPECS` table + reference UI | `commands.rs` |
@@ -62,7 +132,7 @@ drag the address-bar URL or a page link instead.
 
 ## Keymap wave 2a bindings (registry, overlays, small commands)
 
-- **Selection properties** — edited on the object strip above the selection.
+- **Selection properties** — edited on the object strip below the actual selection silhouette, with clearance for the strip width.
   The bottom dock does not host a Selection icon. `app.properties` does not
   open a dock panel.
 - **Space (tap) / Enter (idle)** — repeat the last repeatable command
@@ -70,8 +140,8 @@ drag the address-bar URL or a page link instead.
   pointer use while held — Space+drag stays pan. Enter defers to crop mode,
   path drafts, and text editing first.
 - **Esc** — pops exactly one cancel layer via
-  `atlas_commands::cancel_target`: draft (crop / path) → non-Select tool →
-  selection → chrome (menus, adjust popover, inline tag editor). Lens focus
+  `atlas_commands::cancel_target`: draft (crop / path; polyline Esc commits two or more placed points and
+  discards an incomplete draft) → non-Select tool → selection → chrome (menus, adjust popover, inline tag editor). Lens focus
   clear stays first, as before. Overlays with a focused text field (palette,
   search) own their Esc; the inline text editor commits on its own Esc.
 - **F1** commands reference (Advanced) · **F2** command history window ·
@@ -108,8 +178,10 @@ drag the address-bar URL or a page link instead.
 - **`"` or `'` then Enter (Board)** — the Grasshopper panel entry. A leading
   quote opens the same canvas palette with the quote as its query and
   **Media: new text document** (`board.media.text_new`) as the only row.
-  Enter places a blank linked `.txt` card at the pointer with a blinking
-  caret (one undo step). Esc closes the palette and creates nothing. No key
+  Typing after the quote places a fitted linked text card immediately,
+  preserving case. Enter places a blank linked `.txt` card with a blinking
+  caret (one undo step); blank cards can be reopened after click-away. Esc
+  closes the palette and creates nothing. No key
   chord is bound; the quote arrives as typed text, so it never fires while a
   text field, draft, or page holds the keyboard.
 - **PageUp / PageDown** bring-to-front / send-to-back (**Ctrl+B** = send to
@@ -124,7 +196,7 @@ drag the address-bar URL or a page link instead.
   files, anything else as plain text, never JSON; connectors ride along
   when both ends are copied, outside anchors degrade to Free). Ctrl+V also
   places a copied image or files at the pointer.
-  **Ctrl+Shift+V** paste in place · repeated pastes step +24,+24.
+  **Ctrl+Shift+V** paste in place · repeated pastes step +24,+24. One physical press pastes once; the Windows bitmap/file fallback does not also handle clipboard text.
 - **Select** — click replaces the selection; **Shift+click** or **Ctrl+click**
   adds (a second Shift/Ctrl+click on the same object toggles it off).
   Shift+click empty canvas keeps the set. Shift+marquee adds. Rectangles
@@ -153,11 +225,18 @@ drag the address-bar URL or a page link instead.
   vertex where it was. Each click is one undo step.
   The glyphs grow and shrink with the board zoom and drop when too small.
   This replaces the Corners panel's Sides number.
+- **Polygon rotation and dimensions** — hover outside any polygon vertex,
+  clear of the vertex pick and +/− controls, to rotate with the usual cursor
+  and drag. Hold Shift to lock the gripped vertex ray to a cardinal direction
+  about the polygon center; Alt suspends snapping. Stringers follow the
+  current polygon's measured local axes throughout the live drag;
+  typed sizes preserve its measured center. Pick vertices for local Stroke
+  width/color/opacity edits; click a side away from vertices to edit the whole stroke.
 - **Align widget** (Grasshopper): with the Select tool and 2+ nodes selected,
   two icon clusters sit outside the group box (bottom and left). Bottom:
-  align left / center / right / distribute horizontally; the row sits past
+  align left / center / right in a row with distribute below center; the T sits past
   the width stringer so the two do not overlap as zoom changes. Left: align
-  top / middle / bottom / distribute vertically. Press commits
+  top / middle / bottom in a column with distribute left of middle. Press commits
   `board.align.*` / `board.distribute.*` as one undo step. Distribute icons
   stay inert until 3+ are selected. The same commands are in the palette.
 - **Group reposition** (Ctrl+Alt+Shift): while dragging a group-box edge or
@@ -200,13 +279,18 @@ drag the address-bar URL or a page link instead.
   Dragging a bumper node pushes other bumper nodes (`board.bumper.push`);
   Alt passes through, Esc mid-drag restores everything, and the release
   glide plus every push is one undo. No new key.
-- **Suggestion box** (`app.feedback.open`) — the speech-bubble button left
-  of the readout chevron opens a bug / feature form that writes a local
+- **Suggestion box** (`app.feedback.open`) — the cherry-red singleton at the far
+  left of the Board toolstrip opens a bug / feature form that writes a local
   report folder (no network). Dropped or pasted images attach while the
   form is open and do not land on the board. **Enter** ends a Reproduce
   recording (`app.feedback.finish_recording`); recording also stops itself
   after 60 s. Steps are dispatched command ids only, never their text or
   paths. Shared with File Atlas through `atlas_shell::feedback`.
+- **Crash reports** (`app.crash_reports.open`) — Advanced → Crash reports →
+  Open crash reports opens local diagnostic folders. Reports capture unexpected
+  exits and Rust panics with recent session activity where available; some
+  failures leave only partial information. Reports are never uploaded
+  automatically. The next launch offers to view new reports.
 - **Arrows with nothing selected** pan the board canvas (Shift = faster);
   nudge with a selection is unchanged.
 - **Agent portal** commands:
@@ -357,8 +441,9 @@ per scene generation (never per frame).
 
 ### Trim (Ctrl+T) + Split (Ctrl+Shift+T)
 
-Same Rhino two-phase syntax: pick cutting objects (or preselect them),
-Enter, then click.
+Shared Slate two-phase syntax: pick cutting objects (or preselect them),
+Enter, then click. Ctrl+click removes a picked cutter before Enter.
+Rhino Split uses target-first input; Slate retains its approved shared flow.
 
 - **Trim** deletes the clicked span (open) or arrangement face (closed).
   Text/images store the remainder in `Node.clip`. Shift+click near an open
@@ -422,15 +507,20 @@ Enter, then click.
   per drag; Esc restores. A Ctrl click keeps its meaning.
 - **Ctrl+Shift+click a segment** (`board.subselect`; user, 28 September
   2026) picks that edge and its two end vertices; more Ctrl+Shift+clicks
-  add edges or toggle one off. Dragging a picked edge moves its vertices
+  add edges or toggle one off. **Ctrl+Shift+drag a window** adds complete
+  segments left-to-right, or crossed segments right-to-left, on the active
+  curve (including closed paths and primitive outlines). The explicit chord
+  owns a real edge even under overlapping property or dimension controls.
+  Dragging a picked edge moves its vertices
   through object snaps as one journaled Patch (Esc restores), and
   **Delete** removes the picked segments: an open curve splits in two, a
   closed curve opens there. One Ctrl+Z restores.
 - One selected rectangle or regular polygon takes the same picks on its
   vertices (P1.shape.vertex-style, user 28 September 2026). A rectangle
-  corner drag still resizes, a polygon side +/− wins on its own glyph, and
-  no vertex moves on its own (the form keeps its kind). Under Direct Select
-  (A) the vertices pick as anchors.
+  vertex drag moves that vertex and promotes the primitive to a closed Path;
+  Delete on picked vertices reconnects their neighbors and promotes likewise.
+  A polygon side +/− wins on its glyph. Direct Select (A) offers the same
+  vertex edit. Style-only edits keep the primitive. Each edit is one Undo.
 
 ### Picked vertices (A anchors or Select grips)
 
@@ -604,7 +694,11 @@ Camera-only — never journaled, never repeatable.
   The node carries no in-frame chrome: its selection strip adds **Viewport
   display** (`board.model_display`, one undo step) and **Measure**
   (`board.model_measure`, enters the viewport, two picks, then back to
-  Navigate). Esc inside a live viewport peels the pending point, then
+  Navigate). Display offers Shaded, Arctic, Hidden line, Material mask, and
+  Z-buffer. In Shaded and Hidden line, **Materials off / on**
+  (`board.model_materials`) toggles imported surface colors as one undo step;
+  Arctic remains white, and the diagnostic passes are unchanged. Materials
+  default to On for older workbooks. Esc inside a live viewport peels the pending point, then
   Measure, then the shown measurements, then the viewport.
 
 ## Board portals
@@ -706,6 +800,8 @@ images placed before the workbook had a folder, and Save As also copies the
 assets this workbook already keeps under its own `assets/` tree.
 
 
+Text Formatting lists Replica, Arial and Courier New first, and provides independent Bold, Italic and Underline glyph toggles. These use `board.shape.edit` (`TextBold`, `TextItalic`, `TextUnderline`) and preserve the same block style through inline editing, undo, HTML and SVG export.
+
 Selection strip: squircle Fill/Stroke/Corners/Filters/Pages/Formatting (and wire) controls dispatch `board.shape.edit` / `board.wire.edit` / `portal.atlas.fit` for any node those scene helpers support — shapes, frames, text fills, portals, images and wires. File Atlas Formatting is the Display squircle and the filter+fit editor in `selection_tools`. Image Filters is the photo-filter capsule (low-resolution filtered thumbnails, hover preview, intensity slider). A 3D model's Viewport display and Measure squircles dispatch `board.model_display` / `board.model_measure`. Frame deck/tags/images/present actions share that strip. External dimension stringers dispatch `board.shape.dimension`. Palette previews commit on icon change/outside click; an empty-canvas click also deselects. Esc cancels. Numeric dimensions edit directly in their rotated stringers and commit on Enter/outside click. RGB percentages also edit in place; slider metrics appear only during adjustment. All eyedroppers use `board.color.desktop` / the shared desktop sampler (RGB only; existing alpha preserved). The color editor's eyedropper has two modes: click it, move, and click the color; or press it, drag to the color, and release to commit (the magnifier shows a live swatch; Escape cancels). Polyline, Arc and Bezier are also discoverable as `board.tool.polyline`, `board.tool.arc`, and `board.tool.bezier`, without new default shortcuts.
 
 Agent chat titles support double-click editing (`portal.agent.rename`) across the current linear branch segment. The output handle invokes `portal.agent.continue` by click or drag; Escape cancels placement. `portal.agent.chat` presents the complete train as a single chat window per fork segment; `portal.agent.train` restores exchange cards. Bundle/expand actions appear in the shared selection toolbar only when applicable.
@@ -713,12 +809,53 @@ Agent chat titles support double-click editing (`portal.agent.rename`) across th
 Agent composer: Enter sends the message; Shift+Enter inserts a newline. Newly placed continuations focus this field automatically. Presentation changes live only in the ellipsis menu; single chat windows have no summary/identity or Unbundle action.
 
 Media agents: a selected picture, video, 3D model, text document, note or
-generated frame shows the Agent squircle. Its editor offers Text or Image, the
+generated frame shows the Agent control. Its editor offers Text or Image, the
 model menu (ComfyUI checkpoints with Auto, ChatGPT through the Codex sign-in,
 GPT Image with an API key, or a local language model), the prompt, and for
-images the count, aspect, seed lock and Live. Submit (or Enter in the prompt)
-dispatches `portal.agent.spawn` with those settings; the new frame appears
-downstream, wired, and runs. The source stays selected for the next variation.
+images the count, aspect and Live. Generating on a placed image enables the
+same image editor on that frame, retaining the original as its first album
+image and retaining its layers. Other media use `portal.agent.spawn` to create
+a downstream frame. The output-port menu still creates downstream cards.
+
+The output-port and blank-wire menus also offer **Artifact**, an interactive
+dashboard in the existing browser portal. Its attached generator uses an
+installed Cursor or Codex harness and runs only on Play (`portal.agent.run`);
+`portal.agent.stop` cancels. Completed output previews before Apply
+(`portal.artifact.accept`) or Discard (`portal.artifact.reject`). Settings
+offers Fork (`portal.artifact.fork`), Fresh eyes
+(`portal.artifact.memory_disconnect`), Inspect memory
+(`portal.artifact.memory_inspect`) and Open source
+(`portal.artifact.source_open`). History chips select a preserved revision
+(`portal.artifact.revision`). These commands add no keyboard bindings.
+Play shows preparation, progress or a specific failure on the attached editor.
+Pending approvals use its Allow once / Deny controls (`portal.agent.approval`).
+A downstream Artifact receives separate content and Memory wires. Deleting
+Memory preserves the pinned source and gives the next run a fresh agent.
+Revisions preserve HTML, embedded data and assets; live filters and controls
+remain browser session state. Enter/double-click interacts with the page;
+Esc returns to the board.
+
+Images sit naked on the board until selected. Their image-local blister has
+one active tool panel, a technical strip above its content, and an expanding
+prompt below the generation controls. Empty-canvas clicks hide it. Painting
+and selection editing keep the active image pinned. Each generated album
+image owns its own layers. The wheel advances one image per mouse detent;
+trackpad momentum advances once until the gesture settles.
+
+Dragging an image's left input port onto empty canvas keeps the input menu
+open after release. Choose Image → image or Text → image to create an upstream
+card feeding the original frame. A new image input is gray until generation
+starts. Esc cancels; one Undo removes the new card and wire and restores any
+capability change on the original.
+
+`board.image.selection.lasso` starts a polygonal image selection. Click to
+place vertices, hold Shift for 45° directions, press Delete for the previous
+vertex, Enter to close, or Esc to cancel. Automatic object previews can be
+pinned and refined with click to include and Alt-click to exclude. Right-click
+and choose Create layer from selection (`board.image.selection.layer`). A
+pinned selection constrains painting; committed ink retains that clip after
+the selection is cleared. Dragging a layer or album result onto the canvas
+creates an independent copy and retains the original.
 
 Pictures and notes an agent makes: selected or hovered, they show typed input
 ports on the left edge (picture: Media, Prompt, Style; note: Image, Prompt)
@@ -735,12 +872,12 @@ squircle edits the attached agent: model (`set_flow_model`), count, aspect,
 seed and Live apply at once, and Submit runs it again. A click on a square
 under a picture picks that result as its file.
 
-Agent coding sidecars: `portal.agent.artifacts` opens the output capsule stack (requested files first, then "Also changed"); `portal.agent.open_artifact` explicitly creates the linked portal for a reference; `portal.agent.approval` answers a pending provider request once. Coding conversations are linear; `portal.agent.continue` remains a local-agent gesture.
+Agent coding sidecars: `portal.agent.artifacts` opens the output capsule stack (requested files first, then "Also changed"); `portal.agent.open_artifact` explicitly creates the linked portal for a reference; `portal.agent.approval` answers a pending provider request once. Coding conversations are linear; `portal.agent.continue` remains a local-agent gesture. Generator model menus route advertised speed/thought choices through `portal.agent.model_parameter`; `portal.artifact.full_access` sets the machine-local default for all dashboard builders. Public Activity expands through the shared chat fold/follow owner and is separate from Memory.
 
 Agent cards: `portal.agent.model` chooses the next Codex or Ollama response model from the
 installed provider catalog. The title menu also exposes conversation rename.
 `portal.agent.continue` accepts click or drag on the terminal top output handle
-for coding agents; it cannot fork historical coding messages. Midpoint ports
+for coding agents. Dragging that handle, or Fork chat here, starts a branch with its own session. Midpoint ports
 remain ordinary context/artifact ports. Drag-select transcript text and Copy to
 copy it without moving the card. Additional context requires an explicit wire.
 
@@ -754,10 +891,10 @@ Agent train cards (23 September 2026):
 | Command | Binding | Effect |
 |---------|---------|--------|
 | `portal.agent.model` | Model name, tail card only | Sent cards show "Title · Model" as text; only the tail (or an unsent draft) opens the dropdown. |
-| `portal.agent.collapse` | Chevron left of the ellipsis | Dead center steps one level (collapsed → twice the capsule, scrolling → fully open). Below center expands fully. Slightly above collapses one level; further above collapses to three lines. Detail `one`, `full`, `partial`, or `collapse`. With no detail, selected cards toggle between full and the three-line capsule. The tail keeps its composer. One undo step. |
-| `portal.agent.schedule` | Ellipsis → Schedule… / Edit schedule… / Stop schedule; click the clock in the card's top strip (Cursor, Codex) | The dialog takes the message (the composer's text or the last message sent), a date (tonight, tomorrow, Oct 1, 10/1, 2026-10-01) and a time (1am, 4:55 am, 13:30), Once / Every hour / Every day / Every week, and a required end (Until next month, Until next year, or a date). Windows Task Scheduler stores that end (`EndBoundary`) and will not register a task without one. A schedule saved before an end was required stays, and the dialog asks for one. Replies land in the conversation's `session.json`. A clock sits left of the collapse chevron while a run is still ahead; hover names when, including a missing end. Detail JSON: `{"open":true}`, `{"stop":true}`, or `{"start":"2026-10-01T04:55","end":"2026-11-01T04:55","repeat":"once|hourly|daily|weekly","prompt":"…"}`. |
+| `portal.agent.collapse` | Chevrons left of the ellipsis | A single chevron steps one level, a double steps two (ledger CT1). Maximized offers a double (to collapsed) and a single (to partial); collapsed offers a single (to partial) and a double (to maximized); partial offers one single chevron each way. Each chevron owns the pointer, so a press never starts a resize, and hover is a highlight with no tooltip. Detail `step-expand`, `jump-expand`, `step-collapse`, or `jump-collapse` (older `one`, `full`, `partial`, `collapse` still parse). With no detail, selected cards toggle between full and the three-line capsule. The tail keeps its composer. One undo step. |
+| `portal.agent.schedule` | Ellipsis → Schedule… / Edit schedule… / Stop schedule (Cursor, Codex) | The dialog takes the message (the composer's text or the last message sent), a date (tonight, tomorrow, Oct 1, 10/1, 2026-10-01) and a time (1am, 4:55 am, 13:30), Once / Every hour / Every day / Every week, and a required end (Until next month, Until next year, or a date). Windows Task Scheduler stores that end (`EndBoundary`) and will not register a task without one. A schedule saved before an end was required stays, and the dialog asks for one. Replies land in the conversation's `session.json`. The top strip carries no clock (ledger CT5); a pending run reads Edit schedule… in the ellipsis menu. Detail JSON: `{"open":true}`, `{"stop":true}`, or `{"start":"2026-10-01T04:55","end":"2026-11-01T04:55","repeat":"once|hourly|daily|weekly","prompt":"…"}`. |
 | `portal.agent.fit` | Ellipsis → Fit to text | Appears after a resize. Resizing records the card's size in the same undo step; the text rewraps and scrolls with the wheel inside. |
-| `portal.agent.fork` | Ellipsis → Fork chat here; drag the top output circle on a non-linear card | Creates one forked chat at that checkpoint, journaled as one command and joined by the history rail. Each drag is one fork. A click without a drag still continues. Coding agents cannot fork. |
+| `portal.agent.fork` | Ellipsis → Fork chat here; drag the top output circle | Creates one forked chat at that checkpoint, journaled as one command and joined by the history rail. Each drag is one fork. A click without a drag still continues. A coding-agent branch gets its own session, seeded with the transcript up to that card; continuing the unbranched tail keeps the session. |
 | `portal.agent.full_access` | Ellipsis → Full access (Cursor, Codex) | Toggles the person's grant for this conversation: from the next message Codex runs with approval policy `never` and a full-access sandbox, and Cursor runs without auto-review. The model name turns deep red on every card of that conversation. Stored per user in the Atlas data folder (`agent-access.json`), never in the workbook, so a received `.slate` never arrives trusted. |
 | `board.delete` | Delete / Backspace; Ellipsis → Delete card | A selected chat card deletes while its composer is idle. With an empty composer focused, Delete deletes and Backspace stays with the field. With typed text, both keys edit. Unsent text is discarded. |
 | `portal.agent.pocket` | Click the lower (human) context handle | Deleting context a card already sent hides it into every card that used it. A click shows it beside the card; a second click pockets it again. |
@@ -790,3 +927,44 @@ all are in the palette.
 | `portal.agent.crosstalk.more` | 5 more turns in a stopped capsule | Raises the turn limit of the rule in force. |
 | `board.wire.orthogonal` / `.bezier` | Square wires / Curved wires in the capsule | Routes every wire of that crosstalk square or curved, one Undo, through the same command as any selected wire. Square crosswires meeting at one card bundle on nested lanes (the File Atlas rule) so they never touch. |
 | `portal.agent.crosstalk.trust` | The tick in the editor, when the builder has Full access | Lets the builder act on the other agent's messages without asking. Stored per user in `agent-access.json`, never in the workbook. |
+
+### Board collaborators (17 October 2026)
+
+The top-right Participants capsule has separate portrait and name/caret targets.
+Portrait opens the persistent conversation; name/caret opens the right-aligned
+profile. `presence.photo` changes your local picture and `presence.name` edits
+your name. Self-chat uses `presence.send` without starting a provider.
+`presence.draft` retains unsent text; `presence.retry` explicitly retries a failed
+message with its delivery identity. `presence.people` opens encrypted human
+messaging setup; it grants no shared-board authority.
+
+Double-click a canvas avatar (`presence.address`) to pause its board work, show
+listening and open recent messages beneath it. `presence.pause` explicitly
+resumes it; dismissal alone does not. `presence.cancel` stops request-owned work.
+The avatar, hat, prop, name and farewell all scale with the board camera.
+
+Conversation controls use `presence.provider.switch`, `presence.provider.cancel`
+and `presence.model` for validated harness changes and advertised model choices.
+Busy changes offer after-task or stop-and-switch; selecting the same harness is
+a no-op and never resends a task. `presence.schedule` arms a bounded live-board
+schedule; reopening does not restore a running job or grant.
+
+Advanced access uses `presence.grant`, `presence.file_inputs` and `presence.own_chats` independently. The last permits only conversations created by that live agent after an actual witnessed or accepted commit. It defaults off and does not grant unrelated conversations, file inputs or Full access. `presence.helper` adds a scoped temporary helper; `presence.clone` copies configuration into a fresh identity. `presence.retire` revokes work before its farewell; `presence.restore` restores identity/history with fresh authority.
+
+The targeted collaborator catalog includes `board.objects.create_train`, `board.objects.create_generator` and `board.objects.place_images`. Construction does not start a provider, import arbitrary files or change grants. Existing `portal.agent.run` starts an eligible generator separately. `presence.read_image` prepares one explicitly permitted source through the existing image-input pool; ordinary board reads remain bounded metadata. All authored board changes keep the normal journal, proposal, stale-input and witnessed-motion checks.
+
+### Canvas wire settings and plain-image inputs (13 October 2026)
+
+Right-click empty Board canvas → **Canvas wire settings** (`board.wire.canvas`). The shared color/opacity/width controls and **Bézier / Orthogonal** toggle apply edited properties to every unlocked connector, including hidden connectors, in one Undo step. Selection, untouched styles, and new-wire defaults are retained. Close or Escape discards the settings draft.
+
+Dragging a wire near any placed image reveals **Primary image**, **Text**, and **Style image** inputs. Text, sticky notes and imported text documents default to Text on a body drop. A compatible connection enables the existing image generator in place, keeping the linked original and layers. The wire and capability change undo together. Connecting does not run a model; Run and Live retain their existing semantics.
+
+Image-palette click-away recovery lasts **1.5 seconds from dismissal**. Returning to the same image within that window restores the expanded sub-palette without rearming Brush or lasso; returning later shows the collapsed strip. See `P1.image.palette-return`.
+
+## Authored text and basic style commands
+
+`presence.read_text` pages one explicitly readable authored text field using a UTF-8 byte cursor (4–4096 bytes per page). Continuations echo the returned scene generation. Text nodes, eligible shape text and an existing card `text_override` are supported; linked documents are not opened and a missing override never falls back to source bytes. Empty authored text remains readable.
+
+`board.objects.set_text` takes explicit targets and `{text:"..."}` arguments, replacing one authored text field through the same text transformations and world-layout growth as normal composition. The direct human dispatch receives the real UI context; scoped collaborators use the existing witnessed proposal/approval/journal path. Replacement `@text` from an agent is authored content rather than a human message.
+
+Targeted `board.shape.edit` / `board.wire.edit` take `{edits:[...]}` and reuse the existing Property transform with no vertex scope. Supported edits are FillRgb, StrokeRgb, StrokeWidth (0–10000), TextFamily, TextSize (1–512), TextAlign, TextRgb, TextBold, TextItalic and TextUnderline. Each call contains 1–16 typed edits; unsupported target/property pairs, unknown arguments, locked targets and net no-ops are refused. The ordinary human property palette keeps its existing full property request. These commands do not modify linked files, select objects, open a caret, or reposition the camera.

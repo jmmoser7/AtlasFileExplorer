@@ -42,13 +42,16 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
 mod chrome;
+mod cloud_transfer;
 mod commands;
 mod editprefs;
+mod home;
 #[cfg(test)]
 mod tests;
 mod ui;
 
 pub use chrome::ChromeConfig;
+use cloud_transfer::{CloudAudit, CloudContext, CloudCopyPlan};
 
 const TEXTURE_CAP: usize = atlas_core::display::ATLAS_TEXTURES.resident_cap;
 /// High enough that a directory tag (`DIR_H`) can fill a typical viewport
@@ -181,33 +184,12 @@ struct DeletePlan {
     at: Pos2,
 }
 
-#[derive(Clone, Debug)]
-struct CloudCopyPlan {
-    op: FsOp,
-    label: String,
-    files: usize,
-    bytes: u64,
-    at: Pos2,
-}
-
 struct FsUiOp {
     rx: Receiver<FsOpMsg>,
     label: String,
     op: FsOp,
     done: usize,
     total: usize,
-}
-
-/// A copy waiting on its cloud accounting.
-///
-/// Whether a copy would download placeholders can only be answered by walking
-/// the sources, and on a share every directory listing is a round trip — so the
-/// walk runs on its own thread and the copy waits for the answer.
-struct CloudAudit {
-    rx: Receiver<atlas_core::cloud::CloudCost>,
-    op: FsOp,
-    label: String,
-    at: Pos2,
 }
 
 struct ScanUi {
@@ -217,6 +199,8 @@ struct ScanUi {
 
 struct ExportUi {
     rx: Receiver<ExportMsg>,
+    origin: CloudContext,
+    completed: Option<ExportMsg>,
     done: usize,
     total: usize,
     current: String,
@@ -693,10 +677,10 @@ enum AtlasPick {
         tab_id: u64,
         folders: Option<Vec<PathBuf>>,
     },
-    /// Bound to the root it was opened for, so a tab switch mid-dialog can't
-    /// export another tab's staging.
+    /// Bound to the requesting tab/root epoch, even if another tab maps the
+    /// same folder while the native dialog is open.
     Export {
-        root: PathBuf,
+        context: CloudContext,
         dest: Option<PathBuf>,
     },
     Prewarm(Option<PathBuf>),
@@ -2199,6 +2183,8 @@ impl AtlasApp {
         if self.tabs.is_empty() {
             return;
         }
+        self.cloud_copy_plan = None;
+        self.cloud_audit = None;
         let i = self.active_tab.min(self.tabs.len() - 1);
         self.remember_active_tab_meta();
 
@@ -2918,13 +2904,13 @@ impl AtlasApp {
             // Only valid while the root it was opened for is still front
             // and center.
             Some(AtlasPick::Export {
-                root,
+                context,
                 dest: Some(dest),
             }) => {
-                if self.root.as_ref() == Some(&root) {
+                if self.cloud_context().as_ref() == Some(&context) {
                     self.begin_export(dest);
                 } else {
-                    self.toast("Export cancelled — the folder changed while choosing");
+                    self.toast("Export cancelled — the folder or tab changed while choosing");
                 }
             }
             Some(AtlasPick::Prewarm(Some(dir))) => self.start_prewarm(dir),
@@ -3275,58 +3261,7 @@ impl AtlasApp {
             ctx.request_repaint();
         }
 
-        // Export progress
-        if let Some(exp) = &mut self.export_ui {
-            let mut finished: Option<ExportMsg> = None;
-            while let Ok(msg) = exp.rx.try_recv() {
-                match msg {
-                    ExportMsg::Progress {
-                        done,
-                        total,
-                        current,
-                    } => {
-                        exp.done = done;
-                        exp.total = total;
-                        exp.current = current;
-                    }
-                    done @ ExportMsg::Done { .. } => {
-                        finished = Some(done);
-                        break;
-                    }
-                }
-            }
-            if let Some(ExportMsg::Done {
-                manifest_path,
-                copied,
-                created_dirs,
-                errors,
-            }) = finished
-            {
-                let n = copied.len();
-                let dest_root = PathBuf::from(&manifest_path)
-                    .parent()
-                    .map(|p| p.to_string_lossy().into_owned())
-                    .unwrap_or_default();
-                self.push_journal(
-                    format!("Exported {} files", n),
-                    Action::Export {
-                        dest_root,
-                        manifest_path,
-                        copied,
-                        created_dirs,
-                    },
-                );
-                if errors.is_empty() {
-                    self.toast(format!("Export complete: {n} files copied"));
-                } else {
-                    self.toast(format!(
-                        "Export finished: {n} copied, {} errors (see manifest folder)",
-                        errors.len()
-                    ));
-                }
-                self.export_ui = None;
-            }
-        }
+        self.poll_export();
     }
 
     fn apply_scan_msg(&mut self, msg: ScanMsg) {
@@ -3672,36 +3607,6 @@ impl AtlasApp {
         }
     }
 
-    fn dispatch_fs_op(&mut self, op: FsOp, label: String) {
-        if self.edit_mode != EditMode::Edit {
-            self.toast("Switch to Edit mode before changing files");
-            return;
-        }
-        if let FsOp::Copy { sources, .. } = &op {
-            if self.cloud_audit.is_some() || self.fs_op.is_some() {
-                self.toast("File operation already running");
-                return;
-            }
-            // Answering "would this download anything" means reading directory
-            // entries — one per selected file, and a whole subtree per selected
-            // folder. On a share that is seconds of I/O, so it happens on a
-            // thread and the copy resumes in `poll_cloud_audit`.
-            let (tx, rx) = unbounded();
-            let sources = sources.clone();
-            std::thread::spawn(move || {
-                let _ = tx.send(atlas_core::cloud::copy_cloud_cost(&sources));
-            });
-            self.cloud_audit = Some(CloudAudit {
-                rx,
-                op,
-                label,
-                at: self.dialog_anchor(),
-            });
-            return;
-        }
-        self.start_fs_op_unchecked(op, label);
-    }
-
     /// Every path an operation is about to touch, source and destination.
     fn op_paths(op: &FsOp) -> Vec<PathBuf> {
         let dest_names = |sources: &[PathBuf], dest_dir: &Path| -> Vec<PathBuf> {
@@ -3750,37 +3655,6 @@ impl AtlasApp {
         });
     }
 
-    /// Resume a copy once its cloud accounting comes back: confirm if it would
-    /// download placeholders, start it straight away if it would not.
-    fn poll_cloud_audit(&mut self) {
-        use crossbeam_channel::TryRecvError;
-
-        let Some(audit) = &self.cloud_audit else {
-            return;
-        };
-        let cost = match audit.rx.try_recv() {
-            Ok(cost) => cost,
-            // A dead thread cannot answer; treat it as "nothing to download"
-            // rather than silently dropping the user's copy.
-            Err(TryRecvError::Disconnected) => atlas_core::cloud::CloudCost::default(),
-            Err(TryRecvError::Empty) => return,
-        };
-        let Some(audit) = self.cloud_audit.take() else {
-            return;
-        };
-        if cost.is_free() {
-            self.start_fs_op_unchecked(audit.op, audit.label);
-        } else {
-            self.cloud_copy_plan = Some(CloudCopyPlan {
-                op: audit.op,
-                label: audit.label,
-                files: cost.files,
-                bytes: cost.bytes,
-                at: audit.at,
-            });
-        }
-    }
-
     fn poll_fs_op(&mut self) {
         let Some(op) = &mut self.fs_op else {
             return;
@@ -3814,6 +3688,7 @@ impl AtlasApp {
         let mut created_dirs = Vec::new();
         let mut deleted = Vec::new();
         let mut skipped = 0usize;
+        let mut skipped_reason = None;
         let changed = result.changed_count();
         for outcome in result.outcomes {
             match outcome {
@@ -3842,7 +3717,10 @@ impl AtlasApp {
                     self.mark_deleted_path(&path);
                     deleted.push(path);
                 }
-                FsOutcome::Skipped { .. } => skipped += 1,
+                FsOutcome::Skipped { reason, .. } => {
+                    skipped += 1;
+                    skipped_reason.get_or_insert(reason);
+                }
             }
         }
         match source {
@@ -3896,7 +3774,10 @@ impl AtlasApp {
         if skipped == 0 {
             self.toast(format!("{label}: {changed} item(s) changed"));
         } else {
-            self.toast(format!("{label}: {changed} changed, {skipped} skipped"));
+            self.toast(format!(
+                "{label}: {changed} changed, {skipped} skipped ({})",
+                skipped_reason.as_deref().unwrap_or("unspecified reason")
+            ));
         }
     }
 
@@ -4843,44 +4724,6 @@ impl AtlasApp {
             })
             .collect()
     }
-
-    fn pick_export_dest(&mut self) {
-        if self.export_ui.is_some() {
-            return;
-        }
-        let Some(root) = self.root.clone() else {
-            return;
-        };
-        if self.picker.open(
-            PickRequest::folder().title("Choose export destination"),
-            move |picked| AtlasPick::Export {
-                root,
-                dest: file_picker::first(picked),
-            },
-        ) {
-            self.picking = PickPurpose::Export;
-        }
-    }
-
-    fn begin_export(&mut self, dest: PathBuf) {
-        let Some(root) = self.root.clone() else {
-            return;
-        };
-        let items = self.assigned_items();
-        if items.is_empty() {
-            self.toast("Nothing assigned to export");
-            return;
-        }
-        let total = items.len();
-        let rx = export::start_export(root, dest, items);
-        self.export_ui = Some(ExportUi {
-            rx,
-            done: 0,
-            total,
-            current: String::new(),
-        });
-        self.push_history("atlas.export", Some(format!("{total} file(s)")));
-    }
 }
 
 impl eframe::App for AtlasApp {
@@ -4923,7 +4766,11 @@ impl AtlasApp {
 
     /// Also queried by Slate when Atlas is hosted in its process.
     pub fn update_close_blocked(&self) -> Option<&'static str> {
-        if self.fs_op.is_some() || self.cloud_audit.is_some() || self.export_ui.is_some() {
+        if self.fs_op.is_some()
+            || self.cloud_audit.is_some()
+            || self.cloud_copy_plan.is_some()
+            || self.export_ui.is_some()
+        {
             Some("Wait for file operations and exports to finish before restarting.")
         } else if self.dialogs.any_open() {
             Some("Finish the open file dialog before restarting.")
@@ -5961,28 +5808,6 @@ impl AtlasApp {
                     }
                 });
             });
-    }
-
-    fn welcome(&mut self, ui: &mut egui::Ui) {
-        let palette = self.palette();
-        match self.home.show(ui, &palette, &self.recents) {
-            Some(atlas_shell::home::HomeScreenAction::New) => {
-                self.open_folder_dialog();
-            }
-            Some(atlas_shell::home::HomeScreenAction::Open(path)) => {
-                if path.is_dir() {
-                    self.home_new_workspace();
-                    self.set_roots(vec![path]);
-                } else if atlas_shell::home::is_synthetic_cover_path(&path) {
-                    self.home_new_workspace();
-                } else {
-                    self.toast("That folder is no longer available");
-                    self.recents.remove_missing();
-                    self.recents.save("file-atlas");
-                }
-            }
-            None => {}
-        }
     }
 
     fn empty_workspace(&mut self, ui: &mut egui::Ui) {
@@ -7464,59 +7289,6 @@ impl AtlasApp {
         }
     }
 
-    fn cloud_copy_confirm_window(&mut self, ctx: &egui::Context) {
-        let Some(plan) = &self.cloud_copy_plan else {
-            return;
-        };
-        let (files, bytes, at) = (plan.files, plan.bytes, plan.at);
-        let mut open = true;
-        let mut accept = false;
-        let mut cancel = false;
-        egui::Window::new("Copy cloud-only files?")
-            .open(&mut open)
-            .collapsible(false)
-            .resizable(false)
-            .fixed_pos(at)
-            .constrain(true)
-            .default_width(430.0)
-            .show(ctx, |ui| {
-                ui.label(format!(
-                    "{} selected file(s) are stored online only.",
-                    group_digits(files as u64)
-                ));
-                ui.add_space(4.0);
-                ui.label(
-                    egui::RichText::new(format!(
-                        "Copying them will download about {} first.",
-                        human_size(bytes)
-                    ))
-                    .strong(),
-                );
-                ui.add_space(6.0);
-                ui.label(
-                    egui::RichText::new("Atlas will not start this transfer unless you confirm.")
-                        .small()
-                        .color(self.palette().sub),
-                );
-                ui.add_space(10.0);
-                ui.horizontal(|ui| {
-                    if ui.button("Copy and download").clicked() {
-                        accept = true;
-                    }
-                    if ui.button("Cancel").clicked() {
-                        cancel = true;
-                    }
-                });
-            });
-        if accept {
-            if let Some(plan) = self.cloud_copy_plan.take() {
-                self.start_fs_op_unchecked(plan.op, plan.label);
-            }
-        } else if cancel || !open {
-            self.cloud_copy_plan = None;
-        }
-    }
-
     fn action_menu(&mut self, ctx: &egui::Context) {
         let Some((target, pos)) = self.menu_at else {
             self.menu_cache = None;
@@ -8209,21 +7981,9 @@ impl AtlasApp {
 
     fn draw_toasts(&mut self, ctx: &egui::Context) {
         self.toasts.retain(|(_, t)| t.elapsed().as_secs_f32() < 4.0);
-        if self.toasts.is_empty() {
-            return;
-        }
-        egui::Area::new(egui::Id::new("toasts"))
-            .anchor(Align2::RIGHT_BOTTOM, Vec2::new(-16.0, -16.0))
-            .order(egui::Order::Foreground)
-            .interactable(false)
-            .show(ctx, |ui| {
-                for (msg, _) in &self.toasts {
-                    egui::Frame::popup(ui.style()).show(ui, |ui| {
-                        ui.label(msg);
-                    });
-                    ui.add_space(4.0);
-                }
-            });
+        let palette = self.palette();
+        let msgs: Vec<&str> = self.toasts.iter().map(|(m, _)| m.as_str()).collect();
+        let _ = atlas_shell::toast::paint_stack(ctx, &palette, self.canvas_rect, &msgs);
     }
 
     fn evict_textures(&mut self) {

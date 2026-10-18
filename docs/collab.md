@@ -1,6 +1,12 @@
 # Live collaboration
 
-**Status: design for review.** Nothing here is implemented. Article VI.3 was
+**Status: board synchronization remains design for review.** The17 October2026
+agent-presence integration adds the bounded human-message slice in `atlas-relay`:
+encrypted rooms, ephemeral membership, profile portraits, direct messages and
+recipient-persistence acknowledgments. It does not synchronize scenes, files,
+cameras, selections, agent authority or board edits. Its build and native checks
+are tracked with `design/agent-presence-2026-10-17/NATIVE-BUILD-PLAN.md`.
+The larger protocol described below is still a future design. Article VI.3 was
 amended on 2026-10-08 to align derived-state sync with ephemeral presence
 (Article VIII.5); see the amendment log in `CONSTITUTION.md`. This document
 does not propose further constitutional changes.
@@ -98,16 +104,23 @@ beside the destination and renames it
 `format_version` and upgrades an older one in memory. Current version is 2.
 `SceneJournal` is absent from that JSON on purpose.
 
-Opening a workbook takes a lock file, `board.slate.lock`, via
-`create_new` (`crates/slate-doc/src/lease.rs`). A second opener becomes
-read-only and is told who holds it. The holder heartbeats every 10 seconds; a
-heartbeat older than 30 seconds may be stolen. The lease comment already
-records the limit: clocks that disagree by more than that window can steal a
-live lease, and anything stronger needs a server. The relay is that server
-for a live session. The lock file stays, so a person who is *not* in the
-session still opens read-only while someone is in it.
+Opening a workbook takes a readable `board.slate.lock` marker and holds an
+OS lock on the persistent zero-byte `board.slate.lock.guard`
+(`crates/slate-doc/src/lease.rs`). A second opener becomes read-only and is
+told who holds it. One worker heartbeats all owned workbooks every 10 seconds,
+independent of tab focus, Home, or frame delivery. A marker older than 30
+seconds can be reclaimed only after the OS guard is unlocked; a stale clock
+alone cannot evict a live updated client. Guard files must not be deleted.
+Legacy clients ignore that guard and can still replace stale markers. A
+unique acquisition token detects replacement before a save or heartbeat;
+the old owner refuses to save and never refreshes the replacement marker.
+The relay remains responsible for authority within a live collaboration
+session. The marker stays, so a person who is *not* in the session still
+opens read-only while someone is in it.
 
-`save_doc_to` (`apps/slate/src/app/mod.rs`) copies the saver's camera into
+`save_doc_to` (`apps/slate/src/app/workbook_save.rs`) reserves its destination
+lease before preparing or writing the workbook, retains the old lease until
+success, and copies the saver's camera into
 `doc.view` before writing. `commit_scene_as` (`apps/slate/src/app/board.rs`)
 refuses edits when the tab is read-only. Both behaviors are right for a
 single writer and wrong if copied blindly into a session: an autosave must

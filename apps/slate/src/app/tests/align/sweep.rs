@@ -50,7 +50,8 @@ fn sweep_gp3_window_takes_only_the_contained_rect() {
 #[test]
 fn sweep_gp4_shift_adds() {
     let mut h = align_board("sweep_gp4");
-    let kept = add_rect(&mut h.app, 400.0, 400.0);
+    // A single selected curve owns a vertex window (P1.curve.grips).
+    let kept = deck_frame(&mut h, WorldRect::new(400.0, 400.0, 80.0, 60.0), 0);
     let line = add_stroke(&mut h.app, 0.0, 50.0);
     h.app.board_sel.insert(kept);
     let mut shift = egui::Modifiers::NONE;

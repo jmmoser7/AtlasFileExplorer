@@ -1,34 +1,28 @@
 //! Snippet cards and spreadsheet cards.
 
 use super::*;
+mod document_previews;
+pub(crate) use document_previews::{CardCache, CardPreviews};
 
 // ---------- painting ----------
 
 impl SlateApp {
     /// Cached excerpt for text-file snippet cards (same clamping as the
     /// artifact's `read_snippet`, so board and export show identical text).
-    pub(crate) fn snippet_for(&mut self, item: ItemId, path: &std::path::Path) -> Option<String> {
+    pub(crate) fn snippet_for(&mut self, item: ItemId, _path: &std::path::Path) -> Option<String> {
         let _span = atlas_core::session_log::span("slate.snippet");
-        if let Some(cached) = self.snippets.get(&item) {
-            return cached.clone();
-        }
-        let path =
-            slate_doc::scene::resolve_source(self.tab().path.as_deref(), &path.to_string_lossy());
-        let snippet = slate_artifact::read_snippet(&path);
-        self.snippets.insert(item, snippet.clone());
-        snippet
+        self.prepare_document_card(item);
+        self.cached_snippet(item).map(str::to_string)
     }
 
     pub(super) fn sheet_for(
         &mut self,
         item: ItemId,
-        path: &std::path::Path,
-    ) -> Option<Vec<Vec<atlas_core::office::SheetCell>>> {
+        _path: &std::path::Path,
+    ) -> Option<std::sync::Arc<Vec<Vec<atlas_core::office::SheetCell>>>> {
         let _span = atlas_core::session_log::span("slate.sheet");
-        self.sheets
-            .entry(item)
-            .or_insert_with(|| atlas_core::table::read_sheet_card(path))
-            .clone()
+        self.prepare_document_card(item);
+        self.cached_sheet(item)
     }
 
     /// Paper-like card with the file's opening lines — the board twin of the
@@ -39,7 +33,9 @@ impl SlateApp {
         painter: &egui::Painter,
         outline: &[Pos2],
         srect: Rect,
+        node: NodeId,
         item: ItemId,
+        text_override: Option<&str>,
         path: &std::path::Path,
         corner: slate_doc::scene::Corner,
         pointer: Option<Pos2>,
@@ -51,15 +47,21 @@ impl SlateApp {
             palette.card,
             EStroke::NONE,
         ));
-        if self.text_doc_edit.as_ref().is_some_and(|e| e.item == item) {
+        if self.text_doc_edit.as_ref().is_some_and(|e| e.node == node) {
             // The inline editor paints the words and the caret.
+            return;
+        }
+        if !canvas_text::legible(canvas_scale::px(TEXT_CARD_BODY_PX, z)) {
             return;
         }
         let name = path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        match self.snippet_for(item, path) {
+        match text_override
+            .map(std::borrow::Cow::Borrowed)
+            .or_else(|| self.snippet_for(item, path).map(std::borrow::Cow::Owned))
+        {
             Some(snippet) => {
                 let inner = text_card_inner(srect, corner, z);
                 let clip = painter.with_clip_rect(inner);

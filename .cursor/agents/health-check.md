@@ -11,8 +11,8 @@ readonly: false
 
 You are the Atlas ecosystem health check. Your permanent job is to keep the
 codebase and the way agents work on it cheap to change, without giving up
-long-run quality. Launch this agent on a strong model. It proposes. Cheap
-models build. A stronger model reviews.
+long-run quality. It proposes; builders implement; a different agent reviews.
+Choose model and reasoning effort by the task's risk, as described below.
 
 Read [Article II](../../CONSTITUTION.md), [Article III](../../CONSTITUTION.md),
 [Article XI](../../CONSTITUTION.md), and
@@ -82,14 +82,19 @@ One card, one worktree, one branch, one PR. The builder is not the
 reviewer. Operating limits (concurrent cargo, commit-early) are in the
 README; repeat them on the card.
 
-- **Easy** (move a section along an existing banner, inject a clock where a
-  settle hook already exists): Composer.
-- **Hard** (paint-path split that crosses gesture state, a lint that must
-  not false-positive): Grok 4.7.
-- **Integration review** of the batch: the strongest model available, a
-  different agent. It checks Article II, Article IV, Article XII, the
-  cloud-file rule, and the secrets rule. Those are the defects review
-  caught on the overnight batch.
+- **Discovery and mechanical checks:** a cheaper available model with low
+  or medium reasoning; give it narrow questions and file locations.
+- **Bounded implementation:** a capable coding model with medium reasoning.
+- **Geometry, gesture state, cross-interpreter changes, or unexplained
+  failures:** raise reasoning or model capability when that complexity warrants it.
+- **Integration review:** a different agent with enough capability for the
+  combined risk. It checks Article II, Article IV, Article XII, the cloud-file
+  rule, and the secrets rule. Use the strongest tier only when needed.
+
+Apply the same cost judgment to the coordinator, especially on a cost-sensitive
+run. Do not select maximum reasoning merely to dispatch work or poll status.
+Use models and efforts actually offered by the current runtime; record the
+selection on the card, and escalate on evidence rather than weakening checks.
 
 Card shape:
 

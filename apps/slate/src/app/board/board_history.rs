@@ -1,8 +1,23 @@
 //! Undo, redo, duplicate, and placing items into frames.
 
 use super::*;
+mod metadata;
 
 impl SlateApp {
+    /// Copy a source with its current generated image output materialized as
+    /// the durable seed. Runtime sessions belong to the original node id, so
+    /// a new duplicate would otherwise have no active result to paint.
+    fn duplicate_source_snapshot(&self, source: &Node) -> Node {
+        let mut snapshot = source.clone();
+        if matches!(&source.kind, NodeKind::Image(_)) {
+            let owner = self.image_drop_source_owner(source.id);
+            if let Some((image, _)) = self.shape_fill_source_with_output(source.id, owner) {
+                snapshot.kind = NodeKind::Image(image);
+            }
+        }
+        snapshot
+    }
+
     /// Commit a prepared command group through the tab journal.
     pub fn commit_scene(&mut self, cmds: Vec<SceneCmd>) -> bool {
         self.commit_scene_as(cmds, slate_doc::scene::CmdAuthor::Human)
@@ -18,6 +33,7 @@ impl SlateApp {
         if self.refuse_read_only_edit() {
             return false;
         }
+        let image_focus = self.capture_image_paint_focus();
         self.seed_document_colors();
         let colors =
             super::super::board_color::committed_colors(cmds.iter().filter_map(|c| match c {
@@ -32,11 +48,30 @@ impl SlateApp {
                 }
             }));
         self.brush_tiles.note_ids(cmds.iter().map(cmd_node_id));
+        let mentions: Vec<_> = if matches!(&author, slate_doc::scene::CmdAuthor::Human)
+            && !self.presence.agents_empty()
+        {
+            cmds.iter()
+                .filter(|cmd| match cmd {
+                    SceneCmd::Add { node, .. } => {
+                        super::super::agent_presence::message_text_changed(None, node)
+                    }
+                    SceneCmd::Patch { before, after } => {
+                        super::super::agent_presence::message_text_changed(Some(before), after)
+                    }
+                    _ => false,
+                })
+                .cloned()
+                .collect()
+        } else {
+            Vec::new()
+        };
         let tab = self.tab_mut();
         tab.dirty = true;
         let doc = &mut tab.doc;
         let ok = tab.journal.commit_as(&mut doc.scene, cmds, author);
         if ok {
+            self.restore_image_paint_focus(image_focus);
             self.remember_document_colors(colors);
             self.paint_layer_texture_cache.clear();
             let tab = self.tab_mut();
@@ -44,7 +79,19 @@ impl SlateApp {
             tab.edit_redo.clear();
         }
         self.note_scene_change();
+        if ok && !mentions.is_empty() {
+            self.route_presence_mentions(&mentions);
+        }
         ok
+    }
+
+    /// The scene journal may amend only while it owns the newest mixed step.
+    pub(crate) fn can_amend_scene_step(&self) -> bool {
+        let tab = self.tab();
+        !tab.read_only
+            && matches!(tab.edits.last(), Some(BoardMark::Scene))
+            && tab.edit_redo.is_empty()
+            && !tab.journal.can_redo()
     }
 
     /// Fold `cmds` into journal group `token` when it is still the board's
@@ -55,11 +102,7 @@ impl SlateApp {
         token: slate_doc::scene::GroupToken,
         cmds: Vec<SceneCmd>,
     ) -> bool {
-        let tab = self.tab();
-        if tab.read_only
-            || !matches!(tab.edits.last(), Some(BoardMark::Scene))
-            || !tab.edit_redo.is_empty()
-        {
+        if !self.can_amend_scene_step() {
             return false;
         }
         let ids: Vec<NodeId> = cmds.iter().map(cmd_node_id).collect();
@@ -78,9 +121,18 @@ impl SlateApp {
 
     pub(super) fn undo_scene_journal(&mut self) -> Option<usize> {
         let depth_before = self.tab().journal.undo_depth();
-        let tab = self.tab_mut();
-        if tab.journal.undo(&mut tab.doc.scene) {
-            tab.dirty = true;
+        let image_focus = self.capture_image_paint_focus();
+        let undone = {
+            let tab = self.tab_mut();
+            if tab.journal.undo(&mut tab.doc.scene) {
+                tab.dirty = true;
+                true
+            } else {
+                false
+            }
+        };
+        if undone {
+            self.restore_image_paint_focus(image_focus);
             Some(depth_before)
         } else {
             None
@@ -88,13 +140,20 @@ impl SlateApp {
     }
 
     pub(super) fn redo_scene_journal(&mut self) -> Option<usize> {
-        let tab = self.tab_mut();
-        if tab.journal.redo(&mut tab.doc.scene) {
-            tab.dirty = true;
-            Some(tab.journal.undo_depth())
-        } else {
-            None
+        let image_focus = self.capture_image_paint_focus();
+        let depth = {
+            let tab = self.tab_mut();
+            if tab.journal.redo(&mut tab.doc.scene) {
+                tab.dirty = true;
+                Some(tab.journal.undo_depth())
+            } else {
+                None
+            }
+        };
+        if depth.is_some() {
+            self.restore_image_paint_focus(image_focus);
         }
+        depth
     }
 
     pub fn board_undo(&mut self) {
@@ -112,6 +171,7 @@ impl SlateApp {
         match self.tab_mut().edits.pop() {
             Some(BoardMark::Sheet(mark)) => self.revert_sheet_mark(mark, true),
             Some(BoardMark::Locators(mark)) => self.revert_locator_mark(mark, true),
+            Some(BoardMark::Tags(mark)) => self.revert_tag_mark(mark, true),
             Some(BoardMark::Scene) => {
                 let depth_before = self.undo_scene_journal();
                 if depth_before.is_none() && self.tab().journal.can_undo() {
@@ -154,6 +214,7 @@ impl SlateApp {
         match self.tab_mut().edit_redo.pop() {
             Some(BoardMark::Sheet(mark)) => self.revert_sheet_mark(mark, false),
             Some(BoardMark::Locators(mark)) => self.revert_locator_mark(mark, false),
+            Some(BoardMark::Tags(mark)) => self.revert_tag_mark(mark, false),
             Some(BoardMark::Scene) => {
                 if let Some(depth) = self.redo_scene_journal() {
                     self.tab_mut().edits.push(BoardMark::Scene);
@@ -181,56 +242,12 @@ impl SlateApp {
         }
     }
 
-    pub(super) fn revert_sheet_mark(&mut self, mark: SheetMark, to_redo: bool) {
-        let Some(prior) =
-            atlas_core::table::revert_sheet_cell(&mark.path, mark.row, mark.col, &mark.prior)
-        else {
-            self.toast("Couldn't change that spreadsheet");
-            let tab = self.tab_mut();
-            if to_redo {
-                tab.edits.push(BoardMark::Sheet(mark));
-            } else {
-                tab.edit_redo.push(BoardMark::Sheet(mark));
-            }
-            return;
-        };
-        self.sheets.remove(&mark.item);
-        let inverted = SheetMark { prior, ..mark };
-        let tab = self.tab_mut();
-        if to_redo {
-            tab.edit_redo.push(BoardMark::Sheet(inverted));
-        } else {
-            tab.edits.push(BoardMark::Sheet(inverted));
-        }
-    }
-
-    pub(super) fn revert_locator_mark(&mut self, mark: slate_doc::RewriteLocators, to_redo: bool) {
-        let inverse = mark.inverted();
-        if !inverse.apply(self.doc_mut()) {
-            self.toast("Couldn't restore those asset links");
-            let tab = self.tab_mut();
-            if to_redo {
-                tab.edits.push(BoardMark::Locators(mark));
-            } else {
-                tab.edit_redo.push(BoardMark::Locators(mark));
-            }
-            return;
-        }
-        let tab = self.tab_mut();
-        tab.dirty = true;
-        if to_redo {
-            tab.edit_redo.push(BoardMark::Locators(inverse));
-        } else {
-            tab.edits.push(BoardMark::Locators(inverse));
-        }
-        self.note_scene_change();
-    }
-
     /// Duplicate nodes in place with a small offset; selects the copies.
     pub fn duplicate_board_nodes(&mut self, ids: &[NodeId], dx: f32, dy: f32) -> Vec<NodeId> {
         let sources: Vec<Node> = ids
             .iter()
-            .filter_map(|id| self.doc().scene.node(*id).cloned())
+            .filter_map(|id| self.doc().scene.node(*id))
+            .map(|node| self.duplicate_source_snapshot(node))
             .collect();
         if sources.is_empty() {
             return Vec::new();
@@ -271,6 +288,10 @@ impl SlateApp {
         if sources.is_empty() {
             return (ids, before);
         }
+        let sources: Vec<Node> = sources
+            .iter()
+            .map(|node| self.duplicate_source_snapshot(node))
+            .collect();
         let scene = &mut self.doc_mut().scene;
         let mut dups: Vec<Node> = sources
             .iter()
@@ -396,53 +417,25 @@ impl SlateApp {
         }
         let sizes = self.image_natural_sizes(items);
         let rects = grid_drop_rects(&sizes, at);
-        let mut nodes = Vec::new();
-        {
-            let scene = &mut self.doc_mut().scene;
-            for (i, item) in items.iter().enumerate() {
-                let img = ImageNode::new(*item);
-                nodes.push(scene.build_node(rects[i], NodeKind::Image(img)));
-            }
-        }
+        let nodes = self.prepare_item_placements(items, &rects);
         let ids = self.add_nodes(nodes);
         self.board_sel = ids.iter().copied().collect();
         self.inherit_frame_tags_after_move(&ids);
     }
 
-    /// Place pool items as image nodes arranged inside a frame, inheriting
-    /// its tags (frame toolbar "+ images" and Atlas drops onto frames).
-    pub fn place_items_in_frame(&mut self, frame: NodeId, items: &[ItemId]) {
-        let Some(rect) = self.doc().scene.node(frame).map(|n| n.rect) else {
-            // Frame vanished — fall back to a plain board drop at origin.
-            self.place_items_on_board(items, Pos2::new(0.0, 0.0));
-            return;
-        };
-        if items.is_empty() {
-            return;
-        }
-        let pad = 24.0f32;
-        let cols = (items.len() as f32).sqrt().ceil().max(1.0) as usize;
-        let cell_w = ((rect.w - pad * 2.0) / cols as f32).clamp(60.0, IMAGE_W);
-        let cell_h = cell_w * (IMAGE_H / IMAGE_W);
-        let mut nodes = Vec::new();
-        {
-            let scene = &mut self.doc_mut().scene;
-            for (i, item) in items.iter().enumerate() {
-                let col = (i % cols) as f32;
-                let row = (i / cols) as f32;
-                let r = WorldRect::new(
-                    rect.x + pad + col * (cell_w + 8.0),
-                    rect.y + pad + row * (cell_h + 8.0),
-                    cell_w,
-                    cell_h,
-                );
-                let img = ImageNode::new(*item);
-                nodes.push(scene.build_node(r, NodeKind::Image(img)));
-            }
-        }
-        let ids = self.add_nodes(nodes);
-        self.board_sel = ids.iter().copied().collect();
-        self.apply_frame_tags(frame, items);
+    /// Linked-item placement only. Callers own sizing/import and the journal;
+    /// this seam performs no file reads or item registration.
+    pub(crate) fn prepare_item_placements(
+        &self,
+        items: &[ItemId],
+        rects: &[WorldRect],
+    ) -> Vec<Node> {
+        let mut scratch = self.doc().scene.node_preparation();
+        items
+            .iter()
+            .zip(rects)
+            .map(|(item, rect)| scratch.build_node(*rect, NodeKind::Image(ImageNode::new(*item))))
+            .collect()
     }
 
     /// Apply a frame's tag assignments to pool items (drop inheritance).

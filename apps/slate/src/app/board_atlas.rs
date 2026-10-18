@@ -1,5 +1,4 @@
 //! File Atlas lens portal — host surface over `atlas-core`.
-//!
 //! The inner map is `atlas-shell::folder_map` (same camera, leaders, collapse
 //! grips, and cards as standalone File Atlas). Slate does not import
 //! `apps/file-atlas` or instantiate `AtlasApp` (Art. I / contract D15).
@@ -1617,56 +1616,11 @@ impl SlateApp {
             .map(|s| s.entries.iter().filter(|e| !e.dead).count())
             .unwrap_or(0);
         let img = atlas_poster_image(count);
-        let Some(path) = self.write_atlas_poster_png(id, img) else {
-            self.toast("Could not write the poster into the workbook.");
-            return true;
-        };
-        let items = self.add_paths(&[path]);
-        let Some(item) = items.first().copied() else {
-            self.toast("Could not add the baked poster to the workbook.");
-            return true;
-        };
-        let rect = node.rect;
-        let image = self.doc_mut().scene.build_node(
-            rect,
-            NodeKind::Image(slate_doc::scene::ImageNode::new(item)),
-        );
-        let note = self.doc_mut().scene.build_node(
-            WorldRect::new(rect.x, rect.y + rect.h + 8.0, rect.w.max(120.0), 20.0),
-            NodeKind::Text(slate_doc::scene::TextNode {
-                text: format!("{locator} · {count} files · File Atlas lens"),
-                family: slate_doc::scene::Typeface::Sans,
-                size: 12.0,
-                color: slate_doc::scene::Rgba::opaque(198, 208, 224),
-                align: slate_doc::scene::TextAlign::Left,
-                fill: None,
-                stroke: Default::default(),
-                agent: None,
-            }),
-        );
-        let ids = self.add_nodes(vec![image, note]);
-        self.board_sel = ids.into_iter().collect();
-        self.toast("Baked the poster and its provenance; the portal is still live.");
-        true
-    }
-
-    fn write_atlas_poster_png(&mut self, id: NodeId, img: egui::ColorImage) -> Option<PathBuf> {
-        let dir = self
-            .tab()
-            .path
-            .as_ref()
-            .map(|p| atlas_core::workbook_assets::assets_root(p))
-            .unwrap_or_else(std::env::temp_dir);
-        std::fs::create_dir_all(&dir).ok()?;
-        let path = dir.join(format!("atlas-poster-{}.png", id.0));
-        let [w, h] = [img.width() as u32, img.height() as u32];
-        let rgba: Vec<u8> = img
-            .pixels
-            .iter()
-            .flat_map(|p| [p.r(), p.g(), p.b(), p.a()])
-            .collect();
-        image::RgbaImage::from_raw(w, h, rgba)?.save(&path).ok()?;
-        Some(path)
+        self.bake_portal_snapshot(
+            id,
+            &img,
+            format!("{locator} · {count} files · File Atlas lens"),
+        )
     }
 
     pub(crate) fn atlas_open_in_file_atlas(
@@ -1862,6 +1816,8 @@ fn atlas_poster_image(count: usize) -> egui::ColorImage {
 mod tests {
     use super::*;
     use crate::app::tests::Harness;
+
+    mod surface;
 
     /// A completed in-memory scan keeps camera tests independent of workers,
     /// thumbnail I/O, and the developer's folders.
@@ -2171,32 +2127,7 @@ mod tests {
 
     #[test]
     fn atlas_surface_follows_theme_without_changing_the_document() {
-        let (mut h, id) = atlas_camera_board("atlas_theme", 0.65);
-        let scene = serde_json::to_value(&h.app.doc().scene).unwrap();
-        for dark in [true, false, true] {
-            h.app.dark_mode = dark;
-            let input = egui::RawInput {
-                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))),
-                ..Default::default()
-            };
-            let output = h.ctx.run(input, |ctx| h.app.update_app(ctx));
-            let rect = h
-                .app
-                .board_xf()
-                .rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
-            let palette = h.app.palette();
-            assert!(output.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Rect(r) if r.rect == rect && r.fill == palette.card)), "portal background must use the elevated card slot");
-            assert!(
-                output.shapes.iter().any(|s| match &s.shape {
-                    egui::Shape::Rect(r) => {
-                        r.stroke.width > 0.0 && r.stroke.color == palette.border_strong
-                    }
-                    _ => false,
-                }),
-                "unauthored File Atlas must paint a theme hairline so the window has an outline"
-            );
-            assert_eq!(serde_json::to_value(&h.app.doc().scene).unwrap(), scene);
-        }
+        surface::theme_immutability();
     }
 
     #[test]
@@ -2349,42 +2280,7 @@ mod tests {
 
     #[test]
     fn atlas_authored_fill_and_stroke_paint_the_window() {
-        let (mut h, id) = atlas_camera_board("atlas_fill_stroke", 0.65);
-        let fill = slate_doc::scene::Rgba([40, 90, 140, 255]);
-        h.app.patch_nodes(&[id], |node| {
-            if let NodeKind::Portal(p) = &mut node.kind {
-                p.fill = fill;
-                p.stroke.width = 4.0;
-                p.stroke.color = slate_doc::scene::Rgba([200, 40, 40, 255]);
-            }
-        });
-        let input = egui::RawInput {
-            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))),
-            ..Default::default()
-        };
-        let output = h.ctx.run(input, |ctx| h.app.update_app(ctx));
-        let rect = h
-            .app
-            .board_xf()
-            .rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
-        let want = crate::app::board::rgba32(fill);
-        assert!(
-            output.shapes.iter().any(
-                |s| matches!(&s.shape, egui::Shape::Rect(r) if r.rect == rect && r.fill == want)
-            ),
-            "authored fill must paint the File Atlas window"
-        );
-        assert!(
-            output.shapes.iter().any(|s| match &s.shape {
-                egui::Shape::Rect(r) => {
-                    r.stroke.width > 0.0
-                        && r.stroke.color
-                            == crate::app::board::rgba32(slate_doc::scene::Rgba([200, 40, 40, 255]))
-                }
-                _ => false,
-            }),
-            "authored stroke must paint the File Atlas border"
-        );
+        surface::authored_style();
     }
 
     #[test]

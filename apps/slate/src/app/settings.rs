@@ -7,6 +7,7 @@
 
 use atlas_core::preview::{MAX_PX_DEFAULT, MAX_PX_MAX, MAX_PX_MIN};
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 #[cfg(not(test))]
 use std::path::PathBuf;
 
@@ -95,10 +96,19 @@ impl SnapReach {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SlateSettings {
+    /// Saved identities only; active sessions and grants are never restored.
+    pub collaborators: Vec<super::agent_presence::StoredAgent>,
+    pub presence_identity: super::agent_presence::HumanProfile,
+    pub presence_contacts: Vec<super::agent_presence::StoredHuman>,
+    pub presence_reduced_motion: bool,
+    /// Last explicitly chosen appearance; old settings retain dark mode.
+    pub dark_mode: bool,
     /// Primary NodeKind names whose passive hover outline is disabled.
     /// Empty preserves the existing behavior for old settings files.
     pub hover_highlight_disabled: std::collections::BTreeSet<String>,
     pub preview: PreviewSettings,
+    /// Local recovery copies, including workbooks that have never been saved.
+    pub recovery: super::recovery::RecoveryPreferences,
     /// Board ortho constraint toggle (F8). The toggle + readout land now;
     /// the 45° gesture math arrives with the board-tools wave.
     pub board_ortho: bool,
@@ -130,10 +140,12 @@ pub struct SlateSettings {
     /// Medium texture of the Brush and of the Eraser.
     pub brush_texture: slate_doc::scene::BrushTexture,
     pub eraser_texture: slate_doc::scene::BrushTexture,
-    /// The (provider, model) last chosen for image agents and text agents.
+    /// The (provider, model) last chosen independently for each generator kind.
     /// New frames and editors start from it until another is chosen.
     pub agent_image_model: Option<(String, String)>,
     pub agent_text_model: Option<(String, String)>,
+    #[serde(default)]
+    pub agent_artifact_model: Option<(String, String)>,
     /// Preferences → Configure → Tools → Bumper cars. Off until turned on;
     /// while off, nodes keep their Bumper settings and nothing collides.
     pub optional_bumper_cars: bool,
@@ -142,8 +154,14 @@ pub struct SlateSettings {
 impl Default for SlateSettings {
     fn default() -> Self {
         SlateSettings {
+            collaborators: Vec::new(),
+            presence_identity: Default::default(),
+            presence_contacts: Vec::new(),
+            presence_reduced_motion: false,
+            dark_mode: true,
             hover_highlight_disabled: Default::default(),
             preview: PreviewSettings::default(),
+            recovery: super::recovery::RecoveryPreferences::default(),
             board_ortho: false,
             board_osnap: slate_doc::ObjectSnapSet::default(),
             board_smart_guides: true,
@@ -161,6 +179,7 @@ impl Default for SlateSettings {
             eraser_texture: Default::default(),
             agent_image_model: None,
             agent_text_model: None,
+            agent_artifact_model: None,
             optional_bumper_cars: false,
         }
     }
@@ -183,28 +202,35 @@ impl SlateSettings {
         }
         #[cfg(not(test))]
         {
-            std::fs::read_to_string(settings_path())
-                .ok()
-                .and_then(|s| serde_json::from_str(&s).ok())
-                .map(SlateSettings::clamped)
-                .unwrap_or_default()
+            Self::load_from(&settings_path())
         }
     }
 
     pub fn save(&self) {
         // Tests exercise the session setting without changing personal prefs.
         #[cfg(not(test))]
-        if let Ok(json) = serde_json::to_string_pretty(self) {
-            let path = settings_path();
-            let tmp = path.with_extension("json.tmp");
-            if std::fs::write(&tmp, json).is_ok() {
-                let _ = std::fs::rename(&tmp, &path);
-            }
-        }
+        let _ = self.save_to(&settings_path());
+    }
+
+    fn load_from(path: &Path) -> SlateSettings {
+        std::fs::read_to_string(path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .map(SlateSettings::clamped)
+            .unwrap_or_default()
+    }
+
+    fn save_to(&self, path: &Path) -> std::io::Result<()> {
+        let json = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, json)?;
+        std::fs::rename(&tmp, path)
     }
 
     /// Hand-edited or stale files snap back into the supported ranges.
     fn clamped(mut self) -> SlateSettings {
+        self.presence_contacts.truncate(64);
+        self.recovery = self.recovery.clamped();
         self.preview.max_px = self.preview.max_px.clamp(MAX_PX_MIN, MAX_PX_MAX);
         self.preview.budget_mb = self.preview.budget_mb.clamp(BUDGET_MB_MIN, BUDGET_MB_MAX);
         if !self.brush_width.is_finite() {
@@ -272,6 +298,7 @@ mod tests {
     #[test]
     fn roundtrip_preserves_values() {
         let s = SlateSettings {
+            dark_mode: false,
             preview: PreviewSettings {
                 enabled: false,
                 max_px: 1024,
@@ -283,5 +310,67 @@ mod tests {
         let json = serde_json::to_string(&s).unwrap();
         let back: SlateSettings = serde_json::from_str(&json).unwrap();
         assert_eq!(s, back);
+    }
+
+    #[test]
+    fn custom_profile_survives_disk_reload_and_photo_removal() {
+        let mut h = crate::app::tests::Harness::new("custom_profile_settings_disk");
+        let directory = h.base.join("participant-profile");
+        std::fs::create_dir(&directory).unwrap();
+        let portrait = directory.join("chosen portrait.png");
+        image::RgbaImage::from_pixel(3, 2, image::Rgba([39, 91, 143, 255]))
+            .save(&portrait)
+            .unwrap();
+        let pixels = std::fs::read(&portrait).unwrap();
+        let id = atlas_agent::request_id();
+        h.app.settings.presence_identity.id = id.clone();
+        h.app
+            .presence_update_identity("  María Chen 🪴  ", Some(portrait.clone()))
+            .unwrap();
+        let path = h.base.join("slate-settings.json");
+        h.app.settings.save_to(&path).unwrap();
+
+        let restored = SlateSettings::load_from(&path);
+        assert_eq!(restored, h.app.settings);
+        assert_eq!(restored.presence_identity.id, id);
+        assert_eq!(restored.presence_identity.name, "María Chen 🪴");
+        assert_eq!(restored.presence_identity.photo.as_ref(), Some(&portrait));
+        assert_eq!(std::fs::read(&portrait).unwrap(), pixels);
+
+        h.app.settings = restored;
+        h.app.presence_remove_photo("self").unwrap();
+        h.app
+            .presence_update_identity("Renée / Slate", None)
+            .unwrap();
+        // This second save must replace an existing on-disk settings file.
+        h.app.settings.save_to(&path).unwrap();
+        let removed = SlateSettings::load_from(&path);
+        assert_eq!(removed, h.app.settings);
+        assert_eq!(removed.presence_identity.id, id);
+        assert_eq!(removed.presence_identity.name, "Renée / Slate");
+        assert!(removed.presence_identity.photo.is_none());
+        assert_eq!(std::fs::read(&portrait).unwrap(), pixels);
+    }
+
+    #[test]
+    fn profile_settings_disk_errors_leave_existing_data_intact() {
+        let h = crate::app::tests::Harness::new("profile_settings_disk_errors");
+        let path = h.base.join("slate-settings.json");
+        h.app.settings.save_to(&path).unwrap();
+        let saved = std::fs::read(&path).unwrap();
+
+        let missing_parent = h.base.join("missing").join("slate-settings.json");
+        assert!(h.app.settings.save_to(&missing_parent).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), saved);
+
+        let blocked = h.base.join("existing-directory");
+        std::fs::create_dir(&blocked).unwrap();
+        let sentinel = blocked.join("keep.txt");
+        std::fs::write(&sentinel, b"previous data").unwrap();
+        // Temp-file creation succeeds, but replacing a directory must fail.
+        assert!(h.app.settings.save_to(&blocked).is_err());
+        assert_eq!(std::fs::read(&sentinel).unwrap(), b"previous data");
+        assert_eq!(std::fs::read(&path).unwrap(), saved);
+        assert_eq!(SlateSettings::load_from(&path), h.app.settings);
     }
 }

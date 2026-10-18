@@ -184,10 +184,10 @@ struct StartupSnap {
     ms: f32,
     phases: Vec<(&'static str, f32)>,
 }
-
 #[derive(Clone, Serialize)]
 struct Line {
     t: u64,
+    pid: u32,
     app: &'static str,
     kind: &'static str,
     name: &'static str,
@@ -703,6 +703,7 @@ impl Inner {
     fn base_line(&self) -> Line {
         Line {
             t: now_unix_ms(),
+            pid: self.pid,
             app: self.app,
             kind: "event",
             name: "",
@@ -720,7 +721,6 @@ impl Inner {
             tool: self.snap.tool,
         }
     }
-
     fn queue(&mut self, line: Line) {
         if self.pending.len() >= PENDING_CAP {
             self.pending.remove(0);

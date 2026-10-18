@@ -2,11 +2,32 @@
 
 use super::*;
 
+mod album;
+
 impl SlateApp {
     /// What an agent adds to the picture it makes: the prompt docked along the
     /// bottom, progress, the run button, and squares under the card for every
     /// result. A click on a square picks that result; the newest shows until
     /// then. Model, count, aspect, seed and Live live on the Agent squircle.
+    /// An agent's media card, then the caption naming a pack it needs that
+    /// did not answer this session.
+    pub(crate) fn paint_agent_media(
+        &mut self,
+        ui: &egui::Ui,
+        painter: &egui::Painter,
+        xf: &BoardXf,
+        node: &Node,
+        body: Rect,
+    ) {
+        if slate_doc::agent_chat::agent(node)
+            .is_some_and(|a| a.view == atlas_ai::agent::PortalView::Text)
+        {
+            self.paint_agent_text_window(ui, painter, xf, node, body);
+        } else {
+            self.paint_agent_picture(ui, painter, xf, node, body);
+        }
+        self.paint_pack_caption(painter, node, body, xf.z);
+    }
     pub(crate) fn paint_agent_picture(
         &mut self,
         ui: &egui::Ui,
@@ -104,7 +125,9 @@ impl SlateApp {
             self.agents.flow.set_hud_hidden(id, false);
         }
         let hud = !flowing && !self.agents.flow.hud_hidden(id);
-        let reveal = hud && (hovered || selected || self.flow_capsule_open(id));
+        let Some((reveal, strip_focus)) = self.result_strip_state(ui.ctx(), id, body, z) else {
+            return;
+        };
         // A new result reshapes the card to its aspect, once.
         if let (Some(i), false) = (shown, picked) {
             let image = &images[i];
@@ -112,7 +135,7 @@ impl SlateApp {
             if let Some(tex) =
                 self.linked_image_texture(path, "shown", body.width().max(body.height()))
             {
-                self.fit_generator_frame(id, &image.id, tex.size_vec2());
+                self.fit_generator_frame(id, &image.id, &image.request, tex.size_vec2());
             }
         }
         if self.image_wheel(id) == ImageWheel::Model {
@@ -123,6 +146,32 @@ impl SlateApp {
         if running {
             self.paint_generation_preview(painter, id, body, z);
             ui.ctx().request_repaint_after(Duration::from_millis(100));
+        }
+        // Image-node controls have one home: the selected image's blister.
+        // Album flow and generation previews still paint within the image.
+        if self.image_palette_eligible(id) {
+            self.paint_agent_album_strip(
+                ui,
+                id,
+                body,
+                self.result_strip_placement(id, body),
+                &images,
+                strip_focus,
+                reveal,
+                z,
+            );
+            if running || waiting > 0 {
+                self.paint_run_progress(
+                    ui,
+                    painter,
+                    id,
+                    body,
+                    z,
+                    view.task().working(),
+                    agent.provider == "comfy",
+                );
+            }
+            return;
         }
         let legible = canvas_text::legible(canvas_scale::px(GENERATOR_CHIP_PX, z));
         if agent.live && !reveal {
@@ -159,56 +208,16 @@ impl SlateApp {
         if hud {
             self.paint_run_progress(ui, painter, id, body, z, view.task().working(), previews);
         }
-        // Squares under the card: every result, grouped by run. While it
-        // flows they follow the flow.
-        if images.len() > 1 {
-            let focus = if flowing {
-                self.agents.cover_focus.get(&id).copied()
-            } else {
-                shown
-            }
-            .unwrap_or(0);
-            let squares: Vec<AlbumImage> = images
-                .iter()
-                .enumerate()
-                .map(|(i, image)| {
-                    let near = i.abs_diff(focus) <= 12;
-                    let texture = near
-                        .then(|| {
-                            self.linked_image_texture(
-                                resolve_source(base.as_deref(), &image.source),
-                                &image.id,
-                                canvas_scale::px(44.0, z),
-                            )
-                        })
-                        .flatten();
-                    AlbumImage {
-                        texture: texture.as_ref().map(|t| t.id()),
-                        size: texture
-                            .as_ref()
-                            .map(|t| t.size_vec2())
-                            .unwrap_or(egui::vec2(1.0, 1.0)),
-                        enabled: true,
-                    }
-                })
-                .collect();
-            let runs: Vec<&str> = images.iter().map(|i| i.request.as_str()).collect();
-            if let Some(pick) = atlas_shell::home::album_index_strip(
-                ui,
-                Id::new(("agent-picture", id.0)),
-                body,
-                &squares,
-                &runs,
-                focus,
-                reveal,
-                z,
-                self.palette(),
-                2,
-                None,
-            ) {
-                self.pick_agent_result(id, pick);
-            }
-        }
+        self.paint_agent_album_strip(
+            ui,
+            id,
+            body,
+            self.result_strip_placement(id, body),
+            &images,
+            strip_focus,
+            reveal,
+            z,
+        );
         if !reveal || !legible {
             return;
         }
@@ -219,12 +228,13 @@ impl SlateApp {
             _ => view.error.clone(),
         };
         if let Some(reason) = failure {
-            let text = canvas_text::layout(
-                painter,
-                reason,
-                canvas_scale::font(GENERATOR_CHIP_PX, z),
-                ink.warn,
-                body.width() - canvas_scale::px(24.0, z),
+            let text = canvas_text::world_wrapped(
+                painter.ctx(),
+                &reason,
+                egui::FontId::proportional(GENERATOR_CHIP_PX),
+                body.width() / z.max(0.01) - 24.0,
+                usize::MAX,
+                z,
             );
             let at = Pos2::new(body.left() + canvas_scale::px(12.0, z), text_top);
             let back = Rect::from_min_size(at, text.size()).expand(canvas_scale::px(5.0, z));
@@ -285,20 +295,40 @@ impl SlateApp {
             self.toast("That result is no longer on disk.");
             return;
         };
-        self.patch_nodes(&[id], |n| {
-            if let NodeKind::Image(i) = &mut n.kind {
-                i.item = item;
+        let Some(before) = self.doc().scene.node(id).cloned() else {
+            return;
+        };
+        let mut after = before.clone();
+        let NodeKind::Image(image_node) = &mut after.kind else {
+            return;
+        };
+        if self.agent_active_output(id).as_deref() != Some(image.id.as_str()) {
+            if let Some(current) = self.image_result_id(id) {
+                if !image_node.paint_layers.is_empty()
+                    && slate_doc::image_paint::result_layers(image_node, &current).is_none()
+                {
+                    slate_doc::image_paint::seed_result_from_legacy(image_node, current);
+                }
             }
-        });
+        }
+        image_node.item = item;
+        self.commit_scene(vec![slate_doc::scene::SceneCmd::Patch {
+            before: Box::new(before),
+            after: Box::new(after),
+        }]);
     }
     /// The file an agent picture shows: the picked result, else the newest.
     pub(crate) fn agent_shown_path(&self, id: NodeId) -> Option<PathBuf> {
+        self.doc()
+            .scene
+            .node(id)
+            .and_then(slate_doc::agent_chat::agent)?;
         let images = self.agent_images(id);
         let image = images.get(self.agent_shown_index(id)?)?;
         Some(resolve_source(self.tab().path.as_deref(), &image.source))
     }
     pub(super) fn agent_background_pending(&self) -> bool {
-        self.agents.programs_rx.is_some()
+        self.ai.packs.in_flight()
             || self.agents.recents_rx.is_some()
             || self.agents.ide_inflight
             || self.agents.chats_rx.is_some()

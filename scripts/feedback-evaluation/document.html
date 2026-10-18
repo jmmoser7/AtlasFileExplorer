@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Slate acceptance evaluation</title>
+  <style>/* EVALUATION_STYLE */</style>
+</head>
+<body>
+<main>
+  <header>
+    <p id="document-date" class="eyebrow">Slate / interactive acceptance document</p>
+    <h1>Does this build resolve the reports?</h1>
+    <p>Test the original behavior, then mark each expected result. Source changes and automated tests do not prefill a pass.</p>
+    <p class="small">Start with Current changes. Historical regression checks cover the earlier archived reports; Known open shows work already recorded as incomplete.</p>
+  </header>
+  <details id="run-details" open>
+    <summary>Build and test context <span id="run-label"></span></summary>
+    <form id="run-form">
+      <div class="fields">
+        <label>Your name<input name="tester" autocomplete="name" required></label>
+        <label>Run label<input name="label" required></label>
+        <label class="wide">Running Slate binary<input name="binary" required spellcheck="false"></label>
+        <label class="wide">Build identity (SHA-256 or verified release ID)<input name="identity" required spellcheck="false"></label>
+        <label class="wide">Workbook / sample files / model configuration<textarea name="context" rows="2" required placeholder="Use a disposable workbook. Name the images, curves, model or provider used."></textarea></label>
+        <label class="wide">Display and interaction context<input name="environment" placeholder="Windows display scale, Slate zoom, theme, mouse / pen"></label>
+      </div>
+      <label class="confirmation"><input name="confirmed" type="checkbox" required> I confirmed the running build matches the identity above.</label>
+      <p id="candidate" class="small"></p>
+      <button type="submit" id="begin">Begin this run</button>
+    </form>
+    <p id="locked-context" class="small" hidden>Context is locked for this run. Use New build / new run to change it; existing results stay in history.</p>
+  </details>
+  <nav class="toolbar" aria-label="Evaluation actions">
+    <button id="new-run">New build / new run</button>
+    <label>Saved run<select id="saved-runs" aria-label="Saved run"></select></label>
+    <button id="export-json">Save results JSON</button>
+    <button id="export-md">Save readable results</button>
+    <button id="import-toggle">Restore saved results</button>
+    <button id="print">Print checklist</button>
+  </nav>
+  <section id="import-panel" hidden>
+    <label>Paste the full saved results JSON<textarea id="import-text" rows="5" spellcheck="false"></textarea></label>
+    <button id="import-run">Restore as a saved run</button>
+  </section>
+  <p id="message" role="status" aria-live="polite" class="small"></p>
+  <section id="totals" aria-label="Run progress"></section>
+  <p id="report-progress" class="small"></p>
+  <details>
+    <summary>What counts as resolved?</summary>
+    <p>A case passes only when every expected result passes in this run, the running build is confirmed, and an observation or evidence reference is recorded. One failed result fails the case. Untested, blocked and partial cases remain open.</p>
+    <p>A report is a closure candidate only when every linked case passes. For look, feel and user flow, your acceptance is required. A failed historical check is a reopen candidate even if an earlier test suite passed.</p>
+    <p>This document records observations. It does not move reports or change their resolution records. Save results JSON for the next repair pass; readable results include the complete checklist.</p>
+    <p id="automated-evidence" class="small"></p>
+  </details>
+  <section class="filters" aria-label="Checklist filters">
+    <label>Scope<select id="scope"><option value="current">Current changes</option><option value="historical">Historical regression</option><option value="known-open">Known open</option><option value="all">All reports</option></select></label>
+    <label>Area<select id="group"><option value="all">All areas</option></select></label>
+    <label>Result<select id="result"><option value="all">All results</option><option value="untested">Untested</option><option value="partial">Partial / evidence needed</option><option value="fail">Fail</option><option value="blocked">Blocked</option><option value="pass">Pass</option></select></label>
+    <label class="search">Find a behavior or report<input id="search" type="search" placeholder="Image source, palette, brush…"></label>
+  </section>
+  <p id="visible-count" class="small"></p>
+  <div id="cases"></div>
+  <section>
+    <h2>Anything else that failed?</h2>
+    <label>Unexpected behavior / original report reference / steps / expected versus actual<textarea id="additional" rows="4" placeholder="Record an issue even if it does not fit an existing case."></textarea></label>
+  </section>
+  <footer><p class="small">Results save in this browser (or the canvas sidecar when opened as a canvas). Export JSON before changing machines or browser profiles. No results are sent anywhere.</p></footer>
+</main>
+<script id="evaluation-data" type="application/json">/* EVALUATION_DATA */</script>
+<script>/* EVALUATION_SCRIPT */</script>
+</body>
+</html>

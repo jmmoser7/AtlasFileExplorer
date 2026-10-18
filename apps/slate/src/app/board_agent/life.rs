@@ -8,14 +8,18 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Duration;
 
-use atlas_ai::agent::{AgentTurn, PortalView};
+use atlas_ai::agent::PortalView;
 use atlas_shell::{canvas_scale, canvas_text};
 use eframe::egui::{self, Align2, Pos2, Rect};
 use slate_doc::scene::{AgentPortalRef, Node, NodeId, NodeKind};
 use slate_doc::SceneCmd;
 
-use super::super::{SlateApp, SlateTab};
+use super::super::SlateApp;
 use super::{AgentAwait, AgentRuntime};
+
+mod process;
+mod sessions;
+use sessions::{completed_exchange, tab_sessions};
 
 /// How long exit waits for stale sidecars to be stopped.
 const EXIT_STOP_WAIT: Duration = Duration::from_secs(2);
@@ -29,7 +33,7 @@ pub(crate) struct AgentLife {
     /// Tab whose document the NodeId-keyed runtime describes.
     doc: Option<u64>,
     /// Runtime of every other open document, restored when its tab returns.
-    parked: HashMap<u64, AgentRuntime>,
+    pub(super) parked: HashMap<u64, AgentRuntime>,
     /// Sessions whose saved conversation this process already reloaded.
     rejoined: HashSet<String>,
     /// Link folder of each sidecar this process started, by session.
@@ -56,74 +60,6 @@ pub(crate) struct TestLoad {
         String,
         Result<atlas_ai::agent::AgentSession, String>,
     )>,
-}
-
-impl AgentRuntime {
-    /// Move what belongs to the process rather than to one document: sidecar
-    /// and Codex processes, provider catalogs, staged proposals, and this
-    /// bookkeeping. Everything else, NodeId-keyed or not, stays per document.
-    fn adopt_process(&mut self, other: &mut AgentRuntime) {
-        use std::mem::swap;
-        swap(&mut self.sidecar_spawned, &mut other.sidecar_spawned);
-        swap(&mut self.sidecar_child, &mut other.sidecar_child);
-        swap(&mut self.sidecar_booting, &mut other.sidecar_booting);
-        swap(&mut self.sidecar_boot_tx, &mut other.sidecar_boot_tx);
-        swap(&mut self.sidecar_boot_rx, &mut other.sidecar_boot_rx);
-        swap(&mut self.codex, &mut other.codex);
-        swap(&mut self.models, &mut other.models);
-        swap(&mut self.models_rx, &mut other.models_rx);
-        swap(&mut self.models_started, &mut other.models_started);
-        swap(&mut self.models_error, &mut other.models_error);
-        swap(&mut self.programs, &mut other.programs);
-        swap(&mut self.programs_rx, &mut other.programs_rx);
-        swap(&mut self.programs_started, &mut other.programs_started);
-        swap(&mut self.recents, &mut other.recents);
-        swap(&mut self.provider_recents, &mut other.provider_recents);
-        swap(&mut self.recents_rx, &mut other.recents_rx);
-        swap(&mut self.recents_started, &mut other.recents_started);
-        swap(&mut self.ide, &mut other.ide);
-        swap(&mut self.ide_rx, &mut other.ide_rx);
-        swap(&mut self.ide_inflight, &mut other.ide_inflight);
-        swap(&mut self.ide_next, &mut other.ide_next);
-        swap(&mut self.pending, &mut other.pending);
-        swap(&mut self.stage, &mut other.stage);
-        swap(&mut self.full_access, &mut other.full_access);
-        swap(&mut self.access_path, &mut other.access_path);
-        swap(&mut self.schedules, &mut other.schedules);
-        swap(&mut self.schedule_dialog, &mut other.schedule_dialog);
-        swap(&mut self.life.doc, &mut other.life.doc);
-        swap(&mut self.life.parked, &mut other.life.parked);
-        swap(&mut self.life.rejoined, &mut other.life.rejoined);
-        swap(&mut self.life.sidecar_dirs, &mut other.life.sidecar_dirs);
-        #[cfg(test)]
-        {
-            swap(&mut self.dispatched, &mut other.dispatched);
-            swap(&mut self.life.stopped, &mut other.life.stopped);
-            swap(&mut self.life.hold_loads, &mut other.life.hold_loads);
-            swap(&mut self.life.loads, &mut other.life.loads);
-        }
-        // Caches keyed by these epochs must not match across documents.
-        self.output_epoch = self.output_epoch.max(other.output_epoch).wrapping_add(1);
-        self.prompt_epoch = self.prompt_epoch.max(other.prompt_epoch).wrapping_add(1);
-    }
-}
-
-fn tab_sessions(tab: &SlateTab) -> impl Iterator<Item = &str> {
-    tab.doc
-        .scene
-        .nodes
-        .iter()
-        .filter_map(slate_doc::agent_chat::agent)
-        .filter(|a| !a.provider.is_empty())
-        .map(|a| a.session.as_str())
-}
-
-/// At least one user message has been answered.
-fn completed_exchange(turns: &[AgentTurn]) -> bool {
-    turns
-        .iter()
-        .position(|t| t.role == "user")
-        .is_some_and(|first| turns[first..].iter().any(|t| t.role == "assistant"))
 }
 
 impl SlateApp {
@@ -296,7 +232,10 @@ impl SlateApp {
     /// session and process, in the background, so history appears and Send
     /// works without choosing the conversation again.
     pub(super) fn rejoin_agent_chats(&mut self) {
-        if self.agents.connection_rx.is_some() || self.ai.config.valid_workspace().is_none() {
+        if self.tab().recovered
+            || self.agents.connection_rx.is_some()
+            || self.ai.config.valid_workspace().is_none()
+        {
             return;
         }
         let next = self.doc().scene.nodes.iter().find_map(|n| {
@@ -709,7 +648,6 @@ mod tests {
         write_session(&dir, &answered);
         let waiting = tail(&h);
         frames_until(&mut h, "the reply", |h| !h.app.agent_is_awaiting(waiting));
-
         let path = h.base.join("train.slate");
         let tab = h.app.tab().id;
         h.app.save_doc_to(tab, path.clone());
@@ -719,9 +657,9 @@ mod tests {
         assert!(!h.app.agents.life.sidecar_dirs.contains_key(&session));
         assert!(!h.app.agents.sidecar_spawned.contains(&session));
         assert!(!h.app.agents.life.rejoined.contains(&session));
-
         h.app.open_doc_at(path);
-        h.frame();
+        frames_until(&mut h, "the reopened workbook", |h| !h.app.tabs.is_empty());
+        assert!(!h.app.tab().read_only, "the reopened workbook is writable");
         let first_card = h
             .app
             .doc()
@@ -1002,7 +940,6 @@ mod tests {
         assert_eq!(h.app.agents.output_epoch, epoch, "nothing new to lay out");
         assert_eq!(card_views(&h), before);
     }
-
     #[test]
     fn agent_life_publishing_context_never_decodes_pictures_on_the_frame_loop() {
         use slate_doc::scene::{ConnectorEnd, Crop, ImageNode, Side, WorldRect};
@@ -1032,17 +969,15 @@ mod tests {
         h.app
             .add_connector(anchored(picture, Side::Right), anchored(card, Side::Left))
             .unwrap();
-        let context = h
-            .app
-            .agent_link_dir(card, &ws)
-            .unwrap()
-            .join("context.json");
+        let link = h.app.agent_link_dir(card, &ws).unwrap();
+        let context = link.join("context.json");
         let published =
             |crop: &str| std::fs::read_to_string(&context).is_ok_and(|t| t.contains(crop));
         let first = "-0.2500-0.0000-0.5000-1.0000.png";
-        frames_until(&mut h, "the cropped context", |h| {
+        // Context can publish before this frame fits the card; await its final revision.
+        frames_until(&mut h, "the current revision's cropped context", |h| {
             h.app.agents.context_tick = None;
-            published(first)
+            published(first) && matches!(h.app.published_train_inputs(&[card]), Some(Ok(_)))
         });
         let clipped = std::fs::read_dir(std::env::temp_dir().join("slate-crop"))
             .unwrap()
@@ -1060,13 +995,18 @@ mod tests {
             .unwrap()
             .set_modified(old)
             .unwrap();
-
         let on_loop = decodes();
+        let revision = (h.app.scene_gen, h.app.doc().scene.scene_gen());
         for _ in 0..3 {
             h.app.agents.context_tick = None;
             h.frame();
             std::thread::sleep(Duration::from_millis(20));
         }
+        assert_eq!(
+            (h.app.scene_gen, h.app.doc().scene.scene_gen()),
+            revision,
+            "the republished scene is unchanged"
+        );
         let when = std::fs::metadata(&clipped).unwrap().modified().unwrap();
         assert_eq!(
             when,
@@ -1074,7 +1014,6 @@ mod tests {
             "an unchanged picture is not encoded again ({} decodes on the frame loop)",
             decodes() - on_loop
         );
-
         h.app.patch_nodes(&[picture], |n| {
             if let NodeKind::Image(img) = &mut n.kind {
                 img.crop = crop(0.5);
@@ -1310,7 +1249,8 @@ mod tests {
         let tab = h.app.tab().id;
         h.app.save_doc_to(tab, path.clone());
         h.app.close_tab(h.app.active_tab);
-
+        // A real process exit drains releases before its replacement starts.
+        slate_doc::Lease::flush_pending_releases(Duration::from_secs(2)).unwrap();
         let mut relaunched = Harness::new("agent_life_relaunched");
         relaunched.app.ai.config.workspace_dir = Some(ws.clone());
         relaunched.app.agents.life.hold_loads = true;

@@ -3,6 +3,97 @@
 use super::*;
 
 #[test]
+fn accepted_colors_from_object_text_vertex_and_brush_editors_share_history() {
+    use board_properties::{Property, PropertyRequest};
+    let mut h = Harness::new("shared_color_history");
+    h.app
+        .place_default_at(board::BoardTool::RectShape, Pos2::ZERO);
+    let id = h.app.doc().scene.nodes.last().unwrap().id;
+    for n in 0..8 {
+        h.app.remember_document_colors(vec![[n, 30, 50]]);
+    }
+    for (edit, points, rgb) in [
+        (Property::FillRgb([90, 20, 30]), vec![], [90, 20, 30]),
+        (Property::StrokeRgb([40, 150, 60]), vec![], [40, 150, 60]),
+        (Property::TextRgb([70, 80, 190]), vec![], [70, 80, 190]),
+        (Property::StrokeRgb([200, 40, 50]), vec![1], [200, 40, 50]),
+    ] {
+        let detail = serde_json::to_string(&PropertyRequest {
+            ids: vec![id],
+            edits: vec![edit],
+            points,
+        })
+        .unwrap();
+        assert!(h.app.shape_property_command(Some(&detail)));
+        assert_eq!(h.app.doc().view.recent_color_swatches().as_slice()[0], rgb);
+        assert!(h
+            .app
+            .doc()
+            .view
+            .recent_colors
+            .as_ref()
+            .unwrap()
+            .contains(&rgb));
+    }
+    h.app.adopt_sampled_brush_color([10, 210, 120]);
+    assert_eq!(
+        h.app.doc().view.recent_color_swatches().as_slice()[0],
+        [10, 210, 120]
+    );
+    h.app.adopt_board_color_rgb([220, 110, 10]);
+    assert_eq!(
+        h.app.doc().view.recent_color_swatches().as_slice()[0],
+        [220, 110, 10]
+    );
+    assert_eq!(h.app.doc().view.recent_color_swatches().as_slice().len(), 6);
+}
+
+#[test]
+fn repeating_a_color_already_in_slot_zero_persists_its_new_age() {
+    let mut h = Harness::new("color_reuse_age");
+    h.app
+        .remember_document_colors(vec![[10, 20, 30], [40, 50, 60]]);
+    h.app.remember_document_colors(vec![[10, 20, 30]]);
+    let wheel = h.app.doc().view.recent_colors.clone();
+    let ages = h.app.doc().view.recent_color_used.clone();
+    h.app.tab_mut().dirty = false;
+    h.app.remember_document_colors(vec![[10, 20, 30]]);
+    assert_eq!(h.app.doc().view.recent_colors, wheel);
+    assert_ne!(h.app.doc().view.recent_color_used, ages);
+    assert!(
+        h.app.tab().dirty,
+        "refreshed usage ages must survive save/reopen"
+    );
+}
+
+#[test]
+fn text_ink_commits_enter_history_while_alpha_and_geometry_do_not() {
+    use board_properties::{Property, PropertyRequest};
+    let mut h = Harness::new("text_color_history");
+    h.app.place_sticky_at(Pos2::ZERO);
+    let id = h.app.doc().scene.nodes.last().unwrap().id;
+    for edit in [Property::TextRgb([50, 160, 70]), Property::TextAlpha(128)] {
+        let before = h.app.doc().view.recent_color_clock;
+        let rgb_edit = matches!(edit, Property::TextRgb(_));
+        let detail = serde_json::to_string(&PropertyRequest {
+            ids: vec![id],
+            edits: vec![edit],
+            points: vec![],
+        })
+        .unwrap();
+        assert!(h.app.shape_property_command(Some(&detail)));
+        assert_eq!(h.app.doc().view.recent_color_clock > before, rgb_edit);
+        assert_eq!(
+            h.app.doc().view.recent_color_swatches().as_slice()[0],
+            [50, 160, 70]
+        );
+    }
+    let before = h.app.doc().view.recent_color_clock;
+    h.app.patch_nodes(&[id], |node| node.rect.x += 20.0);
+    assert_eq!(h.app.doc().view.recent_color_clock, before);
+}
+
+#[test]
 fn a_color_dot_moves_the_pointer_and_leaves_the_wheel() {
     let mut h = Harness::new("brush_dot");
     h.app.set_board_tool(board::BoardTool::Brush);

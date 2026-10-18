@@ -2,6 +2,10 @@
 
 use super::*;
 
+#[cfg(test)]
+#[path = "card_fit_artifact_tests.rs"]
+mod artifact_tests;
+
 impl SlateApp {
     pub(crate) fn stop_pruned_agent_runs(&self, ids: &[NodeId]) {
         for id in ids {
@@ -57,7 +61,7 @@ impl SlateApp {
             .filter(|n| !n.hidden && !n.locked)
             .filter(|n| {
                 slate_doc::agent_chat::agent(n).is_some_and(|a| {
-                    !a.provider.is_empty() && a.view == atlas_ai::agent::PortalView::Chat
+                    !a.provider.is_empty() && slate_doc::agent_chat::is_chat_host(n)
                 })
             })
             .cloned()
@@ -280,8 +284,17 @@ impl SlateApp {
                         h = train_ux::stream_card_height(h);
                     }
                     if !self.agent_has_child(node.id) {
-                        h += composer_text_height(ctx, &prompt, composer_wrap(after.rect.w), 14.0)
-                            + COMPOSER_BOTTOM;
+                        let prompt_h =
+                            composer_text_height(ctx, &prompt, composer_wrap(after.rect.w), 14.0);
+                        h += prompt_h + COMPOSER_BOTTOM;
+                        // A short transcript keeps the open card's one-line composer gap.
+                        if let Some(open) = self
+                            .measured_transcript(node.id, after.rect.w, &turns)
+                            .filter(|_| partial)
+                            .map(|t| conversation_card_height(t, prompt_h))
+                        {
+                            h = h.min(open);
+                        }
                     }
                     h
                 };
@@ -311,13 +324,8 @@ impl SlateApp {
                                 {
                                     h += 22.0;
                                 }
-                                let ratio = if t.role == "user" { 0.78 } else { 0.94 };
-                                h += measure(
-                                    t.text.clone(),
-                                    (after.rect.w - 24.0) * ratio - 20.0,
-                                    14.0,
-                                )
-                                .y + 32.0;
+                                h += measure(t.text.clone(), text_column(after.rect.w).2, 14.0).y
+                                    + 12.0;
                             }
                             if self.agents.awaiting.contains_key(&node.id) {
                                 h += 30.0;
@@ -332,7 +340,7 @@ impl SlateApp {
                         (COMPOSER_TOP + transcript_h + COMPOSER_BOTTOM).max(DRAFT_HEIGHT)
                     }
                 } else {
-                    let text_h = measure(text, after.rect.w - 24.0, 13.0).y;
+                    let text_h = measure(text, text_column(after.rect.w).2, 13.0).y;
                     (COMPOSER_TOP + text_h + CARD_TEXT_PAD).max(DRAFT_HEIGHT)
                 };
             } else {
@@ -344,15 +352,7 @@ impl SlateApp {
                     .max(112);
                 let text_h: f32 = turns
                     .iter()
-                    .map(|t| {
-                        measure(
-                            t.text.clone(),
-                            (after.rect.w - 24.0) * if t.role == "user" { 0.78 } else { 0.94 }
-                                - 20.0,
-                            14.0,
-                        )
-                        .y + 32.0
-                    })
+                    .map(|t| measure(t.text.clone(), text_column(after.rect.w).2, 14.0).y + 12.0)
                     .sum();
                 let prompt_h =
                     composer_text_height(ctx, &prompt, composer_wrap(after.rect.w), 14.0);

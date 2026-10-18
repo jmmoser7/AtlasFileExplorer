@@ -119,7 +119,12 @@ The bar hosting the timeline is tunable too, under *Readout bar (bottom)*:
 | File | Responsibility |
 |------|----------------|
 | `apps/file-atlas/src/app/ui/readouts.rs` | The bar: gear menu, live counts, root path, timeline |
-| `[readouts]` in `ui-tokens.toml` | Text size, pad above/below, metrics row → timeline gap, item spacing, min row height, separator rules, lower-left collapse chevron |
+| `[readouts]` in `ui-tokens.toml` | Text size, pad above/below, metrics row → timeline gap, item spacing, min row height, separator rules, lower-left collapse chevron, suggestion-box size / gap / inset |
+| `crates/atlas-shell/src/canvas_corner.rs` | Lower-left layout: chevron at the corner, suggestion box right of it on the bottom palette's baseline, zoom cluster past the box |
+| `[toast]` in `ui-tokens.toml` | Bottom toast stack (`atlas_shell::toast`): wrap width (px, window fraction, minimum), gap above the palette's partition line, stack gap, padding, type, radius |
+
+Toasts and the suggestion box are tuned under *Bottom toasts · Suggestion box*,
+which starts with **Lock sample toasts open**.
 
 `text_size` sets `override_font_id` for the whole metrics row, so the counts,
 the root path, and every transient progress line scale together — they are one
@@ -198,6 +203,26 @@ Launch both apps and verify:
 
 Then review the token-file diff and commit it through the normal repository
 workflow.
+
+## Chat card header
+
+Slate chat cards, under *Chat card · Header*. World units, scaled at paint
+with `canvas_scale::px` (P0.9). The collapse chevron is hover chrome: lock
+**Lock chevron preview open** before dragging, or it disappears when the
+pointer leaves the card.
+
+| File | Responsibility |
+|------|----------------|
+| `apps/slate/src/app/board_agent/portal_header.rs` | Title, output dot, `•••` cluster |
+| `apps/slate/src/app/board_agent/portal_bound.rs` | Chevron placement and cross-fade |
+| `apps/slate/src/app/board_agent/card_metrics.rs` | Dot and chevron paint |
+| `crates/slate-doc/src/link_inset.rs` | Header inset the wires and top/bottom ports share |
+| `[chat_card]` in `ui-tokens.toml` | Title, dot, chevron, `•••`, fade |
+
+The title's x-height offset is measured downward from the output dot's top.
+Zero keeps the x-height top on the dot top. Chevron size is the arm
+half-width; the rise stays in proportion. Defaults match the header as shipped,
+so an untouched file does not move the card.
 
 ## Adding another tunable UI area
 

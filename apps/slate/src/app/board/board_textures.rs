@@ -1,6 +1,7 @@
 //! Texture lookup and selection glyphs.
 
 use super::*;
+mod selection;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -114,7 +115,8 @@ impl SlateApp {
     }
 
     /// The picture resident under `key`, filtered by `adjust` the way the
-    /// artifact's CSS filters it, cached. None while no pixels are resident.
+    /// artifact's CSS filters it, cached. When a sharp upload cannot fit,
+    /// retain the filtered thumbnail. None while pixels/admission are pending.
     pub(super) fn adjusted_texture(
         &mut self,
         ctx: &egui::Context,
@@ -123,27 +125,39 @@ impl SlateApp {
         source_px: u32,
     ) -> Option<egui::TextureHandle> {
         let fx_key = (key.to_string(), adjust.cache_hash(), source_px);
-        if let Some(t) = self.fx_textures.get(&fx_key) {
-            return Some(t.clone());
+        if let Some(texture) = self.fx_textures.get(ctx, &fx_key) {
+            return Some(texture);
         }
-        let out = {
-            let pixels = if source_px > 0 {
-                self.preview_cache.get(key).map(|e| &e.pixels)
-            } else {
-                None
-            };
-            super::super::imagefx::adjusted(pixels.or_else(|| self.thumb_pixels.get(key))?, adjust)
-        };
-        let tex = ctx.load_texture(
-            format!("slate-fx-{}-{}-{}", fx_key.0, fx_key.1, fx_key.2),
-            out,
-            egui::TextureOptions::LINEAR,
-        );
-        if self.fx_textures.len() > 256 {
-            self.fx_textures.clear();
+        let thumb_key = (key.to_string(), fx_key.1, 0);
+        let thumbnail = self.fx_textures.get(ctx, &thumb_key);
+        if source_px > 0 {
+            if let Some(preview) = self.preview_cache.get(key) {
+                let texture = self.fx_textures.get_or_create(
+                    ctx,
+                    fx_key,
+                    preview.pixels.size,
+                    super::super::imagefx::TextureClass::Full,
+                    || super::super::imagefx::adjusted(&preview.pixels, adjust),
+                );
+                if texture.is_some() {
+                    return texture;
+                }
+            }
         }
-        self.fx_textures.insert(fx_key, tex.clone());
-        Some(tex)
+        thumbnail.or_else(|| {
+            let pixels = self
+                .thumb_pixels
+                .get(key)
+                .or_else(|| self.preview_cache.get(key).map(|preview| &preview.pixels))?;
+            let edge = atlas_core::thumbs::THUMB_PX as usize;
+            self.fx_textures.get_or_create(
+                ctx,
+                thumb_key,
+                super::super::imagefx::thumbnail_size(pixels.size, edge),
+                super::super::imagefx::TextureClass::Thumbnail,
+                || super::super::imagefx::adjusted_thumbnail(pixels, edge, adjust),
+            )
+        })
     }
 
     /// An agent picture's shown result, through the same preview queue and
@@ -268,75 +282,6 @@ impl SlateApp {
         )
     }
 
-    /// Subtle selection highlight that follows the painted shape, not its
-    /// axis-aligned box. Paths use the stroke; closed primitives get a faint
-    /// fill plus the silhouette. `rotate_hover` paints the single-select
-    /// rotate hint.
-    pub(super) fn paint_selected_node(
-        &self,
-        painter: &egui::Painter,
-        xf: &BoardXf,
-        n: &Node,
-        select_tint: Color32,
-        outline_w: f32,
-        rotate_hover: bool,
-    ) {
-        if slate_doc::agent_chat::agent(n).is_some() {
-            return;
-        }
-        if matches!(n.kind, NodeKind::Connector(_)) {
-            self.paint_connector_selection(painter, xf, n);
-            return;
-        }
-        if Self::node_uses_curve_grips(n) {
-            self.paint_line_grips(painter, xf, n);
-            return;
-        }
-        if let NodeKind::Shape(s) = &n.kind {
-            if let Some(path) = s.path.as_ref() {
-                if !path.is_empty() {
-                    board_path::paint_path_stroke_outline(
-                        painter,
-                        xf,
-                        n,
-                        s,
-                        path,
-                        EStroke::new(outline_w, select_tint),
-                    );
-                    self.paint_node_fillet_grip(painter, xf, n, select_tint);
-                    return;
-                }
-            }
-        }
-        let outline = self.node_screen_outline(painter.ctx(), xf, n);
-        if outline.len() >= 3 {
-            painter.add(egui::Shape::convex_polygon(
-                outline.clone(),
-                select_tint.gamma_multiply(0.16),
-                EStroke::NONE,
-            ));
-        }
-        if rotate_hover {
-            let geom = board_handles::selection_geom(xf, n.rect, n.rotation_deg);
-            board_handles::paint_selection(
-                painter,
-                &geom,
-                &outline,
-                select_tint,
-                self.board_hover_hit,
-                outline_w,
-            );
-            self.paint_node_fillet_grip(painter, xf, n, select_tint);
-        } else {
-            painter.add(egui::Shape::closed_line(
-                outline,
-                EStroke::new(outline_w, select_tint),
-            ));
-            self.paint_node_fillet_grip(painter, xf, n, select_tint);
-        }
-        self.paint_node_sides_glyphs(painter, xf, n, select_tint);
-    }
-
     pub(super) fn paint_node_sides_glyphs(
         &self,
         painter: &egui::Painter,
@@ -350,8 +295,7 @@ impl SlateApp {
         let pointer = painter.ctx().pointer_hover_pos();
         for g in self.polygon_sides_glyphs(xf) {
             let hot = pointer.is_some_and(|p| {
-                p.distance(g.center)
-                    <= canvas_scale::hit_px(board_handles::SIDES_GLYPH_RADIUS, xf.z)
+                p.distance(g.center) <= canvas_scale::hit_px(board_handles::SIDES_GLYPH_HIT, xf.z)
             });
             board_handles::paint_sides_glyph(
                 painter,
@@ -376,6 +320,9 @@ impl SlateApp {
         n: &Node,
         select_tint: Color32,
     ) {
+        if self.field_selection() == Some(n.id) {
+            return;
+        }
         for (vertex, grip) in self.corner_grips(n, xf) {
             let hot = (self.board_hover_node == Some(n.id)
                 && self.board_hover_grip_vertex == vertex

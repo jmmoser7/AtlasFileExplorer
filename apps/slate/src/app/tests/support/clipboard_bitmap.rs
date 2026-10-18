@@ -100,25 +100,14 @@ pub(crate) fn assert_rotate_pointer(out: &egui::FullOutput, at: Pos2, phase: &st
         outline.stroke.width > glyph.stroke.width,
         "{phase}: outline rims the glyph"
     );
-    let n = glyph.points.len() as f32;
-    let c = glyph
-        .points
-        .iter()
-        .fold(EVec2::ZERO, |a, p| a + p.to_vec2())
-        / n;
-    let mut angles: Vec<f32> = glyph
-        .points
-        .iter()
-        .map(|p| (p.to_vec2() - c).angle().to_degrees())
-        .collect();
-    angles.sort_by(f32::total_cmp);
-    let mut gap: f32 = 360.0 - (angles[angles.len() - 1] - angles[0]);
-    for w in angles.windows(2) {
-        gap = gap.max(w[1] - w[0]);
-    }
+    let start = (glyph.points[0] - at).normalized();
+    let end = (*glyph.points.last().unwrap() - at).normalized();
+    assert!(start.dot(end).abs() < 0.001, "{phase}: a 90 degree arc");
     assert!(
-        360.0 - gap >= 250.0,
-        "{phase}: a circular arrow, not a quarter arc (sweep {})",
-        360.0 - gap
+        glyph.points.iter().all(|p| {
+            let delta = *p - at;
+            delta.x >= -0.001 && delta.y <= 0.001
+        }),
+        "{phase}: the cursor cups a single corner"
     );
 }

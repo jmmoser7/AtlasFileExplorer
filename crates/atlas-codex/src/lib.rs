@@ -16,6 +16,20 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod permissions;
+pub use permissions::*;
+mod board_tools;
+mod catalog;
+mod images;
+mod run;
+mod session;
+#[cfg(test)]
+use images::picture_files;
+use images::Pictures;
+pub use images::{image_turn, oneshot_turn};
+pub use session::session_from_thread;
+use session::{collect_artifacts, MessageStream};
+
 /// One connection to a new or explicitly selected provider conversation.
 pub struct Client {
     child: Child,
@@ -32,6 +46,9 @@ pub struct Client {
     image_dir: Option<std::path::PathBuf>,
     /// The folder Codex runs in; fresh threads for one-shot runs start here.
     cwd: std::path::PathBuf,
+    board_session: Option<atlas_agent::collaborator::BoardLinkSession>,
+    board_cloud_guard: Option<fn(&Path) -> bool>,
+    deadline: Option<Instant>,
 }
 
 impl Drop for Client {
@@ -41,139 +58,16 @@ impl Drop for Client {
     }
 }
 
-pub fn thread_params(cwd: &Path, thread: Option<&str>) -> Value {
-    // The installed provider owns workspace permissions and project instructions.
-    // Attaching must not replace them with Slate's former read-only persona.
-    let mut p = json!({"cwd":cwd});
-    if let Some(id) = thread {
-        p["threadId"] = json!(id);
-        p["excludeTurns"] = json!(true);
-    }
-    p
-}
-
-/// Without a grant the provider's own approval and sandbox settings apply.
-/// A read-only turn overrides the grant. `restore` puts the thread's own
-/// settings back on a turn that follows an override ([`Permissions`]).
-pub fn turn_params(
-    thread: &str,
-    input: Vec<Value>,
-    request: &str,
-    model: Option<&str>,
-    policy: TurnPolicy,
-    full_access: bool,
-    restore: Option<&Permissions>,
-) -> Value {
-    let mut p =
-        json!({"threadId":thread,"input":input,"clientUserMessageId":request,"model":model});
-    if let Some(sandbox) = turn_override(policy, full_access) {
-        p["approvalPolicy"] = json!("never");
-        p["sandboxPolicy"] = json!({ "type": sandbox });
-    } else if let Some(own) = restore {
-        p["approvalPolicy"] = own.approval.clone();
-        p["sandboxPolicy"] = own.sandbox.clone();
-    }
-    p
-}
-
-fn turn_override(policy: TurnPolicy, full_access: bool) -> Option<&'static str> {
-    match policy {
-        TurnPolicy::ReadOnly => Some("readOnly"),
-        TurnPolicy::Default if full_access => Some("dangerFullAccess"),
-        TurnPolicy::Default => None,
-    }
-}
-
-/// A thread's own approval and sandbox settings, as `thread/start` or
-/// `thread/resume` reported them. Codex keeps a turn's overrides for the
-/// turns after it, so a turn that should run under the provider's settings
-/// after a read-only or full-access turn sends these back explicitly.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Permissions {
-    pub approval: Value,
-    pub sandbox: Value,
-}
-
-impl Permissions {
-    pub fn from_thread_response(response: &Value) -> Option<Self> {
-        let approval = response.get("approvalPolicy").filter(|v| !v.is_null())?;
-        let sandbox = match response.get("sandbox")? {
-            Value::String(mode) => json!({ "type": match mode.as_str() {
-                "read-only" => "readOnly",
-                "workspace-write" => "workspaceWrite",
-                "danger-full-access" => "dangerFullAccess",
-                other => other,
-            } }),
-            object @ Value::Object(_) => object.clone(),
-            _ => return None,
-        };
-        Some(Self {
-            approval: approval.clone(),
-            sandbox,
-        })
-    }
-
-    /// Codex's own defaults, for a thread that did not report its settings:
-    /// ask before acting, write only inside the workspace.
-    pub fn provider_default() -> Self {
-        Self {
-            approval: json!("on-request"),
-            sandbox: json!({ "type": "workspaceWrite" }),
-        }
-    }
-}
-
-/// Which settings each turn of one thread sends. Only a turn after an
-/// override restores; a thread that was never overridden sends nothing.
-#[derive(Clone, Debug, Default)]
-pub struct TurnPermissions {
-    pub own: Option<Permissions>,
-    overridden: bool,
-}
-
-impl TurnPermissions {
-    /// The `restore` argument of [`turn_params`] for the next turn.
-    pub fn next(&mut self, policy: TurnPolicy, full_access: bool) -> Option<Permissions> {
-        let overrides = turn_override(policy, full_access).is_some();
-        let restore = (!overrides && self.overridden).then(|| {
-            self.own
-                .clone()
-                .unwrap_or_else(Permissions::provider_default)
-        });
-        self.overridden = overrides;
-        restore
-    }
-}
-
 impl Client {
-    pub fn models(executable: &Path, cwd: &Path) -> Result<Vec<atlas_agent::AgentModel>, String> {
-        let mut client = Self::connect(executable, cwd)?;
-        let mut models = Vec::new();
-        let mut cursor: Option<String> = None;
-        loop {
-            let result = client.rpc(
-                "model/list",
-                json!({"limit":100,"includeHidden":false,"cursor":cursor}),
-            )?;
-            for model in result["data"].as_array().into_iter().flatten() {
-                if let (Some(id), Some(name)) =
-                    (model["model"].as_str(), model["displayName"].as_str())
-                {
-                    models.push(atlas_agent::AgentModel {
-                        id: id.into(),
-                        name: name.into(),
-                    });
-                }
-            }
-            cursor = result["nextCursor"].as_str().map(str::to_owned);
-            if cursor.is_none() {
-                return Ok(models);
-            }
-        }
-    }
-
     /// Call only on a worker. Authentication belongs to the installed Codex CLI.
     fn connect(executable: &Path, cwd: &Path) -> Result<Self, String> {
+        Self::connect_before(executable, cwd, None)
+    }
+    fn connect_before(
+        executable: &Path,
+        cwd: &Path,
+        deadline: Option<Instant>,
+    ) -> Result<Self, String> {
         let mut command = Command::new(executable);
         command
             .args(["app-server", "--listen", "stdio://"])
@@ -214,6 +108,9 @@ impl Client {
             permissions: TurnPermissions::default(),
             image_dir: None,
             cwd: cwd.to_path_buf(),
+            board_session: None,
+            board_cloud_guard: None,
+            deadline,
         };
         c.rpc("initialize",json!({"clientInfo":{"name":"slate","title":"Slate agent portal","version":"0.1.0"},"capabilities":{"experimentalApi":true}}))?;
         c.write(json!({"method":"initialized","params":{}}))?;
@@ -287,7 +184,30 @@ impl Client {
         Ok(session_from_thread(&value["thread"]))
     }
     pub fn start(executable: &Path, cwd: &Path, thread: Option<&str>) -> Result<Self, String> {
-        let mut c = Self::connect(executable, cwd)?;
+        Self::start_before(executable, cwd, thread, None)
+    }
+    /// Optional overall budget for connection, RPCs and model turns. Ordinary start is unchanged.
+    pub fn start_bounded(
+        executable: &Path,
+        cwd: &Path,
+        thread: Option<&str>,
+        timeout: Duration,
+    ) -> Result<Self, String> {
+        let deadline = Instant::now()
+            .checked_add(timeout)
+            .ok_or("Invalid Codex time budget")?;
+        Self::start_before(executable, cwd, thread, Some(deadline))
+    }
+    fn start_before(
+        executable: &Path,
+        cwd: &Path,
+        thread: Option<&str>,
+        deadline: Option<Instant>,
+    ) -> Result<Self, String> {
+        if deadline.is_some_and(|end| Instant::now() >= end) {
+            return Err("Codex time budget expired before connection.".into());
+        }
+        let mut c = Self::connect_before(executable, cwd, deadline)?;
         let response = c.rpc(
             if thread.is_some() {
                 "thread/resume"
@@ -310,6 +230,11 @@ impl Client {
     }
     pub fn set_approval_dir(&mut self, path: &Path) {
         self.approval_dir = Some(path.to_path_buf());
+    }
+    /// Inject the host's one cloud-placeholder owner. True means bytes must not be read.
+    /// Collaborator tool reads fail closed until this worker-safe callback is installed.
+    pub fn set_board_cloud_guard(&mut self, guard: fn(&Path) -> bool) {
+        self.board_cloud_guard = Some(guard);
     }
     /// Image runs (requests with `image` params) copy pictures here.
     pub fn set_image_dir(&mut self, dir: std::path::PathBuf) {
@@ -334,8 +259,11 @@ impl Client {
         let id = self.next;
         self.next += 1;
         self.write(json!({"id":id,"method":method,"params":params}))?;
-        let deadline = Instant::now() + Duration::from_secs(60);
+        let deadline = capped_deadline(self.deadline, Duration::from_secs(60));
         loop {
+            if Instant::now() >= deadline {
+                return Err(format!("Codex {method}: time budget expired."));
+            }
             let event = self
                 .events
                 .recv_timeout(deadline.saturating_duration_since(Instant::now()))
@@ -352,261 +280,6 @@ impl Client {
     fn decline(&mut self, event: &Value) -> Result<(), String> {
         self.write(json!({"id":event["id"],"error":{"code":-32000,"message":"This provider request type is not supported by Slate."}}))
     }
-
-    pub fn run(
-        &mut self,
-        request: &AgentRequest,
-        session: &mut AgentSession,
-        cancel: &AtomicBool,
-        mut changed: impl FnMut(&AgentSession),
-    ) -> Result<(), String> {
-        if cancel.load(Ordering::Relaxed) {
-            return Err("Codex request cancelled before submission.".into());
-        }
-        session.request = request.id.clone();
-        // A text block or picture run is one-shot: a fresh thread, so earlier
-        // runs never ride along as context.
-        if request.oneshot || request.image.is_some() {
-            let response = self.rpc("thread/start", thread_params(&self.cwd.clone(), None))?;
-            self.thread = response
-                .pointer("/thread/id")
-                .and_then(Value::as_str)
-                .ok_or("Codex did not return a conversation id")?
-                .into();
-            self.permissions = TurnPermissions {
-                own: Permissions::from_thread_response(&response),
-                ..Default::default()
-            };
-        }
-        // An image run asks the built-in image tool for pictures and collects
-        // them from Codex's generated-images folder as they appear.
-        let mut pictures = match (&request.image, &self.image_dir) {
-            (Some(_), Some(dir)) => Some(Pictures::new(&self.thread, dir.clone())),
-            (Some(_), None) => return Err("This image run has no output folder.".into()),
-            _ => None,
-        };
-        let text = if pictures.is_some() {
-            image_turn(request)
-        } else if request.oneshot {
-            oneshot_turn(request)
-        } else {
-            request.input_text_in(self.approval_dir.as_deref())
-        };
-        let mut input = vec![json!({"type":"text","text":text})];
-        let attached: Vec<&String> = if pictures.is_some() {
-            // The source first, then the style reference, as the prompt names them.
-            request
-                .inputs
-                .on(atlas_agent::InputSlot::Media)
-                .chain(request.inputs.on(atlas_agent::InputSlot::Style))
-                .flat_map(|v| v.images.iter())
-                .collect()
-        } else {
-            request
-                .inputs
-                .wired
-                .iter()
-                .flat_map(|v| v.images.iter())
-                .collect()
-        };
-        for path in attached {
-            input.push(json!({"type":"localImage","path":path}));
-        }
-        let restore = self.permissions.next(request.policy, self.full_access);
-        let result = self.rpc(
-            "turn/start",
-            turn_params(
-                &self.thread,
-                input,
-                &request.id,
-                request.model.as_deref(),
-                request.policy,
-                self.full_access,
-                restore.as_ref(),
-            ),
-        )?;
-        let turn = result
-            .pointer("/turn/id")
-            .and_then(Value::as_str)
-            .ok_or("Missing Codex turn id")?
-            .to_string();
-        session.provider = "codex".into();
-        session.conversation = self.thread.clone();
-        session.status = AgentStatus::Thinking;
-        session.turns.push(AgentTurn {
-            role: "user".into(),
-            text: request.prompt.clone(),
-            at: request.at,
-        });
-        let artifact_turn = session.turns.len();
-        let mut indices = BTreeMap::new();
-        let mut interrupted = false;
-        let mut approvals: VecDeque<Value> = VecDeque::new();
-        let mut last = Instant::now() - Duration::from_secs(1);
-        let deadline = Instant::now() + Duration::from_secs(1800);
-        changed(session);
-        loop {
-            if let (Some(event), Some(dir)) = (approvals.front(), self.approval_dir.as_ref()) {
-                let path = dir.join("approval.json");
-                let response = std::fs::read(&path)
-                    .ok()
-                    .and_then(|b| serde_json::from_slice::<Value>(&b).ok());
-                let key = format!("{}:{}", request.id, event["id"]);
-                if let Some(response) = response.filter(|r| r["id"].as_str() == Some(&key)) {
-                    self.write(json!({"id":event["id"],"result":{"decision":if response["allow"]==true {"accept"} else {"decline"}}}))?;
-                    let _ = std::fs::remove_file(path);
-                    approvals.pop_front();
-                    session.approval = None;
-                    changed(session);
-                }
-            }
-            if session.approval.is_none() {
-                if let Some(event) = approvals.front() {
-                    let p = &event["params"];
-                    session.approval = Some(atlas_agent::AgentApproval {
-                        id: format!("{}:{}", request.id, event["id"]),
-                        description: format!(
-                            "{}\n{}",
-                            p["command"].as_str().unwrap_or("File changes"),
-                            p["reason"]
-                                .as_str()
-                                .unwrap_or("The provider requests permission for this action.")
-                        ),
-                    });
-                    changed(session);
-                }
-            }
-            if cancel.load(Ordering::Relaxed) && !interrupted {
-                self.rpc(
-                    "turn/interrupt",
-                    json!({"threadId":self.thread,"turnId":turn}),
-                )?;
-                interrupted = true;
-            }
-            if Instant::now() > deadline {
-                return Err("Codex timed out. Open Codex to inspect the conversation.".into());
-            }
-            if let Some(pictures) = pictures.as_mut() {
-                if pictures.collect(request, session)? {
-                    changed(session);
-                }
-            }
-            let event = if let Some(e) = self.pending.pop_front() {
-                e
-            } else {
-                match self.events.recv_timeout(Duration::from_millis(100)) {
-                    Ok(v) => v?,
-                    Err(mpsc::RecvTimeoutError::Timeout) => continue,
-                    Err(_) => return Err("Codex closed the connection.".into()),
-                }
-            };
-            if event.get("id").is_some() && event.get("method").is_some() {
-                if matches!(
-                    event["method"].as_str(),
-                    Some(
-                        "item/commandExecution/requestApproval" | "item/fileChange/requestApproval"
-                    )
-                ) && self.approval_dir.is_some()
-                {
-                    approvals.push_back(event);
-                } else {
-                    self.decline(&event)?;
-                }
-                continue;
-            }
-            let p = &event["params"];
-            if p.get("threadId")
-                .and_then(Value::as_str)
-                .is_some_and(|id| id != self.thread)
-            {
-                continue;
-            }
-            if p.get("turnId")
-                .and_then(Value::as_str)
-                .is_some_and(|id| id != turn)
-            {
-                continue;
-            }
-            if event["method"] == "item/completed" {
-                collect_artifacts(session, &p["item"], artifact_turn, &turn);
-            }
-            match event["method"].as_str().unwrap_or("") {
-                "item/agentMessage/delta" => {
-                    let id = p["itemId"].as_str().unwrap_or("").to_string();
-                    let index = *indices.entry(id).or_insert_with(|| {
-                        session.turns.push(AgentTurn {
-                            role: "assistant".into(),
-                            text: String::new(),
-                            at: request.at,
-                        });
-                        session.turns.len() - 1
-                    });
-                    session.turns[index]
-                        .text
-                        .push_str(p["delta"].as_str().unwrap_or(""));
-                }
-                "item/completed"
-                    if p.pointer("/item/type").and_then(Value::as_str) == Some("agentMessage") =>
-                {
-                    let id = p
-                        .pointer("/item/id")
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_string();
-                    let index = *indices.entry(id).or_insert_with(|| {
-                        session.turns.push(AgentTurn {
-                            role: "assistant".into(),
-                            text: String::new(),
-                            at: request.at,
-                        });
-                        session.turns.len() - 1
-                    });
-                    if let Some(text) = p.pointer("/item/text").and_then(Value::as_str) {
-                        session.turns[index].text = text.into();
-                    }
-                }
-                "turn/completed"
-                    if p.pointer("/turn/id").and_then(Value::as_str) == Some(turn.as_str()) =>
-                {
-                    session.status = if p.pointer("/turn/status").and_then(Value::as_str)
-                        == Some("failed")
-                    {
-                        AgentStatus::Error(
-                            p.pointer("/turn/error/message")
-                                .and_then(Value::as_str)
-                                .unwrap_or("Codex turn failed")
-                                .into(),
-                        )
-                    } else if interrupted
-                        || p.pointer("/turn/status").and_then(Value::as_str) == Some("interrupted")
-                    {
-                        AgentStatus::Error("Response stopped.".into())
-                    } else {
-                        AgentStatus::Idle
-                    };
-                    if let Some(pictures) = pictures.as_mut() {
-                        pictures.settle();
-                        pictures.collect(request, session)?;
-                        if pictures.found == 0 && session.status == AgentStatus::Idle {
-                            session.status = AgentStatus::Error(
-                                "Codex finished without an image. Check that image generation is enabled for your ChatGPT sign-in.".into(),
-                            );
-                        }
-                    }
-                    session.approval = None;
-                    session.updated_at = now();
-                    changed(session);
-                    return Ok(());
-                }
-                _ => {}
-            }
-            if last.elapsed() >= Duration::from_millis(100) {
-                session.updated_at = now();
-                changed(session);
-                last = Instant::now();
-            }
-        }
-    }
 }
 /// Codex's home, where its built-in image tool saves pictures.
 pub fn codex_home() -> Option<std::path::PathBuf> {
@@ -618,258 +291,6 @@ pub fn codex_home() -> Option<std::path::PathBuf> {
         })
 }
 
-/// The instruction an image run sends. Codex's built-in image tool needs no
-/// API key: it runs under the person's ChatGPT sign-in.
-pub fn image_turn(request: &AgentRequest) -> String {
-    use atlas_agent::{Aspect, InputSlot};
-    let params = request.image.clone().unwrap_or_default();
-    let count = params.images();
-    let has = |slot| request.inputs.on(slot).any(|i| !i.images.is_empty());
-    let (source, style) = (has(InputSlot::Media), has(InputSlot::Style));
-    let shape = match params.aspect {
-        Aspect::Source if source => "the same shape as the source image".to_string(),
-        Aspect::Source => "square".to_string(),
-        aspect => format!("{} (width:height)", aspect.label()),
-    };
-    let roles = match (source, style) {
-        (true, true) => "The first attached image is the source to transform: keep its composition. The second attached image is a style reference only: follow its look, not its subject. ",
-        (true, false) => "Transform the attached image and keep its composition. ",
-        (false, true) => "The attached image is a style reference only: follow its look, not its subject. ",
-        (false, false) => "",
-    };
-    let plural = if count == 1 { "" } else { "s" };
-    let variants = if count > 1 {
-        ", each a distinct variation"
-    } else {
-        ""
-    };
-    format!(
-        "Create {count} image{plural} with your built-in image_gen tool, one image_gen call per image{variants}. Shape: {shape}. {roles}Do not run commands, read or write files, or ask questions: Slate collects the images from Codex's generated images folder. When done, reply with one short line.\n\nImage prompt:\n{}",
-        request.prompt.trim()
-    )
-}
-
-/// The instruction a text block sends through the person's ChatGPT sign-in.
-pub fn oneshot_turn(request: &AgentRequest) -> String {
-    format!(
-        "Answer directly in this reply. Do not run commands, read or write files, or ask questions. Reply with only the requested text: no preamble, no headings, and no closing remarks. Any attached image is the picture the instruction refers to.\n\n{}",
-        request.prompt.trim()
-    )
-}
-
-/// The pictures one image run collects from `generated_images/<thread>`.
-struct Pictures {
-    watch: Option<std::path::PathBuf>,
-    dest: std::path::PathBuf,
-    /// Files present before the run, and files already collected.
-    seen: std::collections::BTreeSet<std::path::PathBuf>,
-    /// A file is taken once its size is the same on two scans.
-    sizes: BTreeMap<std::path::PathBuf, u64>,
-    found: usize,
-    last_scan: Option<Instant>,
-    settled: bool,
-}
-
-impl Pictures {
-    fn new(thread: &str, dest: std::path::PathBuf) -> Self {
-        let watch = codex_home().map(|home| home.join("generated_images").join(thread));
-        let seen = watch.as_deref().map(picture_files).unwrap_or_default();
-        Self {
-            watch,
-            dest,
-            seen: seen.into_iter().collect(),
-            sizes: BTreeMap::new(),
-            found: 0,
-            last_scan: None,
-            settled: false,
-        }
-    }
-
-    /// The turn ended: take every remaining file without waiting a scan.
-    fn settle(&mut self) {
-        self.settled = true;
-    }
-
-    /// Copy newly finished pictures into the album. True when one arrived.
-    fn collect(
-        &mut self,
-        request: &AgentRequest,
-        session: &mut AgentSession,
-    ) -> Result<bool, String> {
-        if !self.settled
-            && self
-                .last_scan
-                .is_some_and(|at| at.elapsed() < Duration::from_millis(250))
-        {
-            return Ok(false);
-        }
-        self.last_scan = Some(Instant::now());
-        let Some(watch) = self.watch.as_deref() else {
-            return Ok(false);
-        };
-        let mut arrived = false;
-        for path in picture_files(watch) {
-            if self.seen.contains(&path) {
-                continue;
-            }
-            let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-            if size == 0 || (!self.settled && self.sizes.insert(path.clone(), size) != Some(size)) {
-                continue;
-            }
-            std::fs::create_dir_all(&self.dest).map_err(|e| e.to_string())?;
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("png");
-            let id = format!("{}-{}", request.id, self.found);
-            let copy = self.dest.join(format!("{id}.{ext}"));
-            std::fs::copy(&path, &copy).map_err(|e| e.to_string())?;
-            self.seen.insert(path);
-            self.found += 1;
-            let vary = request
-                .inputs
-                .on(atlas_agent::InputSlot::Media)
-                .any(|i| !i.images.is_empty());
-            session.bundle.images.push(atlas_agent::ImageOutput {
-                id,
-                source: copy.to_string_lossy().into_owned(),
-                request: request.id.clone(),
-                prompt: request.prompt.clone(),
-                model: request.model.clone().unwrap_or_else(|| "ChatGPT".into()),
-                task: if vary { "vary" } else { "generate" }.into(),
-                live: String::new(),
-            });
-            arrived = true;
-        }
-        Ok(arrived)
-    }
-}
-
-/// Picture files in `dir`, oldest first.
-fn picture_files(dir: &Path) -> Vec<std::path::PathBuf> {
-    let mut files: Vec<_> = std::fs::read_dir(dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter(|e| {
-            e.path()
-                .extension()
-                .and_then(|x| x.to_str())
-                .is_some_and(|x| {
-                    ["png", "webp", "jpg", "jpeg"].contains(&x.to_ascii_lowercase().as_str())
-                })
-        })
-        .map(|e| {
-            let at = e.metadata().and_then(|m| m.modified()).ok();
-            (at, e.path())
-        })
-        .collect();
-    files.sort();
-    files.into_iter().map(|(_, p)| p).collect()
-}
-
-pub fn session_from_thread(thread: &Value) -> AgentSession {
-    let mut session = AgentSession {
-        usage: None,
-        approval: None,
-        conversation: thread["id"].as_str().unwrap_or_default().into(),
-        artifacts: vec![],
-        status: AgentStatus::Idle,
-        provider: "codex".into(),
-        turns: vec![],
-        updated_at: thread["updatedAt"].as_u64().unwrap_or(0),
-        bundle: Default::default(),
-        request: String::new(),
-    };
-    for turn in thread["turns"].as_array().into_iter().flatten() {
-        let mut items = Vec::new();
-        for item in turn["items"].as_array().into_iter().flatten() {
-            match item["type"].as_str().unwrap_or_default() {
-                "userMessage" => {
-                    let text = item["content"]
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .filter_map(|c| c["text"].as_str())
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    session.turns.push(AgentTurn {
-                        role: "user".into(),
-                        text: atlas_agent::display_prompt(&text).into(),
-                        at: 0,
-                    });
-                }
-                "agentMessage" => session.turns.push(AgentTurn {
-                    role: "assistant".into(),
-                    text: item["text"].as_str().unwrap_or_default().into(),
-                    at: 0,
-                }),
-                _ => items.push(item),
-            }
-        }
-        let index = session.turns.len().saturating_sub(1);
-        for item in items {
-            collect_artifacts(
-                &mut session,
-                item,
-                index,
-                turn["id"].as_str().unwrap_or_default(),
-            );
-        }
-    }
-    session
-}
-
-fn collect_artifacts(session: &mut AgentSession, item: &Value, turn: usize, turn_id: &str) {
-    let mut add = |kind, source: &str, title: &str| {
-        session.record_artifact(AgentArtifact {
-            id: format!(
-                "{turn_id}:{}:{source}",
-                item["id"].as_str().unwrap_or_default()
-            ),
-            turn,
-            kind,
-            source: source.into(),
-            title: title.into(),
-        });
-    };
-    match item["type"].as_str().unwrap_or_default() {
-        "fileChange" if item["status"] == "completed" => {
-            for change in item["changes"].as_array().into_iter().flatten() {
-                let kind = match change.pointer("/kind/type").and_then(Value::as_str) {
-                    Some("add") => ArtifactKind::Created,
-                    Some("delete") => ArtifactKind::Deleted,
-                    _ => ArtifactKind::Modified,
-                };
-                if let Some(path) = change["path"].as_str() {
-                    add(kind, path, path);
-                }
-            }
-        }
-        "webSearch" => {
-            if let Some(url) = item.pointer("/action/url").and_then(Value::as_str) {
-                add(ArtifactKind::Web, url, url);
-            }
-            for source in item["sources"].as_array().into_iter().flatten() {
-                if let Some(url) = source["url"].as_str() {
-                    add(
-                        ArtifactKind::Web,
-                        url,
-                        source["title"].as_str().unwrap_or(url),
-                    );
-                }
-            }
-        }
-        "commandExecution" if item["exitCode"].as_i64() == Some(0) => {
-            for action in item["commandActions"].as_array().into_iter().flatten() {
-                if action["type"] == "read" {
-                    if let Some(path) = action["path"].as_str() {
-                        add(ArtifactKind::Read, path, path);
-                    }
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
 fn now() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -877,223 +298,45 @@ fn now() -> u64 {
         .as_secs()
 }
 
+fn capped_deadline(overall: Option<Instant>, budget: Duration) -> Instant {
+    let usual = Instant::now() + budget;
+    overall.map_or(usual, |end| end.min(usual))
+}
+
 #[cfg(test)]
-mod tests {
+mod deadline_tests {
     use super::*;
     #[test]
-    fn history_artifacts_require_successful_structured_results() {
-        let state = session_from_thread(&json!({"id":"existing","turns":[{"id":"t1","items":[
-          {"type":"userMessage","content":[{"text":"Fix the file"}]},
-          {"type":"fileChange","id":"bad","status":"failed","changes":[{"path":"bad.rs","kind":{"type":"update"}}]},
-          {"type":"fileChange","id":"good","status":"completed","changes":[{"path":"good.rs","kind":{"type":"update"}}]},
-          {"type":"commandExecution","id":"read","exitCode":0,"commandActions":[{"type":"read","path":"reference.rs"}]},
-          {"type":"agentMessage","text":"Maybe also edit imaginary.rs"}
-        ]}]}));
-        assert_eq!(state.conversation, "existing");
-        assert_eq!(state.turns.len(), 2);
-        assert_eq!(state.artifacts.len(), 2);
-        assert!(state.artifacts.iter().all(|a| a.turn == 1));
-        assert_eq!(state.artifacts[0].kind, ArtifactKind::Modified);
-        assert_eq!(state.artifacts[1].kind, ArtifactKind::Read);
-    }
-
-    #[test]
-    fn full_access_is_per_turn_and_absent_without_a_grant() {
-        let asks = turn_params(
-            "t",
-            vec![],
-            "r",
-            Some("gpt"),
-            TurnPolicy::Default,
-            false,
+    fn an_expired_budget_fails_without_starting_any_provider_process() {
+        let result = Client::start_bounded(
+            Path::new("not-an-executable"),
+            Path::new("."),
             None,
+            Duration::ZERO,
         );
-        assert!(asks.get("approvalPolicy").is_none());
-        assert!(asks.get("sandboxPolicy").is_none());
-        let full = turn_params(
-            "t",
-            vec![],
-            "r",
-            Some("gpt"),
-            TurnPolicy::Default,
-            true,
-            None,
-        );
-        assert_eq!(full["approvalPolicy"], "never");
-        assert_eq!(full["sandboxPolicy"]["type"], "dangerFullAccess");
-        assert_eq!(full["threadId"], "t");
+        assert!(matches!(result,Err(message) if message.contains("expired before connection")));
+        let expired = Instant::now() - Duration::from_millis(1);
+        assert!(capped_deadline(Some(expired), Duration::from_secs(60)) <= Instant::now());
     }
-
-    /// First hands-on use, 28 September 2026: Codex overrides persist on the
-    /// thread, so a turn after a read-only or full-access turn must put the
-    /// thread's own settings back, or it silently keeps the last override.
     #[test]
-    fn a_turn_after_an_override_restores_the_threads_own_settings() {
-        let own = Permissions::from_thread_response(&json!({
-            "thread": {"id": "t"},
-            "approvalPolicy": "on-request",
-            "sandbox": {"type": "workspaceWrite", "networkAccess": false}
-        }))
-        .expect("the thread reports its settings");
-        let mut turns = TurnPermissions {
-            own: Some(own.clone()),
-            ..Default::default()
-        };
-        let send = |turns: &mut TurnPermissions, policy, full| {
-            let restore = turns.next(policy, full);
-            turn_params("t", vec![], "r", None, policy, full, restore.as_ref())
-        };
-        let first = send(&mut turns, TurnPolicy::Default, false);
-        assert!(
-            first.get("sandboxPolicy").is_none(),
-            "never overridden: nothing sent"
+    fn overall_deadline_can_only_shorten_the_existing_rpc_budget() {
+        let short = Instant::now() + Duration::from_secs(5);
+        assert_eq!(capped_deadline(Some(short), Duration::from_secs(60)), short);
+        let start = Instant::now();
+        let ordinary = capped_deadline(None, Duration::from_secs(60));
+        let after_ordinary = Instant::now();
+        let before_longer = Instant::now();
+        let longer = capped_deadline(
+            Some(start + Duration::from_secs(600)),
+            Duration::from_secs(60),
         );
-        let review = send(&mut turns, TurnPolicy::ReadOnly, false);
-        assert_eq!(review["sandboxPolicy"]["type"], "readOnly");
-        let after_review = send(&mut turns, TurnPolicy::Default, false);
-        assert_eq!(after_review["approvalPolicy"], "on-request");
-        assert_eq!(after_review["sandboxPolicy"], own.sandbox);
-        let steady = send(&mut turns, TurnPolicy::Default, false);
-        assert!(steady.get("sandboxPolicy").is_none(), "restored once");
-        let full = send(&mut turns, TurnPolicy::Default, true);
-        assert_eq!(full["sandboxPolicy"]["type"], "dangerFullAccess");
-        let withdrawn = send(&mut turns, TurnPolicy::Default, false);
-        assert_eq!(
-            withdrawn["approvalPolicy"], "on-request",
-            "withdrawing Full access applies from the next message"
-        );
-
-        let mut unknown = TurnPermissions::default();
-        unknown.next(TurnPolicy::Default, true);
-        assert_eq!(
-            unknown.next(TurnPolicy::Default, false),
-            Some(Permissions::provider_default()),
-            "a thread that did not report its settings falls back to asking"
-        );
-        assert_eq!(
-            Permissions::from_thread_response(&json!({
-                "approvalPolicy": "never",
-                "sandbox": "read-only"
-            }))
-            .map(|p| p.sandbox),
-            Some(json!({"type": "readOnly"}))
-        );
-        assert_eq!(
-            Permissions::from_thread_response(&json!({"thread": {}})),
-            None
-        );
-    }
-
-    #[test]
-    fn a_read_only_turn_is_sandboxed_and_outranks_full_access() {
-        for full_access in [false, true] {
-            let own = Permissions::provider_default();
-            let p = turn_params(
-                "t",
-                vec![],
-                "r",
-                None,
-                TurnPolicy::ReadOnly,
-                full_access,
-                Some(&own),
-            );
-            assert_eq!(p["approvalPolicy"], "never");
-            assert_eq!(
-                p["sandboxPolicy"],
-                json!({"type": "readOnly"}),
-                "{full_access}"
-            );
-            assert_eq!(p["clientUserMessageId"], "r");
-        }
-    }
-
-    #[test]
-    fn thread_configuration_preserves_provider_permissions() {
-        for id in [None, Some("portal-owned")] {
-            let p = thread_params(Path::new("C:/project"), id);
-            assert!(p.get("sandbox").is_none());
-            assert!(p.get("approvalPolicy").is_none());
-            assert!(p.get("developerInstructions").is_none());
-            assert_eq!(p.get("threadId").and_then(Value::as_str), id);
-        }
-    }
-
-    #[test]
-    #[ignore = "spends one ChatGPT image through the installed, signed-in Codex; set CODEX_BIN"]
-    fn live_image_run_collects_a_chatgpt_picture() {
-        let exe = std::path::PathBuf::from(std::env::var_os("CODEX_BIN").expect("CODEX_BIN"));
-        let dir = std::env::temp_dir().join(format!("atlas-codex-live-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let mut client = Client::start(&exe, &dir, None).unwrap();
-        client.set_image_dir(dir.join("out"));
-        let request: AgentRequest = serde_json::from_value(json!({
-            "id": "live-image", "prompt": "a small blue sphere on a plain white background", "at": 0,
-            "image": {"count": 1, "aspect": "square"},
-            "inputs": {"revision": "1", "context": [], "wired": []}
-        }))
-        .unwrap();
-        let mut session = session_from_thread(&json!({}));
-        let started = Instant::now();
-        client
-            .run(&request, &mut session, &AtomicBool::new(false), |_| {})
-            .unwrap();
-        eprintln!("{:?} in {:?}", session.status, started.elapsed());
-        assert_eq!(session.status, AgentStatus::Idle);
-        assert_eq!(session.bundle.images.len(), 1);
-        assert!(Path::new(&session.bundle.images[0].source).is_file());
-        eprintln!("{}", session.bundle.images[0].source);
-    }
-
-    #[test]
-    fn an_image_run_names_count_shape_and_roles_and_collects_finished_files() {
-        let request: AgentRequest = serde_json::from_value(json!({
-            "id": "run", "prompt": "a timber pavilion at dusk", "at": 0,
-            "image": {"count": 3, "aspect": "wide"},
-            "inputs": {"revision": "1", "context": [], "wired": [
-                {"node": 1, "text": "", "images": ["hall.png"], "slot": "media"},
-                {"node": 2, "text": "", "images": ["monet.jpg"], "slot": "style"}
-            ]}
-        }))
-        .unwrap();
-        let text = image_turn(&request);
-        assert!(text.contains("Create 3 images"));
-        assert!(text.contains("16:9"));
-        assert!(text.contains("second attached image is a style reference"));
-        assert!(text.ends_with("a timber pavilion at dusk"));
-
-        let root =
-            std::env::temp_dir().join(format!("atlas-codex-pictures-{}", std::process::id()));
-        let (watch, dest) = (root.join("thread"), root.join("out"));
-        std::fs::create_dir_all(&watch).unwrap();
-        std::fs::write(watch.join("old.png"), b"old").unwrap();
-        let mut pictures = Pictures {
-            watch: Some(watch.clone()),
-            dest: dest.clone(),
-            seen: picture_files(&watch).into_iter().collect(),
-            sizes: BTreeMap::new(),
-            found: 0,
-            last_scan: None,
-            settled: false,
-        };
-        let mut session = session_from_thread(&json!({}));
-        std::fs::write(watch.join("new.png"), b"picture").unwrap();
-        assert!(
-            !pictures.collect(&request, &mut session).unwrap(),
-            "waits one scan"
-        );
-        pictures.last_scan = None;
-        assert!(pictures.collect(&request, &mut session).unwrap());
-        assert_eq!(
-            session.bundle.images.len(),
-            1,
-            "files from before the run stay out"
-        );
-        assert_eq!(session.bundle.images[0].task, "vary");
-        assert!(dest.join("run-0.png").is_file());
-        std::fs::write(watch.join("last.png"), b"late").unwrap();
-        pictures.settle();
-        assert!(pictures.collect(&request, &mut session).unwrap());
-        assert_eq!(session.bundle.images.len(), 2);
-        let _ = std::fs::remove_dir_all(root);
+        let after_longer = Instant::now();
+        assert!(ordinary >= start + Duration::from_secs(60));
+        assert!(ordinary <= after_ordinary + Duration::from_secs(60));
+        assert!(longer >= before_longer + Duration::from_secs(60));
+        assert!(longer <= after_longer + Duration::from_secs(60));
     }
 }
+
+#[cfg(test)]
+mod tests;

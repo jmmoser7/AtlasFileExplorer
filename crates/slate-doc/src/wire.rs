@@ -19,6 +19,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use vector_ink::rails::{nested_rails, ConnectionZone, LaneSpacing};
 
+#[path = "wire_scene_route.rs"]
+mod scene_route;
+pub use scene_route::{
+    connector_aabb, connector_aabb_routed, connector_route_in_scene,
+    connector_route_in_scene_with_hosts, scene_wire_hosts,
+};
+
 /// Authored connector routing. The session preference is only the creation
 /// default and a fallback for legacy connectors without an explicit route.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -371,16 +378,6 @@ fn end_world(scene: &Scene, end: &ConnectorEnd) -> [f32; 2] {
     }
 }
 
-/// Visible-node host lookup for both interpreters.
-pub fn scene_wire_hosts(scene: &Scene) -> impl Fn(NodeId) -> Option<WireHost> + '_ {
-    |id| {
-        scene
-            .node(id)
-            .filter(|n| !n.hidden)
-            .map(WireHost::from_node)
-    }
-}
-
 /// Derived curve for the current routing. `None` when an anchored node is
 /// missing from `host_of`.
 pub fn connector_route(
@@ -399,26 +396,6 @@ pub fn connector_route(
     }
 }
 
-/// Scene-aware route: looks up hosts, obstacles, and the bundle lane for
-/// `connector_id` so sibling orthogonal wires stay spaced.
-pub fn connector_route_in_scene(
-    scene: &Scene,
-    connector_id: Option<NodeId>,
-    a: &ConnectorEnd,
-    b: &ConnectorEnd,
-    routing: WireRouting,
-) -> Option<ConnectorPath> {
-    let obstacles = scene_wire_obstacles(scene);
-    let lane = match (routing, connector_id) {
-        (WireRouting::Orthogonal, Some(id)) => scene_ortho_lanes(scene)
-            .get(&id)
-            .copied()
-            .unwrap_or_default(),
-        _ => OrthoLane::default(),
-    };
-    connector_route(a, b, scene_wire_hosts(scene), routing, &obstacles, lane)
-}
-
 fn connector_bezier_hosted(
     a: &ConnectorEnd,
     b: &ConnectorEnd,
@@ -429,25 +406,6 @@ fn connector_bezier_hosted(
     let chord = sub(p3, p0);
     let (dir_a, dir_b) = connector_end_dirs(dir_a, dir_b, chord);
     Some(connector_bezier_from_dirs(p0, dir_a, p3, dir_b))
-}
-
-/// AABB of the derived route (connector `Node.rect` stays equal to this).
-pub fn connector_aabb_routed(
-    conn: &ConnectorNode,
-    host_of: impl Fn(NodeId) -> Option<WireHost>,
-    routing: WireRouting,
-    obstacles: &[WireObstacle],
-    lane: OrthoLane,
-) -> Option<WorldRect> {
-    connector_route(
-        &conn.a,
-        &conn.b,
-        host_of,
-        conn.effective_routing(routing),
-        obstacles,
-        lane,
-    )
-    .map(|p| p.aabb())
 }
 
 /// Orthogonal path that leaves each end along the host outward (true

@@ -1,6 +1,5 @@
 //! Bumper cars (`docs/keymap/contracts/bumper-cars.md`): an opt-in node
 //! property that makes shapes and sticky notes push each other.
-//!
 //! The property is authored and journaled. Motion is not: a drag and the
 //! glide after release are solved here, deterministically, and the app
 //! journals only where bodies come to rest (Art. VI.3). Contact geometry is
@@ -569,6 +568,7 @@ mod tests {
         let text = |fill| {
             NodeKind::Text(scene::TextNode {
                 text: "hi".into(),
+                style: Default::default(),
                 family: Default::default(),
                 size: 16.0,
                 color: Rgba([0, 0, 0, 255]),

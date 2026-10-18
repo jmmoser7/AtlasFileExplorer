@@ -320,10 +320,10 @@ fn bezier_escape_with_one_anchor_cancels() {
     assert_eq!(h.app.tab().journal.undo_depth(), depth);
 }
 
-/// P1.wire.ports: open shapes offer no wire ports and are not wire targets;
-/// a closed polyline keeps its ports.
+/// P1.wire.ports: curves offer no new ports; rectangles still start wires,
+/// and an open curve remains excluded as a new connection target.
 #[test]
-fn open_shapes_offer_no_wire_ports_while_a_closed_polyline_keeps_them() {
+fn curves_offer_no_wire_ports_while_a_rectangle_keeps_them() {
     let mut h = line_board("open_shape_ports");
     h.app.tab_mut().cam.z = 1.0;
     h.app.board_osnap.enabled = false;
@@ -367,15 +367,19 @@ fn open_shapes_offer_no_wire_ports_while_a_closed_polyline_keeps_them() {
     }
 
     let closed_node = h.app.doc().scene.node(closed).unwrap().clone();
-    let ports = h.app.wire_host(&closed_node).ports();
-    assert_eq!(ports.len(), 3, "a closed polyline keeps its ports");
+    assert!(
+        h.app.wire_host(&closed_node).ports().is_empty(),
+        "closed curves expose no new ports"
+    );
+    let rectangle = add_rect(&mut h.app, 600.0, 0.0);
+    let node = h.app.doc().scene.node(rectangle).unwrap().clone();
+    let ports = h.app.wire_host(&node).ports();
+    assert_eq!(ports.len(), 4, "a rectangle keeps its cardinal ports");
     for port in &ports {
         let screen = xf.w2s(Pos2::new(port.point[0], port.point[1]));
         assert_eq!(
             h.app.wire_grip_at(screen, &xf).map(|g| g.0),
-            Some(closed),
-            "closed polyline {:?}",
-            port.side
+            Some(rectangle)
         );
     }
 
@@ -383,7 +387,7 @@ fn open_shapes_offer_no_wire_ports_while_a_closed_polyline_keeps_them() {
     let mut wd = h
         .app
         .try_begin_wire_drag(xf.w2s(start), start, egui::Modifiers::NONE)
-        .expect("a closed polyline still starts a wire");
+        .expect("a rectangle starts a wire");
     h.app.wire_drag_update(&mut wd, open_pts[1], false);
     assert!(
         wd.snap.is_none_or(|(id, _, _)| id != open),

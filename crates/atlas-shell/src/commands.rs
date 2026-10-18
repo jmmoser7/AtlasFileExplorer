@@ -247,13 +247,20 @@ pub fn shortcuts_reference_ui(ui: &mut Ui, entries: &[CommandEntry], source_hint
                     ui.label(egui::RichText::new(entry.category).small().strong());
                     last_category = entry.category;
                 }
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new(entry.name).small().color(name_color));
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(
-                            egui::RichText::new(entry.binding)
-                                .small()
-                                .color(binding_color),
+                ui.columns(2, |columns| {
+                    columns[0].add(
+                        egui::Label::new(egui::RichText::new(entry.name).small().color(name_color))
+                            .wrap(),
+                    );
+                    columns[1].with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(entry.binding)
+                                    .small()
+                                    .color(binding_color),
+                            )
+                            .wrap()
+                            .halign(egui::Align::RIGHT),
                         );
                     });
                 });
@@ -265,6 +272,101 @@ pub fn shortcuts_reference_ui(ui: &mut Ui, entries: &[CommandEntry], source_hint
 mod tests {
     use super::{pan_delta_through_chrome, step_pan_latch};
     use eframe::egui::Vec2;
+
+    #[test]
+    fn shortcuts_reference_wraps_long_rows_without_expanding_the_window() {
+        use super::{shortcuts_reference_ui, CommandEntry};
+        use eframe::egui::{self, pos2, vec2, Rect};
+
+        const LONG_BINDING: &str = concat!(
+            "Drag images onto the frame and keep each source.  ",
+            "Drag images onto the frame and keep each source.  ",
+            "Drag images onto the frame and keep each source.  ",
+            "Drag images onto the frame and keep each source.  ",
+            "Drag images onto the frame and keep each source.  ",
+            "Drag images onto the frame and keep each source.  ",
+            "Drag images onto the frame and keep each source.  ",
+            "Drag images onto the frame and keep each source.  ",
+            "Drag images onto the frame and keep each source.  ",
+            "Drag images onto the frame and keep each source.  ",
+        );
+        let entries = [
+            CommandEntry { category: "Board", name: "Save", binding: "Ctrl+S" },
+            CommandEntry {
+                category: "Board",
+                name: "Organize the selected image references into presentation frames while preserving their authorship and source links",
+                binding: LONG_BINDING,
+            },
+        ];
+        let ctx = egui::Context::default();
+        let viewport = Rect::from_min_size(egui::Pos2::ZERO, vec2(400.0, 900.0));
+        let mut window = Rect::NOTHING;
+        let mut content = Rect::NOTHING;
+        let mut last = None;
+        for _ in 0..3 {
+            let output = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(viewport),
+                    ..Default::default()
+                },
+                |ctx| {
+                    window = egui::Window::new("Advanced commands width regression")
+                        .fixed_pos(pos2(12.0, 12.0))
+                        .resizable(false)
+                        .collapsible(false)
+                        .show(ctx, |ui| {
+                            ui.set_width(340.0);
+                            content = ui.max_rect();
+                            shortcuts_reference_ui(ui, &entries, "commands.rs");
+                        })
+                        .unwrap()
+                        .response
+                        .rect;
+                },
+            );
+            last = Some(output);
+        }
+        assert!(
+            viewport.contains_rect(window),
+            "window escaped its viewport: {window:?}"
+        );
+        assert!(
+            window.width() <= 360.0,
+            "long text widened the window: {window:?}"
+        );
+        let output = last.unwrap();
+        let text = |expected: &str| {
+            output
+                .shapes
+                .iter()
+                .find_map(|shape| match &shape.shape {
+                    egui::Shape::Text(text) if text.galley.text() == expected => Some(text),
+                    _ => None,
+                })
+                .expect("the full command text is painted")
+        };
+        for expected in [entries[1].name, LONG_BINDING, "Ctrl+S"] {
+            let painted = text(expected);
+            let bounds = painted.galley.rect.translate(painted.pos.to_vec2());
+            assert!(
+                !painted.galley.elided,
+                "command text must never be truncated"
+            );
+            assert!(
+                bounds.left() >= content.left() - 1.0 && bounds.right() <= content.right() + 1.0,
+                "text escaped its bounded column: {bounds:?} in {content:?}"
+            );
+        }
+        assert!(text(LONG_BINDING).galley.rows.len() > 1);
+        assert!(text(entries[1].name).galley.rows.len() > 1);
+        let short = text("Ctrl+S");
+        let right = short.pos.x + short.galley.rect.right();
+        assert_eq!(short.galley.job.halign, egui::Align::RIGHT);
+        assert!(
+            (content.right() - right).abs() <= 20.0,
+            "short binding lost right alignment"
+        );
+    }
 
     #[test]
     fn palette_hover_pans_when_the_canvas_did_not_receive_the_drag() {

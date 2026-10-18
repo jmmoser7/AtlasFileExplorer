@@ -296,9 +296,9 @@ fn escape_restores_a_picked_end_condition() {
     assert_eq!(h.app.tab().journal.undo_depth(), depth);
 }
 
-/// One end picked, the row reads per end ("Arrow here") and has no "Narrow
-/// at both ends"; both ends picked, it sets both. The conditions survive
-/// save and reload.
+/// One end picked, the row reads per end ("Arrow here"); both ends picked,
+/// it sets both. Square, Round and Arrow are offered (user, 15 October
+/// 2026); the conditions survive save and reload.
 #[test]
 fn both_picked_ends_take_the_condition_and_survive_save() {
     use board_tip_hud::choice_label;
@@ -316,21 +316,20 @@ fn both_picked_ends_take_the_condition_and_survive_save() {
         .map(|c| choice_label(*c, false))
         .collect();
     assert!(labels.contains(&"Arrow here"), "{labels:?}");
+    assert_eq!(labels.len(), 3, "flat, round and arrow only");
     assert!(!labels.contains(&"Narrow at both ends"), "{labels:?}");
 
     press_primary(&mut h, xf.w2s(pts[1]), egui::Modifiers::SHIFT);
     assert_eq!(h.app.picked_vertices(), Some((id, vec![0, 1])));
-    hud_row_release(&mut h, away, 3);
+    hud_row_release(&mut h, away, 1);
     let s = stroke_of(&h, id);
-    assert!(
-        matches!(s.profile, WidthProfile::Ends { .. }),
-        "{:?}",
-        s.profile
-    );
+    assert_eq!(s.profile, WidthProfile::Uniform);
+    assert_eq!(s.arrows(), [false; 2]);
     assert_eq!(s.end_caps(), [StrokeCap::Round; 2]);
     hud_row_release(&mut h, away, 2);
     let s = stroke_of(&h, id);
     assert_eq!(s.arrows(), [true, true]);
+    assert_eq!(s.end_caps(), [StrokeCap::Butt; 2]);
     assert_eq!(s.profile, WidthProfile::Uniform);
 
     press_primary(&mut h, xf.w2s(pts[1]), egui::Modifiers::NONE);
@@ -338,6 +337,7 @@ fn both_picked_ends_take_the_condition_and_survive_save() {
     let s = stroke_of(&h, id);
     assert_eq!(s.arrows(), [true, false], "the start keeps its arrow");
     assert_eq!(s.end_caps(), [StrokeCap::Butt, StrokeCap::Round]);
+    assert_eq!(s.profile, WidthProfile::Uniform);
 
     let path = h.base.join("end-conditions.slate");
     let tab_id = h.app.tab().id;

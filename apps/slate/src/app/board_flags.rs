@@ -3,7 +3,7 @@
 //! is normative; all flag changes are ordinary journaled Patches (Art. VI).
 
 use super::SlateApp;
-use eframe::egui::{self, Rect, Vec2};
+use eframe::egui;
 use slate_doc::scene::{GroupKey, Node, Scene};
 use slate_doc::NodeId;
 use std::collections::{HashMap, HashSet};
@@ -218,61 +218,63 @@ impl SlateApp {
         }
     }
 
-    /// Right-click on empty board: "Show all hidden (n)" / "Unlock all (n)"
-    /// — discoverability for states with no visible objects. Only opened
-    /// when a count is nonzero (see the open site in `board.rs`).
+    /// Empty-canvas settings plus discoverability for hidden/locked objects.
     pub(crate) fn board_empty_canvas_menu(&mut self, ctx: &egui::Context) {
+        self.canvas_wire_settings_ui(ctx);
         let Some(pos) = self.board_empty_menu else {
             return;
         };
         let (hidden, locked) = self.hidden_locked_counts();
-        if hidden == 0 && locked == 0 {
-            self.board_empty_menu = None;
-            return;
-        }
         let mut close = false;
         let mut dismiss = false;
-        egui::Area::new(egui::Id::new("slate_board_empty_menu"))
+        let metrics = crate::app::board::board_menu::layout().metrics;
+        let dark = self.dark_mode;
+        let menu_rect = egui::Area::new(egui::Id::new("slate_board_empty_menu"))
             .fixed_pos(pos)
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
-                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    ui.set_min_width(170.0);
-                    if hidden > 0
-                        && ui
-                            .button(format!("Show all hidden ({hidden})  (Ctrl+Shift+H)"))
+                metrics.frame(dark).show(ui, |ui| {
+                    metrics.prepare(ui, dark);
+                    for entry in crate::app::board::board_menu::entries("canvas") {
+                        use atlas_shell::menu::{MenuIcon, Row};
+                        let (icon, label, shortcut) = match entry {
+                            "board.wire.canvas" => {
+                                (MenuIcon::Settings, "Canvas wire settings…".into(), "")
+                            }
+                            "board.show_all" if hidden > 0 => (
+                                MenuIcon::View,
+                                format!("Show all hidden ({hidden})"),
+                                "Ctrl+Shift+H",
+                            ),
+                            "board.unlock_all" if locked > 0 => (
+                                MenuIcon::Lock,
+                                format!("Unlock all ({locked})"),
+                                "Ctrl+Shift+L",
+                            ),
+                            _ => continue,
+                        };
+                        if metrics
+                            .row(ui, Row::new(icon, &label).shortcut(shortcut), dark)
                             .clicked()
-                    {
-                        self.dispatch(
-                            ctx,
-                            atlas_commands::CommandId("board.show_all"),
-                            Some("menu".into()),
-                        );
-                        close = true;
-                    }
-                    if locked > 0
-                        && ui
-                            .button(format!("Unlock all ({locked})  (Ctrl+Shift+L)"))
-                            .clicked()
-                    {
-                        self.dispatch(
-                            ctx,
-                            atlas_commands::CommandId("board.unlock_all"),
-                            Some("menu".into()),
-                        );
-                        close = true;
+                        {
+                            self.dispatch(
+                                ctx,
+                                atlas_commands::CommandId(entry),
+                                Some("menu".into()),
+                            );
+                            close = true;
+                        }
                     }
                 });
-            });
-        ctx.input(|i| {
-            if i.pointer.any_pressed() {
-                if let Some(p) = i.pointer.interact_pos() {
-                    let near = Rect::from_min_size(pos, Vec2::new(220.0, 90.0)).expand(8.0);
-                    if !near.contains(p) {
-                        dismiss = true;
-                    }
-                }
-            }
+            })
+            .response
+            .rect;
+        ctx.input(|input| {
+            dismiss = input.pointer.any_pressed()
+                && input
+                    .pointer
+                    .interact_pos()
+                    .is_some_and(|p| !menu_rect.expand(4.0).contains(p));
         });
         if close || dismiss {
             self.board_empty_menu = None;

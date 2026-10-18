@@ -1,0 +1,16 @@
+{
+  "id": "org.slate.mock-editor",
+  "title": "Application connector conformance fixture",
+  "contract": "program",
+  "contract_version": 1,
+  "install_note": "Development fixture only; not a machine registration or launch instruction.",
+  "probe": { "kind": "custom", "id": "org.slate.mock-editor" },
+  "application": {
+    "protocol": "slate.application",
+    "versions": [{ "major": 0, "minor": 1 }],
+    "registration": "org.slate.mock-editor",
+    "facets": ["Spatial3D"],
+    "extensions": ["fixture"],
+    "capabilities": ["lifecycle", "sources", "commands", "views", "capture", "publication"]
+  }
+}

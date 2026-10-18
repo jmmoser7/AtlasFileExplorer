@@ -156,6 +156,7 @@ impl StrokeSpec {
             gaussian_blur: 0.0,
             arrow_end: false,
             arrow_start: false,
+            arrow_sizes: [None; 2],
             cap_start: None,
             cap_end: None,
             texture: Default::default(),

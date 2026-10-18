@@ -9,6 +9,9 @@ use slate_doc::{ItemId, NodeId, SlateDoc};
 
 use crate::ExportOptions;
 
+mod snippet;
+pub use snippet::read_snippet;
+
 /// Max characters excerpted from a text file into its snippet card.
 const SNIPPET_MAX_CHARS: usize = 1200;
 /// Max lines excerpted from a text file into its snippet card.
@@ -143,13 +146,13 @@ pub fn build_assets(
 
     let copy_file =
         |path: &Path, assets_dir_ready: &mut bool, copied: &mut usize| -> io::Result<String> {
-            refuse_machine_private(path)?;
+            atlas_core::workbook_assets::require_local_source(path)?;
             if !*assets_dir_ready {
                 fs::create_dir_all(&assets_dir)?;
                 *assets_dir_ready = true;
             }
             let file_name = asset_file_name(path);
-            fs::copy(path, assets_dir.join(&file_name))?;
+            atlas_core::workbook_assets::copy_file(path, &assets_dir.join(&file_name))?;
             *copied += 1;
             Ok(format!("assets/{file_name}"))
         };
@@ -272,23 +275,19 @@ pub fn build_assets(
                 // a poster when the caller supplied one.
                 missing += 1;
             } else if source.exists() {
-                if !assets_dir_ready {
-                    fs::create_dir_all(&assets_dir)?;
-                    assets_dir_ready = true;
-                }
                 let dir_name = format!("web-{}", node.id.0);
                 let dest = assets_dir.join(&dir_name);
                 let entry = if source.is_dir() {
                     let entry = portal.web_ref().entry;
-                    copy_tree(source, &dest, &mut copied)?;
+                    copied += atlas_core::workbook_assets::copy_tree(source, &dest)?;
                     format!("assets/{dir_name}/{entry}")
                 } else {
-                    fs::create_dir_all(&dest)?;
                     let file_name = asset_file_name(source);
-                    fs::copy(source, dest.join(&file_name))?;
+                    atlas_core::workbook_assets::copy_file(source, &dest.join(&file_name))?;
                     copied += 1;
                     format!("assets/{dir_name}/{file_name}")
                 };
+                assets_dir_ready = true;
                 map.web_pages.insert(
                     node.id.0,
                     WebAsset {
@@ -319,81 +318,11 @@ pub fn build_assets(
     })
 }
 
-/// Copy a dashboard folder whole: its entry file is useless without the
-/// scripts, styles, and data files beside it.
-fn refuse_machine_private(path: &Path) -> io::Result<()> {
-    if atlas_core::secrets::is_machine_private(path) {
-        Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "refusing to package machine sign-in state",
-        ))
-    } else {
-        Ok(())
-    }
-}
-
-fn copy_tree(from: &Path, to: &Path, copied: &mut usize) -> io::Result<()> {
-    refuse_machine_private(from)?;
-    fs::create_dir_all(to)?;
-    for entry in fs::read_dir(from)? {
-        let entry = entry?;
-        let target = to.join(entry.file_name());
-        if entry.file_type()?.is_dir() {
-            copy_tree(&entry.path(), &target, copied)?;
-        } else {
-            refuse_machine_private(&entry.path())?;
-            fs::copy(entry.path(), target)?;
-            *copied += 1;
-        }
-    }
-    Ok(())
-}
-
 fn data_uri(path: &Path) -> io::Result<String> {
-    refuse_machine_private(path)?;
+    atlas_core::workbook_assets::require_local_source(path)?;
     let bytes = fs::read(path)?;
     let mime = mime_for_path(path);
     Ok(format!("data:{mime};base64,{}", base64_encode(&bytes)))
-}
-
-/// First ~[`SNIPPET_MAX_CHARS`] chars / [`SNIPPET_MAX_LINES`] lines of a text
-/// file. Word, Excel, OpenDocument, RTF, and Outlook messages are extracted
-/// first; their raw bytes are not the excerpt. `None` if unreadable or empty. Public so the
-/// live board renders the *same* excerpt the artifact will.
-pub fn read_snippet(path: &Path) -> Option<String> {
-    if slate_doc::media::structured_text_package(path) {
-        return atlas_core::office::document_excerpt(path).and_then(|text| clamp_snippet(&text));
-    }
-    let bytes = fs::read(path).ok()?;
-    // Read a bounded prefix; 4x chars is enough for any UTF-8 encoding.
-    let prefix_len = bytes.len().min(SNIPPET_MAX_CHARS * 4);
-    let text = String::from_utf8_lossy(&bytes[..prefix_len]);
-    clamp_snippet(&text)
-}
-
-fn clamp_snippet(text: &str) -> Option<String> {
-    let mut out = String::new();
-    let mut chars = 0usize;
-    let mut lines = 1usize;
-    for ch in text.chars() {
-        if ch == '\n' {
-            lines += 1;
-            if lines > SNIPPET_MAX_LINES {
-                break;
-            }
-        }
-        out.push(ch);
-        chars += 1;
-        if chars >= SNIPPET_MAX_CHARS {
-            break;
-        }
-    }
-    let out = out.trim_end().to_string();
-    if out.is_empty() {
-        None
-    } else {
-        Some(out)
-    }
 }
 
 /// Unique `(item, path)` pairs placed on the board, in deterministic order.
@@ -529,59 +458,6 @@ mod tests {
             );
             assert_eq!(media_kind(&path), MediaKind::Text, "{ext}");
         }
-    }
-
-    #[test]
-    fn docx_snippet_is_the_document_text() {
-        let dir = std::env::temp_dir().join(format!(
-            "slate-docx-snippet-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("note.docx");
-        let file = fs::File::create(&path).unwrap();
-        let mut zip = zip::ZipWriter::new(file);
-        let opts = zip::write::SimpleFileOptions::default();
-        zip.start_file("word/document.xml", opts).unwrap();
-        use std::io::Write;
-        zip.write_all(
-            br#"<w:document><w:body><w:p><w:r><w:t>Quarterly note</w:t></w:r></w:p></w:body></w:document>"#,
-        )
-        .unwrap();
-        zip.finish().unwrap();
-        assert_eq!(read_snippet(&path).as_deref(), Some("Quarterly note"));
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn snippet_clamps_chars_and_lines() {
-        let dir = std::env::temp_dir().join(format!(
-            "slate-snippet-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        fs::create_dir_all(&dir).unwrap();
-
-        let long = dir.join("long.txt");
-        fs::write(&long, "x".repeat(SNIPPET_MAX_CHARS * 3)).unwrap();
-        let s = read_snippet(&long).unwrap();
-        assert_eq!(s.chars().count(), SNIPPET_MAX_CHARS);
-
-        let many_lines = dir.join("lines.txt");
-        fs::write(&many_lines, "line\n".repeat(200)).unwrap();
-        let s = read_snippet(&many_lines).unwrap();
-        assert!(s.lines().count() <= SNIPPET_MAX_LINES);
-
-        let empty = dir.join("empty.txt");
-        fs::write(&empty, "  \n ").unwrap();
-        assert!(read_snippet(&empty).is_none());
-
-        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]

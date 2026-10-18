@@ -227,6 +227,78 @@ fn a_quick_alt_right_click_types_the_brush_size_and_esc_restores() {
 }
 
 #[test]
+fn numeric_dismissal_double_click_does_not_finish_an_armed_bezier_span() {
+    let mut h = board("numeric_bezier_dismiss_double", BoardTool::BezierSpan);
+    let (a, b) = (Pos2::ZERO, Pos2::new(120.0, 40.0));
+    click(&mut h, a);
+    click(&mut h, b);
+    pause(&mut h);
+    click(&mut h, b);
+    assert!(
+        h.app.bezier_double_click_finishes(),
+        "the anchor edit leaves the draft eligible for a real finish double-click"
+    );
+    let before = bezier_draft(&h);
+    let depth = undo_depth(&h);
+    pause(&mut h);
+    let at = screen(&h, Pos2::new(300.0, 200.0));
+    quick_click(&mut h, ALT, at);
+    assert!(h.app.tip_numeric_open(), "real numeric chrome is open");
+
+    let at_anchor = screen(&h, b);
+    h.frame_with(|input| {
+        input.events.push(egui::Event::PointerMoved(at_anchor));
+        input.events.push(button(
+            at_anchor,
+            PointerButton::Primary,
+            true,
+            Modifiers::NONE,
+        ));
+    });
+    assert!(
+        !h.app.tip_numeric_open(),
+        "the outside press closes the numeric editor"
+    );
+    assert!(
+        h.app.tip_numeric_eats(),
+        "its press remains owned by numeric chrome"
+    );
+    assert!(
+        h.app.board_align_eat_press,
+        "ownership reaches the board release gate"
+    );
+    h.frame_with(|input| {
+        input.events.push(button(
+            at_anchor,
+            PointerButton::Primary,
+            false,
+            Modifiers::NONE,
+        ));
+    });
+    assert!(
+        h.ctx
+            .input(|input| input.pointer.button_double_clicked(PointerButton::Primary)),
+        "exercise an actual double-click release while the drawing tool remains armed"
+    );
+    assert!(
+        !h.app.board_align_eat_press,
+        "the release clears its ownership"
+    );
+    h.frame();
+    assert_eq!(
+        bezier_draft(&h),
+        before,
+        "numeric dismissal cannot finish or edit anchors"
+    );
+    assert!(h.app.doc().scene.nodes.is_empty(), "no path was committed");
+    assert_eq!(undo_depth(&h), depth, "no document mutation was journaled");
+    assert_eq!(h.app.board_tool, BoardTool::BezierSpan);
+    assert!(h.app.board_drag.is_none());
+    assert!(!h.app.palette_state.open);
+    assert!(!h.app.tip_numeric_eats());
+}
+
+#[test]
 fn a_quick_alt_right_click_types_a_lines_width_as_one_undo_step() {
     let mut h = board("numeric_line", BoardTool::Line);
     click(&mut h, Pos2::new(0.0, 0.0));

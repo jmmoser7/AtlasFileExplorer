@@ -65,10 +65,9 @@ fn a_rectangle_corner_click_picks_it_and_alt_sizes_only_that_corner() {
     assert_eq!(closed_tips(&h, id, 4), tips, "redo");
 }
 
-/// A press-drag on a rectangle corner still resizes it (rectangle resize
-/// is approved behavior); only a click without travel picks the corner.
+/// Moving an individual rectangle corner promotes it to a closed Path.
 #[test]
-fn a_rectangle_corner_drag_still_resizes() {
+fn a_rectangle_corner_drag_promotes_it_to_a_closed_path() {
     use slate_doc::scene::ShapeKind;
     let (mut h, id, v) = closed_form_board("closed_rect_resize", ShapeKind::Rect);
     let rect0 = h.app.doc().scene.node(id).unwrap().rect;
@@ -89,6 +88,8 @@ fn a_rectangle_corner_drag_still_resizes() {
         (rect.h - (rect0.h + 30.0)).abs() < 1.0,
         "{rect:?} from {rect0:?}"
     );
+    assert_eq!(shape_kind_of(&h, id), ShapeKind::Path);
+    h.app.board_undo();
     assert_eq!(shape_kind_of(&h, id), ShapeKind::Rect);
 }
 
@@ -332,11 +333,11 @@ fn a_nested_styled_rectangle_with_the_host_id_keeps_its_own_paint_path() {
 }
 
 /// Shape-selection-toolbar D13: only a painted path-edit grip (a curve
-/// anchor, a handle knob, or a line end point) wins a press under a strip
-/// button. A rectangle corner under the strip's bottom edge (zoomed out)
-/// leaves the button its click.
+/// anchor, a handle knob, a line endpoint, or a primitive vertex) wins a
+/// press under a strip button. A rectangle corner under the below-strip
+/// top edge (zoomed out) keeps its vertex pick.
 #[test]
-fn a_strip_button_over_a_rectangle_corner_keeps_its_click() {
+fn a_rectangle_vertex_under_a_strip_button_keeps_its_pick() {
     use slate_doc::scene::ShapeKind;
     let (mut h, id, _) = closed_form_board("closed_rect_strip_corner", ShapeKind::Rect);
     h.app.tab_mut().cam.z = 0.4;
@@ -349,7 +350,7 @@ fn a_strip_button_over_a_rectangle_corner_keeps_its_click() {
         h.frame();
     }
     let xf = h.app.board_xf();
-    let corner = xf.w2s(Pos2::new(c.x - 20.0, c.y - 90.0));
+    let corner = xf.w2s(Pos2::new(c.x - 20.0, c.y + 90.0));
     let press = h
         .app
         .shape_properties
@@ -360,16 +361,20 @@ fn a_strip_button_over_a_rectangle_corner_keeps_its_click() {
         .expect("a strip button reaches the corner");
     assert_eq!(
         h.app.hovered_vertex(press),
-        Some((id, 0)),
+        Some((id, 3)),
         "the press is within the corner's hit radius"
     );
     let depth = h.app.tab().journal.undo_depth();
     press_primary(&mut h, press, egui::Modifiers::NONE);
     assert!(
-        h.app.shape_properties.panel.is_some(),
-        "the button opened its panel"
+        h.app.shape_properties.panel.is_none(),
+        "the vertex keeps its press over a strip button"
     );
-    assert_eq!(h.app.picked_vertices(), None, "the corner was not picked");
+    assert_eq!(
+        h.app.picked_vertices(),
+        Some((id, vec![3])),
+        "the corner was picked"
+    );
     assert_eq!(h.app.tab().journal.undo_depth(), depth);
 }
 
@@ -433,14 +438,14 @@ fn a_grip_pick_closes_a_strip_panel_it_no_longer_offers() {
 #[test]
 fn a_grip_pick_keeps_a_stroke_panel_that_is_still_offered() {
     let mut h = bezier_board("grip_pick_keeps_stroke");
-    let (id, [_, b, c]) = closed_bezier(&mut h);
+    let (id, [a, b, _]) = closed_bezier(&mut h);
     let xf = h.app.board_xf();
     press_primary(&mut h, xf.w2s(b), egui::Modifiers::NONE);
     assert_eq!(h.app.picked_vertices(), Some((id, vec![1])));
     h.app.shape_properties.panel = Some(board_properties::Panel::Stroke);
     h.frame();
     h.frame();
-    let press = xf.w2s(c);
+    let press = xf.w2s(a);
     assert!(
         !h.app
             .shape_properties
@@ -453,7 +458,7 @@ fn a_grip_pick_keeps_a_stroke_panel_that_is_still_offered() {
     for _ in 0..3 {
         h.frame();
     }
-    assert_eq!(h.app.picked_vertices(), Some((id, vec![2])));
+    assert_eq!(h.app.picked_vertices(), Some((id, vec![0])));
     assert_eq!(
         h.app.shape_properties.panel,
         Some(board_properties::Panel::Stroke),
@@ -467,7 +472,7 @@ fn a_grip_pick_keeps_a_stroke_panel_that_is_still_offered() {
 #[test]
 fn a_grip_press_commits_a_pending_stroke_preview_once() {
     let mut h = bezier_board("grip_press_commits_stroke");
-    let (id, [_, b, c]) = closed_bezier(&mut h);
+    let (id, [a, b, _]) = closed_bezier(&mut h);
     let xf = h.app.board_xf();
     press_primary(&mut h, xf.w2s(b), egui::Modifiers::NONE);
     assert_eq!(h.app.picked_vertices(), Some((id, vec![1])));
@@ -478,11 +483,11 @@ fn a_grip_press_commits_a_pending_stroke_preview_once() {
     let depth = h.app.tab().journal.undo_depth();
     h.app
         .preview_shape_property(board_properties::Property::StrokeWidth(14.0));
-    press_primary(&mut h, xf.w2s(c), egui::Modifiers::NONE);
+    press_primary(&mut h, xf.w2s(a), egui::Modifiers::NONE);
     for _ in 0..3 {
         h.frame();
     }
-    assert_eq!(h.app.picked_vertices(), Some((id, vec![2])));
+    assert_eq!(h.app.picked_vertices(), Some((id, vec![0])));
     assert_eq!(
         h.app.tab().journal.undo_depth(),
         depth + 1,

@@ -7,6 +7,11 @@ than building an app-specific approximation.
 
 ## Scope and ownership
 
+The alignment widget is the existing screen-space exception in its
+[contract](../../docs/keymap/contracts/align-widget.md). Its compact T-shaped
+clusters, theme surfaces and arrow glyphs are owned by
+`selection_tools::alignment`; apps supply command identities and journal edits.
+
 These editors belong to selected canvas objects. Dock pinning, stacked
 inspector forms, Minimize/Drop controls, and dock viewport layout are governed
 separately by [DOCK.md](DOCK.md) and [TOOLBARS.md](TOOLBARS.md); they are not
@@ -28,13 +33,113 @@ defaults for object-property editors.
 - [desktop_color.rs](src/desktop_color.rs) owns the desktop sampler;
   [vector-ink](../vector-ink/DESIGN.md) owns curve and stroke quality.
 
+### Image-specific presentation
+
+17 October refinement: P1.wire.flow-datum owns fixed top-spaced generative
+ports. P1.image.notch gives the collapsed selected host a shallow 20-unit
+cutout centered on the host bottom datum, with 84-unit soft shoulder runs. The
+shared silhouette owns clipping, exterior stroke and shadow for eligible Image,
+3D, Video, document and rectangular portal hosts. In the expanded dropdown,
+retain the original 40-unit band and natural width fully inside the host;
+wireframe icons overlay the host image without a cutout, using the shared
+palette keyline from `icons::paint_on_media` for contrast. The mesh assigns
+foreground and keyline materials to disjoint vector regions, then applies
+caller opacity and fade once across their shared outer coverage fringe. The solid apron
+remains below the host. Side-port radial clearance is 2 units, half the prior
+4-unit gap, with the 6-unit disc unchanged. See revision r2 in
+`design/media-ui-2026-10-17/metrics.json`; original references remain historical.
+Generated thumbnail action menus and batch naming reuse shared shell
+selection/menu controls; the app supplies stable result identity and performs
+clipboard/save work. Expanded history and collapsed thumbnails share the
+P1.generator.results interaction owner.
+Result action menus constrain their body to the shared menu width token;
+generative output discs use the theme's blue link and link-hover slots.
+
+Viewport capture keeps temporary cutouts and controls outside the recorded
+pixels by reusing the existing external squircle row. The app's capture owner
+decides when pixel acquisition owns a viewport; normal fit policy returns
+afterward. Capture retains the full viewport and authored content.
+
+15 October refinements: `blister_fits` is the sole geometry policy for the
+external squircle fallback. Its full collapsed tab footprint must cover at most 20%
+of the host, and the collapsed natural width must fit the host's flat lower edge.
+Use one eligibility result in both open and closed states, based on the full
+collapsed footprint, so zoom or dropdown state cannot change the decision. Agent PortalNode tools always use external squircles; generated
+image cards continue to follow the image policy. Once image and Prompt inputs
+are explicitly wired, the blister offers Generate directly, reusing the
+same Play/count-hover owner as its expanded editor.
+
+Image selection keeps the image naked at rest; the application owns when the
+editor is visible. When open, `selection_tools::image_presentation_layout`
+places a compact color datum directly below the image and the main field
+below it for Fill and Stroke. Brush places its parameter strip before the
+color datum. Other panels place their own controls
+directly below the image and reserve no empty color strip. The shared shell paints the full-width blister with `paint_image_blister`.
+Collapsed mode uses a 40-unit band centered on the host bottom datum (20 units
+above and below), with its seven bare glyphs centered on that edge. Expanded
+mode keeps the original 40-unit band fully inside the host and overlays bare
+glyphs on the image without a cutout. The silhouette calls the
+same `tabs::paint_tab_bubble` owner as the dock and top bar. The blister has no framed icon buttons: use
+bare shared glyphs, color dots, rails, and the existing shared editor controls.
+Its sides continue the image edges. The tab shoulders slope across their full
+height with coverage antialiasing. While attached, `image_frame_geometry` joins
+the model outline to the apron: the authored frame stroke follows this exterior,
+without a line across the join. Single rectangular selections use only the soft
+drop shadow; multi-selection outlines remain outside the assembly and authored
+stroke. This temporary chrome does not
+change the authored image shape or export (P1.image.frame). The datum,
+field, tab, and editor all follow P0.9 and pan and zoom with the image.
+
+11 October live-use refinement (tab backing superseded by P1.image.notch): image-body clicks, hosted strokes and image
+dragging retain the editor; a click outside the image and its controls dismisses
+it. In collapsed mode, the shallow notch reveals the actual backdrop and wires;
+no canvas-colored patch fills it. Opening the dropdown restores a full host
+image beneath naked glyphs and removes the cutout. The editor apron below the
+host stays solid. This state split is the 17 October r2 refinement.
+Each icon owns its own hit region: the clear gaps remain available for painting.
+The apron below the photograph remains solid `Palette::card`, with a stronger
+bottom edge and soft shadow, in both themes. The active image has a broad blurred
+shadow painted beneath its content. These shadows are interaction chrome only;
+their meshes are cached by geometry, theme and display scale. The executable
+surface and shadow constants live in `selection_tools::image_surface`.
+
+`ImagePanelKind::Color` supplies a pure layout for the gradient and three
+rails (four for Stroke); narrow layouts stack them and wide layouts place the
+gradient right of an equal-height rail stack. Responsive mode is derived from
+image width and aspect in board units. The remaining kinds cover Filters, Layers,
+Corners, Crop, Brush, and a board-unit Custom height, so app integrations use
+the same surface geometry. The layout owns no app values or
+visibility and does not replace `ColorState`, filter recipes, layer metadata,
+or journal handling. Brush shares the three-rail color layout, with Size,
+Softness, Opacity, texture, active layer and Brush/Lasso actions in its top
+parameter strip. `image_color_editor` consumes this layout while reusing
+the existing color textures, rails, eyedropper gesture, recent-color behavior,
+and RGB editing. `FilterCapsuleStyle::ImageWithIntensity` and
+`ImageChipsOnly` reuse the existing filter radio and slider semantics without
+painting a nested capsule; `image_layer_palette` does the same for layer
+circles, Add, then a long opacity rail/value. The image Layers row has no
+recent-color dots. The technical color datum hosts the
+eyedropper, six recent color dots, and underlined RGB percentages for color
+editing.
+
+The [settled image parity brief](../../docs/keymap/specs/image-workflow-visual-parity.md)
+links the approved references and defines the shallow field proportions,
+alignment, image-specific glyphs, Generator prompt and verification targets.
+
 ## Spatial composition
 
-The selection strip sits directly above the selected object or selection
-bounds. Its one active editor opens further upward, away from the strip and
-object. Preserve a clear gap; crossing that gap must not dismiss the editor.
-The strip remains horizontal above rotated selection bounds; dimension
-stringers follow the object's measured local axes.
+The selection strip sits below the selected object or selection bounds,
+following the actual silhouette with clearance for its full width; concave
+notches are supported. Its active editor opens upward, away from the strip
+and object. Preserve a clear gap; crossing that gap must not dismiss the editor.
+The strip remains horizontal below rotated selection bounds; dimension
+stringers follow the object's measured local axes and refresh during live
+geometry changes. A horizontal stringer uses a 68-unit lane (`STRINGER_GAP +
+OBJECT_GAP + BUTTON_SIZE`), leaving 24 units beyond the icon strip; a vertical
+stringer keeps its 24-unit lane. For polygons the strip uses the actual rotated outline
+bounds, keeping the shared gap from the visible shape. P1.shape.properties
+owns grip priority over strip/stringer presses and oriented numeric-label
+hit regions; closed-form seam vertices follow the same rule.
 
 Layout is in board units. The host, strip, panel, text, spacing, borders,
 handles, and hit regions share the camera transform. Pan and zoom move and
@@ -56,6 +161,8 @@ Popups draw above all canvas chrome: every editor, menu, dropdown, and
 readout opened from the strip paints and takes the pointer on `POPUP_ORDER`
 through `popup_area`, above stringers, the strip, grips, and nodes
 (`CANVAS_CHROME_ORDER`).
+Their complete visible Area retains pointer ownership outside the attached
+apron, including during its reveal; apron clipping never trims popup hit regions.
 
 Keep the composition shallow and restrained: thin outlines, quiet surfaces,
 and minimal chrome. Use **squircles for property icon buttons**, matching the
@@ -64,19 +171,13 @@ they do not change the icon-button silhouette. Dimensions stay outside the
 toolbar. Do not add a title/header block, a permanent Apply/Cancel footer,
 or stock stacked form rows to these compact editors.
 
-Opening any adjustment icon fades the selection tint, outline, and endpoint
-grips fully out so the authored fill, stroke, and geometry remain visible.
-Hover decoration must not paint over that preview. Keep the property strip,
-editor, and dimension stringers visible; keep the objects selected. Switching
-editors keeps the highlights hidden. Closing or cancelling restores them.
-Use the shared `selection_painter` transition (`SELECTION_FADE_SECONDS`,
-currently 120 ms), without changing document opacity or creating an undo step.
-
-Named exception: the Text editor (typeface, justification, height, color)
-on a selection of text nodes keeps the outline. It changes the glyphs, not
-the box, so the person keeps seeing which box they are editing while the
-pointer is on the strip or the editor. Fill, Stroke, and the other editors
-on the same text still fade it.
+Opening a property palette on one selected node suppresses its selection
+tint, outline, endpoint grips, and dimension stringers while keeping the node
+selected and its property controls visible, including for Text. Multi-selection
+keeps each object's highlight and stringers. Switching palettes preserves this
+presentation; closing or cancelling restores single-node decoration. Use the
+shared `selection_painter` transition (`SELECTION_FADE_SECONDS`, currently
+120 ms), without changing document opacity or creating an undo step.
 
 ## Fill and Stroke
 
@@ -330,11 +431,33 @@ access) and Start or Done at the right end. No header or footer. A crosswire
 offers no Stroke editor: its red is its meaning. Square or curved routing is
 an action row in the capsule, running the board's routing command.
 
-## Agent editor and album index (24 September 2026)
+## Agent editors and album index
+
+Image and Artifact generators share `selection_tools::generator`; image-only
+controls remain in `agent_image`. One measured composition drives height and
+painting. Model and Settings form a bounded group; history uses the datum's
+free lane when it fits, with a separate row only when needed. Overflow keeps
+Earlier/Later navigation usable; a selected-only chip must never hide history.
+History adapters borrow indexed data; only visible entries and previews are fetched.
+An idle prompt begins 6 board units after the datum. Empty rows reserve no height or gaps. Prompt
+height uses measured world-space wrapping and the existing
+[Generator proportions](../../docs/keymap/specs/image-workflow-visual-parity.md#generator--owner-c),
+then scrolls at the line cap. Measurement and editing follow P0.9, including
+focus and overflow. Busy, error and approval feedback follows P1.generator.
+Activity has one summary/fold header, followed by its disclosed content. The
+model picker shows current values first, then opens choices in the same popup
+with Back; quick return restores its page. Full access retains its red treatment.
+Busy hosts retain a subtle
+perimeter pulse when deselected. Editor/dropdown recovery follows
+P1.shape.properties.palette-return; do not add a capability-local timer or menu
+state copy. Activity stays bounded and separate from Memory and checkpoints.
+Shared generator/prompt/menu regression tests pin these rules; native checks
+must exercise attached editors, including long menus at viewport edges and
+activity chevrons after scrolling, not just standalone fixture panels.
 
 The Agent squircle (robot glyph, `Icon::Agent`) appears on a single selected
-picture, video, 3D model, text document, note or generated frame. Its editor
-is `selection_tools::agent_editor`, `AGENT_HEIGHT` tall on the shared panel:
+picture, video, 3D model, text document, note or generated frame. Other agent
+contexts use `selection_tools::agent_editor`, `AGENT_HEIGHT` tall:
 
 1. A default-capsule row: the mode segments, then the model menu
    (`capsule_menu`), which lists the local default first. The caller passes

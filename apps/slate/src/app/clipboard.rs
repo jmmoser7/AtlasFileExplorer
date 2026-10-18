@@ -1,19 +1,7 @@
-//! Board clipboard: copy / cut / paste of scene nodes, and paste of an image
-//! or files copied outside Slate.
-//!
-//! Node payload is plain `Vec<Node>` JSON (the same serde model the `.slate`
-//! file uses), kept app-internally *and* put on the OS clipboard under
-//! Slate's own registered format, so selections round-trip between tabs and
-//! Slate instances. The same clipboard write offers other apps something they
-//! can paste: copied pictures as a bitmap as shown (CF_DIBV5 and PNG) plus
-//! their linked files, anything else as plain text, never the JSON. Slate's
-//! own format is read before any of those on paste. A copied image
-//! (screenshot, "Copy image") or a file list from elsewhere is not that
-//! payload: those land as board items, the same intake as a drop. All
-//! mutations go through the
-//! journal (Constitution Art. VI): cut = one Remove group, paste = one Add
-//! group. The pasted bitmap is a file the workbook links to, never bytes
-//! stored in the `.slate` (Art. IX).
+//! Slate clipboard: scene-node JSON for in-app copy/paste, plus an OS bitmap,
+//! linked files, or plain text for other apps. Outside images and file lists
+//! use the same intake as drops. Cut and paste are journaled; pasted bitmaps
+//! are linked files, never bytes stored in the workbook (Constitution VI/IX).
 //!
 //! Connector rules (`docs/keymap/specs/constraints.md` §3):
 //! - connectors whose *both* anchored ends are inside the selection ride
@@ -22,22 +10,21 @@
 //!   degrades to `Free` at its current world point (resolved at copy time,
 //!   when the source scene is still available).
 
+use super::SlateApp;
+
 #[path = "clipboard_render.rs"]
 mod clipboard_render;
-
-use super::SlateApp;
+#[path = "clipboard_offer.rs"]
+mod offer;
+use clipboard_render::{copy_picture_path, encode_dibv5};
 use eframe::egui::Pos2;
 use slate_doc::scene::{ConnectorEnd, GroupKey, Node, NodeKind, Scene, WireDisplay};
 use slate_doc::{connector_anchor_on, WireHost};
 use slate_doc::{NodeId, SlateDoc};
 use std::collections::{HashMap, HashSet};
-#[cfg(windows)]
-use std::path::Path;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-
-pub(crate) use clipboard_render::{copy_picture_path, encode_dibv5, render_pictures};
 
 /// Slate's own clipboard format: the node payload JSON.
 #[cfg_attr(any(test, not(windows)), allow(dead_code))]
@@ -48,10 +35,8 @@ const PASTE_STEP: f32 = 24.0;
 
 // ---------- pure payload / remap logic (unit-tested) ----------
 
-/// Build the clipboard payload for `selected` out of `scene`: the selected
-/// nodes in z-order, plus unselected connectors whose both anchored ends are
-/// selected. Anchored ends leaving the payload become `Free` at their
-/// current world point.
+/// Selected nodes in z-order, plus connectors whose anchored ends are both selected.
+/// Anchored ends leaving the payload become `Free` at their current world point.
 pub fn clipboard_payload(scene: &Scene, selected: &HashSet<NodeId>) -> Vec<Node> {
     let in_set = |end: &ConnectorEnd| match end {
         ConnectorEnd::Anchored { node, .. } => selected.contains(node),
@@ -197,6 +182,7 @@ pub(crate) fn clipboard_text_fallback(
         .filter_map(|n| match &n.kind {
             NodeKind::Text(t) => Some(t.text.as_str()),
             NodeKind::Shape(s) => s.text.as_ref().map(|t| t.body.as_str()),
+            NodeKind::Image(image) => image.text_override.as_deref(),
             _ => None,
         })
         .map(str::trim)
@@ -261,9 +247,9 @@ struct ClipboardJob {
     text: Option<String>,
     pictures: Vec<Node>,
     files: Vec<PathBuf>,
-    workbook: Option<PathBuf>,
     /// Only the items the pictures and their paint layers link to.
     doc: SlateDoc,
+    workbook: Option<PathBuf>,
 }
 
 /// The OS-clipboard side of copy: which write is newest, and whether it has
@@ -333,7 +319,8 @@ impl OsClipboard {
 }
 
 fn render_clipboard(job: ClipboardJob) -> ClipboardWrite {
-    let bitmap = render_pictures(&job.doc, job.workbook.as_deref(), &job.pictures);
+    let bitmap =
+        clipboard_render::render_pictures(&job.doc, job.workbook.as_deref(), &job.pictures);
     ClipboardWrite {
         png: bitmap.as_ref().and_then(|b| {
             atlas_core::clipboard_image::encode_png(b.width(), b.height(), b.as_raw())
@@ -361,17 +348,21 @@ impl SlateApp {
         }
         // A picture an agent makes copies as the picture it shows, alone.
         for node in &mut payload {
-            let NodeKind::Image(img) = &node.kind else {
+            let NodeKind::Image(_) = &node.kind else {
                 continue;
             };
-            if img.agent.is_none() {
-                continue;
+            if let Some(display) = self.image_for_selected_result(node.id) {
+                if let NodeKind::Image(img) = &mut node.kind {
+                    img.paint_layers = display.paint_layers;
+                    img.result_layers.clear();
+                }
             }
-            let item = if img.item.is_none() {
-                self.agent_shown_path(node.id)
-                    .and_then(|path| self.item_for_path(&path))
-            } else {
-                Some(img.item)
+            let item = match &node.kind {
+                NodeKind::Image(img) if img.agent.is_some() && img.item.is_none() => self
+                    .agent_shown_path(node.id)
+                    .and_then(|path| self.item_for_path(&path)),
+                NodeKind::Image(img) if img.agent.is_some() => Some(img.item),
+                _ => None,
             };
             if let (Some(item), NodeKind::Image(img)) = (item, &mut node.kind) {
                 img.item = item;
@@ -383,63 +374,6 @@ impl SlateApp {
         self.board_clipboard = payload;
         self.board_paste_count = 0;
         n
-    }
-
-    /// One OS clipboard write for a copy: Slate's node format, plus a bitmap
-    /// and file list for pictures or plain text for anything else.
-    fn offer_os_clipboard(&mut self, ctx: &eframe::egui::Context, payload: &[Node]) {
-        let doc = self.doc();
-        let workbook = self.tab().path.clone();
-        let picture_paths: Vec<Option<PathBuf>> = payload
-            .iter()
-            .map(|n| copy_picture_path(doc, workbook.as_deref(), n))
-            .collect();
-        let is_picture = |node: &Node| {
-            payload
-                .iter()
-                .position(|n| n.id == node.id)
-                .is_some_and(|i| picture_paths[i].is_some())
-        };
-        let text = clipboard_text_fallback(payload, is_picture);
-        if !cfg!(windows) {
-            if let Some(text) = &text {
-                ctx.copy_text(text.clone());
-            }
-        }
-        let Ok(nodes_json) = serde_json::to_string(payload) else {
-            return;
-        };
-        let (pictures, files) = if text.is_none() {
-            (
-                payload.to_vec(),
-                picture_paths.into_iter().flatten().collect(),
-            )
-        } else {
-            (Vec::new(), Vec::new())
-        };
-        let mut wanted = HashSet::new();
-        let mut stack: Vec<&Node> = pictures.iter().collect();
-        while let Some(node) = stack.pop() {
-            if let NodeKind::Image(img) = &node.kind {
-                wanted.insert(img.item);
-                stack.extend(img.paint_layers.iter().flat_map(|l| l.nodes.iter()));
-            }
-        }
-        let mut job_doc = SlateDoc::new("clipboard");
-        job_doc.items = doc
-            .items
-            .iter()
-            .filter(|item| wanted.contains(&item.id))
-            .cloned()
-            .collect();
-        self.os_clipboard.submit(ClipboardJob {
-            nodes_json,
-            text,
-            pictures,
-            files,
-            workbook,
-            doc: job_doc,
-        });
     }
 
     /// Ctrl+V from Slate's own clipboard format. `None` when the clipboard
@@ -510,16 +444,31 @@ impl SlateApp {
             }
             None => (0.0, 0.0),
         };
-        let nodes = {
+        let mut nodes = {
             let scene = &mut self.doc_mut().scene;
             // Scene id/key allocation stays inside the scene: build a probe
             // node per fresh id so ids can never collide with existing ones.
-            let mut fresh_ids: Vec<NodeId> = Vec::with_capacity(payload.len());
-            for _ in 0..payload.len() {
+            let mut stack: Vec<&Node> = payload.iter().collect();
+            let mut count = 0;
+            while let Some(node) = stack.pop() {
+                count += 1;
+                if let NodeKind::Image(image) = &node.kind {
+                    stack.extend(
+                        image
+                            .paint_layers
+                            .iter()
+                            .chain(image.result_layers.iter().flat_map(|result| &result.layers))
+                            .flat_map(|layer| layer.nodes.iter()),
+                    );
+                }
+            }
+            let mut fresh_ids: Vec<NodeId> = Vec::with_capacity(count);
+            for _ in 0..count {
                 let probe = scene.build_node(
                     slate_doc::scene::WorldRect::new(0.0, 0.0, 1.0, 1.0),
                     NodeKind::Text(slate_doc::scene::TextNode {
                         text: String::new(),
+                        style: Default::default(),
                         family: Default::default(),
                         size: 1.0,
                         color: slate_doc::scene::Rgba::opaque(0, 0, 0),
@@ -534,12 +483,16 @@ impl SlateApp {
             let mut ids = fresh_ids.into_iter();
             remap_for_paste(
                 &payload,
-                move || ids.next().expect("one fresh id per payload node"),
+                move || {
+                    ids.next()
+                        .expect("one fresh id per node, including paint children")
+                },
                 || scene.alloc_group_key(),
                 dx,
                 dy,
             )
         };
+        self.keep_external_chat_hosts(&mut nodes, &payload);
         // A copied context card leaves its provenance wire behind, so the
         // paste is an ordinary board node.
         let nodes: Vec<_> = nodes
@@ -666,35 +619,12 @@ impl SlateApp {
         }
         let placed = match media {
             OsPaste::Files(paths) => self.ingest_dropped_paths(paths, at, false, None),
-            OsPaste::Png(bytes) => match self.write_pasted_png(&bytes) {
-                Some(path) => self.ingest_dropped_paths(vec![path], at, false, None),
-                None => {
-                    self.toast("Couldn't save the pasted image.");
-                    return false;
-                }
-            },
+            OsPaste::Png(bytes) => self.place_pasted_png(&bytes, at),
         };
         if !placed {
             self.toast("Couldn't place what was on the clipboard.");
         }
         placed
-    }
-
-    /// A pasted bitmap has no source file. Write one beside a saved workbook
-    /// (or under app data until the workbook has a folder) and link to it.
-    #[cfg(windows)]
-    fn write_pasted_png(&self, png: &[u8]) -> Option<PathBuf> {
-        if png.is_empty() || !atlas_core::clipboard_image::png_within_limits(png) {
-            return None;
-        }
-        let dir = atlas_core::workbook_assets::paste_dir(
-            self.tab().path.as_deref(),
-            &atlas_core::index::data_dir(),
-        );
-        std::fs::create_dir_all(&dir).ok()?;
-        let path = unique_paste_path(&dir);
-        std::fs::write(&path, png).ok()?;
-        Some(path)
     }
 
     /// Rising edge of Ctrl+V (Shift selects paste-in-place). egui does not
@@ -703,14 +633,15 @@ impl SlateApp {
         #[cfg(windows)]
         {
             let held = paste_chord_held();
-            let down = held.is_some();
-            if !focused {
-                self.paste_chord_down = down;
-                return None;
-            }
-            let edge = down && !self.paste_chord_down;
-            self.paste_chord_down = down;
-            edge.then(|| held.unwrap_or(false))
+            // egui owns text pastes, including Slate selections with a text
+            // fallback. Its Paste event may arrive a frame after this poll;
+            // emitting both is two journal commits for one physical chord.
+            paste_fallback_edge(
+                &mut self.paste_chord_down,
+                held,
+                focused,
+                clipboard_has_text(),
+            )
         }
         #[cfg(not(windows))]
         {
@@ -720,25 +651,29 @@ impl SlateApp {
     }
 }
 
+#[cfg(any(windows, test))]
+fn paste_fallback_edge(
+    was_down: &mut bool,
+    held: Option<bool>,
+    focused: bool,
+    has_text: bool,
+) -> Option<bool> {
+    let edge = held.is_some() && !*was_down;
+    *was_down = held.is_some();
+    (focused && edge && !has_text).then(|| held.unwrap_or(false))
+}
+
+#[cfg(windows)]
+fn clipboard_has_text() -> bool {
+    use windows::Win32::System::DataExchange::IsClipboardFormatAvailable;
+    // CF_UNICODETEXT; querying offered formats does not open the clipboard.
+    unsafe { IsClipboardFormatAvailable(13).is_ok() }
+}
+
 #[cfg(windows)]
 enum OsPaste {
     Files(Vec<PathBuf>),
     Png(Vec<u8>),
-}
-
-#[cfg(windows)]
-fn unique_paste_path(dir: &Path) -> PathBuf {
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    let mut path = dir.join(format!("paste-{stamp}.png"));
-    let mut n = 1u32;
-    while path.exists() && n < 100 {
-        path = dir.join(format!("paste-{stamp}-{n}.png"));
-        n += 1;
-    }
-    path
 }
 
 /// One clipboard line that names a file: a Windows path, or a `file://` URL.
@@ -915,6 +850,50 @@ fn paste_chord_held() -> Option<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn text_paste_has_one_owner_even_when_the_platform_event_arrives_later() {
+        let mut down = false;
+        // Native polling sees the press before egui delivers the text event.
+        assert_eq!(
+            paste_fallback_edge(&mut down, Some(false), true, true),
+            None
+        );
+        assert_eq!(
+            paste_fallback_edge(&mut down, Some(false), true, true),
+            None
+        );
+        // Releasing before the queued Paste event does not create a fallback.
+        assert_eq!(paste_fallback_edge(&mut down, None, true, true), None);
+        // A second real text paste still belongs to egui.
+        assert_eq!(paste_fallback_edge(&mut down, Some(true), true, true), None);
+    }
+
+    #[test]
+    fn bitmap_paste_fires_once_per_press_and_never_on_focus_regain() {
+        let mut down = false;
+        assert_eq!(
+            paste_fallback_edge(&mut down, Some(false), true, false),
+            Some(false)
+        );
+        assert_eq!(
+            paste_fallback_edge(&mut down, Some(false), true, false),
+            None
+        );
+        assert_eq!(paste_fallback_edge(&mut down, None, true, false), None);
+        assert_eq!(
+            paste_fallback_edge(&mut down, Some(true), true, false),
+            Some(true)
+        );
+        assert_eq!(paste_fallback_edge(&mut down, None, false, false), None);
+        assert_eq!(
+            paste_fallback_edge(&mut down, Some(false), false, false),
+            None
+        );
+        assert_eq!(
+            paste_fallback_edge(&mut down, Some(false), true, false),
+            None
+        );
+    }
     use slate_doc::scene::{ConnectorNode, Side, Stroke, TextNode, WireDisplay, WorldRect};
 
     fn text_node(scene: &mut Scene, x: f32, y: f32) -> Node {
@@ -922,6 +901,7 @@ mod tests {
             WorldRect::new(x, y, 100.0, 50.0),
             NodeKind::Text(TextNode {
                 text: "t".into(),
+                style: Default::default(),
                 family: Default::default(),
                 size: 12.0,
                 color: slate_doc::scene::Rgba::opaque(0, 0, 0),

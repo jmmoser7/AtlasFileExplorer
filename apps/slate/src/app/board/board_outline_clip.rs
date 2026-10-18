@@ -15,7 +15,11 @@ pub(super) fn paint_clipped_galley(
     for row in &galley.rows {
         let mut mesh = row.visuals.mesh.clone();
         for v in &mut mesh.vertices {
-            v.pos += pos.to_vec2();
+            v.pos = rotate_points(
+                &[v.pos + pos.to_vec2()],
+                xf.rect_w2s(node.rect).center(),
+                node.rotation_deg,
+            )[0];
         }
         // Keep triangles whose centroid lies inside the clip (world).
         let mut kept = Vec::new();

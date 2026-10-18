@@ -87,7 +87,26 @@ fn a_pasted_image_resolves_as_a_generator_input() {
         }
     });
     let request = h.app.generation_request(generator, false).unwrap();
-    let image = request
+    // Request construction captures references without doing image work on
+    // the frame thread. Assert the pixels the real queue dispatches after its
+    // bounded preparation worker has completed.
+    h.app.enqueue_generation(generator, request);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while h.app.agents.dispatched.is_empty() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "cropped input was not dispatched"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        h.app.pump_comfy_queue();
+    }
+    let image = h
+        .app
+        .agents
+        .dispatched
+        .last()
+        .unwrap()
+        .1
         .inputs
         .on(atlas_agent::InputSlot::Media)
         .next()

@@ -60,12 +60,12 @@ contains = "Color32::from_rgba_premultiplied(r, g, b, a)"
 reason = "ink mesh premultiplied colour math"
 
 [[entry]]
-file = "apps/slate/src/app/board_tip_hud.rs"
+file = "apps/slate/src/app/board_tip_hud/palette.rs"
 contains = "Color32::from_rgb(c[0], c[1], c[2])"
 reason = "active brush colour preview on tip palette"
 
 [[entry]]
-file = "apps/slate/src/app/board_web_win.rs"
+file = "apps/slate/src/app/board_web_win/readback.rs"
 contains = "Color32::from_rgba_premultiplied(p[2], p[1], p[0], p[3])"
 reason = "Win32 BGRA pixel decode"
 

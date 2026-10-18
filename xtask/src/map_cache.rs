@@ -2,7 +2,6 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::time::UNIX_EPOCH;
 
 use serde::{Deserialize, Serialize};
 
@@ -15,7 +14,7 @@ pub(crate) type EntryStore = BTreeMap<String, CacheEntry>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct CacheEntry {
-    mtime: u64,
+    fingerprint: u64,
     size: u64,
     lines: usize,
     purpose: String,
@@ -53,21 +52,20 @@ pub fn save(root: &Path, entries: &EntryStore) -> Result<(), MetricsError> {
     std::fs::write(&path, text).map_err(|e| MetricsError::io(&path, e))
 }
 
-fn stamp(path: &Path) -> Option<(u64, u64)> {
-    let meta = std::fs::metadata(path).ok()?;
-    let mtime = meta
-        .modified()
-        .ok()?
-        .duration_since(UNIX_EPOCH)
-        .ok()?
-        .as_secs();
-    Some((mtime, meta.len()))
+fn fingerprint(source: &str) -> u64 {
+    // Deterministic FNV-1a: cache freshness depends on the bytes, never on
+    // timestamp granularity. The collector hashes the same source it parses.
+    source
+        .as_bytes()
+        .iter()
+        .fold(0xcbf29ce484222325, |hash, byte| {
+            (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
+        })
 }
 
-pub fn try_hit(store: &EntryStore, rel: &str, path: &Path) -> Option<FileMap> {
-    let (mtime, size) = stamp(path)?;
+pub fn try_hit(store: &EntryStore, rel: &str, source: &str) -> Option<FileMap> {
     let entry = store.get(rel)?;
-    if entry.mtime == mtime && entry.size == size {
+    if entry.size == source.len() as u64 && entry.fingerprint == fingerprint(source) {
         Some(FileMap {
             path: rel.to_string(),
             lines: entry.lines,
@@ -79,25 +77,15 @@ pub fn try_hit(store: &EntryStore, rel: &str, path: &Path) -> Option<FileMap> {
     }
 }
 
-pub fn insert(store: &mut EntryStore, rel: String, fm: &FileMap, path: &Path) {
-    let Some((mtime, size)) = stamp(path) else {
-        return;
-    };
+pub fn insert(store: &mut EntryStore, rel: String, fm: &FileMap, source: &str) {
     store.insert(
         rel,
         CacheEntry {
-            mtime,
-            size,
+            fingerprint: fingerprint(source),
+            size: source.len() as u64,
             lines: fm.lines,
             purpose: fm.purpose.clone(),
             items: fm.items.clone(),
         },
     );
-}
-
-pub fn retain_existing(root: &Path, entries: &mut EntryStore) {
-    entries.retain(|rel, _| {
-        root.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR))
-            .is_file()
-    });
 }

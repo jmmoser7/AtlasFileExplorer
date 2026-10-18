@@ -5,9 +5,12 @@
 //! by registering a gap message when no honest mesh exists yet. See
 //! `docs/model-preview.md`.
 
+mod edges;
 mod enscape;
 mod geom;
 mod gltf;
+mod material;
+mod mtl;
 mod obj;
 mod rhino;
 mod stl;
@@ -15,10 +18,12 @@ pub mod view_meta;
 
 use std::path::Path;
 
+pub use edges::{feature_edges, FeatureEdge};
 pub use enscape::{
     read_sample as read_enscape_sample, read_sample_limited, sample_is_enscape,
     CARD as ENSCAPE_CARD,
 };
+pub use material::{PreviewMaterial, TextureSource};
 
 /// One drawable triangle mesh. Indexes address `positions` and `normals`,
 /// which are the same length. `indices.len() % 3 == 0`.
@@ -28,6 +33,12 @@ pub struct PreviewMesh {
     pub normals: Vec<[f32; 3]>,
     pub indices: Vec<u32>,
     pub color: Option<[u8; 3]>,
+    /// Standard material factors; colors are linear, unlike `color` (sRGB).
+    pub material: Option<PreviewMaterial>,
+    /// UV set 0 with image origin at top left, empty or the length of `positions`.
+    pub texcoords: Vec<[f32; 2]>,
+    /// Welded boundaries, creases, and possible silhouette edges, cached at import.
+    pub feature_edges: Vec<FeatureEdge>,
 }
 
 /// Format-neutral geometry for one file. `format` is the registry id
@@ -45,7 +56,7 @@ pub struct PreviewScene {
 impl PreviewScene {
     fn from_meshes(
         format: &'static str,
-        meshes: Vec<PreviewMesh>,
+        mut meshes: Vec<PreviewMesh>,
         notes: Vec<String>,
     ) -> Result<Self, ()> {
         let Some((bounds_min, bounds_max)) = geom::bounds(&meshes) else {
@@ -53,6 +64,9 @@ impl PreviewScene {
         };
         if meshes.iter().all(|m| m.indices.is_empty()) {
             return Err(());
+        }
+        for mesh in &mut meshes {
+            mesh.feature_edges = feature_edges(&mesh.positions, &mesh.indices, 35.0);
         }
         Ok(Self {
             format,
@@ -168,15 +182,32 @@ pub fn gap_message(path: &Path) -> Option<&'static str> {
 /// Decode `bytes` of `path` into a preview scene.
 ///
 /// Gap formats return [`LoadError::Gap`] without interpreting the bytes.
-/// glTF may also read a sibling `.bin` named by the file.
+/// External assets are refused by this memory-only convenience entry point.
+/// Use [`load_preview_with_reader`] with a residency-checked reader when
+/// the model references sibling `.bin` buffers or `.mtl` libraries.
 pub fn load_preview(path: &Path, bytes: &[u8]) -> Result<PreviewScene, LoadError> {
+    load_preview_with_reader(path, bytes, &mut |_| {
+        Err(std::io::Error::other(
+            "External assets require a residency-checked reader.",
+        ))
+    })
+}
+
+/// Decode a preview with a caller-owned reader for dependent local files.
+/// The app uses this to reject dehydrated cloud buffers/material libraries
+/// before reading any bytes. Texture files are returned as locators, not read.
+pub fn load_preview_with_reader(
+    path: &Path,
+    bytes: &[u8],
+    read: &mut dyn FnMut(&Path) -> std::io::Result<Vec<u8>>,
+) -> Result<PreviewScene, LoadError> {
     match format_of(&extension(path)) {
         Some(Kind::Gap(msg)) => Err(LoadError::Gap(msg)),
         Some(Kind::Mesh) => match extension(path).as_str() {
             "3dm" => rhino::load(bytes),
-            "obj" => obj::load(bytes),
+            "obj" => obj::load(path, bytes, read),
             "stl" => stl::load(bytes),
-            "gltf" | "glb" => gltf::load(path, bytes),
+            "gltf" | "glb" => gltf::load(path, bytes, read),
             _ => Err(LoadError::Unrecognized),
         },
         None => Err(LoadError::Unrecognized),

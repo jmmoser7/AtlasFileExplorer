@@ -33,6 +33,10 @@ const TCODE_USER: u32 = 0x4000_0000;
 
 pub const TCODE_ENDOFFILE: u32 = 0x0000_7FFF;
 pub const TCODE_OBJECT_TABLE: u32 = TCODE_TABLE | 0x0013;
+pub const TCODE_MATERIAL_TABLE: u32 = TCODE_TABLE | 0x0010;
+pub const TCODE_LAYER_TABLE: u32 = TCODE_TABLE | 0x0011;
+pub const TCODE_MATERIAL_RECORD: u32 = TCODE_TABLEREC | TCODE_CRC | 0x0040;
+pub const TCODE_LAYER_RECORD: u32 = TCODE_TABLEREC | TCODE_CRC | 0x0050;
 pub const TCODE_ENDOFTABLE: u32 = 0xFFFF_FFFF;
 pub const TCODE_OBJECT_RECORD: u32 = TCODE_TABLEREC | TCODE_CRC | 0x0070;
 /// Short chunk whose value is the record's `ON::object_type` bit.
@@ -109,6 +113,10 @@ impl<'a> Cursor<'a> {
         ]))
     }
 
+    pub fn f64(&mut self) -> Option<f64> {
+        Some(f64::from_le_bytes(self.take(8)?.try_into().ok()?))
+    }
+
     /// One-byte chunk version as written by `Write3dmChunkVersion`
     /// (opennurbs_archive.cpp): high nibble = major, low nibble = minor.
     pub fn chunk_version(&mut self) -> Option<(u8, u8)> {
@@ -158,6 +166,21 @@ impl<'a> Cursor<'a> {
     pub fn skip_anonymous_chunk(&mut self) -> Option<()> {
         self.expect_chunk(TCODE_ANONYMOUS_CHUNK).map(|_| ())
     }
+}
+
+/// The one owner of ON_Object class framing (UUID followed by class data).
+pub fn class_data(class: &[u8]) -> Option<(String, &[u8])> {
+    let mut cur = Cursor::new(class);
+    let mut uuid = None;
+    while let Some(chunk) = cur.chunk() {
+        match chunk.typecode {
+            TCODE_OPENNURBS_CLASS_UUID => uuid = read_uuid(&mut Cursor::new(chunk.content)),
+            TCODE_OPENNURBS_CLASS_DATA => return Some((uuid?, chunk.content)),
+            TCODE_OPENNURBS_CLASS_END => break,
+            _ => {}
+        }
+    }
+    None
 }
 
 /// UUIDs are serialized field-wise little-endian: u32, u16, u16, then 8 raw

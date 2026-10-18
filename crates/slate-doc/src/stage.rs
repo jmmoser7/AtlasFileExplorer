@@ -9,9 +9,11 @@ use std::time::{Duration, Instant, SystemTime};
 use serde::{Deserialize, Serialize};
 
 use crate::scene::{CmdAuthor, NodeId, Scene, SceneCmd, SceneJournal};
-use crate::SlateDoc;
 
 const READ_INTERVAL: Duration = Duration::from_secs(1);
+
+mod prepare;
+use prepare::prepared_cmds;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProposalTarget {
@@ -102,64 +104,6 @@ pub fn accept(
     } else {
         Err(StaleReason::CommandRejected)
     }
-}
-
-fn prepared_cmds(
-    proposal: &Proposal,
-    workbook: Option<&Path>,
-    scene: &Scene,
-) -> Result<Vec<SceneCmd>, StaleReason> {
-    if proposal.target.format_version != SlateDoc::CURRENT {
-        return Err(StaleReason::UnsupportedFormat {
-            found: proposal.target.format_version,
-            expected: SlateDoc::CURRENT,
-        });
-    }
-    let (Some(target), Some(workbook)) = (proposal.target.workbook.as_deref(), workbook) else {
-        return Err(StaleReason::UnsavedWorkbook);
-    };
-    if !same_workbook(target, workbook) {
-        return Err(StaleReason::WorkbookMismatch);
-    }
-    if proposal.status != ProposalStatus::Pending {
-        return Err(StaleReason::NotPending);
-    }
-    if proposal.cmds.is_empty() {
-        return Err(StaleReason::EmptyProposal);
-    }
-
-    let mut check = scene.clone();
-    let mut cmds = Vec::with_capacity(proposal.cmds.len());
-    for original in &proposal.cmds {
-        // Check the evolving proposal state: a later command may legitimately
-        // address a node added or patched by an earlier command in this group.
-        let cmd = match original {
-            SceneCmd::Add { node, .. } => SceneCmd::Add {
-                index: check.nodes.len(),
-                node: node.clone(),
-            },
-            SceneCmd::Patch { before, .. } => {
-                if check.node(before.id) != Some(before.as_ref()) {
-                    return Err(StaleReason::NodeChanged { node: before.id });
-                }
-                original.clone()
-            }
-            SceneCmd::Remove { node, .. } => {
-                if check.node(node.id) != Some(node) {
-                    return Err(StaleReason::NodeChanged { node: node.id });
-                }
-                original.clone()
-            }
-            SceneCmd::LayerNodeAdd { .. }
-            | SceneCmd::LayerNodeRemove { .. }
-            | SceneCmd::LayerNodePatch { .. } => original.clone(),
-        };
-        if !check.apply(&cmd) {
-            return Err(StaleReason::CommandRejected);
-        }
-        cmds.push(cmd);
-    }
-    Ok(cmds)
 }
 
 // Identity comparison is lexical and never touches a potentially remote source.
@@ -463,6 +407,9 @@ impl StageWatcher {
 mod tests {
     use super::*;
     use crate::scene::{Corner, NodeKind, Rgba, ShapeKind, ShapeNode, Stroke, WorldRect};
+    use crate::SlateDoc;
+
+    mod layers;
 
     fn temp_workspace(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(

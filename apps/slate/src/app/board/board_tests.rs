@@ -3,6 +3,88 @@
 use super::*;
 
 #[test]
+fn subselect_popup_guard_and_release_use_separate_gates() {
+    use super::super::tests::{edge_polyline, grip_board, mid, SUB_OBJECT};
+    let mut h = grip_board("subselect_popup_and_release");
+    let (_, pts) = edge_polyline(&mut h);
+    let xf = h.app.board_xf();
+    let at = xf.w2s(mid(pts[1], pts[2]));
+    let ctx = egui::Context::default();
+    h.app.ctrl_down = true;
+    h.app.shift_down = true;
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |_| {});
+        },
+    );
+    let popup = egui::Id::new("subselect_popup_guard");
+    ctx.memory_mut(|m| m.open_popup(popup));
+    let input = egui::RawInput {
+        screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))),
+        modifiers: SUB_OBJECT,
+        events: vec![
+            egui::Event::PointerMoved(at),
+            egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: SUB_OBJECT,
+            },
+        ],
+        ..Default::default()
+    };
+    let _ = ctx.run(input, |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            assert_eq!(ctx.layer_id_at(at), Some(ui.layer_id()));
+            assert!(ctx.memory(|m| m.any_popup_open()));
+            h.app.curve_subselect_input(ui, &xf, Some(at), true);
+        });
+    });
+    assert!(
+        h.app.board_drag.is_none(),
+        "a popup blocks a new canvas gesture"
+    );
+    let outside = Pos2::new(h.app.canvas_rect.left() - 10.0, at.y);
+    for pointer in [Some(outside), None] {
+        h.app.board_drag = Some(BoardDrag::Direct(
+            super::super::board_direct::DirectDrag::Marquee {
+                start_screen: at,
+                add: true,
+                edges: true,
+            },
+        ));
+        let mut input = egui::RawInput {
+            events: vec![
+                egui::Event::PointerMoved(outside),
+                egui::Event::PointerButton {
+                    pos: outside,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: SUB_OBJECT,
+                },
+            ],
+            ..Default::default()
+        };
+        if pointer.is_none() {
+            input.events.push(egui::Event::PointerGone);
+        }
+        let _ = ctx.run(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                h.app.curve_subselect_input(ui, &xf, pointer, false);
+            });
+        });
+        assert!(
+            h.app.board_drag.is_none(),
+            "active release finishes outside the start gate"
+        );
+    }
+}
+
+#[test]
 fn a_rotated_frame_keeps_its_title_edge_on_top() {
     // Letter portrait, 8.5 × 11 at 72 u per inch.
     let rect = WorldRect::new(100.0, 50.0, 612.0, 792.0);

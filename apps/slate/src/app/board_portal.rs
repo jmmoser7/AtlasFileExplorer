@@ -9,6 +9,8 @@ use eframe::egui::{self, Pos2};
 use slate_doc::scene::{NodeId, NodeKind, PortalKind, SceneCmd, SourceUri};
 use std::path::{Path, PathBuf};
 
+pub(crate) mod capture;
+
 /// Shared contents-focus slot for host portals. Derived view-state; never journaled.
 #[derive(Debug, Default)]
 pub struct PortalRuntime {
@@ -147,6 +149,10 @@ impl SlateApp {
     pub(crate) fn frame_chrome_suppressed(&self, id: NodeId) -> bool {
         self.portal_frame_chrome_suppressed(id)
             || self.text_edit.as_ref().is_some_and(|(edit, _)| *edit == id)
+            || self
+                .text_doc_edit
+                .as_ref()
+                .is_some_and(|edit| edit.node == id)
             || self.sheet_edit.as_ref().is_some_and(|edit| edit.node == id)
             || self.sheet_open == Some(id)
             || self.board_crop == Some(id)

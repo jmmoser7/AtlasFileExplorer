@@ -2,6 +2,38 @@
 
 use super::*;
 
+#[cfg(test)]
+#[path = "catalog_isolation_tests.rs"]
+mod catalog_isolation_tests;
+
+impl AgentRuntime {
+    pub(crate) fn catalog_ready(&self, key: &str) -> bool {
+        self.models.contains_key(key)
+    }
+
+    pub(crate) fn catalog_error(&self, key: &str) -> Option<&str> {
+        self.models_error.get(key).map(String::as_str)
+    }
+
+    /// Synthetic hosts may ingest injected results, but must not probe installed providers.
+    #[cfg(test)]
+    pub(crate) fn hold_catalog_probes_for_test(&mut self) {
+        self.hold_catalog_probes = true;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_catalog_for_test(
+        &mut self,
+        key: &str,
+        models: Vec<atlas_ai::agent::AgentModel>,
+    ) {
+        self.models.insert(key.to_owned(), models);
+        // An injected catalog also pins its probe lifecycle for full-app tests.
+        self.models_started.insert(key.to_owned());
+        self.models_error.remove(key);
+    }
+}
+
 impl SlateApp {
     pub(super) fn pump_agent_models(&mut self) {
         if let Some((provider, result)) = self
@@ -23,6 +55,10 @@ impl SlateApp {
             self.agents.fit_revision = None;
         }
         if self.agents.models_rx.is_some() {
+            return;
+        }
+        #[cfg(test)]
+        if self.agents.hold_catalog_probes {
             return;
         }
         let provider = self
@@ -154,6 +190,7 @@ impl SlateApp {
         self.patch_nodes(&[id], |n| {
             if let Some(a) = slate_doc::agent_chat::agent_mut(n) {
                 a.model = model.clone();
+                a.model_parameters.clear();
                 if local {
                     a.provider = "ollama".into();
                 }

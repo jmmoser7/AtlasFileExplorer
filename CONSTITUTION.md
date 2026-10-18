@@ -234,12 +234,38 @@ canvas — and between the user and their agents. Binding rules:
    input. Selection, viewport, revision identifiers, and the context beacon
    are not automatically appended to prompts. Dedicated top-edge chat-history
    rails express conversation order, not context attachments.
+
+   **VIII.1b — Scoped board collaborators.** At the owner's direction on
+   16 October 2026, a human may explicitly add a named collaborator with a
+   revocable workspace grant specifying its readable board/source scope,
+   allowed commands, permitted conversation endpoints, and task/helper limits.
+   Within that scope the collaborator may request board context and coordinate
+   with the named conversations without a fresh input wire for each read or
+   message. The grant is distinct from provider Full access and from a board
+   mutation-autonomy grant under VII.6. Ordinary chat trains keep VIII.1's
+   authored-wire rule. Presence is never implicit prompt context; an agent-made
+   wire does not enlarge its grant. Helpers receive explicit subsets of the
+   parent's scope and limits. Revocation stops new reads, relays, helpers and
+   uncommitted mutations. This is a scoped exception to VIII.1, not a repeal;
+   IX.5's human-only source write-back and VII.4's script boundary still apply.
 2. **Every input modality compiles to the command surface.** Mouse, pen,
    keyboard, ink, voice, agent — all express intent as the same registered
    commands. New modalities are adapters, never parallel mutation paths.
 3. **The human is never blocked on an agent.** Direct manipulation stays at
    millisecond latency; agent work runs asynchronously and streams onto the
    canvas as journaled, attributed, interruptible actions.
+
+   **VIII.3a — Witnessed agent work.** Board actions expose their actual target
+   and ordered progress as ephemeral presence: approach, contact, manipulation,
+   and placement or connection. In-view movement is continuous; a long pause
+   followed by an unexplained bulk rearrangement is not an acceptable agent
+   interface. Fast movement is permitted. Reduced motion may simplify the
+   flourish while retaining legible action progress. A preview names the real
+   command it represents, never invents work during provider waits, and commits
+   only through the existing journal/staging owner after applicability is
+   rechecked. Human input retains priority and the human camera and pointer
+   remain independent. This supplements VIII.3 and does not turn animation into
+   document content or authorization.
 4. Ephemeral **intent ink** (marks made to communicate, not to author) is a
    distinct layer: it feeds context, it is not content, and it never
    pollutes the document.
@@ -362,6 +388,14 @@ on `slate-doc` or either app.
   (Article XII).
 
 ## Amendment log
+
+- **2026-10-16 — Scoped collaborators and witnessed work (VIII.1b, VIII.3a).**
+  At the owner's explicit direction in the agent-presence design session,
+  authorizes revocable scoped collaborators, bounded conversation/helper
+  coordination, and continuous visible board work. Supplements the ordinary
+  authored-wire rule without broadening source write-back or script authority.
+  Retired profiles are configuration; rejoining always creates fresh ephemeral
+  presence and does not restore a running task or grant.
 
 - **2026-10-08 — Article VI.3 (presence exception).** Amended to resolve the
   conflict with VIII.5: presence is broadcast, never journaled. Ratified by

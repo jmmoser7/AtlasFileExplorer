@@ -33,7 +33,8 @@ pub fn forcefield_preview_locked() -> bool {
 }
 
 #[cfg(feature = "ui-tuner")]
-mod enabled {
+pub(crate) mod enabled {
+    mod dock_inline;
     use crate::menu::{self, MenuIcon};
     use crate::tokens::{
         self, ActivityHeatmapTokens, BoardForcefieldTokens, BoardPreviewTokens, DockAdvancedTheme,
@@ -238,31 +239,7 @@ mod enabled {
                 rgba(ui, "Capsule fill · dark", &mut dock.dark.popover_fill);
                 rgba(ui, "Capsule fill · light", &mut dock.light.popover_fill);
 
-                ui.separator();
-                ui.label(RichText::new("Primary ↔ secondary fill").strong());
-                ui.label(
-                    RichText::new(
-                        "Link the primary dock plates to the secondary \
-                         capsule, then offset them. Mix 0 keeps the absolute \
-                         primary fill; 1 derives it from the capsule. \
-                         Offset: positive lightens in dark / darkens in light.",
-                    )
-                    .small(),
-                );
-                scalar(
-                    ui,
-                    "Primary from secondary",
-                    &mut dock.palette.primary_fill_mix,
-                    0.0..=1.0,
-                );
-                scalar(
-                    ui,
-                    "Primary fill offset",
-                    &mut dock.palette.primary_fill_offset,
-                    -0.6..=0.6,
-                );
-                rgba(ui, "Primary fill · dark", &mut dock.dark.icon_fill);
-                rgba(ui, "Primary fill · light", &mut dock.light.icon_fill);
+                dock_inline::show(ui, dock);
 
                 ui.separator();
                 ui.label(RichText::new("Icons").strong());
@@ -1725,7 +1702,7 @@ mod enabled {
 
                 // Newest work first for quick access.
                 dock_palette_editor(ui, &mut state.draft.dock);
-
+                dock_inline::feedback(ui, &mut state.draft.feedback);
                 dock_advanced_editor(ui, &mut state.draft.dock.advanced);
 
                 menu_editor(ui, &mut state.draft.menu);

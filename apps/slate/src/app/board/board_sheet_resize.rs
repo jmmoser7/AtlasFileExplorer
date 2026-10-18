@@ -84,9 +84,7 @@ impl SlateApp {
                 _ => return,
             };
             let (col_n, row_n) = self
-                .sheets
-                .get(&item)
-                .and_then(|g| g.as_ref())
+                .cached_sheet(item)
                 .map(|rows| {
                     (
                         rows.iter().map(|r| r.len()).max().unwrap_or(1),
@@ -181,7 +179,7 @@ impl SlateApp {
             self.toast("Couldn't change that spreadsheet");
             return;
         }
-        self.sheets.remove(&edit.item);
+        self.invalidate_document_card(edit.item);
     }
 
     pub(super) fn sheet_edit_overlay(&mut self, ctx: &egui::Context) {

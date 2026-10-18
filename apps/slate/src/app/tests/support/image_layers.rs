@@ -41,10 +41,25 @@ pub(crate) fn image_paint_board(
 
 /// The marks on each paint layer of `image`, layer by layer.
 pub(crate) fn layer_marks(h: &Harness, image: NodeId) -> Vec<Vec<slate_doc::Node>> {
-    match &h.app.doc().scene.node(image).unwrap().kind {
-        NodeKind::Image(img) => img.paint_layers.iter().map(|l| l.nodes.clone()).collect(),
-        _ => panic!("the image"),
-    }
+    let node = h.app.doc().scene.node(image).expect("the image node");
+    let NodeKind::Image(img) = &node.kind else {
+        panic!("the image")
+    };
+    let result = h.app.image_result_id(image).expect("selected image result");
+    slate_doc::image_paint::result_layers(img, &result)
+        .map(|stack| {
+            stack
+                .layers
+                .iter()
+                .map(|layer| layer.nodes.clone())
+                .collect()
+        })
+        .unwrap_or_else(|| {
+            img.paint_layers
+                .iter()
+                .map(|layer| layer.nodes.clone())
+                .collect()
+        })
 }
 
 pub(crate) fn painted_textures(out: &egui::FullOutput) -> Vec<egui::TextureId> {

@@ -10,12 +10,18 @@ use eframe::egui::{self, Id, Pos2, Rect, Vec2};
 use serde::{Deserialize, Serialize};
 use slate_doc::{
     scene::{
-        self, Corner, Dash, ImageAdjust, Node, NodeKind, PhotoFilter, Rgba, ShapeKind, StrokeCap,
-        StrokeJoin, WorldRect,
+        self, Corner, Dash, ImageAdjust, Node, NodeKind, PhotoFilter, Rgba, ShapeKind, WorldRect,
     },
     NodeId,
 };
 use vector_ink::kurbo::Shape;
+
+mod commands;
+mod image_palette;
+mod model_display;
+mod palette_ui;
+pub(crate) use palette_ui::EditorHost;
+use palette_ui::LastChrome;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Panel {
@@ -24,6 +30,10 @@ pub enum Panel {
     Corners,
     Wire,
     Filter,
+    /// Paint on the selected image or edit its pinned selection mask.
+    Brush,
+    /// Select the active image result or paint layer.
+    Layers,
     Pages,
     AtlasFormat,
     Text,
@@ -31,8 +41,10 @@ pub enum Panel {
     Agent,
     /// Bumper cars: On / Off, buffer, friction (optional tool).
     Bumper,
-    /// 3D viewport display pass: Shaded / Arctic / Material mask / Z-buffer.
+    /// 3D viewport display pass and imported surface material switch.
     ModelDisplay,
+    /// Portal still/video actions use the same attached property apron.
+    Capture,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -50,429 +62,15 @@ enum StripItem {
     Agent(bool),
     /// Arms point-to-point measure in a 3D viewport, like Deck arms a tool.
     ModelMeasure,
-    /// Viewport screenshot export menu (pointer-attached).
+    /// Shared portal still/video capture editor.
     ModelScreenshot,
 }
 
-/// Display passes offered on a 3D viewport, in strip order.
-const MODEL_DISPLAYS: [(scene::ModelDisplay, &str); 4] = [
-    (scene::ModelDisplay::Shaded, "Shaded"),
-    (scene::ModelDisplay::Arctic, "Arctic"),
-    (scene::ModelDisplay::Material, "Material mask"),
-    (scene::ModelDisplay::Depth, "Z-buffer"),
-];
-fn model_display_glyph(mode: scene::ModelDisplay) -> ([u8; 3], Option<[u8; 3]>) {
-    match mode {
-        scene::ModelDisplay::Shaded => ([108, 118, 132], None),
-        scene::ModelDisplay::Arctic => ([238, 238, 234], None),
-        scene::ModelDisplay::Material => ([196, 88, 72], Some([72, 132, 188])),
-        scene::ModelDisplay::Depth => ([32, 32, 32], Some([228, 228, 228])),
-    }
-}
-
-fn model_display_radios(thumbs: [Option<egui::TextureId>; 4]) -> [chrome::FilterRadio; 4] {
-    std::array::from_fn(|i| {
-        let (mode, label) = MODEL_DISPLAYS[i];
-        let (fill, fill_b) = model_display_glyph(mode);
-        chrome::FilterRadio {
-            label,
-            fill,
-            fill_b,
-            thumb: thumbs[i],
-        }
-    })
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum Property {
-    FillRgb([u8; 3]),
-    FillAlpha(u8),
-    Filled(bool),
-    StrokeRgb([u8; 3]),
-    StrokeAlpha(u8),
-    StrokeWidth(f32),
-    Dash(Dash),
-    Cap(StrokeCap),
-    Join(StrokeJoin),
-    CornerTreatment(bool),
-    CornerMode(bool),
-    CornerAmount(f32),
-    WireRouting(slate_doc::WireRouting),
-    WireArrows(bool),
-    ImageAdjust(ImageAdjust),
-    TextFamily(scene::Typeface),
-    TextSize(f32),
-    TextAlign(scene::TextAlign),
-    TextRgb([u8; 3]),
-    TextAlpha(u8),
-    BumperOn(bool),
-    BumperBuffer(f32),
-    BumperFriction(f32),
-    /// Regular polygon side count (3–12).
-    RegularSides(u8),
-}
-
-impl Property {
-    pub(crate) fn apply(&self, node: &mut Node, item_path: Option<&std::path::Path>) {
-        match *self {
-            Self::BumperOn(on) => {
-                node.bumper = (on && slate_doc::bumper::supports_bumper(node))
-                    .then(|| node.bumper.unwrap_or_default());
-            }
-            Self::BumperBuffer(v) | Self::BumperFriction(v) => {
-                if !slate_doc::bumper::supports_bumper(node) {
-                    return;
-                }
-                let mut b = node.bumper.unwrap_or_default();
-                if matches!(self, Self::BumperBuffer(_)) {
-                    b.buffer = v;
-                } else {
-                    b.friction = v;
-                }
-                node.bumper = Some(b.clamped());
-            }
-            Self::WireRouting(routing) => {
-                if let NodeKind::Connector(c) = &mut node.kind {
-                    c.routing = Some(routing);
-                }
-            }
-            Self::WireArrows(enabled) => {
-                if let NodeKind::Connector(c) = &mut node.kind {
-                    if !enabled {
-                        c.arrow_a = false;
-                        c.arrow_b = false;
-                    } else if !c.arrow_a && !c.arrow_b {
-                        c.arrow_b = true;
-                    }
-                }
-            }
-            Self::FillRgb(_) | Self::FillAlpha(_) | Self::Filled(_) => {
-                let theme_relative = match &node.kind {
-                    NodeKind::Portal(p) => p.fill_follows_theme() || p.slate_fill_follows_theme(),
-                    NodeKind::Frame(f) => f.fill_follows_theme(),
-                    _ => false,
-                };
-                let mut c = scene::fill_of(node).unwrap_or(Rgba([128, 128, 128, 255]));
-                match *self {
-                    Self::FillRgb(rgb) => {
-                        c.0[..3].copy_from_slice(&rgb);
-                        if theme_relative {
-                            c.0[3] = 255;
-                        }
-                    }
-                    Self::FillAlpha(a) => c.0[3] = a,
-                    Self::Filled(false) => {
-                        scene::set_fill(node, None);
-                        return;
-                    }
-                    _ => {}
-                }
-                scene::set_fill(node, Some(c));
-            }
-            Self::RegularSides(sides) => {
-                if let NodeKind::Shape(s) = &mut node.kind {
-                    if s.shape == ShapeKind::RegularPolygon {
-                        let old = s.sides;
-                        s.sides = scene::clamp_regular_sides(sides);
-                        slate_doc::vertex_style::reside_closed_form_style(s, old, s.phase_deg);
-                    }
-                }
-            }
-            Self::CornerTreatment(_) | Self::CornerMode(_) | Self::CornerAmount(_) => {
-                if !scene::supports_corners(node) {
-                    return;
-                }
-                let (w, h) = (node.rect.w, node.rect.h);
-                scene::edit_corner(node, item_path, |corner| {
-                    let (mut chamfer, percent, mut amount) = corner.parameters();
-                    match *self {
-                        Self::CornerTreatment(v) => chamfer = v,
-                        Self::CornerMode(v) => return corner.with_mode(v, w, h),
-                        Self::CornerAmount(v) => amount = v,
-                        _ => {}
-                    }
-                    Corner::from_parameters(chamfer, percent, amount)
-                });
-                if matches!(self, Self::CornerAmount(_)) {
-                    scene::clear_vertex_corner_amounts(node);
-                }
-            }
-            Self::ImageAdjust(adjust) => scene::set_adjust(node, adjust),
-            Self::TextFamily(family) => {
-                map_text_style(node, |face, _, _, _| *face = family);
-            }
-            Self::TextSize(size) => {
-                if size.is_finite() {
-                    let size = size.clamp(1.0, 512.0);
-                    map_text_style(node, |_, stored, _, _| *stored = size);
-                }
-            }
-            Self::TextAlign(align) => {
-                map_text_style(node, |_, _, _, stored| *stored = align);
-            }
-            Self::TextRgb(rgb) => {
-                map_text_style(node, |_, _, color, _| color.0[..3].copy_from_slice(&rgb));
-            }
-            Self::TextAlpha(alpha) => {
-                map_text_style(node, |_, _, color, _| color.0[3] = alpha);
-            }
-            _ => {
-                let theme_relative =
-                    matches!(&node.kind, NodeKind::Portal(p) if p.stroke_follows_theme());
-                let Some(mut s) = scene::stroke_of(node) else {
-                    return;
-                };
-                match *self {
-                    Self::StrokeRgb(rgb) => {
-                        s.color.0[..3].copy_from_slice(&rgb);
-                        if theme_relative {
-                            s.color.0[3] = 255;
-                            if s.width <= 0.0 {
-                                s.width = 1.0;
-                            }
-                        }
-                    }
-                    Self::StrokeAlpha(a) => s.color.0[3] = a,
-                    Self::StrokeWidth(v) if v.is_finite() => s.width = v.max(0.0),
-                    Self::Dash(v) => s.dash = v,
-                    Self::Cap(v) => s.cap = v,
-                    Self::Join(v) => s.join = v,
-                    _ => {}
-                }
-                scene::set_stroke(node, s);
-                if matches!(*self, Self::StrokeRgb(_) | Self::StrokeAlpha(_)) {
-                    if let NodeKind::Connector(c) = &mut node.kind {
-                        c.set_color(Some(s.color));
-                    }
-                }
-            }
-        }
-    }
-
-    /// [`Self::apply`] scoped to the picked grips of a curve
-    /// (P1.curve.vertex-style): a stroke width edits those vertices only.
-    /// With no grip picked, or on a node without grips, the whole node.
-    pub(crate) fn apply_at(
-        &self,
-        node: &mut Node,
-        item_path: Option<&std::path::Path>,
-        points: &[usize],
-    ) {
-        if !points.is_empty() {
-            let edited = match *self {
-                Self::StrokeWidth(v) if v.is_finite() => {
-                    edit_vertex_tips(node, points, |t| t.width = v.max(0.0))
-                }
-                Self::StrokeRgb(rgb) => {
-                    edit_vertex_tips(node, points, |t| t.color.0[..3].copy_from_slice(&rgb))
-                }
-                Self::StrokeAlpha(a) => edit_vertex_tips(node, points, |t| t.color.0[3] = a),
-                Self::CornerAmount(v) => {
-                    set_picked_corner_amounts(node, item_path, points, v);
-                    return;
-                }
-                _ => false,
-            };
-            if edited {
-                return;
-            }
-        }
-        if let Self::StrokeWidth(v) = *self {
-            if v.is_finite() && scale_stamped_curve(node, None, v.max(0.0), None) {
-                return;
-            }
-        }
-        self.apply(node, item_path);
-        match *self {
-            Self::StrokeRgb(rgb) => {
-                edit_every_tip(node, |t| t.color.0[..3].copy_from_slice(&rgb));
-            }
-            Self::StrokeAlpha(a) => edit_every_tip(node, |t| t.color.0[3] = a),
-            _ => {}
-        }
-    }
-}
-
-/// Picked grips of `node` that turn a corner, in pick order: the turning
-/// vertices of a line polyline (`polyline_vertex_grip_edges`), or any
-/// vertex of a rectangle or regular polygon (P1.shape.vertex-style).
-fn picked_corners(node: &Node, points: &[usize]) -> Vec<usize> {
-    if points.is_empty() || !scene::supports_corners(node) {
-        return Vec::new();
-    }
-    if let NodeKind::Shape(s) = &node.kind {
-        if let Some(n) = slate_doc::vertex_style::closed_form_vertex_count(s) {
-            return points.iter().copied().filter(|&p| p < n).collect();
-        }
-    }
-    let chamfer = scene::resolved_corner(node, None).parameters().0;
-    let corners: Vec<usize> = slate_doc::geom::polyline_vertex_grip_edges(node, chamfer)
-        .into_iter()
-        .map(|(v, _)| v)
-        .collect();
-    points
-        .iter()
-        .copied()
-        .filter(|p| corners.contains(p))
-        .collect()
-}
-
-/// The Corners amount with corners picked (user, 28 September 2026, ep2):
-/// each picked corner takes `amount` as its own override, in the shape
-/// corner's units (a percentage resolves against the box like the shared
-/// corner); every other corner keeps its amount.
-fn set_picked_corner_amounts(
-    node: &mut Node,
-    item_path: Option<&std::path::Path>,
-    points: &[usize],
-    amount: f32,
-) {
-    let (chamfer, percent, _) = scene::resolved_corner(node, item_path).parameters();
-    let world = if percent {
-        Corner::from_parameters(chamfer, true, amount)
-            .effective(node.rect.w, node.rect.h)
-            .1
-    } else {
-        amount
-    };
-    for v in picked_corners(node, points) {
-        scene::set_vertex_corner_amount(node, v, world);
-    }
-}
-
-/// A whole-curve color or texture edit sets every vertex's tip too
-/// (P1.curve.vertex-style): stored tips paint over the stroke, on a hard
-/// curve and a stamped brush stroke alike.
-pub(crate) fn edit_every_tip(node: &mut Node, edit: impl Fn(&mut scene::StrokeSpan)) {
-    let NodeKind::Shape(s) = &mut node.kind else {
-        return;
-    };
-    if s.shape != ShapeKind::Path {
-        if let Some(mut path) = slate_doc::vertex_style::closed_form_path(s) {
-            if !path.tips.is_empty() {
-                slate_doc::vertex_style::edit_every_tip(&mut path, &mut s.stroke, edit);
-                slate_doc::vertex_style::store_closed_form_style(s, &path);
-            }
-        }
-        return;
-    }
-    let Some(path) = s.path.as_mut() else {
-        return;
-    };
-    if path.tips.is_empty() && s.stroke.tween_from.is_none() {
-        return;
-    }
-    slate_doc::vertex_style::edit_every_tip(std::sync::Arc::make_mut(path), &mut s.stroke, edit);
-}
-
-/// Whole-curve width (and softness, when given) of a stamped stroke with
-/// stored tips: every tip scales from `base`, else from the curve as it is
-/// (`vertex_style::scale_stamped_tips`). `false` when the node paints one
-/// tip or is not stamped, so the stroke itself takes the edit.
-pub(crate) fn scale_stamped_curve(
-    node: &mut Node,
-    base: Option<&Node>,
-    width: f32,
-    softness: Option<f32>,
-) -> bool {
-    let base = base.and_then(|b| match &b.kind {
-        NodeKind::Shape(s) => Some((s.path.clone()?, s.stroke)),
-        _ => None,
-    });
-    let NodeKind::Shape(s) = &mut node.kind else {
-        return false;
-    };
-    if s.shape != ShapeKind::Path || !s.stroke.paints_as_stamp() {
-        return false;
-    }
-    let Some(path) = s.path.as_mut() else {
-        return false;
-    };
-    let softness = softness
-        .unwrap_or_else(|| slate_doc::vertex_style::curve_tip(Some(&**path), &s.stroke).softness);
-    slate_doc::vertex_style::scale_stamped_tips(
-        std::sync::Arc::make_mut(path),
-        &mut s.stroke,
-        base.as_ref().map(|(p, st)| (&**p, st)),
-        width,
-        softness,
-    )
-}
-
-/// Set the painted opacity of the `points` (grip indices) of a path node or
-/// closed form through the share rule (`vertex_style::set_grip_opacity`),
-/// node opacity included.
-pub(crate) fn set_vertex_opacity(node: &mut Node, points: &[usize], opacity: f32) -> bool {
-    let (rect, rotation, node_opacity) = (node.rect, node.rotation_deg, node.opacity);
-    let NodeKind::Shape(s) = &mut node.kind else {
-        return false;
-    };
-    let Some(mut path) = slate_doc::vertex_style::vertex_style_path(s) else {
-        return false;
-    };
-    let mut stroke = s.stroke;
-    let Some(top) = slate_doc::vertex_style::set_grip_opacity(
-        &mut path,
-        &mut stroke,
-        rect,
-        rotation,
-        node_opacity,
-        points,
-        opacity,
-    ) else {
-        return false;
-    };
-    slate_doc::vertex_style::store_vertex_style_path(s, path);
-    s.stroke = stroke;
-    node.opacity = top;
-    true
-}
-
-/// The painted tip at the first of `points` (grip indices) of a path node
-/// or closed form.
-pub(crate) fn picked_tip(node: &Node, points: &[usize]) -> Option<scene::StrokeSpan> {
-    let first = *points.first()?;
-    let NodeKind::Shape(s) = &node.kind else {
-        return None;
-    };
-    let tips = slate_doc::vertex_style::grip_tips(
-        &slate_doc::vertex_style::vertex_style_path(s)?,
-        &s.stroke,
-        node.rect,
-        node.rotation_deg,
-    )?;
-    tips.get(first).copied()
-}
-
-/// Edit the stroke tips at `points` (grip indices) of a path node or closed
-/// form.
-pub(crate) fn edit_vertex_tips(
-    node: &mut Node,
-    points: &[usize],
-    edit: impl Fn(&mut scene::StrokeSpan),
-) -> bool {
-    let (rect, rotation) = (node.rect, node.rotation_deg);
-    let NodeKind::Shape(s) = &mut node.kind else {
-        return false;
-    };
-    let Some(mut path) = slate_doc::vertex_style::vertex_style_path(s) else {
-        return false;
-    };
-    let mut stroke = s.stroke;
-    if !slate_doc::vertex_style::edit_grip_tips(
-        &mut path,
-        &mut stroke,
-        rect,
-        rotation,
-        points,
-        edit,
-    ) {
-        return false;
-    }
-    slate_doc::vertex_style::store_vertex_style_path(s, path);
-    s.stroke = stroke;
-    true
-}
+use slate_doc::property::picked_corners;
+pub use slate_doc::property::Property;
+pub(crate) use slate_doc::property::{
+    edit_every_tip, edit_vertex_tips, picked_tip, scale_stamped_curve, set_vertex_opacity,
+};
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct PropertyRequest {
@@ -518,32 +116,26 @@ struct CornerEntry {
 pub struct ShapeProperties {
     pub(super) tab: u64,
     pub(super) ids: Vec<NodeId>,
-    generation: u64,
+    generation: (u64, u64),
     nodes: Vec<Node>,
     dimensions: Vec<Dimension>,
     bounds: Option<WorldRect>,
     pub panel: Option<Panel>,
+    /// One click-away timer for image/Artifact panels and their generator menus; never rearms a tool.
+    pub(super) remembered_image_panels: selection::ObjectPanelMemory,
     pub(super) pages_focus: u16,
     pub preview: Vec<Node>,
     edits: Vec<Property>,
-    /// Last photo-filter radio under the pointer. The intensity slider sits
-    /// beside the radios, so a scrub starts after hover has already ended.
+    /// Filter intensity scrubs retain the last hovered photo-filter radio.
     filter_aim: Option<usize>,
     number: Option<NumberEdit>,
-    /// Typed corner amount opened by a click on the corner grip.
     corner_entry: Option<CornerEntry>,
     text_family_open: bool,
     text_size_open: bool,
-    /// Screen rects of the strip and open editor, so a text caret can ignore them.
     pub chrome_hits: Vec<Rect>,
+    pub(crate) result_chrome_bottom: Option<(u64, NodeId, f32)>,
     color: chrome::ColorState,
     last_chrome: Option<LastChrome>,
-}
-
-#[derive(Clone)]
-struct LastChrome {
-    bounds: WorldRect,
-    items: Vec<StripItem>,
 }
 
 pub(crate) fn supports_fill(n: &Node) -> bool {
@@ -592,147 +184,8 @@ fn property_strip_items(nodes: &[Node]) -> Vec<StripItem> {
     items
 }
 
-fn image_is_model(app: &SlateApp, n: &Node) -> bool {
-    let NodeKind::Image(img) = &n.kind else {
-        return false;
-    };
-    app.doc()
-        .item(img.item)
-        .is_some_and(|item| slate_doc::media_kind(&item.path) == slate_doc::MediaKind::Model)
-}
-
-fn image_is_text(app: &SlateApp, n: &Node) -> bool {
-    let NodeKind::Image(img) = &n.kind else {
-        return false;
-    };
-    app.doc()
-        .item(img.item)
-        .is_some_and(|item| slate_doc::media_kind(&item.path) == slate_doc::MediaKind::Text)
-}
-
-fn image_has_pages(app: &SlateApp, n: &Node) -> bool {
-    let NodeKind::Image(img) = &n.kind else {
-        return false;
-    };
-    app.doc()
-        .item(img.item)
-        .is_some_and(|item| slate_doc::media::has_pages(&item.path))
-}
-
-/// Whether a strip item edits picked vertices. With vertices picked only
-/// these show (user, 28 September 2026, ed9); every other squircle edits
-/// the whole node. A new item must be classified here.
-fn edits_picked_vertices(item: &StripItem) -> bool {
-    match item {
-        // Width, color and opacity per vertex; the corner a vertex turns.
-        StripItem::Panel(Panel::Stroke | Panel::Corners) => true,
-        StripItem::Panel(
-            Panel::Fill
-            | Panel::Wire
-            | Panel::Filter
-            | Panel::Pages
-            | Panel::AtlasFormat
-            | Panel::Text
-            | Panel::Agent
-            | Panel::Bumper
-            | Panel::ModelDisplay,
-        )
-        | StripItem::Frame(_)
-        | StripItem::Agent(_)
-        | StripItem::ModelMeasure
-        | StripItem::ModelScreenshot => false,
-    }
-}
-
-/// The strip for `nodes`. With vertices picked on the one curve, only the
-/// per-vertex squircles, and Corners only when a picked vertex turns one.
-fn live_property_strip_items(app: &SlateApp, nodes: &[Node]) -> Vec<StripItem> {
-    let mut items = node_strip_items(app, nodes);
-    let points = app.shape_property_points();
-    if let ([node], false) = (nodes, points.is_empty()) {
-        if app.shape_properties.ids.as_slice() != [node.id] {
-            return items;
-        }
-        let corner = !picked_corners(node, &points).is_empty();
-        items.retain(|item| {
-            edits_picked_vertices(item) && (corner || *item != StripItem::Panel(Panel::Corners))
-        });
-    }
-    items
-}
-
-fn node_strip_items(app: &SlateApp, nodes: &[Node]) -> Vec<StripItem> {
-    if nodes.is_empty() {
-        return Vec::new();
-    }
-    if nodes
-        .iter()
-        .all(|n| slate_doc::agent_chat::agent(n).is_some())
-    {
-        let mut items = vec![
-            StripItem::Panel(Panel::Fill),
-            StripItem::Panel(Panel::Stroke),
-        ];
-        let ids: Vec<_> = nodes.iter().map(|n| n.id).collect();
-        if slate_doc::agent_chat::bundle_run(&app.doc().scene, &ids).is_some() {
-            items.push(StripItem::Agent(false));
-            return items;
-        }
-        if nodes.len() == 1
-            && slate_doc::agent_chat::agent(&nodes[0])
-                .is_some_and(|a| a.chat.train && !a.chat.bundled.is_empty())
-        {
-            items.push(StripItem::Agent(true));
-            return items;
-        }
-        // A generated picture or text is media too; a picture takes photo
-        // filters like any placed image.
-        if nodes.len() == 1 && app.is_agent_media(nodes[0].id) {
-            if SlateApp::supports_image_paint(nodes[0].id, app) {
-                items.push(StripItem::Panel(Panel::Filter));
-            }
-            items.push(StripItem::Panel(Panel::Agent));
-        }
-        return items;
-    }
-    // A crosswire's red is its meaning (crosstalk D16): no stroke or wire
-    // styling. Its editor is the capsule at its mid-span.
-    if nodes
-        .iter()
-        .any(|n| slate_doc::crosstalk::crosstalk(n).is_some())
-    {
-        return Vec::new();
-    }
-    let mut items = property_strip_items(nodes);
-    if nodes.iter().any(|n| image_is_text(app, n)) {
-        items.retain(|item| *item != StripItem::Panel(Panel::Filter));
-    }
-    if nodes.len() == 1 && app.model_has_viewport(nodes[0].id) {
-        items.retain(|item| *item != StripItem::Panel(Panel::Filter));
-        items.extend([
-            StripItem::Panel(Panel::ModelDisplay),
-            StripItem::ModelMeasure,
-            StripItem::ModelScreenshot,
-            StripItem::Panel(Panel::Filter),
-        ]);
-    }
-    if nodes.len() == 1 && image_is_model(app, &nodes[0]) && !app.model_has_viewport(nodes[0].id) {
-        items.retain(|item| *item != StripItem::Panel(Panel::Filter));
-    }
-    if nodes.len() == 1 && image_has_pages(app, &nodes[0]) {
-        items.push(StripItem::Panel(Panel::Pages));
-    }
-    if hosted_text_on_strip(app, nodes) {
-        items.push(StripItem::Panel(Panel::Text));
-    }
-    if nodes.len() == 1 && app.is_agent_media(nodes[0].id) {
-        items.push(StripItem::Panel(Panel::Agent));
-    }
-    if app.settings.optional_bumper_cars && nodes.iter().all(slate_doc::bumper::supports_bumper) {
-        items.push(StripItem::Panel(Panel::Bumper));
-    }
-    items
-}
+mod property_strip;
+use property_strip::live_property_strip_items;
 
 fn hosted_text_on_strip(app: &SlateApp, nodes: &[Node]) -> bool {
     let [node] = nodes else {
@@ -749,29 +202,6 @@ fn hosted_text_on_strip(app: &SlateApp, nodes: &[Node]) -> bool {
             editing || has_body
         }
         _ => false,
-    }
-}
-
-fn map_text_style(
-    node: &mut Node,
-    edit: impl FnOnce(&mut scene::Typeface, &mut f32, &mut scene::Rgba, &mut scene::TextAlign),
-) {
-    if let NodeKind::Text(text) = &mut node.kind {
-        edit(
-            &mut text.family,
-            &mut text.size,
-            &mut text.color,
-            &mut text.align,
-        );
-        return;
-    }
-    if let Some(text) = scene::ensure_shape_text(node) {
-        edit(
-            &mut text.family,
-            &mut text.size,
-            &mut text.color,
-            &mut text.align,
-        );
     }
 }
 
@@ -854,297 +284,16 @@ fn photo_filter_choice(adjust: &ImageAdjust) -> Option<(usize, f32)> {
     Some((index, amount))
 }
 
-fn dimension_editable(n: &Node) -> bool {
-    !matches!(n.kind, NodeKind::Connector(_) | NodeKind::DockStrip(_))
-}
-
-/// Tight centerline bounds, before node rotation. Cached on scene/selection change.
-pub(crate) fn measured_bounds(n: &Node) -> WorldRect {
-    if let NodeKind::Shape(s) = &n.kind {
-        if let Some(path) = &s.path {
-            let bounds = board_path::path_data_to_world_bez(path, n.rect, 0.0).bounding_box();
-            return WorldRect::new(
-                bounds.x0 as f32,
-                bounds.y0 as f32,
-                bounds.width() as f32,
-                bounds.height() as f32,
-            );
-        }
-    }
-    n.rect
-}
-
-/// Open curves and brush strokes carry no dimension stringers; closed shapes
-/// keep theirs.
-fn takes_stringers(n: &Node) -> bool {
-    !slate_doc::is_open_shape(n)
-        && !matches!(&n.kind, NodeKind::Shape(s) if s.stroke.paints_as_stamp())
-}
-
-fn dimensions(nodes: &[Node]) -> (Option<WorldRect>, Vec<Dimension>) {
-    let (bounds, dims) = measured_dimensions(nodes);
-    if nodes.iter().any(takes_stringers) {
-        (bounds, dims)
-    } else {
-        (bounds, vec![])
-    }
-}
-
-fn measured_dimensions(nodes: &[Node]) -> (Option<WorldRect>, Vec<Dimension>) {
-    if nodes.is_empty() {
-        return (None, vec![]);
-    }
-    if nodes
-        .iter()
-        .any(|n| slate_doc::agent_chat::agent(n).is_some())
-    {
-        return (
-            board_snap::union_rect(&nodes.iter().map(|n| n.rect).collect::<Vec<_>>()),
-            vec![],
-        );
-    }
-    if nodes
-        .iter()
-        .any(|n| matches!(n.kind, NodeKind::Connector(_)))
-    {
-        // Anchored wire length follows its hosts; it is not an editable box size.
-        return (
-            board_snap::union_rect(
-                &nodes
-                    .iter()
-                    .map(|n| n.rect.rotated_bounds(n.rotation_deg))
-                    .collect::<Vec<_>>(),
-            ),
-            vec![],
-        );
-    }
-    if nodes.len() == 1 {
-        let n = &nodes[0];
-        if let Some((a, b)) = board_line::line_endpoints(n) {
-            return (
-                Some(n.rect.rotated_bounds(n.rotation_deg)),
-                vec![Dimension {
-                    kind: DimensionKind::Length,
-                    value: (b - a).length(),
-                    ends: [a, b],
-                    offset: (b - a).normalized().rot90() * chrome::STRINGER_GAP,
-                }],
-            );
-        }
-    }
-    let local = if nodes.len() == 1 {
-        measured_bounds(&nodes[0])
-    } else {
-        board_snap::union_rect(
-            &nodes
-                .iter()
-                .map(|n| n.rect.rotated_bounds(n.rotation_deg))
-                .collect::<Vec<_>>(),
-        )
-        .unwrap()
-    };
-    let mut pts = local.corners_rotated(0.0).map(|(x, y)| Pos2::new(x, y));
-    if nodes.len() == 1 {
-        for p in &mut pts {
-            let q =
-                board_snap::orbit_point(nodes[0].rect.center(), (p.x, p.y), nodes[0].rotation_deg);
-            *p = Pos2::new(q.0, q.1);
-        }
-    }
-    let bounds = WorldRect::new(
-        pts.iter().map(|p| p.x).fold(f32::INFINITY, f32::min),
-        pts.iter().map(|p| p.y).fold(f32::INFINITY, f32::min),
-        0.0,
-        0.0,
-    );
-    let bounds = WorldRect::new(
-        bounds.x,
-        bounds.y,
-        pts.iter().map(|p| p.x).fold(f32::NEG_INFINITY, f32::max) - bounds.x,
-        pts.iter().map(|p| p.y).fold(f32::NEG_INFINITY, f32::max) - bounds.y,
-    );
-    let circle = nodes.len() == 1
-        && matches!(&nodes[0].kind,NodeKind::Shape(s) if s.shape==ShapeKind::Ellipse)
-        && (local.w - local.h).abs() < local.w.max(local.h) * 1e-5;
-    let (ends, offset) = stringer_lane(
-        [pts[3], pts[2]],
-        -(pts[2] - pts[3]).normalized().rot90(),
-        [pts[0], pts[1]],
-    );
-    let mut result = vec![Dimension {
-        kind: if circle {
-            DimensionKind::Diameter
-        } else {
-            DimensionKind::Width
-        },
-        value: local.w,
-        ends,
-        offset,
-    }];
-    if !circle {
-        let (ends, offset) = stringer_lane(
-            [pts[1], pts[2]],
-            (pts[2] - pts[1]).normalized().rot90(),
-            [pts[0], pts[3]],
-        );
-        result.push(Dimension {
-            kind: DimensionKind::Height,
-            value: local.h,
-            ends,
-            offset,
-        });
-    }
-    (Some(bounds), result)
-}
-
-/// Which of an axis's two parallel edges carries its stringer. `home` is the
-/// unrotated choice (local bottom for width, local right for height) and
-/// `outward` its exterior normal. On screen a mostly horizontal span sits
-/// below and a mostly vertical one to the right, so rotation never moves a
-/// stringer into the upper lane the selection strip owns. The measured axis,
-/// and so what W and H mean, never changes.
-fn stringer_lane(home: [Pos2; 2], outward: Vec2, opposite: [Pos2; 2]) -> ([Pos2; 2], Vec2) {
-    let along = home[1] - home[0];
-    let lane = if along.x.abs() >= along.y.abs() {
-        Vec2::DOWN
-    } else {
-        Vec2::RIGHT
-    };
-    if outward.dot(lane) < -1e-4 {
-        (opposite, -outward * chrome::STRINGER_GAP)
-    } else {
-        (home, outward * chrome::STRINGER_GAP)
-    }
-}
+mod dimensions;
+mod selection;
+pub(crate) use dimensions::measured_bounds;
+use dimensions::{dimension_editable, dimensions};
 
 impl SlateApp {
-    /// An open adjustment previews authored color without the selection
-    /// tint. The Text editor on text nodes is the exception: it changes the
-    /// glyphs, not the box, so the outline stays (DYNAMIC_PANELS.md).
+    /// A single object's open palette already identifies its selection.
+    /// Multiple selected objects retain their individual outlines.
     pub(crate) fn property_panel_fades_selection(&self) -> bool {
-        match self.shape_properties.panel {
-            None => false,
-            Some(Panel::Text) => !self.board_sel.iter().all(|id| {
-                self.doc()
-                    .scene
-                    .node(*id)
-                    .is_some_and(|n| matches!(n.kind, NodeKind::Text(_)))
-            }),
-            Some(_) => true,
-        }
-    }
-
-    pub(crate) fn sync_shape_properties(&mut self) {
-        // Sorted, so the strip resets on membership only: `board_sel` is a
-        // HashSet whose iteration order can change without its contents
-        // changing (a rehash on insert of an already selected id).
-        let mut ids: Vec<_> = self.board_sel.iter().copied().collect();
-        ids.sort_unstable_by_key(|id| id.0);
-        let changed =
-            self.shape_properties.tab != self.tab().id || self.shape_properties.ids != ids;
-        let keep_text = self.text_edit.as_ref().is_some_and(|(id, _)| {
-            ids.len() == 1
-                && ids[0] == *id
-                && self.doc().scene.node(*id).is_some_and(|n| match &n.kind {
-                    NodeKind::Text(_) => true,
-                    NodeKind::Shape(s) => scene::shape_hosts_text(s),
-                    _ => false,
-                })
-        });
-        // A sticky opens on the caret. The text/color capsule stays closed
-        // until the user opens it from the strip.
-        let sticky_edit = keep_text
-            && self
-                .doc()
-                .scene
-                .node(ids[0])
-                .is_some_and(|n| matches!(&n.kind, NodeKind::Text(t) if t.fill.is_some()));
-        let open_text = keep_text && !sticky_edit;
-        if changed {
-            let last_chrome = ids
-                .is_empty()
-                .then(|| self.shape_properties.last_chrome.clone())
-                .flatten();
-            self.shape_properties = ShapeProperties {
-                tab: self.tab().id,
-                ids: ids.clone(),
-                last_chrome,
-                panel: open_text.then_some(Panel::Text),
-                ..Default::default()
-            };
-        } else if open_text && self.shape_properties.panel.is_none() {
-            self.shape_properties.panel = Some(Panel::Text);
-        }
-        if changed || self.shape_properties.generation != self.scene_gen {
-            self.shape_properties.preview.clear();
-            self.shape_properties.edits.clear();
-            let nodes: Vec<_> = ids
-                .iter()
-                .filter_map(|id| self.doc().scene.node(*id).cloned())
-                .collect();
-            let (bounds, dimensions) = dimensions(&nodes);
-            self.shape_properties.nodes = nodes;
-            self.shape_properties.bounds = bounds;
-            self.shape_properties.dimensions = dimensions;
-            self.shape_properties.generation = self.scene_gen;
-        }
-    }
-
-    pub(crate) fn shape_property_command(&mut self, detail: Option<&str>) -> bool {
-        let Some(req) = detail.and_then(|s| serde_json::from_str::<PropertyRequest>(s).ok()) else {
-            return false;
-        };
-        if req.ids.is_empty()
-            || req
-                .ids
-                .iter()
-                .any(|id| self.doc().scene.node(*id).is_none_or(|n| n.locked))
-            || self.refuse_read_only_edit()
-        {
-            return false;
-        }
-        self.last_board_edit = None;
-        let generation = self.scene_gen;
-        let item_paths: std::collections::BTreeMap<_, _> = req
-            .ids
-            .iter()
-            .filter_map(|id| {
-                let node = self.doc().scene.node(*id)?;
-                self.node_item_path(node)
-                    .map(|path| (*id, path.to_path_buf()))
-            })
-            .collect();
-        let points: &[usize] = if req.ids.len() == 1 { &req.points } else { &[] };
-        self.patch_nodes(&req.ids, |n| {
-            for edit in &req.edits {
-                edit.apply_at(n, item_paths.get(&n.id).map(|path| path.as_path()), points);
-            }
-        });
-        // Choosing a recent color already on the target is still a deliberate
-        // reuse. Promote it without manufacturing a scene/undo mutation.
-        if generation == self.scene_gen {
-            let mut colors = Vec::new();
-            for edit in &req.edits {
-                match edit {
-                    Property::FillRgb(rgb)
-                        if req
-                            .ids
-                            .iter()
-                            .any(|id| self.doc().scene.node(*id).is_some_and(supports_fill)) =>
-                    {
-                        colors.push(*rgb)
-                    }
-                    Property::StrokeRgb(rgb) => colors.push(*rgb),
-                    _ => {}
-                }
-            }
-            // Only the final explicit color is promoted for an unchanged batch.
-            if let Some(last) = colors.last().copied() {
-                self.remember_document_colors(vec![last]);
-            }
-        }
-        self.last_board_edit = None;
-        true
+        self.board_sel.len() == 1 && self.shape_properties.panel.is_some()
     }
 
     pub(crate) fn shape_dimension_command(&mut self, detail: Option<&str>) -> bool {
@@ -1321,6 +470,11 @@ impl SlateApp {
         let points = self.shape_property_points();
         for edit in &self.shape_properties.edits {
             for n in &mut nodes {
+                if self.field_selection() == Some(n.id)
+                    && super::board_direct::apply_field_property(n, &points, edit)
+                {
+                    continue;
+                }
                 edit.apply_at(n, item_paths.get(&n.id).map(|path| path.as_path()), &points);
             }
         }
@@ -1343,6 +497,11 @@ impl SlateApp {
         let points = self.shape_property_points();
         for edit in self.shape_properties.edits.iter().chain(peek.as_ref()) {
             for n in &mut nodes {
+                if self.field_selection() == Some(n.id)
+                    && super::board_direct::apply_field_property(n, &points, edit)
+                {
+                    continue;
+                }
                 edit.apply_at(n, item_paths.get(&n.id).map(|path| path.as_path()), &points);
             }
         }
@@ -1383,16 +542,46 @@ impl SlateApp {
     }
 
     pub(crate) fn shape_property_keys(&mut self, ctx: &egui::Context) -> bool {
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape))
+            && self.cancel_image_layer_name_draft(ctx)
+        {
+            ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+            return true;
+        }
+        if self.shape_properties.panel == Some(Panel::Layers)
+            && self.layer_opacity_drag.is_some()
+            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+        {
+            self.cancel_image_layer_opacity_for_escape(ctx);
+            return true;
+        }
+        // Image tool keys precede the open palette's Escape handling.
+        if self.image_selection_keys(ctx) {
+            return true;
+        }
         let corner_entry = self.shape_properties.corner_entry.is_some();
         if self.shape_properties.number.is_some()
             || self.shape_properties.panel.is_some()
             || corner_entry
         {
             if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+                if self.shape_properties.panel == Some(Panel::Layers)
+                    && self.cancel_image_layer_drag()
+                {
+                    return true;
+                }
+                if self.shape_properties.panel == Some(Panel::Brush) {
+                    if let Some(id) = self.shape_properties.nodes.first().map(|node| node.id) {
+                        image_palette::cancel_brush_edit(ctx, id, self);
+                    }
+                }
                 self.shape_properties.preview.clear();
                 self.shape_properties.edits.clear();
                 self.shape_properties.number = None;
                 self.shape_properties.corner_entry = None;
+                if let Some(id) = self.shape_properties.ids.first().copied() {
+                    self.forget_object_panel(id);
+                }
                 self.shape_properties.panel = None;
                 self.shape_properties.color = Default::default();
                 return true;
@@ -1511,493 +700,11 @@ impl SlateApp {
             )
         });
         match primary {
-            Some(origin) => {
-                Some(origin.is_some_and(|p| self.crop_owns_pointer(p) || self.curve_knob_under(p)))
-            }
+            Some(origin) => Some(
+                origin.is_some_and(|p| self.crop_owns_pointer(p) || self.property_grip_under(p)),
+            ),
             None => click.then_some(false),
         }
-    }
-
-    /// Runs before board input. Layout is recomputed from the host transform every frame.
-    pub(crate) fn shape_properties_ui(&mut self, ui: &mut egui::Ui, xf: &BoardXf) -> bool {
-        let ctx = ui.ctx().clone();
-        self.sync_shape_properties();
-        self.seed_document_colors();
-        self.shape_properties.chrome_hits.clear();
-        let editing_hosted_text = self.text_edit.as_ref().is_some_and(|(id, _)| {
-            self.doc().scene.node(*id).is_some_and(|n| match &n.kind {
-                NodeKind::Text(_) => true,
-                NodeKind::Shape(s) => scene::shape_hosts_text(s),
-                _ => false,
-            })
-        });
-        // A sticky's first job is the caret. The fill/text strip returns
-        // once editing ends and the note is simply selected.
-        let editing_sticky = self.text_edit.as_ref().is_some_and(|(id, _)| {
-            self.doc()
-                .scene
-                .node(*id)
-                .is_some_and(|n| matches!(&n.kind, NodeKind::Text(t) if t.fill.is_some()))
-        });
-        let composing_text_box = self.text_box_draft.is_some();
-        let vertex_bounds = self.picked_vertex_bounds();
-        let direct_picks = self.board_tool == BoardTool::DirectSelect && vertex_bounds.is_some();
-        let live = self.board_drag.is_none()
-            && !editing_sticky
-            && !composing_text_box
-            && (editing_hosted_text
-                || ((self.board_tool == BoardTool::Select || direct_picks)
-                    && self.text_edit.is_none()))
-            && !self.shape_properties.nodes.is_empty();
-        if live {
-            let items = live_property_strip_items(self, &self.shape_properties.nodes);
-            // D13 / D11: a panel whose squircle a vertex pick took off the
-            // strip commits its pending edits and closes.
-            if self
-                .shape_properties
-                .panel
-                .is_some_and(|panel| !items.contains(&StripItem::Panel(panel)))
-                && !self.shape_property_points().is_empty()
-            {
-                self.apply_shape_preview(&ctx, true);
-            }
-            if let Some(bounds) = vertex_bounds.or(self.shape_properties.bounds) {
-                self.shape_properties.last_chrome = Some(LastChrome { bounds, items });
-            }
-        }
-        let fade = chrome::strip_fade(&ctx, Id::new("selection_property_strip"), live);
-        if fade <= 0.0 {
-            if !live {
-                self.shape_properties.last_chrome = None;
-            }
-            return false;
-        }
-        let z = xf.z;
-        if canvas_scale::too_small(12.0 * z) {
-            // The strip and its panel are not painted, but screen-constant
-            // grips still take presses, so the D11 commit still runs. The
-            // press keeps its board meaning.
-            let overlay_open =
-                self.shape_properties.panel.is_some() || self.shape_properties.number.is_some();
-            if let (true, true, Some(grip)) =
-                (live, overlay_open, self.property_dismiss_press(&ctx))
-            {
-                self.apply_shape_preview(&ctx, !grip);
-            }
-            return false;
-        }
-        let Some(chrome_state) = self.shape_properties.last_chrome.clone() else {
-            return false;
-        };
-        let theme = self.palette();
-        let bounds = xf.rect_w2s(chrome_state.bounds);
-        let enabled =
-            live && !self.tab().read_only && self.shape_properties.nodes.iter().all(|n| !n.locked);
-        if live && !enabled {
-            self.shape_properties.preview.clear();
-            self.shape_properties.edits.clear();
-            self.shape_properties.number = None;
-        }
-        let items = chrome_state.items;
-        let strip = if items.is_empty() {
-            Rect::from_center_size(
-                Pos2::new(bounds.center().x, bounds.top() - chrome::OBJECT_GAP * z),
-                Vec2::ZERO,
-            )
-        } else {
-            chrome::strip_rect(
-                Pos2::new(bounds.center().x, bounds.top()),
-                items.len(),
-                z,
-                fade,
-            )
-        };
-        let mut requested_panel = None;
-        let mut requested_frame = None;
-        let mut requested_agent = None;
-        let mut requested_measure = false;
-        let mut requested_screenshot = false;
-        let mut captures = false;
-        // P1.curve.grips: a painted grip under a button takes the press. The
-        // board hit-tests a drag at its press origin, so a held press is
-        // judged there too.
-        let grip_probe = ctx.input(|i| {
-            let held = i.pointer.any_down();
-            i.pointer
-                .press_origin()
-                .filter(|_| held)
-                .or(i.pointer.latest_pos())
-        });
-        let grip_under =
-            live && grip_probe.is_some_and(|p| strip.contains(p) && self.curve_knob_under(p));
-        for (index, item) in items.iter().enumerate() {
-            let r = chrome::strip_button_rect(strip, index, z);
-            let (label, icon, active) = match item {
-                StripItem::Agent(false) => ("Bundle selected messages", Icon::ChatBundle, false),
-                StripItem::Agent(true) => ("Unbundle messages", Icon::ChatUnbundle, false),
-                StripItem::Panel(Panel::Fill) => (
-                    "Fill",
-                    Icon::Fill,
-                    self.shape_properties.panel == Some(Panel::Fill),
-                ),
-                StripItem::Panel(Panel::Stroke) => (
-                    "Stroke",
-                    Icon::Ellipse,
-                    self.shape_properties.panel == Some(Panel::Stroke),
-                ),
-                StripItem::Panel(Panel::Corners) => (
-                    if self.corners_include_crop() {
-                        "Corners and crop"
-                    } else {
-                        "Corners: fillet / chamfer"
-                    },
-                    Icon::Corners,
-                    self.shape_properties.panel == Some(Panel::Corners)
-                        || (self.corners_include_crop() && self.board_crop.is_some()),
-                ),
-                StripItem::Panel(Panel::Wire) => (
-                    "Wire: routing / weight / dashes / arrows",
-                    Icon::Bezier,
-                    self.shape_properties.panel == Some(Panel::Wire),
-                ),
-                StripItem::Panel(Panel::Filter) => (
-                    "Photo filters",
-                    Icon::Filters,
-                    self.shape_properties.panel == Some(Panel::Filter),
-                ),
-                StripItem::Panel(Panel::Pages) => (
-                    "Pages: browse the deck or unbundle onto the board",
-                    Icon::Pages,
-                    self.shape_properties.panel == Some(Panel::Pages),
-                ),
-                StripItem::Panel(Panel::AtlasFormat) => (
-                    "Formatting: filters and zoom to fit",
-                    Icon::Display,
-                    self.shape_properties.panel == Some(Panel::AtlasFormat),
-                ),
-                StripItem::Panel(Panel::Text) => (
-                    "Text",
-                    Icon::Text,
-                    self.shape_properties.panel == Some(Panel::Text),
-                ),
-                StripItem::Panel(Panel::Agent) => (
-                    "Agent: write or picture from this",
-                    Icon::Agent,
-                    self.shape_properties.panel == Some(Panel::Agent),
-                ),
-                StripItem::Panel(Panel::ModelDisplay) => (
-                    "Viewport display",
-                    Icon::Model,
-                    self.shape_properties.panel == Some(Panel::ModelDisplay),
-                ),
-                StripItem::ModelMeasure => (
-                    "Measure: pick two points on the model",
-                    Icon::Ruler,
-                    self.shape_properties
-                        .ids
-                        .first()
-                        .is_some_and(|id| self.model_measuring(*id)),
-                ),
-                StripItem::ModelScreenshot => (
-                    "Screenshot: export the current viewport",
-                    Icon::View,
-                    self.model_shot_popup.is_some(),
-                ),
-                StripItem::Panel(Panel::Bumper) => (
-                    "Bumper cars",
-                    Icon::Bumper,
-                    self.shape_properties.panel == Some(Panel::Bumper)
-                        || self
-                            .shape_properties
-                            .nodes
-                            .iter()
-                            .all(|n| n.bumper.is_some()),
-                ),
-                StripItem::Frame(FrameAction::Prev) => {
-                    ("Move earlier in the deck", Icon::ChevronLeft, false)
-                }
-                StripItem::Frame(FrameAction::Next) => {
-                    ("Move later in the deck", Icon::ChevronRight, false)
-                }
-                StripItem::Frame(FrameAction::Present) => {
-                    ("Present from this slide", Icon::View, false)
-                }
-                StripItem::Frame(FrameAction::Deck) => (
-                    "Order frames: click each one, or draw a stroke through them",
-                    Icon::Deck,
-                    self.board_tool == BoardTool::Deck,
-                ),
-            };
-            let button_live = live && !grip_under;
-            let response = chrome::button(
-                ui,
-                r,
-                Id::new(("shape_property", index)),
-                label,
-                icon,
-                active,
-                z,
-                theme,
-                fade,
-                button_live,
-            );
-            if button_live && response.clicked() {
-                match item {
-                    StripItem::Panel(panel) => requested_panel = Some(*panel),
-                    StripItem::Frame(action) => requested_frame = Some(*action),
-                    StripItem::Agent(expand) => requested_agent = Some(*expand),
-                    StripItem::ModelMeasure => requested_measure = true,
-                    StripItem::ModelScreenshot => requested_screenshot = true,
-                }
-            }
-            captures |= button_live && ctx.pointer_latest_pos().is_some_and(|p| r.contains(p));
-            if live {
-                self.shape_properties.chrome_hits.push(r);
-            }
-        }
-        if let Some(expand) = requested_agent {
-            self.dispatch(
-                &ctx,
-                CommandId(if expand {
-                    "portal.agent.expand_chat"
-                } else {
-                    "portal.agent.bundle_chat"
-                }),
-                None,
-            );
-        }
-        if let Some(panel) = requested_panel {
-            let was = self.shape_properties.panel;
-            self.apply_shape_preview(&ctx, true);
-            self.shape_properties.number = None;
-            if was != Some(panel) {
-                self.shape_properties.panel = Some(panel);
-                if panel == Panel::Pages {
-                    if let Some(item) = self
-                        .shape_properties
-                        .ids
-                        .first()
-                        .and_then(|id| self.node_pdf_item(*id))
-                    {
-                        self.shape_properties.pages_focus = item.pdf_page;
-                    }
-                }
-            }
-        }
-        if let Some(action) = requested_frame {
-            self.apply_shape_preview(&ctx, true);
-            self.shape_properties.number = None;
-            self.run_frame_strip_action(&ctx, action);
-        }
-        if requested_measure {
-            self.apply_shape_preview(&ctx, true);
-            self.shape_properties.number = None;
-            if let Some(id) = self.shape_properties.ids.first().copied() {
-                self.dispatch(
-                    &ctx,
-                    CommandId("board.model_measure"),
-                    Some(id.0.to_string()),
-                );
-            }
-        }
-        if requested_screenshot {
-            self.apply_shape_preview(&ctx, true);
-            self.shape_properties.number = None;
-            if let (Some(id), Some(p)) = (
-                self.shape_properties.ids.first().copied(),
-                ctx.pointer_latest_pos(),
-            ) {
-                self.open_model_screenshot_menu(id, p);
-            }
-        }
-        // The inline editor is attached to a dimension kind, never a cached screen position.
-        // Nested portal edit keeps the frame selected but hides its stringers.
-        let dims = if self.selection_stringers_suppressed() {
-            self.shape_properties.number = None;
-            Vec::new()
-        } else {
-            self.shape_properties.dimensions.clone()
-        };
-        let mut dimension_commit = None;
-        for (index, d) in dims.iter().enumerate() {
-            let mut edit = self.shape_properties.number.take();
-            let is_current = edit.as_ref().is_some_and(|e| e.kind == d.kind);
-            let mut input = if is_current {
-                edit.as_mut().unwrap().input.take()
-            } else {
-                None
-            };
-            let was_editing = input.is_some();
-            let result = ui
-                .add_enabled_ui(live && enabled && d.value > f32::EPSILON, |ui| {
-                    chrome::stringer(
-                        ui,
-                        Id::new(("shape_stringer", index)),
-                        d.ends.map(|p| xf.w2s(p)),
-                        d.offset * z,
-                        d.value,
-                        if d.kind == DimensionKind::Diameter {
-                            "Ø "
-                        } else {
-                            ""
-                        },
-                        z,
-                        theme,
-                        &mut input,
-                    )
-                })
-                .inner;
-            captures |=
-                result.response.contains_pointer() || (was_editing && ctx.wants_keyboard_input());
-            if let Some(value) = result.value {
-                dimension_commit = Some((d.kind, value));
-            }
-            if input.is_some() {
-                if !was_editing {
-                    self.apply_shape_preview(&ctx, true);
-                }
-                self.shape_properties.number = Some(NumberEdit {
-                    kind: d.kind,
-                    input,
-                });
-            } else if !is_current {
-                self.shape_properties.number = edit;
-            }
-        }
-        if let Some((kind, value)) = dimension_commit {
-            let request = DimensionRequest {
-                ids: self.shape_properties.ids.clone(),
-                kind,
-                value,
-            };
-            self.dispatch(
-                &ctx,
-                CommandId("board.shape.dimension"),
-                serde_json::to_string(&request).ok(),
-            );
-        }
-        if self.shape_properties.panel != Some(Panel::Filter) {
-            self.shape_properties.filter_aim = None;
-        }
-        if live {
-            if let Some(panel) = self.shape_properties.panel {
-                if panel == Panel::Pages {
-                    if let Some(node_id) = self.shape_properties.ids.first().copied() {
-                        if let Some(node) = self.doc().scene.node(node_id).cloned() {
-                            if let Some(path) =
-                                self.node_pdf_item(node_id).map(|item| item.path.clone())
-                            {
-                                self.documents.request(&path);
-                            }
-                            let host = xf.rect_w2s(node.rect);
-                            let album = self.paint_pages_album(
-                                ui,
-                                node_id,
-                                host,
-                                z,
-                                theme,
-                                self.shape_properties.pages_focus,
-                            );
-                            self.shape_properties.pages_focus = album.focus;
-                            captures |= album.hover;
-                            if album.commit_page {
-                                if let Some(item) = self.node_pdf_item(node_id) {
-                                    self.dispatch(
-                                        &ctx,
-                                        CommandId("board.media.page"),
-                                        Some(format!("{}:{}", item.id.0, album.focus)),
-                                    );
-                                }
-                            }
-                            if album.unbundle {
-                                self.dispatch(
-                                    &ctx,
-                                    CommandId("board.media.unbundle"),
-                                    Some(format!("{}:{}", node_id.0, album.focus)),
-                                );
-                            }
-                        }
-                    }
-                } else {
-                    let height = match panel {
-                        Panel::Fill => chrome::FILL_HEIGHT,
-                        Panel::Stroke => chrome::STROKE_HEIGHT,
-                        Panel::Corners => chrome::CORNER_HEIGHT,
-                        Panel::Wire => chrome::WIRE_HEIGHT,
-                        Panel::Filter => chrome::FILTER_HEIGHT,
-                        Panel::Pages => 0.0,
-                        Panel::AtlasFormat => chrome::ATLAS_FORMAT_HEIGHT,
-                        Panel::Text => chrome::TEXT_HEIGHT,
-                        Panel::Agent => chrome::AGENT_HEIGHT,
-                        Panel::Bumper => chrome::CORNER_HEIGHT,
-                        Panel::ModelDisplay => chrome::FILTER_CHIPS_HEIGHT,
-                    };
-                    if panel != Panel::Text {
-                        self.shape_properties.text_family_open = false;
-                        self.shape_properties.text_size_open = false;
-                    }
-                    let canvas = self.canvas_rect;
-                    let rect = chrome::editor_placement(strip, bounds, height, z, canvas);
-                    let mut sample = None;
-                    chrome::popup_area(&ctx, Id::new("shape_property_editor"), ui.layer_id())
-                        .fixed_pos(rect.min)
-                        .constrain(false)
-                        .movable(false)
-                        .fade_in(false)
-                        .show(&ctx, |ui| {
-                            ui.set_clip_rect(canvas);
-                            ui.set_min_size(rect.size());
-                            ui.add_enabled_ui(enabled, |ui| {
-                                sample = self.shape_property_body(ui, rect, panel, z);
-                            });
-                        });
-                    captures |= ctx.pointer_latest_pos().is_some_and(|p| {
-                        rect.contains(p) && canvas.contains(p)
-                            || !grip_under
-                                && self
-                                    .shape_properties
-                                    .chrome_hits
-                                    .iter()
-                                    .any(|hit| hit.contains(p))
-                    });
-                    if live {
-                        self.shape_properties.chrome_hits.push(rect);
-                    }
-                    if let Some(gesture) = sample {
-                        self.start_property_desktop_sample(panel, gesture);
-                    }
-                }
-            }
-            let overlay_open =
-                self.shape_properties.panel.is_some() || self.shape_properties.number.is_some();
-            let press = self.property_dismiss_press(&ctx);
-            if overlay_open && !captures && press == Some(true) {
-                self.apply_shape_preview(&ctx, false);
-            } else if overlay_open && !captures && press.is_some() {
-                self.apply_shape_preview(&ctx, true);
-                if let Some(p) = ctx.pointer_latest_pos() {
-                    if self.canvas_rect.contains(p) {
-                        let world = xf.s2w(p);
-                        match self.board_pick_node(world.x, world.y) {
-                            Some(id) => {
-                                self.board_sel = super::board_flags::expand_selection_to_groups(
-                                    &self.doc().scene,
-                                    &[id],
-                                )
-                                .into_iter()
-                                .collect();
-                            }
-                            None => self.board_sel.clear(),
-                        }
-                    }
-                }
-                captures = true;
-            }
-        }
-        if captures && ctx.input(|i| i.pointer.any_pressed()) {
-            self.board_align_eat_press = true;
-        }
-        captures
     }
 
     fn run_frame_strip_action(&mut self, ctx: &egui::Context, action: FrameAction) {
@@ -2080,7 +787,13 @@ impl SlateApp {
         rect: Rect,
         panel: Panel,
         z: f32,
+        image_layout: Option<&chrome::ImagePresentationLayout>,
     ) -> Option<chrome::SampleGesture> {
+        if panel == Panel::Capture {
+            let id = self.shape_properties.ids.first().copied()?;
+            self.paint_portal_capture_launch(ui, rect, id, z);
+            return None;
+        }
         let theme = self.palette();
         let nodes_owned: Vec<Node> = if self.shape_properties.preview.is_empty() {
             self.shape_properties.nodes.clone()
@@ -2092,6 +805,7 @@ impl SlateApp {
         if panel == Panel::Agent {
             let id = self.shape_properties.ids.first().copied()?;
             let popups = self.agent_editor_body(ui, rect, id, z, theme);
+            self.occupy_property_popups(&popups);
             self.shape_properties.chrome_hits.extend(popups);
             return None;
         }
@@ -2101,41 +815,7 @@ impl SlateApp {
             return None;
         }
         if panel == Panel::ModelDisplay {
-            let id = self.shape_properties.ids.first().copied()?;
-            let display = self.model_display_of(id)?;
-            let current = MODEL_DISPLAYS
-                .iter()
-                .position(|(mode, _)| *mode == display)
-                .unwrap_or(0);
-            self.ensure_model_display_swatches(id);
-            let thumbs = self.model_display_swatch_ids(ui.ctx(), id);
-            let radios = model_display_radios(thumbs);
-            let chip_w = chrome::filter_chips_width(radios.len(), chrome::FILTER_CHIPS_HEIGHT, z);
-            let row = Rect::from_center_size(
-                rect.center(),
-                Vec2::new(chip_w, chrome::FILTER_CHIPS_HEIGHT) * z,
-            );
-            let edit = chrome::filter_capsule(
-                ui,
-                row,
-                &radios,
-                Some(current),
-                None,
-                z,
-                theme,
-                chrome::FilterCapsuleStyle::ChipsOnly,
-            );
-            if let Some(picked) = edit.clicked {
-                if picked != current {
-                    let (mode, _) = MODEL_DISPLAYS[picked];
-                    let ctx = ui.ctx().clone();
-                    self.dispatch(
-                        &ctx,
-                        CommandId("board.model_display"),
-                        Some(format!("{}:{}", id.0, mode.key())),
-                    );
-                }
-            }
+            self.model_display_editor(ui, rect, z, theme);
             return None;
         }
         if panel == Panel::Filter {
@@ -2154,7 +834,20 @@ impl SlateApp {
             };
             let thumbs = self.filter_swatch_ids(ui.ctx(), amount);
             let radios = photo_filter_radios(thumbs);
-            let edit = chrome::filter_editor(ui, rect, &radios, selected, amount, z, theme);
+            let edit = if image_layout.is_some() {
+                chrome::filter_capsule(
+                    ui,
+                    rect,
+                    &radios,
+                    selected,
+                    Some(amount),
+                    z,
+                    theme,
+                    chrome::FilterCapsuleStyle::ImageWithIntensity,
+                )
+            } else {
+                chrome::filter_editor(ui, rect, &radios, selected, amount, z, theme)
+            };
             if let Some(index) = edit.hovered {
                 self.shape_properties.filter_aim = Some(index);
             }
@@ -2315,12 +1008,20 @@ impl SlateApp {
             }
         };
         let points = self.shape_property_points();
-        let tip = (panel == Panel::Stroke)
-            .then(|| picked_tip(first, &points))
-            .flatten();
+        let field = self.field_selection() == Some(first.id);
+        let tip = if field {
+            match &first.kind {
+                NodeKind::Shape(shape) => slate_doc::field::tip(shape, &points),
+                _ => None,
+            }
+        } else {
+            (panel == Panel::Stroke)
+                .then(|| picked_tip(first, &points))
+                .flatten()
+        };
         let color = tip.map_or_else(|| get_color(first), |tip| tip.color);
         let mixed = tip.is_none() && nodes.iter().any(|n| get_color(n) != color);
-        let width = (panel == Panel::Stroke).then(|| {
+        let width = (panel == Panel::Stroke && !field).then(|| {
             let width = tip
                 .map(|tip| tip.width)
                 .unwrap_or_else(|| scene::stroke_of(first).unwrap().width);
@@ -2330,18 +1031,32 @@ impl SlateApp {
                 width
             }
         });
-        let recent = self.doc().view.recent_colors.clone().unwrap_or_default();
-        let edit = chrome::color_editor(
-            ui,
-            rect,
-            color.0,
-            width,
-            mixed,
-            &recent,
-            &mut self.shape_properties.color,
-            z,
-            theme,
-        );
+        let recent = self.doc().view.recent_color_swatches();
+        let edit = if let Some(layout) = image_layout {
+            chrome::image_color_editor(
+                ui,
+                layout,
+                color.0,
+                width,
+                mixed,
+                recent.as_slice(),
+                &mut self.shape_properties.color,
+                z,
+                theme,
+            )
+        } else {
+            chrome::color_editor(
+                ui,
+                rect,
+                color.0,
+                width,
+                mixed,
+                recent.as_slice(),
+                &mut self.shape_properties.color,
+                z,
+                theme,
+            )
+        };
         let theme_relative_fill = panel == Panel::Fill
             && matches!(
                 &first.kind,
@@ -2407,6 +1122,7 @@ impl SlateApp {
                     .unwrap_or_else(|| scene::ShapeText::new(scene::shape_text_ink(shape.fill))),
                 NodeKind::Text(text) => scene::ShapeText {
                     body: text.text.clone(),
+                    style: text.style,
                     family: text.family,
                     size: text.size,
                     color: text.color,
@@ -2444,10 +1160,23 @@ impl SlateApp {
             &size_label,
             size_index,
             &mut self.shape_properties.text_size_open,
+            [
+                snapshot.style.bold,
+                snapshot.style.italic,
+                snapshot.style.underline,
+            ],
             z,
             theme,
         );
+        self.occupy_property_popups(&edit.popups);
         self.shape_properties.chrome_hits.extend(edit.popups);
+        if let Some((index, value)) = edit.emphasis {
+            self.preview_shape_property(match index {
+                0 => Property::TextBold(value),
+                1 => Property::TextItalic(value),
+                _ => Property::TextUnderline(value),
+            });
+        }
         if let Some(index) = edit.family {
             if let Some(family) = scene::Typeface::ALL.get(index).copied() {
                 self.preview_shape_property(Property::TextFamily(family));
@@ -2468,14 +1197,14 @@ impl SlateApp {
             Pos2::new(rect.left(), row.bottom() + 6.0 * z),
             Vec2::new(rect.width(), chrome::FILL_HEIGHT * z),
         );
-        let recent = self.doc().view.recent_colors.clone().unwrap_or_default();
+        let recent = self.doc().view.recent_color_swatches();
         let color_edit = chrome::color_editor(
             ui,
             color_rect,
             snapshot.color.0,
             None,
             false,
-            &recent,
+            recent.as_slice(),
             &mut self.shape_properties.color,
             z,
             theme,
@@ -2506,45 +1235,18 @@ impl SlateApp {
             },
         );
     }
-
-    /// Screen rect of the selection strip's screenshot button, last painted.
-    pub(crate) fn model_screenshot_button(&self) -> Option<Rect> {
-        self.strip_button(|item| matches!(item, StripItem::ModelScreenshot))
-    }
-
-    /// Screen rect of the selection strip's Measure button, last frame.
-    #[cfg(test)]
-    pub(crate) fn model_measure_button(&self) -> Option<Rect> {
-        self.strip_button(|item| matches!(item, StripItem::ModelMeasure))
-    }
-
-    fn strip_button(&self, want: fn(&StripItem) -> bool) -> Option<Rect> {
-        let items = &self.shape_properties.last_chrome.as_ref()?.items;
-        let index = items.iter().position(want)?;
-        self.shape_properties.chrome_hits.get(index).copied()
-    }
-
-    /// The screenshot button and what its menu must not cover: the selection
-    /// and the whole strip.
-    pub(crate) fn model_screenshot_anchor(&self, xf: &BoardXf) -> Option<(Rect, Rect)> {
-        let chrome = self.shape_properties.last_chrome.as_ref()?;
-        let button = self.model_screenshot_button()?;
-        let strip = self
-            .shape_properties
-            .chrome_hits
-            .iter()
-            .take(chrome.items.len())
-            .fold(button, |strip, r| strip.union(*r));
-        Some((button, xf.rect_w2s(chrome.bounds).union(strip)))
-    }
 }
+
+#[cfg(test)]
+#[path = "board_properties/pan_tests.rs"]
+mod pan_tests;
 
 #[cfg(test)]
 mod tests {
     use super::super::tests::Harness;
     use super::*;
 
-    fn board() -> Harness {
+    pub(super) fn board() -> Harness {
         let mut h = Harness::new("shape_properties");
         h.app.leave_home();
         h.app.ensure_work_tab();
@@ -2689,8 +1391,7 @@ mod tests {
         h.frame();
         h.frame();
         let before = h.app.doc().scene.node(a).unwrap().clone();
-        let r = h.app.board_xf().rect_w2s(before.rect);
-        let p = Pos2::new(r.center().x + 18.5, r.top() - 29.0);
+        let p = strip_button(&h, Panel::Wire).center();
         h.frame_with(|i| i.events.push(egui::Event::PointerMoved(p)));
         for pressed in [true, false] {
             h.frame_with(|i| {
@@ -2708,7 +1409,7 @@ mod tests {
         assert!(h.app.shape_properties.preview.is_empty());
         assert_eq!(h.app.doc().scene.node(a).unwrap(), &before);
     }
-    fn rectangle(h: &mut Harness, rect: WorldRect, angle: f32) -> NodeId {
+    pub(super) fn rectangle(h: &mut Harness, rect: WorldRect, angle: f32) -> NodeId {
         let mut node = h.app.doc_mut().scene.build_node(
             rect,
             NodeKind::Shape(scene::ShapeNode {
@@ -2926,8 +1627,7 @@ mod tests {
         h.frame();
         h.frame();
         let before = h.app.doc().scene.node(id).unwrap().rect;
-        let r = h.app.board_xf().rect_w2s(before);
-        let p = Pos2::new(r.center().x - 37.0, r.top() - 29.0);
+        let p = strip_button(&h, Panel::Fill).center();
         h.frame_with(|i| i.events.push(egui::Event::PointerMoved(p)));
         h.frame_with(|i| {
             i.events.push(egui::Event::PointerButton {
@@ -3037,20 +1737,16 @@ mod tests {
     fn shape_property_eyedropper_click_and_drag_open_their_sampling_modes() {
         use atlas_shell::desktop_color::PickMode;
         let mut h = board();
-        let id = rectangle(&mut h, WorldRect::new(-100.0, -60.0, 200.0, 120.0), 0.0);
+        rectangle(&mut h, WorldRect::new(-100.0, -60.0, 200.0, 120.0), 0.0);
         h.frame();
         h.frame();
-        let r = h
-            .app
-            .board_xf()
-            .rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
         let button = |pos: Pos2, pressed: bool| egui::Event::PointerButton {
             pos,
             button: egui::PointerButton::Primary,
             pressed,
             modifiers: egui::Modifiers::NONE,
         };
-        let fill = Pos2::new(r.center().x - 37.0, r.top() - 29.0);
+        let fill = strip_button(&h, Panel::Fill).center();
         h.frame_with(|i| i.events.push(egui::Event::PointerMoved(fill)));
         h.frame_with(|i| i.events.push(button(fill, true)));
         h.frame_with(|i| i.events.push(button(fill, false)));
@@ -3059,6 +1755,7 @@ mod tests {
         let editor = *h.app.shape_properties.chrome_hits.last().unwrap();
         let z = h.app.tab().cam.z;
         let dropper = Pos2::new(editor.left() + 21.0 * z, editor.bottom() - 20.0 * z);
+        assert!(editor.contains(dropper));
 
         h.frame_with(|i| i.events.push(egui::Event::PointerMoved(dropper)));
         h.frame_with(|i| i.events.push(button(dropper, true)));
@@ -3080,75 +1777,33 @@ mod tests {
         );
     }
 
-    /// User finding (2026-09-26): the editor avoided the shape but painted
-    /// behind its dimension stringer. Popups draw above all canvas chrome and
-    /// take the pointer first where the two overlap.
+    /// An open single-node palette replaces the dimension chrome and still
+    /// owns pointer hits above the canvas.
     #[test]
-    fn a_property_editor_over_a_stringer_paints_and_hits_above_it() {
+    fn a_single_node_property_editor_suppresses_stringers_and_owns_pointer() {
         let mut h = board();
-        h.frame();
-        // The rectangle's top sits just under the canvas top, so the editor has
-        // no room above the strip and opens below, over the width stringer.
-        let canvas = h.app.canvas_rect;
-        let top = h
-            .app
-            .board_xf()
-            .s2w(Pos2::new(canvas.center().x, canvas.top() + 70.0));
-        rectangle(
-            &mut h,
-            WorldRect::new(top.x - 150.0, top.y, 300.0, 120.0),
-            0.0,
-        );
+        let id = rectangle(&mut h, WorldRect::new(-150.0, -60.0, 300.0, 120.0), 0.0);
         h.frame();
         h.app.shape_properties.panel = Some(Panel::Fill);
         h.frame();
         h.frame();
         let out = h.frame_output(|_| {});
         let editor = *h.app.shape_properties.chrome_hits.last().unwrap();
+        assert!(h.app.property_panel_fades_selection());
+        assert!(h.app.board_sel.contains(&id));
         let xf = h.app.board_xf();
-        let width = h
-            .app
-            .shape_properties
-            .dimensions
-            .iter()
-            .find(|d| d.kind == DimensionKind::Width)
-            .expect("a rectangle has a width stringer");
-        let [a, b] = width.ends.map(|p| xf.w2s(p) + width.offset * xf.z);
-        let label = a.lerp(b, 0.5);
-        assert!(
-            editor.contains(label),
-            "precondition: {editor:?} covers the width stringer at {label:?}"
-        );
-
-        let layer = h.ctx.layer_id_at(label).expect("hit-testable");
-        assert_eq!(
-            layer.id,
-            Id::new("shape_property_editor"),
-            "the editor takes the pointer first: {layer:?}"
-        );
-
         let baseline = egui::Stroke::new(0.7 * xf.z, h.app.palette().select);
-        let last_stringer = out
-            .shapes
-            .iter()
-            .rposition(|c| {
-                matches!(&c.shape, egui::Shape::LineSegment { points, stroke }
-                    if *stroke == baseline && points.iter().all(|p| (p.y - a.y).abs() < 0.5))
-            })
-            .expect("the width stringer painted");
-        let panel = out
-            .shapes
-            .iter()
-            .position(|c| matches!(&c.shape, egui::Shape::Rect(r) if r.rect == editor))
-            .expect("the editor panel painted");
         assert!(
-            last_stringer < panel,
-            "the stringer (shape {last_stringer}) paints over the editor (shape {panel})"
+            !out.shapes.iter().any(|c| matches!(&c.shape,
+            egui::Shape::LineSegment { stroke, .. } if *stroke == baseline)),
+            "single-node stringers are absent while its palette is open"
         );
-        assert!(
-            layer.order > egui::Order::Foreground,
-            "canvas chrome paints on Foreground, so a popup sits above it: {layer:?}"
-        );
+        let layer = h
+            .ctx
+            .layer_id_at(editor.center())
+            .expect("palette is hit-testable");
+        assert_eq!(layer.id, Id::new("shape_property_editor"));
+        assert!(layer.order > egui::Order::Foreground);
     }
 
     #[test]
@@ -3500,11 +2155,12 @@ mod tests {
         id
     }
 
-    fn text_node(h: &mut Harness, rect: WorldRect) -> NodeId {
+    pub(super) fn text_node(h: &mut Harness, rect: WorldRect) -> NodeId {
         let node = h.app.doc_mut().scene.build_node(
             rect,
             NodeKind::Text(scene::TextNode {
                 text: "Note".into(),
+                style: Default::default(),
                 family: Default::default(),
                 size: 18.0,
                 color: Rgba([0, 0, 0, 255]),
@@ -3520,7 +2176,7 @@ mod tests {
     }
 
     /// Screen rect of a strip squircle, as the last frame laid it out.
-    fn strip_button(h: &Harness, panel: Panel) -> Rect {
+    pub(super) fn strip_button(h: &Harness, panel: Panel) -> Rect {
         let items = &h.app.shape_properties.last_chrome.as_ref().unwrap().items;
         let index = items
             .iter()
@@ -3558,7 +2214,10 @@ mod tests {
 
     /// Open the selected node's Text editor with a real click on its squircle.
     fn open_text_editor(h: &mut Harness, time: &mut f64) -> Rect {
-        for _ in 0..3 {
+        let trace_id = Id::new("text-button-test-trace");
+        h.ctx
+            .data_mut(|d| d.insert_temp(trace_id, Vec::<String>::new()));
+        for _ in 0..12 {
             timed_frame(h, time, vec![]);
         }
         let button = strip_button(h, Panel::Text);
@@ -3566,15 +2225,19 @@ mod tests {
         timed_frame(h, time, vec![egui::Event::PointerMoved(p)]);
         timed_frame(h, time, vec![primary(p, true)]);
         timed_frame(h, time, vec![primary(p, false)]);
-        assert_eq!(h.app.shape_properties.panel, Some(Panel::Text));
+        let trace = h.ctx.data_mut(|d| d.remove_temp::<Vec<String>>(trace_id));
+        assert_eq!(
+            h.app.shape_properties.panel,
+            Some(Panel::Text),
+            "{trace:#?}"
+        );
         button
     }
 
-    /// User, 26 September 2026: the blue outline around selected text stays
-    /// while the person works in the strip and its Text editor. Fill still
-    /// fades it, so an authored fill previews without the tint.
+    /// User, 13 October 2026: an expanded single-node palette supplies the
+    /// selection feedback, so text decoration stays hidden while it is open.
     #[test]
-    fn text_selection_outline_stays_while_navigating_the_text_editor() {
+    fn text_selection_outline_is_suppressed_while_navigating_the_text_editor() {
         for dark in [false, true] {
             let mut h = board();
             h.app.dark_mode = dark;
@@ -3602,7 +2265,7 @@ mod tests {
                     timed_frame(&mut h, &mut time, vec![egui::Event::PointerMoved(hover)]);
                 }
                 let out = timed_frame(&mut h, &mut time, vec![egui::Event::PointerMoved(hover)]);
-                assert_eq!(silhouettes(&out), rest, "dark={dark} hover={hover:?}");
+                assert_eq!(silhouettes(&out), 0, "dark={dark} hover={hover:?}");
                 assert_eq!(h.app.shape_properties.panel, Some(Panel::Text));
             }
             assert!(h.app.board_sel.contains(&id));
@@ -3679,8 +2342,10 @@ mod tests {
     #[test]
     fn a_property_editor_clipped_by_the_canvas_top_opens_below_the_selection() {
         let mut h = board();
-        let id = rectangle(&mut h, WorldRect::new(-100.0, -60.0, 200.0, 120.0), 0.0);
+        let id = rectangle(&mut h, WorldRect::new(-400.0, -60.0, 800.0, 120.0), 0.0);
         h.frame();
+        // Neither side can hold the fixed-width popup, so the owner must
+        // choose its below-strip fallback after rejecting the clipped top.
         let canvas = h.app.canvas_rect;
         h.app.tab_mut().cam.offset.y = -60.0 - (canvas.top() + 70.0 - canvas.center().y);
         h.app.shape_properties.panel = Some(Panel::Fill);
@@ -3697,10 +2362,9 @@ mod tests {
             .expect("the Fill editor is open");
         assert!(canvas.contains_rect(editor), "{editor:?} in {canvas:?}");
         assert!(
-            !editor.intersects(selection),
-            "{editor:?} over {selection:?}"
+            editor.top() >= selection.bottom(),
+            "{editor:?} below {selection:?}"
         );
-        assert!(editor.top() > selection.bottom());
     }
 
     /// Painted text and where it sits, so a list's scroll can be measured.
@@ -3837,54 +2501,7 @@ mod tests {
         });
     }
 
-    /// The typeface list scrolls under the wheel instead of zooming the board.
-    #[test]
-    fn wheel_over_the_typeface_list_does_not_zoom_the_board() {
-        let mut h = board();
-        text_node(&mut h, WorldRect::new(-120.0, -30.0, 240.0, 60.0));
-        let mut time = h.ctx.input(|i| i.time);
-        open_text_editor(&mut h, &mut time);
-        timed_frame(&mut h, &mut time, vec![]);
-        let editor = *h.app.shape_properties.chrome_hits.last().unwrap();
-        let z = h.app.board_xf().z;
-        let family = editor.min + Vec2::new(24.0, chrome::TEXT_ROW_HEIGHT * 0.5) * z;
-        timed_frame(&mut h, &mut time, vec![egui::Event::PointerMoved(family)]);
-        timed_frame(&mut h, &mut time, vec![primary(family, true)]);
-        timed_frame(&mut h, &mut time, vec![primary(family, false)]);
-        assert!(
-            h.app.shape_properties.text_family_open,
-            "typeface list open"
-        );
-        timed_frame(&mut h, &mut time, vec![]);
-        let strip_len = h
-            .app
-            .shape_properties
-            .last_chrome
-            .as_ref()
-            .unwrap()
-            .items
-            .len();
-        let list = h.app.shape_properties.chrome_hits[strip_len];
-        assert!(list.top() > editor.top() && list.height() > 100.0 * z);
-        let before = h.app.tab().cam.z;
-        let over = list.center();
-        for _ in 0..6 {
-            timed_frame(
-                &mut h,
-                &mut time,
-                vec![
-                    egui::Event::PointerMoved(over),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Point,
-                        delta: Vec2::new(0.0, -80.0),
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-            );
-        }
-        assert_eq!(h.app.tab().cam.z, before, "the board must not zoom");
-        assert!(h.app.shape_properties.text_family_open, "list stays open");
-    }
+    mod wheel;
 
     fn corner_grip(h: &Harness, id: NodeId) -> Pos2 {
         let xf = h.app.board_xf();
@@ -4896,8 +3513,11 @@ mod tests {
                 StripItem::Panel(Panel::AtlasFormat) => "format",
                 StripItem::Panel(Panel::Text) => "text",
                 StripItem::Panel(Panel::Agent) => "agent",
+                StripItem::Panel(Panel::Brush) => "brush",
+                StripItem::Panel(Panel::Layers) => "layers",
                 StripItem::Panel(Panel::Bumper) => "bumper",
                 StripItem::Panel(Panel::ModelDisplay) => "display",
+                StripItem::Panel(Panel::Capture) => "capture",
                 StripItem::ModelMeasure => "measure",
                 StripItem::ModelScreenshot => "screenshot",
                 StripItem::Frame(FrameAction::Prev) => "prev",
@@ -5017,7 +3637,7 @@ mod tests {
         assert!(kinds.contains(&"corners"));
     }
 
-    fn model_node(h: &mut Harness, name: &str, rect: WorldRect) -> NodeId {
+    pub(super) fn model_node(h: &mut Harness, name: &str, rect: WorldRect) -> NodeId {
         let path = h.base.join(name);
         let _ = std::fs::write(&path, b" ");
         let item = h.app.doc_mut().add_item(path, name, 1, 0, name);
@@ -5080,6 +3700,10 @@ mod tests {
             .app
             .dispatch(&h.ctx, CommandId("board.model_display"), None));
         assert_eq!(display(&h), scene::ModelDisplay::Arctic);
+        assert!(h
+            .app
+            .dispatch(&h.ctx, CommandId("board.model_display"), None));
+        assert_eq!(display(&h), scene::ModelDisplay::HiddenLine);
     }
 
     #[test]
@@ -5152,11 +3776,10 @@ mod tests {
             item_kinds(&live_property_strip_items(&h.app, &[node(pdf)])),
             ["stroke", "corners", "filter", "pages"]
         );
-        // A selected picture offers the Agent squircle (portal-agent-link D01,
-        // DYNAMIC_PANELS.md). A PDF is pages, not that media.
+        // Raster images retain the seven shared image capabilities; PDF keeps Pages.
         assert_eq!(
             item_kinds(&live_property_strip_items(&h.app, &[node(image)])),
-            ["stroke", "corners", "filter", "agent"]
+            ["fill", "stroke", "corners", "filter", "brush", "layers", "agent"]
         );
         assert_eq!(
             item_kinds(&live_property_strip_items(
@@ -5342,15 +3965,37 @@ mod tests {
         h.frame();
         h.frame();
         h.app.shape_properties.panel = Some(Panel::Fill);
+        h.frame();
+        h.frame();
         let xf = h.app.board_xf();
         let r = xf.rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
         let canvas = h.app.canvas_rect;
-        let p = Pos2::new(
-            (r.max.x + 90.0).min(canvas.max.x - 24.0),
-            (r.max.y + 70.0).min(canvas.max.y - 24.0),
-        );
+        let p = [
+            canvas.right_bottom() - Vec2::splat(24.0),
+            canvas.left_bottom() + Vec2::new(24.0, -24.0),
+            canvas.left_top() + Vec2::splat(24.0),
+        ]
+        .into_iter()
+        .find(|p| {
+            canvas.contains(*p)
+                && !r.expand(20.0).contains(*p)
+                && !h
+                    .app
+                    .shape_properties
+                    .chrome_hits
+                    .iter()
+                    .any(|hit| hit.contains(*p))
+                && h.ctx.layer_id_at(*p) == Some(egui::LayerId::background())
+        })
+        .expect("uncovered canvas outside the host and its actual editor");
         assert!(canvas.contains(p));
         assert!(!r.expand(20.0).contains(p));
+        assert!(!h
+            .app
+            .shape_properties
+            .chrome_hits
+            .iter()
+            .any(|hit| hit.contains(p)));
         h.frame_with(|i| i.events.push(egui::Event::PointerMoved(p)));
         h.frame_with(|i| {
             i.events.push(egui::Event::PointerButton {
@@ -5363,94 +4008,5 @@ mod tests {
         assert!(h.app.shape_properties.panel.is_none());
         assert!(h.app.board_sel.is_empty());
         assert!(!h.app.board_sel.contains(&id));
-    }
-
-    fn empty_canvas_point(h: &Harness, id: NodeId) -> Pos2 {
-        let xf = h.app.board_xf();
-        let r = xf.rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
-        let canvas = h.app.canvas_rect;
-        let p = Pos2::new(
-            (r.max.x + 90.0).min(canvas.max.x - 24.0),
-            (r.max.y + 70.0).min(canvas.max.y - 24.0),
-        );
-        assert!(canvas.contains(p));
-        assert!(!r.expand(20.0).contains(p));
-        p
-    }
-
-    #[test]
-    fn right_drag_pan_keeps_the_property_editor_open() {
-        let mut h = board();
-        let id = rectangle(&mut h, WorldRect::new(-100.0, -60.0, 200.0, 120.0), 0.0);
-        h.frame();
-        h.frame();
-        h.app.shape_properties.panel = Some(Panel::Fill);
-        let p = empty_canvas_point(&h, id);
-        let before = h.app.tab().cam.offset;
-        h.frame_with(|i| i.events.push(egui::Event::PointerMoved(p)));
-        h.frame_with(|i| {
-            i.events.push(egui::Event::PointerButton {
-                pos: p,
-                button: egui::PointerButton::Secondary,
-                pressed: true,
-                modifiers: egui::Modifiers::NONE,
-            })
-        });
-        assert_eq!(h.app.shape_properties.panel, Some(Panel::Fill));
-        assert!(h.app.board_sel.contains(&id));
-        let end = p + Vec2::new(80.0, -36.0);
-        h.frame_with(|i| i.events.push(egui::Event::PointerMoved(end)));
-        h.frame_with(|i| {
-            i.events.push(egui::Event::PointerButton {
-                pos: end,
-                button: egui::PointerButton::Secondary,
-                pressed: false,
-                modifiers: egui::Modifiers::NONE,
-            })
-        });
-        h.frame();
-        assert_eq!(
-            h.app.shape_properties.panel,
-            Some(Panel::Fill),
-            "right-drag pan must leave the editor open"
-        );
-        assert!(
-            h.app.board_sel.contains(&id),
-            "right-drag pan must keep the node selected"
-        );
-        assert!(
-            (h.app.tab().cam.offset - before).length() > 10.0,
-            "the gesture must actually pan the board"
-        );
-    }
-
-    #[test]
-    fn secondary_click_without_a_drag_still_collapses_the_editor() {
-        let mut h = board();
-        let id = rectangle(&mut h, WorldRect::new(-100.0, -60.0, 200.0, 120.0), 0.0);
-        h.frame();
-        h.frame();
-        h.app.shape_properties.panel = Some(Panel::Fill);
-        let p = empty_canvas_point(&h, id);
-        h.frame_with(|i| i.events.push(egui::Event::PointerMoved(p)));
-        h.frame_with(|i| {
-            i.events.push(egui::Event::PointerButton {
-                pos: p,
-                button: egui::PointerButton::Secondary,
-                pressed: true,
-                modifiers: egui::Modifiers::NONE,
-            })
-        });
-        assert_eq!(h.app.shape_properties.panel, Some(Panel::Fill));
-        h.frame_with(|i| {
-            i.events.push(egui::Event::PointerButton {
-                pos: p,
-                button: egui::PointerButton::Secondary,
-                pressed: false,
-                modifiers: egui::Modifiers::NONE,
-            })
-        });
-        assert!(h.app.shape_properties.panel.is_none());
-        assert!(h.app.board_sel.is_empty());
     }
 }

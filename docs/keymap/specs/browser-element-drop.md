@@ -4,6 +4,19 @@ Status: **spec only** (ledger **BD1**, 2026-10-10). No code, contract rows, or
 `decisions.json` changes until this document is implemented. Authority:
 `docs/requests/2026-10-10/browser-drop-brief.md`.
 
+**Image refinement implemented 2026-10-12:** the newer local feedback request
+(`feedback/client/2026-10-12_234748-feature-for-web-portals-and-immages-bein`)
+asks for browser pictures themselves to be pasted. Image bytes or an HTML
+`img` source now take precedence over an enclosing anchor and the page URL;
+direct raster URLs also use this path. This supersedes the linked-card-first
+priority below for image payloads. Bare links keep the web portal path.
+PNG, DIB/DIBV5 and promised HGLOBAL/IStream image contents are supported;
+image URLs are fetched once with bounded bytes, pixels, redirects and timeout.
+Decode and asset writing run off-thread and commit through the paste intake.
+Failures do not fall back to the hosting page. CF_BITMAP-only handles,
+blob/data URLs without offered pixels, and passage placement remain outside
+this implementation. The rest of this document remains the earlier spec.
+
 Constitution: Art. III (90% cut — OLE payload only, no DOM), Art. VI
 (journaled placement), Art. IX (links, not copies, except pasted bitmap bytes
 under `assets/pasted/`), Art. XII (decode in `external_drop.rs`, pure classifier

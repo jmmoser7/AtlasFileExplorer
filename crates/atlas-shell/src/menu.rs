@@ -5,6 +5,10 @@
 //! chevron. Apps build rows through this module; they must not invent a
 //! second menu chrome.
 
+mod layout;
+mod rows;
+pub use layout::Metrics;
+
 use crate::tokens::{self, MenuThemeTokens, MenuTokens};
 use eframe::egui::{
     self, text::LayoutJob, Align2, Color32, CornerRadius, FontId, Frame, Margin, Pos2, Rect,
@@ -63,6 +67,8 @@ pub struct Row<'a> {
     pub enabled: bool,
     pub checked: Option<bool>,
     pub swatch: Option<Color32>,
+    /// Elide long labels before the shortcut column in fixed-width panels.
+    pub truncate: bool,
 }
 
 impl<'a> Row<'a> {
@@ -87,6 +93,7 @@ impl<'a> Row<'a> {
             enabled: true,
             checked: None,
             swatch: None,
+            truncate: false,
         }
     }
 
@@ -165,7 +172,10 @@ pub fn apply_style(ctx: &egui::Context, dark: bool) {
 /// Safe to call inside the menu closure — it does not leak to the rest of
 /// the frame.
 pub fn prepare(ui: &mut Ui, dark: bool) {
-    let tokens = tokens();
+    prepare_with_tokens(ui, dark, &tokens())
+}
+
+fn prepare_with_tokens(ui: &mut Ui, dark: bool, tokens: &MenuTokens) {
     let theme = tokens.theme(dark);
     ui.set_min_width(tokens.min_width);
     ui.spacing_mut().item_spacing = Vec2::new(0.0, tokens.row_gap);
@@ -193,7 +203,10 @@ pub fn prepare(ui: &mut Ui, dark: bool) {
 
 /// Frame for a hand-built menu panel (right-click, portal flyout).
 pub fn frame(dark: bool) -> Frame {
-    let tokens = tokens::current().menu.clone();
+    frame_with_tokens(dark, &tokens())
+}
+
+fn frame_with_tokens(dark: bool, tokens: &MenuTokens) -> Frame {
     let theme = tokens.theme(dark);
     let stroke = if tokens.border_width <= 0.01 {
         Stroke::NONE
@@ -286,7 +299,10 @@ pub fn is_dark(ui: &Ui) -> bool {
 
 /// Quiet caption at the top of a menu ("3 file(s)", app name).
 pub fn heading(ui: &mut Ui, text: impl AsRef<str>, dark: bool) {
-    let tokens = tokens();
+    heading_with_tokens(ui, text, dark, &tokens())
+}
+
+fn heading_with_tokens(ui: &mut Ui, text: impl AsRef<str>, dark: bool, tokens: &MenuTokens) {
     let theme = tokens.theme(dark);
     let (rect, _) = ui.allocate_exact_size(
         Vec2::new(ui.available_width(), tokens.row_height * 0.72),
@@ -300,6 +316,7 @@ pub fn heading(ui: &mut Ui, text: impl AsRef<str>, dark: bool) {
         theme.muted_color(),
         tokens.letter_spacing,
         Align2::LEFT_CENTER,
+        None,
     );
 }
 
@@ -319,7 +336,10 @@ pub fn note(ui: &mut Ui, text: impl AsRef<str>, dark: bool) {
 
 /// Inset hairline between sections — does not touch the panel edge.
 pub fn separator(ui: &mut Ui, dark: bool) {
-    let tokens = tokens();
+    separator_with_tokens(ui, dark, &tokens())
+}
+
+fn separator_with_tokens(ui: &mut Ui, dark: bool, tokens: &MenuTokens) {
     let theme = tokens.theme(dark);
     ui.add_space(tokens.divider_gap * 0.5);
     let y = ui.cursor().top();
@@ -397,120 +417,10 @@ pub fn item_swatch(
 }
 
 pub fn row(ui: &mut Ui, spec: Row<'_>, dark: bool) -> egui::Response {
-    let tokens = tokens();
-    let theme = tokens.theme(dark);
-    ui.add_space(tokens.row_gap);
-    let sense = if spec.enabled {
-        Sense::click()
-    } else {
-        Sense::hover()
-    };
-    let (rect, response) =
-        ui.allocate_exact_size(Vec2::new(ui.available_width(), tokens.row_height), sense);
-    if spec.enabled && (response.hovered() || spec.selected) {
-        ui.painter().rect_filled(
-            rect,
-            CornerRadius::same(tokens.hover_radius.clamp(0.0, 255.0) as u8),
-            theme.hover_color(),
-        );
-    }
-    let fade = if spec.enabled { 1.0 } else { 0.38 };
-    let color = if spec.danger {
-        theme.danger_color()
-    } else {
-        theme.text_color()
-    }
-    .gamma_multiply(fade);
-    let icon_color = if spec.danger {
-        theme.danger_color()
-    } else {
-        theme.icon_color()
-    }
-    .gamma_multiply(fade);
-    let icon_c = Pos2::new(
-        rect.left() + tokens.row_pad_x + tokens.icon_size * 0.5,
-        rect.center().y,
-    );
-    if let Some(swatch) = spec.swatch {
-        ui.painter()
-            .circle_filled(icon_c, tokens.icon_size * 0.28, swatch.gamma_multiply(fade));
-        if spec.checked == Some(true) {
-            ui.painter().circle_stroke(
-                icon_c,
-                tokens.icon_size * 0.42,
-                Stroke::new(tokens.icon_stroke, icon_color),
-            );
-        }
-    } else if let Some(glyph) = spec.glyph {
-        crate::icons::paint(
-            ui.painter(),
-            Rect::from_center_size(icon_c, Vec2::splat(tokens.icon_size)),
-            glyph,
-            icon_color,
-        );
-        if spec.checked == Some(true) {
-            paint_icon(
-                ui.painter(),
-                MenuIcon::Check,
-                Pos2::new(
-                    rect.right() - tokens.row_pad_x - tokens.icon_size * 0.5,
-                    rect.center().y,
-                ),
-                tokens.icon_size,
-                tokens.icon_stroke,
-                icon_color,
-            );
-        }
-    } else {
-        let icon = if spec.checked == Some(true) {
-            MenuIcon::Check
-        } else {
-            spec.icon
-        };
-        paint_icon(
-            ui.painter(),
-            icon,
-            icon_c,
-            tokens.icon_size,
-            tokens.icon_stroke,
-            icon_color,
-        );
-    }
-    let text_x = rect.left() + tokens.row_pad_x + tokens.icon_size + tokens.icon_gap;
-    paint_label(
-        ui,
-        Pos2::new(text_x, rect.center().y),
-        spec.label,
-        tokens.text_size,
-        color,
-        tokens.letter_spacing,
-        Align2::LEFT_CENTER,
-    );
-    if let Some(shortcut) = spec.shortcut {
-        paint_label(
-            ui,
-            Pos2::new(rect.right() - tokens.row_pad_x, rect.center().y),
-            shortcut,
-            tokens.shortcut_text_size,
-            theme.muted_color().gamma_multiply(fade),
-            0.0,
-            Align2::RIGHT_CENTER,
-        );
-    } else if spec.chevron {
-        paint_chevron(
-            ui.painter(),
-            Pos2::new(
-                rect.right() - tokens.row_pad_x - tokens.chevron_size * 0.35,
-                rect.center().y,
-            ),
-            tokens.chevron_size,
-            tokens.icon_stroke,
-            theme.muted_color().gamma_multiply(fade),
-        );
-    }
-    response
+    rows::row(ui, spec, dark, &tokens())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn paint_label(
     ui: &Ui,
     pos: Pos2,
@@ -519,7 +429,8 @@ fn paint_label(
     color: Color32,
     tracking: f32,
     align: Align2,
-) {
+    max_width: Option<f32>,
+) -> bool {
     let mut job = LayoutJob::default();
     job.append(
         text,
@@ -531,9 +442,17 @@ fn paint_label(
             ..Default::default()
         },
     );
+    if let Some(width) = max_width {
+        job.wrap.max_width = width.max(0.0);
+        job.wrap.max_rows = 1;
+        job.wrap.break_anywhere = true;
+        job.break_on_newline = false;
+    }
     let galley = ui.fonts(|f| f.layout_job(job));
+    let elided = galley.elided;
     let rect = align.anchor_size(pos, galley.size());
     ui.painter().galley(rect.min, galley, color);
+    elided
 }
 
 fn paint_chevron(painter: &egui::Painter, c: Pos2, size: f32, stroke: f32, color: Color32) {
@@ -548,7 +467,7 @@ fn paint_chevron(painter: &egui::Painter, c: Pos2, size: f32, stroke: f32, color
     );
 }
 
-fn paint_icon(
+pub(crate) fn paint_icon(
     painter: &egui::Painter,
     icon: MenuIcon,
     c: Pos2,

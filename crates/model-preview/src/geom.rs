@@ -61,6 +61,7 @@ pub fn indexed_mesh(
         normals,
         indices,
         color,
+        ..PreviewMesh::default()
     })
 }
 

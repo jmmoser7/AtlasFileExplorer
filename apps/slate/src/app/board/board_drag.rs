@@ -113,6 +113,55 @@ pub(super) fn egui_align(align: TextAlign) -> egui::Align {
     }
 }
 
+pub(super) fn styled_typeface_font(
+    ctx: &egui::Context,
+    face: Typeface,
+    size: f32,
+    style: slate_doc::scene::TextStyle,
+) -> FontId {
+    if !style.bold {
+        return typeface_font(face, size);
+    }
+    let installed = ctx.data(|data| data.get_temp::<u64>(egui::Id::new(TYPEFACE_ALIASES_READY)));
+    // set_fonts applies on the next pass. Installation records readiness;
+    // painting never enumerates or allocates a list of available families.
+    if installed.is_some_and(|pass| ctx.cumulative_pass_nr() > pass) {
+        static BOLD: std::sync::OnceLock<Vec<egui::FontFamily>> = std::sync::OnceLock::new();
+        let families = BOLD.get_or_init(|| {
+            Typeface::ALL
+                .iter()
+                .map(|face| egui::FontFamily::Name(face.bold_egui_family().into()))
+                .collect()
+        });
+        FontId::new(size, families[face.index()].clone())
+    } else {
+        typeface_font(face, size)
+    }
+}
+
+pub(crate) const TYPEFACE_ALIASES_READY: &str = "slate.typeface.aliases.installed";
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn styled_text_galley(
+    ctx: &egui::Context,
+    text: &str,
+    font: FontId,
+    wrap: f32,
+    align: TextAlign,
+    color: Color32,
+    zoom: f32,
+    style: slate_doc::scene::TextStyle,
+) -> std::sync::Arc<egui::Galley> {
+    let spec = canvas_text::WorldSpec {
+        align: egui_align(align),
+        italics: style.italic,
+        underline: style.underline,
+        ..canvas_text::WorldSpec::new(font, wrap)
+    };
+    let layout = canvas_text::world_layout_spec(ctx, text, &spec);
+    canvas_text::zoom_galley(ctx, &layout, color, zoom)
+}
+
 /// Screen galley for authored text. `font.size` and `world_wrap` are world
 /// units; line breaks come from [`canvas_text::world_layout`] and do not
 /// depend on `zoom`. The caret hit-tests this same galley.
@@ -125,9 +174,16 @@ pub(super) fn zoom_text_galley(
     color: Color32,
     zoom: f32,
 ) -> std::sync::Arc<egui::Galley> {
-    let layout = canvas_text::world_layout(ctx, text, font.clone(), world_wrap, egui_align(align));
-    let screen = FontId::new(font.size * zoom, font.family);
-    canvas_text::zoom_galley(ctx, text, &layout, screen, color, zoom)
+    styled_text_galley(
+        ctx,
+        text,
+        font,
+        world_wrap,
+        align,
+        color,
+        zoom,
+        Default::default(),
+    )
 }
 
 /// Excerpt type size on a text document card, in world units.
@@ -173,6 +229,7 @@ pub(super) fn offset_text_row(row: &mut egui::epaint::text::Row, dx: f32, dy: f3
 ///
 /// The fit is a world-space size. The camera is not an input: a zoom must
 /// not pick a different size, or the note would reflow as it scales.
+#[cfg(test)]
 pub(super) fn measure_sticky_font(
     ctx: &egui::Context,
     text: &str,
@@ -182,6 +239,29 @@ pub(super) fn measure_sticky_font(
     box_h: f32,
     align: TextAlign,
 ) -> f32 {
+    measure_styled_sticky_font(
+        ctx,
+        text,
+        family,
+        max_size,
+        box_w,
+        box_h,
+        align,
+        Default::default(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn measure_styled_sticky_font(
+    ctx: &egui::Context,
+    text: &str,
+    family: Typeface,
+    max_size: f32,
+    box_w: f32,
+    box_h: f32,
+    align: TextAlign,
+    style: slate_doc::scene::TextStyle,
+) -> f32 {
     if text.trim().is_empty() {
         return max_size.max(slate_doc::scene::STICKY_FIT_MIN);
     }
@@ -190,7 +270,7 @@ pub(super) fn measure_sticky_font(
         let layout = canvas_text::world_layout(
             ctx,
             text,
-            typeface_font(family, size),
+            styled_typeface_font(ctx, family, size, style),
             wrap,
             egui_align(align),
         );
@@ -221,6 +301,7 @@ pub(crate) fn fit_sticky_font(max_size: f32, mut fits: impl FnMut(f32) -> bool) 
 /// Cached shrink-to-fit for one sticky. Not part of the document.
 #[derive(Clone)]
 pub(crate) struct StickyFit {
+    pub(super) style: slate_doc::scene::TextStyle,
     pub(super) text: String,
     pub(super) w: f32,
     pub(super) h: f32,
@@ -232,7 +313,7 @@ pub(crate) struct StickyFit {
 
 pub(super) fn center_galley_vertically(galley: &mut egui::Galley, box_h: f32) {
     let dy = (box_h - galley.rect.height()) * 0.5;
-    if dy <= 0.5 {
+    if dy <= 0.0 {
         return;
     }
     for row in &mut galley.rows {

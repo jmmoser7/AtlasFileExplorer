@@ -21,6 +21,18 @@ contract between the owner and the agents building it.
    that fails before the fix may go straight to `main`.
 4. **Acceptance is the row, not the agent's judgment.** If the row and the
    code disagree, the row wins or the agent asks.
+5. **Two working modes; the owner says which.**
+   - *At desk:* show direction within about 15 minutes. A look-and-feel item
+     first sends one screenshot (a non-visual item, a short plan) and waits
+     for a yes or no before it is built out. Ask about ambiguity at once
+     instead of guessing. Items reach the preview as each one passes, and
+     the owner gets a build at least hourly. An item with nothing reviewable
+     after about 45 minutes stops and reports.
+   - *Away:* grind to finished. Make the reasonable call on an ambiguity,
+     report it as `decided: <what and why>`, and keep going.
+6. **Light review.** A test that fails without the fix plus a screenshot that
+   matches the row ships. The coordinator goes back to an agent only when the
+   screenshot shows a defect.
 
 Decisions the owner made today: streaming replaces the model name in the
 chat top bar; a highlight dragged out of an image becomes a cut-out sticker;

@@ -5,6 +5,26 @@ const ZOOM_MIN: f32 = atlas_core::display::SLATE_CANVAS.min;
 const ZOOM_MAX: f32 = atlas_core::display::SLATE_CANVAS.max;
 
 impl SlateApp {
+    pub(crate) fn board_turbo_pan(
+        &mut self,
+        ctx: &egui::Context,
+        rect: Rect,
+        pointer: Option<Pos2>,
+        blocked: bool,
+    ) -> bool {
+        if blocked {
+            return false;
+        }
+        let old = self.tab().cam.offset;
+        let mut offset = old;
+        if !self.turbo_pan.step(ctx, rect, pointer, &mut offset) {
+            return false;
+        }
+        let zoom = self.tab().cam.z;
+        self.tab_mut().cam.offset = old - (offset - old) / zoom;
+        true
+    }
+
     pub(crate) fn world_to_screen(&self, w: Pos2) -> Pos2 {
         let cam = self.tab().cam;
         self.canvas_rect.center() + (w.to_vec2() - cam.offset) * cam.z
@@ -179,13 +199,15 @@ impl SlateApp {
     pub(crate) fn mini_menu(&mut self, ctx: &egui::Context, rect: Rect, fit_bounds: Option<Rect>) {
         use atlas_shell::widgets::{canvas_mini_menu, MiniMenuAction, MiniMenuModel};
         let palette = self.palette();
-        let _ = atlas_shell::feedback::suggestion_button(
-            ctx,
-            &palette,
-            "slate",
-            rect,
-            &mut self.feedback,
-        );
+        if self.doc().view.active_view != slate_doc::ViewKind::Board {
+            let _ = atlas_shell::feedback::suggestion_button(
+                ctx,
+                &palette,
+                "slate",
+                rect,
+                &mut self.feedback,
+            );
+        }
         let action = canvas_mini_menu(
             ctx,
             &palette,
@@ -218,6 +240,11 @@ impl SlateApp {
         let palette = self.palette();
         match self.home.show(ui, &palette, &self.recents) {
             Some(atlas_shell::home::HomeScreenAction::New) => self.home_new_workspace(),
+            Some(atlas_shell::home::HomeScreenAction::Remove(path)) => {
+                self.recents.entries.retain(|entry| entry.path != path);
+                #[cfg(not(test))]
+                self.recents.save("slate");
+            }
             Some(atlas_shell::home::HomeScreenAction::Open(path)) => {
                 if path.is_file() {
                     self.open_doc_at(path);

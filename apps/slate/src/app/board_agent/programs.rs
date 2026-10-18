@@ -7,11 +7,18 @@ impl SlateApp {
     #[cfg(test)]
     pub(crate) fn set_agent_programs_for_test(&mut self, ids: &[&str]) {
         self.agents.programs_started = true;
-        self.agents.programs_rx = None;
+        self.ai.packs.hold = true;
         self.agents.programs = ids
             .iter()
             .map(|id| atlas_ai::agent::provider_by_id(id))
             .collect();
+    }
+    /// Pins one pack's health now and for every later probe, so a test does
+    /// not depend on what this machine has installed.
+    #[cfg(test)]
+    pub(crate) fn pin_pack_for_test(&mut self, id: &str, health: atlas_ai::packs::PackHealth) {
+        self.ai.packs.set_health_override(id, health);
+        self.ai.packs.record(id, health);
     }
     /// The unbound agent portal's size (width, height) around its program
     /// grid, once the installed programs are known.
@@ -22,28 +29,79 @@ impl SlateApp {
             (grid.x + 48.0, grid.y + 72.0)
         })
     }
-    pub(super) fn ensure_agent_programs(&mut self) {
+    pub(crate) fn ensure_agent_programs(&mut self) {
         if !self.agents.programs_started {
             self.agents.programs_started = true;
-            let ws = self.ai.config.workspace_dir.clone();
-            let (tx, rx) = unbounded();
-            self.agents.programs_rx = Some(rx);
-            std::thread::spawn(move || {
-                let _ = tx.send(atlas_ai::runtime::discover_programs(ws.as_deref()));
-            });
+            self.ai
+                .packs
+                .ensure_started(self.ai.config.workspace_dir.clone());
         }
-        if let Some(rx) = &self.agents.programs_rx {
-            match rx.try_recv() {
-                Ok(programs) => {
-                    self.agents.programs = programs;
-                    self.agents.programs_rx = None;
-                }
-                Err(crossbeam_channel::TryRecvError::Empty) => {}
-                Err(crossbeam_channel::TryRecvError::Disconnected) => {
-                    self.agents.programs_rx = None;
-                }
+        if let Some(programs) = self.ai.packs.poll_programs() {
+            if !self.ai.packs.hold {
+                self.agents.programs = programs;
             }
         }
+    }
+    pub(crate) fn pack_caption(&self, provider: &str) -> Option<String> {
+        if provider.is_empty() {
+            return None;
+        }
+        let health = self.ai.packs.health(provider);
+        if health == atlas_ai::packs::PackHealth::Ok {
+            return None;
+        }
+        if health == atlas_ai::packs::PackHealth::Unknown
+            && self.ai.packs.detail(provider).is_empty()
+        {
+            return None;
+        }
+        let title = self.ai.packs.title(provider)?;
+        Some(format!("{title} · {}", health.as_str()))
+    }
+    /// Names the pack a card needs when it did not answer Ok this session
+    /// (P1.portal.health). The card keeps painting its last poster.
+    pub(crate) fn paint_pack_caption(
+        &self,
+        painter: &egui::Painter,
+        node: &Node,
+        body: Rect,
+        z: f32,
+    ) {
+        let Some(caption) =
+            slate_doc::agent_chat::agent(node).and_then(|a| self.pack_caption(&a.provider))
+        else {
+            return;
+        };
+        atlas_shell::canvas_text::text(
+            painter,
+            egui::pos2(
+                body.center().x,
+                body.bottom() - atlas_shell::canvas_scale::px(14.0, z),
+            ),
+            egui::Align2::CENTER_BOTTOM,
+            &caption,
+            atlas_shell::canvas_scale::font(12.0, z),
+            self.palette().sub,
+        );
+    }
+    /// The shared OpenAI key window. A stored key opens the OpenAI catalogs.
+    pub(super) fn paint_pack_key_entry(&mut self, ctx: &egui::Context) {
+        match atlas_ai::ui::openai_key_window(&mut self.ai, ctx) {
+            Some(Ok(())) => {
+                self.agents.refresh_catalog("openai-image");
+                self.agents.refresh_catalog("openai-text");
+                self.toast("OpenAI API key saved for this user.");
+            }
+            Some(Err(error)) => self.toast(error),
+            None => {}
+        }
+    }
+    /// The program chooser is on screen. Probe again so an install that
+    /// landed while Slate was open shows up without a restart.
+    pub(crate) fn note_program_chooser(&mut self) {
+        self.ai
+            .packs
+            .note_chooser_open(self.ai.config.workspace_dir.clone());
     }
     pub(crate) fn set_agent_program(&mut self, id: NodeId, provider: &str) {
         if self
@@ -166,6 +224,31 @@ impl SlateApp {
             .get(self.agent_shown_index(id)?)
             .map(|i| i.id.clone())
     }
+    /// Resolve an already imported, explicitly selected result without reading
+    /// or registering its file. Scoped placement cannot turn a provider path
+    /// into a new source capability.
+    pub(crate) fn registered_agent_image_item(&self, id: NodeId) -> Option<slate_doc::ItemId> {
+        use slate_doc::image_paint::ImageResultId;
+        match self.image_result_id(id)? {
+            ImageResultId::Item(item) => self.doc().item(item).map(|item| item.id),
+            ImageResultId::Output(output) => {
+                let images = self.agent_images(id);
+                let image = images.iter().find(|image| image.id == output)?;
+                let base = self.tab().path.as_deref();
+                let path = resolve_source(base, &image.source);
+                self.doc()
+                    .items
+                    .iter()
+                    .find(|item| resolve_source(base, &item.path.to_string_lossy()) == path)
+                    .map(|item| item.id)
+            }
+        }
+    }
+    /// Album browsing focus can differ from the image chosen for the card.
+    pub(crate) fn agent_album_focus(&self, id: NodeId) -> Option<usize> {
+        self.agents.cover_focus.get(&id).copied()
+    }
+
     /// Which result an agent's card shows. A picture shows the file a person
     /// picked, else the newest result; a chat card's album shows its focus.
     pub(crate) fn agent_shown_index(&self, id: NodeId) -> Option<usize> {
@@ -176,10 +259,10 @@ impl SlateApp {
         if let Some(NodeKind::Image(img)) = self.doc().scene.node(id).map(|n| &n.kind) {
             let base = self.tab().path.as_deref();
             if let Some(item) = self.doc().item(img.item) {
-                if let Some(i) = images
-                    .iter()
-                    .position(|o| resolve_source(base, &o.source) == item.path)
-                {
+                if let Some(i) = images.iter().position(|o| {
+                    resolve_source(base, &o.source)
+                        == resolve_source(base, &item.path.to_string_lossy())
+                }) {
                     return Some(i);
                 }
             }
@@ -187,10 +270,7 @@ impl SlateApp {
             return images.iter().position(|o| o.id == newest.id);
         }
         Some(
-            self.agents
-                .cover_focus
-                .get(&id)
-                .copied()
+            self.agent_album_focus(id)
                 .unwrap_or(0)
                 .min(images.len() - 1),
         )

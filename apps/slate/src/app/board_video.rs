@@ -22,6 +22,11 @@ use slate_doc::NodeId;
 use super::board::BoardXf;
 use super::SlateApp;
 
+mod events;
+mod source;
+#[cfg(test)]
+mod tests;
+
 const PLAYHEAD_PX: f32 = 2.0;
 const TIMECODE_PX: f32 = 12.0;
 const MAX_STRIPS: usize = 3;
@@ -74,6 +79,9 @@ struct ShownTex {
 pub(crate) struct VideoBoard {
     pool: Option<atlas_core::video::VideoPool>,
     next_token: u64,
+    /// Node ids are local to this workbook; tokens stay monotonic across switches.
+    tab: Option<u64>,
+    sources: HashMap<NodeId, source::VideoSource>,
     strips: HashMap<NodeId, Strip>,
     /// Order of filmstrip residency, oldest first.
     lru: Vec<NodeId>,
@@ -90,6 +98,8 @@ impl Default for VideoBoard {
         Self {
             pool: None,
             next_token: 1,
+            tab: None,
+            sources: HashMap::new(),
             strips: HashMap::new(),
             lru: Vec::new(),
             paused: HashMap::new(),
@@ -108,28 +118,15 @@ struct Vid {
 
 impl SlateApp {
     pub(crate) fn video_pump(&mut self, ctx: &egui::Context) {
-        if let Some(id) = self.video.play.as_ref().map(|p| p.id) {
-            if self.video_view(id).is_none() {
-                self.video.play = None;
-                self.video.paused.remove(&id);
-                if let Some(pool) = self.video.pool.as_ref() {
-                    pool.stop();
-                }
-            }
-        }
+        self.sync_video_context();
         let Some(pool) = self.video.pool.as_ref() else {
             return;
         };
-        let mut events = Vec::new();
-        for _ in 0..8 {
-            match pool.try_recv() {
-                Some(ev) => events.push(ev),
-                None => break,
-            }
-        }
+        let events: [Option<atlas_core::video::VideoEvent>; 8] =
+            std::array::from_fn(|_| pool.try_recv());
         let playing = self.video.play.is_some();
         let inflight = self.video.strips.values().any(|s| s.inflight);
-        for ev in events {
+        for ev in events.into_iter().flatten() {
             self.apply_video_event(ev);
         }
         if let Some(play) = &self.video.play {
@@ -154,6 +151,7 @@ impl SlateApp {
     }
 
     pub(crate) fn video_pointer(&mut self, world: Pos2) {
+        self.sync_video_context();
         let Some(id) = self.board_pick_node(world.x, world.y) else {
             self.video.hover = None;
             return;
@@ -187,7 +185,7 @@ impl SlateApp {
 
     /// Click with no modifiers. Plays from the panned frame, or pauses.
     pub(crate) fn video_click(&mut self, id: NodeId) {
-        let Some(vid) = self.video_at(id) else {
+        let Some(vid) = self.ensure_video_source(id) else {
             return;
         };
         if self.video.play.as_ref().is_some_and(|p| p.id == id) {
@@ -255,6 +253,8 @@ impl SlateApp {
         id: NodeId,
         adjust: &ImageAdjust,
     ) -> Option<egui::TextureHandle> {
+        self.sync_video_context();
+        self.current_video_source(id)?;
         let stamp = self.video_stamp(id)?;
         if let Some(shown) = self.video.textures.get(&id) {
             if shown.stamp == stamp {
@@ -348,149 +348,8 @@ impl SlateApp {
         laid.paint(painter, origin + pad, Color32::WHITE);
     }
 
-    fn apply_video_event(&mut self, ev: atlas_core::video::VideoEvent) {
-        use atlas_core::video::VideoEvent;
-        match ev {
-            VideoEvent::Probed {
-                id,
-                token,
-                duration,
-            } => {
-                let id = NodeId(id);
-                if let Some(strip) = self.video.strips.get_mut(&id) {
-                    if strip.token == token {
-                        strip.duration = duration.max(0.0);
-                        strip.probed = true;
-                    }
-                }
-                let opts = self.video_opts(id);
-                if let Some(play) = self.video.play.as_mut() {
-                    if play.id == id && play.token == token {
-                        let now_t = play_clock(play, Instant::now());
-                        let (start, end) = atlas_core::video::playback_window(
-                            opts.map(|o| o.start).unwrap_or(0.0),
-                            opts.and_then(|o| o.end),
-                            duration,
-                        );
-                        play.start = start;
-                        play.end = end;
-                        play.from = now_t.clamp(start, end);
-                        play.started = Instant::now();
-                    }
-                }
-            }
-            VideoEvent::Strip {
-                id,
-                token,
-                index,
-                time,
-                frame,
-            } => {
-                let id = NodeId(id);
-                let Some(strip) = self.video.strips.get_mut(&id) else {
-                    return;
-                };
-                if strip.token != token || strip.failed {
-                    return;
-                }
-                let index = index as usize;
-                if index >= strip.slots.len() {
-                    return;
-                }
-                strip.slots[index] = Some(Slot {
-                    time,
-                    w: frame.w,
-                    h: frame.h,
-                    rgba: frame.rgba,
-                });
-            }
-            VideoEvent::StripDone { id, token } => {
-                let id = NodeId(id);
-                if let Some(strip) = self.video.strips.get_mut(&id) {
-                    if strip.token == token {
-                        strip.done = true;
-                        strip.inflight = false;
-                    }
-                }
-            }
-            VideoEvent::Play {
-                id,
-                token,
-                time,
-                frame,
-            } => {
-                let id = NodeId(id);
-                if self
-                    .video
-                    .play
-                    .as_ref()
-                    .is_some_and(|p| p.id == id && p.token == token)
-                {
-                    self.video.live = Some(Live {
-                        id,
-                        token,
-                        time,
-                        w: frame.w,
-                        h: frame.h,
-                        rgba: frame.rgba,
-                    });
-                }
-            }
-            VideoEvent::Ended { id, token } => {
-                let id = NodeId(id);
-                if self
-                    .video
-                    .play
-                    .as_ref()
-                    .is_some_and(|p| p.id == id && p.token == token)
-                {
-                    let end = self.video.play.as_ref().map(|p| p.end).unwrap_or(0.0);
-                    self.video.play = None;
-                    self.video.paused.insert(id, end);
-                    if let Some(pool) = self.video.pool.as_ref() {
-                        pool.stop();
-                    }
-                }
-            }
-            VideoEvent::Failed { id, token } => {
-                let id = NodeId(id);
-                if self
-                    .video
-                    .play
-                    .as_ref()
-                    .is_some_and(|p| p.id == id && p.token == token)
-                {
-                    let t = self
-                        .video
-                        .play
-                        .as_ref()
-                        .map(|p| play_clock(p, Instant::now()))
-                        .unwrap_or(0.0);
-                    self.video.play = None;
-                    self.video.paused.insert(id, t);
-                    if let Some(pool) = self.video.pool.as_ref() {
-                        pool.stop();
-                    }
-                    // A filmstrip that already opened the file can still scrub.
-                    if self.video.strips.get(&id).is_some_and(|s| !s.probed) {
-                        if let Some(strip) = self.video.strips.get_mut(&id) {
-                            strip.failed = true;
-                            strip.inflight = false;
-                        }
-                    }
-                    return;
-                }
-                if let Some(strip) = self.video.strips.get_mut(&id) {
-                    if strip.token == token {
-                        strip.failed = true;
-                        strip.inflight = false;
-                    }
-                }
-            }
-        }
-    }
-
     fn video_stamp(&self, id: NodeId) -> Option<u64> {
+        self.current_video_source(id)?;
         if let Some(play) = &self.video.play {
             if play.id == id {
                 let live = self
@@ -508,6 +367,7 @@ impl SlateApp {
     }
 
     fn video_copy(&self, id: NodeId) -> Option<(u32, u32, Vec<u8>)> {
+        self.current_video_source(id)?;
         if let Some(play) = &self.video.play {
             if play.id == id {
                 let live = self
@@ -525,6 +385,7 @@ impl SlateApp {
     }
 
     fn video_shown(&self, id: NodeId) -> Option<f32> {
+        self.current_video_source(id)?;
         if let Some(play) = &self.video.play {
             if play.id == id {
                 return Some(play_clock(play, Instant::now()));
@@ -534,6 +395,7 @@ impl SlateApp {
     }
 
     fn video_window(&self, id: NodeId) -> Option<(f32, f32)> {
+        self.current_video_source(id)?;
         if self.video.strips.get(&id).is_some_and(|s| s.failed) {
             return None;
         }
@@ -563,6 +425,7 @@ impl SlateApp {
         id: NodeId,
         dir: &std::path::Path,
     ) -> Result<Option<PathBuf>, String> {
+        self.ensure_video_source(id);
         let first = || {
             let strip = self.video.strips.get(&id)?;
             strip
@@ -597,6 +460,7 @@ impl SlateApp {
     }
 
     fn ensure_strip(&mut self, id: NodeId) {
+        self.sync_video_context();
         let Some((opts, _, _)) = self.video_view(id) else {
             return;
         };
@@ -610,7 +474,7 @@ impl SlateApp {
                 return;
             }
         }
-        let Some(vid) = self.video_at(id) else {
+        let Some(vid) = self.ensure_video_source(id) else {
             return;
         };
         if atlas_core::cloud::is_dehydrated(&vid.path) || std::fs::metadata(&vid.path).is_err() {
@@ -618,7 +482,6 @@ impl SlateApp {
             return;
         }
         let token = self.next_token();
-        self.evict_strips(id);
         self.video.strips.insert(
             id,
             Strip {
@@ -674,7 +537,7 @@ impl SlateApp {
     }
 
     fn evict_strips(&mut self, keep: NodeId) {
-        while self.video.strips.len() >= MAX_STRIPS {
+        while self.video.sources.len() >= MAX_STRIPS {
             let playing = self.video.play.as_ref().map(|p| p.id);
             let hover = self.video.hover.map(|(id, _)| id);
             let victim = self
@@ -686,9 +549,7 @@ impl SlateApp {
             let Some(victim) = victim else {
                 break;
             };
-            self.video.strips.remove(&victim);
-            self.video.textures.remove(&victim);
-            self.video.lru.retain(|n| *n != victim);
+            self.video.forget_source(victim);
         }
     }
 
@@ -708,21 +569,6 @@ impl SlateApp {
         self.video_view(id).map(|(opts, _, _)| opts)
     }
 
-    fn video_at(&self, id: NodeId) -> Option<Vid> {
-        let node = self.doc().scene.node(id)?;
-        let NodeKind::Image(img) = &node.kind else {
-            return None;
-        };
-        let item = self.doc().item(img.item)?;
-        if slate_doc::media_kind(&item.path) != slate_doc::MediaKind::Video {
-            return None;
-        }
-        Some(Vid {
-            path: item.path.clone(),
-            opts: img.video,
-        })
-    }
-
     #[cfg(test)]
     pub(crate) fn video_shown_for_test(&self, id: NodeId) -> Option<f32> {
         self.video_shown(id)
@@ -736,13 +582,14 @@ impl SlateApp {
     /// Pretend the file's duration is known so pan math can run without a decoder.
     #[cfg(test)]
     pub(crate) fn video_probe_for_test(&mut self, id: NodeId, duration: f32) {
-        let Some(vid) = self.video_at(id) else {
+        let Some(vid) = self.ensure_video_source(id) else {
             return;
         };
+        let token = self.next_token();
         self.video.strips.insert(
             id,
             Strip {
-                token: 0,
+                token,
                 start: vid.opts.start,
                 end: vid.opts.end,
                 duration,

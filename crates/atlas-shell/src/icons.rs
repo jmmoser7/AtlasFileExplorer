@@ -8,6 +8,13 @@ use std::{
 };
 use vector_ink::{kurbo::BezPath, Cap, InkMesh, InkVertex, Join, StrokeStyle};
 
+/// Bare plus shared by add controls; callers own their surrounding surface.
+pub fn paint_plus(painter: &egui::Painter, center: egui::Pos2, radius: f32, stroke: egui::Stroke) {
+    for axis in [egui::Vec2::X, egui::Vec2::Y] {
+        painter.line_segment([center - axis * radius, center + axis * radius], stroke);
+    }
+}
+
 macro_rules! catalog {
     ($($name:ident),+ $(,)?) => {
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -18,7 +25,7 @@ macro_rules! catalog {
         }
     };
 }
-catalog! { Media, Image, Model, Video, TextDoc, Pages, Select, DirectSelect, Pan, Frame, Deck, FrameLetter, FrameTabloid, FrameWide, FrameCustom, Rect, Ellipse, Polygon, Line, Arc, Polyline, Bezier, Pen, Text, Ruler, Trim, Join, Split, Portals, Agent, WebPortal, Tags, Filters, Grid, Snap, AtlasLens, Fit, Shapes, Actions, ObjectProperties, DocumentSettings, Selection, Display, Mode, Workflow, Ai, ChevronRight, ChevronLeft, Align, JustifyLeft, JustifyCenter, JustifyRight, Brush, Eraser, Smooth, Eyedropper, Sticky, Colors, View, Lens, SnapGrid, SnapEnd, SnapMid, SnapCenter, SnapNear, SnapInt, SnapQuad, SnapPerp, SnapTan, Swap, Reset, Dark, Ghost, Hide, ModeEdit, Fill, Corners, Crop, Bumper, ChatBundle, ChatUnbundle, ChatTrain, ChatWindow, ChatPairs, Feedback, Stop, Clock, ProviderCursor, ProviderCodex, ProviderOllama }
+catalog! { Media, Image, Model, Video, TextDoc, Pages, Select, DirectSelect, Pan, Frame, Deck, FrameLetter, FrameTabloid, FrameWide, FrameCustom, Rect, Ellipse, Polygon, Lasso, Line, Arc, Polyline, Bezier, Pen, Text, Ruler, Trim, Join, Split, Portals, Agent, WebPortal, Tags, Filters, Sliders, Grid, Snap, AtlasLens, Fit, Shapes, Actions, ObjectProperties, DocumentSettings, Selection, Display, Mode, Workflow, Ai, ChevronRight, ChevronLeft, Align, AlignLeft, AlignCenterH, AlignRight, AlignTop, AlignCenterV, AlignBottom, DistributeHorizontal, DistributeVertical, JustifyLeft, JustifyCenter, JustifyRight, Bold, Italic, Underline, Brush, Eraser, Smooth, Eyedropper, Sticky, Colors, View, Lens, SnapGrid, SnapEnd, SnapMid, SnapCenter, SnapNear, SnapInt, SnapQuad, SnapPerp, SnapTan, Swap, Reset, Dark, Ghost, Hide, ModeEdit, Fill, Corners, Crop, Bumper, ChatBundle, ChatUnbundle, ChatTrain, ChatWindow, ChatPairs, Feedback, Stop, Camera, Clock, ProviderCursor, ProviderCodex, ProviderOllama }
 
 #[derive(serde::Deserialize)]
 struct Definition {
@@ -108,65 +115,21 @@ fn frame_sheet_for(icon: Icon) -> Option<String> {
     }
 }
 
-fn meshes() -> &'static BTreeMap<&'static str, InkMesh> {
-    static MESHES: OnceLock<BTreeMap<&'static str, InkMesh>> = OnceLock::new();
-    MESHES.get_or_init(|| {
-        let defs: BTreeMap<String, Definition> =
-            serde_json::from_str(include_str!("../assets/tool-icons.json"))
-                .expect("valid shared icon catalog");
-        Icon::ALL
-            .iter()
-            .map(|&icon| {
-                let def = &defs[icon.name()];
-                let generated = frame_sheet_for(icon);
-                let path_svg = generated.as_deref().unwrap_or(def.path.as_str());
-                let mut path = BezPath::from_svg(path_svg).expect("valid icon path");
-                if let Some([x, y, w, h]) = def.view_box {
-                    let scale = 20.0 / w.max(h);
-                    path = vector_ink::kurbo::Affine::translate((
-                        (24.0 - w * scale) * 0.5,
-                        (24.0 - h * scale) * 0.5,
-                    )) * vector_ink::kurbo::Affine::scale(scale)
-                        * vector_ink::kurbo::Affine::translate((-x, -y))
-                        * path;
-                }
-                let mut mesh = InkMesh::default();
-                if def.filled {
-                    let (verts, indices) =
-                        vector_ink::fill_triangles(&vector_ink::flatten_contours(&path, 0.02));
-                    mesh.vertices = verts
-                        .into_iter()
-                        .map(|pos| InkVertex { pos, alpha: 1.0 })
-                        .collect();
-                    mesh.indices = indices;
-                }
-                let stroke = vector_ink::stroke_mesh(
-                    &path,
-                    &StrokeStyle {
-                        width: def.stroke_width.unwrap_or(1.5),
-                        cap: Cap::Round,
-                        join: Join::Round,
-                        taper: None,
-                        dash: None,
-                    },
-                    0.5,
-                    0.02,
-                );
-                let base = mesh.vertices.len() as u32;
-                mesh.vertices.extend(stroke.vertices);
-                mesh.indices
-                    .extend(stroke.indices.into_iter().map(|i| i + base));
-                (icon.name(), mesh)
-            })
-            .collect()
-    })
-}
+mod density;
+#[cfg(test)]
+mod media_tests;
+#[cfg(test)]
+use density::master_meshes as meshes;
 
 #[derive(PartialEq)]
 struct PaintKey {
     icon: Icon,
     rect: [u32; 4],
     color: Color32,
+    media: bool,
+    underlay: Color32,
+    underlay_width: u32,
+    density: u32,
 }
 thread_local! {
     // Bounded transform/color cache: steady chrome paints only clone an Arc.
@@ -176,9 +139,40 @@ thread_local! {
 /// Paint a square glyph centered in its existing slot, with caller-owned state color.
 /// Parsing, flattening and tessellation happen once. Changing slots transforms only.
 pub fn paint(painter: &egui::Painter, rect: Rect, icon: Icon, color: Color32) {
+    paint_cached(painter, rect, icon, color, None);
+}
+
+/// Paint a catalog glyph over media with a narrow palette keyline.
+pub fn paint_on_media(
+    painter: &egui::Painter,
+    rect: Rect,
+    icon: Icon,
+    color: Color32,
+    theme: crate::theme::Palette,
+) {
+    if color.a() == 0 {
+        return;
+    }
+    paint_cached(
+        painter,
+        rect,
+        icon,
+        color,
+        Some((theme.bg, rect.width().min(rect.height()) / 24.0 * 0.5)),
+    );
+}
+
+fn paint_cached(
+    painter: &egui::Painter,
+    rect: Rect,
+    icon: Icon,
+    color: Color32,
+    media: Option<(Color32, f32)>,
+) {
     if !rect.is_finite() || rect.width() <= 0.0 || rect.height() <= 0.0 {
         return;
     }
+    let (underlay, underlay_width) = media.unwrap_or((Color32::TRANSPARENT, 0.0));
     let key = PaintKey {
         icon,
         rect: [
@@ -188,13 +182,26 @@ pub fn paint(painter: &egui::Painter, rect: Rect, icon: Icon, color: Color32) {
             rect.max.y.to_bits(),
         ],
         color,
+        media: media.is_some(),
+        underlay,
+        underlay_width: underlay_width.to_bits(),
+        density: painter.ctx().pixels_per_point().to_bits(),
     };
     let mesh = PAINT_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
         if let Some((_, mesh)) = cache.iter().find(|(k, _)| *k == key) {
             return Arc::clone(mesh);
         }
-        let mesh = Arc::new(glyph_mesh(icon, rect, color));
+        let physical_size = rect.width().min(rect.height()) * painter.ctx().pixels_per_point();
+        let mesh = Arc::new(match media {
+            Some((underlay, _width)) => place_media_mesh(
+                &density::media::mesh(icon, physical_size),
+                rect,
+                color,
+                underlay,
+            ),
+            None => place_mesh(&density::mesh(icon, physical_size), rect, color),
+        });
         if cache.len() >= 256 {
             cache.remove(0);
         }
@@ -204,9 +211,43 @@ pub fn paint(painter: &egui::Painter, rect: Rect, icon: Icon, color: Color32) {
     painter.add(egui::Shape::Mesh(mesh));
 }
 
+fn place_media_mesh(
+    source: &egui::Mesh,
+    rect: Rect,
+    color: Color32,
+    underlay: Color32,
+) -> egui::Mesh {
+    let scale = rect.width().min(rect.height()) / 24.0;
+    let origin = rect.center() - egui::vec2(12.0, 12.0) * scale;
+    let opacity = color.a() as f32 / 255.0;
+    egui::Mesh {
+        indices: source.indices.clone(),
+        vertices: source
+            .vertices
+            .iter()
+            .map(|v| {
+                let material = if v.color.r() >= 128 { color } else { underlay };
+                let coverage = v.color.a() as f32 / 255.0;
+                let [r, g, b, _] = material.to_srgba_unmultiplied();
+                egui::epaint::Vertex {
+                    pos: origin + v.pos.to_vec2() * scale,
+                    uv: egui::epaint::WHITE_UV,
+                    color: Color32::from_rgb(r, g, b).gamma_multiply(opacity * coverage),
+                }
+            })
+            .collect(),
+        ..Default::default()
+    }
+}
+
 /// The glyph's cached geometry placed in `rect`, as `paint` draws it.
+#[cfg(test)]
 fn glyph_mesh(icon: Icon, rect: Rect, color: Color32) -> egui::Mesh {
     let source = &meshes()[icon.name()];
+    place_mesh(source, rect, color)
+}
+
+fn place_mesh(source: &InkMesh, rect: Rect, color: Color32) -> egui::Mesh {
     let scale = rect.width().min(rect.height()) / 24.0;
     let origin = rect.center() - egui::vec2(12.0, 12.0) * scale;
     egui::Mesh {
@@ -273,7 +314,7 @@ mod tests {
 
     /// Paints meshes in order onto `background` with 4x4 supersampling and
     /// premultiplied "over" blending, the way the GPU composites them.
-    fn rasterize(
+    pub(super) fn rasterize(
         meshes: &[egui::Mesh],
         width: f32,
         height: f32,
@@ -288,11 +329,17 @@ mod tests {
         let scale = ppp * SS as f32;
         for mesh in meshes {
             for tri in mesh.indices.as_chunks::<3>().0 {
-                let v = tri.map(|i| &mesh.vertices[i as usize]);
-                let p = v.map(|v| v.pos.to_vec2() * scale);
-                let area = (p[1] - p[0]).x * (p[2] - p[0]).y - (p[1] - p[0]).y * (p[2] - p[0]).x;
+                let mut v = tri.map(|i| &mesh.vertices[i as usize]);
+                let mut p = v.map(|v| v.pos.to_vec2() * scale);
+                let mut area =
+                    (p[1] - p[0]).x * (p[2] - p[0]).y - (p[1] - p[0]).y * (p[2] - p[0]).x;
                 if area.abs() < 1e-9 {
                     continue;
+                }
+                if area < 0.0 {
+                    p.swap(1, 2);
+                    v.swap(1, 2);
+                    area = -area;
                 }
                 let x0 = p
                     .iter()
@@ -314,8 +361,15 @@ mod tests {
                         let edge = |a: egui::Vec2, b: egui::Vec2| {
                             ((b - a).x * (c - a).y - (b - a).y * (c - a).x) / area
                         };
+                        let top_left = |a: egui::Vec2, b: egui::Vec2| {
+                            let d = b - a;
+                            d.y < 0.0 || (d.y == 0.0 && d.x > 0.0)
+                        };
                         let (w0, w1, w2) = (edge(p[1], p[2]), edge(p[2], p[0]), edge(p[0], p[1]));
-                        if w0 < 0.0 || w1 < 0.0 || w2 < 0.0 {
+                        if (w0 < 0.0 || (w0 == 0.0 && !top_left(p[1], p[2])))
+                            || (w1 < 0.0 || (w1 == 0.0 && !top_left(p[2], p[0])))
+                            || (w2 < 0.0 || (w2 == 0.0 && !top_left(p[0], p[1])))
+                        {
                             continue;
                         }
                         let src = v.map(|v| egui::Rgba::from(v.color));

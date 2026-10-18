@@ -12,8 +12,7 @@ fn sheet_enter_keeps_the_typed_number_until_save() {
         .doc_mut()
         .add_item(path.clone(), "rows.csv", 8, 0, "rows");
     h.app
-        .sheets
-        .insert(item, atlas_core::table::read_sheet_card(&path));
+        .cache_sheet(item, atlas_core::table::read_sheet_card(&path));
     h.app.sheet_edit = Some(board::SheetEdit {
         node: NodeId(1),
         item,
@@ -26,11 +25,9 @@ fn sheet_enter_keeps_the_typed_number_until_save() {
         font_px: 12.0,
     });
     h.app.commit_sheet_edit();
-    let shown = h
-        .app
-        .sheets
-        .get(&item)
-        .and_then(|g| g.as_ref())
+    let grid = h.app.cached_sheet(item);
+    let shown = grid
+        .as_ref()
         .and_then(|rows| rows.get(1))
         .and_then(|row| row.get(1))
         .map(|cell| cell.text.as_str());

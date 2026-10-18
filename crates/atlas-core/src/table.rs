@@ -1,9 +1,12 @@
 //! A spreadsheet as columns and rows for a Slate Link wire.
 //!
-//! Callers must not open a dehydrated cloud placeholder. This reader only
-//! parses a file the caller has already decided is safe to read.
+//! Preview readers refuse cloud-only and machine-private sources before I/O.
+//! Parsing is bounded; preparation belongs on a worker, not the frame loop.
 
 use std::path::Path;
+
+mod delimited;
+use delimited::read_delimited;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinkedTable {
@@ -22,7 +25,16 @@ pub const SHEET_CARD_COLS: usize = MAX_COLS;
 /// Opening of a CSV, TSV, or Excel file for a board card. Solid cell fills
 /// from Excel are kept. A cloud placeholder is `None`.
 pub fn read_sheet_card(path: &Path) -> Option<Vec<Vec<crate::office::SheetCell>>> {
-    if crate::cloud::is_dehydrated(path) {
+    read_sheet_checked(path, |path| {
+        crate::workbook_assets::require_local_source(path).is_ok()
+    })
+}
+
+fn read_sheet_checked(
+    path: &Path,
+    local: impl FnOnce(&Path) -> bool,
+) -> Option<Vec<Vec<crate::office::SheetCell>>> {
+    if !local(path) {
         return None;
     }
     let ext = path.extension()?.to_str()?.to_ascii_lowercase();
@@ -55,6 +67,7 @@ fn delimited_card(path: &Path, sep: u8) -> Option<Vec<Vec<crate::office::SheetCe
 }
 
 pub fn read_linked_table(path: &Path) -> Option<LinkedTable> {
+    crate::workbook_assets::require_local_source(path).ok()?;
     let ext = path.extension()?.to_str()?.to_ascii_lowercase();
     let grid = match ext.as_str() {
         "csv" => read_delimited(path, b',')?,
@@ -68,78 +81,6 @@ pub fn read_linked_table(path: &Path) -> Option<LinkedTable> {
     let columns = grid[0].clone();
     let rows = grid.into_iter().skip(1).collect();
     Some(LinkedTable { columns, rows })
-}
-
-fn read_delimited(path: &Path, sep: u8) -> Option<Vec<Vec<String>>> {
-    let bytes = std::fs::read(path).ok()?;
-    let text = String::from_utf8_lossy(&bytes);
-    let mut rows = Vec::new();
-    let mut row = Vec::new();
-    let mut cell = String::new();
-    let mut quoted = false;
-    let mut chars = text.chars().peekable();
-    while let Some(c) = chars.next() {
-        if rows.len() >= MAX_ROWS {
-            break;
-        }
-        if quoted {
-            if c == '"' {
-                if chars.peek() == Some(&'"') {
-                    chars.next();
-                    push_cell_char(&mut cell, '"');
-                } else {
-                    quoted = false;
-                }
-            } else {
-                push_cell_char(&mut cell, c);
-            }
-            continue;
-        }
-        if c == '"' && cell.is_empty() {
-            quoted = true;
-            continue;
-        }
-        if c == sep as char {
-            if row.len() < MAX_COLS {
-                row.push(std::mem::take(&mut cell));
-            } else {
-                cell.clear();
-            }
-            continue;
-        }
-        if c == '\n' || c == '\r' {
-            if c == '\r' && chars.peek() == Some(&'\n') {
-                chars.next();
-            }
-            if row.len() < MAX_COLS {
-                row.push(std::mem::take(&mut cell));
-            }
-            if row.iter().any(|c| !c.is_empty()) {
-                rows.push(std::mem::take(&mut row));
-            } else {
-                row.clear();
-            }
-            continue;
-        }
-        push_cell_char(&mut cell, c);
-    }
-    if row.len() < MAX_COLS {
-        row.push(cell);
-    }
-    if row.iter().any(|c| !c.is_empty()) && rows.len() < MAX_ROWS {
-        rows.push(row);
-    }
-    if rows.is_empty() {
-        None
-    } else {
-        Some(rows)
-    }
-}
-
-fn push_cell_char(cell: &mut String, c: char) {
-    if cell.chars().count() < 200 {
-        cell.push(c);
-    }
 }
 
 const WRITE_CAP: usize = 2 * 1024 * 1024;
@@ -459,5 +400,24 @@ mod tests {
         let rows = read_sheet_card(&path).unwrap();
         assert_eq!(rows.len(), MAX_ROWS);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn preview_readers_refuse_cloud_facts_and_machine_private_sources() {
+        let dir = std::env::temp_dir().join(format!("slate-private-table-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let local = dir.join("local.csv");
+        std::fs::write(&local, "A,B\n1,2").unwrap();
+        assert!(
+            read_sheet_checked(&local, |_| false).is_none(),
+            "injected dehydrated fact wins before parsing"
+        );
+        assert!(read_sheet_checked(&local, |_| true).is_some());
+        let private = dir.join("NativeFileAtlas/secrets/rows.csv");
+        std::fs::create_dir_all(private.parent().unwrap()).unwrap();
+        std::fs::write(&private, "A,B\nprivate,material").unwrap();
+        assert!(read_sheet_card(&private).is_none());
+        assert!(read_linked_table(&private).is_none());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

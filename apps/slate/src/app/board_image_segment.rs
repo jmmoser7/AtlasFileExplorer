@@ -1,6 +1,7 @@
 //! Local image subject highlights. Durable highlights are ordinary paint paths.
 
 use super::{board::BoardXf, SlateApp};
+use atlas_segment::PointPrompt;
 use atlas_shell::{canvas_scale, selection_tools};
 use eframe::egui::{self, Id, Pos2, Rect};
 use runtime::PendingImage;
@@ -14,6 +15,9 @@ use std::time::{Duration, Instant};
 
 const LINGER: Duration = Duration::from_millis(400);
 const MOVE_RESET_PX: f32 = 8.0;
+const LASSO_CLOSE_NORM: f32 = 0.015;
+const LASSO_DOUBLE_CLICK: Duration = Duration::from_millis(350);
+const LASSO_DOUBLE_CLICK_PX: f32 = 8.0;
 const HIGHLIGHT: Rgba = Rgba([255, 150, 40, 100]);
 
 #[cfg(test)]
@@ -24,13 +28,22 @@ mod tests;
 pub(crate) struct SegmentResult {
     pub host: NodeId,
     pub gen: u64,
+    pub source_key: String,
     pub local: Node,
     mask: std::sync::Arc<Vec<Vec<[f32; 2]>>>,
+    candidates: std::sync::Arc<Vec<atlas_segment::Candidate>>,
+    selected: usize,
 }
 
+mod grow;
+mod input;
+mod lasso;
+mod paint;
 mod runtime;
-use runtime::Hover;
+mod selection;
+mod sticker;
 pub(crate) use runtime::ImageSegmentRuntime;
+use runtime::{Hover, LassoDraft, PinnedSelection, PromptMode};
 
 impl SlateApp {
     /// The silhouette replaces the ordinary hover outline while it shows.
@@ -41,22 +54,34 @@ impl SlateApp {
         xf: &BoardXf,
         select: egui::Color32,
     ) {
-        if self.board_crop.is_none() && self.image_segments.result.is_none() {
+        if self.board_crop.is_none()
+            && self.image_segments.result.is_none()
+            && self.image_segments.pinned.is_none()
+            && self.image_segments.lasso.is_none()
+        {
             self.paint_hover_preview(painter, xf, select);
         }
         self.paint_image_segment_hover(ui, painter, xf);
+        self.paint_sticker_ghost(ui, painter, xf);
     }
 
     /// Esc ends the dwell either way, but only a visible offer is a cancel
     /// layer; a bare dwell lets Esc fall through to the selection.
     pub(crate) fn dismiss_image_segment(&mut self) -> bool {
-        let Some(hover) = self.image_segments.hover.as_ref() else {
+        let active = self.image_segments.hover.is_some()
+            || self.image_segments.pinned.is_some()
+            || self.image_segments.lasso.is_some();
+        if !active {
             return false;
-        };
+        }
         let offered = self.image_segments.offered();
-        self.image_segments.dismissed = Some(hover.screen);
+        let consumes_escape =
+            offered || self.image_segments.pinned.is_some() || self.image_segments.lasso.is_some();
+        self.image_segments.dismissed =
+            self.image_segments.hover.as_ref().map(|hover| hover.screen);
+        self.image_segments.pinned = None;
         self.image_segments.clear();
-        offered
+        consumes_escape
     }
 
     pub(crate) fn tick_image_segment_hover(
@@ -68,6 +93,42 @@ impl SlateApp {
         world: Option<Pos2>,
     ) {
         self.image_segments.receive();
+        if self.image_segments.drag.is_some() {
+            return;
+        }
+        let tab = self.tab().id;
+        let lasso_stale = self.image_segments.lasso.as_ref().is_some_and(|draft| {
+            draft.tab != tab
+                || self.segment_source_key(draft.host).as_deref() != Some(draft.source_key.as_str())
+        });
+        if lasso_stale {
+            self.image_segments.lasso = None;
+        }
+        if self.image_segments.lasso.is_some() {
+            return;
+        }
+        let pinned_stale = self
+            .image_segments
+            .pinned
+            .as_ref()
+            .is_some_and(|selection| {
+                selection.tab != tab
+                    || self.segment_source_key(selection.host).as_deref()
+                        != Some(selection.source_key.as_str())
+            });
+        if pinned_stale {
+            self.image_segments.pinned = None;
+            self.image_segments.clear();
+        }
+        if self.image_segments.pinned.is_some() {
+            // Refinement responses use this immutable request context. Keep it
+            // across frames until the worker has delivered the pinned mask.
+            if self.image_segments.pending.is_none() {
+                self.image_segments.hover = None;
+            }
+            self.image_segments.result = None;
+            return;
+        }
         if self
             .image_segments
             .hover
@@ -124,6 +185,7 @@ impl SlateApp {
             .as_ref()
             .is_some_and(|r| r.host == host && vector_ink::point_in_polygon(&r.mask, point_norm))
         {
+            self.segment_grow_step(screen, xf.z);
             return;
         }
         let basis = slate_doc::image_paint::image_content_rect(node, img);
@@ -141,7 +203,12 @@ impl SlateApp {
                 tab: self.tab().id,
                 host,
                 gen: self.scene_gen,
+                source_key: String::new(),
                 point_norm,
+                prompts: vec![PointPrompt {
+                    point: point_norm,
+                    positive: true,
+                }],
                 screen,
                 since: Instant::now(),
             });
@@ -155,150 +222,94 @@ impl SlateApp {
         if self.image_segments.offered() {
             return;
         }
-        if self
-            .image_segments
-            .worker
-            .as_ref()
-            .is_some_and(|tx| tx.is_full())
-        {
-            ui.ctx().request_repaint_after(Duration::from_millis(50));
-            return;
-        }
-        let Some(request) = self.segment_request(host, hover.point_norm) else {
+        let prompts = hover.prompts.clone();
+        let Some(request) = self.segment_request(host, &prompts) else {
             return;
         };
+        if let Some(hover) = self.image_segments.hover.as_mut() {
+            hover.source_key = request.source_key.clone();
+        }
         if self.image_segments.worker.is_none() {
             self.image_segments.start_worker(ui.ctx().clone());
         }
-        let serial = self.image_segments.serial;
-        if self
-            .image_segments
-            .worker
-            .as_ref()
-            .unwrap()
-            .try_send((serial, request))
-            .is_ok()
-        {
-            self.image_segments.pending = Some(serial);
+        let serial = self.image_segments.serial.wrapping_add(1);
+        self.image_segments.serial = serial;
+        self.image_segments.submit(serial, request);
+    }
+
+    fn segment_pixel_key(&self, host: NodeId) -> Option<String> {
+        let node = self.doc().scene.node(host)?;
+        let NodeKind::Image(img) = &node.kind else {
+            return None;
+        };
+        if img.item.is_none() {
+            Some(super::preview::linked_image_key(
+                &self.agent_shown_path(host)?,
+                "shown",
+            ))
         } else {
-            ui.ctx().request_repaint_after(Duration::from_millis(50));
+            Some(self.resolved_item_key(self.doc().item(img.item)?))
         }
     }
 
-    fn segment_request(&mut self, host: NodeId, point: [f32; 2]) -> Option<PendingImage> {
-        let item = self.image_item(host)?;
-        let key = if item.is_none() {
-            super::preview::linked_image_key(&self.agent_shown_path(host)?, "shown")
-        } else {
-            self.resolved_item_preview(item)?.0
+    /// Selection identity includes crop geometry. Pixel residency deliberately
+    /// uses the unsuffixed preview key above, while inference identity includes
+    /// mirroring because the worker mirrors pixels before encoding.
+    fn segment_source_key(&self, host: NodeId) -> Option<String> {
+        let node = self.doc().scene.node(host)?;
+        let NodeKind::Image(img) = &node.kind else {
+            return None;
         };
+        let pixels = self.segment_pixel_key(host)?;
+        let mirror = img.mirror();
+        let crop = img.crop;
+        Some(format!(
+            "{pixels}:{}:{}:{:08x}:{:08x}:{:08x}:{:08x}",
+            mirror.x,
+            mirror.y,
+            crop.x.to_bits(),
+            crop.y.to_bits(),
+            crop.w.to_bits(),
+            crop.h.to_bits(),
+        ))
+    }
+
+    fn segment_request(&mut self, host: NodeId, prompts: &[PointPrompt]) -> Option<PendingImage> {
+        let source_key = self.segment_source_key(host)?;
+        let pixels_key = self.segment_pixel_key(host)?;
         let host_node = self.doc().scene.node(host)?;
         let NodeKind::Image(img) = &host_node.kind else {
             return None;
         };
         let mirror = img.mirror();
+        let model_key = format!("{pixels_key}:{}:{}", mirror.x, mirror.y);
         let window = slate_doc::image_paint::visible_window_norm(host_node, img);
         let pixels = self
             .preview_cache
-            .get(&key)
+            .get(&pixels_key)
             .map(|e| &e.pixels)
-            .or_else(|| self.thumb_pixels.get(&key))?;
+            .or_else(|| self.thumb_pixels.get(&pixels_key))?;
         Some(PendingImage {
-            key: format!("{key}:{}:{}", mirror.x, mirror.y),
+            key: model_key,
+            source_key,
             pixels: pixels.clone(),
             mirror: [mirror.x, mirror.y],
-            point,
+            prompts: prompts.to_vec(),
             window,
         })
     }
 
-    pub(crate) fn paint_image_segment_hover(
-        &mut self,
-        ui: &egui::Ui,
-        painter: &egui::Painter,
-        xf: &BoardXf,
-    ) {
-        let Some(hover) = self.image_segments.hover.as_ref() else {
-            return;
-        };
-        if hover.gen != self.scene_gen || hover.tab != self.tab().id {
-            return;
-        }
-        let host_id = hover.host;
-        let point = hover.point_norm;
-        let Some(host) = self.doc().scene.node(host_id) else {
-            return;
-        };
-        let NodeKind::Image(img) = &host.kind else {
-            return;
-        };
-        let basis = slate_doc::image_paint::image_content_rect(host, img);
-        let world = slate_doc::geom::orbit_point(
-            host.rect.center(),
-            (basis.x + point[0] * basis.w, basis.y + point[1] * basis.h),
-            host.rotation_deg,
-        );
-        let screen = xf.w2s(Pos2::new(world.0, world.1));
-        let host_bounds = xf.rect_w2s(slate_doc::node_aabb(host));
-        let result = self.image_segments.result.clone();
-        if let Some(result) = &result {
-            let region = layer_node_to_world(host, img, &result.local);
-            if let NodeKind::Shape(shape) = &region.kind {
-                if let Some(path) = &shape.path {
-                    super::board_path::paint_path_shape(
-                        self,
-                        painter,
-                        xf,
-                        &region,
-                        shape,
-                        path,
-                        &|c| c,
-                    );
-                }
-            }
-        }
-        if !self.image_segments.offered() {
-            return;
-        }
-        let px = |v: f32| canvas_scale::px(v, xf.z);
-        let anchor = Rect::from_center_size(screen, egui::Vec2::splat(px(12.0)));
-        let size = egui::vec2(
-            px(selection_tools::STACK_WIDTH),
-            px(selection_tools::CORNER_HEIGHT),
-        );
-        let rect =
-            selection_tools::place_popup(size, anchor, host_bounds, px(10.0), ui.clip_rect());
-        self.image_segments.action_rect = Some(rect);
-        self.image_segments.corridor = Some(anchor.union(rect).expand(px(6.0)));
-        self.shape_properties.chrome_hits.push(rect);
-        let label = if result.is_some() {
-            "Highlight"
-        } else if self.image_segments.error.is_some() {
-            "Highlight unavailable"
-        } else {
-            "Finding object..."
-        };
-        let response = selection_tools::capsule(
-            ui,
-            Id::new(("image_highlight", host_id.0)),
-            rect,
-            &selection_tools::Capsule {
-                label,
-                disabled: result.is_none(),
-                ..Default::default()
-            },
-            xf.z,
-            self.palette(),
-        );
-        if let Some(error) = &self.image_segments.error {
-            response.response.clone().on_hover_text(error);
-        }
-        if response.response.clicked() {
-            self.commit_hover_segment(None);
-        }
-    }
-
     pub(crate) fn commit_hover_segment(&mut self, prompt: Option<&str>) -> Option<NodeId> {
+        if prompt.is_none() {
+            let host = self.image_segments.hover.as_ref()?.host;
+            self.pin_hover_selection();
+            return self
+                .image_segments
+                .pinned
+                .as_ref()
+                .filter(|selection| selection.host == host)
+                .map(|selection| selection.host);
+        }
         let result = self.image_segments.result.clone()?;
         if result.gen != self.scene_gen || self.image_segments.hover.as_ref()?.tab != self.tab().id
         {
@@ -320,6 +331,7 @@ impl SlateApp {
         let NodeKind::Image(img) = &before.kind else {
             return None;
         };
+        let result = self.image_result_id(image)?;
         local.id = self
             .doc_mut()
             .scene
@@ -330,10 +342,11 @@ impl SlateApp {
         let NodeKind::Image(after_img) = &mut after.kind else {
             return None;
         };
-        after_img
-            .paint_layers
-            .push(PaintLayer::new(Self::next_paint_layer_id(img)));
-        let layer = after_img.paint_layers.last_mut()?;
+        Self::prepare_result_stack(after_img, result.clone());
+        let layer_id = Self::next_paint_layer_id(img);
+        let stack = Self::selected_stack_mut(after_img, &result);
+        let layer_index = stack.add_layer(PaintLayer::new(layer_id));
+        let layer = stack.layers.get_mut(layer_index)?;
         layer.nodes.push(local);
         if let Some(prompt) = prompt.map(str::trim).filter(|p| !p.is_empty()) {
             layer.prompts.push(PaintLayerPrompt {
@@ -374,7 +387,14 @@ impl SlateApp {
 
     pub(crate) fn image_region_prompts(&self, image: NodeId) -> Vec<String> {
         match self.doc().scene.node(image).map(|n| &n.kind) {
-            Some(NodeKind::Image(img)) => slate_doc::image_paint::region_prompts(img),
+            Some(NodeKind::Image(img)) => self
+                .image_result_id(image)
+                .map(|result| {
+                    slate_doc::image_paint::region_prompts_from_layers(Self::displayed_layers(
+                        img, &result,
+                    ))
+                })
+                .unwrap_or_default(),
             _ => Vec::new(),
         }
     }
@@ -406,4 +426,8 @@ fn region_node(path: slate_doc::scene::PathData) -> Node {
             text: None,
         }),
     }
+}
+
+fn distance(a: [f32; 2], b: [f32; 2]) -> f32 {
+    (a[0] - b[0]).hypot(a[1] - b[1])
 }

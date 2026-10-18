@@ -6,33 +6,10 @@
 
 use std::collections::HashMap;
 
-use crate::scene::{Node, NodeId, WorldRect};
+use crate::scene::{Node, NodeId, NodeKind, WorldRect};
 
-/// Axis-aligned bounds of a node for broad-phase queries. Rotated nodes use
-/// the AABB of their rotated corners; connectors already store their curve
-/// AABB in `Node.rect`.
-pub fn node_aabb(node: &Node) -> WorldRect {
-    if node.rotation_deg.abs() < f32::EPSILON {
-        return node.rect.normalized();
-    }
-    let corners = node.rect.corners_rotated(node.rotation_deg);
-    let mut min_x = f32::INFINITY;
-    let mut min_y = f32::INFINITY;
-    let mut max_x = f32::NEG_INFINITY;
-    let mut max_y = f32::NEG_INFINITY;
-    for (x, y) in corners {
-        min_x = min_x.min(x);
-        min_y = min_y.min(y);
-        max_x = max_x.max(x);
-        max_y = max_y.max(y);
-    }
-    WorldRect::new(
-        min_x,
-        min_y,
-        (max_x - min_x).max(0.0),
-        (max_y - min_y).max(0.0),
-    )
-}
+mod bounds;
+pub use bounds::node_aabb;
 
 /// Uniform spatial hash grid. Cell size tracks mean node extent so clustered
 /// boards (many small nodes in a region) do not collapse into one hot cell.

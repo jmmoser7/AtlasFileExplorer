@@ -7,6 +7,12 @@ alwaysApply: true
 
 For Windows setup, builds, or execution-block diagnostics, read
 `docs/windows-builds.md` and follow its audit/retry workflow.
+Build configuration changes are a last resort: preserve the known-good
+toolchain, profiles, features, flags, dependency lock and output location.
+Use the established release command; document necessity and rebuild/approval
+impact before a required configuration change. Never change configuration,
+clean caches or broaden build targets merely to work around execution denial.
+Seek one durable IT-approved development policy rather than per-build approvals.
 For packaging or distribution, also read `docs/distribution.md`.
 Keep those documents as the owners of detailed instructions; do not duplicate
 machine paths, dependency counts, or security-policy assumptions here.

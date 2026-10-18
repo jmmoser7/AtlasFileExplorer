@@ -1,57 +1,50 @@
 //! Cooperative write lease over a workbook file.
 //!
-//! A `.slate` workbook on a shared drive is opened by more than one person on
-//! the same day. Without a lease the second writer's save silently discards
-//! the first writer's work, so every open takes a lease and an open that
-//! cannot take one becomes read-only.
+//! The readable .slate.lock marker names the holder. Updated clients also
+//! retain an OS lock on .slate.lock.guard: a live owner is never stolen
+//! merely because its tab is inactive, its UI is idle, or clocks disagree.
+//! The zero-byte guard is persistent; deleting it would split the lock.
 //!
-//! The lease is a lock file beside the workbook (`board.slate` →
-//! `board.slate.lock`) holding [`LeaseInfo`] as JSON. It is deliberately
-//! visible and manually deletable: a lock nobody can find is worse than no
-//! lock at all.
-//!
-//! Acquisition is [`std::fs::OpenOptions::create_new`] — the one primitive
-//! that is atomic across SMB, not a check followed by a write. The holder
-//! refreshes `heartbeat_at` while it runs; a lease whose heartbeat is older
-//! than [`LEASE_STALE_SECS`] belonged to a process that crashed and is stolen.
-//!
-//! Staleness compares the holder's clock to ours, so two machines whose clocks
-//! disagree by more than [`LEASE_STALE_SECS`] can steal a live lease. Firm
-//! machines share a domain time source; anything stronger needs a server.
+//! One maintenance worker refreshes every owned marker and releases dropped
+//! leases off the UI thread. Heartbeats write the originally opened marker
+//! handle after checking its ownership token, never a replacement marker.
+//! Old clients which ignore the guard can still steal a stale marker; save
+//! checks and heartbeats fail closed if they do. The clock-based timeout is
+//! retained for crash recovery and compatibility with those old clients.
 
-use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
+use std::fs::{self, File, OpenOptions, TryLockError};
+use std::io::{self, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-/// A lease whose heartbeat is older than this is treated as abandoned.
+mod maintenance;
+#[cfg(test)]
+mod tests;
+
+/// A marker this old can be reclaimed only after its OS guard is unlocked.
 pub const LEASE_STALE_SECS: i64 = 30;
 /// Shortest interval between two heartbeat writes.
 pub const LEASE_HEARTBEAT_SECS: i64 = 10;
 
-/// Suffix appended to the workbook's file name to form the lock file.
-const LOCK_SUFFIX: &str = ".lock";
-
-/// Who holds a workbook, as recorded in its lock file.
+/// Who holds a workbook, as recorded in its readable lock marker.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LeaseInfo {
-    /// OS user name, best effort; `"unknown"` if unavailable.
     pub holder: String,
-    /// Machine name, best effort; `"unknown"` if unavailable.
     pub host: String,
     pub pid: u32,
-    /// Unix seconds when the lease was first taken.
     pub acquired_at: i64,
-    /// Unix seconds of the most recent heartbeat.
     pub heartbeat_at: i64,
+    /// Distinguishes reacquisitions on one machine within the same second.
+    /// Legacy markers have no token and remain readable.
+    #[serde(default)]
+    pub token: String,
 }
 
 impl LeaseInfo {
-    /// The holder of a lock file we could not read or parse. Fresh but
-    /// anonymous locks are honoured rather than stolen, so this is what the
-    /// caller shows instead of a name.
     pub fn unknown() -> LeaseInfo {
         LeaseInfo {
             holder: "unknown".to_string(),
@@ -59,163 +52,338 @@ impl LeaseInfo {
             pid: 0,
             acquired_at: 0,
             heartbeat_at: 0,
+            token: String::new(),
         }
     }
 
     fn for_this_process(now: i64) -> LeaseInfo {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
         LeaseInfo {
             holder: env_name(&["USERNAME", "USER", "LOGNAME"]),
             host: env_name(&["COMPUTERNAME", "HOSTNAME"]),
             pid: std::process::id(),
             acquired_at: now,
             heartbeat_at: now,
+            token: format!("{stamp:x}-{:x}", NEXT.fetch_add(1, Ordering::Relaxed)),
         }
     }
 
-    /// `"jmoser on WS-014"` — the phrasing the app puts in front of the user.
     pub fn describe(&self) -> String {
         format!("{} on {}", self.holder, self.host)
     }
+
+    fn same_owner(&self, other: &Self) -> bool {
+        self.token == other.token
+            && self.pid == other.pid
+            && self.host == other.host
+            && self.acquired_at == other.acquired_at
+    }
 }
 
-/// The outcome of [`Lease::acquire`].
 #[derive(Debug)]
 pub enum LeaseState {
-    /// This process owns the lease.
     Acquired(Lease),
-    /// Someone else holds a live lease; open read-only.
     Held(LeaseInfo),
 }
 
-/// An owned write lease. Released on [`Lease::release`] and, best effort, on
-/// drop.
 #[derive(Debug)]
-pub struct Lease {
-    lock_path: PathBuf,
+struct Record {
+    marker: File,
+    // Keep the OS guard locked while owned; cleanup reacquires its authority.
+    _guard: File,
     info: LeaseInfo,
 }
 
+#[derive(Debug)]
+struct LeaseInner {
+    lock_path: PathBuf,
+    record: Mutex<Record>,
+    failure: Mutex<Option<String>>,
+    active: AtomicBool,
+    // Declared last: completion follows destruction of the record's file handles.
+    released: ReleaseSignal,
+}
+
+/// Nonblocking confirmation that a released lease's old handles are gone.
+/// This does not grant ownership: reacquisition must still use [`Lease::acquire`].
+#[derive(Clone, Debug)]
+pub struct LeaseRelease(Arc<AtomicBool>);
+
+impl LeaseRelease {
+    pub fn is_complete(&self) -> bool {
+        self.0.load(Ordering::Acquire)
+    }
+}
+
+#[derive(Debug, Default)]
+struct ReleaseSignal(Arc<AtomicBool>);
+
+impl Drop for ReleaseSignal {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Release);
+    }
+}
+
+/// An owned lease. Maintenance is independent of any window or active tab.
+/// Release/drop queues cleanup rather than reading a shared drive on the UI.
+#[derive(Debug)]
+pub struct Lease {
+    inner: Option<Arc<LeaseInner>>,
+    info: LeaseInfo,
+    worker: mpsc::Sender<maintenance::Task>,
+}
+
 impl Lease {
-    /// The lock file for `doc_path`: the workbook's own name plus `.lock`, in
-    /// the workbook's directory.
     pub fn lock_path(doc_path: &Path) -> PathBuf {
-        let mut name = doc_path
-            .file_name()
-            .map(|n| n.to_os_string())
-            .unwrap_or_default();
-        name.push(LOCK_SUFFIX);
-        doc_path.with_file_name(name)
+        append_suffix(doc_path, ".lock")
     }
 
-    /// Attempts to take the lease for `doc_path`. A lease whose heartbeat is
-    /// older than [`LEASE_STALE_SECS`] is stolen (the holder crashed).
     pub fn acquire(doc_path: &Path) -> io::Result<LeaseState> {
-        let lock_path = Lease::lock_path(doc_path);
-        if let Some(lease) = create_lock(&lock_path)? {
-            return Ok(LeaseState::Acquired(lease));
-        }
-        let now = unix_now();
-        let existing = read_info(&lock_path);
-        let stale = match &existing {
-            Some(info) => now.saturating_sub(info.heartbeat_at) > LEASE_STALE_SECS,
-            // Unreadable or unparsable: fall back to the file's own age. An
-            // age we cannot determine counts as fresh — never steal blind.
-            None => lock_age_secs(&lock_path, now).is_some_and(|age| age > LEASE_STALE_SECS),
-        };
-        if !stale {
-            return Ok(LeaseState::Held(
-                existing.unwrap_or_else(LeaseInfo::unknown),
-            ));
-        }
-        // One steal attempt, never a retry loop: if another process wins the
-        // race between the remove and the create, we open read-only.
-        let _ = fs::remove_file(&lock_path);
-        match create_lock(&lock_path)? {
-            Some(lease) => Ok(LeaseState::Acquired(lease)),
-            None => Ok(LeaseState::Held(
-                read_info(&lock_path).unwrap_or_else(LeaseInfo::unknown),
-            )),
-        }
+        Self::acquire_at(doc_path, unix_now())
     }
 
-    /// Refreshes `heartbeat_at`; cheap enough to call every frame, writes at
-    /// most once per [`LEASE_HEARTBEAT_SECS`].
+    fn acquire_at(doc_path: &Path, now: i64) -> io::Result<LeaseState> {
+        let lock_path = Self::lock_path(doc_path);
+        let guard = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(append_suffix(&lock_path, ".guard"))?;
+        match guard.try_lock() {
+            Ok(()) => {}
+            Err(TryLockError::WouldBlock) => {
+                return Ok(LeaseState::Held(
+                    read_info(&lock_path).unwrap_or_else(LeaseInfo::unknown),
+                ));
+            }
+            Err(TryLockError::Error(error)) => return Err(error),
+        }
+        let worker = maintenance::worker()?;
+        let info = LeaseInfo::for_this_process(now);
+        let marker = match claim_marker(&lock_path, &info, now)? {
+            MarkerClaim::Owned(marker) => marker,
+            MarkerClaim::Held(holder) => return Ok(LeaseState::Held(holder)),
+        };
+        let inner = Arc::new(LeaseInner {
+            lock_path,
+            record: Mutex::new(Record {
+                marker,
+                _guard: guard,
+                info: info.clone(),
+            }),
+            failure: Mutex::new(None),
+            active: AtomicBool::new(true),
+            released: ReleaseSignal::default(),
+        });
+        worker
+            .send(maintenance::Task::Register(Arc::downgrade(&inner)))
+            .map_err(io::Error::other)?;
+        Ok(LeaseState::Acquired(Self {
+            inner: Some(inner),
+            info,
+            worker,
+        }))
+    }
+
+    /// Synchronous verification for an explicit save, before any mutation.
+    /// Normal frame pumps use failure() and perform no filesystem I/O.
+    pub fn validate_ownership(&self) -> io::Result<()> {
+        let inner = self.inner.as_ref().expect("unreleased lease");
+        let record = inner
+            .record
+            .lock()
+            .map_err(|_| io::Error::other("write lease state was poisoned"))?;
+        let result = inner.check_owned(&record.info);
+        inner.remember_failure(&result);
+        result
+    }
+
+    /// An error reported by background maintenance; this never touches disk.
+    pub fn failure(&self) -> Option<String> {
+        self.inner.as_ref()?.failure.lock().ok()?.clone()
+    }
+
+    /// Explicit synchronous refresh, primarily useful to callers without a UI.
+    /// App frame loops must not call this; maintenance already refreshes it.
     pub fn heartbeat(&mut self) -> io::Result<()> {
         self.heartbeat_at(unix_now())
     }
 
-    /// Deletes the lock file. Also runs on `Drop`, best effort.
-    pub fn release(self) {
-        self.remove_if_ours();
+    fn heartbeat_at(&mut self, now: i64) -> io::Result<()> {
+        let inner = self.inner.as_ref().expect("unreleased lease");
+        let mut record = inner
+            .record
+            .lock()
+            .map_err(|_| io::Error::other("write lease state was poisoned"))?;
+        let result = inner.refresh(&mut record, now);
+        inner.remember_failure(&result);
+        self.info = record.info.clone();
+        result
     }
 
-    /// Who this process recorded itself as when it took the lease.
+    pub fn release(self) -> LeaseRelease {
+        // Drop queues cleanup; the final inner field signals after its handles close.
+        LeaseRelease(
+            self.inner
+                .as_ref()
+                .expect("unreleased lease")
+                .released
+                .0
+                .clone(),
+        )
+    }
+
+    /// Drain already queued releases at process exit, with a bounded wait.
+    /// Do not call this from frame, tab-close, or ordinary drop paths.
+    pub fn flush_pending_releases(timeout: std::time::Duration) -> io::Result<()> {
+        maintenance::flush(timeout)
+    }
+
     pub fn info(&self) -> &LeaseInfo {
         &self.info
     }
+}
 
-    fn heartbeat_at(&mut self, now: i64) -> io::Result<()> {
-        if now.saturating_sub(self.info.heartbeat_at) < LEASE_HEARTBEAT_SECS {
+impl LeaseInner {
+    fn check_owned(&self, expected: &LeaseInfo) -> io::Result<()> {
+        if !self.active.load(Ordering::Acquire) {
+            return Err(io::Error::other("write lease was released"));
+        }
+        let failure = self
+            .failure
+            .lock()
+            .map_err(|_| io::Error::other("write lease failure state was poisoned"))?
+            .clone();
+        if let Some(failure) = failure {
+            return Err(io::Error::other(failure));
+        }
+        match read_info(&self.lock_path) {
+            Some(actual) if expected.same_owner(&actual) => Ok(()),
+            _ => Err(io::Error::other("write lease ownership was lost")),
+        }
+    }
+
+    fn refresh(&self, record: &mut Record, now: i64) -> io::Result<()> {
+        if now.saturating_sub(record.info.heartbeat_at) < LEASE_HEARTBEAT_SECS {
             return Ok(());
         }
-        let mut next = self.info.clone();
+        self.check_owned(&record.info)?;
+        let mut next = record.info.clone();
         next.heartbeat_at = now;
-        fs::write(&self.lock_path, encode(&next)?)?;
-        self.info = next;
+        write_info(&mut record.marker, &next)?;
+        record.info = next;
         Ok(())
     }
 
-    /// Removes the lock file unless another process has since taken it — a
-    /// stolen lease belongs to its new holder, not to us.
-    fn remove_if_ours(&self) {
-        match read_info(&self.lock_path) {
-            Some(info)
-                if info.pid != self.info.pid || info.acquired_at != self.info.acquired_at => {}
-            _ => {
-                let _ = fs::remove_file(&self.lock_path);
+    fn remember_failure(&self, result: &io::Result<()>) {
+        if let Err(error) = result {
+            if let Ok(mut failure) = self.failure.lock() {
+                *failure = Some(error.to_string());
             }
+        }
+    }
+
+    fn remove_if_ours(&self) {
+        let Ok(record) = self.record.lock() else {
+            return;
+        };
+        // A disconnected SMB session can lose its server-side guard even
+        // though this handle is still open. Reacquire exclusive authority
+        // before checking/removing a pathname; the token check alone leaves
+        // a takeover window between the read and unlink. Releasing our old
+        // lock first also avoids platform-dependent recursive-lock behavior.
+        let _ = record._guard.unlock();
+        if record._guard.try_lock().is_err() {
+            return;
+        }
+        if read_info(&self.lock_path).is_some_and(|actual| record.info.same_owner(&actual)) {
+            let _ = fs::remove_file(&self.lock_path);
         }
     }
 }
 
 impl Drop for Lease {
     fn drop(&mut self) {
-        self.remove_if_ours();
+        if let Some(inner) = self.inner.take() {
+            inner.active.store(false, Ordering::Release);
+            // If the worker failed, drop the handles and leave the marker for
+            // stale recovery. Never perform shared-drive cleanup on this thread.
+            let _ = self.worker.send(maintenance::Task::Release(inner));
+        }
     }
 }
 
-/// `create_new` is the atomic primitive: it either makes the file or reports
-/// that someone else already did. `Ok(None)` means the lock already exists.
-fn create_lock(lock_path: &Path) -> io::Result<Option<Lease>> {
-    let info = LeaseInfo::for_this_process(unix_now());
-    let mut file = match OpenOptions::new()
+fn append_suffix(path: &Path, suffix: &str) -> PathBuf {
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(suffix);
+    path.with_file_name(name)
+}
+
+enum MarkerClaim {
+    Owned(File),
+    Held(LeaseInfo),
+}
+
+/// Called only while the acquisition's OS guard is held. Stale takeover
+/// replaces the file object, so an old handle can never write its successor.
+fn claim_marker(lock_path: &Path, info: &LeaseInfo, now: i64) -> io::Result<MarkerClaim> {
+    match OpenOptions::new()
+        .read(true)
         .write(true)
         .create_new(true)
         .open(lock_path)
     {
-        Ok(file) => file,
-        Err(err) if err.kind() == io::ErrorKind::AlreadyExists => return Ok(None),
-        Err(err) => return Err(err),
-    };
-    if let Err(err) = encode(&info).and_then(|json| file.write_all(json.as_bytes())) {
-        // Don't leave an empty lock behind that nobody can attribute.
-        drop(file);
-        let _ = fs::remove_file(lock_path);
-        return Err(err);
+        Ok(mut file) => {
+            write_info(&mut file, info)?;
+            return Ok(MarkerClaim::Owned(file));
+        }
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error),
     }
-    Ok(Some(Lease {
-        lock_path: lock_path.to_path_buf(),
-        info,
-    }))
+    let existing = read_info(lock_path);
+    let stale = match &existing {
+        Some(info) => now.saturating_sub(info.heartbeat_at) > LEASE_STALE_SECS,
+        None => lock_age_secs(lock_path, now).is_some_and(|age| age > LEASE_STALE_SECS),
+    };
+    if !stale {
+        return Ok(MarkerClaim::Held(
+            existing.unwrap_or_else(LeaseInfo::unknown),
+        ));
+    }
+    let temporary = append_suffix(lock_path, &format!(".{}.tmp", info.token));
+    let mut file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(&temporary)?;
+    if let Err(error) = write_info(&mut file, info).and_then(|()| fs::rename(&temporary, lock_path))
+    {
+        drop(file);
+        let _ = fs::remove_file(&temporary);
+        return Err(error);
+    }
+    Ok(MarkerClaim::Owned(file))
 }
 
 fn encode(info: &LeaseInfo) -> io::Result<String> {
     serde_json::to_string_pretty(info).map_err(io::Error::other)
 }
 
+fn write_info(file: &mut File, info: &LeaseInfo) -> io::Result<()> {
+    let bytes = encode(info)?;
+    file.seek(SeekFrom::Start(0))?;
+    file.write_all(bytes.as_bytes())?;
+    file.set_len(bytes.len() as u64)?;
+    file.flush()
+}
+
 fn read_info(lock_path: &Path) -> Option<LeaseInfo> {
-    let bytes = fs::read(lock_path).ok()?;
-    serde_json::from_slice(&bytes).ok()
+    serde_json::from_slice(&fs::read(lock_path).ok()?).ok()
 }
 
 fn lock_age_secs(lock_path: &Path, now: i64) -> Option<i64> {
@@ -233,169 +401,6 @@ fn env_name(keys: &[&str]) -> String {
 fn unix_now() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
+        .map(|duration| duration.as_secs() as i64)
         .unwrap_or(0)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::atomic::{AtomicU64, Ordering};
-
-    fn unique_temp_dir(prefix: &str) -> PathBuf {
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos();
-        let dir = std::env::temp_dir().join(format!("{prefix}-{nanos}-{n}"));
-        fs::create_dir_all(&dir).expect("create temp dir");
-        dir
-    }
-
-    fn workbook(prefix: &str) -> PathBuf {
-        let path = unique_temp_dir(prefix).join("board.slate");
-        fs::write(&path, "{}").expect("write workbook");
-        path
-    }
-
-    fn write_lock(doc: &Path, info: &LeaseInfo) {
-        fs::write(Lease::lock_path(doc), encode(info).expect("encode")).expect("write lock");
-    }
-
-    #[test]
-    fn lock_path_sits_beside_the_workbook() {
-        let doc = Path::new("/share/projects/board.slate");
-        assert_eq!(
-            Lease::lock_path(doc),
-            PathBuf::from("/share/projects/board.slate.lock")
-        );
-    }
-
-    #[test]
-    fn lease_acquire_then_second_acquire_is_held() {
-        let doc = workbook("slate-lease-held");
-        let first = match Lease::acquire(&doc).expect("acquire") {
-            LeaseState::Acquired(lease) => lease,
-            LeaseState::Held(info) => panic!("first acquire was held by {info:?}"),
-        };
-        match Lease::acquire(&doc).expect("second acquire") {
-            LeaseState::Held(info) => {
-                assert_eq!(info.pid, std::process::id());
-                assert_eq!(&info, first.info());
-            }
-            LeaseState::Acquired(_) => panic!("second acquire stole a live lease"),
-        }
-    }
-
-    #[test]
-    fn stale_lease_is_stolen() {
-        let doc = workbook("slate-lease-stale");
-        let now = unix_now();
-        write_lock(
-            &doc,
-            &LeaseInfo {
-                holder: "ghost".to_string(),
-                host: "WS-000".to_string(),
-                pid: 4242,
-                acquired_at: now - 600,
-                heartbeat_at: now - 60,
-            },
-        );
-        match Lease::acquire(&doc).expect("acquire") {
-            LeaseState::Acquired(lease) => {
-                assert_eq!(lease.info().pid, std::process::id());
-                let on_disk = read_info(&Lease::lock_path(&doc)).expect("lock is ours now");
-                assert_eq!(&on_disk, lease.info());
-            }
-            LeaseState::Held(info) => panic!("stale lease was not stolen: {info:?}"),
-        }
-    }
-
-    #[test]
-    fn heartbeat_keeps_lease_fresh() {
-        let doc = workbook("slate-lease-heartbeat");
-        let LeaseState::Acquired(mut lease) = Lease::acquire(&doc).expect("acquire") else {
-            panic!("expected to acquire");
-        };
-        let taken_at = lease.info().heartbeat_at;
-
-        // Inside the interval: no write, no advance.
-        lease
-            .heartbeat_at(taken_at + LEASE_HEARTBEAT_SECS - 1)
-            .expect("heartbeat");
-        assert_eq!(lease.info().heartbeat_at, taken_at);
-        let on_disk = read_info(&Lease::lock_path(&doc)).expect("lock");
-        assert_eq!(on_disk.heartbeat_at, taken_at);
-
-        // Past the interval: one write, and the file reflects it.
-        let later = taken_at + LEASE_HEARTBEAT_SECS;
-        lease.heartbeat_at(later).expect("heartbeat");
-        assert_eq!(lease.info().heartbeat_at, later);
-        let on_disk = read_info(&Lease::lock_path(&doc)).expect("lock");
-        assert_eq!(on_disk.heartbeat_at, later);
-        assert_eq!(on_disk.acquired_at, taken_at);
-    }
-
-    #[test]
-    fn release_removes_lock_file() {
-        let doc = workbook("slate-lease-release");
-        let LeaseState::Acquired(lease) = Lease::acquire(&doc).expect("acquire") else {
-            panic!("expected to acquire");
-        };
-        let lock = Lease::lock_path(&doc);
-        assert!(lock.is_file());
-        lease.release();
-        assert!(!lock.exists());
-        // And the workbook is free again.
-        assert!(matches!(
-            Lease::acquire(&doc).expect("re-acquire"),
-            LeaseState::Acquired(_)
-        ));
-    }
-
-    #[test]
-    fn drop_releases_lease() {
-        let doc = workbook("slate-lease-drop");
-        let lock = Lease::lock_path(&doc);
-        {
-            let LeaseState::Acquired(_lease) = Lease::acquire(&doc).expect("acquire") else {
-                panic!("expected to acquire");
-            };
-            assert!(lock.is_file());
-        }
-        assert!(!lock.exists());
-    }
-
-    #[test]
-    fn release_leaves_a_lock_another_process_now_owns() {
-        let doc = workbook("slate-lease-stolen");
-        let LeaseState::Acquired(lease) = Lease::acquire(&doc).expect("acquire") else {
-            panic!("expected to acquire");
-        };
-        let now = unix_now();
-        let successor = LeaseInfo {
-            holder: "someone".to_string(),
-            host: "WS-001".to_string(),
-            pid: lease.info().pid + 1,
-            acquired_at: now,
-            heartbeat_at: now,
-        };
-        write_lock(&doc, &successor);
-        lease.release();
-        assert_eq!(read_info(&Lease::lock_path(&doc)), Some(successor));
-    }
-
-    #[test]
-    fn unparsable_fresh_lock_is_held_not_stolen() {
-        let doc = workbook("slate-lease-garbage");
-        let lock = Lease::lock_path(&doc);
-        fs::write(&lock, "not json at all").expect("write lock");
-        match Lease::acquire(&doc).expect("acquire") {
-            LeaseState::Held(info) => assert_eq!(info, LeaseInfo::unknown()),
-            LeaseState::Acquired(_) => panic!("a fresh unparsable lock was stolen"),
-        }
-        assert_eq!(fs::read_to_string(&lock).expect("lock"), "not json at all");
-    }
 }

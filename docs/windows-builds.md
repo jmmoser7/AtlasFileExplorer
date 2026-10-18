@@ -8,6 +8,25 @@ Use a repository-local `rustup override`, preserving other projects' defaults.
 `scripts/_msvc-env.ps1` discovers Visual Studio through `vswhere`; do not restore
 hard-coded compiler/SDK paths in Cargo configuration or scripts.
 
+## Preserve the working build
+
+Build configuration changes are a **last resort**. Use the established release
+entry point (`scripts/build-release.ps1`) or the existing focused app invocation.
+Preserve the toolchain, target triple/directory, profiles, linker, Rust flags,
+features and lockfile while repairing application code. Dependency or feature
+changes can also create new build helpers and DLL variants without changing a
+profile; assess that impact before adding them. Change configuration only for a
+demonstrated requirement the existing setup cannot meet, and record the reason,
+exact delta and rebuild/approval impact first. Required tests still run.
+
+An execution denial is not a reason to change flags, dependency versions,
+profiles or output locations, clean caches, run elevated, or disable protection.
+Keep logs and diagnose the enforcing control. For recurring generated binaries,
+request one durable IT-approved development policy covering EXEs **and** DLLs,
+including build helpers, procedural macros, tests and app outputs. Individual
+file hashes change after legitimate rebuilds; they are diagnostic evidence, not
+a sustainable development approval scheme. IT owns the policy and its scope.
+
 ## Managed-machine audit workflow
 
 On the September 2026 setup machine, an automated auditor reviews newly generated
@@ -17,8 +36,13 @@ executables and DLLs. Cargo has reported `Access is denied (os error 5)` for
 errors. Inspect the underlying error before treating these as source defects.
 The user reported working with IT to approve the checkout's `target` directory;
 do not assume that approval is complete or applies on another machine.
+OS error 5 alone does not identify that auditor, App Control, AppLocker, an
+endpoint product or a filesystem permission as the cause; correlate logs before
+naming one. A local process-start failure does not establish a firewall block.
 
-To expose as many independent build artifacts as possible in one pass:
+For an IT-requested one-time artifact inventory, the following broader build
+exposes independent targets. It is not the default release command, and must not
+be used merely to try another build shape after an execution denial:
 
 ```powershell
 . .\scripts\_msvc-env.ps1

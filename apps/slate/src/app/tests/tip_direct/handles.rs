@@ -50,26 +50,31 @@ fn curve_style_reads_two_equal_end_caps_as_the_curves_cap() {
 /// the row still restyles the whole curve.
 #[test]
 fn an_interior_pick_still_restyles_the_whole_curve() {
+    use slate_doc::scene::{StrokeCap, StrokeJoin, WidthProfile};
     let mut h = grip_board("end_condition_interior");
     let (id, pts) = hud_polyline(&mut h);
     let xf = h.app.board_xf();
     press_primary(&mut h, xf.w2s(pts[1]), egui::Modifiers::NONE);
     assert_eq!(h.app.picked_vertices(), Some((id, vec![1])));
     let away = xf.w2s(pts[1] + EVec2::new(0.0, 160.0));
-    hud_row_release(&mut h, away, 4);
+    hud_row_release(&mut h, away, 1);
     let Some(NodeKind::Shape(s)) = h.app.doc().scene.node(id).map(|n| &n.kind) else {
         panic!("a shape");
     };
-    assert!(matches!(
-        s.stroke.profile,
-        slate_doc::scene::WidthProfile::Ends { .. }
-    ));
+    assert_eq!(s.stroke.end_caps(), [StrokeCap::Round; 2]);
+    assert_eq!(s.stroke.join, StrokeJoin::Round);
+    assert_eq!(s.stroke.profile, WidthProfile::Uniform);
     hud_row_release(&mut h, away, 2);
     let Some(NodeKind::Shape(s)) = h.app.doc().scene.node(id).map(|n| &n.kind) else {
         panic!("a shape");
     };
-    assert!(s.stroke.arrow_end, "one head, at the curve's end");
-    assert_eq!(s.stroke.profile, slate_doc::scene::WidthProfile::Uniform);
+    assert_eq!(
+        s.stroke.arrows(),
+        [false, true],
+        "one head, at the curve's end"
+    );
+    assert_eq!(s.stroke.end_caps(), [StrokeCap::Butt; 2]);
+    assert_eq!(s.stroke.profile, WidthProfile::Uniform);
 }
 
 /// User (27 September 2026): with control points picked, the property strip
@@ -104,7 +109,7 @@ fn the_property_strip_sits_beside_the_picked_vertices() {
         (strip.center().x - at.x).abs() < 2.0,
         "{strip:?} beside {at:?}"
     );
-    assert!(strip.bottom() < at.y, "above the picked point");
+    assert!(strip.top() > at.y, "below the picked point");
 
     h.app.set_board_tool(board::BoardTool::DirectSelect);
     h.app.direct_set_target(Some(id));
@@ -339,11 +344,11 @@ fn a_handle_knob_under_the_property_strip_still_drags() {
     grip_drag(
         &mut h,
         b + EVec2::new(40.0, 0.0),
-        b + EVec2::new(0.0, -25.0),
+        b + EVec2::new(0.0, 25.0),
         egui::Modifiers::NONE,
     );
     let (_, out0) = handle_pair(&h, id, 1);
-    assert!(near_eps(out0, b + EVec2::new(0.0, -25.0), 0.01), "{out0:?}");
+    assert!(near_eps(out0, b + EVec2::new(0.0, 25.0), 0.01), "{out0:?}");
     let xf = h.app.board_xf();
     press_primary(&mut h, xf.w2s(b), egui::Modifiers::NONE);
     for _ in 0..8 {
@@ -369,7 +374,7 @@ fn a_handle_knob_under_the_property_strip_still_drags() {
     grip_drag(
         &mut h,
         from,
-        from + EVec2::new(0.0, -20.0),
+        from + EVec2::new(0.0, 20.0),
         egui::Modifiers::SHIFT,
     );
     assert_eq!(h.app.shape_properties.panel, None, "no strip panel opened");
@@ -395,7 +400,7 @@ fn a_handle_knob_under_the_property_strip_drags_with_a_panel_open() {
     grip_drag(
         &mut h,
         b + EVec2::new(40.0, 0.0),
-        b + EVec2::new(0.0, -25.0),
+        b + EVec2::new(0.0, 25.0),
         egui::Modifiers::NONE,
     );
     let (_, out0) = handle_pair(&h, id, 1);
@@ -423,7 +428,7 @@ fn a_handle_knob_under_the_property_strip_drags_with_a_panel_open() {
     grip_drag(
         &mut h,
         from,
-        from + EVec2::new(0.0, -20.0),
+        from + EVec2::new(0.0, 20.0),
         egui::Modifiers::SHIFT,
     );
     let (_, out1) = handle_pair(&h, id, 1);

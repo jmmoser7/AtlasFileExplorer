@@ -6,13 +6,12 @@
 //! were reset — dragging a frame edge moves the mask over fixed content,
 //! dragging inside slides the content under a fixed mask.
 //!
-//! Rotated nodes: all functions here operate in the node's **local
-//! (unrotated) space**, where the rect x/y/w/h math is identical to the
-//! unrotated case. Callers transform the pointer into local coordinates
-//! about the gesture-start rect center (see [`to_local`] / [`delta_local`]),
-//! matching how `board_snap::resize_from_handle` handles rotation.
+//! Low-level crop math operates in the node's local (unrotated) space.
+//! [`gesture_geometry`] owns world-input conversion about the immutable start
+//! pivot and compensates a resized frame's pivot so source pixels stay put.
+//! Human input and agent witnesses replay that same world-space gesture.
 
-use slate_doc::scene::{Crop, WorldRect};
+use slate_doc::scene::{Crop, Node, NodeKind, WorldRect};
 
 /// Minimum crop-window size in world units (matches `MIN_DRAW` in board.rs).
 pub const MIN_CROP_WORLD: f32 = 8.0;
@@ -56,7 +55,7 @@ pub fn delta_local(dx: f32, dy: f32, rotation_deg: f32) -> (f32, f32) {
 pub fn edge_drag(rect: WorldRect, crop: Crop, handle: u8, local: (f32, f32)) -> (WorldRect, Crop) {
     let content = content_rect(rect, crop);
     let (px, py) = local;
-    // Keep the crop UV representable (`Crop::clamped` floors w/h at 0.05)
+    // Keep the ordinary crop-window gesture's five-percent UX floor
     // and never let a pre-existing tiny window block the gesture.
     let min_w = MIN_CROP_WORLD.min(rect.w).max(0.05 * content.w);
     let min_h = MIN_CROP_WORLD.min(rect.h).max(0.05 * content.h);
@@ -121,146 +120,354 @@ pub fn pan_drag(rect: WorldRect, crop: Crop, delta: (f32, f32)) -> Crop {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn approx(a: f32, b: f32) -> bool {
-        (a - b).abs() < 1e-3
+/// Clipped frames stay fixed: their crop grips follow the full source image.
+/// Return the content box with its center rotated about the frame, so the
+/// existing rotated handle owner paints and picks the same ghosted pixels.
+pub fn handle_rect(node: &Node) -> WorldRect {
+    if node.clip.is_none() {
+        return node.rect;
     }
+    let NodeKind::Image(image) = &node.kind else {
+        return node.rect;
+    };
+    let content = content_rect(node.rect, image.crop);
+    let center = node
+        .rect
+        .rotate_point([content.center().0, content.center().1], node.rotation_deg);
+    WorldRect::new(
+        center[0] - content.w * 0.5,
+        center[1] - content.h * 0.5,
+        content.w,
+        content.h,
+    )
+}
 
-    fn approx_rect(a: WorldRect, b: WorldRect) -> bool {
-        approx(a.x, b.x) && approx(a.y, b.y) && approx(a.w, b.w) && approx(a.h, b.h)
-    }
+/// Scale source pixels uniformly while the authored shape mask stays fixed.
+/// The opposite content corner stays anchored until the cover constraint
+/// requires sliding it. A source can never shrink enough to expose a gap.
+pub fn content_scale_drag(frame: WorldRect, crop: Crop, handle: u8, local: (f32, f32)) -> Crop {
+    let content = content_rect(frame, crop);
+    let left = matches!(handle, 0 | 6 | 7);
+    let right = matches!(handle, 2..=4);
+    let top = matches!(handle, 0..=2);
+    let bottom = matches!(handle, 4..=6);
+    let sx = if left {
+        (content.x + content.w - local.0) / content.w
+    } else if right {
+        (local.0 - content.x) / content.w
+    } else {
+        0.0
+    };
+    let sy = if top {
+        (content.y + content.h - local.1) / content.h
+    } else if bottom {
+        (local.1 - content.y) / content.h
+    } else {
+        0.0
+    };
+    let min = (frame.w / content.w).max(frame.h / content.h);
+    let max = (crop.w / Crop::MIN_SPAN)
+        .min(crop.h / Crop::MIN_SPAN)
+        .max(min);
+    let scale = sx.max(sy).clamp(min, max);
+    let w = (content.w * scale).max(frame.w);
+    let h = (content.h * scale).max(frame.h);
+    let x = if left {
+        content.x + content.w - w
+    } else if right {
+        content.x
+    } else {
+        content.center().0 - w * 0.5
+    };
+    let y = if top {
+        content.y + content.h - h
+    } else if bottom {
+        content.y
+    } else {
+        content.center().1 - h * 0.5
+    };
+    let content = WorldRect::new(
+        x.clamp(frame.x + frame.w - w, frame.x),
+        y.clamp(frame.y + frame.h - h, frame.y),
+        w,
+        h,
+    );
+    crop_from_rects(frame, content)
+}
 
-    #[test]
-    fn content_rect_of_full_crop_is_the_node_rect() {
-        let r = WorldRect::new(10.0, 20.0, 200.0, 100.0);
-        assert!(approx_rect(content_rect(r, Crop::full()), r));
-    }
-
-    #[test]
-    fn content_rect_inverts_crop() {
-        // Window shows the center-right quarter of the source.
-        let r = WorldRect::new(100.0, 50.0, 100.0, 60.0);
-        let c = Crop {
-            x: 0.5,
-            y: 0.25,
-            w: 0.5,
-            h: 0.5,
-        };
-        let content = content_rect(r, c);
-        assert!(approx_rect(
-            content,
-            WorldRect::new(0.0, 20.0, 200.0, 120.0)
-        ));
-        // Round trip: deriving the crop back from the rects is the identity.
-        let back = crop_from_rects(r, content);
-        assert!(approx(back.x, c.x) && approx(back.y, c.y));
-        assert!(approx(back.w, c.w) && approx(back.h, c.h));
-    }
-
-    #[test]
-    fn edge_drag_left_moves_mask_not_content() {
-        // Full crop, 200x100 window; drag the W edge 50 units inward.
-        let r = WorldRect::new(0.0, 0.0, 200.0, 100.0);
-        let (nr, nc) = edge_drag(r, Crop::full(), 7, (50.0, 50.0));
-        assert!(approx_rect(nr, WorldRect::new(50.0, 0.0, 150.0, 100.0)));
-        // Content stayed put: crop now starts 25% into the source.
-        assert!(approx(nc.x, 0.25) && approx(nc.w, 0.75));
-        assert!(approx(nc.y, 0.0) && approx(nc.h, 1.0));
-        // And the implied content rect is unchanged.
-        assert!(approx_rect(content_rect(nr, nc), r));
-    }
-
-    #[test]
-    fn edge_drag_corner_adjusts_both_axes() {
-        let r = WorldRect::new(0.0, 0.0, 200.0, 100.0);
-        // Se corner dragged to (150, 80).
-        let (nr, nc) = edge_drag(r, Crop::full(), 4, (150.0, 80.0));
-        assert!(approx_rect(nr, WorldRect::new(0.0, 0.0, 150.0, 80.0)));
-        assert!(approx(nc.w, 0.75) && approx(nc.h, 0.8));
-        assert!(approx_rect(content_rect(nr, nc), r));
-    }
-
-    #[test]
-    fn place_crop_copies_the_window_and_keeps_each_picture_put() {
-        let a = WorldRect::new(0.0, 0.0, 200.0, 100.0);
-        let (ar, ac) = edge_drag(a, Crop::full(), 7, (50.0, 50.0));
-        let b = WorldRect::new(400.0, 10.0, 80.0, 40.0);
-        let (br, bc) = place_crop(b, Crop::full(), ac);
-        assert!(approx(bc.x, ac.x) && approx(bc.w, ac.w));
-        assert!(approx(bc.y, ac.y) && approx(bc.h, ac.h));
-        assert!(approx_rect(content_rect(ar, ac), a));
-        assert!(approx_rect(content_rect(br, bc), b));
-    }
-
-    #[test]
-    fn edge_drag_cannot_grow_past_the_content() {
-        // Already cropped: window is the right half of the source.
-        let r = WorldRect::new(100.0, 0.0, 100.0, 100.0);
-        let c = Crop {
-            x: 0.5,
-            y: 0.0,
-            w: 0.5,
-            h: 1.0,
-        };
-        // Content spans x 0..200; drag the W edge far past the content edge.
-        let (nr, nc) = edge_drag(r, c, 7, (-500.0, 50.0));
-        assert!(approx(nr.x, 0.0) && approx(nr.w, 200.0));
-        assert!(approx(nc.x, 0.0) && approx(nc.w, 1.0));
-    }
-
-    #[test]
-    fn edge_drag_respects_minimum_window_size() {
-        let r = WorldRect::new(0.0, 0.0, 200.0, 100.0);
-        // Collapse the E edge onto the W edge: clamps at MIN_CROP_WORLD.
-        let (nr, _) = edge_drag(r, Crop::full(), 3, (0.0, 50.0));
-        assert!(nr.w >= MIN_CROP_WORLD - 1e-3);
-        // A window already below the minimum never blocks the gesture.
-        let tiny = WorldRect::new(0.0, 0.0, 4.0, 4.0);
-        let (nr2, _) = edge_drag(tiny, Crop::full(), 3, (2.0, 2.0));
-        assert!(nr2.w <= 4.0 + 1e-3 && nr2.w >= 1.9);
-    }
-
-    #[test]
-    fn pan_moves_content_with_the_pointer_and_clamps() {
-        let r = WorldRect::new(0.0, 0.0, 100.0, 100.0);
-        let c = Crop {
-            x: 0.25,
-            y: 0.25,
-            w: 0.5,
-            h: 0.5,
-        };
-        // Content rect is 200x200. Drag right by 20 → content follows the
-        // pointer → the UV window slides left by 20/200 = 0.1.
-        let p = pan_drag(r, c, (20.0, 0.0));
-        assert!(approx(p.x, 0.15) && approx(p.y, 0.25));
-        assert!(approx(p.w, 0.5) && approx(p.h, 0.5));
-        // Clamped at both extremes; w/h never change.
-        let p2 = pan_drag(r, c, (1000.0, -1000.0));
-        assert!(approx(p2.x, 0.0) && approx(p2.y, 0.5));
-        let p3 = pan_drag(r, c, (-1000.0, 1000.0));
-        assert!(approx(p3.x, 0.5) && approx(p3.y, 0.0));
-    }
-
-    #[test]
-    fn local_transforms_match_rotation() {
-        // Rotation is clockwise in y-down world coords (matches
-        // `WorldRect::corners_rotated`): the local up direction (0,-10)
-        // rotated 90° cw lands at world (10,0), so the inverse transform
-        // maps world (10,0) back to local (0,-10).
-        let (lx, ly) = to_local(10.0, 0.0, 0.0, 0.0, 90.0);
-        assert!(approx(lx, 0.0) && approx(ly, -10.0));
-        let (dx, dy) = delta_local(10.0, 0.0, 90.0);
-        assert!(approx(dx, 0.0) && approx(dy, -10.0));
-        // Round trip through the forward rotation used by the painter.
-        let rad = 90.0f32.to_radians();
-        let (sin, cos) = rad.sin_cos();
-        let (wx, wy) = (lx * cos - ly * sin, lx * sin + ly * cos);
-        assert!(approx(wx, 10.0) && approx(wy, 0.0));
-        // Zero rotation is the identity.
-        let (ix, iy) = to_local(3.0, 4.0, 100.0, 100.0, 0.0);
-        assert!(approx(ix, 3.0) && approx(iy, 4.0));
+/// Apply the primary gesture's relative pan and uniform source scale to another
+/// fixed mask. Each source keeps its own pixel aspect and continues covering it.
+pub fn peer_content_crop(before: Crop, after: Crop, peer: Crop) -> Crop {
+    let before = before.clamped();
+    let after = after.clamped();
+    let peer = peer.clamped();
+    let scale = (after.w / before.w).min(after.h / before.h).clamp(
+        (Crop::MIN_SPAN / peer.w).max(Crop::MIN_SPAN / peer.h),
+        (1.0 / peer.w).min(1.0 / peer.h),
+    );
+    let w = peer.w * scale;
+    let h = peer.h * scale;
+    let cx = peer.x
+        + peer.w * 0.5
+        + ((after.x + after.w * 0.5) - (before.x + before.w * 0.5)) / before.w * peer.w;
+    let cy = peer.y
+        + peer.h * 0.5
+        + ((after.y + after.h * 0.5) - (before.y + before.h * 0.5)) / before.h * peer.h;
+    Crop {
+        x: (cx - w * 0.5).clamp(0.0, 1.0 - w),
+        y: (cy - h * 0.5).clamp(0.0, 1.0 - h),
+        w,
+        h,
     }
 }
+
+/// Crop-window handles on ordinary images; source-scale handles on shape fills.
+pub fn edge_drag_node(before: &Node, handle: u8, local: (f32, f32)) -> (WorldRect, Crop) {
+    let NodeKind::Image(image) = &before.kind else {
+        return (before.rect, Crop::full());
+    };
+    if before.clip.is_some() {
+        (
+            before.rect,
+            content_scale_drag(before.rect, image.crop, handle, local),
+        )
+    } else {
+        edge_drag(before.rect, image.crop, handle, local)
+    }
+}
+
+/// A displayed-world input replayed from one immutable gesture-start node.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum CropGesture {
+    Handle { handle: u8, world: (f32, f32) },
+    Pan { delta_world: (f32, f32) },
+}
+
+/// Small crop result: authored clip paths, layers and other payloads stay in
+/// their existing Node during repeated human and witnessed preview samples.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CropGeometry {
+    id: slate_doc::NodeId,
+    pub rect: WorldRect,
+    pub crop: Crop,
+}
+
+impl CropGeometry {
+    /// Transfer geometry only, retaining unrelated current fields and storage.
+    /// Success means same-ID images, including an unchanged crop result.
+    pub fn apply_to(self, live: &mut Node) -> bool {
+        if live.id != self.id {
+            return false;
+        }
+        let NodeKind::Image(image) = &mut live.kind else {
+            return false;
+        };
+        live.rect = self.rect;
+        image.crop = self.crop;
+        true
+    }
+}
+
+/// Prepare a complete immutable endpoint once; recurring previews use
+/// [`gesture_geometry`] and apply its Copy result to their existing Node.
+pub fn apply_gesture(before: &Node, gesture: CropGesture) -> Option<Node> {
+    let geometry = gesture_geometry(before, gesture)?;
+    let mut node = before.clone();
+    geometry.apply_to(&mut node);
+    Some(node)
+}
+
+/// Interpret the crop gesture without cloning authored Node payloads.
+/// Crop coordinates already describe displayed pixels, including mirrors.
+pub fn gesture_geometry(before: &Node, gesture: CropGesture) -> Option<CropGeometry> {
+    let NodeKind::Image(image) = &before.kind else {
+        return None;
+    };
+    let r = before.rect;
+    if ![
+        r.x,
+        r.y,
+        r.w,
+        r.h,
+        before.rotation_deg,
+        image.crop.x,
+        image.crop.y,
+        image.crop.w,
+        image.crop.h,
+    ]
+    .iter()
+    .all(|v| v.is_finite())
+        || r.w <= 0.0
+        || r.h <= 0.0
+    {
+        return None;
+    }
+    let (rect, crop) = match gesture {
+        CropGesture::Handle {
+            handle,
+            world: (x, y),
+        } => {
+            if handle > 7 || !x.is_finite() || !y.is_finite() {
+                return None;
+            }
+            let (cx, cy) = r.center();
+            edge_drag_node(before, handle, to_local(x, y, cx, cy, before.rotation_deg))
+        }
+        CropGesture::Pan {
+            delta_world: (dx, dy),
+        } => {
+            if !dx.is_finite() || !dy.is_finite() {
+                return None;
+            }
+            (
+                r,
+                pan_drag(r, image.crop, delta_local(dx, dy, before.rotation_deg)),
+            )
+        }
+    };
+    Some(with_window_geometry(before, rect, crop))
+}
+
+/// Bound replay controls to the actual source/window movement. A fixed-mask
+/// source grip can slide under cover; its painted contact is resolved separately.
+/// The requested gesture still owns the exact prepared Node; callers keep that
+/// original Node at the final sample rather than recomputing it from this
+/// world endpoint (whose inverse transform can round by a few ULPs).
+pub fn effective_gesture(before: &Node, requested: CropGesture) -> Option<CropGesture> {
+    let after = apply_gesture(before, requested)?;
+    match requested {
+        CropGesture::Handle { handle, .. } => {
+            let world = if before.clip.is_some() {
+                let (NodeKind::Image(start), NodeKind::Image(end)) = (&before.kind, &after.kind)
+                else {
+                    return None;
+                };
+                let content = content_rect(before.rect, start.crop);
+                let scaled = content_rect(after.rect, end.crop);
+                // Cover may slide the source after uniform scaling. Reconstruct
+                // the bounded control before that slide, not its painted grip.
+                let x = if matches!(handle, 0 | 6 | 7) {
+                    content.x + content.w - scaled.w
+                } else if matches!(handle, 2..=4) {
+                    content.x + scaled.w
+                } else {
+                    content.center().0
+                };
+                let y = if matches!(handle, 0..=2) {
+                    content.y + content.h - scaled.h
+                } else if matches!(handle, 4..=6) {
+                    content.y + scaled.h
+                } else {
+                    content.center().1
+                };
+                let point = before.rect.rotate_point([x, y], before.rotation_deg);
+                (point[0], point[1])
+            } else {
+                gesture_contact(&after, requested)?
+            };
+            Some(CropGesture::Handle { handle, world })
+        }
+        CropGesture::Pan { .. } => {
+            let (NodeKind::Image(start), NodeKind::Image(end)) = (&before.kind, &after.kind) else {
+                return None;
+            };
+            let start_crop = start.crop.clamped();
+            let end_crop = end.crop.clamped();
+            let content = content_rect(before.rect, start_crop);
+            let local = (
+                (start_crop.x - end_crop.x) * content.w,
+                (start_crop.y - end_crop.y) * content.h,
+            );
+            Some(CropGesture::Pan {
+                delta_world: delta_local(local.0, local.1, -before.rotation_deg),
+            })
+        }
+    }
+}
+
+/// The painted handle's world contact. Pan returns None: its caller must use
+/// the existing visible-body hit owner, which knows the authored clip and holes.
+pub fn gesture_contact(before: &Node, gesture: CropGesture) -> Option<(f32, f32)> {
+    let CropGesture::Handle { handle, .. } = gesture else {
+        return None;
+    };
+    if handle > 7 || !matches!(before.kind, NodeKind::Image(_)) {
+        return None;
+    }
+    let corners = handle_rect(before).corners_rotated(before.rotation_deg);
+    let a = corners[handle as usize / 2];
+    let b = corners[(handle as usize / 2 + 1) % 4];
+    Some(if handle % 2 == 0 {
+        a
+    } else {
+        ((a.0 + b.0) * 0.5, (a.1 + b.1) * 0.5)
+    })
+}
+
+/// Prepare a complete peer endpoint once, using the same geometry owner.
+pub fn apply_peer_crop(before: &Node, primary_before: Crop, primary_after: Crop) -> Option<Node> {
+    let geometry = peer_crop_geometry(before, primary_before, primary_after)?;
+    let mut node = before.clone();
+    geometry.apply_to(&mut node);
+    Some(node)
+}
+
+/// The existing multi-crop policy without cloning the peer's authored payloads.
+pub fn peer_crop_geometry(
+    before: &Node,
+    primary_before: Crop,
+    primary_after: Crop,
+) -> Option<CropGeometry> {
+    let NodeKind::Image(image) = &before.kind else {
+        return None;
+    };
+    let (rect, crop) = if before.clip.is_some() {
+        (
+            before.rect,
+            peer_content_crop(primary_before, primary_after, image.crop),
+        )
+    } else {
+        place_crop(before.rect, image.crop, primary_after)
+    };
+    Some(with_window_geometry(before, rect, crop))
+}
+
+/// Transfer prepared crop geometry into the current image, retaining unrelated
+/// live fields when another edit overlaps a human drag. No gesture math lives here.
+pub fn copy_crop_geometry(live: &mut Node, prepared: &Node) -> bool {
+    let NodeKind::Image(image) = &prepared.kind else {
+        return false;
+    };
+    CropGeometry {
+        id: prepared.id,
+        rect: prepared.rect,
+        crop: image.crop,
+    }
+    .apply_to(live)
+}
+
+/// Changing a rotated window also changes its rotation pivot. Compensate that
+/// pivot movement so every surviving source pixel stays at its world anchor.
+fn with_window_geometry(before: &Node, mut rect: WorldRect, crop: Crop) -> CropGeometry {
+    if before.clip.is_none() && rect != before.rect {
+        let (old_x, old_y) = before.rect.center();
+        let (new_x, new_y) = rect.center();
+        let [turned_x, turned_y] = before
+            .rect
+            .rotate_point([new_x, new_y], before.rotation_deg);
+        rect.x += turned_x - old_x - (new_x - old_x);
+        rect.y += turned_y - old_y - (new_y - old_y);
+    }
+    CropGeometry {
+        id: before.id,
+        rect,
+        crop,
+    }
+}
+
+#[cfg(test)]
+mod allocation_tests;
+#[cfg(test)]
+mod gesture_tests;
+#[cfg(test)]
+mod tests;

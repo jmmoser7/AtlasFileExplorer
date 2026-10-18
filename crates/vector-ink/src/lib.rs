@@ -139,7 +139,8 @@ pub use edit::{
 pub use fit::{fit_polyline, fit_polyline_spaced};
 pub use flatten::{flatten, flatten_contours};
 pub use grain::warm_grain_fields;
-pub use hit::hit_stroke;
+pub use hit::{hit_stroke, hit_stroke_outline};
+pub use mesh::max_coverage_mesh;
 pub use smooth::{
     curvature_variance, laplacian_smooth_pass, laplacian_smooth_spline, radial_weight,
 };
@@ -159,8 +160,8 @@ pub use tile::{
     tile_index, tile_origin, StrokeInk, TILE_PX,
 };
 pub use trim::{
-    boolean_difference, boolean_intersection, boolean_union, boolean_union_all,
-    closest_polyline_span, extend_polyline_end, fill_triangles, infinite_line, point_in_mesh,
-    point_in_polygon, slice_closed_by_line, slice_closed_by_path, split_closed,
+    boolean_difference, boolean_difference_raw, boolean_intersection, boolean_union,
+    boolean_union_all, closest_polyline_span, extend_polyline_end, fill_triangles, infinite_line,
+    point_in_mesh, point_in_polygon, slice_closed_by_line, slice_closed_by_path, split_closed,
     split_open_at_cutters, trim_closed_at_click, Cutter, Polygon, SpanHit, TrimPolys,
 };

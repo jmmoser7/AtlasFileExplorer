@@ -51,9 +51,10 @@ The articles, in one line each:
  out-of-process servers, never native in-process binaries; agent mutations
  stage for human acceptance by default; script execution requires a future
  ratified amendment.
-8. **Bandwidth** — the canvas is the prompt (selection/viewport/ink are
-   agent context); every input modality compiles to commands; the human is
-   never blocked synchronously on an agent.
+8. **Bandwidth** — ordinary chat context is authored-wire only; named board
+   collaborators may use explicit, revocable scoped grants (VIII.1b). Agent work
+   is witnessed, continuous and interruptible (VIII.3a); presence is ephemeral.
+   Every modality compiles to commands; the human is never blocked on an agent.
 9. **Slate is a linker, never a database** — links resolve through the
  `Source` abstraction, store a relative locator first, and report health as
  `Ok`/`Missing`/`Unknown` without blocking. Packaging copies assets and is a

@@ -1,0 +1,56 @@
+{
+  "source": "User messages in this conversation, 16–17 October 2026; excerpts and explicitly attributed summaries retain the requested outcomes rather than redefining them around the implementation.",
+  "reports": {
+    "presence-brain-dump": {
+      "archived": false,
+      "created_at": "2026-10-16",
+      "description": "Initial framing: a free-running collaborator on the same board may connect to Dot/Guppy Dot or Codex through the sidecar, be addressed from its backend or an @name board message, and remain observable without locking the computer. Original brain dump: map faces to observable agent traces and board tasks; minimal animated reading book and working props. Participant/name tags for users and agents belong at the top right of Slate; this does not request moving workbook tag controls. Add, name and retire agents; human and agent capsules with chat dropdowns; a small set of identifying hats. Retirement may bow and puff away, run into the sunset, walk off the canvas or crawl beneath a real portal; Advanced settings can restore agents. Work includes organizing images, presentations from Slate frames, generating or editing graphics, launching and communicating with chat trains, relaying between parallel trains, talking to agents and planning, and grabbing wires to connect them. The agent must be seen doing the actual work: continuous fast movement and dragging, never a long freeze followed by an unexplained bulk alignment. Temporary helpers need considered behavior. Final avatar is marble sized. Use headless checks and computer use, with an independent intent reviewer; preserve the approved look.",
+      "path": "C:/Users/jmoser/source/repos/AtlasFileExplorer/design/agent-presence-2026-10-17/native-original-requests.json",
+      "attachments": []
+    },
+    "presence-roster-chat-feedback": {
+      "archived": false,
+      "created_at": "2026-10-17",
+      "description": "Quoted original feedback: merge human, agent and plus into one capsule row with discreet vertical separators. Name dropdown right-justifies to that segment and drops down-left. Human profile contains editable name and persistent picture. Clicking any person or agent icon immediately opens persistent chat in an expansion of that same dropdown; self, agents and actual people can chat directly. Refine the native UI to the supplied high-fidelity reference, rather than chaotic unordered text fields. Canvas avatar scales with the canvas. Double-click pauses it, shows listening, and opens a chat beneath with the last couple of exchanges. Include the hat inventory. User had not meaningfully interacted because the previous UI was broken.",
+      "path": "C:/Users/jmoser/source/repos/AtlasFileExplorer/design/agent-presence-2026-10-17/native-original-requests.json",
+      "attachments": [
+        "reference-chat.png",
+        "reference-overflow.png",
+        "reference-hat-inventory.png"
+      ]
+    },
+    "presence-enclosed-r2": {
+      "archived": false,
+      "created_at": "2026-10-17",
+      "description": "Accepted revision: the full dropdown must also encapsulate the agent capsule and controls. Retire agent should use something nicer than a trashcan. Hat selection borrows the existing Slate album/Cover Flow logic, stays compact and scrolls through all hats without an All Hats button. Provide recognizable Cursor and Codex visuals. Consider the consequences of switching the harness of an agent that has already been running. Latest instruction approves the prototype and requests a complete final-board integration, retaining the independent intent reviewer and all original concerns.",
+      "path": "C:/Users/jmoser/source/repos/AtlasFileExplorer/design/agent-presence-2026-10-17/native-original-requests.json",
+      "attachments": [
+        "reference-enclosure-feedback.png",
+        "review-r2-final.png"
+      ]
+    },
+    "presence-face-rig": {
+      "archived": false,
+      "created_at": "2026-10-16",
+      "description": "Keep the old simple face style. Never add eyebrows; stretch the eyes to express emotion. Use modest asymmetry and eye-edge slopes, avoiding the exaggerated eyebrow-like result. Concentration must not read as anger, resting must not read as suspicion, and concern must not read as disapproval. Questioning has a little more head tilt. Pleased was approved. Resting option 4 was chosen. Use independent transition speeds: expression changes faster than gaze. Direction and expression palettes interpolate from the current pose and every expression maps to every orientation.",
+      "path": "C:/Users/jmoser/source/repos/AtlasFileExplorer/design/agent-presence-2026-10-17/native-original-requests.json",
+      "attachments": []
+    },
+    "presence-hat-fitting": {
+      "archived": false,
+      "created_at": "2026-10-17",
+      "description": "User manually calibrated neutral hat size and position, requested independent vertical squish and center-based scaling, and then requested removal of straps from hats that have them. Preserve these final neutral fits when animating all other directions and expressions; do not reset the user calibration.",
+      "path": "C:/Users/jmoser/source/repos/AtlasFileExplorer/design/agent-presence-2026-10-17/native-original-requests.json",
+      "attachments": [
+        "hat-fit-no-straps.png"
+      ]
+    },
+    "presence-native-validation": {
+      "archived": false,
+      "created_at": "2026-10-17",
+      "description": "User requests full build and integration with multiple agents, a dedicated design-intent reviewer, robust investigation, headless plumbing/logic verification and computer-use verification of the actual look and feel. Latest continuation after the Codex crash keeps the same approved scope. Native UI and final delivered executable must be evaluated, and prototype acceptance cannot stand in for native behavior.",
+      "path": "C:/Users/jmoser/source/repos/AtlasFileExplorer/design/agent-presence-2026-10-17/native-original-requests.json",
+      "attachments": []
+    }
+  }
+}

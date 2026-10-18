@@ -15,20 +15,22 @@ impl SlateApp {
             return;
         }
         let body = layout.body;
-        let pad = 12.0 * z;
-        let text_x = body.left() + (slate_doc::agent_chat::PORT_INSET + 10.0) * z;
+        let (inset_l, inset_r, wrap_w) = text_column(node.rect.w);
+        let text_x = body.left() + inset_l * z;
+        let text_right = body.right() - inset_r * z;
         let prompt = self
             .agents
             .prompts
             .get(&node.id)
             .cloned()
             .unwrap_or_default();
-        let wrap = (body.right() - pad - text_x).max(1.0);
+        let wrap = (wrap_w * z).max(1.0);
         let prompt_h = composer_text_height(ui.ctx(), &prompt, wrap, 14.0 * z);
-        let bottom = body.bottom() - COMPOSER_BOTTOM * z;
+        let bottom = (body.bottom() - COMPOSER_BOTTOM * z)
+            .min(body.bottom() - super::chat_edge::chat_bottom_band(z));
         let field = Rect::from_min_max(
             Pos2::new(text_x, bottom - prompt_h - 2.0 * z),
-            Pos2::new(body.right() - pad, bottom),
+            Pos2::new(text_right, bottom),
         );
         self.paint_agent_composer(ui, node.id, field, z, false);
     }
@@ -49,14 +51,6 @@ impl SlateApp {
         }
         let linear = self.agent_linear(id);
         let collapsed = slate_doc::crosstalk::collapses_new_cards(&self.doc().scene, &a.session);
-        if linear
-            && self.doc().scene.nodes.iter().any(|n| {
-                slate_doc::agent_chat::agent(n).is_some_and(|other| other.chat.parent == Some(id))
-            })
-        {
-            self.toast("Continue at the end of this conversation; coding agents have one stream.");
-            return None;
-        }
         let source = self.agent_all_turns(id);
         let through = a
             .chat
@@ -70,7 +64,6 @@ impl SlateApp {
             }
         };
         let count = history.len();
-        let draft = a.chat.draft || (linear && source.is_empty());
         let children: Vec<_> = self
             .doc()
             .scene
@@ -79,6 +72,9 @@ impl SlateApp {
             .filter(|n| slate_doc::agent_chat::agent(n).is_some_and(|a| a.chat.parent == Some(id)))
             .map(|n| n.id)
             .collect();
+        // An empty coding card is the first beat of its stream. A card that
+        // already has a child is a fork point, not that beat.
+        let draft = a.chat.draft || (linear && source.is_empty() && children.is_empty());
         let branches = children.len();
         let lane_height = slate_doc::agent_chat::subtree(&self.doc().scene, &children)
             .iter()
@@ -106,11 +102,24 @@ impl SlateApp {
             user.rect.x = original.rect.x;
             user.rect.y = original.rect.y;
         }
-        let session = if linear {
+        // A coding tail with no child keeps its session. A fork — this card
+        // already has a child, or a draft whose session was split from its
+        // parent — replays `history` into a fresh session, the same checkpoint
+        // a model chat returns below.
+        let split = a.chat.parent.is_some_and(|parent| {
+            self.doc()
+                .scene
+                .node(parent)
+                .and_then(slate_doc::agent_chat::agent)
+                .is_some_and(|p| p.session != a.session)
+        });
+        let continue_stream = linear && !split && children.is_empty();
+        let session = if continue_stream || (linear && split) {
             a.session.clone()
         } else {
             slate_doc::scene::new_agent_session_id()
         };
+        let replay = if continue_stream { Vec::new() } else { history };
         let manifest = slate_doc::SourceUri {
             locator: super::super::board_portal::source_locator(
                 self.tab().path.as_deref(),
@@ -124,7 +133,7 @@ impl SlateApp {
                 if let Some(child) = &mut p.agent {
                     child.session = session;
                     child.bundle = Some(manifest);
-                    if !linear {
+                    if !continue_stream {
                         child.channel = None;
                     }
                     child.chat.linear = linear;
@@ -138,13 +147,13 @@ impl SlateApp {
             }]) {
                 return None;
             }
-            return Some((id, if linear { Vec::new() } else { history }));
+            return Some((id, replay));
         }
         if let NodeKind::Portal(p) = &mut user.kind {
             if let Some(a) = &mut p.agent {
                 a.session = session;
                 a.bundle = Some(manifest);
-                if !linear {
+                if !continue_stream {
                     a.channel = None;
                 }
                 a.chat = ChatView {
@@ -251,7 +260,7 @@ impl SlateApp {
         }
         self.board_sel.clear();
         self.board_sel.insert(reply_id);
-        Some((reply_id, if linear { Vec::new() } else { history }))
+        Some((reply_id, replay))
     }
     /// Project, conversation, and first-load phases have no train handles yet.
     pub(super) fn agent_in_choose_phase(&self, id: NodeId) -> bool {
@@ -276,7 +285,6 @@ impl SlateApp {
             .is_some_and(|a| {
                 !a.provider.is_empty()
                     && a.chat.train
-                    && a.chat.parent.is_some()
                     && a.view == atlas_ai::agent::PortalView::Chat
             })
     }
@@ -284,7 +292,9 @@ impl SlateApp {
         self.agents
             .context_human
             .iter()
-            .find(|(_, p)| screen.distance(**p) <= 10.0 * xf.z)
+            .find(|(_, p)| {
+                screen.distance(**p) <= 10.0 * xf.z && !self.pointer_in_chat_bottom_band(screen, xf)
+            })
             .map(|(id, _)| *id)
     }
     pub(crate) fn context_auto_under(&self, screen: Pos2, xf: &BoardXf) -> Option<NodeId> {
@@ -303,44 +313,6 @@ impl SlateApp {
                 screen.distance(p) <= 10.0 * xf.z
             })
             .map(|n| n.id)
-    }
-    pub(super) fn agent_context_blurb(&self, id: NodeId) -> String {
-        let mut lines = Vec::new();
-        let refs = self.agent_artifacts(id, false);
-        if refs.is_empty() {
-            lines.push("No linked references.".into());
-        } else {
-            lines.extend(
-                refs.iter()
-                    .take(6)
-                    .map(|a| format!("{} · {}", a.kind.label(), a.title)),
-            );
-        }
-        for node in &self.doc().scene.nodes {
-            let NodeKind::Connector(conn) = &node.kind else {
-                continue;
-            };
-            let Some(binding) = &conn.binding else {
-                continue;
-            };
-            // TWIN: slate_doc::agent_inputs::WireBinding::source 2026-09-25
-            let (source, target) = if binding.input_b {
-                (&conn.a, &conn.b)
-            } else {
-                (&conn.b, &conn.a)
-            };
-            if slate_doc::agent_inputs::endpoint_node(target) != Some(id) {
-                continue;
-            }
-            let Some(src) = slate_doc::agent_inputs::endpoint_node(source) else {
-                continue;
-            };
-            let Some(label) = self.doc().scene.node(src).map(context_label) else {
-                continue;
-            };
-            lines.push(label);
-        }
-        lines.join("\n")
     }
     /// What the human context handle holds: the card's pocketed context.
     pub(super) fn agent_pocket_blurb(&self, id: NodeId) -> String {
@@ -370,18 +342,13 @@ impl SlateApp {
             .rev()
             .filter(|n| !n.hidden && !n.locked && self.agent_context_handles_visible(n.id))
         {
-            let r = xf.rect_w2s(n.rect);
             let left = self.agents.context_auto.get(&n.id);
             if let Some(left) = left {
                 if point.distance(*left) <= 10.0 * xf.z {
                     return Some((n.id, false));
                 }
             }
-            if self.agent_has_outputs(n.id) {
-                let right = Pos2::new(
-                    r.right() - slate_doc::agent_chat::PORT_INSET * xf.z,
-                    r.center().y,
-                );
+            if let Some(right) = self.agents.return_dot.get(&n.id).copied() {
                 if point.distance(right) <= 10.0 * xf.z {
                     return Some((n.id, true));
                 }

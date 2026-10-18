@@ -28,8 +28,7 @@ pub(crate) fn render_pictures(
             if atlas_core::cloud::is_dehydrated(&source) {
                 return None;
             }
-            let pixels =
-                super::super::image_composite::composite_rgba(doc, node, img, &source, true)?;
+            let pixels = super::super::image_composite::composite_rgba(doc, node, img, &source)?;
             Some((node, pixels))
         })
         .collect();

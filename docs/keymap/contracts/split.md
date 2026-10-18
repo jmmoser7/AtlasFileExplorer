@@ -25,7 +25,7 @@ deviations flagged below.
 | D02 | Stickiness & repeat | Sticky: stays in TrimParts after each click. Enter in TrimParts returns to Select. Space/Enter while idle re-arms (P0.4). | precedent | 90 |
 | D03 | Gesture grammar | Same as Trim: `Armed → PickCutters → (Enter) → TrimParts → click* → Enter/Esc`. Preselect on arm skips to TrimParts with those nodes as cutters. Click in TrimParts splits the hit object into every piece. | stated | 100 |
 | D04 | Click vs drag rule | Click only. Drag does not marquee-split (Art. III). | precedent | 90 |
-| D05 | Modifiers | None. Shift+extend is Trim-only. | guess | 60 |
+| D05 | Modifiers | Ctrl+click removes a cutter in PickCutters. Shift+extend is Trim-only. Ctrl+click removal follows the shared Rhino cutter-selection flow (user, 13 October 2026). | stated | 100 |
 | D06 | Constraints & snapping | Object snap does not move the click; the click picks the object to split. F8/F9 unused. | precedent | 85 |
 | D07 | Direction / value locks | n/a | pattern | 85 |
 | D08 | Numeric / manual entry | n/a (Art. III). | pattern | 85 |
@@ -37,7 +37,7 @@ deviations flagged below.
 | D14 | Post-edit | Direct Selection on the new paths. No Unsplit — rewrite, like Trim. | precedent | 90 |
 | D15 | Non-goals | Unsplit; splitting text/images/frames/portals; ApparentIntersections; temporary Line cutter; 3D; JoinCopy-style keep-inputs. | guess | 60 |
 | D16 | Create-style inheritance | n/a — does not consume fg/bg. Pieces copy the source node's stroke/fill. Per-vertex widths, colors and corner overrides carry as for Trim D16, through the same owner, and a tipped open curve is cut in curve parameter space as there (user, 26 September 2026). | pattern | 85 |
-| D17 | Hit-testing & pick | Open: closest span within `trim.span_slop` if the path actually divides. Closed: point-in-polygon if `split_closed` yields ≥2 pieces. Topmost wins. Frames/portals/text/images never pick as targets. | research | 75 |
+| D17 | Hit-testing & pick | A divided open span under the pointer wins before an overlapping filled cutter; otherwise choose the closest span within trim.span_slop when the path actually divides. Closed targets use point-in-polygon when split_closed yields at least two pieces; topmost wins. Frames, portals, text and images are not targets (user, 13 October 2026). | stated | 100 |
 
 ## Feel constants
 
@@ -58,3 +58,7 @@ Shared with Trim (`board_trim::trim_tokens`): `trim.span_slop` 10 px,
 ## Open questions
 
 None — remaining rows are locked as inferred so the tool can ship.
+
+## Rhino refinement evidence — 13 October 2026
+
+[McNeel Split](https://docs.mcneel.com/rhino/8/help/en-us/commands/split.htm) uses targets first, then cutters, and retains every piece. Slate keeps its explicitly approved cutter-first flow shared with Trim (D03, user 16 August 2026); this is a deliberate adaptation. A filled silhouette crossing an open curve splits it into every interior/exterior span, including intersections exactly on internal polyline vertices, preserves the cutter, and undoes in one step.

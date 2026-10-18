@@ -97,7 +97,10 @@ fn a_closed_bezier_gets_the_closed_form_treatment() {
     assert_eq!(s.fill, Some(fill), "closed-shape style memory");
     let node = h.app.doc().scene.node(id).unwrap().clone();
     assert!(!slate_doc::is_open_shape(&node));
-    assert_eq!(h.app.wire_host(&node).ports().len(), 3, "wire ports");
+    assert!(
+        h.app.wire_host(&node).ports().is_empty(),
+        "new wire ports belong to rectangles"
+    );
     let board = board_path::path_data_to_world_bez(s.path.as_ref().unwrap(), node.rect, 0.0);
     assert!(matches!(
         board.elements().last(),

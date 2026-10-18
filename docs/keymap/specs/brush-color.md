@@ -113,9 +113,9 @@ this section is the implementation outline.
   when that right-drag ends, not a board object (P0.9's pointer-attached
   chrome exception). They are drawn from cached textures and meshes.
 - Committed curves take the same HUD (user, 2026-09-26 and 2026-09-27).
-  With vertices picked (Direct Select anchors or Select-tool grip picks) it
-  edits only those vertices' width, color and opacity; with none picked, a
-  hovered vertex. With no grip picked and no point hovered, the HUD edits
+  P1.curve.vertex-style owns targeting: multiple explicit picks, else a
+  hovered vertex, else a single sticky pick; hover never changes picks
+  (user report, 14 October 2026). With no pick or hovered point, the HUD edits
   the whole selected curve under the Select tool or Direct Select (user,
   28 September 2026, ed1), existing per-vertex tips included, and shifts
   it rather than overwriting it: width scales every tip, the wheel shifts

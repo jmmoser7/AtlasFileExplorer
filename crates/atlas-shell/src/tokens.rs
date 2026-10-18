@@ -4,11 +4,24 @@
 //! that file. A build with the `ui-tuner` feature can replace the in-memory
 //! values while the app runs and save them back to the TOML file.
 
+pub use crate::tokens_chat_card::{
+    chat_header_preview_locked, set_chat_header_preview_locked, ChatCardTokens,
+};
+pub use crate::tokens_toast::ToastTokens;
 use eframe::egui::Color32;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
+
+mod agent_roles;
+pub use agent_roles::{AgentRoleInk, BoardAgentRoleTokens, BoardAgentTokens};
+mod dock;
+mod feedback;
+mod readouts;
+pub use dock::DockInlineTokens;
+pub use feedback::FeedbackTokens;
+pub use readouts::ReadoutTokens;
 
 const EMBEDDED_TOKENS: &str = include_str!("../ui-tokens.toml");
 
@@ -18,10 +31,12 @@ pub struct UiTokens {
     pub schema_version: u32,
     pub topbar: TopBarTokens,
     pub dock: DockTokens,
+    pub feedback: FeedbackTokens,
     pub home: HomeTokens,
     pub minimap: MinimapTokens,
     pub palette: PaletteTokens,
     pub readouts: ReadoutTokens,
+    pub toast: ToastTokens,
     pub activity_heatmap: ActivityHeatmapTokens,
     pub portal_frame: PortalFrameTokens,
     pub board_preview: BoardPreviewTokens,
@@ -30,6 +45,7 @@ pub struct UiTokens {
     pub board_forcefield: BoardForcefieldTokens,
     pub board_overlay: BoardOverlayTokens,
     pub board_agent: BoardAgentTokens,
+    pub chat_card: ChatCardTokens,
     pub menu: MenuTokens,
     pub slider: SliderTokens,
     pub theme: ThemeTokens,
@@ -41,10 +57,12 @@ impl Default for UiTokens {
             schema_version: 8,
             topbar: TopBarTokens::default(),
             dock: DockTokens::default(),
+            feedback: FeedbackTokens::default(),
             home: HomeTokens::default(),
             minimap: MinimapTokens::default(),
             palette: PaletteTokens::default(),
             readouts: ReadoutTokens::default(),
+            toast: ToastTokens::default(),
             activity_heatmap: ActivityHeatmapTokens::default(),
             portal_frame: PortalFrameTokens::default(),
             board_preview: BoardPreviewTokens::default(),
@@ -53,6 +71,7 @@ impl Default for UiTokens {
             board_forcefield: BoardForcefieldTokens::default(),
             board_overlay: BoardOverlayTokens::default(),
             board_agent: BoardAgentTokens::default(),
+            chat_card: ChatCardTokens::default(),
             menu: MenuTokens::default(),
             slider: SliderTokens::default(),
             theme: ThemeTokens::default(),
@@ -83,61 +102,6 @@ impl SliderTokens {
 
     pub fn round_for_storage(&mut self) {
         self.end_overhang = (self.end_overhang * 1_000.0).round() / 1_000.0;
-    }
-}
-
-/// The bottom readout bar that hosts the gear menu, the live counts, and the
-/// activity timeline. Several unrelated readouts compete for the same few
-/// vertical pixels here, so its padding and text size are dials rather than
-/// constants — the balance between them is a judgement made by eye.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(default)]
-pub struct ReadoutTokens {
-    /// Padding above the first row and below the last (px).
-    pub pad_top: f32,
-    pub pad_bottom: f32,
-    /// Vertical gap between the metrics row and the timeline below it (px).
-    pub row_gap: f32,
-    /// Horizontal gap between items in the metrics row (px).
-    pub item_gap: f32,
-    /// Minimum height of the metrics row; `0` follows the text (px).
-    pub row_height: f32,
-    /// Point size for every label in the metrics row.
-    pub text_size: f32,
-    /// Draw the vertical separators flanking the gear menu.
-    pub separators: bool,
-    /// Collapse chevron sitting on the canvas, lower-left, just above this strip.
-    pub chevron_size: f32,
-    pub chevron_hit: f32,
-    pub chevron_inset_x: f32,
-    pub chevron_inset_y: f32,
-    pub chevron_stroke: f32,
-    pub chevron_idle_opacity: f32,
-    pub chevron_hover_opacity: f32,
-    pub chevron_hover_fill: f32,
-    pub chevron_emboss: f32,
-}
-
-impl Default for ReadoutTokens {
-    fn default() -> Self {
-        Self {
-            pad_top: 3.0,
-            pad_bottom: 3.0,
-            row_gap: 4.0,
-            item_gap: 8.0,
-            row_height: 0.0,
-            text_size: 12.0,
-            separators: true,
-            chevron_size: 4.0,
-            chevron_hit: 8.0,
-            chevron_inset_x: 2.5,
-            chevron_inset_y: 1.5,
-            chevron_stroke: 0.58,
-            chevron_idle_opacity: 0.38,
-            chevron_hover_opacity: 0.92,
-            chevron_hover_fill: 0.10,
-            chevron_emboss: 0.22,
-        }
     }
 }
 
@@ -461,79 +425,6 @@ impl Default for BoardOverlayThemeTokens {
     }
 }
 
-/// Port-role chip colours on agent nodes (prompt / geometry / image / style).
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-#[serde(default)]
-pub struct BoardAgentTokens {
-    pub light: BoardAgentRoleTokens,
-    pub dark: BoardAgentRoleTokens,
-}
-
-impl Default for BoardAgentTokens {
-    fn default() -> Self {
-        Self {
-            light: BoardAgentRoleTokens::light(),
-            dark: BoardAgentRoleTokens::dark(),
-        }
-    }
-}
-
-impl BoardAgentTokens {
-    pub fn roles(&self, dark_mode: bool) -> AgentRoleInk {
-        let t = if dark_mode { &self.dark } else { &self.light };
-        AgentRoleInk {
-            prompt: t.prompt.color(),
-            geometry: t.geometry.color(),
-            image: t.image.color(),
-            style: t.style.color(),
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-#[serde(default)]
-pub struct BoardAgentRoleTokens {
-    pub prompt: Hex,
-    pub geometry: Hex,
-    pub image: Hex,
-    pub style: Hex,
-}
-
-impl BoardAgentRoleTokens {
-    /// The dark hues deepened to at least 3:1 on the light board.
-    fn light() -> Self {
-        Self {
-            prompt: Hex::rgb(0xb7, 0x79, 0x1f),
-            geometry: Hex::rgb(0x13, 0x8a, 0x72),
-            image: Hex::rgb(0x2f, 0x6f, 0xdf),
-            style: Hex::rgb(0x8b, 0x5c, 0xd6),
-        }
-    }
-
-    fn dark() -> Self {
-        Self {
-            prompt: Hex::rgb(0xf0, 0xc4, 0x5c),
-            geometry: Hex::rgb(0x5c, 0xcc, 0xaa),
-            image: Hex::rgb(0x78, 0xaa, 0xfa),
-            style: Hex::rgb(0xc4, 0x92, 0xfa),
-        }
-    }
-}
-
-impl Default for BoardAgentRoleTokens {
-    fn default() -> Self {
-        Self::dark()
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct AgentRoleInk {
-    pub prompt: Color32,
-    pub geometry: Color32,
-    pub image: Color32,
-    pub style: Color32,
-}
-
 /// Resolved [`BoardOverlayTokens`] for one theme.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct OverlayInk {
@@ -746,48 +637,6 @@ impl MenuThemeTokens {
 impl Default for MenuThemeTokens {
     fn default() -> Self {
         Self::dark()
-    }
-}
-
-impl ReadoutTokens {
-    pub fn normalize(&mut self) {
-        self.pad_top = self.pad_top.clamp(0.0, 24.0);
-        self.pad_bottom = self.pad_bottom.clamp(0.0, 24.0);
-        self.row_gap = self.row_gap.clamp(0.0, 24.0);
-        self.item_gap = self.item_gap.clamp(0.0, 24.0);
-        self.row_height = self.row_height.clamp(0.0, 48.0);
-        self.text_size = self.text_size.clamp(7.0, 20.0);
-        self.chevron_size = self.chevron_size.clamp(2.0, 16.0);
-        self.chevron_hit = self.chevron_hit.clamp(6.0, 28.0);
-        self.chevron_inset_x = self.chevron_inset_x.clamp(0.0, 24.0);
-        self.chevron_inset_y = self.chevron_inset_y.clamp(0.0, 16.0);
-        self.chevron_stroke = self.chevron_stroke.clamp(0.4, 2.4);
-        self.chevron_idle_opacity = self.chevron_idle_opacity.clamp(0.08, 1.0);
-        self.chevron_hover_opacity = self.chevron_hover_opacity.clamp(0.2, 1.0);
-        self.chevron_hover_fill = self.chevron_hover_fill.clamp(0.0, 0.4);
-        self.chevron_emboss = self.chevron_emboss.clamp(0.0, 0.6);
-    }
-
-    pub fn round_for_storage(&mut self) {
-        for value in [
-            &mut self.pad_top,
-            &mut self.pad_bottom,
-            &mut self.row_gap,
-            &mut self.item_gap,
-            &mut self.row_height,
-            &mut self.text_size,
-            &mut self.chevron_size,
-            &mut self.chevron_hit,
-            &mut self.chevron_inset_x,
-            &mut self.chevron_inset_y,
-            &mut self.chevron_stroke,
-            &mut self.chevron_idle_opacity,
-            &mut self.chevron_hover_opacity,
-            &mut self.chevron_hover_fill,
-            &mut self.chevron_emboss,
-        ] {
-            *value = (*value * 1_000.0).round() / 1_000.0;
-        }
     }
 }
 
@@ -1332,6 +1181,8 @@ pub struct DockTokens {
     pub describe_fade_duration: f32,
     /// Seconds for hover preview / pinned panel ease-in.
     pub panel_open_duration: f32,
+    /// Bottom-edge Tool capsules; Dashboard forms retain the legacy settings.
+    pub inline: DockInlineTokens,
     /// Gap between icon top and label chip / preview anchor.
     pub hover_chip_gap: f32,
     /// Flyout icon-strip squircles as a fraction of [`Self::icon_size`].
@@ -1342,52 +1193,6 @@ pub struct DockTokens {
     pub advanced: DockAdvancedTokens,
     pub light: DockThemeTokens,
     pub dark: DockThemeTokens,
-}
-
-impl Default for DockTokens {
-    fn default() -> Self {
-        Self {
-            icon_size: 34.0,
-            icon_gap: 10.0,
-            icon_text_size: 14.0,
-            label_text_size: 11.0,
-            squircle_exponent: 4.0,
-            popover_width: 260.0,
-            popover_max_height: 520.0,
-            popover_gap: 10.0,
-            popover_padding: 8.0,
-            popover_corner_radius: 10.0,
-            shadow_offset_x: 0.0,
-            shadow_offset_y: 6.0,
-            shadow_blur: 20.0,
-            shadow_spread: 1.0,
-            shadow_opacity: 0.26,
-            // Grace after the pointer leaves the icon→palette corridor.
-            // Long enough to finish a normal move onto a bottom-dock flyout.
-            close_delay: 1.0,
-            left_margin: 10.0,
-            bottom_margin: 14.0,
-            stack_gap: 8.0,
-            partition_gap: 8.0,
-            partition_extend: 48.0,
-            partition_max_thickness: 2.4,
-            partition_min_thickness: 0.4,
-            partition_opacity: 0.45,
-            tracer_width: 1.4,
-            tracer_opacity: 0.55,
-            tracer_corner_radius: 8.0,
-            tracer_border_hit: 10.0,
-            dashboard_describe_delay: 0.55,
-            describe_fade_duration: 0.28,
-            panel_open_duration: 0.18,
-            hover_chip_gap: 6.0,
-            flyout_icon_scale: 0.65,
-            palette: DockPaletteTokens::default(),
-            advanced: DockAdvancedTokens::default(),
-            light: DockThemeTokens::light(),
-            dark: DockThemeTokens::dark(),
-        }
-    }
 }
 
 impl DockTokens {
@@ -1419,6 +1224,7 @@ impl DockTokens {
         self.hover_chip_gap = self.hover_chip_gap.clamp(0.0, 48.0);
         self.flyout_icon_scale = self.flyout_icon_scale.clamp(0.4, 1.0);
         self.palette.normalize();
+        self.inline.normalize();
         self.advanced.normalize();
     }
 
@@ -1464,14 +1270,15 @@ impl DockTokens {
             round3(value);
         }
         self.palette.round_for_storage();
+        self.inline.round_for_storage();
         self.advanced.round_for_storage();
     }
 }
 
 /// The palette body — what a dock icon opens.
 ///
-/// Palettes are an **icon strip** of unlabeled fieldset groups.
-/// Inspectors stay a **stacked list** under a caption. Both carry the
+/// Tool palettes are an **icon strip** of unlabeled fieldset groups.
+/// Dashboards / Inspectors stay a **stacked list** under a caption. Both carry the
 /// same two-dot cluster, so its geometry is tuned once here.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -1607,8 +1414,8 @@ impl Default for DockPaletteTokens {
             group_radius: 6.0,
             group_stroke: 1.0,
             group_fill: 0.42,
-            primary_fill_mix: 0.0,
-            primary_fill_offset: 0.0,
+            primary_fill_mix: primary_fill_mix_default(),
+            primary_fill_offset: primary_fill_offset_default(),
             well_fill: 0.0,
             associate_fill: 0.64,
             associate_stroke: 1.28,
@@ -2742,7 +2549,7 @@ impl ThemeSlots {
             ink: Hex::rgb(0x1b, 0x1e, 0x22),
             sub: Hex::rgb(0x87, 0x8e, 0x96),
             line: Hex::rgb(0xcb, 0xd1, 0xd8),
-            wire: Hex::rgb(0x6e, 0x76, 0x80),
+            wire: Hex::rgb(0xcc, 0xcf, 0xcf),
             accent: Hex::rgb(0x0f, 0x76, 0x6e),
             portal: Hex::rgb(0x8b, 0x5c, 0xf6),
             thumb_bg: Hex::rgb(0xee, 0xf0, 0xf2),
@@ -2836,10 +2643,12 @@ fn parse_embedded() -> UiTokens {
     });
     tokens.topbar.normalize();
     tokens.dock.normalize();
+    tokens.feedback.normalize();
     tokens.home.normalize();
     tokens.minimap.normalize();
     tokens.palette.normalize();
     tokens.readouts.normalize();
+    tokens.toast.normalize();
     tokens.activity_heatmap.normalize();
     tokens.portal_frame.normalize();
     tokens.board_preview.normalize();
@@ -2848,6 +2657,7 @@ fn parse_embedded() -> UiTokens {
     tokens.board_overlay.normalize();
     tokens.menu.normalize();
     tokens.slider.normalize();
+    tokens.chat_card.normalize();
     tokens
 }
 
@@ -2878,6 +2688,7 @@ pub fn replace(mut tokens: UiTokens) {
     tokens.minimap.normalize();
     tokens.palette.normalize();
     tokens.readouts.normalize();
+    tokens.toast.normalize();
     tokens.activity_heatmap.normalize();
     tokens.portal_frame.normalize();
     tokens.board_preview.normalize();
@@ -2886,6 +2697,7 @@ pub fn replace(mut tokens: UiTokens) {
     tokens.board_overlay.normalize();
     tokens.menu.normalize();
     tokens.slider.normalize();
+    tokens.chat_card.normalize();
     *store().write().expect("UI token lock poisoned") = Arc::new(tokens);
     GENERATION.fetch_add(1, Ordering::Relaxed);
 }

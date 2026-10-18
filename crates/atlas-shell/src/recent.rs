@@ -171,7 +171,8 @@ pub fn covers_dir() -> PathBuf {
 /// * 2 — mosaic tiles crop to the cell instead of being squashed into it, and
 ///   the cells tile the full cover with no background gutter.
 /// * 3 — generated diagrams are theme masks; mosaic gaps are transparent.
-pub const COVER_RECIPE_VERSION: u32 = 3;
+/// * 4 — workbook mosaics keep pictures and drop blank pages and single strokes.
+pub const COVER_RECIPE_VERSION: u32 = 4;
 
 impl RecentEntry {
     /// A persisted cache pointer must not bypass recipe invalidation. Explicit

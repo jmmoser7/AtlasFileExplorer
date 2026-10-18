@@ -28,6 +28,7 @@ impl Bench {
     fn new(n: usize) -> Self {
         let ctx = egui::Context::default();
         let mut app = SlateApp::with_ctx(&ctx, None);
+        app.agents.hold_catalog_probes_for_test();
         app.kits = kits::KitState::builtin_only();
         app.leave_home();
         app.ensure_work_tab();
@@ -42,7 +43,6 @@ impl Bench {
         cam.offset = EVec2::new(900.0, 500.0);
         Self { ctx, app }
     }
-
     /// A bench whose board paints are logged for coverage checks.
     fn logged(n: usize) -> Self {
         super::board_path::tiles::log_paints();
@@ -50,7 +50,6 @@ impl Bench {
         b.app.brush_tiles_enabled = true;
         b
     }
-
     fn frame(&mut self) -> Duration {
         self.frame_with(Vec::new())
     }
@@ -112,11 +111,7 @@ fn stroke_node(scene: &mut slate_doc::scene::Scene, seed: u64) -> Node {
         stamp: true,
         tween_from: None,
         gaussian_blur: 0.0,
-        arrow_end: false,
-        arrow_start: false,
-        cap_start: None,
-        cap_end: None,
-        texture: Default::default(),
+        ..Stroke::default()
     };
     scene.build_node(
         WorldRect::new(x, y, w, h),
@@ -379,11 +374,7 @@ fn dab_node(
         stamp: true,
         tween_from: None,
         gaussian_blur: blur,
-        arrow_end: false,
-        arrow_start: false,
-        cap_start: None,
-        cap_end: None,
-        texture: Default::default(),
+        ..Stroke::default()
     };
     scene.build_node(
         WorldRect::new(at[0] - width * 0.5, at[1] - width * 0.5, width, width),

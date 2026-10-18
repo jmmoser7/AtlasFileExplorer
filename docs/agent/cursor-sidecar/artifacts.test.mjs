@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import path from 'node:path';
-import { artifactFromTool, artifactGuide, displayPrompt, GOAL_MARKER, goalGuide, messageText, SLATE_LINK_LINE, transcript } from './artifacts.mjs';
+import { ARTIFACT_GENERATION_MARKER, artifactFromTool, artifactGuide, displayPrompt, GOAL_MARKER, goalGuide, messageText, SLATE_LINK_LINE, transcript } from './artifacts.mjs';
 test('artifacts require successful structured tool output',()=>{
  assert.equal(artifactFromTool({type:'edit',args:{path:'a.rs'},result:{status:'error'}},'x',1,process.cwd()),null);
  assert.equal(artifactFromTool({type:'shell',result:{status:'success',value:'edited a.rs'}},'x',1,process.cwd()),null);
@@ -52,4 +52,30 @@ test('the goal guide twin names return.json and hides with the preamble',()=>{
  assert.ok(judge.includes('to return.json beside session.json for this message.'));
  const preamble='Slate board: you cannot draw shapes. '+artifactGuide('')+GOAL_MARKER+claim;
  assert.equal(displayPrompt([preamble,SLATE_LINK_LINE,'build it'].join('\n')),'build it');
+});
+
+test('artifact display accepts LF and CRLF headers without changing user text', () => {
+ const prompt = '  Preserve this\r\nuser text.\n\u{1f916}\r\n ';
+ for (const ending of ['\n', '\r\n']) {
+  const text = `${prompt}${ARTIFACT_GENERATION_MARKER}Artifact generation profile v1${ending}Instructions.`;
+  assert.equal(displayPrompt(text), prompt);
+  assert.equal(transcript([{type:'user',message:text}])[0].text, prompt);
+ }
+});
+
+test('artifact display retains partial or lookalike profile headers', () => {
+ for (const header of [
+  'Artifact generation profile v1',
+  'Artifact generation profile v1\r',
+  'Artifact generation profile v1\r\r\n',
+  'Artifact generation profile v10\n',
+  'Artifact generation profile v1 extra\n',
+  ' Artifact generation profile v1\n',
+  'Artifact generation profile v\n',
+ ]) {
+  const text = `Keep\r\nthis.${ARTIFACT_GENERATION_MARKER}${header}`;
+  assert.equal(displayPrompt(text), text);
+ }
+ const changedMarker = 'Keep\r\n\r\nSlate artifact generation:\r\nArtifact generation profile v1\r\n';
+ assert.equal(displayPrompt(changedMarker), changedMarker);
 });

@@ -97,6 +97,7 @@ pub(super) fn codex_card_with_models(h: &mut super::super::tests::Harness) -> No
             .map(|id| atlas_ai::agent::AgentModel {
                 id: id.into(),
                 name: id.into(),
+                ..Default::default()
             })
             .collect(),
     );
@@ -195,6 +196,7 @@ pub(super) fn branched_pairs(tag: &str) -> (super::super::tests::Harness, Vec<No
         let dir = atlas_ai::agent::agent_dir(&ws, &session);
         std::fs::create_dir_all(&dir).unwrap();
         let state = atlas_ai::agent::AgentSession {
+            activity: Vec::new(),
             usage: None,
             approval: None,
             conversation: String::new(),

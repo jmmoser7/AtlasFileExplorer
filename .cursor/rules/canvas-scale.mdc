@@ -39,7 +39,9 @@ screen-chrome exception.
 Linear size (fillets, strokes, insets, node resize-handle squares, tab radii) goes
 through `atlas-shell::canvas_scale::px` — one definition, no floor, no
 ceiling. Type goes through `atlas-shell::canvas_text` (`text` / `layout`),
-never `Painter::text` on the canvas. Cover Flow lives in
+never `Painter::text` on the canvas. Focused/overflowing editors also follow
+P0.9's fixed-world-width wrapping through `world_layout` / `zoom_galley`.
+Cover Flow lives in
 `atlas-shell::home` — embed it; do not copy it.
 
 **Yawed / perspective hosts** (Cover Flow album faces, any projected card):

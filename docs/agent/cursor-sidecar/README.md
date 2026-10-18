@@ -41,3 +41,25 @@ falls back to `Cursor.exe` run as Node, and runs `install.mjs` here when
 Agents must not edit `.slate` files directly. Board edits are proposed by
 writing stage files described in `../../agent-link-contract.md`; Slate commits
 accepted proposals as attributed journal groups.
+
+## Public progress for canvas collaborators
+
+The adapter reports existing public commentary and tool events through the optional
+`session.json` fields `request` and `activity`. The model does not need to announce
+its face, pose, animation or internal state. Face and prop mappings live in
+`crates/atlas-agent/assets/agent-activities.json`; listening is derived locally from
+addressing the avatar.
+
+Each observation has `id`, `request`, `kind`, `text`, `at` and optional `semantics`.
+Kinds are `commentary`, `tool_started` and `tool_finished`. The current request must
+match. IDs use the existing `collaborator::valid_id` grammar: 1–256 bytes containing
+ASCII letters, digits or `-_.:`. Opaque external provider IDs must be adapted to that
+grammar before publication. Invalid progress is dropped without rewriting the
+conversation or request.
+
+The file reader retains the last 64 raw observations and passes them through the
+same `AgentSession::record_activity` normalizer used by native adapters. Text is
+limited to 1024 Unicode characters. A coalesced observation may keep its ID; refresh
+`at` when new public text arrives even after its visible prefix is full. A generic
+session heartbeat does not count as work. Never include hidden reasoning, tool
+arguments or raw tool responses in this channel.

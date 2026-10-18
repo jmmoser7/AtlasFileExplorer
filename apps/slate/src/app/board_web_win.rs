@@ -38,15 +38,11 @@ use windows::System::DispatcherQueueController;
 use windows::Win32::Foundation::{HMODULE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
 use windows::Win32::Graphics::Direct3D11::{
-    D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D, D3D11_CPU_ACCESS_READ,
-    D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_MAPPED_SUBRESOURCE, D3D11_MAP_FLAG_DO_NOT_WAIT,
-    D3D11_MAP_READ, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC, D3D11_USAGE_STAGING,
+    D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D,
+    D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION,
 };
-use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC};
 use windows::Win32::Graphics::Dxgi::IDXGIDevice;
-use windows::Win32::System::WinRT::Direct3D11::{
-    CreateDirect3D11DeviceFromDXGIDevice, IDirect3DDxgiInterfaceAccess,
-};
+use windows::Win32::System::WinRT::Direct3D11::CreateDirect3D11DeviceFromDXGIDevice;
 use windows::Win32::System::WinRT::{
     CreateDispatcherQueueController, DispatcherQueueOptions, DQTAT_COM_STA, DQTYPE_THREAD_CURRENT,
 };
@@ -88,6 +84,11 @@ use super::board_web::{
     popup_disposition, popup_title, popup_window_rect, PopupBook, PopupDisposition, PopupFeatures,
     PxRect, WebHost, WebInput, WebRequest,
 };
+
+mod readback;
+
+#[cfg(test)]
+mod latency_probe;
 
 /// A download the board should place under the portal. Every other download
 /// stays cancelled. The saved name is ours, so a repeated export never
@@ -159,30 +160,25 @@ fn capture_point(x: f32, y: f32, scale: f64) -> POINT {
 /// `Navigate` takes a URI, not a path: a bare `C:\dir\page.html` is rejected
 /// outright, which is why a local dashboard used to sit at `Loading` forever.
 /// Remote locators pass through untouched.
-pub(crate) fn navigate_uri(target: &str) -> String {
+pub(crate) fn navigate_uri(target: &str) -> windows::core::Result<String> {
     let lower = target.to_ascii_lowercase();
     if lower.starts_with("http://")
         || lower.starts_with("https://")
         || lower.starts_with("file://")
         || lower.starts_with("about:")
     {
-        return target.to_string();
+        return Ok(target.to_string());
     }
-    let mut out = String::from("file:///");
-    for ch in target.chars() {
-        match ch {
-            '\\' => out.push('/'),
-            // Percent-encode what a URI cannot carry literally. Keeping this to
-            // the characters that actually appear in paths avoids mangling
-            // non-ASCII folder names, which WebView2 accepts as-is.
-            ' ' => out.push_str("%20"),
-            '#' => out.push_str("%23"),
-            '?' => out.push_str("%3F"),
-            '%' => out.push_str("%25"),
-            c => out.push(c),
-        }
-    }
-    out
+    // Canonical Windows paths carry a verbatim disk/UNC prefix. That namespace
+    // belongs to the filesystem, never to the URI handed to WebView2.
+    url::Url::from_file_path(target)
+        .map(Into::into)
+        .map_err(|()| {
+            windows::core::Error::new(
+                windows::Win32::Foundation::E_INVALIDARG,
+                "Could not convert the local page path to a file URI",
+            )
+        })
 }
 
 /// What the async WebView2 callbacks fill in for one view. The callbacks land
@@ -216,8 +212,7 @@ struct View {
     pool: Option<Direct3D11CaptureFramePool>,
     session: Option<GraphicsCaptureSession>,
     staging: [Option<ID3D11Texture2D>; 2],
-    pending_copy: [bool; 2],
-    next_copy: usize,
+    pending_copy: readback::PendingCopies,
     scale: f64,
     size: (u32, u32),
     #[allow(dead_code)] // Set on create; not read yet.
@@ -431,7 +426,8 @@ impl Webview2Host {
                     escape.clone(),
                     hooks.clone(),
                 ) {
-                    sink.borrow_mut().error = Some(format!("WebView2 could not start: {e}"));
+                    sink.borrow_mut().error =
+                        Some(format!("WebView2 could not open the page: {e}"));
                 }
                 Ok(())
             },
@@ -458,8 +454,7 @@ impl Webview2Host {
                 pool: None,
                 session: None,
                 staging: [None, None],
-                pending_copy: [false; 2],
-                next_copy: 0,
+                pending_copy: readback::PendingCopies::default(),
                 scale,
                 size: (w, h),
                 target: req.target.clone(),
@@ -540,8 +535,7 @@ impl Webview2Host {
         view.size = (w, h);
         view.scale = req.rasterization_scale();
         view.staging = [None, None];
-        view.pending_copy = [false; 2];
-        view.next_copy = 0;
+        view.pending_copy = readback::PendingCopies::default();
         let _ = view.root.SetSize(Vector2 {
             X: w as f32,
             Y: h as f32,
@@ -570,83 +564,6 @@ impl Webview2Host {
                 },
             );
         }
-    }
-
-    /// Read a completed GPU copy without waiting, then queue the newest frame.
-    /// Capture dimensions and the per-frame upload budget bound the CPU work.
-    fn read_frame(&mut self, id: NodeId) -> Option<super::board_web::WebFrame> {
-        let _span = atlas_core::session_log::span("slate.web.readback");
-        let view = self.views.get_mut(&id)?;
-        let pool = view.pool.as_ref()?;
-        let size = view.size;
-        let read = (view.next_copy + 1) % 2;
-        let mut image = None;
-        if view.pending_copy[read] {
-            let staging = view.staging[read].as_ref()?;
-            let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
-            // Never wait for the GPU on the UI thread. Retry this copy on a
-            // later frame; the existing portal texture remains on screen.
-            unsafe {
-                self.context.Map(
-                    staging,
-                    0,
-                    D3D11_MAP_READ,
-                    D3D11_MAP_FLAG_DO_NOT_WAIT.0 as u32,
-                    Some(&mut mapped),
-                )
-            }
-            .ok()?;
-            image = Some(std::sync::Arc::new(bgra_to_color_image(
-                &mapped,
-                size.0 as usize,
-                size.1 as usize,
-            )));
-            unsafe {
-                self.context.Unmap(staging, 0);
-            }
-            view.pending_copy[read] = false;
-        }
-        // The capture pool has two buffers. Prefer the newest and close every
-        // acquired frame, including stale frames from a previous resize.
-        let mut newest = pool.TryGetNextFrame().ok();
-        if let Ok(frame) = pool.TryGetNextFrame() {
-            if let Some(old) = newest.replace(frame) {
-                let _ = old.Close();
-            }
-        }
-        if let Some(frame) = newest {
-            let source = frame
-                .Surface()
-                .ok()
-                .and_then(|s| s.cast::<IDirect3DDxgiInterfaceAccess>().ok())
-                .and_then(|a| unsafe { a.GetInterface::<ID3D11Texture2D>() }.ok());
-            if let Some(source) = source {
-                let mut desc = D3D11_TEXTURE2D_DESC::default();
-                unsafe {
-                    source.GetDesc(&mut desc);
-                }
-                if (desc.Width, desc.Height) == size {
-                    let write = view.next_copy;
-                    if view.staging[write].is_none() {
-                        view.staging[write] = create_staging(&self.device, size.0, size.1).ok();
-                    }
-                    if let Some(staging) = &view.staging[write] {
-                        unsafe {
-                            self.context.CopyResource(staging, &source);
-                            self.context.Flush();
-                        }
-                        view.pending_copy[write] = true;
-                        view.next_copy = read;
-                    }
-                }
-            }
-            let _ = frame.Close();
-        }
-        let image = image.filter(|img| super::board_web::web_frame_has_content(img));
-        if let Some(img) = &image {
-            view.last = Some(std::sync::Arc::clone(img));
-        }
-        image
     }
 
     fn webview(&self, id: NodeId) -> Option<ICoreWebView2> {
@@ -747,7 +664,10 @@ impl WebHost for Webview2Host {
         // Fixed host chrome only; no URL interpolation or message bridge. The
         // one DOM read is `request_text`, started by the human (D15 / D27).
         // Reinstall after navigation replaces the document.
-        let script = format!("(()=>{{let s=document.getElementById('slate-web-scrollbar-chrome');if(!s){{s=document.createElement('style');s.id='slate-web-scrollbar-chrome';(document.head||document.documentElement).appendChild(s);}}s.textContent={};}})()", serde_json::to_string(&css).unwrap());
+        let script = format!(
+            "(()=>{{let s=document.getElementById('slate-web-scrollbar-chrome');if(!s){{s=document.createElement('style');s.id='slate-web-scrollbar-chrome';(document.head||document.documentElement).appendChild(s);}}s.textContent={};}})()",
+            serde_json::to_string(&css).unwrap()
+        );
         let script = wide(&script);
         if unsafe {
             webview.ExecuteScript(
@@ -849,6 +769,26 @@ impl WebHost for Webview2Host {
     fn take_frame(&mut self, id: NodeId) -> Option<super::board_web::WebFrame> {
         self.start_capture(id);
         self.read_frame(id)
+    }
+
+    fn poll_frame(&mut self, id: NodeId) -> Option<super::board_web::WebFrame> {
+        self.retire_frame(id)
+    }
+
+    fn has_pending_frame(&self, id: NodeId) -> bool {
+        self.views
+            .get(&id)
+            .is_some_and(|view| view.pending_copy.has_pending())
+    }
+
+    fn frame_requests_are_async(&self) -> bool {
+        true
+    }
+
+    fn request_frame(&mut self, id: NodeId) -> Option<super::board_web::WebFrame> {
+        self.start_capture(id);
+        self.issue_frame(id);
+        None
     }
 
     fn capture_poster(&mut self, id: NodeId) -> Option<super::board_web::WebFrame> {
@@ -995,8 +935,18 @@ impl WebHost for Webview2Host {
         let Some(webview) = self.webview(id) else {
             return false;
         };
-        let url = wide(&navigate_uri(target));
-        unsafe { webview.Navigate(PCWSTR(url.as_ptr())) }.is_ok()
+        let result = navigate_uri(target).and_then(|uri| {
+            let url = wide(&uri);
+            unsafe { webview.Navigate(PCWSTR(url.as_ptr())) }
+        });
+        if let Err(error) = result {
+            if let Some(view) = self.views.get(&id) {
+                view.shared.borrow_mut().error =
+                    Some(format!("WebView2 could not navigate to the page: {error}"));
+            }
+            return false;
+        }
+        true
     }
 }
 
@@ -1173,8 +1123,13 @@ fn attach(
     let mut close_token = 0i64;
     let _ = unsafe { webview.add_WindowCloseRequested(&ignore_close, &mut close_token) };
 
-    let url = wide(&navigate_uri(target));
-    unsafe { webview.Navigate(PCWSTR(url.as_ptr())) }?;
+    let url = wide(&navigate_uri(target)?);
+    unsafe { webview.Navigate(PCWSTR(url.as_ptr())) }.map_err(|error| {
+        windows::core::Error::new(
+            error.code(),
+            format!("Could not navigate to the page: {error}"),
+        )
+    })?;
 
     let mut pending = sink.borrow_mut();
     pending.comp = Some(comp.clone());
@@ -1398,8 +1353,10 @@ fn install_popup_policy(webview: &ICoreWebView2, hooks: PageHooks) {
         // a search result opened in a new tab does not vanish.
         let _ = unsafe { args.SetHandled(true) };
         if let (Some(sender), Some(target)) = (sender, target) {
-            let url = wide(&navigate_uri(&target));
-            let _ = unsafe { sender.Navigate(PCWSTR(url.as_ptr())) };
+            if let Ok(uri) = navigate_uri(&target) {
+                let url = wide(&uri);
+                let _ = unsafe { sender.Navigate(PCWSTR(url.as_ptr())) };
+            }
         }
         Ok(())
     }));
@@ -1936,47 +1893,6 @@ fn create_d3d_device() -> windows::core::Result<(ID3D11Device, ID3D11DeviceConte
     Ok((device.unwrap(), context.unwrap()))
 }
 
-fn create_staging(device: &ID3D11Device, w: u32, h: u32) -> windows::core::Result<ID3D11Texture2D> {
-    let desc = D3D11_TEXTURE2D_DESC {
-        Width: w,
-        Height: h,
-        MipLevels: 1,
-        ArraySize: 1,
-        Format: DXGI_FORMAT_B8G8R8A8_UNORM,
-        SampleDesc: DXGI_SAMPLE_DESC {
-            Count: 1,
-            Quality: 0,
-        },
-        Usage: D3D11_USAGE_STAGING,
-        BindFlags: 0,
-        CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32,
-        MiscFlags: 0,
-    };
-    let mut tex = None;
-    unsafe { device.CreateTexture2D(&desc, None, Some(&mut tex))? };
-    Ok(tex.unwrap())
-}
-
-/// The captured surface is BGRA with a row pitch that is not the row width.
-fn bgra_to_color_image(mapped: &D3D11_MAPPED_SUBRESOURCE, w: usize, h: usize) -> egui::ColorImage {
-    let mut pixels = Vec::with_capacity(w * h);
-    let pitch = mapped.RowPitch as usize;
-    let base = mapped.pData as *const u8;
-    for y in 0..h {
-        let row = unsafe { std::slice::from_raw_parts(base.add(y * pitch), w * 4) };
-        pixels.extend(
-            row.as_chunks::<4>()
-                .0
-                .iter()
-                .map(|p| egui::Color32::from_rgba_premultiplied(p[2], p[1], p[0], p[3])),
-        );
-    }
-    egui::ColorImage {
-        size: [w, h],
-        pixels,
-    }
-}
-
 fn json_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
@@ -2096,376 +2012,7 @@ pub(crate) mod probe {
 }
 
 #[cfg(test)]
-mod tests {
-    #[test]
-    fn pointer_tracks_physical_capture_resolution() {
-        let point = super::capture_point(320.0, 180.0, 3.0);
-        assert_eq!((point.x, point.y), (960, 540));
-        let point = super::capture_point(320.0, 180.0, 6.0);
-        assert_eq!((point.x, point.y), (1920, 1080));
-    }
-    use super::probe::{host, pump};
-    use super::*;
-    use slate_doc::scene::WebSourceKind;
-    use std::time::{Duration, Instant};
-
-    #[test]
-    fn a_windows_path_becomes_a_file_uri_and_a_url_is_left_alone() {
-        assert_eq!(
-            navigate_uri(r"C:\dash boards\index.html"),
-            "file:///C:/dash%20boards/index.html"
-        );
-        assert_eq!(
-            navigate_uri("https://example.com/a?b=1"),
-            "https://example.com/a?b=1"
-        );
-        assert_eq!(
-            navigate_uri("file:///C:/x.html"),
-            "file:///C:/x.html",
-            "an already-formed file URI is not re-encoded"
-        );
-    }
-
-    /// Pull frames until one satisfies `want`, pumping the message loop.
-    fn run_until(
-        host: &mut Webview2Host,
-        id: NodeId,
-        req: &WebRequest,
-        secs: u64,
-        want: impl Fn(&egui::ColorImage) -> bool,
-    ) -> (usize, bool) {
-        let deadline = Instant::now() + Duration::from_secs(secs);
-        let mut frames = 0usize;
-        let mut hit = false;
-        while Instant::now() < deadline && !hit {
-            pump();
-            // `admit` is idempotent, and re-calling it is how the environment's
-            // late arrival gets picked up — exactly what the pump does.
-            host.admit(id, req);
-            if let Some(img) = host.take_frame(id) {
-                frames += 1;
-                hit = want(&img);
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        (frames, hit)
-    }
-
-    /// The one test that proves the pipeline end to end: a real browser, a real
-    /// composition visual, a real capture session, real pixels. It needs a
-    /// desktop session and the Evergreen runtime, so it is `#[ignore]`d and run
-    /// deliberately:
-    ///
-    /// ```powershell
-    /// cargo test -p slate --lib board_web_win -- --ignored --nocapture
-    /// ```
-    #[test]
-    #[ignore]
-    fn a_local_page_paints_into_a_texture() {
-        let dir = std::env::temp_dir().join("slate-web-probe-local");
-        std::fs::create_dir_all(&dir).unwrap();
-        let page = dir.join("probe.html");
-        std::fs::write(
-            &page,
-            "<html><body style=\"margin:0;background:#ff0000\"></body></html>",
-        )
-        .unwrap();
-
-        let mut host =
-            host("local").expect("no WebView2 runtime, GPU device, or compositor on this machine");
-        let id = NodeId(1);
-        let req = WebRequest {
-            // Deliberately a bare Windows path, which is what the board hands
-            // the host: turning it into a URI is the host's job.
-            target: page.to_string_lossy().into_owned(),
-            kind: WebSourceKind::LocalFile,
-            width_css: 320,
-            height_css: 200,
-            raster_w: 320,
-            raster_h: 200,
-            link_script: String::new(),
-            anchor_px: None,
-            profile: "local".into(),
-        };
-        let (frames, red) = run_until(&mut host, id, &req, 45, |img| {
-            img.pixels
-                .iter()
-                .any(|p| p.r() > 200 && p.g() < 80 && p.b() < 80)
-        });
-        println!(
-            "frames: {frames}, red: {red}, error: {:?}",
-            host.load_error(id)
-        );
-        assert!(frames > 0, "the capture session never produced a frame");
-        assert!(red, "frames arrived but the page never painted");
-    }
-
-    /// Browser parity: an arbitrary public page loads and paints. Needs the
-    /// network as well as a desktop session.
-    #[test]
-    #[ignore]
-    fn an_arbitrary_public_page_loads_and_paints() {
-        let mut host = host("remote").expect("no WebView2 runtime on this machine");
-        let id = NodeId(2);
-        let req = WebRequest {
-            target: "https://example.com/".into(),
-            kind: WebSourceKind::Remote,
-            width_css: 1024,
-            height_css: 700,
-            raster_w: 1024,
-            raster_h: 700,
-            link_script: String::new(),
-            anchor_px: None,
-            profile: slate_doc::scene::web_profile_name("https://example.com/"),
-        };
-        // Any page that renders text puts dark pixels on a light background;
-        // an unpainted capture is uniformly transparent.
-        let (frames, painted) = run_until(&mut host, id, &req, 60, |img| {
-            img.pixels.iter().any(|p| p.a() > 200 && p.r() < 120)
-        });
-        println!(
-            "frames: {frames}, painted: {painted}, error: {:?}",
-            host.load_error(id)
-        );
-        assert!(frames > 0, "the capture session never produced a frame");
-        assert!(painted, "example.com never rendered any content");
-    }
-
-    /// Eviction releases the browser and the capture session, which is what
-    /// keeps a board of a hundred pages to a bounded number of processes.
-    #[test]
-    #[ignore]
-    fn eviction_releases_the_view() {
-        let mut host = host("evict").expect("no WebView2 runtime on this machine");
-        let id = NodeId(3);
-        let req = WebRequest {
-            target: "about:blank".into(),
-            kind: WebSourceKind::Remote,
-            width_css: 200,
-            height_css: 120,
-            raster_w: 200,
-            raster_h: 120,
-            link_script: String::new(),
-            anchor_px: None,
-            profile: "local".into(),
-        };
-        let (frames, _) = run_until(&mut host, id, &req, 30, |_| true);
-        assert!(frames > 0);
-        host.evict(id);
-        pump();
-        assert!(host.views.is_empty(), "the view outlived its slot");
-        assert!(host.take_frame(id).is_none());
-    }
-
-    /// Run a fixed expression in the portal's page and wait for its JSON.
-    fn eval(host: &Webview2Host, id: NodeId, script: &str, secs: u64) -> Option<String> {
-        let webview = host.webview(id)?;
-        let out: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
-        let sink = out.clone();
-        let handler = ExecuteScriptCompletedHandler::create(Box::new(move |_, json| {
-            *sink.borrow_mut() = Some(json);
-            Ok(())
-        }));
-        let script = wide(script);
-        unsafe { webview.ExecuteScript(PCWSTR(script.as_ptr()), &handler) }.ok()?;
-        let deadline = Instant::now() + Duration::from_secs(secs);
-        while Instant::now() < deadline && out.borrow().is_none() {
-            pump();
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        let json = out.borrow_mut().take();
-        json
-    }
-
-    fn pump_until(
-        host: &mut Webview2Host,
-        id: NodeId,
-        req: &WebRequest,
-        secs: u64,
-        done: impl Fn(&Webview2Host) -> bool,
-    ) -> bool {
-        let deadline = Instant::now() + Duration::from_secs(secs);
-        while Instant::now() < deadline {
-            pump();
-            host.admit(id, req);
-            if done(host) {
-                return true;
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        false
-    }
-
-    fn local_request(page: &std::path::Path) -> WebRequest {
-        WebRequest {
-            target: page.to_string_lossy().into_owned(),
-            kind: WebSourceKind::LocalFile,
-            width_css: 400,
-            height_css: 300,
-            raster_w: 400,
-            raster_h: 300,
-            link_script: String::new(),
-            anchor_px: None,
-            profile: "local".into(),
-        }
-    }
-
-    /// The sign-in shape end to end: a sized `window.open` gets its own owned
-    /// window, the pop-up reaches its opener, and `window.close()` closes the
-    /// window while the portal stays on its page.
-    ///
-    /// ```powershell
-    /// cargo test -p slate --lib popup -- --ignored --nocapture
-    /// ```
-    #[test]
-    #[ignore]
-    fn a_sign_in_popup_keeps_its_opener_and_closes_itself() {
-        let dir = std::env::temp_dir().join("slate-web-probe-popup");
-        std::fs::create_dir_all(&dir).unwrap();
-        let opener = dir.join("opener.html");
-        std::fs::write(
-            &opener,
-            "<html><body><script>\
-             addEventListener('message', e => { document.title = e.data; });\
-             window.open('signin.html', 'signin', 'width=420,height=360');\
-             </script></body></html>",
-        )
-        .unwrap();
-        std::fs::write(
-            dir.join("signin.html"),
-            "<html><body><script>\
-             window.opener.postMessage('signed-in', '*');\
-             setTimeout(() => window.close(), 300);\
-             </script></body></html>",
-        )
-        .unwrap();
-
-        let mut host = host("popup").expect("no WebView2 runtime on this machine");
-        let id = NodeId(7);
-        let req = local_request(&opener);
-        let opened = pump_until(&mut host, id, &req, 45, |h| h.holds_popup(id));
-        assert!(opened, "the sized window.open never became an owned window");
-        let closed = pump_until(&mut host, id, &req, 30, |h| !h.holds_popup(id));
-        assert!(
-            closed,
-            "window.close() in the pop-up did not close its window"
-        );
-        let title = eval(&host, id, "document.title", 10);
-        println!("opener title: {title:?}, url: {:?}", host.current_url(id));
-        assert_eq!(
-            title.as_deref(),
-            Some("\"signed-in\""),
-            "the opener never heard back"
-        );
-        assert!(
-            host.current_url(id)
-                .is_some_and(|u| u.ends_with("opener.html")),
-            "the portal was navigated away from the opener"
-        );
-    }
-
-    /// A bare `window.open` (no size, no position) keeps the old behaviour: the
-    /// portal navigates in place and no window appears.
-    #[test]
-    #[ignore]
-    fn a_featureless_window_open_navigates_the_portal_in_place() {
-        let dir = std::env::temp_dir().join("slate-web-probe-blank");
-        std::fs::create_dir_all(&dir).unwrap();
-        let start = dir.join("start.html");
-        std::fs::write(
-            &start,
-            "<html><body><script>window.open('next.html');</script></body></html>",
-        )
-        .unwrap();
-        std::fs::write(dir.join("next.html"), "<html><body>next</body></html>").unwrap();
-
-        let mut host = host("blank").expect("no WebView2 runtime on this machine");
-        let id = NodeId(8);
-        let req = local_request(&start);
-        let moved = pump_until(&mut host, id, &req, 45, |h| {
-            h.current_url(id).is_some_and(|u| u.ends_with("next.html"))
-        });
-        println!("url: {:?}", host.current_url(id));
-        assert!(moved, "the portal did not follow the link in place");
-        assert!(!host.holds_popup(id), "a link must not open a window");
-    }
-
-    /// Evicting a portal closes the sign-in window its page opened.
-    #[test]
-    #[ignore]
-    fn evicting_the_portal_closes_its_popup() {
-        let dir = std::env::temp_dir().join("slate-web-probe-popup-evict");
-        std::fs::create_dir_all(&dir).unwrap();
-        let opener = dir.join("opener.html");
-        std::fs::write(
-            &opener,
-            "<html><body><script>window.open('about:blank', 'x', 'width=300,height=200');</script></body></html>",
-        )
-        .unwrap();
-        let mut host = host("popup-evict").expect("no WebView2 runtime on this machine");
-        let id = NodeId(9);
-        let req = local_request(&opener);
-        assert!(pump_until(&mut host, id, &req, 45, |h| h.holds_popup(id)));
-        host.evict(id);
-        pump();
-        assert!(!host.holds_popup(id));
-        assert!(
-            POPUP_SLOTS.with(|s| s.borrow().is_empty()),
-            "the pop-up window outlived its portal"
-        );
-    }
-
-    /// What Google's sign-in page says to WebView2, without entering anything.
-    /// Prints the user agent and the page's visible text; asserts nothing
-    /// about Google's policy, which can change.
-    #[test]
-    #[ignore]
-    fn google_sign_in_page_in_webview2() {
-        let mut host = host("google").expect("no WebView2 runtime on this machine");
-        let id = NodeId(10);
-        let req = WebRequest {
-            target: "https://accounts.google.com/".into(),
-            kind: WebSourceKind::Remote,
-            width_css: 1024,
-            height_css: 768,
-            raster_w: 1024,
-            raster_h: 768,
-            link_script: String::new(),
-            anchor_px: None,
-            profile: slate_doc::scene::web_profile_name("https://accounts.google.com/"),
-        };
-        let loaded = pump_until(&mut host, id, &req, 60, |h| {
-            h.current_url(id)
-                .is_some_and(|u| u.contains("accounts.google.com/") && u.len() > 30)
-        });
-        // Let the sign-in form render after the redirect.
-        let settle = Instant::now() + Duration::from_secs(5);
-        while Instant::now() < settle {
-            pump();
-            host.admit(id, &req);
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        println!("loaded: {loaded}, url: {:?}", host.current_url(id));
-        println!("error: {:?}", host.load_error(id));
-        println!(
-            "userAgent: {:?}",
-            eval(&host, id, "navigator.userAgent", 10)
-        );
-        println!(
-            "webdriver: {:?}",
-            eval(&host, id, "String(navigator.webdriver)", 10)
-        );
-        println!(
-            "text: {:?}",
-            eval(
-                &host,
-                id,
-                "document.body ? document.body.innerText.slice(0, 800) : ''",
-                10
-            )
-        );
-    }
-}
+mod tests;
 
 fn map_cursor(cursor: HCURSOR) -> Option<egui::CursorIcon> {
     if cursor.is_invalid() {

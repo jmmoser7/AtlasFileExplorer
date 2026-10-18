@@ -1,5 +1,4 @@
 //! Recipes — what a completed gesture produces.
-//!
 //! A recipe is the *data* half of a tool. It may only name node kinds and style
 //! properties the document model already has, because a kit cannot teach
 //! `slate-artifact` anything (Art. IV: a style property lands in both
@@ -325,6 +324,7 @@ impl Recipe {
             }
             NodeTarget::Text => NodeKind::Text(TextNode {
                 text: s.text.text.clone(),
+                style: Default::default(),
                 family: s.text.family.into(),
                 size: s.text.size,
                 color: s.text.color.resolve(ctx.accent),

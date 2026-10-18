@@ -3,10 +3,15 @@
 //! no scene types, and no weight downloads.
 //!
 //! TWIN: crates/atlas-ollama/src/lib.rs server lifecycle 2026-09-22 (DV-22)
+mod events;
+#[cfg(test)]
+use events::read_frame;
+use events::{preview_image, Events};
+
 use atlas_agent::{AgentRequest, AgentSession, AgentStatus, ImageBundle, ImageOutput};
 use serde_json::{json, Value};
 use std::{
-    io::{Read, Write},
+    io::Read,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{
@@ -1007,143 +1012,6 @@ fn cancel_prompt(prompt_id: &str) {
         return;
     }
     let _ = post_json("/queue", &json!({"delete": [prompt_id]}), 10);
-}
-
-/// One WebSocket frame: opcode, FIN, and unmasked payload.
-fn read_frame<R: Read>(r: &mut R) -> std::io::Result<(u8, bool, Vec<u8>)> {
-    let mut head = [0u8; 2];
-    r.read_exact(&mut head)?;
-    let (fin, opcode) = (head[0] & 0x80 != 0, head[0] & 0x0f);
-    let mut len = u64::from(head[1] & 0x7f);
-    if len == 126 {
-        let mut b = [0u8; 2];
-        r.read_exact(&mut b)?;
-        len = u64::from(u16::from_be_bytes(b));
-    } else if len == 127 {
-        let mut b = [0u8; 8];
-        r.read_exact(&mut b)?;
-        len = u64::from_be_bytes(b);
-    }
-    if len > 64 * 1024 * 1024 {
-        return Err(std::io::Error::other("oversized frame"));
-    }
-    let mask = if head[1] & 0x80 != 0 {
-        let mut m = [0u8; 4];
-        r.read_exact(&mut m)?;
-        Some(m)
-    } else {
-        None
-    };
-    let mut payload = vec![0u8; len as usize];
-    r.read_exact(&mut payload)?;
-    if let Some(m) = mask {
-        for (i, b) in payload.iter_mut().enumerate() {
-            *b ^= m[i % 4];
-        }
-    }
-    Ok((opcode, fin, payload))
-}
-
-/// The encoded image in a ComfyUI binary preview message, if it is one.
-fn preview_image(payload: &[u8]) -> Option<&[u8]> {
-    const PREVIEW_IMAGE: u32 = 1;
-    let event = u32::from_be_bytes(payload.get(..4)?.try_into().ok()?);
-    (event == PREVIEW_IMAGE && payload.len() > 8).then(|| &payload[8..])
-}
-
-/// ComfyUI's event socket for the client that queued a prompt: progress and
-/// preview frames. Loopback and server-to-client only, so a small reader
-/// replaces a WebSocket dependency.
-struct Events {
-    stream: std::net::TcpStream,
-    reader: std::io::BufReader<std::net::TcpStream>,
-    partial: Vec<u8>,
-    partial_op: u8,
-}
-
-impl Events {
-    fn connect(client_id: &str) -> Option<Self> {
-        use std::io::BufRead;
-        let addr = "127.0.0.1:8188".parse().ok()?;
-        let mut stream =
-            std::net::TcpStream::connect_timeout(&addr, Duration::from_secs(2)).ok()?;
-        stream.set_nodelay(true).ok()?;
-        stream.set_read_timeout(Some(Duration::from_secs(3))).ok()?;
-        write!(
-            stream,
-            "GET /ws?clientId={} HTTP/1.1\r\nHost: 127.0.0.1:8188\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
-            encode_component(client_id)
-        )
-        .ok()?;
-        let mut reader = std::io::BufReader::new(stream.try_clone().ok()?);
-        let mut line = String::new();
-        reader.read_line(&mut line).ok()?;
-        if !line.contains(" 101") {
-            return None;
-        }
-        loop {
-            line.clear();
-            if reader.read_line(&mut line).ok()? == 0 || line == "\r\n" {
-                break;
-            }
-        }
-        Some(Self {
-            stream,
-            reader,
-            partial: Vec::new(),
-            partial_op: 0x2,
-        })
-    }
-
-    /// The next whole message, or `None` once `wait` passes with nothing to read.
-    fn next(&mut self, wait: Duration) -> std::io::Result<Option<(u8, Vec<u8>)>> {
-        use std::io::BufRead;
-        self.stream
-            .set_read_timeout(Some(wait.max(Duration::from_millis(1))))?;
-        match self.reader.fill_buf() {
-            Ok([]) => return Err(std::io::ErrorKind::UnexpectedEof.into()),
-            Ok(_) => {}
-            Err(e)
-                if matches!(
-                    e.kind(),
-                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                ) =>
-            {
-                return Ok(None)
-            }
-            Err(e) => return Err(e),
-        }
-        // A frame has begun; finish it without the poll timeout.
-        self.stream.set_read_timeout(Some(Duration::from_secs(5)))?;
-        loop {
-            let (opcode, fin, payload) = read_frame(&mut self.reader)?;
-            match opcode {
-                0x8 => return Err(std::io::ErrorKind::ConnectionAborted.into()),
-                0x9 => {
-                    // Client frames are masked; a zero key leaves the payload as is.
-                    let mut pong = vec![0x8A, 0x80 | payload.len().min(125) as u8, 0, 0, 0, 0];
-                    pong.extend(payload.iter().take(125));
-                    self.stream.write_all(&pong)?;
-                }
-                0xA => {}
-                0x0 => {
-                    self.partial.extend(payload);
-                    if fin {
-                        return Ok(Some((self.partial_op, std::mem::take(&mut self.partial))));
-                    }
-                }
-                _ if fin => return Ok(Some((opcode, payload))),
-                _ => {
-                    self.partial_op = opcode;
-                    self.partial = payload;
-                }
-            }
-            if !fin {
-                continue;
-            }
-            return Ok(None);
-        }
-    }
 }
 
 /// Newest preview of the run the client is waiting on.

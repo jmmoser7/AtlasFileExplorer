@@ -13,6 +13,7 @@ use atlas_shell::tokens::DockTokens;
 use eframe::egui::{self, Pos2, Rect};
 use slate_doc::scene::{DockStripNode, Node, NodeKind};
 use slate_doc::NodeId;
+mod tags;
 
 /// Wide enough that a canvas poster never wraps the way a window dock does.
 const CANVAS_STRIP_BUDGET: f32 = 16_384.0;
@@ -44,6 +45,10 @@ impl SlateApp {
         if self.doc().view.active_view != slate_doc::ViewKind::Board {
             return;
         }
+        if palette_id == "tool.tags" {
+            tags::drop(self, ctx);
+            return;
+        }
         let mut visible = dock::last_strip_tools(ctx, palette_id);
         let items = palette_strip_items(
             self,
@@ -59,7 +64,9 @@ impl SlateApp {
         let z = self.tab().cam.z.max(0.05);
         let w = (card.x / z).max(8.0);
         let h = (card.y / z).max(8.0);
-        let center = self.board_xf().s2w(self.canvas_rect.center());
+        let center = self
+            .board_xf()
+            .s2w(dock::take_canvas_drop_position(ctx).unwrap_or(self.canvas_rect.center()));
         let rect = slate_doc::scene::WorldRect::new(center.x - w * 0.5, center.y - h * 0.5, w, h);
         let node = self.doc_mut().scene.build_node(
             rect,
@@ -125,6 +132,10 @@ impl SlateApp {
             if !n.rect.contains(world.x, world.y) {
                 continue;
             }
+            if strip.palette_id == "tool.tags" {
+                return tags::hit(self, ctx, xf.rect_w2s(n.rect), strip, screen)
+                    .map(|action| (n.id, action));
+            }
             let items = palette_strip_items(self, &strip.palette_id, &strip.visible);
             let layout = measure_canvas_strip(ctx, &items, &tokens);
             let dest = xf.rect_w2s(n.rect);
@@ -146,6 +157,23 @@ impl SlateApp {
     ) -> (Rect, f32) {
         let dest = xf.rect_w2s(node.rect);
         let tokens = dock_tokens();
+        if strip.palette_id == "tool.tags" {
+            let tags = super::ui::tools::tags::recipe(self, &strip.visible);
+            let items = super::ui::tools::tags::palette_items(
+                &tags,
+                &super::ui::tools::tags::selected(self, ctx),
+            );
+            let layout = atlas_shell::selection_tools::measure_tag_palette(
+                ctx,
+                &items,
+                dock::flyout_icon_size(&tokens),
+            );
+            let placement = layout.fit(dest, &tokens);
+            return (
+                placement.card,
+                tokens.palette.group_radius * placement.scale,
+            );
+        }
         let items = palette_strip_items(self, &strip.palette_id, &strip.visible);
         if items.is_empty() {
             return (dest, tokens.popover_corner_radius);
@@ -224,6 +252,10 @@ pub(crate) fn paint_dock_strip(
 ) {
     let dest = xf.rect_w2s(node.rect);
     let tokens = dock_tokens();
+    if strip.palette_id == "tool.tags" {
+        tags::paint(ui, dest, strip, app, &tokens);
+        return;
+    }
     let items = palette_strip_items(app, &strip.palette_id, &strip.visible);
     let layout = measure_canvas_strip(ui.ctx(), &items, &tokens);
     let hovered = ui

@@ -146,6 +146,7 @@ fn join_skips_text() {
             rect,
             slate_doc::scene::NodeKind::Text(TextNode {
                 text: "keep".into(),
+                style: Default::default(),
                 family: Typeface::Sans,
                 size: 14.0,
                 color: slate_doc::scene::Rgba::BLACK,

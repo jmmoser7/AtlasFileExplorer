@@ -20,6 +20,11 @@ use super::super::board::BoardXf;
 use super::super::SlateApp;
 use super::AgentAwait;
 
+#[path = "crosstalk/ports.rs"]
+mod ports;
+#[path = "crosstalk/presence.rs"]
+mod presence;
+
 /// Autonomous relays wait for amendment VIII.1a
 /// (`docs/audit/amendments/2026-09-27-crosstalk-amendments.md`). Until the user
 /// ratifies it, every relay is a Step: the person presses Send beside the
@@ -379,80 +384,6 @@ impl SlateApp {
             projected.apply(command);
         }
         commands.extend(xt::anchor_fixes(&projected));
-    }
-
-    // ----- ports -----
-
-    /// A coding card's crosstalk port under `screen`.
-    pub(crate) fn crosstalk_port_at(
-        &self,
-        node: &Node,
-        screen: Pos2,
-        xf: &BoardXf,
-    ) -> Option<Side> {
-        if node.hidden || !xt::is_coding_card(node) || self.agent_in_choose_phase(node.id) {
-            return None;
-        }
-        let reach = canvas_scale::px(PORT_REACH, xf.z);
-        [Side::Top, Side::Bottom].into_iter().find(|side| {
-            let p = slate_doc::connector_anchor_on(node, *side, 0.5);
-            xf.w2s(Pos2::new(p[0], p[1])).distance(screen) <= reach
-        })
-    }
-
-    /// The topmost crosstalk port under `screen`.
-    pub(crate) fn crosstalk_port_under(
-        &self,
-        screen: Pos2,
-        xf: &BoardXf,
-    ) -> Option<(NodeId, Side)> {
-        self.doc()
-            .scene
-            .nodes
-            .iter()
-            .rev()
-            .find_map(|n| self.crosstalk_port_at(n, screen, xf).map(|s| (n.id, s)))
-    }
-
-    /// A wire drag that began on a crosstalk port.
-    pub(crate) fn is_crosstalk_port(&self, from: (NodeId, Side, f32)) -> bool {
-        matches!(from.1, Side::Top | Side::Bottom)
-            && (from.2 - 0.5).abs() < 1e-3
-            && self
-                .doc()
-                .scene
-                .node(from.0)
-                .is_some_and(xt::is_coding_card)
-    }
-
-    /// Where a crosstalk drag lands: a partner's port within the wire snap,
-    /// else the port facing the source when released on its body.
-    pub(crate) fn crosstalk_snap(
-        &self,
-        world: Pos2,
-        from: NodeId,
-        snap: f32,
-    ) -> Option<(NodeId, Side, f32)> {
-        let scene = &self.doc().scene;
-        let source = scene.node(from)?;
-        scene
-            .nodes
-            .iter()
-            .rev()
-            .filter(|n| n.id != from && !n.hidden && xt::is_coding_card(n))
-            .filter(|n| !self.agent_in_choose_phase(n.id))
-            .find_map(|n| {
-                let port = [Side::Top, Side::Bottom].into_iter().find(|side| {
-                    let p = slate_doc::connector_anchor_on(n, *side, 0.5);
-                    Pos2::new(p[0], p[1]).distance(world) <= snap
-                });
-                let body = n.rect.contains(world.x, world.y);
-                match (port, body) {
-                    (Some(side), _) => Some((n.id, side, 0.5)),
-                    (None, true) => Some((n.id, xt::facing(source.rect, n.rect).1, 0.5)),
-                    _ => None,
-                }
-            })
     }
 
     // ----- commands -----
@@ -1237,14 +1168,9 @@ impl SlateApp {
             offer.text.clone()
         };
         let depth = self.tab().journal.undo_depth();
-        let selection = self.board_sel.clone();
-        let editing = self.agents.composer_editing;
-        *self.agents.prompt_mut(tail) = text;
-        self.agents.crosstalk.relaying = Some(label.clone());
-        let sent = self.send_agent_prompt(tail);
-        self.agents.crosstalk.relaying = None;
-        self.board_sel = selection;
-        self.agents.composer_editing = editing;
+        let sent = self
+            .send_scoped_collaborator_relay(tail, &label, &text)
+            .ok();
         let Some(card) = sent else {
             self.tab_mut()
                 .journal
@@ -1584,7 +1510,7 @@ impl SlateApp {
             .iter()
             .filter(|n| !n.hidden && xt::is_coding_card(n))
         {
-            if self.agent_in_choose_phase(n.id) {
+            if self.agent_in_choose_phase(n.id) || self.portal_capture_owns_viewport(n.id) {
                 continue;
             }
             for side in [Side::Top, Side::Bottom] {
@@ -1996,16 +1922,11 @@ mod tests {
     ) {
         std::fs::create_dir_all(dir).unwrap();
         let state = AgentSession {
-            usage: None,
-            approval: None,
             conversation: conversation.into(),
-            artifacts: vec![],
-            status: AgentStatus::Idle,
             provider: provider.into(),
             turns,
-            updated_at: 0,
-            bundle: Default::default(),
             request: request.into(),
+            ..Default::default()
         };
         atlas_ai::agent::atomic_write_json(&dir.join("session.json"), &state).unwrap();
     }
@@ -2116,7 +2037,8 @@ mod tests {
         }
         h.frame();
     }
-
+    mod empty_board;
+    use empty_board::click_empty_board;
     fn escape(h: &mut Harness) {
         h.frame_with(|i| {
             i.events.push(egui::Event::Key {
@@ -2714,7 +2636,6 @@ mod tests {
         });
         assert_eq!(p.h.app.agents.dispatched[1].1.prompt, "I built the parser.");
     }
-
     #[test]
     fn reopening_a_board_pauses_every_crosstalk_and_resends_nothing() {
         let mut p = started("xt_reopen");
@@ -2727,6 +2648,8 @@ mod tests {
         p.h.app.close_tab(p.h.app.active_tab);
         p.h.app.agents.dispatched.clear();
         p.h.app.open_doc_at(path);
+        frames_until(&mut p.h, "reopened", |h| !h.app.tabs.is_empty());
+        assert!(!p.h.app.tab().read_only, "writable");
         for _ in 0..5 {
             p.h.frame();
         }
@@ -2740,7 +2663,6 @@ mod tests {
         assert!(command(&mut p.h, "portal.agent.crosstalk.resume", None));
         assert!(status(&p.h).starts_with("Turn 2 of 10"), "{}", status(&p.h));
     }
-
     #[test]
     fn start_refuses_a_reviewer_with_full_access() {
         let mut p = pair("xt_full_access");
@@ -2759,7 +2681,6 @@ mod tests {
         ));
         assert!(crosswires(&p.h)[0].started.is_none());
     }
-
     #[test]
     fn deleting_a_crosswire_ends_the_crosstalk_and_undo_restores_it() {
         let mut p = started("xt_delete");
@@ -2951,6 +2872,8 @@ mod tests {
         p.h.app.save_doc_to(tab, path.clone());
         p.h.app.close_tab(p.h.app.active_tab);
         p.h.app.open_doc_at(path);
+        frames_until(&mut p.h, "reopened", |h| !h.app.tabs.is_empty());
+        assert!(!p.h.app.tab().read_only, "writable");
         for _ in 0..5 {
             p.h.frame();
         }
@@ -2963,7 +2886,6 @@ mod tests {
             assert!(has_rect_at(&p.h, bead), "{wire:?} has its blister");
         }
     }
-
     #[test]
     fn a_blister_opens_the_capsule_and_click_away_or_esc_folds_it() {
         let mut p = linked("xt_capsule");
@@ -2987,8 +2909,7 @@ mod tests {
             (capsule.center() - mid).length() < 0.5,
             "the capsule expands in place at the mid-span"
         );
-        let canvas = p.h.app.canvas_rect;
-        click(&mut p.h, canvas.left_bottom() + egui::vec2(40.0, -40.0));
+        click_empty_board(&mut p.h);
         assert_eq!(p.h.app.agents.crosstalk.open, None, "a click away folds");
         assert_eq!(
             p.h.app.tab().journal.undo_depth(),
@@ -3007,8 +2928,7 @@ mod tests {
         p.h.frame_with(|i| i.events.push(egui::Event::PointerMoved(mid)));
         p.h.frame();
         p.h.app.board_sel = [p.codex].into_iter().collect();
-        let canvas = p.h.app.canvas_rect;
-        click(&mut p.h, canvas.left_bottom() + egui::vec2(40.0, -40.0));
+        click_empty_board(&mut p.h);
         assert!(
             p.h.app.board_sel.is_empty(),
             "the click on empty board clears the selection"
@@ -3035,8 +2955,7 @@ mod tests {
         }
         p.h.frame();
         p.h.app.board_sel = [p.codex].into_iter().collect();
-        let canvas = p.h.app.canvas_rect;
-        click(&mut p.h, canvas.left_bottom() + egui::vec2(40.0, -40.0));
+        click_empty_board(&mut p.h);
         assert!(
             p.h.app.board_sel.is_empty(),
             "the click on empty board clears the selection"

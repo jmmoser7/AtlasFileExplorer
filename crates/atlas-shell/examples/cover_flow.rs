@@ -80,6 +80,7 @@ impl Preview {
                 title: title.into(),
                 texture,
                 placeholder: false,
+                modified_at: None,
             }
         })
         .collect();
@@ -158,6 +159,25 @@ impl eframe::App for Preview {
 
 fn main() -> eframe::Result {
     let args: Vec<_> = std::env::args().collect();
+    if let Some(path) = args
+        .iter()
+        .position(|a| a == "--export-hat-poses")
+        .and_then(|i| args.get(i + 1))
+    {
+        let samples: Vec<_> = (-80..=80)
+            .map(|step| atlas_shell::home::preview::css_pose(78.0, step as f32 / 20.0))
+            .collect();
+        let document = serde_json::json!({
+            "schemaVersion": 1,
+            "source": "atlas-shell::home",
+            "cover": 78,
+            "motion": "Browser scroll/snap is approximate; native input and physics remain in atlas-shell::home.",
+            "samples": samples,
+        });
+        std::fs::write(path, serde_json::to_vec_pretty(&document).unwrap())
+            .expect("write shared Cover Flow preview poses");
+        return Ok(());
+    }
     let capture = args
         .iter()
         .position(|a| a == "--capture")

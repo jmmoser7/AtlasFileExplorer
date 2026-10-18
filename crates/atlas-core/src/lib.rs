@@ -8,6 +8,7 @@
 
 pub mod clipboard_image;
 pub mod cloud;
+pub mod crash_report;
 pub mod dirmeta;
 pub mod display;
 pub mod export;

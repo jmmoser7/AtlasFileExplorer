@@ -2,7 +2,7 @@
 //!
 //! Drawn with egui strokes so they stay crisp at any DPI and match the palette.
 
-use eframe::egui::{self, Color32, Pos2, Rect, Stroke};
+use eframe::egui::{self, Color32, Rect};
 
 /// Icon glyphs for toolbar buttons and hover submenus.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -13,8 +13,6 @@ pub enum ToolIcon {
     Video,
     /// Word, spreadsheets, CSV, and source files on the Media palette.
     TextDoc,
-    Select,
-    Pan,
     Frame,
     FrameLetter,
     FrameTabloid,
@@ -24,25 +22,16 @@ pub enum ToolIcon {
     Rect,
     Ellipse,
     Polygon,
-    Curve,
     Line,
     Arc,
     Polyline,
     Bezier,
     Pen,
     Text,
-    Ruler,
-    ChevronRight,
-    ChevronLeft,
-    Grid,
-    Snap,
-    Align,
     Brush,
     Eraser,
     Smooth,
-    Eyedropper,
     Sticky,
-    DirectSelect,
     Colors,
     /// Board Portals family (dock icon + flyout).
     Portals,
@@ -58,59 +47,6 @@ pub enum ToolIcon {
     Join,
     /// Split (cutters, then click — keep every piece).
     Split,
-    /// Order frames into the presentation.
-    Deck,
-}
-
-impl ToolIcon {
-    pub fn label(self) -> &'static str {
-        match self {
-            ToolIcon::Media => "Media",
-            ToolIcon::Image => "Image",
-            ToolIcon::Model => "3D",
-            ToolIcon::Video => "Video",
-            ToolIcon::TextDoc => "Text",
-            ToolIcon::Select => "Select",
-            ToolIcon::Pan => "Pan",
-            ToolIcon::Frame => "Frame",
-            ToolIcon::FrameLetter => "8.5 × 11",
-            ToolIcon::FrameTabloid => "17 × 11",
-            ToolIcon::FrameWide => "16:9",
-            ToolIcon::FrameCustom => "Custom",
-            ToolIcon::Shapes => "Shapes",
-            ToolIcon::Rect => "Rectangle",
-            ToolIcon::Ellipse => "Ellipse",
-            ToolIcon::Polygon => "Polygon",
-            ToolIcon::Curve => "Curve",
-            ToolIcon::Line => "Line",
-            ToolIcon::Arc => "Arc",
-            ToolIcon::Polyline => "Polyline",
-            ToolIcon::Bezier => "Bezier",
-            ToolIcon::Pen => "Pen",
-            ToolIcon::Text => "Text",
-            ToolIcon::Ruler => "Measure",
-            ToolIcon::ChevronRight => "Expand",
-            ToolIcon::ChevronLeft => "Collapse",
-            ToolIcon::Grid => "Grid",
-            ToolIcon::Snap => "Snap to grid",
-            ToolIcon::Align => "Align",
-            ToolIcon::Brush => "Brush",
-            ToolIcon::Eraser => "Eraser",
-            ToolIcon::Smooth => "Smooth",
-            ToolIcon::Eyedropper => "Eyedropper",
-            ToolIcon::Sticky => "Sticky note",
-            ToolIcon::DirectSelect => "Direct select",
-            ToolIcon::Colors => "Colors",
-            ToolIcon::Portals => "Portals",
-            ToolIcon::Agent => "Agent portal",
-            ToolIcon::WebPortal => "Web portal",
-            ToolIcon::AtlasLens => "File Atlas",
-            ToolIcon::Trim => "Trim",
-            ToolIcon::Join => "Join",
-            ToolIcon::Split => "Split",
-            ToolIcon::Deck => "Deck",
-        }
-    }
 }
 
 /// Paint through the shared shell icon catalog.
@@ -122,8 +58,6 @@ pub fn paint_tool_icon(painter: &egui::Painter, r: Rect, icon: ToolIcon, color: 
         ToolIcon::Model => Icon::Model,
         ToolIcon::Video => Icon::Video,
         ToolIcon::TextDoc => Icon::TextDoc,
-        ToolIcon::Select => Icon::Select,
-        ToolIcon::Pan => Icon::Pan,
         ToolIcon::Frame => Icon::Frame,
         ToolIcon::FrameLetter => Icon::FrameLetter,
         ToolIcon::FrameTabloid => Icon::FrameTabloid,
@@ -133,25 +67,16 @@ pub fn paint_tool_icon(painter: &egui::Painter, r: Rect, icon: ToolIcon, color: 
         ToolIcon::Rect => Icon::Rect,
         ToolIcon::Ellipse => Icon::Ellipse,
         ToolIcon::Polygon => Icon::Polygon,
-        ToolIcon::Curve => Icon::Pen,
         ToolIcon::Line => Icon::Line,
         ToolIcon::Arc => Icon::Arc,
         ToolIcon::Polyline => Icon::Polyline,
         ToolIcon::Bezier => Icon::Bezier,
         ToolIcon::Pen => Icon::Pen,
         ToolIcon::Text => Icon::Text,
-        ToolIcon::Ruler => Icon::Ruler,
-        ToolIcon::ChevronRight => Icon::ChevronRight,
-        ToolIcon::ChevronLeft => Icon::ChevronLeft,
-        ToolIcon::Grid => Icon::Grid,
-        ToolIcon::Snap => Icon::Snap,
-        ToolIcon::Align => Icon::Align,
         ToolIcon::Brush => Icon::Brush,
         ToolIcon::Eraser => Icon::Eraser,
         ToolIcon::Smooth => Icon::Smooth,
-        ToolIcon::Eyedropper => Icon::Eyedropper,
         ToolIcon::Sticky => Icon::Sticky,
-        ToolIcon::DirectSelect => Icon::DirectSelect,
         ToolIcon::Colors => Icon::Colors,
         ToolIcon::Portals => Icon::Portals,
         ToolIcon::Agent => Icon::Agent,
@@ -160,20 +85,6 @@ pub fn paint_tool_icon(painter: &egui::Painter, r: Rect, icon: ToolIcon, color: 
         ToolIcon::Trim => Icon::Trim,
         ToolIcon::Join => Icon::Join,
         ToolIcon::Split => Icon::Split,
-        ToolIcon::Deck => Icon::Deck,
     };
     icons::paint(painter, r, icon, color);
-}
-
-/// Tiny bottom-right triangle marking a toolbar button that owns a flyout
-/// submenu (Adobe/Figma convention).
-pub fn paint_flyout_corner(painter: &egui::Painter, r: Rect, color: Color32) {
-    let a = Pos2::new(r.max.x - 3.5, r.max.y - 8.0);
-    let b = Pos2::new(r.max.x - 3.5, r.max.y - 3.5);
-    let c = Pos2::new(r.max.x - 8.0, r.max.y - 3.5);
-    painter.add(egui::Shape::convex_polygon(
-        vec![a, b, c],
-        color,
-        Stroke::NONE,
-    ));
 }

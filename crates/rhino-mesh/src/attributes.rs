@@ -1,4 +1,4 @@
-//! ON_3dmObjectAttributes decoding — just enough to recover a display color.
+//! ON_3dmObjectAttributes decoding — display and standard material assignment.
 //!
 //! Rhino 5+ archives (openNURBS version >= 200712190, which covers every
 //! archive version >= 50 file) serialize attributes with
@@ -8,17 +8,18 @@
 //! non-default settings, terminated by item id 0. Item ids appear in
 //! increasing order.
 //!
-//! We walk the stream until we have item 6 (object color, a 4-byte COLORREF
-//! with red in the low byte) and item 13 (color source). Items we cannot
-//! skip — notably item 5, the rendering attributes, which contain nested
-//! variable-size structures — end the walk early; color extraction is
-//! best-effort by design.
+//! We walk through item 16 (material source). The rendering-attributes item
+//! is an anonymous chunk, so it can be safely skipped by its length.
 
 use crate::chunk::Cursor;
 
 /// Result of scanning an attributes chunk.
-#[derive(Default)]
+#[derive(Clone)]
 pub struct ObjectAttributes {
+    pub layer_index: i32,
+    pub material_index: i32,
+    /// 0 = from layer, 1 = from object, 3 = from parent.
+    pub material_source: u8,
     /// Object color as (r, g, b) when item 6 was present.
     pub color: Option<[u8; 3]>,
     /// `ON::object_color_source`: 0 = from layer (default), 1 = from object,
@@ -26,10 +27,23 @@ pub struct ObjectAttributes {
     pub color_source: u8,
 }
 
+impl Default for ObjectAttributes {
+    fn default() -> Self {
+        Self {
+            layer_index: -1,
+            material_index: -1,
+            material_source: 0,
+            color: None,
+            color_source: 0,
+        }
+    }
+}
+
 impl ObjectAttributes {
     /// The display color, but only when the attributes say the object color
     /// is authoritative. Layer / material / parent colors would need their
     /// tables resolved, which this crate does not do.
+    #[cfg(test)]
     pub fn display_color(&self) -> Option<[u8; 3]> {
         if self.color_source == 1 {
             self.color
@@ -58,16 +72,21 @@ pub fn parse_attributes(data: &[u8]) -> ObjectAttributes {
     if major != 2 {
         return attrs;
     }
-    if cur.skip(16).is_none() || cur.skip(4).is_none() {
-        // object uuid + layer index
+    if cur.skip(16).is_none() {
         return attrs;
     }
+    let Some(layer_index) = cur.i32() else {
+        return attrs;
+    };
+    attrs.layer_index = layer_index;
 
     while let Some(item) = cur.u8() {
         let ok = match item {
             0 => break,                          // end of non-default items
             1 | 2 => skip_wide_string(&mut cur), // name, url
-            3 | 4 => cur.skip(4),                // linetype index, material index
+            3 => cur.skip(4),                    // linetype index
+            4 => cur.i32().map(|index| attrs.material_index = index),
+            5 => cur.skip_anonymous_chunk(), // ON_ObjectRenderingAttributes::Read
             6 => {
                 // object color: 4 bytes, red in the low byte
                 // (ON_BinaryArchive::ReadColor, opennurbs_archive.cpp)
@@ -92,12 +111,12 @@ pub fn parse_attributes(data: &[u8]) -> ObjectAttributes {
                 }
                 None => None,
             },
-            // Item 5 (rendering attributes) and items > 13 have nested or
-            // version-dependent layouts we do not need — we already have the
-            // color info once id 13 has passed (ids are increasing).
+            14 | 15 => cur.skip(1), // plot color/weight source
+            16 => cur.u8().map(|source| attrs.material_source = source),
+            // Later item layouts are not needed for base appearance.
             _ => None,
         };
-        if ok.is_none() || item >= 13 {
+        if ok.is_none() || item >= 16 {
             break;
         }
     }

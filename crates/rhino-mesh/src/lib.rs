@@ -15,9 +15,9 @@
 //!   instance references (blocks) are ignored — instance transforms are not
 //!   applied in v1, so block contents are only seen via their definition
 //!   geometry if it also appears in the object table.
-//! * Colors: only the per-object attribute color is resolved (color source
-//!   "from object"). Layer and material colors would require decoding those
-//!   tables and are not attempted.
+//! * Standard layer/object display colors and assigned material diffuse,
+//!   opacity, emission and gloss are resolved. Renderer plug-in user data,
+//!   textures and full Rhino PBR extensions are not interpreted.
 //! * A parse failure inside one object skips that object; the rest of the
 //!   file is still harvested. Only unreadable top-level structure yields
 //!   [`ReadError::Malformed`].
@@ -25,18 +25,17 @@
 //! Coordinates are passed through untransformed: Rhino models are Z-up and
 //! unit metadata (the settings table) is ignored.
 
+mod appearance;
 mod attributes;
 mod brep;
 mod chunk;
 mod mesh;
+mod objects;
 
-use chunk::{
-    read_uuid, Cursor, TCODE_ENDOFFILE, TCODE_ENDOFTABLE, TCODE_OBJECT_RECORD,
-    TCODE_OBJECT_RECORD_ATTRIBUTES, TCODE_OBJECT_RECORD_END, TCODE_OBJECT_RECORD_TYPE,
-    TCODE_OBJECT_TABLE, TCODE_OPENNURBS_CLASS, TCODE_OPENNURBS_CLASS_DATA,
-    TCODE_OPENNURBS_CLASS_END, TCODE_OPENNURBS_CLASS_UUID,
-};
+pub use appearance::Material;
+use chunk::{Cursor, TCODE_ENDOFFILE, TCODE_OBJECT_TABLE};
 use mesh::RawMesh;
+use std::collections::BTreeMap;
 use std::path::Path;
 
 /// Class ids from `ON_OBJECT_IMPLEMENT` in the openNURBS sources.
@@ -57,13 +56,16 @@ pub struct MeshPart {
     pub normals: Vec<[f32; 3]>,
     /// Triangle list, `len % 3 == 0`, all indices `< positions.len()`.
     pub indices: Vec<u32>,
-    /// Display color if cheaply recoverable (object attribute color), else
-    /// `None`.
+    /// Resolved object/layer/material display color (sRGB), if available.
     pub color: Option<[u8; 3]>,
+    pub material: Option<Material>,
+    pub texcoords: Vec<[f32; 2]>,
 }
 
 pub struct Model {
     pub parts: Vec<MeshPart>,
+    /// Deterministic counts of geometry that could not be extracted.
+    pub notes: Vec<String>,
     /// Axis-aligned bounds over all parts (min, max).
     pub bounds_min: [f32; 3],
     pub bounds_max: [f32; 3],
@@ -140,7 +142,9 @@ pub fn read_render_meshes_from(bytes: &[u8]) -> Result<Model, ReadError> {
         return Err(ReadError::UnsupportedVersion(version));
     }
 
-    let mut raw_parts: Vec<(RawMesh, Option<[u8; 3]>)> = Vec::new();
+    let mut raw_parts: Vec<(RawMesh, attributes::ObjectAttributes)> = Vec::new();
+    let mut skipped = BTreeMap::new();
+    let mut tables = appearance::Tables::default();
     let mut cur = Cursor::new(&bytes[32..]);
     let mut saw_object_table = false;
 
@@ -158,7 +162,10 @@ pub fn read_render_meshes_from(bytes: &[u8]) -> Result<Model, ReadError> {
             TCODE_ENDOFFILE => break,
             TCODE_OBJECT_TABLE => {
                 saw_object_table = true;
-                walk_object_table(chunk.content, &mut raw_parts);
+                objects::read_table(chunk.content, &mut raw_parts, &mut skipped);
+            }
+            chunk::TCODE_MATERIAL_TABLE | chunk::TCODE_LAYER_TABLE => {
+                tables.read(chunk.typecode, chunk.content)
             }
             0 => return Err(ReadError::Malformed("zero typecode at top level".into())),
             _ => {} // properties, settings, layer table, bitmaps, ...
@@ -170,7 +177,12 @@ pub fn read_render_meshes_from(bytes: &[u8]) -> Result<Model, ReadError> {
 
     let parts: Vec<MeshPart> = raw_parts
         .into_iter()
-        .filter_map(|(raw, color)| build_part(raw, color))
+        .filter_map(|(raw, attrs)| {
+            let (color, material) = tables.resolve(&attrs);
+            let mut part = build_part(raw, color)?;
+            part.material = material;
+            Some(part)
+        })
         .collect();
     if parts.iter().all(|p| p.indices.is_empty()) {
         return Err(ReadError::NoMeshes);
@@ -179,92 +191,13 @@ pub fn read_render_meshes_from(bytes: &[u8]) -> Result<Model, ReadError> {
     let (bounds_min, bounds_max) = bounds(&parts);
     Ok(Model {
         parts,
+        notes: skipped
+            .into_iter()
+            .map(|(reason, count)| format!("{count} Rhino object(s) skipped: {reason}."))
+            .collect(),
         bounds_min,
         bounds_max,
     })
-}
-
-/// Walk the object table: a sequence of TCODE_OBJECT_RECORD chunks closed by
-/// TCODE_ENDOFTABLE (record grammar documented at TCODE_OBJECT_RECORD in
-/// opennurbs_3dm.h and ON_BinaryArchive::Read3dmObject in
-/// opennurbs_archive.cpp). Any record that fails to parse is skipped.
-fn walk_object_table(table: &[u8], out: &mut Vec<(RawMesh, Option<[u8; 3]>)>) {
-    let mut cur = Cursor::new(table);
-    while !cur.is_empty() {
-        let Some(record) = cur.chunk() else { return };
-        match record.typecode {
-            TCODE_ENDOFTABLE => return,
-            TCODE_OBJECT_RECORD => read_object_record(record.content, out),
-            _ => {} // unknown record kinds: skip by length
-        }
-    }
-}
-
-/// `ON::object_type` bits for the record-type filter (opennurbs_defines.h).
-const OBJECT_TYPE_BREP: i64 = 0x10;
-const OBJECT_TYPE_MESH: i64 = 0x20;
-const OBJECT_TYPE_EXTRUSION: i64 = 0x4000_0000;
-
-/// One object record: TCODE_OBJECT_RECORD_TYPE (short), the
-/// TCODE_OPENNURBS_CLASS object, optional attribute/history chunks, closed by
-/// TCODE_OBJECT_RECORD_END.
-fn read_object_record(record: &[u8], out: &mut Vec<(RawMesh, Option<[u8; 3]>)>) {
-    let mut cur = Cursor::new(record);
-    let mut meshes: Vec<RawMesh> = Vec::new();
-    let mut color = None;
-    while !cur.is_empty() {
-        let Some(chunk) = cur.chunk() else { break };
-        match chunk.typecode {
-            TCODE_OBJECT_RECORD_TYPE => {
-                // Same early-out openNURBS uses (Read3dmObject): a non-zero
-                // type value that has none of the bits we extract means the
-                // record can be skipped without touching its payload. Zero
-                // means "unknown", so keep reading.
-                let wanted = OBJECT_TYPE_MESH | OBJECT_TYPE_BREP | OBJECT_TYPE_EXTRUSION;
-                if chunk.is_short() && chunk.value != 0 && chunk.value & wanted == 0 {
-                    return;
-                }
-            }
-            TCODE_OPENNURBS_CLASS => meshes = read_object_class(chunk.content),
-            TCODE_OBJECT_RECORD_ATTRIBUTES => {
-                color = attributes::parse_attributes(chunk.content).display_color();
-            }
-            TCODE_OBJECT_RECORD_END => break,
-            _ => {} // history, attribute user data
-        }
-    }
-    out.extend(meshes.into_iter().map(|m| (m, color)));
-}
-
-/// A serialized ON_Object: TCODE_OPENNURBS_CLASS_UUID identifies the class,
-/// TCODE_OPENNURBS_CLASS_DATA holds `Object::Write` output, optional user
-/// data chunks follow, and TCODE_OPENNURBS_CLASS_END closes the object
-/// (grammar at TCODE_OPENNURBS_CLASS in opennurbs_3dm.h).
-fn read_object_class(class: &[u8]) -> Vec<RawMesh> {
-    let mut cur = Cursor::new(class);
-    let mut class_uuid = None;
-    while !cur.is_empty() {
-        let Some(chunk) = cur.chunk() else { break };
-        match chunk.typecode {
-            TCODE_OPENNURBS_CLASS_UUID => {
-                let mut u = Cursor::new(chunk.content);
-                class_uuid = read_uuid(&mut u);
-            }
-            TCODE_OPENNURBS_CLASS_DATA => {
-                return match class_uuid.as_deref() {
-                    Some(UUID_ON_MESH) => mesh::parse_mesh(chunk.content).into_iter().collect(),
-                    Some(UUID_ON_BREP | UUID_TL_BREP) => brep::parse_brep_meshes(chunk.content),
-                    Some(UUID_ON_EXTRUSION) => brep::parse_extrusion_meshes(chunk.content),
-                    // Everything else (curves, points, annotations, lights,
-                    // SubD, instance definitions/references, ...) is ignored.
-                    _ => Vec::new(),
-                };
-            }
-            TCODE_OPENNURBS_CLASS_END => break,
-            _ => {} // user data chunks
-        }
-    }
-    Vec::new()
 }
 
 /// Turn a raw ON_Mesh into a triangulated `MeshPart`. Quads split along the
@@ -303,6 +236,8 @@ fn build_part(raw: RawMesh, color: Option<[u8; 3]>) -> Option<MeshPart> {
         normals,
         indices,
         color,
+        material: None,
+        texcoords: raw.texcoords,
     })
 }
 
@@ -411,6 +346,7 @@ mod tests {
                 [0.0, 1.0, 0.0],
             ],
             normals: None,
+            texcoords: Vec::new(),
             faces: vec![[0, 1, 2, 3]],
         };
         let part = build_part(raw, None).expect("part");
@@ -426,6 +362,7 @@ mod tests {
         let raw = RawMesh {
             positions: vec![[0.0; 3], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
             normals: None,
+            texcoords: Vec::new(),
             faces: vec![[0, 0, 1, 1], [0, 1, 2, 2]],
         };
         let part = build_part(raw, None).expect("part");

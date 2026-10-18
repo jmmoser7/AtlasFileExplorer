@@ -39,6 +39,7 @@ impl Harness {
         std::fs::create_dir_all(&base).unwrap();
         let ctx = egui::Context::default();
         let mut app = SlateApp::with_ctx(&ctx, None);
+        app.agents.hold_catalog_probes_for_test();
         // Tool kits come from the built-in set only: a `.slatekit` file sitting
         // in the developer's own kit folder must not change a test result.
         app.kits = kits::KitState::builtin_only();

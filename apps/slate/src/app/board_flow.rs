@@ -1,11 +1,13 @@
 //! Dataflow on image generators and text blocks, after Flora and xFigura:
-//! typed input ports down the left edge, one output port whose click (or a
-//! wire dropped on empty board) offers Text, Image or Agent, and the text block card
-//! that runs a local language model once per press.
+//! typed left-edge inputs and an output whose click or dropped wire offers
+//! Text, Image or Agent. Text block cards run a local model once per press.
 //!
-//! Port positions come from `WireHost::ports`, which reads the table in
-//! `slate_doc::agent_inputs`. Runs go through the generator queue. See
+//! `WireHost::ports` reads `slate_doc::agent_inputs`; runs use the generator queue. See
 //! `docs/keymap/contracts/portal-agent-link.md` (Flow ports, 23 September 2026).
+
+mod ports;
+mod text_note;
+pub(crate) use ports::PORT_RADIUS;
 
 use std::collections::HashMap;
 
@@ -20,10 +22,17 @@ use super::board::{BoardDrag, BoardXf};
 use super::board_agent::{bind_program, paint_overlay_pill, program_card_size, InputRole};
 use super::SlateApp;
 
+mod image_editor;
+mod result_actions;
+mod state;
+pub(crate) use state::FlowUi;
+use state::{AgentDraft, Engines, FlowMenu};
+mod image_workflow;
+mod model_defaults;
+mod spawn_flow;
+
 /// Designed width of a picture an agent generates.
 const AGENT_PICTURE_W: f32 = 480.0;
-/// Designed port radius; it scales with the board like the card does.
-pub(crate) const PORT_RADIUS: f32 = 5.0;
 /// Designed size of port labels and the text block's type.
 const PORT_LABEL_PX: f32 = 11.0;
 const BLOCK_TEXT_PX: f32 = 14.0;
@@ -38,40 +47,9 @@ const NOTE_MAX_H: f32 = 1200.0;
 /// Providers a text block may run on: local, ChatGPT sign-in, OpenAI API.
 const TEXT_ENGINES: [&str; 3] = ["ollama", "codex-text", "openai-text"];
 
-/// Where `choice` sits in a model list: the exact entry, else that provider's
-/// default, else the first (local) entry.
-fn model_index(models: &[(String, String, String)], choice: Option<&(String, String)>) -> usize {
-    let Some((provider, model)) = choice else {
-        return 0;
-    };
-    models
-        .iter()
-        .position(|m| &m.0 == provider && &m.1 == model)
-        .or_else(|| {
-            models
-                .iter()
-                .position(|m| &m.0 == provider && m.1.is_empty())
-        })
-        .or_else(|| models.iter().position(|m| &m.0 == provider))
-        .unwrap_or(0)
-}
-
-/// The key field shows one bullet per key character: the bullets left are
-/// the characters kept, anything else was typed or pasted.
-fn absorb_key(draft: &mut AgentDraft, shown: &str) {
-    let kept = shown.chars().filter(|c| *c == '•').count();
-    let typed: String = shown.chars().filter(|c| *c != '•').collect();
-    let key = draft.key.get_or_insert_with(String::new);
-    *key = key.chars().take(kept).chain(typed.chars()).collect();
-}
-
-/// A seed to lock, from a fresh request id.
-fn fresh_seed() -> u64 {
-    let id = atlas_ai::agent::request_id();
-    id.bytes().fold(0xcbf29ce484222325u64, |h, b| {
-        (h ^ u64::from(b)).wrapping_mul(0x100000001b3)
-    }) >> 1
-}
+mod editor_focus;
+mod editor_helpers;
+use editor_helpers::{absorb_key, fresh_seed, model_index};
 
 /// The instruction a text block spawned from a picture starts with.
 const DESCRIBE_STYLE: &str = "Describe the visual style of this image as a comma-separated image prompt of 15 to 30 words: medium, palette, lighting, texture and mood. Leave out the subject.";
@@ -80,12 +58,12 @@ const DESCRIBE_STYLE: &str = "Describe the visual style of this image as a comma
 pub(crate) enum SpawnKind {
     Text,
     Image,
+    Artifact,
 }
 
 /// One choice of the output-port and wire-drop menu ([`SPAWN_CHOICES`]).
-/// Text and Image are what an agent can make from media, and the agent
-/// editor's mode switch reads those as [`MODALITIES`]; 3D and video join them
-/// when an engine makes them. Agent makes no media: it opens a chat train.
+/// The editor mode switch reads Text and Image as [`MODALITIES`]; 3D and video
+/// join when supported. Agent opens a chat train without making media.
 pub(crate) struct Modality {
     /// `None` for Agent.
     pub kind: Option<SpawnKind>,
@@ -115,8 +93,7 @@ const IMAGE_CHOICE: Modality = Modality {
     glyph: None,
 };
 
-/// An agent portal in chat train presentation whose first input is the
-/// source (user, 28 September 2026).
+/// A chat-train portal whose first input is the source (user, 28 September 2026).
 pub(crate) const AGENT_CHOICE: Modality = Modality {
     kind: None,
     id: "agent",
@@ -128,15 +105,27 @@ pub(crate) const AGENT_CHOICE: Modality = Modality {
 
 pub(crate) const MODALITIES: &[Modality] = &[TEXT_CHOICE, IMAGE_CHOICE];
 
-pub(crate) const SPAWN_CHOICES: &[Modality] = &[TEXT_CHOICE, IMAGE_CHOICE, AGENT_CHOICE];
+const ARTIFACT_CHOICE: Modality = Modality {
+    kind: Some(SpawnKind::Artifact),
+    id: "artifact",
+    label: "Artifact",
+    menu: "Artifact · interactive dashboard",
+    icon: atlas_shell::menu::MenuIcon::None,
+    glyph: Some(atlas_shell::icons::Icon::WebPortal),
+};
+pub(crate) const SPAWN_CHOICES: &[Modality] =
+    &[TEXT_CHOICE, IMAGE_CHOICE, AGENT_CHOICE, ARTIFACT_CHOICE];
 
 impl SpawnKind {
     fn modality(self) -> &'static Modality {
-        MODALITIES.iter().find(|m| m.kind == Some(self)).unwrap()
+        SPAWN_CHOICES.iter().find(|m| m.kind == Some(self)).unwrap()
     }
 
     fn from_id(id: &str) -> Option<Self> {
-        MODALITIES.iter().find(|m| m.id == id).and_then(|m| m.kind)
+        SPAWN_CHOICES
+            .iter()
+            .find(|m| m.id == id)
+            .and_then(|m| m.kind)
     }
 
     fn index(self) -> usize {
@@ -144,114 +133,6 @@ impl SpawnKind {
             .iter()
             .position(|m| m.kind == Some(self))
             .unwrap()
-    }
-}
-
-struct FlowMenu {
-    source: NodeId,
-    /// World point the menu opened at: the port for a click, the release
-    /// point for a dropped wire.
-    at: Pos2,
-    dropped: bool,
-    /// The grip a dropped wire left from; the new wire keeps it.
-    grip: Option<(Side, f32)>,
-    armed: bool,
-}
-
-/// The agent editor's unsent choices for one source. Submitting journals them
-/// on the new node; until then they are view state.
-struct AgentDraft {
-    image: bool,
-    prompt: String,
-    /// (provider, model) picked in this editor; `None` follows the default.
-    choice: Option<(String, String)>,
-    model_open: bool,
-    count: u8,
-    aspect: usize,
-    aspect_open: bool,
-    seed: Option<u64>,
-    live: bool,
-    take_focus: bool,
-    /// An OpenAI key being pasted, shown masked.
-    key: Option<String>,
-}
-
-impl AgentDraft {
-    fn new() -> Self {
-        Self {
-            image: true,
-            prompt: String::new(),
-            choice: None,
-            model_open: false,
-            count: 1,
-            aspect: 0,
-            aspect_open: false,
-            seed: None,
-            live: false,
-            take_focus: true,
-            key: None,
-        }
-    }
-}
-
-/// Which remote engines this machine can reach. Read once, never per frame;
-/// saving a key refreshes it.
-#[derive(Clone, Copy)]
-struct Engines {
-    codex: bool,
-    openai: bool,
-}
-
-impl Engines {
-    fn probe() -> Self {
-        Self {
-            codex: atlas_ai::runtime::codex_executable().is_some(),
-            openai: atlas_core::secrets::health(atlas_ai::runtime::OPENAI_KEY_SLOT)
-                == atlas_core::secrets::SecretHealth::Ok,
-        }
-    }
-}
-
-/// Derived view state; nothing here is journaled.
-#[derive(Default)]
-pub(crate) struct FlowUi {
-    menu: Option<FlowMenu>,
-    press: Option<(NodeId, Pos2)>,
-    drafts: HashMap<NodeId, AgentDraft>,
-    engines: Option<Engines>,
-    /// The prompt capsule of this frame is expanded for editing.
-    capsule: Option<NodeId>,
-    /// A generator's own prompt field has the caret.
-    typing: Option<NodeId>,
-    /// A freshly spawned agent's prompt takes the caret on its first paint.
-    focus_prompt: Option<NodeId>,
-    /// Pictures being cover-flowed: their labels, dock and ports stay hidden
-    /// until the picture is clicked again.
-    hud_hidden: std::collections::HashSet<NodeId>,
-    /// When the shown run of a frame started: (request, instant).
-    started: HashMap<NodeId, (String, std::time::Instant)>,
-    /// The instruction each text block last had in the document, so an undo
-    /// or a reload replaces the draft instead of being overwritten by it.
-    synced: HashMap<NodeId, String>,
-    /// Reply a text block was last fitted to.
-    fitted: HashMap<NodeId, String>,
-}
-
-impl FlowUi {
-    pub(crate) fn typing(&self, id: NodeId) -> bool {
-        self.typing == Some(id)
-    }
-
-    pub(crate) fn hud_hidden(&self, id: NodeId) -> bool {
-        self.hud_hidden.contains(&id)
-    }
-
-    pub(crate) fn set_hud_hidden(&mut self, id: NodeId, hidden: bool) {
-        if hidden {
-            self.hud_hidden.insert(id);
-        } else {
-            self.hud_hidden.remove(&id);
-        }
     }
 }
 
@@ -300,12 +181,26 @@ impl SlateApp {
                 240.0,
                 Some(&mut menu.armed),
                 |ui| {
-                    atlas_shell::menu::heading(ui, "Make with an agent", dark);
+                    let upstream = self.flow_is_upstream(menu.source, menu.grip);
+                    atlas_shell::menu::heading(
+                        ui,
+                        if upstream {
+                            "Add an input"
+                        } else {
+                            "Make with an agent"
+                        },
+                        dark,
+                    );
                     let mut chosen = None;
-                    for m in SPAWN_CHOICES {
+                    let choices = if upstream { MODALITIES } else { SPAWN_CHOICES };
+                    for m in choices {
+                        let label = upstream.then(|| self.flow_input_label(menu.source, m.label));
                         let row = atlas_shell::menu::Row {
                             glyph: m.glyph,
-                            ..atlas_shell::menu::Row::new(m.icon, m.menu)
+                            ..atlas_shell::menu::Row::new(
+                                m.icon,
+                                label.as_deref().unwrap_or(m.menu),
+                            )
                         };
                         if atlas_shell::menu::row(ui, row, dark).clicked() {
                             chosen = Some(m.id);
@@ -356,12 +251,14 @@ impl SlateApp {
         captured
     }
 
-    /// A wire from media an agent can start from, released away from every
-    /// node, spawns an agent there: the modality menu opens at the release
-    /// point. A generator or note offers it from its output only, since its
-    /// left edge holds inputs. False when `from` offers no agent.
+    /// A media wire released on empty board opens the modality menu there.
+    /// Generators and notes offer it from their output; left edges hold inputs.
+    /// False when `from` offers no agent.
     pub(crate) fn flow_wire_released(&mut self, from: (NodeId, Side, f32), cursor: Pos2) -> bool {
-        let offers = if agent_inputs::is_flow_node(&self.doc().scene, from.0) {
+        let upstream = self.flow_is_upstream(from.0, Some((from.1, from.2)));
+        let offers = if upstream {
+            true
+        } else if agent_inputs::is_flow_node(&self.doc().scene, from.0) {
             self.is_flow_output(from)
         } else {
             self.is_agent_media(from.0)
@@ -412,193 +309,25 @@ impl SlateApp {
             .is_some()
     }
 
-    /// `portal.agent.spawn`: a text block or generator wired from the source,
-    /// as one journal step. The output-port menu sends only `source`, `kind`
-    /// and `at`; the agent editor also sends the prompt and settings, and the
-    /// new node runs at once.
-    pub(crate) fn spawn_flow_node(&mut self, detail: Option<&str>) -> bool {
-        #[derive(serde::Deserialize)]
-        struct Spawn {
-            source: u64,
-            kind: String,
-            #[serde(default)]
-            at: Option<[f32; 2]>,
-            #[serde(default)]
-            prompt: String,
-            /// Engine for an image agent (`comfy`, `codex-image`, `openai-image`).
-            #[serde(default)]
-            provider: Option<String>,
-            #[serde(default)]
-            model: Option<String>,
-            #[serde(default)]
-            image: slate_doc::scene::ImageSettings,
-            #[serde(default)]
-            live: bool,
-            /// The source grip a dropped wire left from.
-            #[serde(default)]
-            from: Option<(Side, f32)>,
-        }
-        let Some(spawn) = detail.and_then(|d| serde_json::from_str::<Spawn>(d).ok()) else {
-            return false;
-        };
-        let source = NodeId(spawn.source);
-        if !self.is_agent_media(source) {
-            return false;
-        }
-        if spawn.kind == AGENT_CHOICE.id {
-            return self.spawn_agent_train(source, spawn.at, spawn.from);
-        }
-        let Some(kind) = SpawnKind::from_id(&spawn.kind) else {
-            return false;
-        };
-        let doc = self.doc();
-        let Some(carries) = agent_inputs::wire_kind(&doc.scene, source, &|id| {
-            doc.item(id).map(|item| item.path.as_path())
-        }) else {
-            return false;
-        };
-        // Without an explicit choice the new frame takes the model the person
-        // last chose for this kind of agent.
-        let (provider, model) = match spawn.provider.clone() {
-            Some(provider) => (Some(provider), spawn.model.clone()),
-            None => match self.default_model(kind == SpawnKind::Image) {
-                Some((provider, model)) => (Some(provider), Some(model)),
-                None => (None, None),
-            },
-        };
-        let program = match kind {
-            SpawnKind::Image => atlas_ai::agent::provider_by_id(
-                provider
-                    .as_deref()
-                    .filter(|p| atlas_ai::agent::local_image_engine(p))
-                    .unwrap_or("comfy"),
-            ),
-            SpawnKind::Text => atlas_ai::agent::AgentProvider {
-                view: PortalView::Text,
-                display_name: "Text".into(),
-                ..atlas_ai::agent::provider_by_id(
-                    provider
-                        .as_deref()
-                        .filter(|p| TEXT_ENGINES.contains(p))
-                        .unwrap_or("ollama"),
-                )
-            },
-        };
-        // The agent makes media: a picture shaped like the one it will make,
-        // or a sticky it writes into.
-        let size = match kind {
-            SpawnKind::Image => {
-                let source_ratio = self
-                    .doc()
-                    .scene
-                    .node(source)
-                    .map(|n| n.rect.w / n.rect.h.max(1.0))
-                    .filter(|r| r.is_finite() && *r > 0.0);
-                let ratio = spawn
-                    .image
-                    .aspect
-                    .ratio()
-                    .or(source_ratio)
-                    .unwrap_or(1.0)
-                    .clamp(0.25, 4.0);
-                egui::vec2(AGENT_PICTURE_W, AGENT_PICTURE_W / ratio)
-            }
-            SpawnKind::Text => program_card_size(program.view),
-        };
-        let binding = self.program_binding(None);
-        let mut node = self.doc_mut().scene.build_node(
-            slate_doc::WorldRect::new(0.0, 0.0, size.x, size.y),
-            NodeKind::Portal(PortalNode::unbound_agent("", program.id.clone())),
-        );
-        bind_program(&mut node, &program, &binding);
-        node.rect.w = size.x;
-        node.rect.h = size.y;
-        // A web page gives the image agent its picture and the text agent its
-        // visible text (read as the run starts).
-        let doc = self.doc();
-        let reads_text = if agent_inputs::is_web_page(&doc.scene, source) {
-            kind == SpawnKind::Text
-        } else {
-            !agent_inputs::feeds_picture(&doc.scene, source, &|id| {
-                doc.item(id).map(|item| item.path.as_path())
-            })
-        };
-        let Some(port) = agent_inputs::input_ports_of(&node, self.model_has_viewport(node.id))
-            .iter()
-            .find(|p| p.slot.takes_text() == reads_text)
-            .copied()
-        else {
-            self.toast("This node has no input for that output.");
-            return false;
-        };
-        // A dropped wire's end becomes the new node's port.
-        let drop = spawn.at.map(|[x, y]| Pos2::new(x, y - port.t * size.y));
-        let zoom = self.tab().cam.z;
-        let Some(rect) = self.agent_spawn_rect(source, drop, size, zoom) else {
-            return false;
-        };
+    /// The menu's Agent: a local chat train bound to the workbook's `assets/agent`
+    /// folder, with a new chat and `source` context wire in one journal step.
+    pub(crate) fn prepare_agent_train_node(
+        scene: &mut slate_doc::scene::Scene,
+        rect: slate_doc::WorldRect,
+        program: &atlas_ai::agent::AgentProvider,
+        binding: &super::board_agent::ProgramBinding,
+    ) -> slate_doc::scene::Node {
+        let mut node = Self::prepare_agent_portal_node(scene, rect);
+        bind_program(&mut node, program, binding);
         node.rect = rect;
-        let prompt = spawn.prompt.trim().to_string();
-        let run = !prompt.is_empty();
-        if let Some(a) = slate_doc::agent_chat::agent_mut(&mut node) {
-            a.instruction = if run {
-                prompt
-            } else if kind == SpawnKind::Text && carries == InputKind::Images {
-                DESCRIBE_STYLE.into()
-            } else {
-                String::new()
-            };
-            a.model = model.clone().filter(|m| !m.is_empty());
-            a.image = spawn.image;
-            a.live = spawn.live && kind == SpawnKind::Image;
+        if let Some(agent) = slate_doc::agent_chat::agent_mut(&mut node) {
+            agent.chat.train = true;
+            agent.chat.detail = slate_doc::agent_chat::Detail::Summary;
+            agent.channel = None;
         }
-        let id = node.id;
-        // The wire binds against the planned node; one journal step adds both.
-        let plan = SceneCmd::Add {
-            index: self.doc().scene.nodes.len(),
-            node: node.clone(),
-        };
-        if !self.doc_mut().scene.apply(&plan) {
-            return false;
-        }
-        let (side, t) = spawn.from.unwrap_or((Side::Right, OUTPUT_T));
-        let wire = self.build_connector(
-            ConnectorEnd::Anchored {
-                node: source,
-                side,
-                t,
-            },
-            ConnectorEnd::Anchored {
-                node: id,
-                side: Side::Left,
-                t: port.t,
-            },
-        );
-        self.doc_mut().scene.apply(&plan.inverted());
-        if kind == SpawnKind::Text {
-            self.seed_agent_text_output_on_node(&mut node);
-        }
-        if self.add_nodes(vec![node, wire]).is_empty() {
-            return false;
-        }
-        self.board_sel = std::iter::once(id).collect();
-        if !run {
-            self.agents.flow.focus_prompt = Some(id);
-        }
-        if run {
-            self.warm_text_sources(id);
-            match kind {
-                SpawnKind::Image if spawn.live => {}
-                SpawnKind::Image => self.queue_generation(id),
-                SpawnKind::Text => self.queue_text_block(id),
-            }
-        }
-        true
+        node
     }
 
-    /// The menu's Agent: a local chat train already bound to the workbook's
-    /// `assets/agent` folder, with a new chat and `source` wired into its
-    /// context input. The portal and the wire are one journal step.
     fn spawn_agent_train(
         &mut self,
         source: NodeId,
@@ -613,12 +342,6 @@ impl SlateApp {
         let Some(rect) = self.agent_spawn_rect(source, drop, size, zoom) else {
             return false;
         };
-        let mut node = self.build_agent_portal(rect);
-        let saved = node.rect;
-        if let Some(a) = slate_doc::agent_chat::agent_mut(&mut node) {
-            a.chat.train = true;
-            a.chat.detail = slate_doc::agent_chat::Detail::Summary;
-        }
         let (dir, fallback) = self.agent_build_folder();
         if let Err(err) = std::fs::create_dir_all(&dir) {
             self.toast(format!("Could not create the agent folder: {err}"));
@@ -630,13 +353,8 @@ impl SlateApp {
             self.tab().path.as_deref(),
             &dir,
         ));
-        bind_program(&mut node, &program, &binding);
-        node.rect = saved;
-        if let Some(a) = slate_doc::agent_chat::agent_mut(&mut node) {
-            a.chat.train = true;
-            a.chat.detail = slate_doc::agent_chat::Detail::Summary;
-            a.channel = None;
-        }
+        let node =
+            Self::prepare_agent_train_node(&mut self.doc_mut().scene, rect, &program, &binding);
         let id = node.id;
         let (side, t) = from.unwrap_or((Side::Right, OUTPUT_T));
         let wire = self.build_connector_with(
@@ -689,152 +407,11 @@ impl SlateApp {
         if let NodeKind::Image(i) = &mut node.kind {
             i.item = item;
         }
-        self.snippets.insert(item, Some(String::new()));
+        self.cache_snippet(item, Some(String::new()));
         self.agents
             .text_output
             .write_now(id, item, path, String::new());
         true
-    }
-
-    /// Read the words of placed text documents wired into `id` before a run,
-    /// so its snapshot can carry them without reading files itself.
-    fn warm_text_sources(&mut self, id: NodeId) {
-        let sources: Vec<(slate_doc::ItemId, std::path::PathBuf)> = self
-            .doc()
-            .scene
-            .nodes
-            .iter()
-            .filter_map(|n| match &n.kind {
-                NodeKind::Connector(c) => {
-                    let binding = c.binding.as_ref()?;
-                    // TWIN: slate_doc::agent_inputs::WireBinding::source 2026-09-25
-                    let (from, to) = if binding.input_b {
-                        (&c.a, &c.b)
-                    } else {
-                        (&c.b, &c.a)
-                    };
-                    (agent_inputs::endpoint_node(to) == Some(id) && binding.kind == InputKind::Text)
-                        .then(|| agent_inputs::endpoint_node(from))
-                        .flatten()
-                }
-                _ => None,
-            })
-            .filter_map(|source| match &self.doc().scene.node(source)?.kind {
-                NodeKind::Image(image) => {
-                    let item = self.doc().item(image.item)?;
-                    Some((image.item, item.path.clone()))
-                }
-                _ => None,
-            })
-            .collect();
-        for (item, path) in sources {
-            let _ = self.snippet_for(item, &path);
-        }
-    }
-
-    /// Typed ports of flow nodes the pointer is near, that are selected, or
-    /// while a wire is being drawn.
-    pub(crate) fn paint_flow_ports(&self, painter: &egui::Painter, xf: &BoardXf) {
-        let z = xf.z;
-        if !super::board_wire::port_disc_visible(PORT_RADIUS, z) {
-            return;
-        }
-        let radius = canvas_scale::px(PORT_RADIUS, z);
-        let palette = self.palette();
-        let roles = palette.agent_roles();
-        let pointer = painter.ctx().pointer_latest_pos();
-        let wiring = matches!(self.board_drag, Some(BoardDrag::Wire(_)));
-        let font = canvas_scale::font(PORT_LABEL_PX, z);
-        let labels = canvas_text::legible(font.size);
-        let scene = &self.doc().scene;
-        for node in &scene.nodes {
-            let ports = agent_inputs::input_ports_of(node, false);
-            if node.hidden || ports.is_empty() {
-                continue;
-            }
-            let screen = xf.rect_w2s(node.rect);
-            let near = pointer
-                .is_some_and(|p| screen.expand(canvas_scale::px(PORT_REVEAL, z)).contains(p));
-            if !(near || wiring || self.board_sel.contains(&node.id))
-                || (self.agents.flow.hud_hidden(node.id) && !wiring)
-            {
-                continue;
-            }
-            let bound = agent_inputs::bound_slots(scene, node.id);
-            let sites = self.wire_host(node).ports();
-            for (port, site) in ports.iter().zip(&sites) {
-                let center = xf.w2s(Pos2::new(site.point[0], site.point[1]));
-                let (_, color) = InputRole::of_slot(port.slot).look(&roles);
-                if bound.contains(&port.slot) {
-                    painter.circle_filled(center, radius, color);
-                } else {
-                    painter.circle_filled(center, radius, palette.card);
-                    painter.circle_stroke(
-                        center,
-                        radius,
-                        egui::Stroke::new(canvas_scale::px(1.5, z), color),
-                    );
-                }
-                if labels {
-                    canvas_text::text(
-                        painter,
-                        center - egui::vec2(radius + canvas_scale::px(6.0, z), 0.0),
-                        Align2::RIGHT_CENTER,
-                        port.label,
-                        font.clone(),
-                        color,
-                    );
-                }
-            }
-            if let Some(out) = sites.last() {
-                let center = xf.w2s(Pos2::new(out.point[0], out.point[1]));
-                let hot = pointer.is_some_and(|p| p.distance(center) <= radius * 3.0);
-                let ring = if hot { palette.accent } else { palette.sub };
-                painter.circle_filled(center, radius * 1.2, palette.card);
-                painter.circle_stroke(
-                    center,
-                    radius * 1.2,
-                    egui::Stroke::new(canvas_scale::px(1.5, z), ring),
-                );
-                let arm = radius * 0.6;
-                let stroke = egui::Stroke::new(canvas_scale::px(1.5, z), ring);
-                painter.line_segment(
-                    [center - egui::vec2(arm, 0.0), center + egui::vec2(arm, 0.0)],
-                    stroke,
-                );
-                painter.line_segment(
-                    [center - egui::vec2(0.0, arm), center + egui::vec2(0.0, arm)],
-                    stroke,
-                );
-            }
-        }
-        // A dropped wire waits at its menu until a choice is made.
-        if let Some(menu) = self.agents.flow.menu.as_ref().filter(|m| m.dropped) {
-            if let Some(source) = scene.node(menu.source) {
-                let (side, t) = menu.grip.unwrap_or((Side::Right, OUTPUT_T));
-                let from = ConnectorEnd::Anchored {
-                    node: source.id,
-                    side,
-                    t,
-                };
-                let to = ConnectorEnd::Free {
-                    point: [menu.at.x, menu.at.y],
-                };
-                if let Some(path) =
-                    connector_route_in_scene(scene, None, &from, &to, self.board_wire_routing)
-                {
-                    super::board_wire::paint_route_preview(
-                        painter,
-                        xf,
-                        &path,
-                        egui::Stroke::new(
-                            canvas_scale::px(1.5, z),
-                            palette.sub.gamma_multiply(0.6),
-                        ),
-                    );
-                }
-            }
-        }
     }
 
     /// Placeholder the text block's composer shows while it is empty.
@@ -854,28 +431,6 @@ impl SlateApp {
             .is_some_and(|a| a.view == PortalView::Text)
     }
 
-    /// Keep the draft and the journaled instruction in step: the document
-    /// wins when it changed (undo, reload); otherwise the draft is committed
-    /// once its field loses the caret.
-    fn sync_instruction(&mut self, id: NodeId, journaled: &str) {
-        let doc_changed = self.agents.flow.synced.get(&id).map(String::as_str) != Some(journaled);
-        if doc_changed || !self.agents.has_draft(id) {
-            *self.agents.prompt_mut(id) = journaled.to_string();
-            self.agents.flow.synced.insert(id, journaled.to_string());
-            return;
-        }
-        let draft = self.agents.prompt_mut(id).clone();
-        if self.agents.composing(id) || draft == journaled || self.tab().read_only {
-            return;
-        }
-        self.patch_nodes(&[id], |n| {
-            if let Some(a) = slate_doc::agent_chat::agent_mut(n) {
-                a.instruction = draft.clone();
-            }
-        });
-        self.agents.flow.synced.insert(id, draft);
-    }
-
     /// A text block's prompt: its wired words (a note, a document, a page's
     /// text), then its instruction.
     pub(crate) fn text_block_prompt(
@@ -893,10 +448,9 @@ impl SlateApp {
             .join("\n\n")
     }
 
-    /// Run a text block once: wired prompts, then its instruction, with the
-    /// pictures on its Image port.
+    /// Run a text block once with wired prompts, its instruction, and Image inputs.
     pub(crate) fn queue_text_block(&mut self, id: NodeId) {
-        // A block spawned by the agent editor runs before it is ever painted.
+        self.last_board_edit = None;
         let journaled = self
             .doc()
             .scene
@@ -920,9 +474,6 @@ impl SlateApp {
             );
             return;
         }
-        if self.agent_text_window_owned(id) && !self.tab().read_only {
-            self.clear_agent_text_output_file(id);
-        }
         let model = self
             .doc()
             .scene
@@ -943,6 +494,13 @@ impl SlateApp {
             id: atlas_ai::agent::request_id(),
             prompt,
             model,
+            model_parameters: self
+                .doc()
+                .scene
+                .node(id)
+                .and_then(slate_doc::agent_chat::agent)
+                .map(|a| a.model_parameters.clone())
+                .unwrap_or_default(),
             at: atlas_ai::context::now_secs(),
             inputs,
             history: vec![],
@@ -952,26 +510,31 @@ impl SlateApp {
             ..Default::default()
         };
         self.enqueue_generation(id, request);
+        self.last_board_edit = None;
     }
 
-    fn agent_text_window_owned(&self, id: NodeId) -> bool {
+    pub(crate) fn agent_text_window_owned(&self, id: NodeId) -> bool {
         let Some(NodeKind::Image(_)) = self.doc().scene.node(id).map(|n| &n.kind) else {
             return matches!(
                 self.doc().scene.node(id).map(|n| &n.kind),
                 Some(NodeKind::Text(t)) if !t.text.trim().is_empty()
             );
         };
-        self.agents.text_output.file_has_content(id, &self.snippets)
+        self.agents
+            .text_output
+            .file_has_content(id, |item| self.cached_snippet(item))
     }
 
-    fn clear_agent_text_output_file(&mut self, id: NodeId) {
+    pub(crate) fn clear_agent_text_output_file(&mut self, id: NodeId) {
         let Some(NodeKind::Image(i)) = self.doc().scene.node(id).map(|n| n.kind.clone()) else {
             return;
         };
         let Some(path) = self.doc().item(i.item).map(|it| it.path.clone()) else {
             return;
         };
-        self.snippets.remove(&i.item);
+        let path =
+            slate_doc::scene::resolve_source(self.tab().path.as_deref(), &path.to_string_lossy());
+        self.invalidate_document_card(i.item);
         self.agents.text_output.begin_run(id, i.item, path);
     }
 
@@ -985,7 +548,7 @@ impl SlateApp {
             let NodeKind::Image(i) = &node.kind else {
                 return None;
             };
-            let path = self.doc().item(i.item)?.path.clone();
+            let path = self.item_path(i.item)?;
             Some((i.item, path))
         })() else {
             return;
@@ -1000,8 +563,8 @@ impl SlateApp {
     }
 
     pub(crate) fn pump_agent_text_outputs(&mut self) {
-        for item in self.agents.text_output.pump() {
-            self.snippets.remove(&item);
+        for (item, path) in self.agents.text_output.pump() {
+            self.invalidate_document_source(item, &path);
         }
     }
 
@@ -1015,120 +578,6 @@ impl SlateApp {
         body: Rect,
     ) {
         self.paint_agent_note(ui, painter, xf, node, body);
-    }
-
-    /// A note an agent writes: its newest reply shows in the note itself (the
-    /// board paints it), and the prompt docks along the bottom with Run. An
-    /// empty note is a prompt field until its first reply.
-    pub(crate) fn paint_agent_note(
-        &mut self,
-        ui: &egui::Ui,
-        painter: &egui::Painter,
-        xf: &BoardXf,
-        node: &slate_doc::scene::Node,
-        body: Rect,
-    ) {
-        let id = node.id;
-        let z = xf.z;
-        let px = |v: f32| canvas_scale::px(v, z);
-        let font = canvas_scale::font(BLOCK_TEXT_PX, z);
-        if !canvas_text::legible(font.size) {
-            return;
-        }
-        let running = self.agent_is_running(id);
-        let waiting = self.generations_waiting(id);
-        let reply = self.agent_reply(id);
-        let own = self.agent_text_window_owned(id);
-        if let Some(reply) = &reply {
-            if !own && !running {
-                let laid = canvas_text::layout(
-                    painter,
-                    reply.clone(),
-                    canvas_scale::font(BLOCK_TEXT_PX, z),
-                    Color32::WHITE,
-                    body.width(),
-                );
-                self.fit_agent_note(id, reply, laid.size().y / z.max(0.01));
-            }
-        }
-        let hovered = ui
-            .ctx()
-            .pointer_latest_pos()
-            .is_some_and(|p| body.expand(px(8.0)).contains(p));
-        let reveal = hovered || self.board_sel.contains(&id) || self.flow_capsule_open(id);
-        let empty = reply.is_none() && !own;
-        let ink = self.palette().overlay();
-        if empty && !(running || waiting > 0) {
-            let wired = self
-                .generator_view(id)
-                .inputs
-                .iter()
-                .any(|i| i.role == InputRole::Prompt);
-            let hint = if wired {
-                "Add to the wired prompt, or press Run"
-            } else {
-                "Wire a note to Prompt, or type here"
-            };
-            let field = Rect::from_center_size(
-                body.center(),
-                egui::vec2(body.width() - px(32.0), px(64.0)),
-            );
-            paint_overlay_pill(painter, field.expand(px(8.0)), px(10.0), ink.scrim, &ink, z);
-            self.paint_generator_prompt(ui, id, field, z, hint);
-        }
-        let failure = self
-            .agent_failure_reason(id)
-            .map(str::to_string)
-            .filter(|_| !running);
-        if let Some(reason) = failure {
-            let laid = canvas_text::layout(
-                painter,
-                reason,
-                canvas_scale::font(super::board_agent::GENERATOR_CHIP_PX, z),
-                ink.warn,
-                body.width() - px(24.0),
-            );
-            let at = Pos2::new(body.left() + px(12.0), body.top() + px(12.0));
-            paint_overlay_pill(
-                painter,
-                Rect::from_min_size(at, laid.size()).expand(px(5.0)),
-                px(6.0),
-                ink.fill,
-                &ink,
-                z,
-            );
-            laid.paint(painter, at, ink.warn);
-        }
-        self.paint_run_progress(ui, painter, id, body, z, "Writing", false);
-        if !reveal {
-            return;
-        }
-        let at = Pos2::new(body.left() + px(12.0), body.bottom() - px(40.0));
-        let (run, rect) = Self::generator_button(
-            ui,
-            painter,
-            at,
-            if running { "Stop" } else { "Run" },
-            Id::new(("text-block-run", id.0)),
-            &ink,
-            z,
-        );
-        if run.clicked() {
-            self.board_sel = std::iter::once(id).collect();
-            let command = if running {
-                "portal.agent.stop"
-            } else {
-                "portal.agent.send"
-            };
-            self.dispatch(ui.ctx(), atlas_commands::CommandId(command), None);
-        }
-        if !empty {
-            let capsule = Rect::from_min_max(
-                Pos2::new(rect.right() + px(6.0), rect.top()),
-                Pos2::new(body.right() - px(12.0), rect.bottom()),
-            );
-            self.paint_prompt_capsule(ui, painter, id, capsule, body, z);
-        }
     }
 
     /// The newest reply of an agent's session, once it has finished.
@@ -1181,15 +630,16 @@ impl SlateApp {
     /// account (Art. I.4). Catalogs are discovered off-thread as they are needed.
     pub(crate) fn agent_models(&mut self, image: bool) -> Vec<(String, String, String)> {
         let engines = self.engines();
+        let openai = self.ai.packs.ok(atlas_ai::packs::OPENAI);
         if image {
             self.agents.want_catalog("comfy");
-            if engines.openai {
+            if openai {
                 self.agents.want_catalog("openai-image");
             }
             return atlas_ai::runtime::image_models(
                 self.agents.catalog("comfy"),
                 engines.codex,
-                engines.openai,
+                openai,
                 self.agents.catalog("openai-image"),
             );
         }
@@ -1197,43 +647,27 @@ impl SlateApp {
         if engines.codex {
             self.agents.want_catalog("codex");
         }
-        if engines.openai {
+        if openai {
             self.agents.want_catalog("openai-text");
         }
         atlas_ai::runtime::text_models(
             self.agents.catalog("ollama"),
             engines.codex.then(|| self.agents.catalog("codex")),
-            engines.openai,
+            openai,
             self.agents.catalog("openai-text"),
         )
     }
 
-    /// The model the person last chose for this kind of agent.
-    pub(crate) fn default_model(&self, image: bool) -> Option<(String, String)> {
-        if image {
-            self.settings.agent_image_model.clone()
-        } else {
-            self.settings.agent_text_model.clone()
-        }
+    /// Opens the model list of `source`'s Agent editor, as a click would.
+    #[cfg(test)]
+    pub(crate) fn open_agent_model_menu_for_test(&mut self, source: NodeId) {
+        let mut draft = AgentDraft::new();
+        draft.model_open = true;
+        draft.take_focus = false;
+        self.agents.flow.drafts.insert(source, draft);
     }
 
-    /// A chosen model becomes the default for every new agent of its kind.
-    pub(crate) fn remember_model(&mut self, image: bool, provider: &str, model: &str) {
-        let choice = Some((provider.to_string(), model.to_string()));
-        let slot = if image {
-            &mut self.settings.agent_image_model
-        } else {
-            &mut self.settings.agent_text_model
-        };
-        if *slot != choice {
-            *slot = choice;
-            self.settings.save();
-        }
-    }
-
-    /// A saved key opens the OpenAI catalogs.
     fn key_saved(&mut self) {
-        self.agents.flow.engines = None;
         self.agents.refresh_catalog("openai-image");
         self.agents.refresh_catalog("openai-text");
     }
@@ -1247,6 +681,9 @@ impl SlateApp {
         z: f32,
         theme: atlas_shell::theme::Palette,
     ) -> Vec<Rect> {
+        if self.is_artifact_node(source) {
+            return self.artifact_editor_body(ui, rect, source, z, theme);
+        }
         if agent_inputs::is_flow_node(&self.doc().scene, source) {
             return self.attached_editor_body(ui, rect, source, z, theme);
         }
@@ -1256,9 +693,9 @@ impl SlateApp {
             .drafts
             .remove(&source)
             .unwrap_or_else(AgentDraft::new);
-        let models = self.agent_models(draft.image);
+        let models = self.agent_models(draft.kind == SpawnKind::Image);
         let modes: Vec<&str> = MODALITIES.iter().map(|m| m.label).collect();
-        let mode = if draft.image {
+        let mode = if draft.kind == SpawnKind::Image {
             SpawnKind::Image
         } else {
             SpawnKind::Text
@@ -1267,7 +704,7 @@ impl SlateApp {
         let current = draft
             .choice
             .clone()
-            .or_else(|| self.default_model(draft.image));
+            .or_else(|| self.default_model(draft.kind == SpawnKind::Image));
         let index = model_index(&models, current.as_ref());
         let labels: Vec<&str> = models.iter().map(|m| m.2.as_str()).collect();
         let aspects: Vec<&str> = atlas_ai::agent::Aspect::ALL
@@ -1277,7 +714,7 @@ impl SlateApp {
         let pasting = draft.key.is_some();
         let hint = if pasting {
             "Paste your OpenAI API key, then Submit. It stays in Windows Credential Manager."
-        } else if draft.image {
+        } else if draft.kind == SpawnKind::Image {
             "Describe the picture to make, or the look to give this one"
         } else {
             "Ask for a description, a caption, or a rewrite"
@@ -1291,13 +728,14 @@ impl SlateApp {
             }
             None => &mut draft.prompt,
         };
-        let out = atlas_shell::selection_tools::agent_editor(
+        let out = self.paint_image_agent_editor(
             ui,
             rect,
+            source,
             atlas_shell::selection_tools::AgentEdit {
                 modes: &modes,
                 mode,
-                image: draft.image,
+                image: draft.kind == SpawnKind::Image,
                 prompt: prompt_text,
                 hint,
                 models: &labels,
@@ -1321,15 +759,16 @@ impl SlateApp {
             absorb_key(&mut draft, &hidden);
         }
         if let Some(mode) = out.mode {
-            draft.image = MODALITIES
+            draft.kind = MODALITIES
                 .get(mode)
-                .is_some_and(|m| m.kind == Some(SpawnKind::Image));
+                .and_then(|m| m.kind)
+                .unwrap_or(SpawnKind::Image);
             draft.choice = None;
             draft.key = None;
         }
         if let Some((provider, model, _)) = out.model.and_then(|i| models.get(i)) {
             draft.choice = Some((provider.clone(), model.clone()));
-            self.remember_model(draft.image, provider, model);
+            self.remember_model(draft.kind == SpawnKind::Image, provider, model);
         }
         if let Some(count) = out.count {
             draft.count = count.clamp(1, 8);
@@ -1367,12 +806,12 @@ impl SlateApp {
         let Some((provider, model)) = chosen else {
             return;
         };
-        if provider.starts_with("openai") && !self.engines().openai {
+        if provider.starts_with("openai") && !self.ai.packs.ok(atlas_ai::packs::OPENAI) {
             draft.key = Some(String::new());
             draft.take_focus = true;
             return;
         }
-        self.remember_model(draft.image, &provider, &model);
+        self.remember_model(draft.kind == SpawnKind::Image, &provider, &model);
         if draft.prompt.trim().is_empty() {
             self.toast("Write a prompt for the agent first.");
             draft.take_focus = true;
@@ -1382,14 +821,19 @@ impl SlateApp {
             .get(draft.aspect)
             .copied()
             .unwrap_or_default();
+        if draft.kind == SpawnKind::Image
+            && self.submit_image_in_place(source, draft, &provider, &model, aspect)
+        {
+            return;
+        }
         let detail = serde_json::json!({
             "source": source.0,
-            "kind": if draft.image { "image" } else { "text" },
+            "kind": if draft.kind == SpawnKind::Image { "image" } else { "text" },
             "prompt": draft.prompt.trim(),
             "provider": provider,
             "model": (!model.is_empty()).then_some(model),
             "image": {"count": draft.count, "aspect": aspect, "seed": draft.seed},
-            "live": draft.live && draft.image,
+            "live": draft.live && draft.kind == SpawnKind::Image,
         });
         self.dispatch(
             ctx,
@@ -1400,13 +844,17 @@ impl SlateApp {
         self.board_sel = std::iter::once(source).collect();
     }
 
-    /// A pasted OpenAI key goes to Credential Manager. True when a key was
-    /// being pasted, saved or not.
+    /// Consume a pasted key through PackSession; true even if saving fails.
     fn save_pasted_key(&mut self, draft: &mut AgentDraft) -> bool {
         let Some(key) = draft.key.take() else {
             return false;
         };
-        match atlas_core::secrets::store(atlas_ai::runtime::OPENAI_KEY_SLOT, &key) {
+        self.ai.packs.key_draft = key;
+        match self
+            .ai
+            .packs
+            .save_openai_key(self.ai.config.workspace_dir.clone())
+        {
             Ok(()) => {
                 self.key_saved();
                 self.toast("OpenAI API key saved for this Windows user.");
@@ -1452,6 +900,11 @@ impl SlateApp {
             .drafts
             .remove(&id)
             .unwrap_or_else(AgentDraft::new);
+        if image {
+            let presentation = self.generator_presentation(id);
+            draft.model_open = presentation.model_open;
+            draft.aspect_open = presentation.aspect_open;
+        }
         let models = self.agent_models(image);
         let current = (
             agent.provider.clone(),
@@ -1480,9 +933,10 @@ impl SlateApp {
             None => self.agents.prompt_mut(id).clone(),
         };
         let modes = [kind.modality().label];
-        let out = atlas_shell::selection_tools::agent_editor(
+        let out = self.paint_image_agent_editor(
             ui,
             rect,
+            id,
             atlas_shell::selection_tools::AgentEdit {
                 modes: &modes,
                 mode: 0,
@@ -1514,7 +968,7 @@ impl SlateApp {
             }
         }
         if let Some((provider, model, _)) = out.model.and_then(|i| models.get(i)) {
-            if provider.starts_with("openai") && !self.engines().openai {
+            if provider.starts_with("openai") && !self.ai.packs.ok(atlas_ai::packs::OPENAI) {
                 draft.key = Some(String::new());
                 draft.take_focus = true;
             } else {
@@ -1663,20 +1117,13 @@ impl SlateApp {
             ink.text,
         );
         if running && !previews {
-            // No step count to show: a segment sweeps along the bottom edge.
-            let h = canvas_scale::px(3.0, z);
-            let track = Rect::from_min_size(
-                Pos2::new(body.left(), body.bottom() - h),
-                egui::vec2(body.width(), h),
+            atlas_shell::selection_tools::generator::progress::paint_sweep(
+                painter,
+                body,
+                z,
+                time as f64,
+                self.palette(),
             );
-            let span = track.width() * 0.3;
-            let phase = (time * 0.6).fract();
-            let x = track.left() - span + (track.width() + span) * phase;
-            let bar = Rect::from_min_max(
-                Pos2::new(x.max(track.left()), track.top()),
-                Pos2::new((x + span).min(track.right()), track.bottom()),
-            );
-            painter.rect_filled(bar, 0.0, self.palette().accent);
         }
     }
 
@@ -1704,10 +1151,7 @@ impl SlateApp {
         theme.ink = ink.text;
         theme.sub = ink.muted;
         let mut text = self.agents.prompt_mut(id).clone();
-        let take_focus = self.agents.flow.focus_prompt == Some(id);
-        if take_focus {
-            self.agents.flow.focus_prompt = None;
-        }
+        let take_focus = self.take_flow_prompt_focus(id);
         let out = atlas_shell::selection_tools::prompt_field(
             ui,
             Id::new(("generator-prompt", id.0)),
@@ -1719,12 +1163,7 @@ impl SlateApp {
             take_focus,
             theme,
         );
-        if out.focused {
-            self.agents.flow.typing = Some(id);
-            self.web_release_keyboard();
-        } else if self.agents.flow.typing == Some(id) {
-            self.agents.flow.typing = None;
-        }
+        self.track_flow_prompt_focus(id, out.focused);
         if out.changed {
             *self.agents.prompt_mut(id) = text;
         }
@@ -1734,15 +1173,6 @@ impl SlateApp {
             self.commit_instruction(id);
             self.board_sel = std::iter::once(id).collect();
             self.run_agent_media(id);
-        }
-    }
-
-    /// Run the agent a picture or note was summoned with, once.
-    pub(crate) fn run_agent_media(&mut self, id: NodeId) {
-        if self.is_text_block(id) {
-            self.queue_text_block(id);
-        } else {
-            self.queue_generation(id);
         }
     }
 
@@ -1875,6 +1305,8 @@ impl SlateApp {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    mod image_blister;
+    mod media_chrome;
     use super::*;
     use slate_doc::agent_inputs::InputKind;
 
@@ -1923,8 +1355,7 @@ pub(crate) mod tests {
         h.app.doc().scene.nodes.iter().find_map(|n| match &n.kind {
             NodeKind::Connector(c) => {
                 let binding = c.binding.as_ref()?;
-                // TWIN: slate_doc::agent_inputs::WireBinding::target 2026-09-25
-                let end = if binding.input_b { &c.b } else { &c.a };
+                let end = binding.target_end(c);
                 (agent_inputs::endpoint_node(end) == Some(target))
                     .then(|| (n.id, binding.slot.clone().unwrap_or_default()))
             }
@@ -1942,10 +1373,12 @@ pub(crate) mod tests {
         h.app.agents.flow.menu = None;
         assert!(h.app.flow_wire_released(out, Pos2::new(10.0, 10.0)));
         assert!(h.app.agents.flow.menu.is_none());
-        // A left-edge input is not an output.
-        assert!(!h
+        // A left-edge release keeps an upstream-input menu alive.
+        assert!(h
             .app
             .flow_wire_released((generator, Side::Left, 0.5), Pos2::new(1400.0, 0.0)));
+        assert!(h.app.agents.flow.menu.is_some());
+        h.app.agents.flow.menu = None;
 
         let before = h.app.doc().scene.nodes.len();
         let depth = h.app.tab().journal.undo_depth();
@@ -2050,54 +1483,6 @@ pub(crate) mod tests {
         texts
     }
 
-    #[test]
-    fn ports_show_near_a_generator_and_the_text_block_paints_its_controls() {
-        let (mut h, generator) = generator_with_output("flow_paint");
-        let detail = serde_json::json!({"source": generator.0, "kind": "text"});
-        assert!(h.app.spawn_flow_node(Some(&detail.to_string())));
-        let block = *h.app.board_sel.iter().next().unwrap();
-        h.frame();
-        let r = h.app.doc().scene.node(generator).unwrap().rect;
-        h.app.tab_mut().cam.offset = egui::vec2(r.x + r.w, r.y + r.h * 0.5);
-        h.app.tab_mut().cam.z = 0.6;
-        h.frame();
-        h.app.agent_blur();
-        h.app.board_sel.clear();
-        let rest = painted(&mut h, Pos2::new(2.0, 890.0));
-        assert!(
-            !rest.iter().any(|t| t == "Style"),
-            "quiet at rest: {rest:?}"
-        );
-        let xf = h.app.board_xf();
-        let near = xf.rect_w2s(r).center();
-        let hover = painted(&mut h, near);
-        for label in ["Media", "Prompt", "Style"] {
-            assert!(
-                hover.iter().any(|t| t == label),
-                "missing {label}: {hover:?}"
-            );
-        }
-        // The text choice is a note: its ports, Run, and the prompt docked
-        // under it. The model lives on the Agent squircle.
-        assert!(matches!(
-            h.app.doc().scene.node(block).map(|n| &n.kind),
-            Some(NodeKind::Image(i)) if i.agent.is_some()
-        ));
-        h.app.board_sel = std::iter::once(block).collect();
-        let selected = painted(&mut h, Pos2::new(2.0, 890.0));
-        // Before its first reply the note is its prompt field.
-        for label in ["Image", "Prompt", "Run", "Describe the visual style"] {
-            assert!(
-                selected.iter().any(|t| t.starts_with(label)),
-                "missing {label}: {selected:?}"
-            );
-        }
-        assert!(
-            !selected.iter().any(|t| t.starts_with("Local ·")),
-            "no model chip: {selected:?}"
-        );
-    }
-
     /// Media is the interface: the Image choice is an ordinary picture that
     /// shows its newest result until one is picked, and a pick is its file.
     #[test]
@@ -2140,9 +1525,9 @@ pub(crate) mod tests {
     }
 
     /// An agent's picture is a raster like any other: a Brush on the selected
-    /// picture draws into a paint layer, and drawing hides its overlays.
+    /// picture draws into a paint layer while the idle image stays naked.
     #[test]
-    fn a_brush_on_an_agent_picture_paints_a_layer_and_hides_its_overlays() {
+    fn a_brush_on_an_agent_picture_paints_a_layer_without_generator_overlays() {
         for picked in [false, true] {
             let (mut h, generator) = generator_with_output("agent_picture_paint");
             if picked {
@@ -2153,6 +1538,20 @@ pub(crate) mod tests {
             let rect = h.app.doc().scene.node(generator).unwrap().rect;
             let at = h.app.board_xf().rect_w2s(rect).center();
             let resting = painted(&mut h, at);
+            let shows_generator_overlay = |texts: &[String]| {
+                texts.iter().any(|text| {
+                    text.starts_with("Prompt ·")
+                        || text.starts_with("Geometry ·")
+                        || matches!(
+                            text.as_str(),
+                            "Render" | "Generate" | "Keep" | "Stop" | "ComfyUI · Auto"
+                        )
+                })
+            };
+            assert!(
+                !shows_generator_overlay(&resting),
+                "picked {picked}: idle image keeps generator controls in its Agent blister: {resting:?}"
+            );
             h.app.set_board_tool(super::super::board::BoardTool::Brush);
             h.app.sync_image_paint_for_tool();
             assert!(
@@ -2164,8 +1563,8 @@ pub(crate) mod tests {
             assert!(h.app.agent_picture_draw_mode(generator));
             let drawing = painted(&mut h, at);
             assert!(
-                resting.iter().any(|t| !drawing.contains(t)),
-                "picked {picked}: overlays hide while drawing: {resting:?} vs {drawing:?}"
+                !shows_generator_overlay(&drawing),
+                "picked {picked}: drawing keeps generator controls hidden: {drawing:?}"
             );
             let nodes = h.app.doc().scene.nodes.len();
             let (cx, cy) = rect.center();
@@ -2181,8 +1580,10 @@ pub(crate) mod tests {
             let NodeKind::Image(img) = &h.app.doc().scene.node(generator).unwrap().kind else {
                 panic!("picture");
             };
-            assert_eq!(img.paint_layers.len(), 1, "picked {picked}");
-            assert_eq!(img.paint_layers[0].nodes.len(), 1, "picked {picked}");
+            let result = h.app.image_result_id(generator).unwrap();
+            let layers = slate_doc::image_paint::layers_for_result(img, &result);
+            assert_eq!(layers.len(), 1, "picked {picked}");
+            assert_eq!(layers[0].nodes.len(), 1, "picked {picked}");
         }
     }
 
@@ -2202,6 +1603,7 @@ pub(crate) mod tests {
             status: atlas_ai::agent::AgentStatus::Idle,
             provider: "comfy".into(),
             turns: vec![],
+            activity: vec![],
             updated_at: 0,
             bundle: atlas_ai::agent::ImageBundle {
                 images: vec![atlas_ai::agent::ImageOutput {
@@ -2299,6 +1701,7 @@ pub(crate) mod tests {
             artifacts: vec![],
             status: atlas_ai::agent::AgentStatus::Idle,
             provider: "ollama".into(),
+            activity: vec![],
             turns: vec![atlas_ai::agent::AgentTurn {
                 role: "assistant".into(),
                 text: "Warm light on stone.".into(),
@@ -2368,7 +1771,7 @@ pub(crate) mod tests {
     }
 
     /// A placed file on the board, like a drop.
-    fn place(h: &mut super::super::tests::Harness, name: &str, x: f32) -> NodeId {
+    pub(crate) fn place(h: &mut super::super::tests::Harness, name: &str, x: f32) -> NodeId {
         let path = h.base.join(name);
         if name.ends_with(".png") {
             image::RgbImage::new(8, 8).save(&path).unwrap();
@@ -2457,6 +1860,12 @@ pub(crate) mod tests {
     fn a_text_document_drives_a_text_agent_through_its_words() {
         let (mut h, _) = generator_with_output("text_agent");
         let brief = place(&mut h, "brief.md", -900.0);
+        let NodeKind::Image(image) = &h.app.doc().scene.node(brief).unwrap().kind else {
+            unreachable!()
+        };
+        let item = image.item;
+        h.app
+            .complete_document_preview_for_test(item, "a courtyard in morning light");
         assert!(h.app.is_agent_media(brief));
         let detail = serde_json::json!({
             "source": brief.0, "kind": "text", "prompt": "Rewrite this as a one-line caption",
@@ -2494,19 +1903,12 @@ pub(crate) mod tests {
         h.frame();
         h.frame();
         h.app.shape_properties.panel = Some(super::super::board_properties::Panel::Agent);
-        // egui sizes a new area on its first frame without painting it.
+        crate::app::tests::pause(&mut h); // Reveal the lower prompt face before inspecting its hint.
+                                          // egui sizes a new area on its first frame without painting it.
         painted(&mut h, Pos2::new(2.0, 890.0));
         let shown = painted(&mut h, Pos2::new(2.0, 890.0));
-        for label in [
-            "Text",
-            "Image",
-            "Submit",
-            "ComfyUI · Auto",
-            "Source",
-            "1 img",
-            "Seed",
-            "Live",
-        ] {
+        // The image blister's bare menus replace generic Text/Image/Submit capsules.
+        for label in ["ComfyUI · Auto", "Source", "Single", "Settings"] {
             assert!(
                 shown.iter().any(|t| t == label),
                 "missing {label}: {shown:?}"
@@ -2556,8 +1958,8 @@ pub(crate) mod tests {
         painted(&mut h, over);
         let shown = painted(&mut h, over);
         assert!(
-            shown.iter().any(|t| t == "Generate") && !shown.iter().any(|t| t == "ComfyUI · Auto"),
-            "the model is chosen on the Agent squircle: {shown:?}"
+            !shown.iter().any(|t| t == "ComfyUI · Auto") && !shown.iter().any(|t| t == "Generate"),
+            "an idle image is naked; model controls belong to its blister: {shown:?}"
         );
     }
 
@@ -2623,34 +2025,6 @@ pub(crate) mod tests {
         let (id, request) = h.app.agents.dispatched.last().unwrap().clone();
         assert_eq!(id, generator);
         assert_eq!(request.prompt, "a red barn at dusk");
-    }
-
-    #[test]
-    fn a_running_frame_shows_what_it_is_doing_and_for_how_long() {
-        let (mut h, generator) = generator_with_output("progress");
-        h.app.patch_nodes(&[generator], |n| {
-            let a = slate_doc::agent_chat::agent_mut(n).unwrap();
-            a.instruction = "a red barn".into();
-            a.image.count = 3;
-        });
-        h.app.queue_generation(generator);
-        h.app.agent_blur();
-        h.app.board_sel.clear();
-        let r = h.app.doc().scene.node(generator).unwrap().rect;
-        h.app.tab_mut().cam.offset = egui::vec2(r.x + r.w * 0.5, r.y + r.h * 0.5);
-        h.app.tab_mut().cam.z = 1.0;
-        h.frame();
-        let shown = painted(&mut h, Pos2::new(2.0, 890.0));
-        assert!(
-            shown
-                .iter()
-                .any(|t| t.starts_with("Generating image 1 of 3 · 0:0")),
-            "progress without hovering: {shown:?}"
-        );
-        // Selected, the picture shows its dock.
-        h.app.board_sel.insert(generator);
-        let shown = painted(&mut h, Pos2::new(2.0, 890.0));
-        assert!(shown.iter().any(|t| t == "Stop"), "{shown:?}");
     }
 
     #[test]

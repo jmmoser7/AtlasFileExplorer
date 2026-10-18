@@ -11,23 +11,24 @@ and open. It is not a row in the extension list.
 
 ## What a preview is
 
-Triangles, normals, an optional flat color, and bounds. The viewport orbits
-that, freezes a poster, and the HTML export links the poster to the original
-file. Materials, lights, animations, and walk controls stay in the
-application that authored them.
+Triangles, normals, UV0, standard material factors, optional base-color
+textures, cached mesh feature edges, and bounds. The viewport orbits that,
+freezes a poster, and the HTML export links the poster to the original file.
+Imported material data is renderer-neutral; lights, animations, and walk
+controls are not imported.
 
-`notes` on the scene record content that was skipped (OBJ materials, glTF
-lines, Draco). The card does not print those notes yet. A later inspector
+`notes` on the scene record content that was skipped (unsupported material
+features, glTF lines, Draco). The card does not print those notes yet. A later inspector
 line should read `notes` rather than invent a second status.
 
 ## Registry
 
 | Extension | Reader | Spec this build targets | On a future release |
 |-----------|--------|-------------------------|---------------------|
-| `.3dm` | `rhino-mesh` | openNURBS 8.x layout, archive version ≥ 50 (Rhino 5+). Cached render meshes, breps, extrusions. Curves are still skipped. | When McNeel ships an archive Rhino 5+ files do not already use, add a fixture under `crates/rhino-mesh/tests/fixtures` and extend that reader. Do not teach the viewport about chunks. |
-| `.obj` | `model-preview` | Wavefront `v` and `f` (polygons fanned to triangles). | New statements (`cstype`, free-form) stay ignored until a preview needs them. Record the statement here when you start reading it. |
+| `.3dm` | `rhino-mesh` | Rhino 5+ cached mesh/B-rep/extrusion geometry, UVs, standard material diffuse/opacity/emission/gloss fallback, object/layer material assignment and display colors. | PBR/RDK and plugin user data remain unsupported. Curves/blocks/SubD still need geometry work. |
+| `.obj` | `model-preview` | Wavefront polygon geometry, normals, UVs and standard MTL scalar/base-map subset. | Linked MTL reads go through the caller's cloud-safe dependency reader. Procedural/free-form geometry remains unsupported. |
 | `.stl` | `model-preview` | Binary (80-byte header + count + 50 bytes per triangle) and ASCII `facet` / `vertex`. | Color extensions (`COLOR`, `Material`) stay ignored. |
-| `.gltf`, `.glb` | `model-preview` via the `gltf` crate **1.4.1** | glTF 2.0 triangles, strips, and fans. Positions, indexes, normals, base color. Sibling `.bin` and data URIs. | Bump the `gltf` pin in the workspace `Cargo.toml` when taking a crate release, and re-run `cargo test -p model-preview`. Draco, sparse accessors, skins, and animations are explicitly skipped. Remote `http` buffers are refused. |
+| `.gltf`, `.glb` | `model-preview` via the `gltf` crate **1.4.1** | glTF 2.0 triangles, strips, fans, normals, UV0, PBR scalar factors and base-color image locators/embedded images. | Dependency reads are caller-owned. Draco, sparse accessors, skins, animations, non-base texture maps and remote buffers remain unsupported. |
 | `.blend` | none | — | Same card: "No preview for Blender files yet." A reader lands only when it can emit a `PreviewScene` without embedding Blender. |
 | `.dwg`, `.dxf` | none | — | Same card, DWG/DXF copy. A DXF reader, if it ever exists, is still only preview geometry. |
 | `.skp` | none | — | Same card, SketchUp copy. |
@@ -44,6 +45,149 @@ line should read `notes` rather than invent a second status.
 6. Update the table above, including the spec version you actually tested.
 
 Do not add a second viewport, a `board_<format>.rs`, or a portal kind for a file that can become a `PreviewScene`.
+
+## White-card and diagram rendering (October 2026)
+
+The existing `model3d/gpu` interpreter serves live views, frozen posters,
+screenshots and generator captures. It uses retained 4x MSAA targets; live
+frames stay on the GPU. The renderer revision and saved camera/material state
+invalidate posters. Static geometry, feature-edge buffers and the light-space
+shadow map are uploaded once per model, not once per frame.
+
+- **Arctic:** neutral white surfaces and background, Z-up hemisphere fill,
+  a fixed directional key, model-fitted soft shadow mapping, and an automatic
+  ground receiver slightly darker than the model. A bounded horizon-style
+  depth AO pass is filtered against depth discontinuities. AO uses full
+  viewport resolution through 1.2 million pixels and filtered half resolution
+  above that threshold. AO attenuates the ambient contribution and includes
+  a restrained white-surface bounce allowance. This is real-time raster
+  rendering; off-screen occlusion and physically traced indirect light are
+  not represented.
+- **Hidden line:** neutral or material-colored diagram fills with cached
+  welded boundaries/creases and camera-dependent silhouettes. Depth-tested
+  antialiased triangle strokes keep approximately constant pixel width and
+  suppress coplanar tessellation diagonals. Slope-aware polygon offset on
+  filled surfaces keeps the visible feature strokes continuous. These are
+  mesh feature lines, not Rhino Make2D/NURBS seam/intersection extraction.
+- **Materials:** an independently journaled on/off control in Shaded and
+  Hidden line. Arctic always keeps its white-card override. Material mask
+  remains segmentation; Z-buffer remains inverse depth. Imported base maps
+  are decoded on the parse worker, capped at 2048 pixels per edge and a
+  shared 64 MiB decoded-image budget. Missing/cloud-only maps fall back to
+  scalar color without downloading placeholders. Opacity is retained for
+  future glazing support; this renderer still draws opaque surfaces. Normal,
+  roughness, metallic texture maps, advanced Rhino PBR and Enscape shaders
+  are not interpreted.
+
+External MTL/texture edits are not independently watched or fingerprinted in
+the model's source cache identity yet. Reparse the model after changing those
+dependencies. First GPU admission still packs geometry, uploads buffers and
+textures, generates mipmaps, and builds the shadow map synchronously on the
+UI thread. It has no geometry-size, per-frame time, or upload-chunk budget.
+The texture memory/decode limits do not bound this first-use frame cost.
+
+Slate renders its supported standard-material subset independently, without
+invoking Enscape or requiring its runtime. Technical support and runtime
+licensing are separate from content rights: use user-owned or independently
+licensed maps and verify permission for Chaos library assets. A texture
+reference saved in Rhino does not grant reuse rights. The
+[Chaos EULA](https://www.chaos.com/legal/eula) includes materials/bitmaps in
+Content, limits their use to designated products, and restricts separate use
+of licensed materials and product components. Viewing an already exported
+Enscape standalone is a distinct workflow; Chaos says its recipient needs
+no Enscape license. [Official standalone guidance](https://blog.chaos.com/enscape-for-sketchup-get-started)
+
+### Research and implementation decisions
+
+The supplied architectural references call for broad soft shadows, subtle
+contact/cavity darkening, near-white surfaces and legible feature lines.
+The implementation order is import/state foundations, one retained GPU
+pipeline, soft shadows and AO, hidden lines, then real-context visual and
+cache/performance validation. This keeps the existing portal authority,
+journal, capture and export owners.
+
+Primary references:
+
+- [Rhino Arctic](https://docs.mcneel.com/rhino/8/help/en-us/options/view_displaymodes_arctic.htm)
+  establishes white surfaces, soft shadows and ambient occlusion.
+- [XeGTAO](https://github.com/GameTechDev/XeGTAO) informs bounded AO sampling
+  and depth-aware filtering. Its HLSL compute implementation is not embedded.
+- [Visibility-bitmask AO](https://arxiv.org/abs/2301.11376) addresses finite
+  occluder thickness; it is a future improvement for thin railings/foliage,
+  not a claim about this initial horizon-based pass.
+- [Filament material behavior](https://google.github.io/filament/main/materials.html)
+  motivates applying AO to indirect light rather than dirtying direct light.
+- [NVIDIA soft shadows](https://developer.nvidia.com/gpugems/gpugems3/part-ii-light-and-shadows/chapter-8-summed-area-variance-shadow-maps)
+  informs blocker-dependent penumbrae; the current bounded implementation
+  uses depth comparisons and a fixed sample budget.
+- [Rhino Technical](https://docs.mcneel.com/rhino/8/help/en-us/options/view_displaymodes_technical.htm)
+  distinguishes silhouettes, boundaries and creases from raw mesh wireframe.
+- [McNeel rendering assets](https://developer.rhino3d.com/en/guides/opennurbs/accessing-rendering-assets/)
+  describes the richer openNURBS/rhino3dm import route without running Rhino.
+  The current reader implements the standard fallback subset, not that full API.
+
+`model_render_quality_real_gl` is an ignored real-context check. It writes
+rendered images and device/timing evidence under `target/render-quality`,
+checks shader/FBO health, opacity, known white roof points, silhouette
+coverage and live/poster parity, and verifies retained live rendering
+creates no GL objects and performs no readbacks. The import tests
+include Rhino 5/8 material fixtures plus OBJ/glTF and mesh-edge regression cases.
+
+Validation on the reference host, 2026-10-15: `cargo check --locked -p slate
+-p model-preview -p rhino-mesh -p slate-doc --all-targets` passed. Import-test
+binaries initially could not execute. After approval retries, all 34 executed
+import/geometry tests passed (10 unit/metadata, 6 material, 8 reader, 1 Rhino
+material and 9 Rhino fixture tests). The Rhino library test executable
+`target/debug/deps/rhino_mesh-4c7e2d6154f0319c.exe` still returned `Access is
+denied (os error 5)`. The native Slate model suite reran successfully on the
+same executable: 118 passed and 2 ignored. The separate
+`primary_click_outside_a_focused_page_releases_focus` test also passed.
+`cargo fmt --all -- --check` passed.
+
+The final real-GPU check passed on Intel Iris Xe / OpenGL 3.3 and produced exact
+live/poster pixels in five display/material cases and at 1920×1080 Arctic,
+with opaque output, zero steady live GL-object creation/readbacks, and 1.0
+vertical silhouette coverage on the fixture. At 900×650, GPU-finished median
+times were 9.190 ms for Arctic and 2.276 ms for Hidden line. Full-HD Arctic
+measured 11.653 ms median; the slowest of 12 samples was 16.169 ms. Cold
+upload measured 66.976 ms submission and 127.685 ms through GPU completion,
+excluding shader construction. These small-fixture measurements establish
+neither sustained 60 fps nor representative large-model performance; the
+synchronous first-admission limitation above remains and can cause a first-load hitch.
+
+The check samples known white roof points independently of the ground tone.
+Retained evidence is in
+`target/arctic-final-check.log`, `target/arctic-import-retry.log`,
+`target/arctic-slate-refined-tests.log`, `target/arctic-focus-tests.log`,
+`target/arctic-gpu-refined-tests.log` and `target/arctic-gpu-final-tests.log`.
+The current `xtask` helper compiled successfully, but Windows also denied
+`target/debug/xtask.exe`; current-source size and contract checks could not
+execute. Their logs are `target/arctic-size-current.log` and
+`target/arctic-contract-current.log`. The three document camera-state tests
+also compiled, but `target/debug/deps/slate_doc-c0d54de1c3d11686.exe` was
+denied before execution; see `target/arctic-camera-tests.log`.
+The subsequent `cargo build --locked --release -p slate --bin slate` passed,
+and the release shortcut script completed without errors. The actual
+`target/release/slate.exe` opened Home from the repository working directory;
+its window remained responsive, and its matching session-log PID recorded
+`first_frame` and 32 completed frames. Evidence is retained in
+`target/arctic-release-build.log`, `target/arctic-release-smoke.json`,
+`target/arctic-release-smoke-first.json` and
+`target/arctic-release-smoke-final.json`. This is a release Home-window
+smoke check; viewport pixel validation used the real-GPU harness above.
+The full release workspace test suite was not rerun. The three previously
+denied test/check executables still require approval before retrying.
+Follow `windows-builds.md` for the remaining executable approvals. To
+rerun the real-GPU check using the retained build profile:
+
+```powershell
+cargo test --locked -p slate --lib model_render_quality_real_gl -- --ignored --nocapture
+```
+
+The existing real-window `bench_model3d` also includes Hidden line in its
+live/screenshot parity cases. Set `BENCH_MODEL_DISPLAY=arctic` or
+`BENCH_MODEL_DISPLAY=hidden_line` to run its orbit/idle/frame-cost scenarios
+with that display mode, using the same build profile retained for approval.
 
 ## Enscape standalones
 
@@ -75,7 +219,7 @@ The page cannot run the executable.
 
 - Enscape's renderer version, materials, or lighting. The standalone the user exported already contains that engine.
 - Full Blender, AutoCAD, SketchUp, or FBX imports.
-- glTF textures, animations, and skins.
+- Advanced material graphs, non-base texture channels, animations and skins.
 - Rhino blocks, SubD, and curves (still a `rhino-mesh` follow-up, not a new viewer).
 
 ## Checks

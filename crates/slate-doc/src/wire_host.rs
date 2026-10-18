@@ -3,7 +3,9 @@
 //! Both interpreters resolve anchors through [`WireHost`] so a rotated rect
 //! keeps its ports on the same local edges, an ellipse keeps them on the
 //! axis tips (which lie on the curve), and a closed stroke keeps them on
-//! the stroke itself. Open shapes offer none. The AABB is only a fallback
+//! the stroke itself. Only rectangular node types offer new ports; the
+//! richer geometry remains available to resolve previously saved anchors.
+//! The AABB is only a fallback
 //! for area objects that have no richer silhouette facet yet.
 //!
 //! ## Current kinds
@@ -11,19 +13,17 @@
 //! | Kind | Class | Ports |
 //! |------|-------|-------|
 //! | Rect, text, sticky, image, frame, portal, dock strip | Oriented box | Midpoints of the **local** edges, then rotated about the node center |
-//! | Ellipse | Oriented box | Same four local-axis extrema — those points lie on the ellipse |
-//! | Closed path / compound | Open stroke (closed loop) | Arclength `t = 0`, `0.5`, `1` on the path itself, including the closing seam — never `node.rect` |
+//! | Ellipse, polygon | Oriented box | No new ports; saved anchors resolve on the existing local-axis geometry |
+//! | Closed path / compound | Open stroke (closed loop) | No new ports; saved anchors resolve by arclength on the path itself |
 //! | Line, arc, polyline, Bézier span, pen stroke — unclosed ([`is_open_shape`]) | Open stroke | No ports and no new attachments. Wires saved earlier still resolve through [`WireHost::anchor`] |
 //! | Connector | — | No ports (filtered by the interaction layer) |
 //!
 //! ## Future kinds
 //!
-//! New geometry declares a class here; it does not special-case a file
-//! format (facet taxonomy). A regular polygon or star would expose
-//! vertices or edge mids. A closed freehand / NURBS would ray-cast the
-//! local cardinals against the silhouette. A 3D / mesh portal stays an
-//! oriented frame — ports belong to the frame, not the mesh. Do not
-//! invent a port per vertex on a dense path (Article III).
+//! New geometry declares its anchor class here without adding ports to
+//! nonrectangular shapes. A 3D / mesh portal stays an oriented frame —
+//! ports belong to the frame, not the mesh. File format does not select
+//! port geometry (facet taxonomy).
 //!
 //! Geometry stays derived (Art. VI.3). The journal stores only
 //! `Side` + `t` + node id.
@@ -32,9 +32,17 @@ use crate::scene::{
     connector_anchor_point, Node, NodeKind, PathData, PathSeg, ShapeKind, Side, WorldRect,
 };
 
+mod stroke;
+use stroke::*;
+
 const SAMPLE_QUAD: usize = 8;
 const SAMPLE_CUBIC: usize = 12;
 const EPS: f32 = 1e-6;
+
+/// Fixed board-space rhythm for typed media inputs. `InputPort::t` remains the
+/// durable slot identity; resizing the host never stretches this rail.
+pub const FLOW_PORT_TOP: f32 = 30.0;
+pub const FLOW_PORT_PITCH: f32 = 42.0;
 
 /// One discrete spawn handle on a host.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -53,19 +61,16 @@ pub struct WireSnap {
     pub dist: f32,
 }
 
-/// Pose a connector end resolves against. Built from a [`Node`] at
-/// paint / hit / export time — never persisted.
+/// Pose a connector end resolves against. Built from a [`Node`] at paint time.
 #[derive(Debug, Clone)]
 pub struct WireHost {
     pub rect: WorldRect,
     pub rotation_deg: f32,
     kind: HostKind,
-    /// Typed inputs of a generator or text block. When present, the host's
-    /// ports are these on the left edge plus one output at the right middle.
     flow: &'static [crate::agent_inputs::InputPort],
-    /// [`is_open_shape`]: no ports and no new attachments. Saved anchors
-    /// still resolve.
-    open_shape: bool,
+    ports_enabled: bool,
+    /// Chat-card side ports resolve on the header dot, not the edge midpoint.
+    chat: bool,
 }
 
 /// An unclosed line, arc, polyline, Bézier span, or pen stroke. The single
@@ -98,26 +103,25 @@ struct OpenStroke {
 }
 
 impl WireHost {
-    /// Unrotated axis-aligned box — the historical AABB host. Used by
-    /// tests and by paste remap when only a rect is available.
     pub fn from_rect(rect: WorldRect) -> Self {
         Self {
             rect,
             rotation_deg: 0.0,
             kind: HostKind::Oriented { ellipse: false },
             flow: &[],
-            open_shape: false,
+            ports_enabled: true,
+            chat: false,
         }
     }
 
-    /// Unrotated ellipse — collision uses the oval, not the AABB.
     pub fn from_ellipse(rect: WorldRect) -> Self {
         Self {
             rect,
             rotation_deg: 0.0,
             kind: HostKind::Oriented { ellipse: true },
             flow: &[],
-            open_shape: false,
+            ports_enabled: false,
+            chat: false,
         }
     }
 
@@ -132,25 +136,45 @@ impl WireHost {
                 rotation_deg: node.rotation_deg,
                 kind: HostKind::Open(stroke),
                 flow: &[],
-                open_shape: is_open_shape(node),
+                ports_enabled: false,
+                chat: false,
             };
         }
         let ellipse = matches!(
             &node.kind,
             NodeKind::Shape(s) if s.shape == ShapeKind::Ellipse
         );
+        let chat = crate::agent_chat::is_chat_host(node);
         Self {
             rect: node.rect,
             rotation_deg: node.rotation_deg,
             kind: HostKind::Oriented { ellipse },
             flow,
-            open_shape: is_open_shape(node),
+            ports_enabled: match &node.kind {
+                NodeKind::Shape(shape) => shape.shape == ShapeKind::Rect,
+                NodeKind::Connector(_) => false,
+                _ => true,
+            },
+            chat,
         }
     }
 
-    /// Open shapes offer no ports and take no new wire ends.
+    /// New connections belong to rectangular node types. Existing anchors on
+    /// other shapes still resolve through `anchor` and `snap`.
     pub fn offers_ports(&self) -> bool {
-        !self.open_shape
+        self.ports_enabled && self.flow_sites_fit()
+    }
+
+    /// Tiny hosts hide the whole typed rail instead of compressing its rhythm.
+    /// Existing wire identities still resolve at their fixed authored datum.
+    fn flow_sites_fit(&self) -> bool {
+        self.flow.is_empty()
+            || self.chat
+            || self
+                .flow
+                .iter()
+                .any(|p| p.slot == atlas_agent::InputSlot::View)
+            || self.rect.h >= FLOW_PORT_TOP + (self.flow.len() - 1) as f32 * FLOW_PORT_PITCH + 14.0
     }
 
     /// A generator or text block: typed input ports and one output.
@@ -170,9 +194,7 @@ impl WireHost {
         matches!(self.kind, HostKind::Oriented { ellipse: true })
     }
 
-    /// Default spawn handles. Three on a closed stroke, four on an area, none
-    /// on an open shape. A flow node has its inputs down the left edge and
-    /// one output on the right.
+    /// Spawn handles. A flow node has inputs on the left and one output.
     pub fn ports(&self) -> Vec<WirePort> {
         if !self.offers_ports() {
             return Vec::new();
@@ -223,22 +245,46 @@ impl WireHost {
         }
     }
 
-    /// World point for a stored `(side, t)`.
-    ///
-    /// Oriented: `side` is a **local** edge; the point is rotated with the
-    /// node. Open: `Start` / `End` ignore `t`; `Mid` is arclength `t`.
-    /// A box side stored on an open host (old files) snaps to the nearest
-    /// of start / mid / end.
+    /// World point for `(side, t)`. Chat side ports sit on the header dot.
     pub fn anchor(&self, side: Side, t: f32) -> [f32; 2] {
-        match &self.kind {
+        let (t, inset) = if self.chat && matches!(side, Side::Left | Side::Right) {
+            let t = (crate::link_inset::rail_inset() / self.rect.h.max(1.0)).clamp(0.0, 1.0);
+            (t, crate::link_inset::port_inset())
+        } else {
+            (self.flow_anchor_t(side, t), 0.0)
+        };
+        let p = match &self.kind {
             HostKind::Oriented { .. } => self.oriented_anchor(side, t),
             HostKind::Open(stroke) => self.open_anchor(stroke, side, t),
+        };
+        if inset == 0.0 {
+            return p;
         }
+        let n = self.outward(side, t);
+        [p[0] - n[0] * inset, p[1] - n[1] * inset]
     }
 
-    /// Outward unit direction at the anchor (bezier handles; ortho stubs
-    /// cardinalize this). Open mid uses a consistent left-normal of the
-    /// tangent — it does not flip when the far end crosses the curve.
+    /// Resolve known typed slot identities to fixed distances from the top.
+    /// The special 3D View rail and arbitrary saved edge attachments retain
+    /// their existing normalized geometry. Tiny hosts overflow the rail;
+    /// compressing it would break alignment between a train's nodes.
+    fn flow_anchor_t(&self, side: Side, t: f32) -> f32 {
+        if self.flow.is_empty()
+            || self
+                .flow
+                .iter()
+                .any(|p| p.slot == atlas_agent::InputSlot::View)
+        {
+            return t;
+        }
+        let row = match side {
+            Side::Right if (t - crate::agent_inputs::OUTPUT_T).abs() < EPS => Some(0),
+            Side::Left => self.flow.iter().position(|p| (p.t - t).abs() < EPS),
+            _ => None,
+        };
+        row.map(|row| (FLOW_PORT_TOP + row as f32 * FLOW_PORT_PITCH) / self.rect.h.max(1.0))
+            .unwrap_or(t)
+    }
     pub fn outward(&self, side: Side, t: f32) -> [f32; 2] {
         match &self.kind {
             HostKind::Oriented { .. } => rotate_vec(side.normal(), self.rotation_deg),
@@ -256,6 +302,10 @@ impl WireHost {
 
     fn oriented_anchor(&self, side: Side, t: f32) -> [f32; 2] {
         let local = match side {
+            Side::Left if self.is_flow() && t > 1.0 => [self.rect.x, self.rect.y + self.rect.h * t],
+            Side::Right if self.is_flow() && t > 1.0 => {
+                [self.rect.x + self.rect.w, self.rect.y + self.rect.h * t]
+            }
             Side::Top | Side::Right | Side::Bottom | Side::Left => {
                 connector_anchor_point(self.rect, side, t)
             }
@@ -311,549 +361,14 @@ impl WireHost {
 
 /// Resolve an anchored end through the node's current pose.
 pub fn connector_anchor_on(node: &Node, side: Side, t: f32) -> [f32; 2] {
-    WireHost::from_node(node).anchor(side, t)
-}
-
-fn open_stroke(node: &Node) -> Option<OpenStroke> {
-    let NodeKind::Shape(shape) = &node.kind else {
-        return None;
-    };
-    if shape.shape == ShapeKind::Line {
-        return Some(legacy_line(node, shape.flip));
-    }
-    if shape.shape == ShapeKind::Path {
-        if let Some(path) = &shape.path {
-            if !path.is_empty() {
-                return Some(sample_path(path, node.rect, node.rotation_deg));
-            }
-        }
-    }
-    None
-}
-
-fn legacy_line(node: &Node, flip: bool) -> OpenStroke {
-    let r = node.rect;
-    let (a, b) = if flip {
-        ([r.x, r.y + r.h], [r.x + r.w, r.y])
-    } else {
-        ([r.x, r.y], [r.x + r.w, r.y + r.h])
-    };
-    let (cx, cy) = r.center();
-    let a = rotate_pt(a, cx, cy, node.rotation_deg);
-    let b = rotate_pt(b, cx, cy, node.rotation_deg);
-    OpenStroke::from_pts(vec![a, b])
-}
-
-fn sample_path(path: &PathData, rect: WorldRect, rotation_deg: f32) -> OpenStroke {
-    let mut pts = Vec::new();
-    let mut cur = world_norm(path.start, rect, rotation_deg);
-    pts.push(cur);
-    for seg in &path.segs {
-        match *seg {
-            PathSeg::Line { to } => {
-                cur = world_norm(to, rect, rotation_deg);
-                pts.push(cur);
-            }
-            PathSeg::Quad { ctrl, to } => {
-                let c = world_norm(ctrl, rect, rotation_deg);
-                let end = world_norm(to, rect, rotation_deg);
-                for i in 1..=SAMPLE_QUAD {
-                    let t = i as f32 / SAMPLE_QUAD as f32;
-                    pts.push(eval_quad(cur, c, end, t));
-                }
-                cur = end;
-            }
-            PathSeg::Cubic { c1, c2, to } => {
-                let p1 = world_norm(c1, rect, rotation_deg);
-                let p2 = world_norm(c2, rect, rotation_deg);
-                let end = world_norm(to, rect, rotation_deg);
-                for i in 1..=SAMPLE_CUBIC {
-                    let t = i as f32 / SAMPLE_CUBIC as f32;
-                    pts.push(eval_cubic(cur, p1, p2, end, t));
-                }
-                cur = end;
-            }
-        }
-    }
-    if path.closed {
-        if let Some(&first) = pts.first() {
-            if pts.last().is_none_or(|p| dist(*p, first) > EPS) {
-                pts.push(first);
-            }
-        }
-    }
-    OpenStroke::from_pts(pts)
-}
-
-impl OpenStroke {
-    fn from_pts(pts: Vec<[f32; 2]>) -> Self {
-        let pts = if pts.len() < 2 {
-            let p = pts.first().copied().unwrap_or([0.0, 0.0]);
-            vec![p, p]
-        } else {
-            pts
-        };
-        let mut cum = vec![0.0; pts.len()];
-        for i in 1..pts.len() {
-            cum[i] = cum[i - 1] + dist(pts[i], pts[i - 1]);
-        }
-        let total = cum.last().copied().unwrap_or(0.0);
-        Self { pts, cum, total }
-    }
-
-    /// Point and unit tangent at arclength fraction `t` (0..=1).
-    fn at(&self, t: f32) -> ([f32; 2], [f32; 2]) {
-        let t = t.clamp(0.0, 1.0);
-        if self.total < EPS {
-            return (self.pts[0], [1.0, 0.0]);
-        }
-        let s = t * self.total;
-        for i in 1..self.pts.len() {
-            if s <= self.cum[i] + EPS || i + 1 == self.pts.len() {
-                let span = (self.cum[i] - self.cum[i - 1]).max(EPS);
-                let u = ((s - self.cum[i - 1]) / span).clamp(0.0, 1.0);
-                let p = lerp(self.pts[i - 1], self.pts[i], u);
-                let tan = norm(sub(self.pts[i], self.pts[i - 1]));
-                return (p, tan);
-            }
-        }
-        let n = self.pts.len();
-        (self.pts[n - 1], norm(sub(self.pts[n - 1], self.pts[n - 2])))
-    }
-}
-
-fn open_outward(stroke: &OpenStroke, rect: WorldRect, side: Side, t: f32) -> [f32; 2] {
-    match side {
-        Side::Start => {
-            let tan = stroke.at(0.0).1;
-            [-tan[0], -tan[1]]
-        }
-        Side::End => stroke.at(1.0).1,
-        Side::Mid => {
-            let tan = stroke.at(t.clamp(0.0, 1.0)).1;
-            left_normal(tan)
-        }
-        box_side => {
-            let p = connector_anchor_point(rect, box_side, t);
-            let feat = nearest_feature(stroke, p);
-            open_outward(stroke, rect, feat.side, feat.t)
-        }
-    }
-}
-
-fn nearest_feature(stroke: &OpenStroke, world: [f32; 2]) -> WireSnap {
-    let start = stroke.at(0.0).0;
-    let mid = stroke.at(0.5).0;
-    let end = stroke.at(1.0).0;
-    let candidates = [
-        (Side::Start, 0.0, start),
-        (Side::Mid, 0.5, mid),
-        (Side::End, 1.0, end),
-    ];
-    let mut best = WireSnap {
-        side: Side::Mid,
-        t: 0.5,
-        point: mid,
-        dist: f32::INFINITY,
-    };
-    for (side, t, p) in candidates {
-        let d = dist(p, world);
-        if d < best.dist {
-            best = WireSnap {
-                side,
-                t,
-                point: p,
-                dist: d,
-            };
-        }
-    }
-    best
-}
-
-fn open_snap(stroke: &OpenStroke, world: [f32; 2]) -> WireSnap {
-    let mut best = WireSnap {
-        side: Side::Mid,
-        t: 0.5,
-        point: stroke.at(0.5).0,
-        dist: f32::INFINITY,
-    };
-    if stroke.pts.len() < 2 {
-        return best;
-    }
-    for i in 1..stroke.pts.len() {
-        let (u, q) = project_seg(stroke.pts[i - 1], stroke.pts[i], world);
-        let d = dist(q, world);
-        if d < best.dist {
-            let s0 = stroke.cum[i - 1];
-            let s1 = stroke.cum[i];
-            let s = s0 + (s1 - s0) * u;
-            let t = if stroke.total < EPS {
-                0.0
-            } else {
-                (s / stroke.total).clamp(0.0, 1.0)
-            };
-            let (side, t) = if t <= 0.02 {
-                (Side::Start, 0.0)
-            } else if t >= 0.98 {
-                (Side::End, 1.0)
-            } else {
-                (Side::Mid, t)
-            };
-            best = WireSnap {
-                side,
-                t,
-                point: q,
-                dist: d,
-            };
-        }
-    }
-    best
-}
-
-fn local_edge(rect: WorldRect, side: Side) -> ([f32; 2], [f32; 2]) {
-    match side {
-        Side::Top => ([rect.x, rect.y], [rect.x + rect.w, rect.y]),
-        Side::Bottom => (
-            [rect.x, rect.y + rect.h],
-            [rect.x + rect.w, rect.y + rect.h],
-        ),
-        Side::Left => ([rect.x, rect.y], [rect.x, rect.y + rect.h]),
-        Side::Right => (
-            [rect.x + rect.w, rect.y],
-            [rect.x + rect.w, rect.y + rect.h],
-        ),
-        _ => ([rect.x, rect.y], [rect.x + rect.w, rect.y]),
-    }
-}
-
-fn world_norm(n: [f32; 2], rect: WorldRect, rotation_deg: f32) -> [f32; 2] {
-    let p = [rect.x + n[0] * rect.w, rect.y + n[1] * rect.h];
-    let (cx, cy) = rect.center();
-    rotate_pt(p, cx, cy, rotation_deg)
-}
-
-fn rotate_pt(p: [f32; 2], cx: f32, cy: f32, deg: f32) -> [f32; 2] {
-    if deg.abs() < f32::EPSILON {
-        return p;
-    }
-    let (sin, cos) = deg.to_radians().sin_cos();
-    let dx = p[0] - cx;
-    let dy = p[1] - cy;
-    [cx + dx * cos - dy * sin, cy + dx * sin + dy * cos]
-}
-
-fn unrotate_pt(p: [f32; 2], cx: f32, cy: f32, deg: f32) -> [f32; 2] {
-    rotate_pt(p, cx, cy, -deg)
-}
-
-fn rotate_vec(v: [f32; 2], deg: f32) -> [f32; 2] {
-    if deg.abs() < f32::EPSILON {
-        return v;
-    }
-    let (sin, cos) = deg.to_radians().sin_cos();
-    [v[0] * cos - v[1] * sin, v[0] * sin + v[1] * cos]
-}
-
-/// Left normal in screen axes (+x right, +y down): facing +x, left is −y.
-fn left_normal(tan: [f32; 2]) -> [f32; 2] {
-    [tan[1], -tan[0]]
-}
-
-fn eval_quad(a: [f32; 2], c: [f32; 2], b: [f32; 2], t: f32) -> [f32; 2] {
-    let u = 1.0 - t;
-    [
-        u * u * a[0] + 2.0 * u * t * c[0] + t * t * b[0],
-        u * u * a[1] + 2.0 * u * t * c[1] + t * t * b[1],
-    ]
-}
-
-fn eval_cubic(a: [f32; 2], c1: [f32; 2], c2: [f32; 2], b: [f32; 2], t: f32) -> [f32; 2] {
-    let u = 1.0 - t;
-    let uu = u * u;
-    let tt = t * t;
-    [
-        uu * u * a[0] + 3.0 * uu * t * c1[0] + 3.0 * u * tt * c2[0] + tt * t * b[0],
-        uu * u * a[1] + 3.0 * uu * t * c1[1] + 3.0 * u * tt * c2[1] + tt * t * b[1],
-    ]
-}
-
-fn project_seg(a: [f32; 2], b: [f32; 2], p: [f32; 2]) -> (f32, [f32; 2]) {
-    let ab = sub(b, a);
-    let l2 = ab[0] * ab[0] + ab[1] * ab[1];
-    if l2 < EPS {
-        return (0.0, a);
-    }
-    let t = ((p[0] - a[0]) * ab[0] + (p[1] - a[1]) * ab[1]) / l2;
-    let t = t.clamp(0.0, 1.0);
-    (t, lerp(a, b, t))
-}
-
-fn lerp(a: [f32; 2], b: [f32; 2], t: f32) -> [f32; 2] {
-    [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]
-}
-
-fn sub(a: [f32; 2], b: [f32; 2]) -> [f32; 2] {
-    [a[0] - b[0], a[1] - b[1]]
-}
-
-fn dist(a: [f32; 2], b: [f32; 2]) -> f32 {
-    let d = sub(a, b);
-    (d[0] * d[0] + d[1] * d[1]).sqrt()
-}
-
-fn norm(v: [f32; 2]) -> [f32; 2] {
-    let l = (v[0] * v[0] + v[1] * v[1]).sqrt();
-    if l < EPS {
-        [0.0, 0.0]
-    } else {
-        [v[0] / l, v[1] / l]
-    }
+    crate::link_inset::anchor(node, side, t)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::scene::{
-        NodeId, NodeKind, PathData, PathSeg, ShapeKind, ShapeNode, Stroke, TextNode,
-    };
-    use crate::scene::{TextAlign, Typeface};
+mod rail_tests;
+#[cfg(test)]
+mod tests;
 
-    fn shape_node(kind: ShapeKind, rect: WorldRect, rot: f32, path: Option<PathData>) -> Node {
-        Node {
-            id: NodeId(1),
-            rect,
-            rotation_deg: rot,
-            opacity: 1.0,
-            locked: false,
-            hidden: false,
-            group: None,
-            clip: None,
-            bumper: None,
-            kind: NodeKind::Shape(ShapeNode {
-                shape: kind,
-                fill: None,
-                stroke: Stroke::default(),
-                corner: Default::default(),
-                sides: crate::scene::default_regular_sides(),
-                phase_deg: 0.0,
-                flip: false,
-                path: path.map(std::sync::Arc::new),
-                text: None,
-            }),
-        }
-    }
-
-    #[test]
-    fn rotated_rect_top_follows_the_local_edge_not_the_aabb() {
-        let rect = WorldRect::new(0.0, 0.0, 100.0, 40.0);
-        let node = shape_node(ShapeKind::Rect, rect, 90.0, None);
-        let host = WireHost::from_node(&node);
-        let top = host.anchor(Side::Top, 0.5);
-        // Local top mid (50, 0) rotated 90° CW about (50, 20) → (70, 20).
-        assert!((top[0] - 70.0).abs() < 1e-4 && (top[1] - 20.0).abs() < 1e-4);
-        let aabb_top = connector_anchor_point(rect, Side::Top, 0.5);
-        assert!(
-            dist(top, aabb_top) > 10.0,
-            "rotated top must leave the AABB top, got {top:?} vs {aabb_top:?}"
-        );
-        let n = host.outward(Side::Top, 0.5);
-        // Local (0, −1) rotated 90° CW → (1, 0).
-        assert!((n[0] - 1.0).abs() < 1e-4 && n[1].abs() < 1e-4);
-    }
-
-    #[test]
-    fn ellipse_ports_lie_on_the_ellipse_after_rotation() {
-        let rect = WorldRect::new(0.0, 0.0, 100.0, 40.0);
-        let node = shape_node(ShapeKind::Ellipse, rect, 35.0, None);
-        let host = WireHost::from_node(&node);
-        let (cx, cy) = rect.center();
-        let rx = rect.w * 0.5;
-        let ry = rect.h * 0.5;
-        for port in host.ports() {
-            let local = unrotate_pt(port.point, cx, cy, 35.0);
-            let nx = (local[0] - cx) / rx;
-            let ny = (local[1] - cy) / ry;
-            let resid = nx * nx + ny * ny;
-            assert!(
-                (resid - 1.0).abs() < 1e-4,
-                "port {:?} not on ellipse (resid={resid})",
-                port.side
-            );
-        }
-    }
-
-    #[test]
-    fn open_path_anchors_are_start_mid_end() {
-        let rect = WorldRect::new(0.0, 0.0, 100.0, 50.0);
-        let path = PathData {
-            start: [0.0, 0.0],
-            segs: vec![PathSeg::Line { to: [1.0, 1.0] }],
-            ..PathData::default()
-        };
-        let node = shape_node(ShapeKind::Path, rect, 0.0, Some(path));
-        let host = WireHost::from_node(&node);
-        assert!(host.is_open());
-        assert!(host.ports().is_empty(), "open shapes offer no ports");
-        let start = host.anchor(Side::Start, 0.0);
-        let mid = host.anchor(Side::Mid, 0.5);
-        let end = host.anchor(Side::End, 1.0);
-        assert!((start[0] - 0.0).abs() < 1e-4 && (start[1] - 0.0).abs() < 1e-4);
-        assert!((mid[0] - 50.0).abs() < 1e-4 && (mid[1] - 25.0).abs() < 1e-4);
-        assert!((end[0] - 100.0).abs() < 1e-4 && (end[1] - 50.0).abs() < 1e-4);
-    }
-
-    #[test]
-    fn legacy_line_anchors_follow_the_diagonal() {
-        let rect = WorldRect::new(10.0, 20.0, 80.0, 40.0);
-        let node = shape_node(ShapeKind::Line, rect, 0.0, None);
-        let host = WireHost::from_node(&node);
-        assert!(host.ports().is_empty(), "open shapes offer no ports");
-        assert_eq!(host.anchor(Side::Start, 0.0), [10.0, 20.0]);
-        assert_eq!(host.anchor(Side::End, 1.0), [90.0, 60.0]);
-        let mid = host.anchor(Side::Mid, 0.5);
-        assert!((mid[0] - 50.0).abs() < 1e-4);
-        assert!((mid[1] - 40.0).abs() < 1e-4);
-    }
-
-    #[test]
-    fn old_box_side_on_a_line_snaps_to_a_stroke_feature() {
-        let rect = WorldRect::new(0.0, 0.0, 100.0, 0.0);
-        let path = PathData {
-            start: [0.0, 0.0],
-            segs: vec![PathSeg::Line { to: [1.0, 0.0] }],
-            ..PathData::default()
-        };
-        let node = shape_node(ShapeKind::Path, rect, 0.0, Some(path));
-        let host = WireHost::from_node(&node);
-        // Historical Right mid of a degenerate line AABB is the end.
-        let p = host.anchor(Side::Right, 0.5);
-        assert!((p[0] - 100.0).abs() < 1e-3);
-        let p = host.anchor(Side::Left, 0.5);
-        assert!(p[0].abs() < 1e-3);
-    }
-
-    #[test]
-    fn text_and_unrotated_rect_share_oriented_mids() {
-        let rect = WorldRect::new(0.0, 0.0, 80.0, 20.0);
-        let text = Node {
-            id: NodeId(2),
-            rect,
-            rotation_deg: 0.0,
-            opacity: 1.0,
-            locked: false,
-            hidden: false,
-            group: None,
-            clip: None,
-            bumper: None,
-            kind: NodeKind::Text(TextNode {
-                text: "hi".into(),
-                family: Typeface::Sans,
-                size: 14.0,
-                color: crate::scene::Rgba::BLACK,
-                align: TextAlign::Left,
-                fill: None,
-                stroke: Default::default(),
-                agent: None,
-            }),
-        };
-        let a = WireHost::from_node(&text).anchor(Side::Top, 0.5);
-        let b = connector_anchor_point(rect, Side::Top, 0.5);
-        assert_eq!(a, b);
-    }
-
-    #[test]
-    fn open_mid_outward_is_stable_left_normal() {
-        let rect = WorldRect::new(0.0, 0.0, 100.0, 0.0);
-        let path = PathData {
-            start: [0.0, 0.0],
-            segs: vec![PathSeg::Line { to: [1.0, 0.0] }],
-            ..PathData::default()
-        };
-        let node = shape_node(ShapeKind::Path, rect, 0.0, Some(path));
-        let n = WireHost::from_node(&node).outward(Side::Mid, 0.5);
-        // Tangent +x; left in screen axes is −y.
-        assert!(n[0].abs() < 1e-4 && (n[1] + 1.0).abs() < 1e-4);
-    }
-
-    #[test]
-    fn closed_polyline_snaps_to_the_stroke_not_the_aabb() {
-        // Right triangle (0,0)-(80,0)-(0,80). The AABB top-mid is (40, 0) on
-        // the base; the AABB right-mid (80, 40) sits in empty space.
-        let rect = WorldRect::new(0.0, 0.0, 80.0, 80.0);
-        let path = PathData {
-            start: [0.0, 0.0],
-            segs: vec![
-                PathSeg::Line { to: [1.0, 0.0] },
-                PathSeg::Line { to: [0.0, 1.0] },
-            ],
-            closed: true,
-            ..PathData::default()
-        };
-        let node = shape_node(ShapeKind::Path, rect, 0.0, Some(path));
-        let host = WireHost::from_node(&node);
-        assert!(
-            host.is_open(),
-            "closed polylines must not use the AABB host"
-        );
-        let ghost = [80.0, 40.0];
-        let snap = host.snap(ghost);
-        let on_hypotenuse = (snap.point[0] + snap.point[1] - 80.0).abs() < 1.0;
-        assert!(
-            on_hypotenuse,
-            "snap from the AABB edge must land on the closing seam, got {:?}",
-            snap.point
-        );
-        assert!(
-            dist(snap.point, ghost) > 15.0,
-            "the AABB edge itself is not a closed-polyline feature"
-        );
-    }
-
-    #[test]
-    fn open_shapes_offer_no_ports_while_closed_shapes_keep_them() {
-        let rect = WorldRect::new(0.0, 0.0, 100.0, 50.0);
-        let polyline = |closed: bool| PathData {
-            start: [0.0, 0.0],
-            segs: vec![
-                PathSeg::Line { to: [1.0, 0.0] },
-                PathSeg::Line { to: [0.0, 1.0] },
-            ],
-            closed,
-            ..PathData::default()
-        };
-        let cubic = |closed: bool| PathData {
-            start: [0.0, 0.0],
-            segs: vec![PathSeg::Cubic {
-                c1: [0.3, -0.5],
-                c2: [0.7, 1.5],
-                to: [1.0, 1.0],
-            }],
-            closed,
-            ..PathData::default()
-        };
-        let open = [
-            shape_node(ShapeKind::Line, rect, 0.0, None),
-            shape_node(ShapeKind::Path, rect, 0.0, Some(polyline(false))),
-            shape_node(ShapeKind::Path, rect, 0.0, Some(cubic(false))),
-        ];
-        for node in &open {
-            assert!(is_open_shape(node));
-            let host = WireHost::from_node(node);
-            assert!(!host.offers_ports());
-            assert!(host.ports().is_empty(), "open shape offered ports");
-            // Wires saved before the gate still resolve onto the stroke.
-            let end = host.anchor(Side::End, 1.0);
-            assert!(end[0].is_finite() && end[1].is_finite());
-        }
-        for path in [polyline(true), cubic(true)] {
-            let node = shape_node(ShapeKind::Path, rect, 0.0, Some(path));
-            assert!(!is_open_shape(&node));
-            let host = WireHost::from_node(&node);
-            assert!(host.offers_ports());
-            assert_eq!(host.ports().len(), 3);
-        }
-        let boxed = shape_node(ShapeKind::Rect, rect, 0.0, None);
-        assert!(!is_open_shape(&boxed));
-        assert_eq!(WireHost::from_node(&boxed).ports().len(), 4);
-    }
-}
+#[cfg(test)]
+#[path = "wire_host/eligibility_tests.rs"]
+mod eligibility_tests;

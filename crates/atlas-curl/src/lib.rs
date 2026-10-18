@@ -13,6 +13,8 @@ use std::{
     time::Duration,
 };
 
+mod bounded;
+
 /// One multipart field.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Field {
@@ -44,6 +46,8 @@ pub struct Request {
     pub body: Body,
     /// Write the response body to this file instead of stdout.
     pub output: Option<PathBuf>,
+    /// Follow only HTTP(S) redirects, for ordinary downloaded resources.
+    pub follow_redirects: bool,
 }
 
 /// Why a request produced no usable body.
@@ -78,6 +82,7 @@ impl Request {
             headers: Vec::new(),
             body: Body::None,
             output: None,
+            follow_redirects: false,
         }
     }
 
@@ -137,6 +142,14 @@ impl Request {
         }
         if self.stream {
             lines.push("no-buffer".into());
+        }
+        if self.follow_redirects {
+            lines.extend([
+                "location".into(),
+                "max-redirs = 5".into(),
+                "proto = \"=http,https\"".into(),
+                "proto-redir = \"=http,https\"".into(),
+            ]);
         }
         for (name, value) in &self.headers {
             if name.contains([':', '\r', '\n']) || value.contains(['\r', '\n']) {

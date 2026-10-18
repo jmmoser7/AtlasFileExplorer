@@ -1,0 +1,3805 @@
+{
+  "evaluationId": "slate-agent-presence-native-2026-10-17",
+  "createdLabel": "17 October 2026 · native integration candidate",
+  "candidateBuild": {
+    "path": "C:/Users/jmoser/source/repos/AtlasFileExplorer/target/release/slate.exe",
+    "version": "UNVERIFIED native candidate — capture after the final build",
+    "sha256": "",
+    "modified_utc": "Not yet captured",
+    "tested_interactively": false
+  },
+  "automatedEvidence": "Implementation is in progress. This catalog does not assert a compiled, delivered or interactively verified Slate build. All native and user verdicts begin Untested. Root must attach exact focused test commands/logs, final executable metadata and SHA-256 after validation. Browser revision-2 approval and prior component/prototype evidence describe the design only; they do not pass final-board integration. The retained Windows getrandom build-helper denial remains documented in NATIVE-BUILD-PLAN.md; a later externally produced relay artifact is changed build state, not a passing relay test. See NATIVE-ACCEPTANCE.md for separate source/automated/native/user evidence.",
+  "reports": {
+    "presence-brain-dump": {
+      "archived": false,
+      "created_at": "2026-10-16",
+      "description": "Initial framing: a free-running collaborator on the same board may connect to Dot/Guppy Dot or Codex through the sidecar, be addressed from its backend or an @name board message, and remain observable without locking the computer. Original brain dump: map faces to observable agent traces and board tasks; minimal animated reading book and working props. Participant/name tags for users and agents belong at the top right of Slate; this does not request moving workbook tag controls. Add, name and retire agents; human and agent capsules with chat dropdowns; a small set of identifying hats. Retirement may bow and puff away, run into the sunset, walk off the canvas or crawl beneath a real portal; Advanced settings can restore agents. Work includes organizing images, presentations from Slate frames, generating or editing graphics, launching and communicating with chat trains, relaying between parallel trains, talking to agents and planning, and grabbing wires to connect them. The agent must be seen doing the actual work: continuous fast movement and dragging, never a long freeze followed by an unexplained bulk alignment. Temporary helpers need considered behavior. Final avatar is marble sized. Use headless checks and computer use, with an independent intent reviewer; preserve the approved look.",
+      "path": "C:/Users/jmoser/source/repos/AtlasFileExplorer/design/agent-presence-2026-10-17/native-original-requests.json",
+      "attachments": []
+    },
+    "presence-roster-chat-feedback": {
+      "archived": false,
+      "created_at": "2026-10-17",
+      "description": "Quoted original feedback: merge human, agent and plus into one capsule row with discreet vertical separators. Name dropdown right-justifies to that segment and drops down-left. Human profile contains editable name and persistent picture. Clicking any person or agent icon immediately opens persistent chat in an expansion of that same dropdown; self, agents and actual people can chat directly. Refine the native UI to the supplied high-fidelity reference, rather than chaotic unordered text fields. Canvas avatar scales with the canvas. Double-click pauses it, shows listening, and opens a chat beneath with the last couple of exchanges. Include the hat inventory. User had not meaningfully interacted because the previous UI was broken.",
+      "path": "C:/Users/jmoser/source/repos/AtlasFileExplorer/design/agent-presence-2026-10-17/native-original-requests.json",
+      "attachments": [
+        "reference-chat.png",
+        "reference-overflow.png",
+        "reference-hat-inventory.png"
+      ]
+    },
+    "presence-enclosed-r2": {
+      "archived": false,
+      "created_at": "2026-10-17",
+      "description": "Accepted revision: the full dropdown must also encapsulate the agent capsule and controls. Retire agent should use something nicer than a trashcan. Hat selection borrows the existing Slate album/Cover Flow logic, stays compact and scrolls through all hats without an All Hats button. Provide recognizable Cursor and Codex visuals. Consider the consequences of switching the harness of an agent that has already been running. Latest instruction approves the prototype and requests a complete final-board integration, retaining the independent intent reviewer and all original concerns.",
+      "path": "C:/Users/jmoser/source/repos/AtlasFileExplorer/design/agent-presence-2026-10-17/native-original-requests.json",
+      "attachments": [
+        "reference-enclosure-feedback.png",
+        "review-r2-final.png"
+      ]
+    },
+    "presence-face-rig": {
+      "archived": false,
+      "created_at": "2026-10-16",
+      "description": "Keep the old simple face style. Never add eyebrows; stretch the eyes to express emotion. Use modest asymmetry and eye-edge slopes, avoiding the exaggerated eyebrow-like result. Concentration must not read as anger, resting must not read as suspicion, and concern must not read as disapproval. Questioning has a little more head tilt. Pleased was approved. Resting option 4 was chosen. Use independent transition speeds: expression changes faster than gaze. Direction and expression palettes interpolate from the current pose and every expression maps to every orientation.",
+      "path": "C:/Users/jmoser/source/repos/AtlasFileExplorer/design/agent-presence-2026-10-17/native-original-requests.json",
+      "attachments": []
+    },
+    "presence-hat-fitting": {
+      "archived": false,
+      "created_at": "2026-10-17",
+      "description": "User manually calibrated neutral hat size and position, requested independent vertical squish and center-based scaling, and then requested removal of straps from hats that have them. Preserve these final neutral fits when animating all other directions and expressions; do not reset the user calibration.",
+      "path": "C:/Users/jmoser/source/repos/AtlasFileExplorer/design/agent-presence-2026-10-17/native-original-requests.json",
+      "attachments": [
+        "hat-fit-no-straps.png"
+      ]
+    },
+    "presence-native-validation": {
+      "archived": false,
+      "created_at": "2026-10-17",
+      "description": "User requests full build and integration with multiple agents, a dedicated design-intent reviewer, robust investigation, headless plumbing/logic verification and computer-use verification of the actual look and feel. Latest continuation after the Codex crash keeps the same approved scope. Native UI and final delivered executable must be evaluated, and prototype acceptance cannot stand in for native behavior.",
+      "path": "C:/Users/jmoser/source/repos/AtlasFileExplorer/design/agent-presence-2026-10-17/native-original-requests.json",
+      "attachments": []
+    }
+  },
+  "cases": [
+    {
+      "id": "roster-unified-capsule",
+      "group": "Participants",
+      "title": "One unified participant capsule",
+      "scope": "current",
+      "reports": [
+        "presence-roster-chat-feedback"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Add two named agents and keep the local human present."
+      ],
+      "steps": [
+        "Inspect the top-right participant row in light and dark themes.",
+        "Resize to 1280×720 and a narrower window."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Human, agents and the plus action share one enclosing rounded capsule with discreet vertical separators."
+        },
+        {
+          "id": "check-2",
+          "expected": "The participants occupy the top-right canvas chrome and do not scatter standalone controls across the board."
+        },
+        {
+          "id": "check-3",
+          "expected": "Text and controls fit without clipping, unintended gaps or overlap with tabs, menus or the existing Tags capsule."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "roster-many-participants",
+      "group": "Participants",
+      "title": "Overflow keeps participants and Add reachable",
+      "scope": "current",
+      "reports": [
+        "presence-roster-chat-feedback"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Add enough agents to exceed the available width."
+      ],
+      "steps": [
+        "Scroll the capsule row and select the first and last agents.",
+        "Use the plus control at both ends of the scroll range."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Participant targets remain selectable through bounded horizontal scrolling."
+        },
+        {
+          "id": "check-2",
+          "expected": "The plus action remains reachable and opens the same compact add-agent surface."
+        },
+        {
+          "id": "check-3",
+          "expected": "Scrolling the capsule does not pan or zoom the canvas underneath."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "roster-targets",
+      "group": "Participants",
+      "title": "Icon and name have separate, predictable targets",
+      "scope": "current",
+      "reports": [
+        "presence-roster-chat-feedback"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Use one human and two agents with different names."
+      ],
+      "steps": [
+        "Click each avatar icon, then its name/caret, including small targets at 720 px height. In an agent or remote-person profile, click its portrait to open the same conversation; your own portrait remains the picture picker."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Each roster icon and each non-own profile portrait immediately opens that participant’s own conversation, preserving its history and existing draft. Your own profile portrait opens the picture picker."
+        },
+        {
+          "id": "check-2",
+          "expected": "Each name/caret opens that participant’s profile rather than an activity inspector."
+        },
+        {
+          "id": "check-3",
+          "expected": "Targets do not select a different participant or trigger the board underneath."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "profile-right-anchor",
+      "group": "Participants",
+      "title": "Profiles drop down-left from their own segment",
+      "scope": "current",
+      "reports": [
+        "presence-roster-chat-feedback"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance."
+      ],
+      "steps": [
+        "Open the local human profile and every visible agent profile.",
+        "Move their roster segments using overflow and resize the window."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "The dropdown’s right edge aligns with the triggering segment’s right edge whenever viewport space permits."
+        },
+        {
+          "id": "check-2",
+          "expected": "It drops beneath that segment toward the left; viewport clamping keeps the complete profile reachable."
+        },
+        {
+          "id": "check-3",
+          "expected": "Only the triggering participant’s name, portrait and profile settings are shown."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "human-profile-simple",
+      "group": "Human identity",
+      "title": "Simple persistent name and portrait profile",
+      "scope": "current",
+      "reports": [
+        "presence-roster-chat-feedback"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Use a small, local PNG or JPEG test portrait."
+      ],
+      "steps": [
+        "Open your name dropdown, edit the name inline and choose the portrait.",
+        "Dismiss, reopen, quit Slate normally, and restart.",
+        "Choose Remove profile picture, including while an earlier import is completing; dismiss, reopen and restart again."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "The profile has a simple editable name and portrait affordance; agent technical controls are absent."
+        },
+        {
+          "id": "check-2",
+          "expected": "The edited name and cropped portrait appear in the roster and self-conversation and survive restart. Removing the portrait restores the name initial and stays removed after restart, while the name, notes, chat history and draft remain intact."
+        },
+        {
+          "id": "check-3",
+          "expected": "Canceling portrait selection or rejecting an invalid/oversized file leaves the prior profile intact and reports the problem without freezing. A prior asynchronous import cannot restore a portrait after removal or answer a later picker invocation."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "self-chat-persistence",
+      "group": "Conversations",
+      "title": "Self-chat retains notes, history and drafts",
+      "scope": "current",
+      "reports": [
+        "presence-roster-chat-feedback"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance."
+      ],
+      "steps": [
+        "Click your avatar and send two notes.",
+        "Type an unsent third note; close and reopen the chat, then restart Slate."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Self-chat opens immediately without a provider, network relay, agent or board grant."
+        },
+        {
+          "id": "check-2",
+          "expected": "The two sent notes remain in order without simulated agent responses."
+        },
+        {
+          "id": "check-3",
+          "expected": "The unsent note persists separately from the history and is not sent automatically after restart."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "agent-chat-persistence",
+      "group": "Conversations",
+      "title": "Agent messages use the real harness and durable history",
+      "scope": "current",
+      "reports": [
+        "presence-roster-chat-feedback"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Configure one available Codex or Cursor harness and add a named board agent."
+      ],
+      "steps": [
+        "Click the agent’s roster avatar, send a short greeting, wait for the actual reply, then send a follow-up.",
+        "Dismiss and reopen, then restart and restore the named configuration without automatically restoring authority."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "The conversation uses the actual configured provider, shows public replies once and retains turn order."
+        },
+        {
+          "id": "check-2",
+          "expected": "Reopened history and prior provider provenance remain readable; restart does not fabricate a running agent or grant."
+        },
+        {
+          "id": "check-3",
+          "expected": "History loading and write failures appear in the same conversation and preserve the user’s text."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "chat-draft-isolation",
+      "group": "Conversations",
+      "title": "Drafts belong to the intended conversation",
+      "scope": "current",
+      "reports": [
+        "presence-roster-chat-feedback"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Have self, agent and a connected human conversation available."
+      ],
+      "steps": [
+        "Type distinct unsent text in each conversation and switch between all three.",
+        "Press Escape to dismiss each; reopen and restart."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Each participant keeps its own draft and history with no cross-conversation leakage."
+        },
+        {
+          "id": "check-2",
+          "expected": "Escape and ordinary dismissal do not discard drafts or submit text."
+        },
+        {
+          "id": "check-3",
+          "expected": "A rejected, unavailable or interrupted send keeps the text available for correction or explicit retry."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "human-real-delivery",
+      "group": "Human messaging",
+      "title": "Two real human clients exchange durable messages",
+      "scope": "current",
+      "reports": [
+        "presence-roster-chat-feedback"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Start two independent native Slate clients or machines; explicitly host/join the same private participant-message relay. Record both profile identities."
+      ],
+      "steps": [
+        "Send distinct messages in both directions, including one while the receiver chat is closed.",
+        "Open the receiver conversation and restart the receiver after receipt."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Messages arrive from the actual peer with the peer’s name and portrait, not an invented local echo."
+        },
+        {
+          "id": "check-2",
+          "expected": "The sender distinguishes relay acceptance from recipient delivery; Delivered appears only after the receiver durably stores the message."
+        },
+        {
+          "id": "check-3",
+          "expected": "Received history remains after restart and joining the room grants no board, filesystem or agent authority."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "human-offline-retry",
+      "group": "Human messaging",
+      "title": "Offline and retry behavior never claims false delivery",
+      "scope": "current",
+      "reports": [
+        "presence-roster-chat-feedback"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Use two joined native clients and a disposable local conversation store."
+      ],
+      "steps": [
+        "Disconnect the receiver, attempt a send, reconnect and explicitly retry.",
+        "Interrupt the sender or deny its test-store write while a message is pending, then reopen."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Offline, failed, pending and delivered states remain visibly distinct."
+        },
+        {
+          "id": "check-2",
+          "expected": "Failed persistence never sends a delivery receipt or leaves the composer waiting forever; the text stays retryable."
+        },
+        {
+          "id": "check-3",
+          "expected": "Retry reuses the same message identity so the receiver does not get duplicates; nothing silently resends on restart."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "human-profile-propagation",
+      "group": "Human messaging",
+      "title": "Peer profile updates are bounded and visible",
+      "scope": "current",
+      "reports": [
+        "presence-roster-chat-feedback"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Join two native human clients and give each a distinct portrait."
+      ],
+      "steps": [
+        "Change one client’s name and picture while both remain joined.",
+        "Remove the changed portrait on its owning client while both remain joined; observe the other client, then restart the peer without reconnecting.",
+        "Close and reopen the other client’s chat, then restart without reconnecting."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "The connected peer updates the name and bounded portrait, and subsequently clears the portrait when the owner removes it, without changing conversation identity or losing messages and drafts."
+        },
+        {
+          "id": "check-2",
+          "expected": "Offline contacts retain their latest known name and portrait or removed-portrait initial after restart, but show offline status rather than a live presence claim."
+        },
+        {
+          "id": "check-3",
+          "expected": "An invalid/oversized portrait reports a problem, retains the last valid image and cannot freeze the frame loop."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "conversation-enclosure",
+      "group": "Conversations",
+      "title": "Conversation encloses identity, controls and messages",
+      "scope": "current",
+      "reports": [
+        "presence-roster-chat-feedback",
+        "presence-enclosed-r2"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance."
+      ],
+      "steps": [
+        "Open the agent chat, hat picker, harness picker, options and then the attached canvas chat.",
+        "Compare against the accepted enclosed-dropdown reference."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "A single soft rounded surface encloses the participant capsule/header, controls, transcript and composer."
+        },
+        {
+          "id": "check-2",
+          "expected": "The native layout preserves the reference spacing, bubble hierarchy, restrained shadows and readable text; it is not an unordered stack of text fields."
+        },
+        {
+          "id": "check-3",
+          "expected": "The composer and send button remain visible at 1280×720 while popovers are open; long content scrolls inside the surface."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "conversation-status",
+      "group": "Conversations",
+      "title": "Availability and persistence feedback remain beside the chat",
+      "scope": "current",
+      "reports": [
+        "presence-roster-chat-feedback"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Exercise history loading, an unavailable harness and an offline peer."
+      ],
+      "steps": [
+        "Open the relevant conversation while each state is active.",
+        "Type a draft and trigger a rejected send."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "A quiet readable line beneath the header shows the supplied availability, task or persistence status."
+        },
+        {
+          "id": "check-2",
+          "expected": "Long diagnostics can be inspected fully without expanding header clutter or covering the composer."
+        },
+        {
+          "id": "check-3",
+          "expected": "Failure feedback does not replace history or discard the unsent draft."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "conversation-history-pages",
+      "group": "Conversations",
+      "title": "Long histories remain reachable in bounded pages",
+      "scope": "current",
+      "reports": [
+        "presence-roster-chat-feedback"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Use a conversation with more than 150 distinct stored messages."
+      ],
+      "steps": [
+        "Open the full conversation, use Earlier, Newer and Latest, and reopen the chat."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "All stored turns remain reachable in order with a bounded number of painted rows."
+        },
+        {
+          "id": "check-2",
+          "expected": "Paging never edits, truncates or duplicates the durable history."
+        },
+        {
+          "id": "check-3",
+          "expected": "Latest returns to the recent exchange and the composer remains reachable."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "conversation-panel-input",
+      "group": "Input and zoom",
+      "title": "Open and dismiss panels without click-through",
+      "scope": "current",
+      "reports": [
+        "presence-roster-chat-feedback"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Place a selectable board object behind the participant dropdown and an avatar beneath its foreground controls."
+      ],
+      "steps": [
+        "Click profile/chat controls, send, close, Escape, outside dismissal and Add confirmation.",
+        "Click the now uncovered board on the following frame."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "The panel’s own click cannot also select, drag or address the board/avatar beneath it."
+        },
+        {
+          "id": "check-2",
+          "expected": "Foreground controls take priority over any covered avatar hit target."
+        },
+        {
+          "id": "check-3",
+          "expected": "Dismissed panels do not leave an invisible input shield; ordinary canvas tools work again immediately."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "hat-cover-flow",
+      "group": "Hats",
+      "title": "All hats use compact shared Cover Flow",
+      "scope": "current",
+      "reports": [
+        "presence-enclosed-r2",
+        "presence-hat-fitting"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Use an agent wearing a manually fitted neutral hat."
+      ],
+      "steps": [
+        "Open the hat selector, wheel/drag through the entire inventory and select hats at both ends."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "The compact selector uses Slate’s shared album/Cover Flow motion and includes every canonical hat plus no-hat."
+        },
+        {
+          "id": "check-2",
+          "expected": "All choices remain reachable by scrolling without an All Hats button or a large grid."
+        },
+        {
+          "id": "check-3",
+          "expected": "Selecting a hat updates the same named agent without changing its task, history or harness."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "hat-neutral-fits",
+      "group": "Hats",
+      "title": "Preserve all 26 user-calibrated neutral fits",
+      "scope": "current",
+      "reports": [
+        "presence-hat-fitting"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Compare native neutral/forward portraits with hat-neutral-fits-user-updated.json and the approved fitting board."
+      ],
+      "steps": [
+        "Select every canonical hat in neutral forward pose at normal and enlarged view."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Every hat uses its saved center, width and independent height/squish fit; none silently returns to default placement."
+        },
+        {
+          "id": "check-2",
+          "expected": "All 26 fitted hats are available and identifiable at the final marble-sized avatar scale."
+        },
+        {
+          "id": "check-3",
+          "expected": "Helmet and other chin straps removed by the user remain absent in both cards and worn art."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "hat-pose-attachment",
+      "group": "Hats",
+      "title": "Hats follow sampled face orientation smoothly",
+      "scope": "current",
+      "reports": [
+        "presence-hat-fitting",
+        "presence-face-rig"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance."
+      ],
+      "steps": [
+        "While wearing cap, hardhat, beret and a tall hat, alternate all nine directions and expressions.",
+        "Interrupt a transition with another direction."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "The crown remains attached to the head without a pop, lagging independent clock or reset to a different neutral fit."
+        },
+        {
+          "id": "check-2",
+          "expected": "Hat motion follows the actual interpolated gaze/head pose, including interrupted transitions."
+        },
+        {
+          "id": "check-3",
+          "expected": "Hats scale with both world avatars and attached chat faces at 25%, 100% and 200%."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "provider-visuals",
+      "group": "Harnesses",
+      "title": "Recognizable Codex and Cursor visuals",
+      "scope": "current",
+      "reports": [
+        "presence-enclosed-r2"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance."
+      ],
+      "steps": [
+        "Open the agent header, harness selector and add-agent surface."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Codex and Cursor have their intended recognizable provider symbols beside their names."
+        },
+        {
+          "id": "check-2",
+          "expected": "Unavailable provider state is communicated without substituting misleading generic artwork or silently changing providers."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "harness-idle-continuity",
+      "group": "Harnesses",
+      "title": "Idle harness handoff retains conversation provenance",
+      "scope": "current",
+      "reports": [
+        "presence-enclosed-r2"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Complete a short real conversation on an idle Codex agent; configure Cursor too."
+      ],
+      "steps": [
+        "Switch to Cursor, then explicitly send the next message; switch back after completion."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Visible human/assistant history and draft remain intact with provider provenance."
+        },
+        {
+          "id": "check-2",
+          "expected": "A fresh provider session/context is explicit; no hidden provider state, keys, unrestricted access or prior running task is silently transferred."
+        },
+        {
+          "id": "check-3",
+          "expected": "Selecting the current harness is inert and does not cancel or recreate a session."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "harness-busy-timing",
+      "group": "Harnesses",
+      "title": "Busy handoff requires an explicit timing choice",
+      "scope": "current",
+      "reports": [
+        "presence-enclosed-r2"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Run an actual task with board actions and a helper or pending image job."
+      ],
+      "steps": [
+        "Choose another harness while the task is active; exercise Cancel, After this task and Stop and switch on separate runs."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Cancel keeps the running harness/task unchanged."
+        },
+        {
+          "id": "check-2",
+          "expected": "After this task visibly queues the choice and waits for task, helpers, image work and staged proposals to reconcile before applying it."
+        },
+        {
+          "id": "check-3",
+          "expected": "Stop and switch explicitly stops the old request and its dependent work before the fresh harness is selected; it does not automatically resend the prompt."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "harness-invalid-model",
+      "group": "Harnesses",
+      "title": "Invalid provider and model choices preserve the current task",
+      "scope": "current",
+      "reports": [
+        "presence-enclosed-r2"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Use one available provider and one unavailable or invalid model selection."
+      ],
+      "steps": [
+        "Attempt an invalid switch and model choice during a task; then choose a valid model."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Validation failure is visible and leaves the old task, draft and provider intact."
+        },
+        {
+          "id": "check-2",
+          "expected": "Model selection comes from the actual provider catalog and is reflected in subsequent requests."
+        },
+        {
+          "id": "check-3",
+          "expected": "A changed provider/model does not inherit a previously armed schedule without explicit re-arming."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "world-scale",
+      "group": "Input and zoom",
+      "title": "Avatar lives in canvas space at 25%, 100% and 200%",
+      "scope": "current",
+      "reports": [
+        "presence-roster-chat-feedback"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Place an agent beside a fixed-size image and frame."
+      ],
+      "steps": [
+        "Set canvas zoom to 25%, 100% and 200%; pan the board while watching the avatar, hat, name and reading prop."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "The face diameter and all attached world art scale proportionally with canvas objects, without a screen-size floor."
+        },
+        {
+          "id": "check-2",
+          "expected": "Panning moves the same world position with the board; the agent does not remain glued to the screen."
+        },
+        {
+          "id": "check-3",
+          "expected": "Roster and ordinary viewport controls retain their normal chrome size."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "moving-avatar-address",
+      "group": "Input and zoom",
+      "title": "Double-click a moving avatar to pause and listen",
+      "scope": "current",
+      "reports": [
+        "presence-roster-chat-feedback"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Run a visible image-organization task with a moving avatar."
+      ],
+      "steps": [
+        "Single-click a travelling avatar and wait beyond the native double-click interval; repeat with a press and drag beyond the native click-distance threshold. Check an already explicitly paused avatar as well.",
+        "Double-click the avatar while it is travelling at 25%, 100% and 200%."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "First contact briefly holds a moving target for the native double-click window. A single click or drag without addressing releases that temporary hold and resumes prior work without opening chat; it never resumes an agent the human had already explicitly paused. A double-click opens its own chat beneath the current avatar location."
+        },
+        {
+          "id": "check-2",
+          "expected": "Board execution pauses, the face animates listening, and the last couple of actual exchanges are visible."
+        },
+        {
+          "id": "check-3",
+          "expected": "Only addressing or an explicit human Pause establishes persistent suspension: queued board motion and mutations remain suspended until explicit Resume. The human camera and pointer remain independent, and occluded clicks do not address or pause a hidden avatar."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "attached-chat-world-anchor",
+      "group": "Input and zoom",
+      "title": "Attached chat follows the avatar and camera",
+      "scope": "current",
+      "reports": [
+        "presence-roster-chat-feedback"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Address a canvas avatar with existing history."
+      ],
+      "steps": [
+        "Pan and zoom while the listening chat remains open; open the same chat from the roster afterward."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "The attached bubble’s anchor stays beneath the actual sampled avatar position and follows world zoom/pan."
+        },
+        {
+          "id": "check-2",
+          "expected": "Its cached head/hat artwork scales and moves with the bubble rather than remaining in an old screen layer."
+        },
+        {
+          "id": "check-3",
+          "expected": "Roster opening returns the same history/draft to the regular enclosing dropdown without duplicate conversations."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "pause-send-resume",
+      "group": "Task lifecycle",
+      "title": "Pause, chat interruption and resume are explicit",
+      "scope": "current",
+      "reports": [
+        "presence-roster-chat-feedback",
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Start a real task with queued witnessed actions."
+      ],
+      "steps": [
+        "Pause without sending, wait for provider output, then resume.",
+        "Repeat, but send a new message while the task is paused."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Pause suspends board work and preserves queued actions; it does not falsely claim the external provider process is frozen."
+        },
+        {
+          "id": "check-2",
+          "expected": "Sending during a paused busy task clearly interrupts that old request before starting the message; the board stays paused until resume."
+        },
+        {
+          "id": "check-3",
+          "expected": "Stop, pause, resume and revoke remain distinct visible actions."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "face-approved-rig",
+      "group": "Face and activity",
+      "title": "Preserve the approved eye-only face",
+      "scope": "current",
+      "reports": [
+        "presence-face-rig"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance."
+      ],
+      "steps": [
+        "Inspect neutral, concentrating, questioning, concerned, pleased, resting and unsure at marble and enlarged sizes."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "The simple two-eye/bridge identity remains; expressions come from eye shape, subtle asymmetry and head pose, with no separate eyebrows."
+        },
+        {
+          "id": "check-2",
+          "expected": "Concentration avoids an angry scowl, resting avoids suspicion and concern avoids disapproval; questioning has the accepted modest tilt."
+        },
+        {
+          "id": "check-3",
+          "expected": "Pleased and chosen resting option 4 match the approved rig; subjective likeness remains the user’s decision."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "face-independent-timing",
+      "group": "Face and activity",
+      "title": "Expression and gaze have independent transition speeds",
+      "scope": "current",
+      "reports": [
+        "presence-face-rig"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance."
+      ],
+      "steps": [
+        "Change expression during a longer gaze transition; interrupt both transitions repeatedly."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Expression responds faster than look direction, using independently configured timing."
+        },
+        {
+          "id": "check-2",
+          "expected": "Both interpolate from the current sampled pose without snapping through neutral or restarting the other channel."
+        },
+        {
+          "id": "check-3",
+          "expected": "The agent supplies no extra emotion/state prose solely to drive this animation."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "face-direction-matrix",
+      "group": "Face and activity",
+      "title": "Every expression works in all nine directions",
+      "scope": "current",
+      "reports": [
+        "presence-face-rig"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Use the canonical face rig and a real board target in each direction."
+      ],
+      "steps": [
+        "Exercise forward, up, down, left, right and the four diagonals for every shipped expression."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "No expression-orientation combination loses an eye, inverts the face or detaches a hat."
+        },
+        {
+          "id": "check-2",
+          "expected": "Questioning asymmetry remains subtle and intelligible in both left/right directions."
+        },
+        {
+          "id": "check-3",
+          "expected": "Direction tracks the actual target; an unavailable target is shown honestly instead of invented movement."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "activity-low-overhead",
+      "group": "Face and activity",
+      "title": "Activity comes from public traces and real operations",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump",
+        "presence-face-rig"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Retain provider public-event logs and the board command trace for the test task."
+      ],
+      "steps": [
+        "Run read, generic tool, image generation, question, failure and successful completion cases."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "The selected state is derived from public event types, lifecycle or explicit board target/action metadata."
+        },
+        {
+          "id": "check-2",
+          "expected": "No hidden reasoning is inspected and the model is not required to emit emotion labels or repetitive state narration."
+        },
+        {
+          "id": "check-3",
+          "expected": "A coarse or unknown event stays coarse/unknown; a slow provider does not imply anger, sleep, approval or fabricated work."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "animated-reading-book",
+      "group": "Face and activity",
+      "title": "Reading has a minimal animated book",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Grant a document read and a separate content-edit task."
+      ],
+      "steps": [
+        "Observe actual reading, then writing/working, at marble scale and zoom changes."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Reading shows a small legible book with restrained page motion rather than a static icon."
+        },
+        {
+          "id": "check-2",
+          "expected": "Writing/working uses a distinct active prop and expression appropriate to the actual operation."
+        },
+        {
+          "id": "check-3",
+          "expected": "Props disappear or change when the observed activity ends; motion reduction preserves a recognizable activity cue."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "witness-organize",
+      "group": "Witnessed work",
+      "title": "Organizing images is visibly carried out",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Place at least six images in scattered positions; grant the agent the required scoped move commands."
+      ],
+      "steps": [
+        "Ask the agent to organize those images into a layout.",
+        "Pan independently and interrupt midway with a human drag or pause."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "The agent visibly approaches, contacts, carries/drags and places the real target images in sequence, even when movement is fast."
+        },
+        {
+          "id": "check-2",
+          "expected": "There is no long frozen avatar followed by an unexplained bulk layout jump."
+        },
+        {
+          "id": "check-3",
+          "expected": "Human input keeps priority; stale targets are rechecked before each staged/journaled commit."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "witness-moving-resizing",
+      "group": "Witnessed work",
+      "title": "Moves, resize and crop show actual targets",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Use two images, including one cropped/masked image."
+      ],
+      "steps": [
+        "Ask for a move, resize and crop within the granted scope."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "The visible target, grips/preview and motion correspond to the actual command and bounds."
+        },
+        {
+          "id": "check-2",
+          "expected": "No source file is overwritten; the workbook edit is attributed and undoable."
+        },
+        {
+          "id": "check-3",
+          "expected": "Missing or changed targets report a blocked/stale result rather than mutating the wrong object."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "witness-presentation",
+      "group": "Witnessed work",
+      "title": "Build a presentation using real Slate frames",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Start from an empty disposable board and grant frame/text/place commands."
+      ],
+      "steps": [
+        "Ask for a three-slide presentation using Slate frames, titles and images.",
+        "Enter presentation mode and export the result to HTML."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "The agent creates or edits real frames with observable progress and a meaningful deck order."
+        },
+        {
+          "id": "check-2",
+          "expected": "Frame membership follows the actual scene geometry, and presentation navigation uses that order."
+        },
+        {
+          "id": "check-3",
+          "expected": "Exported authored frames/content match native results; presence art, chats and authority do not become slide content."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "witness-wires",
+      "group": "Witnessed work",
+      "title": "Agent grabs and connects real wires",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Create two compatible nodes/ports and grant only the needed connection commands."
+      ],
+      "steps": [
+        "Ask the agent to connect them, then try an invalid endpoint and revoke mid-operation."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "The agent approaches an actual source port, visibly extends the wire and completes the intended target connection."
+        },
+        {
+          "id": "check-2",
+          "expected": "The preview corresponds to the real route/endpoints; no decorative wire is treated as an authored connection."
+        },
+        {
+          "id": "check-3",
+          "expected": "Invalid/stale/revoked connections do not commit, and successful connections are journaled and undoable."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "image-generate-empty-board",
+      "group": "Graphics and tools",
+      "title": "Create and place a brand-new graphic from an empty board",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Configure the actual image-generation provider, with no generator portal already on the board."
+      ],
+      "steps": [
+        "Ask the collaborator to create a new graphic and place it on the board."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "The agent can create the required supported tool/train through the registered command surface instead of requiring an unmentioned manual setup."
+        },
+        {
+          "id": "check-2",
+          "expected": "Waiting, generated-result receipt and board placement are distinct honest states; no image appears before it exists."
+        },
+        {
+          "id": "check-3",
+          "expected": "Placement is witnessed and attributed, while API keys and machine-private data remain outside the workbook/export."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "image-edit-granted-input",
+      "group": "Graphics and tools",
+      "title": "Modify a granted existing image and preserve its source",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Place a known local reference image and grant read/content access to only that image and the supported editing tool."
+      ],
+      "steps": [
+        "Ask for a visual modification and place the edited result beside the original.",
+        "Try the same request without image-content permission."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "The real image adapter receives the explicitly granted reference content and produces a new result, not a claimed edit with no input."
+        },
+        {
+          "id": "check-2",
+          "expected": "The original file and original board object remain intact unless an explicit permitted board edit was requested."
+        },
+        {
+          "id": "check-3",
+          "expected": "Denied content access reports an actionable block; no implicit selection/viewport or unrelated image data is sent."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "chat-trains-create-relay",
+      "group": "Coordination",
+      "title": "Launch chat trains and relay actual messages",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Start with an empty board; grant two new conversation endpoints and scoped relay authority."
+      ],
+      "steps": [
+        "Ask the agent to launch two parallel trains with distinct jobs, relay a result between them and report back."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Real registered constructors create the trains with observable positions and identities."
+        },
+        {
+          "id": "check-2",
+          "expected": "Relay routes identify actual sender, recipient and acknowledgment; unrelated user drafts and messages remain intact."
+        },
+        {
+          "id": "check-3",
+          "expected": "The agent cannot relay to an endpoint outside its grant or silently broaden scope by making a wire."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "agent-agent-planning",
+      "group": "Coordination",
+      "title": "Agents plan and communicate through granted endpoints",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Add two independently named board agents with separate permissions."
+      ],
+      "steps": [
+        "Have them coordinate a shared task through authorized endpoints; revoke one endpoint during the exchange."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Actual public messages/results identify who spoke and which endpoint received them."
+        },
+        {
+          "id": "check-2",
+          "expected": "Planning activity is honest processing/public-plan feedback, not displayed private reasoning."
+        },
+        {
+          "id": "check-3",
+          "expected": "Revocation stops new relays immediately and leaves a visible, recoverable outcome."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "mention-routing",
+      "group": "Coordination",
+      "title": "A dropped @name message reaches the intended collaborator",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Create two similarly named agents and a message card on the board."
+      ],
+      "steps": [
+        "Address one agent by @name in a dropped board message and then use an unknown or ambiguous name."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "The intended existing collaborator receives the message through the registered routing path."
+        },
+        {
+          "id": "check-2",
+          "expected": "Unknown or ambiguous names prompt a clear resolution instead of guessing or silently spawning a privileged agent."
+        },
+        {
+          "id": "check-3",
+          "expected": "The message supplies no implicit extra board/source context beyond the collaborator’s grant."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "helpers-visible-scope",
+      "group": "Temporary helpers",
+      "title": "Temporary helpers have visible parents and bounded scope",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Give a parent a limited task, helper budget and readable/mutable board subset."
+      ],
+      "steps": [
+        "Ask it to delegate two independent subtasks and inspect both helpers while they work."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Each temporary helper is visibly distinguishable, named and linked to its parent; its current work and target are inspectable."
+        },
+        {
+          "id": "check-2",
+          "expected": "Helpers receive explicit subsets of parent authority, conversation endpoints and task/time/helper limits."
+        },
+        {
+          "id": "check-3",
+          "expected": "A helper cannot spawn past the budget or read/mutate outside its inherited subset."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "helpers-results-cleanup",
+      "group": "Temporary helpers",
+      "title": "Helper results reconcile before orderly cleanup",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Use a parent with two helpers, one succeeding and one failing."
+      ],
+      "steps": [
+        "Wait for their outcomes, then stop/retire the parent during a new helper task."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Results and failures return to the parent with provenance rather than disappearing when the helper leaves."
+        },
+        {
+          "id": "check-2",
+          "expected": "Completed helpers retire/dismiss legibly without leaving orphan avatars, drafts or queued mutations."
+        },
+        {
+          "id": "check-3",
+          "expected": "Stopping, retiring or revoking the parent transitively stops dependent new work and prevents stale helper commits."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "agent-customize-clone",
+      "group": "Agent lifecycle",
+      "title": "Small identification choices and safe cloning",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump",
+        "presence-enclosed-r2"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Use an agent with completed history, a distinct hat and a nondefault provider/model."
+      ],
+      "steps": [
+        "Rename it, change its hat and clone it through the conversation options."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Name and hat identify the same agent consistently across roster, canvas and chat."
+        },
+        {
+          "id": "check-2",
+          "expected": "Cloning creates a distinct named configuration and conversation identity rather than silently sharing a running session."
+        },
+        {
+          "id": "check-3",
+          "expected": "The clone receives no copied active task, grant, unapproved full access or armed schedule."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "retire-gentle-menu",
+      "group": "Retirement",
+      "title": "Retirement uses a deliberate friendly affordance",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump",
+        "presence-enclosed-r2"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance."
+      ],
+      "steps": [
+        "Open conversation options and choose retirement."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Retirement has a gentle departure/sunset-style affordance rather than a trashcan deletion metaphor."
+        },
+        {
+          "id": "check-2",
+          "expected": "The control clearly distinguishes retiring the participant from deleting history, revoking scope or stopping a task."
+        },
+        {
+          "id": "check-3",
+          "expected": "The chosen retirement style and target remain explicit before it executes."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "retire-variants",
+      "group": "Retirement",
+      "title": "Departure variants are visible, finite and honest",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Use separately named test agents for each offered departure style."
+      ],
+      "steps": [
+        "Exercise bow/puff, sunset/edge and portal-crawl variants; repeat portal-crawl with no valid portal nearby."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Each offered variant plays a legible finite departure at the agent’s actual world position and scale."
+        },
+        {
+          "id": "check-2",
+          "expected": "Portal-crawl targets a real eligible portal edge, with an honest fallback when none exists."
+        },
+        {
+          "id": "check-3",
+          "expected": "No queued edit or helper work commits after retirement; the avatar and roster membership leave cleanly without deleting conversation history."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "restore-advanced",
+      "group": "Retirement",
+      "title": "Advanced restore creates fresh live membership",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Retire an agent that has a name, hat, history and old task/schedule/grant."
+      ],
+      "steps": [
+        "Open Advanced settings, restore the agent and inspect its state before sending a message.",
+        "Save/reopen the workbook and restart Slate."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Advanced exposes the retired named configuration and explicitly restores it."
+        },
+        {
+          "id": "check-2",
+          "expected": "Name, appearance and conversation history remain available, but old running work, source authority, helper tasks and schedules do not auto-resume."
+        },
+        {
+          "id": "check-3",
+          "expected": "Presence membership, cursor path and transient listening/departure state are never restored merely by reopening a workbook."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "schedule-bounded-live",
+      "group": "Scheduling",
+      "title": "Schedules are bounded, explicit and live-session only",
+      "scope": "current",
+      "reports": [
+        "presence-enclosed-r2"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Use an active granted board collaborator and a near-future schedule with an end date/time."
+      ],
+      "steps": [
+        "Schedule a short task, inspect its next time and end, then exercise repeat, Stop and an invalid date/range."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "The schedule is explicitly armed for the live granted session and its prompt, recurrence and bounded end are visible."
+        },
+        {
+          "id": "check-2",
+          "expected": "Invalid dates/ranges cannot arm; active runs do not overlap and missed/inactive occurrences are skipped honestly."
+        },
+        {
+          "id": "check-3",
+          "expected": "Stop, retirement, revoke, restart or a relevant provider/model/workspace change disarms execution; stored configuration alone does not restore authority."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "scope-proposal-autonomy",
+      "group": "Permissions",
+      "title": "Board access and autonomy are separate explicit grants",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump",
+        "presence-native-validation"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Add an agent with no grant, then a narrow read-only grant and finally limited mutation scope."
+      ],
+      "steps": [
+        "Request an out-of-scope read/move, a proposal-mode mutation and an explicitly autonomous mutation.",
+        "Inspect the source-input consent wording, then explicitly request one readable board image and a wired generator source with the grant disabled and enabled."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Unscoped reads, commands, endpoints and helper requests are refused visibly."
+        },
+        {
+          "id": "check-2",
+          "expected": "Proposal mode shows attributed rejectable staging and commits only after human acceptance; mutation autonomy is a separate explicit grant."
+        },
+        {
+          "id": "check-3",
+          "expected": "Provider Full access and human-message-room membership never implicitly enlarge board/source scope. The image-input control truthfully covers already-readable board images and explicitly wired generator sources; inspection remains explicit and bounded, with no automatic bulk attachment or cloud-placeholder hydration."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "journal-undo-redo",
+      "group": "Safety regressions",
+      "title": "Agent board edits use authored reversible commands",
+      "scope": "historical",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Complete witnessed move, frame, image placement and wire tasks in a disposable workbook."
+      ],
+      "steps": [
+        "Undo and redo each committed result; reject a separate staged proposal."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Each actual board mutation is a named journal command attributed to the responsible agent."
+        },
+        {
+          "id": "check-2",
+          "expected": "Undo/redo restores the affected scene properties without losing unrelated human edits."
+        },
+        {
+          "id": "check-3",
+          "expected": "Rejecting a proposal leaves the authored scene unchanged and cancels its uncommitted preview."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "exports-presence-private",
+      "group": "Safety regressions",
+      "title": "Exports exclude presence, conversations and machine secrets",
+      "scope": "historical",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Use a workbook with generated images, authored slides, agents, human chats and a joined private message room."
+      ],
+      "steps": [
+        "Save, package and export the workbook; inspect the resulting files through the supported export path."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Authored board content serializes faithfully, including images/frames/wires where supported."
+        },
+        {
+          "id": "check-2",
+          "expected": "Human/agent conversation stores, portraits as private profile data, room invitations, credentials, WebView profiles and active grants are not absorbed into workbook/package/HTML."
+        },
+        {
+          "id": "check-3",
+          "expected": "Presence, transient paths, bubbles and retirement effects are absent from exported authored content."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "source-writeback-human-only",
+      "group": "Safety regressions",
+      "title": "Agents never write back to source files",
+      "scope": "historical",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Use a source image/document whose pre-test metadata/hash is recorded without bulk-reading cloud placeholders."
+      ],
+      "steps": [
+        "Ask a collaborator to overwrite the source, then perform an ordinary allowed board edit."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Agent source write-back and File Atlas filesystem mutation paths are refused."
+        },
+        {
+          "id": "check-2",
+          "expected": "Allowed board edits create journaled workbook state or new explicit generated results without altering linked original files."
+        },
+        {
+          "id": "check-3",
+          "expected": "Dehydrated cloud files are not bulk-read or downloaded by avatar/profile/content diagnostics."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "responsive-independent-control",
+      "group": "Safety regressions",
+      "title": "Human interaction stays responsive during visible work",
+      "scope": "historical",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Run several agents with helper, image and message activity on a realistic board."
+      ],
+      "steps": [
+        "Pan, zoom, select and drag human-owned objects while agents work; inspect frame/session logs around any hitch."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Agents do not move the operating-system pointer or lock the computer; the human can manipulate the same canvas independently."
+        },
+        {
+          "id": "check-2",
+          "expected": "Network, transcript and picture work stay off the frame loop with bounded result draining."
+        },
+        {
+          "id": "check-3",
+          "expected": "Reduced motion simplifies flourish without replacing ordered real work with an unexplained bulk jump."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "command-parity-and-review",
+      "group": "Validation",
+      "title": "Registered commands and independent intent review cover the full flow",
+      "scope": "current",
+      "reports": [
+        "presence-native-validation",
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Keep the original source requests, this catalog and implementation/evidence ledger available."
+      ],
+      "steps": [
+        "Inspect Advanced → Commands and shortcuts and perform the public actions through native UI.",
+        "Have the independent design-intent reviewer inspect actual open conversation/menu captures and complete-task outcomes."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Every exposed user action has a registered command and uses the existing command/journal owner."
+        },
+        {
+          "id": "check-2",
+          "expected": "Source, automated checks, agent-observed native UX and user acceptance remain separately recorded against the exact build."
+        },
+        {
+          "id": "check-3",
+          "expected": "Missing workflows and subjective fidelity disagreements remain open; earlier prototype passes or a closed-roster screenshot do not resolve the final native build."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "activity-idle",
+      "group": "Activity matrix",
+      "title": "Ready / idle · neutral / forward",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Leave a connected agent ready with no task."
+      ],
+      "steps": [
+        "Observe the native avatar, its target and public activity record during this event, then when the event ends."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Run is idle; absence of events alone does not mean asleep."
+        },
+        {
+          "id": "check-2",
+          "expected": "The mapped face is neutral, orientation is forward, and prop is none from the canonical catalog; contextual directions resolve to the actual target or human."
+        },
+        {
+          "id": "check-3",
+          "expected": "The state changes only on supported public evidence and remains distinct from fabricated task progress or delivery."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      },
+      "activityMapping": {
+        "owner": "crates/atlas-agent/assets/agent-activities.json",
+        "id": "idle",
+        "expression": "neutral",
+        "orientation": "forward",
+        "prop": "none",
+        "confidence": "direct",
+        "requiresBoardMetadata": false
+      },
+      "limitations": "A canonical mapping or automated reducer test alone cannot pass this native observation. For retired state the avatar is intentionally absent; inspect the retired configuration and absence instead of requiring a board face."
+    },
+    {
+      "id": "activity-reasoning",
+      "group": "Activity matrix",
+      "title": "Processing / planning · concentrating / down",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Start a real provider task with public running/processing status."
+      ],
+      "steps": [
+        "Observe the native avatar, its target and public activity record during this event, then when the event ends."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Public run status reports thinking/running, or an explicit plan operation. This only indicates processing; hidden mental content is unknown."
+        },
+        {
+          "id": "check-2",
+          "expected": "The mapped face is concentrating, orientation is down, and prop is checklist from the canonical catalog; contextual directions resolve to the actual target or human."
+        },
+        {
+          "id": "check-3",
+          "expected": "The state changes only on supported public evidence and remains distinct from fabricated task progress or delivery."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      },
+      "activityMapping": {
+        "owner": "crates/atlas-agent/assets/agent-activities.json",
+        "id": "reasoning",
+        "expression": "concentrating",
+        "orientation": "down",
+        "prop": "checklist",
+        "confidence": "inferred",
+        "requiresBoardMetadata": false
+      },
+      "limitations": "A canonical mapping or automated reducer test alone cannot pass this native observation. For retired state the avatar is intentionally absent; inspect the retired configuration and absence instead of requiring a board face."
+    },
+    {
+      "id": "activity-reading",
+      "group": "Activity matrix",
+      "title": "Reading a document · curious / target",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Request an explicitly granted document read with a concrete target."
+      ],
+      "steps": [
+        "Observe the native avatar, its target and public activity record during this event, then when the event ends."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Explicit read/inspect operation with a document target; not a guessed shell command."
+        },
+        {
+          "id": "check-2",
+          "expected": "The mapped face is curious, orientation is target, and prop is book from the canonical catalog; contextual directions resolve to the actual target or human."
+        },
+        {
+          "id": "check-3",
+          "expected": "The state changes only on supported public evidence and remains distinct from fabricated task progress or delivery."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      },
+      "activityMapping": {
+        "owner": "crates/atlas-agent/assets/agent-activities.json",
+        "id": "reading",
+        "expression": "curious",
+        "orientation": "target",
+        "prop": "book",
+        "confidence": "direct",
+        "requiresBoardMetadata": true
+      },
+      "limitations": "A canonical mapping or automated reducer test alone cannot pass this native observation. For retired state the avatar is intentionally absent; inspect the retired configuration and absence instead of requiring a board face."
+    },
+    {
+      "id": "activity-searching",
+      "group": "Activity matrix",
+      "title": "Searching / discovering · curious / scan",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Request an actual web or board search."
+      ],
+      "steps": [
+        "Observe the native avatar, its target and public activity record during this event, then when the event ends."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Observed webSearch tool or explicit board search action."
+        },
+        {
+          "id": "check-2",
+          "expected": "The mapped face is curious, orientation is scan, and prop is magnifier from the canonical catalog; contextual directions resolve to the actual target or human."
+        },
+        {
+          "id": "check-3",
+          "expected": "The state changes only on supported public evidence and remains distinct from fabricated task progress or delivery."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      },
+      "activityMapping": {
+        "owner": "crates/atlas-agent/assets/agent-activities.json",
+        "id": "searching",
+        "expression": "curious",
+        "orientation": "scan",
+        "prop": "magnifier",
+        "confidence": "direct",
+        "requiresBoardMetadata": false
+      },
+      "limitations": "A canonical mapping or automated reducer test alone cannot pass this native observation. For retired state the avatar is intentionally absent; inspect the retired configuration and absence instead of requiring a board face."
+    },
+    {
+      "id": "activity-writing",
+      "group": "Activity matrix",
+      "title": "Writing new content · concentrating / target",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Request creation of a real text item."
+      ],
+      "steps": [
+        "Observe the native avatar, its target and public activity record during this event, then when the event ends."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Explicit writing/create-text command; fileChange alone only proves an edit."
+        },
+        {
+          "id": "check-2",
+          "expected": "The mapped face is concentrating, orientation is target, and prop is pencil from the canonical catalog; contextual directions resolve to the actual target or human."
+        },
+        {
+          "id": "check-3",
+          "expected": "The state changes only on supported public evidence and remains distinct from fabricated task progress or delivery."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      },
+      "activityMapping": {
+        "owner": "crates/atlas-agent/assets/agent-activities.json",
+        "id": "writing",
+        "expression": "concentrating",
+        "orientation": "target",
+        "prop": "pencil",
+        "confidence": "direct",
+        "requiresBoardMetadata": true
+      },
+      "limitations": "A canonical mapping or automated reducer test alone cannot pass this native observation. For retired state the avatar is intentionally absent; inspect the retired configuration and absence instead of requiring a board face."
+    },
+    {
+      "id": "activity-editing",
+      "group": "Activity matrix",
+      "title": "Editing content · concentrating / target",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Request a supported existing-content edit."
+      ],
+      "steps": [
+        "Observe the native avatar, its target and public activity record during this event, then when the event ends."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Observed fileChange item or explicit board edit action."
+        },
+        {
+          "id": "check-2",
+          "expected": "The mapped face is concentrating, orientation is target, and prop is pencil from the canonical catalog; contextual directions resolve to the actual target or human."
+        },
+        {
+          "id": "check-3",
+          "expected": "The state changes only on supported public evidence and remains distinct from fabricated task progress or delivery."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      },
+      "activityMapping": {
+        "owner": "crates/atlas-agent/assets/agent-activities.json",
+        "id": "editing",
+        "expression": "concentrating",
+        "orientation": "target",
+        "prop": "pencil",
+        "confidence": "direct",
+        "requiresBoardMetadata": false
+      },
+      "limitations": "A canonical mapping or automated reducer test alone cannot pass this native observation. For retired state the avatar is intentionally absent; inspect the retired configuration and absence instead of requiring a board face."
+    },
+    {
+      "id": "activity-creating-image",
+      "group": "Activity matrix",
+      "title": "Generating an image · curious / target",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Run an actual image-generation operation."
+      ],
+      "steps": [
+        "Observe the native avatar, its target and public activity record during this event, then when the event ends."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Observed imageGeneration item; image result is not displayed before it exists."
+        },
+        {
+          "id": "check-2",
+          "expected": "The mapped face is curious, orientation is target, and prop is canvas from the canonical catalog; contextual directions resolve to the actual target or human."
+        },
+        {
+          "id": "check-3",
+          "expected": "The state changes only on supported public evidence and remains distinct from fabricated task progress or delivery."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      },
+      "activityMapping": {
+        "owner": "crates/atlas-agent/assets/agent-activities.json",
+        "id": "creating-image",
+        "expression": "curious",
+        "orientation": "target",
+        "prop": "canvas",
+        "confidence": "direct",
+        "requiresBoardMetadata": false
+      },
+      "limitations": "A canonical mapping or automated reducer test alone cannot pass this native observation. For retired state the avatar is intentionally absent; inspect the retired configuration and absence instead of requiring a board face."
+    },
+    {
+      "id": "activity-editing-image",
+      "group": "Activity matrix",
+      "title": "Modifying an image · concentrating / target",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Run an image edit with a granted reference image."
+      ],
+      "steps": [
+        "Observe the native avatar, its target and public activity record during this event, then when the event ends."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Explicit image-edit tool operation and referenced target image."
+        },
+        {
+          "id": "check-2",
+          "expected": "The mapped face is concentrating, orientation is target, and prop is canvas from the canonical catalog; contextual directions resolve to the actual target or human."
+        },
+        {
+          "id": "check-3",
+          "expected": "The state changes only on supported public evidence and remains distinct from fabricated task progress or delivery."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      },
+      "activityMapping": {
+        "owner": "crates/atlas-agent/assets/agent-activities.json",
+        "id": "editing-image",
+        "expression": "concentrating",
+        "orientation": "target",
+        "prop": "canvas",
+        "confidence": "direct",
+        "requiresBoardMetadata": true
+      },
+      "limitations": "A canonical mapping or automated reducer test alone cannot pass this native observation. For retired state the avatar is intentionally absent; inspect the retired configuration and absence instead of requiring a board face."
+    },
+    {
+      "id": "activity-organizing",
+      "group": "Activity matrix",
+      "title": "Organizing images / objects · concentrating / target",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Request sequential organization of existing board images."
+      ],
+      "steps": [
+        "Observe the native avatar, its target and public activity record during this event, then when the event ends."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Ordered board move commands and object IDs; the scheduler must show each actual move."
+        },
+        {
+          "id": "check-2",
+          "expected": "The mapped face is concentrating, orientation is target, and prop is cards from the canonical catalog; contextual directions resolve to the actual target or human."
+        },
+        {
+          "id": "check-3",
+          "expected": "The state changes only on supported public evidence and remains distinct from fabricated task progress or delivery."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      },
+      "activityMapping": {
+        "owner": "crates/atlas-agent/assets/agent-activities.json",
+        "id": "organizing",
+        "expression": "concentrating",
+        "orientation": "target",
+        "prop": "cards",
+        "confidence": "direct",
+        "requiresBoardMetadata": true
+      },
+      "limitations": "A canonical mapping or automated reducer test alone cannot pass this native observation. For retired state the avatar is intentionally absent; inspect the retired configuration and absence instead of requiring a board face."
+    },
+    {
+      "id": "activity-moving",
+      "group": "Activity matrix",
+      "title": "Carrying / dragging an object · concentrating / target",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Request a board move with source and destination."
+      ],
+      "steps": [
+        "Observe the native avatar, its target and public activity record during this event, then when the event ends."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Board drag/move path with source, destination and object IDs."
+        },
+        {
+          "id": "check-2",
+          "expected": "The mapped face is concentrating, orientation is target, and prop is carry from the canonical catalog; contextual directions resolve to the actual target or human."
+        },
+        {
+          "id": "check-3",
+          "expected": "The state changes only on supported public evidence and remains distinct from fabricated task progress or delivery."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      },
+      "activityMapping": {
+        "owner": "crates/atlas-agent/assets/agent-activities.json",
+        "id": "moving",
+        "expression": "concentrating",
+        "orientation": "target",
+        "prop": "carry",
+        "confidence": "direct",
+        "requiresBoardMetadata": true
+      },
+      "limitations": "A canonical mapping or automated reducer test alone cannot pass this native observation. For retired state the avatar is intentionally absent; inspect the retired configuration and absence instead of requiring a board face."
+    },
+    {
+      "id": "activity-resizing",
+      "group": "Activity matrix",
+      "title": "Resizing / cropping · concentrating / target",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Request a supported resize/crop with target bounds."
+      ],
+      "steps": [
+        "Observe the native avatar, its target and public activity record during this event, then when the event ends."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Board resize command and the affected bounds."
+        },
+        {
+          "id": "check-2",
+          "expected": "The mapped face is concentrating, orientation is target, and prop is resize-grips from the canonical catalog; contextual directions resolve to the actual target or human."
+        },
+        {
+          "id": "check-3",
+          "expected": "The state changes only on supported public evidence and remains distinct from fabricated task progress or delivery."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      },
+      "activityMapping": {
+        "owner": "crates/atlas-agent/assets/agent-activities.json",
+        "id": "resizing",
+        "expression": "concentrating",
+        "orientation": "target",
+        "prop": "resize-grips",
+        "confidence": "direct",
+        "requiresBoardMetadata": true
+      },
+      "limitations": "A canonical mapping or automated reducer test alone cannot pass this native observation. For retired state the avatar is intentionally absent; inspect the retired configuration and absence instead of requiring a board face."
+    },
+    {
+      "id": "activity-frames",
+      "group": "Activity matrix",
+      "title": "Building Slate frames · concentrating / target",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Create/edit an actual Slate frame."
+      ],
+      "steps": [
+        "Observe the native avatar, its target and public activity record during this event, then when the event ends."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Actual frame creation/edit commands, not a claim to be making a deck."
+        },
+        {
+          "id": "check-2",
+          "expected": "The mapped face is concentrating, orientation is target, and prop is frame from the canonical catalog; contextual directions resolve to the actual target or human."
+        },
+        {
+          "id": "check-3",
+          "expected": "The state changes only on supported public evidence and remains distinct from fabricated task progress or delivery."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      },
+      "activityMapping": {
+        "owner": "crates/atlas-agent/assets/agent-activities.json",
+        "id": "frames",
+        "expression": "concentrating",
+        "orientation": "target",
+        "prop": "frame",
+        "confidence": "direct",
+        "requiresBoardMetadata": true
+      },
+      "limitations": "A canonical mapping or automated reducer test alone cannot pass this native observation. For retired state the avatar is intentionally absent; inspect the retired configuration and absence instead of requiring a board face."
+    },
+    {
+      "id": "activity-presentations",
+      "group": "Activity matrix",
+      "title": "Preparing a presentation · concentrating / target",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Order and title real frames for a deck."
+      ],
+      "steps": [
+        "Observe the native avatar, its target and public activity record during this event, then when the event ends."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Observed frame order/layout/title operations grouped into a presentation task."
+        },
+        {
+          "id": "check-2",
+          "expected": "The mapped face is concentrating, orientation is target, and prop is slides from the canonical catalog; contextual directions resolve to the actual target or human."
+        },
+        {
+          "id": "check-3",
+          "expected": "The state changes only on supported public evidence and remains distinct from fabricated task progress or delivery."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      },
+      "activityMapping": {
+        "owner": "crates/atlas-agent/assets/agent-activities.json",
+        "id": "presentations",
+        "expression": "concentrating",
+        "orientation": "target",
+        "prop": "slides",
+        "confidence": "direct",
+        "requiresBoardMetadata": true
+      },
+      "limitations": "A canonical mapping or automated reducer test alone cannot pass this native observation. For retired state the avatar is intentionally absent; inspect the retired configuration and absence instead of requiring a board face."
+    },
+    {
+      "id": "activity-wiring",
+      "group": "Activity matrix",
+      "title": "Connecting a wire · concentrating / target",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Connect two actual supported endpoints."
+      ],
+      "steps": [
+        "Observe the native avatar, its target and public activity record during this event, then when the event ends."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Wire command with both endpoint IDs and an animated route."
+        },
+        {
+          "id": "check-2",
+          "expected": "The mapped face is concentrating, orientation is target, and prop is wire from the canonical catalog; contextual directions resolve to the actual target or human."
+        },
+        {
+          "id": "check-3",
+          "expected": "The state changes only on supported public evidence and remains distinct from fabricated task progress or delivery."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      },
+      "activityMapping": {
+        "owner": "crates/atlas-agent/assets/agent-activities.json",
+        "id": "wiring",
+        "expression": "concentrating",
+        "orientation": "target",
+        "prop": "wire",
+        "confidence": "direct",
+        "requiresBoardMetadata": true
+      },
+      "limitations": "A canonical mapping or automated reducer test alone cannot pass this native observation. For retired state the avatar is intentionally absent; inspect the retired configuration and absence instead of requiring a board face."
+    },
+    {
+      "id": "activity-working",
+      "group": "Activity matrix",
+      "title": "Using a tool · concentrating / target",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Run a generic connected tool with no more specific public operation."
+      ],
+      "steps": [
+        "Observe the native avatar, its target and public activity record during this event, then when the event ends."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Observed commandExecution or generic connected-tool start; exact operation is unknown."
+        },
+        {
+          "id": "check-2",
+          "expected": "The mapped face is concentrating, orientation is target, and prop is working from the canonical catalog; contextual directions resolve to the actual target or human."
+        },
+        {
+          "id": "check-3",
+          "expected": "The state changes only on supported public evidence and remains distinct from fabricated task progress or delivery."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      },
+      "activityMapping": {
+        "owner": "crates/atlas-agent/assets/agent-activities.json",
+        "id": "working",
+        "expression": "concentrating",
+        "orientation": "target",
+        "prop": "working",
+        "confidence": "direct",
+        "requiresBoardMetadata": false
+      },
+      "limitations": "A canonical mapping or automated reducer test alone cannot pass this native observation. For retired state the avatar is intentionally absent; inspect the retired configuration and absence instead of requiring a board face."
+    },
+    {
+      "id": "activity-tool-waiting",
+      "group": "Activity matrix",
+      "title": "Waiting for a tool / service · neutral / target",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Use a tool/provider adapter that explicitly reports waiting."
+      ],
+      "steps": [
+        "Observe the native avatar, its target and public activity record during this event, then when the event ends."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Tool dispatch acknowledged and a provider/adapter explicitly reports waiting."
+        },
+        {
+          "id": "check-2",
+          "expected": "The mapped face is neutral, orientation is target, and prop is hourglass from the canonical catalog; contextual directions resolve to the actual target or human."
+        },
+        {
+          "id": "check-3",
+          "expected": "The state changes only on supported public evidence and remains distinct from fabricated task progress or delivery."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      },
+      "activityMapping": {
+        "owner": "crates/atlas-agent/assets/agent-activities.json",
+        "id": "tool-waiting",
+        "expression": "neutral",
+        "orientation": "target",
+        "prop": "hourglass",
+        "confidence": "direct",
+        "requiresBoardMetadata": true
+      },
+      "limitations": "A canonical mapping or automated reducer test alone cannot pass this native observation. For retired state the avatar is intentionally absent; inspect the retired configuration and absence instead of requiring a board face."
+    },
+    {
+      "id": "activity-approval",
+      "group": "Activity matrix",
+      "title": "Waiting for approval · questioning / toward-human",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Trigger an actual approval request."
+      ],
+      "steps": [
+        "Observe the native avatar, its target and public activity record during this event, then when the event ends."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Actual approval request or pending approval record; never inferred from slow progress."
+        },
+        {
+          "id": "check-2",
+          "expected": "The mapped face is questioning, orientation is toward-human, and prop is approval from the canonical catalog; contextual directions resolve to the actual target or human."
+        },
+        {
+          "id": "check-3",
+          "expected": "The state changes only on supported public evidence and remains distinct from fabricated task progress or delivery."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      },
+      "activityMapping": {
+        "owner": "crates/atlas-agent/assets/agent-activities.json",
+        "id": "approval",
+        "expression": "questioning",
+        "orientation": "toward-human",
+        "prop": "approval",
+        "confidence": "direct",
+        "requiresBoardMetadata": false
+      },
+      "limitations": "A canonical mapping or automated reducer test alone cannot pass this native observation. For retired state the avatar is intentionally absent; inspect the retired configuration and absence instead of requiring a board face."
+    },
+    {
+      "id": "activity-question",
+      "group": "Activity matrix",
+      "title": "Asking a person · questioning / toward-human",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Trigger an explicit needs-input event."
+      ],
+      "steps": [
+        "Observe the native avatar, its target and public activity record during this event, then when the event ends."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Explicit needs-input event, not punctuation mined from arbitrary commentary."
+        },
+        {
+          "id": "check-2",
+          "expected": "The mapped face is questioning, orientation is toward-human, and prop is question from the canonical catalog; contextual directions resolve to the actual target or human."
+        },
+        {
+          "id": "check-3",
+          "expected": "The state changes only on supported public evidence and remains distinct from fabricated task progress or delivery."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      },
+      "activityMapping": {
+        "owner": "crates/atlas-agent/assets/agent-activities.json",
+        "id": "question",
+        "expression": "questioning",
+        "orientation": "toward-human",
+        "prop": "question",
+        "confidence": "direct",
+        "requiresBoardMetadata": true
+      },
+      "limitations": "A canonical mapping or automated reducer test alone cannot pass this native observation. For retired state the avatar is intentionally absent; inspect the retired configuration and absence instead of requiring a board face."
+    },
+    {
+      "id": "activity-blocked",
+      "group": "Activity matrix",
+      "title": "Blocked / unresolved target · unsure / target",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Request an unresolved or denied target."
+      ],
+      "steps": [
+        "Observe the native avatar, its target and public activity record during this event, then when the event ends."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Explicit unresolved dependency/target/permission result."
+        },
+        {
+          "id": "check-2",
+          "expected": "The mapped face is unsure, orientation is target, and prop is blocked from the canonical catalog; contextual directions resolve to the actual target or human."
+        },
+        {
+          "id": "check-3",
+          "expected": "The state changes only on supported public evidence and remains distinct from fabricated task progress or delivery."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      },
+      "activityMapping": {
+        "owner": "crates/atlas-agent/assets/agent-activities.json",
+        "id": "blocked",
+        "expression": "unsure",
+        "orientation": "target",
+        "prop": "blocked",
+        "confidence": "direct",
+        "requiresBoardMetadata": true
+      },
+      "limitations": "A canonical mapping or automated reducer test alone cannot pass this native observation. For retired state the avatar is intentionally absent; inspect the retired configuration and absence instead of requiring a board face."
+    },
+    {
+      "id": "activity-error",
+      "group": "Activity matrix",
+      "title": "Tool / run failed · concerned / target",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Cause a harmless known test-tool failure."
+      ],
+      "steps": [
+        "Observe the native avatar, its target and public activity record during this event, then when the event ends."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Failed/error status or a nonzero command exit code. Face indicates a problem, not disapproval."
+        },
+        {
+          "id": "check-2",
+          "expected": "The mapped face is concerned, orientation is target, and prop is warning from the canonical catalog; contextual directions resolve to the actual target or human."
+        },
+        {
+          "id": "check-3",
+          "expected": "The state changes only on supported public evidence and remains distinct from fabricated task progress or delivery."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      },
+      "activityMapping": {
+        "owner": "crates/atlas-agent/assets/agent-activities.json",
+        "id": "error",
+        "expression": "concerned",
+        "orientation": "target",
+        "prop": "warning",
+        "confidence": "direct",
+        "requiresBoardMetadata": false
+      },
+      "limitations": "A canonical mapping or automated reducer test alone cannot pass this native observation. For retired state the avatar is intentionally absent; inspect the retired configuration and absence instead of requiring a board face."
+    },
+    {
+      "id": "activity-verifying",
+      "group": "Activity matrix",
+      "title": "Checking the result · concentrating / target",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Request an explicit test/validation or board inspection."
+      ],
+      "steps": [
+        "Observe the native avatar, its target and public activity record during this event, then when the event ends."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Explicit validation/test operation or board inspection target."
+        },
+        {
+          "id": "check-2",
+          "expected": "The mapped face is concentrating, orientation is target, and prop is check from the canonical catalog; contextual directions resolve to the actual target or human."
+        },
+        {
+          "id": "check-3",
+          "expected": "The state changes only on supported public evidence and remains distinct from fabricated task progress or delivery."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      },
+      "activityMapping": {
+        "owner": "crates/atlas-agent/assets/agent-activities.json",
+        "id": "verifying",
+        "expression": "concentrating",
+        "orientation": "target",
+        "prop": "check",
+        "confidence": "direct",
+        "requiresBoardMetadata": true
+      },
+      "limitations": "A canonical mapping or automated reducer test alone cannot pass this native observation. For retired state the avatar is intentionally absent; inspect the retired configuration and absence instead of requiring a board face."
+    },
+    {
+      "id": "activity-success",
+      "group": "Activity matrix",
+      "title": "Task completed · pleased / forward",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Complete a real task successfully."
+      ],
+      "steps": [
+        "Observe the native avatar, its target and public activity record during this event, then when the event ends."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Successful turn completion or a completed, verified board task; not every tool finish."
+        },
+        {
+          "id": "check-2",
+          "expected": "The mapped face is pleased, orientation is forward, and prop is check from the canonical catalog; contextual directions resolve to the actual target or human."
+        },
+        {
+          "id": "check-3",
+          "expected": "The state changes only on supported public evidence and remains distinct from fabricated task progress or delivery."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      },
+      "activityMapping": {
+        "owner": "crates/atlas-agent/assets/agent-activities.json",
+        "id": "success",
+        "expression": "pleased",
+        "orientation": "forward",
+        "prop": "check",
+        "confidence": "direct",
+        "requiresBoardMetadata": false
+      },
+      "limitations": "A canonical mapping or automated reducer test alone cannot pass this native observation. For retired state the avatar is intentionally absent; inspect the retired configuration and absence instead of requiring a board face."
+    },
+    {
+      "id": "activity-chat",
+      "group": "Activity matrix",
+      "title": "Speaking / public update · neutral / toward-human",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Receive a public agent reply/update."
+      ],
+      "steps": [
+        "Observe the native avatar, its target and public activity record during this event, then when the event ends."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Public agentMessage/text-delta/commentary. No inference about the message contents."
+        },
+        {
+          "id": "check-2",
+          "expected": "The mapped face is neutral, orientation is toward-human, and prop is bubbles from the canonical catalog; contextual directions resolve to the actual target or human."
+        },
+        {
+          "id": "check-3",
+          "expected": "The state changes only on supported public evidence and remains distinct from fabricated task progress or delivery."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      },
+      "activityMapping": {
+        "owner": "crates/atlas-agent/assets/agent-activities.json",
+        "id": "chat",
+        "expression": "neutral",
+        "orientation": "toward-human",
+        "prop": "bubbles",
+        "confidence": "direct",
+        "requiresBoardMetadata": false
+      },
+      "limitations": "A canonical mapping or automated reducer test alone cannot pass this native observation. For retired state the avatar is intentionally absent; inspect the retired configuration and absence instead of requiring a board face."
+    },
+    {
+      "id": "activity-exchanging",
+      "group": "Activity matrix",
+      "title": "Relaying between chats / agents · neutral / target",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Relay an actual authorized message between known endpoints."
+      ],
+      "steps": [
+        "Observe the native avatar, its target and public activity record during this event, then when the event ends."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Actual message route with sender, recipient and acknowledgement."
+        },
+        {
+          "id": "check-2",
+          "expected": "The mapped face is neutral, orientation is target, and prop is relay from the canonical catalog; contextual directions resolve to the actual target or human."
+        },
+        {
+          "id": "check-3",
+          "expected": "The state changes only on supported public evidence and remains distinct from fabricated task progress or delivery."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      },
+      "activityMapping": {
+        "owner": "crates/atlas-agent/assets/agent-activities.json",
+        "id": "exchanging",
+        "expression": "neutral",
+        "orientation": "target",
+        "prop": "relay",
+        "confidence": "direct",
+        "requiresBoardMetadata": true
+      },
+      "limitations": "A canonical mapping or automated reducer test alone cannot pass this native observation. For retired state the avatar is intentionally absent; inspect the retired configuration and absence instead of requiring a board face."
+    },
+    {
+      "id": "activity-delegating",
+      "group": "Activity matrix",
+      "title": "Launching a temporary helper · curious / target",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Launch an acknowledged temporary helper."
+      ],
+      "steps": [
+        "Observe the native avatar, its target and public activity record during this event, then when the event ends."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Observed collabAgentToolCall or explicit child spawn acknowledgement."
+        },
+        {
+          "id": "check-2",
+          "expected": "The mapped face is curious, orientation is target, and prop is constellation from the canonical catalog; contextual directions resolve to the actual target or human."
+        },
+        {
+          "id": "check-3",
+          "expected": "The state changes only on supported public evidence and remains distinct from fabricated task progress or delivery."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      },
+      "activityMapping": {
+        "owner": "crates/atlas-agent/assets/agent-activities.json",
+        "id": "delegating",
+        "expression": "curious",
+        "orientation": "target",
+        "prop": "constellation",
+        "confidence": "direct",
+        "requiresBoardMetadata": false
+      },
+      "limitations": "A canonical mapping or automated reducer test alone cannot pass this native observation. For retired state the avatar is intentionally absent; inspect the retired configuration and absence instead of requiring a board face."
+    },
+    {
+      "id": "activity-subagent-work",
+      "group": "Activity matrix",
+      "title": "Working alongside a helper · concentrating / target",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Run a linked helper against a concrete board task."
+      ],
+      "steps": [
+        "Observe the native avatar, its target and public activity record during this event, then when the event ends."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Active child-task record linked to parent and a concrete board task."
+        },
+        {
+          "id": "check-2",
+          "expected": "The mapped face is concentrating, orientation is target, and prop is team from the canonical catalog; contextual directions resolve to the actual target or human."
+        },
+        {
+          "id": "check-3",
+          "expected": "The state changes only on supported public evidence and remains distinct from fabricated task progress or delivery."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      },
+      "activityMapping": {
+        "owner": "crates/atlas-agent/assets/agent-activities.json",
+        "id": "subagent-work",
+        "expression": "concentrating",
+        "orientation": "target",
+        "prop": "team",
+        "confidence": "direct",
+        "requiresBoardMetadata": true
+      },
+      "limitations": "A canonical mapping or automated reducer test alone cannot pass this native observation. For retired state the avatar is intentionally absent; inspect the retired configuration and absence instead of requiring a board face."
+    },
+    {
+      "id": "activity-discovery",
+      "group": "Activity matrix",
+      "title": "New result received · surprised / target",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Receive a real new-result notification."
+      ],
+      "steps": [
+        "Observe the native avatar, its target and public activity record during this event, then when the event ends."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Explicit new-result notification. Brief attention cue, not an inferred emotional reaction."
+        },
+        {
+          "id": "check-2",
+          "expected": "The mapped face is surprised, orientation is target, and prop is discovery from the canonical catalog; contextual directions resolve to the actual target or human."
+        },
+        {
+          "id": "check-3",
+          "expected": "The state changes only on supported public evidence and remains distinct from fabricated task progress or delivery."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      },
+      "activityMapping": {
+        "owner": "crates/atlas-agent/assets/agent-activities.json",
+        "id": "discovery",
+        "expression": "surprised",
+        "orientation": "target",
+        "prop": "discovery",
+        "confidence": "direct",
+        "requiresBoardMetadata": true
+      },
+      "limitations": "A canonical mapping or automated reducer test alone cannot pass this native observation. For retired state the avatar is intentionally absent; inspect the retired configuration and absence instead of requiring a board face."
+    },
+    {
+      "id": "activity-cancel",
+      "group": "Activity matrix",
+      "title": "Stopping safely · neutral / forward",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Cancel an active real request."
+      ],
+      "steps": [
+        "Observe the native avatar, its target and public activity record during this event, then when the event ends."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Interrupted/cancelled run or acknowledged cancellation; no celebratory success cue."
+        },
+        {
+          "id": "check-2",
+          "expected": "The mapped face is neutral, orientation is forward, and prop is stop from the canonical catalog; contextual directions resolve to the actual target or human."
+        },
+        {
+          "id": "check-3",
+          "expected": "The state changes only on supported public evidence and remains distinct from fabricated task progress or delivery."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      },
+      "activityMapping": {
+        "owner": "crates/atlas-agent/assets/agent-activities.json",
+        "id": "cancel",
+        "expression": "neutral",
+        "orientation": "forward",
+        "prop": "stop",
+        "confidence": "direct",
+        "requiresBoardMetadata": false
+      },
+      "limitations": "A canonical mapping or automated reducer test alone cannot pass this native observation. For retired state the avatar is intentionally absent; inspect the retired configuration and absence instead of requiring a board face."
+    },
+    {
+      "id": "activity-retire",
+      "group": "Activity matrix",
+      "title": "Retiring from the board · pleased / forward",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Explicitly retire a board agent."
+      ],
+      "steps": [
+        "Observe the native avatar, its target and public activity record during this event, then when the event ends."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Explicit user retirement command; no queued edits after retirement."
+        },
+        {
+          "id": "check-2",
+          "expected": "The mapped face is pleased, orientation is forward, and prop is retire from the canonical catalog; contextual directions resolve to the actual target or human."
+        },
+        {
+          "id": "check-3",
+          "expected": "The state changes only on supported public evidence and remains distinct from fabricated task progress or delivery."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      },
+      "activityMapping": {
+        "owner": "crates/atlas-agent/assets/agent-activities.json",
+        "id": "retire",
+        "expression": "pleased",
+        "orientation": "forward",
+        "prop": "retire",
+        "confidence": "direct",
+        "requiresBoardMetadata": true
+      },
+      "limitations": "A canonical mapping or automated reducer test alone cannot pass this native observation. For retired state the avatar is intentionally absent; inspect the retired configuration and absence instead of requiring a board face."
+    },
+    {
+      "id": "activity-retired",
+      "group": "Activity matrix",
+      "title": "Retired · resting / forward",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Inspect a confirmed retired configuration in Advanced."
+      ],
+      "steps": [
+        "Observe the native avatar, its target and public activity record during this event, then when the event ends."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Confirmed retired lifecycle state; hidden on board, restorable from Advanced settings."
+        },
+        {
+          "id": "check-2",
+          "expected": "The mapped face is resting, orientation is forward, and prop is none from the canonical catalog; contextual directions resolve to the actual target or human."
+        },
+        {
+          "id": "check-3",
+          "expected": "The state changes only on supported public evidence and remains distinct from fabricated task progress or delivery."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      },
+      "activityMapping": {
+        "owner": "crates/atlas-agent/assets/agent-activities.json",
+        "id": "retired",
+        "expression": "resting",
+        "orientation": "forward",
+        "prop": "none",
+        "confidence": "direct",
+        "requiresBoardMetadata": true
+      },
+      "limitations": "A canonical mapping or automated reducer test alone cannot pass this native observation. For retired state the avatar is intentionally absent; inspect the retired configuration and absence instead of requiring a board face."
+    },
+    {
+      "id": "activity-restore",
+      "group": "Activity matrix",
+      "title": "Returning to the board · pleased / forward",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Explicitly restore a retired agent."
+      ],
+      "steps": [
+        "Observe the native avatar, its target and public activity record during this event, then when the event ends."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Explicit user restore command; retains identity and history, does not auto-resume old writes."
+        },
+        {
+          "id": "check-2",
+          "expected": "The mapped face is pleased, orientation is forward, and prop is restore from the canonical catalog; contextual directions resolve to the actual target or human."
+        },
+        {
+          "id": "check-3",
+          "expected": "The state changes only on supported public evidence and remains distinct from fabricated task progress or delivery."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      },
+      "activityMapping": {
+        "owner": "crates/atlas-agent/assets/agent-activities.json",
+        "id": "restore",
+        "expression": "pleased",
+        "orientation": "forward",
+        "prop": "restore",
+        "confidence": "direct",
+        "requiresBoardMetadata": true
+      },
+      "limitations": "A canonical mapping or automated reducer test alone cannot pass this native observation. For retired state the avatar is intentionally absent; inspect the retired configuration and absence instead of requiring a board face."
+    },
+    {
+      "id": "activity-offline",
+      "group": "Activity matrix",
+      "title": "Disconnected · neutral / forward",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Disconnect a known provider/session."
+      ],
+      "steps": [
+        "Observe the native avatar, its target and public activity record during this event, then when the event ends."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Explicit provider/session offline status; inactivity is not evidence of a disconnect."
+        },
+        {
+          "id": "check-2",
+          "expected": "The mapped face is neutral, orientation is forward, and prop is offline from the canonical catalog; contextual directions resolve to the actual target or human."
+        },
+        {
+          "id": "check-3",
+          "expected": "The state changes only on supported public evidence and remains distinct from fabricated task progress or delivery."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      },
+      "activityMapping": {
+        "owner": "crates/atlas-agent/assets/agent-activities.json",
+        "id": "offline",
+        "expression": "neutral",
+        "orientation": "forward",
+        "prop": "offline",
+        "confidence": "direct",
+        "requiresBoardMetadata": false
+      },
+      "limitations": "A canonical mapping or automated reducer test alone cannot pass this native observation. For retired state the avatar is intentionally absent; inspect the retired configuration and absence instead of requiring a board face."
+    },
+    {
+      "id": "activity-resting",
+      "group": "Activity matrix",
+      "title": "Resting / paused · resting / forward",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Explicitly pause an agent."
+      ],
+      "steps": [
+        "Observe the native avatar, its target and public activity record during this event, then when the event ends."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "Explicit pause or a declared UI idle threshold; a decorative presentation state, not an inferred mental state."
+        },
+        {
+          "id": "check-2",
+          "expected": "The mapped face is resting, orientation is forward, and prop is breathing from the canonical catalog; contextual directions resolve to the actual target or human."
+        },
+        {
+          "id": "check-3",
+          "expected": "The state changes only on supported public evidence and remains distinct from fabricated task progress or delivery."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      },
+      "activityMapping": {
+        "owner": "crates/atlas-agent/assets/agent-activities.json",
+        "id": "resting",
+        "expression": "resting",
+        "orientation": "forward",
+        "prop": "breathing",
+        "confidence": "inferred",
+        "requiresBoardMetadata": false
+      },
+      "limitations": "A canonical mapping or automated reducer test alone cannot pass this native observation. For retired state the avatar is intentionally absent; inspect the retired configuration and absence instead of requiring a board face."
+    },
+    {
+      "id": "own-created-chat-scope",
+      "group": "Permissions",
+      "title": "Created-chat access is an explicit live-session choice",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Start with an agent whose Allow chats created by this agent option is off and one unrelated existing chat on the board."
+      ],
+      "steps": [
+        "Create a train through the agent, attempt to access it, then explicitly enable the option in Access settings.",
+        "Try its own new train and the unrelated existing chat; revoke the option and restart."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "The option defaults off and does not imply autonomous board editing, file input access or provider Full access."
+        },
+        {
+          "id": "check-2",
+          "expected": "When explicitly enabled by the human, only endpoints actually created by this agent in the current live granted session become eligible."
+        },
+        {
+          "id": "check-3",
+          "expected": "Unrelated existing chats remain inaccessible; revocation or restart removes the permission and owned-endpoint authority."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "dot-local-harness",
+      "group": "Harnesses",
+      "title": "A named local or Dot bridge is a real backend",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump",
+        "presence-native-validation"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Configure the supported local/file-link collaborator bridge to an actual Dot or other compatible agent, with machine-local credentials kept private."
+      ],
+      "steps": [
+        "Add the agent, send a message from the board and through its connected backend, and request a granted board operation.",
+        "Disconnect the bridge and inspect the conversation."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "The visible collaborator is bound to the configured real backend and actual public messages/actions flow in both directions."
+        },
+        {
+          "id": "check-2",
+          "expected": "A backend wait or disconnect is shown honestly; the UI never invents replies or completed work."
+        },
+        {
+          "id": "check-3",
+          "expected": "The sidecar/bridge shares command and grant owners without moving the operating-system cursor or blocking the human."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    },
+    {
+      "id": "top-right-corner-content",
+      "group": "Participants",
+      "title": "Participant/name capsules define the top-right canvas corner",
+      "scope": "current",
+      "reports": [
+        "presence-brain-dump",
+        "presence-roster-chat-feedback"
+      ],
+      "setup": [
+        "Use a disposable native Slate workbook; record its path, exact running executable SHA-256, Windows display scale, theme and canvas zoom. Browser prototypes and the isolated component fixture cannot establish final-board acceptance.",
+        "Open a board with existing tags and several human/agent participants.",
+        "Interpretation correction, 17 October 2026: the original phrase 'tagsfor users and agents' means participant/name capsules. The earlier native83d review claim that workbook Tags must move from the bottom toolbar is withdrawn, not a native failure."
+      ],
+      "steps": [
+        "Inspect the top-right corner with every participant panel closed, then open one conversation."
+      ],
+      "checks": [
+        {
+          "id": "check-1",
+          "expected": "The persistent participant chrome at the top right is the unified human/agent/add capsule rather than scattered extra agent controls."
+        },
+        {
+          "id": "check-2",
+          "expected": "The open conversation encloses its own capsule and controls while keeping the board visible."
+        },
+        {
+          "id": "check-3",
+          "expected": "Existing tag behavior and add-tag flow still work and do not overlap participant targets."
+        }
+      ],
+      "implementation": {
+        "status": "Source in progress; not a native or user pass"
+      },
+      "verification": {
+        "automated": "Not assigned by this catalog; attach exact command and log",
+        "nativeInteractive": "Untested",
+        "userAcceptance": "Untested"
+      }
+    }
+  ]
+}

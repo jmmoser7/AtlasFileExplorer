@@ -1,9 +1,34 @@
 //! Send a prompt and boot the sidecar.
 
+use super::runtime::{ChatSendOrigin, PendingChatSend};
 use super::*;
+
+mod startup;
+pub(super) use startup::SidecarStartup;
 
 impl SlateApp {
     pub(crate) fn send_agent_prompt(&mut self, portal: NodeId) -> Option<NodeId> {
+        self.send_agent_prompt_from(portal, None)
+    }
+    pub(in super::super) fn send_agent_prompt_from(
+        &mut self,
+        portal: NodeId,
+        relay: Option<(&str, &str)>,
+    ) -> Option<NodeId> {
+        if self
+            .doc()
+            .scene
+            .node(portal)
+            .and_then(slate_doc::scene::artifact)
+            .is_some()
+        {
+            self.queue_artifact_generation(portal);
+            return None;
+        }
+        if self.agents.chat_preparing.contains_key(&portal) {
+            self.toast("This send is still preparing its image inputs.");
+            return None;
+        }
         if (self.agents.connection_pending == Some(portal) && !self.agents.connection_background)
             || self.agents.project_picker == Some(portal)
             || self
@@ -16,7 +41,7 @@ impl SlateApp {
             return None;
         }
         if self.agents.connection_background && self.agents.connection_pending == Some(portal) {
-            if !self.queue_agent_send(portal) {
+            if relay.is_some() || !self.queue_agent_send(portal) {
                 self.toast("Conversation is refreshing; send again in a moment.");
             }
             return None;
@@ -63,7 +88,7 @@ impl SlateApp {
                     .is_none_or(|s| s.conversation != id)
             }) && self.ai.config.valid_workspace().is_some()
             {
-                if !self.queue_agent_send(portal) {
+                if relay.is_some() || !self.queue_agent_send(portal) {
                     self.toast(life::NOT_CONNECTED);
                 }
                 return None;
@@ -87,7 +112,9 @@ impl SlateApp {
                 return None;
             }
         };
-        let mut prompt = self.agents.prompt_mut(portal).trim().to_string();
+        let mut prompt = relay
+            .map(|(text, _)| text.trim().to_owned())
+            .unwrap_or_else(|| self.agents.prompt_mut(portal).trim().to_owned());
         if prompt.is_empty() {
             prompt = inputs
                 .wired
@@ -120,163 +147,58 @@ impl SlateApp {
             return None;
         };
         let composer = portal;
-        let typing_here = self.agents.composing(composer);
-        let (portal, history) = self.prepare_agent_train_send(portal, &ws)?;
-        self.consume_agent_context(composer);
-        // The next message is typed on the new tail. A send that waited to
-        // connect leaves the caret wherever the person has moved since.
-        if typing_here && portal != composer {
-            self.agents.composer_editing = None;
-            self.agents.composer_focus = Some(portal);
-            self.agent_focus(portal);
-        }
-        let (session, provider) = self.agent_session_for(portal)?;
-        let req = AgentRequest {
-            model: self
-                .doc()
-                .scene
-                .node(portal)
-                .and_then(slate_doc::agent_chat::agent)
-                .and_then(|a| a.model.clone()),
-            history,
-            inputs,
-            id: atlas_ai::agent::request_id(),
-            prompt,
-            at: atlas_ai::context::now_secs(),
-            image: None,
-            output_dir: self.agent_output_dir(portal, &ws, &session),
-            oneshot: false,
-            policy: self.crosstalk_policy(&session),
-            relayed_from: self.agents.crosstalk.relaying.clone(),
-            goal: self.crosstalk_goal(&session),
+        let origin = ChatSendOrigin {
+            typing_here: relay.is_none() && self.agents.composing(composer),
+            relayed_from: relay
+                .map(|(_, label)| label.to_owned())
+                .or_else(|| self.agents.crosstalk.relaying.clone()),
+            preserve_composer: relay.is_some(),
         };
-        let dir = self
-            .agent_link_dir(portal, &ws)
-            .unwrap_or_else(|| atlas_ai::agent::agent_dir(&ws, &session));
-        let manifest = slate_doc::SourceUri {
-            locator: super::super::board_portal::source_locator(
-                self.tab().path.as_deref(),
-                &dir.join("session.json"),
-            ),
-        };
-        self.patch_nodes(&[portal], |n| {
-            if let Some(a) = slate_doc::agent_chat::agent_mut(n) {
-                if a.bundle.is_none() {
-                    a.bundle = Some(manifest.clone());
-                }
+        let mut prep = match self.begin_agent_input_preparation(inputs) {
+            Ok(prep) => prep,
+            Err(error) => {
+                self.fail_agent_await(portal, error);
+                return None;
             }
-        });
-        self.agents.requests.insert(portal, req.id.clone());
-        self.agents.bindings.insert(portal, session.clone());
-        let mut sent = None;
-        match self.agents.sources.send(&dir, &req) {
-            Ok(()) => {
-                sent = Some(portal);
-                let turn = AgentTurn {
-                    role: "user".into(),
-                    text: req.prompt.clone(),
-                    at: req.at,
-                };
-                if !self.agents.local_turns.contains_key(&portal) {
-                    // A linear provider's request carries no history, and a new
-                    // tail has no session yet: the stream the composer shows is
-                    // what the whole train keeps displaying.
-                    let same_stream = self
-                        .doc()
-                        .scene
-                        .node(composer)
-                        .and_then(slate_doc::agent_chat::agent)
-                        .is_some_and(|a| a.session == session);
-                    let seed = self
-                        .agents
-                        .sessions
-                        .get(&portal)
-                        .map(|s| s.turns.clone())
-                        .or_else(|| {
-                            same_stream
-                                .then(|| self.agent_all_turns(composer))
-                                .filter(|t| !t.is_empty())
-                        })
-                        .unwrap_or_else(|| req.history.clone());
-                    self.agents.local_turns.insert(portal, seed);
-                }
-                let turns = self.agents.local_turns.get_mut(&portal).unwrap();
-                if turns
-                    .last()
-                    .is_none_or(|t| t.role != "user" || t.text != turn.text)
-                {
-                    turns.push(turn);
-                }
-                let pending_turns = turns.clone();
-                let siblings: Vec<_> = self
-                    .doc()
-                    .scene
-                    .nodes
-                    .iter()
-                    .filter_map(|n| {
-                        slate_doc::agent_chat::agent(n)
-                            .filter(|a| a.session == session && n.id != portal)
-                            .map(|_| n.id)
-                    })
-                    .collect();
-                for id in siblings {
-                    self.agents.bindings.insert(id, session.clone());
-                    self.agents.local_turns.insert(id, pending_turns.clone());
-                }
-                self.agents.prompt_mut(portal).clear();
-                self.agents.prompt_mut(composer).clear();
-                self.agents.awaiting.insert(
+        };
+        match self.poll_agent_input_preparation(&mut prep) {
+            Ok(true) => {
+                self.send_agent_prompt_prepared(portal, composer, prompt, ws, origin, prep.inputs)
+            }
+            Ok(false) => {
+                self.agents.chat_preparing.insert(
                     portal,
-                    AgentAwait::Sent {
-                        at: Instant::now(),
-                        req_at: req.at,
+                    PendingChatSend {
+                        doc: self.tab().id,
+                        portal,
+                        composer,
+                        prompt,
+                        workspace: ws,
+                        origin,
+                        inputs: prep,
                     },
                 );
-                if provider == "codex" || provider == "ollama" || provider.starts_with("ollama/") {
-                    // No provider runs in tests; the request is recorded instead.
-                    #[cfg(test)]
-                    self.agents.dispatched.push((portal, req.clone()));
-                    #[cfg(not(test))]
-                    {
-                        let cwd = self.agent_folder_for(portal).unwrap_or_else(|| ws.clone());
-                        let workbook = self.tab().path.clone();
-                        let runtime =
-                            self.agents.codex.entry(session.clone()).or_insert_with(|| {
-                                atlas_ai::runtime::CodexLink::start_beside(
-                                    dir.clone(),
-                                    cwd,
-                                    provider.clone(),
-                                    workbook,
-                                )
-                            });
-                        if let Err(error) = runtime.send(req.clone()) {
-                            self.fail_agent_await(portal, error);
-                        }
-                    }
-                } else {
-                    self.ensure_agent_sidecar(portal, &session, &provider, &ws);
-                }
+                None
             }
-            Err(e) => {
-                self.fail_agent_await(portal, format!("Could not write agent request: {e}"));
-                self.toast(format!("Could not write agent request: {e}"));
+            Err(error) => {
+                self.fail_agent_await(portal, error);
+                None
             }
         }
-        sent
     }
-    fn ensure_agent_sidecar(
+
+    pub(super) fn ensure_agent_sidecar(
         &mut self,
         portal: NodeId,
         session: &str,
         provider: &str,
         ws: &std::path::Path,
+        policy: atlas_ai::sidecar::SidecarPolicy,
+        sender: Option<atlas_ai::agent::AgentRequestSender>,
     ) {
         if provider != "cursor" {
             return;
         } // configured external sidecars consume request.json
-        if self.agents.sidecar_restart.remove(session) {
-            self.detach_cursor_sidecar(session);
-        }
         if self.agents.sidecar_spawned.contains(session)
             || self.agents.sidecar_booting.contains(session)
         {
@@ -286,7 +208,18 @@ impl SlateApp {
             .agent_link_dir(portal, ws)
             .unwrap_or_else(|| atlas_ai::agent::agent_dir(ws, session));
         #[cfg(test)]
-        self.record_sidecar_dir(session, dir);
+        {
+            let _ = policy;
+            self.record_sidecar_dir(session, dir);
+            if let Some(sender) = sender {
+                if let Err(error) = sender.send() {
+                    self.fail_agent_await(
+                        portal,
+                        format!("Could not write agent request: {error}"),
+                    );
+                }
+            }
+        }
         #[cfg(not(test))]
         {
             self.record_sidecar_dir(session, dir.clone());
@@ -294,22 +227,40 @@ impl SlateApp {
                 .agent_folder_for(portal)
                 .unwrap_or_else(|| ws.to_path_buf());
             let ws = ws.to_path_buf();
-            let policy = atlas_ai::sidecar::SidecarPolicy {
-                read_only: self.crosstalk_policy(session) == atlas_agent::TurnPolicy::ReadOnly,
-            };
             let session = session.to_string();
             let doc = self.tab().id;
+            let startup = self
+                .agents
+                .sidecar_startups
+                .entry(session.clone())
+                .or_default()
+                .clone();
+            let generation = startup.advance();
             self.agents.sidecar_booting.insert(session.clone());
             let tx = self.sidecar_boot_tx();
             std::thread::spawn(move || {
-                // A sidecar left by an earlier run must not write the same link folder.
-                let _ = atlas_ai::sidecar::stop(&dir);
-                let result =
-                    atlas_ai::sidecar::spawn_cursor_sidecar_with(&ws, &session, &cwd, &dir, policy);
+                let Some(result) = startup.run(generation, || {
+                    // An old watcher must relinquish the link before the next
+                    // request becomes visible, including an unclaimed boot.
+                    atlas_ai::sidecar::stop(&dir)?;
+                    if !startup.current(generation) {
+                        return Err("Agent startup was superseded.".into());
+                    }
+                    if let Some(sender) = sender {
+                        sender
+                            .send()
+                            .map_err(|e| format!("Could not write agent request: {e}"))?;
+                    }
+                    atlas_ai::sidecar::spawn_cursor_sidecar_with(&ws, &session, &cwd, &dir, policy)
+                }) else {
+                    return;
+                };
                 let _ = tx.send(SidecarBoot {
+                    generation,
                     doc,
                     portal,
                     session,
+                    policy,
                     result,
                 });
             });
@@ -341,17 +292,28 @@ impl SlateApp {
                     }
                 }
             };
+            // A grant can change while startup is off-thread. A superseded
+            // boot must not replace the new process or erase its directory.
+            let Some(startup) = self.agents.sidecar_startups.get(&msg.session).cloned() else {
+                continue;
+            };
+            if !startup.current(msg.generation)
+                || self.agents.sidecar_policies.get(&msg.session) != Some(&msg.policy)
+            {
+                continue;
+            }
             self.agents.sidecar_booting.remove(&msg.session);
             match msg.result {
                 // Its document closed while it booted.
-                Ok(mut child) if !self.agent_session_open(&msg.session) => {
-                    let _ = child.kill();
-                    let _ = child.try_wait();
+                Ok(()) if !self.agent_session_open(&msg.session) => {
+                    startup.retire(None);
                     self.forget_sidecar_dir(&msg.session);
                 }
-                Ok(child) => {
-                    self.agents.sidecar_spawned.insert(msg.session.clone());
-                    self.agents.sidecar_child.insert(msg.session, child);
+                Ok(()) => {
+                    if let Some(child) = startup.claim(msg.generation) {
+                        self.agents.sidecar_spawned.insert(msg.session.clone());
+                        self.agents.sidecar_child.insert(msg.session, child);
+                    }
                 }
                 Err(e) => self.fail_agent_await_in(msg.doc, msg.portal, e),
             }

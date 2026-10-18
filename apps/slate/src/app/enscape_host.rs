@@ -1,19 +1,16 @@
-//! Host an Enscape standalone inside a board card.
+//! Host Enscape's own standalone inside a board card after explicit activation.
 //!
-//! The executable is Enscape's own program. Slate starts it only on an
-//! explicit double-click, parents its window to the frame, and keeps the
-//! last picture as the card thumbnail. Opening a workbook never launches it.
+//! Keeps its last picture as the thumbnail; workbook loading never launches it.
 //!
-//! A machine that cannot run the file — not Windows, a cloud-only copy, a
-//! rotated card, or an executable built for a different Windows system —
-//! gets a fixed sentence on the card and in a toast. Those sentences are
-//! the contract; tests lock the wording.
+//! Unavailable files get fixed explanations on the card and in a toast.
+//! Those sentences are the contract; tests lock the wording.
 #![cfg_attr(not(windows), allow(dead_code))] // Off Windows only the refusal path is live.
 
 #[cfg(windows)]
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+#[cfg(windows)]
 use slate_doc::NodeId;
 
 pub const NOT_WINDOWS: &str =
@@ -89,11 +86,12 @@ pub fn resting_line() -> &'static str {
 }
 
 pub struct Live {
-    #[allow(dead_code)] // Identifies the session; not read yet.
-    pub node: NodeId,
-    #[allow(dead_code)] // Identifies the session; not read yet.
-    pub cache_key: String,
     pub since: Instant,
+    #[cfg(windows)]
+    surface: Option<atlas_connector_runtime::surface::NativeSurface>,
+    #[cfg(windows)]
+    surface_error: std::cell::RefCell<Option<String>>,
+    // Fields drop in declaration order: restore the UI guard before job close.
     #[cfg(windows)]
     os: OsSession,
 }
@@ -105,7 +103,12 @@ impl Live {
 
     #[cfg(windows)]
     pub fn has_window(&self) -> bool {
-        self.os.hwnd.is_some()
+        self.surface.as_ref().is_some_and(|s| s.handle().is_ok())
+    }
+
+    #[cfg(windows)]
+    pub fn surface_error(&self) -> Option<String> {
+        self.surface_error.borrow().clone()
     }
 
     #[cfg(not(windows))]
@@ -120,11 +123,10 @@ struct OsSession {
     process: windows::Win32::Foundation::HANDLE,
     thread: windows::Win32::Foundation::HANDLE,
     pid: u32,
-    hwnd: Option<windows::Win32::Foundation::HWND>,
 }
 
-// Kernel handles are used from the UI thread after a worker starts the
-// process. The window itself is created by Enscape and discovered later.
+// SAFETY: only transferable kernel handles and a PID cross the launch worker.
+// The !Send native surface is created later inside UI-owned Live.
 #[cfg(windows)]
 unsafe impl Send for OsSession {}
 
@@ -149,64 +151,77 @@ pub enum LaunchError {
 }
 
 #[cfg(windows)]
-pub fn launch(path: &Path, node: NodeId, cache_key: String) -> Result<Live, LaunchError> {
+pub struct Started(Instant, OsSession);
+
+#[cfg(windows)]
+impl Started {
+    pub fn into_live(self) -> Live {
+        Live {
+            since: self.0,
+            surface: None,
+            surface_error: Default::default(),
+            os: self.1,
+        }
+    }
+}
+
+#[cfg(windows)]
+pub fn launch(path: &Path, _node: NodeId, _cache_key: String) -> Result<Started, LaunchError> {
     let os = spawn(path)?;
-    Ok(Live {
-        node,
-        cache_key,
-        since: Instant::now(),
-        os,
-    })
+    Ok(Started(Instant::now(), os))
 }
 
 #[cfg(windows)]
 pub fn poll(live: &mut Live, parent: isize) {
-    if parent == 0 || live.os.hwnd.is_some() {
+    if parent == 0 || live.surface.is_some() || live.surface_error().is_some() {
         return;
     }
     let Some(hwnd) = find_window(live.os.job, live.os.pid) else {
         return;
     };
-    embed(
-        windows::Win32::Foundation::HWND(parent as *mut std::ffi::c_void),
-        hwnd,
-    );
-    live.os.hwnd = Some(hwnd);
+    let mut pid = 0;
+    unsafe {
+        windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId(hwnd, Some(&mut pid));
+    }
+    match atlas_connector_runtime::surface::NativeSurface::attach(hwnd.0 as isize, pid, parent) {
+        Ok(surface) => live.surface = Some(surface),
+        Err(error) => record_surface_error(live, error),
+    }
 }
 
 /// Move the hosted window to `rect` in physical pixels of the frame client.
 /// An empty rect hides it (the card is off the canvas).
 #[cfg(windows)]
 pub fn place(live: &Live, rect: Option<(i32, i32, i32, i32)>) {
-    use windows::Win32::UI::WindowsAndMessaging::{
-        SetWindowPos, ShowWindow, SWP_ASYNCWINDOWPOS, SWP_NOZORDER, SWP_SHOWWINDOW, SW_HIDE,
-    };
-    let Some(hwnd) = live.os.hwnd else {
+    use atlas_connector_runtime::surface::SurfaceRect;
+    let Some(surface) = live.surface.as_ref() else {
         return;
     };
-    unsafe {
-        match rect {
-            Some((x, y, w, h)) if w >= 8 && h >= 8 => {
-                let _ = SetWindowPos(
-                    hwnd,
-                    None,
-                    x,
-                    y,
-                    w,
-                    h,
-                    SWP_NOZORDER | SWP_SHOWWINDOW | SWP_ASYNCWINDOWPOS,
-                );
-            }
-            _ => {
-                let _ = ShowWindow(hwnd, SW_HIDE);
-            }
-        }
+    let result = match rect {
+        Some((x, y, w, h)) if w >= 8 && h >= 8 => surface.place(SurfaceRect {
+            x,
+            y,
+            width: w,
+            height: h,
+        }),
+        _ => surface.hide(),
+    };
+    if let Err(error) = result {
+        record_surface_error(live, error);
     }
 }
 
 #[cfg(windows)]
+fn record_surface_error(live: &Live, error: atlas_connector_runtime::surface::SurfaceError) {
+    live.surface_error
+        .borrow_mut()
+        .get_or_insert_with(|| error.to_string());
+}
+
+#[cfg(windows)]
 pub fn capture(live: &Live) -> Option<(u32, u32, Vec<u8>)> {
-    live.os.hwnd.and_then(capture_hwnd)
+    let hwnd = live.surface.as_ref()?.handle().ok()?;
+    capture_hwnd(windows::Win32::Foundation::HWND(hwnd as *mut _))
 }
 
 #[cfg(windows)]
@@ -290,22 +305,7 @@ fn spawn(path: &Path) -> Result<OsSession, LaunchError> {
         process: info.hProcess,
         thread: info.hThread,
         pid: info.dwProcessId,
-        hwnd: None,
     })
-}
-
-#[cfg(windows)]
-fn embed(parent: windows::Win32::Foundation::HWND, child: windows::Win32::Foundation::HWND) {
-    use windows::Win32::UI::WindowsAndMessaging::{
-        GetWindowLongPtrW, SetParent, SetWindowLongPtrW, GWL_STYLE, WS_CAPTION, WS_CHILD, WS_POPUP,
-        WS_THICKFRAME,
-    };
-    unsafe {
-        let style = GetWindowLongPtrW(child, GWL_STYLE) as u32;
-        let style = (style & !(WS_POPUP.0 | WS_CAPTION.0 | WS_THICKFRAME.0)) | WS_CHILD.0;
-        SetWindowLongPtrW(child, GWL_STYLE, style as isize);
-        let _ = SetParent(child, Some(parent));
-    }
 }
 
 #[cfg(windows)]

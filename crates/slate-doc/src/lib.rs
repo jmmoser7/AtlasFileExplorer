@@ -5,24 +5,31 @@
 
 pub mod agent_chat;
 pub mod agent_inputs;
+pub mod authored_text;
 pub mod bumper;
 pub mod create_style;
 pub mod crosstalk;
 mod doc;
 mod error;
+pub mod field;
 pub mod geom;
 mod ids;
+pub mod image_adjust;
 pub mod image_paint;
 mod item;
 pub mod lease;
 mod link;
+pub mod link_inset;
 pub mod locators;
 pub mod media;
 pub mod mirror;
 pub mod osnap;
+pub mod property;
+pub mod recovery;
 pub mod scene;
 mod spatial;
 pub mod stage;
+pub mod tag_command;
 mod tags;
 pub mod vertex_style;
 mod view;
@@ -53,8 +60,9 @@ pub use stage::{
     accept, reject, Proposal, ProposalResult, ProposalStatus, ProposalTarget, StageWatcher,
     StaleReason,
 };
+pub use tag_command::TagCommand;
 pub use tags::{Tag, TagGroup};
-pub use view::{ViewKind, ViewState};
+pub use view::{RecentColorSwatches, ViewKind, ViewState};
 pub use wire::{
     connector_aabb_routed, connector_ortho_path, connector_route, connector_route_in_scene,
     filleted_polyline, filleted_vertex_path, nearest_on_polyline, scene_ortho_lanes,

@@ -15,13 +15,13 @@ focal tool, Average dialog (P2 — auto-average lands inside Join).
 
 - `BoardTool::DirectSelect`, key **A**. Operates on `ShapeKind::Path` nodes
   (and `Line` promoted to a 2-anchor path on first direct edit).
-- Rectangles and regular polygons are **pick-only** targets (user, 28
-  September 2026: "alow for vrtex selection on closed forms like sqares and
-  polygons"; P1.shape.vertex-style). Their vertices show as anchors and pick
-  like anchors (click, Shift+click, marquee), but a press on one never moves
-  it, since that would change the form's kind; there are no segments or
-  handles to drag. Arrow keys nudge the whole node; double-click and Join do
-  not apply.
+- Rectangles and regular polygons expose vertex picks (P1.shape.vertex-style).
+  The 13 October 2026 refinement permits moving or deleting picked vertices:
+  that geometric edit promotes the primitive to a closed Path, preserving
+  its world geometry and style. A click without travel keeps the primitive;
+  two quick picks remain picks. Primitive double-click corner/smooth toggling
+  and Join still do not apply; after promotion the ordinary Path edit rules
+  apply. Arrow keys retain whole-node nudging until a vertex geometry edit.
 - Clicking a Path node with A shows **all its anchors**: hollow squares
   (unselected) / filled squares (selected), screen-constant size (~7 px).
 - Selected **smooth** anchors show their two direction handles (thin line +
@@ -90,12 +90,15 @@ User decision, 2026-09-26 and 2026-09-27 (supersedes the 2026-09-27
 | Alt+right-drag | Width of the picked vertices only (vertical: softness, on a painted stroke) |
 | Ctrl+right-drag | Color wheel for the picked vertices only |
 | Shift+right-drag | Opacity the picked vertices paint at, only theirs |
-| The same over a vertex, nothing picked | Edits the hovered vertex |
+| The same over a vertex, zero or one picked | Temporarily edits the hovered vertex, preserving the sticky pick |
 | The same elsewhere, nothing picked (Select tool or Direct Select) | Edits the whole selected curve, relatively (below) |
 | Alt/Ctrl/Shift+right-click, released without travel | Numeric entry for that HUD's quantity (size, opacity, color) on the same target (user, 2026-09-28): type width in board units (softness on a painted stroke), opacity in percent, or hue/saturation/value. Enter or a click away is one journaled Patch; Esc restores. See [brush and color](brush-color.md#tip-hud-on-vector-tools-and-committed-curves) |
 
-- Target precedence: picked vertices, then the hovered vertex, then the
-  whole selected curve. With no grip picked and no point hovered, the HUD
+- Target precedence (user report, 14 October 2026): multiple picked vertices,
+  then the hovered vertex, then a single sticky pick, then the whole curve.
+  Hover uses the existing 7 screen px grip hit zone and never changes picks.
+  The property strip retains its sticky target; P1.curve.vertex-style owns
+  this shared rule. With no grip picked and no point hovered, the HUD
   edits the whole selected curve under the Select tool or Direct Select
   (user, 28 September 2026, ed1: "think we can just cutto the chase and
   implementthis function when the user has a full curveselected. simpl
@@ -202,12 +205,13 @@ Selection-driven, journaled:
    radius → merge into one anchor (average position); else → straight
    segment bridges them. One `Patch` (same node) or Remove+Add collapse
    into one node (two nodes joined → single Path node keeping the first
-   node's style, per Illustrator layer-of-first rule).
+   node's base style). Merged endpoint width, RGB and painted opacity average
+   both sources; other vertices retain their own attributes (15 October 2026).
 2. **One open Path node selected** (whole-node selection, V or A): join its
    two endpoints (close the path) if they're within 24 world units, else
    bridge with a straight closing segment. Per-vertex widths, colors and
-   corner overrides stay on their vertices; a merge drops the merged end's
-   entry (P1.curve.vertex-style).
+   corner overrides stay on their vertices; coincident ends average their
+   width, color and painted opacity into the shared seam (P1.curve.vertex-style).
 3. **Two+ open Path nodes selected** (V): join nearest endpoint pairs
    iteratively (Illustrator object-level join).
 4. **Any closed operand** (rect, ellipse, closed path): region union
@@ -279,4 +283,4 @@ plain segment click already picks the segment's two anchors.
   `drag_handle_scale_both_scales_the_opposite_length`).
 - Corner↔smooth conversion roundtrip.
 - Join: coincident merge, bridge segment, close-path, two-node join keeps
-  first style; all produce invertible command groups.
+  source styles and averages a merged seam; all produce invertible command groups.

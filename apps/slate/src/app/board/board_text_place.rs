@@ -1,6 +1,11 @@
 //! Text drafts, finish-draw, and portal builders.
 
 use super::*;
+pub(super) mod drafts;
+mod recovery;
+
+mod layout;
+pub(crate) use layout::{document_text_font, document_text_layout, inline_text_layout};
 
 impl SlateApp {
     pub(crate) fn text_compose_active(&self) -> bool {
@@ -26,11 +31,16 @@ impl SlateApp {
     /// Grasshopper panel entry: link a fresh blank `.txt` card at `world`
     /// (one undo step) and put the caret in it.
     pub(crate) fn place_text_document_at(&mut self, world: Pos2) -> bool {
+        if self.refuse_read_only_edit() {
+            return false;
+        }
         let Some(dir) = self.text_document_dir() else {
             self.toast("Save the workbook or choose an AI workspace to create a text document");
             return false;
         };
-        self.finish_text_compose_on_click_away();
+        if !self.finish_text_compose_on_click_away() {
+            return false;
+        }
         let millis = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis())
@@ -39,7 +49,7 @@ impl SlateApp {
         let path = dir.join(&name);
         let key = atlas_core::thumbs::cache_key(&path.to_string_lossy(), 0, 0);
         let item = self.doc_mut().add_item(path.clone(), name, 0, 0, key);
-        self.snippets.insert(item, Some(String::new()));
+        self.cache_snippet(item, Some(String::new()));
         self.board_sel.clear();
         self.place_items_on_board(&[item], world);
         let Some(node) = self.board_sel.iter().next().copied() else {
@@ -52,8 +62,11 @@ impl SlateApp {
             node,
             item,
             path,
+            rect: self.doc().scene.node(node).unwrap().rect,
             buffer: String::new(),
+            original: String::new(),
             claim_focus: true,
+            auto_size: false,
         });
         self.push_history(
             atlas_commands::CommandId("board.media.text_new"),
@@ -62,15 +75,59 @@ impl SlateApp {
         true
     }
 
-    /// Write the typed words to the linked file and leave the editor.
+    /// Journal the card's authored words and height; leave its source intact.
     pub(crate) fn commit_text_doc_edit(&mut self) {
+        if self.text_doc_edit.is_some() && self.refuse_read_only_edit() {
+            return;
+        }
         let Some(edit) = self.text_doc_edit.take() else {
             return;
         };
-        self.snippets.insert(edit.item, Some(edit.buffer.clone()));
-        self.agents
-            .text_output
-            .write_now(edit.node, edit.item, edit.path, edit.buffer);
+        if edit.buffer != edit.original {
+            self.last_board_edit = None;
+            self.patch_nodes(&[edit.node], |node| {
+                drafts::apply_document_edit(node, &edit);
+            });
+            self.last_board_edit = None;
+        }
+    }
+
+    pub(super) fn begin_text_document_edit(&mut self, node: &Node) -> bool {
+        let NodeKind::Image(image) = &node.kind else {
+            return false;
+        };
+        let Some(item) = self.doc().item(image.item) else {
+            return false;
+        };
+        let path = item.path.clone();
+        if !slate_doc::media::editable_text_card(&path) {
+            return false;
+        }
+        let buffer = image
+            .text_override
+            .clone()
+            .or_else(|| self.cached_snippet(image.item).map(str::to_string))
+            .or_else(|| (item.size == 0).then(String::new));
+        let Some(buffer) = buffer else {
+            self.toast("Text preview is not available for editing");
+            return true;
+        };
+        if !self.finish_text_compose_on_click_away() {
+            return true;
+        }
+        self.board_sel = [node.id].into_iter().collect();
+        self.shape_properties.panel = None;
+        self.text_doc_edit = Some(TextDocEdit {
+            node: node.id,
+            item: image.item,
+            path,
+            rect: node.rect,
+            original: buffer.clone(),
+            buffer,
+            claim_focus: true,
+            auto_size: false,
+        });
+        true
     }
 
     pub(super) fn default_text_click_rect(anchor: Pos2) -> WorldRect {
@@ -89,6 +146,9 @@ impl SlateApp {
         rect: WorldRect,
         fixed_width: bool,
     ) {
+        if self.refuse_read_only_edit() {
+            return;
+        }
         self.commit_text_edit();
         if let Some(draft) = self.text_box_draft.take() {
             if draft.buffer.is_empty() {
@@ -117,25 +177,18 @@ impl SlateApp {
 
     /// Journaled add when the draft buffer is non-empty; no-op otherwise.
     pub(crate) fn commit_text_box_draft(&mut self) {
+        if self.text_box_draft.is_some() && self.refuse_read_only_edit() {
+            return;
+        }
         let Some(draft) = self.text_box_draft.take() else {
             return;
         };
         if draft.buffer.is_empty() {
             return;
         }
-        let node = self.doc_mut().scene.build_node(
-            draft.rect,
-            NodeKind::Text(TextNode {
-                text: draft.buffer,
-                family: draft.family,
-                size: draft.size,
-                color: draft.color,
-                align: draft.align,
-                fill: None,
-                stroke: Default::default(),
-                agent: None,
-            }),
-        );
+        let Some(node) = draft.build_node(&mut self.doc_mut().scene) else {
+            return;
+        };
         let ids = self.commit_created_nodes(vec![node]);
         self.select_created_nodes(ids);
         self.board_tool = BoardTool::Select;
@@ -307,11 +360,18 @@ impl SlateApp {
     }
 
     /// An agent portal before a program is chosen: it shows the program grid.
-    pub(crate) fn build_agent_portal(&mut self, rect: WorldRect) -> Node {
-        self.doc_mut().scene.build_node(
+    pub(crate) fn prepare_agent_portal_node(
+        scene: &mut slate_doc::scene::Scene,
+        rect: WorldRect,
+    ) -> Node {
+        scene.build_node(
             rect,
             NodeKind::Portal(PortalNode::unbound_agent("Agent portal", "")),
         )
+    }
+
+    pub(crate) fn build_agent_portal(&mut self, rect: WorldRect) -> Node {
+        Self::prepare_agent_portal_node(&mut self.doc_mut().scene, rect)
     }
 
     pub(super) fn add_agent_portal(&mut self, rect: WorldRect, detail: &'static str) {

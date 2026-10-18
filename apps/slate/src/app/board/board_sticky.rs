@@ -36,14 +36,15 @@ impl SlateApp {
         }
         // 8 world units: the artifact's `padding:8px` on shape text.
         let inset = 8.0;
-        let galley = zoom_text_galley(
+        let galley = styled_text_galley(
             painter.ctx(),
             &text.body,
-            typeface_font(text.family, text.size),
+            styled_typeface_font(painter.ctx(), text.family, text.size, text.style),
             (node.rect.w - inset * 2.0).max(0.0),
             text.align,
             fade(rgba32(text.color)),
             z,
+            text.style,
         );
         let pos = Pos2::new(
             srect.left() + canvas_scale::px(inset, z),
@@ -68,12 +69,18 @@ impl SlateApp {
         box_w: f32,
         box_h: f32,
         align: TextAlign,
+        style: slate_doc::scene::TextStyle,
     ) -> f32 {
-        if let Some(hit) = self.sticky_fit_hit(id, text, box_w, box_h, max_size, family, align) {
+        if let Some(hit) =
+            self.sticky_fit_hit(id, text, box_w, box_h, max_size, family, align, style)
+        {
             return hit;
         }
-        let fitted = measure_sticky_font(ctx, text, family, max_size, box_w, box_h, align);
-        self.store_sticky_fit(id, text, box_w, box_h, max_size, family, align, fitted);
+        let fitted =
+            measure_styled_sticky_font(ctx, text, family, max_size, box_w, box_h, align, style);
+        self.store_sticky_fit(
+            id, text, box_w, box_h, max_size, family, align, style, fitted,
+        );
         fitted
     }
 
@@ -87,6 +94,7 @@ impl SlateApp {
         max_size: f32,
         family: Typeface,
         align: TextAlign,
+        style: slate_doc::scene::TextStyle,
     ) -> Option<f32> {
         let hit = self.sticky_fit.get(&id)?;
         (hit.text == text
@@ -94,7 +102,8 @@ impl SlateApp {
             && (hit.h - box_h).abs() < 0.5
             && (hit.max - max_size).abs() < 0.05
             && hit.family == family
-            && hit.align == align)
+            && hit.align == align
+            && hit.style == style)
             .then_some(hit.fitted)
     }
 
@@ -108,11 +117,13 @@ impl SlateApp {
         max_size: f32,
         family: Typeface,
         align: TextAlign,
+        style: slate_doc::scene::TextStyle,
         fitted: f32,
     ) {
         self.sticky_fit.insert(
             id,
             StickyFit {
+                style,
                 text: text.to_string(),
                 w: box_w,
                 h: box_h,

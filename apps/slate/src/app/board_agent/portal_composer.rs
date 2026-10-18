@@ -245,28 +245,6 @@ impl SlateApp {
         self.agents.chat_picker = None;
         true
     }
-    pub(crate) fn answer_agent_approval(&mut self, detail: Option<&str>) {
-        let Some((raw, allow)) = detail.and_then(|s| serde_json::from_str::<(u64, bool)>(s).ok())
-        else {
-            return;
-        };
-        let node = NodeId(raw);
-        let Some(approval) = self.agents.session(node).and_then(|s| s.approval.clone()) else {
-            return;
-        };
-        let Some(ws) = self.ai.config.workspace_dir.as_ref() else {
-            return;
-        };
-        let Some(dir) = self.agent_link_dir(node, ws) else {
-            return;
-        };
-        std::thread::spawn(move || {
-            let _ = atlas_ai::agent::atomic_write_json(
-                &dir.join("approval.json"),
-                &serde_json::json!({"id":approval.id,"allow":allow}),
-            );
-        });
-    }
     pub(crate) fn set_agent_channel(&mut self, portal: NodeId, channel: Option<String>) {
         if self.agent_linear(portal)
             && self.agents.session(portal).is_some_and(|s| {

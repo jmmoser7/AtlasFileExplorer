@@ -41,6 +41,8 @@ fn mesh_sphere_two_parts_with_color() {
     let sphere = &model.parts[0];
     assert_eq!(sphere.positions.len(), 42);
     assert_eq!(sphere.indices.len(), 80 * 3);
+    // This fixture's object attributes store layer index -1; no display color
+    // is recoverable even though rhino3dm synthesizes a Default layer on read.
     assert_eq!(sphere.color, None);
     for p in &sphere.positions {
         let r = (p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt();
@@ -77,7 +79,7 @@ fn brep_render_meshes_one_part_per_face() {
         assert_part_invariants(part);
         assert_eq!(part.positions.len(), 6);
         assert_eq!(part.indices.len(), 4 * 3);
-        assert_eq!(part.color, None);
+        assert_eq!(part.color, None); // this fixture stores layer index -1
     }
     // Face meshes are 2x1 patches at z = face index (0..=5), x in 0..=2,
     // y in 0..=1.
@@ -128,6 +130,23 @@ fn rhino_tl_brep_alias_keeps_all_cached_face_meshes() {
         matches!(read_render_meshes_from(&bytes), Err(ReadError::NoMeshes)),
         "an unknown class must not be assumed to use the Brep format"
     );
+}
+
+#[test]
+fn partial_import_reports_the_exact_skipped_class() {
+    let mut bytes = std::fs::read(fixture("mesh_sphere.3dm")).unwrap();
+    let on_mesh = [
+        0xe4, 0xd4, 0xd7, 0x4e, 0x47, 0xe9, 0xd3, 0x11, 0xbf, 0xe5, 0x00, 0x10, 0x83, 0x01, 0x22,
+        0xf0,
+    ];
+    let offset = bytes.windows(16).position(|uuid| uuid == on_mesh).unwrap();
+    bytes[offset..offset + 16].fill(0x42);
+    let actual = read_render_meshes_from(&bytes).expect("remaining quad patch");
+    assert_eq!(actual.parts.len(), 1);
+    assert_eq!(actual.parts[0].indices.len(), 24);
+    assert_eq!(actual.notes, vec![
+        "1 Rhino object(s) skipped: unsupported geometry class 42424242-4242-4242-4242-424242424242 (object type 0x20)."
+    ]);
 }
 
 #[test]
