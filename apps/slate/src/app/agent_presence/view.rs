@@ -71,12 +71,11 @@ impl SlateApp {
         let tab = self.tab().id;
         let now = painter.ctx().input(|i| i.time);
         self.presence.drawing_farewells.begin_frame();
-        let portal = if !self.presence.drawing_farewells.is_empty()
-            || self
-                .presence
-                .agents
-                .iter()
-                .any(|a| a.tab == tab && a.departure.as_ref().is_some_and(|d| d.1 == "portal"))
+        let mut portal = if self
+            .presence
+            .agents
+            .iter()
+            .any(|a| a.tab == tab && a.departure.as_ref().is_some_and(|d| d.1 == "portal"))
         {
             self.presence_departure_portal_rect()
                 .map(|r| xf.rect_w2s(r))
@@ -194,6 +193,11 @@ impl SlateApp {
                     self.presence.chrome.font_family(),
                 );
             }
+        }
+        if portal.is_none() && self.presence.drawing_farewells.needs_portal(tab) {
+            portal = self
+                .presence_departure_portal_rect()
+                .map(|r| xf.rect_w2s(r));
         }
         self.presence.drawing_farewells.finish_frame(
             tab,

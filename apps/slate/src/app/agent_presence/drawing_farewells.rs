@@ -32,8 +32,16 @@ pub(super) struct DrawingFarewells {
 }
 
 impl DrawingFarewells {
-    pub(super) fn is_empty(&self) -> bool {
-        self.records.is_empty()
+    pub(super) fn needs_portal(&self, tab: u64) -> bool {
+        self.records.values().any(|record| {
+            record.tab == tab
+                && record
+                    .departure
+                    .as_ref()
+                    .map_or(record.seen != self.frame, |departure| {
+                        departure.style == "portal"
+                    })
+        })
     }
 
     pub(super) fn ids(&self) -> impl Iterator<Item = &str> {
@@ -177,7 +185,12 @@ mod tests {
         farewells.begin_frame();
         farewells.observe(7, "copy-a", point(12.0, 24.0), "cap");
         farewells.finish_frame(7, 1.0, true, &mut sequence);
+        assert!(
+            !farewells.needs_portal(7),
+            "live copies need no portal lookup"
+        );
         farewells.begin_frame();
+        assert!(farewells.needs_portal(7));
         farewells.finish_frame(7, 2.0, true, &mut sequence);
         let record = &farewells.records["copy-a"];
         let departure = record.departure.as_ref().unwrap();
