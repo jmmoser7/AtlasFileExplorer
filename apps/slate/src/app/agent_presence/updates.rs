@@ -156,8 +156,16 @@ pub(super) fn acknowledge_updates(c: &mut conversation::Conversation, snapshot: 
         }
     }
     if !matches!(snapshot.status, atlas_agent::AgentStatus::Thinking) {
-        let pending: Vec<_> = c.turns.iter().enumerate().filter(|(_, t)| t.status == "steering").map(|(i, _)| i).collect();
-        for index in pending { c.set_turn_status(index, "unconfirmed"); }
+        let pending: Vec<_> = c
+            .turns
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| t.status == "steering")
+            .map(|(i, _)| i)
+            .collect();
+        for index in pending {
+            c.set_turn_status(index, "unconfirmed");
+        }
     }
 }
 
@@ -302,7 +310,14 @@ mod tests {
             "update-1",
             "steering",
         );
-        c.push("user", "Check the footer too", "You", Some("codex"), "update-unacknowledged", "steering");
+        c.push(
+            "user",
+            "Check the footer too",
+            "You",
+            Some("codex"),
+            "update-unacknowledged",
+            "steering",
+        );
         let mut snapshot = AgentSession {
             request: "task".into(),
             ..Default::default()
@@ -317,7 +332,10 @@ mod tests {
         });
         acknowledge_updates(&mut c, &snapshot);
         assert_eq!(c.turns[0].status, "complete");
-        assert_eq!(c.turns[1].status, "unconfirmed", "a finished provider must not leave an update spinning forever");
+        assert_eq!(
+            c.turns[1].status, "unconfirmed",
+            "a finished provider must not leave an update spinning forever"
+        );
         assert_eq!(c.replay().len(), 1);
     }
 }

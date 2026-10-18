@@ -336,18 +336,20 @@ fn message_row(
                 palette.sub,
                 Align2::RIGHT_CENTER,
             );
-            if matches!(message.status, "failed" | "unconfirmed" | "not-sent" | "stopped")
-                && ui
-                    .interact(
-                        Rect::from_min_max(
-                            Pos2::new(status_rect.right() - 130.0, status_rect.top()),
-                            status_rect.max,
-                        ),
-                        Id::new(("presence-retry", p.id, message.id)),
-                        Sense::click(),
-                    )
-                    .on_hover_text("Retry the same message")
-                    .clicked()
+            if matches!(
+                message.status,
+                "failed" | "unconfirmed" | "not-sent" | "stopped"
+            ) && ui
+                .interact(
+                    Rect::from_min_max(
+                        Pos2::new(status_rect.right() - 130.0, status_rect.top()),
+                        status_rect.max,
+                    ),
+                    Id::new(("presence-retry", p.id, message.id)),
+                    Sense::click(),
+                )
+                .on_hover_text("Retry the same message")
+                .clicked()
             {
                 actions.push(PresenceAction::Retry {
                     id: p.id.into(),

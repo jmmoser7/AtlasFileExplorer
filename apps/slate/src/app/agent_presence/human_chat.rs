@@ -455,7 +455,10 @@ impl SlateApp {
                         && t.role == "user"
                         && (t.status == "failed"
                             || !who.starts_with("human:")
-                                && matches!(t.status.as_str(), "stopped" | "not-sent" | "unconfirmed"))
+                                && matches!(
+                                    t.status.as_str(),
+                                    "stopped" | "not-sent" | "unconfirmed"
+                                ))
                 })
             })
             .map(|t| (t.text.clone(), t.request.clone()))
