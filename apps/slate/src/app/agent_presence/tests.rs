@@ -9,6 +9,8 @@ mod avatar_gestures;
 mod chrome_render;
 #[path = "motion_render_tests.rs"]
 mod motion_render;
+#[path = "motion_render_support.rs"]
+mod motion_support;
 #[path = "perf_tests.rs"]
 mod perf;
 #[path = "proposal_chat_tests.rs"]
@@ -482,3 +484,6 @@ fn a_stale_targeted_read_releases_motion_but_keeps_the_task_binding() {
     );
     assert!(reply.result.get("next_offset").is_none());
 }
+
+#[path = "drawing_activity_tests.rs"]
+mod drawing_activity;

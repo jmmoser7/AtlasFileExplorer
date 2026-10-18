@@ -10,6 +10,8 @@ pub(super) fn command_activity(command: &str) -> &'static str {
         "board.objects.crop" => "resizing",
         "board.objects.create_frame" => "frames",
         "board.objects.create_text" | "board.objects.set_text" => "writing",
+        "board.paths.draw" => "writing",
+        "board.eraser.stroke" | "board.smooth.stroke" | "board.path.join" => "editing",
         "board.objects.wire" => "wiring",
         "board.objects.delete" | "board.shape.edit" | "board.wire.edit" => "editing",
         "board.objects.order" => "organizing",
@@ -53,6 +55,7 @@ impl SlateApp {
         }
         let mut calls = Vec::new();
         let mut ended = Vec::new();
+        let mut completed_requests = Vec::new();
         let pending: std::collections::HashSet<_> = self
             .pending_stage_proposals()
             .iter()
@@ -120,7 +123,7 @@ impl SlateApp {
                         ));
                     }
                     if matches!(snapshot.status, atlas_agent::AgentStatus::Idle)
-                        && (a.work.is_some() || a.read.is_some())
+                        && a.board_action_active()
                         && a.seen_running
                         && !a.work.as_ref().is_some_and(|w| {
                             matches!(w.purpose, witness::WitnessPurpose::ApprovedProposal(_))
@@ -191,6 +194,9 @@ impl SlateApp {
                         a.note_helper_outcome("success", "Ready");
                         a.last_active = now;
                     }
+                    if !matches!(snapshot.status, atlas_agent::AgentStatus::Thinking) {
+                        completed_requests.push(a.request.clone());
+                    }
                     a.snapshot = Some(snapshot);
                 }
             }
@@ -236,6 +242,9 @@ impl SlateApp {
             } else if pending_agents.contains(&a.profile.id) {
                 a.activity = "approval".into();
                 a.status = "Proposal ready · accept or reject in chat".into();
+            } else if a.portal.is_some() {
+                a.activity = "reading".into();
+                a.status = "Working in the source portal".into();
             } else if a.read.is_some() {
                 a.activity = "reading".into();
             } else if !a.launched.is_empty() {
@@ -256,6 +265,7 @@ impl SlateApp {
             if !a.paused
                 && a.work.is_none()
                 && a.read.is_none()
+                && a.portal.is_none()
                 && a.launched.is_empty()
                 && a.last_active.elapsed().as_secs() > 8
                 && !matches!(
@@ -265,6 +275,10 @@ impl SlateApp {
             {
                 a.activity = if a.inflight { "reasoning" } else { "resting" }.into();
             }
+        }
+        for request in completed_requests {
+            self.release_presence_portal_focus(&request);
+            self.agent_atlas_clear_observer(&request);
         }
         for (who, reason) in ended {
             if let Some(a) = self
@@ -316,6 +330,7 @@ impl SlateApp {
                         && a.work.is_none()
                         && !self.presence.has_pending_for(a)
                         && a.read.is_none()
+                        && a.portal.is_none()
                         && a.launched.is_empty())
                         || a.joined_at.elapsed().as_secs() > helper_scope::TASK_LIMIT_SECS)
             })
@@ -369,7 +384,7 @@ impl SlateApp {
             .presence
             .agents
             .iter()
-            .any(|a| a.read.is_some() || a.departure.is_some())
+            .any(|a| a.read.is_some() || a.portal.is_some() || a.departure.is_some())
         {
             ctx.request_repaint_after(Duration::from_millis(16));
         } else if self

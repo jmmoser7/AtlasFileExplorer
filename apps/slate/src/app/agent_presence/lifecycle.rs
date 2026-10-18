@@ -247,6 +247,7 @@ impl SlateApp {
             last_active: Instant::now(),
             work: None,
             read: None,
+            portal: None,
             control_epoch: 0,
             owned_conversations: Vec::new(),
             departure: None,
@@ -314,8 +315,7 @@ impl SlateApp {
                 .find(|a| a.profile.id == who)
                 .is_some_and(|a| {
                     a.inflight
-                        || a.work.is_some()
-                        || a.read.is_some()
+                        || a.board_action_active()
                         || self.presence.has_pending_for(a)
                         || !a.launched.is_empty()
                 });
@@ -360,6 +360,16 @@ impl SlateApp {
                 .map(|a| a.binding.session_id.clone())
                 .unwrap_or_default();
             self.cancel_presence_proposals(&session);
+            if let Some(request) = self
+                .presence
+                .agents
+                .iter()
+                .find(|a| a.profile.id == who)
+                .map(|a| a.request.clone())
+            {
+                self.release_presence_portal_focus(&request);
+                self.agent_atlas_clear_observer(&request);
+            }
             let a = self
                 .presence
                 .agents
@@ -375,6 +385,12 @@ impl SlateApp {
                 cursor.stop();
             }
             a.read = None;
+            if let Some(portal) = a.portal.take() {
+                let _ = self.presence.links.reply(
+                    &a.dir,
+                    BoardReply::error(&portal.call, "Portal work cancelled by the human"),
+                );
+            }
             a.launched.clear();
             a.cancel_motion(&mut self.presence.roster)?;
             if let Some(work) = a.work.take() {

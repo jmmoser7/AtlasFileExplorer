@@ -1,8 +1,20 @@
 //! Board vector paths: world ↔ `PathData`, tessellation cache, hit-testing.
 
 pub(crate) mod multi_point;
+mod results;
+pub(crate) mod witness;
+pub(crate) use results::{
+    arc_path_node, arc_points_define_circle, brush_path_node, drawn_path_node,
+    explicit_bezier_path, fit_freehand, node_stamp_key, parametric_shape_node, path_tool,
+};
+use results::{stamp_key, stamp_key_at};
+#[path = "board_path/live_prefix.rs"]
+mod live_prefix;
+#[path = "board_path/stamped.rs"]
+mod stamped;
 #[path = "board_path/tiles.rs"]
 pub(crate) mod tiles;
+pub(crate) use stamped::paint_stamped_stroke;
 
 mod picking;
 
@@ -1972,31 +1984,6 @@ pub(crate) fn take_sync_budget(app: &mut SlateApp, area: f32) -> bool {
     true
 }
 
-/// [`stamp_key`] for a stamped path node.
-pub(crate) fn node_stamp_key(node: &Node) -> Option<u64> {
-    let NodeKind::Shape(shape) = &node.kind else {
-        return None;
-    };
-    Some(stamp_key(node, shape, shape.path.as_ref()?))
-}
-
-/// A stroke's stamp content key: path, style, and placement.
-fn stamp_key(node: &Node, shape: &ShapeNode, path: &PathData) -> u64 {
-    stamp_key_at(node, shape, path, node.rect)
-}
-
-/// [`stamp_key`] with the stroke placed at `rect`.
-fn stamp_key_at(node: &Node, shape: &ShapeNode, path: &PathData, rect: WorldRect) -> u64 {
-    path_content_hash(
-        path,
-        &shape.stroke,
-        rect,
-        node.rotation_deg,
-        shape.corner,
-        0,
-    ) ^ 0x57A5
-}
-
 /// Start the live eraser preview for strokes the pass reached. Small
 /// strokes build on the frame loop within [`SYNC_STAMP_PX`]; others build on
 /// the raster workers and keep painting as committed until theirs lands.
@@ -2044,7 +2031,7 @@ pub struct EraseSettle {
     /// Strokes a pass changed past the frame's raster budget, straight or
     /// freehand, while the workers find out whether any ink is left: the
     /// committed content key and the pass's journal group.
-    checks: Vec<(NodeId, u64, GroupToken)>,
+    checks: Vec<(NodeId, u64, GroupToken, slate_doc::scene::CmdAuthor)>,
     /// Test hook: settling previews, and the release, take no landed cut.
     #[cfg(test)]
     pub(crate) hold: bool,
@@ -2142,11 +2129,25 @@ impl EraseSettle {
     /// Stroke `id`, committed under content `key` by journal group `token`,
     /// leaves the scene in that group if the workers find no ink left.
     pub(crate) fn check(&mut self, id: NodeId, key: u64, token: GroupToken) {
-        self.checks.retain(|c| c.0 != id);
-        self.checks.push((id, key, token));
+        self.check_as(id, key, token, slate_doc::scene::CmdAuthor::Human);
     }
 
-    pub(crate) fn take_checks(&mut self) -> Vec<(NodeId, u64, GroupToken)> {
+    /// Track an asynchronous ink check together with the author of the
+    /// committed erase group it may amend.
+    pub(crate) fn check_as(
+        &mut self,
+        id: NodeId,
+        key: u64,
+        token: GroupToken,
+        author: slate_doc::scene::CmdAuthor,
+    ) {
+        self.checks.retain(|c| c.0 != id);
+        self.checks.push((id, key, token, author));
+    }
+
+    pub(crate) fn take_checks(
+        &mut self,
+    ) -> Vec<(NodeId, u64, GroupToken, slate_doc::scene::CmdAuthor)> {
         std::mem::take(&mut self.checks)
     }
 
@@ -2156,16 +2157,17 @@ impl EraseSettle {
     pub(crate) fn take_answered(
         &mut self,
         tiles: &mut tiles::BrushTiles,
-    ) -> Vec<(NodeId, u64, GroupToken, bool)> {
+    ) -> Vec<(NodeId, u64, GroupToken, slate_doc::scene::CmdAuthor, bool)> {
         let mut answered = Vec::new();
-        self.checks
-            .retain(|&(id, key, token)| match tiles.ink_answer(id, key) {
+        self.checks.retain(
+            |&(id, key, token, ref author)| match tiles.ink_answer(id, key) {
                 Some(left) => {
-                    answered.push((id, key, token, left));
+                    answered.push((id, key, token, author.clone(), left));
                     false
                 }
                 None => true,
-            });
+            },
+        );
         answered
     }
 
@@ -2530,7 +2532,7 @@ fn tend_erase_settle(app: &mut SlateApp, painter: &egui::Painter, xf: &BoardXf) 
 
 /// Stroke `node` of the open document paints its exact raster for content
 /// `key` at `want`.
-fn stroke_raster_current(app: &SlateApp, node: &Node, key: u64, want: f32) -> bool {
+pub(crate) fn stroke_raster_current(app: &SlateApp, node: &Node, key: u64, want: f32) -> bool {
     if app.brush_tiles_enabled && tiles::plain_stamp(app, node).is_some() {
         return app.brush_tiles.last.settled;
     }
@@ -2768,136 +2770,6 @@ pub(crate) fn has_stand_in(app: &SlateApp, id: NodeId, key: Option<u64>) -> bool
             .brush_live
             .as_ref()
             .is_some_and(|c| c.stands_in(id, key))
-}
-
-fn paint_stamped_stroke(
-    app: &mut SlateApp,
-    painter: &egui::Painter,
-    xf: &BoardXf,
-    node: &Node,
-    shape: &ShapeNode,
-    path: &PathData,
-    fade: &impl Fn(Color32) -> Color32,
-) {
-    // A nested board numbers its strokes as the host does: they go by
-    // their cache id, never meet the host's eraser or live canvas, and no
-    // tile paints them.
-    let nested = app.slate_nesting();
-    let cache = app.stroke_cache_id(node.id);
-    let want = stamp_pixel_for_zoom(xf.z, painter.ctx().pixels_per_point());
-    if let Some(super::board::BoardDrag::Erase {
-        points,
-        spot,
-        straight,
-        ..
-    }) = &app.board_drag
-    {
-        if !nested && spot.contains(&node.id) {
-            let (points, straight) = (points.clone(), *straight);
-            let tip = app.eraser_tip();
-            if !app.erase_live.contains_key(&node.id) {
-                start_erase_live(app, painter, node, want);
-            }
-            if let Some(live) = app.erase_live.get_mut(&node.id) {
-                live.feed(&points, tip, straight);
-                live.pump(
-                    &mut app.brush_tiles,
-                    tiles::erase_lane(node.id),
-                    painter.ctx(),
-                );
-                live.paint(painter, xf, fade(Color32::WHITE), [0.0; 2]);
-                return;
-            }
-        }
-    }
-    if !nested && paint_settling_erase(app, painter, xf, node, fade) {
-        return;
-    }
-    let key = stamp_key(node, shape, path);
-    promote_stamp_fallback(app, cache, key);
-    let exact = |app: &SlateApp| {
-        app.brush_stamps
-            .get(&cache)
-            .is_some_and(|(k, g)| g.exact && *k == key && g.wanted_pixel == want)
-    };
-    let tab = app.tab().id;
-    if !exact(app) {
-        if let Some(r) = app.brush_tiles.take_stroke(cache) {
-            let current = r.key == key && r.pixel == want;
-            // A stale bitmap replaces neither an eraser stand-in whose pass
-            // is applied nor a bitmap of this very content.
-            let shown = app
-                .brush_stamps
-                .get(&cache)
-                .is_some_and(|(k, g)| *k == key || g.seal.is_some_and(|s| !s.undone(app)));
-            match r.stamp {
-                Some(stamp) if current || !shown => {
-                    let name = format!("brush-stamp-{}", cache.0);
-                    let mut gpu = upload_stamp(painter, &name, stamp, r.image, r.pixel, r.rect);
-                    gpu.exact = current;
-                    gpu.fallback = stand_in_fallback(app, cache, r.key);
-                    gpu.tab = tab;
-                    app.brush_stamps.insert(cache, (r.key, gpu));
-                    evict_brush_stamps(&mut app.brush_stamps, app.frame_no);
-                }
-                Some(_) => {}
-                None if current => {
-                    app.brush_stamps.remove(&cache);
-                    return;
-                }
-                None => {}
-            }
-        }
-    }
-    if !exact(app) {
-        if take_sync_budget(app, stamp_area_px(node, shape, want)) {
-            let Some(stamp) = stroke_stamp(node, shape, path, want) else {
-                app.brush_stamps.remove(&cache);
-                return;
-            };
-            let name = format!("brush-stamp-{}", cache.0);
-            let mut gpu = upload_stamp(painter, &name, stamp, None, want, node.rect);
-            gpu.fallback = stand_in_fallback(app, cache, key);
-            gpu.tab = tab;
-            app.brush_stamps.insert(cache, (key, gpu));
-            evict_brush_stamps(&mut app.brush_stamps, app.frame_no);
-        } else {
-            // Tiles already rasterize a plain stroke of the host off the
-            // frame loop.
-            let tiled =
-                !nested && app.brush_tiles_enabled && tiles::plain_stamp(app, node).is_some();
-            if !tiled {
-                app.brush_tiles.request_stroke(cache, tab, node, key, want);
-            }
-            painter.ctx().request_repaint();
-        }
-    }
-    let stand_in = app
-        .brush_live
-        .as_ref()
-        .filter(|c| !nested && !exact(app) && c.stands_in(node.id, Some(key)))
-        .map(|c| c.awaits_anchor());
-    if let Some(adds) = stand_in {
-        // A canvas that adds only this drag's segments paints over the
-        // stroke as it was: the tiles show that, or its last bitmap where
-        // it was.
-        if adds && !(app.brush_tiles_enabled && tiles::plain_stamp(app, node).is_some()) {
-            if let Some((_, gpu)) = app.brush_stamps.get_mut(&cache) {
-                gpu.used = app.frame_no;
-                paint_stamp_quad(painter, xf, gpu, gpu.rect, fade(Color32::WHITE));
-            }
-        }
-        if let Some(canvas) = app.brush_live.as_mut() {
-            canvas.paint(painter, xf);
-        }
-        return;
-    }
-    if let Some((built, gpu)) = app.brush_stamps.get_mut(&cache) {
-        gpu.used = app.frame_no;
-        let moved = gpu.rect == node.rect || stamp_key_at(node, shape, path, gpu.rect) == *built;
-        let rect = if moved { node.rect } else { gpu.rect };
-        paint_stamp_quad(painter, xf, gpu, rect, fade(Color32::WHITE));
-    }
 }
 
 /// One committed stroke's stamp bitmap at `pixel` world units per pixel:
@@ -3817,36 +3689,6 @@ impl BrushLiveCanvas {
     fn upload(&mut self, dirty: [u32; 4]) {
         let sub = vector_ink::finished_region(&self.img, self.grain, dirty);
         upload_rows(&mut self.tex, dirty, &sub);
-    }
-
-    /// Stamp freehand points not yet on the canvas, each with its own tip
-    /// (`tips`, one per point).
-    pub fn add_freehand(&mut self, points: &[Pos2], tips: &[StrokeSpan]) {
-        let at = |i: usize| TipPoint {
-            pos: [points[i].x, points[i].y],
-            tip: stamp_style(tips[i.min(tips.len().saturating_sub(1))]),
-        };
-        if tips.is_empty() {
-            return;
-        }
-        let mut dirty: Option<[u32; 4]> = None;
-        let start = self.freehand_done.max(1);
-        let mut segs: Vec<(TipPoint, TipPoint)> = Vec::new();
-        if self.freehand_done == 0 && !points.is_empty() {
-            segs.push((at(0), at(0)));
-        }
-        for i in start..points.len() {
-            segs.push((at(i - 1), at(i)));
-        }
-        for (a, b) in segs {
-            if let Some(bx) = self.stamp(a, b) {
-                dirty = Some(union_box(dirty, bx));
-            }
-        }
-        self.freehand_done = points.len();
-        if let Some(d) = dirty {
-            self.upload(d);
-        }
     }
 
     #[cfg(test)]
@@ -5278,53 +5120,23 @@ impl SlateApp {
         tips: DrawnTips<'_>,
     ) -> Vec<NodeId> {
         self.begin_curve_fade_creation();
-        let mut path_data = path_data;
-        path_data.closed = closed;
         let current = self.placed_tip(tool);
-        let mut stroke = self.stroke_for_tool(tool);
-        if let Some(widest) = path_data.tips.iter().map(|t| t.width).reduce(f32::max) {
-            stroke.width = widest;
-        }
-        let mut opacity = current.opacity;
-        let placed = match tips {
-            DrawnTips::None => None,
-            DrawnTips::Grips(tips) => slate_doc::vertex_style::set_grip_placed_tips(
-                &mut path_data,
-                &mut stroke,
-                rect,
-                0.0,
-                tips,
-            ),
-            DrawnTips::Vertices(tips) => {
-                let (op, spans) = slate_doc::vertex_style::placed_spans(&stroke, tips);
-                slate_doc::vertex_style::set_vertex_tips(&mut path_data, &mut stroke, spans)
-                    .then_some(op)
-            }
-        };
-        if let Some(op) = placed {
-            opacity = op;
-        }
+        let stroke = self.stroke_for_tool(tool);
         let fill = if closed {
             self.fill_for_new_shape()
         } else {
             None
         };
-        let mut node = self.doc_mut().scene.build_node(
+        let node = drawn_path_node(
+            &mut self.doc_mut().scene,
             rect,
-            NodeKind::Shape(ShapeNode {
-                shape: ShapeKind::Path,
-                fill,
-                stroke,
-                corner: slate_doc::scene::Corner::Square,
-                sides: slate_doc::scene::default_regular_sides(),
-                phase_deg: 0.0,
-                flip: false,
-                path: Some(path_data.into()),
-
-                text: None,
-            }),
+            path_data,
+            closed,
+            stroke,
+            current,
+            fill,
+            tips,
         );
-        node.opacity = opacity;
         self.note_tool_style(tool, &node);
         // The next stroke starts with the tip last chosen, not the widest.
         self.keep_tool_tip(tool, current);
@@ -5379,17 +5191,7 @@ impl SlateApp {
                 pts.push(world);
                 tips.push(self.placed_tip(StrokeTool::Arc));
                 if pts.len() >= 3 {
-                    // start, end, middle → through-point is the last pick
-                    let bez = arc_through_three_points(pts[0], pts[2], pts[1]);
-                    let (rect, data) = bezpath_to_path_data(&bez, false);
-                    let grips = [tips[0], tips[2], tips[1]];
-                    self.commit_drawn_path(
-                        StrokeTool::Arc,
-                        rect,
-                        data,
-                        false,
-                        DrawnTips::Grips(&grips),
-                    );
+                    self.finish_arc_path(&pts, &tips);
                     return;
                 }
                 self.board_path_draft = Some(BoardPathDraft::Arc { points: pts, tips });
@@ -5739,9 +5541,7 @@ impl SlateApp {
     /// fitted vertex as the stroke drew it (P1.curve.tip-chord).
     pub(crate) fn finish_freehand_pen_stroke(&mut self, stroke: &FreehandTips<PlacedTip>) {
         let zoom = self.tab().cam.z.max(f32::EPSILON);
-        let tol = FREEHAND_FIT_ERROR_PX / zoom;
-        let spacing = FREEHAND_SAMPLE_SPACING_PX / zoom;
-        let Some((bez, tips)) = stroke.fit(tol, spacing) else {
+        let Some((bez, tips)) = fit_freehand(stroke, zoom) else {
             return;
         };
         let (rect, data) = bezpath_to_path_data(&bez, false);
@@ -5770,6 +5570,39 @@ impl SlateApp {
 mod tests {
     use super::*;
     use vector_ink::stroke_mesh;
+
+    #[test]
+    fn pending_erase_cleanup_keeps_the_committing_author() {
+        let mut scene = slate_doc::Scene::default();
+        let mut preparation = scene.node_preparation();
+        let (rect, path) = points_to_path_data(&[Pos2::ZERO, Pos2::new(8.0, 0.0)], false);
+        let node = drawn_path_node(
+            &mut preparation,
+            rect,
+            path,
+            false,
+            default_curve_stroke(slate_doc::scene::Rgba::BLACK),
+            slate_doc::vertex_style::PlacedTip {
+                width: 2.0,
+                color: slate_doc::scene::Rgba::BLACK,
+                opacity: 1.0,
+            },
+            None,
+            DrawnTips::None,
+        );
+        let author = slate_doc::scene::CmdAuthor::Agent("Dot".into());
+        let mut journal = slate_doc::scene::SceneJournal::default();
+        assert!(journal.commit_as(
+            &mut scene,
+            vec![slate_doc::scene::SceneCmd::Add { index: 0, node }],
+            author.clone(),
+        ));
+        let mut settle = EraseSettle::default();
+        let id = scene.nodes[0].id;
+        let token = journal.top_token().unwrap();
+        settle.check_as(id, 91, token, author.clone());
+        assert_eq!(settle.take_checks(), vec![(id, 91, token, author)]);
+    }
 
     /// A Shift segment stamped by a worker over a copy of the canvas pixels
     /// under it gives the pixels stamping the whole canvas would, so the

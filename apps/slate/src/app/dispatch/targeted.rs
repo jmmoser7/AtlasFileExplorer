@@ -1,9 +1,13 @@
 //! One typed, selection-independent command entry for people and collaborators.
 
 mod creation;
+mod drawing;
 mod invocation;
+mod portals;
 mod prepare;
+mod prepared;
 mod schema;
+mod smoothing;
 mod text_style;
 
 use super::super::SlateApp;
@@ -25,111 +29,23 @@ pub(crate) struct PreparedBoardCommand {
     invocation: Option<invocation::DeferredInvocation>,
     crop: Option<super::super::board_crop::CropGesture>,
     linked_items: Vec<slate_doc::SlateItem>,
-}
-
-impl PreparedBoardCommand {
-    pub(crate) fn crop_gesture(&self) -> Option<super::super::board_crop::CropGesture> {
-        self.crop
-    }
-
-    pub(crate) fn created_ids(&self) -> Vec<NodeId> {
-        self.cmds
-            .iter()
-            .filter_map(|cmd| match cmd {
-                SceneCmd::Add { node, .. }
-                    if !self.expected.iter().any(|old| old.id == node.id) =>
-                {
-                    Some(node.id)
-                }
-                _ => None,
-            })
-            .collect()
-    }
-
-    pub(crate) fn requires_linked_inputs(&self) -> bool {
-        !self.linked_items.is_empty()
-            || self
-                .invocation
-                .as_ref()
-                .is_some_and(invocation::DeferredInvocation::requires_linked_inputs)
-    }
-    /// Explicit existing targets for commands whose effect is a provider job.
-    pub(crate) fn witness_nodes(&self, scene: &Scene) -> Vec<Node> {
-        if let Some(invocation) = &self.invocation {
-            return scene
-                .node(invocation.target())
-                .cloned()
-                .into_iter()
-                .collect();
-        }
-        self.targets
-            .iter()
-            .filter_map(|id| scene.node(*id).cloned())
-            .collect()
-    }
-    pub(crate) fn tab_id(&self) -> u64 {
-        self.tab_id
-    }
-    pub(crate) fn workbook(&self) -> Option<&Path> {
-        self.workbook.as_deref()
-    }
-
-    /// A preview never licenses applying stale before-states after human edits.
-    pub(crate) fn applicable(&self, scene: &Scene) -> Result<(), String> {
-        self.expected_matches(scene)?;
-        let mut scratch = scene.clone();
-        for cmd in &self.cmds {
-            match cmd {
-                SceneCmd::Patch { before, .. }
-                    if scratch.node(before.id) != Some(before.as_ref()) =>
-                {
-                    return Err(format!("Object {} changed", before.id.0));
-                }
-                SceneCmd::Remove { node, .. } if scratch.node(node.id) != Some(node) => {
-                    return Err(format!("Object {} changed", node.id.0));
-                }
-                _ => {}
-            }
-            if !scratch.apply(cmd) {
-                return Err("The prepared command no longer applies to this board".into());
-            }
-        }
-        Ok(())
-    }
-
-    /// Cheap conflict check for live previews; full preflight runs at commit.
-    pub(crate) fn expected_matches(&self, scene: &Scene) -> Result<(), String> {
-        for expected in &self.expected {
-            if scene.node(expected.id) != Some(expected) {
-                return Err(format!(
-                    "Object {} changed while the action was prepared",
-                    expected.id.0
-                ));
-            }
-            if expected.locked
-                && self
-                    .invocation
-                    .as_ref()
-                    .is_none_or(|invocation| invocation.target() == expected.id)
-            {
-                return Err(format!("Object {} is locked", expected.id.0));
-            }
-        }
-        if self.order.as_ref().is_some_and(|order| {
-            !order
-                .iter()
-                .copied()
-                .eq(scene.nodes.iter().map(|node| node.id))
-        }) {
-            return Err("The board order changed while the action was prepared".into());
-        }
-        Ok(())
-    }
+    vertex_drawings: Vec<NodeId>,
+    erase_path: Vec<[f64; 2]>,
+    erase_span: Option<slate_doc::scene::StrokeSpan>,
+    camera_zoom: f32,
+    smooth: Option<super::super::board_smooth::SmoothGesture>,
 }
 
 impl SlateApp {
     pub(crate) fn targeted_command_schema() -> Value {
         schema::value()
+    }
+
+    pub(crate) fn validate_targeted_arguments(
+        command: &str,
+        arguments: &Value,
+    ) -> Result<(), String> {
+        prepare::validate_keys(arguments, schema::arguments(command)?)
     }
 
     pub(crate) fn prepare_targeted_command(
@@ -169,7 +85,15 @@ impl SlateApp {
             return Err("Crop requires exactly one stable image ID".into());
         }
         let ids = prepare::target_ids(&self.doc().scene, targets)?;
-        let (cmds, targets, invocation, crop) = if command == "board.objects.crop" {
+        let mut smooth = None;
+        let (cmds, targets, invocation, crop) = if command == "board.smooth.stroke" {
+            let (cmds, targets, gesture) = smoothing::prepare(self, &ids, arguments)?;
+            smooth = Some(gesture);
+            (cmds, targets, None, None)
+        } else if portals::recognizes(command) {
+            let (cmds, targets) = portals::prepare(self, command, &ids, arguments)?;
+            (cmds, targets, None, None)
+        } else if command == "board.objects.crop" {
             let (cmds, targets, gesture) = prepare::crop(self, &ids, arguments)?;
             (cmds, targets, None, Some(gesture))
         } else if matches!(
@@ -207,6 +131,39 @@ impl SlateApp {
         } else {
             Vec::new()
         };
+        let vertex_drawings = if command == "board.paths.draw" {
+            cmds.iter()
+                .filter_map(|cmd| match cmd {
+                    SceneCmd::Add { node, .. } => Some(node.id),
+                    _ => None,
+                })
+                .zip(arguments["strokes"].as_array().into_iter().flatten())
+                .filter_map(|(id, stroke)| {
+                    matches!(stroke["tool"].as_str(), Some("polyline" | "line")).then_some(id)
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let erase_path = if command == "board.eraser.stroke" {
+            arguments["points"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|p| Some([p.get(0)?.as_f64()?, p.get(1)?.as_f64()?]))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let erase_span = if command == "board.eraser.stroke" {
+            Some(super::super::board_color::targeted_eraser_span(
+                self,
+                arguments["radius"].as_f64().map(|n| n as f32),
+                arguments["softness"].as_f64().map(|n| n as f32),
+            )?)
+        } else {
+            None
+        };
         let prepared = PreparedBoardCommand {
             command: command.to_owned(),
             cmds,
@@ -219,6 +176,11 @@ impl SlateApp {
             invocation,
             crop,
             linked_items,
+            vertex_drawings,
+            erase_path,
+            erase_span,
+            camera_zoom: self.tab().cam.z,
+            smooth,
         };
         prepared.applicable(&self.doc().scene)?;
         Ok(prepared)
@@ -279,6 +241,7 @@ impl SlateApp {
             .ok_or("Unknown board command")?;
         let removed = prepare::removed_ids(&prepared.cmds);
         let added = prepare::added_wire_ids(&prepared.cmds);
+        let erasures = (prepared.command == "board.eraser.stroke").then(|| prepared.cmds.clone());
         if !self.commit_scene_as(
             prepared.cmds,
             slate_doc::scene::CmdAuthor::Agent(author.to_owned()),
@@ -286,6 +249,12 @@ impl SlateApp {
             return Err("The journal refused the prepared command".into());
         }
         self.finish_targeted_bookkeeping(&removed, &added);
+        if let Some(cmds) = erasures {
+            self.queue_targeted_erase_cleanup(
+                &cmds,
+                slate_doc::scene::CmdAuthor::Agent(author.to_owned()),
+            );
+        }
         self.push_history_as(
             command,
             Some(format!("{} objects", prepared.targets.len())),
@@ -328,6 +297,9 @@ impl SlateApp {
     }
 
     pub(crate) fn finish_targeted_proposal_bookkeeping(&mut self, cmds: &[SceneCmd]) {
+        if let Some(author) = self.tab().journal.last_author().cloned() {
+            self.queue_targeted_erase_cleanup(cmds, author);
+        }
         self.finish_targeted_bookkeeping(
             &prepare::removed_ids(cmds),
             &prepare::added_wire_ids(cmds),

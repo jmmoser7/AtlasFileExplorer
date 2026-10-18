@@ -2,7 +2,7 @@
 use super::*;
 use crate::app::{
     preview::{PreviewEntry, PX_EXACT},
-    tests::{capture_frame, picture_from, picture_item, rasterize, review_shot, FrameRaster},
+    tests::{capture_frame, picture_from, picture_item, rasterize, FrameRaster},
 };
 use slate_doc::NodeId;
 use std::{collections::HashMap, io::Write, time::Duration};
@@ -128,7 +128,8 @@ impl Fixture {
                 arguments,
             },
         };
-        assert!(self.h.app.presence_call(&mut agent, &call).is_none());
+        let reply = self.h.app.presence_call(&mut agent, &call);
+        assert!(reply.is_none(), "{command} must be admitted: {reply:?}");
         assert!(agent.work.is_some(), "the real command must be admitted");
         self.h.app.presence.agents.push(agent);
     }
@@ -172,18 +173,18 @@ impl Fixture {
     }
 
     pub fn save(&mut self, phase: &str, out: egui::FullOutput) {
-        assert_eq!(
-            self.h.app.brush_tiles.last.pending_jobs, 0,
-            "saving must not drain extra frames"
-        );
         let before = self.state();
-        review_shot(&mut self.h, &mut self.raster, out, &self.case, phase);
+        // The general review helper drains worker frames. Retain this exact
+        // output instead, including the currently visible raster fallbacks.
+        self.draw_exact(out);
         assert_eq!(
             self.state(),
             before,
             "phase labels must match the exact captured frame"
         );
         let path = self.directory().join(format!("{phase}.png"));
+        std::fs::create_dir_all(self.directory()).unwrap();
+        self.raster.save(&path);
         let row = json!({"phase":phase,"file":path.file_name().unwrap().to_string_lossy(),
             "bytes":std::fs::metadata(&path).unwrap().len(),"state":before});
         self.write_json(&format!("{phase}.json"), &row);
@@ -195,6 +196,20 @@ impl Fixture {
         let before = self.state();
         rasterize(&mut self.h, &mut self.raster, out.clone());
         assert_eq!(self.state(), before);
+    }
+
+    pub fn draw_exact(&mut self, out: egui::FullOutput) {
+        let before = self.state();
+        self.raster.sync_fonts(&self.h.ctx);
+        let prims = self.h.ctx.tessellate(out.shapes, out.pixels_per_point);
+        self.raster.px.fill([0.0, 0.0, 0.0, 1.0]);
+        self.raster.draw(&prims);
+        assert_eq!(self.state(), before, "drawing must not advance any frames");
+    }
+
+    pub fn set_zoom(&mut self, zoom: f32) {
+        self.h.app.tab_mut().cam.z = zoom;
+        self.camera = (self.h.app.tab().cam.offset, zoom);
     }
 
     pub fn blue(&self, node: &slate_doc::scene::Node) -> Option<bool> {

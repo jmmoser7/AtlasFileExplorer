@@ -82,13 +82,25 @@ impl SlateApp {
                 .clone()
         };
         let pending_proposals = self.presence.has_pending(who);
+        let previous = self
+            .presence
+            .agents
+            .iter()
+            .find(|a| a.profile.id == who && a.tab == tab && a.departure.is_none())
+            .ok_or("Collaborator is not on this board")?;
+        if previous.inflight || previous.board_action_active() || pending_proposals {
+            return Err("This collaborator is busy or awaiting a proposal decision".into());
+        }
+        let previous_request = previous.request.clone();
+        self.release_presence_portal_focus(&previous_request);
+        self.agent_atlas_clear_observer(&previous_request);
         let a = self
             .presence
             .agents
             .iter_mut()
             .find(|a| a.profile.id == who && a.tab == tab && a.departure.is_none())
             .ok_or("Collaborator is not on this board")?;
-        if a.inflight || a.work.is_some() || pending_proposals || a.read.is_some() {
+        if a.inflight || a.board_action_active() || pending_proposals {
             return Err("This collaborator is busy or awaiting a proposal decision".into());
         }
         let grant = a

@@ -16,10 +16,16 @@ impl SlateApp {
             .node(id)
             .ok_or("Image no longer exists")?
             .clone();
-        let source = self
+        let original = self
             .image_item_path(id)
             .ok_or("This image has no available result")?;
-        let source = resolve_source(self.tab().path.as_deref(), &source.to_string_lossy());
+        let source = resolve_source(self.tab().path.as_deref(), &original.to_string_lossy());
+        let workspace = self
+            .ai
+            .config
+            .valid_workspace()
+            .map(PathBuf::from)
+            .ok_or("Establish the AI workspace before requesting image reads")?;
         let item = atlas_agent::ContextItem {
             node: id.0,
             text: String::new(),
@@ -46,23 +52,24 @@ impl SlateApp {
         let mut identity = std::collections::hash_map::DefaultHasher::new();
         base_key.hash(&mut identity);
         read.hash(&mut identity);
+        workspace.hash(&mut identity);
         let key = identity.finish();
         let bake = self.layer_bakes.readiness_for(self.tab().id, image.item);
         let mut document = self.doc().clone();
         let workbook = self.tab().path.clone();
+        let original = original.clone();
+        let source = source.clone();
+        let read_id = read.to_owned();
         pool.schedule(
             key,
             bake,
             Box::new(move || {
-                if atlas_core::cloud::is_dehydrated(&source) {
-                    return None;
-                }
                 crate::app::board_image_layers::resolve_image_doc_paths(
                     &mut document,
                     workbook.as_deref(),
                 );
-                crate::app::image_composite::agent_wired_image_file_from_source(
-                    &document, &node, &image, &source,
+                crate::app::image_composite::presence_wired_image_file_from_source(
+                    &document, &node, &image, &original, &source, &workspace, &read_id,
                 )
             }),
         )
@@ -77,7 +84,7 @@ impl SlateApp {
         pool.receive();
         match pool.result(input.key) {
             Some(Some(path)) => Ok(Some(path.clone())),
-            Some(None) => Err("The image could not be prepared. Cloud-only sources must be made available locally first.".into()),
+            Some(None) => Err("The image could not be prepared. Sources must be available locally, outside machine-private state, and within the bounded image limits.".into()),
             None => Ok(None),
         }
     }

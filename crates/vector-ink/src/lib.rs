@@ -24,6 +24,7 @@ mod stroke;
 mod tile;
 mod trim;
 
+pub use hit::CachedStrokeHit;
 pub use kurbo;
 
 /// Line cap style for open stroke ends.

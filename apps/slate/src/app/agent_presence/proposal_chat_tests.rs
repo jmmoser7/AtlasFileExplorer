@@ -39,6 +39,21 @@ fn decide(h: &mut Harness, who: &str, proposal: &str, accept: bool) {
 #[test]
 fn proposal_chat_rows_borrow_all_current_session_rows_and_registry_labels() {
     let (mut h, who) = setup();
+    // Give the foreign session a non-creation action. Pending create previews
+    // reserve IDs from the unchanged scene allocator, so another create would
+    // correctly be refused as a collision before it could produce a chat row.
+    let seed = h
+        .app
+        .prepare_targeted_command(
+            "board.objects.create_shape",
+            &[],
+            &json!({"x":240,"y":30,"width":40,"height":40}),
+        )
+        .unwrap();
+    let target = seed.created_ids()[0];
+    h.app
+        .finish_targeted_command(seed, "Human", true, "fixture")
+        .unwrap();
     let first = stage(&mut h, &who);
     let mut recovered = h.app.pending_stage_proposals()[0].clone();
     recovered.id = format!("presence-{}", atlas_agent::request_id());
@@ -46,23 +61,38 @@ fn proposal_chat_rows_borrow_all_current_session_rows_and_registry_labels() {
     let second = recovered.id.clone();
     h.app.queue_stage_proposal(recovered).unwrap();
     let peer = add(&mut h, "Dot"); // Equal names must not merge independent sessions.
-    let foreign = stage(&mut h, &peer);
+    let foreign = stage_command(
+        &mut h,
+        &peer,
+        "board.objects.move",
+        &[target],
+        json!({"dx":20,"dy":0}),
+    );
     let before = serde_json::to_value(h.app.doc()).unwrap();
     let rows = h.app.presence_proposal_rows(&who);
     assert_eq!(
         rows.iter().map(|r| r.id).collect::<Vec<_>>(),
         [first.as_str(), second.as_str()]
     );
-    let label = h
+    let create_label = h
         .app
         .registry
         .iter()
         .find(|s| s.id.0 == "board.objects.create_shape")
         .unwrap()
         .name;
-    assert!(rows.iter().all(|r| r.label == label));
+    let move_label = h
+        .app
+        .registry
+        .iter()
+        .find(|s| s.id.0 == "board.objects.move")
+        .unwrap()
+        .name;
+    assert!(rows.iter().all(|r| r.label == create_label));
     assert!(!rows[0].recovery_required && rows[1].recovery_required);
-    assert_eq!(h.app.presence_proposal_rows(&peer)[0].id, foreign);
+    let peer_rows = h.app.presence_proposal_rows(&peer);
+    assert_eq!(peer_rows[0].id, foreign);
+    assert_eq!(peer_rows[0].label, move_label);
     assert!(h.app.presence_proposal_rows("self").is_empty());
     assert_eq!(serde_json::to_value(h.app.doc()).unwrap(), before);
     assert_eq!(h.app.pending_stage_proposals().len(), 3);

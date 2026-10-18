@@ -8,8 +8,12 @@ use std::fmt;
 
 mod roster;
 mod session;
+mod work_path;
 pub use roster::PresenceRoster;
 pub use session::{PresenceEvent, PresenceSession};
+pub use work_path::{
+    DrawingCrewPlan, PathMode, PathProgress, WorkPath, WorkerAssignment, WorkerProgress, WorkerRole,
+};
 
 pub const ID_LIMIT: usize = 128;
 pub const PROFILE_LIMIT: usize = 128;
@@ -53,6 +57,8 @@ pub enum PresenceError {
     DuplicateRequest,
     RequestLimit,
     DiscontinuousStart,
+    InvalidPath,
+    PathLimit,
 }
 
 impl fmt::Display for PresenceError {

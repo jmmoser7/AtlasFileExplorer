@@ -28,6 +28,10 @@ use super::board::{self, rgba32, BoardXf};
 use super::board_portal_chrome::{layout_portal_chrome, PortalChromeLayout};
 use super::SlateApp;
 
+mod agent_access;
+mod layout;
+use layout::css_size;
+
 mod input;
 mod package;
 mod presentation;
@@ -511,6 +515,9 @@ pub struct WebRuntime {
     workbook_consent: HashSet<String>,
     /// The one portal receiving pointer and keyboard, if any (D22).
     pub focused: Option<NodeId>,
+    /// Temporary agent-owned focus. This does not enter portal contents or
+    /// take native keyboard focus; human contents focus clears the lease.
+    agent_focus_lease: Option<(NodeId, String)>,
     /// Whether the pointer was inside the focused page last frame, so the page
     /// gets exactly one `Leave` when it wanders off.
     pointer_inside: bool,
@@ -563,6 +570,7 @@ impl Default for WebRuntime {
             consent_workbook: None,
             workbook_consent: HashSet::new(),
             focused: None,
+            agent_focus_lease: None,
             pointer_inside: false,
             pointer_down: 0,
             pointer_sample: None,
@@ -1274,7 +1282,12 @@ impl SlateApp {
                 last_focus: view.last_focus,
                 renderable,
                 was_live: view.live,
-                pinned: self.web.host.holds_popup(*id),
+                pinned: self.web.host.holds_popup(*id)
+                    || self
+                        .web
+                        .agent_focus_lease
+                        .as_ref()
+                        .is_some_and(|(owner, _)| owner == id),
             });
         }
 
@@ -1781,6 +1794,8 @@ impl SlateApp {
     }
 
     pub(crate) fn web_enter_contents(&mut self, id: NodeId) {
+        // A human entering any portal owns the shared input surface from here.
+        self.web.agent_focus_lease = None;
         if self
             .doc()
             .scene
@@ -1808,6 +1823,7 @@ impl SlateApp {
     }
 
     pub(crate) fn web_leave_contents(&mut self) -> bool {
+        self.web.agent_focus_lease = None;
         let had = self.web.focused.take();
         if let Some(id) = had {
             // Let the page settle its hover and drag state instead of freezing
@@ -2912,40 +2928,7 @@ pub(super) fn web_frame_has_content(image: &egui::ColorImage) -> bool {
     !(near_black || near_white)
 }
 
-/// The CSS viewport a page is laid out at. `Auto` hands the frame's own size to
-/// the page so resizing reflows; the others lay out at the authored width and
-/// scale the result (D20).
-pub fn css_size(web: &WebPortalRef, rect: slate_doc::scene::WorldRect) -> (u32, u32) {
-    let aspect = if rect.w > 0.0 {
-        rect.h / rect.w
-    } else {
-        0.5625
-    };
-    match web.viewport.zoom {
-        WebZoom::Auto => (
-            rect.w.max(1.0).round() as u32,
-            rect.h.max(1.0).round() as u32,
-        ),
-        _ => {
-            let w = web.viewport.width_css.max(1);
-            (w, ((w as f32) * aspect).round().max(1.0) as u32)
-        }
-    }
-}
-
-/// Whether a screen point belongs to the live page rather than Slate's frame
-/// band or chrome (D17/D22). Every pointer button over this area is the page's.
-/// UVs follow the painted body, not the inset frame hit band; native scrollbar
-/// tracks stay reachable where they overlap that band.
-pub(crate) fn page_owns_point(layout: &PortalChromeLayout, p: Pos2) -> bool {
-    let page = layout.body;
-    let scrollbar_width = atlas_shell::tabs::portal_scrollbar_width(
-        layout.bar.or(layout.reveal).map_or(0.0, |r| r.height()),
-    );
-    layout.page.contains(p)
-        || (page.contains(p)
-            && (p.x >= page.right() - scrollbar_width || p.y >= page.bottom() - scrollbar_width))
-}
+pub(crate) use input::page_owns_point;
 
 /// Physical-pixel quality tiers, bounded by the display rather than deep zoom.
 pub fn raster_for(

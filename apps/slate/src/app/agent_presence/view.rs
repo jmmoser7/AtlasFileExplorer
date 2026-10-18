@@ -65,6 +65,7 @@ impl SlateApp {
         painter: &egui::Painter,
         xf: &super::super::board::BoardXf,
     ) {
+        self.sync_agent_brush_previews();
         let reduced =
             self.settings.presence_reduced_motion || chrome::system_reduced_motion(painter.ctx());
         let tab = self.tab().id;
@@ -163,6 +164,26 @@ impl SlateApp {
                 painter
                     .ctx()
                     .request_repaint_after(std::time::Duration::from_millis(16));
+            }
+            if let Some(work) = &a.work {
+                for (helper, position) in work.drawing_helpers() {
+                    let helper_center = xf.w2s(egui::pos2(position.x as f32, position.y as f32));
+                    self.presence.painter.paint_world_avatar(
+                        painter,
+                        chrome::AvatarVisual {
+                            id: helper,
+                            center: helper_center,
+                            expression: &pose.expression,
+                            orientation: gaze,
+                            hat: &a.profile.hat,
+                            prop: &pose.prop,
+                            opacity: 1.0,
+                        },
+                        now,
+                        reduced,
+                        xf.z,
+                    );
+                }
             }
             if self.canvas_rect.expand(-20.0).contains(center) && a.departure.is_none() {
                 chrome::world_participant_name(

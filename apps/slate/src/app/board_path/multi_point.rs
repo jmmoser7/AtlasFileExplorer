@@ -82,12 +82,40 @@ pub(crate) fn collect<T: Copy + PartialEq>(
 }
 
 use super::{
-    bezier_anchors_to_bezpath, bezpath_to_path_data, points_to_path_data, BoardPathDraft, DrawnTips,
+    arc_path_node, bezier_anchors_to_bezpath, bezpath_to_path_data, points_to_path_data,
+    BoardPathDraft, DrawnTips,
 };
 use crate::app::SlateApp;
 use slate_doc::StrokeTool;
 
 impl SlateApp {
+    pub(crate) fn finish_arc_path(
+        &mut self,
+        points: &[eframe::egui::Pos2],
+        tips: &[slate_doc::vertex_style::PlacedTip],
+    ) -> bool {
+        if points.len() != 3 || tips.len() != 3 {
+            return false;
+        }
+        let current = self.placed_tip(StrokeTool::Arc);
+        let stroke = self.stroke_for_tool(StrokeTool::Arc);
+        let grips = [tips[0], tips[2], tips[1]];
+        self.begin_curve_fade_creation();
+        let node = arc_path_node(
+            &mut self.doc_mut().scene,
+            [points[0], points[1], points[2]],
+            stroke,
+            current,
+            grips,
+        );
+        self.note_tool_style(StrokeTool::Arc, &node);
+        self.keep_tool_tip(StrokeTool::Arc, current);
+        let ids = self.commit_created_nodes(vec![node]);
+        self.select_created_nodes(ids);
+        self.board_tool = crate::app::board::BoardTool::Select;
+        true
+    }
+
     pub(crate) fn cancel_path_draft(&mut self) {
         if let Some(BoardPathDraft::Polyline { points, .. }) = &mut self.board_path_draft {
             collect(points, Event::Cancel, POLYLINE);

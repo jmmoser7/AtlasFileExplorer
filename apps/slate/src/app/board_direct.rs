@@ -9,7 +9,7 @@
 
 mod arrows;
 mod field;
-mod join;
+pub(crate) mod join;
 mod sweep;
 pub(crate) use field::apply_field_property;
 
@@ -1494,7 +1494,7 @@ impl SlateApp {
     }
 
     /// Public wrapper over the private snap threshold (world units).
-    fn board_snap_threshold_pub(&self) -> f32 {
+    pub(crate) fn board_snap_threshold_pub(&self) -> f32 {
         super::board_snap::SNAP_SCREEN_PX / self.tab().cam.z.max(0.05)
     }
 

@@ -22,13 +22,13 @@ Revision 2 was accepted by the user on 17 October 2026, followed by an explicit 
 | D06 | Constraints & snapping | n/a; presence is not authored geometry and is not a snap target. | pattern | 85 |
 | D07 | Direction / value locks | n/a; no geometric value lock. | pattern | 85 |
 | D08 | Numeric / manual entry | Composer supports ordinary multiline text/paste and explicit local image attachments. It remains editable during work; Codex updates steer the active turn, other supported harnesses queue follow-ups with truthful delivery status. | stated | 100 |
-| D09 | Preview & readouts | Approved eye-only face and independent expression/gaze timings. Listening when addressed. Avatar, hat, prop, name and attached conversation scale in canvas space under P0.9, with world wrapping preserved. Roster conversation remains window chrome; no attached-overlay scale exception. | stated | 100 |
+| D09 | Preview & readouts | Approved eye-only face and independent expression/gaze timings. Listening when addressed. Avatar, hat, prop, name and attached conversation scale in canvas space under P0.9, with world wrapping preserved. Roster conversation remains window chrome; no attached-overlay scale exception. Drawing previews trace the actual pen/brush path or visibly place authored vertices; complex multi-stroke operations may fan out into bounded execution avatars while retaining the parent. | stated | 100 |
 | D10 | Cursor | Existing pointer over canvas; text caret in editor. Agent animation never moves or captures the human pointer. | pattern | 90 |
-| D11 | Commit | Visible messages and drafts persist separately from ephemeral runtime sessions. Stale missing-rollout Codex bindings recover through a fresh thread with visible history replayed once. Stop preserves conversation and revocable human permission policy; new requests remain available. Grants authorize registered journaled commands, authored text and saving; pending proposals require acceptance unless the exact action is explicitly autonomous. | stated | 100 |
+| D11 | Commit | Visible messages and drafts persist separately from ephemeral runtime sessions. Stale missing-rollout Codex bindings recover through a fresh thread with visible history replayed once. Stop preserves conversation and revocable human permission policy; new requests remain available. Grants authorize registered journaled commands, authored text and saving; pending proposals require acceptance unless the exact action is explicitly autonomous. Drawing, erasing and joining use the human geometry owners and one attributed reversible commit; execution avatars do not start additional providers. | stated | 100 |
 | D12 | Cancel | Escape dismisses the innermost picker/menu then chat; explicit Close also dismisses chat. Outside clicks leave chat open and the board interactive. Dismissal retains history and draft and never implicitly resumes paused work. | stated | 100 |
 | D13 | Selected presentation | One continuous roster capsule with discreet vertical separators. One enclosing conversation panel includes the compact identity/control capsule, alternating bubbles and bottom composer. Hats scroll in a compact album flow owned by atlas-shell::home, with a fine selected outline and no All hats step. Cursor/Codex use canonical provider glyphs; retirement uses a gentle sunset glyph. | stated | 100 |
 | D14 | Post-edit | Agent identity and explicit revocable permission preferences persist per identity, harness and workspace scope. Joining creates a fresh session from matching human policy; jobs, positions and live membership never restore. Retired agents return through Advanced. Revocation takes effect immediately. | stated | 100 |
-| D15 | Non-goals | Never fabricate remote delivery, unsupported menu outcomes or board progress. Human messages require the real participant-message transport, separate from the Slate–Atlas bridge and from shared-board synchronization. Profiles stay separate from transcript content; no source-write or implicit board authority comes from joining a conversation. | pattern | 90 |
+| D15 | Non-goals | Never fabricate remote delivery, unsupported menu outcomes or board progress. Human messages require the real participant-message transport, separate from the Slate–Atlas bridge and from shared-board synchronization. Profiles stay separate from transcript content; no source-write or implicit board authority comes from joining a conversation. Atlas analysis highlights exact enumerated files independently of human selection; Web input reuses the consented portal and yields to human takeover. | stated | 100 |
 | D16 | Create-style inheritance | n/a; conversation and avatar are ephemeral presence, not scene nodes. Hats never encode permission or provider capability. | pattern | 90 |
 | D17 | Hit-testing & pick | Roster chat is compact nonmodal window chrome with reachable Close, transcript and pinned composer. Attached chat and avatar/hat/prop/name retain canvas-space scale under P0.9. Public progress streams inside chat; private reasoning is never displayed. Hat geometry/approved fits remain unchanged and may protrude above the header. | stated | 100 |
 
@@ -66,3 +66,17 @@ Cover Flow projection and motion belong to `atlas-shell::home`. The browser revi
 ## First-use correction, 18 October 2026
 
 The user reopened acceptance after real interaction exposed stale Codex resume failures, oversized dismissing chats, busy-message rejection and nonpersistent privilege choices. These explicit corrections supersede the earlier checkpoint; earlier render evidence does not establish acceptance of this revision. Validate multi-turn recovery, pause/resume, mid-turn updates, images, board manipulation outside chat, remembered/revoked policy, authored text and saved-file round trip. Public tool activity and agent commentary are visible progress, never private reasoning.
+
+## Witnessed tool access, 18 October 2026
+
+The user's explicit follow-up extends D09/D11/D15: pen and brush work must
+trace the real authored path, and vertex tools must visibly place their points.
+Complex multi-stroke drawings may fan out into bounded temporary execution
+avatars while retaining the parent. This is one operation with one attributed
+Undo; execution avatars do not imply extra model calls or larger grants.
+Existing face, hat fits and P0.9 scale remain authoritative. Atlas analysis
+highlights exact enumerated files independently of human selection. Web input
+uses the existing portal host and consent, with human takeover taking priority.
+These are stated requirements, pre-accepted under the tool-contract intake
+rule; they do not claim native-build or interactive acceptance. No new gesture,
+dimension, portal kind, source-write authority or scale exception is introduced.

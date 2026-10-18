@@ -14,6 +14,7 @@ pub struct PresenceEvent {
 #[derive(Debug)]
 struct ActiveMotion {
     plan: MotionPlan,
+    path: Option<WorkPath>,
     elapsed_ms: f64,
 }
 
@@ -52,6 +53,15 @@ impl ActiveMotion {
         };
         let progress = ((self.elapsed_ms - phase_start) / phase_duration).clamp(0.0, 1.0);
         if matches!(phase, MotionPhase::Work | MotionPhase::ReadyToCommit) {
+            if let Some(path) = &self.path {
+                let path_sample = path.position_at(progress);
+                position = path_sample.position;
+                return MotionSample {
+                    position,
+                    phase,
+                    progress: path_sample.progress,
+                };
+            }
             if let Some(end) = self.plan.work_end {
                 let s = progress * progress * (3.0 - 2.0 * progress);
                 position = WorldPoint {
@@ -68,6 +78,27 @@ impl ActiveMotion {
     }
 }
 
+#[derive(Debug)]
+struct QueuedMotion {
+    plan: MotionPlan,
+    path: Option<WorkPath>,
+}
+
+impl QueuedMotion {
+    fn destination(&self) -> WorldPoint {
+        self.path
+            .as_ref()
+            .and_then(|path| {
+                path.strokes()
+                    .last()
+                    .and_then(|stroke| stroke.last())
+                    .copied()
+            })
+            .or(self.plan.work_end)
+            .unwrap_or(self.plan.end)
+    }
+}
+
 /// Runtime only: deliberately neither Serialize nor Clone. A restored profile
 /// must receive a fresh session and request; copying a session could replay a gate.
 #[derive(Debug)]
@@ -79,7 +110,7 @@ pub struct PresenceSession {
     position: WorldPoint,
     sequence: u64,
     activity: Option<AgentActivitySemantics>,
-    queue: VecDeque<MotionPlan>,
+    queue: VecDeque<QueuedMotion>,
     active: Option<ActiveMotion>,
     actions: HashSet<PresenceId>,
     requests: HashSet<PresenceId>,
@@ -222,6 +253,23 @@ impl PresenceSession {
     }
 
     pub fn enqueue(&mut self, plan: MotionPlan) -> Result<(), PresenceError> {
+        self.enqueue_inner(plan, None)
+    }
+
+    /// Enqueue a drawing action whose Work phase follows its bounded authored
+    /// path. Its first point must meet the witnessed contact point.
+    pub fn enqueue_path(&mut self, plan: MotionPlan, path: WorkPath) -> Result<(), PresenceError> {
+        if path.strokes().first().and_then(|stroke| stroke.first()) != Some(&plan.end) {
+            return Err(PresenceError::InvalidPath);
+        }
+        self.enqueue_inner(plan, Some(path))
+    }
+
+    fn enqueue_inner(
+        &mut self,
+        plan: MotionPlan,
+        path: Option<WorkPath>,
+    ) -> Result<(), PresenceError> {
         self.validate_new(&plan)?;
         if self.queue.len() == QUEUE_LIMIT {
             return Err(PresenceError::QueueFull);
@@ -229,18 +277,28 @@ impl PresenceSession {
         let expected = self
             .queue
             .back()
-            .map(|p| p.work_end.unwrap_or(p.end))
+            .map(QueuedMotion::destination)
             .or_else(|| {
-                self.active
-                    .as_ref()
-                    .map(|a| a.plan.work_end.unwrap_or(a.plan.end))
+                self.active.as_ref().map(|active| {
+                    active
+                        .path
+                        .as_ref()
+                        .and_then(|path| {
+                            path.strokes()
+                                .last()
+                                .and_then(|stroke| stroke.last())
+                                .copied()
+                        })
+                        .or(active.plan.work_end)
+                        .unwrap_or(active.plan.end)
+                })
             })
             .unwrap_or(self.position);
         if plan.start != expected {
             return Err(PresenceError::DiscontinuousStart);
         }
         self.actions.insert(plan.action_id.clone());
-        self.queue.push_back(plan);
+        self.queue.push_back(QueuedMotion { plan, path });
         Ok(())
     }
 
@@ -262,8 +320,9 @@ impl PresenceSession {
     /// boundary. Overshoot is discarded so Grab and Work cannot be skipped.
     pub fn advance(&mut self, elapsed: Duration) -> MotionSample {
         if self.active.is_none() {
-            self.active = self.queue.pop_front().map(|plan| ActiveMotion {
-                plan,
+            self.active = self.queue.pop_front().map(|queued| ActiveMotion {
+                plan: queued.plan,
+                path: queued.path,
                 elapsed_ms: 0.0,
             });
         }
@@ -322,7 +381,7 @@ impl PresenceSession {
         signals.extend(
             self.queue
                 .drain(..)
-                .map(|plan| PresenceSignal::from_plan(&plan, false)),
+                .map(|queued| PresenceSignal::from_plan(&queued.plan, false)),
         );
         signals
     }

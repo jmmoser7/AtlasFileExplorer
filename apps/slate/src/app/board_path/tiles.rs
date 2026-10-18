@@ -1294,16 +1294,12 @@ pub(super) fn plain_stamp<'a>(
     if app.board_sel.contains(&node.id)
         || app.erase_live.contains_key(&node.id)
         || app.erase_settle.holds(app.tab().id, node.id)
-    {
-        return None;
-    }
-    if app.shape_properties.preview.iter().any(|p| p.id == node.id) {
-        return None;
-    }
-    if app
-        .brush_live
-        .as_ref()
-        .is_some_and(|c| c.holds_anchor(node.id))
+        || app.shape_properties.preview.iter().any(|p| p.id == node.id)
+        || app
+            .brush_live
+            .as_ref()
+            .is_some_and(|c| c.holds_anchor(node.id))
+        || app.agent_brush_coverage(node.id, None).is_some()
     {
         return None;
     }
@@ -1377,6 +1373,7 @@ pub(crate) fn paint_rest(
     screen: egui::Rect,
     nodes: &[Node],
 ) {
+    app.sync_agent_brush_previews();
     app.brush_tiles.now = app.frame_no;
     if !app.brush_tiles_enabled {
         for n in nodes

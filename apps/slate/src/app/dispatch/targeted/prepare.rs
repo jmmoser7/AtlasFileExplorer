@@ -93,6 +93,9 @@ pub(super) fn commands(
     let scene = &app.doc().scene;
     let allowed = super::schema::arguments(command)?;
     validate_keys(args, allowed)?;
+    if super::drawing::recognizes(command) {
+        return super::drawing::commands(app, command, ids, args);
+    }
     if super::creation::recognizes(command) {
         return super::creation::commands(app, command, ids, args);
     }

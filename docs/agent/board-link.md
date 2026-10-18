@@ -1,5 +1,58 @@
 # Scoped board collaborators
 
+## Drawing and source portals (18 October 2026)
+
+`board.paths.draw` creates 1–64 authored strokes in one reversible, attributed
+transaction. Its `strokes` accept `pen`, `brush`, `polyline`, `line`, `bezier`,
+`arc`, `rect`, `ellipse`, or `polygon`,
+world-space `points`, and optional `closed`, `width`, `color`, `opacity`, and
+`softness`. Bézier points form a cubic chain (3n+1 points). The aggregate point
+budget is 4096. These results use the same path and stamped-brush builders as
+human gestures. Use separate strokes for the components of a complex drawing;
+Slate assigns those components to a bounded visible execution crew.
+
+An Arc uses exactly three picks in human order: start, end, through. Parametric
+shapes use two opposite corners, with optional polygon `sides` (3–128). They
+trace their shared geometric outline while working and commit the exact kit
+recipe shape, retaining its editable parametric type.
+
+The parent travels to the first point, then follows the actual stroke. Ink
+appears only behind the drawing contact; pen-up travel never draws a chord.
+Polyline/line work pauses at its vertices. Complex batches can fan out into
+temporary avatars within the grant's helper limit; these avatars execute parts
+of this one command and do not start extra model sessions. The parent remains
+visible. Final geometry is the exact prepared result, committed only after the
+witnessed operation finishes. Pause, cancellation, human edits and revocation
+retain their ordinary fences. Cancelled previews do not become saved objects.
+
+`board.eraser.stroke` takes explicit targets, world-space `points`, optional
+`radius` and `softness`; it shares human eraser hit tests and brush erase marks.
+`board.path.join` takes explicit eligible shape/path targets and uses the human
+join preparation. Both remain journaled and respect locked targets.
+`board.smooth.stroke` accepts explicit stroke targets, a sweep `points` path,
+optional world `width` and `strength` (0.05–1). Its bounded preparation and
+visible swept-prefix preview share the human smoother; repeated frames never
+add extra smoothing. Source snapshots and the journal remain untouched until
+the completed operation commits.
+
+`board.objects.create_portal` takes `kind` (`atlas` or `web`), explicit `source`
+and world-space `x`, `y`, `width`, `height`. Creation does not grant access to a
+source. Atlas commands operate through the existing File Atlas portal/session:
+`portal.atlas.list` returns bounded enumerated metadata; `.highlight` identifies
+one exact root-relative `locator`; `.read_file` reads that exact enumerated file.
+Agent analysis highlights are separate from human selection and are removed
+when the request ends. Linked-source permission, scan generation and cloud-file
+guards still apply. File Atlas source mutations and its Edit mode remain
+human-only under Constitution IX.5.
+
+Web commands target one granted portal: `portal.web.read_text`, `.capture`,
+`.navigate`, `.click`, `.scroll`, `.type`, `.key`, and `.focus`. They reuse the
+existing WebHost, origin consent and typed page input. Page coordinates refer
+to that portal's viewport. Operations do not take the operating-system pointer,
+move the board camera, read cookies or execute arbitrary scripts. A human taking
+over the page invalidates the agent's focus lease. New origins require the
+existing human consent; automation never silently allows them.
+
 The native collaborator adapter uses the ordinary registered command surface.
 Its provider-neutral contracts live in `atlas_agent::collaborator`; transport
 lives in `atlas_ai::board_link`. The host owns command applicability, visible
@@ -117,6 +170,21 @@ reference is `target/codex-presence-schema`. The [official app-server documentat
 describes this dynamic-tool flow as experimental and requires the initialize
 capability `experimentalApi: true`; the existing Client already advertises it.
 Ordinary chat sessions receive no board tools or context.
+
+Successful `presence.read_image`, `portal.atlas.read_file` with `mode: image`,
+and `portal.web.capture` replies attach actual image content to Codex's dynamic
+tool response (`inputImage.imageUrl`), alongside the ordinary text metadata.
+The mailbox still carries only a small artifact locator. The adapter opens
+only host-prepared PNGs directly inside the AI workspace's
+`collaborator-previews`, `portal-previews`, or `portal-captures` directories;
+original source files and arbitrary paths in other tool results are refused.
+Cloud checks precede reads, and PNG decoding and transport have explicit bounds
+(8 MiB encoded, 16,777,216 pixels). Explicit board-image exports are reduced to
+at most 2,000,000 pixels so even noisy RGBA images fit that encoded bound.
+A rejected artifact returns a recoverable
+tool error. File-bridge providers receive the artifact locator and use their
+existing image-view tool. The exact installed response schema is retained in
+`target/review/agent-tools-20261018/codex-schema/DynamicToolCallResponse.json`.
 
 Native collaborator model turns default to the local filesystem read-only
 sandbox, independently of the board mutation/autonomy grant. A human may

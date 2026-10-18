@@ -60,8 +60,11 @@ impl SlateApp {
                     targets,
                     arguments,
                 } => {
-                    if a.work.is_some() || a.read.is_some() {
+                    if a.board_action_active() {
                         return Err("Wait for the current action or proposal decision".into());
+                    }
+                    if portal_ops::recognizes(command) {
+                        return self.begin_presence_portal_call(ctx, a, call);
                     }
                     if matches!(
                         command.as_str(),
@@ -195,6 +198,7 @@ impl SlateApp {
                         None => self.prepare_targeted_command(command, targets, arguments)?,
                     };
                     self.validate_presence_action(a, call, &prepared)?;
+                    self.validate_creation_admission(a, call, &prepared)?;
                     a.activity = command_activity(command).into();
                     a.observed_target = prepared.targets.first().copied();
                     a.status = "Approaching target · visible action".into();
@@ -204,6 +208,7 @@ impl SlateApp {
                         &self.doc().scene,
                         self.board_wire_routing,
                     )?;
+                    work.set_drawing_helpers(grant.helper_limit);
                     work.purpose = if grant.mutation_autonomy {
                         witness::WitnessPurpose::Autonomous
                     } else {

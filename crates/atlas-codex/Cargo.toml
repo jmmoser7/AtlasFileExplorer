@@ -7,3 +7,5 @@ edition.workspace = true
 atlas-agent.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+png.workspace = true
+base64 = "0.22"

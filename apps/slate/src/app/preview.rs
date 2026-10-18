@@ -163,6 +163,25 @@ impl SlateApp {
         self.preview_cache.get(&key).map(|e| e.tex.clone())
     }
 
+    /// Reuse the bounded, cloud-guarded preview owner for a collaborator's
+    /// temporary image input. The caller supplies a unique cache key and gets
+    /// only the capped decoded pixels; source bytes never leave this worker.
+    pub(crate) fn agent_portal_preview_pixels(
+        &mut self,
+        key: String,
+        path: std::path::PathBuf,
+    ) -> Result<Option<std::sync::Arc<egui::ColorImage>>, String> {
+        let _ = self.path_preview(key.clone(), path, None, 512.0, true, true);
+        if let Some(entry) = self.preview_cache.get_mut(&key) {
+            entry.last_used = self.frame_no;
+            return Ok(Some(std::sync::Arc::clone(&entry.pixels)));
+        }
+        if self.preview_failed.contains(&key) {
+            return Err("The existing preview owner could not decode this image".into());
+        }
+        Ok(None)
+    }
+
     /// Upload finished decodes. Runs once per frame before painting.
     pub(super) fn drain_previews(&mut self, ctx: &egui::Context) {
         let mut budget = UploadBudget::default();

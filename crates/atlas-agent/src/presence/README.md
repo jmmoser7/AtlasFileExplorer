@@ -36,6 +36,15 @@ overshoot so even coarse frames show intermediate travel, Grab, and Work before
 ReadyToCommit. `interrupt` cancels dependent plans and takes the last
 witnessed position as the replacement start. Frames do not allocate.
 
+Drawing adapters may use `WorkPath::new` and `enqueue_path` to witness up to
+4,096 bounded world points across independent strokes. Work follows arclength;
+pen-up travel between strokes remains visible and separately marked. The
+vertex-by-vertex mode pauses at each vertex. `MotionSample.progress` during Work
+is normalized path progress for partial previews. `DrawingCrewPlan` gives a
+deterministic parent-first assignment of independent strokes to at most the
+passed helper budget, capped at eight helpers and a ten-second run budget. It
+describes visual workers only and creates no provider sessions or requests.
+
 At ReadyToCommit, call `resolve_ready` with a check against the actual command
 and current scene. A valid check emits one `ReadyToCommit`; an invalid check
 emits one `Cancelled`. The host must journal its real command immediately after
