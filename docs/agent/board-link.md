@@ -1,5 +1,47 @@
 # Scoped board collaborators
 
+## Drawing and source portals (18 October 2026)
+
+`board.paths.draw` creates 1–64 authored strokes in one reversible, attributed
+transaction. Its `strokes` accept `pen`, `brush`, `polyline`, `line`, or `bezier`,
+world-space `points`, and optional `closed`, `width`, `color`, `opacity`, and
+`softness`. Bézier points form a cubic chain (3n+1 points). The aggregate point
+budget is 4096. These results use the same path and stamped-brush builders as
+human gestures. Use separate strokes for the components of a complex drawing;
+Slate assigns those components to a bounded visible execution crew.
+
+The parent travels to the first point, then follows the actual stroke. Ink
+appears only behind the drawing contact; pen-up travel never draws a chord.
+Polyline/line work pauses at its vertices. Complex batches can fan out into
+temporary avatars within the grant's helper limit; these avatars execute parts
+of this one command and do not start extra model sessions. The parent remains
+visible. Final geometry is the exact prepared result, committed only after the
+witnessed operation finishes. Pause, cancellation, human edits and revocation
+retain their ordinary fences. Cancelled previews do not become saved objects.
+
+`board.eraser.stroke` takes explicit targets, world-space `points`, optional
+`radius` and `softness`; it shares human eraser hit tests and brush erase marks.
+`board.path.join` takes explicit eligible shape/path targets and uses the human
+join preparation. Both remain journaled and respect locked targets.
+
+`board.objects.create_portal` takes `kind` (`atlas` or `web`), explicit `source`
+and world-space `x`, `y`, `width`, `height`. Creation does not grant access to a
+source. Atlas commands operate through the existing File Atlas portal/session:
+`portal.atlas.list` returns bounded enumerated metadata; `.highlight` identifies
+one exact root-relative `locator`; `.read_file` reads that exact enumerated file.
+Agent analysis highlights are separate from human selection and are removed
+when the request ends. Linked-source permission, scan generation and cloud-file
+guards still apply. File Atlas source mutations and its Edit mode remain
+human-only under Constitution IX.5.
+
+Web commands target one granted portal: `portal.web.read_text`, `.capture`,
+`.navigate`, `.click`, `.scroll`, `.type`, `.key`, and `.focus`. They reuse the
+existing WebHost, origin consent and typed page input. Page coordinates refer
+to that portal's viewport. Operations do not take the operating-system pointer,
+move the board camera, read cookies or execute arbitrary scripts. A human taking
+over the page invalidates the agent's focus lease. New origins require the
+existing human consent; automation never silently allows them.
+
 The native collaborator adapter uses the ordinary registered command surface.
 Its provider-neutral contracts live in `atlas_agent::collaborator`; transport
 lives in `atlas_ai::board_link`. The host owns command applicability, visible

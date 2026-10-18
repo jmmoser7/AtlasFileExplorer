@@ -930,6 +930,18 @@ all are in the palette.
 
 ### Board collaborators (17 October 2026)
 
+Collaborators can use `board.paths.draw` for witnessed pen, brush, line,
+polyline and cubic Bézier strokes; `board.eraser.stroke` for a visible eraser
+sweep; and `board.path.join` for the existing join result. Complex multi-stroke
+batches can use temporary execution avatars within the grant's helper limit,
+without spawning additional providers. One completed batch is one Undo.
+`board.objects.create_portal` creates an Atlas or Web portal through the normal
+constructors. `portal.atlas.list`, `.highlight`, `.read_file` expose explicitly
+granted enumerated files; `portal.web.read_text`, `.capture`, `.navigate`,
+`.click`, `.scroll`, `.type`, `.key`, `.focus` use the existing consented page.
+These actions preserve human selection/camera and do not enable File Atlas
+source writes. They are listed in Advanced → Commands & shortcuts.
+
 The top-right Participants capsule has separate portrait and name/caret targets.
 Portrait opens the persistent conversation; name/caret opens the right-aligned
 profile. `presence.photo` changes your local picture and `presence.name` edits

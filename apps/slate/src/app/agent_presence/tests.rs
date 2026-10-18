@@ -482,3 +482,6 @@ fn a_stale_targeted_read_releases_motion_but_keeps_the_task_binding() {
     );
     assert!(reply.result.get("next_offset").is_none());
 }
+
+#[path = "drawing_activity_tests.rs"]
+mod drawing_activity;

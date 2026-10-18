@@ -18,6 +18,9 @@ use std::collections::HashSet;
 use std::path::Path;
 use vector_ink::rails::LaneSpacing;
 
+mod agent_highlight;
+mod sheet;
+
 /// File Atlas default LOD buckets (percent × 0.01 → zoom).
 pub const LOD_MID: usize = 6;
 pub const LOD_FULL: usize = 20;
@@ -57,6 +60,10 @@ pub trait MapMedia {
     fn request_color(&mut self, file: u32);
     fn folder_heat(&self, dir: usize) -> Option<f32>;
     fn is_staged(&self, rel: &str) -> bool;
+    /// Separate collaborator highlight; does not alter the user's selection.
+    fn is_agent_highlighted(&self, _file: u32) -> bool {
+        false
+    }
 }
 
 pub struct PaintArgs<'a> {
@@ -146,7 +153,7 @@ fn paint_sheet_tile<M: MapMedia>(
         media.request_preview(f);
         let mut drew = false;
         if let Some((tex, size)) = media.texture(f) {
-            let uv = cover_uv(size, sr.size());
+            let uv = sheet::cover_uv(size, sr.size());
             painter.image(tex, sr, uv, Color32::WHITE);
             drew = true;
         }
@@ -533,7 +540,7 @@ fn paint_group_preview<M: MapMedia>(
                         media.request_preview(f);
                     }
                     if let Some((tex, size)) = media.texture(f) {
-                        let uv = cover_uv(size, cell.size());
+                        let uv = sheet::cover_uv(size, cell.size());
                         mp.image(tex, cell, uv, Color32::WHITE);
                     } else {
                         let e = &args.entries[f as usize];
@@ -611,6 +618,7 @@ fn paint_file_card<M: MapMedia>(
                 StrokeKind::Inside,
             );
         }
+        agent_highlight::paint(painter, sr, media.is_agent_highlighted(f), p.accent);
         return;
     }
 
@@ -636,6 +644,7 @@ fn paint_file_card<M: MapMedia>(
         Stroke::new(1.0_f32, p.border.gamma_multiply(alpha))
     };
     painter.rect_stroke(sr, cr, border, StrokeKind::Inside);
+    agent_highlight::paint(painter, sr, media.is_agent_highlighted(f), p.accent);
 
     if lod >= 2 {
         let detail = label_detail_active(lod, sr, args.canvas);
@@ -655,7 +664,7 @@ fn paint_file_card<M: MapMedia>(
         media.request_preview(f);
         let mut drew = false;
         if let Some((tex, size)) = media.texture(f) {
-            let uv = cover_uv(size, thumb.size());
+            let uv = sheet::cover_uv(size, thumb.size());
             tp.image(tex, thumb, uv, Color32::WHITE.gamma_multiply(alpha));
             drew = true;
             if e.family == Family::Video {
@@ -737,23 +746,6 @@ fn paint_file_card<M: MapMedia>(
                 p.staged.gamma_multiply(alpha),
             );
         }
-    }
-}
-
-fn cover_uv(tex_size: Vec2, cell: Vec2) -> Rect {
-    if tex_size.x <= 0.0 || tex_size.y <= 0.0 || cell.x <= 0.0 || cell.y <= 0.0 {
-        return Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
-    }
-    let tex_aspect = tex_size.x / tex_size.y;
-    let cell_aspect = cell.x / cell.y;
-    if tex_aspect > cell_aspect {
-        let frac = cell_aspect / tex_aspect;
-        let x0 = (1.0 - frac) / 2.0;
-        Rect::from_min_max(Pos2::new(x0, 0.0), Pos2::new(x0 + frac, 1.0))
-    } else {
-        let frac = tex_aspect / cell_aspect;
-        let y0 = (1.0 - frac) / 2.0;
-        Rect::from_min_max(Pos2::new(0.0, y0), Pos2::new(1.0, y0 + frac))
     }
 }
 

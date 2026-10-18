@@ -14,6 +14,7 @@ const GLOBAL: Availability = Availability::GLOBAL;
 const BOARD: Availability = Availability::BOARD_VIEW;
 const BOARD_SEL: Availability =
     Availability(Availability::BOARD_VIEW.0 | Availability::NEEDS_SELECTION.0);
+mod agent_tools;
 mod capture;
 mod constructors;
 mod recovery;
@@ -29,6 +30,18 @@ use constructors::{ctrl_shift, shift, spec};
 /// Canonical command table: group by category for the reference UI;
 /// keep historical documentation rows first, dispatchable additions after.
 pub static SPECS: &[CommandSpec] = &[
+    agent_tools::DRAW,
+    agent_tools::PORTAL,
+    agent_tools::ATLAS_LIST,
+    agent_tools::ATLAS_HIGHLIGHT,
+    agent_tools::ATLAS_READ,
+    agent_tools::WEB_READ,
+    agent_tools::WEB_CAPTURE,
+    agent_tools::WEB_NAVIGATE,
+    agent_tools::WEB_CLICK,
+    agent_tools::WEB_SCROLL,
+    agent_tools::WEB_TYPE,
+    agent_tools::WEB_KEY,
     spec("presence.workspace", "Participants", "Set AI workspace", "Add collaborator → Set AI workspace: choose the shared agent workspace folder", None, Repeat::Never, BOARD, &["agent workspace", "connect agent"]),
     spec("presence.add", "Participants", "Add board collaborator", "Top-right Add participant: name and connect an agent", None, Repeat::Never, BOARD, &["add agent", "collaborator"]),
     spec("presence.name", "Participants", "Rename collaborator", "Participant capsule → Name", None, Repeat::Never, BOARD, &[]),
@@ -1705,26 +1718,8 @@ pub static SPECS: &[CommandSpec] = &[
         BOARD,
         &["ink", "paint"],
     ),
-    spec(
-        "board.brush.stroke",
-        "Board",
-        "Brush stroke",
-        "Drag with the Brush tool",
-        None,
-        Repeat::Never,
-        BOARD,
-        &[],
-    ),
-    spec(
-        "board.pen.line",
-        "Board",
-        "Pen straight line",
-        "Shift+drag with the Pen (45° steps, Tab locks); Shift+click connects",
-        None,
-        Repeat::Never,
-        BOARD,
-        &["straight", "shift line"],
-    ),
+    agent_tools::BRUSH_STROKE,
+    agent_tools::PEN_LINE,
     spec(
         "board.tool.eraser",
         "Board",
@@ -1738,16 +1733,7 @@ pub static SPECS: &[CommandSpec] = &[
         BOARD,
         &["erase", "remove strokes"],
     ),
-    spec(
-        "board.eraser.stroke",
-        "Board",
-        "Eraser stroke",
-        "Drag with the Eraser tool",
-        None,
-        Repeat::Never,
-        BOARD,
-        &[],
-    ),
+    agent_tools::ERASER_STROKE,
     spec(
         "board.tool.smooth",
         "Board",
@@ -2041,18 +2027,7 @@ pub static SPECS: &[CommandSpec] = &[
         BOARD,
         &["split", "divide", "break"],
     ),
-    spec(
-        "board.path.join",
-        "Board",
-        "Join paths",
-        "Ctrl + J — open paths join at nearest endpoints; closed shapes \
-         boolean-union; an open curve in that set is treated as a ribbon \
-         of its stroke weight. First selected style wins.",
-        Some(Chord::ctrl(Key::J)),
-        Repeat::Repeatable,
-        BOARD_SEL,
-        &["join", "close path", "merge paths", "union"],
-    ),
+    agent_tools::JOIN,
     spec(
         "board.mirror.horizontal",
         "Board",

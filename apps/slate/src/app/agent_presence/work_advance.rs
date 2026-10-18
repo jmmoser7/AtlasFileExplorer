@@ -17,6 +17,11 @@ impl SlateApp {
             let mut completed_approval = None;
             let mut cancelled_approval = None;
             if board_visible && a.tab == active_tab && a.departure.is_none() {
+                if !pointer_press && !a.paused {
+                    if let Some(reply) = self.advance_presence_portal_call(&mut a, elapsed) {
+                        let _ = self.presence.links.reply(&a.dir, reply);
+                    }
+                }
                 if let Some(reply) =
                     if !pointer_press && (!a.paused || (a.chat_only && a.work.is_none())) {
                         self.advance_presence_read(&mut a, &mut read_budget, elapsed)

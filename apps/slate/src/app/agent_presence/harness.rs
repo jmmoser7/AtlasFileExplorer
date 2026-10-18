@@ -43,8 +43,7 @@ impl PresenceRuntime {
             .filter(|a| ids.contains(&a.profile.id) && a.departure.is_none())
             .any(|a| {
                 a.inflight
-                    || a.read.is_some()
-                    || a.work.is_some()
+                    || a.board_action_active()
                     || self.has_pending_for(a)
                     || !a.launched.is_empty()
                     || a.snapshot.as_ref().is_some_and(|s| s.approval.is_some())

@@ -5,6 +5,8 @@ use slate_doc::scene::{Node, NodeKind, SceneCmd};
 #[cfg(test)]
 #[path = "crop_witness_tests.rs"]
 mod crop_tests;
+mod drawing;
+mod pairs;
 
 pub(super) struct WitnessedCommand {
     pub(super) purpose: WitnessPurpose,
@@ -19,6 +21,7 @@ pub(super) struct WitnessedCommand {
     skipped: std::collections::HashSet<usize>,
     wire_ends: HashMap<slate_doc::NodeId, (WorldPoint, WorldPoint)>,
     crop_contact: Option<WorldPoint>,
+    drawing: Option<drawing::DrawingRun>,
 }
 
 pub(super) enum WitnessAction {
@@ -39,6 +42,14 @@ impl WitnessPurpose {
 }
 
 impl WitnessedCommand {
+    pub(super) fn set_drawing_helpers(&mut self, limit: u8) {
+        if let Some(drawing) = &mut self.drawing {
+            drawing.set_helper_limit(limit);
+        }
+    }
+    pub(super) fn drawing_helpers(&self) -> impl Iterator<Item = (&str, WorldPoint)> {
+        self.drawing.iter().flat_map(|drawing| drawing.helpers())
+    }
     pub(super) fn relay(call: BoardCall, relay: messaging::PreparedRelay) -> Self {
         Self {
             purpose: WitnessPurpose::Interaction,
@@ -53,6 +64,7 @@ impl WitnessedCommand {
             skipped: Default::default(),
             wire_ends: HashMap::new(),
             crop_contact: None,
+            drawing: None,
         }
     }
     pub(super) fn board_prepared(&self) -> Option<&PreparedBoardCommand> {
@@ -69,7 +81,7 @@ impl WitnessedCommand {
         self.board_prepared().map_or(&[], |p| p.targets.as_slice())
     }
     pub(super) fn total_steps(&self) -> usize {
-        if matches!(self.action, WitnessAction::Relay(_)) {
+        if self.drawing.is_some() || matches!(self.action, WitnessAction::Relay(_)) {
             1
         } else {
             self.steps.len()
@@ -93,7 +105,7 @@ impl WitnessedCommand {
     pub(super) fn look_at(&self) -> Option<WorldPoint> {
         match &self.action {
             WitnessAction::Relay(r) => Some(r.contact),
-            _ => None,
+            _ => self.drawing.as_ref().and_then(drawing::DrawingRun::look_at),
         }
     }
     pub(super) fn new(
@@ -169,6 +181,7 @@ impl WitnessedCommand {
         let index = (0..steps.len())
             .find(|i| !skipped.contains(i))
             .unwrap_or(steps.len());
+        let drawing = drawing::DrawingRun::prepare(&prepared, &steps, &call.id)?;
         Ok(Self {
             purpose: WitnessPurpose::Autonomous,
             call,
@@ -182,9 +195,15 @@ impl WitnessedCommand {
             cohorts,
             skipped,
             crop_contact: None,
+            drawing,
         })
     }
     pub(super) fn begin_step(&mut self, motion: &mut PresenceSession) -> Result<(), String> {
+        if let Some(drawing) = &mut self.drawing {
+            drawing.begin(motion)?;
+            self.started = true;
+            return Ok(());
+        }
         if let WitnessAction::Relay(relay) = &self.action {
             enqueue_motion(motion, &relay.witness_id(), relay.contact, relay.contact)?;
             self.started = true;
@@ -274,6 +293,10 @@ impl WitnessedCommand {
         self.started = false;
     }
     pub(super) fn preview(&mut self, sample: MotionSample) -> Result<(), String> {
+        if let Some(drawing) = &mut self.drawing {
+            drawing.preview(sample, &mut self.previews);
+            return Ok(());
+        }
         if matches!(self.action, WitnessAction::Relay(_))
             || !matches!(sample.phase, MotionPhase::Work | MotionPhase::ReadyToCommit)
         {
@@ -324,58 +347,13 @@ impl WitnessedCommand {
             }
             return Ok(());
         }
-        Self::preview_pair(&self.steps[self.index], sample, &mut self.previews);
+        pairs::preview_pair(&self.steps[self.index], sample, &mut self.previews);
         if let Some(children) = self.cohorts.get(&self.index) {
             for index in children {
-                Self::preview_pair(&self.steps[*index], sample, &mut self.previews);
+                pairs::preview_pair(&self.steps[*index], sample, &mut self.previews);
             }
         }
         Ok(())
-    }
-    fn preview_pair(
-        pair: &(Option<Node>, Option<Node>),
-        sample: MotionSample,
-        previews: &mut HashMap<slate_doc::NodeId, Node>,
-    ) {
-        let (before, after) = pair;
-        let t = sample.progress;
-        let t = t * t * (3.0 - 2.0 * t);
-        match (before, after) {
-            (Some(before), Some(after)) => {
-                let node = previews.entry(after.id).or_insert_with(|| after.clone());
-                node.rect = slate_doc::scene::WorldRect::new(
-                    before.rect.x + (after.rect.x - before.rect.x) * t,
-                    before.rect.y + (after.rect.y - before.rect.y) * t,
-                    before.rect.w + (after.rect.w - before.rect.w) * t,
-                    before.rect.h + (after.rect.h - before.rect.h) * t,
-                );
-                node.opacity = after.opacity;
-            }
-            (None, Some(after)) => {
-                let node = previews.entry(after.id).or_insert_with(|| after.clone());
-                if let NodeKind::Connector(conn) = &mut node.kind {
-                    conn.b = if sample.phase == MotionPhase::ReadyToCommit {
-                        if let NodeKind::Connector(c) = &after.kind {
-                            c.b
-                        } else {
-                            unreachable!()
-                        }
-                    } else {
-                        slate_doc::scene::ConnectorEnd::Free {
-                            point: [sample.position.x as f32, sample.position.y as f32],
-                        }
-                    };
-                    node.opacity = after.opacity * 0.8;
-                } else {
-                    node.opacity = after.opacity * t;
-                }
-            }
-            (Some(before), None) => {
-                let node = previews.entry(before.id).or_insert_with(|| before.clone());
-                node.opacity = before.opacity * (1.0 - t);
-            }
-            _ => {}
-        }
     }
 }
 
@@ -408,7 +386,7 @@ pub(super) fn body_contact(node: &Node) -> Result<WorldPoint, String> {
 }
 
 /// One motion construction policy for board actions and conversation contact.
-fn enqueue_motion(
+pub(super) fn enqueue_motion(
     motion: &mut PresenceSession,
     target: &str,
     contact: WorldPoint,

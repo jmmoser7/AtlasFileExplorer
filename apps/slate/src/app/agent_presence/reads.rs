@@ -76,7 +76,7 @@ impl SlateApp {
         a: &mut Collaborator,
         call: &BoardCall,
     ) -> Result<(), String> {
-        if a.read.is_some() || a.work.is_some() {
+        if a.board_action_active() {
             return Err("Wait for the current board action or read".into());
         }
         let mut job = ReadJob::new(call.clone(), self.doc().scene.scene_gen())?;

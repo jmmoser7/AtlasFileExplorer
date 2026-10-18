@@ -31,126 +31,10 @@ impl SlateApp {
         if self.refuse_read_only_edit() || ids.len() < 2 {
             return false;
         }
-        let mut operands = Vec::new();
-        for id in ids {
-            let Some(n) = self.doc().scene.node(*id).cloned() else {
-                continue;
-            };
-            if let Some(poly) = self.node_as_join_region(&n) {
-                operands.push(Operand {
-                    id: *id,
-                    poly,
-                    node: n,
-                });
-            }
-        }
-        if operands.len() < 2 {
-            return false;
-        }
-
-        let n = operands.len();
-        let mut parent: Vec<usize> = (0..n).collect();
-        for i in 0..n {
-            for j in (i + 1)..n {
-                if regions_connect(&operands[i].poly, &operands[j].poly) {
-                    let ri = find(&mut parent, i);
-                    let rj = find(&mut parent, j);
-                    if ri != rj {
-                        parent[rj] = ri;
-                    }
-                }
-            }
-        }
-
-        let mut groups: Vec<Vec<usize>> = vec![Vec::new(); n];
-        for i in 0..n {
-            groups[find(&mut parent, i)].push(i);
-        }
-
-        let mut remove_ids = Vec::new();
-        let mut new_nodes = Vec::new();
-        for members in groups {
-            if members.len() < 2 {
-                continue;
-            }
-            let polys: Vec<Polygon> = members.iter().map(|&i| operands[i].poly.clone()).collect();
-            let pieces = boolean_union_all(&polys);
-            if pieces.len() != 1 {
-                continue;
-            }
-            let Some((rect, path)) = pieces_to_path_data(&pieces) else {
-                continue;
-            };
-            let style_node = &operands[members[0]].node;
-            let NodeKind::Shape(style) = &style_node.kind else {
-                continue;
-            };
-            let first_closed_fill = members.iter().find_map(|&i| {
-                let n = &operands[i].node;
-                if self.node_closed_poly(n).is_some() {
-                    if let NodeKind::Shape(s) = &n.kind {
-                        return s.fill;
-                    }
-                }
-                None
-            });
-            let first_stroke_color = members.iter().find_map(|&i| {
-                if let NodeKind::Shape(s) = &operands[i].node.kind {
-                    if !s.stroke.is_none() {
-                        return Some(s.stroke.color);
-                    }
-                }
-                None
-            });
-            let fill = style.fill.or(first_closed_fill).or(first_stroke_color);
-            let mut new_node = {
-                let scene = &mut self.doc_mut().scene;
-                let mut built = scene.build_node(
-                    rect,
-                    NodeKind::Shape(ShapeNode {
-                        shape: ShapeKind::Path,
-                        path: Some(path.into()),
-                        fill,
-                        ..style.clone()
-                    }),
-                );
-                built.opacity = style_node.opacity;
-                built.group = style_node.group;
-                built
-            };
-            new_node.rotation_deg = 0.0;
-            remove_ids.extend(members.iter().map(|&i| operands[i].id));
-            new_nodes.push(new_node);
-        }
-
-        if remove_ids.is_empty() {
+        let Some((cmds, new_ids)) = prepare_join_regions(self, ids) else {
             self.toast("Objects do not touch");
             return false;
-        }
-
-        let mut removes: Vec<(usize, Node)> = remove_ids
-            .iter()
-            .filter_map(|id| {
-                Some((
-                    self.doc().scene.index_of(*id)?,
-                    self.doc().scene.node(*id)?.clone(),
-                ))
-            })
-            .collect();
-        removes.sort_by_key(|(i, _)| std::cmp::Reverse(*i));
-        let insert_at = self.doc().scene.nodes.len().saturating_sub(removes.len());
-        let mut cmds: Vec<SceneCmd> = removes
-            .into_iter()
-            .map(|(index, node)| SceneCmd::Remove { index, node })
-            .collect();
-        let mut new_ids = Vec::new();
-        for (i, new_node) in new_nodes.into_iter().enumerate() {
-            new_ids.push(new_node.id);
-            cmds.push(SceneCmd::Add {
-                index: insert_at + i,
-                node: new_node,
-            });
-        }
+        };
         if !self.commit_scene(cmds) {
             return false;
         }
@@ -180,6 +64,124 @@ impl SlateApp {
         }
         stroke_ribbon(&pts, &style)
     }
+}
+
+/// Prepare the connected region union used by both human and targeted joins.
+pub(crate) fn prepare_join_regions(
+    app: &SlateApp,
+    ids: &[NodeId],
+) -> Option<(Vec<SceneCmd>, Vec<NodeId>)> {
+    let mut operands = Vec::new();
+    for id in ids {
+        let node = app.doc().scene.node(*id)?.clone();
+        if node.locked || node.hidden {
+            return None;
+        }
+        let poly = app.node_as_join_region(&node)?;
+        operands.push(Operand {
+            id: *id,
+            poly,
+            node,
+        });
+    }
+    if operands.len() < 2 {
+        return None;
+    }
+    let n = operands.len();
+    let mut parent: Vec<usize> = (0..n).collect();
+    for i in 0..n {
+        for j in (i + 1)..n {
+            if regions_connect(&operands[i].poly, &operands[j].poly) {
+                let (ri, rj) = (find(&mut parent, i), find(&mut parent, j));
+                if ri != rj {
+                    parent[rj] = ri;
+                }
+            }
+        }
+    }
+    let mut groups: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for i in 0..n {
+        groups[find(&mut parent, i)].push(i);
+    }
+    let mut remove_ids = Vec::new();
+    let mut new_nodes = Vec::new();
+    let mut scratch = app.doc().scene.node_preparation();
+    for members in groups {
+        if members.len() < 2 {
+            continue;
+        }
+        let polys: Vec<Polygon> = members.iter().map(|&i| operands[i].poly.clone()).collect();
+        let pieces = boolean_union_all(&polys);
+        if pieces.len() != 1 {
+            continue;
+        }
+        let Some((rect, path)) = pieces_to_path_data(&pieces) else {
+            continue;
+        };
+        let style_node = &operands[members[0]].node;
+        let NodeKind::Shape(style) = &style_node.kind else {
+            continue;
+        };
+        let first_closed_fill = members.iter().find_map(|&i| {
+            let node = &operands[i].node;
+            if app.node_closed_poly(node).is_some() {
+                if let NodeKind::Shape(shape) = &node.kind {
+                    return shape.fill;
+                }
+            }
+            None
+        });
+        let first_stroke_color = members.iter().find_map(|&i| {
+            if let NodeKind::Shape(shape) = &operands[i].node.kind {
+                if !shape.stroke.is_none() {
+                    return Some(shape.stroke.color);
+                }
+            }
+            None
+        });
+        let fill = style.fill.or(first_closed_fill).or(first_stroke_color);
+        let mut node = scratch.build_node(
+            rect,
+            NodeKind::Shape(ShapeNode {
+                shape: ShapeKind::Path,
+                path: Some(path.into()),
+                fill,
+                ..style.clone()
+            }),
+        );
+        node.opacity = style_node.opacity;
+        node.group = style_node.group;
+        node.rotation_deg = 0.0;
+        remove_ids.extend(members.iter().map(|&i| operands[i].id));
+        new_nodes.push(node);
+    }
+    if remove_ids.is_empty() {
+        return None;
+    }
+    let mut removes: Vec<(usize, Node)> = remove_ids
+        .iter()
+        .filter_map(|id| {
+            Some((
+                app.doc().scene.index_of(*id)?,
+                app.doc().scene.node(*id)?.clone(),
+            ))
+        })
+        .collect();
+    removes.sort_by_key(|(index, _)| std::cmp::Reverse(*index));
+    let insert_at = app.doc().scene.nodes.len().saturating_sub(removes.len());
+    let mut cmds: Vec<SceneCmd> = removes
+        .into_iter()
+        .map(|(index, node)| SceneCmd::Remove { index, node })
+        .collect();
+    let mut new_ids = Vec::new();
+    for (offset, node) in new_nodes.into_iter().enumerate() {
+        new_ids.push(node.id);
+        cmds.push(SceneCmd::Add {
+            index: insert_at + offset,
+            node,
+        });
+    }
+    Some((cmds, new_ids))
 }
 
 fn regions_connect(a: &Polygon, b: &Polygon) -> bool {

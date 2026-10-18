@@ -60,8 +60,11 @@ impl SlateApp {
                     targets,
                     arguments,
                 } => {
-                    if a.work.is_some() || a.read.is_some() {
+                    if a.board_action_active() {
                         return Err("Wait for the current action or proposal decision".into());
+                    }
+                    if portal_ops::recognizes(command) {
+                        return self.begin_presence_portal_call(ctx, a, call);
                     }
                     if matches!(
                         command.as_str(),
@@ -204,6 +207,7 @@ impl SlateApp {
                         &self.doc().scene,
                         self.board_wire_routing,
                     )?;
+                    work.set_drawing_helpers(grant.helper_limit);
                     work.purpose = if grant.mutation_autonomy {
                         witness::WitnessPurpose::Autonomous
                     } else {

@@ -197,6 +197,11 @@ impl Fixture {
         assert_eq!(self.state(), before);
     }
 
+    pub fn set_zoom(&mut self, zoom: f32) {
+        self.h.app.tab_mut().cam.z = zoom;
+        self.camera = (self.h.app.tab().cam.offset, zoom);
+    }
+
     pub fn blue(&self, node: &slate_doc::scene::Node) -> Option<bool> {
         let point = self.h.app.board_xf().w2s(egui::pos2(
             node.rect.x + node.rect.w * 0.2,

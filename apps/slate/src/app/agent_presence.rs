@@ -32,6 +32,7 @@ pub(crate) use messaging::message_text_changed;
 #[cfg(test)]
 mod live_codex_tests;
 mod own_chats;
+mod portal_ops;
 mod preview;
 mod proposals;
 mod read_descriptors;
@@ -69,6 +70,21 @@ pub(crate) const BOARD_COMMANDS: &[&str] = &[
     "portal.agent.run",
     "app.save",
     "app.feedback.report",
+    "board.paths.draw",
+    "board.eraser.stroke",
+    "board.path.join",
+    "board.objects.create_portal",
+    "portal.atlas.list",
+    "portal.atlas.highlight",
+    "portal.atlas.read_file",
+    "portal.web.read_text",
+    "portal.web.capture",
+    "portal.web.navigate",
+    "portal.web.click",
+    "portal.web.scroll",
+    "portal.web.type",
+    "portal.web.key",
+    "portal.web.focus",
 ];
 
 /// Identity preferences only. Joining, grants, jobs and positions are never saved.
@@ -105,6 +121,7 @@ pub(crate) struct Collaborator {
     last_active: Instant,
     work: Option<witness::WitnessedCommand>,
     read: Option<reads::ReadJob>,
+    portal: Option<portal_ops::PortalOp>,
     control_epoch: u64,
     owned_conversations: Vec<String>,
     departure: Option<(Instant, String, WorldPoint)>,
@@ -122,6 +139,9 @@ pub(crate) struct Collaborator {
 }
 
 impl Collaborator {
+    fn board_action_active(&self) -> bool {
+        self.work.is_some() || self.read.is_some() || self.portal.is_some()
+    }
     fn position(&self, roster: &PresenceRoster) -> Option<WorldPoint> {
         let sample = roster.session(&self.motion)?.sample();
         Some(

@@ -68,11 +68,11 @@
           "decided": "2026-10-18"
         },
         "D09": {
-          "behavior": "Approved eye-only face and independent expression/gaze timings. Listening when addressed. Avatar, hat, prop, name and attached conversation scale in canvas space under P0.9, with world wrapping preserved. Roster conversation remains window chrome; no attached-overlay scale exception.",
+          "behavior": "Approved eye-only face and independent expression/gaze timings. Listening when addressed. Avatar, hat, prop, name and attached conversation scale in canvas space under P0.9, with world wrapping preserved. Roster conversation remains window chrome; no attached-overlay scale exception. Drawing previews trace the actual pen/brush path or visibly place authored vertices; complex multi-stroke operations may fan out into bounded execution avatars while retaining the parent.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-10-17"
+          "decided": "2026-10-18"
         },
         "D10": {
           "behavior": "Existing pointer over canvas; text caret in editor. Agent animation never moves or captures the human pointer.",
@@ -82,7 +82,7 @@
           "decided": "2026-10-17"
         },
         "D11": {
-          "behavior": "Visible messages and drafts persist separately from ephemeral runtime sessions. Stale missing-rollout Codex bindings recover through a fresh thread with visible history replayed once. Stop preserves conversation and revocable human permission policy; new requests remain available. Grants authorize registered journaled commands, authored text and saving; pending proposals require acceptance unless the exact action is explicitly autonomous.",
+          "behavior": "Visible messages and drafts persist separately from ephemeral runtime sessions. Stale missing-rollout Codex bindings recover through a fresh thread with visible history replayed once. Stop preserves conversation and revocable human permission policy; new requests remain available. Grants authorize registered journaled commands, authored text and saving; pending proposals require acceptance unless the exact action is explicitly autonomous. Drawing, erasing and joining use the human geometry owners and one attributed reversible commit; execution avatars do not start additional providers.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -110,11 +110,11 @@
           "decided": "2026-10-18"
         },
         "D15": {
-          "behavior": "Never fabricate remote delivery, unsupported menu outcomes or board progress. Human messages require the real participant-message transport, separate from the Slate–Atlas bridge and from shared-board synchronization. Profiles stay separate from transcript content; no source-write or implicit board authority comes from joining a conversation.",
-          "source": "pattern",
-          "confidence": 90,
+          "behavior": "Never fabricate remote delivery, unsupported menu outcomes or board progress. Human messages require the real participant-message transport, separate from the Slate–Atlas bridge and from shared-board synchronization. Profiles stay separate from transcript content; no source-write or implicit board authority comes from joining a conversation. Atlas analysis highlights exact enumerated files independently of human selection; Web input reuses the consented portal and yields to human takeover.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-10-17"
+          "decided": "2026-10-18"
         },
         "D16": {
           "behavior": "n/a; conversation and avatar are ephemeral presence, not scene nodes. Hats never encode permission or provider capability.",

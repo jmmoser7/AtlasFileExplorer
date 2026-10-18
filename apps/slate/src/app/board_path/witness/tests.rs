@@ -1,0 +1,176 @@
+use super::*;
+use slate_doc::scene::{NodeId, PathFillRule, Rgba, ShapeNode, Stroke, StrokeSpan};
+
+fn point(x: f32, y: f32) -> WorldPoint {
+    WorldPoint::new(f64::from(x), f64::from(y)).unwrap()
+}
+
+fn source_node(rect: slate_doc::scene::WorldRect, rotation_deg: f32) -> Node {
+    let stroke = Stroke {
+        width: 6.0,
+        softness: 0.35,
+        stamp: true,
+        texture: slate_doc::scene::BrushTexture::Pencil,
+        color: Rgba([20, 40, 60, 220]),
+        ..Stroke::default()
+    };
+    let span = |width, color| StrokeSpan {
+        width,
+        softness: 0.25,
+        color: Rgba(color),
+        texture: slate_doc::scene::BrushTexture::Pencil,
+    };
+    let mut path = PathData {
+        start: [0.1, 0.2],
+        segs: vec![
+            PathSeg::Line { to: [0.5, 0.2] },
+            PathSeg::Line { to: [0.5, 0.8] },
+        ],
+        fill_rule: PathFillRule::EvenOdd,
+        tips: vec![
+            span(2.0, [255, 0, 0, 255]),
+            span(6.0, [0, 255, 0, 255]),
+            span(10.0, [0, 0, 255, 255]),
+        ],
+        ..PathData::default()
+    };
+    path.extra.push(PathContour {
+        start: [0.8, 0.8],
+        segs: vec![PathSeg::Line { to: [0.9, 0.8] }],
+        closed: false,
+    });
+    path.tips
+        .extend([span(5.0, [255, 255, 0, 255]), span(8.0, [255, 0, 255, 255])]);
+    Node {
+        id: NodeId(42),
+        rect,
+        rotation_deg,
+        opacity: 0.8,
+        locked: false,
+        hidden: false,
+        group: None,
+        clip: None,
+        bumper: None,
+        kind: NodeKind::Shape(ShapeNode {
+            shape: ShapeKind::Path,
+            fill: Some(Rgba([200, 100, 50, 255])),
+            stroke,
+            corner: slate_doc::scene::Corner::Square,
+            sides: slate_doc::scene::default_regular_sides(),
+            phase_deg: 0.0,
+            flip: false,
+            path: Some(path.into()),
+            text: None,
+        }),
+    }
+}
+
+fn preview_path(node: &Node) -> PathData {
+    let NodeKind::Shape(shape) = &node.kind else {
+        panic!("expected path node")
+    };
+    shape.path.as_deref().unwrap().clone()
+}
+
+#[test]
+fn actual_corner_prefix_keeps_vertices_and_does_not_cut_the_turn() {
+    let source = source_node(
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 100.0, 100.0),
+        0.0,
+    );
+    let preview = StrokePreview::new(&source, 0.1).unwrap();
+    let node = preview.through(0, 1, point(55.0, 20.0), true, false);
+    let path = preview_path(&node);
+    assert_eq!(path.start, [0.1, 0.2]);
+    assert_eq!(path.segs.len(), 2);
+    assert_eq!(path.segs[0], PathSeg::Line { to: [0.5, 0.2] });
+    assert_eq!(path.segs[1], PathSeg::Line { to: [0.55, 0.2] });
+    assert!(!path.closed);
+    assert!(path.extra.is_empty());
+    assert_eq!(
+        path.tips.len(),
+        1 + path.segs.len(),
+        "the active interpolated tip corresponds to the one appended path anchor"
+    );
+}
+
+#[test]
+fn pen_up_keeps_contours_disjoint_and_brush_style_tips_aligned() {
+    let source = source_node(
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 100.0, 100.0),
+        0.0,
+    );
+    let before = source.clone();
+    let preview = StrokePreview::new(&source, 0.1).unwrap();
+    let node = preview.through(1, 0, point(90.0, 80.0), false, false);
+    let path = preview_path(&node);
+    assert_eq!(path.segs, vec![PathSeg::Line { to: [0.5, 0.2] }]);
+    assert_eq!(path.extra.len(), 1);
+    assert!(path.extra[0].segs.is_empty());
+    assert_eq!(path.tips.len(), 1 + path.segs.len() + 1);
+    let NodeKind::Shape(shape) = &node.kind else {
+        unreachable!()
+    };
+    assert!(shape.fill.is_none());
+    assert!(shape.stroke.stamp);
+    assert_eq!(shape.stroke.texture, slate_doc::scene::BrushTexture::Pencil);
+    assert_eq!(shape.stroke.width, 6.0);
+    let mid = preview.through(0, 0, point(30.0, 20.0), true, false);
+    assert!((preview_path(&mid).tips[1].width - 4.0).abs() < 1e-4);
+    assert_eq!(source, before, "preview construction does not mutate input");
+}
+
+#[test]
+fn world_contours_round_trip_through_rect_and_rotation_and_final_is_exact() {
+    let source = source_node(
+        slate_doc::scene::WorldRect::new(20.0, 30.0, 200.0, 100.0),
+        90.0,
+    );
+    let original = source.clone();
+    let preview = StrokePreview::new(&source, 0.1).unwrap();
+    assert_eq!(preview.contours().len(), 2);
+    let node = preview.through(0, 1, preview.contours()[0][1], false, false);
+    let path = preview_path(&node);
+    assert!((path.start[0] - 0.1).abs() < 1e-5);
+    assert!((path.start[1] - 0.2).abs() < 1e-5);
+    let PathSeg::Line { to } = path.segs[0] else {
+        panic!("expected flattened line")
+    };
+    assert!((to[0] - 0.5).abs() < 1e-5);
+    assert!((to[1] - 0.2).abs() < 1e-5);
+    assert_eq!(
+        preview.through(1, 0, point(0.0, 0.0), false, true),
+        original
+    );
+}
+
+#[test]
+fn unsupported_shapes_invalid_tolerance_and_oversized_paths_are_rejected() {
+    let source = source_node(
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 100.0, 100.0),
+        0.0,
+    );
+    assert!(StrokePreview::new(&source, 0.0).is_none());
+    assert!(StrokePreview::new(&source, f64::NAN).is_none());
+    let mut unsupported = source.clone();
+    if let NodeKind::Shape(shape) = &mut unsupported.kind {
+        shape.shape = ShapeKind::Rect;
+    }
+    assert!(StrokePreview::new(&unsupported, 0.1).is_none());
+    let mut large = source.clone();
+    if let NodeKind::Shape(shape) = &mut large.kind {
+        let mut data = shape.path.as_deref().unwrap().clone();
+        data.segs = vec![PathSeg::Line { to: [0.2, 0.2] }; PREVIEW_VERTEX_LIMIT];
+        shape.path = Some(data.into());
+    }
+    assert!(StrokePreview::new(&large, 0.1).is_none());
+}
+
+#[test]
+fn world_coordinates_over_presence_limit_are_rejected_before_flattening() {
+    let source = source_node(
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 4_000_000_000.0, 100.0),
+        0.0,
+    );
+    assert!(StrokePreview::new(&source, 0.1).is_none());
+}

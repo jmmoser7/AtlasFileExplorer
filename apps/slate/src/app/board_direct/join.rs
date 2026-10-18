@@ -130,147 +130,11 @@ impl SlateApp {
     }
 
     fn join_nodes(&mut self, ids: &[NodeId]) -> bool {
-        let radius = self.board_snap_threshold_pub() as f64;
-        type Joined = (
-            Vec<Anchor>,
-            NodeId,
-            Vec<VertexStyle>,
-            [StrokeEnd; 2],
-            [Option<[f32; 2]>; 2],
-        );
-        let mut acc: Option<Joined> = None;
-        let mut base_cap = StrokeCap::default();
-        let opacity = ids
-            .iter()
-            .filter_map(|id| self.doc().scene.node(*id))
-            .map(|n| n.opacity)
-            .fold(0.0_f32, f32::max);
-        for id in ids {
-            let Some((anchors, closed)) = self.direct_anchors_of(*id) else {
-                continue;
-            };
-            if closed {
-                continue;
-            }
-            let Some(NodeKind::Shape(s)) = self.doc().scene.node(*id).map(|n| &n.kind) else {
-                continue;
-            };
-            let mut styles =
-                vertex_style::vertex_styles(s.path.as_deref(), &s.stroke, anchors.len());
-            let node_opacity = self.doc().scene.node(*id).map_or(1.0, |n| n.opacity);
-            for style in &mut styles {
-                style.tip.color.0[3] = (style.tip.color.0[3] as f32 * node_opacity
-                    / opacity.max(f32::EPSILON))
-                .round()
-                .clamp(0.0, 255.0) as u8;
-            }
-            let stroke = s.stroke;
-            acc = Some(match acc {
-                None => {
-                    base_cap = stroke.cap;
-                    let ends = [stroke.end(0), stroke.end(1)];
-                    (anchors, *id, styles, ends, stroke.arrow_sizes)
-                }
-                Some((first, style_id, first_styles, first_ends, first_sizes)) => {
-                    let Some((joined, _, trace)) =
-                        join_endpoints_traced(&first, Some(&anchors), radius)
-                    else {
-                        return false;
-                    };
-                    // The first node's base cap wins; a later node brings
-                    // only the conditions set on its own ends.
-                    let base = StrokeEnd {
-                        cap: base_cap,
-                        arrow: false,
-                        narrow: false,
-                    };
-                    let second_end = |i: usize| {
-                        let e = stroke.end(i);
-                        StrokeEnd {
-                            cap: if stroke.end_caps()[i] != stroke.cap {
-                                e.cap
-                            } else {
-                                base.cap
-                            },
-                            ..e
-                        }
-                    };
-                    let (first_last, second_last) = (
-                        first.len().saturating_sub(1),
-                        anchors.len().saturating_sub(1),
-                    );
-                    let free_end = |from: Option<&JoinSource>| match from.copied() {
-                        Some(JoinSource::First(0)) => first_ends[0],
-                        Some(JoinSource::First(i)) if i == first_last => first_ends[1],
-                        Some(JoinSource::Second(0)) => second_end(0),
-                        Some(JoinSource::Second(i)) if i == second_last => second_end(1),
-                        _ => base,
-                    };
-                    let ends = [free_end(trace.first()), free_end(trace.last())];
-                    let free_size = |from: Option<&JoinSource>| match from.copied() {
-                        Some(JoinSource::First(0)) => first_sizes[0],
-                        Some(JoinSource::First(i)) if i == first_last => first_sizes[1],
-                        Some(JoinSource::Second(0)) => stroke.arrow_sizes[0],
-                        Some(JoinSource::Second(i)) if i == second_last => stroke.arrow_sizes[1],
-                        _ => None,
-                    };
-                    let sizes = [free_size(trace.first()), free_size(trace.last())];
-                    let styles = vertex_style::joined_vertex_styles(&first_styles, &styles, &trace);
-                    (joined, style_id, styles, ends, sizes)
-                }
-            });
-        }
-        let Some((joined, style_id, styles, ends, sizes)) = acc else {
+        let Some((cmds, new_id)) =
+            prepare_join_nodes(self, ids, self.board_snap_threshold_pub() as f64)
+        else {
             return false;
         };
-        let Some(style_node) = self.doc().scene.node(style_id).cloned() else {
-            return false;
-        };
-        let bez = bezpath_from_anchors(&joined, false);
-        let (rect, mut data) = board_path::bezpath_to_path_data(&bez, false);
-        let rect = WorldRect::new(
-            rect.x,
-            rect.y,
-            rect.w.max(MIN_DRAW * 0.1),
-            rect.h.max(MIN_DRAW * 0.1),
-        );
-        let mut new_node = {
-            let scene = &mut self.doc_mut().scene;
-            let mut n = scene.build_node(rect, style_node.kind.clone());
-            n.opacity = opacity;
-            n.group = style_node.group;
-            n
-        };
-        if let NodeKind::Shape(s) = &mut new_node.kind {
-            vertex_style::apply_vertex_styles(&mut data, &mut s.stroke, &styles);
-            s.stroke.arrow_sizes = sizes;
-            for (i, end) in ends.into_iter().enumerate() {
-                s.stroke.set_end(i, end);
-            }
-            s.shape = ShapeKind::Path;
-            s.flip = false;
-            s.path = Some(data.into());
-        }
-        // One group: Removes (descending index) + the Add.
-        let mut removes: Vec<(usize, Node)> = ids
-            .iter()
-            .filter_map(|id| {
-                Some((
-                    self.doc().scene.index_of(*id)?,
-                    self.doc().scene.node(*id)?.clone(),
-                ))
-            })
-            .collect();
-        removes.sort_by_key(|(i, _)| std::cmp::Reverse(*i));
-        let mut cmds: Vec<SceneCmd> = removes
-            .into_iter()
-            .map(|(index, node)| SceneCmd::Remove { index, node })
-            .collect();
-        let new_id = new_node.id;
-        cmds.push(SceneCmd::Add {
-            index: self.doc().scene.nodes.len().saturating_sub(ids.len()),
-            node: new_node,
-        });
         if !self.commit_scene(cmds) {
             return false;
         }
@@ -282,4 +146,152 @@ impl SlateApp {
         }
         true
     }
+}
+
+/// Build the same open-curve join result for the human command and agent adapter.
+pub(crate) fn prepare_join_nodes(
+    app: &SlateApp,
+    ids: &[NodeId],
+    radius: f64,
+) -> Option<(Vec<SceneCmd>, NodeId)> {
+    type Joined = (
+        Vec<Anchor>,
+        NodeId,
+        Vec<VertexStyle>,
+        [StrokeEnd; 2],
+        [Option<[f32; 2]>; 2],
+    );
+    let mut acc: Option<Joined> = None;
+    let mut base_cap = StrokeCap::default();
+    let opacity = ids
+        .iter()
+        .filter_map(|id| app.doc().scene.node(*id))
+        .map(|n| n.opacity)
+        .fold(0.0_f32, f32::max);
+    for id in ids {
+        let Some((anchors, closed)) = app.direct_anchors_of(*id) else {
+            continue;
+        };
+        if closed {
+            continue;
+        }
+        let Some(NodeKind::Shape(s)) = app.doc().scene.node(*id).map(|n| &n.kind) else {
+            continue;
+        };
+        let mut styles = vertex_style::vertex_styles(s.path.as_deref(), &s.stroke, anchors.len());
+        let node_opacity = app.doc().scene.node(*id).map_or(1.0, |n| n.opacity);
+        for style in &mut styles {
+            style.tip.color.0[3] = (style.tip.color.0[3] as f32 * node_opacity
+                / opacity.max(f32::EPSILON))
+            .round()
+            .clamp(0.0, 255.0) as u8;
+        }
+        let stroke = s.stroke;
+        acc = Some(match acc {
+            None => {
+                base_cap = stroke.cap;
+                let ends = [stroke.end(0), stroke.end(1)];
+                (anchors, *id, styles, ends, stroke.arrow_sizes)
+            }
+            Some((first, style_id, first_styles, first_ends, first_sizes)) => {
+                let Some((joined, _, trace)) =
+                    join_endpoints_traced(&first, Some(&anchors), radius)
+                else {
+                    return None;
+                };
+                // The first node's base cap wins; a later node brings
+                // only the conditions set on its own ends.
+                let base = StrokeEnd {
+                    cap: base_cap,
+                    arrow: false,
+                    narrow: false,
+                };
+                let second_end = |i: usize| {
+                    let e = stroke.end(i);
+                    StrokeEnd {
+                        cap: if stroke.end_caps()[i] != stroke.cap {
+                            e.cap
+                        } else {
+                            base.cap
+                        },
+                        ..e
+                    }
+                };
+                let (first_last, second_last) = (
+                    first.len().saturating_sub(1),
+                    anchors.len().saturating_sub(1),
+                );
+                let free_end = |from: Option<&JoinSource>| match from.copied() {
+                    Some(JoinSource::First(0)) => first_ends[0],
+                    Some(JoinSource::First(i)) if i == first_last => first_ends[1],
+                    Some(JoinSource::Second(0)) => second_end(0),
+                    Some(JoinSource::Second(i)) if i == second_last => second_end(1),
+                    _ => base,
+                };
+                let ends = [free_end(trace.first()), free_end(trace.last())];
+                let free_size = |from: Option<&JoinSource>| match from.copied() {
+                    Some(JoinSource::First(0)) => first_sizes[0],
+                    Some(JoinSource::First(i)) if i == first_last => first_sizes[1],
+                    Some(JoinSource::Second(0)) => stroke.arrow_sizes[0],
+                    Some(JoinSource::Second(i)) if i == second_last => stroke.arrow_sizes[1],
+                    _ => None,
+                };
+                let sizes = [free_size(trace.first()), free_size(trace.last())];
+                let styles = vertex_style::joined_vertex_styles(&first_styles, &styles, &trace);
+                (joined, style_id, styles, ends, sizes)
+            }
+        });
+    }
+    let Some((joined, style_id, styles, ends, sizes)) = acc else {
+        return None;
+    };
+    let Some(style_node) = app.doc().scene.node(style_id).cloned() else {
+        return None;
+    };
+    let bez = bezpath_from_anchors(&joined, false);
+    let (rect, mut data) = board_path::bezpath_to_path_data(&bez, false);
+    let rect = WorldRect::new(
+        rect.x,
+        rect.y,
+        rect.w.max(MIN_DRAW * 0.1),
+        rect.h.max(MIN_DRAW * 0.1),
+    );
+    let mut new_node = {
+        let mut scene = app.doc().scene.node_preparation();
+        let mut n = scene.build_node(rect, style_node.kind.clone());
+        n.opacity = opacity;
+        n.group = style_node.group;
+        n
+    };
+    if let NodeKind::Shape(s) = &mut new_node.kind {
+        vertex_style::apply_vertex_styles(&mut data, &mut s.stroke, &styles);
+        s.stroke.arrow_sizes = sizes;
+        for (i, end) in ends.into_iter().enumerate() {
+            s.stroke.set_end(i, end);
+        }
+        s.shape = ShapeKind::Path;
+        s.flip = false;
+        s.path = Some(data.into());
+    }
+    // One group: Removes (descending index) + the Add.
+    let mut removes: Vec<(usize, Node)> = ids
+        .iter()
+        .filter_map(|id| {
+            Some((
+                app.doc().scene.index_of(*id)?,
+                app.doc().scene.node(*id)?.clone(),
+            ))
+        })
+        .collect();
+    removes.sort_by_key(|(i, _)| std::cmp::Reverse(*i));
+    let mut cmds: Vec<SceneCmd> = removes
+        .into_iter()
+        .map(|(index, node)| SceneCmd::Remove { index, node })
+        .collect();
+    let new_id = new_node.id;
+    cmds.push(SceneCmd::Add {
+        index: app.doc().scene.nodes.len().saturating_sub(ids.len()),
+        node: new_node,
+    });
+    Some((cmds, new_id))
 }

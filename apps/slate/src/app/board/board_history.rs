@@ -94,12 +94,12 @@ impl SlateApp {
             && !tab.journal.can_redo()
     }
 
-    /// Fold `cmds` into journal group `token` when it is still the board's
-    /// newest undo step, so the step it already is reverts them too; no
-    /// new step. False, with nothing changed, otherwise.
-    pub(crate) fn amend_scene_group(
+    /// Amend a committed group only under its original author. Asynchronous
+    /// result cleanup must keep the attribution of the command it completes.
+    pub(crate) fn amend_scene_group_as(
         &mut self,
         token: slate_doc::scene::GroupToken,
+        author: slate_doc::scene::CmdAuthor,
         cmds: Vec<SceneCmd>,
     ) -> bool {
         if !self.can_amend_scene_step() {
@@ -108,7 +108,6 @@ impl SlateApp {
         let ids: Vec<NodeId> = cmds.iter().map(cmd_node_id).collect();
         let tab = self.tab_mut();
         let doc = &mut tab.doc;
-        let author = slate_doc::scene::CmdAuthor::Human;
         if !tab.journal.amend_top(&mut doc.scene, token, &author, cmds) {
             return false;
         }

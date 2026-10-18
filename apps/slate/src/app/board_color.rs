@@ -21,7 +21,11 @@ mod desktop_sample;
 pub(crate) use desktop_sample::{DesktopDestination, DesktopSample};
 mod history;
 mod sticky;
+mod sweep;
 pub(super) use history::committed_colors;
+pub(crate) use sweep::{
+    eraser_sweep_sample_count, next_eraser_sweep_work, EraserSweepQuery, MAX_ERASER_SWEEP_SAMPLES,
+};
 
 /// Whether a round pick of radius `slop` touches `node` anywhere on the
 /// segment `from` to `to`. One fast pointer move is one long segment, so the
@@ -34,51 +38,7 @@ pub(crate) fn eraser_sweep_hits_node(
     slop: f32,
     zoom: f32,
 ) -> bool {
-    if node.hidden || node.locked {
-        return false;
-    }
-    let NodeKind::Shape(shape) = &node.kind else {
-        return false;
-    };
-    let pad = slop + shape.stroke.width.max(1.0) * 0.5;
-    let rect = node.rect.normalized();
-    let reach = if node.rotation_deg.abs() > 0.01 {
-        pad + rect.w.max(rect.h)
-    } else {
-        pad
-    };
-    let near = |p: &Pos2| {
-        p.x >= rect.x - reach
-            && p.x <= rect.x + rect.w + reach
-            && p.y >= rect.y - reach
-            && p.y <= rect.y + rect.h + reach
-    };
-    let steps = ((to - from).length() / (slop * 0.5).max(0.25)).ceil() as usize;
-    let mut samples = (0..=steps)
-        .map(|i| from.lerp(to, i as f32 / steps.max(1) as f32))
-        .filter(near)
-        .peekable();
-    if samples.peek().is_none() {
-        return false;
-    }
-    match shape.shape {
-        ShapeKind::Path => {
-            let Some(path) = shape.path.as_ref() else {
-                return false;
-            };
-            if path.is_empty() || shape.stroke.paints_as_stamp() {
-                return false;
-            }
-            let bez = board_path::path_data_to_world_bez(path, node.rect, node.rotation_deg);
-            let style = board_path::stroke_style_world(&shape.stroke, zoom);
-            samples.any(|p| vector_ink::hit_stroke(&bez, &style, [p.x, p.y], slop))
-        }
-        ShapeKind::Line => {
-            let (a, b) = line_endpoints(node.rect, shape.flip, node.rotation_deg);
-            samples.any(|p| dist_point_segment(p, a, b) <= pad)
-        }
-        _ => false,
-    }
+    EraserSweepQuery::prepare(node, slop, zoom).is_some_and(|query| query.hits(from, to))
 }
 
 pub(crate) fn spot_reaches(node: &Node, bounds: WorldRect) -> bool {
@@ -210,6 +170,30 @@ pub(crate) fn with_erase_mark(before: &Node, points: &[Pos2], span: StrokeSpan) 
         }
     }
     after
+}
+
+/// The canonical effective erase tip for a targeted stroke pass.
+pub(crate) fn targeted_eraser_span(
+    app: &SlateApp,
+    radius: Option<f32>,
+    softness: Option<f32>,
+) -> Result<StrokeSpan, String> {
+    let radius = radius.unwrap_or(app.eraser_width * 0.5);
+    let softness = softness.unwrap_or(app.eraser_softness);
+    if !(0.1..=10_000.0).contains(&radius) || !(0.0..=1.0).contains(&softness) {
+        return Err("Eraser radius or softness is outside its supported range".into());
+    }
+    Ok(StrokeSpan {
+        width: radius * 2.0,
+        softness,
+        color: Rgba([
+            0,
+            0,
+            0,
+            (app.eraser_opacity.clamp(0.0, 1.0) * 255.0).round() as u8,
+        ]),
+        texture: app.eraser_texture,
+    })
 }
 
 /// Sticky note preset: fixed size, white fill, dark ink, default text size
@@ -959,38 +943,13 @@ impl SlateApp {
     /// Add; the Brush tool stays armed and the stroke's end becomes the
     /// anchor of the next Shift segment.
     fn commit_brush_bez(&mut self, bez: &BezPath, end: Pos2, tips: Vec<StrokeSpan>) {
-        let (rect, mut data) = board_path::bezpath_to_path_data(bez, false);
-        if data.is_empty() {
+        let (rect, data) = board_path::bezpath_to_path_data(bez, false);
+        let stroke = self.brush_stroke();
+        let Some(node) =
+            board_path::brush_path_node(&mut self.doc_mut().scene, rect, data, stroke, tips)
+        else {
             return;
-        }
-        let mut stroke = self.brush_stroke();
-        if let (Some(&first), Some(&last)) = (tips.first(), tips.last()) {
-            let uniform = tips.iter().all(|t| *t == first);
-            if slate_doc::vertex_style::set_vertex_tips(&mut data, &mut stroke, tips) {
-                if !data.tips.is_empty() {
-                    stroke.softness = last.softness;
-                    stroke.texture = last.texture;
-                    stroke.color = last.color;
-                }
-            } else if uniform {
-                slate_doc::vertex_style::set_stroke_tip(&mut stroke, first);
-            }
-        }
-        let node = self.doc_mut().scene.build_node(
-            rect,
-            NodeKind::Shape(ShapeNode {
-                shape: ShapeKind::Path,
-                fill: None,
-                stroke,
-                corner: slate_doc::scene::Corner::Square,
-                sides: slate_doc::scene::default_regular_sides(),
-                phase_deg: 0.0,
-                flip: false,
-                path: Some(data.into()),
-
-                text: None,
-            }),
-        );
+        };
         let ids = self.commit_created_nodes(vec![node]);
         let id = ids.first().copied();
         self.hold_brush_live(id);
@@ -1177,20 +1136,15 @@ impl SlateApp {
                 texture: tip.texture,
                 ..self.brush_stroke()
             };
-            let node = self.doc_mut().scene.build_node(
+            let Some(node) = board_path::brush_path_node(
+                &mut self.doc_mut().scene,
                 rect,
-                NodeKind::Shape(ShapeNode {
-                    shape: ShapeKind::Path,
-                    fill: None,
-                    stroke,
-                    corner: slate_doc::scene::Corner::Square,
-                    sides: slate_doc::scene::default_regular_sides(),
-                    phase_deg: 0.0,
-                    flip: false,
-                    path: Some(data.into()),
-                    text: None,
-                }),
-            );
+                data,
+                stroke,
+                vec![tip],
+            ) else {
+                return;
+            };
             let ids = self.commit_created_nodes(vec![node]);
             let id = ids.first().copied();
             self.hold_brush_live(id);
@@ -1202,9 +1156,7 @@ impl SlateApp {
             return;
         }
         let zoom = self.tab().cam.z.max(f32::EPSILON);
-        let tol = board_path::FREEHAND_FIT_ERROR_PX / zoom;
-        let spacing = board_path::FREEHAND_SAMPLE_SPACING_PX / zoom;
-        let Some((bez, tips)) = drawn.fit(tol, spacing) else {
+        let Some((bez, tips)) = board_path::fit_freehand(drawn, zoom) else {
             return;
         };
         let end = *points.last().expect("len >= 2");
@@ -1968,8 +1920,9 @@ impl SlateApp {
         }
         match pass {
             Some(token) => {
-                for (id, key, _) in carried {
-                    self.erase_settle.check(id, key, token);
+                for (id, key, _, _) in carried {
+                    self.erase_settle
+                        .check_as(id, key, token, slate_doc::scene::CmdAuthor::Human);
                 }
                 for (id, key, after) in checks {
                     self.brush_tiles.ask_ink(&after, key);
@@ -1977,8 +1930,8 @@ impl SlateApp {
                 }
             }
             None => {
-                for (id, key, token) in carried {
-                    self.erase_settle.check(id, key, token);
+                for (id, key, token, author) in carried {
+                    self.erase_settle.check_as(id, key, token, author);
                 }
             }
         }
@@ -2013,23 +1966,25 @@ impl SlateApp {
             .here(tab, &mut self.brush_tiles)
             .take_answered(&mut self.brush_tiles);
         let mut empty = Vec::new();
-        for (id, key, token, left) in answered {
+        for (id, key, token, author, left) in answered {
             if left {
                 continue;
             }
             note_settle_work();
             let scene = &self.doc().scene;
             if scene.node(id).and_then(board_path::node_stamp_key) == Some(key) {
-                empty.push((token, id));
+                empty.push((token, author, id));
             }
         }
-        while let Some(&(token, _)) = empty.first() {
-            let (pass, rest): (Vec<_>, Vec<_>) = empty.into_iter().partition(|e| e.0 == token);
+        while let Some((token, author, _)) = empty.first().cloned() {
+            let (pass, rest): (Vec<_>, Vec<_>) = empty
+                .into_iter()
+                .partition(|e| e.0 == token && e.1 == author);
             empty = rest;
             let scene = &self.doc().scene;
             let mut removes: Vec<(usize, Node)> = pass
                 .iter()
-                .filter_map(|(_, id)| {
+                .filter_map(|(_, _, id)| {
                     note_settle_work();
                     Some((scene.index_of(*id)?, scene.node(*id)?.clone()))
                 })
@@ -2040,11 +1995,48 @@ impl SlateApp {
                 .into_iter()
                 .map(|(index, node)| slate_doc::scene::SceneCmd::Remove { index, node })
                 .collect();
-            if self.amend_scene_group(token, cmds) {
+            if self.amend_scene_group_as(token, author, cmds) {
                 for id in ids {
                     self.board_sel.remove(&id);
                 }
             }
+        }
+    }
+
+    /// Start the bounded raster check that completes an already committed
+    /// targeted erase. The check is tied to that exact group and author, so
+    /// a later edit or another author's group cannot be amended by its reply.
+    pub(crate) fn queue_targeted_erase_cleanup(
+        &mut self,
+        cmds: &[slate_doc::scene::SceneCmd],
+        author: slate_doc::scene::CmdAuthor,
+    ) {
+        let Some(token) = self.tab().journal.top_token() else {
+            return;
+        };
+        if self.tab().journal.last_author() != Some(&author) {
+            return;
+        }
+        let pending: Vec<_> = cmds
+            .iter()
+            .filter_map(|cmd| {
+                let slate_doc::scene::SceneCmd::Patch { before, after } = cmd else {
+                    return None;
+                };
+                let key = board_path::node_stamp_key(after)?;
+                (board_path::node_stamp_key(before) != Some(key)
+                    && self
+                        .doc()
+                        .scene
+                        .node(after.id)
+                        .and_then(board_path::node_stamp_key)
+                        == Some(key))
+                .then(|| (after.id, key, (**after).clone()))
+            })
+            .collect();
+        for (id, key, after) in pending {
+            self.brush_tiles.ask_ink(&after, key);
+            self.erase_settle.check_as(id, key, token, author.clone());
         }
     }
 
@@ -2058,14 +2050,19 @@ impl SlateApp {
         &mut self,
         changed: &[NodeId],
         removes: &mut Vec<(usize, Node)>,
-    ) -> Vec<(NodeId, u64, slate_doc::scene::GroupToken)> {
+    ) -> Vec<(
+        NodeId,
+        u64,
+        slate_doc::scene::GroupToken,
+        slate_doc::scene::CmdAuthor,
+    )> {
         let tab = self.tab().id;
         let checks = self
             .erase_settle
             .here(tab, &mut self.brush_tiles)
             .take_checks();
         let mut waiting = Vec::new();
-        for (id, key, token) in checks {
+        for (id, key, token, author) in checks {
             let scene = &self.doc().scene;
             let index = scene.index_of(id).filter(|_| {
                 !changed.contains(&id)
@@ -2082,7 +2079,7 @@ impl SlateApp {
                     }
                 }
                 Some(true) => {}
-                None => waiting.push((id, key, token)),
+                None => waiting.push((id, key, token, author)),
             }
         }
         waiting

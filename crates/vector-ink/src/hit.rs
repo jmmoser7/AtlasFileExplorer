@@ -37,25 +37,74 @@ pub fn hit_stroke_outline(
 /// segment between the last vertex of one and the first of the next — that
 /// ghost often leaves the node's AABB (classically a line toward the origin).
 pub fn hit_stroke(path: &BezPath, style: &StrokeStyle, point: [f32; 2], slop: f32) -> bool {
-    if !valid_style(style) || !point[0].is_finite() || !point[1].is_finite() {
-        return false;
-    }
-    let tol = 0.25f64;
-    for flat in flatten_contours(path, tol) {
-        if hit_flat_stroke(&flat, style, point, slop) {
-            return true;
-        }
-    }
-    false
+    CachedStrokeHit::new(path, style).is_some_and(|cached| cached.hit(point, slop))
 }
 
-fn hit_flat_stroke(flat: &[[f32; 2]], style: &StrokeStyle, point: [f32; 2], slop: f32) -> bool {
-    if flat.len() < 2 {
-        return false;
+/// Reusable hit-test geometry for a stroked path. Flattening and cumulative
+/// arclength are computed once so a moving pick can test many points cheaply.
+pub struct CachedStrokeHit {
+    style: StrokeStyle,
+    contours: Vec<CachedContour>,
+}
+
+struct CachedContour {
+    points: Vec<[f32; 2]>,
+    arclength: Vec<f32>,
+    total: f32,
+}
+
+impl CachedStrokeHit {
+    /// Prepare the exact geometry used by [`hit_stroke`]. Invalid styles have
+    /// no hit region and return `None`.
+    pub fn new(path: &BezPath, style: &StrokeStyle) -> Option<Self> {
+        if !valid_style(style) {
+            return None;
+        }
+        let contours = flatten_contours(path, 0.25)
+            .into_iter()
+            .map(|points| {
+                let arclength = cumulative_arclength(&points);
+                let total = *arclength.last().unwrap_or(&0.0);
+                CachedContour {
+                    points,
+                    arclength,
+                    total,
+                }
+            })
+            .collect();
+        Some(Self {
+            style: style.clone(),
+            contours,
+        })
     }
-    let arc = cumulative_arclength(flat);
-    let total = *arc.last().unwrap_or(&0.0);
-    if total <= EPS {
+
+    /// Test one point against the cached painted boundary.
+    pub fn hit(&self, point: [f32; 2], slop: f32) -> bool {
+        if !point[0].is_finite() || !point[1].is_finite() {
+            return false;
+        }
+        self.contours
+            .iter()
+            .any(|contour| hit_cached_flat_stroke(contour, &self.style, point, slop))
+    }
+
+    /// Number of flat line segments visited by a hit when it misses.
+    pub fn segment_count(&self) -> usize {
+        self.contours
+            .iter()
+            .map(|contour| contour.points.len().saturating_sub(1))
+            .sum()
+    }
+}
+
+fn hit_cached_flat_stroke(
+    contour: &CachedContour,
+    style: &StrokeStyle,
+    point: [f32; 2],
+    slop: f32,
+) -> bool {
+    let flat = &contour.points;
+    if flat.len() < 2 || contour.total <= EPS {
         return false;
     }
 
@@ -74,8 +123,8 @@ fn hit_flat_stroke(flat: &[[f32; 2]], style: &StrokeStyle, point: [f32; 2], slop
             0.0
         }
         .clamp(0.0, 1.0);
-        let arc_at = arc[i] + seg_len * t_seg;
-        let t_frac = arc_at / total;
+        let arc_at = contour.arclength[i] + seg_len * t_seg;
+        let t_frac = arc_at / contour.total;
         let half = half_width_at(style, t_frac);
         if half <= EPS {
             continue;
@@ -142,6 +191,25 @@ mod tests {
         };
         assert!(hit_stroke(&path, &style, [50.0, 0.0], 0.0));
         assert!(!hit_stroke(&path, &style, [50.0, 8.0], 0.0));
+    }
+
+    #[test]
+    fn cached_pick_reuses_the_same_hit_boundary_for_many_points() {
+        let path = hline();
+        let style = style();
+        let cached = CachedStrokeHit::new(&path, &style).unwrap();
+        for (point, expected) in [
+            ([0.0, 0.0], true),
+            ([50.0, 1.0], true),
+            ([50.0, 8.0], false),
+            ([100.0, 0.0], true),
+        ] {
+            assert_eq!(cached.hit(point, 0.0), expected);
+            assert_eq!(
+                cached.hit(point, 0.0),
+                hit_stroke(&path, &style, point, 0.0)
+            );
+        }
     }
 
     #[test]

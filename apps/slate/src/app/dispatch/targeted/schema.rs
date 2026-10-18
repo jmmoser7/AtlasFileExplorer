@@ -11,6 +11,30 @@ const STYLE_ARGUMENTS: &[(&str, &str)] = &[("edits", "1–16 typed edits: FillRg
 
 pub(super) const DEFINITIONS: &[Definition] = &[
     Definition {
+        command: "board.paths.draw", targets: "Empty. Draws 1–64 real strokes through the existing Pen/Brush/path result owners. One witnessed, attributed undo group; temporary execution helpers may trace independent strokes within the human helper limit.",
+        arguments: &[("strokes", "1–64 objects: tool pen|brush|polyline|bezier|line, points [[world_x,world_y],...], optional closed,width,color [r,g,b,a],opacity,softness. Finite bounded world geometry only. Bezier uses a cubic control chain (3n+1 points). Pen/Brush trace continuously; polyline/line visit actual vertices.")],
+    },
+    Definition {
+        command: "board.eraser.stroke", targets: "Explicit unlocked stroke node IDs only. Same brush-mark erasure and whole-vector-stroke removal as the human Eraser; never source files, images, text, frames or wires.",
+        arguments: &[("points", "bounded sweep points [[world_x,world_y],...]"), ("radius", "optional positive world radius"), ("softness", "optional 0..1")],
+    },
+    Definition { command: "board.path.join", targets: "Explicit unlocked paths/shapes. Uses the human Join owner: nearest open ends or closed-region union, first target style wins.", arguments: &[] },
+    Definition {
+        command: "board.objects.create_portal", targets: "Empty. Journaled placement using the existing Web/File Atlas portal constructors; requires explicit source-input permission. Does not grant new source, origin, filesystem-write or browser authority.",
+        arguments: &[("kind", "atlas|web"), ("source", "explicit folder locator or web URL"), ("x", "finite world x"), ("y", "finite world y"), ("width", "positive world width"), ("height", "positive world height")],
+    },
+    Definition { command: "portal.atlas.list", targets: "Exactly one readable File Atlas portal and source grant. Already-discovered metadata only; never starts a parallel scan.", arguments: &[("offset", "optional bounded page offset"), ("limit", "optional bounded page length")] },
+    Definition { command: "portal.atlas.highlight", targets: "Exactly one readable File Atlas portal. Ephemeral attributed analysis highlight independent of human selection and camera.", arguments: &[("locator", "exact enumerated root-relative file locator")] },
+    Definition { command: "portal.atlas.read_file", targets: "Exactly one readable File Atlas portal and explicit source grant. Bounded content for an exact enumerated file; cloud-only files are not hydrated.", arguments: &[("locator", "exact enumerated root-relative file locator"), ("mode", "optional text (default) or bounded image pixels"), ("cursor", "optional UTF-8 page cursor"), ("generation", "required returned scan generation for a continuation cursor"), ("limit", "optional bounded byte page length")] },
+    Definition { command: "portal.web.read_text", targets: "Exactly one readable, consented Web portal. Visible page text only; no cookies, storage, private fields or arbitrary scripts.", arguments: &[] },
+    Definition { command: "portal.web.focus", targets: "Exactly one consented Web portal. Acquire the existing host for this request without stealing human interaction, camera or native cursor.", arguments: &[] },
+    Definition { command: "portal.web.capture", targets: "Exactly one readable, consented Web portal. Captures its actual current visible page asynchronously.", arguments: &[] },
+    Definition { command: "portal.web.navigate", targets: "Exactly one consented Web portal; derived navigation through the existing host. New origins retain human consent rules.", arguments: &[("url", "bounded valid destination URL")] },
+    Definition { command: "portal.web.click", targets: "Exactly one consented Web portal; visible witnessed input, without moving the human cursor.", arguments: &[("x", "bounded page CSS x"), ("y", "bounded page CSS y")] },
+    Definition { command: "portal.web.scroll", targets: "Exactly one consented Web portal; derived input through the existing host.", arguments: &[("x", "bounded page CSS x"), ("y", "bounded page CSS y"), ("delta", "bounded scroll delta"), ("horizontal", "optional boolean")] },
+    Definition { command: "portal.web.type", targets: "Exactly one consented Web portal; type into its focused page control through the existing host.", arguments: &[("text", "bounded literal text; no script channel")] },
+    Definition { command: "portal.web.key", targets: "Exactly one consented Web portal; supported typed key input through the existing host.", arguments: &[("key", "supported key name"), ("pressed", "boolean key state")] },
+    Definition {
         command: "presence.read_text", targets: "Exactly one readable authored Text, shape text, or existing authored card override. No linked-source fallback or extra source authority.",
         arguments: &[("cursor", "optional UTF-8 byte cursor, default zero; must be a character boundary"), ("limit", "optional 4–4096 bytes, default 4096"), ("generation", "required for nonzero continuation cursor; echo the prior page generation, restart at zero if stale")],
     },

@@ -160,18 +160,24 @@ impl SlateApp {
         {
             return Ok(());
         }
-        if a.work.is_some() || (a.read.is_some() && !a.paused) || !a.launched.is_empty() {
+        if a.work.is_some()
+            || a.portal.is_some()
+            || (a.read.is_some() && !a.paused)
+            || !a.launched.is_empty()
+        {
             return Err(
                 "Finish or stop the current action before accepting another proposal".into(),
             );
         }
         let prepared = context.prepared.clone();
         let call = context.call.clone();
+        let drawing_helpers = a.grant.as_ref().map_or(0, |grant| grant.helper_limit);
         self.check_presence_proposal_decision(proposal)?;
         self.check_targeted_command(&prepared)?;
         let mut work =
             WitnessedCommand::new(call, prepared, &self.doc().scene, self.board_wire_routing)?;
         work.purpose = WitnessPurpose::ApprovedProposal(proposal.id.clone());
+        work.set_drawing_helpers(drawing_helpers);
         self.presence_forget_avatar_hold(&who);
         let a = self
             .presence

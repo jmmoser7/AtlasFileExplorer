@@ -1,6 +1,12 @@
 //! Board vector paths: world ↔ `PathData`, tessellation cache, hit-testing.
 
 pub(crate) mod multi_point;
+mod results;
+pub(crate) mod witness;
+pub(crate) use results::{
+    brush_path_node, drawn_path_node, fit_freehand, node_stamp_key, path_tool,
+};
+use results::{stamp_key, stamp_key_at};
 #[path = "board_path/tiles.rs"]
 pub(crate) mod tiles;
 
@@ -1972,31 +1978,6 @@ pub(crate) fn take_sync_budget(app: &mut SlateApp, area: f32) -> bool {
     true
 }
 
-/// [`stamp_key`] for a stamped path node.
-pub(crate) fn node_stamp_key(node: &Node) -> Option<u64> {
-    let NodeKind::Shape(shape) = &node.kind else {
-        return None;
-    };
-    Some(stamp_key(node, shape, shape.path.as_ref()?))
-}
-
-/// A stroke's stamp content key: path, style, and placement.
-fn stamp_key(node: &Node, shape: &ShapeNode, path: &PathData) -> u64 {
-    stamp_key_at(node, shape, path, node.rect)
-}
-
-/// [`stamp_key`] with the stroke placed at `rect`.
-fn stamp_key_at(node: &Node, shape: &ShapeNode, path: &PathData, rect: WorldRect) -> u64 {
-    path_content_hash(
-        path,
-        &shape.stroke,
-        rect,
-        node.rotation_deg,
-        shape.corner,
-        0,
-    ) ^ 0x57A5
-}
-
 /// Start the live eraser preview for strokes the pass reached. Small
 /// strokes build on the frame loop within [`SYNC_STAMP_PX`]; others build on
 /// the raster workers and keep painting as committed until theirs lands.
@@ -2044,7 +2025,7 @@ pub struct EraseSettle {
     /// Strokes a pass changed past the frame's raster budget, straight or
     /// freehand, while the workers find out whether any ink is left: the
     /// committed content key and the pass's journal group.
-    checks: Vec<(NodeId, u64, GroupToken)>,
+    checks: Vec<(NodeId, u64, GroupToken, slate_doc::scene::CmdAuthor)>,
     /// Test hook: settling previews, and the release, take no landed cut.
     #[cfg(test)]
     pub(crate) hold: bool,
@@ -2142,11 +2123,25 @@ impl EraseSettle {
     /// Stroke `id`, committed under content `key` by journal group `token`,
     /// leaves the scene in that group if the workers find no ink left.
     pub(crate) fn check(&mut self, id: NodeId, key: u64, token: GroupToken) {
-        self.checks.retain(|c| c.0 != id);
-        self.checks.push((id, key, token));
+        self.check_as(id, key, token, slate_doc::scene::CmdAuthor::Human);
     }
 
-    pub(crate) fn take_checks(&mut self) -> Vec<(NodeId, u64, GroupToken)> {
+    /// Track an asynchronous ink check together with the author of the
+    /// committed erase group it may amend.
+    pub(crate) fn check_as(
+        &mut self,
+        id: NodeId,
+        key: u64,
+        token: GroupToken,
+        author: slate_doc::scene::CmdAuthor,
+    ) {
+        self.checks.retain(|c| c.0 != id);
+        self.checks.push((id, key, token, author));
+    }
+
+    pub(crate) fn take_checks(
+        &mut self,
+    ) -> Vec<(NodeId, u64, GroupToken, slate_doc::scene::CmdAuthor)> {
         std::mem::take(&mut self.checks)
     }
 
@@ -2156,16 +2151,17 @@ impl EraseSettle {
     pub(crate) fn take_answered(
         &mut self,
         tiles: &mut tiles::BrushTiles,
-    ) -> Vec<(NodeId, u64, GroupToken, bool)> {
+    ) -> Vec<(NodeId, u64, GroupToken, slate_doc::scene::CmdAuthor, bool)> {
         let mut answered = Vec::new();
-        self.checks
-            .retain(|&(id, key, token)| match tiles.ink_answer(id, key) {
+        self.checks.retain(
+            |&(id, key, token, ref author)| match tiles.ink_answer(id, key) {
                 Some(left) => {
-                    answered.push((id, key, token, left));
+                    answered.push((id, key, token, author.clone(), left));
                     false
                 }
                 None => true,
-            });
+            },
+        );
         answered
     }
 
@@ -5278,53 +5274,23 @@ impl SlateApp {
         tips: DrawnTips<'_>,
     ) -> Vec<NodeId> {
         self.begin_curve_fade_creation();
-        let mut path_data = path_data;
-        path_data.closed = closed;
         let current = self.placed_tip(tool);
-        let mut stroke = self.stroke_for_tool(tool);
-        if let Some(widest) = path_data.tips.iter().map(|t| t.width).reduce(f32::max) {
-            stroke.width = widest;
-        }
-        let mut opacity = current.opacity;
-        let placed = match tips {
-            DrawnTips::None => None,
-            DrawnTips::Grips(tips) => slate_doc::vertex_style::set_grip_placed_tips(
-                &mut path_data,
-                &mut stroke,
-                rect,
-                0.0,
-                tips,
-            ),
-            DrawnTips::Vertices(tips) => {
-                let (op, spans) = slate_doc::vertex_style::placed_spans(&stroke, tips);
-                slate_doc::vertex_style::set_vertex_tips(&mut path_data, &mut stroke, spans)
-                    .then_some(op)
-            }
-        };
-        if let Some(op) = placed {
-            opacity = op;
-        }
+        let stroke = self.stroke_for_tool(tool);
         let fill = if closed {
             self.fill_for_new_shape()
         } else {
             None
         };
-        let mut node = self.doc_mut().scene.build_node(
+        let node = drawn_path_node(
+            &mut self.doc_mut().scene,
             rect,
-            NodeKind::Shape(ShapeNode {
-                shape: ShapeKind::Path,
-                fill,
-                stroke,
-                corner: slate_doc::scene::Corner::Square,
-                sides: slate_doc::scene::default_regular_sides(),
-                phase_deg: 0.0,
-                flip: false,
-                path: Some(path_data.into()),
-
-                text: None,
-            }),
+            path_data,
+            closed,
+            stroke,
+            current,
+            fill,
+            tips,
         );
-        node.opacity = opacity;
         self.note_tool_style(tool, &node);
         // The next stroke starts with the tip last chosen, not the widest.
         self.keep_tool_tip(tool, current);
@@ -5739,9 +5705,7 @@ impl SlateApp {
     /// fitted vertex as the stroke drew it (P1.curve.tip-chord).
     pub(crate) fn finish_freehand_pen_stroke(&mut self, stroke: &FreehandTips<PlacedTip>) {
         let zoom = self.tab().cam.z.max(f32::EPSILON);
-        let tol = FREEHAND_FIT_ERROR_PX / zoom;
-        let spacing = FREEHAND_SAMPLE_SPACING_PX / zoom;
-        let Some((bez, tips)) = stroke.fit(tol, spacing) else {
+        let Some((bez, tips)) = fit_freehand(stroke, zoom) else {
             return;
         };
         let (rect, data) = bezpath_to_path_data(&bez, false);
@@ -5770,6 +5734,39 @@ impl SlateApp {
 mod tests {
     use super::*;
     use vector_ink::stroke_mesh;
+
+    #[test]
+    fn pending_erase_cleanup_keeps_the_committing_author() {
+        let mut scene = slate_doc::Scene::default();
+        let mut preparation = scene.node_preparation();
+        let (rect, path) = points_to_path_data(&[Pos2::ZERO, Pos2::new(8.0, 0.0)], false);
+        let node = drawn_path_node(
+            &mut preparation,
+            rect,
+            path,
+            false,
+            default_curve_stroke(slate_doc::scene::Rgba::BLACK),
+            slate_doc::vertex_style::PlacedTip {
+                width: 2.0,
+                color: slate_doc::scene::Rgba::BLACK,
+                opacity: 1.0,
+            },
+            None,
+            DrawnTips::None,
+        );
+        let author = slate_doc::scene::CmdAuthor::Agent("Dot".into());
+        let mut journal = slate_doc::scene::SceneJournal::default();
+        assert!(journal.commit_as(
+            &mut scene,
+            vec![slate_doc::scene::SceneCmd::Add { index: 0, node }],
+            author.clone(),
+        ));
+        let mut settle = EraseSettle::default();
+        let id = scene.nodes[0].id;
+        let token = journal.top_token().unwrap();
+        settle.check_as(id, 91, token, author.clone());
+        assert_eq!(settle.take_checks(), vec![(id, 91, token, author)]);
+    }
 
     /// A Shift segment stamped by a worker over a copy of the canvas pixels
     /// under it gives the pixels stamping the whole canvas would, so the

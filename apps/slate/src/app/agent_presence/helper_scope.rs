@@ -72,6 +72,7 @@ impl SlateApp {
                     && !a.inflight
                     && a.work.is_none()
                     && a.read.is_none()
+                    && a.portal.is_none()
                     && !self.presence.has_pending_for(a)
                     && a.launched.is_empty()
                     && a.helper_outcome

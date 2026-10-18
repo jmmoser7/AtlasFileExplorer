@@ -26,7 +26,10 @@ use slate_doc::scene::{
 };
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Instant;
+
+mod agent_access;
 
 /// Click-place size (contract D04).
 pub const ATLAS_DEFAULT_W: f32 = PORTAL_DEFAULT_W;
@@ -94,6 +97,9 @@ struct AtlasView {
     cam_fitted: bool,
     dir_collapsed: HashMap<String, bool>,
     selection: HashSet<u32>,
+    /// Agent attribution overlay; independent from the human's selection.
+    agent_highlights: HashMap<String, (u32, String)>,
+    agent_highlight_union: Arc<HashSet<u32>>,
     tree: Option<Tree>,
     tree_n: usize,
     file_filter: Vec<String>,
@@ -116,6 +122,8 @@ impl AtlasView {
             cam_fitted: false,
             dir_collapsed: HashMap::new(),
             selection: HashSet::new(),
+            agent_highlights: HashMap::new(),
+            agent_highlight_union: Arc::new(HashSet::new()),
             tree: None,
             tree_n: 0,
             file_filter: Vec::new(),
@@ -176,6 +184,7 @@ fn canonical(path: &Path) -> PathBuf {
 struct SlateMapHost<'a> {
     textures: &'a HashMap<String, ThumbState>,
     entries: &'a [FileEntry],
+    highlighted: &'a HashSet<u32>,
     pending: &'a mut Vec<(PathBuf, u64, i64)>,
 }
 
@@ -217,6 +226,10 @@ impl MapMedia for SlateMapHost<'_> {
 
     fn is_staged(&self, _rel: &str) -> bool {
         false
+    }
+
+    fn is_agent_highlighted(&self, file: u32) -> bool {
+        self.highlighted.contains(&file)
     }
 }
 
@@ -708,7 +721,7 @@ impl SlateApp {
         }
 
         let palette = self.palette();
-        let (cam, hover, selection, root, tree, style, file_match, rubber) = {
+        let (cam, hover, selection, highlighted, root, tree, style, file_match, rubber) = {
             let Some(view) = self.atlas_lenses.views.get_mut(&id) else {
                 return;
             };
@@ -716,6 +729,7 @@ impl SlateApp {
                 view.cam.in_parent(surface),
                 view.hover,
                 view.selection.clone(),
+                Arc::clone(&view.agent_highlight_union),
                 view.session_key.clone(),
                 view.tree.take(),
                 MapStyle {
@@ -753,6 +767,7 @@ impl SlateApp {
             let mut host = SlateMapHost {
                 textures: &self.textures,
                 entries: &session.entries,
+                highlighted: highlighted.as_ref(),
                 pending: &mut pending,
             };
             let mut args = PaintArgs {
@@ -1715,24 +1730,6 @@ impl SlateApp {
             }
             FolderDropKind::PlaceContents => self.place_folder_contents(&path, at),
         }
-    }
-
-    pub(crate) fn build_bound_atlas(
-        &mut self,
-        rect: WorldRect,
-        path: &Path,
-        files: Vec<String>,
-    ) -> Node {
-        let locator = source_locator(self.tab().path.as_deref(), path);
-        let title = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("File Atlas");
-        let mut portal = PortalNode::bound_file_atlas(title, locator);
-        portal.atlas.files = files;
-        self.doc_mut()
-            .scene
-            .build_node(rect, NodeKind::Portal(portal))
     }
 
     fn place_bound_atlas_at(&mut self, at: Pos2, path: &Path) {
