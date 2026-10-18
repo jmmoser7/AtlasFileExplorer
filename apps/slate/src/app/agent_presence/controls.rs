@@ -325,16 +325,31 @@ impl SlateApp {
                         self.settings.presence_identity.photo.clone(),
                     );
                 }
+                let old_name = self
+                    .presence
+                    .agents
+                    .iter()
+                    .find(|a| a.profile.id == id)
+                    .map(|a| a.profile.name.clone())
+                    .ok_or("Unknown collaborator")?;
+                let name = name.trim().chars().take(80).collect::<String>();
+                if name.is_empty() || name.chars().any(char::is_control) {
+                    return Err("Choose a readable name".into());
+                }
+                for policy in self
+                    .settings
+                    .agent_consent_policies
+                    .iter_mut()
+                    .filter(|policy| policy.identity_id == id && policy.identity_name == old_name)
+                {
+                    policy.identity_name = name.clone();
+                }
                 let a = self
                     .presence
                     .agents
                     .iter_mut()
                     .find(|a| a.profile.id == id)
                     .ok_or("Unknown collaborator")?;
-                let name = name.trim().chars().take(80).collect::<String>();
-                if name.is_empty() || name.chars().any(char::is_control) {
-                    return Err("Choose a readable name".into());
-                }
                 a.profile.name = name;
             }
             SetHat { id, hat } => {

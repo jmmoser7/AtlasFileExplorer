@@ -32,6 +32,22 @@ fn retirement_keeps_consent_but_revokes_live_authority_until_a_fresh_join() {
             },
         )
         .unwrap();
+    let saved_policy = h.app.settings.agent_consent_policies[0].clone();
+    let renamed = "Consented collaborator renamed";
+    h.app
+        .apply_presence_action(
+            &h.ctx,
+            chrome::PresenceAction::Rename {
+                id: who.clone(),
+                name: renamed.into(),
+            },
+        )
+        .unwrap();
+    let mut expected_policy = saved_policy;
+    expected_policy.identity_name = renamed.into();
+    assert_eq!(h.app.settings.agent_consent_policies[0], expected_policy);
+    let mut profile = profile;
+    profile.name = renamed.into();
     let old_session = h.app.presence.agents[0].binding.session_id.clone();
     let old_grant = h.app.presence.agents[0].binding.grant_id.clone();
     assert!(atlas_ai::access::granted_in(&access_path, &old_session));
@@ -51,9 +67,7 @@ fn retirement_keeps_consent_but_revokes_live_authority_until_a_fresh_join() {
             .provider_full_access
     );
 
-    let mut restored_profile = profile;
-    restored_profile.retired = false;
-    h.app.join_presence(restored_profile, None).unwrap();
+    h.app.join_presence(profile, None).unwrap();
     let rebound = &h.app.presence.agents[0];
     assert_ne!(rebound.binding.session_id, old_session);
     assert_ne!(rebound.binding.grant_id, old_grant);
