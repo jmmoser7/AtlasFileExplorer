@@ -22,129 +22,252 @@
   "cases": [
     {
       "id": "compact-persistent-nonmodal-chat",
-      "implementation": "pending-integration",
-      "automated": "untested",
+      "implementation": "implemented-awaiting-verification",
+      "automated": "pending-current-checks",
       "native": "untested",
-      "user": "awaiting-review"
+      "user": "awaiting-review",
+      "expected": "The compact chat remains visible and usable without modal blocking; the board remains available.",
+      "existing_test_symbols": [
+        "compact_chat_firstuse_retains_actual_ui_states"
+      ],
+      "setup": "Open a Slate workbook with an agent available on the board.",
+      "actions": "Open Slate with agents present; open an agent chat and leave it open while returning attention to the board."
     },
     {
       "id": "board-select-pan-zoom-while-composer-focused",
-      "implementation": "pending-integration",
-      "automated": "untested",
+      "implementation": "implemented-awaiting-verification",
+      "automated": "pending-current-checks",
       "native": "untested",
-      "user": "awaiting-review"
+      "user": "awaiting-review",
+      "expected": "Board selection and camera gestures still work while chat remains open and composer focus is retained where appropriate.",
+      "existing_test_symbols": [
+        "focused_chat_remains_open_while_the_human_pans_the_board",
+        "actual_avatar_press_double_click_close_escape_and_wheel_keep_the_canvas_contract"
+      ],
+      "setup": "Open a Slate board with an available canvas chat.",
+      "actions": "Open a canvas chat, focus its composer, then select board content and pan/zoom the canvas."
     },
     {
       "id": "existing-agent-all-segments-open-chat",
-      "implementation": "pending-integration",
-      "automated": "untested",
+      "implementation": "implemented-awaiting-verification",
+      "automated": "pending-current-checks",
       "native": "untested",
-      "user": "awaiting-review"
+      "user": "awaiting-review",
+      "expected": "Both targets open the intended agent chat, and the popup tracks its roster segment after resize.",
+      "existing_test_symbols": [
+        "dropdown_tracks_roster_segments_after_first_use_and_resize"
+      ],
+      "setup": "Populate the roster with existing agents across its segments.",
+      "actions": "With existing agents across roster segments, open chat first from an agent chat icon and then from its name-area caret; resize the roster."
     },
     {
       "id": "single-harness-click-enters-chat",
-      "implementation": "pending-integration",
-      "automated": "untested",
+      "implementation": "implemented-awaiting-verification",
+      "automated": "pending-current-checks",
       "native": "untested",
-      "user": "awaiting-review"
+      "user": "awaiting-review",
+      "expected": "A single harness choice adds the collaborator and reaches its chat/message flow.",
+      "existing_test_symbols": [
+        "zero_roster_ui_adds_a_local_collaborator_and_delivers_its_first_scoped_message"
+      ],
+      "setup": "Open Slate with an empty agent roster and a configured harness.",
+      "actions": "Start with an empty roster, click Add, choose one harness, and send its first scoped message."
     },
     {
       "id": "pause-listen-resume-same-conversation",
-      "implementation": "pending-integration",
-      "automated": "untested",
+      "implementation": "implemented-awaiting-verification",
+      "automated": "pending-current-checks",
       "native": "untested",
-      "user": "awaiting-review"
+      "user": "awaiting-review",
+      "expected": "The message stays in the same conversation; paused work waits for explicit resume.",
+      "existing_test_symbols": [
+        "paused_updates_wait_for_resume_and_stop_cancels_without_replay",
+        "explicit_resume_restarts_a_task_that_ended_while_board_work_was_paused"
+      ],
+      "setup": "Open a chat with an agent capable of starting a task.",
+      "actions": "Start a chat task, pause/listen, send a message while paused, then explicitly resume."
     },
     {
       "id": "stop-error-fresh-request-and-explicit-continue",
-      "implementation": "pending-integration",
-      "automated": "untested",
+      "implementation": "implemented-awaiting-verification",
+      "automated": "pending-current-checks",
       "native": "untested",
-      "user": "awaiting-review"
+      "user": "awaiting-review",
+      "expected": "A fresh request starts without losing visible history; errors do not silently resume board work.",
+      "existing_test_symbols": [
+        "a_new_human_message_after_stop_starts_work_without_discarding_history",
+        "a_provider_error_cannot_turn_a_listening_message_into_board_resume",
+        "explicit_resume_restarts_a_task_that_ended_while_board_work_was_paused"
+      ],
+      "setup": "Open a chat with an active or previously failed task and visible history.",
+      "actions": "Stop an active chat or encounter a provider error, then send a new human message and explicitly continue/resume when required."
     },
     {
       "id": "missing-rollout-rebind-visible-history-once",
-      "implementation": "pending-integration",
-      "automated": "untested",
+      "implementation": "implemented-awaiting-verification",
+      "automated": "pending-current-checks",
       "native": "untested",
-      "user": "awaiting-review"
+      "user": "awaiting-review",
+      "expected": "Recovery starts a fresh thread when required and visible turns appear once without markers or duplicate answers.",
+      "existing_test_symbols": [
+        "stale_rollout_resume_starts_a_fresh_thread_and_preserves_unrelated_errors",
+        "replay_excludes_markers_and_keeps_visible_turns_once_across_a_handoff"
+      ],
+      "setup": "Open a Codex conversation with visible turns whose stored rollout is unavailable.",
+      "actions": "Resume a Codex chat whose prior rollout is missing and reload/rebind its visible conversation history."
     },
     {
       "id": "codex-steer-provider-acknowledgement",
-      "implementation": "pending-integration",
-      "automated": "untested",
+      "implementation": "implemented-awaiting-verification",
+      "automated": "pending-current-checks",
       "native": "untested",
-      "user": "awaiting-review"
+      "user": "awaiting-review",
+      "expected": "Steering is associated with the matching active request and is shown as delivered only after matching acknowledgement.",
+      "existing_test_symbols": [
+        "steering_is_delivered_only_after_matching_provider_acknowledgement",
+        "steer_response_uses_official_turn_id_and_rejects_another_turn"
+      ],
+      "setup": "Open a chat with a Codex turn actively running.",
+      "actions": "Send a follow-up while a Codex turn is active and observe provider acknowledgement."
     },
     {
       "id": "other-harness-follow-up-queue",
-      "implementation": "pending-integration",
-      "automated": "untested",
+      "implementation": "implemented-awaiting-verification",
+      "automated": "pending-current-checks",
       "native": "untested",
-      "user": "awaiting-review"
+      "user": "awaiting-review",
+      "expected": "Follow-ups queue in order on the intended harness and do not replace its active request or leak across harnesses.",
+      "existing_test_symbols": [
+        "update_while_busy_preserves_active_request_and_dispatches_in_order",
+        "same_harness_and_invalid_destination_leave_a_running_request_untouched"
+      ],
+      "setup": "Open two harness conversations; keep one harness busy.",
+      "actions": "Keep one harness busy and send it additional follow-ups; inspect another harness conversation independently."
     },
     {
       "id": "public-progress-inline-private-reasoning-excluded",
-      "implementation": "pending-integration",
-      "automated": "untested",
+      "implementation": "implemented-awaiting-verification",
+      "automated": "pending-current-checks",
       "native": "untested",
-      "user": "awaiting-review"
+      "user": "awaiting-review",
+      "expected": "Public activity appears inline while private reasoning and tool payloads are excluded.",
+      "existing_test_symbols": [
+        "busy_chat_keeps_the_composer_live_and_shows_only_public_progress",
+        "public_progress_excludes_reasoning_and_tool_payloads"
+      ],
+      "setup": "Open a busy chat with public activity and private reasoning/tool data available to its adapter.",
+      "actions": "Render a busy chat with public activity and private reasoning/tool payload in the source state."
     },
     {
       "id": "text-paste-and-image-attachments",
-      "implementation": "pending-integration",
-      "automated": "untested",
+      "implementation": "implemented-awaiting-verification",
+      "automated": "pending-current-checks",
       "native": "untested",
-      "user": "awaiting-review"
+      "user": "awaiting-review",
+      "expected": "Text remains intact in the composer and sends through the existing action; image is represented as explicit media input.",
+      "existing_test_symbols": [
+        "focused_composer_paste_preserves_multiline_utf8_and_sends_through_existing_action",
+        "bitmap_paste_edge_routes_only_to_the_focused_composer",
+        "explicit_images_use_the_existing_media_input_contract"
+      ],
+      "setup": "Open a chat with its composer focused and clipboard text/image input available.",
+      "actions": "Focus the chat composer; paste multiline UTF-8 text and attach an image, then send."
     },
     {
       "id": "attachment-retry-retains-composer-draft",
-      "implementation": "pending-integration",
-      "automated": "untested",
+      "implementation": "implemented-awaiting-verification",
+      "automated": "pending-current-checks",
       "native": "untested",
-      "user": "awaiting-review"
+      "user": "awaiting-review",
+      "expected": "Retry preserves the composed text and image draft until the retry is submitted.",
+      "existing_test_symbols": [
+        "retrying_stopped_image_message_preserves_the_composed_text_and_image_draft"
+      ],
+      "setup": "Open a chat and prepare an image attachment plus message text.",
+      "actions": "Compose text and attach an image, stop/fail the message, then retry it."
     },
     {
       "id": "retained-identity-harness-workspace-consent",
-      "implementation": "pending-integration",
-      "automated": "untested",
+      "implementation": "implemented-awaiting-verification",
+      "automated": "pending-current-checks",
       "native": "untested",
-      "user": "awaiting-review"
+      "user": "awaiting-review",
+      "expected": "Consent is restored only for the exact identity/provider/scope and confers no live session authority by itself.",
+      "existing_test_symbols": [
+        "consent_rebind_requires_exact_identity_provider_and_scope",
+        "persisted_consent_round_trips_without_session_authority"
+      ],
+      "setup": "Use a retained collaborator identity with a configured harness and workspace.",
+      "actions": "Persist consent, then reopen/rebind the same retained identity, provider, harness and workspace."
     },
     {
       "id": "revocation-and-helper-scope",
-      "implementation": "pending-integration",
-      "automated": "untested",
+      "implementation": "implemented-awaiting-verification",
+      "automated": "pending-current-checks",
       "native": "untested",
-      "user": "awaiting-review"
+      "user": "awaiting-review",
+      "expected": "Revocation removes live authority and helper scope cannot exceed the grant; retired work cannot continue.",
+      "existing_test_symbols": [
+        "codex_full_access_is_opt_in_rebound_per_session_and_revoked",
+        "retirement_revokes_work_before_the_departure_and_restore_is_fresh",
+        "stop_revoke_and_retirement_cancel_participant_reads_and_refuse_old_calls"
+      ],
+      "setup": "Open a chat with bounded access and an active helper operation.",
+      "actions": "Grant bounded access, start helper work, then revoke or retire the parent and inspect helper scope."
     },
     {
       "id": "authored-text-and-autonomous-current-workbook-save",
-      "implementation": "pending-integration",
-      "automated": "untested",
+      "implementation": "implemented-awaiting-verification",
+      "automated": "pending-current-checks",
       "native": "untested",
-      "user": "awaiting-review"
+      "user": "awaiting-review",
+      "expected": "The opted-in collaborator saves current authored text to the current workbook.",
+      "existing_test_symbols": [
+        "opted_in_collaborator_saves_current_authored_board_text"
+      ],
+      "setup": "Open the current workbook with explicit save capability available to the collaborator.",
+      "actions": "Enable the explicit save capability, edit authored board text, and request a save of the current workbook."
     },
     {
       "id": "pending-proposals-not-silently-saved",
-      "implementation": "pending-integration",
-      "automated": "untested",
+      "implementation": "implemented-awaiting-verification",
+      "automated": "pending-current-checks",
       "native": "untested",
-      "user": "awaiting-review"
+      "user": "awaiting-review",
+      "expected": "An agent with a review-required grant cannot invoke app.save. Human Save persists committed board content; pending previews remain uncommitted until accepted and are not silently included in the saved file.",
+      "existing_test_symbols": [
+        "proposal_mode_cannot_save_the_workbook"
+      ],
+      "setup": "Open a saved workbook with a review-required collaborator and an unaccepted proposed edit.",
+      "actions": "Ask the collaborator to save and verify denial. Save through the human interface, then reopen the file and verify that committed content is present and the proposed edit was not silently committed."
     },
     {
       "id": "local-feedback-report-without-outbound-post",
-      "implementation": "pending-integration",
-      "automated": "untested",
+      "implementation": "implemented-awaiting-verification",
+      "automated": "pending-current-checks",
       "native": "untested",
-      "user": "awaiting-review"
+      "user": "awaiting-review",
+      "expected": "Feedback is bounded and local; no outbound post is issued.",
+      "existing_test_symbols": [
+        "scoped_collaborator_feedback_is_local_bounded_and_does_not_open_ui"
+      ],
+      "setup": "Open a collaborator session with local feedback reporting available.",
+      "actions": "Submit collaborator feedback through the local feedback/report action and inspect the result."
     },
     {
       "id": "hat-unclipped-approved-face-and-fits",
-      "implementation": "pending-integration",
-      "automated": "untested",
+      "implementation": "implemented-awaiting-verification",
+      "automated": "pending-current-checks",
       "native": "untested",
-      "user": "awaiting-review"
+      "user": "awaiting-review",
+      "expected": "Approved face and hat remain fitted and unclipped within the viewport.",
+      "existing_test_symbols": [
+        "native_geometry_conforms_to_all_81_approved_browser_poses",
+        "props_survive_a_nonzero_canvas_origin_and_keep_the_screen_clip"
+      ],
+      "setup": "Open the approved collaborator/avatar appearance at the tested viewport scale.",
+      "actions": "Render the approved avatar face with its existing hat artwork at the supported view/scale, including near the viewport edge."
     }
-  ]
+  ],
+  "evidence_note": "Six actual-widget software renders were captured for source 254201a7 and failed the wide anchor; corrected source 9a1aa579 needs new captures. Luna smoke passed history, steer acknowledgement, completed-before-stop, and retry; public activity was 0. Final native app interaction validation is pending safe closure of the existing old session."
 }

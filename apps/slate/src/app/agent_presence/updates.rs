@@ -213,6 +213,33 @@ mod tests {
         (h, who)
     }
     #[test]
+    fn immediate_second_send_cannot_replace_a_live_request_binding() {
+        let (mut h, who) = host();
+        h.app.send_presence_message(&who, "First task").unwrap();
+        let request = h.app.presence.agents[0].request.clone();
+        let binding = h.app.presence.agents[0].binding.clone();
+        h.app.send_presence_message(&who, "Second task").unwrap();
+        assert_eq!(h.app.presence.agents[0].request, request);
+        assert_eq!(h.app.presence.agents[0].binding, binding);
+        assert_eq!(
+            h.app
+                .presence
+                .conversations
+                .get(&who)
+                .unwrap()
+                .turns
+                .iter()
+                .filter(|turn| {
+                    turn.role == "user" && turn.text == "Second task" && turn.status == "queued"
+                })
+                .count(),
+            1
+        );
+        h.app.stop_presence(&who, true).unwrap();
+        assert!(h.app.presence.agents[0].grant.is_none());
+        assert!(!h.app.presence.agents[0].inflight);
+    }
+    #[test]
     fn update_while_busy_preserves_active_request_and_dispatches_in_order() {
         let (mut h, who) = host();
         h.app.presence_send_chat(&who, "First task").unwrap();

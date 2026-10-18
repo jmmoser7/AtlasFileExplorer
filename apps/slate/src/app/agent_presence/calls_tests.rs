@@ -18,7 +18,7 @@ fn add(h: &mut Harness, name: &str) -> String {
 fn invoke(h: &mut Harness, command: &str, arguments: serde_json::Value) -> BoardReply {
     let mut agent = h.app.presence.agents.remove(0);
     std::fs::create_dir_all(&agent.dir).unwrap();
-    agent.request = "scoped-action-request".into();
+    agent.request = atlas_agent::request_id();
     h.app
         .presence
         .roster
