@@ -93,7 +93,7 @@ impl SlateApp {
             && self.image_wheel(host) == crate::app::board_agent::ImageWheel::Album
             && atlas_shell::home::album_browsing(ctx, Id::new(("agent-picture", host.0))) > 0.001;
         let focus = if flowing {
-            self.agents.cover_focus.get(&host).copied()
+            self.agent_album_focus(host)
         } else {
             self.agent_shown_index(host)
         }

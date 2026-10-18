@@ -1,7 +1,7 @@
 //! Opt-in screenshots from the real Slate app, never a component mock or provider run.
 #[path = "chrome_render_support.rs"]
 mod support;
-use eframe::egui::Id;
+use eframe::egui::{self, Id, Pos2, Rect};
 use serde_json::json;
 use support::{has, rect_json, Fixture};
 
@@ -146,5 +146,136 @@ fn full_app_presence_chrome_retains_actual_ui_states() {
         out,
         json!({"enclosingPanel":rect_json(panel),"providerChanged":false,"taskSubmitted":false}),
     );
+    for (phase, zoom, y) in [
+        ("attached25", 0.25, 40.0),
+        ("attached80", 0.8, 420.0),
+        ("attached100", 1.0, 40.0),
+        ("attached200", 2.0, 40.0),
+    ] {
+        let out = f.address_at_zoom(zoom, egui::vec2(380.0, y));
+        let agent = &f.h.app.presence.agents[0];
+        assert!(agent.paused);
+        assert_eq!(agent.activity, "listening");
+        assert_eq!(f.h.app.presence.chrome.canvas_chat(), Some(who.as_str()));
+        assert_eq!(f.h.app.presence.chrome.active_chat(), Some(who.as_str()));
+        for text in [
+            "Board task paused · listening",
+            "How is the interface feeling?",
+            "Ready to help organize this board.",
+        ] {
+            has(&out, text);
+        }
+        let position =
+            f.h.app
+                .presence
+                .roster
+                .session(&agent.motion)
+                .unwrap()
+                .sample()
+                .position;
+        let center =
+            f.h.app
+                .board_xf()
+                .w2s(egui::pos2(position.x as f32, position.y as f32));
+        assert!(center.distance(f.h.app.canvas_rect.min + egui::vec2(380.0, y)) < 0.1);
+        let head = world_head(&out, center, zoom);
+        let header = f.complete_target(Id::new(("conversation-profile", who.as_str())));
+        let composer = f.complete_target(Id::new(("presence-composer", who.as_str())));
+        let send = f.complete_target(Id::new(("presence-send", who.as_str())));
+        let controls = header.union(composer).union(send);
+        let panel = f.enclosure(&out, controls, 0.0);
+        assert!(
+            (panel.width() / zoom - 340.0).abs() < 1.0,
+            "scaled width: {panel:?}"
+        );
+        assert!(
+            (panel.height() / zoom - 330.0).abs() < 1.0,
+            "scaled height: {panel:?}"
+        );
+        assert!(panel.contains_rect(composer.union(send)));
+        assert!(composer.width() / zoom > 240.0 && composer.height() / zoom >= 43.0);
+        assert!((send.width() / zoom - 38.0).abs() < 0.1);
+        assert!((send.height() / zoom - 38.0).abs() < 0.1);
+        let surface = out
+            .shapes
+            .iter()
+            .find(|shape| is_surface(&shape.shape, panel, f.h.app.palette().card))
+            .unwrap();
+        assert!(
+            surface.clip_rect.contains_rect(controls),
+            "painted controls clipped at {zoom}"
+        );
+        if phase == "attached80" {
+            assert!(
+                composer.bottom() > 720.0,
+                "exercise the former lower-screen clip"
+            );
+        }
+        f.save(
+            phase,
+            out,
+            json!({"zoom":zoom,"avatarHead":rect_json(head),
+            "headWorldDiameter":[head.width()/zoom,head.height()/zoom],
+            "enclosingPanel":rect_json(panel),"composer":rect_json(composer),"send":rect_json(send),
+            "paused":true,"activity":"listening","agentSend":false}),
+        );
+    }
     f.finish();
+}
+
+fn is_surface(shape: &egui::Shape, panel: Rect, fill: egui::Color32) -> bool {
+    match shape {
+        egui::Shape::Vec(shapes) => shapes.iter().any(|shape| is_surface(shape, panel, fill)),
+        egui::Shape::Rect(rect) => rect.fill == fill && rect.rect == panel,
+        _ => false,
+    }
+}
+
+fn world_head(out: &egui::FullOutput, center: Pos2, zoom: f32) -> Rect {
+    fn collect(shape: &egui::Shape, center: Pos2, heads: &mut Vec<Rect>) {
+        match shape {
+            egui::Shape::Vec(shapes) => shapes
+                .iter()
+                .for_each(|shape| collect(shape, center, heads)),
+            egui::Shape::Mesh(mesh) => {
+                // Opaque shell vertices exclude its translucent ground shadow and AA fringe.
+                let bounds = mesh.vertices.iter().filter(|v| v.color.a() == 255).fold(
+                    Rect::NOTHING,
+                    |mut bounds, v| {
+                        bounds.extend_with(v.pos);
+                        bounds
+                    },
+                );
+                if bounds.is_positive() && bounds.center().distance(center) < 0.05 {
+                    heads.push(bounds);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut heads = Vec::new();
+    for shape in &out.shapes {
+        collect(&shape.shape, center, &mut heads);
+    }
+    let heads: Vec<_> = heads
+        .into_iter()
+        .filter(|r| r.width() > 30.0 * zoom)
+        .collect();
+    assert_eq!(
+        heads.len(),
+        1,
+        "identify one actual painted world head at {center:?}"
+    );
+    let head = heads[0];
+    // The centered authored outline contributes less than 0.25 world units.
+    assert!(
+        (head.width() / zoom - 36.0).abs() < 0.25,
+        "head width: {head:?}"
+    );
+    assert!(
+        (head.height() / zoom - 36.0).abs() < 0.25,
+        "head height: {head:?}"
+    );
+    assert!(support::screen().contains_rect(head));
+    head
 }

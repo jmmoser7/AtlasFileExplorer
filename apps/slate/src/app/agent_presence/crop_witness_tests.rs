@@ -145,11 +145,29 @@ fn ordinary_move_reuses_hole_safe_contact_and_refuses_exhaustion_before_motion_o
 
 #[test]
 fn cover_clamped_pan_witness_stops_with_the_source_and_keeps_the_exact_prepared_endpoint() {
+    fn storage(node: &Node) -> [usize; 7] {
+        let NodeKind::Image(image) = &node.kind else {
+            unreachable!()
+        };
+        let clip = node.clip.as_ref().unwrap();
+        [
+            clip.segs.as_ptr() as usize,
+            clip.extra[0].segs.as_ptr() as usize,
+            image.paint_layers.as_ptr() as usize,
+            image.paint_layers[0].nodes.as_ptr() as usize,
+            image.result_layers.as_ptr() as usize,
+            image.result_layers[0].layers.as_ptr() as usize,
+            image.result_layers[0].layers[0].nodes.as_ptr() as usize,
+        ]
+    }
     let mut h = host();
     h.app.ensure_work_tab();
     let image = crate::app::tests::picture_from(&mut h, "clamped-pan.png", 0.0);
+    let mut layer = slate_doc::PaintLayer::new(slate_doc::PaintLayerId(7));
+    layer.nodes.push(holed());
     h.app.patch_nodes(&[image], |node| {
         node.rotation_deg = 19.0;
+        node.clip = holed().clip;
         if let NodeKind::Image(image) = &mut node.kind {
             image.crop = slate_doc::scene::Crop {
                 x: 0.25,
@@ -157,6 +175,12 @@ fn cover_clamped_pan_witness_stops_with_the_source_and_keeps_the_exact_prepared_
                 w: 0.5,
                 h: 0.5,
             };
+            image.paint_layers.push(layer.clone());
+            let mut result = slate_doc::image_paint::ImageResultLayers::new(
+                slate_doc::image_paint::ImageResultId::Item(image.item),
+            );
+            result.add_layer(layer.clone());
+            image.result_layers.push(result);
         }
     });
     add(&mut h, "Dot");
@@ -193,11 +217,36 @@ fn cover_clamped_pan_witness_stops_with_the_source_and_keeps_the_exact_prepared_
     work.begin_step(motion).unwrap();
     let contact = work.crop_contact.unwrap();
     let mut previous = None;
+    let mut work_storage = None;
+    let mut work_samples = 0;
     let mut reached = false;
     for _ in 0..40 {
         let sample = motion.advance(std::time::Duration::from_millis(50));
         work.preview(sample).unwrap();
         if matches!(sample.phase, MotionPhase::Work | MotionPhase::ReadyToCommit) {
+            if sample.phase == MotionPhase::Work {
+                let preview = &work.previews[&image];
+                let preview_storage = storage(preview);
+                assert_ne!(preview_storage, storage(&before));
+                if let Some(previous) = work_storage {
+                    assert_eq!(
+                        preview_storage, previous,
+                        "Work must reuse authored payload storage"
+                    );
+                }
+                work_storage = Some(preview_storage);
+                work_samples += 1;
+                let input = crate::app::board_crop::CropGesture::Pan {
+                    delta_world: (
+                        (sample.position.x - contact.x) as f32,
+                        (sample.position.y - contact.y) as f32,
+                    ),
+                };
+                assert_eq!(
+                    crate::app::board_crop::apply_gesture(&before, input).as_ref(),
+                    Some(preview)
+                );
+            }
             let distance = ((sample.position.x - contact.x).powi(2)
                 + (sample.position.y - contact.y).powi(2))
             .sqrt();
@@ -226,5 +275,6 @@ fn cover_clamped_pan_witness_stops_with_the_source_and_keeps_the_exact_prepared_
         }
     }
     assert!(reached);
+    assert!(work_samples >= 3);
     assert_eq!(h.app.doc().scene.node(image), Some(&before));
 }

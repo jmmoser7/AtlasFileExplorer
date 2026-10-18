@@ -55,16 +55,13 @@ fn decide(h: &mut Harness, who: &str, proposal: &str, accept: bool) {
 fn proposal_chat_rows_borrow_all_current_session_rows_and_registry_labels() {
     let (mut h, who) = setup();
     let first = stage(&mut h, &who);
-    let second = stage(&mut h, &who);
+    let mut recovered = h.app.pending_stage_proposals()[0].clone();
+    recovered.id = format!("presence-{}", atlas_agent::request_id());
+    recovered.status = slate_doc::ProposalStatus::RecoveryRequired;
+    let second = recovered.id.clone();
+    h.app.queue_stage_proposal(recovered).unwrap();
     let peer = add(&mut h, "Dot"); // Equal names must not merge independent sessions.
     let foreign = stage(&mut h, &peer);
-    h.app
-        .agents
-        .pending
-        .iter_mut()
-        .find(|p| p.id == second)
-        .unwrap()
-        .status = slate_doc::ProposalStatus::RecoveryRequired;
     let before = serde_json::to_value(h.app.doc()).unwrap();
     let rows = h.app.presence_proposal_rows(&who);
     assert_eq!(

@@ -180,7 +180,7 @@ impl WitnessedCommand {
             return Ok(());
         }
         if let Some(gesture) = self.prepared.crop_gesture() {
-            use crate::app::board_crop::{apply_gesture, CropGesture};
+            use crate::app::board_crop::{gesture_geometry, CropGesture};
             let before = self.steps[self.index]
                 .0
                 .as_ref()
@@ -210,8 +210,15 @@ impl WitnessedCommand {
                     ),
                 },
             };
-            let preview = apply_gesture(before, input).ok_or("Crop preview no longer applies")?;
-            self.previews.insert(before.id, preview);
+            let geometry =
+                gesture_geometry(before, input).ok_or("Crop preview no longer applies")?;
+            let preview = self
+                .previews
+                .entry(before.id)
+                .or_insert_with(|| before.clone());
+            if !geometry.apply_to(preview) {
+                return Err("Crop preview identity no longer applies".into());
+            }
             return Ok(());
         }
         Self::preview_pair(&self.steps[self.index], sample, &mut self.previews);

@@ -206,6 +206,42 @@ impl Fixture {
         panel
     }
 
+    pub fn address_at_zoom(&mut self, zoom: f32, at: egui::Vec2) -> egui::FullOutput {
+        let agent = &self.h.app.presence.agents[0];
+        let position = self
+            .h
+            .app
+            .presence
+            .roster
+            .session(&agent.motion)
+            .unwrap()
+            .sample()
+            .position;
+        self.h.app.tab_mut().cam.z = zoom;
+        let target = self.h.app.canvas_rect.min + at;
+        let before = self.h.app.board_xf().s2w(target);
+        self.h.app.tab_mut().cam.offset +=
+            egui::pos2(position.x as f32, position.y as f32) - before;
+        self.camera = (self.h.app.tab().cam.offset, self.h.app.tab().cam.z);
+        self.h.app.presence_address(&self.h.ctx, &self.who).unwrap();
+        self.settle()
+    }
+
+    pub fn complete_target(&self, id: Id) -> Rect {
+        let rect = self.target(id);
+        let response = self.h.ctx.read_response(id).unwrap();
+        let transform = self
+            .h
+            .ctx
+            .layer_transform_to_global(response.layer_id)
+            .unwrap_or_default();
+        assert!(
+            (transform * response.interact_rect).contains_rect(rect.shrink(0.01)),
+            "whole target must remain interactive: {id:?} {rect:?}"
+        );
+        rect
+    }
+
     pub fn enclosure(&self, out: &egui::FullOutput, inside: Rect, extra_height: f32) -> Rect {
         fn walk(shape: &egui::Shape, into: &mut Vec<Rect>, fill: egui::Color32) {
             match shape {
@@ -306,6 +342,10 @@ impl Fixture {
             "popupOpen":self.h.app.presence.chrome.is_open(),
             "human":self.h.app.settings.presence_identity,
             "agent":self.h.app.presence.agents.first().map(|a|&a.profile),
+            "agentState":self.h.app.presence.agents.first().map(|a|json!({
+                "paused":a.paused,"activity":a.activity,"status":a.status,
+                "position":self.h.app.presence.roster.session(&a.motion)
+                    .map(|s|{let p=s.sample().position;[p.x,p.y]})})),
             "camera":[self.h.app.tab().cam.offset.x,self.h.app.tab().cam.offset.y,self.h.app.tab().cam.z]})
     }
 

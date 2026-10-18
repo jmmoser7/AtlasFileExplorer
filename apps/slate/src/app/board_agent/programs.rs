@@ -244,6 +244,11 @@ impl SlateApp {
             }
         }
     }
+    /// Album browsing focus can differ from the image chosen for the card.
+    pub(crate) fn agent_album_focus(&self, id: NodeId) -> Option<usize> {
+        self.agents.cover_focus.get(&id).copied()
+    }
+
     /// Which result an agent's card shows. A picture shows the file a person
     /// picked, else the newest result; a chat card's album shows its focus.
     pub(crate) fn agent_shown_index(&self, id: NodeId) -> Option<usize> {
@@ -265,10 +270,7 @@ impl SlateApp {
             return images.iter().position(|o| o.id == newest.id);
         }
         Some(
-            self.agents
-                .cover_focus
-                .get(&id)
-                .copied()
+            self.agent_album_focus(id)
                 .unwrap_or(0)
                 .min(images.len() - 1),
         )

@@ -1,7 +1,7 @@
 {
   "schema": "slate-presence-validation/v1",
   "date": "2026-10-17",
-  "implementation": "Integration remains incomplete. The private candidate index was removed and coverage.rs restored exactly to projection-SAT SHA8074271c; the current combined post-restore app/workspace validation is pending. Vector171/0/1, shared386/0/8, exact195 parity and123 structural zoom frames are historical candidate-index results; earlier164 SAT validation is historical too. New-size stalls remain unresolved, with no speedup established. The diagnostic compiler exited0 but profiler did not start; cause unknown, no retry/timing. Final six-file crop geometry and nine-test inventory are applied source only; agent adapter scratch v2 timing correction and current app/workspace/releases/native/human validation remain pending.",
+  "implementation": "Integration remains incomplete. Current normal release workspace validation exited101 during compilation, source stable, before any tests: missing chrome::strip_button and private AgentRuntime::cover_focus. Crop geometry and agent adapter source are applied/reviewed; runtime remains unexecuted pending compile fixes and fresh guarded validation. Candidate index was reverted; earlier shared/vector/relay/material results remain historical. Source snapshot51d8ecf7 is published/remote-verified, but no current app/workspace/runtime/native/performance/human acceptance follows. FinalBinary remains null and all37 app UI blockers remain open.",
   "finalBinary": null,
   "coordinatedBuild": {
     "command": "cargo build --locked --release -p slate --jobs 1",
@@ -3666,17 +3666,62 @@
       },
       "enforcementConclusion": "Unknown; no matching events in queried CodeIntegrity/AppLocker/Defender logs. Do not infer an IT or firewall block.",
       "boundary": "Actual root attempt compiled successfully but failed to start the profiler. No kernel timing, comparison, runtime validation or speedup result exists. Static PE metadata established AMD64 PE only; it is not launch proof. Read-only event audit found no matching CodeIntegrity/AppLocker/Defender event; cause remains UNKNOWN. Do not infer an IT, managed-policy or firewall denial. No retry or policy/flags/output-shape change is recorded."
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--release",
+        "--workspace",
+        "--jobs",
+        "1",
+        "--no-fail-fast"
+      ],
+      "result": "compile-failed",
+      "exitCode": 101,
+      "exitCodeScope": "Direct Cargo process exited during compilation before any tests",
+      "elapsedSeconds": 436.98378049999883,
+      "startedUtc": "2026-10-18T03:58:20.122980+00:00",
+      "finishedUtc": "2026-10-18T04:05:37.878161+00:00",
+      "identity": "target/presence-final-workspace-integrated-20261018.json",
+      "identitySha256": "d585a93929dcb51212e58d233b7350714d157f61b6ecb6b1bd1d93f4b5b381f3",
+      "sourceStable": true,
+      "sourceIdentityCount": 1348,
+      "libtestSummaries": [],
+      "harnesses": [],
+      "testsExecuted": false,
+      "rawLog": {
+        "path": "target/presence-final-workspace-integrated-20261018.log",
+        "bytes": 4686,
+        "sha256": "a4029f719b4c58e5ddfb92d8217ab31a696237c07a2c6a6b20c9e793fd00aae6"
+      },
+      "compileErrors": [
+        {
+          "code": "E0425",
+          "path": "apps/slate/src/app/board_properties/image_palette/buttons.rs",
+          "line": 70,
+          "diagnostic": "cannot find function strip_button in module chrome"
+        },
+        {
+          "code": "E0616",
+          "path": "apps/slate/src/app/board_flow/result_actions.rs",
+          "line": 96,
+          "diagnostic": "field cover_focus of AgentRuntime is private"
+        }
+      ],
+      "boundary": "Completed normal release workspace attempt failed compiling Slate lib on two source errors, before any tests. There is no workspace runtime verdict, current app pass, native appearance/performance pass or human acceptance. Historical package results remain bound to their earlier snapshots; fixes and a fresh guarded normal validation are still required."
     }
   ],
   "pendingChecks": [
-    "Complete agent adapter scratch v2 actual primary-press timing correction and fresh combined source guard; final geometry nine-test inventory is source-only. Preserve and execute original move/resize/crop workflow; no source-only pass",
+    "Fix E0425 missing chrome::strip_button and E0616 private AgentRuntime::cover_focus through their owners, then rerun final guarded normal release app/workspace validation; no tests ran in the failed attempt",
     "Execute three new source-approved test-only catalog-hold regressions in the fresh full app harness; do not synthesize ready catalogs or permit automatic provider probes in synthetic factories",
     "Complete readback of new full-app chrome captures; normal native fixture catalog queries are possible and no zero-provider-contact claim is allowed",
     "Both exact ignored witnessed-motion tests after updated catalog-pin source identity; retained software evidence is separate from native/GPU smoothness",
     "Fresh external Brush/Layers fallback interaction test and all 37 retained app UI cases after source freeze",
     "Index removed and exact SAT coverage restored; run current combined-source validation and fresh material/zoom costs. Retained candidate171/386/parity/123-frame results are historical, with unresolved cost blocker",
-    "Historical candidate-index shared386/0/8 does not validate current restored source; finish adapter v2 timing correction and execute final guarded current app/workspace/native gates",
-    "Source snapshotd2bb preserves removed index/catalog and60-record docs; exact index reversion, final crop/adapter work and this66-record update need a later immutable backup preserving owner/ref state",
+    "Historical candidate-index shared386/0/8 does not validate current restored source; agent adapter v2 source is applied; fix integration compilation and execute final guarded current app/workspace/native gates",
+    "Source snapshot51d8ecf7 includes exact index reversion, applied crop/adapter source and66-record docs; this67-record compile-failure update and subsequent fixes need a later immutable backup preserving owner/ref state",
     "Fresh six-file portal/Capture test corrections and separate real Capture host-retention regression; source checks discharge none of the retained UI blockers",
     "All37 retained UI contract blockers: seven nonmedia source diagnoses and thirty media cases need fresh representative app execution; shared narrow-image Brush/Layers fallback source is approved/frozen, runtime pending",
     "V4 real-wheel shared test passed in pre-index386 suite; fresh app proposal decisions and v3 font/capture readiness/request/configuration tests, hosted app repairs and relay draft fixture remain pending",
@@ -3733,7 +3778,7 @@
       },
       "boundary": "No dedicated on-disk health receipt is known. Coordinator relayed the read-only source finding; no runtime failure, fix or waived check is claimed."
     },
-    "cropWitnessedWork": "Final reviewed six-file geometry extension is applied and nine new normal source tests inventoried in the final crop freeze/inventory. No runtime count or pass. Agent adapter scratch v2 still needs primary-press timing correction. Original witness-moving-resizing crop requirement remains unchanged/Untested."
+    "cropWitnessedWork": "Final six-file canonical geometry and exact guardian-approved16-file agent adapter v2 source are applied. Source manifests retain nine normal geometry functions and13 agent test-source entries, including ignored software frames and primary-press input hold. Current normal workspace compilation failed before any tests; no runtime/native/user pass. Original crop acceptance remains unchanged."
   },
   "nativeInteraction": {
     "result": "Initial 83d build observed after human unlock and manual Add collaborator. User reports UI looks terrible. Actual defects retained; final native workflows and user acceptance remain Untested",
@@ -3750,11 +3795,11 @@
   },
   "evaluation": "native-acceptance.html",
   "coordination": {
-    "cargo": "No current post-restore combined-source result is supplied. Normal workspace/app validation remains pending after index removal and active adapter work. Historical candidate-index vector171/0/1 and shared386/0/8 do not validate the current restored source.",
-    "currentJob": "Private candidate index removed: coverage.rs exactly restored to pre-index projection-SAT8074271c, index.rs deleted, final35-file media slice frozen. Historical candidate-index vector171/0/1, shared386/0/8, exact195 parity and123-frame zoom measurements remain retained; neither those nor the old164 SAT pass validate the current combined source. Root diagnostic attempt finished wrapper1/compiler0/profiler-not-started, no output/timing/comparator, unknown cause, no retry. Final six-file crop geometry and nine new normal source tests are inventoried/applied, unexecuted; agent adapter scratch v2 still needs primary-press timing correction. Current normal workspace/app/native/release validation pending; user away, no native input.",
-    "nextQueue": "Complete the agent adapter scratch v2 primary-press timing correction and review its final source, then establish the current combined source/asset guard after exact SAT restoration and crop integration. Run normal app/workspace validation and retained37 UI cases, crop/adapter/motion/catalog/proposal/delivery tests and exact ignored chrome/motion readback. Remeasure current shared material/zoom costs after normal validation; historical index timings are not current post-restore evidence. Do not retry the failed profiler or infer a managed-policy cause. Build identified releases and complete native/executable-bound human acceptance when supported.",
-    "followupCheck": "Current material owner uses exact restored SAT source and no private index. Every earlier vector/shared/material/zoom result belongs to its recorded historical snapshot. Current combined app/workspace validation remains pending. Diagnostic compile0 supplied no profiler execution or timing; cause unknown and no retry. All37 app UI blockers and final/native/human gates remain open.",
-    "workspaceHold": "The35-file final media slice is frozen after exact index reversion, and final six-file crop geometry is source-frozen; the adapter scratch v2 primary-press timing correction is still pending. This is not a final whole-app validated identity or an all-source freeze. Latest remote backupd2bb retains the removed index and prior60-record docs; reversion, later geometry/adapter work and this66-record update are later changes.",
+    "cargo": "The normal release workspace run completed with Cargo101 at compilation, sourceStabletrue and no tests/harnesses executed. Current fixes/revalidation are pending; no active Cargo session is inferred from this receipt.",
+    "currentJob": "Actual cargo test --locked --release --workspace --jobs1 --no-fail-fast completed compile-failed101 after436.984s with1348 guarded inputs stable; no tests ran. Errors: missing chrome::strip_button at image_palette/buttons.rs70, and private AgentRuntime::cover_focus at board_flow/result_actions.rs96. Final crop geometry and agent adapter v2 source are applied and reviewed, runtime unexecuted. Private index is reverted; earlier171/386/164/shared97565/relay12 passes remain historical. New source snapshot51d8ecf7 is published/remote-verified. Current compile fixes, fresh guarded normal tests, native/build/performance and human acceptance remain pending; all37 UI blockers stay open.",
+    "nextQueue": "Correct the two compiler errors through their existing UI/runtime owners, freeze final combined source/assets, and rerun normal release app/workspace validation. Only actual tests may discharge catalog/proposal/crop/adapter/motion/delivery or any retained37 UI blocker. Execute exact ignored chrome/motion captures and inspect real frames after compilation succeeds. Remeasure current restored-SAT material/zoom costs, build identified releases, then complete native and executable-bound human acceptance. Preserve failed compile and profiler evidence; no source, speed or policy inference substitutes for execution.",
+    "followupCheck": "Current combined source reached compilation and failed on two Slate source errors; no tests ran. All prior package/shared/relay/material passes remain historical and supply no current workspace/app verdict. Source backup51d8ecf7 is verified; current compile fixes and new evidence are later changes. FinalBinary null, humanUntested and all37 UI blockers remain.",
+    "workspaceHold": "Workspace failure receipt records1348 source/asset inputs stable across the completed compile attempt. The final geometry and agent adapter source are applied; fixing two compiler errors will establish another source snapshot requiring fresh guarded validation. No final binary or current runtime pass exists. Latest published source51d8ecf7 contains the66-record docs, index reversion and crop/adapter source; this67-record evidence update and subsequent fixes are outside it.",
     "native": "User away since 01:41 UTC; no native input or unlock requests. Existing native fixture may perform normal production catalog queries but submits no agent task; isolated cfg(test) frame fixtures pin catalogs. Full-app chrome source is guardian-approved, but its captures have not executed or passed. A later native interaction lease still requires a fresh exact executable, explicit coordinated ownership and human availability.",
     "mediaThread": "01a14b0f-1bf4-71c2-9d4a-bce26d5611ed",
     "tagsThread": "01a14b10-6380-7883-8c19-18cd8972745f",
@@ -5322,14 +5367,14 @@
     },
     "publishedSourceCheckpoint": {
       "state": "source-checkpoint-published-and-verified",
-      "branch": "codex/presence-checkpoint-20261018-75cd2aed",
-      "commit": "d2bb139f6c076527f0ceeef9ba5bed10a99fd631",
-      "tree": "ffc357dbd7abf831452991e9ba029ca90bd2ab69",
-      "parent": "39edbe742f4782669975357445233a17eed76fd8",
+      "branch": "codex/presence-checkpoint-20261018-cde00368",
+      "commit": "51d8ecf7d5d5f7ff432b3c314192f162a63b0e2f",
+      "tree": "af4ce63374123bf527a40749efbc6d5eae6981d2",
+      "parent": "d2bb139f6c076527f0ceeef9ba5bed10a99fd631",
       "pushed": true,
       "pushExitCode": 0,
-      "verifiedRemoteCommit": "d2bb139f6c076527f0ceeef9ba5bed10a99fd631",
-      "finishedUtc": "2026-10-18T03:43:33.082615+00:00",
+      "verifiedRemoteCommit": "51d8ecf7d5d5f7ff432b3c314192f162a63b0e2f",
+      "finishedUtc": "2026-10-18T04:04:58.952233+00:00",
       "realIndexPreserved": true,
       "ownerHeadAfter": "d172cca5b9289df806b14842dab7b9693cfa4782",
       "ownerBranchAfter": "main",
@@ -5338,19 +5383,19 @@
       "headMainPreserved": true,
       "sourceHashesPreserved": true,
       "receiptHashesPreserved": true,
-      "evidence": "target/presence-checkpoint-index-catalog-75cd2aedf7ea48b5b2b03012c22ea768/publication-bb7f3087a1e04a7183c54284f8248f30/publication.json",
-      "evidenceSha256": "0644801d85d1a8a01b822a6af6b587d9b4207799c754dbe6863643297476fb33",
+      "evidence": "target/presence-checkpoint-crop-adapter-cde00368a45148d7b203dc3b66551541/publication-dbdbc0b02dfd437a9aa012df960f0632/publication.json",
+      "evidenceSha256": "c31c9eb609c891f40ca28965d148ff0d584ecef4452082287de076e5a19d082b",
       "review": {
-        "path": "target/presence-checkpoint-index-catalog-75cd2aedf7ea48b5b2b03012c22ea768/review.json",
-        "bytes": 62053,
-        "sha256": "a685e751791785d2c7fe32f6fd813ac653954dc9e0b171691d5e4594bdeb601a"
+        "path": "target/presence-checkpoint-crop-adapter-cde00368a45148d7b203dc3b66551541/review.json",
+        "bytes": 88356,
+        "sha256": "f29b2d21f5c32509d5767b0a67246ce9e63101c855c1aa4de151cf43b0bdc3cd"
       },
       "sourceCheckpointOnly": true,
-      "selectedPathCount": 14,
-      "changedPathCount": 14,
-      "guardedSourceCount": 109,
-      "receiptCount": 36,
-      "boundary": "Sixth source continuity snapshotd2bb, parent39ed, treeffc357db is published and remote-verified with inherited refs and owner main/HEAD/index preserved. Includes index/catalog source and prior60-record evidence docs. This update and later crop edits are outside the snapshot. Source continuity is no runtime/performance/native/user verdict; PR57 remains on its earlier head."
+      "selectedPathCount": 26,
+      "changedPathCount": 26,
+      "guardedSourceCount": 126,
+      "receiptCount": 58,
+      "boundary": "Seventh source snapshot51d8ecf7, parentd2bb, treeaf4ce633 is published and remote-verified; owner main/HEAD/index and inherited refs preserved. Includes exact index reversion, applied crop geometry/agent adapter source and66-record operational docs. Normal workspace subsequently failed compiling this guarded source before tests. This67-record update and subsequent fixes are outside it. No runtime/native/performance/human pass."
     },
     "hostedCheckpointValidation": {
       "observedUtc": "2026-10-18T02:20:58.152Z",
@@ -5923,6 +5968,38 @@
         "guardedSourceCount": 102,
         "receiptCount": 13,
         "boundary": "Fifth source continuity checkpoint39ed is published and remote-verified, parentd309, tree136e37db. Owner main/HEAD/index and all inherited refs, earlier checkpoints and PR57 head remain preserved. Includes pre-index SAT/fallback/Capture/proposal/relay/chrome/motion source repairs. Later candidate-index/zoom and central catalog hold are excluded by chronology. Source publication establishes no runtime/native/performance or human verdict."
+      },
+      {
+        "state": "source-checkpoint-published-and-verified",
+        "branch": "codex/presence-checkpoint-20261018-75cd2aed",
+        "commit": "d2bb139f6c076527f0ceeef9ba5bed10a99fd631",
+        "tree": "ffc357dbd7abf831452991e9ba029ca90bd2ab69",
+        "parent": "39edbe742f4782669975357445233a17eed76fd8",
+        "pushed": true,
+        "pushExitCode": 0,
+        "verifiedRemoteCommit": "d2bb139f6c076527f0ceeef9ba5bed10a99fd631",
+        "finishedUtc": "2026-10-18T03:43:33.082615+00:00",
+        "realIndexPreserved": true,
+        "ownerHeadAfter": "d172cca5b9289df806b14842dab7b9693cfa4782",
+        "ownerBranchAfter": "main",
+        "allInheritedLocalRefsPreserved": true,
+        "fixedRemoteRefsPreserved": true,
+        "headMainPreserved": true,
+        "sourceHashesPreserved": true,
+        "receiptHashesPreserved": true,
+        "evidence": "target/presence-checkpoint-index-catalog-75cd2aedf7ea48b5b2b03012c22ea768/publication-bb7f3087a1e04a7183c54284f8248f30/publication.json",
+        "evidenceSha256": "0644801d85d1a8a01b822a6af6b587d9b4207799c754dbe6863643297476fb33",
+        "review": {
+          "path": "target/presence-checkpoint-index-catalog-75cd2aedf7ea48b5b2b03012c22ea768/review.json",
+          "bytes": 62053,
+          "sha256": "a685e751791785d2c7fe32f6fd813ac653954dc9e0b171691d5e4594bdeb601a"
+        },
+        "sourceCheckpointOnly": true,
+        "selectedPathCount": 14,
+        "changedPathCount": 14,
+        "guardedSourceCount": 109,
+        "receiptCount": 36,
+        "boundary": "Sixth source continuity snapshotd2bb, parent39ed, treeffc357db is published and remote-verified with inherited refs and owner main/HEAD/index preserved. Includes index/catalog source and prior60-record evidence docs. This update and later crop edits are outside the snapshot. Source continuity is no runtime/performance/native/user verdict; PR57 remains on its earlier head."
       }
     ],
     "captureRecoveryIsolation": {
@@ -6627,7 +6704,8 @@
         },
         "review": "Root source approval retained at target/relay-hostile-security-20261018/v2/root-review.json"
       },
-      "boundary": "Actual current package pass establishes the identified relay layer only. Earlier hostile reset/EOF failures remain in automated history. Slate app adapters and their independent transcript stores require fresh app execution; no production TLS relaxation or native/user verdict follows."
+      "boundary": "The actual relay v2 package12 pass is historical at its recorded source identity. The current workspace stopped during compilation before tests; fresh Slate adapters/transcript stores and current package integration have no new runtime verdict. Earlier failures remain retained.",
+      "historicalPackageSlice": true
     },
     "mediaCombinedValidation": {
       "evidence": "target/media-current-shared-app-validation-freeze.json",
@@ -6709,7 +6787,7 @@
         },
         "currentPostRestoreValidation": "Pending normal combined-source validation and fresh measurement"
       },
-      "boundary": "Final35-file media source freeze is source identity only. Candidate171/386 and pre-index164/386 test results remain historical and do not validate the current combined source. All37 app UI cases, current performance, native and human gates remain open.",
+      "boundary": "Current combined source attempt failed compiling Slate before tests. Historical material/vector/shared gates remain retained; no current post-restore runtime, performance, native or human verdict. All37 app UI cases remain open.",
       "historicalSharedCandidate": {
         "evidence": "target/presence-shell-candidate-index-20261018.json",
         "evidenceSha256": "a071ed721dbfe3e9cfb6fa69cdc26e7a3610433db5ad523032f61066439e5880",
@@ -6719,12 +6797,17 @@
         "sourceStable": true,
         "directCargoExitCode": 0,
         "snapshot": "candidate-index"
+      },
+      "currentWorkspaceAttempt": {
+        "path": "target/presence-final-workspace-integrated-20261018.json",
+        "bytes": 490983,
+        "sha256": "d585a93929dcb51212e58d233b7350714d157f61b6ecb6b1bd1d93f4b5b381f3"
       }
     },
     "witnessedMotionRenderTests": {
       "evidence": "target/presence-witnessed-motion-render-source-freeze.json",
       "evidenceSha256": "97791bb1b69bacb0816ea468e8468e83c43afcded4e3cd619a1e95a7bb6b069f",
-      "state": "source-frozen-runtime-pending",
+      "state": "Current agent source applied; normal workspace failed compilation before any ignored/normal motion execution",
       "sourceFileCount": 3,
       "scope": "Three test-only files: parent registration only, a 243-line real witnessed-command regression child and 218-line retained-frame fixture/support child. No production, renderer, geometry, screenshot-scheduler or provider changes.",
       "intentReview": "intent_guard_final independently approved exact final source; no compile, runtime, native/GPU or human-acceptance inference",
@@ -6743,7 +6826,12 @@
       ],
       "runtime": null,
       "catalogPin": "Final parent and motion-support catalog-pin identities are retained in target/presence-chrome-headless-source-v2.json. The later models.rs identity is superseded by the explicit test-only hold in target/presence-catalog-isolation-source-v2.json. All ignored motion execution/readback remains pending.",
-      "limitation": "Headless software motion evidence only; no native GPU appearance, wall-clock motion smoothness, desktop interaction or user acceptance is established."
+      "limitation": "Headless software motion evidence only; no native GPU appearance, wall-clock motion smoothness, desktop interaction or user acceptance is established.",
+      "latestAppliedSource": {
+        "path": "target/presence-crop-agent-final-source-freeze.json",
+        "bytes": 12040,
+        "sha256": "e56968bac31b7ecf184e04299590c1f8afac535b58701044a5b80e3846da113f"
+      }
     },
     "nativeFixtureBoundaryClarification": {
       "evidence": "target/presence-render-boundary-20261018/manifest.json",
@@ -6906,7 +6994,7 @@
       "boundary": "No dedicated on-disk health receipt is known. Coordinator relayed the read-only source finding; no runtime failure, fix or waived check is claimed."
     },
     "cropWitnessedWork": {
-      "state": "final-six-file-geometry-source-applied-nine-normal-tests-inventoried-runtime-unexecuted",
+      "state": "final-geometry-and-agent-adapter-source-applied-compilation-failed-before-tests",
       "sourcePlan": "Canonical crop geometry extraction reuses existing geometry/command owners",
       "liveSourceFreeze": {
         "path": "target/presence-crop-geometry-final-source-freeze.json",
@@ -6930,13 +7018,13 @@
         "app::board_crop::gesture_tests::effective_handles_end_on_the_painted_clamped_window_or_uniform_source_grip",
         "app::board_crop::gesture_tests::effective_pan_uses_the_same_clamped_display_coordinates_as_existing_paint"
       ],
-      "adapterAndMotion": "Agent adapter scratch v2 still pending actual primary-press timing correction; no live app/runtime pass supplied",
+      "adapterAndMotion": "Guardian-approved exact v2 slice live-applied, including canonical primary-press input hold and witnessed crop previews. Source manifest has16 files and13 test-source entries; no execution. Workspace stopped on two unrelated integration compiler errors before all tests.",
       "acceptanceCase": "witness-moving-resizing",
       "acceptanceTitle": "Moves, resize and crop show actual targets",
       "acceptanceClausePreserved": true,
       "acceptanceFile": "design/agent-presence-2026-10-17/native-acceptance.cases.json",
       "acceptanceFileSha256": "049ab77ac2274c049076d7144b6d31f8b99e4fb3d95ff8dc56e30be13f3920dc",
-      "boundary": "Final geometry source and nine source #[test] functions are not executed test counts. Original move/resize/crop acceptance remains unchanged/Untested. Adapter correction, current combined app/workspace and native/user validation remain pending.",
+      "boundary": "Applied geometry/agent source is not a runtime pass. The current workspace failed during compilation; none of the new normal or ignored cases ran. Original move/resize/crop acceptance remains unchanged/Untested; all37 UI blockers remain open.",
       "previousLiveSourceFreeze": {
         "path": "target/presence-crop-geometry-v4-live-source-freeze.json",
         "bytes": 2960,
@@ -6946,7 +7034,80 @@
         "path": "target/presence-crop-geometry-final-test-inventory.json",
         "bytes": 3333,
         "sha256": "fe6a4dc55ef28dae171054d9c035cddf994922b34753418f8abef5088d337466"
-      }
+      },
+      "agentAdapterSourceFreeze": {
+        "path": "target/presence-crop-agent-final-source-freeze.json",
+        "bytes": 12040,
+        "sha256": "e56968bac31b7ecf184e04299590c1f8afac535b58701044a5b80e3846da113f"
+      },
+      "agentAdapterSourceFileCount": 16,
+      "agentAdapterSourceTests": [
+        {
+          "path": "apps/slate/src/app/agent_presence/crop_render_tests.rs",
+          "name": "witnessed_fixed_mask_pan_paints_three_intermediate_multicolour_uv_states_before_one_undoable_commit",
+          "ignored": true
+        },
+        {
+          "path": "apps/slate/src/app/agent_presence/crop_render_tests.rs",
+          "name": "witnessed_crop_cancel_and_takeover_preserve_visible_crop_geometry_and_camera",
+          "ignored": true
+        },
+        {
+          "path": "apps/slate/src/app/agent_presence/crop_render_tests.rs",
+          "name": "primary_press_takes_over_the_last_painted_crop_even_at_the_ready_boundary",
+          "ignored": false
+        },
+        {
+          "path": "apps/slate/src/app/agent_presence/crop_render_tests.rs",
+          "name": "foreground_composer_press_holds_crop_without_takeover_or_terminal_commit",
+          "ignored": false
+        },
+        {
+          "path": "apps/slate/src/app/agent_presence/crop_tests.rs",
+          "name": "crop_schema_rejects_mixed_modes_bad_keys_bounds_and_non_single_image_targets",
+          "ignored": false
+        },
+        {
+          "path": "apps/slate/src/app/agent_presence/crop_tests.rs",
+          "name": "crop_complete_node_patch_is_one_agent_undo_redo_without_camera_selection_or_tool_changes",
+          "ignored": false
+        },
+        {
+          "path": "apps/slate/src/app/agent_presence/crop_tests.rs",
+          "name": "crop_stale_and_read_only_prepared_actions_leave_the_live_node_unchanged",
+          "ignored": false
+        },
+        {
+          "path": "apps/slate/src/app/agent_presence/crop_tests.rs",
+          "name": "crop_proposals_use_the_existing_accept_replay_recovery_and_revocation_fences",
+          "ignored": false
+        },
+        {
+          "path": "apps/slate/src/app/agent_presence/crop_tests.rs",
+          "name": "image_read_descriptor_exposes_bounded_crop_geometry_without_source_paths",
+          "ignored": false
+        },
+        {
+          "path": "apps/slate/src/app/agent_presence/crop_witness_tests.rs",
+          "name": "body_contact_avoids_centered_holes_and_concave_masks_deterministically",
+          "ignored": false
+        },
+        {
+          "path": "apps/slate/src/app/agent_presence/crop_witness_tests.rs",
+          "name": "known_outline_exhaustion_refuses_contact_without_falling_back_into_a_hole",
+          "ignored": false
+        },
+        {
+          "path": "apps/slate/src/app/agent_presence/crop_witness_tests.rs",
+          "name": "ordinary_move_reuses_hole_safe_contact_and_refuses_exhaustion_before_motion_or_mutation",
+          "ignored": false
+        },
+        {
+          "path": "apps/slate/src/app/agent_presence/crop_witness_tests.rs",
+          "name": "cover_clamped_pan_witness_stops_with_the_source_and_keeps_the_exact_prepared_endpoint",
+          "ignored": false
+        }
+      ]
     },
     "sharedPaintAttribution": {
       "state": "attempt-completed-compiler0-profiler-not-started-unknown-cause-no-retry",
@@ -7037,6 +7198,40 @@
       "oldFixtureExpectationsChanged": false,
       "appearanceOrToleranceChanged": false,
       "boundary": "Mechanical restoration is no post-restore test/performance/native pass. Removed index source remains preserved in backups and published snapshotd2bb. Current new-size cost remains unresolved."
+    },
+    "currentWorkspaceValidation": {
+      "state": "compile-failed-before-tests",
+      "evidence": {
+        "path": "target/presence-final-workspace-integrated-20261018.json",
+        "bytes": 490983,
+        "sha256": "d585a93929dcb51212e58d233b7350714d157f61b6ecb6b1bd1d93f4b5b381f3"
+      },
+      "directCargoExitCode": 101,
+      "sourceStable": true,
+      "sourceIdentityCount": 1348,
+      "compileErrors": [
+        {
+          "code": "E0425",
+          "path": "apps/slate/src/app/board_properties/image_palette/buttons.rs",
+          "line": 70,
+          "diagnostic": "cannot find function strip_button in module chrome"
+        },
+        {
+          "code": "E0616",
+          "path": "apps/slate/src/app/board_flow/result_actions.rs",
+          "line": 96,
+          "diagnostic": "field cover_focus of AgentRuntime is private"
+        }
+      ],
+      "testsExecuted": false,
+      "libtestSummaries": [],
+      "harnesses": [],
+      "rawLog": {
+        "path": "target/presence-final-workspace-integrated-20261018.log",
+        "bytes": 4686,
+        "sha256": "a4029f719b4c58e5ddfb92d8217ab31a696237c07a2c6a6b20c9e793fd00aae6"
+      },
+      "boundary": "Completed normal release workspace attempt failed compiling Slate lib on two source errors, before any tests. There is no workspace runtime verdict, current app pass, native appearance/performance pass or human acceptance. Historical package results remain bound to their earlier snapshots; fixes and a fresh guarded normal validation are still required."
     }
   }
 }

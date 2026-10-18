@@ -2324,7 +2324,7 @@ impl SlateApp {
                     return;
                 };
                 let before_crop = image.crop;
-                let Some(after) = board_crop::apply_gesture(
+                let Some(after) = board_crop::gesture_geometry(
                     before,
                     board_crop::CropGesture::Handle {
                         handle,
@@ -2333,17 +2333,14 @@ impl SlateApp {
                 ) else {
                     return;
                 };
-                let NodeKind::Image(image) = &after.kind else {
-                    return;
-                };
-                let crop = image.crop;
+                let crop = after.crop;
                 if let Some(node) = self.doc_mut().scene.node_mut(node_id) {
-                    board_crop::copy_crop_geometry(node, &after);
+                    after.apply_to(node);
                 }
                 for peer in peers {
-                    if let Some(after) = board_crop::apply_peer_crop(&peer, before_crop, crop) {
+                    if let Some(after) = board_crop::peer_crop_geometry(&peer, before_crop, crop) {
                         if let Some(node) = self.doc_mut().scene.node_mut(peer.id) {
-                            board_crop::copy_crop_geometry(node, &after);
+                            after.apply_to(node);
                         }
                     }
                 }
@@ -2355,14 +2352,14 @@ impl SlateApp {
             }) => {
                 let node_id = *id;
                 let delta = world - *start_world;
-                if let Some(after) = board_crop::apply_gesture(
+                if let Some(after) = board_crop::gesture_geometry(
                     before,
                     board_crop::CropGesture::Pan {
                         delta_world: (delta.x, delta.y),
                     },
                 ) {
                     if let Some(node) = self.doc_mut().scene.node_mut(node_id) {
-                        board_crop::copy_crop_geometry(node, &after);
+                        after.apply_to(node);
                     }
                 }
             }

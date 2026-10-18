@@ -7,7 +7,7 @@
 //! dragging inside slides the content under a fixed mask.
 //!
 //! Low-level crop math operates in the node's local (unrotated) space.
-//! [`apply_gesture`] owns world-input conversion about the immutable start
+//! [`gesture_geometry`] owns world-input conversion about the immutable start
 //! pivot and compensates a resized frame's pivot so source pixels stay put.
 //! Human input and agent witnesses replay that same world-space gesture.
 
@@ -243,9 +243,43 @@ pub enum CropGesture {
     Pan { delta_world: (f32, f32) },
 }
 
-/// Apply the human crop gesture; callers own eligibility, previews and journaling.
-/// Crop coordinates already describe displayed pixels, including source mirrors.
+/// Small crop result: authored clip paths, layers and other payloads stay in
+/// their existing Node during repeated human and witnessed preview samples.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CropGeometry {
+    id: slate_doc::NodeId,
+    pub rect: WorldRect,
+    pub crop: Crop,
+}
+
+impl CropGeometry {
+    /// Transfer geometry only, retaining unrelated current fields and storage.
+    /// Success means same-ID images, including an unchanged crop result.
+    pub fn apply_to(self, live: &mut Node) -> bool {
+        if live.id != self.id {
+            return false;
+        }
+        let NodeKind::Image(image) = &mut live.kind else {
+            return false;
+        };
+        live.rect = self.rect;
+        image.crop = self.crop;
+        true
+    }
+}
+
+/// Prepare a complete immutable endpoint once; recurring previews use
+/// [`gesture_geometry`] and apply its Copy result to their existing Node.
 pub fn apply_gesture(before: &Node, gesture: CropGesture) -> Option<Node> {
+    let geometry = gesture_geometry(before, gesture)?;
+    let mut node = before.clone();
+    geometry.apply_to(&mut node);
+    Some(node)
+}
+
+/// Interpret the crop gesture without cloning authored Node payloads.
+/// Crop coordinates already describe displayed pixels, including mirrors.
+pub fn gesture_geometry(before: &Node, gesture: CropGesture) -> Option<CropGeometry> {
     let NodeKind::Image(image) = &before.kind else {
         return None;
     };
@@ -291,7 +325,7 @@ pub fn apply_gesture(before: &Node, gesture: CropGesture) -> Option<Node> {
             )
         }
     };
-    Some(with_window(before, rect, crop))
+    Some(with_window_geometry(before, rect, crop))
 }
 
 /// Bound visual travel to the gesture's actual source/window movement. The
@@ -342,8 +376,20 @@ pub fn gesture_contact(before: &Node, gesture: CropGesture) -> Option<(f32, f32)
     })
 }
 
-/// Preserve the existing multi-crop policy using the same rotated-window owner.
+/// Prepare a complete peer endpoint once, using the same geometry owner.
 pub fn apply_peer_crop(before: &Node, primary_before: Crop, primary_after: Crop) -> Option<Node> {
+    let geometry = peer_crop_geometry(before, primary_before, primary_after)?;
+    let mut node = before.clone();
+    geometry.apply_to(&mut node);
+    Some(node)
+}
+
+/// The existing multi-crop policy without cloning the peer's authored payloads.
+pub fn peer_crop_geometry(
+    before: &Node,
+    primary_before: Crop,
+    primary_after: Crop,
+) -> Option<CropGeometry> {
     let NodeKind::Image(image) = &before.kind else {
         return None;
     };
@@ -355,26 +401,26 @@ pub fn apply_peer_crop(before: &Node, primary_before: Crop, primary_after: Crop)
     } else {
         place_crop(before.rect, image.crop, primary_after)
     };
-    Some(with_window(before, rect, crop))
+    Some(with_window_geometry(before, rect, crop))
 }
 
 /// Transfer prepared crop geometry into the current image, retaining unrelated
 /// live fields when another edit overlaps a human drag. No gesture math lives here.
 pub fn copy_crop_geometry(live: &mut Node, prepared: &Node) -> bool {
-    if live.id != prepared.id {
-        return false;
-    }
-    let (NodeKind::Image(current), NodeKind::Image(next)) = (&mut live.kind, &prepared.kind) else {
+    let NodeKind::Image(image) = &prepared.kind else {
         return false;
     };
-    live.rect = prepared.rect;
-    current.crop = next.crop;
-    true
+    CropGeometry {
+        id: prepared.id,
+        rect: prepared.rect,
+        crop: image.crop,
+    }
+    .apply_to(live)
 }
 
 /// Changing a rotated window also changes its rotation pivot. Compensate that
 /// pivot movement so every surviving source pixel stays at its world anchor.
-fn with_window(before: &Node, mut rect: WorldRect, crop: Crop) -> Node {
+fn with_window_geometry(before: &Node, mut rect: WorldRect, crop: Crop) -> CropGeometry {
     if before.clip.is_none() && rect != before.rect {
         let (old_x, old_y) = before.rect.center();
         let (new_x, new_y) = rect.center();
@@ -384,14 +430,15 @@ fn with_window(before: &Node, mut rect: WorldRect, crop: Crop) -> Node {
         rect.x += turned_x - old_x - (new_x - old_x);
         rect.y += turned_y - old_y - (new_y - old_y);
     }
-    let mut node = before.clone();
-    node.rect = rect;
-    if let NodeKind::Image(image) = &mut node.kind {
-        image.crop = crop;
+    CropGeometry {
+        id: before.id,
+        rect,
+        crop,
     }
-    node
 }
 
+#[cfg(test)]
+mod allocation_tests;
 #[cfg(test)]
 mod gesture_tests;
 #[cfg(test)]

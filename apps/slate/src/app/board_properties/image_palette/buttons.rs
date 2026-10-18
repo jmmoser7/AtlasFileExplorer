@@ -67,7 +67,7 @@ pub(super) fn panel_buttons(
                 let active = app.shape_properties.panel == Some(panel)
                     || (app.shape_properties.panel.is_none() && closing_panel == Some(panel));
                 let response = if external_strip.is_some() {
-                    chrome::strip_button(
+                    chrome::button(
                         ui,
                         button,
                         Id::new(("image_external_panel", image.0, index)),
