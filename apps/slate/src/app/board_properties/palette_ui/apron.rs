@@ -24,11 +24,11 @@ impl EditorHost<'_> {
         ctx: &egui::Context,
         id: Id,
         layer: egui::LayerId,
-        kind: chrome::ImagePanelKind,
-        height: f32,
+        panel: (chrome::ImagePanelKind, f32),
         enabled: bool,
         paint: impl FnOnce(&mut egui::Ui, Rect, Option<&chrome::ImagePresentationLayout>) -> T,
     ) -> Option<EditorResponse<T>> {
+        let (kind, height) = panel;
         if canvas_scale::too_small(12.0 * self.zoom) {
             return None;
         }

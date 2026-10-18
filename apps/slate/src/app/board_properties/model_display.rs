@@ -12,97 +12,6 @@ fn model_display_glyph(mode: scene::ModelDisplay) -> ([u8; 3], Option<[u8; 3]>) 
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::super::tests::{board, model_node};
-    use super::*;
-    use crate::app::tests::Harness;
-
-    fn camera(h: &Harness, id: NodeId) -> scene::ModelCamera {
-        h.app.model_node_info(id).unwrap().cam
-    }
-
-    #[test]
-    fn materials_toggle_preserves_camera_and_display_and_undoes_once() {
-        let mut h = board();
-        let id = model_node(
-            &mut h,
-            "colored.3dm",
-            WorldRect::new(0.0, 0.0, 240.0, 180.0),
-        );
-        let before = camera(&h, id);
-        assert!(before.materials);
-        assert!(h.app.dispatch(
-            &h.ctx,
-            CommandId("board.model_materials"),
-            Some(format!("{}:off", id.0))
-        ));
-        assert_eq!(
-            camera(&h, id),
-            scene::ModelCamera {
-                materials: false,
-                ..before
-            }
-        );
-        assert!(
-            !h.app.dispatch(
-                &h.ctx,
-                CommandId("board.model_materials"),
-                Some(format!("{}:off", id.0))
-            ),
-            "re-picking Off is not an edit"
-        );
-        h.app.board_undo();
-        assert_eq!(camera(&h, id), before);
-        h.app.board_redo();
-        assert!(!camera(&h, id).materials);
-        h.app.board_sel = [id].into_iter().collect();
-        assert!(h
-            .app
-            .dispatch(&h.ctx, CommandId("board.model_materials"), None));
-        assert_eq!(camera(&h, id), before);
-    }
-
-    #[test]
-    fn material_mask_stays_distinct_and_invalid_commands_do_not_edit() {
-        let mut h = board();
-        let id = model_node(
-            &mut h,
-            "colored.3dm",
-            WorldRect::new(0.0, 0.0, 240.0, 180.0),
-        );
-        h.app.board_sel = [id].into_iter().collect();
-        assert!(h.app.dispatch(
-            &h.ctx,
-            CommandId("board.model_display"),
-            Some(format!("{}:material", id.0))
-        ));
-        assert!(h.app.dispatch(
-            &h.ctx,
-            CommandId("board.model_materials"),
-            Some(format!("{}:false", id.0))
-        ));
-        assert_eq!(camera(&h, id).display, scene::ModelDisplay::Material);
-        let before = camera(&h, id);
-        for detail in [
-            "unexpected".to_owned(),
-            format!("{}:maybe", id.0),
-            "missing:on".to_owned(),
-        ] {
-            assert!(!h
-                .app
-                .dispatch(&h.ctx, CommandId("board.model_materials"), Some(detail)));
-            assert_eq!(camera(&h, id), before);
-        }
-        assert!(!h.app.dispatch(
-            &h.ctx,
-            CommandId("board.model_display"),
-            Some("unexpected".into())
-        ));
-        assert_eq!(camera(&h, id), before);
-    }
-}
-
 fn model_display_radios(thumbs: [Option<egui::TextureId>; 5]) -> [chrome::FilterRadio; 5] {
     std::array::from_fn(|i| {
         let mode = scene::ModelDisplay::ALL[i];
@@ -211,5 +120,96 @@ impl SlateApp {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::tests::{board, model_node};
+    use super::*;
+    use crate::app::tests::Harness;
+
+    fn camera(h: &Harness, id: NodeId) -> scene::ModelCamera {
+        h.app.model_node_info(id).unwrap().cam
+    }
+
+    #[test]
+    fn materials_toggle_preserves_camera_and_display_and_undoes_once() {
+        let mut h = board();
+        let id = model_node(
+            &mut h,
+            "colored.3dm",
+            WorldRect::new(0.0, 0.0, 240.0, 180.0),
+        );
+        let before = camera(&h, id);
+        assert!(before.materials);
+        assert!(h.app.dispatch(
+            &h.ctx,
+            CommandId("board.model_materials"),
+            Some(format!("{}:off", id.0))
+        ));
+        assert_eq!(
+            camera(&h, id),
+            scene::ModelCamera {
+                materials: false,
+                ..before
+            }
+        );
+        assert!(
+            !h.app.dispatch(
+                &h.ctx,
+                CommandId("board.model_materials"),
+                Some(format!("{}:off", id.0))
+            ),
+            "re-picking Off is not an edit"
+        );
+        h.app.board_undo();
+        assert_eq!(camera(&h, id), before);
+        h.app.board_redo();
+        assert!(!camera(&h, id).materials);
+        h.app.board_sel = [id].into_iter().collect();
+        assert!(h
+            .app
+            .dispatch(&h.ctx, CommandId("board.model_materials"), None));
+        assert_eq!(camera(&h, id), before);
+    }
+
+    #[test]
+    fn material_mask_stays_distinct_and_invalid_commands_do_not_edit() {
+        let mut h = board();
+        let id = model_node(
+            &mut h,
+            "colored.3dm",
+            WorldRect::new(0.0, 0.0, 240.0, 180.0),
+        );
+        h.app.board_sel = [id].into_iter().collect();
+        assert!(h.app.dispatch(
+            &h.ctx,
+            CommandId("board.model_display"),
+            Some(format!("{}:material", id.0))
+        ));
+        assert!(h.app.dispatch(
+            &h.ctx,
+            CommandId("board.model_materials"),
+            Some(format!("{}:false", id.0))
+        ));
+        assert_eq!(camera(&h, id).display, scene::ModelDisplay::Material);
+        let before = camera(&h, id);
+        for detail in [
+            "unexpected".to_owned(),
+            format!("{}:maybe", id.0),
+            "missing:on".to_owned(),
+        ] {
+            assert!(!h
+                .app
+                .dispatch(&h.ctx, CommandId("board.model_materials"), Some(detail)));
+            assert_eq!(camera(&h, id), before);
+        }
+        assert!(!h.app.dispatch(
+            &h.ctx,
+            CommandId("board.model_display"),
+            Some("unexpected".into())
+        ));
+        assert_eq!(camera(&h, id), before);
     }
 }

@@ -255,7 +255,12 @@ fn a_late_preparation_cannot_dispatch_or_rebind_a_changed_harness_or_model() {
         let tx = h.app.artifact_work_tx();
         h.app.agents.artifact.active_workers = 1;
         assert!(tx
-            .send(WorkDone::Prepared(tab, node, request, Ok(prepared)))
+            .send(WorkDone::Prepared(
+                tab,
+                node,
+                request,
+                Box::new(Ok(prepared))
+            ))
             .is_ok());
         h.app.pump_artifact_generations(&h.ctx);
         assert!(

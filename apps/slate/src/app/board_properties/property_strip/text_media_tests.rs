@@ -45,7 +45,7 @@ fn legacy_and_linked_text_media_use_the_shared_notch_and_one_prompt_owner() {
         h.app.ensure_work_tab();
         h.app.leave_home();
         let node = text(&mut h, linked);
-        assert!(rectangular_blister(&h.app, &[node.clone()], 3));
+        assert!(rectangular_blister(&h.app, std::slice::from_ref(&node), 3));
         for selected in [false, true] {
             h.app.board_sel = if selected {
                 std::iter::once(node.id).collect()

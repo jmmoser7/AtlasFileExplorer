@@ -171,6 +171,7 @@ impl VideoEncoder {
                 frames,
                 stop,
                 cancelled,
+                #[cfg(windows)]
                 started,
             },
         )
@@ -187,7 +188,7 @@ fn validate_format(width: u32, height: u32, fps: u32) -> Result<(), String> {
     if width < 2 || height < 2 || width > 1920 || height > 1080 {
         return Err("Portal video capture must fit within 1920 × 1080 pixels.".into());
     }
-    if width % 2 != 0 || height % 2 != 0 {
+    if !width.is_multiple_of(2) || !height.is_multiple_of(2) {
         return Err("Portal video capture requires even pixel dimensions.".into());
     }
     if !(1..=30).contains(&fps) {
@@ -201,6 +202,7 @@ struct Worker {
     frames: Receiver<CapturedFrame>,
     stop: Receiver<Instant>,
     cancelled: Arc<AtomicBool>,
+    #[cfg(windows)]
     started: Instant,
 }
 

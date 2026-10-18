@@ -186,10 +186,7 @@ fn source_edit_and_restart_never_resurrect_queued_execution() {
         assert!(Instant::now() < deadline);
         std::thread::yield_now();
     }
-    let old = std::mem::replace(
-        &mut h.app.presence.conversations,
-        conversation_store::ConversationStore::default(),
-    );
+    let old = std::mem::take(&mut h.app.presence.conversations);
     drop(old);
     let mut restored = conversation_store::ConversationStore::at_directory(h.base.join("messages"));
     while restored.edit(&who).is_err() {

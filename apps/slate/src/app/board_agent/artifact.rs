@@ -63,7 +63,7 @@ struct Pending {
     revision: ArtifactRevision,
 }
 enum WorkDone {
-    Prepared(u64, NodeId, String, Result<Prepared, String>),
+    Prepared(u64, NodeId, String, Box<Result<Prepared, String>>),
     Published(u64, NodeId, String, Result<Pending, String>),
     Picked(
         u64,

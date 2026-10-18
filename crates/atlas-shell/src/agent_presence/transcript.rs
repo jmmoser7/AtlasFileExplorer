@@ -16,26 +16,6 @@ pub(super) fn history_window(
     end.saturating_sub(64)..end
 }
 
-#[cfg(test)]
-mod tests {
-    use super::history_window;
-    #[test]
-    fn every_stored_turn_is_reachable_with_at_most_sixty_four_painted_rows() {
-        let total = 513;
-        let mut seen = vec![false; total];
-        for offset in (0..total).step_by(64) {
-            let page = history_window(total, offset, false);
-            assert!(page.len() <= 64);
-            for index in page {
-                assert!(!seen[index]);
-                seen[index] = true;
-            }
-        }
-        assert!(seen.into_iter().all(|turn| turn));
-        assert_eq!(history_window(100_000, 0, true), 99_996..100_000);
-        assert_eq!(history_window(0, 0, false), 0..0);
-    }
-}
 #[allow(clippy::too_many_arguments)]
 pub(super) fn show(
     ui: &mut Ui,
@@ -310,5 +290,26 @@ fn message_row(
                 });
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::history_window;
+    #[test]
+    fn every_stored_turn_is_reachable_with_at_most_sixty_four_painted_rows() {
+        let total = 513;
+        let mut seen = vec![false; total];
+        for offset in (0..total).step_by(64) {
+            let page = history_window(total, offset, false);
+            assert!(page.len() <= 64);
+            for index in page {
+                assert!(!seen[index]);
+                seen[index] = true;
+            }
+        }
+        assert!(seen.into_iter().all(|turn| turn));
+        assert_eq!(history_window(100_000, 0, true), 99_996..100_000);
+        assert_eq!(history_window(0, 0, false), 0..0);
     }
 }

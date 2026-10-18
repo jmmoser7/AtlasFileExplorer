@@ -66,7 +66,7 @@ fn activity_shows_only_the_current_request_and_does_not_enter_history() {
         .insert(id, std::sync::Arc::new(session));
     h.app.agents.requests.insert(id, "current".into());
     assert_eq!(
-        h.app.generator_activity_headline(id).as_deref(),
+        h.app.generator_activity_headline(id),
         Some("Building current")
     );
     let data = h.app.generator_chrome_data(id);

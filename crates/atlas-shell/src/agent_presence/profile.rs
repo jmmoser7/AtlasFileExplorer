@@ -147,9 +147,22 @@ pub(super) fn add(
     }
     ui.label(RichText::new("Grants access to this board and named chats. Source files stay private; edits begin as proposals. Save this workbook before requesting board edits.").size(11.0).color(palette.sub));
     ui.add_space(8.0);
+    if !state.workspace_ready {
+        ui.label(
+            RichText::new("Choose an AI workspace to connect agents.")
+                .size(11.0)
+                .color(palette.sub),
+        );
+        if ui.link("Set AI workspace…").clicked() {
+            actions.push(PresenceAction::SetupWorkspace);
+        }
+        ui.add_space(8.0);
+    }
     if ui
         .add_enabled(
-            !state.add_name.trim().is_empty() && !state.add_provider.is_empty(),
+            state.workspace_ready
+                && !state.add_name.trim().is_empty()
+                && !state.add_provider.is_empty(),
             egui::Button::new("Add collaborator").min_size(Vec2::new(ui.available_width(), 34.0)),
         )
         .clicked()

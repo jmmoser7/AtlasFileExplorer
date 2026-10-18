@@ -241,7 +241,7 @@ impl eframe::App for Preview {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let dark = self.state >= 2;
         let phase = if self.capture.is_some() {
-            if self.state % 2 == 0 {
+            if self.state.is_multiple_of(2) {
                 0.0
             } else {
                 0.7

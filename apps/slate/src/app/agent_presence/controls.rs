@@ -29,6 +29,7 @@ impl SlateApp {
             SetOwnChats { id, enabled } => self.presence_set_own_chats(&id, enabled)?,
             Retry { id, message } => self.presence_retry_message(&id, &message)?,
             ConnectPeople => self.presence.human_chat.setup.open = true,
+            SetupWorkspace => self.ai.pick_workspace(),
             Draft { id, text } => self.presence_save_draft(&id, &text)?,
             SetPhoto { id } => self.presence_choose_photo(ctx, &id)?,
             RemovePhoto { id } => self.presence_remove_photo(&id)?,

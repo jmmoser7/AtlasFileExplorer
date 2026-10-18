@@ -29,7 +29,8 @@ impl SlateApp {
                         std::thread::spawn(move || {
                             let tag = (plan.tab, plan.node, plan.request.id.clone());
                             let result = super::generation::prepare(plan);
-                            let _ = tx.send(WorkDone::Prepared(tag.0, tag.1, tag.2, result));
+                            let _ =
+                                tx.send(WorkDone::Prepared(tag.0, tag.1, tag.2, Box::new(result)));
                         });
                         pending.started = true;
                     }
@@ -56,6 +57,7 @@ impl SlateApp {
                 self.agents.artifact.active_workers.saturating_sub(1);
             match done {
                 WorkDone::Prepared(tab, id, request, result) => {
+                    let result = *result;
                     let expected = self
                         .agents
                         .artifact

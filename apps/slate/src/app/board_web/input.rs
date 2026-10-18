@@ -279,10 +279,12 @@ mod tests {
 
     #[test]
     fn holding_a_button_keeps_capture_fast_without_synthetic_moves() {
-        let mut web = WebRuntime::default();
-        web.focused = Some(NodeId(1));
-        web.pointer_down = 1;
-        web.last_page_input = None;
+        let mut web = WebRuntime {
+            focused: Some(NodeId(1)),
+            pointer_down: 1,
+            last_page_input: None,
+            ..Default::default()
+        };
         assert_eq!(
             web.focused_frame_interval(NodeId(1)),
             Duration::from_secs_f32(1.0 / INTERACTIVE_FPS)

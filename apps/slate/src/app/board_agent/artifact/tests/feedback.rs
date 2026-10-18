@@ -211,7 +211,7 @@ fn preparation_completion_keeps_newer_editor_feedback_and_the_submitted_snapshot
             plan.tab,
             node,
             plan.request.id,
-            Ok(prepared),
+            Box::new(Ok(prepared)),
         ))
         .unwrap();
     h.app.pump_artifact_generations(&h.ctx);

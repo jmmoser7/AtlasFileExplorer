@@ -50,6 +50,7 @@ impl SlateApp {
         let reduced = self.settings.presence_reduced_motion || chrome::system_reduced_motion(ctx);
         let tab = self.tab().id;
         let mut state = std::mem::take(&mut self.presence.chrome);
+        state.set_workspace_ready(self.ai.config.valid_workspace().is_some());
         if state.font_family().is_none() {
             state.set_font_family(
                 slate_doc::scene::Typeface::Segoe
@@ -343,6 +344,7 @@ impl SlateApp {
                 serde_json::json!({"id":id,"message":message}),
             ),
             ConnectPeople => ("presence.people", serde_json::json!({})),
+            SetupWorkspace => ("presence.workspace", serde_json::json!({})),
             Pause { id, paused } => (
                 "presence.pause",
                 serde_json::json!({"id":id,"paused":paused}),

@@ -30,6 +30,7 @@ struct Setup {
     client: Client,
     invitation: Option<String>,
 }
+#[derive(Default)]
 pub(super) struct HumanChat {
     pub setup: chrome::PeopleSetupState,
     host: Option<Host>,
@@ -43,24 +44,6 @@ pub(super) struct HumanChat {
     profile: Option<Profile>,
     photos: photos::PhotoCache,
     contacts_dirty: bool,
-}
-impl Default for HumanChat {
-    fn default() -> Self {
-        Self {
-            setup: Default::default(),
-            host: None,
-            client: None,
-            setup_rx: None,
-            online: HashSet::new(),
-            pending: HashMap::new(),
-            incoming: VecDeque::new(),
-            outbound: HashMap::new(),
-            acks: VecDeque::new(),
-            profile: None,
-            photos: Default::default(),
-            contacts_dirty: false,
-        }
-    }
 }
 impl HumanChat {
     pub(super) fn photo(&self, id: &str) -> Option<egui::load::SizedTexture> {

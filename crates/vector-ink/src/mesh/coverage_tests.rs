@@ -184,11 +184,11 @@ fn fractional_coincident_affine_fields_preserve_analytic_attributes_once() {
 #[test]
 fn diagnosed_reciprocal_rounding_fixture_has_single_coverage_and_first_colors() {
     let triangle = [
-        [19.35456657409668, 6.841848850250244],
-        [1.788248896598816, 14.564129829406738],
-        [11.305647850036621, 19.844606399536133],
+        [19.354_567, 6.841_849],
+        [1.788_248_9, 14.564_13],
+        [11.305_648, 19.844_606],
     ];
-    let alpha = [0.09474056214094162, 0.2760789096355438, 0.4839041829109192];
+    let alpha = [0.094_740_56, 0.276_078_9, 0.483_904_18];
     let first_colors = [
         [0.12, 0.25, 0.75, 1.0],
         [0.82, 0.10, 0.15, 1.0],

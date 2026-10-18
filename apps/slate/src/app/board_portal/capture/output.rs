@@ -195,7 +195,7 @@ impl SlateApp {
             return false;
         };
         let path = capture_path(self.tab().path.as_deref(), source, "png");
-        if let Err(error) = write_color_png(&path, &image) {
+        if let Err(error) = write_color_png(&path, image) {
             self.toast(format!("Could not write the baked poster: {error}"));
             return true;
         }

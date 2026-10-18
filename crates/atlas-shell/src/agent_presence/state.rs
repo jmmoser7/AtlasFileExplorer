@@ -32,6 +32,7 @@ pub struct RosterState {
     pub(super) add_name: String,
     pub(super) add_hat: String,
     pub(super) add_provider: String,
+    pub(super) workspace_ready: bool,
     pub(super) retirement: String,
     pub(super) last_popup_rect: Rect,
     pub(super) last_popover_rect: Rect,
@@ -55,6 +56,7 @@ impl Default for RosterState {
             add_name: "Agent".into(),
             add_hat: "cap".into(),
             add_provider: String::new(),
+            workspace_ready: true,
             retirement: "bow".into(),
             last_popup_rect: Rect::NOTHING,
             last_popover_rect: Rect::NOTHING,
@@ -68,6 +70,10 @@ impl Default for RosterState {
     }
 }
 impl RosterState {
+    /// Apps report workspace availability; standalone consumers default to ready.
+    pub fn set_workspace_ready(&mut self, ready: bool) {
+        self.workspace_ready = ready;
+    }
     /// Apps provide a registered regular UI family; the shell owns its use.
     /// An unavailable family falls back to proportional without changing app fonts.
     pub fn set_font_family(&mut self, family: Option<eframe::egui::FontFamily>) {

@@ -1,8 +1,10 @@
 //! Two independent arrowhead grips: base length and wing width.
 use super::*;
 
+type ArrowHandle = (NodeId, usize, usize, Pos2, [f32; 2], [f32; 2]);
+
 impl SlateApp {
-    fn arrow_handles(&self) -> Vec<(NodeId, usize, usize, Pos2, [f32; 2], [f32; 2])> {
+    fn arrow_handles(&self) -> Vec<ArrowHandle> {
         if self.board_sel.len() != 1 {
             return Vec::new();
         }

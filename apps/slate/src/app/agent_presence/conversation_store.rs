@@ -186,7 +186,7 @@ impl ConversationStore {
         let Some(tx) = &self.tx else {
             return;
         };
-        let ids: Vec<_> = self.pending.keys().cloned().take(16).collect();
+        let ids: Vec<_> = self.pending.keys().take(16).cloned().collect();
         for id in ids {
             let pending = self.pending.remove(&id).unwrap();
             match tx.try_send(pending) {

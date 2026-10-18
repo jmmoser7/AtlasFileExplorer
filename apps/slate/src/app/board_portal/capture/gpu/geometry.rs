@@ -48,7 +48,7 @@ pub(super) fn plan(
     let source = [viewport.width_px as u32, viewport.height_px as u32];
     if source
         .into_iter()
-        .any(|edge| edge < 2 || edge > MAX_SOURCE_EDGE)
+        .any(|edge| !(2..=MAX_SOURCE_EDGE).contains(&edge))
         || u64::from(source[0]) * u64::from(source[1]) > MAX_SOURCE_PIXELS
     {
         return Err("The portal is outside the supported capture size");
@@ -68,7 +68,7 @@ pub(super) fn plan(
     };
     if output
         .into_iter()
-        .any(|edge| edge < 2 || edge > MAX_OUTPUT_EDGE)
+        .any(|edge| !(2..=MAX_OUTPUT_EDGE).contains(&edge))
         || output[0] > maximum[0]
         || output[1] > maximum[1]
         || u64::from(output[0]) * u64::from(output[1]) > MAX_OUTPUT_PIXELS

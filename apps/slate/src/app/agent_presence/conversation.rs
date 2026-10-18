@@ -130,14 +130,11 @@ impl Conversation {
         if snapshot.request != a.request || a.request.is_empty() {
             return None;
         }
-        let Some(prompt) = self
+        let prompt = self
             .request_index(&a.request)
             .and_then(|index| self.turns.get(index))
             .filter(|t| t.role == "user")
-            .map(|t| t.text.as_str())
-        else {
-            return None;
-        };
+            .map(|t| t.text.as_str())?;
         snapshot
             .turns
             .iter()

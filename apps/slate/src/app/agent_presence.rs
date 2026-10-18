@@ -249,6 +249,7 @@ impl SlateApp {
                 message: value["message"].as_str().unwrap_or("").into(),
             },
             "presence.people" => chrome::PresenceAction::ConnectPeople,
+            "presence.workspace" => chrome::PresenceAction::SetupWorkspace,
             "presence.add" => chrome::PresenceAction::Add {
                 name: value["name"].as_str().unwrap_or("Agent").into(),
                 hat: value["hat"].as_str().unwrap_or("none").into(),

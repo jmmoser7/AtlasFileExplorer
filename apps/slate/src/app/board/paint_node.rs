@@ -274,10 +274,10 @@ impl SlateApp {
                 if !(matches!(kind, slate_doc::MediaKind::Image) || show_excerpt || model_card) {
                     paint_ext_badge(painter, srect, &slate_doc::media::ext_badge(&path), z);
                 }
-                if surface.is_none() || self.image_palette_frame(painter.ctx(), node.id).is_some() {
-                    if !chrome || !self.paint_image_palette_stroke(painter, xf, node, img) {
-                        self.paint_image_mask_stroke(painter, xf, node, img, &outline, alpha);
-                    }
+                if (surface.is_none() || self.image_palette_frame(painter.ctx(), node.id).is_some())
+                    && (!chrome || !self.paint_image_palette_stroke(painter, xf, node, img))
+                {
+                    self.paint_image_mask_stroke(painter, xf, node, img, &outline, alpha);
                 }
                 if img.agent.is_some() && !nested {
                     self.paint_agent_media(ui, painter, xf, node, srect);

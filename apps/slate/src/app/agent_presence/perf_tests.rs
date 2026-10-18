@@ -387,7 +387,7 @@ fn admission(f: &mut Fixture, warm: bool) {
 #[ignore = "machine-local release performance probe; run alone after compilation with --nocapture"]
 fn witnessed_command_machine_local_performance_probe() {
     assert!(
-        !cfg!(debug_assertions),
+        !std::hint::black_box(cfg!(debug_assertions)),
         "run the normal release test harness"
     );
     println!(

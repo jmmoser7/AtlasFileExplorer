@@ -167,6 +167,7 @@ pub enum PresenceAction {
         id: String,
     },
     ConnectPeople,
+    SetupWorkspace,
     Retry {
         id: String,
         message: String,

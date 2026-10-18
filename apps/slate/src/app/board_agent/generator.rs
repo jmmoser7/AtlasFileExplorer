@@ -53,13 +53,15 @@ impl SlateApp {
                 };
             }
         };
-        let mut view = GeneratorView::default();
-        view.wired_image_and_prompt = inputs
-            .on(atlas_agent::InputSlot::Media)
-            .any(|item| item.node != id.0 && !item.images.is_empty())
-            && inputs
-                .on(atlas_agent::InputSlot::Prompt)
-                .any(|item| !item.text.trim().is_empty());
+        let mut view = GeneratorView {
+            wired_image_and_prompt: inputs
+                .on(atlas_agent::InputSlot::Media)
+                .any(|item| item.node != id.0 && !item.images.is_empty())
+                && inputs
+                    .on(atlas_agent::InputSlot::Prompt)
+                    .any(|item| !item.text.trim().is_empty()),
+            ..Default::default()
+        };
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         let mut prompts = Vec::new();
         let short = |text: &str| -> String {

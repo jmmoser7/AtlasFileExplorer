@@ -327,6 +327,26 @@ impl SlateApp {
 }
 
 #[cfg(test)]
+impl SlateApp {
+    /// Screen rect of the shared Capture control, last painted.
+    pub(crate) fn model_screenshot_button(&self) -> Option<Rect> {
+        self.strip_button(|item| matches!(item, StripItem::ModelScreenshot))
+    }
+
+    /// Screen rect of the selection strip's Measure button, last frame.
+    #[cfg(test)]
+    pub(crate) fn model_measure_button(&self) -> Option<Rect> {
+        self.strip_button(|item| matches!(item, StripItem::ModelMeasure))
+    }
+
+    fn strip_button(&self, want: fn(&StripItem) -> bool) -> Option<Rect> {
+        let items = &self.shape_properties.last_chrome.as_ref()?.items;
+        let index = items.iter().position(want)?;
+        self.shape_properties.chrome_hits.get(index).copied()
+    }
+}
+
+#[cfg(test)]
 #[path = "property_strip/text_media_tests.rs"]
 mod text_media_tests;
 
@@ -381,25 +401,5 @@ mod tests {
             assert!(!h.app.image_palette_eligible(node.id), "{path}");
             assert!(rectangular_blister(&h.app, &[node], 1), "{path}");
         }
-    }
-}
-
-#[cfg(test)]
-impl SlateApp {
-    /// Screen rect of the shared Capture control, last painted.
-    pub(crate) fn model_screenshot_button(&self) -> Option<Rect> {
-        self.strip_button(|item| matches!(item, StripItem::ModelScreenshot))
-    }
-
-    /// Screen rect of the selection strip's Measure button, last frame.
-    #[cfg(test)]
-    pub(crate) fn model_measure_button(&self) -> Option<Rect> {
-        self.strip_button(|item| matches!(item, StripItem::ModelMeasure))
-    }
-
-    fn strip_button(&self, want: fn(&StripItem) -> bool) -> Option<Rect> {
-        let items = &self.shape_properties.last_chrome.as_ref()?.items;
-        let index = items.iter().position(want)?;
-        self.shape_properties.chrome_hits.get(index).copied()
     }
 }

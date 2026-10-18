@@ -26,10 +26,10 @@ mod navigation;
 mod results;
 pub use constructors::ALIAS_CHORDS;
 use constructors::{ctrl_shift, shift, spec};
-/// Canonical command table. Keep grouped by category (the reference UI groups
-/// on category changes), documentation rows first within their historical
-/// order, dispatchable additions after.
+/// Canonical command table: group by category for the reference UI;
+/// keep historical documentation rows first, dispatchable additions after.
 pub static SPECS: &[CommandSpec] = &[
+    spec("presence.workspace", "Participants", "Set AI workspace", "Add collaborator → Set AI workspace: choose the shared agent workspace folder", None, Repeat::Never, BOARD, &["agent workspace", "connect agent"]),
     spec("presence.add", "Participants", "Add board collaborator", "Top-right Add participant: name and connect an agent", None, Repeat::Never, BOARD, &["add agent", "collaborator"]),
     spec("presence.name", "Participants", "Rename collaborator", "Participant capsule → Name", None, Repeat::Never, BOARD, &[]),
     spec("presence.hat", "Participants", "Choose collaborator hat", "Participant capsule → Hat", None, Repeat::Never, BOARD, &[]),

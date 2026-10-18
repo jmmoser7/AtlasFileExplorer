@@ -113,31 +113,6 @@ fn encode_shared_portrait(image: &image::RgbaImage) -> Result<Vec<u8>, String> {
     Err("Could not make a small shared profile picture".into())
 }
 
-#[cfg(test)]
-mod photo_tests {
-    use super::encode_shared_portrait;
-
-    #[test]
-    fn shared_portrait_is_small_jpeg_and_transparency_becomes_white() {
-        let detail = image::RgbaImage::from_fn(256, 256, |x, y| {
-            image::Rgba([
-                (x.wrapping_mul(137) ^ y.wrapping_mul(71)) as u8,
-                (x.wrapping_mul(73) ^ y.wrapping_mul(181)) as u8,
-                (x ^ y) as u8,
-                255,
-            ])
-        });
-        let bytes = encode_shared_portrait(&detail).unwrap();
-        assert!(bytes.len() <= atlas_relay::MAX_AVATAR_BYTES);
-        let decoded = image::load_from_memory(&bytes).unwrap();
-        assert_eq!((decoded.width(), decoded.height()), (32, 32));
-        let clear = image::RgbaImage::from_pixel(32, 32, image::Rgba([0, 0, 0, 0]));
-        let white = image::load_from_memory(&encode_shared_portrait(&clear).unwrap())
-            .unwrap()
-            .to_rgb8();
-        assert!(white.pixels().all(|p| p.0.iter().all(|c| *c >= 250)));
-    }
-}
 impl SlateApp {
     pub(crate) fn presence_remove_photo(&mut self, who: &str) -> Result<(), String> {
         if who != "self" {
@@ -407,5 +382,31 @@ impl SlateApp {
             .open_chat_at(who, center + egui::vec2(-20.0, 36.0) * xf.z, xf.z);
         ctx.request_repaint();
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod photo_tests {
+    use super::encode_shared_portrait;
+
+    #[test]
+    fn shared_portrait_is_small_jpeg_and_transparency_becomes_white() {
+        let detail = image::RgbaImage::from_fn(256, 256, |x, y| {
+            image::Rgba([
+                (x.wrapping_mul(137) ^ y.wrapping_mul(71)) as u8,
+                (x.wrapping_mul(73) ^ y.wrapping_mul(181)) as u8,
+                (x ^ y) as u8,
+                255,
+            ])
+        });
+        let bytes = encode_shared_portrait(&detail).unwrap();
+        assert!(bytes.len() <= atlas_relay::MAX_AVATAR_BYTES);
+        let decoded = image::load_from_memory(&bytes).unwrap();
+        assert_eq!((decoded.width(), decoded.height()), (32, 32));
+        let clear = image::RgbaImage::from_pixel(32, 32, image::Rgba([0, 0, 0, 0]));
+        let white = image::load_from_memory(&encode_shared_portrait(&clear).unwrap())
+            .unwrap()
+            .to_rgb8();
+        assert!(white.pixels().all(|p| p.0.iter().all(|c| *c >= 250)));
     }
 }
