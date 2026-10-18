@@ -90,7 +90,10 @@ impl SlateApp {
                             .and_then(|a| self.presence.roster.session(&a.motion))
                             .map(|s| s.sample().position);
                         if let Some(position) = position {
-                            let screen = self.canvas_rect.min + egui::vec2(380.0, 40.0);
+                            // Reproduce the observed lower-screen 80% clip;
+                            // other zooms keep the enlarged shell fully visible.
+                            let y = if state == "attached80" { 420.0 } else { 40.0 };
+                            let screen = self.canvas_rect.min + egui::vec2(380.0, y);
                             let before = self.board_xf().s2w(screen);
                             self.tab_mut().cam.offset +=
                                 egui::pos2(position.x as f32, position.y as f32) - before;

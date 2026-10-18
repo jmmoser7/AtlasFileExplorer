@@ -7,7 +7,10 @@ use crate::geom::{
 };
 use crate::{Cap, InkMesh, InkVertex, Join, StrokeStyle, TintPiece};
 mod caps;
+mod coverage;
 use caps::push_cap;
+
+pub use coverage::max_coverage_mesh;
 
 #[derive(Clone, Copy)]
 struct Edge {

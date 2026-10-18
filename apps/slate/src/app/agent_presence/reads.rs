@@ -14,18 +14,29 @@ pub(super) struct ReadJob {
     done: bool,
     image: Option<crate::app::board_agent::ScopedImageInput>,
     image_source: Option<PathBuf>,
+    participant_ids: Option<Vec<String>>,
 }
 impl ReadJob {
     pub(super) fn new(call: BoardCall, generation: u64) -> Result<Self, String> {
-        let (node_ids, offset, limit) = match &call.operation {
+        let (node_ids, participant_ids, offset, limit): (
+            &[String],
+            Option<Vec<String>>,
+            usize,
+            usize,
+        ) = match &call.operation {
             BoardOperation::Read {
                 node_ids,
                 offset,
                 limit,
-            } => (node_ids, *offset, *limit),
+            } => (node_ids, None, *offset, *limit),
+            BoardOperation::ReadParticipants {
+                participant_ids,
+                offset,
+                limit,
+            } => (&[][..], Some(participant_ids.clone()), *offset, *limit),
             BoardOperation::Invoke {
                 command, targets, ..
-            } if command == "presence.read_image" && targets.len() == 1 => (targets, 0, 1),
+            } if command == "presence.read_image" && targets.len() == 1 => (targets, None, 0, 1),
             _ => return Err("Choose one explicit image node".into()),
         };
         let explicit = node_ids
@@ -48,6 +59,7 @@ impl ReadJob {
             done: false,
             image: None,
             image_source: None,
+            participant_ids,
         })
     }
 }
@@ -120,8 +132,14 @@ impl SlateApp {
             grant
                 .authorize(&job.call, &a.binding, &a.request)
                 .map_err(str::to_owned)?;
-            if a.tab != self.tab().id || job.generation != self.doc().scene.scene_gen() {
+            if a.tab != self.tab().id
+                || (job.participant_ids.is_none() && job.generation != self.doc().scene.scene_gen())
+            {
                 return Err("Board changed during the read; request a fresh page".into());
+            }
+            if job.participant_ids.is_some() {
+                job.done = true;
+                return Ok(true);
             }
             if let Some(image) = &job.image {
                 // Recheck source authority after asynchronous preparation too.
@@ -191,6 +209,22 @@ impl SlateApp {
                 None
             }
             Ok(true) => {
+                if let Some(participant_ids) = &job.participant_ids {
+                    let grant = a.grant.as_ref().unwrap();
+                    let result =
+                        self.participant_page(a, grant, participant_ids, job.offset, job.limit);
+                    a.activity = "working".into();
+                    return Some(match result {
+                        Ok(value) => BoardReply {
+                            id: job.call.id,
+                            session_id: a.binding.session_id.clone(),
+                            request_id: a.request.clone(),
+                            success: true,
+                            result: value,
+                        },
+                        Err(error) => BoardReply::error(&job.call, &error),
+                    });
+                }
                 let total = if job.explicit.is_empty() {
                     self.doc().scene.nodes.len()
                 } else {
@@ -202,7 +236,25 @@ impl SlateApp {
                     None
                 };
                 let grant = a.grant.as_ref().unwrap();
-                let mut participants:Vec<_>=self.presence.agents.iter().filter(|other|other.departure.is_none() && grant.conversation_ids.contains(&other.profile.id)).take(32).map(|other|json!({"id":other.profile.id,"name":other.profile.name,"status":other.status,"result":other.snapshot.as_ref().and_then(|s|s.turns.iter().rev().find(|t|t.role=="assistant")).map(|t|t.text.chars().take(256).collect::<String>())})).collect();
+                let mut participants: Vec<_> = self
+                    .presence
+                    .agents
+                    .iter()
+                    .filter(|other| {
+                        other.departure.is_none()
+                            && grant.conversation_ids.contains(&other.profile.id)
+                    })
+                    .take(32)
+                    // Preserve the original board-read descriptor and byte bounds.
+                    .map(|other| json!({
+                        "id": other.profile.id,
+                        "name": other.profile.name,
+                        "status": other.status,
+                        "result": other.snapshot.as_ref()
+                            .and_then(|snapshot| snapshot.turns.iter().rev().find(|turn| turn.role == "assistant"))
+                            .map(|turn| turn.text.chars().take(256).collect::<String>())
+                    }))
+                    .collect();
                 for result in self
                     .presence
                     .helper_results
@@ -212,7 +264,17 @@ impl SlateApp {
                     })
                     .take(8)
                 {
-                    participants.push(json!({"id":result.id,"parent_id":result.parent_id,"request_id":result.request_id,"name":result.name,"retired":true,"status":result.status.chars().take(512).collect::<String>(),"outcome":result.outcome,"expired":result.expired,"result":result.result.chars().take(512).collect::<String>()}));
+                    participants.push(json!({
+                        "id": result.id,
+                        "parent_id": result.parent_id,
+                        "request_id": result.request_id,
+                        "name": result.name,
+                        "retired": true,
+                        "status": result.status.chars().take(512).collect::<String>(),
+                        "outcome": result.outcome,
+                        "expired": result.expired,
+                        "result": result.result.chars().take(512).collect::<String>()
+                    }));
                 }
                 a.activity = "working".into();
                 let value = json!({"workspace_id":a.binding.workspace_id,"objects":job.objects,"image_source":job.image_source,"next_offset":next,"commands":self.presence_command_schema(),"conversations":grant.conversation_ids,"participants":participants,"proposal_mode":!grant.mutation_autonomy});
@@ -237,5 +299,103 @@ impl SlateApp {
                 Some(BoardReply::error(&job.call, &error))
             }
         }
+    }
+
+    fn live_participant_descriptor(other: &Collaborator) -> Value {
+        json!({
+            "id": other.profile.id,
+            "name": other.profile.name.chars().take(256).collect::<String>(),
+            "status": other.status.chars().take(512).collect::<String>(),
+            "result": other.snapshot.as_ref()
+                .and_then(|snapshot| snapshot.turns.iter().rev().find(|turn| turn.role == "assistant"))
+                .map(|turn| turn.text.chars().take(512).collect::<String>())
+        })
+    }
+
+    fn retired_participant_descriptor(result: &helper_scope::HelperResult) -> Value {
+        json!({
+            "id": result.id,
+            "parent_id": result.parent_id,
+            "request_id": result.request_id,
+            "name": result.name.chars().take(256).collect::<String>(),
+            "retired": true,
+            "status": result.status.chars().take(512).collect::<String>(),
+            "outcome": result.outcome,
+            "expired": result.expired,
+            "result": result.result.chars().take(512).collect::<String>()
+        })
+    }
+
+    fn participant_page(
+        &self,
+        caller: &Collaborator,
+        grant: &CollaboratorGrant,
+        explicit: &[String],
+        offset: usize,
+        limit: usize,
+    ) -> Result<Value, String> {
+        if explicit.iter().any(|id| {
+            self.presence
+                .helper_results
+                .iter()
+                .any(|result| result.id == *id && result.parent_id != caller.profile.id)
+        }) {
+            return Err("A retained helper outcome is available only to its parent".into());
+        }
+        let requested = |id: &str| explicit.is_empty() || explicit.iter().any(|item| item == id);
+        let mut available = Vec::new();
+        // The dispatcher temporarily removes the caller from the live roster.
+        for other in std::iter::once(caller).chain(
+            self.presence
+                .agents
+                .iter()
+                .filter(|other| other.profile.id != caller.profile.id),
+        ) {
+            if other.departure.is_none()
+                && grant.conversation_ids.contains(&other.profile.id)
+                && requested(&other.profile.id)
+            {
+                available.push(Self::live_participant_descriptor(other));
+            }
+        }
+        for result in &self.presence.helper_results {
+            if result.parent_id == caller.profile.id
+                && grant.conversation_ids.contains(&result.id)
+                && requested(&result.id)
+            {
+                available.push(Self::retired_participant_descriptor(result));
+            }
+        }
+        let total = available.len();
+        let mut participants = Vec::new();
+        let mut bytes = serde_json::to_vec(&json!({
+            "participants": [],
+            "total": total,
+            "next_offset": 1_000_000,
+        }))
+        .map_err(|_| "Participant reply could not be serialized")?
+        .len();
+        for participant in available.into_iter().skip(offset).take(limit) {
+            let record_bytes = serde_json::to_vec(&participant)
+                .map_err(|_| "Participant reply could not be serialized")?
+                .len()
+                + 1;
+            if bytes + record_bytes > 60_000 {
+                break;
+            }
+            bytes += record_bytes;
+            participants.push(participant);
+        }
+        let emitted = participants.len();
+        let next_offset = (offset + emitted < total).then_some(offset + emitted);
+        let value = json!({
+            "participants": participants,
+            "total": total,
+            "next_offset": next_offset,
+        });
+        if serde_json::to_vec(&value).map_or(true, |reply| reply.len() > 60_000) {
+            return Err("Request a smaller participant page".into());
+        }
+        Ok(value)
     }
 }

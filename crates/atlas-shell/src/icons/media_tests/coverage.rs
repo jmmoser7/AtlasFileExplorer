@@ -15,7 +15,7 @@ const CASES: &[Icon] = &[
     Icon::Model,
     Icon::Video,
 ];
-const SIZES: &[f32] = &[16.0, 20.0, 24.0, 31.2];
+const SIZES: &[f32] = &[15.6, 16.0, 20.0, 24.0, 31.2];
 const CELL: f32 = 40.0;
 
 #[test]
@@ -97,13 +97,37 @@ fn faded_media_icons_do_not_accumulate_opacity_at_crossings_or_counters() {
                         max <= alpha + 1,
                         "composited {icon:?} alpha {max} exceeds caller {alpha} at {size}/{ppp}"
                     );
-                    for (actual, full) in pixels.pixels().zip(opaque.pixels()) {
+                    for ((x, y, actual), full) in pixels.enumerate_pixels().zip(opaque.pixels()) {
                         let expected = (full.0[3] as f32 * alpha as f32 / 255.0).round() as i16;
                         let error = (actual.0[3] as i16 - expected).abs();
                         assert!(
                             error <= 2,
-                            "{icon:?} fade differs by {error} alpha units at {size}/{ppp}/{alpha}"
+                            "{icon:?} fade differs by {error} alpha units at {size}/{ppp}/{alpha}, pixel {x}/{y}"
                         );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn outline_counter_preserves_the_host_image() {
+    for &size in SIZES {
+        for ppp in [1.0, 1.5, 2.0] {
+            for dark in [false, true] {
+                let pixels = super::super::tests::rasterize(
+                    &media_mesh(Icon::Ellipse, size, ppp, 255, dark),
+                    CELL,
+                    CELL,
+                    ppp,
+                    Color32::TRANSPARENT,
+                );
+                let center = (CELL * ppp * 0.5) as u32;
+                for y in center - 1..=center + 1 {
+                    for x in center - 1..=center + 1 {
+                        assert_eq!(pixels.get_pixel(x, y).0[3], 0,
+                            "Ellipse counter covers host pixels at {size}/{ppp}, dark={dark}, {x}/{y}");
                     }
                 }
             }
@@ -161,11 +185,18 @@ fn export_media_icon_pixels_for_visual_audit() {
             }
         }
     }
+    let ellipse = density::media::mesh(Icon::Ellipse, 24.0);
     let manifest = serde_json::json!({
         "source": "icons::paint_on_media production meshes; shared native mesh rasterizer",
         "columns_slot_points": SIZES,
         "rows_icons": CASES.iter().map(|i| i.name()).collect::<Vec<_>>(),
         "rows_per_icon_alpha": [64, 128, 255], "cell_points": CELL,
+        "geometry_cost": cold_geometry_metrics(),
+        "ellipse_material_mesh_24px": {
+            "vertex_columns": ["master_x", "master_y", "premult_material_red", "coverage_alpha"],
+            "vertices": ellipse.vertices.iter().map(|v| [v.pos.x, v.pos.y, v.color.r() as f32, v.color.a() as f32]).collect::<Vec<_>>(),
+            "indices": &ellipse.indices,
+        },
         "outputs": outputs,
     });
     std::fs::write(
@@ -173,4 +204,34 @@ fn export_media_icon_pixels_for_visual_audit() {
         serde_json::to_vec_pretty(&manifest).unwrap(),
     )
     .unwrap();
+}
+
+fn cold_geometry_metrics() -> Vec<serde_json::Value> {
+    let mut records = Vec::new();
+    for &icon in CASES {
+        for &size in SIZES {
+            for ppp in [1.0, 1.5, 2.0] {
+                records.push(
+                    std::thread::spawn(move || {
+                        // Each fresh thread starts with an empty production geometry
+                        // cache. Thread creation and PNG rasterization are not timed.
+                        let start = std::time::Instant::now();
+                        let mesh = density::media::mesh(icon, size * ppp);
+                        let cold_us = start.elapsed().as_micros();
+                        let start = std::time::Instant::now();
+                        let warm = density::media::mesh(icon, size * ppp);
+                        serde_json::json!({
+                            "icon": icon.name(), "slot_points": size, "ppp": ppp,
+                            "cold_us": cold_us, "warm_us": start.elapsed().as_micros(),
+                            "vertices": mesh.vertices.len(), "triangles": mesh.indices.len() / 3,
+                            "warm_reused_geometry": Arc::ptr_eq(&mesh, &warm),
+                        })
+                    })
+                    .join()
+                    .expect("geometry audit worker"),
+                );
+            }
+        }
+    }
+    records
 }

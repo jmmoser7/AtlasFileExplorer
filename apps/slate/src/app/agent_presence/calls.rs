@@ -30,7 +30,7 @@ impl SlateApp {
             a.calls += 1;
             a.last_active = Instant::now();
             match &call.operation {
-                BoardOperation::Read { .. } => {
+                BoardOperation::Read { .. } | BoardOperation::ReadParticipants { .. } => {
                     self.begin_presence_read(a, call)?;
                     Ok(None)
                 }

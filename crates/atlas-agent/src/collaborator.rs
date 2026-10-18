@@ -103,6 +103,16 @@ impl CollaboratorGrant {
                     return Err("Board read is outside this collaborator's scope.");
                 }
             }
+            BoardOperation::ReadParticipants {
+                participant_ids, ..
+            } => {
+                if participant_ids
+                    .iter()
+                    .any(|id| !self.conversation_ids.contains(id))
+                {
+                    return Err("Participant read is outside this collaborator's scope.");
+                }
+            }
             BoardOperation::Invoke {
                 command, targets, ..
             } => {
@@ -156,6 +166,15 @@ pub enum BoardOperation {
         #[serde(default = "default_read_limit")]
         limit: usize,
     },
+    /// Empty IDs ask for every participant authorized by this live grant.
+    ReadParticipants {
+        #[serde(default)]
+        participant_ids: Vec<String>,
+        #[serde(default)]
+        offset: usize,
+        #[serde(default = "default_participant_limit")]
+        limit: usize,
+    },
     Invoke {
         command: String,
         #[serde(default)]
@@ -182,6 +201,16 @@ impl BoardCall {
                 }
                 node_ids
             }
+            BoardOperation::ReadParticipants {
+                participant_ids,
+                offset,
+                limit,
+            } => {
+                if *offset > 1_000_000 || !(1..=8).contains(limit) {
+                    return Err("Participant read pagination exceeds protocol limits.");
+                }
+                participant_ids
+            }
             BoardOperation::Invoke {
                 command, targets, ..
             } => {
@@ -203,6 +232,10 @@ impl BoardCall {
 
 fn default_read_limit() -> usize {
     32
+}
+
+fn default_participant_limit() -> usize {
+    8
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

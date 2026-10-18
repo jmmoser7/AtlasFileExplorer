@@ -60,11 +60,13 @@ pixel at every size and display density, and the transformed cache includes
 pixels-per-point so moving between monitors cannot reuse stale coverage.
 Unchanged chrome reuses cached meshes. For wireframe controls painted over
 photographs, `icons::paint_on_media` builds one material mesh from the canonical
-catalog paths: the original glyph region is foreground, and the expanded
-region minus the original is the palette keyline. Both regions share one
-coverage boundary, so caller alpha is applied once at placement. The geometry
-cache is keyed by icon and physical density; the placement cache also includes
-slot, colors, keyline width, and density. Ordinary `icons::paint` remains bare.
+catalog paths: the original glyph region stays foreground, and the expanded
+stroke and fringe use the palette keyline. Both materials use the canonical
+density stroke builder; the vector-ink maximum-coverage pass resolves overlaps,
+with foreground winning exact ties. Caller opacity is applied once at
+placement. The geometry cache is keyed by icon and physical density; the
+placement cache also includes slot, colors, keyline width, and density.
+Ordinary `icons::paint` remains bare.
 
 `Camera` is the shared still/video Capture glyph: a quiet outline camera body
 and circular lens. It maps to `portal.capture` and the existing model Screenshot

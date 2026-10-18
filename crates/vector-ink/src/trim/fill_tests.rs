@@ -1,4 +1,4 @@
-use super::{fill_triangles, fill_triangles_with_boundaries, signed_area, FillBoundary};
+use super::fill_triangles;
 use crate::trim::point_in_mesh;
 
 fn triangle_area(vertices: &[[f32; 2]], indices: &[u32]) -> f32 {
@@ -13,17 +13,8 @@ fn triangle_area(vertices: &[[f32; 2]], indices: &[u32]) -> f32 {
         .sum()
 }
 
-fn boundary_area(vertices: &[[f32; 2]], boundary: &FillBoundary) -> f32 {
-    let points: Vec<[f32; 2]> = boundary
-        .indices
-        .iter()
-        .map(|&index| vertices[index as usize])
-        .collect();
-    signed_area(&points)
-}
-
 #[test]
-fn concave_containment_reports_reordered_cleaned_ccw_boundaries_and_keeps_fill_parity() {
+fn concave_containment_keeps_area_and_exclusion_after_reordering_and_cleaning() {
     let mut exterior = vec![
         [0.0, 0.0],
         [5.0, 0.0],
@@ -56,11 +47,7 @@ fn concave_containment_reports_reordered_cleaned_ccw_boundaries_and_keeps_fill_p
         island_hole,
     ];
 
-    let (vertices, indices, boundaries) = fill_triangles_with_boundaries(&polygon);
-    let (plain_vertices, plain_indices) = fill_triangles(&polygon);
-
-    assert_eq!(vertices, plain_vertices);
-    assert_eq!(indices, plain_indices);
+    let (vertices, indices) = fill_triangles(&polygon);
     assert!((triangle_area(&vertices, &indices) - 11.84).abs() < 1e-4);
     assert!(point_in_mesh(&vertices, &indices, [4.9, 0.5]));
     assert!(point_in_mesh(&vertices, &indices, [0.5, 4.9]));
@@ -68,25 +55,4 @@ fn concave_containment_reports_reordered_cleaned_ccw_boundaries_and_keeps_fill_p
     assert!(!point_in_mesh(&vertices, &indices, [3.0, 3.0]));
     assert!(point_in_mesh(&vertices, &indices, [20.5, 0.5]));
     assert!(!point_in_mesh(&vertices, &indices, [21.5, 1.5]));
-
-    assert_eq!(boundaries.len(), 4);
-    assert_eq!(boundaries[0].source_contour, 2);
-    assert!(!boundaries[0].hole);
-    assert_eq!(boundaries[1].source_contour, 4);
-    assert!(boundaries[1].hole);
-    assert_eq!(boundaries[2].source_contour, 3);
-    assert!(!boundaries[2].hole);
-    assert_eq!(boundaries[3].source_contour, 1);
-    assert!(boundaries[3].hole);
-    for boundary in &boundaries {
-        assert_eq!(
-            boundary.indices.len(),
-            match boundary.source_contour {
-                1 | 3 => 6,
-                2 | 4 => 4,
-                source => panic!("unexpected source contour {source}"),
-            }
-        );
-        assert!(boundary_area(&vertices, boundary) > 0.0);
-    }
 }

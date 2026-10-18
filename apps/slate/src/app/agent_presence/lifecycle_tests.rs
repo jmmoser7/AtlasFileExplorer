@@ -1,6 +1,9 @@
 use super::super::tests::Harness;
 use super::*;
 
+#[path = "participant_read_tests.rs"]
+mod participant_reads;
+
 fn host() -> Harness {
     let mut h = Harness::new("presence_helper_scope");
     h.app.at_home = false;
