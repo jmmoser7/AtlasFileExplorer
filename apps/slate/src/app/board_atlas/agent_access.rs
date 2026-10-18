@@ -1,4 +1,7 @@
 //! Scoped collaborator access to an already-running Atlas portal session.
+#[cfg(test)]
+mod render_tests;
+
 use super::*;
 use serde_json::{json, Value};
 use std::path::Path;

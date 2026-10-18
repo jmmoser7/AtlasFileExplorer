@@ -132,6 +132,9 @@ fn validate_image_source(
     if atlas_core::secrets::is_machine_private(&canonical_path) {
         return Err("Resolved source is machine-private app state".into());
     }
+    if atlas_core::cloud::is_dehydrated(&canonical_path) {
+        return Err("Resolved cloud-only source was skipped to avoid downloading it".into());
+    }
     let metadata = std::fs::metadata(&canonical_path).map_err(|e| e.to_string())?;
     let modified = metadata
         .modified()

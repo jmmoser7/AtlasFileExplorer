@@ -14,6 +14,7 @@ fn drawing_arguments() -> serde_json::Value {
 }
 
 fn prepare_drawing(f: &mut Fixture, sequence: u64) -> (Vec<Node>, slate_doc::Scene, usize) {
+    f.h.app.presence.agents[0].profile.hat = "cap".into();
     f.h.app.presence.agents[0]
         .grant
         .as_mut()

@@ -248,7 +248,7 @@ fn bezier_path(points: &[Pos2], closed: bool) -> Result<(WorldRect, PathData), S
     }
     let mut bez = BezPath::new();
     bez.move_to(Point::new(points[0].x as f64, points[0].y as f64));
-    for curve in points[1..].chunks_exact(3) {
+    for curve in points[1..].as_chunks::<3>().0 {
         bez.curve_to(
             Point::new(curve[0].x as f64, curve[0].y as f64),
             Point::new(curve[1].x as f64, curve[1].y as f64),

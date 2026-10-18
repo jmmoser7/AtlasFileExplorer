@@ -60,6 +60,9 @@ pub(super) fn read_text_page(
     if atlas_core::secrets::is_machine_private(&canonical_path) {
         return Err("Resolved source is machine-private app state".into());
     }
+    if atlas_core::cloud::is_dehydrated(&canonical_path) {
+        return Err("Resolved cloud-only source was skipped to avoid downloading it".into());
+    }
     let metadata = std::fs::metadata(&canonical_path).map_err(|e| e.to_string())?;
     if metadata.len() != expected_size
         || metadata.len() > 64 * 1024 * 1024
@@ -76,17 +79,14 @@ pub(super) fn read_text_page(
         return Err("Text cursor is past end of file".into());
     }
     let mut file = std::fs::File::open(&canonical_path).map_err(|e| e.to_string())?;
-    if cursor > 0 {
-        file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
-        let mut prefix = vec![0; cursor];
-        file.read_exact(&mut prefix).map_err(|e| e.to_string())?;
-        std::str::from_utf8(&prefix).map_err(|_| "Cursor must be a UTF-8 character boundary")?;
-    }
     file.seek(SeekFrom::Start(cursor as u64))
         .map_err(|e| e.to_string())?;
     let mut bytes = vec![0; limit.saturating_add(4)];
     let n = file.read(&mut bytes).map_err(|e| e.to_string())?;
     bytes.truncate(n);
+    if cursor > 0 && bytes.first().is_some_and(|byte| byte & 0xc0 == 0x80) {
+        return Err("Cursor must be a UTF-8 character boundary".into());
+    }
     if let Err(error) = std::str::from_utf8(&bytes) {
         if error.error_len().is_some() {
             return Err("File is not valid UTF-8".into());
@@ -198,6 +198,9 @@ mod tests {
     fn text_pages_stop_only_at_utf8_character_boundaries() {
         let root = TestDir::new();
         let file = root.file("notes.txt", "aé🙂z".as_bytes());
+        assert!(page(&root.0, &file, 2, 4)
+            .unwrap_err()
+            .contains("character boundary"));
         let first = page(&root.0, &file, 0, 4).unwrap();
         assert_eq!(first["text"], "aé");
         assert_eq!(first["next_cursor"], 3);
