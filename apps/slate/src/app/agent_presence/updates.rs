@@ -295,6 +295,29 @@ mod tests {
             .any(|t| t.text == "First task"));
     }
     #[test]
+    fn a_provider_error_cannot_turn_a_listening_message_into_board_resume() {
+        let (mut h, who) = host();
+        h.app.presence_send_chat(&who, "First task").unwrap();
+        h.app
+            .set_presence_paused(&who, true, controls::PauseCause::Human)
+            .unwrap();
+        let snapshot = AgentSession {
+            request: h.app.presence.agents[0].request.clone(),
+            status: atlas_agent::AgentStatus::Error("Declared provider failure".into()),
+            ..Default::default()
+        };
+        super::super::lifecycle_tests::session_support::publish_and_observe(
+            &mut h, &who, &snapshot,
+        );
+        assert_eq!(h.app.presence.agents[0].activity, "error");
+        assert!(h.app.presence.agents[0].paused);
+        h.app
+            .presence_send_chat(&who, "Discuss the failure first")
+            .unwrap();
+        assert!(h.app.presence.agents[0].paused);
+        assert!(h.app.presence.agents[0].chat_only);
+    }
+    #[test]
     fn explicit_resume_restarts_a_task_that_ended_while_board_work_was_paused() {
         let (mut h, who) = host();
         h.app

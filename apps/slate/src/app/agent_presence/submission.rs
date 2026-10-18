@@ -95,10 +95,8 @@ impl SlateApp {
             .grant
             .clone()
             .ok_or("Board grant was revoked; restore a fresh session")?;
-        let resume_after_stop = from.is_none()
-            && queued.is_none()
-            && a.paused
-            && matches!(a.activity.as_str(), "cancel" | "error");
+        let resume_after_stop =
+            from.is_none() && queued.is_none() && a.paused && a.activity == "cancel";
         let request = queued
             .map(str::to_owned)
             .unwrap_or_else(atlas_agent::request_id);
