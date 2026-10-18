@@ -3,12 +3,18 @@
 ## Drawing and source portals (18 October 2026)
 
 `board.paths.draw` creates 1–64 authored strokes in one reversible, attributed
-transaction. Its `strokes` accept `pen`, `brush`, `polyline`, `line`, or `bezier`,
+transaction. Its `strokes` accept `pen`, `brush`, `polyline`, `line`, `bezier`,
+`arc`, `rect`, `ellipse`, or `polygon`,
 world-space `points`, and optional `closed`, `width`, `color`, `opacity`, and
 `softness`. Bézier points form a cubic chain (3n+1 points). The aggregate point
 budget is 4096. These results use the same path and stamped-brush builders as
 human gestures. Use separate strokes for the components of a complex drawing;
 Slate assigns those components to a bounded visible execution crew.
+
+An Arc uses exactly three picks in human order: start, end, through. Parametric
+shapes use two opposite corners, with optional polygon `sides` (3–128). They
+trace their shared geometric outline while working and commit the exact kit
+recipe shape, retaining its editable parametric type.
 
 The parent travels to the first point, then follows the actual stroke. Ink
 appears only behind the drawing contact; pen-up travel never draws a chord.
@@ -23,6 +29,11 @@ retain their ordinary fences. Cancelled previews do not become saved objects.
 `radius` and `softness`; it shares human eraser hit tests and brush erase marks.
 `board.path.join` takes explicit eligible shape/path targets and uses the human
 join preparation. Both remain journaled and respect locked targets.
+`board.smooth.stroke` accepts explicit stroke targets, a sweep `points` path,
+optional world `width` and `strength` (0.05–1). Its bounded preparation and
+visible swept-prefix preview share the human smoother; repeated frames never
+add extra smoothing. Source snapshots and the journal remain untouched until
+the completed operation commits.
 
 `board.objects.create_portal` takes `kind` (`atlas` or `web`), explicit `source`
 and world-space `x`, `y`, `width`, `height`. Creation does not grant access to a

@@ -4,6 +4,9 @@ use slate_doc::scene::{CmdAuthor, Node, NodeKind, PathSeg};
 
 use super::motion_support::Fixture;
 
+#[path = "drawing_activity_smoothing_tests.rs"]
+mod smoothing;
+
 fn drawing_arguments() -> serde_json::Value {
     json!({"strokes":[
         {"tool":"polyline","points":[[-250,-180],[250,-180],[250,200]],"width":7,"color":[30,70,110,255]},

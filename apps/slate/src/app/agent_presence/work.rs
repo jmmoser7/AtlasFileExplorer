@@ -11,7 +11,7 @@ pub(super) fn command_activity(command: &str) -> &'static str {
         "board.objects.create_frame" => "frames",
         "board.objects.create_text" | "board.objects.set_text" => "writing",
         "board.paths.draw" => "writing",
-        "board.eraser.stroke" | "board.path.join" => "editing",
+        "board.eraser.stroke" | "board.smooth.stroke" | "board.path.join" => "editing",
         "board.objects.wire" => "wiring",
         "board.objects.delete" | "board.shape.edit" | "board.wire.edit" => "editing",
         "board.objects.order" => "organizing",

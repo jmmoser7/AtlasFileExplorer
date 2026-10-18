@@ -51,7 +51,7 @@ pub(super) const DRAW: CommandSpec = spec(
     "board.paths.draw",
     "Board",
     "Draw agent paths",
-    "Draw real Pen, Brush, polyline, Bezier or line strokes through the shared result owners",
+    "Visibly draw Pen, Brush, line, polyline, Bezier, Arc and parametric shapes through shared result owners",
     None,
     Repeat::Never,
     BOARD,

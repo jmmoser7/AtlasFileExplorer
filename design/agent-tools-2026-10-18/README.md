@@ -19,6 +19,12 @@ for every moving endpoint. The cache is bounded and is discarded on cancel.
 - Draw pen, stamped brush and polyline components. Before commit, the scene and
   journal remain unchanged while visible path prefixes grow at the actual
   drawing contacts. Visit corners and dwell at polyline vertices. No pen-up ink.
+- Draw an Arc using the human start/end/through picks, and trace rectangle,
+  ellipse and polygon outlines from their shared geometry. Commit the exact
+  editable parametric kit shapes after tracing, with no early filled result.
+- Smooth vector/brush strokes through the shared bounded smoother. The swept
+  prefix changes only reached work, repeated frames add no extra smoothing,
+  and one Undo restores the original geometry and blur.
 - For a complex batch, retain the parent and recruit only the bounded number
   of execution avatars. Helpers travel continuously from the parent to their
   assigned strokes. A completed batch is one attributed Undo/Redo operation.

@@ -12,13 +12,14 @@ const STYLE_ARGUMENTS: &[(&str, &str)] = &[("edits", "1–16 typed edits: FillRg
 pub(super) const DEFINITIONS: &[Definition] = &[
     Definition {
         command: "board.paths.draw", targets: "Empty. Draws 1–64 real strokes through the existing Pen/Brush/path result owners. One witnessed, attributed undo group; temporary execution helpers may trace independent strokes within the human helper limit.",
-        arguments: &[("strokes", "1–64 objects: tool pen|brush|polyline|bezier|line, points [[world_x,world_y],...], optional closed,width,color [r,g,b,a],opacity,softness. Finite bounded world geometry only. Bezier uses a cubic control chain (3n+1 points). Pen/Brush trace continuously; polyline/line visit actual vertices.")],
+        arguments: &[("strokes", "1–64 objects: tool pen|brush|polyline|bezier|line|arc|rect|ellipse|polygon, points [[world_x,world_y],...], optional closed,width,color [r,g,b,a],opacity,softness; polygon also accepts sides 3..128. All coordinates are finite and bounded. Bezier uses a cubic control chain (3n+1 points). Arc points are start,end,through and must define a circle. Rect/ellipse/polygon points are opposite bounding corners and create the existing parametric kit shape, retaining its corners and other recipe style. Pen/Brush trace continuously; polyline/line visit actual vertices.")],
     },
     Definition {
         command: "board.eraser.stroke", targets: "Explicit unlocked stroke node IDs only. Same brush-mark erasure and whole-vector-stroke removal as the human Eraser; never source files, images, text, frames or wires.",
         arguments: &[("points", "bounded sweep points [[world_x,world_y],...]"), ("radius", "optional positive world radius"), ("softness", "optional 0..1")],
     },
     Definition { command: "board.path.join", targets: "Explicit unlocked paths/shapes. Uses the human Join owner: nearest open ends or closed-region union, first target style wins.", arguments: &[] },
+    Definition { command: "board.smooth.stroke", targets: "1–64 explicit unlocked Path/Line strokes. Shared human vector smoother and stamped-brush blur, visibly swept and committed once; no source edits.", arguments: &[("points", "2–4096 finite world sweep points, bounded by the geometry-work budget"), ("width", "optional world brush width, default current Smooth width"), ("strength", "optional 0.05–1, default current Smooth strength")] },
     Definition {
         command: "board.objects.create_portal", targets: "Empty. Journaled placement using the existing Web/File Atlas portal constructors; requires explicit source-input permission. Does not grant new source, origin, filesystem-write or browser authority.",
         arguments: &[("kind", "atlas|web"), ("source", "explicit folder locator or web URL"), ("x", "finite world x"), ("y", "finite world y"), ("width", "positive world width"), ("height", "positive world height")],

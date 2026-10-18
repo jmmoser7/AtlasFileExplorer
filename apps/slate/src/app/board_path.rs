@@ -4,7 +4,8 @@ pub(crate) mod multi_point;
 mod results;
 pub(crate) mod witness;
 pub(crate) use results::{
-    brush_path_node, drawn_path_node, fit_freehand, node_stamp_key, path_tool,
+    arc_path_node, arc_points_define_circle, brush_path_node, drawn_path_node,
+    explicit_bezier_path, fit_freehand, node_stamp_key, parametric_shape_node, path_tool,
 };
 use results::{stamp_key, stamp_key_at};
 #[path = "board_path/live_prefix.rs"]
@@ -5190,17 +5191,7 @@ impl SlateApp {
                 pts.push(world);
                 tips.push(self.placed_tip(StrokeTool::Arc));
                 if pts.len() >= 3 {
-                    // start, end, middle → through-point is the last pick
-                    let bez = arc_through_three_points(pts[0], pts[2], pts[1]);
-                    let (rect, data) = bezpath_to_path_data(&bez, false);
-                    let grips = [tips[0], tips[2], tips[1]];
-                    self.commit_drawn_path(
-                        StrokeTool::Arc,
-                        rect,
-                        data,
-                        false,
-                        DrawnTips::Grips(&grips),
-                    );
+                    self.finish_arc_path(&pts, &tips);
                     return;
                 }
                 self.board_path_draft = Some(BoardPathDraft::Arc { points: pts, tips });

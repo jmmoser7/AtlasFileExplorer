@@ -1,5 +1,16 @@
 use super::*;
+use crate::app::tests::Harness;
+use serde_json::json;
 use slate_doc::scene::StrokeSpan;
+
+fn host() -> Harness {
+    let mut h = Harness::new("targeted_drawing");
+    h.app.ensure_work_tab();
+    h.app.at_home = false;
+    h.app.doc_mut().view.active_view = slate_doc::ViewKind::Board;
+    h.frame();
+    h
+}
 
 #[test]
 fn cubic_input_keeps_authored_control_points_as_a_curve() {
@@ -9,7 +20,7 @@ fn cubic_input_keeps_authored_control_points_as_a_curve() {
         Pos2::new(10.0, 20.0),
         Pos2::new(30.0, 20.0),
     ];
-    let (_, path) = bezier_path(&points, false).unwrap();
+    let (_, path) = board_path::explicit_bezier_path(&points, false).unwrap();
     assert!(matches!(
         path.segs.as_slice(),
         [slate_doc::scene::PathSeg::Cubic { .. }]
@@ -97,4 +108,86 @@ fn shared_brush_result_keeps_stamp_and_soft_tip_style() {
     assert_eq!(shape.stroke.width, tip.width);
     assert_eq!(shape.stroke.softness, tip.softness);
     assert_eq!(shape.stroke.color, tip.color);
+}
+
+#[test]
+fn arc_draw_uses_shared_result_and_rejects_collinear_points() {
+    let h = host();
+    let args = json!({"strokes":[{"tool":"arc","points":[[0,0],[20,0],[10,10]]}]});
+    let plan = h
+        .app
+        .prepare_targeted_command_with_context(&h.ctx, "board.paths.draw", &[], &args)
+        .unwrap();
+    let SceneCmd::Add { node, .. } = &plan.cmds[0] else {
+        panic!("arc should add a path")
+    };
+    assert!(
+        matches!(&node.kind, NodeKind::Shape(shape) if shape.shape == slate_doc::scene::ShapeKind::Path && shape.path.as_ref().is_some_and(|p| !p.is_empty()))
+    );
+    let degenerate = json!({"strokes":[{"tool":"arc","points":[[0,0],[20,0],[10,0]]}]});
+    assert!(h
+        .app
+        .prepare_targeted_command_with_context(&h.ctx, "board.paths.draw", &[], &degenerate)
+        .is_err());
+}
+
+#[test]
+fn human_arc_result_keeps_the_collinear_line_fallback() {
+    let mut scene = slate_doc::Scene::default().node_preparation();
+    let tip = slate_doc::vertex_style::PlacedTip {
+        width: 2.0,
+        color: slate_doc::scene::Rgba::BLACK,
+        opacity: 1.0,
+    };
+    let node = board_path::arc_path_node(
+        &mut scene,
+        [
+            Pos2::new(0.0, 0.0),
+            Pos2::new(20.0, 0.0),
+            Pos2::new(10.0, 0.0),
+        ],
+        board_path::default_curve_stroke(tip.color),
+        tip,
+        [tip; 3],
+    );
+    assert!(!board_path::arc_points_define_circle([
+        Pos2::new(0.0, 0.0),
+        Pos2::new(20.0, 0.0),
+        Pos2::new(10.0, 0.0),
+    ]));
+    assert!(
+        matches!(&node.kind, NodeKind::Shape(shape) if shape.path.as_ref().is_some_and(|path| matches!(path.segs.as_slice(), [slate_doc::scene::PathSeg::Line { .. }])))
+    );
+}
+
+#[test]
+fn parametric_shape_draw_retains_recipe_node_kinds_and_bounded_sides() {
+    let h = host();
+    for (tool, kind) in [
+        ("rect", slate_doc::scene::ShapeKind::Rect),
+        ("ellipse", slate_doc::scene::ShapeKind::Ellipse),
+        ("polygon", slate_doc::scene::ShapeKind::RegularPolygon),
+    ] {
+        let args = if tool == "polygon" {
+            json!({"strokes":[{"tool":tool,"points":[[20,30],[0,0]],"sides":7}]})
+        } else {
+            json!({"strokes":[{"tool":tool,"points":[[20,30],[0,0]]}]})
+        };
+        let plan = h
+            .app
+            .prepare_targeted_command_with_context(&h.ctx, "board.paths.draw", &[], &args)
+            .unwrap();
+        let SceneCmd::Add { node, .. } = &plan.cmds[0] else {
+            panic!("shape should add one node")
+        };
+        assert!(matches!(&node.kind, NodeKind::Shape(shape) if shape.shape == kind));
+        if tool == "polygon" {
+            assert!(matches!(&node.kind, NodeKind::Shape(shape) if shape.sides == 7));
+        }
+    }
+    let invalid = json!({"strokes":[{"tool":"polygon","points":[[0,0],[20,20]],"sides":129}]});
+    assert!(h
+        .app
+        .prepare_targeted_command_with_context(&h.ctx, "board.paths.draw", &[], &invalid)
+        .is_err());
 }

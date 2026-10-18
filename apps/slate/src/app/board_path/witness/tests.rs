@@ -239,3 +239,65 @@ fn legacy_tween_without_path_tips_uses_canonical_tipped_contour() {
         .expect("canonical tipped contour retains the authored corner");
     assert!((tips[end_of_first_segment].width - current_width).abs() < 1e-4);
 }
+
+#[test]
+fn parametric_closed_shapes_trace_the_shared_outline_and_keep_exact_source_on_finish() {
+    for kind in [
+        ShapeKind::Rect,
+        ShapeKind::Ellipse,
+        ShapeKind::RegularPolygon,
+    ] {
+        let mut source = source_node(
+            slate_doc::scene::WorldRect::new(20.0, 30.0, 180.0, 90.0),
+            27.0,
+        );
+        let NodeKind::Shape(shape) = &mut source.kind else {
+            unreachable!()
+        };
+        shape.shape = kind;
+        shape.sides = 7;
+        shape.phase_deg = 13.0;
+        let original = source.clone();
+        let tolerance = 0.1_f64.max(90.0 / 4_096.0);
+        let expected = slate_doc::geom::node_closed_poly(&source, tolerance as f32).unwrap();
+
+        let preview = StrokePreview::new(&source, 0.1).unwrap();
+        assert_eq!(preview.contours().len(), 1);
+        assert_eq!(preview.contours()[0].len(), expected[0].len() + 1);
+        for (actual, expected) in preview.contours()[0].iter().zip(&expected[0]) {
+            assert!((actual.x - f64::from(expected[0])).abs() < 1e-5);
+            assert!((actual.y - f64::from(expected[1])).abs() < 1e-5);
+        }
+        assert_eq!(preview.contours()[0].first(), preview.contours()[0].last());
+
+        let partial = preview.through(0, 2, preview.contours()[0][2], false, false);
+        let NodeKind::Shape(shape) = &partial.kind else {
+            unreachable!()
+        };
+        assert_eq!(shape.shape, ShapeKind::Path);
+        assert!(shape.fill.is_none());
+        assert_eq!(
+            shape.path.as_deref().unwrap().segs.len(),
+            2,
+            "the preview contains the traced outline prefix"
+        );
+        assert_eq!(
+            preview.through(0, 0, point(0.0, 0.0), false, true),
+            original,
+            "completion restores the exact parameterized recipe node for {kind:?}"
+        );
+    }
+}
+
+#[test]
+fn parametric_outline_rejects_world_points_outside_the_bounded_route_domain() {
+    let mut source = source_node(
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 4_000_000_000.0, 100.0),
+        0.0,
+    );
+    let NodeKind::Shape(shape) = &mut source.kind else {
+        unreachable!()
+    };
+    shape.shape = ShapeKind::Ellipse;
+    assert!(StrokePreview::new(&source, 0.1).is_none());
+}

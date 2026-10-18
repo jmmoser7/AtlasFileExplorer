@@ -7,6 +7,7 @@ mod portals;
 mod prepare;
 mod prepared;
 mod schema;
+mod smoothing;
 mod text_style;
 
 use super::super::SlateApp;
@@ -32,6 +33,7 @@ pub(crate) struct PreparedBoardCommand {
     erase_path: Vec<[f64; 2]>,
     erase_span: Option<slate_doc::scene::StrokeSpan>,
     camera_zoom: f32,
+    smooth: Option<super::super::board_smooth::SmoothGesture>,
 }
 
 impl SlateApp {
@@ -83,7 +85,12 @@ impl SlateApp {
             return Err("Crop requires exactly one stable image ID".into());
         }
         let ids = prepare::target_ids(&self.doc().scene, targets)?;
-        let (cmds, targets, invocation, crop) = if portals::recognizes(command) {
+        let mut smooth = None;
+        let (cmds, targets, invocation, crop) = if command == "board.smooth.stroke" {
+            let (cmds, targets, gesture) = smoothing::prepare(self, &ids, arguments)?;
+            smooth = Some(gesture);
+            (cmds, targets, None, None)
+        } else if portals::recognizes(command) {
             let (cmds, targets) = portals::prepare(self, command, &ids, arguments)?;
             (cmds, targets, None, None)
         } else if command == "board.objects.crop" {
@@ -173,6 +180,7 @@ impl SlateApp {
             erase_path,
             erase_span,
             camera_zoom: self.tab().cam.z,
+            smooth,
         };
         prepared.applicable(&self.doc().scene)?;
         Ok(prepared)

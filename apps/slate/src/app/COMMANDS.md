@@ -931,8 +931,9 @@ all are in the palette.
 ### Board collaborators (17 October 2026)
 
 Collaborators can use `board.paths.draw` for witnessed pen, brush, line,
-polyline and cubic Bézier strokes; `board.eraser.stroke` for a visible eraser
-sweep; and `board.path.join` for the existing join result. Complex multi-stroke
+polyline, cubic Bézier, Arc and parametric rectangle/ellipse/polygon outlines;
+`board.eraser.stroke` and `board.smooth.stroke` for visible swept tool work;
+and `board.path.join` for the existing join result. Complex multi-stroke
 batches can use temporary execution avatars within the grant's helper limit,
 without spawning additional providers. One completed batch is one Undo.
 `board.objects.create_portal` creates an Atlas or Web portal through the normal

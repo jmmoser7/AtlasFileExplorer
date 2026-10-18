@@ -269,6 +269,7 @@ fn public_command_schema_and_argument_validation_share_one_catalogue() {
         "board.path.join",
         "board.paths.draw",
         "board.shape.edit",
+        "board.smooth.stroke",
         "board.wire.edit",
         "portal.agent.run",
         "portal.atlas.highlight",

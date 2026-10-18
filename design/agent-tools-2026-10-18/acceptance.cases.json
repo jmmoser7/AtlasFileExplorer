@@ -23,7 +23,7 @@
         "Use a disposable workbook and an empty board at 100% zoom. Enable a visible agent with the approved marble face and hat; record display scale and theme."
       ],
       "steps": [
-        "Ask the agent to draw a pen path, a stamped brush stroke, and a polyline with several corners.",
+        "Ask the agent to draw a pen path, stamped brush stroke, line, polyline, cubic Bezier, three-pick Arc, rectangle, ellipse, and polygon.",
         "Observe the board during each stroke and after completion; inspect the resulting objects and Undo/Redo.",
         "While a brush stroke is running, activate a nonmatching board search and clear it; repeat after commit. Also draw a later pen across an earlier brush in one batch."
       ],
@@ -43,6 +43,10 @@
         {
           "id": "paint-parity",
           "expected": "Active and committed strokes keep the same stacking order and search dimming. Later pen ink covers earlier brush ink; clearing search restores opacity without lost or doubled ink."
+        },
+        {
+          "id": "all-drawing-tools",
+          "expected": "Arc follows its actual shared three-pick curve; rectangle/ellipse/polygon outlines grow behind the avatar and finish as editable parametric kit shapes, rather than appearing as completed filled objects at the start."
         }
       ]
     },
@@ -107,7 +111,7 @@
     {
       "id": "erase-and-join-owner-results",
       "group": "Drawing and agents",
-      "title": "Erase and join use the ordinary drawing results",
+      "title": "Erase, smooth and join use the ordinary drawing results",
       "scope": "current",
       "reports": [
         "agent-tools-2026-10-18"
@@ -116,7 +120,8 @@
         "Use a disposable board with stamped brush marks, vector strokes, and two eligible open paths plus one closed shape."
       ],
       "steps": [
-        "Ask the agent to erase across the marks, then join the eligible paths and shape. Inspect while the eraser moves and after Undo/Redo."
+        "Ask the agent to erase across the marks, then join the eligible paths and shape. Inspect while the eraser moves and after Undo/Redo.",
+        "Ask the agent to smooth a jagged vector path and a stamped brush stroke with a sweep. Observe the reached region and repeat pause/resume before completion."
       ],
       "checks": [
         {
@@ -130,6 +135,10 @@
         {
           "id": "join",
           "expected": "Eligible open paths and closed shapes join through the ordinary join behavior with expected endpoints and style; Undo/Redo restores and reapplies the join."
+        },
+        {
+          "id": "smooth-prefix",
+          "expected": "Smoothing becomes visible only along the reached sweep, matches the human tool result and commits once. Pausing does not keep increasing smooth strength; Undo restores the original geometry and brush blur."
         }
       ]
     },
@@ -318,10 +327,10 @@
     "path": "C:/Users/jmoser/source/repos/AtlasFileExplorer/target/release/slate.exe",
     "size": null,
     "modified_utc": "Pending native delivery",
-    "version": "e39c3fb5e1785d563d9d79df673f2922a8231131",
+    "version": "18 October: drawing and portal candidate; native delivery pending",
     "sha256": "",
     "tested_interactively": false,
     "available": false
   },
-  "automatedEvidence": "Pending executed source validation and final build delivery. No automated result or native/GPU/user acceptance is recorded here. Every case starts Untested for each new build/run; this catalog does not prefill verdicts."
+  "automatedEvidence": "Automation results and the exact source revision are reported on PR 60. Logic checks and retained production-painter software captures are separate from native/GPU/user acceptance. Every case starts Untested for each new build/run; no automated result prefills a verdict."
 }

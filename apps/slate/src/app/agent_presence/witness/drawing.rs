@@ -8,6 +8,8 @@ use slate_doc::scene::StrokeSpan;
 
 const DRAWING_BUDGET_MS: u32 = 6_000;
 const VERTEX_DWELL_MS: u32 = 120;
+mod smoothing;
+use smoothing::SmoothPreview;
 
 struct InkStroke {
     node: Node,
@@ -32,6 +34,7 @@ pub(super) struct DrawingRun {
     path: WorkPath,
     ink: Vec<InkStroke>,
     erase: Option<ErasePreview>,
+    smooth: Option<SmoothPreview>,
     lanes: Vec<Lane>,
     helper_limit: usize,
     key: String,
@@ -63,6 +66,7 @@ impl DrawingRun {
     ) -> Result<Option<Self>, String> {
         let mut ink = Vec::new();
         let mut routes = Vec::new();
+        let mut smooth = None;
         let erase = if prepared.command == "board.eraser.stroke" {
             let points: Vec<_> = prepared
                 .erase_path()
@@ -124,6 +128,11 @@ impl DrawingRun {
                 pairs,
                 vector_first_hit,
             })
+        } else if prepared.command == "board.smooth.stroke" {
+            let (preview, route) = SmoothPreview::prepare(prepared, steps)?;
+            routes.push(route);
+            smooth = Some(preview);
+            None
         } else if prepared.command == "board.paths.draw" {
             for (_, after) in steps {
                 let node = after.as_ref().ok_or("Missing drawing result")?;
@@ -165,6 +174,7 @@ impl DrawingRun {
             path,
             ink,
             erase,
+            smooth,
             lanes: Vec::new(),
             helper_limit: 0,
             key: key.into(),
@@ -176,7 +186,7 @@ impl DrawingRun {
         self.helper_limit = usize::from(limit);
     }
     pub(super) fn begin(&mut self, motion: &mut PresenceSession) -> Result<(), String> {
-        let helpers = if self.erase.is_some() {
+        let helpers = if self.erase.is_some() || self.smooth.is_some() {
             0
         } else {
             self.helper_limit
@@ -225,7 +235,18 @@ impl DrawingRun {
         let target = self
             .ink
             .first()
-            .map_or_else(|| self.erase.as_ref().unwrap().pairs[0].0.id, |s| s.node.id);
+            .map(|stroke| stroke.node.id)
+            .or_else(|| {
+                self.erase
+                    .as_ref()
+                    .and_then(|erase| erase.pairs.first().map(|pair| pair.0.id))
+            })
+            .or_else(|| {
+                self.smooth
+                    .as_ref()
+                    .and_then(|smooth| smooth.before.first().map(|node| node.id))
+            })
+            .ok_or("Drawing has no witnessed target")?;
         let plan = MotionPlan {
             session_id: motion.id().clone(),
             request_id: motion
@@ -261,6 +282,20 @@ impl DrawingRun {
         }
         self.last_sample = Some((sample.phase, sample.progress.to_bits()));
         self.helpers_visible = true;
+        for lane in &mut self.lanes {
+            lane.position = lane.route.position(sample.progress).position;
+        }
+        if let Some(smooth) = &self.smooth {
+            let nodes = if sample.phase == MotionPhase::ReadyToCommit {
+                Some(smooth.final_nodes.clone())
+            } else {
+                smooth.prefix(&self.path, sample.progress)
+            };
+            if let Some(nodes) = nodes {
+                previews.extend(nodes.into_iter().map(|node| (node.id, node)));
+            }
+            return;
+        }
         if let Some(erase) = &self.erase {
             let span = erase.span;
             let at = self.path.position(sample.progress);
@@ -295,7 +330,6 @@ impl DrawingRun {
         }
         for lane in &mut self.lanes {
             let at = lane.route.position(sample.progress);
-            lane.position = at.position;
             let Some(current) = at.stroke_index.checked_sub(lane.birth_marker) else {
                 continue;
             };
@@ -331,7 +365,9 @@ impl DrawingRun {
         sample: MotionSample,
         mut visit: impl FnMut(BrushPathSample<'_>),
     ) {
-        if !matches!(sample.phase, MotionPhase::Work | MotionPhase::ReadyToCommit) {
+        if self.smooth.is_some()
+            || !matches!(sample.phase, MotionPhase::Work | MotionPhase::ReadyToCommit)
+        {
             return;
         }
         let ready = sample.phase == MotionPhase::ReadyToCommit;

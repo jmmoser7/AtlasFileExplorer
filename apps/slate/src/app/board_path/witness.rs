@@ -1,6 +1,11 @@
 use super::shape_path_world_bez;
 use atlas_agent::presence::WorldPoint;
-use slate_doc::scene::{Node, NodeKind, PathContour, PathData, PathSeg, ShapeKind, StrokeSpan};
+use slate_doc::scene::{
+    Node, NodeKind, PathContour, PathData, PathFillRule, PathSeg, ShapeKind, StrokeSpan,
+};
+mod outline;
+mod tips;
+use tips::{legacy_tipped_contours, span_from_stamp};
 
 const PREVIEW_VERTEX_LIMIT: usize = 4_096;
 
@@ -19,6 +24,20 @@ impl StrokePreview {
         if !tolerance.is_finite() || tolerance <= 0.0 {
             return None;
         }
+        if let Some(points) = outline::closed_shape_route(node, tolerance) {
+            let NodeKind::Shape(shape) = &node.kind else {
+                unreachable!()
+            };
+            let tip = StrokeSpan::of(&shape.stroke);
+            let tips = vec![tip; points.len()];
+            let tip_anchors = points.iter().map(|p| [p.x, p.y]).collect();
+            return Some(Self {
+                source: node.clone(),
+                contours: vec![points],
+                tips: vec![tips],
+                tip_anchors: vec![tip_anchors],
+            });
+        }
         let (shape, path) = path_source(node)?;
         if path_vertex_count(path) > PREVIEW_VERTEX_LIMIT
             || !finite_geometry(node, path)
@@ -31,19 +50,7 @@ impl StrokePreview {
             tolerance.max(control_length(path, node) / PREVIEW_VERTEX_LIMIT as f64);
         // Reuse the canonical stamped-path interpreter for legacy two-tip
         // tweens. It adds the same curve easing samples as the final raster.
-        let legacy_tween = (path.tips.is_empty() && shape.stroke.tween_from.is_some()).then(|| {
-            let tips = path
-                .paint_tips(&shape.stroke)
-                .into_iter()
-                .map(StrokeSpan::stamp_style)
-                .collect::<Vec<_>>();
-            vector_ink::tipped_contours(
-                &bez,
-                &tips,
-                StrokeSpan::of(&shape.stroke).stamp_style(),
-                safe_tolerance,
-            )
-        });
+        let legacy_tween = legacy_tipped_contours(path, shape, &bez, safe_tolerance);
         let flat = legacy_tween.as_ref().map_or_else(
             || vector_ink::flatten_contours(&bez, safe_tolerance),
             |contours| {
@@ -131,9 +138,10 @@ impl StrokePreview {
         else {
             return node;
         };
-        let Some((_, source_path)) = path_source(&self.source) else {
+        let NodeKind::Shape(source_shape) = &self.source.kind else {
             return node;
         };
+        let source_path = source_shape.path.as_deref();
         let rect = node.rect;
         let rotation = node.rotation_deg;
         let Some(first) = contours.first() else {
@@ -147,7 +155,7 @@ impl StrokePreview {
             segs: line_segments(first, rect, rotation),
             closed: false,
             extra: Vec::new(),
-            fill_rule: source_path.fill_rule,
+            fill_rule: source_path.map_or(PathFillRule::default(), |path| path.fill_rule),
             tips: self.preview_tips(contour_index, vertex_index, tip, pen_down),
             field_colors: Vec::new(),
             erase: Vec::new(),
@@ -166,10 +174,9 @@ impl StrokePreview {
         let NodeKind::Shape(shape) = &mut node.kind else {
             return node;
         };
+        shape.shape = ShapeKind::Path;
         shape.fill = None;
-        if let Some(path) = &mut shape.path {
-            *path = std::sync::Arc::new(data);
-        }
+        shape.path = Some(std::sync::Arc::new(data));
         node
     }
 
@@ -400,22 +407,6 @@ fn interpolate_tips(
         .iter()
         .map(|point| tip_at(*point, &anchors, &path.tips[range.clone()], contour.closed))
         .collect()
-}
-
-fn span_from_stamp(tip: vector_ink::StampStyle) -> StrokeSpan {
-    use slate_doc::scene::BrushTexture;
-    StrokeSpan {
-        width: tip.diameter,
-        softness: tip.softness,
-        color: slate_doc::scene::Rgba(tip.rgba),
-        texture: match tip.grain {
-            vector_ink::Grain::Smooth => BrushTexture::Smooth,
-            vector_ink::Grain::Graphite => BrushTexture::Graphite,
-            vector_ink::Grain::Pencil => BrushTexture::Pencil,
-            vector_ink::Grain::Ink => BrushTexture::Ink,
-            vector_ink::Grain::Watercolor => BrushTexture::Watercolor,
-        },
-    }
 }
 
 fn tip_at(point: [f32; 2], anchors: &[[f64; 2]], tips: &[StrokeSpan], closed: bool) -> StrokeSpan {

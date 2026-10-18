@@ -1,6 +1,9 @@
 use super::*;
 
 impl PreparedBoardCommand {
+    pub(crate) fn smooth_gesture(&self) -> Option<&crate::app::board_smooth::SmoothGesture> {
+        self.smooth.as_ref()
+    }
     pub(crate) fn camera_zoom(&self) -> f32 {
         self.camera_zoom
     }

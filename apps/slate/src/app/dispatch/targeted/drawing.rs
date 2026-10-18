@@ -2,8 +2,11 @@
 use super::*;
 use crate::app::{board_color, board_path};
 use eframe::egui::Pos2;
-use slate_doc::scene::{NodeKind, PathData, SceneCmd, WorldRect};
-use vector_ink::kurbo::{BezPath, Point};
+use slate_doc::scene::{NodeKind, SceneCmd, WorldRect};
+use slate_doc::StrokeTool;
+
+#[path = "drawing/shapes.rs"]
+mod shapes;
 
 const MAX_TOTAL_POINTS: usize = 4096;
 
@@ -102,7 +105,16 @@ fn draw(
     let mut total_points = 0;
     for stroke in strokes {
         let mode = stroke["tool"].as_str().ok_or("Each stroke needs a tool")?;
-        let points = points(&stroke["points"], 4096, if mode == "brush" { 1 } else { 2 })?;
+        if mode != "polygon" && stroke.get("sides").is_some() {
+            return Err("sides is available for polygon only".into());
+        }
+        let min_points = match mode {
+            "brush" => 1,
+            "arc" => 3,
+            "rect" | "ellipse" | "polygon" => 2,
+            _ => 2,
+        };
+        let points = points(&stroke["points"], 4096, min_points)?;
         total_points += points.len();
         if total_points > MAX_TOTAL_POINTS {
             return Err("A draw request may contain at most 4096 total path points".into());
@@ -115,21 +127,54 @@ fn draw(
             .map(|v| v.as_bool().ok_or("closed must be a boolean"))
             .transpose()?
             .unwrap_or(false);
-        if !matches!(mode, "pen" | "line" | "polyline" | "bezier" | "brush") {
-            return Err("Tool must be pen, brush, polyline, bezier, or line".into());
+        if shapes::supports(mode) {
+            let node = shapes::draw(app, &mut scratch, mode, stroke, &points, closed)?;
+            created.push(node.id);
+            cmds.push(SceneCmd::Add {
+                index: app.doc().scene.nodes.len() + cmds.len(),
+                node,
+            });
+            continue;
+        }
+        if !matches!(
+            mode,
+            "pen" | "line" | "polyline" | "bezier" | "brush" | "arc"
+        ) {
+            return Err(
+                "Tool must be pen, brush, polyline, bezier, line, arc, rect, ellipse, or polygon"
+                    .into(),
+            );
         }
         let width = optional_number(stroke, "width")?.unwrap_or_else(|| {
             if mode == "brush" {
                 app.brush_stroke().width
             } else {
-                board_path::path_tool(mode).map_or(1.0, |tool| app.stroke_for_tool(tool).width)
+                board_path::path_tool(mode).map_or_else(
+                    || {
+                        if mode == "arc" {
+                            app.stroke_for_tool(StrokeTool::Arc).width
+                        } else {
+                            1.0
+                        }
+                    },
+                    |tool| app.stroke_for_tool(tool).width,
+                )
             }
         });
         if !(0.01..=10_000.0).contains(&width) {
             return Err("Stroke width must be between 0.01 and 10000".into());
         }
         let opacity = optional_number(stroke, "opacity")?.unwrap_or_else(|| {
-            board_path::path_tool(mode).map_or(1.0, |tool| app.opacity_for_tool(tool))
+            board_path::path_tool(mode).map_or_else(
+                || {
+                    if mode == "arc" {
+                        app.opacity_for_tool(StrokeTool::Arc)
+                    } else {
+                        1.0
+                    }
+                },
+                |tool| app.opacity_for_tool(tool),
+            )
         });
         if !(0.0..=1.0).contains(&opacity) {
             return Err("Opacity must be between 0 and 1".into());
@@ -142,8 +187,16 @@ fn draw(
                 if mode == "brush" {
                     app.brush_stroke().color
                 } else {
-                    board_path::path_tool(mode)
-                        .map_or(app.board_colors.fg, |tool| app.stroke_for_tool(tool).color)
+                    board_path::path_tool(mode).map_or_else(
+                        || {
+                            if mode == "arc" {
+                                app.stroke_for_tool(StrokeTool::Arc).color
+                            } else {
+                                app.board_colors.fg
+                            }
+                        },
+                        |tool| app.stroke_for_tool(tool).color,
+                    )
                 }
             });
         let node = if mode == "brush" {
@@ -180,55 +233,80 @@ fn draw(
             if stroke.get("softness").is_some() {
                 return Err("Softness is available for brush strokes only".into());
             }
-            let tool = board_path::path_tool(mode).ok_or("Unsupported drawing tool")?;
+            if mode == "arc" && (points.len() != 3 || closed) {
+                return Err("An arc needs start, end, and through points and stays open".into());
+            }
+            let tool = if mode == "arc" {
+                StrokeTool::Arc
+            } else {
+                board_path::path_tool(mode).ok_or("Unsupported drawing tool")?
+            };
             let mut style = app.stroke_for_tool(tool);
             style.width = width;
             style.color = color;
-            let (rect, path, tips) = if mode == "pen" {
+            if mode == "arc" {
+                if !board_path::arc_points_define_circle([points[0], points[1], points[2]]) {
+                    return Err("Arc points must define a non-degenerate circle".into());
+                }
                 let tip = slate_doc::vertex_style::PlacedTip {
                     width,
                     color,
                     opacity,
                 };
-                let zoom = app.tab().cam.z.max(f32::EPSILON);
-                let mut stroke = board_path::FreehandTips::new(points[0], tip);
-                for point in &points[1..] {
-                    stroke.push(*point, tip, zoom);
-                }
-                let (bez, tips) = board_path::fit_freehand(&stroke, zoom)
-                    .ok_or("Pen samples could not be fitted")?;
-                let (rect, path) = board_path::bezpath_to_path_data(&bez, false);
-                (rect, path, tips)
-            } else if mode == "bezier" {
-                let (rect, path) = bezier_path(&points, closed)?;
-                (rect, path, Vec::new())
+                board_path::arc_path_node(
+                    &mut scratch,
+                    [points[0], points[1], points[2]],
+                    style,
+                    tip,
+                    [tip; 3],
+                )
             } else {
-                let (rect, path) = board_path::points_to_path_data(&points, closed);
-                (rect, path, Vec::new())
-            };
-            let fill = if closed {
-                app.fill_for_new_shape()
-            } else {
-                None
-            };
-            board_path::drawn_path_node(
-                &mut scratch,
-                rect,
-                path,
-                closed,
-                style,
-                slate_doc::vertex_style::PlacedTip {
-                    width,
-                    color,
-                    opacity,
-                },
-                fill,
-                if tips.is_empty() {
-                    board_path::DrawnTips::None
+                let (rect, path, tips) = if mode == "pen" {
+                    let tip = slate_doc::vertex_style::PlacedTip {
+                        width,
+                        color,
+                        opacity,
+                    };
+                    let zoom = app.tab().cam.z.max(f32::EPSILON);
+                    let mut stroke = board_path::FreehandTips::new(points[0], tip);
+                    for point in &points[1..] {
+                        stroke.push(*point, tip, zoom);
+                    }
+                    let (bez, tips) = board_path::fit_freehand(&stroke, zoom)
+                        .ok_or("Pen samples could not be fitted")?;
+                    let (rect, path) = board_path::bezpath_to_path_data(&bez, false);
+                    (rect, path, tips)
+                } else if mode == "bezier" {
+                    let (rect, path) = board_path::explicit_bezier_path(&points, closed)?;
+                    (rect, path, Vec::new())
                 } else {
-                    board_path::DrawnTips::Vertices(&tips)
-                },
-            )
+                    let (rect, path) = board_path::points_to_path_data(&points, closed);
+                    (rect, path, Vec::new())
+                };
+                let fill = if closed {
+                    app.fill_for_new_shape()
+                } else {
+                    None
+                };
+                board_path::drawn_path_node(
+                    &mut scratch,
+                    rect,
+                    path,
+                    closed,
+                    style,
+                    slate_doc::vertex_style::PlacedTip {
+                        width,
+                        color,
+                        opacity,
+                    },
+                    fill,
+                    if tips.is_empty() {
+                        board_path::DrawnTips::None
+                    } else {
+                        board_path::DrawnTips::Vertices(&tips)
+                    },
+                )
+            }
         };
         if !valid_rect(node.rect) {
             return Err("Path geometry is outside the board bounds".into());
@@ -240,25 +318,6 @@ fn draw(
         });
     }
     Ok((cmds, created))
-}
-
-fn bezier_path(points: &[Pos2], closed: bool) -> Result<(WorldRect, PathData), String> {
-    if points.len() < 4 || !(points.len() - 1).is_multiple_of(3) {
-        return Err("Bezier points must be cubic control points in 3n+1 order".into());
-    }
-    let mut bez = BezPath::new();
-    bez.move_to(Point::new(points[0].x as f64, points[0].y as f64));
-    for curve in points[1..].as_chunks::<3>().0 {
-        bez.curve_to(
-            Point::new(curve[0].x as f64, curve[0].y as f64),
-            Point::new(curve[1].x as f64, curve[1].y as f64),
-            Point::new(curve[2].x as f64, curve[2].y as f64),
-        );
-    }
-    if closed {
-        bez.close_path();
-    }
-    Ok(board_path::bezpath_to_path_data(&bez, closed))
 }
 
 fn erase(
