@@ -172,7 +172,7 @@ impl Fixture {
     }
     pub fn observe(&mut self, who: &str, session: &AgentSession) {
         assert_eq!(session.request, self.declarations.tasks[who].request);
-        crate::app::agent_presence::lifecycle_tests::session_support::publish_and_observe(
+        crate::app::agent_presence::lifecycle_tests::session_support::publish_synthetic_and_observe(
             &mut self.h,
             who,
             session,
@@ -193,7 +193,7 @@ impl Fixture {
             .binding
             .session_id
             .clone();
-        crate::app::agent_presence::lifecycle_tests::session_support::publish_and_observe_until(
+        crate::app::agent_presence::lifecycle_tests::session_support::publish_synthetic_and_observe_until(
             &mut self.h,
             who,
             session,
