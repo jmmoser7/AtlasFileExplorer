@@ -26,6 +26,8 @@ pub fn participant_capsules(
     now: f64,
     reduced: bool,
 ) -> Vec<PresenceAction> {
+    state.last_popover_rect = Rect::NOTHING;
+    state.last_model_popup_rect = Rect::NOTHING;
     let palette = chrome::presentation_palette(palette);
     ui.scope(|ui| {
         chrome::configure(ui, state.font_family.as_ref(), &palette);
@@ -178,7 +180,9 @@ fn capsules_ui(
         state.anchor = roster;
     }
     if ui.ctx().input(|i| i.key_pressed(egui::Key::Escape)) {
-        if state.requested_provider.take().is_none() && state.popover.take().is_none() {
+        if state.model_menu_open {
+            state.model_menu_open = false;
+        } else if state.requested_provider.take().is_none() && state.popover.take().is_none() {
             state.close_chat();
         }
     }
@@ -268,7 +272,7 @@ fn capsules_ui(
         crate::menu_wheel::claim(ui.ctx(), state.last_popup_rect);
         if !state.just_opened && ui.ctx().input(|i| i.pointer.any_pressed()) {
             if let Some(pos) = ui.ctx().input(|i| i.pointer.interact_pos()) {
-                if !state.last_popup_rect.contains(pos) && !roster.contains(pos) {
+                if !state.occludes_point(ui.ctx(), pos) && !roster.contains(pos) {
                     state.close_chat();
                 }
             }

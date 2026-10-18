@@ -222,6 +222,7 @@ impl SlateApp {
                 a.status = "Render fixture · no provider connected".into();
                 let session = self.presence.roster.session_mut(&a.motion).unwrap();
                 let request = id(&atlas_agent::request_id()).unwrap();
+                a.request = request.as_str().into();
                 session.begin_request(request.clone()).unwrap();
                 session
                     .enqueue(MotionPlan {
@@ -266,18 +267,15 @@ impl SlateApp {
                 let tab = self.tab_mut();
                 tab.path = Some(path);
                 tab.lease = Some(lease);
-                let (who, author, session) = self
+                let (index, who) = self
                     .presence
                     .agents
                     .iter()
-                    .find(|a| a.tab == self.tab().id && a.profile.name == "Dot · render fixture")
-                    .map(|a| {
-                        (
-                            a.profile.id.clone(),
-                            a.profile.name.clone(),
-                            a.binding.session_id.clone(),
-                        )
+                    .enumerate()
+                    .find(|(_, a)| {
+                        a.tab == self.tab().id && a.profile.name == "Dot · render fixture"
                     })
+                    .map(|(index, a)| (index, a.profile.id.clone()))
                     .ok_or("Missing live fixture collaborator")?;
                 let node = self
                     .doc()
@@ -287,15 +285,40 @@ impl SlateApp {
                     .find(|node| matches!(node.kind, slate_doc::NodeKind::Shape(_)))
                     .ok_or("Missing fixture shape")?;
                 let (target, before) = (node.id, node.rect);
-                let prepared = self.prepare_targeted_command(
-                    "board.objects.move",
-                    &[target.0.to_string()],
-                    &json!({"dx":80,"dy":20}),
-                )?;
-                let status = self.finish_targeted_command(prepared, &author, false, &session)?;
-                let proposal = status
-                    .strip_prefix("staged:")
-                    .ok_or("Fixture move was not staged")?;
+                let mut agent = self.presence.agents.remove(index);
+                let call = BoardCall {
+                    id: atlas_agent::request_id(),
+                    session: agent.binding.clone(),
+                    request_id: agent.request.clone(),
+                    sequence: 0,
+                    operation: BoardOperation::Invoke {
+                        command: "board.objects.move".into(),
+                        targets: vec![target.0.to_string()],
+                        arguments: json!({"dx":80,"dy":20}),
+                    },
+                };
+                let admitted = self.presence_call(&mut agent, &call).is_none();
+                self.presence.agents.insert(index, agent);
+                if !admitted {
+                    return Err("Fixture move was not admitted".into());
+                }
+                // This fixture runs the ordinary bounded initial witness. It
+                // never forges an approved endpoint or commits authored edits.
+                for _ in 0..160 {
+                    self.presence.last_tick =
+                        Some(Instant::now() - std::time::Duration::from_millis(50));
+                    self.presence_pump(ctx);
+                    if self.presence.agents[index].work.is_none() {
+                        break;
+                    }
+                }
+                let proposal = self
+                    .presence
+                    .proposals
+                    .iter()
+                    .find(|(_, p)| p.call.id == call.id)
+                    .map(|(id, _)| id.as_str())
+                    .ok_or("Fixture move was not staged with its exact live context")?;
                 let pending = self.presence_proposal_rows(&who);
                 if pending.len() != 1
                     || pending[0].id != proposal

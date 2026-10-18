@@ -27,6 +27,13 @@ impl SlateApp {
                     .find(|spec| spec.id.0 == proposal.title)
                     .map_or(proposal.title.as_str(), |spec| spec.name),
                 recovery_required: proposal.status == slate_doc::ProposalStatus::RecoveryRequired,
+                applying: self.presence.proposals.get(&proposal.id).is_some_and(|p| {
+                    p.approval.is_some()
+                        && agent.work.as_ref().is_some_and(|w| {
+                            w.purpose
+                                == witness::WitnessPurpose::ApprovedProposal(proposal.id.clone())
+                        })
+                }),
             })
             .collect()
     }
@@ -117,6 +124,10 @@ impl SlateApp {
             })
             .collect();
         let history_status = self.presence_history_status();
+        let statuses: Vec<_> = live
+            .iter()
+            .map(|a| presence_mode_status(a, history_status.as_deref()))
+            .collect();
         let self_thread = self.presence_conversation("self");
         let mut participants = vec![chrome::Participant {
             id: "self",
@@ -147,7 +158,7 @@ impl SlateApp {
                 id: &a.profile.id,
                 name: &a.profile.name,
                 hat: &a.profile.hat,
-                status: history_status.as_deref().unwrap_or(&a.status),
+                status: &statuses[index],
                 provider: &a.profile.provider,
                 human: false,
                 paused: a.paused,
@@ -367,4 +378,15 @@ impl SlateApp {
             self.dispatch(ctx, spec.id, Some(detail.to_string()));
         }
     }
+}
+
+pub(super) fn presence_mode_status(a: &Collaborator, history: Option<&str>) -> String {
+    let status = history.unwrap_or(&a.status);
+    let status = status.strip_suffix(" · proposal mode").unwrap_or(status);
+    let mode = match a.grant.as_ref() {
+        None => "no board access",
+        Some(grant) if grant.mutation_autonomy => "autonomous board edits",
+        Some(_) => "proposal mode",
+    };
+    format!("{status} · {mode}")
 }

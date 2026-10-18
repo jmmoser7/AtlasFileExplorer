@@ -1,4 +1,5 @@
 //! The shared chat actions dispatch through the registered staging commands.
+use super::proposal_support::{stage_command, tick};
 use super::*;
 use slate_doc::scene::CmdAuthor;
 
@@ -11,29 +12,13 @@ fn setup() -> (Harness, String) {
 }
 
 fn stage(h: &mut Harness, who: &str) -> String {
-    let agent = h
-        .app
-        .presence
-        .agents
-        .iter()
-        .find(|a| a.profile.id == who)
-        .unwrap();
-    let author = agent.profile.name.clone();
-    let session = agent.binding.session_id.clone();
-    let prepared = h
-        .app
-        .prepare_targeted_command(
-            "board.objects.create_shape",
-            &[],
-            &json!({"x":20,"y":30,"width":80,"height":60}),
-        )
-        .unwrap();
-    h.app
-        .finish_targeted_command(prepared, &author, false, &session)
-        .unwrap()
-        .strip_prefix("staged:")
-        .unwrap()
-        .to_owned()
+    stage_command(
+        h,
+        who,
+        "board.objects.create_shape",
+        &[],
+        json!({"x":20,"y":30,"width":80,"height":60}),
+    )
 }
 
 fn decide(h: &mut Harness, who: &str, proposal: &str, accept: bool) {
@@ -90,6 +75,31 @@ fn chat_accept_routes_registered_command_to_one_attributed_commit_and_cannot_rep
     let depth = h.app.tab().journal.undo_depth();
     assert!(h.app.doc().scene.nodes.is_empty());
     decide(&mut h, &who, &proposal, true);
+    assert!(
+        h.app.doc().scene.nodes.is_empty(),
+        "Accept begins visible work before commit"
+    );
+    assert!(h.app.presence_proposal_rows(&who)[0].applying);
+    decide(&mut h, &who, &proposal, true);
+    let mut samples = Vec::new();
+    for _ in 0..160 {
+        tick(&mut h);
+        if h.app.presence.agents[0].work.is_none() {
+            break;
+        }
+        assert!(h.app.doc().scene.nodes.is_empty());
+        assert_eq!(h.app.tab().journal.undo_depth(), depth);
+        let work = h.app.presence.agents[0].work.as_ref().unwrap();
+        if let Some(node) = work.previews.values().next() {
+            if node.opacity > 0.01 && node.opacity < 0.99 {
+                samples.push(node.opacity);
+            }
+        }
+    }
+    assert!(
+        samples.len() >= 3,
+        "at least three real addition preview states: {samples:?}"
+    );
     assert_eq!(h.app.doc().scene.nodes.len(), 1);
     assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
     assert_eq!(

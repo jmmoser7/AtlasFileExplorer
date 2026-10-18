@@ -215,3 +215,183 @@ fn a_menu_prefers_below_when_it_fits_and_opens_above_near_the_bottom() {
         }
     }
 }
+
+#[test]
+fn nested_menu_preserves_identity_explicit_zoom_and_inherited_transform_contracts() {
+    let button = |pos: Pos2, pressed: bool| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    for inherited in [false, true] {
+        for zoom in [0.25, 0.8, 1.0, 2.0] {
+            let ctx = egui::Context::default();
+            let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 1200.0));
+            let translated_beyond_raw_screen = inherited && zoom == 0.25;
+            let transform = if inherited {
+                let pan = if translated_beyond_raw_screen {
+                    Vec2::new(-350.0, 180.0)
+                } else {
+                    Vec2::new(250.0, 180.0)
+                };
+                egui::emath::TSTransform::new(pan, zoom)
+            } else {
+                egui::emath::TSTransform::IDENTITY
+            };
+            let anchor = if translated_beyond_raw_screen {
+                Pos2::new(1800.0, 100.0)
+            } else {
+                Pos2::new(100.0, 100.0)
+            };
+            let explicit_zoom = if inherited { 1.0 } else { zoom };
+            let opener = egui::LayerId::new(
+                if inherited {
+                    POPUP_ORDER
+                } else {
+                    CANVAS_CHROME_ORDER
+                },
+                Id::new("selector-parent"),
+            );
+            let id = Id::new("selector-transform-contract");
+            let popup_layer = egui::LayerId::new(POPUP_ORDER, id.with("pop"));
+            let mut open = true;
+            let mut frame = |events| {
+                let mut result = None;
+                let out = ctx.run(
+                    egui::RawInput {
+                        screen_rect: Some(screen),
+                        events,
+                        time: Some(ctx.input(|input| input.time) + 1.0 / 60.0),
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        ctx.set_transform_layer(opener, transform);
+                        egui::Area::new(opener.id)
+                            .order(opener.order)
+                            .fixed_pos(Pos2::ZERO)
+                            .constrain_to(transform.inverse() * screen)
+                            .constrain(false)
+                            .fade_in(false)
+                            .show(ctx, |ui| {
+                                ui.set_min_size(if translated_beyond_raw_screen {
+                                    Vec2::new(2200.0, 700.0)
+                                } else {
+                                    Vec2::splat(700.0)
+                                });
+                                ui.painter()
+                                    .rect_filled(ui.min_rect(), 0, Palette::dark().panel);
+                                result = Some(bare_menu(
+                                    ui,
+                                    BareMenu {
+                                        id,
+                                        rect: Rect::from_min_size(
+                                            anchor * explicit_zoom,
+                                            Vec2::new(120.0, 24.0) * explicit_zoom,
+                                        ),
+                                        label: "First",
+                                        options: &[
+                                            "First", "Second", "Third", "Fourth", "Fifth", "Sixth",
+                                            "Seventh", "Eighth", "Ninth", "Tenth",
+                                        ],
+                                        selected: 0,
+                                        open: &mut open,
+                                        zoom: explicit_zoom,
+                                        theme: Palette::dark(),
+                                    },
+                                ));
+                            });
+                        ctx.move_to_top(opener);
+                    },
+                );
+                (result.unwrap(), out, open)
+            };
+            for _ in 0..8 {
+                frame(vec![]);
+            }
+            let (response, _, _) = frame(vec![]);
+            let popup = response.popup.unwrap();
+            assert!((popup.width() / zoom - 168.0).abs() < 0.1);
+            assert!(screen.contains_rect(popup));
+            assert_eq!(
+                ctx.layer_transform_to_global(popup_layer)
+                    .unwrap_or_default(),
+                transform
+            );
+            let stored = egui::containers::AreaState::load(&ctx, popup_layer.id)
+                .unwrap()
+                .rect();
+            assert_eq!(
+                transform * stored,
+                popup,
+                "returned bounds are actual screen geometry"
+            );
+            if translated_beyond_raw_screen {
+                assert!((transform.inverse() * popup).left() > screen.right());
+                let trigger = ctx.read_response(id).unwrap();
+                assert!(trigger.rect.left() > screen.right());
+                assert!(trigger.interact_rect.contains(trigger.rect.center()));
+            }
+            let (_, _, _) = frame(vec![
+                egui::Event::PointerMoved(popup.center()),
+                egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: Vec2::new(0.0, -4.0),
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]);
+            assert!(crate::menu_wheel::wheel_owned(&ctx));
+            for _ in 0..8 {
+                frame(vec![]);
+            }
+            let (_, out, _) = frame(vec![]);
+            let (second_bounds, second_clip) = out
+                .shapes
+                .iter()
+                .find_map(|shape| match &shape.shape {
+                    egui::Shape::Text(text) if text.galley.text() == "Second" => {
+                        Some((text.visual_bounding_rect(), shape.clip_rect))
+                    }
+                    _ => None,
+                })
+                .unwrap();
+            assert!(second_clip.contains_rect(second_bounds));
+            let second = second_bounds.center();
+            assert_eq!(ctx.layer_id_at(second), Some(popup_layer));
+            frame(vec![
+                egui::Event::PointerMoved(second),
+                button(second, true),
+            ]);
+            let (picked, _, is_open) = frame(vec![
+                egui::Event::PointerMoved(second),
+                button(second, false),
+            ]);
+            assert_eq!(picked.picked, Some(1));
+            assert!(!is_open);
+            let button_rect = ctx.read_response(id).unwrap();
+            let at = transform * button_rect.rect.center();
+            frame(vec![egui::Event::PointerMoved(at), button(at, true)]);
+            assert!(frame(vec![egui::Event::PointerMoved(at), button(at, false)]).2);
+            let (_, _, is_open) = frame(vec![egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }]);
+            assert!(!is_open);
+            frame(vec![egui::Event::PointerMoved(at), button(at, true)]);
+            assert!(frame(vec![egui::Event::PointerMoved(at), button(at, false)]).2);
+            let outside = Pos2::new(1500.0, 1100.0);
+            frame(vec![
+                egui::Event::PointerMoved(outside),
+                button(outside, true),
+            ]);
+            let (dismissed, _, is_open) = frame(vec![
+                egui::Event::PointerMoved(outside),
+                button(outside, false),
+            ]);
+            assert!(dismissed.dismissed_outside && !is_open);
+        }
+    }
+}

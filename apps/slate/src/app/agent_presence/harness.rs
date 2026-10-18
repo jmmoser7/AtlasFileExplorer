@@ -44,7 +44,7 @@ impl PresenceRuntime {
                 a.inflight
                     || a.read.is_some()
                     || a.work.is_some()
-                    || a.proposed.is_some()
+                    || self.has_pending_for(a)
                     || !a.launched.is_empty()
                     || a.snapshot.as_ref().is_some_and(|s| s.approval.is_some())
             })

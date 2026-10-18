@@ -8,6 +8,22 @@ pub fn selection_chrome_layer() -> egui::LayerId {
     egui::LayerId::new(CANVAS_CHROME_ORDER, Id::new("selection_property_chrome"))
 }
 
+/// Popup geometry remains in its opening layer's logical coordinates. This is
+/// the single owner of popup order and complete layer-transform inheritance.
+/// Identity-layer callers keep their existing screen geometry unchanged; nested
+/// transformed popups retain the same transform, never multiply it a second time.
+pub fn popup_area(ctx: &egui::Context, id: Id, opener: egui::LayerId) -> egui::Area {
+    let layer = egui::LayerId::new(POPUP_ORDER, id);
+    let transform = ctx.layer_transform_to_global(opener).unwrap_or_default();
+    ctx.set_transform_layer(layer, transform);
+    if opener.order == POPUP_ORDER && opener != layer {
+        ctx.set_sublayer(opener, layer);
+    }
+    egui::Area::new(id)
+        .order(POPUP_ORDER)
+        .constrain_to(transform.inverse() * ctx.screen_rect())
+}
+
 fn object_layer(ui: &egui::Ui) -> egui::LayerId {
     if ui.layer_id().order >= POPUP_ORDER {
         ui.layer_id()

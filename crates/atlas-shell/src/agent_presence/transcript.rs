@@ -164,7 +164,7 @@ fn proposal_row(
         .inner_margin(if attached { 12 } else { 16 })
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.label(RichText::new("Proposed board change").font(chrome::font(ui, 10.0)).color(palette.sub));
+            ui.label(RichText::new(if proposal.applying { "Applying visibly…" } else { "Proposed board change" }).font(chrome::font(ui, 10.0)).color(palette.sub));
             ui.add_space(5.0);
             ui.label(RichText::new(proposal.label).font(chrome::font(ui, if attached { 14.0 } else { 16.0 })).color(palette.ink));
             if proposal.recovery_required {
@@ -174,7 +174,7 @@ fn proposal_row(
             ui.add_space(10.0);
             ui.horizontal(|ui| {
                 for (accept, label) in [(true, "Accept"), (false, "Reject")] {
-                    let enabled = !accept || !proposal.recovery_required;
+                    let enabled = !accept || (!proposal.recovery_required && !proposal.applying);
                     let (rect, _) = ui.allocate_exact_size(Vec2::new(70.0, 28.0), Sense::hover());
                     let response = ui.interact(
                         rect,
@@ -184,7 +184,7 @@ fn proposal_row(
                     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label));
                     ui.painter().rect_filled(rect, 14, if enabled && response.hovered() { palette.card_hover } else { palette.window });
                     chrome::label(ui, rect, label, 12.0, if enabled { palette.ink } else { palette.sub }, Align2::CENTER_CENTER);
-                    if response.clicked() {
+                    if enabled && response.clicked() {
                         actions.push(if accept {
                             PresenceAction::AcceptProposal { participant: participant.into(), id: proposal.id.into() }
                         } else {

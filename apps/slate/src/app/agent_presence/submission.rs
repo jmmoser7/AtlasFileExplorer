@@ -46,13 +46,14 @@ impl SlateApp {
             self.stop_presence(who, false)?;
         }
         let history = self.presence.conversations.edit(who)?.replay();
+        let pending_proposals = self.presence.has_pending(who);
         let a = self
             .presence
             .agents
             .iter_mut()
             .find(|a| a.profile.id == who && a.tab == tab && a.departure.is_none())
             .ok_or("Collaborator is not on this board")?;
-        if a.inflight || a.work.is_some() || a.proposed.is_some() || a.read.is_some() {
+        if a.inflight || a.work.is_some() || pending_proposals || a.read.is_some() {
             return Err("This collaborator is busy or awaiting a proposal decision".into());
         }
         let grant = a

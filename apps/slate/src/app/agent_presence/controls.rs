@@ -200,6 +200,7 @@ impl SlateApp {
                     .find(|a| a.profile.id == id)
                     .ok_or("Unknown collaborator")?;
                 a.paused = paused;
+                a.control_epoch = a.control_epoch.wrapping_add(1);
                 a.chat_only = false;
                 a.status = if paused {
                     "Listening; task suspended"

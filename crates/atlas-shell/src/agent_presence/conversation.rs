@@ -43,14 +43,6 @@ pub(super) fn show(
         }
         occupied += 110.0;
     }
-    if matches!(
-        state.popover,
-        Some(Popover::Advanced | Popover::Retirement | Popover::Provider | Popover::More)
-    ) {
-        let before = ui.cursor().top();
-        controls::show(ui, palette, state, p, providers, actions);
-        occupied += ui.cursor().top() - before;
-    }
     let composer_height = if attached { 62.0 } else { 74.0 };
     let message_height = (height - occupied - composer_height - 12.0).max(54.0);
     super::transcript::show(
@@ -128,6 +120,7 @@ pub(super) fn show(
             response.request_focus();
         }
     });
+    controls::show(ui, palette, state, p, providers, header, actions);
 }
 #[allow(clippy::too_many_arguments)]
 fn header_ui(
@@ -146,8 +139,13 @@ fn header_ui(
     let right = header.right();
     let compact = header.width() < 420.0;
     let slot = if attached || compact { 26.0 } else { 31.0 };
-    let identity_end = (header.left() + if attached || compact { 112.0 } else { 150.0 })
-        .min(header.right() - 120.0);
+    let name_width = ui
+        .painter()
+        .layout_no_wrap(p.name.into(), chrome::font(ui, 15.0), palette.sub)
+        .size()
+        .x
+        .min(if p.human { 220.0 } else { 95.0 });
+    let identity_end = (header.left() + 39.0 + name_width + 5.0).min(header.right() - 120.0);
     let capsule = Rect::from_min_max(
         header.min + Vec2::new(0.0, 4.0),
         Pos2::new(

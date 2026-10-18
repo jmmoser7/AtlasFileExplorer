@@ -56,16 +56,32 @@ impl SlateApp {
             .iter()
             .map(|p| p.id.clone())
             .collect();
+        let vanished_proposals: Vec<_> = self
+            .presence
+            .proposals
+            .keys()
+            .filter(|id| !pending.contains(*id))
+            .cloned()
+            .collect();
+        for id in vanished_proposals {
+            self.presence_end_proposal_motion(&id, true);
+        }
+        let pending_agents: std::collections::HashSet<_> = self
+            .presence
+            .proposals
+            .values()
+            .map(|p| p.participant.clone())
+            .collect();
+        let listening_actions: std::collections::HashSet<_> = self
+            .presence
+            .agents
+            .iter()
+            .filter(|a| self.presence.approved_while_listening(a))
+            .map(|a| a.profile.id.clone())
+            .collect();
         for a in &mut self.presence.agents {
             if a.departure.is_some() {
                 continue;
-            }
-            if a.proposed
-                .as_ref()
-                .is_some_and(|(id, _)| !pending.contains(id))
-            {
-                a.proposed = None;
-                a.pending_created = None;
             }
             if let Some(error) = a.cursor.as_ref().and_then(|c| c.take_error()) {
                 ended.push((a.profile.id.clone(), error));
@@ -102,6 +118,9 @@ impl SlateApp {
                     if matches!(snapshot.status, atlas_agent::AgentStatus::Idle)
                         && (a.work.is_some() || a.read.is_some())
                         && a.seen_running
+                        && !a.work.as_ref().is_some_and(|w| {
+                            matches!(w.purpose, witness::WitnessPurpose::ApprovedProposal(_))
+                        })
                     {
                         ended.push((
                             a.profile.id.clone(),
@@ -186,17 +205,27 @@ impl SlateApp {
                             || matches!(s.status, atlas_agent::AgentStatus::Thinking)
                     })
             });
-            if a.proposed.is_some() {
-                a.activity = "approval".into();
-                a.status = "Proposal ready · accept or reject in chat".into();
+            if a.work.is_none() && matches!(a.activity.as_str(), "error" | "offline" | "blocked") {
+                // Keep the real diagnostic visible until another action or
+                // an explicit human control changes it.
+            } else if a.paused && !listening_actions.contains(&a.profile.id) {
+                a.activity = "listening".into();
+                a.status = "Listening; task suspended".into();
             } else if let Some(work) = &a.work {
                 a.activity = command_activity(&work.prepared.command).into();
                 a.status = if native_view_active {
                     "Waiting · park the native view to continue"
+                } else if work.purpose == witness::WitnessPurpose::ProposalPreview {
+                    "Proposed preview · board unchanged"
+                } else if matches!(work.purpose, witness::WitnessPurpose::ApprovedProposal(_)) {
+                    "Applying approved change visibly"
                 } else {
                     "Working on the board"
                 }
                 .into();
+            } else if pending_agents.contains(&a.profile.id) {
+                a.activity = "approval".into();
+                a.status = "Proposal ready · accept or reject in chat".into();
             } else if a.read.is_some() {
                 a.activity = "reading".into();
             } else if !a.launched.is_empty() {
@@ -205,7 +234,7 @@ impl SlateApp {
             }
             for call in self.presence.links.poll_limit(
                 &a.dir,
-                if !pointer_press && (!a.paused || a.chat_only) {
+                if !pointer_press && (!a.paused || (a.chat_only && a.work.is_none())) {
                     4usize.saturating_sub(calls.len())
                 } else {
                     0
@@ -271,17 +300,23 @@ impl SlateApp {
         let mut read_budget = 256usize;
         for index in 0..self.presence.agents.len() {
             let mut a = self.presence.agents.remove(index);
+            let mut completed_approval = None;
+            let mut cancelled_approval = None;
             if board_visible && a.tab == active_tab && a.departure.is_none() {
-                if let Some(reply) = if !pointer_press && (!a.paused || a.chat_only) {
-                    self.advance_presence_read(&mut a, &mut read_budget, elapsed)
-                } else {
-                    None
-                } {
+                if let Some(reply) =
+                    if !pointer_press && (!a.paused || (a.chat_only && a.work.is_none())) {
+                        self.advance_presence_read(&mut a, &mut read_budget, elapsed)
+                    } else {
+                        None
+                    }
+                {
                     let _ = self.presence.links.reply(&a.dir, reply);
                 }
-                if let Some(mut work) = (!a.paused).then(|| a.work.take()).flatten() {
+                let advance_work = !a.paused || self.presence.approved_while_listening(&a);
+                if let Some(mut work) = advance_work.then(|| a.work.take()).flatten() {
                     let generation = self.doc().scene.scene_gen();
-                    let applicable = !self.human_owns_presence_targets(&work.prepared.targets)
+                    let authorization = self.validate_presence_work(&a, &work);
+                    let applicable = authorization.is_ok()
                         && work.prepared.tab_id() == active_tab
                         && (work.checked_generation == Some(generation)
                             || work.prepared.expected_matches(&self.doc().scene).is_ok());
@@ -289,7 +324,9 @@ impl SlateApp {
                         work.checked_generation = Some(generation);
                     }
                     let result = if !applicable {
-                        Err("A human changed an action target; preview cancelled".to_owned())
+                        Err(authorization.err().unwrap_or_else(|| {
+                            "A human changed an action target; preview cancelled".to_owned()
+                        }))
                     } else if pointer_press {
                         // Keep the displayed preview through late foreground/board routing.
                         Ok(false)
@@ -313,90 +350,21 @@ impl SlateApp {
                     };
                     match result {
                         Ok(true) => {
-                            let created = work.prepared.created_ids();
-                            let created_prepared =
-                                (!created.is_empty()).then(|| work.prepared.clone());
-                            let generator_target = if work.prepared.command == "portal.agent.run" {
-                                work.prepared
-                                    .witness_nodes(&self.doc().scene)
-                                    .first()
-                                    .map(|n| n.id)
+                            if let witness::WitnessPurpose::ApprovedProposal(id) = &work.purpose {
+                                completed_approval = Some(id.clone());
+                                a.work = Some(work);
                             } else {
-                                None
-                            };
-                            let autonomy = a.grant.as_ref().is_some_and(|g| g.mutation_autonomy);
-                            let authorization = a
-                                .grant
-                                .as_ref()
-                                .ok_or("Grant revoked")
-                                .and_then(|g| g.authorize(&work.call, &a.binding, &a.request));
-                            let outcome = authorization.map_err(str::to_owned).and_then(|()| {
-                                self.finish_targeted_command(
-                                    work.prepared,
-                                    &a.profile.name,
-                                    autonomy,
-                                    &a.binding.session_id,
-                                )
-                            });
-                            if let Ok(status) = &outcome {
-                                if let Some(id) = status.strip_prefix("staged:") {
-                                    a.proposed = Some((id.into(), work.previews));
-                                    if !created.is_empty() {
-                                        a.pending_created = Some(own_chats::CreatedProposal {
-                                            id: id.into(),
-                                            grant: a.binding.grant_id.clone(),
-                                            call: work.call.clone(),
-                                            nodes: created.clone(),
-                                            prepared: created_prepared.unwrap(),
-                                        });
-                                    }
-                                } else if !created.is_empty() {
-                                    if let Err(error) =
-                                        self.presence_register_created_chats(&mut a, &created)
-                                    {
-                                        a.status = error;
-                                    }
-                                }
-                                if let (Some(target), Some(request)) =
-                                    (generator_target, status.strip_prefix("queued:"))
-                                {
-                                    a.launched.push((target, request.into()));
-                                }
+                                self.finish_presence_work(&mut a, work, now);
                             }
-                            let reply = match outcome {
-                                Ok(status) => {
-                                    a.status = if autonomy {
-                                        "Action completed"
-                                    } else {
-                                        "Proposal ready · accept or reject in chat"
-                                    }
-                                    .into();
-                                    a.activity =
-                                        if autonomy { "success" } else { "approval" }.into();
-                                    BoardReply {
-                                        id: work.call.id.clone(),
-                                        session_id: a.binding.session_id.clone(),
-                                        request_id: a.request.clone(),
-                                        success: true,
-                                        result: json!({"status":status,"created_ids":created.iter()
-                                            .map(|id|id.0.to_string()).collect::<Vec<_>>()}),
-                                    }
-                                }
-                                Err(e) => {
-                                    a.note_helper_outcome("blocked", &e);
-                                    a.status = e.clone();
-                                    a.activity = "blocked".into();
-                                    BoardReply::error(&work.call, &e)
-                                }
-                            };
-                            let _ = self.presence.links.reply(&a.dir, reply);
-                            a.last_active = now;
                         }
                         Ok(false) => {
                             a.work = Some(work);
                             ctx.request_repaint();
                         }
                         Err(error) => {
+                            if let witness::WitnessPurpose::ApprovedProposal(id) = &work.purpose {
+                                cancelled_approval = Some(id.clone());
+                            }
                             a.note_helper_outcome("blocked", &error);
                             let _ = self
                                 .presence
@@ -412,6 +380,12 @@ impl SlateApp {
                 }
             }
             self.presence.agents.insert(index, a);
+            if let Some(id) = cancelled_approval {
+                self.presence_end_proposal_motion(&id, false);
+            }
+            if let Some(id) = completed_approval {
+                self.complete_presence_proposal(&id);
+            }
         }
         let helpers: Vec<_> = self
             .presence
@@ -423,7 +397,7 @@ impl SlateApp {
                     && ((a.had_response
                         && !a.inflight
                         && a.work.is_none()
-                        && a.proposed.is_none()
+                        && !self.presence.has_pending_for(a)
                         && a.read.is_none()
                         && a.launched.is_empty())
                         || a.joined_at.elapsed().as_secs() > helper_scope::TASK_LIMIT_SECS)

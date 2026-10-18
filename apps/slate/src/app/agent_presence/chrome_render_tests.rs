@@ -1,4 +1,6 @@
 //! Opt-in screenshots from the real Slate app, never a component mock or provider run.
+#[path = "chrome_render_management.rs"]
+mod management;
 #[path = "chrome_render_support.rs"]
 mod support;
 use eframe::egui::{self, Id, Pos2, Rect};
@@ -178,7 +180,16 @@ fn full_app_presence_chrome_retains_actual_ui_states() {
                 .board_xf()
                 .w2s(egui::pos2(position.x as f32, position.y as f32));
         assert!(center.distance(f.h.app.canvas_rect.min + egui::vec2(380.0, y)) < 0.1);
-        let head = world_head(&out, center, zoom);
+        let head = world_opaque_head(&out, center, zoom);
+        let opaque_world = Rect::from_min_max(
+            f.h.app.board_xf().s2w(head.min),
+            f.h.app.board_xf().s2w(head.max),
+        );
+        let aa_feather_world = 1.0 / out.pixels_per_point;
+        let nominal_world = [
+            head.width() / zoom + aa_feather_world,
+            head.height() / zoom + aa_feather_world,
+        ];
         let header = f.complete_target(Id::new(("conversation-profile", who.as_str())));
         let composer = f.complete_target(Id::new(("presence-composer", who.as_str())));
         let send = f.complete_target(Id::new(("presence-send", who.as_str())));
@@ -214,13 +225,19 @@ fn full_app_presence_chrome_retains_actual_ui_states() {
         f.save(
             phase,
             out,
-            json!({"zoom":zoom,"avatarHead":rect_json(head),
-            "headWorldDiameter":[head.width()/zoom,head.height()/zoom],
+            json!({"zoom":zoom,"avatarOpaqueMeshScreenBounds":rect_json(head),
+            "avatarOpaqueMeshWorldBounds":rect_json(opaque_world),
+            "opaqueWorldDiameter":[head.width()/zoom,head.height()/zoom],
+            "aaFeather":{"world":aa_feather_world,"screen":aa_feather_world*zoom,
+                "pixelsPerPoint":1.0/aa_feather_world},
+            "inferredNominalWorldDiameter":nominal_world,
+            "diameterAccounting":"measured opaque span plus one world AA feather; inferred nominal, not opaque bounds",
             "enclosingPanel":rect_json(panel),"composer":rect_json(composer),"send":rect_json(send),
             "paused":true,"activity":"listening","agentSend":false}),
         );
     }
     f.finish();
+    management::run();
 }
 
 fn is_surface(shape: &egui::Shape, panel: Rect, fill: egui::Color32) -> bool {
@@ -231,7 +248,7 @@ fn is_surface(shape: &egui::Shape, panel: Rect, fill: egui::Color32) -> bool {
     }
 }
 
-fn world_head(out: &egui::FullOutput, center: Pos2, zoom: f32) -> Rect {
+fn world_opaque_head(out: &egui::FullOutput, center: Pos2, zoom: f32) -> Rect {
     fn collect(shape: &egui::Shape, center: Pos2, heads: &mut Vec<Rect>) {
         match shape {
             egui::Shape::Vec(shapes) => shapes
@@ -267,14 +284,20 @@ fn world_head(out: &egui::FullOutput, center: Pos2, zoom: f32) -> Rect {
         "identify one actual painted world head at {center:?}"
     );
     let head = heads[0];
-    // The centered authored outline contributes less than 0.25 world units.
+    // The cached head's AA boundary moves opaque fill inward by half a
+    // feather at each edge; its subpixel outline has no opaque plateau.
+    // The cache is built before world zoom, so one feather is 1 / PPP world
+    // units. Reconstruct nominal diameter explicitly; reserve only 0.01 world
+    // units for curved-boundary miter and f32 layer-transform rounding.
+    assert!(out.pixels_per_point.is_finite() && out.pixels_per_point > 0.0);
+    let aa_feather_world = 1.0 / out.pixels_per_point;
     assert!(
-        (head.width() / zoom - 36.0).abs() < 0.25,
-        "head width: {head:?}"
+        (head.width() / zoom + aa_feather_world - 36.0).abs() < 0.01,
+        "inferred nominal head width: opaque {head:?}, zoom {zoom}, AA feather {aa_feather_world}"
     );
     assert!(
-        (head.height() / zoom - 36.0).abs() < 0.25,
-        "head height: {head:?}"
+        (head.height() / zoom + aa_feather_world - 36.0).abs() < 0.01,
+        "inferred nominal head height: opaque {head:?}, zoom {zoom}, AA feather {aa_feather_world}"
     );
     assert!(support::screen().contains_rect(head));
     head

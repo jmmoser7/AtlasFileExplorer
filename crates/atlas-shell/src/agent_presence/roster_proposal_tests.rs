@@ -127,6 +127,51 @@ fn recovery_warning_keeps_reject_visible_without_offering_a_second_acceptance() 
 }
 
 #[test]
+fn applying_is_compact_blocks_repeat_accept_and_keeps_reject_and_other_decisions_live() {
+    let mut f = Fixture::new();
+    f.proposals = vec![
+        ("witnessing".into(), "Move board objects".into(), false),
+        ("other".into(), "Another board change".into(), false),
+    ];
+    f.open_chat("dot");
+    let before = [
+        decision(&f, "witnessing", true).0,
+        decision(&f, "witnessing", false).0,
+    ];
+    f.applying_proposal = Some("witnessing".into());
+    let out = f.settle();
+    assert!(text_rect(&out, "Applying visibly…").is_some());
+    assert_eq!(
+        [
+            decision(&f, "witnessing", true).0,
+            decision(&f, "witnessing", false).0
+        ],
+        before
+    );
+    assert!(!f
+        .click(before[0].center())
+        .iter()
+        .any(|action| matches!(action, PresenceAction::AcceptProposal { .. })));
+    let (reject, hit) = decision(&f, "witnessing", false);
+    assert!(hit.contains_rect(reject));
+    assert_eq!(
+        f.click(reject.center()),
+        vec![PresenceAction::RejectProposal {
+            participant: "dot".into(),
+            id: "witnessing".into(),
+        }]
+    );
+    let (other, _) = decision(&f, "other", true);
+    assert_eq!(
+        f.click(other.center()),
+        vec![PresenceAction::AcceptProposal {
+            participant: "dot".into(),
+            id: "other".into(),
+        }]
+    );
+}
+
+#[test]
 fn pending_cards_scroll_while_the_attached_composer_remains_reachable_at_all_zooms() {
     for zoom in [0.25, 0.8, 1.0, 2.0] {
         let mut f = Fixture::new();

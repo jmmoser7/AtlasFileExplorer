@@ -53,7 +53,7 @@ fn witnessed_commit_keeps_agent_authorship_and_one_undo_step() {
 }
 
 #[test]
-fn default_proposal_does_not_mutate_and_accept_uses_existing_replay_barrier() {
+fn synthetic_presence_session_without_live_prepared_context_fails_closed_on_accept() {
     let mut h = setup("presence-command-stage");
     h.app.ai.config.workspace_dir = Some(h.base.clone());
     h.app.tab_mut().path = Some(h.base.join("board.slate"));
@@ -75,20 +75,19 @@ fn default_proposal_does_not_mutate_and_accept_uses_existing_replay_barrier() {
         .unwrap()
         .clone();
     h.app.accept_stage_proposal(id);
-    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
-    assert_eq!(
-        h.app.tab().journal.last_author(),
-        Some(&CmdAuthor::Agent("Dot".into()))
-    );
-    assert_eq!(
-        slate_doc::stage::read_result(&h.base, id).unwrap(),
-        Some(slate_doc::stage::ProposalResult::Accepted)
-    );
+    assert_eq!(h.app.tab().journal.undo_depth(), depth);
+    assert_eq!(h.app.doc().scene.node(a).unwrap().rect.x, 0.0);
+    assert!(h
+        .app
+        .toasts
+        .last()
+        .is_some_and(|(text, _)| text.contains("no live prepared action")));
+    assert_eq!(slate_doc::stage::read_result(&h.base, id).unwrap(), None);
     h.app.accept_stage_proposal_data(&proposal);
     assert_eq!(
         h.app.tab().journal.undo_depth(),
-        depth + 1,
-        "recorded proposal cannot replay"
+        depth,
+        "synthetic session cannot bypass the missing live execution context"
     );
 }
 

@@ -102,19 +102,10 @@ pub const CANVAS_CHROME_ORDER: egui::Order = egui::Order::Foreground;
 pub const POPUP_ORDER: egui::Order = egui::Order::Tooltip;
 const _: () = assert!((CANVAS_CHROME_ORDER as u8) < (POPUP_ORDER as u8));
 
-/// The one area for a popup opened from canvas chrome. `opener` is the layer
-/// of the control that opened it; a popup opened from inside another popup
-/// stays directly above it even after the opener is raised.
-pub fn popup_area(ctx: &egui::Context, id: Id, opener: egui::LayerId) -> egui::Area {
-    let layer = egui::LayerId::new(POPUP_ORDER, id);
-    if opener.order == POPUP_ORDER && opener != layer {
-        ctx.set_sublayer(opener, layer);
-    }
-    egui::Area::new(id).order(POPUP_ORDER)
-}
-
 mod chrome_layer;
-pub use chrome_layer::{object_hover_text, object_painter, object_ui, selection_chrome_layer};
+pub use chrome_layer::{
+    object_hover_text, object_painter, object_ui, popup_area, selection_chrome_layer,
+};
 
 pub fn strip_fade(ctx: &egui::Context, id: Id, visible: bool) -> f32 {
     ctx.animate_bool_with_time(id, visible, SELECTION_FADE_SECONDS)
@@ -2469,10 +2460,9 @@ pub fn text_format_editor(
 }
 
 mod menu_selector;
-use menu_selector::bare_menu;
 use menu_selector::capsule_menu;
 pub use menu_selector::needs_key_label;
-use menu_selector::BareMenu;
+pub(crate) use menu_selector::{bare_menu, BareMenu};
 
 mod text_controls;
 use text_controls::align_segments;

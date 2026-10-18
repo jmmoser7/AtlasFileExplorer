@@ -7,6 +7,7 @@ use slate_doc::scene::{Node, NodeKind, SceneCmd};
 mod crop_tests;
 
 pub(super) struct WitnessedCommand {
+    pub(super) purpose: WitnessPurpose,
     pub call: BoardCall,
     pub prepared: PreparedBoardCommand,
     pub(super) steps: Vec<(Option<Node>, Option<Node>)>,
@@ -18,6 +19,18 @@ pub(super) struct WitnessedCommand {
     skipped: std::collections::HashSet<usize>,
     wire_ends: HashMap<slate_doc::NodeId, (WorldPoint, WorldPoint)>,
     crop_contact: Option<WorldPoint>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum WitnessPurpose {
+    ProposalPreview,
+    Autonomous,
+    ApprovedProposal(String),
+}
+impl WitnessPurpose {
+    pub(super) fn replaces_objects(&self) -> bool {
+        !matches!(self, Self::ProposalPreview)
+    }
 }
 
 impl WitnessedCommand {
@@ -95,6 +108,7 @@ impl WitnessedCommand {
             .find(|i| !skipped.contains(i))
             .unwrap_or(steps.len());
         Ok(Self {
+            purpose: WitnessPurpose::Autonomous,
             call,
             prepared,
             steps,

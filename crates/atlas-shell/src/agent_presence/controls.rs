@@ -8,36 +8,87 @@ pub(super) fn show(
     state: &mut RosterState,
     p: &Participant<'_>,
     providers: &[ProviderOption<'_>],
+    header: Rect,
     actions: &mut Vec<PresenceAction>,
 ) {
-    let popover = state.popover;
-    egui::ScrollArea::vertical()
-        .id_salt(("presence-options", p.id, popover))
-        .max_height(240.0)
-        .auto_shrink([false, true])
-        .show(ui, |ui| {
-            ui.with_layout(egui::Layout::top_down(egui::Align::Max), |ui| {
-                egui::Frame::new()
-                    .fill(palette.window)
-                    .corner_radius(14)
-                    .inner_margin(10)
-                    .show(ui, |ui| {
-                        ui.set_width((ui.available_width() - 8.0).min(246.0));
-                        match popover {
-                            Some(Popover::More) => more(ui, palette, state, p, actions),
-                            Some(Popover::Provider) => {
+    let Some(
+        popover @ (Popover::Advanced | Popover::Retirement | Popover::Provider | Popover::More),
+    ) = state.popover
+    else {
+        return;
+    };
+    let ctx = ui.ctx();
+    let transform = ctx
+        .layer_transform_to_global(ui.layer_id())
+        .unwrap_or_default();
+    let local_screen = transform.inverse() * ctx.screen_rect();
+    let more = popover == Popover::More;
+    let width = if more { 211.0 } else { 238.0 };
+    let top = header.bottom() + if more { -9.0 } else { 3.0 };
+    let trigger = ctx
+        .read_response(egui::Id::new((
+            if popover == Popover::Provider {
+                "provider-toggle"
+            } else {
+                "conversation-more"
+            },
+            p.id,
+        )))
+        .map(|response| {
+            ctx.layer_transform_to_global(response.layer_id)
+                .unwrap_or_default()
+                * response.rect
+        });
+    let area_id = egui::Id::new(("presence-options", p.id));
+    if popover != Popover::Provider || p.models.is_empty() {
+        state.model_menu_open = false;
+    }
+    let area = crate::selection_tools::popup_area(ctx, area_id, ui.layer_id())
+        .fixed_pos(Pos2::new(header.right() - width, top))
+        .constrain_to(local_screen.shrink(8.0))
+        .show(ctx, |ui| {
+            chrome::configure(ui, state.font_family.as_ref(), palette);
+            crate::menu::frame(palette.dark_mode)
+                .fill(palette.card)
+                .corner_radius(if more { 8 } else { 14 })
+                .inner_margin(egui::Margin::symmetric(10, if more { 8 } else { 10 }))
+                .shadow(chrome::shadow(palette))
+                .show(ui, |ui| {
+                    ui.set_width(width - 20.0);
+                    ui.spacing_mut().item_spacing.y = if more { 0.0 } else { 6.0 };
+                    egui::ScrollArea::vertical()
+                        .id_salt(("presence-options-scroll", p.id, popover))
+                        .max_height((local_screen.height() - 48.0).min(420.0))
+                        .auto_shrink([false, true])
+                        .show(ui, |ui| match popover {
+                            Popover::More => more_menu(ui, palette, state, p, actions),
+                            Popover::Provider => {
                                 provider_menu(ui, palette, state, p, providers, actions)
                             }
-                            Some(Popover::Advanced) => advanced(ui, state, p, actions),
-                            Some(Popover::Retirement) => retirement(ui, palette, state, p, actions),
-                            _ => {}
-                        }
-                    });
-            });
+                            Popover::Advanced => advanced(ui, state, p, actions),
+                            Popover::Retirement => retirement(ui, palette, state, p, actions),
+                            Popover::Hats => unreachable!(),
+                        });
+                });
         });
-    ui.add_space(8.0);
+    state.last_popover_rect = transform * area.response.rect;
+    crate::menu_wheel::claim(ctx, state.last_popover_rect);
+    let outside = ctx.input(|input| {
+        input.pointer.any_pressed()
+            && input.pointer.interact_pos().is_some_and(|point| {
+                !state.last_popover_rect.contains(point)
+                    && !state.last_model_popup_rect.contains(point)
+                    && !trigger.is_some_and(|rect| rect.contains(point))
+            })
+    });
+    // A model combo box owns its nested popup until that popup is dismissed.
+    if outside && !ctx.memory(|memory| memory.any_popup_open()) {
+        state.popover = None;
+        state.requested_provider = None;
+        state.model_menu_open = false;
+    }
 }
-fn more(
+fn more_menu(
     ui: &mut Ui,
     palette: &Palette,
     state: &mut RosterState,
@@ -132,27 +183,40 @@ fn provider_menu(
                 p.model
             });
         } else {
-            egui::ComboBox::from_id_salt(("presence-model", p.id))
-                .selected_text(if p.model.is_empty() {
-                    "Default"
-                } else {
-                    p.model
-                })
-                .width(145.0)
-                .show_ui(ui, |ui| {
-                    for model in p.models {
-                        if ui
-                            .selectable_label(model.id == p.model, model.label)
-                            .clicked()
-                            && model.id != p.model
-                        {
-                            actions.push(PresenceAction::SetModel {
-                                id: p.id.into(),
-                                model: model.id.into(),
-                            });
-                        }
-                    }
+            let options: Vec<_> = p.models.iter().map(|model| model.label).collect();
+            let (rect, _) = ui.allocate_exact_size(Vec2::new(145.0, 24.0), Sense::hover());
+            let menu = crate::selection_tools::bare_menu(
+                ui,
+                crate::selection_tools::BareMenu {
+                    id: egui::Id::new(("presence-model", p.id)),
+                    rect,
+                    label: if p.model.is_empty() {
+                        "Default"
+                    } else {
+                        p.model
+                    },
+                    options: &options,
+                    selected: p
+                        .models
+                        .iter()
+                        .position(|model| model.id == p.model)
+                        .unwrap_or(usize::MAX),
+                    open: &mut state.model_menu_open,
+                    zoom: 1.0, // The complete world scale belongs to the popup layer.
+                    theme: *palette,
+                },
+            );
+            state.last_model_popup_rect = menu.popup.unwrap_or(Rect::NOTHING);
+            if let Some(model) = menu
+                .picked
+                .and_then(|index| p.models.get(index))
+                .filter(|model| model.id != p.model)
+            {
+                actions.push(PresenceAction::SetModel {
+                    id: p.id.into(),
+                    model: model.id.into(),
                 });
+            }
         }
     });
     ui.label(RichText::new("Your conversation stays with this agent. The next message starts in the chosen harness.").size(10.0).color(palette.sub));

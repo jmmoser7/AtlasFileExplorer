@@ -34,6 +34,9 @@ pub struct RosterState {
     pub(super) add_provider: String,
     pub(super) retirement: String,
     pub(super) last_popup_rect: Rect,
+    pub(super) last_popover_rect: Rect,
+    pub(super) model_menu_open: bool,
+    pub(super) last_model_popup_rect: Rect,
     pub(super) just_opened: bool,
     pub(super) roster_scroll: f32,
     pub(super) last_painted_pass: Option<u64>,
@@ -54,6 +57,9 @@ impl Default for RosterState {
             add_provider: String::new(),
             retirement: "bow".into(),
             last_popup_rect: Rect::NOTHING,
+            last_popover_rect: Rect::NOTHING,
+            model_menu_open: false,
+            last_model_popup_rect: Rect::NOTHING,
             just_opened: false,
             roster_scroll: 0.0,
             last_painted_pass: None,
@@ -71,6 +77,8 @@ impl RosterState {
         self.font_family.as_ref()
     }
     pub fn open_chat(&mut self, id: &str) {
+        self.model_menu_open = false;
+        self.last_model_popup_rect = Rect::NOTHING;
         self.expansion = Some(Expansion::Chat(id.into()));
         self.canvas_anchor = None;
         self.popover = None;
@@ -99,6 +107,8 @@ impl RosterState {
         )
     }
     pub fn close_chat(&mut self) {
+        self.model_menu_open = false;
+        self.last_model_popup_rect = Rect::NOTHING;
         self.expansion = None;
         self.popover = None;
         self.canvas_anchor = None;
@@ -127,7 +137,9 @@ impl RosterState {
     /// pass. On the next pass only an actually open surface occludes the board.
     pub fn occludes_point(&self, ctx: &eframe::egui::Context, point: Pos2) -> bool {
         (self.is_open() || self.last_painted_pass == Some(ctx.cumulative_pass_nr()))
-            && self.last_popup_rect.contains(point)
+            && (self.last_popup_rect.contains(point)
+                || self.last_popover_rect.contains(point)
+                || self.last_model_popup_rect.contains(point))
     }
     pub fn active_chat(&self) -> Option<&str> {
         match self.expansion.as_ref() {
@@ -136,6 +148,8 @@ impl RosterState {
         }
     }
     pub(super) fn toggle(&mut self, expansion: Expansion, anchor: Rect) {
+        self.model_menu_open = false;
+        self.last_model_popup_rect = Rect::NOTHING;
         self.expansion = if self.expansion.as_ref() == Some(&expansion) {
             None
         } else {
@@ -148,6 +162,8 @@ impl RosterState {
         self.just_opened = true;
     }
     pub(super) fn toggle_popover(&mut self, popover: Popover) {
+        self.model_menu_open = false;
+        self.last_model_popup_rect = Rect::NOTHING;
         self.popover = if self.popover == Some(popover) {
             None
         } else {

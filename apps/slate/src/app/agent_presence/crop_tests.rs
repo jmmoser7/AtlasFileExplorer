@@ -192,19 +192,10 @@ fn crop_stale_and_read_only_prepared_actions_leave_the_live_node_unchanged() {
 }
 
 fn stage(h: &mut Harness, image: NodeId) -> String {
-    let session = h.app.presence.agents[0].binding.session_id.clone();
+    let who = h.app.presence.agents[0].profile.id.clone();
     let rect = h.app.doc().scene.node(image).unwrap().rect;
     let args = json!({"mode":"handle","handle":4,"x":rect.x+rect.w*0.9,"y":rect.y+rect.h*0.9});
-    let prepared = h
-        .app
-        .prepare_targeted_command("board.objects.crop", &[image.0.to_string()], &args)
-        .unwrap();
-    h.app
-        .finish_targeted_command(prepared, "Dot", false, &session)
-        .unwrap()
-        .strip_prefix("staged:")
-        .unwrap()
-        .into()
+    super::proposal_support::stage_command(h, &who, "board.objects.crop", &[image], args)
 }
 
 #[test]
@@ -228,6 +219,8 @@ fn crop_proposals_use_the_existing_accept_replay_recovery_and_revocation_fences(
         .any(|p| p.id == proposal));
     let proposal = stage(&mut h, image);
     h.app.accept_stage_proposal(&proposal);
+    assert_eq!(h.app.doc().scene.node(image), Some(&before));
+    super::proposal_support::finish(&mut h, &who);
     let accepted = h.app.doc().scene.node(image).unwrap().clone();
     assert_ne!(accepted, before);
     assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);

@@ -331,7 +331,9 @@ impl Fixture {
 
     fn conversations(&self) -> serde_json::Value {
         json!({"self":self.h.app.presence_conversation("self"),
-            "agent":self.h.app.presence_conversation(&self.who)})
+            "agent":self.h.app.presence_conversation(&self.who),
+            "savedParticipants":self.h.app.settings.collaborators.iter().map(|p|
+                (&p.id,self.h.app.presence_conversation(&p.id))).collect::<Vec<_>>()})
     }
 
     fn state(&self) -> serde_json::Value {
@@ -342,6 +344,12 @@ impl Fixture {
             "popupOpen":self.h.app.presence.chrome.is_open(),
             "human":self.h.app.settings.presence_identity,
             "agent":self.h.app.presence.agents.first().map(|a|&a.profile),
+            "participants":self.h.app.presence.agents.iter().map(|a|json!({
+                "profile":a.profile,"parent":a.parent,"paused":a.paused,"activity":a.activity,
+                "status":a.status,"binding":a.binding,"grant":a.grant,"request":a.request,
+                "departing":a.departure.is_some()})).collect::<Vec<_>>(),
+            "savedProfiles":self.h.app.settings.collaborators,
+            "peopleSetupOpen":self.h.app.presence.human_chat.setup.open,
             "agentState":self.h.app.presence.agents.first().map(|a|json!({
                 "paused":a.paused,"activity":a.activity,"status":a.status,
                 "position":self.h.app.presence.roster.session(&a.motion)
@@ -393,11 +401,18 @@ impl Fixture {
     }
 
     pub fn finish(&self) {
+        self.finish_kind(false);
+    }
+    pub fn finish_management(&self) {
+        self.finish_kind(true);
+    }
+    fn finish_kind(&self, management: bool) {
         self.write_json("metadata.json", &json!({"status":"assertions-passed",
             "evidence":"actual full-app headless software paint; native GPU and human acceptance remain separate",
+            "management":management,
             "reducedMotion":true,"catalogs":"injected and launch-pinned before first frame",
-            "history":"self sent locally; agent history synthetic; both saved and reloaded in test-owned temporary store",
-            "hatWheel":"real shared album input changes fixture hat in memory; cfg(test) never saves human preferences",
+            "history":if management {"synthetic test-owned agent history; no provider send"} else {"self sent locally; agent history synthetic; both saved and reloaded in test-owned temporary store"},
+            "hatWheel":if management {"not activated in management states"} else {"real shared album input changes fixture hat in memory; cfg(test) never saves human preferences"},
             "omitted":["OS profile-photo picker", "actual provider message or harness switch"],"phases":self.rows}));
         println!(
             "Retained full-app presence chrome: {}",

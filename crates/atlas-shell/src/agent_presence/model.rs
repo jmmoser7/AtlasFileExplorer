@@ -21,6 +21,8 @@ pub struct ProposalDecision<'a> {
     pub id: &'a str,
     pub label: &'a str,
     pub recovery_required: bool,
+    /// This exact decision is currently being witnessed by the application.
+    pub applying: bool,
 }
 pub struct Participant<'a> {
     pub id: &'a str,

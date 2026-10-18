@@ -14,6 +14,15 @@ mod chrome_render;
 #[path = "proposal_chat_tests.rs"]
 mod proposal_chat;
 
+#[path = "proposal_test_support.rs"]
+mod proposal_support;
+
+#[path = "approved_motion_tests.rs"]
+mod approved_motion;
+
+#[path = "approved_fence_tests.rs"]
+mod approved_fences;
+
 #[path = "crop_tests.rs"]
 mod crop;
 

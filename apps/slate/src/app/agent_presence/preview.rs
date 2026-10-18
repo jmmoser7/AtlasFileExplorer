@@ -27,7 +27,12 @@ impl SlateApp {
             .agents
             .iter()
             .filter(|a| a.tab == self.tab().id)
-            .find_map(|a| a.work.as_ref().and_then(|w| w.previews.get(&node)))
+            .find_map(|a| {
+                a.work
+                    .as_ref()
+                    .filter(|w| w.purpose.replaces_objects())
+                    .and_then(|w| w.previews.get(&node))
+            })
     }
     pub(crate) fn presence_preview_additions(&self, screen: egui::Rect) -> Vec<Node> {
         let view = self.board_paint_view(screen);
@@ -35,7 +40,13 @@ impl SlateApp {
             .agents
             .iter()
             .filter(|a| a.tab == self.tab().id)
-            .flat_map(|a| a.work.as_ref().map(|w| &w.previews).into_iter())
+            .flat_map(|a| {
+                a.work
+                    .as_ref()
+                    .filter(|w| w.purpose.replaces_objects())
+                    .map(|w| &w.previews)
+                    .into_iter()
+            })
             .flat_map(|p| p.values())
             .filter(|n| super::super::board::paints_in_view(n, &view))
             .cloned()
@@ -48,13 +59,28 @@ impl SlateApp {
         xf: &super::super::board::BoardXf,
     ) {
         let view = self.board_paint_view(self.canvas_rect);
-        let nodes: Vec<_> = self
+        let active = self
             .presence
             .agents
             .iter()
             .filter(|a| a.tab == self.tab().id)
-            .filter_map(|a| a.proposed.as_ref())
-            .flat_map(|p| p.1.values())
+            .filter_map(|a| a.work.as_ref())
+            .filter(|w| w.purpose == witness::WitnessPurpose::ProposalPreview)
+            .flat_map(|w| w.previews.values());
+        let pending = self
+            .presence
+            .proposals
+            .iter()
+            .filter(|(id, p)| {
+                p.tab == self.tab().id
+                    && p.approval.is_none()
+                    && self.live_presence_proposal(id).is_some_and(|proposal| {
+                        proposal.status == slate_doc::ProposalStatus::Pending
+                    })
+            })
+            .flat_map(|(_, p)| p.previews.values());
+        let nodes: Vec<_> = active
+            .chain(pending)
             .filter(|n| super::super::board::paints_in_view(n, &view))
             .cloned()
             .collect();
@@ -79,6 +105,7 @@ impl SlateApp {
             .iter()
             .filter(|a| a.tab == self.tab().id)
             .filter_map(|a| a.work.as_ref().map(|w| (a.profile.id.clone(), w)))
+            .filter(|(_, work)| work.purpose.replaces_objects())
             .filter(|(_, work)| work.prepared.expected_matches(&self.doc().scene).is_ok())
             .find_map(|(who, w)| {
                 w.previews

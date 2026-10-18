@@ -94,9 +94,7 @@ impl SlateApp {
                 continue;
             };
             let center = xf.w2s(egui::pos2(position.x as f32, position.y as f32));
-            let addressed =
-                self.presence.chrome.canvas_chat() == Some(a.profile.id.as_str()) && a.paused;
-            let pose = pose(if addressed { "listening" } else { &a.activity });
+            let pose = pose(self.presence.avatar_activity(a));
             let target_rect = a
                 .work
                 .as_ref()
@@ -226,6 +224,19 @@ impl SlateApp {
         let actions = chrome::retired_profiles_ui(ui, &profiles);
         for action in actions {
             self.dispatch_presence_action(ui.ctx(), action);
+        }
+    }
+}
+
+impl PresenceRuntime {
+    pub(super) fn avatar_activity<'a>(&self, a: &'a Collaborator) -> &'a str {
+        if self.chrome.canvas_chat() == Some(a.profile.id.as_str())
+            && a.paused
+            && !self.approved_while_listening(a)
+        {
+            "listening"
+        } else {
+            &a.activity
         }
     }
 }

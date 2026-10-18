@@ -27,6 +27,7 @@ mod surface;
 pub(crate) use messaging::message_text_changed;
 mod own_chats;
 mod preview;
+mod proposals;
 mod read_descriptors;
 mod reads;
 mod review;
@@ -92,9 +93,8 @@ pub(crate) struct Collaborator {
     last_active: Instant,
     work: Option<witness::WitnessedCommand>,
     read: Option<reads::ReadJob>,
-    proposed: Option<(String, HashMap<slate_doc::NodeId, slate_doc::scene::Node>)>,
+    control_epoch: u64,
     owned_conversations: Vec<String>,
-    pending_created: Option<own_chats::CreatedProposal>,
     departure: Option<(Instant, String, WorldPoint)>,
     had_response: bool,
     relays: usize,
@@ -111,6 +111,7 @@ pub(crate) struct Collaborator {
 
 #[derive(Default)]
 pub struct PresenceRuntime {
+    proposals: HashMap<String, proposals::ProposalContext>,
     roster: PresenceRoster,
     agents: Vec<Collaborator>,
     links: atlas_ai::board_link::BoardLinks,
@@ -152,6 +153,7 @@ impl PresenceRuntime {
                 .iter()
                 .filter(|a| a.tab == tab)
                 .filter_map(|a| a.work.as_ref())
+                .filter(|work| work.purpose.replaces_objects())
                 .flat_map(|w| w.previews.keys().copied()),
         );
     }

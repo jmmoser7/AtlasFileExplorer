@@ -7,6 +7,22 @@ impl SlateApp {
         &self.agents.pending
     }
 
+    pub(crate) fn live_presence_proposal(&self, id: &str) -> Option<&Proposal> {
+        self.agents.presence_proposals.get(id)
+    }
+
+    pub(crate) fn mark_stage_proposal_recovery(&mut self, id: &str) {
+        if let Some(pending) = self.agents.pending.iter_mut().find(|p| p.id == id) {
+            pending.status = slate_doc::ProposalStatus::RecoveryRequired;
+        }
+    }
+
+    pub(crate) fn discard_live_presence_proposal(&mut self, id: &str) {
+        self.presence_end_proposal_motion(id, true);
+        self.agents.presence_proposals.remove(id);
+        self.agents.remove_pending(id);
+    }
+
     pub(crate) fn queue_stage_proposal(&mut self, proposal: Proposal) -> Result<(), String> {
         if self.agents.pending.len() >= 128 {
             return Err("Review pending proposals before requesting more".into());
@@ -36,6 +52,10 @@ impl SlateApp {
     /// A revocation fences acceptance immediately, independently of disk health.
     /// Presence proposals are ephemeral; a retired session cannot regain them.
     pub(crate) fn cancel_presence_proposals(&mut self, session: &str) {
+        let ids: Vec<_> = self.presence_proposal_ids_for_session(session);
+        for id in ids {
+            self.presence_end_proposal_motion(&id, true);
+        }
         self.agents
             .presence_proposals
             .retain(|_, proposal| proposal.session.as_deref() != Some(session));
@@ -63,13 +83,24 @@ impl SlateApp {
         let live_presence = proposal.session.is_some()
             && self.agents.presence_proposals.get(&proposal.id) == Some(proposal);
         if proposal.id.starts_with("presence-") && !live_presence {
-            self.agents.presence_proposals.remove(&proposal.id);
-            self.agents.remove_pending(&proposal.id);
+            self.discard_live_presence_proposal(&proposal.id);
             self.toast("This collaborator proposal was cancelled or belongs to an ended session.");
             return;
         }
         if live_presence {
-            if let Err(error) = self.presence_validate_created_proposal(proposal) {
+            if let Err(error) = self.start_presence_proposal(proposal) {
+                self.toast(format!("Proposal not applied: {error}."));
+            }
+            return;
+        }
+        self.commit_accepted_stage_proposal(proposal);
+    }
+
+    /// One canonical stage/journal owner, reached after an approved Presence
+    /// witness completes or immediately for ordinary file-backed proposals.
+    pub(crate) fn commit_accepted_stage_proposal(&mut self, proposal: &Proposal) {
+        if proposal.id.starts_with("presence-") {
+            if let Err(error) = self.presence_validate_completed_proposal(proposal) {
                 self.toast(format!("Proposal not applied: {error}."));
                 return;
             }
@@ -97,6 +128,8 @@ impl SlateApp {
                 self.agents.remove_pending(&proposal.id);
                 if result == ProposalResult::Accepted {
                     self.note_accepted_stage_proposal(proposal);
+                } else {
+                    self.presence_end_proposal_motion(&proposal.id, true);
                 }
                 match result {
                     ProposalResult::Accepted => self.toast("Accepted agent proposal."),
@@ -112,15 +145,12 @@ impl SlateApp {
                 }
                 match stage::read_result(&ws, &proposal.id) {
                     Ok(Some(ProposalResult::Applying)) | Err(_) => {
-                        if let Some(p) =
-                            self.agents.pending.iter_mut().find(|p| p.id == proposal.id)
-                        {
-                            p.status = slate_doc::ProposalStatus::RecoveryRequired;
-                        }
+                        self.mark_stage_proposal_recovery(&proposal.id);
                     }
                     Ok(Some(_)) => {
                         self.agents.presence_proposals.remove(&proposal.id);
                         self.agents.remove_pending(&proposal.id);
+                        self.presence_end_proposal_motion(&proposal.id, true);
                     }
                     Ok(None) => {}
                 }
@@ -135,7 +165,7 @@ impl SlateApp {
     }
 
     fn note_accepted_stage_proposal(&mut self, proposal: &Proposal) {
-        self.presence_accepted_creation(proposal);
+        self.presence_accepted_proposal(proposal);
         self.agents.presence_proposals.remove(&proposal.id);
         self.finish_targeted_proposal_bookkeeping(&proposal.cmds);
         let tab = self.tab_mut();
@@ -169,8 +199,7 @@ impl SlateApp {
         // A failed durable rejection must not leave a live mutation permit.
         let presence = proposal.id.starts_with("presence-");
         if presence {
-            self.agents.presence_proposals.remove(&proposal.id);
-            self.agents.remove_pending(&proposal.id);
+            self.discard_live_presence_proposal(&proposal.id);
         }
         let Some(ws) = self.ai.config.valid_workspace() else {
             self.toast(if presence {

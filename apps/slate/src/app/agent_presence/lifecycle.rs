@@ -186,9 +186,8 @@ impl SlateApp {
             last_active: Instant::now(),
             work: None,
             read: None,
-            proposed: None,
+            control_epoch: 0,
             owned_conversations: Vec::new(),
-            pending_created: None,
             departure: None,
             had_response: false,
             relays: 0,
@@ -232,7 +231,7 @@ impl SlateApp {
                     a.inflight
                         || a.work.is_some()
                         || a.read.is_some()
-                        || a.proposed.is_some()
+                        || self.presence.has_pending_for(a)
                         || !a.launched.is_empty()
                 });
             // Fence bridge authority before requesting provider cancellation.
@@ -275,16 +274,6 @@ impl SlateApp {
                 .map(|a| a.binding.session_id.clone())
                 .unwrap_or_default();
             self.cancel_presence_proposals(&session);
-            let proposed = self
-                .presence
-                .agents
-                .iter()
-                .find(|a| a.profile.id == who)
-                .and_then(|a| a.proposed.as_ref())
-                .map(|p| p.0.clone());
-            if let Some(proposal) = proposed {
-                self.reject_stage_proposal(&proposal);
-            }
             let a = self
                 .presence
                 .agents
@@ -298,8 +287,6 @@ impl SlateApp {
             if let Some(cursor) = a.cursor.take() {
                 cursor.stop();
             }
-            a.proposed = None;
-            a.pending_created = None;
             a.read = None;
             a.launched.clear();
             if let Some(work) = a.work.take() {
@@ -394,7 +381,7 @@ impl SlateApp {
                     && !a.inflight
                     && a.work.is_none()
                     && a.read.is_none()
-                    && a.proposed.is_none()
+                    && !self.presence.has_pending_for(a)
                     && a.launched.is_empty()
                     && a.helper_outcome
                         .as_ref()

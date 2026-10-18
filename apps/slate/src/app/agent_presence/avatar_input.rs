@@ -23,6 +23,19 @@ pub(super) struct InputHold {
     origin: egui::Pos2,
     until: f64,
 }
+impl SlateApp {
+    /// Accept keeps listening in force; it only dismisses the short press hold.
+    pub(super) fn presence_forget_avatar_hold(&mut self, who: &str) {
+        if self
+            .presence
+            .avatar_hold
+            .as_ref()
+            .is_some_and(|hold| hold.who == who)
+        {
+            self.presence.avatar_hold = None;
+        }
+    }
+}
 impl ProfilePhoto {
     pub(super) fn avatar(&self) -> Option<&[u8]> {
         self.avatar.as_deref()

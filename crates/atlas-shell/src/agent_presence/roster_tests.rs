@@ -13,10 +13,15 @@ struct Fixture {
     busy: bool,
     captured: bool,
     status: String,
+    agent_name: String,
+    human_name: String,
+    model: String,
+    models: Vec<ProviderOption<'static>>,
     message_text: String,
     message_outgoing: bool,
     screen: Rect,
     proposals: Vec<(String, String, bool)>,
+    applying_proposal: Option<String>,
 }
 impl Fixture {
     fn new() -> Self {
@@ -29,10 +34,15 @@ impl Fixture {
             busy: false,
             captured: false,
             status: "Ready in proposal mode".into(),
+            agent_name: "Dot".into(),
+            human_name: "You".into(),
+            model: String::new(),
+            models: Vec::new(),
             message_text: "I am arranging the images in this frame.".into(),
             message_outgoing: false,
             screen: Rect::from_min_size(Pos2::ZERO, Vec2::new(1280.0, 720.0)),
             proposals: Vec::new(),
+            applying_proposal: None,
         }
     }
     fn frame(&mut self, events: Vec<egui::Event>) -> (Vec<PresenceAction>, egui::FullOutput) {
@@ -56,13 +66,14 @@ impl Fixture {
                     id,
                     label,
                     recovery_required: *recovery_required,
+                    applying: self.applying_proposal.as_deref() == Some(id.as_str()),
                 },
             )
             .collect();
         let participants = [
             Participant {
                 id: "self",
-                name: "You",
+                name: &self.human_name,
                 hat: "none",
                 status: "Human participant",
                 provider: "",
@@ -86,7 +97,7 @@ impl Fixture {
             },
             Participant {
                 id: "dot",
-                name: "Dot",
+                name: &self.agent_name,
                 hat: "cap",
                 status: &self.status,
                 provider: "codex",
@@ -105,8 +116,8 @@ impl Fixture {
                 proposals: &proposals,
                 draft: self.drafts.get("dot").unwrap_or(&empty),
                 queued_provider: None,
-                model: "",
-                models: &[],
+                model: &self.model,
+                models: &self.models,
             },
         ];
         let providers = [
@@ -234,7 +245,9 @@ fn stop_is_clickable_in_the_enclosing_conversation_header_at_720_pixels() {
     let mut f = Fixture::new();
     f.open_chat("dot");
     let panel = f.state.last_popup_rect;
-    let point = panel.min + Vec2::new(8.0 + 150.0 + 68.0 + 15.5, 8.0 + 24.0);
+    let point = visual::screen_response(&f, Id::new(("dot", "Stop task")))
+        .0
+        .center();
     assert!(panel.contains(point));
     f.frame(vec![egui::Event::PointerMoved(point)]);
     assert!(f.state.captures_pointer(&f.ctx));
@@ -473,3 +486,6 @@ mod visual;
 
 #[path = "roster_proposal_tests.rs"]
 mod proposals;
+
+#[path = "roster_overlay_tests.rs"]
+mod overlay;

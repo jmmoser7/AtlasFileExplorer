@@ -1,15 +1,7 @@
 //! A human opt-in covers only new chat endpoints this live membership creates.
 use super::*;
-use serde_json::json;
 
 pub(super) const OWN_CHATS: &str = "board-owned-conversations";
-pub(super) struct CreatedProposal {
-    pub(super) id: String,
-    pub(super) grant: String,
-    pub(super) call: BoardCall,
-    pub(super) nodes: Vec<slate_doc::NodeId>,
-    pub(super) prepared: crate::app::dispatch::PreparedBoardCommand,
-}
 impl SlateApp {
     pub(super) fn presence_set_own_chats(
         &mut self,
@@ -98,66 +90,5 @@ impl SlateApp {
         a.grant = Some(next);
         a.owned_conversations = owned;
         Ok(true)
-    }
-    /// The canonical proposal owner checks captured resource metadata before commit.
-    pub(crate) fn presence_validate_created_proposal(
-        &mut self,
-        proposal: &slate_doc::Proposal,
-    ) -> Result<(), String> {
-        let Some((call, grant, binding, request, tab, prepared)) =
-            self.presence.agents.iter().find_map(|a| {
-                a.pending_created
-                    .as_ref()
-                    .filter(|pending| pending.id == proposal.id)
-                    .map(|pending| {
-                        (
-                            pending.call.clone(),
-                            a.grant.clone(),
-                            a.binding.clone(),
-                            a.request.clone(),
-                            a.tab,
-                            pending.prepared.clone(),
-                        )
-                    })
-            })
-        else {
-            return Ok(());
-        };
-        if tab != self.tab().id {
-            return Err("This proposal belongs to a different board".into());
-        }
-        grant
-            .ok_or("Collaborator grant revoked")?
-            .authorize(&call, &binding, &request)
-            .map_err(str::to_owned)?;
-        self.check_targeted_command(&prepared)
-    }
-    /// Called by the canonical proposal owner only after its journal commits.
-    pub(crate) fn presence_accepted_creation(&mut self, proposal: &slate_doc::Proposal) {
-        let Some(index) = self.presence.agents.iter().position(|a| {
-            a.pending_created
-                .as_ref()
-                .is_some_and(|p| p.id == proposal.id)
-        }) else {
-            return;
-        };
-        let mut a = self.presence.agents.remove(index);
-        let pending = a.pending_created.take().unwrap();
-        if a.departure.is_none()
-            && a.tab == self.tab().id
-            && pending.call.request_id == a.request
-            && a.grant.as_ref().is_some_and(|g| g.id == pending.grant)
-        {
-            let registered = self.presence_register_created_chats(&mut a, &pending.nodes);
-            if let Err(error) = &registered {
-                a.status = error.clone();
-            }
-            let _ = self.presence.links.reply(&a.dir, BoardReply {
-                id: pending.call.id, session_id: a.binding.session_id.clone(), request_id: a.request.clone(),
-                success: true, result: json!({"status":"applied","created_ids":pending.nodes.iter()
-                    .map(|id|id.0.to_string()).collect::<Vec<_>>(),"conversation_scope_updated":registered.unwrap_or(false)}),
-            });
-        }
-        self.presence.agents.insert(index, a);
     }
 }

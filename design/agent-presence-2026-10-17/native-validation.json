@@ -1,7 +1,7 @@
 {
   "schema": "slate-presence-validation/v1",
   "date": "2026-10-17",
-  "implementation": "Integration remains incomplete. Current normal release workspace validation exited101 during compilation, source stable, before any tests: missing chrome::strip_button and private AgentRuntime::cover_focus. Crop geometry and agent adapter source are applied/reviewed; runtime remains unexecuted pending compile fixes and fresh guarded validation. Candidate index was reverted; earlier shared/vector/relay/material results remain historical. Source snapshot51d8ecf7 is published/remote-verified, but no current app/workspace/runtime/native/performance/human acceptance follows. FinalBinary remains null and all37 app UI blockers remain open.",
+  "implementation": "Integration remains incomplete. A completed actual Slate software Chrome diagnostic failed0passed/1failed at known firstattached25 AA measurement after retaining nine PNG+JSON phases; no final13-state metadata. Guardian reviewed all9: exact roster/profile/chat geometry and self-reopen evidence coexist with menu transcript shifts, oversize short identity and missing blue hat tint. Original-intent proposal witness/instantAccept and stale grant-mode status gaps have planned approved extract-first scratch work, not applied/tested. Parent workspace69441 remains active/no verdict, source frozen. Earlier compile failures/history remain intact; finalBinarynull/humanUntested/all37 native UI blockers open.",
   "finalBinary": null,
   "coordinatedBuild": {
     "command": "cargo build --locked --release -p slate --jobs 1",
@@ -3711,17 +3711,289 @@
         }
       ],
       "boundary": "Completed normal release workspace attempt failed compiling Slate lib on two source errors, before any tests. There is no workspace runtime verdict, current app pass, native appearance/performance pass or human acceptance. Historical package results remain bound to their earlier snapshots; fixes and a fresh guarded normal validation are still required."
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--release",
+        "--workspace",
+        "--jobs",
+        "1",
+        "--no-fail-fast"
+      ],
+      "result": "compile-failed",
+      "exitCode": 101,
+      "exitCodeScope": "Direct Cargo process exited during test-harness compilation before any tests",
+      "elapsedSeconds": 328.9196204000036,
+      "startedUtc": "2026-10-18T04:10:59.840908+00:00",
+      "finishedUtc": "2026-10-18T04:16:29.393195+00:00",
+      "identity": "target/presence-workspace-crop-copy-integrated-20261018.json",
+      "identitySha256": "fffef10d847994629d6df7dc8267a95a488580d8eec194f5b1d390b42382d853",
+      "sourceStable": true,
+      "sourceIdentityCount": 1349,
+      "libtestSummaries": [],
+      "harnesses": [],
+      "testsExecuted": false,
+      "libraryCompilation": "Slate library compilation succeeded in this attempt; test harness compilation then failed",
+      "rawLog": {
+        "path": "target/presence-workspace-crop-copy-integrated-20261018.log",
+        "bytes": 4991,
+        "sha256": "0580d4151f24dc41e2b27c6dfb34b2ede9bbd768632089fb6f6138bb68d17674"
+      },
+      "compileErrors": [
+        {
+          "code": "E0616",
+          "path": "apps/slate/src/app/agent_presence/proposal_chat_tests.rs",
+          "line": 63,
+          "diagnostic": "field pending of AgentRuntime is private"
+        },
+        {
+          "code": "E0277",
+          "path": "apps/slate/src/app/board_agent/image_album_tests.rs",
+          "line": 146,
+          "diagnostic": "&Arc<Vec<ImageOutput>> is not an iterator"
+        }
+      ],
+      "boundary": "Completed SECOND normal release workspace attempt failed before tests on two test-only compile errors. Both have later source corrections preserving assertions; that is not a runtime pass. The THIRD coordinator run69441 is active and has no completed receipt/verdict in this update. No partial active log was read or hashed. No native/provider/performance/human acceptance follows."
+    },
+    {
+      "command": [
+        "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\target\\release\\deps\\slate-fc7790602d20a07c.exe",
+        "app::agent_presence::tests::chrome_render::full_app_presence_chrome_retains_actual_ui_states",
+        "--ignored",
+        "--exact",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "result": "failed",
+      "exitCode": 101,
+      "exitCodeScope": "Direct actual Slate libtest ignored diagnostic exit; parent workspace remains separately active",
+      "passed": 0,
+      "failed": 1,
+      "ignored": 0,
+      "filtered": 1975,
+      "runtimeSeconds": 4.77,
+      "startedUtc": "2026-10-18T04:50:49.301608+00:00",
+      "finishedUtc": "2026-10-18T04:50:56.690472+00:00",
+      "identity": "target/presence-early-chrome-render-20261018.json",
+      "identitySha256": "669a210d1efa868dba44366794ffa11dc8ffb0e04dacee120ac48bc95f1af641",
+      "sourceStable": true,
+      "sourceIdentityCount": 1349,
+      "harnessStable": true,
+      "compileIdentitiesStable": true,
+      "harness": {
+        "path": "target/release/deps/slate-fc7790602d20a07c.exe",
+        "bytes": 66493952,
+        "sha256": "368341fe2d18a781031a0187842b4e6feba30d5a6d20acd1102625be7ca6b219"
+      },
+      "dependencyFile": {
+        "path": "target/release/deps/slate-fc7790602d20a07c.d",
+        "bytes": 96050,
+        "sha256": "62b71ef01cb9e25b2ce84afea6ded461d5f0fe324759af14a83df36c99f05a63"
+      },
+      "fingerprint": {
+        "path": "target/release/.fingerprint/slate-fc7790602d20a07c/test-lib-slate.json",
+        "bytes": 2393,
+        "sha256": "3ed3165f15e8a8dd6bfcf16a074457648ba6cf35bd3c3d6347448e5d6da614e4"
+      },
+      "identification": "Unique real test-lib fingerprint and depfile including the newly introduced allocation regression plus chrome sources; actual Cargo lib-test completion before File Atlas compile, matching newly written executable. Not newest-file selection alone.",
+      "libtestSummaries": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1975 filtered out; finished in 4.77s"
+      ],
+      "rawLog": {
+        "path": "target/presence-early-chrome-render-20261018.log",
+        "bytes": 654,
+        "sha256": "492e0a688f1ef80230fde76ad44b676b66528713e2f3de0374f996b5c4887566"
+      },
+      "artifactDirectory": "target/review/presence-chrome-req-90568-1792299049874082400-0",
+      "retainedPhases": [
+        "agent-chat",
+        "closed-roster",
+        "harness-menu",
+        "hats-after-wheel",
+        "hats-before",
+        "more-menu",
+        "own-profile",
+        "self-chat-reopened",
+        "self-chat"
+      ],
+      "pngCount": 9,
+      "phaseJsonCount": 9,
+      "artifacts": [
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/agent-chat.json",
+          "bytes": 2697,
+          "sha256": "2e7625d49b02abbcc280ca0fbd0d88da403693d601e524c90412299dbb8438d9"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/agent-chat.png",
+          "bytes": 91835,
+          "sha256": "57979d18ce0edbee311766e48c97c6ea91a14f8774fd640a0bed909c6b0fdab2"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/closed-roster.json",
+          "bytes": 2248,
+          "sha256": "60b59bc379b4907c681e8ea16856277ca55eb0e4736139172af083351a9e2f6f"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/closed-roster.png",
+          "bytes": 53954,
+          "sha256": "b65d7387e6b8299b6856e086e5d57f4f8a77f2f9c6b9c20187bc6a4d0c06bc4e"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/harness-menu.json",
+          "bytes": 2868,
+          "sha256": "0c2298e27b7462ed08ac710367792e196414727306669aedfaab8c1edd83207b"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/harness-menu.png",
+          "bytes": 106570,
+          "sha256": "57434598271f4c7b4ed3af7ed98c1357ee828c5ad23495585cdac75cc41d6caf"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/hats-after-wheel.json",
+          "bytes": 2829,
+          "sha256": "4482c54f9f9876db857f3ffbb0c3854310f9231d038968dbf60f99f9e04f317f"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/hats-after-wheel.png",
+          "bytes": 98618,
+          "sha256": "1c08ad2d497253b57c193766fa66968bd94e13ab91615081969830589f5a5f51"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/hats-before.json",
+          "bytes": 2743,
+          "sha256": "d8826bacc7120d4546a910da79682b6d386c606051521abf9f71d8dd27152a56"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/hats-before.png",
+          "bytes": 99433,
+          "sha256": "199d5699a37c7ec2f833538b45f9ac5b6bf5046fd1b99b134bf148f68d9d4e73"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/more-menu.json",
+          "bytes": 2761,
+          "sha256": "cfa2090f6cd5ce3a1bbbc0c8cc7ba778c1a6952fc4d2bd8d5144fc14b4787521"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/more-menu.png",
+          "bytes": 106958,
+          "sha256": "ae84b6bae18eaf4e403cedda095c7c98eee4a15220d35acc5db9b827d11e5bcd"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/own-profile.json",
+          "bytes": 2138,
+          "sha256": "34a9e6cea719b43a3f5e305f4cc263db1f76244597a661b84aedf6d24e5a7195"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/own-profile.png",
+          "bytes": 68642,
+          "sha256": "fe9cfa185a688898216241310b2ccfd2279a38e285ab47ef1b5e8d3689ef5ae0"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/self-chat-reopened.json",
+          "bytes": 2602,
+          "sha256": "c2889a90bc568cea4c5f8c637f6ed977ecbf177fc0ff58306842c93884d64daf"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/self-chat-reopened.png",
+          "bytes": 75357,
+          "sha256": "b02320a4c6fbd22b7a13c64e5a6565a14c61243ce140d6572a25b9d8822dae13"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/self-chat.json",
+          "bytes": 2566,
+          "sha256": "de093020dc45cd8655304555a29a4d4067850b49b4124dd3abaad8495a099b1d"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/self-chat.png",
+          "bytes": 75355,
+          "sha256": "8122a76352a6f56c09c474e63a8611b9be1a0449936b7dc33b1e137fbda5e273"
+        }
+      ],
+      "pngDimensions": [
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/agent-chat.png",
+          "width": 1440,
+          "height": 900,
+          "sha256": "57979d18ce0edbee311766e48c97c6ea91a14f8774fd640a0bed909c6b0fdab2"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/closed-roster.png",
+          "width": 1440,
+          "height": 900,
+          "sha256": "b65d7387e6b8299b6856e086e5d57f4f8a77f2f9c6b9c20187bc6a4d0c06bc4e"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/harness-menu.png",
+          "width": 1440,
+          "height": 900,
+          "sha256": "57434598271f4c7b4ed3af7ed98c1357ee828c5ad23495585cdac75cc41d6caf"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/hats-after-wheel.png",
+          "width": 1440,
+          "height": 900,
+          "sha256": "1c08ad2d497253b57c193766fa66968bd94e13ab91615081969830589f5a5f51"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/hats-before.png",
+          "width": 1440,
+          "height": 900,
+          "sha256": "199d5699a37c7ec2f833538b45f9ac5b6bf5046fd1b99b134bf148f68d9d4e73"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/more-menu.png",
+          "width": 1440,
+          "height": 900,
+          "sha256": "ae84b6bae18eaf4e403cedda095c7c98eee4a15220d35acc5db9b827d11e5bcd"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/own-profile.png",
+          "width": 1440,
+          "height": 900,
+          "sha256": "fe9cfa185a688898216241310b2ccfd2279a38e285ab47ef1b5e8d3689ef5ae0"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/self-chat-reopened.png",
+          "width": 1440,
+          "height": 900,
+          "sha256": "b02320a4c6fbd22b7a13c64e5a6565a14c61243ce140d6572a25b9d8822dae13"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/self-chat.png",
+          "width": 1440,
+          "height": 900,
+          "sha256": "8122a76352a6f56c09c474e63a8611b9be1a0449936b7dc33b1e137fbda5e273"
+        }
+      ],
+      "completed13StateMetadata": false,
+      "failure": {
+        "test": "app::agent_presence::tests::chrome_render::full_app_presence_chrome_retains_actual_ui_states",
+        "path": "apps/slate/src/app/agent_presence/chrome_render_tests.rs",
+        "line": 271,
+        "stage": "first attached25 sizing assertion, after nine retained chrome phases",
+        "diagnostic": "head width: [[375.6 66.6] - [384.4 75.4]]",
+        "classification": "Known new opaque-only AA measurement omits feather; no product-size regression established",
+        "scratchCorrectionApplied": false
+      },
+      "boundary": "Completed actual full-app software diagnostic failed0/1 and retained nine PNG plus nine phase JSON files. No final13-state metadata. The normal Slate libtest is identified by matching fingerprint/depfile and source1349 snapshot, not newest-file selection alone. Parent69441 remains active with no workspace pass. This update does not read/hash parent partial logs; receipt-embedded parent observations establish no completed verdict. No native/GPU/provider/speed/human pass."
     }
   ],
   "pendingChecks": [
-    "Fix E0425 missing chrome::strip_button and E0616 private AgentRuntime::cover_focus through their owners, then rerun final guarded normal release app/workspace validation; no tests ran in the failed attempt",
+    "After active source lease, address original proposal-witness preview/instantAccept and stale mode-status gaps through approved extract-first owner; scratch fix not applied/tested",
+    "Repair guardian-observed software differences: floating More/harness menus, compact short identity capsule and blue selected-hat tint; no native/UI acceptance inferred from nine retained images",
+    "Collect completed third workspace run69441 after both test-only compile errors were source-fixed; no partial-log test verdict. Preserve both completed compile failures and all original assertions",
+    "Review scratch-only nominal36-versus-opaque-AA35 sizing diagnostic correction after active compile lease; retain all original9 plus4 added chrome phases, with no product-size or actual render pass inferred",
     "Execute three new source-approved test-only catalog-hold regressions in the fresh full app harness; do not synthesize ready catalogs or permit automatic provider probes in synthetic factories",
     "Complete readback of new full-app chrome captures; normal native fixture catalog queries are possible and no zero-provider-contact claim is allowed",
     "Both exact ignored witnessed-motion tests after updated catalog-pin source identity; retained software evidence is separate from native/GPU smoothness",
     "Fresh external Brush/Layers fallback interaction test and all 37 retained app UI cases after source freeze",
     "Index removed and exact SAT coverage restored; run current combined-source validation and fresh material/zoom costs. Retained candidate171/386/parity/123-frame results are historical, with unresolved cost blocker",
-    "Historical candidate-index shared386/0/8 does not validate current restored source; agent adapter v2 source is applied; fix integration compilation and execute final guarded current app/workspace/native gates",
-    "Source snapshot51d8ecf7 includes exact index reversion, applied crop/adapter source and66-record docs; this67-record compile-failure update and subsequent fixes need a later immutable backup preserving owner/ref state",
+    "Historical candidate-index shared386/0/8 does not validate current restored source; agent adapter v2 source is applied; test-only compile fixes are applied; collect active third-run result and execute current app/native gates",
+    "Source snapshot7e05d8ce includes compile/copy/Work/chrome source and67-record docs; this68-record update and unapplied scratch AA diagnostic correction need a later immutable backup preserving owner/ref state",
     "Fresh six-file portal/Capture test corrections and separate real Capture host-retention regression; source checks discharge none of the retained UI blockers",
     "All37 retained UI contract blockers: seven nonmedia source diagnoses and thirty media cases need fresh representative app execution; shared narrow-image Brush/Layers fallback source is approved/frozen, runtime pending",
     "V4 real-wheel shared test passed in pre-index386 suite; fresh app proposal decisions and v3 font/capture readiness/request/configuration tests, hosted app repairs and relay draft fixture remain pending",
@@ -3778,7 +4050,161 @@
       },
       "boundary": "No dedicated on-disk health receipt is known. Coordinator relayed the read-only source finding; no runtime failure, fix or waived check is claimed."
     },
-    "cropWitnessedWork": "Final six-file canonical geometry and exact guardian-approved16-file agent adapter v2 source are applied. Source manifests retain nine normal geometry functions and13 agent test-source entries, including ignored software frames and primary-press input hold. Current normal workspace compilation failed before any tests; no runtime/native/user pass. Original crop acceptance remains unchanged."
+    "cropWitnessedWork": "Final six-file canonical geometry and exact guardian-approved16-file agent adapter v2 source are applied. Source manifests retain nine normal geometry functions and13 agent test-source entries, including ignored software frames and primary-press input hold. Current normal workspace compilation failed before any tests; no runtime/native/user pass. Original crop acceptance remains unchanged.",
+    "guardianEarlyActualChrome": {
+      "state": "independent-guardian-personally-viewed-all9-software-images",
+      "evidence": {
+        "path": "target/presence-early-chrome-render-20261018.json",
+        "bytes": 497967,
+        "sha256": "669a210d1efa868dba44366794ffa11dc8ffb0e04dacee120ac48bc95f1af641"
+      },
+      "artifactDirectory": "target/review/presence-chrome-req-90568-1792299049874082400-0",
+      "artifacts": [
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/agent-chat.json",
+          "bytes": 2697,
+          "sha256": "2e7625d49b02abbcc280ca0fbd0d88da403693d601e524c90412299dbb8438d9"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/agent-chat.png",
+          "bytes": 91835,
+          "sha256": "57979d18ce0edbee311766e48c97c6ea91a14f8774fd640a0bed909c6b0fdab2"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/closed-roster.json",
+          "bytes": 2248,
+          "sha256": "60b59bc379b4907c681e8ea16856277ca55eb0e4736139172af083351a9e2f6f"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/closed-roster.png",
+          "bytes": 53954,
+          "sha256": "b65d7387e6b8299b6856e086e5d57f4f8a77f2f9c6b9c20187bc6a4d0c06bc4e"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/harness-menu.json",
+          "bytes": 2868,
+          "sha256": "0c2298e27b7462ed08ac710367792e196414727306669aedfaab8c1edd83207b"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/harness-menu.png",
+          "bytes": 106570,
+          "sha256": "57434598271f4c7b4ed3af7ed98c1357ee828c5ad23495585cdac75cc41d6caf"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/hats-after-wheel.json",
+          "bytes": 2829,
+          "sha256": "4482c54f9f9876db857f3ffbb0c3854310f9231d038968dbf60f99f9e04f317f"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/hats-after-wheel.png",
+          "bytes": 98618,
+          "sha256": "1c08ad2d497253b57c193766fa66968bd94e13ab91615081969830589f5a5f51"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/hats-before.json",
+          "bytes": 2743,
+          "sha256": "d8826bacc7120d4546a910da79682b6d386c606051521abf9f71d8dd27152a56"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/hats-before.png",
+          "bytes": 99433,
+          "sha256": "199d5699a37c7ec2f833538b45f9ac5b6bf5046fd1b99b134bf148f68d9d4e73"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/more-menu.json",
+          "bytes": 2761,
+          "sha256": "cfa2090f6cd5ce3a1bbbc0c8cc7ba778c1a6952fc4d2bd8d5144fc14b4787521"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/more-menu.png",
+          "bytes": 106958,
+          "sha256": "ae84b6bae18eaf4e403cedda095c7c98eee4a15220d35acc5db9b827d11e5bcd"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/own-profile.json",
+          "bytes": 2138,
+          "sha256": "34a9e6cea719b43a3f5e305f4cc263db1f76244597a661b84aedf6d24e5a7195"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/own-profile.png",
+          "bytes": 68642,
+          "sha256": "fe9cfa185a688898216241310b2ccfd2279a38e285ab47ef1b5e8d3689ef5ae0"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/self-chat-reopened.json",
+          "bytes": 2602,
+          "sha256": "c2889a90bc568cea4c5f8c637f6ed977ecbf177fc0ff58306842c93884d64daf"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/self-chat-reopened.png",
+          "bytes": 75357,
+          "sha256": "b02320a4c6fbd22b7a13c64e5a6565a14c61243ce140d6572a25b9d8822dae13"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/self-chat.json",
+          "bytes": 2566,
+          "sha256": "de093020dc45cd8655304555a29a4d4067850b49b4124dd3abaad8495a099b1d"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/self-chat.png",
+          "bytes": 75355,
+          "sha256": "8122a76352a6f56c09c474e63a8611b9be1a0449936b7dc33b1e137fbda5e273"
+        }
+      ],
+      "pngCount": 9,
+      "observationProvenance": "Root relayed the dedicated intent guardian personal review of all nine actual images; geometry values below were independently checked in retained phase JSON by this docs update. No new image interpretation or native input performed by this docs worker.",
+      "observedMatches": [
+        {
+          "item": "unified roster",
+          "heightPixels": 40,
+          "scope": "exact retained geometry and guardian visual observation"
+        },
+        {
+          "item": "profile right edge aligns with self-name segment",
+          "rightEdge": 1301.65625,
+          "scope": "exact retained geometry and guardian observation"
+        },
+        {
+          "item": "enclosing conversation",
+          "width": 480,
+          "height": 720,
+          "composerVisible": true,
+          "scope": "guardian viewed actual self/agent chat PNGs; phase geometry checked"
+        },
+        {
+          "item": "self send/reopen",
+          "historyRetained": true,
+          "scope": "actual temporary-store self-send/reload in retained software fixture; no provider reply claimed"
+        }
+      ],
+      "observedDifferences": [
+        {
+          "item": "More menu",
+          "observed": "inline content shifts transcript about245px",
+          "approvedIntent": "floating menu preserving transcript position",
+          "approximatePixels": 245
+        },
+        {
+          "item": "harness selector",
+          "observed": "inline content shifts transcript about206px",
+          "approvedIntent": "floating menu preserving transcript position",
+          "approximatePixels": 206
+        },
+        {
+          "item": "short Dot identity capsule",
+          "observedWidthAbout": 183,
+          "approvedAgentExampleAbout": 122,
+          "observedCause": "fixed150px name gap",
+          "scope": "guardian comparison of accepted reference and actual software screenshot, approximate widths"
+        },
+        {
+          "item": "selected hat",
+          "observed": "blue selected tint missing",
+          "approvedIntent": "visible blue selection tint"
+        }
+      ],
+      "boundary": "These are precise software-image/geometry observations, not completed test, full13-phase, native/GPU or human acceptance. No retained37 native UI blocker is passed by this review."
+    }
   },
   "nativeInteraction": {
     "result": "Initial 83d build observed after human unlock and manual Add collaborator. User reports UI looks terrible. Actual defects retained; final native workflows and user acceptance remain Untested",
@@ -3795,11 +4221,11 @@
   },
   "evaluation": "native-acceptance.html",
   "coordination": {
-    "cargo": "The normal release workspace run completed with Cargo101 at compilation, sourceStabletrue and no tests/harnesses executed. Current fixes/revalidation are pending; no active Cargo session is inferred from this receipt.",
-    "currentJob": "Actual cargo test --locked --release --workspace --jobs1 --no-fail-fast completed compile-failed101 after436.984s with1348 guarded inputs stable; no tests ran. Errors: missing chrome::strip_button at image_palette/buttons.rs70, and private AgentRuntime::cover_focus at board_flow/result_actions.rs96. Final crop geometry and agent adapter v2 source are applied and reviewed, runtime unexecuted. Private index is reverted; earlier171/386/164/shared97565/relay12 passes remain historical. New source snapshot51d8ecf7 is published/remote-verified. Current compile fixes, fresh guarded normal tests, native/build/performance and human acceptance remain pending; all37 UI blockers stay open.",
-    "nextQueue": "Correct the two compiler errors through their existing UI/runtime owners, freeze final combined source/assets, and rerun normal release app/workspace validation. Only actual tests may discharge catalog/proposal/crop/adapter/motion/delivery or any retained37 UI blocker. Execute exact ignored chrome/motion captures and inspect real frames after compilation succeeds. Remeasure current restored-SAT material/zoom costs, build identified releases, then complete native and executable-bound human acceptance. Preserve failed compile and profiler evidence; no source, speed or policy inference substitutes for execution.",
-    "followupCheck": "Current combined source reached compilation and failed on two Slate source errors; no tests ran. All prior package/shared/relay/material passes remain historical and supply no current workspace/app verdict. Source backup51d8ecf7 is verified; current compile fixes and new evidence are later changes. FinalBinary null, humanUntested and all37 UI blockers remain.",
-    "workspaceHold": "Workspace failure receipt records1348 source/asset inputs stable across the completed compile attempt. The final geometry and agent adapter source are applied; fixing two compiler errors will establish another source snapshot requiring fresh guarded validation. No final binary or current runtime pass exists. Latest published source51d8ecf7 contains the66-record docs, index reversion and crop/adapter source; this67-record evidence update and subsequent fixes are outside it.",
+    "cargo": "Coordinator reports THIRD sole normal release workspace run69441 active, still compiling: target/presence-workspace-test-and-zoom-fixed-20261018.log. No completed receipt or test verdict is supplied; this update does not read/hash/snapshot that partial log. Second run completed Cargo101 before tests and is retained separately.",
+    "currentJob": "Completed early actual-app Chrome diagnostic failed101,0passed/1failed/1975filtered at firstattached25 known AA sizing assertion, source1349/harness/fingerprint stable; nine PNG+phaseJSON retained, no13-state metadata. Guardian personally reviewed all9 and confirmed roster/profile/chat/composer/self-reopen geometry while identifying inline-menu transcript jumps, oversize short identity and missing blue selected-hat tint. Parent workspace69441 remains active/no completed verdict. Proposal initial opaque preview→original+ghost/instantAccept and stale mode status after grant toggle are original-intent gaps; extract-first scratch fix approved/planned, not applied/tested. Source remains frozen; no native/provider/GPU/human pass;37 UI blockers/finalBinarynull.",
+    "nextQueue": "Collect completed parent69441 workspace receipt before a current parent verdict. After its source lease, review/apply the scratch AA diagnostic correction and the approved extract-first proposal-witness fix; preserve actual initial/transitional/accept motion and update mode status after grant changes. Repair guardian-observed floating menu behavior, compact short identity width and blue selected-hat tint, preserving accepted design. Rerun exact13-phase software capture and actual app tests, inspect real retained artifacts, then complete current performance/native/executable-bound human validation. No current screenshot or source approval passes37 native UI blockers.",
+    "followupCheck": "The completed child Chrome diagnostic is a real full-app software failure and nine retained images; it is separate from still-active parent69441. Positive geometry observations do not discharge37 native UI blockers. Menu positioning/identity width/hat selection differences and proposal-witness/mode-status gaps remain unresolved. AA correction and extract-first proposal fix remain unapplied scratch work; finalBinarynull/humanUntested.",
+    "workspaceHold": "The second completed attempt retained1349 guarded source/asset inputs stable. The THIRD run69441 owns the current compile lease and live source is frozen for it; do not apply scratch AA corrections or infer a final validated whole-app identity. Latest published source7e05d8ce includes compile/copy/Work/chrome source and67-record docs; this68-record update and the unapplied scratch diagnostic correction are outside that snapshot.",
     "native": "User away since 01:41 UTC; no native input or unlock requests. Existing native fixture may perform normal production catalog queries but submits no agent task; isolated cfg(test) frame fixtures pin catalogs. Full-app chrome source is guardian-approved, but its captures have not executed or passed. A later native interaction lease still requires a fresh exact executable, explicit coordinated ownership and human availability.",
     "mediaThread": "01a14b0f-1bf4-71c2-9d4a-bce26d5611ed",
     "tagsThread": "01a14b10-6380-7883-8c19-18cd8972745f",
@@ -5367,14 +5793,14 @@
     },
     "publishedSourceCheckpoint": {
       "state": "source-checkpoint-published-and-verified",
-      "branch": "codex/presence-checkpoint-20261018-cde00368",
-      "commit": "51d8ecf7d5d5f7ff432b3c314192f162a63b0e2f",
-      "tree": "af4ce63374123bf527a40749efbc6d5eae6981d2",
-      "parent": "d2bb139f6c076527f0ceeef9ba5bed10a99fd631",
+      "branch": "codex/presence-checkpoint-20261018-c0c30c9a",
+      "commit": "7e05d8cea519ef2f3811d50f2e41e6585670d642",
+      "tree": "4ae50496be9c3432e96d0625eafc9d1ba236350e",
+      "parent": "51d8ecf7d5d5f7ff432b3c314192f162a63b0e2f",
       "pushed": true,
       "pushExitCode": 0,
-      "verifiedRemoteCommit": "51d8ecf7d5d5f7ff432b3c314192f162a63b0e2f",
-      "finishedUtc": "2026-10-18T04:04:58.952233+00:00",
+      "verifiedRemoteCommit": "7e05d8cea519ef2f3811d50f2e41e6585670d642",
+      "finishedUtc": "2026-10-18T04:45:01.991678+00:00",
       "realIndexPreserved": true,
       "ownerHeadAfter": "d172cca5b9289df806b14842dab7b9693cfa4782",
       "ownerBranchAfter": "main",
@@ -5383,19 +5809,19 @@
       "headMainPreserved": true,
       "sourceHashesPreserved": true,
       "receiptHashesPreserved": true,
-      "evidence": "target/presence-checkpoint-crop-adapter-cde00368a45148d7b203dc3b66551541/publication-dbdbc0b02dfd437a9aa012df960f0632/publication.json",
-      "evidenceSha256": "c31c9eb609c891f40ca28965d148ff0d584ecef4452082287de076e5a19d082b",
+      "evidence": "target/presence-checkpoint-compile-fixes-c0c30c9afe4f4ee4a27ef33caae5f0f4/publication-755a514b6ff24938afe97a3b0a5e3b4d/publication.json",
+      "evidenceSha256": "4ad616b6052290233eb29fece216d508580c72b151bc31961b742fd717d3c57b",
       "review": {
-        "path": "target/presence-checkpoint-crop-adapter-cde00368a45148d7b203dc3b66551541/review.json",
-        "bytes": 88356,
-        "sha256": "f29b2d21f5c32509d5767b0a67246ce9e63101c855c1aa4de151cf43b0bdc3cd"
+        "path": "target/presence-checkpoint-compile-fixes-c0c30c9afe4f4ee4a27ef33caae5f0f4/review.json",
+        "bytes": 75796,
+        "sha256": "c2583639d35326bd3d9850008f3cf157cfdcabd18e10f1f12fab46ebb315da8a"
       },
       "sourceCheckpointOnly": true,
-      "selectedPathCount": 26,
-      "changedPathCount": 26,
-      "guardedSourceCount": 126,
-      "receiptCount": 58,
-      "boundary": "Seventh source snapshot51d8ecf7, parentd2bb, treeaf4ce633 is published and remote-verified; owner main/HEAD/index and inherited refs preserved. Includes exact index reversion, applied crop geometry/agent adapter source and66-record operational docs. Normal workspace subsequently failed compiling this guarded source before tests. This67-record update and subsequent fixes are outside it. No runtime/native/performance/human pass."
+      "selectedPathCount": 14,
+      "changedPathCount": 14,
+      "guardedSourceCount": 128,
+      "receiptCount": 75,
+      "boundary": "Eighth source snapshot7e05d8ce, parent51d8ecf7, tree4ae50496 is published/remote-verified; index/owner main/inherited refs preserved. Includes later compile fixes, copy/Work/chrome source and prior67-record docs. No current third-run verdict/native/performance/human pass. This68-record update and unapplied scratch AA correction are outside the snapshot. No unchanged archived value has been transcoded or repaired."
     },
     "hostedCheckpointValidation": {
       "observedUtc": "2026-10-18T02:20:58.152Z",
@@ -6000,6 +6426,38 @@
         "guardedSourceCount": 109,
         "receiptCount": 36,
         "boundary": "Sixth source continuity snapshotd2bb, parent39ed, treeffc357db is published and remote-verified with inherited refs and owner main/HEAD/index preserved. Includes index/catalog source and prior60-record evidence docs. This update and later crop edits are outside the snapshot. Source continuity is no runtime/performance/native/user verdict; PR57 remains on its earlier head."
+      },
+      {
+        "state": "source-checkpoint-published-and-verified",
+        "branch": "codex/presence-checkpoint-20261018-cde00368",
+        "commit": "51d8ecf7d5d5f7ff432b3c314192f162a63b0e2f",
+        "tree": "af4ce63374123bf527a40749efbc6d5eae6981d2",
+        "parent": "d2bb139f6c076527f0ceeef9ba5bed10a99fd631",
+        "pushed": true,
+        "pushExitCode": 0,
+        "verifiedRemoteCommit": "51d8ecf7d5d5f7ff432b3c314192f162a63b0e2f",
+        "finishedUtc": "2026-10-18T04:04:58.952233+00:00",
+        "realIndexPreserved": true,
+        "ownerHeadAfter": "d172cca5b9289df806b14842dab7b9693cfa4782",
+        "ownerBranchAfter": "main",
+        "allInheritedLocalRefsPreserved": true,
+        "fixedRemoteRefsPreserved": true,
+        "headMainPreserved": true,
+        "sourceHashesPreserved": true,
+        "receiptHashesPreserved": true,
+        "evidence": "target/presence-checkpoint-crop-adapter-cde00368a45148d7b203dc3b66551541/publication-dbdbc0b02dfd437a9aa012df960f0632/publication.json",
+        "evidenceSha256": "c31c9eb609c891f40ca28965d148ff0d584ecef4452082287de076e5a19d082b",
+        "review": {
+          "path": "target/presence-checkpoint-crop-adapter-cde00368a45148d7b203dc3b66551541/review.json",
+          "bytes": 88356,
+          "sha256": "f29b2d21f5c32509d5767b0a67246ce9e63101c855c1aa4de151cf43b0bdc3cd"
+        },
+        "sourceCheckpointOnly": true,
+        "selectedPathCount": 26,
+        "changedPathCount": 26,
+        "guardedSourceCount": 126,
+        "receiptCount": 58,
+        "boundary": "Seventh source snapshot51d8ecf7, parentd2bb, treeaf4ce633 is published and remote-verified; owner main/HEAD/index and inherited refs preserved. Includes exact index reversion, applied crop geometry/agent adapter source and66-record operational docs. Normal workspace subsequently failed compiling this guarded source before tests. This67-record update and subsequent fixes are outside it. No runtime/native/performance/human pass."
       }
     ],
     "captureRecoveryIsolation": {
@@ -6787,7 +7245,7 @@
         },
         "currentPostRestoreValidation": "Pending normal combined-source validation and fresh measurement"
       },
-      "boundary": "Current combined source attempt failed compiling Slate before tests. Historical material/vector/shared gates remain retained; no current post-restore runtime, performance, native or human verdict. All37 app UI cases remain open.",
+      "boundary": "Second workspace reached successful Slate library compilation but failed test compilation before any runtime cases. Later source fixes are applied and the third run is active/no verdict. No current performance/native/human verdict; all37 UI cases remain open.",
       "historicalSharedCandidate": {
         "evidence": "target/presence-shell-candidate-index-20261018.json",
         "evidenceSha256": "a071ed721dbfe3e9cfb6fa69cdc26e7a3610433db5ad523032f61066439e5880",
@@ -6799,9 +7257,9 @@
         "snapshot": "candidate-index"
       },
       "currentWorkspaceAttempt": {
-        "path": "target/presence-final-workspace-integrated-20261018.json",
-        "bytes": 490983,
-        "sha256": "d585a93929dcb51212e58d233b7350714d157f61b6ecb6b1bd1d93f4b5b381f3"
+        "path": "target/presence-workspace-crop-copy-integrated-20261018.json",
+        "bytes": 491557,
+        "sha256": "fffef10d847994629d6df7dc8267a95a488580d8eec194f5b1d390b42382d853"
       }
     },
     "witnessedMotionRenderTests": {
@@ -6843,11 +7301,186 @@
       "boundary": "Comment and runner boundary wording only. Normal native renderer fixtures may issue production provider catalog queries; the fixture submits no agent task. Isolated cfg(test) frame fixtures separately pin catalogs. Do not infer zero provider contact from prior no-agent-task/no-provider-work wording."
     },
     "fullAppChromeCaptureStatus": {
-      "state": "Source-frozen and guardian-approved; execution/readback pending",
-      "evidence": "target/presence-chrome-headless-source-v2.json",
-      "catalogHold": "target/presence-catalog-isolation-source-v2.json",
-      "evidenceBasis": "Source manifests and independent readback only; no completed runtime/native acceptance receipt supplied",
-      "boundary": "No native input while user away. Software full-app captures and catalog isolation do not establish native/GPU interaction, live provider replies or human acceptance."
+      "state": "early-actual-software-capture-failed-at-firstattached25-nine-phases-retained",
+      "sourceInventory": {
+        "path": "target/presence-checkpoint-compile-fixes-c0c30c9afe4f4ee4a27ef33caae5f0f4/chrome-frozen-byte-inventory.json",
+        "bytes": 654,
+        "sha256": "33e34d9cedb533ecfe603e584da22438026fdde4334167b305e74f72eff233a8"
+      },
+      "originalPhasesPreserved": 9,
+      "sourcePhases": 13,
+      "liveSourceFrozenForRun": 69441,
+      "sizingDiagnostic": {
+        "nominalSize": 36,
+        "opaqueAaInterior": 35,
+        "ppp": 1,
+        "classification": "Diagnostic misreads AA interior; no product-size regression established",
+        "scratchCorrection": "target/review/presence-chrome-aa-correction-20261018-45170390",
+        "scratchOnly": true,
+        "liveCorrectionApplied": false
+      },
+      "boundary": "Nine actual software images were retained and guardian-reviewed, but the diagnostic failed before completing attached states/final13-phase metadata. Scratch AA correction remains unapplied; no product-size regression is proved. Parent69441 and native/GPU/provider/human verdicts remain separate/open.",
+      "earlyActualDiagnostic": {
+        "path": "target/presence-early-chrome-render-20261018.json",
+        "bytes": 497967,
+        "sha256": "669a210d1efa868dba44366794ffa11dc8ffb0e04dacee120ac48bc95f1af641"
+      },
+      "retainedSoftwarePhases": 9,
+      "completed13StateMetadata": false,
+      "guardianReview": {
+        "state": "independent-guardian-personally-viewed-all9-software-images",
+        "evidence": {
+          "path": "target/presence-early-chrome-render-20261018.json",
+          "bytes": 497967,
+          "sha256": "669a210d1efa868dba44366794ffa11dc8ffb0e04dacee120ac48bc95f1af641"
+        },
+        "artifactDirectory": "target/review/presence-chrome-req-90568-1792299049874082400-0",
+        "artifacts": [
+          {
+            "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/agent-chat.json",
+            "bytes": 2697,
+            "sha256": "2e7625d49b02abbcc280ca0fbd0d88da403693d601e524c90412299dbb8438d9"
+          },
+          {
+            "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/agent-chat.png",
+            "bytes": 91835,
+            "sha256": "57979d18ce0edbee311766e48c97c6ea91a14f8774fd640a0bed909c6b0fdab2"
+          },
+          {
+            "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/closed-roster.json",
+            "bytes": 2248,
+            "sha256": "60b59bc379b4907c681e8ea16856277ca55eb0e4736139172af083351a9e2f6f"
+          },
+          {
+            "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/closed-roster.png",
+            "bytes": 53954,
+            "sha256": "b65d7387e6b8299b6856e086e5d57f4f8a77f2f9c6b9c20187bc6a4d0c06bc4e"
+          },
+          {
+            "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/harness-menu.json",
+            "bytes": 2868,
+            "sha256": "0c2298e27b7462ed08ac710367792e196414727306669aedfaab8c1edd83207b"
+          },
+          {
+            "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/harness-menu.png",
+            "bytes": 106570,
+            "sha256": "57434598271f4c7b4ed3af7ed98c1357ee828c5ad23495585cdac75cc41d6caf"
+          },
+          {
+            "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/hats-after-wheel.json",
+            "bytes": 2829,
+            "sha256": "4482c54f9f9876db857f3ffbb0c3854310f9231d038968dbf60f99f9e04f317f"
+          },
+          {
+            "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/hats-after-wheel.png",
+            "bytes": 98618,
+            "sha256": "1c08ad2d497253b57c193766fa66968bd94e13ab91615081969830589f5a5f51"
+          },
+          {
+            "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/hats-before.json",
+            "bytes": 2743,
+            "sha256": "d8826bacc7120d4546a910da79682b6d386c606051521abf9f71d8dd27152a56"
+          },
+          {
+            "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/hats-before.png",
+            "bytes": 99433,
+            "sha256": "199d5699a37c7ec2f833538b45f9ac5b6bf5046fd1b99b134bf148f68d9d4e73"
+          },
+          {
+            "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/more-menu.json",
+            "bytes": 2761,
+            "sha256": "cfa2090f6cd5ce3a1bbbc0c8cc7ba778c1a6952fc4d2bd8d5144fc14b4787521"
+          },
+          {
+            "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/more-menu.png",
+            "bytes": 106958,
+            "sha256": "ae84b6bae18eaf4e403cedda095c7c98eee4a15220d35acc5db9b827d11e5bcd"
+          },
+          {
+            "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/own-profile.json",
+            "bytes": 2138,
+            "sha256": "34a9e6cea719b43a3f5e305f4cc263db1f76244597a661b84aedf6d24e5a7195"
+          },
+          {
+            "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/own-profile.png",
+            "bytes": 68642,
+            "sha256": "fe9cfa185a688898216241310b2ccfd2279a38e285ab47ef1b5e8d3689ef5ae0"
+          },
+          {
+            "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/self-chat-reopened.json",
+            "bytes": 2602,
+            "sha256": "c2889a90bc568cea4c5f8c637f6ed977ecbf177fc0ff58306842c93884d64daf"
+          },
+          {
+            "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/self-chat-reopened.png",
+            "bytes": 75357,
+            "sha256": "b02320a4c6fbd22b7a13c64e5a6565a14c61243ce140d6572a25b9d8822dae13"
+          },
+          {
+            "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/self-chat.json",
+            "bytes": 2566,
+            "sha256": "de093020dc45cd8655304555a29a4d4067850b49b4124dd3abaad8495a099b1d"
+          },
+          {
+            "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/self-chat.png",
+            "bytes": 75355,
+            "sha256": "8122a76352a6f56c09c474e63a8611b9be1a0449936b7dc33b1e137fbda5e273"
+          }
+        ],
+        "pngCount": 9,
+        "observationProvenance": "Root relayed the dedicated intent guardian personal review of all nine actual images; geometry values below were independently checked in retained phase JSON by this docs update. No new image interpretation or native input performed by this docs worker.",
+        "observedMatches": [
+          {
+            "item": "unified roster",
+            "heightPixels": 40,
+            "scope": "exact retained geometry and guardian visual observation"
+          },
+          {
+            "item": "profile right edge aligns with self-name segment",
+            "rightEdge": 1301.65625,
+            "scope": "exact retained geometry and guardian observation"
+          },
+          {
+            "item": "enclosing conversation",
+            "width": 480,
+            "height": 720,
+            "composerVisible": true,
+            "scope": "guardian viewed actual self/agent chat PNGs; phase geometry checked"
+          },
+          {
+            "item": "self send/reopen",
+            "historyRetained": true,
+            "scope": "actual temporary-store self-send/reload in retained software fixture; no provider reply claimed"
+          }
+        ],
+        "observedDifferences": [
+          {
+            "item": "More menu",
+            "observed": "inline content shifts transcript about245px",
+            "approvedIntent": "floating menu preserving transcript position",
+            "approximatePixels": 245
+          },
+          {
+            "item": "harness selector",
+            "observed": "inline content shifts transcript about206px",
+            "approvedIntent": "floating menu preserving transcript position",
+            "approximatePixels": 206
+          },
+          {
+            "item": "short Dot identity capsule",
+            "observedWidthAbout": 183,
+            "approvedAgentExampleAbout": 122,
+            "observedCause": "fixed150px name gap",
+            "scope": "guardian comparison of accepted reference and actual software screenshot, approximate widths"
+          },
+          {
+            "item": "selected hat",
+            "observed": "blue selected tint missing",
+            "approvedIntent": "visible blue selection tint"
+          }
+        ],
+        "boundary": "These are precise software-image/geometry observations, not completed test, full13-phase, native/GPU or human acceptance. No retained37 native UI blocker is passed by this review."
+      }
     },
     "catalogProbeIsolation": {
       "evidence": "target/presence-catalog-isolation-source-v2.json",
@@ -6994,7 +7627,7 @@
       "boundary": "No dedicated on-disk health receipt is known. Coordinator relayed the read-only source finding; no runtime failure, fix or waived check is claimed."
     },
     "cropWitnessedWork": {
-      "state": "final-geometry-and-agent-adapter-source-applied-compilation-failed-before-tests",
+      "state": "geometry-adapter-copy-Work-source-applied-second-test-compile-failed-third-run-pending",
       "sourcePlan": "Canonical crop geometry extraction reuses existing geometry/command owners",
       "liveSourceFreeze": {
         "path": "target/presence-crop-geometry-final-source-freeze.json",
@@ -7018,13 +7651,13 @@
         "app::board_crop::gesture_tests::effective_handles_end_on_the_painted_clamped_window_or_uniform_source_grip",
         "app::board_crop::gesture_tests::effective_pan_uses_the_same_clamped_display_coordinates_as_existing_paint"
       ],
-      "adapterAndMotion": "Guardian-approved exact v2 slice live-applied, including canonical primary-press input hold and witnessed crop previews. Source manifest has16 files and13 test-source entries; no execution. Workspace stopped on two unrelated integration compiler errors before all tests.",
+      "adapterAndMotion": "Agent adapter and primary-press timing correction are applied; copy geometry/Work preview storage correction is applied/gated with original peers.clone retained. Second workspace test compile failed before execution; third run active.",
       "acceptanceCase": "witness-moving-resizing",
       "acceptanceTitle": "Moves, resize and crop show actual targets",
       "acceptanceClausePreserved": true,
       "acceptanceFile": "design/agent-presence-2026-10-17/native-acceptance.cases.json",
       "acceptanceFileSha256": "049ab77ac2274c049076d7144b6d31f8b99e4fb3d95ff8dc56e30be13f3920dc",
-      "boundary": "Applied geometry/agent source is not a runtime pass. The current workspace failed during compilation; none of the new normal or ignored cases ran. Original move/resize/crop acceptance remains unchanged/Untested; all37 UI blockers remain open.",
+      "boundary": "Source inventories/corrections are not runtime counts or timing claims. Original move/resize/crop acceptance remains unchanged; actual normal/ignored crop/motion tests await completed third-run validation. No native/provider/speed pass.",
       "previousLiveSourceFreeze": {
         "path": "target/presence-crop-geometry-v4-live-source-freeze.json",
         "bytes": 2960,
@@ -7106,6 +7739,18 @@
           "path": "apps/slate/src/app/agent_presence/crop_witness_tests.rs",
           "name": "cover_clamped_pan_witness_stops_with_the_source_and_keeps_the_exact_prepared_endpoint",
           "ignored": false
+        }
+      ],
+      "latestCopyAndWorkSource": [
+        {
+          "path": "target/presence-crop-copy-geometry-final-source-freeze.json",
+          "bytes": 2184,
+          "sha256": "c2f88905c1593ac30d0d68c1b95da2bd5249dab0c8aec1e73e77d9455ca91e72"
+        },
+        {
+          "path": "target/presence-crop-witness-reuse-final-source-freeze.json",
+          "bytes": 3089,
+          "sha256": "bb595f8622e54d329ad045c6f0a684d764b935c58971492d73321f864e91c5ee"
         }
       ]
     },
@@ -7200,38 +7845,467 @@
       "boundary": "Mechanical restoration is no post-restore test/performance/native pass. Removed index source remains preserved in backups and published snapshotd2bb. Current new-size cost remains unresolved."
     },
     "currentWorkspaceValidation": {
-      "state": "compile-failed-before-tests",
-      "evidence": {
-        "path": "target/presence-final-workspace-integrated-20261018.json",
-        "bytes": 490983,
-        "sha256": "d585a93929dcb51212e58d233b7350714d157f61b6ecb6b1bd1d93f4b5b381f3"
+      "state": "third-normal-release-workspace-run-active-compiling-no-verdict",
+      "rootSession": 69441,
+      "logPath": "target/presence-workspace-test-and-zoom-fixed-20261018.log",
+      "completedReceipt": null,
+      "currentRuntimeVerdict": null,
+      "partialLogReadOrSnapshottedByThisUpdate": false,
+      "secondCompletedAttempt": {
+        "path": "target/presence-workspace-crop-copy-integrated-20261018.json",
+        "bytes": 491557,
+        "sha256": "fffef10d847994629d6df7dc8267a95a488580d8eec194f5b1d390b42382d853"
       },
-      "directCargoExitCode": 101,
-      "sourceStable": true,
-      "sourceIdentityCount": 1348,
-      "compileErrors": [
+      "sourceFixes": [
         {
-          "code": "E0425",
-          "path": "apps/slate/src/app/board_properties/image_palette/buttons.rs",
-          "line": 70,
-          "diagnostic": "cannot find function strip_button in module chrome"
+          "path": "target/presence-proposal-chat-private-field-fix-a5b4b23749f34f9cb35c65020593f417/source-freeze.json",
+          "bytes": 1049,
+          "sha256": "994e7fef50d6cb82cac17c77d6617418bc4080676b92d669f553bc98831f49aa"
         },
         {
-          "code": "E0616",
-          "path": "apps/slate/src/app/board_flow/result_actions.rs",
-          "line": 96,
-          "diagnostic": "field cover_focus of AgentRuntime is private"
+          "path": "target/media-album-arc-compile-repair-20261018/source-freeze.json",
+          "bytes": 8737,
+          "sha256": "a13600999d2ce985829ba4b9b91aa49de16f7568d2b5c7a044a512fe59b19483"
         }
       ],
-      "testsExecuted": false,
-      "libtestSummaries": [],
-      "harnesses": [],
-      "rawLog": {
-        "path": "target/presence-final-workspace-integrated-20261018.log",
-        "bytes": 4686,
-        "sha256": "a4029f719b4c58e5ddfb92d8217ab31a696237c07a2c6a6b20c9e793fd00aae6"
+      "boundary": "Coordinator-reported active compile only. Do not turn library compilation or later source fixes into a test/runtime pass; no partial current log evidence was read.",
+      "completedChildChromeDiagnostic": {
+        "path": "target/presence-early-chrome-render-20261018.json",
+        "bytes": 497967,
+        "sha256": "669a210d1efa868dba44366794ffa11dc8ffb0e04dacee120ac48bc95f1af641"
       },
-      "boundary": "Completed normal release workspace attempt failed compiling Slate lib on two source errors, before any tests. There is no workspace runtime verdict, current app pass, native appearance/performance pass or human acceptance. Historical package results remain bound to their earlier snapshots; fixes and a fresh guarded normal validation are still required."
+      "childFailureIsNotParentVerdict": true
+    },
+    "workspaceValidationHistory": [
+      {
+        "state": "compile-failed-before-tests",
+        "evidence": {
+          "path": "target/presence-final-workspace-integrated-20261018.json",
+          "bytes": 490983,
+          "sha256": "d585a93929dcb51212e58d233b7350714d157f61b6ecb6b1bd1d93f4b5b381f3"
+        },
+        "directCargoExitCode": 101,
+        "sourceStable": true,
+        "sourceIdentityCount": 1348,
+        "compileErrors": [
+          {
+            "code": "E0425",
+            "path": "apps/slate/src/app/board_properties/image_palette/buttons.rs",
+            "line": 70,
+            "diagnostic": "cannot find function strip_button in module chrome"
+          },
+          {
+            "code": "E0616",
+            "path": "apps/slate/src/app/board_flow/result_actions.rs",
+            "line": 96,
+            "diagnostic": "field cover_focus of AgentRuntime is private"
+          }
+        ],
+        "testsExecuted": false,
+        "libtestSummaries": [],
+        "harnesses": [],
+        "rawLog": {
+          "path": "target/presence-final-workspace-integrated-20261018.log",
+          "bytes": 4686,
+          "sha256": "a4029f719b4c58e5ddfb92d8217ab31a696237c07a2c6a6b20c9e793fd00aae6"
+        },
+        "boundary": "Completed normal release workspace attempt failed compiling Slate lib on two source errors, before any tests. There is no workspace runtime verdict, current app pass, native appearance/performance pass or human acceptance. Historical package results remain bound to their earlier snapshots; fixes and a fresh guarded normal validation are still required."
+      },
+      {
+        "state": "second-workspace-compile-failed-before-tests",
+        "evidence": {
+          "path": "target/presence-workspace-crop-copy-integrated-20261018.json",
+          "bytes": 491557,
+          "sha256": "fffef10d847994629d6df7dc8267a95a488580d8eec194f5b1d390b42382d853"
+        },
+        "directCargoExitCode": 101,
+        "sourceStable": true,
+        "sourceIdentityCount": 1349,
+        "compileErrors": [
+          {
+            "code": "E0616",
+            "path": "apps/slate/src/app/agent_presence/proposal_chat_tests.rs",
+            "line": 63,
+            "diagnostic": "field pending of AgentRuntime is private"
+          },
+          {
+            "code": "E0277",
+            "path": "apps/slate/src/app/board_agent/image_album_tests.rs",
+            "line": 146,
+            "diagnostic": "&Arc<Vec<ImageOutput>> is not an iterator"
+          }
+        ],
+        "testsExecuted": false,
+        "libraryCompilation": "Succeeded; test harness then failed",
+        "libtestSummaries": [],
+        "harnesses": [],
+        "rawLog": {
+          "path": "target/presence-workspace-crop-copy-integrated-20261018.log",
+          "bytes": 4991,
+          "sha256": "0580d4151f24dc41e2b27c6dfb34b2ede9bbd768632089fb6f6138bb68d17674"
+        },
+        "boundary": "Completed SECOND normal release workspace attempt failed before tests on two test-only compile errors. Both have later source corrections preserving assertions; that is not a runtime pass. The THIRD coordinator run69441 is active and has no completed receipt/verdict in this update. No partial active log was read or hashed. No native/provider/performance/human acceptance follows."
+      }
+    ],
+    "secondWorkspaceCompileFixes": {
+      "completedFailure": {
+        "path": "target/presence-workspace-crop-copy-integrated-20261018.json",
+        "bytes": 491557,
+        "sha256": "fffef10d847994629d6df7dc8267a95a488580d8eec194f5b1d390b42382d853"
+      },
+      "proposalPrivateFieldFix": {
+        "path": "target/presence-proposal-chat-private-field-fix-a5b4b23749f34f9cb35c65020593f417/source-freeze.json",
+        "bytes": 1049,
+        "sha256": "994e7fef50d6cb82cac17c77d6617418bc4080676b92d669f553bc98831f49aa"
+      },
+      "albumArcFix": {
+        "path": "target/media-album-arc-compile-repair-20261018/source-freeze.json",
+        "bytes": 8737,
+        "sha256": "a13600999d2ce985829ba4b9b91aa49de16f7568d2b5c7a044a512fe59b19483"
+      },
+      "state": "Both source corrections applied through existing owners; runtime pending active third run",
+      "assertionsPreserved": true,
+      "boundary": "Source-only compile corrections preserve fixture isolation, order/label assertions and actual texture-fixture behavior. No test passed by making these source edits."
+    },
+    "copyAndWorkPreviewCorrection": {
+      "state": "source-applied-and-gated-runtime-pending",
+      "copyGeometryFreeze": {
+        "path": "target/presence-crop-copy-geometry-final-source-freeze.json",
+        "bytes": 2184,
+        "sha256": "c2f88905c1593ac30d0d68c1b95da2bd5249dab0c8aec1e73e77d9455ca91e72"
+      },
+      "workPreviewFreeze": {
+        "path": "target/presence-crop-witness-reuse-final-source-freeze.json",
+        "bytes": 3089,
+        "sha256": "bb595f8622e54d329ad045c6f0a684d764b935c58971492d73321f864e91c5ee"
+      },
+      "originalPeersCloneRetained": true,
+      "zeroAllocatorClaim": false,
+      "timingClaim": false,
+      "boundary": "Source ownership/storage correction only. Original peers.clone remains; no zero-allocation, performance or actual crop/motion render pass follows."
+    },
+    "fullAppChromeCaptureStatusHistory": [
+      {
+        "state": "Source-frozen and guardian-approved; execution/readback pending",
+        "evidence": "target/presence-chrome-headless-source-v2.json",
+        "catalogHold": "target/presence-catalog-isolation-source-v2.json",
+        "evidenceBasis": "Source manifests and independent readback only; no completed runtime/native acceptance receipt supplied",
+        "boundary": "No native input while user away. Software full-app captures and catalog isolation do not establish native/GPU interaction, live provider replies or human acceptance."
+      },
+      {
+        "state": "13-phase-source-added-original9-preserved-no-render-pass",
+        "sourceInventory": {
+          "path": "target/presence-checkpoint-compile-fixes-c0c30c9afe4f4ee4a27ef33caae5f0f4/chrome-frozen-byte-inventory.json",
+          "bytes": 654,
+          "sha256": "33e34d9cedb533ecfe603e584da22438026fdde4334167b305e74f72eff233a8"
+        },
+        "originalPhasesPreserved": 9,
+        "sourcePhases": 13,
+        "liveSourceFrozenForRun": 69441,
+        "sizingDiagnostic": {
+          "nominalSize": 36,
+          "opaqueAaInterior": 35,
+          "ppp": 1,
+          "classification": "Diagnostic misreads AA interior; no product-size regression established",
+          "scratchCorrection": "target/review/presence-chrome-aa-correction-20261018-45170390",
+          "scratchOnly": true,
+          "liveCorrectionApplied": false
+        },
+        "boundary": "13-phase source and prepared scratch correction are not an actual render or native/human pass. Live source remains frozen for active workspace compile. Nominal geometry is distinct from opaque AA interior."
+      }
+    ],
+    "fullAppTestRuntimeBoundary": {
+      "state": "explicit-app-harness-boundary",
+      "ordinaryThumbnailCachesMayBeTouched": true,
+      "tempConversationStores": true,
+      "settingsSaveDisabledUnderTests": true,
+      "zeroAppDataWritesEstablished": false,
+      "liveProviderExecutionEstablished": false,
+      "boundary": "Temporary conversation stores and disabled settings saves isolate those specific owners only. A normal app test harness may still touch ordinary thumbnail caches. Do not infer zero app-data writes, real provider calls/replies, native UI or human acceptance from compile/source status."
+    },
+    "earlyActualChromeDiagnostic": {
+      "state": "completed-failed-actual-app-software-diagnostic",
+      "evidence": {
+        "path": "target/presence-early-chrome-render-20261018.json",
+        "bytes": 497967,
+        "sha256": "669a210d1efa868dba44366794ffa11dc8ffb0e04dacee120ac48bc95f1af641"
+      },
+      "rawLog": {
+        "path": "target/presence-early-chrome-render-20261018.log",
+        "bytes": 654,
+        "sha256": "492e0a688f1ef80230fde76ad44b676b66528713e2f3de0374f996b5c4887566"
+      },
+      "harness": {
+        "path": "target/release/deps/slate-fc7790602d20a07c.exe",
+        "bytes": 66493952,
+        "sha256": "368341fe2d18a781031a0187842b4e6feba30d5a6d20acd1102625be7ca6b219"
+      },
+      "sourceStable": true,
+      "sourceIdentityCount": 1349,
+      "passed": 0,
+      "failed": 1,
+      "filtered": 1975,
+      "artifactDirectory": "target/review/presence-chrome-req-90568-1792299049874082400-0",
+      "artifacts": [
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/agent-chat.json",
+          "bytes": 2697,
+          "sha256": "2e7625d49b02abbcc280ca0fbd0d88da403693d601e524c90412299dbb8438d9"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/agent-chat.png",
+          "bytes": 91835,
+          "sha256": "57979d18ce0edbee311766e48c97c6ea91a14f8774fd640a0bed909c6b0fdab2"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/closed-roster.json",
+          "bytes": 2248,
+          "sha256": "60b59bc379b4907c681e8ea16856277ca55eb0e4736139172af083351a9e2f6f"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/closed-roster.png",
+          "bytes": 53954,
+          "sha256": "b65d7387e6b8299b6856e086e5d57f4f8a77f2f9c6b9c20187bc6a4d0c06bc4e"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/harness-menu.json",
+          "bytes": 2868,
+          "sha256": "0c2298e27b7462ed08ac710367792e196414727306669aedfaab8c1edd83207b"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/harness-menu.png",
+          "bytes": 106570,
+          "sha256": "57434598271f4c7b4ed3af7ed98c1357ee828c5ad23495585cdac75cc41d6caf"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/hats-after-wheel.json",
+          "bytes": 2829,
+          "sha256": "4482c54f9f9876db857f3ffbb0c3854310f9231d038968dbf60f99f9e04f317f"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/hats-after-wheel.png",
+          "bytes": 98618,
+          "sha256": "1c08ad2d497253b57c193766fa66968bd94e13ab91615081969830589f5a5f51"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/hats-before.json",
+          "bytes": 2743,
+          "sha256": "d8826bacc7120d4546a910da79682b6d386c606051521abf9f71d8dd27152a56"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/hats-before.png",
+          "bytes": 99433,
+          "sha256": "199d5699a37c7ec2f833538b45f9ac5b6bf5046fd1b99b134bf148f68d9d4e73"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/more-menu.json",
+          "bytes": 2761,
+          "sha256": "cfa2090f6cd5ce3a1bbbc0c8cc7ba778c1a6952fc4d2bd8d5144fc14b4787521"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/more-menu.png",
+          "bytes": 106958,
+          "sha256": "ae84b6bae18eaf4e403cedda095c7c98eee4a15220d35acc5db9b827d11e5bcd"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/own-profile.json",
+          "bytes": 2138,
+          "sha256": "34a9e6cea719b43a3f5e305f4cc263db1f76244597a661b84aedf6d24e5a7195"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/own-profile.png",
+          "bytes": 68642,
+          "sha256": "fe9cfa185a688898216241310b2ccfd2279a38e285ab47ef1b5e8d3689ef5ae0"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/self-chat-reopened.json",
+          "bytes": 2602,
+          "sha256": "c2889a90bc568cea4c5f8c637f6ed977ecbf177fc0ff58306842c93884d64daf"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/self-chat-reopened.png",
+          "bytes": 75357,
+          "sha256": "b02320a4c6fbd22b7a13c64e5a6565a14c61243ce140d6572a25b9d8822dae13"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/self-chat.json",
+          "bytes": 2566,
+          "sha256": "de093020dc45cd8655304555a29a4d4067850b49b4124dd3abaad8495a099b1d"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/self-chat.png",
+          "bytes": 75355,
+          "sha256": "8122a76352a6f56c09c474e63a8611b9be1a0449936b7dc33b1e137fbda5e273"
+        }
+      ],
+      "completed13StateMetadata": false,
+      "parentRun69441Verdict": "Active; no completed verdict asserted",
+      "boundary": "Completed actual full-app software diagnostic failed0/1 and retained nine PNG plus nine phase JSON files. No final13-state metadata. The normal Slate libtest is identified by matching fingerprint/depfile and source1349 snapshot, not newest-file selection alone. Parent69441 remains active with no workspace pass. This update does not read/hash parent partial logs; receipt-embedded parent observations establish no completed verdict. No native/GPU/provider/speed/human pass."
+    },
+    "guardianActualChromeObservations": {
+      "state": "independent-guardian-personally-viewed-all9-software-images",
+      "evidence": {
+        "path": "target/presence-early-chrome-render-20261018.json",
+        "bytes": 497967,
+        "sha256": "669a210d1efa868dba44366794ffa11dc8ffb0e04dacee120ac48bc95f1af641"
+      },
+      "artifactDirectory": "target/review/presence-chrome-req-90568-1792299049874082400-0",
+      "artifacts": [
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/agent-chat.json",
+          "bytes": 2697,
+          "sha256": "2e7625d49b02abbcc280ca0fbd0d88da403693d601e524c90412299dbb8438d9"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/agent-chat.png",
+          "bytes": 91835,
+          "sha256": "57979d18ce0edbee311766e48c97c6ea91a14f8774fd640a0bed909c6b0fdab2"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/closed-roster.json",
+          "bytes": 2248,
+          "sha256": "60b59bc379b4907c681e8ea16856277ca55eb0e4736139172af083351a9e2f6f"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/closed-roster.png",
+          "bytes": 53954,
+          "sha256": "b65d7387e6b8299b6856e086e5d57f4f8a77f2f9c6b9c20187bc6a4d0c06bc4e"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/harness-menu.json",
+          "bytes": 2868,
+          "sha256": "0c2298e27b7462ed08ac710367792e196414727306669aedfaab8c1edd83207b"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/harness-menu.png",
+          "bytes": 106570,
+          "sha256": "57434598271f4c7b4ed3af7ed98c1357ee828c5ad23495585cdac75cc41d6caf"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/hats-after-wheel.json",
+          "bytes": 2829,
+          "sha256": "4482c54f9f9876db857f3ffbb0c3854310f9231d038968dbf60f99f9e04f317f"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/hats-after-wheel.png",
+          "bytes": 98618,
+          "sha256": "1c08ad2d497253b57c193766fa66968bd94e13ab91615081969830589f5a5f51"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/hats-before.json",
+          "bytes": 2743,
+          "sha256": "d8826bacc7120d4546a910da79682b6d386c606051521abf9f71d8dd27152a56"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/hats-before.png",
+          "bytes": 99433,
+          "sha256": "199d5699a37c7ec2f833538b45f9ac5b6bf5046fd1b99b134bf148f68d9d4e73"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/more-menu.json",
+          "bytes": 2761,
+          "sha256": "cfa2090f6cd5ce3a1bbbc0c8cc7ba778c1a6952fc4d2bd8d5144fc14b4787521"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/more-menu.png",
+          "bytes": 106958,
+          "sha256": "ae84b6bae18eaf4e403cedda095c7c98eee4a15220d35acc5db9b827d11e5bcd"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/own-profile.json",
+          "bytes": 2138,
+          "sha256": "34a9e6cea719b43a3f5e305f4cc263db1f76244597a661b84aedf6d24e5a7195"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/own-profile.png",
+          "bytes": 68642,
+          "sha256": "fe9cfa185a688898216241310b2ccfd2279a38e285ab47ef1b5e8d3689ef5ae0"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/self-chat-reopened.json",
+          "bytes": 2602,
+          "sha256": "c2889a90bc568cea4c5f8c637f6ed977ecbf177fc0ff58306842c93884d64daf"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/self-chat-reopened.png",
+          "bytes": 75357,
+          "sha256": "b02320a4c6fbd22b7a13c64e5a6565a14c61243ce140d6572a25b9d8822dae13"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/self-chat.json",
+          "bytes": 2566,
+          "sha256": "de093020dc45cd8655304555a29a4d4067850b49b4124dd3abaad8495a099b1d"
+        },
+        {
+          "path": "target/review/presence-chrome-req-90568-1792299049874082400-0/self-chat.png",
+          "bytes": 75355,
+          "sha256": "8122a76352a6f56c09c474e63a8611b9be1a0449936b7dc33b1e137fbda5e273"
+        }
+      ],
+      "pngCount": 9,
+      "observationProvenance": "Root relayed the dedicated intent guardian personal review of all nine actual images; geometry values below were independently checked in retained phase JSON by this docs update. No new image interpretation or native input performed by this docs worker.",
+      "observedMatches": [
+        {
+          "item": "unified roster",
+          "heightPixels": 40,
+          "scope": "exact retained geometry and guardian visual observation"
+        },
+        {
+          "item": "profile right edge aligns with self-name segment",
+          "rightEdge": 1301.65625,
+          "scope": "exact retained geometry and guardian observation"
+        },
+        {
+          "item": "enclosing conversation",
+          "width": 480,
+          "height": 720,
+          "composerVisible": true,
+          "scope": "guardian viewed actual self/agent chat PNGs; phase geometry checked"
+        },
+        {
+          "item": "self send/reopen",
+          "historyRetained": true,
+          "scope": "actual temporary-store self-send/reload in retained software fixture; no provider reply claimed"
+        }
+      ],
+      "observedDifferences": [
+        {
+          "item": "More menu",
+          "observed": "inline content shifts transcript about245px",
+          "approvedIntent": "floating menu preserving transcript position",
+          "approximatePixels": 245
+        },
+        {
+          "item": "harness selector",
+          "observed": "inline content shifts transcript about206px",
+          "approvedIntent": "floating menu preserving transcript position",
+          "approximatePixels": 206
+        },
+        {
+          "item": "short Dot identity capsule",
+          "observedWidthAbout": 183,
+          "approvedAgentExampleAbout": 122,
+          "observedCause": "fixed150px name gap",
+          "scope": "guardian comparison of accepted reference and actual software screenshot, approximate widths"
+        },
+        {
+          "item": "selected hat",
+          "observed": "blue selected tint missing",
+          "approvedIntent": "visible blue selection tint"
+        }
+      ],
+      "boundary": "These are precise software-image/geometry observations, not completed test, full13-phase, native/GPU or human acceptance. No retained37 native UI blocker is passed by this review."
+    },
+    "proposalWitnessedPreviewGap": {
+      "state": "original-intent-gap-source-investigated-scratch-fix-planned-not-applied",
+      "observedBehavior": "Initial opaque proposal preview, then original plus ghost, with instantaneous Accept commit",
+      "requiredIntent": "Visible continuous work consistent with original witnessed-action requirement",
+      "ownerPlan": "DRY-approved extract-first plan for scratch correction",
+      "applied": false,
+      "tested": false,
+      "modeStatusGap": "Status text stale after grant-mode toggle",
+      "otherMissingFeaturePathsIdentified": false,
+      "boundary": "Coordinator-reported original-intent functional/source finding; it is not one of the nine empty-board Chrome render observations. No fix, runtime, native/provider or human pass is claimed."
     }
   }
 }

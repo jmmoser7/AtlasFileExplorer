@@ -17,6 +17,10 @@ impl SlateApp {
             if a.tab != self.tab().id
                 || a.departure.is_some()
                 || (a.paused
+                    && a.work.as_ref().is_some_and(|w| {
+                        matches!(w.purpose, witness::WitnessPurpose::ApprovedProposal(_))
+                    }))
+                || (a.paused
                     && matches!(&call.operation, BoardOperation::Invoke { command, .. } if command != "presence.read_image"))
             {
                 return Err("Board is inactive or collaborator paused".into());
@@ -39,7 +43,7 @@ impl SlateApp {
                     targets,
                     arguments,
                 } => {
-                    if a.work.is_some() || a.proposed.is_some() || a.read.is_some() {
+                    if a.work.is_some() || a.read.is_some() {
                         return Err("Wait for the current action or proposal decision".into());
                     }
                     if command == "presence.read_image" {
@@ -91,48 +95,22 @@ impl SlateApp {
                         ));
                     }
                     let prepared = self.prepare_targeted_command(command, targets, arguments)?;
-                    if self.human_owns_presence_targets(&prepared.targets) {
-                        return Err(
-                            "The human is editing this target; wait for them to finish".into()
-                        );
-                    }
-                    if prepared.requires_linked_inputs()
-                        && !grant
-                            .readable_sources
-                            .iter()
-                            .any(|s| s == "board-file-inputs")
-                    {
-                        return Err("This generator reads linked files; enable its participant's wired-file input grant first".into());
-                    }
-                    if prepared.targets.iter().any(|id| {
-                        self.doc().scene.node(*id).is_some()
-                            && !grant.allows_node(&id.0.to_string())
-                    }) {
-                        return Err("Expanded command targets exceed the board grant".into());
-                    }
-                    if self
-                        .presence
-                        .agents
-                        .iter()
-                        .filter_map(|other| other.work.as_ref())
-                        .any(|w| {
-                            w.prepared
-                                .targets
-                                .iter()
-                                .any(|id| prepared.targets.contains(id))
-                        })
-                    {
-                        return Err("Another collaborator is handling this target".into());
-                    }
+                    self.validate_presence_action(a, call, &prepared)?;
                     a.activity = command_activity(command).into();
                     a.observed_target = prepared.targets.first().copied();
                     a.status = "Approaching target · visible action".into();
-                    a.work = Some(WitnessedCommand::new(
+                    let mut work = WitnessedCommand::new(
                         call.clone(),
                         prepared,
                         &self.doc().scene,
                         self.board_wire_routing,
-                    )?);
+                    )?;
+                    work.purpose = if grant.mutation_autonomy {
+                        witness::WitnessPurpose::Autonomous
+                    } else {
+                        witness::WitnessPurpose::ProposalPreview
+                    };
+                    a.work = Some(work);
                     Ok(None)
                 }
             }

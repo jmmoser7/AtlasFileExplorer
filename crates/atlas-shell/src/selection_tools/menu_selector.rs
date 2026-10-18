@@ -5,22 +5,23 @@ use super::*;
 #[cfg(test)]
 mod tests;
 
-pub(super) struct CapsuleMenu {
-    pub(super) picked: Option<usize>,
-    pub(super) popup: Option<Rect>,
-    pub(super) opened: bool,
-    pub(super) dismissed_outside: bool,
+pub(crate) struct CapsuleMenu {
+    pub(crate) picked: Option<usize>,
+    /// Actual global bounds; input/camera owners never compare local geometry.
+    pub(crate) popup: Option<Rect>,
+    pub(crate) opened: bool,
+    pub(crate) dismissed_outside: bool,
 }
 
-pub(super) struct BareMenu<'a> {
-    pub(super) id: Id,
-    pub(super) rect: Rect,
-    pub(super) label: &'a str,
-    pub(super) options: &'a [&'a str],
-    pub(super) selected: usize,
-    pub(super) open: &'a mut bool,
-    pub(super) zoom: f32,
-    pub(super) theme: Palette,
+pub(crate) struct BareMenu<'a> {
+    pub(crate) id: Id,
+    pub(crate) rect: Rect,
+    pub(crate) label: &'a str,
+    pub(crate) options: &'a [&'a str],
+    pub(crate) selected: usize,
+    pub(crate) open: &'a mut bool,
+    pub(crate) zoom: f32,
+    pub(crate) theme: Palette,
 }
 
 #[derive(Clone, Copy)]
@@ -90,7 +91,7 @@ pub(super) fn capsule_menu(
 
 /// Bare image-panel dropdown: same popup and selection semantics as the
 /// shared capsule menu, with no surrounding pill or circular arrow badge.
-pub(super) fn bare_menu(ui: &mut egui::Ui, menu: BareMenu<'_>) -> CapsuleMenu {
+pub(crate) fn bare_menu(ui: &mut egui::Ui, menu: BareMenu<'_>) -> CapsuleMenu {
     menu_selector(
         ui,
         menu.id,
@@ -213,7 +214,11 @@ fn menu_selector(
     // Keep the whole frame and its scroll viewport on screen. Near the
     // bottom edge the upper side has the usable room; resizing only the Area
     // leaves ScrollArea believing its lower rows are still visible.
-    let viewport = ui.ctx().screen_rect().shrink(4.0 * zoom);
+    let to_global = ui
+        .ctx()
+        .layer_transform_to_global(ui.layer_id())
+        .unwrap_or_default();
+    let viewport = (to_global.inverse() * ui.ctx().screen_rect()).shrink(4.0 * zoom);
     let below_top = (rect.bottom() + 4.0 * zoom).clamp(viewport.top(), viewport.bottom());
     let above_bottom = (rect.top() - 4.0 * zoom).clamp(viewport.top(), viewport.bottom());
     let below = viewport.bottom() - below_top;
@@ -249,6 +254,7 @@ fn menu_selector(
             .any_click()
             .then(|| i.pointer.interact_pos())
             .flatten()
+            .map(|point| to_global.inverse() * point)
     });
     if let Some(pos) = click {
         if !rect.contains(pos) && !previous_popup.contains(pos) {
@@ -404,8 +410,9 @@ fn menu_selector(
                 });
             });
         });
-    out.popup = Some(shown.response.rect);
-    crate::menu_wheel::claim(ui.ctx(), shown.response.rect);
+    let screen_rect = to_global * shown.response.rect;
+    out.popup = Some(screen_rect);
+    crate::menu_wheel::claim(ui.ctx(), screen_rect);
     out
 }
 
