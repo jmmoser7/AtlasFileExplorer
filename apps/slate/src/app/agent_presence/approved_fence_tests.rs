@@ -57,6 +57,8 @@ fn replay_or_recovery_decisions_before_start_or_before_commit_never_apply_edits(
 fn retained_source_metadata_and_live_source_grant_are_rechecked_at_approved_commit() {
     for revoked in [false, true] {
         let (mut h, who, source) = setup();
+        // File input grants are scoped to an existing canonical workbook.
+        std::fs::write(h.base.join("approved-board.slate"), b"{}").unwrap();
         h.app
             .apply_presence_action(
                 &h.ctx,

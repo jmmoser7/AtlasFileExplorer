@@ -100,6 +100,10 @@ impl SlateApp {
                                 outgoing: t.role == "user",
                                 system: t.role == "system",
                                 status: &t.status,
+                                attachment_count: c
+                                    .message_images
+                                    .get(&t.request)
+                                    .map_or(0, Vec::len),
                             })
                             .collect();
                         (rows, total)
@@ -110,6 +114,36 @@ impl SlateApp {
         let choices: Vec<_> = live
             .iter()
             .map(|a| self.presence_model_choice(&a.profile.id, &a.profile.provider))
+            .collect();
+        let activity: Vec<Vec<_>> = live
+            .iter()
+            .map(|a| {
+                a.snapshot
+                    .as_ref()
+                    .into_iter()
+                    .flat_map(|s| s.activity.iter().rev().take(8).rev())
+                    .map(|e| chrome::PublicActivity {
+                        label: match e.kind {
+                            atlas_agent::AgentActivityKind::Commentary => "Update",
+                            atlas_agent::AgentActivityKind::ToolStarted => "Working",
+                            atlas_agent::AgentActivityKind::ToolFinished => "Completed",
+                        },
+                        text: &e.text,
+                    })
+                    .collect()
+            })
+            .collect();
+        let attachments: Vec<Vec<_>> = live
+            .iter()
+            .map(|a| {
+                self.presence_conversation(&a.profile.id)
+                    .into_iter()
+                    .flat_map(|c| &c.draft_images)
+                    .map(|p| chrome::Attachment {
+                        name: p.file_name().and_then(|s| s.to_str()).unwrap_or("Image"),
+                    })
+                    .collect()
+            })
             .collect();
         let models: Vec<Vec<_>> = live
             .iter()
@@ -139,6 +173,7 @@ impl SlateApp {
             human: true,
             paused: false,
             autonomous: false,
+            full_access: false,
             file_inputs: false,
             own_chats: false,
             parent_name: None,
@@ -146,6 +181,8 @@ impl SlateApp {
             local_profile: true,
             photo_texture: self.presence.photo.texture(),
             busy: false,
+            activity: &[],
+            attachments: &[],
             messages: &messages[0].0,
             message_total: messages[0].1,
             proposals: &[],
@@ -164,6 +201,7 @@ impl SlateApp {
                 human: false,
                 paused: a.paused,
                 autonomous: a.grant.as_ref().is_some_and(|g| g.mutation_autonomy),
+                full_access: self.presence_full_access_for(&a.profile.id),
                 file_inputs: a
                     .grant
                     .as_ref()
@@ -182,6 +220,8 @@ impl SlateApp {
                 local_profile: false,
                 photo_texture: None,
                 busy: self.presence.task_busy(&a.profile.id),
+                activity: &activity[index],
+                attachments: &attachments[index],
                 messages: &messages[index + 1].0,
                 message_total: messages[index + 1].1,
                 proposals: &proposals[index],
@@ -211,12 +251,15 @@ impl SlateApp {
                 },
                 paused: false,
                 autonomous: false,
+                full_access: false,
                 file_inputs: false,
                 own_chats: false,
                 parent_name: None,
                 chats: &[],
                 photo_texture: self.presence.human_chat.photo(&person.id),
                 busy: false,
+                activity: &[],
+                attachments: &[],
                 messages: &messages[1 + live.len() + index].0,
                 message_total: messages[1 + live.len() + index].1,
                 proposals: &[],
@@ -335,6 +378,15 @@ impl SlateApp {
             Draft { id, text } => ("presence.draft", serde_json::json!({"id":id,"text":text})),
             SetPhoto { id } => ("presence.photo", serde_json::json!({"id":id})),
             RemovePhoto { id } => ("presence.photo.remove", serde_json::json!({"id":id})),
+            Attach { id } => ("presence.attach", serde_json::json!({"id":id})),
+            RemoveAttachment { id, index } => (
+                "presence.attach.remove",
+                serde_json::json!({"id":id,"index":index}),
+            ),
+            SetFullAccess { id, enabled } => (
+                "presence.full_access",
+                serde_json::json!({"id":id,"enabled":enabled}),
+            ),
             ShowConversation { id } | OpenChat { id, .. } => {
                 ("presence.chat", serde_json::json!({"id":id}))
             }

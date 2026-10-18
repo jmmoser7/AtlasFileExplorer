@@ -8,12 +8,16 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Instant};
 
 mod calls;
+mod consent_policy;
 mod controls;
+pub(crate) use consent_policy::AgentConsentPolicy;
+mod attachments;
 mod conversation;
 mod conversation_store;
 #[cfg(test)]
 mod conversation_tests;
 mod harness;
+mod updates;
 pub(crate) use conversation::HumanProfile;
 mod avatar_input;
 mod helper_scope;
@@ -63,6 +67,8 @@ pub(crate) const BOARD_COMMANDS: &[&str] = &[
     "board.shape.edit",
     "board.wire.edit",
     "portal.agent.run",
+    "app.save",
+    "app.feedback.report",
 ];
 
 /// Identity preferences only. Joining, grants, jobs and positions are never saved.
@@ -87,6 +93,7 @@ pub(crate) struct Collaborator {
     sequences: u128,
     calls: usize,
     paused: bool,
+    resume_task: bool,
     parent: Option<String>,
     helper_outcome: Option<helper_scope::TaskOutcome>,
     runtime: Option<atlas_ai::runtime::CodexLink>,
@@ -155,6 +162,7 @@ pub struct PresenceRuntime {
     helper_endpoints: std::collections::HashSet<String>,
     held_nodes: std::collections::HashSet<slate_doc::NodeId>,
     conversations: conversation_store::ConversationStore,
+    attachments: attachments::AttachmentJobs,
     photo: avatar_input::ProfilePhoto,
     human_chat: human_chat::HumanChat,
     scheduling: scheduling::PresenceSchedules,
@@ -279,6 +287,15 @@ impl SlateApp {
             },
             "presence.photo" => chrome::PresenceAction::SetPhoto { id: who },
             "presence.photo.remove" => chrome::PresenceAction::RemovePhoto { id: who },
+            "presence.attach" => chrome::PresenceAction::Attach { id: who },
+            "presence.attach.remove" => chrome::PresenceAction::RemoveAttachment {
+                id: who,
+                index: value["index"].as_u64().unwrap_or(u64::MAX) as usize,
+            },
+            "presence.full_access" => chrome::PresenceAction::SetFullAccess {
+                id: who,
+                enabled: value["enabled"].as_bool().unwrap_or(false),
+            },
             "presence.draft" => chrome::PresenceAction::Draft {
                 id: who,
                 text: value["text"].as_str().unwrap_or("").into(),

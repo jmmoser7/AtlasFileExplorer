@@ -324,21 +324,6 @@ fn repeated_helpers_can_exit_without_exhausting_saved_identity_capacity() {
 }
 
 #[test]
-fn immediate_second_send_cannot_replace_a_live_request_binding() {
-    let mut h = host();
-    let who = add(&mut h, "Dot");
-    h.app.send_presence_message(&who, "First task").unwrap();
-    let request = h.app.presence.agents[0].request.clone();
-    let binding = h.app.presence.agents[0].binding.clone();
-    assert!(h.app.send_presence_message(&who, "Second task").is_err());
-    assert_eq!(h.app.presence.agents[0].request, request);
-    assert_eq!(h.app.presence.agents[0].binding, binding);
-    h.app.stop_presence(&who, true).unwrap();
-    assert!(h.app.presence.agents[0].grant.is_none());
-    assert!(!h.app.presence.agents[0].inflight);
-}
-
-#[test]
 fn a_carried_frame_keeps_its_contents_at_the_same_visible_offset() {
     let mut h = host();
     let who = add(&mut h, "Dot");

@@ -3,6 +3,8 @@
 mod activity;
 #[path = "chrome_render_catalogue.rs"]
 mod catalogue;
+#[path = "chat_firstuse_render.rs"]
+mod chat_firstuse;
 #[path = "chrome_render_departures.rs"]
 mod departures;
 #[path = "chrome_render_harness.rs"]
@@ -321,7 +323,7 @@ pub(super) fn world_opaque_head(out: &egui::FullOutput, center: Pos2, zoom: f32)
 #[test]
 fn zero_roster_ui_adds_a_local_collaborator_and_delivers_its_first_scoped_message() {
     use super::super::{conversation_store, lifecycle_tests::delivery, messaging};
-    use crate::app::tests::{primary_button, pump_until};
+    use crate::app::tests::{painted_strings, primary_button, pump_until};
     use std::time::{Duration, Instant};
 
     // Exercise the app widgets without the capture Fixture's preseeded Dot or
@@ -355,16 +357,13 @@ fn zero_roster_ui_adds_a_local_collaborator_and_delivers_its_first_scoped_messag
         h.frame();
     }
     let out = h.frame_output(|_| {});
-    for label in ["Add a collaborator", "Codex", "Cursor", "Dot / local"] {
+    for label in ["Add an agent", "Codex", "Cursor", "Dot"] {
         management::required(&out, label);
     }
-    has(&out, "Source files stay private; edits begin as proposals");
-    has(&out, "Save this workbook before requesting board edits");
-    let at = management::required(&out, "Dot / local").center();
-    h.frame_with(primary_button(at, true, false));
-    h.frame_with(primary_button(at, false, false));
-    let out = h.frame_output(|_| {});
-    let at = management::required(&out, "Add collaborator").center();
+    let labels = painted_strings(&out);
+    assert!(!labels.iter().any(|label| label == "Name"));
+    assert!(!labels.iter().any(|label| label == "Add collaborator"));
+    let at = management::required(&out, "Dot").center();
     h.frame_with(primary_button(at, true, false));
     h.frame_with(primary_button(at, false, false));
     assert_eq!(h.app.presence.agents.len(), 1);
@@ -375,7 +374,7 @@ fn zero_roster_ui_adds_a_local_collaborator_and_delivers_its_first_scoped_messag
     let grant = a.grant.clone().unwrap();
     let dir = a.dir.clone();
     assert_eq!(a.profile.provider, "local");
-    assert_eq!(a.profile.name, "Agent");
+    assert_eq!(a.profile.name, "Dot");
     assert_eq!(a.profile.hat, "cap");
     assert!(a.request.is_empty() && !a.inflight);
     assert!(a.runtime.is_none() && a.cursor.is_none() && a.launched.is_empty());
@@ -392,18 +391,7 @@ fn zero_roster_ui_adds_a_local_collaborator_and_delivers_its_first_scoped_messag
         .app
         .presence_conversation(&who)
         .is_none_or(|c| { c.turns.is_empty() && c.bindings.is_empty() && c.draft.is_empty() }));
-    for _ in 0..8 {
-        h.frame();
-    }
-    let icon = ctx
-        .read_response(Id::new(("presence-chat", who.as_str())))
-        .unwrap();
-    let at = ctx
-        .layer_transform_to_global(icon.layer_id)
-        .unwrap_or_default()
-        * icon.rect.center();
-    h.frame_with(primary_button(at, true, false));
-    h.frame_with(primary_button(at, false, false));
+    assert_eq!(h.app.presence.chrome.active_chat(), Some(who.as_str()));
     for _ in 0..8 {
         h.frame();
     }

@@ -14,6 +14,7 @@
 //! arrows (nudge with a selection, pan without), and Board type-to-command
 //! (bare letter shortcuts hold ~700 ms so a second character can open the
 //! canvas palette instead).
+mod feedback;
 mod input_state;
 mod keys;
 pub use input_state::{BareLetterHold, SpaceTap};
@@ -257,10 +258,8 @@ impl SlateApp {
                 self.toggle_canvas_fullscreen();
                 true
             }
-            "app.feedback.open" => {
-                self.feedback.open_picker();
-                true
-            }
+            "app.feedback.open" => self.feedback_open_command(),
+            "app.feedback.report" => self.feedback_report_command(),
             "app.feedback.finish_recording" => {
                 self.feedback.finish_recording();
                 self.feedback.phase = self.feedback.form_after_recording();
@@ -982,11 +981,12 @@ impl SlateApp {
     // ---------- the keyboard front-end ----------
 
     pub(crate) fn hotkeys(&mut self, ctx: &egui::Context) {
-        // egui swallows Ctrl+V before it becomes a Key event, and it emits
-        // Paste only when the clipboard has text. Track the chord here so a
-        // copied image or file still reaches `board.paste`.
+        // Route the native bitmap-only Ctrl+V edge to focused chat or the board.
         let focused = ctx.input(|i| i.focused);
-        let paste_edge = self.take_paste_chord_edge(focused);
+        let mut paste_edge = self.take_paste_chord_edge(focused);
+        if self.presence_poll_attachments(ctx, paste_edge.is_some()) {
+            paste_edge = None;
+        }
         // Presentation mode owns the keyboard (handled in present_frame).
         if self.presenting.is_some() {
             self.space_tap = SpaceTap::default();

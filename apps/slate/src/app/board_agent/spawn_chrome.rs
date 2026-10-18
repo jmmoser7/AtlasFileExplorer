@@ -225,6 +225,33 @@ impl SlateApp {
     pub(crate) fn agent_full_access(&self, session: &str) -> bool {
         self.agents.full_access.contains(session)
     }
+    pub(crate) fn agent_session_access_granted(&self, session: &str) -> bool {
+        self.agents.access_snapshot.granted(session)
+    }
+    pub(crate) fn agent_session_access_available(&self) -> bool {
+        self.agents.access_path.is_some()
+    }
+    pub(crate) fn set_agent_session_access(
+        &mut self,
+        session: &str,
+        enabled: bool,
+    ) -> Result<(), String> {
+        let path = self
+            .agents
+            .access_path
+            .as_deref()
+            .ok_or("Machine provider-access storage is unavailable")?;
+        atlas_ai::access::set_artifact_override_in(path, session, Some(enabled))?;
+        self.agents.access_snapshot = atlas_ai::access::load_snapshot_in(path);
+        self.agents.full_access = self.agents.access_snapshot.full_sessions();
+        Ok(())
+    }
+    #[cfg(test)]
+    pub(crate) fn set_agent_access_store_for_tests(&mut self, path: std::path::PathBuf) {
+        self.agents.access_path = Some(path.clone());
+        self.agents.access_snapshot = atlas_ai::access::load_snapshot_in(&path);
+        self.agents.full_access = self.agents.access_snapshot.full_sessions();
+    }
     /// The person's explicit grant for one conversation: the provider runs
     /// commands and edits files without asking. Applies from the next message.
     pub(crate) fn agent_toggle_full_access(&mut self) -> bool {

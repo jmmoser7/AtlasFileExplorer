@@ -352,6 +352,7 @@ impl eframe::App for Preview {
                         outgoing: t.outgoing,
                         system: t.system,
                         status: "",
+                        attachment_count: 0,
                     })
                     .collect()
             })
@@ -369,6 +370,7 @@ impl eframe::App for Preview {
                 human: p.human,
                 paused: p.paused,
                 autonomous: false,
+                full_access: false,
                 file_inputs: false,
                 own_chats: false,
                 parent_name: None,
@@ -382,6 +384,8 @@ impl eframe::App for Preview {
                     None
                 },
                 busy: !p.human && self.busy,
+                activity: &[],
+                attachments: &[],
                 messages: &messages[i],
                 message_total: self.threads.get(&p.id).map_or(0, Vec::len),
                 proposals: &[],

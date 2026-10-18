@@ -1,6 +1,51 @@
 use super::*;
 
 #[test]
+fn retrying_stopped_image_message_preserves_the_composed_text_and_image_draft() {
+    let mut h = host();
+    let who = add(&mut h);
+    let sent_image = h.base.join("sent-image.png");
+    let draft_image = h.base.join("draft-image.png");
+    image::RgbaImage::from_pixel(3, 2, image::Rgba([30, 80, 140, 255]))
+        .save(&sent_image)
+        .unwrap();
+    image::RgbaImage::from_pixel(2, 3, image::Rgba([140, 80, 30, 255]))
+        .save(&draft_image)
+        .unwrap();
+
+    let old_request = "stopped-image-request";
+    let message_id = {
+        let conversation = h.app.presence.conversations.edit(&who).unwrap();
+        conversation.push(
+            "user",
+            "Retry this attached image",
+            "You",
+            Some("local"),
+            old_request,
+            "stopped",
+        );
+        conversation.set_message_images(old_request, vec![sent_image.clone()]);
+        conversation.set_draft("Keep my separate draft");
+        conversation.set_draft_images(vec![draft_image.clone()]);
+        conversation.turns.last().unwrap().id.clone()
+    };
+
+    h.app.presence_retry_message(&who, &message_id).unwrap();
+
+    let conversation = h.app.presence_conversation(&who).unwrap();
+    assert_eq!(conversation.draft, "Keep my separate draft");
+    assert_eq!(conversation.draft_images, vec![draft_image]);
+    let retry = conversation.turns.last().unwrap();
+    assert_eq!(retry.text, "Retry this attached image");
+    assert_ne!(retry.request, old_request);
+    assert_eq!(retry.status, "sent");
+    assert_eq!(
+        conversation.message_images[&retry.request],
+        vec![sent_image]
+    );
+}
+
+#[test]
 fn an_explicit_visual_read_requires_source_permission_and_rechecks_it_after_preparation() {
     let mut h = host();
     let who = add(&mut h);

@@ -71,6 +71,16 @@ IDs, never the human's transient selection. A result has `id`, `session_id`,
 A proposed change reports its proposal identity and current status rather than
 claiming the document already changed.
 
+Two app-level actions use the same invocation envelope. `app.save` takes no
+targets or arguments and requires an independent collaborator's explicit
+mutation-autonomy grant. It saves only the current already-saved writable
+workbook; an unsaved workbook needs the human to choose Save As first. The reply
+means the save was requested, and identifies when a background asset save may
+still be pending. `app.feedback.report` accepts `what` (required), `tried`, and
+`missing` (optional), each at most 800 characters. It writes a local note to
+that collaborator's feedback log. It never opens the human form, reads a prompt,
+or files an external issue.
+
 Reads default to offset 0 and limit 32, with an offset ceiling of 1,000,000 and
 limit range 1–64. The host returns scoped `total` and `next_offset`; null means
 the final page. Scope filtering precedes pagination, so private nodes neither
@@ -108,10 +118,14 @@ describes this dynamic-tool flow as experimental and requires the initialize
 capability `experimentalApi: true`; the existing Client already advertises it.
 Ordinary chat sessions receive no board tools or context.
 
-Native collaborator model turns force the existing local filesystem read-only
-sandbox, independently of the host's board mutation/autonomy grant. A Default
-request can still invoke granted board commands through the dynamic tool; an
-explicit request-level ReadOnly policy additionally refuses board invocation.
+Native collaborator model turns default to the local filesystem read-only
+sandbox, independently of the board mutation/autonomy grant. A human may
+separately opt an independent Codex collaborator into provider Full access via
+the existing machine-local access owner. The runtime resolves that trusted
+decision; board grants and request payloads never confer it. An explicit
+request-level ReadOnly policy still overrides provider access and refuses board
+invocation. Helpers and relays retain their separate restrictions. All board
+changes still use authorized host commands; source write-back remains human-only.
 Filesystem read-only does not itself restrict configured external MCP service
 authority or establish restricted source read roots.
 The host injects `atlas_core::cloud::is_dehydrated` through

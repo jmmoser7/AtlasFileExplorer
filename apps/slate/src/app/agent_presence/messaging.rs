@@ -30,6 +30,8 @@ impl SlateApp {
         schema["presence.send"] = json!({"targets":[],"arguments":{"recipient":"one permitted conversation ID","text":"message; <=16384 bytes"}});
         schema["presence.helper"] = json!({"targets":[],"arguments":{"task":"bounded helper task; <=8192 bytes"},"limits":"at most4 children, no grandchildren,300seconds; read participant results"});
         schema["presence.read_image"] = json!({"targets":["one readable image node ID"],"arguments":{},"requires":"human wired-file input grant; returns one prepared image_source locator, never hydrates cloud-only sources"});
+        schema["app.save"] = json!({"targets":[],"arguments":{},"requires":"independent collaborator with explicit mutation autonomy; current workbook must already be saved and writable","result":"save_requested; background asset saves may still be pending"});
+        schema["app.feedback.report"] = json!({"targets":[],"arguments":{"what":"required one-sentence note, at most 800 characters","tried":"optional, at most 800 characters","missing":"optional, at most 800 characters"},"effect":"records a local-only note in this collaborator's feedback log; never opens or files an external issue"});
         schema
     }
     pub(super) fn presence_conversations(&self) -> Vec<String> {

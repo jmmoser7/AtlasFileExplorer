@@ -1,12 +1,64 @@
 use super::*;
+
+fn recover_request_history(request: &AgentRequest, session: &AgentSession) -> Option<AgentRequest> {
+    if request.oneshot || request.image.is_some() || !request.history.is_empty() {
+        return None;
+    }
+    let mut replay = request.clone();
+    replay.history = session
+        .turns
+        .iter()
+        .filter(|turn| matches!(turn.role.as_str(), "user" | "assistant"))
+        .cloned()
+        .collect();
+    (!replay.history.is_empty()).then_some(replay)
+}
+
+fn completed_before_interrupt(status: Option<&str>, error: Option<&str>) -> bool {
+    status == Some("completed")
+        && error
+            .and_then(|error| serde_json::from_str::<Value>(error).ok())
+            .is_some_and(|error| {
+                error["code"] == -32600 && error["message"] == "no active turn to interrupt"
+            })
+}
+
 impl Client {
     pub fn run(
         &mut self,
         request: &AgentRequest,
         session: &mut AgentSession,
         cancel: &AtomicBool,
+        changed: impl FnMut(&AgentSession),
+    ) -> Result<(), String> {
+        self.run_with_steering(request, session, cancel, None, changed)
+    }
+
+    /// Worker entry point used by Slate's bounded steering channel.
+    pub fn run_with_steering(
+        &mut self,
+        request: &AgentRequest,
+        session: &mut AgentSession,
+        cancel: &AtomicBool,
+        steering: Option<&std::sync::mpsc::Receiver<SteerCommand>>,
         mut changed: impl FnMut(&AgentSession),
     ) -> Result<(), String> {
+        let replay_history = self.replay_visible_history;
+        self.replay_visible_history = false;
+        let request_for_thread = if replay_history {
+            if request.history.is_empty() {
+                recover_request_history(request, session)
+            } else {
+                Some(request.clone())
+            }
+        } else if !request.history.is_empty() {
+            let mut current = request.clone();
+            current.history.clear();
+            Some(current)
+        } else {
+            None
+        };
+        let request = request_for_thread.as_ref().unwrap_or(request);
         if cancel.load(Ordering::Relaxed) {
             return Err("Codex request cancelled before submission.".into());
         }
@@ -54,7 +106,7 @@ impl Client {
         for path in attached {
             input.push(json!({"type":"localImage","path":path}));
         }
-        let filesystem = filesystem_policy(request);
+        let filesystem = filesystem_policy(request, self.full_access);
         let restore = self.permissions.next(filesystem, self.full_access);
         let mut params = turn_params(
             &self.thread,
@@ -86,6 +138,7 @@ impl Client {
         let artifact_turn = session.turns.len();
         let mut messages = MessageStream::new(session.turns.len(), request.at);
         let mut interrupted = false;
+        let mut interruption_error = None;
         let mut approvals: VecDeque<Value> = VecDeque::new();
         let mut board_tools = board_tools::PendingCalls::default();
         let mut last = Instant::now() - Duration::from_secs(1);
@@ -127,11 +180,52 @@ impl Client {
                 }
             }
             if cancel.load(Ordering::Relaxed) && !interrupted {
-                self.rpc(
+                if let Err(error) = self.rpc(
                     "turn/interrupt",
                     json!({"threadId":self.thread,"turnId":turn}),
-                )?;
+                ) {
+                    interruption_error = Some(error);
+                }
                 interrupted = true;
+            }
+            if let Some(steering) = steering {
+                for command in steering.try_iter().take(16) {
+                    let accepted = if command.expected_request_id != request.id {
+                        Err("Active request changed before delivery".to_string())
+                    } else if cancel.load(Ordering::Relaxed) {
+                        Err("The response is stopping".to_string())
+                    } else {
+                        self.steer(&turn, &command.text).map(|_| ())
+                    };
+                    let succeeded = accepted.is_ok();
+                    if succeeded {
+                        messages.push_user(session, &command.text);
+                    }
+                    let status_text = match &accepted {
+                        Ok(()) => "Steering message accepted".to_string(),
+                        Err(reason) => format!(
+                            "Steering failed: {}",
+                            reason.chars().take(160).collect::<String>()
+                        ),
+                    };
+                    session.record_activity(AgentActivity {
+                        id: format!(
+                            "codex-steer:{}:{}",
+                            command.id,
+                            if succeeded { "accepted" } else { "error" }
+                        ),
+                        request: request.id.clone(),
+                        kind: AgentActivityKind::Commentary,
+                        text: status_text,
+                        at: now(),
+                        semantics: Some(AgentActivitySemantics::new(if succeeded {
+                            AgentActivityAction::Chat
+                        } else {
+                            AgentActivityAction::Error
+                        })),
+                    });
+                    changed(session);
+                }
             }
             if let Some(pictures) = pictures.as_mut() {
                 if pictures.collect(request, session)? {
@@ -195,10 +289,21 @@ impl Client {
                                 .unwrap_or("Codex turn failed")
                                 .into(),
                         )
+                    } else if completed_before_interrupt(
+                        p.pointer("/turn/status").and_then(Value::as_str),
+                        interruption_error.as_deref(),
+                    ) {
+                        // The completion belongs to this turn. A late Stop cannot
+                        // interrupt it, and must not turn a finished reply into an error.
+                        AgentStatus::Idle
                     } else if interrupted
                         || p.pointer("/turn/status").and_then(Value::as_str) == Some("interrupted")
                     {
-                        AgentStatus::Error("Response stopped.".into())
+                        AgentStatus::Error(
+                            interruption_error
+                                .take()
+                                .unwrap_or_else(|| "Response stopped.".into()),
+                        )
                     } else {
                         AgentStatus::Idle
                     };
@@ -224,5 +329,57 @@ impl Client {
                 last = Instant::now();
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn only_a_completed_turn_resolves_the_known_inactive_interrupt_race() {
+        let inactive = r#"{"code":-32600,"message":"no active turn to interrupt"}"#;
+        assert!(completed_before_interrupt(
+            Some("completed"),
+            Some(inactive)
+        ));
+        for status in [None, Some("failed"), Some("interrupted")] {
+            assert!(!completed_before_interrupt(status, Some(inactive)));
+        }
+        for error in [
+            None,
+            Some("transport error"),
+            Some(r#"{"code":-32600,"message":"no rollout found for thread id x"}"#),
+        ] {
+            assert!(!completed_before_interrupt(Some("completed"), error));
+        }
+    }
+    #[test]
+    fn a_fresh_thread_replays_the_visible_history_checkpoint_once() {
+        let request = AgentRequest {
+            id: "next".into(),
+            prompt: "Continue".into(),
+            ..Default::default()
+        };
+        let session = AgentSession {
+            turns: vec![
+                AgentTurn {
+                    role: "user".into(),
+                    text: "First question".into(),
+                    at: 1,
+                },
+                AgentTurn {
+                    role: "assistant".into(),
+                    text: "First answer".into(),
+                    at: 2,
+                },
+            ],
+            ..Default::default()
+        };
+        let replay = recover_request_history(&request, &session).unwrap();
+        assert_eq!(replay.history, session.turns);
+        let text = replay.prompt_with_history();
+        assert_eq!(text.matches("Prior conversation checkpoint").count(), 1);
+        assert_eq!(text.matches("First question").count(), 1);
+        assert_eq!(text.matches("First answer").count(), 1);
     }
 }

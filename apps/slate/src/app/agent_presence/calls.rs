@@ -119,6 +119,75 @@ impl SlateApp {
                             json!({"helper":who,"status":"assigned","limit_seconds":300}),
                         ));
                     }
+                    if command == "app.save" {
+                        if !targets.is_empty()
+                            || !arguments
+                                .as_object()
+                                .is_some_and(|object| object.is_empty())
+                        {
+                            return Err("Save takes no targets or arguments".into());
+                        }
+                        if a.parent.is_some() || !grant.mutation_autonomy {
+                            return Err("Saving requires an independent collaborator with explicit mutation autonomy".into());
+                        }
+                        let tab = self.tab();
+                        if tab.read_only {
+                            return Err("The current workbook is read-only; ask the human to choose a writable copy".into());
+                        }
+                        let path = tab.path.clone().ok_or(
+                            "This workbook has no saved path yet; use Save As in Slate first",
+                        )?;
+                        let deferred = self.layer_bakes.pending_for(tab.id);
+                        let ctx =
+                            ctx.ok_or("Saving is available only from a live board-link action")?;
+                        self.dispatch(ctx, atlas_commands::CommandId("app.save"), None);
+                        return Ok(Some(json!({
+                            "status":"save_requested",
+                            "workbook":path,
+                            "deferred_for_background_asset_save":deferred
+                        })));
+                    }
+                    if command == "app.feedback.report" {
+                        if !targets.is_empty() {
+                            return Err("Feedback reports take no targets".into());
+                        }
+                        let fields = arguments
+                            .as_object()
+                            .ok_or("Feedback report arguments must be an object")?;
+                        if fields
+                            .keys()
+                            .any(|key| !matches!(key.as_str(), "what" | "tried" | "missing"))
+                        {
+                            return Err(
+                                "Feedback report accepts only what, tried, and missing".into()
+                            );
+                        }
+                        let read_field = |key: &str, required: bool| -> Result<String, String> {
+                            let Some(value) = fields.get(key) else {
+                                return if required {
+                                    Err("Feedback needs a what sentence".into())
+                                } else {
+                                    Ok(String::new())
+                                };
+                            };
+                            let text = value
+                                .as_str()
+                                .ok_or_else(|| format!("Feedback field {key} must be text"))?;
+                            if text.chars().count() > 800 {
+                                return Err(format!("Feedback field {key} exceeds 800 characters"));
+                            }
+                            Ok(text.to_owned())
+                        };
+                        let note = atlas_agent::FeedbackNote {
+                            id: atlas_agent::request_id(),
+                            what: read_field("what", true)?,
+                            tried: read_field("tried", false)?,
+                            missing: read_field("missing", false)?,
+                        };
+                        atlas_ai::feedback::record_local(&a.dir, note)
+                            .map_err(|error| format!("Could not record local feedback: {error}"))?;
+                        return Ok(Some(json!({"status":"recorded_locally"})));
+                    }
                     let prepared = match ctx {
                         Some(ctx) => self.prepare_targeted_command_with_context(
                             ctx, command, targets, arguments,

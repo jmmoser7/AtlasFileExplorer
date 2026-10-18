@@ -1,29 +1,29 @@
 {
   "_about": "Approved-decision database for interaction contracts (canvas tools and portal subtypes). One entry per contract x dimension. Agents seed future volatile matrices from here: an approved decision that maps onto a new contract (same archetype / object class / portal class) is re-proposed with high confidence. Only verdict:'approved' rows count as precedent; 'proposed' rows are awaiting user confirmation in the volatile canvas. Schema: tools.<name>.family = tool|portal, and tools.<name>.decisions.<D##> = { behavior, source: stated|research|pattern|guess|precedent, confidence: 0-100, verdict: proposed|approved|rejected, decided: date|null }. Each contract answers exactly the dimensions DIMENSIONS.md scopes to its family; `cargo xtask contracts` enforces the parity between this file, the registry, and the contract markdown. Append-only in spirit: superseded decisions are overwritten only by a newer user approval.",
-  "updated": "2026-10-17",
+  "updated": "2026-10-18",
   "tools": {
     "agent-conversation": {
       "status": "agreed",
       "family": "tool",
-      "reference": "User accepted revision 2 and explicitly requested complete native-board integration, 17 October 2026",
+      "reference": "Explicit first-use collaborator feedback and four screenshots, 18 October 2026; preserves approved revision 2 visual style.",
       "inherits": [
         "P0.*"
       ],
       "canvas": "agent-conversation-tool-contract",
       "decisions": {
         "D01": {
-          "behavior": "Participant icon opens that participant's persistent conversation. Name/caret opens their profile, aligned below and to the left of that segment. Avatar double-click opens its recent conversation below it.",
+          "behavior": "Existing agent icon, name and caret open its persistent conversation directly. Add shows only the harness picker and enters the new conversation. Human name/caret opens the aligned profile; avatar double-click opens the recent conversation beneath it.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-10-17"
+          "decided": "2026-10-18"
         },
         "D02": {
-          "behavior": "Addressing the canvas avatar pauses its board work. Closing the attached conversation leaves it paused; only explicit Resume continues. Reopening reuses the same conversation and draft. Opening roster chat alone does not silently resume a paused task.",
+          "behavior": "Chat stays open while clicking or manipulating the board outside it. Explicit Close or Escape dismisses it while retaining history and draft. Addressing the canvas avatar pauses board work; explicit Resume continues without discarding the conversation.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-10-17"
+          "decided": "2026-10-18"
         },
         "D03": {
           "behavior": "Working → avatar double-click → paused/listening → recent message bubbles and composer beneath avatar. No board edit commits after pause until explicit resume.",
@@ -33,11 +33,11 @@
           "decided": "2026-10-17"
         },
         "D04": {
-          "behavior": "Single-click roster icon opens chat; single-click name/caret opens profile. Double-click board avatar pauses and listens. These hit regions do not also select an underlying canvas node.",
+          "behavior": "Single-click anywhere on an existing agent roster segment opens chat without toggling it closed. Human icon opens chat and human name/caret opens profile. Avatar double-click pauses/listens; chat owns only its visible pointer region.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-10-17"
+          "decided": "2026-10-18"
         },
         "D05": {
           "behavior": "n/a; no new modifier chord. Existing canvas camera controls remain available outside chat editing.",
@@ -61,11 +61,11 @@
           "decided": "2026-10-17"
         },
         "D08": {
-          "behavior": "n/a for geometry. The chat composer accepts text; profile name is directly editable and profile photo persists.",
+          "behavior": "Composer supports ordinary multiline text/paste and explicit local image attachments. It remains editable during work; Codex updates steer the active turn, other supported harnesses queue follow-ups with truthful delivery status.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-10-17"
+          "decided": "2026-10-18"
         },
         "D09": {
           "behavior": "Approved eye-only face and independent expression/gaze timings. Listening when addressed. Avatar, hat, prop, name and attached conversation scale in canvas space under P0.9, with world wrapping preserved. Roster conversation remains window chrome; no attached-overlay scale exception.",
@@ -82,18 +82,18 @@
           "decided": "2026-10-17"
         },
         "D11": {
-          "behavior": "Messages append to a durable machine-local participant conversation. Provider sessions bind separately to that identity. Selecting the current harness is inert; busy handoff offers after-task or stop-and-switch without automatic resend. Self-chat stays local; real human delivery uses the bounded encrypted atlas-relay owner and recipient persistence before acknowledgment. Board edits use existing SceneCmd staging/journal and explicit grants.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Visible messages and drafts persist separately from ephemeral runtime sessions. Stale missing-rollout Codex bindings recover through a fresh thread with visible history replayed once. Stop preserves conversation and revocable human permission policy; new requests remain available. Grants authorize registered journaled commands, authored text and saving; pending proposals require acceptance unless the exact action is explicitly autonomous.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-10-17"
+          "decided": "2026-10-18"
         },
         "D12": {
-          "behavior": "P0.1: Escape dismisses the innermost open picker/menu first, then conversation. Dismissal retains history and unsent draft and does not implicitly resume paused work.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Escape dismisses the innermost picker/menu then chat; explicit Close also dismisses chat. Outside clicks leave chat open and the board interactive. Dismissal retains history and draft and never implicitly resumes paused work.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-10-17"
+          "decided": "2026-10-18"
         },
         "D13": {
           "behavior": "One continuous roster capsule with discreet vertical separators. One enclosing conversation panel includes the compact identity/control capsule, alternating bubbles and bottom composer. Hats scroll in a compact album flow owned by atlas-shell::home, with a fine selected outline and no All hats step. Cursor/Codex use canonical provider glyphs; retirement uses a gentle sunset glyph.",
@@ -103,11 +103,11 @@
           "decided": "2026-10-17"
         },
         "D14": {
-          "behavior": "Icon reopens the previous conversation. Human name/photo are persistent. Agent name and hat are persistent identity preferences. Retired agents can return through Advanced; old authority and task position never auto-restore.",
+          "behavior": "Agent identity and explicit revocable permission preferences persist per identity, harness and workspace scope. Joining creates a fresh session from matching human policy; jobs, positions and live membership never restore. Retired agents return through Advanced. Revocation takes effect immediately.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-10-17"
+          "decided": "2026-10-18"
         },
         "D15": {
           "behavior": "Never fabricate remote delivery, unsupported menu outcomes or board progress. Human messages require the real participant-message transport, separate from the Slate–Atlas bridge and from shared-board synchronization. Profiles stay separate from transcript content; no source-write or implicit board authority comes from joining a conversation.",
@@ -124,11 +124,11 @@
           "decided": "2026-10-17"
         },
         "D17": {
-          "behavior": "Painted board avatar is world-size × zoom with no size floor or ceiling (P0.9); hit slop may remain screen-constant. Roster icon and name/caret are distinct targets. Popovers intercept their own input only.",
-          "source": "pattern",
-          "confidence": 90,
+          "behavior": "Roster chat is compact nonmodal window chrome with reachable Close, transcript and pinned composer. Attached chat and avatar/hat/prop/name retain canvas-space scale under P0.9. Public progress streams inside chat; private reasoning is never displayed. Hat geometry/approved fits remain unchanged and may protrude above the header.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-10-17"
+          "decided": "2026-10-18"
         }
       },
       "approved_checkpoint": "2026-10-17 revision-2 design acceptance; native verification and user acceptance remain pending",

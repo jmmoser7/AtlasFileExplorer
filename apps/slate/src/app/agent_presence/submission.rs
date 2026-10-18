@@ -11,6 +11,9 @@ pub(super) fn validate_message_text(text: &str) -> Result<(), String> {
 
 impl SlateApp {
     pub(super) fn send_presence_message(&mut self, who: &str, text: &str) -> Result<(), String> {
+        if self.presence.task_busy(who) {
+            return self.presence_send_update(who, text);
+        }
         self.send_presence_message_from(who, text, None)
     }
     pub(super) fn send_presence_message_from(
@@ -54,7 +57,7 @@ impl SlateApp {
                 || turn
                     .board_origin
                     .as_ref()
-                    .is_none_or(|o| o.recipient != who)
+                    .is_some_and(|o| o.recipient != who)
             {
                 return Err("Queued message identity or delivery state changed".into());
             }
@@ -70,17 +73,14 @@ impl SlateApp {
             .to_path_buf();
         let workbook = self.tab().path.clone();
         let tab = self.tab().id;
-        if queued.is_none()
-            && self
-                .presence
-                .agents
-                .iter()
-                .any(|a| a.profile.id == who && a.paused)
-            && self.presence.task_busy(who)
-        {
-            self.stop_presence(who, false)?;
-        }
         let history = self.presence.conversations.edit(who)?.replay();
+        let images = {
+            let c = self.presence.conversations.edit(who)?;
+            queued
+                .and_then(|q| c.message_images.get(q))
+                .unwrap_or(&c.draft_images)
+                .clone()
+        };
         let pending_proposals = self.presence.has_pending(who);
         let a = self
             .presence
@@ -95,6 +95,8 @@ impl SlateApp {
             .grant
             .clone()
             .ok_or("Board grant was revoked; restore a fresh session")?;
+        let resume_after_stop =
+            from.is_none() && queued.is_none() && a.paused && a.activity == "cancel";
         let request = queued
             .map(str::to_owned)
             .unwrap_or_else(atlas_agent::request_id);
@@ -108,14 +110,19 @@ impl SlateApp {
             .ok_or("Session has retired")?
             .begin_request(id(&request)?)
             .map_err(|e| e.to_string())?;
-        a.reply_from = a.snapshot.as_ref().map_or(history.len(), |s| s.turns.len());
+        a.reply_from = if provider == "codex" && a.runtime.is_none() {
+            history.len()
+        } else {
+            a.snapshot.as_ref().map_or(history.len(), |s| s.turns.len())
+        };
         let req = atlas_agent::AgentRequest {
             id: request.clone(),
             prompt: text.trim().into(),
             at: atlas_ai::context::now_secs(),
             collaborator: Some(a.binding.clone()),
             relayed_from: from.map(str::to_owned),
-            history: if a.snapshot.is_none() {
+            inputs: attachments::image_inputs(&images),
+            history: if provider == "codex" || a.snapshot.is_none() {
                 history
             } else {
                 Vec::new()
@@ -174,6 +181,12 @@ impl SlateApp {
             }
             return Err(error);
         }
+        if resume_after_stop {
+            a.paused = false;
+            a.resume_task = false;
+            a.chat_only = false;
+            a.control_epoch = a.control_epoch.wrapping_add(1);
+        }
         self.presence.sources.expect(&a.dir, &request);
         a.status = if a.profile.provider == "codex" {
             "Processing"
@@ -205,6 +218,8 @@ impl SlateApp {
                 "sent",
             );
             conversation.set_draft("");
+            conversation.set_message_images(&request, images);
+            conversation.set_draft_images(Vec::new());
         }
         self.presence.conversations.save(who);
         Ok(())

@@ -73,7 +73,7 @@ pub(super) fn show(
                     ui.set_width(ui.available_width());
                     ui.spacing_mut().item_spacing.y = 0.0;
                     ui.add_space(16.0);
-                    if p.messages.is_empty() && p.proposals.is_empty() {
+                    if p.messages.is_empty() && p.proposals.is_empty() && p.activity.is_empty() {
                         ui.vertical_centered(|ui| {
                             ui.add_space(22.0);
                             ui.label(
@@ -100,6 +100,46 @@ pub(super) fn show(
                         if index + 1 < p.messages.len() {
                             ui.add_space(if attached { 16.0 } else { 23.0 });
                         }
+                    }
+                    let activity_start =
+                        p.activity
+                            .len()
+                            .saturating_sub(if attached { 1 } else { 8 });
+                    for activity in p.activity.iter().skip(activity_start) {
+                        let duplicate_commentary = activity.label == "Update"
+                            && p.messages.iter().any(|message| {
+                                !message.outgoing
+                                    && !message.system
+                                    && message.text.trim() == activity.text.trim()
+                            });
+                        if duplicate_commentary
+                            || (activity.label.trim().is_empty() && activity.text.trim().is_empty())
+                        {
+                            continue;
+                        }
+                        ui.add_space(if attached { 8.0 } else { 12.0 });
+                        egui::Frame::NONE
+                            .fill(palette.window)
+                            .corner_radius(if attached { 10 } else { 14 })
+                            .inner_margin(egui::Margin::symmetric(10, 7))
+                            .show(ui, |ui| {
+                                ui.set_width(ui.available_width());
+                                let line = match (activity.label.trim(), activity.text.trim()) {
+                                    ("", text) => text.to_owned(),
+                                    (label, "") => label.to_owned(),
+                                    (label, text) => format!("{label} · {text}"),
+                                };
+                                let response = ui.add(
+                                    egui::Label::new(
+                                        RichText::new(line).size(11.0).color(palette.sub),
+                                    )
+                                    .wrap(),
+                                );
+                                response.on_hover_text(format!(
+                                    "{}\n{}",
+                                    activity.label, activity.text
+                                ));
+                            });
                     }
                     for proposal in p.proposals {
                         ui.add_space(if attached { 12.0 } else { 18.0 });
@@ -249,8 +289,33 @@ fn message_row(
             reduced,
         );
     }
+    if message.attachment_count > 0 {
+        let (attachment_rect, _) = ui.allocate_exact_size(Vec2::new(width, 15.0), Sense::hover());
+        chrome::label(
+            ui,
+            attachment_rect.shrink2(Vec2::new(8.0, 0.0)),
+            &format!(
+                "{} image{} attached",
+                message.attachment_count,
+                if message.attachment_count == 1 {
+                    ""
+                } else {
+                    "s"
+                }
+            ),
+            10.0,
+            palette.sub,
+            if message.outgoing {
+                Align2::RIGHT_CENTER
+            } else {
+                Align2::LEFT_CENTER
+            },
+        );
+    }
     if message.outgoing {
         let status = match message.status {
+            "steering" => Some("Sending update…"),
+            "unconfirmed" => Some("Delivery unconfirmed · retry"),
             "queued" => Some("Queued · not sent"),
             "dispatching" => Some("Preparing delivery…"),
             "not-sent" => Some("Not sent"),
@@ -271,18 +336,20 @@ fn message_row(
                 palette.sub,
                 Align2::RIGHT_CENTER,
             );
-            if message.status == "failed"
-                && ui
-                    .interact(
-                        Rect::from_min_max(
-                            Pos2::new(status_rect.right() - 130.0, status_rect.top()),
-                            status_rect.max,
-                        ),
-                        Id::new(("presence-retry", p.id, message.id)),
-                        Sense::click(),
-                    )
-                    .on_hover_text("Retry the same message")
-                    .clicked()
+            if matches!(
+                message.status,
+                "failed" | "unconfirmed" | "not-sent" | "stopped"
+            ) && ui
+                .interact(
+                    Rect::from_min_max(
+                        Pos2::new(status_rect.right() - 130.0, status_rect.top()),
+                        status_rect.max,
+                    ),
+                    Id::new(("presence-retry", p.id, message.id)),
+                    Sense::click(),
+                )
+                .on_hover_text("Retry the same message")
+                .clicked()
             {
                 actions.push(PresenceAction::Retry {
                     id: p.id.into(),

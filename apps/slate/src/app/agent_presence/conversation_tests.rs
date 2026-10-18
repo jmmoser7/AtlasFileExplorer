@@ -43,6 +43,47 @@ fn self_chat_is_durable_visible_text_without_a_provider_or_live_membership() {
     let restored: conversation::Conversation = serde_json::from_str(&encoded).unwrap();
     assert_eq!(&restored, c);
 }
+
+#[test]
+fn identical_live_updates_keep_both_answers_and_the_original_response_boundary() {
+    let mut h = host();
+    let who = add(&mut h);
+    h.app.presence_send_chat(&who, "hey!").unwrap();
+    h.app.presence.agents[0].profile.provider = "codex".into(); // Display/merge fixture only; no provider starts.
+    let a = &h.app.presence.agents[0];
+    let mut c = h.app.presence_conversation(&who).unwrap().clone();
+    let turn = |role: &str, text: &str| atlas_agent::AgentTurn {
+        role: role.into(),
+        text: text.into(),
+        at: 1,
+    };
+    let mut snapshot = AgentSession {
+        request: a.request.clone(),
+        status: atlas_agent::AgentStatus::Thinking,
+        turns: vec![turn("user", "hey!"), turn("assistant", "First reply")],
+        ..Default::default()
+    };
+    c.absorb(a, &snapshot);
+    c.push("user", "hey!", "You", Some("codex"), "steer-2", "complete");
+    snapshot
+        .turns
+        .extend([turn("user", "hey!"), turn("assistant", "Second reply")]);
+    assert_eq!(c.reply_start(a, &snapshot), Some(1));
+    c.absorb(a, &snapshot);
+    assert_eq!(
+        c.turns
+            .iter()
+            .filter(|t| matches!(t.role.as_str(), "user" | "assistant"))
+            .map(|t| (t.role.as_str(), t.text.as_str()))
+            .collect::<Vec<_>>(),
+        vec![
+            ("user", "hey!"),
+            ("assistant", "First reply"),
+            ("user", "hey!"),
+            ("assistant", "Second reply")
+        ]
+    );
+}
 #[test]
 fn same_harness_and_invalid_destination_leave_a_running_request_untouched() {
     let mut h = host();
@@ -67,7 +108,17 @@ fn listening_pause_allows_a_message_and_failed_send_keeps_the_draft() {
     assert!(h.app.presence_conversation(&who).unwrap().draft.is_empty());
     let first_request = h.app.presence.agents[0].request.clone();
     h.app.presence_send_chat(&who, "One more question").unwrap();
-    assert_ne!(h.app.presence.agents[0].request, first_request);
+    assert_eq!(h.app.presence.agents[0].request, first_request);
+    assert_eq!(
+        h.app
+            .presence_conversation(&who)
+            .unwrap()
+            .turns
+            .last()
+            .unwrap()
+            .status,
+        "queued"
+    );
     assert!(h.app.presence.agents[0].paused);
     assert!(h.app.presence.agents[0].chat_only);
     h.app.presence_save_draft(&who, "Keep this draft").unwrap();
@@ -75,8 +126,8 @@ fn listening_pause_allows_a_message_and_failed_send_keeps_the_draft() {
     let request = h.app.presence.agents[0].request.clone();
     let binding = h.app.presence.agents[0].binding.clone();
     let grant = h.app.presence.agents[0].grant.clone();
-    // A paused chat can replace a request; an unavailable workspace is an
-    // actual send failure and must not cancel that request or consume its draft.
+    // An update preserves the running task; an unavailable workspace must not
+    // consume its draft or silently queue a message that cannot be delivered.
     h.app.ai.config.workspace_dir = None;
     let error = h
         .app

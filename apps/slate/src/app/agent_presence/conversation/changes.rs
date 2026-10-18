@@ -15,6 +15,11 @@ pub(crate) enum ConversationChange {
         status: String,
     },
     Draft(String),
+    DraftImages(Vec<PathBuf>),
+    MessageImages {
+        request: String,
+        paths: Vec<PathBuf>,
+    },
     Binding {
         index: usize,
         value: ProviderBinding,
@@ -43,6 +48,8 @@ impl PartialEq for Conversation {
             && self.choices == other.choices
             && self.artifacts == other.artifacts
             && self.schedule == other.schedule
+            && self.draft_images == other.draft_images
+            && self.message_images == other.message_images
     }
 }
 impl Eq for Conversation {}
@@ -105,6 +112,21 @@ impl Conversation {
                 .changes
                 .push(ConversationChange::Draft(text.into()));
         }
+    }
+    pub(crate) fn set_draft_images(&mut self, paths: Vec<PathBuf>) {
+        self.draft_images = paths.clone();
+        self.runtime
+            .changes
+            .push(ConversationChange::DraftImages(paths));
+    }
+    pub(crate) fn set_message_images(&mut self, request: &str, paths: Vec<PathBuf>) {
+        self.message_images.insert(request.into(), paths.clone());
+        self.runtime
+            .changes
+            .push(ConversationChange::MessageImages {
+                request: request.into(),
+                paths,
+            });
     }
     pub(crate) fn set_schedule(&mut self, value: Option<atlas_ai::schedule::AgentSchedule>) {
         self.schedule = value.clone();
@@ -198,6 +220,10 @@ impl Conversation {
                     }
                 }
                 ConversationChange::Draft(value) => self.draft = value,
+                ConversationChange::DraftImages(value) => self.draft_images = value,
+                ConversationChange::MessageImages { request, paths } => {
+                    self.message_images.insert(request, paths);
+                }
                 ConversationChange::Binding { index, value } => {
                     if let Some(old) = self.bindings.get_mut(index) {
                         *old = value;

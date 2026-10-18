@@ -109,16 +109,26 @@ fn capsules_ui(
         let icon_hit = ui
             .interact(icon, Id::new(("presence-chat", p.id)), Sense::click())
             .on_hover_text(format!("Chat with {}", p.name));
-        let profile_hit = ui
+        let name_hit = ui
             .interact(name, Id::new(("presence-profile", p.id)), Sense::click())
-            .on_hover_text(format!("{} profile", p.name));
+            .on_hover_text(if p.human {
+                format!("{} profile", p.name)
+            } else {
+                format!("Chat with {}", p.name)
+            });
         if icon_hit.hovered() {
             ui.painter().rect_filled(icon, 15, palette.card_hover);
         }
-        if profile_hit.hovered() {
+        if name_hit.hovered() {
             ui.painter().rect_filled(name, 15, palette.card_hover);
         }
+        let row_clip = ui.clip_rect();
+        ui.set_clip_rect(clip.intersect(Rect::from_min_max(
+            Pos2::new(roster.left(), roster.top() - 14.0),
+            Pos2::new(roster.right() - 42.0, roster.bottom()),
+        )));
         chrome::participant_face(ui, painter, p, "roster", icon, now, reduced);
+        ui.set_clip_rect(row_clip);
         if !compact {
             chrome::label(
                 ui,
@@ -135,10 +145,22 @@ fn capsules_ui(
             palette.sub,
         );
         if icon_hit.clicked() {
-            state.toggle(Expansion::Chat(p.id.into()), rect);
+            state.open_chat(p.id);
         }
-        if profile_hit.clicked() {
-            state.toggle(Expansion::Profile(p.id.into()), rect);
+        if name_hit.clicked() {
+            if p.human {
+                state.toggle(Expansion::Profile(p.id.into()), rect);
+            } else {
+                state.open_chat(p.id);
+            }
+        }
+        if state.canvas_anchor.is_none()
+            && matches!(
+                state.expansion.as_ref(),
+                Some(Expansion::Chat(id) | Expansion::Profile(id)) if id == p.id
+            )
+        {
+            state.anchor = rect;
         }
         x += width;
         if index + 1 < participants.len() {
@@ -155,6 +177,9 @@ fn capsules_ui(
         Pos2::new(roster.right() - 38.0, roster.top() + 4.0),
         Pos2::new(roster.right() - 4.0, roster.bottom() - 4.0),
     );
+    if matches!(state.expansion.as_ref(), Some(Expansion::Add)) {
+        state.anchor = add;
+    }
     ui.set_clip_rect(clip.intersect(roster));
     ui.painter().line_segment(
         [
@@ -176,9 +201,6 @@ fn capsules_ui(
         state.toggle(Expansion::Add, add);
     }
     ui.set_clip_rect(clip);
-    if !state.anchor.is_positive() {
-        state.anchor = roster;
-    }
     if ui.ctx().input(|i| i.key_pressed(egui::Key::Escape)) {
         if state.model_menu_open {
             state.model_menu_open = false;
@@ -202,9 +224,9 @@ fn capsules_ui(
             .filter(|_| matches!(expansion, Expansion::Chat(_)));
         let screen = ui.ctx().screen_rect();
         let width = if attached.is_some() {
-            340.0
+            300.0
         } else if matches!(expansion, Expansion::Chat(_)) {
-            480.0
+            360.0
         } else {
             248.0
         };
@@ -214,16 +236,16 @@ fn capsules_ui(
                 .min((screen.right() - width - 12.0).max(screen.left() + 12.0)),
             roster.bottom() + 10.0,
         );
-        let available_height = screen.bottom() - top.y - 16.0;
+        let available_height = (screen.bottom() - top.y - 16.0).max(0.0);
         let mut height = if available_height.is_nan() {
-            720.0
+            480.0
         } else {
-            available_height.clamp(180.0, 720.0)
+            available_height.min(480.0)
         };
         let zoom = attached.map_or(1.0, |(_, z)| z);
         if let Some((point, z)) = attached {
             top = Pos2::new(point.x / z, point.y / z);
-            height = 330.0;
+            height = 300.0;
         }
         let area_id = Id::new("presence-expansion");
         let layer = egui::LayerId::new(egui::Order::Foreground, area_id);
@@ -239,7 +261,7 @@ fn capsules_ui(
             .constrain(false)
             .show(ui.ctx(), |ui| {
                 chrome::configure(ui, state.font_family.as_ref(), palette);
-                ui.set_width(width.min(local_screen.width() - 24.0));
+                ui.set_width(width.min((local_screen.width() - 24.0).max(0.0)));
                 egui::Frame::new()
                     .fill(palette.card)
                     .corner_radius(24)
@@ -277,7 +299,10 @@ fn capsules_ui(
         crate::menu_wheel::claim(ui.ctx(), state.last_popup_rect);
         if !state.just_opened && ui.ctx().input(|i| i.pointer.any_pressed()) {
             if let Some(pos) = ui.ctx().input(|i| i.pointer.interact_pos()) {
-                if !state.occludes_point(ui.ctx(), pos) && !roster.contains(pos) {
+                if matches!(expansion, Expansion::Profile(_) | Expansion::Add)
+                    && !state.occludes_point(ui.ctx(), pos)
+                    && !roster.contains(pos)
+                {
                     state.close_chat();
                 }
             }
@@ -290,7 +315,7 @@ fn capsules_ui(
 pub fn retired_profiles_ui(ui: &mut Ui, profiles: &[RetiredProfile<'_>]) -> Vec<PresenceAction> {
     let mut actions = Vec::new();
     ui.strong("Retired collaborators");
-    ui.small("Restore identity and conversation. Work and permissions start fresh.");
+    ui.small("Restore identity, conversation, and saved access choices.");
     for profile in profiles {
         ui.horizontal(|ui| {
             ui.label(profile.name);
