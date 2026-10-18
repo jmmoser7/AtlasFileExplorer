@@ -43,7 +43,7 @@ pub fn feature_edges(
         std::array::from_fn(|i| ((p[i] as f64 - min[i] as f64) / tolerance).round() as i64)
     };
     let mut map: HashMap<EdgeKey, Adjacent> = HashMap::new();
-    for tri in indices.chunks_exact(3) {
+    for tri in indices.as_chunks::<3>().0 {
         let Some(a) = positions.get(tri[0] as usize).copied() else {
             continue;
         };
