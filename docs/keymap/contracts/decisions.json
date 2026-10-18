@@ -626,7 +626,7 @@
           "decided": "2026-10-16"
         },
         "D09": {
-          "behavior": "P1.generator.results and P1.image.notch: result previews remain visible while chosen, and the bottom blister uses a clean clipped notch with smooth shoulders and bare icons. Existing per-panel datum and P1.generator feedback apply.",
+          "behavior": "Inherit P1.generator.results and P1.image.notch for result previews and mode-specific media chrome. Existing per-panel datum and P1.generator feedback apply.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -654,7 +654,7 @@
           "decided": "2026-10-11"
         },
         "D13": {
-          "behavior": "P1.image.frame and P1.image.notch: shared clipped host silhouette, exterior stroke and shadow; constant canvas scale, fit fallback and agent portal external squircles remain. The 17 October notch supersedes transparent photograph behind tab icons.",
+          "behavior": "Inherit P1.image.frame and P1.image.notch for the shared host silhouette, exterior stroke, shadow and collapsed/expanded presentation. Constant canvas scale, fit fallback and external agent-portal squircles remain.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",

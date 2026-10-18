@@ -229,16 +229,15 @@ pub fn validate_parameters(schema: &Value, parameters: &Value) -> Result<(), Pro
         {
             return Err(bad("parameter is outside enum"));
         }
-        if value.is_number() {
-            if shape
+        if value.is_number()
+            && (shape
                 .get("minimum")
                 .is_some_and(|bound| numeric_order(value, bound) == Some(std::cmp::Ordering::Less))
                 || shape.get("maximum").is_some_and(|bound| {
                     numeric_order(value, bound) == Some(std::cmp::Ordering::Greater)
-                })
-            {
-                return Err(bad("parameter is outside numeric bounds"));
-            }
+                }))
+        {
+            return Err(bad("parameter is outside numeric bounds"));
         }
         if let Some(string) = value.as_str() {
             let length = string.chars().count() as u64;

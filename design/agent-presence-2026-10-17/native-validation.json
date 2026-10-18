@@ -1,7 +1,7 @@
 {
   "schema": "slate-presence-validation/v1",
   "date": "2026-10-17",
-  "implementation": "Integration remains incomplete. A completed actual Slate software Chrome diagnostic failed0passed/1failed at known firstattached25 AA measurement after retaining nine PNG+JSON phases; no final13-state metadata. Guardian reviewed all9: exact roster/profile/chat geometry and self-reopen evidence coexist with menu transcript shifts, oversize short identity and missing blue hat tint. Original-intent proposal witness/instantAccept and stale grant-mode status gaps have planned approved extract-first scratch work, not applied/tested. Parent workspace69441 remains active/no verdict, source frozen. Earlier compile failures/history remain intact; finalBinarynull/humanUntested/all37 native UI blockers open.",
+  "implementation": "Integration remains incomplete. Completed source-stable local workspace failed101 (Slate1865pass/35fail/76ignored; shell386pass/0fail/8ignored; theme assertion and three separate OS5 doctest starts). Six app diagnostics ran4pass/2fail. Shared zoom/matrix exports and195-case exact parity are component evidence only. Projected c9 and later scratch stages remain unapplied/unvalidated locally. All37 UI blockers, provider/native/human and finalBinary gates remain OPEN.",
   "finalBinary": null,
   "coordinatedBuild": {
     "command": "cargo build --locked --release -p slate --jobs 1",
@@ -3980,6 +3980,3127 @@
         "scratchCorrectionApplied": false
       },
       "boundary": "Completed actual full-app software diagnostic failed0/1 and retained nine PNG plus nine phase JSON files. No final13-state metadata. The normal Slate libtest is identified by matching fingerprint/depfile and source1349 snapshot, not newest-file selection alone. Parent69441 remains active with no workspace pass. This update does not read/hash parent partial logs; receipt-embedded parent observations establish no completed verdict. No native/GPU/provider/speed/human pass."
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--release",
+        "--workspace",
+        "--jobs",
+        "1",
+        "--no-fail-fast"
+      ],
+      "result": "failed",
+      "exitCode": 101,
+      "exitCodeScope": "Completed direct ordinary release workspace Cargo process",
+      "startedUtc": "2026-10-18T04:21:35.389821+00:00",
+      "finishedUtc": "2026-10-18T06:24:26.588877+00:00",
+      "elapsedSeconds": 7370.522153800004,
+      "identity": "target/presence-workspace-test-and-zoom-fixed-20261018.json",
+      "identitySha256": "1987ab8006395f0f7476340b1a2339bfdedce0af13342d563279c22ddda11bb1",
+      "rawLog": {
+        "path": "target/presence-workspace-test-and-zoom-fixed-20261018.log",
+        "bytes": 385340,
+        "sha256": "81a83d5b5f95b367655051b7516f8fcb77d6abca4a16067a02b6aa02f260d713"
+      },
+      "sourceStable": true,
+      "sourceIdentityCount": 1349,
+      "runner": {
+        "path": "target/run_presence_workspace_round_20261018.py",
+        "bytes": 3461,
+        "sha256": "a321001f5e1e237c5ac31b0966fe921f40004e9df670af9c72892a17b04fa1f1"
+      },
+      "harnesses": [
+        {
+          "path": "target/release/deps/atlas_agent-bb7a0125aa34d0b0.exe",
+          "bytes": 1810944,
+          "sha256": "927c3375efbf0f0e742d78e6def361298728bb2b91ebbb8bdb0d7f929175a038"
+        },
+        {
+          "path": "target/release/deps/atlas_ai-e02334d1299b303b.exe",
+          "bytes": 6703104,
+          "sha256": "8ee0e912faedc12f1142a7404353bcf29d71ad5e26533e191a8aa2a4ceb0dd18"
+        },
+        {
+          "path": "target/release/deps/atlas_codex-76358261af2551a6.exe",
+          "bytes": 1710592,
+          "sha256": "f9cc8c0f0a6276e3b52f081d19d6b6a6e5be933fc7eeea8fe91ac87dc12deeea"
+        },
+        {
+          "path": "target/release/deps/atlas_comfy-467f5d59f011a93c.exe",
+          "bytes": 1360896,
+          "sha256": "2c7ce7649bd271f1ab6ac74bf37179b2b9f270db6e60c76521ce72565eec6f9d"
+        },
+        {
+          "path": "target/release/deps/atlas_commands-c5915aed4ebcedca.exe",
+          "bytes": 773632,
+          "sha256": "ed488a07728822c87b707c927b59e47b8a03c74686bb2c978baaa69fea07a327"
+        },
+        {
+          "path": "target/release/deps/atlas_connector-45f5a7bede87aa37.exe",
+          "bytes": 714240,
+          "sha256": "833004ce1e70245719bf32f3644af017f1a52096f722a21752b550cc5090f7ce"
+        },
+        {
+          "path": "target/release/deps/artifact_profile-0f6513f8d241ecf6.exe",
+          "bytes": 1267200,
+          "sha256": "dac0dbc61b4e9867318de7a0885e9a2b1c0f5c8afbe35d38429640e5620ba552"
+        },
+        {
+          "path": "target/release/deps/framing_params-3af5c28d750804aa.exe",
+          "bytes": 877056,
+          "sha256": "cb2498a029a4fc47e35e6c208ba2e9e5565cb57c7813ddd38838021b8e25f8f7"
+        },
+        {
+          "path": "target/release/deps/lifecycle-c2c0f4b8061b7dff.exe",
+          "bytes": 1017856,
+          "sha256": "7a4e3701be61cfd66e7c1df348c805dcdc355ad3c957d516a1059acaa96d2937"
+        },
+        {
+          "path": "target/release/deps/negotiation-76b23b6a2a4074c2.exe",
+          "bytes": 2279424,
+          "sha256": "26e73013a1b33fdd0db4e1350c9af6b7fac29d20d0cd178768bb42809e73f818"
+        },
+        {
+          "path": "target/release/deps/session_policy-cfad925b03438d55.exe",
+          "bytes": 1039360,
+          "sha256": "f0f1d069867701ddb12b490d6119f29155cdb5f66bb7b0b03149ba80fa45d25d"
+        },
+        {
+          "path": "target/release/deps/surface_discovery-5aaca985d353528a.exe",
+          "bytes": 1083904,
+          "sha256": "e8e3205c068095f026ab28737902bb8ac0603dec720a2d79db0030eab9b0e951"
+        },
+        {
+          "path": "target/release/deps/view_capture-281cb46be2bece14.exe",
+          "bytes": 1008640,
+          "sha256": "dbade633889ba1e306d26af3bdc4fa612724694a0c5520ead5e7eb9e13dde9c2"
+        },
+        {
+          "path": "target/release/deps/atlas_connector_runtime-b0a51d3fd6c9eccb.exe",
+          "bytes": 720384,
+          "sha256": "47e90aa44ee72544a0ce6750e5a9e04543e7426064826771ab7ec2e7767add1b"
+        },
+        {
+          "path": "target/release/deps/connector_conformance-e8687c5524660b98.exe",
+          "bytes": 714240,
+          "sha256": "9adff64f0e38ba985dc67f78ee74d93fc2536b16d56aa1cf128a55a95a516e9e"
+        },
+        {
+          "path": "target/release/deps/artifact_store-4ce3e25e1c0bdf19.exe",
+          "bytes": 875008,
+          "sha256": "e98ee45791ecafeb0d33e01aa6870a6f76fe00b3e854b9af0c2673392a45d5f8"
+        },
+        {
+          "path": "target/release/deps/artifact_windows-694a42502062d720.exe",
+          "bytes": 967168,
+          "sha256": "90bfe7ab508967e216490ab42cf59ec70d7893a77aa6be5a2c776470a846e91c"
+        },
+        {
+          "path": "target/release/deps/conformance_process-9bb6b02b25ff768d.exe",
+          "bytes": 721408,
+          "sha256": "3d3e18fc8f85086ce23b44f9efc246f72dd956ad83b2a9aa804f2f19ab3921de"
+        },
+        {
+          "path": "target/release/deps/host_windows-737091ad8b1ed4b5.exe",
+          "bytes": 2422272,
+          "sha256": "fc8457814dd98b2c4c3edd1f5c0c45abb70fa4dfe2d4fe7e8c24f1417032d2f3"
+        },
+        {
+          "path": "target/release/deps/pipe_windows-4808a9b853979f0b.exe",
+          "bytes": 926720,
+          "sha256": "f9eae2e85c5322b49cd9b682e0e7c35d944b751c92c1931e5df417c26f049101"
+        },
+        {
+          "path": "target/release/deps/surface_unsupported-f81902b1ba7fcee8.exe",
+          "bytes": 714240,
+          "sha256": "2f0afab600aa3bc3f60a2a7380d12ffae422277a76c688533b343863fc45e4d1"
+        },
+        {
+          "path": "target/release/deps/surface_windows-1cfce12ff018f92a.exe",
+          "bytes": 771072,
+          "sha256": "0acdb41f1681969d0391e6077f2d098908cddbf1c321f11f22039f4ad315d60d"
+        },
+        {
+          "path": "target/release/deps/atlas_core-e615bf3aed745cab.exe",
+          "bytes": 11771392,
+          "sha256": "03df1fffc5a1521d4b97f06724a39f1e23c89177946dd3a3a15e163e750dc894"
+        },
+        {
+          "path": "target/release/deps/cloud_guard-66ab1c37f9db4ad8.exe",
+          "bytes": 7008768,
+          "sha256": "800e95085a282f35ceb392ba2cc71cc191d3307b512e3623f6c427e7ddb68cfd"
+        },
+        {
+          "path": "target/release/deps/folder_probe-03f59447854d546c.exe",
+          "bytes": 7131648,
+          "sha256": "ec16264810a335969abe9b0bf1e30383264d29a12114cdb43ca389f0da8f70f0"
+        },
+        {
+          "path": "target/release/deps/scan_bench-69ceaf113bf569a4.exe",
+          "bytes": 979456,
+          "sha256": "2b1392543134ffd5221c6b7dcdb7b33d584cfaa2d28a8ede36efcd6aeb147b72"
+        },
+        {
+          "path": "target/release/deps/thumb_bench-9b1ec0a0b274a94d.exe",
+          "bytes": 2095616,
+          "sha256": "a053a2aa6fafbbbd15a2c9e88ec9c1935a12874db218da821515b82ed72aa995"
+        },
+        {
+          "path": "target/release/deps/atlas_curl-363f2fa440662e44.exe",
+          "bytes": 911360,
+          "sha256": "22e68f23311570d5e0817558a56ed1edb1d09358e985a48abfcd7c30285a3fe9"
+        },
+        {
+          "path": "target/release/deps/atlas_ollama-8d9031d3d80c920b.exe",
+          "bytes": 2584064,
+          "sha256": "f30b5c6a1a5ab1de232800de82bcdae8523e009fc9adb558fcc968c33dad4c10"
+        },
+        {
+          "path": "target/release/deps/atlas_openai-40081761c09187d5.exe",
+          "bytes": 1117696,
+          "sha256": "7e1386e855409ce2f6fd933e1d94332ffca7402c398d20398a6982e09d5187d9"
+        },
+        {
+          "path": "target/release/deps/atlas_packs-24edad91f0b1fb07.exe",
+          "bytes": 1085440,
+          "sha256": "5ed314d7b0a6a5cacb148a0549b63bdafa6215b08fc9fd922b696943124179f7"
+        },
+        {
+          "path": "target/release/deps/application_offers-25039079f687ff76.exe",
+          "bytes": 1105920,
+          "sha256": "2bdf19cb77ca76c7a857346bc24fb391d1a5e5b5456e93aaf42d83d7ab9712d6"
+        },
+        {
+          "path": "target/release/deps/atlas_relay-5972e56c99e54333.exe",
+          "bytes": 3617792,
+          "sha256": "08f7855bdb9edd22f724306f53e4813cb79bcc949dd52f7505bed18e9e2df1af"
+        },
+        {
+          "path": "target/release/deps/atlas_relay-2d29a8ba40eac09d.exe",
+          "bytes": 714240,
+          "sha256": "36bef4850617f1a18737fa0f084d372d2c66ad3bef26c602fb2e02212f780ab4"
+        },
+        {
+          "path": "target/release/deps/participants-e662dd0ea8022600.exe",
+          "bytes": 3693568,
+          "sha256": "26e1fa14210f595f216622517161bddc8b1fc8fa5043e5db2f6fff2ac89614c4"
+        },
+        {
+          "path": "target/release/deps/atlas_segment-172155b07bbb59b0.exe",
+          "bytes": 966656,
+          "sha256": "5138525910a53cca489a8a18b3db542d1fff3779d48a816edbcf599302dd3b31"
+        },
+        {
+          "path": "target/release/deps/atlas_session-6471f3197793e9a8.exe",
+          "bytes": 714240,
+          "sha256": "b527f600d4cfd001091ff6b9d4371a5e506213053fabe4450dac16ff06f664ef"
+        },
+        {
+          "path": "target/release/deps/atlas_shell-8d98f9330d93ad59.exe",
+          "bytes": 15302144,
+          "sha256": "3f01b95a4a96e189df565e69a41cbd501b37d685573de04b48199f370524f21a"
+        },
+        {
+          "path": "target/release/deps/atlas_update-252110b79ecc8406.exe",
+          "bytes": 3820544,
+          "sha256": "07ec3058f91286e1d9d4d469bc37a1577a3b5062b12c16176f58e1e0d9124006"
+        },
+        {
+          "path": "target/release/deps/circle_pack-092063154d72c6df.exe",
+          "bytes": 839168,
+          "sha256": "970aebf79a21b2f40b9dc2c8cfe94a49dcc7b12a99963f80f8fac62a01d22ffc"
+        },
+        {
+          "path": "target/release/deps/code_lens-e12632c99d09e63d.exe",
+          "bytes": 1121280,
+          "sha256": "1b4f63aa85ddc9045676c919347afc8a0034f2a4a9d3ab514eb820c2fc01d29a"
+        },
+        {
+          "path": "target/release/deps/extract_smoke-e231911ab00e805b.exe",
+          "bytes": 3625472,
+          "sha256": "1e3e8852422e1863f228ad6a414fe765b3eeb8088a185d22308541ee44b785e5"
+        },
+        {
+          "path": "target/release/deps/pipeline_smoke-eed9704030110d3e.exe",
+          "bytes": 3677184,
+          "sha256": "d34d6abf9d612d3e9eab7f412c88289b69445e3d5d2d26468fe49aaa57e790b5"
+        },
+        {
+          "path": "target/release/deps/self_layout_stats-78525afacf72938d.exe",
+          "bytes": 3666432,
+          "sha256": "fff33a587e4ca82fd725896cc7a9bedb29ad49c82bc9847d7b77cb08ced357c5"
+        },
+        {
+          "path": "target/release/deps/collage-0cd9c96bd6170650.exe",
+          "bytes": 714240,
+          "sha256": "96e040e59a8a00528e2630157b7614bfdf6cb2e811fd92e1b0aeafe3c3c88b95"
+        },
+        {
+          "path": "target/release/deps/layout-8407ed48d54ef6c9.exe",
+          "bytes": 774656,
+          "sha256": "65056a5b28a2f0c5802855ce58928e5b9f0e09a067a093040abe82893d70a973"
+        },
+        {
+          "path": "target/release/deps/model_preview-c94928790b70f34f.exe",
+          "bytes": 1848832,
+          "sha256": "ee9ea1f580ff57b14a25ba079f725a0df833ee3c6204fd866c40d37f6ac6718e"
+        },
+        {
+          "path": "target/release/deps/materials-a5509ae550dbdbed.exe",
+          "bytes": 1533952,
+          "sha256": "16b99dc28feb4d8eb7917e3c149bc7abb3bbbe3d22ed9878c83fca30218259a6"
+        },
+        {
+          "path": "target/release/deps/readers-3877067eb6f56c66.exe",
+          "bytes": 1544192,
+          "sha256": "d9e9113fa2d6a083dc0fb1add6c01bd423a263f6b5867729a43c8e8429dc83c0"
+        },
+        {
+          "path": "target/release/deps/native_file_atlas-4d16b8c56d112c29.exe",
+          "bytes": 21161984,
+          "sha256": "28454d0961192511e30c4b3b778f95c26401808de4fbaab43fdf4635b01f5364"
+        },
+        {
+          "path": "target/release/deps/native_file_atlas-86150c29a8521b54.exe",
+          "bytes": 796672,
+          "sha256": "01559c71ed6eaba5ae767347d7e5f8d8977a2dbdad420d66c853d92baa492859"
+        },
+        {
+          "path": "target/release/deps/rhino_mesh-7d1f5ae6eba26a6a.exe",
+          "bytes": 945664,
+          "sha256": "eacd15522df1aba43f814243edac0b0fe7f5e1a6d46cd618c6aef9663b90a10a"
+        },
+        {
+          "path": "target/release/deps/materials-147775d177da1a31.exe",
+          "bytes": 866816,
+          "sha256": "c4100558d0341cea285bc52dfea51b4ecc571ee248fa2811ab7ac2f7c918cea8"
+        },
+        {
+          "path": "target/release/deps/read_fixtures-59cfebe0976e3d4e.exe",
+          "bytes": 869376,
+          "sha256": "39c763c765c03588f25776e63001d7b14759443bdf2cacee6d1212b8d957d3b3"
+        },
+        {
+          "path": "target/release/deps/slate-fc7790602d20a07c.exe",
+          "bytes": 66493952,
+          "sha256": "368341fe2d18a781031a0187842b4e6feba30d5a6d20acd1102625be7ca6b219"
+        },
+        {
+          "path": "target/release/deps/slate-5dfa678730293c39.exe",
+          "bytes": 807424,
+          "sha256": "e294794d9456f5885ac16c7d9db10b6cc4efdc3b5e0fc5559779b6d528363247"
+        },
+        {
+          "path": "target/release/deps/slate_artifact-2ce18dee21f7f099.exe",
+          "bytes": 7670784,
+          "sha256": "2d91d1b0589328b1d6df8d4da0374defa7d42bf20f9ab2542471b55e820d6c4f"
+        },
+        {
+          "path": "target/release/deps/cutout_sticker-9816eeb8375a1903.exe",
+          "bytes": 1861120,
+          "sha256": "69f142766e4ff7d4c7859726a13d5fd22d85332731bfb53004aa3d20de882ba2"
+        },
+        {
+          "path": "target/release/deps/export_smoke-aa354ecfa5ec4fd6.exe",
+          "bytes": 2297856,
+          "sha256": "5d6617880bad0a48db2c3d0d01ea555ad6c68830ca6ac0df87790cdbba92d4b1"
+        },
+        {
+          "path": "target/release/deps/hosted_shape_text-f8afd9de7e1c7bc6.exe",
+          "bytes": 5708288,
+          "sha256": "c844665de78c8344e1755db58a75bb530cd3a0e8f34e71ea82cea4d5e879fe26"
+        },
+        {
+          "path": "target/release/deps/membership-e6b9598eb89f803d.exe",
+          "bytes": 2253312,
+          "sha256": "86506cb78d96b41b9cb9d917ab1d735f5b09a5996edb027fbe0a4f5a11fd38d4"
+        },
+        {
+          "path": "target/release/deps/slate_doc-4a58afe1e2c4ed6b.exe",
+          "bytes": 5991424,
+          "sha256": "92aa73ee55146815409e493f8466bb7423831b2d34fad9567da97cefe5d80938"
+        },
+        {
+          "path": "target/release/deps/image_paint_layers-70e4be8b2a279ff1.exe",
+          "bytes": 985088,
+          "sha256": "40359ac2c8b90ca5c52330f1c9776ec4d75f51bbf9fbbe07a5fad2dd2c3808fe"
+        },
+        {
+          "path": "target/release/deps/migration-df950f35de318841.exe",
+          "bytes": 2314240,
+          "sha256": "a03d71cd25797452a9362be79f252b8d128f3c46e00d565d57fa621573cdc530"
+        },
+        {
+          "path": "target/release/deps/slate_kit-88fdd226499e0b1c.exe",
+          "bytes": 2145280,
+          "sha256": "b5a61bd5bd3bc468bdc91f4e1c669b125095a37a29d364154624c1150a6dc4e3"
+        },
+        {
+          "path": "target/release/deps/vector_ink-f7a571f04079966c.exe",
+          "bytes": 1846272,
+          "sha256": "f06ccf2f4ea5e56c63b5af051d58b8821f212b852d6d9bd1547f5a6a7959c73d"
+        },
+        {
+          "path": "target/release/deps/bench_grain-3c90c4cbe8197e69.exe",
+          "bytes": 1000448,
+          "sha256": "473ebad9f2c4b037c98d52bfee7a79efcf266801e74e688b285b511d9a8fc52f"
+        },
+        {
+          "path": "target/release/deps/pen_fit-815a751afbd8e833.exe",
+          "bytes": 772096,
+          "sha256": "3c434b2403052b2d0ad1dc31cacd157e5475e2ab35d4912d9ac24dce5a733ab1"
+        },
+        {
+          "path": "target/release/deps/texture_rules-f13085e88bb9e986.exe",
+          "bytes": 770560,
+          "sha256": "898e9addcdce10cf1ae641c52dade920653510292a5dd16a9da6825d6e14f730"
+        },
+        {
+          "path": "target/release/deps/xtask-1bb7764f7744daa9.exe",
+          "bytes": 5045248,
+          "sha256": "7e14e706513e0da016ea0c24a2d6d8c3d023c0bbc181c05a359d5b74b2e4469d"
+        },
+        {
+          "path": "target/release/deps/xtask-550bee00fa4615c2.exe",
+          "bytes": 714240,
+          "sha256": "70ca8cfea6c1e3bb41b656c7a59efd680edc8398d6ebbe9e119376afbf282d6f"
+        },
+        {
+          "path": "target/release/deps/contracts-6942507c8156950c.exe",
+          "bytes": 916480,
+          "sha256": "a8dafa71d1a7529db921aa162d7ae86b15a3d9c0e564cda6da5e99bb9fc07a9c"
+        },
+        {
+          "path": "target/release/deps/kits-3e286485d0c23dfa.exe",
+          "bytes": 1486848,
+          "sha256": "5513a06b0c6f383d993dc6b36a8f81abf2f0d0b2efd2c523e915468651a5460b"
+        },
+        {
+          "path": "target/release/deps/metrics-1814542397e35326.exe",
+          "bytes": 4264448,
+          "sha256": "7759d7b7ad108f18e6e5d937c8e10343bf64921a0298bb6532fb5667a1041c00"
+        },
+        {
+          "path": "target/release/deps/size-9b0781154c5e108f.exe",
+          "bytes": 1126912,
+          "sha256": "8342669337b365121b4ac68e5152cdf3b83e128c8856e523e552ceab7161d0a7"
+        },
+        {
+          "path": "target/release/deps/theme-6fbbcc5013237f6d.exe",
+          "bytes": 1120256,
+          "sha256": "d3d7f7074e48696c67899d0596af4d70ac0aa1122004343ef35ea1594598671b"
+        }
+      ],
+      "libtestSummaries": [
+        "test result: ok. 45 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 112 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 12.78s",
+        "test result: ok. 21 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 13 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.50s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s",
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s",
+        "test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.54s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.91s",
+        "test result: ok. 202 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 6.11s",
+        "test result: ok. 0 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.40s",
+        "test result: ok. 3 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.02s",
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.82s",
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.02s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.92s",
+        "test result: ok. 4 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 386 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 2.31s",
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s",
+        "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.77s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 64 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 4.05s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s",
+        "test result: FAILED. 1865 passed; 35 failed; 76 ignored; 0 measured; 0 filtered out; finished in 243.51s",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 78 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.35s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s",
+        "test result: ok. 338 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 4.21s",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 6 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.02s",
+        "test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 158 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s",
+        "test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s",
+        "test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.40s",
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.75s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s",
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.42s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.05s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.93s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.45s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ],
+      "slate": {
+        "passed": 1865,
+        "failed": 35,
+        "ignored": 76,
+        "summary": "test result: FAILED. 1865 passed; 35 failed; 76 ignored; 0 measured; 0 filtered out; finished in 243.51s",
+        "failedTests": [
+          "app::agent_presence::tests::motion_render::crop::foreground_composer_press_holds_crop_without_takeover_or_terminal_commit",
+          "app::board_agent::generator::tests::album::a_closed_image_blister_keeps_all_result_thumbnail_squares_visible",
+          "app::board_crop::gesture_tests::effective_handles_end_on_the_painted_clamped_window_or_uniform_source_grip",
+          "app::board_flow::tests::image_blister::a_running_frame_shows_what_it_is_doing_and_for_how_long",
+          "app::board_flow::tests::image_blister::image_agent_count_clicks_reach_the_authored_generator_settings",
+          "app::board_flow::tests::ports_show_near_a_generator_and_the_text_block_paints_its_controls",
+          "app::board_image_segment::tests::interaction::brush_click_toggles_and_escape_disarms_without_closing_image_palette",
+          "app::board_image_segment::tests::interaction::lasso_control_toggles_and_brush_switches_are_exclusive",
+          "app::board_image_segment::tests::interaction::locked_and_read_only_images_disable_active_layer_controls",
+          "app::board_image_segment::tests::interaction::outside_image_press_disarms_brush_and_reselection_restores_only_the_palette",
+          "app::board_properties::palette_ui::tests::deselecting_a_rectangular_portal_keeps_its_fading_palette_below_the_portal",
+          "app::board_properties::palette_ui::tests::deselecting_an_image_never_falls_back_to_the_generic_toolbar",
+          "app::board_properties::palette_ui::tests::fallback::fallback_image_body_inspection_retains_the_editor_including_locked_hosts",
+          "app::board_properties::palette_ui::tests::fallback::fallback_images_keep_external_brush_and_layers_controls_at_full_width",
+          "app::board_properties::palette_ui::tests::fallback::small_panoramic_and_round_images_route_to_external_squircles_at_every_zoom",
+          "app::board_properties::tests::live_strip_shows_pages_for_a_single_pdf",
+          "app::image_layer_tests::crop_toggles_fit_inside_the_shared_corners_panel",
+          "app::image_layer_tests::editing::an_expanding_corner_palette_keeps_final_geometry_and_clips_hidden_controls",
+          "app::image_layer_tests::editing::brush_action_keeps_the_selected_image_palette_live",
+          "app::image_layer_tests::editing::dragging_the_image_keeps_the_editor_visible_and_attached",
+          "app::image_layer_tests::layers_palette_keeps_recent_colors_in_the_color_editor",
+          "app::image_layer_tests::layers_panel_sits_below_a_selected_image",
+          "app::image_layer_tests::opacity::layer_name_commits_on_enter_and_menu_click_away",
+          "app::image_layer_tests::opacity::layer_name_draft_never_renames_a_matching_layer_in_another_workbook",
+          "app::image_layer_tests::opacity::layer_name_draft_stays_with_its_original_result_when_layer_ids_repeat",
+          "app::image_layer_tests::opacity::layer_name_escape_discards_the_draft_without_a_journal_edit",
+          "app::image_layer_tests::opacity::opacity_scrub_keeps_authored_data_until_release_and_cancel_restores_it",
+          "app::image_layer_tests::select_panel::layers_panel_works_from_select_without_arming_paint",
+          "app::image_layer_tests::select_panel::undoing_the_first_layer_restores_filter_focus_and_redo_focuses_it",
+          "app::image_layer_tests::slipping::dragged_layer_slips_between_slots_and_commits_only_on_release",
+          "app::image_layer_tests::slipping::escape_cancels_a_layer_slip_without_a_scene_edit",
+          "app::image_layer_tests::the_filter_panel_holds_filters_only",
+          "app::image_layer_tests::the_palette_plus_adds_a_layer_and_a_circle_click_makes_it_active",
+          "app::image_layer_tests::the_palette_slider_sets_the_active_layer_opacity_in_one_undo_step",
+          "app::tests::crop::gesture_owner::real_human_pan_uses_the_same_immutable_start_gesture_and_one_undo"
+        ]
+      },
+      "sharedShell": {
+        "passed": 386,
+        "failed": 0,
+        "ignored": 8,
+        "summary": "test result: ok. 386 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 2.31s"
+      },
+      "themeAssertion": {
+        "test": "board_ui_has_no_unallowlisted_color_literals",
+        "passed": 0,
+        "failed": 1,
+        "offender": "apps/slate/src/app/board_agent/image_album_tests.rs:148",
+        "diagnostic": "Color32::from_rgb(80, 120, 160) is not allowlisted"
+      },
+      "doctestStartFailures": [
+        {
+          "package": "circle_pack",
+          "result": "process-start-denied",
+          "assertionExecuted": false,
+          "diagnostic": "Couldn't run the test: Access is denied. (os error 5)",
+          "reportedLibtestSummary": "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.05s"
+        },
+        {
+          "package": "collage",
+          "result": "process-start-denied",
+          "assertionExecuted": false,
+          "diagnostic": "Couldn't run the test: Access is denied. (os error 5)",
+          "reportedLibtestSummary": "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.93s"
+        },
+        {
+          "package": "slate_kit",
+          "result": "process-start-denied",
+          "assertionExecuted": false,
+          "diagnostic": "Couldn't run the test: Access is denied. (os error 5)",
+          "reportedLibtestSummary": "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.45s"
+        }
+      ],
+      "boundary": "Actual completed baseline execution, not projected c9 or later scratch code. Slate/UI and theme assertions failed. Three separate OS5 doctest starts failed before their code ran; no enforcing-control attribution or retry. Per-target results are retained without an aggregate pass or native/provider/human acceptance."
+    },
+    {
+      "command": [
+        "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\target\\release\\deps\\slate-fc7790602d20a07c.exe",
+        "app::agent_presence::tests::",
+        "--ignored",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "result": "failed",
+      "exitCode": 101,
+      "wrapperExitCode": 1,
+      "startedUtc": "2026-10-18T06:28:22.568714+00:00",
+      "finishedUtc": "2026-10-18T06:28:49.390684+00:00",
+      "identity": "target/presence-baseline-app-artifacts-winpaths-20261018.json",
+      "identitySha256": "6cb38402c5d00ad6c7cf9e9c63fcd8f4bfd1bbdb57da99c61553ccf101f3e1e1",
+      "rawLog": {
+        "path": "target/presence-baseline-app-artifacts-winpaths-20261018.log",
+        "bytes": 451880,
+        "sha256": "6640713ff2d00419484dcb7cd91b3dac4d815f4898574023a518031ec0ed4bb8"
+      },
+      "runner": {
+        "path": "target/run_presence_app_artifacts_winpaths_20261018.py",
+        "bytes": 5747,
+        "sha256": "4bae15643c7be843b46d0065d6522a8db68a1543874a5079a2940582a0145b28"
+      },
+      "harness": {
+        "path": "target/release/deps/slate-fc7790602d20a07c.exe",
+        "bytes": 66493952,
+        "sha256": "368341fe2d18a781031a0187842b4e6feba30d5a6d20acd1102625be7ca6b219"
+      },
+      "sourceStable": true,
+      "sourceIdentityCount": 1349,
+      "harnessStable": true,
+      "parentCargoExitCode": 101,
+      "diagnosticAfterFailedSuite": true,
+      "passed": 4,
+      "failed": 2,
+      "ignored": 0,
+      "filtered": 1970,
+      "libtestSummaries": [
+        "test result: FAILED. 4 passed; 2 failed; 0 ignored; 0 measured; 1970 filtered out; finished in 23.29s"
+      ],
+      "executedTests": [
+        {
+          "name": "app::agent_presence::tests::chrome_render::full_app_presence_chrome_retains_actual_ui_states",
+          "result": "failed"
+        },
+        {
+          "name": "app::agent_presence::tests::motion_render::crop::witnessed_crop_cancel_and_takeover_preserve_visible_crop_geometry_and_camera",
+          "result": "passed"
+        },
+        {
+          "name": "app::agent_presence::tests::motion_render::crop::witnessed_fixed_mask_pan_paints_three_intermediate_multicolour_uv_states_before_one_undoable_commit",
+          "result": "passed"
+        },
+        {
+          "name": "app::agent_presence::tests::motion_render::witnessed_linked_image_wire_and_cancellation_retain_actual_motion_frames",
+          "result": "passed"
+        },
+        {
+          "name": "app::agent_presence::tests::motion_render::witnessed_offscreen_linked_image_enters_the_view_before_its_single_commit",
+          "result": "passed"
+        },
+        {
+          "name": "app::agent_presence::tests::perf::witnessed_command_machine_local_performance_probe",
+          "result": "failed"
+        }
+      ],
+      "failures": [
+        {
+          "path": "apps/slate/src/app/agent_presence/chrome_render_tests.rs",
+          "line": 271,
+          "diagnostic": "First attached25 opaque head-width measurement omits AA feather; nine Chrome phases retained, no completed 13-phase metadata."
+        },
+        {
+          "path": "apps/slate/src/app/agent_presence/perf_tests.rs",
+          "line": 220,
+          "diagnostic": "Final exact SlateDoc equality assertion failed; this is not a passing command-performance probe."
+        }
+      ],
+      "artifactCount": 79,
+      "artifacts": [
+        {
+          "path": "target/review/presence-chrome-req-87556-1792304903456613900-0/agent-chat.json",
+          "bytes": 2697,
+          "sha256": "4a154b9b0f36174d45566271f11cf6c1bec2bf6a184a07cd04923f26942485cf"
+        },
+        {
+          "path": "target/review/presence-chrome-req-87556-1792304903456613900-0/agent-chat.png",
+          "bytes": 91835,
+          "sha256": "57979d18ce0edbee311766e48c97c6ea91a14f8774fd640a0bed909c6b0fdab2"
+        },
+        {
+          "path": "target/review/presence-chrome-req-87556-1792304903456613900-0/closed-roster.json",
+          "bytes": 2248,
+          "sha256": "9ed05226a5e5e4fadb8103335e0495aacc391b866befff21f95bed3480f1465f"
+        },
+        {
+          "path": "target/review/presence-chrome-req-87556-1792304903456613900-0/closed-roster.png",
+          "bytes": 53954,
+          "sha256": "b65d7387e6b8299b6856e086e5d57f4f8a77f2f9c6b9c20187bc6a4d0c06bc4e"
+        },
+        {
+          "path": "target/review/presence-chrome-req-87556-1792304903456613900-0/harness-menu.json",
+          "bytes": 2868,
+          "sha256": "d9da07a7a3fc74d842ca55c3405446ec0ea261e1225194795987a9208fa734a4"
+        },
+        {
+          "path": "target/review/presence-chrome-req-87556-1792304903456613900-0/harness-menu.png",
+          "bytes": 106570,
+          "sha256": "57434598271f4c7b4ed3af7ed98c1357ee828c5ad23495585cdac75cc41d6caf"
+        },
+        {
+          "path": "target/review/presence-chrome-req-87556-1792304903456613900-0/hats-after-wheel.json",
+          "bytes": 2829,
+          "sha256": "4ae7bf5125510d5d47688b05c99d7b98fe00beacac69fc43eab630257d9a8847"
+        },
+        {
+          "path": "target/review/presence-chrome-req-87556-1792304903456613900-0/hats-after-wheel.png",
+          "bytes": 98618,
+          "sha256": "1c08ad2d497253b57c193766fa66968bd94e13ab91615081969830589f5a5f51"
+        },
+        {
+          "path": "target/review/presence-chrome-req-87556-1792304903456613900-0/hats-before.json",
+          "bytes": 2743,
+          "sha256": "c435a3843728f9637f2f2834d2a1556387b3b539f24d2f4c6b853c45ca9de748"
+        },
+        {
+          "path": "target/review/presence-chrome-req-87556-1792304903456613900-0/hats-before.png",
+          "bytes": 99433,
+          "sha256": "199d5699a37c7ec2f833538b45f9ac5b6bf5046fd1b99b134bf148f68d9d4e73"
+        },
+        {
+          "path": "target/review/presence-chrome-req-87556-1792304903456613900-0/more-menu.json",
+          "bytes": 2761,
+          "sha256": "8eb739350909e070ea5f10878979f562e71c7409f006498ad22d9f9b674ab8e5"
+        },
+        {
+          "path": "target/review/presence-chrome-req-87556-1792304903456613900-0/more-menu.png",
+          "bytes": 106958,
+          "sha256": "ae84b6bae18eaf4e403cedda095c7c98eee4a15220d35acc5db9b827d11e5bcd"
+        },
+        {
+          "path": "target/review/presence-chrome-req-87556-1792304903456613900-0/own-profile.json",
+          "bytes": 2138,
+          "sha256": "22200f99afa373a4d34d2663022ad5f03c7a421c9d769594bd73de13204b2feb"
+        },
+        {
+          "path": "target/review/presence-chrome-req-87556-1792304903456613900-0/own-profile.png",
+          "bytes": 68642,
+          "sha256": "fe9cfa185a688898216241310b2ccfd2279a38e285ab47ef1b5e8d3689ef5ae0"
+        },
+        {
+          "path": "target/review/presence-chrome-req-87556-1792304903456613900-0/self-chat-reopened.json",
+          "bytes": 2602,
+          "sha256": "e953420b1a0e90e71542227d6b077c99a8a7dd5b98289c49bef3f245aa1515f6"
+        },
+        {
+          "path": "target/review/presence-chrome-req-87556-1792304903456613900-0/self-chat-reopened.png",
+          "bytes": 75357,
+          "sha256": "b02320a4c6fbd22b7a13c64e5a6565a14c61243ce140d6572a25b9d8822dae13"
+        },
+        {
+          "path": "target/review/presence-chrome-req-87556-1792304903456613900-0/self-chat.json",
+          "bytes": 2566,
+          "sha256": "f5651b379bc9c7e8e391d6bf8cfb1f69fae014591c7dfc7341a08863ad6574ad"
+        },
+        {
+          "path": "target/review/presence-chrome-req-87556-1792304903456613900-0/self-chat.png",
+          "bytes": 75355,
+          "sha256": "8122a76352a6f56c09c474e63a8611b9be1a0449936b7dc33b1e137fbda5e273"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304907505071200-11/crop-before-interrupt.json",
+          "bytes": 6721,
+          "sha256": "a410d4266c0ad8f6ef44f1d7ac6426551105ebe394dbcec1571eaf711f07084c"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304907505071200-11/crop-before-interrupt.png",
+          "bytes": 88193,
+          "sha256": "6a1e8a6d8fa1afc2c256c8717d1ff9c1d776d12b174f4238e8aa3dccc91031d3"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304907505071200-11/crop-cancel-restored.json",
+          "bytes": 4489,
+          "sha256": "6d77161480e1d88343b1ea5b913dff3d24955f35eece103337eabc8c06da1a3d"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304907505071200-11/crop-cancel-restored.png",
+          "bytes": 88174,
+          "sha256": "baba90a10667eb4714b911d44a51127a9d17e0a814bfa5ca5448b5756f1dbbb4"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304907505071200-11/metadata.json",
+          "bytes": 13300,
+          "sha256": "0658f8ca03e1ae5ca8671a56972ce9fc9b320d0ed4e1dd2f703e76fccc09dc15"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304908579155200-18/crop-before-interrupt.json",
+          "bytes": 6721,
+          "sha256": "a410d4266c0ad8f6ef44f1d7ac6426551105ebe394dbcec1571eaf711f07084c"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304908579155200-18/crop-before-interrupt.png",
+          "bytes": 88193,
+          "sha256": "6a1e8a6d8fa1afc2c256c8717d1ff9c1d776d12b174f4238e8aa3dccc91031d3"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304908579155200-18/crop-human-takeover.json",
+          "bytes": 4501,
+          "sha256": "86ef8eb721dad012777780c9f8e040c0b70dc901ff98856dd4d831d57970f2b6"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304908579155200-18/crop-human-takeover.png",
+          "bytes": 90535,
+          "sha256": "4c9cad1c7acb0639fe8fdb14695d91098e69ca5027a07ab2d76cf9ce2796c392"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304908579155200-18/metadata.json",
+          "bytes": 13312,
+          "sha256": "4233d5e58e298e8c6666a98ae508728fda46fa8585cd5d2faf19684132e489fe"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304909652711500-25/crop-before.json",
+          "bytes": 4455,
+          "sha256": "37acc8d667aadf3bc987710d7f52de8b3e9aa22b6fb9d6ca5a8792ecfe54899f"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304909652711500-25/crop-before.png",
+          "bytes": 87419,
+          "sha256": "ec6d6ccee87d382ffb82c7b2dee14adc2a406e39953868a40f6ce17fcdd66d8a"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304909652711500-25/crop-committed.json",
+          "bytes": 4477,
+          "sha256": "48a12bdf542667935f64b99f5ace31a1bd9142fa50b852493c0d54d35bbde405"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304909652711500-25/crop-committed.png",
+          "bytes": 88533,
+          "sha256": "406ef1c679c2e806afc10d3faf5f25ab071d6b5b8fab03cee5ea69683ef06602"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304909652711500-25/crop-intermediate-1.json",
+          "bytes": 6717,
+          "sha256": "b4867e72080631a9d0b798304cc1832203f42c94ea7d116d836cf88d7c605f54"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304909652711500-25/crop-intermediate-1.png",
+          "bytes": 88207,
+          "sha256": "fd36ad753fa6e5805538f2aa9d1bfdbb5d156f4ea5542b69b00f70d13d2e28d0"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304909652711500-25/crop-intermediate-2.json",
+          "bytes": 6717,
+          "sha256": "54c42ea575316dd8d9919e33c06f75c55e4ed631d0eb354f1d04ae23fa91d3c7"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304909652711500-25/crop-intermediate-2.png",
+          "bytes": 88170,
+          "sha256": "e23fc41f414cb97073754ff6f5e7874a715c62e0da9daacc6ad605491c9a37e8"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304909652711500-25/crop-intermediate-3.json",
+          "bytes": 6717,
+          "sha256": "e7b4f40c80c903a5796deabc38949032e2a9dd98e4baa738bccd261580070e9d"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304909652711500-25/crop-intermediate-3.png",
+          "bytes": 88213,
+          "sha256": "1bc0c757708b6a7f0cda1770f8d4c94c66947316ce158cff14b8a815fa47d022"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304909652711500-25/crop-uv-pixel-samples.json",
+          "bytes": 5696,
+          "sha256": "3193af7ae7f9a68b29cd24085a1943b3255466aae407586948d5c55396260dd1"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304909652711500-25/metadata.json",
+          "bytes": 34248,
+          "sha256": "673ad1ca8919cc8f177b0221c11e0573d6a376525ab35ef380b7ae611efa57ab"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304913051821400-33/approach.json",
+          "bytes": 3772,
+          "sha256": "347bfa47fcf821aa0b7dc16029cf0fed62937781bf3478ef2743ac9202c2fb1e"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304913051821400-33/approach.png",
+          "bytes": 58778,
+          "sha256": "14444fe833265c57ba4bb2872807f522f4e56698c7bc96cb95a3029dc570a722"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304913051821400-33/before.json",
+          "bytes": 3727,
+          "sha256": "1ebbedda0df6b631b16e1acc2a32a74573a92d64e3df631a40885ea4c3d6bfd5"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304913051821400-33/before.png",
+          "bytes": 57562,
+          "sha256": "13de6c64fb291cfbb47eca96dd7c66e67493f38fb21002e6d4a00a664ba17d21"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304913051821400-33/cancel-preview.json",
+          "bytes": 6401,
+          "sha256": "ec51774c9f33b5f0ba831bc6cc194ae5669d8a6ee286916a190fed7ef04dc992"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304913051821400-33/cancel-preview.png",
+          "bytes": 57291,
+          "sha256": "fc7e17de7dd827338edaa25fa8e299e1d96e2d6e9fcd2126acd3c9dca019df76"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304913051821400-33/cancel-restored.json",
+          "bytes": 4824,
+          "sha256": "a5ff084edd217ba2bac7f763f69d7e52bf430e247648fec174f98ed377a7fa8f"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304913051821400-33/cancel-restored.png",
+          "bytes": 56375,
+          "sha256": "859ef6e77bd548804856b30ef6aa4b3cf5f23b5a9a79d5ca0d18d0dd8d504ed1"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304913051821400-33/contact.json",
+          "bytes": 3729,
+          "sha256": "92dae238c80883096a2fae2c7c43be4ff205cfead081cfdc064f85421383453d"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304913051821400-33/contact.png",
+          "bytes": 58982,
+          "sha256": "a4046a8b976aef43163ca8371318ea399ccfe2ac56b9f94b01df4bfcd29b10c3"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304913051821400-33/drag-early.json",
+          "bytes": 5354,
+          "sha256": "17c3a0e28450bcd120246252a75ba1c9745e33d967368fa164ffb0800f3dc819"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304913051821400-33/drag-early.png",
+          "bytes": 58996,
+          "sha256": "55eb823f3347fe8ea7d2ce7a671f22ecd0222efcddd5c3b87d5e24fe1566b8e7"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304913051821400-33/drag-late.json",
+          "bytes": 5350,
+          "sha256": "468f8d834dd40293421b3b11a0b28388a943c2b0f34526a715f3f7aa0e5582a8"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304913051821400-33/drag-late.png",
+          "bytes": 54175,
+          "sha256": "bad36c63a035367233d569db6f953c55070fbd0380fdbf489d318d92364b447f"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304913051821400-33/metadata.json",
+          "bytes": 60110,
+          "sha256": "ee284eb3bd4cf3a775e625587236f1bb83878b689194af081d86b8fd599eb589"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304913051821400-33/move-committed.json",
+          "bytes": 3745,
+          "sha256": "a8145fdba3ea4734b9e828f231568bcbfdaea172c84bfec4fc57278e74ed1cb5"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304913051821400-33/move-committed.png",
+          "bytes": 54348,
+          "sha256": "dcaad305fb263f445c678b625da5393aede349cbeadacce13eb62bc1906ccf18"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304913051821400-33/move-samples.json",
+          "bytes": 288,
+          "sha256": "8c776ec5fc2f363f0929676efb8eec4cf547ad98320fb68d51d170cd852fcdba"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304913051821400-33/wire-attached.json",
+          "bytes": 4805,
+          "sha256": "183491034f478712702ee96ebd207b601519393d7d5e68c67c1ab8e9aeee8406"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304913051821400-33/wire-attached.png",
+          "bytes": 56651,
+          "sha256": "dbb2870830ab2c26f36d1424bac05df376fb96dba481836bf9e7c86727c9b1f3"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304913051821400-33/wire-free-early.json",
+          "bytes": 4814,
+          "sha256": "0136beef5f098276478d5394bc229ba8559a02470190df56b1ff4eaf552594f2"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304913051821400-33/wire-free-early.png",
+          "bytes": 54158,
+          "sha256": "69cfbb0da9e590f23de84e580db34cbd3ab107b5f43252b2e5f5084b29a62bce"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304913051821400-33/wire-free-late.json",
+          "bytes": 4810,
+          "sha256": "7074753a1cf8ce3938c5ba881768313d1e2a40ad0cad8e381d63f596199a66e8"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304913051821400-33/wire-free-late.png",
+          "bytes": 56049,
+          "sha256": "3683c964819fecde253e2607f5e6eedc706b3991da121e8289948ec5849d7297"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304913051821400-33/wire-samples.json",
+          "bytes": 537,
+          "sha256": "53846a3f008d807a6fd9be91fc4f42a2277a765567298276404dbf72f9711085"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304922578423800-46/approach.json",
+          "bytes": 3774,
+          "sha256": "dd1ab98d878cabce7ab0fb40cf1a2fe76e7af4eeef2a9aba416dc15678c1d447"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304922578423800-46/approach.png",
+          "bytes": 58841,
+          "sha256": "941617b652ca802929bd6df5e039645e5890f183c6f78ef4fd674569360f68f6"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304922578423800-46/before.json",
+          "bytes": 3727,
+          "sha256": "a757f981f482d08daa1be1106080c77c44081618218b85eb4b9179cd21a0987d"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304922578423800-46/before.png",
+          "bytes": 57576,
+          "sha256": "214e42798b48d030732591eae9e9c9f4c0b1d022faa6988685ddb230450c1786"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304922578423800-46/contact.json",
+          "bytes": 3730,
+          "sha256": "af2ab4f00d8087f2f9a71c7b42175acef37f695b5cec320935e2a7cd37da6622"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304922578423800-46/contact.png",
+          "bytes": 56411,
+          "sha256": "80299c0f4f8a4c3d9310de218f936d6bd08f07643e9e08326491ab5e80a6e362"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304922578423800-46/drag-early.json",
+          "bytes": 5325,
+          "sha256": "4f36e8b125a376bf122bb05b94d4d2e8bc8a272dc52b59117418595e324c8c7d"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304922578423800-46/drag-early.png",
+          "bytes": 59016,
+          "sha256": "b575e32cdd44990aa4ba06cd69fce3635f9cbe1fa16b340512906e217eee5116"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304922578423800-46/drag-late.json",
+          "bytes": 5325,
+          "sha256": "89797a4425757f2912115e18339dd2589b541702d7912b93eb2a22210d94b35d"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304922578423800-46/drag-late.png",
+          "bytes": 59027,
+          "sha256": "79d742ac9075383f61495982707b359eff906d33fb7657a5306f31797699b8b3"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304922578423800-46/metadata.json",
+          "bytes": 30100,
+          "sha256": "61ecaac129eee9e28a2eb2dad3fc4a02ae41c80f4bda9c09e4e216abd176c5f6"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304922578423800-46/move-committed.json",
+          "bytes": 3745,
+          "sha256": "3872322d892c68d8bb8140d2a8eb03edc303a5e2b404906a53e12d90052c9ea3"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304922578423800-46/move-committed.png",
+          "bytes": 54301,
+          "sha256": "2c9a966f504fbf302a48c2dd6cefd53d884445d3b1a29aceac7edc95a97d47d4"
+        },
+        {
+          "path": "target/review/presence-motion-req-87556-1792304922578423800-46/move-samples.json",
+          "bytes": 284,
+          "sha256": "2afdbc5b0f637caaa12ecc8afee8e811d10712b54f51152b122e6962d9b15a61"
+        }
+      ],
+      "boundary": "The four motion/crop tests actually passed in the identified baseline app software renderer. The Chrome and performance tests actually failed. Source-only AA and later approved-work/UI amendments are not certified by these frames. No native GPU, real provider task, timing threshold or human acceptance."
+    },
+    {
+      "command": [
+        "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\target\\release\\deps\\atlas_shell-8d98f9330d93ad59.exe",
+        "icons::media_tests::coverage::export_media_changing_zoom_paint_cost",
+        "--ignored",
+        "--exact",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "result": "passed-component-diagnostic",
+      "exitCode": 0,
+      "kind": "zoom",
+      "identity": "target/presence-baseline-shared-zoom-winpaths-20261018.json",
+      "identitySha256": "c8935c6fbd005a2af12db7d2960be0ce68b7913eda292f8a40e4007801e8b11a",
+      "startedUtc": "2026-10-18T06:31:00.607768+00:00",
+      "finishedUtc": "2026-10-18T06:31:07.630066+00:00",
+      "runner": {
+        "path": "target/run_presence_workspace_shared_diagnostics_winpaths_20261018.py",
+        "bytes": 9503,
+        "sha256": "2ea6c9409e6327c79ae5f23c29d40df36490202051d6d575e1d200f234b91fe9"
+      },
+      "harness": {
+        "path": "target/release/deps/atlas_shell-8d98f9330d93ad59.exe",
+        "bytes": 15302144,
+        "sha256": "3f01b95a4a96e189df565e69a41cbd501b37d685573de04b48199f370524f21a"
+      },
+      "harnessStable": true,
+      "sourceStable": true,
+      "sourceIdentityCount": 1349,
+      "parentCargoExitCode": 101,
+      "parentSuitePassed": false,
+      "diagnosticAfterFailedSuite": true,
+      "parentSharedShellSummary": "test result: ok. 386 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 2.31s",
+      "passed": 1,
+      "failed": 0,
+      "output": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\design\\media-ui-2026-10-17\\native\\presence-baseline-shared-zoom-winpaths-20261018",
+      "artifactCount": 2,
+      "artifacts": [
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-zoom-winpaths-20261018/changing-zoom-paint.json",
+          "bytes": 29628,
+          "sha256": "ce5387d1505ca86642fbeec81e4c1aede3ec9dbb9bb63e4fc3905ae356283c87"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-zoom-winpaths-20261018/paint.log",
+          "bytes": 194,
+          "sha256": "fcbc5de336fa00f1d34cfd47f706d41ad0fcef3ff8be2cadedec4707b7c8b103"
+        }
+      ],
+      "boundary": "Shared CPU component export/paint only, using the identified and actually passed normal shared harness without rebuild. A failed parent workspace remains failed; this is a diagnostic, never a workspace or timing-threshold pass. No GPU, native/input/human acceptance. Matrix MIM1/texture audit remains separate.",
+      "measurements": {
+        "records": 123,
+        "percentileMethod": "nearest rank, ceil(p * count)",
+        "allDpi": {
+          "all": {
+            "frames": 123,
+            "total_us": 5416595,
+            "max_us": 139088,
+            "p50_us": 58043,
+            "p95_us": 119101
+          },
+          "new_size": {
+            "frames": 63,
+            "total_us": 5416099,
+            "max_us": 139088,
+            "p50_us": 75282,
+            "p95_us": 127512
+          },
+          "returning_size": {
+            "frames": 60,
+            "total_us": 496,
+            "max_us": 28,
+            "p50_us": 8,
+            "p95_us": 17
+          }
+        },
+        "perDpi": [
+          {
+            "ppp": 1.0,
+            "all": {
+              "frames": 41,
+              "total_us": 1562679,
+              "max_us": 114041,
+              "p50_us": 56963,
+              "p95_us": 101113
+            },
+            "new_size": {
+              "frames": 21,
+              "total_us": 1562580,
+              "max_us": 114041,
+              "p50_us": 71278,
+              "p95_us": 101428
+            },
+            "returning_size": {
+              "frames": 20,
+              "total_us": 99,
+              "max_us": 17,
+              "p50_us": 4,
+              "p95_us": 5
+            }
+          },
+          {
+            "ppp": 1.5,
+            "all": {
+              "frames": 41,
+              "total_us": 1451400,
+              "max_us": 117284,
+              "p50_us": 58043,
+              "p95_us": 79772
+            },
+            "new_size": {
+              "frames": 21,
+              "total_us": 1451208,
+              "max_us": 117284,
+              "p50_us": 63798,
+              "p95_us": 101088
+            },
+            "returning_size": {
+              "frames": 20,
+              "total_us": 192,
+              "max_us": 24,
+              "p50_us": 9,
+              "p95_us": 10
+            }
+          },
+          {
+            "ppp": 2.0,
+            "all": {
+              "frames": 41,
+              "total_us": 2402516,
+              "max_us": 139088,
+              "p50_us": 87187,
+              "p95_us": 130947
+            },
+            "new_size": {
+              "frames": 21,
+              "total_us": 2402311,
+              "max_us": 139088,
+              "p50_us": 114574,
+              "p95_us": 133127
+            },
+            "returning_size": {
+              "frames": 20,
+              "total_us": 205,
+              "max_us": 28,
+              "p50_us": 8,
+              "p95_us": 23
+            }
+          }
+        ],
+        "measurementMetadata": {
+          "boundary": "shared CPU component measurement only; no timing pass or app/native smoothness inference",
+          "cache_scope": "fresh thread/context per DPI; returning sizes are identified, not presumed cache hits",
+          "excluded": "Context construction, output counting, serialization, tessellation, GPU and app frame work",
+          "source": "production BlisterLayout::paint_icon overlay, seven actual image glyphs",
+          "timed": "Context::run including layout and icon paint; no glyph prewarm"
+        }
+      },
+      "timingOutcome": "Unresolved CPU new-size cost, not a performance-threshold pass: new-size p50/p95/max 75.282/127.512/139.088 ms; returning-size p95 17 us. No speedup or native-smoothness claim."
+    },
+    {
+      "command": [
+        "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\target\\release\\deps\\atlas_shell-8d98f9330d93ad59.exe",
+        "icons::media_tests::coverage::export_media_icon_pixels_for_visual_audit",
+        "--ignored",
+        "--exact",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "result": "passed-component-diagnostic",
+      "exitCode": 0,
+      "kind": "matrix",
+      "identity": "target/presence-baseline-shared-matrix-winpaths-20261018.json",
+      "identitySha256": "dbe515d4f1eef7eb73ea1cac0bb06a359df7c2bcb46d65a86b24155c3050d52d",
+      "startedUtc": "2026-10-18T06:31:13.596964+00:00",
+      "finishedUtc": "2026-10-18T06:31:43.100488+00:00",
+      "runner": {
+        "path": "target/run_presence_workspace_shared_diagnostics_winpaths_20261018.py",
+        "bytes": 9503,
+        "sha256": "2ea6c9409e6327c79ae5f23c29d40df36490202051d6d575e1d200f234b91fe9"
+      },
+      "harness": {
+        "path": "target/release/deps/atlas_shell-8d98f9330d93ad59.exe",
+        "bytes": 15302144,
+        "sha256": "3f01b95a4a96e189df565e69a41cbd501b37d685573de04b48199f370524f21a"
+      },
+      "harnessStable": true,
+      "sourceStable": true,
+      "sourceIdentityCount": 1349,
+      "parentCargoExitCode": 101,
+      "parentSuitePassed": false,
+      "diagnosticAfterFailedSuite": true,
+      "parentSharedShellSummary": "test result: ok. 386 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 2.31s",
+      "passed": 1,
+      "failed": 0,
+      "output": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\design\\media-ui-2026-10-17\\native\\presence-baseline-shared-matrix-winpaths-20261018",
+      "artifactCount": 209,
+      "artifacts": [
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/export.log",
+          "bytes": 199,
+          "sha256": "5748284af9aa1a5c3222b6126e63aa4afa4afb001e705f43ff4ab386674380bb"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Agent-4179999a-3f800000.mesh",
+          "bytes": 266388,
+          "sha256": "1f1598a0dd4448f0c0cb6db85d897761cd14a5aebb335ec1836e1232113ca6e0"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Agent-4179999a-3fc00000.mesh",
+          "bytes": 241964,
+          "sha256": "57fd3c80019b902f0aa9968d113aad12561de4119dc40d4e5c7bb6bac6f896d5"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Agent-4179999a-40000000.mesh",
+          "bytes": 206524,
+          "sha256": "66cfd0eb5b01f7a9a87fff188947d4e30298892a4b9f4eec93f3069309b199ac"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Agent-41800000-3f800000.mesh",
+          "bytes": 264360,
+          "sha256": "1ae259546e15e88f5afe90a2db8adb3582a476c829e9255295790eddebd87896"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Agent-41800000-3fc00000.mesh",
+          "bytes": 168808,
+          "sha256": "4ce56f717c17d8d81e13629d0bb93b2d9a674f7b878af1486255d582467bf024"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Agent-41800000-40000000.mesh",
+          "bytes": 210316,
+          "sha256": "b0975ed339d7f48ae31ce0c1e719a71aab5af42f76f41e04e5c6fe628e0b2023"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Agent-41a00000-3f800000.mesh",
+          "bytes": 249892,
+          "sha256": "91bce685a81c7b3ba38f1fca8559b89db2512c2f8bc13df0641bdcff1bbb29b7"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Agent-41a00000-3fc00000.mesh",
+          "bytes": 204780,
+          "sha256": "0dd93199516e7eacc0d85b07c27177a4e75abb7392233d028f2627203afe0921"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Agent-41a00000-40000000.mesh",
+          "bytes": 204988,
+          "sha256": "a46d749773e8b0f040e3d9cd70727df50b57d12d6f96cfe80217a8d56fa9cd37"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Agent-41c00000-3f800000.mesh",
+          "bytes": 168808,
+          "sha256": "4ce56f717c17d8d81e13629d0bb93b2d9a674f7b878af1486255d582467bf024"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Agent-41c00000-3fc00000.mesh",
+          "bytes": 203860,
+          "sha256": "d2e606090527f7b068a4192fd45897ec2a60f42848ad51094dc738cdc66b383a"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Agent-41c00000-40000000.mesh",
+          "bytes": 204188,
+          "sha256": "66cf009a5fe96a22c51c0a3460bc832b4b12f81a8b7dee35012da83a0e55f877"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Agent-41f9999a-3f800000.mesh",
+          "bytes": 206524,
+          "sha256": "66cfd0eb5b01f7a9a87fff188947d4e30298892a4b9f4eec93f3069309b199ac"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Agent-41f9999a-3fc00000.mesh",
+          "bytes": 208764,
+          "sha256": "9d2d7d08151645dfb584d54273d522ec8be58b67e80250d94de62f62992f2067"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Agent-41f9999a-40000000.mesh",
+          "bytes": 209672,
+          "sha256": "f17feeacb2143f214dbd533807b512ed568877da82fc07a566a77d697f072505"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Brush-4179999a-3f800000.mesh",
+          "bytes": 78640,
+          "sha256": "6bf422d45ab7ac5209da7efd1dc41e8ea0fd06e2b7e872b2c8d08e1ae9ccf949"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Brush-4179999a-3fc00000.mesh",
+          "bytes": 82384,
+          "sha256": "11de31bfb690ffb768bdcc3b386dd24125e9cddf50aaac69ef791869dd055c9f"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Brush-4179999a-40000000.mesh",
+          "bytes": 79092,
+          "sha256": "e35e6ac04ad69e818e878f1aeec637422ef279e6e52c9d77abfee2da4a93d4e4"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Brush-41800000-3f800000.mesh",
+          "bytes": 89772,
+          "sha256": "b704a94f0cabf9677454133ded133fd9b30158f5433ffab28a6a623f92043843"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Brush-41800000-3fc00000.mesh",
+          "bytes": 54984,
+          "sha256": "480843106624019a655f3ecf143bae05996d830b4697935c0f42ee03e1b96f36"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Brush-41800000-40000000.mesh",
+          "bytes": 83460,
+          "sha256": "cb3d678671f0afcb36ec5211588bf47509b7dfc7ff45ced3c89d42b16d9daad7"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Brush-41a00000-3f800000.mesh",
+          "bytes": 82936,
+          "sha256": "65e259f1a89ddd8a79987bcdb52c8f43d2caa295c6114b8002ac9274606dbbe1"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Brush-41a00000-3fc00000.mesh",
+          "bytes": 79404,
+          "sha256": "a74f42f0cb150c7ee152a6d8f217ec9fb8ebe591bb0fdc06c7da16e541dc0e50"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Brush-41a00000-40000000.mesh",
+          "bytes": 80092,
+          "sha256": "fdb40c6db06d23dc32696b1bafaf046bc4e260c2784ad195c8fbedf245a6dd8d"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Brush-41c00000-3f800000.mesh",
+          "bytes": 54984,
+          "sha256": "480843106624019a655f3ecf143bae05996d830b4697935c0f42ee03e1b96f36"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Brush-41c00000-3fc00000.mesh",
+          "bytes": 81324,
+          "sha256": "c40d6010facfa5eff840eef34337dcc69416ff109ef407726b50cb5980812f55"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Brush-41c00000-40000000.mesh",
+          "bytes": 79148,
+          "sha256": "76b5595ac45fc61d9d49c57c11ab10be19d48087b7909f2b34bfbd1909ba90f6"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Brush-41f9999a-3f800000.mesh",
+          "bytes": 79092,
+          "sha256": "e35e6ac04ad69e818e878f1aeec637422ef279e6e52c9d77abfee2da4a93d4e4"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Brush-41f9999a-3fc00000.mesh",
+          "bytes": 80000,
+          "sha256": "76bb6c5679b91270aea6844555656909b2f841c43ce0d00064b56a99b3c8ae85"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Brush-41f9999a-40000000.mesh",
+          "bytes": 83008,
+          "sha256": "d2574217820217c3c6460e9587b3bcdca0d636e96b7928f94e6f848d9ca2b8b9"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Corners-4179999a-3f800000.mesh",
+          "bytes": 68524,
+          "sha256": "2f6b38e0f9bb76f9d08180278fc833360566374830176dbc48a1fac1bf8a50f7"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Corners-4179999a-3fc00000.mesh",
+          "bytes": 63820,
+          "sha256": "39eea971aa4bf0b5068f98088686832200b00416c1a7a451a5e4179924c1f772"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Corners-4179999a-40000000.mesh",
+          "bytes": 54084,
+          "sha256": "4064d3d6094ca3f06ee1ae26cee1aa0c0f916b6d7ae7424d86de8d9d7db6b851"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Corners-41800000-3f800000.mesh",
+          "bytes": 67944,
+          "sha256": "fb7137b9bbfad3f9db48f24482f2cd07bf38ed841356c76314041adc09e71351"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Corners-41800000-3fc00000.mesh",
+          "bytes": 34292,
+          "sha256": "171da91d76251dd03caca9e38a418ab0aed63f3611104a9ce559a4fa4413a226"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Corners-41800000-40000000.mesh",
+          "bytes": 53260,
+          "sha256": "291e8a5bc18117fac9078c5f73b569c1315410bc9758366a0b4f8c17d848291f"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Corners-41a00000-3f800000.mesh",
+          "bytes": 70560,
+          "sha256": "437623b604192c02e0f3428597ad0602233a190ceadfef6e577f6dfe70f3fa95"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Corners-41a00000-3fc00000.mesh",
+          "bytes": 53112,
+          "sha256": "2c584e7fa096ae08effb0573b50789cab4794887bac23252c4bc73367efe4870"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Corners-41a00000-40000000.mesh",
+          "bytes": 53308,
+          "sha256": "a235c4091181ecc391d9a447580ccd56eda3a402df2d7d2c43b81d68dd74a3bb"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Corners-41c00000-3f800000.mesh",
+          "bytes": 34292,
+          "sha256": "171da91d76251dd03caca9e38a418ab0aed63f3611104a9ce559a4fa4413a226"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Corners-41c00000-3fc00000.mesh",
+          "bytes": 53492,
+          "sha256": "73552cde298640b6e3d7ab5e55f9189af6cdbeb001ac8e3e0eb3f7f114ea9f63"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Corners-41c00000-40000000.mesh",
+          "bytes": 52652,
+          "sha256": "a247e5153e228cb765e316d396368235d0e72a181c6b5140b84335857e8ea38c"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Corners-41f9999a-3f800000.mesh",
+          "bytes": 54084,
+          "sha256": "4064d3d6094ca3f06ee1ae26cee1aa0c0f916b6d7ae7424d86de8d9d7db6b851"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Corners-41f9999a-3fc00000.mesh",
+          "bytes": 51932,
+          "sha256": "99567e4503bbe4a5b08fc12c42ae4e7f45cd83266f1f490a53bd4b83ba8b8783"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Corners-41f9999a-40000000.mesh",
+          "bytes": 52900,
+          "sha256": "ec5f775f50f345272b7ccb3fbe70ce0101b1c9d0a95c639a0f9c1b65315901e1"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Ellipse-4179999a-3f800000.mesh",
+          "bytes": 100556,
+          "sha256": "3069287673b298b33dc72823c31a8e2e4855b8f866b6af06cd63bfe91be52a29"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Ellipse-4179999a-3fc00000.mesh",
+          "bytes": 102648,
+          "sha256": "4a35f6924d47c0a6b055849c76b0641d94779c59319f7be80ed98a432efd5d0c"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Ellipse-4179999a-40000000.mesh",
+          "bytes": 85020,
+          "sha256": "a9ed2686cabcc953fc5bc9df6c3b0d8111c81d8177c822f9b3630a896d1ce848"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Ellipse-41800000-3f800000.mesh",
+          "bytes": 99828,
+          "sha256": "1d1758ede5c25a0942c6e5152b9f1012faef336f0b1ed0180c061a416b9286a1"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Ellipse-41800000-3fc00000.mesh",
+          "bytes": 58548,
+          "sha256": "2763d9067c7ad77317944b44718c9d59596b045dfce44259f0931184c83aa1ee"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Ellipse-41800000-40000000.mesh",
+          "bytes": 85380,
+          "sha256": "34c838a33a179c0484677064bada4d2ed070776fd6dbe927597ddf1a2263c6ae"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Ellipse-41a00000-3f800000.mesh",
+          "bytes": 100380,
+          "sha256": "c7656552d8aaa620dbc270a9d42383c40c50ba58f9463b8a28f2d5aa45d30e50"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Ellipse-41a00000-3fc00000.mesh",
+          "bytes": 87060,
+          "sha256": "ad4f40c35ea9eda1f303224cd9ca1d52d47fae4912b59cfee7f5c9035178f53e"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Ellipse-41a00000-40000000.mesh",
+          "bytes": 86380,
+          "sha256": "2c1cdf070d188c7a53e037ad19e822b514d87b14abf2af14dc8b4af134e62d33"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Ellipse-41c00000-3f800000.mesh",
+          "bytes": 58548,
+          "sha256": "2763d9067c7ad77317944b44718c9d59596b045dfce44259f0931184c83aa1ee"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Ellipse-41c00000-3fc00000.mesh",
+          "bytes": 84228,
+          "sha256": "9d88c1db9114b4201d4fc3925713fdd18ac5f2888eac3a65c6db9be281cf1b2b"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Ellipse-41c00000-40000000.mesh",
+          "bytes": 86092,
+          "sha256": "417692ed57d1d89c82a2c22e8daa5891e27ec7f9fa913ebb1d5d0bc3604fe784"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Ellipse-41f9999a-3f800000.mesh",
+          "bytes": 85020,
+          "sha256": "a9ed2686cabcc953fc5bc9df6c3b0d8111c81d8177c822f9b3630a896d1ce848"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Ellipse-41f9999a-3fc00000.mesh",
+          "bytes": 87348,
+          "sha256": "e9cb7fc5fbbc5621b5cc1ff1eafad77c0e9df0bb6354d9facdff6052e22d6f96"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Ellipse-41f9999a-40000000.mesh",
+          "bytes": 84964,
+          "sha256": "400ffced51fdd160453cf74effb26e25e1ac691aafc9a6eb75dabd6606539c17"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Fill-4179999a-3f800000.mesh",
+          "bytes": 153484,
+          "sha256": "21d4286ee5af68a871d6b37a47b7b6503c40e2483653705e73abc94f25bf4c19"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Fill-4179999a-3fc00000.mesh",
+          "bytes": 155608,
+          "sha256": "8dd450825cdb550d4f4096f938b75cefc77c8af18aae31ff553ab2fd6863de0b"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Fill-4179999a-40000000.mesh",
+          "bytes": 136204,
+          "sha256": "1dfda5ebce436783e2c223eae2f33bbf93ce50f5d8a8fab1ec11282f08e62ce8"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Fill-41800000-3f800000.mesh",
+          "bytes": 149228,
+          "sha256": "43637f3c3e8551b42f62b39b717c23a7c973ebee319f02b1da835ade5a0a3410"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Fill-41800000-3fc00000.mesh",
+          "bytes": 106664,
+          "sha256": "80be90cc290cdb636d7f74c65d1f0259d0834551710504dec9a8dca758907b35"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Fill-41800000-40000000.mesh",
+          "bytes": 136496,
+          "sha256": "f4686dbab8a5d4643fda271461852a57fa4754ebf0a4681f58e716e910a2cae3"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Fill-41a00000-3f800000.mesh",
+          "bytes": 156584,
+          "sha256": "f92d9bdad1e09f5cb2b39e5c3d50ca79b0952fb619feffa17ab6f6287a2a9dbc"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Fill-41a00000-3fc00000.mesh",
+          "bytes": 137812,
+          "sha256": "298548149a12278bb4c6b7dbe9601b59351a68962da80804d780af0c867afe79"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Fill-41a00000-40000000.mesh",
+          "bytes": 133700,
+          "sha256": "000a97bf3fb52604868050631a59279e79089049320d0ae38ad6c5e201157ab2"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Fill-41c00000-3f800000.mesh",
+          "bytes": 106664,
+          "sha256": "80be90cc290cdb636d7f74c65d1f0259d0834551710504dec9a8dca758907b35"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Fill-41c00000-3fc00000.mesh",
+          "bytes": 135008,
+          "sha256": "39405cf2b2c97dc41e495c4646099b450ced0584f0a1849e865733ad57cd0823"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Fill-41c00000-40000000.mesh",
+          "bytes": 129328,
+          "sha256": "f0bc04380cc27bf673955e62dd2e55ea10bd43bbd28de475aa4f97c8d0cd2137"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Fill-41f9999a-3f800000.mesh",
+          "bytes": 136204,
+          "sha256": "1dfda5ebce436783e2c223eae2f33bbf93ce50f5d8a8fab1ec11282f08e62ce8"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Fill-41f9999a-3fc00000.mesh",
+          "bytes": 129436,
+          "sha256": "91b82137eec0d7b25d15424197b97c5a33670f14ac431e1a009bc5635d458781"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Fill-41f9999a-40000000.mesh",
+          "bytes": 128612,
+          "sha256": "3ea1dc787e866858c70bf934fed93381abc74eebda8dddc80e20ad82bc751624"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Filters-4179999a-3f800000.mesh",
+          "bytes": 44240,
+          "sha256": "ffb167fb2888f0bfd5ed66887e6fa3ef74a8937d470a1e28085894d6a9c4674b"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Filters-4179999a-3fc00000.mesh",
+          "bytes": 40164,
+          "sha256": "d5c41aaa3c9f952817b1c68096e77aa0ca1b8cb08d0913f7719ffbf3e8f78928"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Filters-4179999a-40000000.mesh",
+          "bytes": 34908,
+          "sha256": "1c5c7425c674bb65cbf69f309d8622753d675257b6e2080fa3eca991b0131cc4"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Filters-41800000-3f800000.mesh",
+          "bytes": 37612,
+          "sha256": "66f9f81fc0b95f71ad00601a1bbdff75156af1ca3a1b122bb9c941ba32b3e38b"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Filters-41800000-3fc00000.mesh",
+          "bytes": 20660,
+          "sha256": "4f5ce559aadb2543c8c45f3052ff96ce3b2548536ceb84daae6cd0cd938f95ff"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Filters-41800000-40000000.mesh",
+          "bytes": 34420,
+          "sha256": "36aa430ba6934aa148695d0fc1849d365956b445320ac171979626af73efd1e8"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Filters-41a00000-3f800000.mesh",
+          "bytes": 39844,
+          "sha256": "d1abc2f7bd3822c33e213ee65becbbbf7231b18f8767648db420cc83080c6983"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Filters-41a00000-3fc00000.mesh",
+          "bytes": 34860,
+          "sha256": "09fe0d83847fe9a42183cd650aca154496b85cbcb29849c91eadc65814618d3f"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Filters-41a00000-40000000.mesh",
+          "bytes": 35492,
+          "sha256": "bfa58b67faaaabdda1000a53781a0b5b3fd9071c81219ed32f110f8b7c47b127"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Filters-41c00000-3f800000.mesh",
+          "bytes": 20660,
+          "sha256": "4f5ce559aadb2543c8c45f3052ff96ce3b2548536ceb84daae6cd0cd938f95ff"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Filters-41c00000-3fc00000.mesh",
+          "bytes": 35012,
+          "sha256": "1d45293e1e36802158ca6b1d0c91f053059d3fd93896d65227a2e9d57af2f16d"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Filters-41c00000-40000000.mesh",
+          "bytes": 35316,
+          "sha256": "76c624355f352ccb1739590720bf45bf6f222656efd8bda1ac4f0a80788e69de"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Filters-41f9999a-3f800000.mesh",
+          "bytes": 34908,
+          "sha256": "1c5c7425c674bb65cbf69f309d8622753d675257b6e2080fa3eca991b0131cc4"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Filters-41f9999a-3fc00000.mesh",
+          "bytes": 36036,
+          "sha256": "0bfd485c6c086a6440ad6bf67ff00576c1210fd01094c0c2233cd160996e4a4e"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Filters-41f9999a-40000000.mesh",
+          "bytes": 35524,
+          "sha256": "f2174046694ac87560614d36c6e8313c8b940edbc767598149cf1e82c8018250"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Grid-4179999a-3f800000.mesh",
+          "bytes": 37340,
+          "sha256": "9591db65e6f6892238a65a95dadfa0a95b0aa1fac9b1230580507b1b56cd0e47"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Grid-4179999a-3fc00000.mesh",
+          "bytes": 38196,
+          "sha256": "c21f38e1f8517819dabcdb29a235c18e1393e808460b5415c0619709163e0d24"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Grid-4179999a-40000000.mesh",
+          "bytes": 39204,
+          "sha256": "9cb608d05bea29a3ce0e15f012ec9ba40399abd568207120031a2aa74dd78af8"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Grid-41800000-3f800000.mesh",
+          "bytes": 34132,
+          "sha256": "57b8d356183e9f86cf5c8a55a42f79658713cb6121123d5e1f999e438901ced5"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Grid-41800000-3fc00000.mesh",
+          "bytes": 23852,
+          "sha256": "e6664fb3990e651d15b44fd6cd1b1c52198db7f7f125eb830038f9214dbbcdb0"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Grid-41800000-40000000.mesh",
+          "bytes": 38400,
+          "sha256": "45e0739bf9e2b3b161b4842b148927d2bb73fea11d94c740839adf4154f0789d"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Grid-41a00000-3f800000.mesh",
+          "bytes": 39604,
+          "sha256": "f833804de8f7a068ad0d3c26bb567f3c30de7fba709140c58d479b8788887811"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Grid-41a00000-3fc00000.mesh",
+          "bytes": 38212,
+          "sha256": "3b933256f6fbd8489926e249b99db8ce689b039f7112aa6033b21b6548b45011"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Grid-41a00000-40000000.mesh",
+          "bytes": 36824,
+          "sha256": "de8f5359a50228d451c0456cd34a0e7e4bfa068946d22b754e44517d779f618f"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Grid-41c00000-3f800000.mesh",
+          "bytes": 23852,
+          "sha256": "e6664fb3990e651d15b44fd6cd1b1c52198db7f7f125eb830038f9214dbbcdb0"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Grid-41c00000-3fc00000.mesh",
+          "bytes": 35736,
+          "sha256": "6c1368b940d994d2ab6f6668685a221b7b621884a2c29e7fd229aa2d768034e5"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Grid-41c00000-40000000.mesh",
+          "bytes": 36536,
+          "sha256": "16d72312c6e6c770fa3390de874d7bd3675344ed3bc90d57e69650457c6e0030"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Grid-41f9999a-3f800000.mesh",
+          "bytes": 39204,
+          "sha256": "9cb608d05bea29a3ce0e15f012ec9ba40399abd568207120031a2aa74dd78af8"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Grid-41f9999a-3fc00000.mesh",
+          "bytes": 40640,
+          "sha256": "882a87c71184ff68835a0513dbd9a573a9fabe7464dae4b86e7a1951954ec61f"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Grid-41f9999a-40000000.mesh",
+          "bytes": 38156,
+          "sha256": "7a15dc5e0ed6fbaf40c95e2176c5e0ed8083a80eaf91ad69e225c85a8d0db8b5"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Image-4179999a-3f800000.mesh",
+          "bytes": 128316,
+          "sha256": "86495229fedae0efaf322b9fc07735d28e2ae436edebb1b24cb47a441668f047"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Image-4179999a-3fc00000.mesh",
+          "bytes": 113644,
+          "sha256": "8e3812195f8c0be5a4d332a46b13511830700c2606cbd4d3d7955716d7386310"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Image-4179999a-40000000.mesh",
+          "bytes": 109384,
+          "sha256": "636c79ea5a60ca48adffa63c857aa8a29e74420d413ff4a778c8db682b1477e8"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Image-41800000-3f800000.mesh",
+          "bytes": 122152,
+          "sha256": "19ca424a4b64cd53e52da3a3da60420551704b75ab3b06af8501b1bf76618b2b"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Image-41800000-3fc00000.mesh",
+          "bytes": 83068,
+          "sha256": "f4e1a8459989f324cc7020b64fd923100d62a8f4f252925a51d2bd56dcfae018"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Image-41800000-40000000.mesh",
+          "bytes": 110200,
+          "sha256": "63f74b9207fb252ff78d7b008cea19916a9550e118b1e73a48aaaa73bc6b5be5"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Image-41a00000-3f800000.mesh",
+          "bytes": 118588,
+          "sha256": "5f2e9571563e66db9e9f7af7934837568a2d93cc7ea054dc2ff844bfc5b39893"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Image-41a00000-3fc00000.mesh",
+          "bytes": 111244,
+          "sha256": "23395f6e0406b3ecd59e0128fcee2229578743e588290dd17ac03bc1df724667"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Image-41a00000-40000000.mesh",
+          "bytes": 99468,
+          "sha256": "5f3fee888e89be0a1fb53a5c18d867d87244753e83265e30b962de798283ed29"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Image-41c00000-3f800000.mesh",
+          "bytes": 83068,
+          "sha256": "f4e1a8459989f324cc7020b64fd923100d62a8f4f252925a51d2bd56dcfae018"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Image-41c00000-3fc00000.mesh",
+          "bytes": 100132,
+          "sha256": "fafca4dabe4c7e4a3b6dcfe29735d7a4105e41edbdacb7b50bea78d7b1777c68"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Image-41c00000-40000000.mesh",
+          "bytes": 87004,
+          "sha256": "97bc239f5016a11a386fad5b794ef845ad6b5132d7a37dfb71738ef93b05b756"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Image-41f9999a-3f800000.mesh",
+          "bytes": 109384,
+          "sha256": "636c79ea5a60ca48adffa63c857aa8a29e74420d413ff4a778c8db682b1477e8"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Image-41f9999a-3fc00000.mesh",
+          "bytes": 90636,
+          "sha256": "13376b2e53487944ece886c7b596021abb8a7967fc3d098438fc58a2db5a084c"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Image-41f9999a-40000000.mesh",
+          "bytes": 87340,
+          "sha256": "f7bd427722536ae9e32a8e48b2155be09ecb835312241c0ba6ae6b07a8b79922"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Media-4179999a-3f800000.mesh",
+          "bytes": 101836,
+          "sha256": "2d67438bf193e701643f1ca43891cd4df2f07992506faf1de5196a312497c60f"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Media-4179999a-3fc00000.mesh",
+          "bytes": 91888,
+          "sha256": "dc12f642e7db8fbb7199a0d86f699e74d7dc03dfb4fa403f2ea30316f3e7098d"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Media-4179999a-40000000.mesh",
+          "bytes": 73976,
+          "sha256": "816ff53986f22086a7c8cd222621676a05fc816eaa03344bfc49344c4ac0e776"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Media-41800000-3f800000.mesh",
+          "bytes": 106576,
+          "sha256": "0131384de8d78275056988e1ed9148ce4cc1126ce37a31993db6671b5a13c5c1"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Media-41800000-3fc00000.mesh",
+          "bytes": 52816,
+          "sha256": "aa136d04970f7fe8ab444899ac145fe7c6edf36b890c4f9606e6bd555af268ad"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Media-41800000-40000000.mesh",
+          "bytes": 74884,
+          "sha256": "5e98df6d7afd35fc8b1b07396fe336917e1abcbd1e5cb467f260c20e2d14f595"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Media-41a00000-3f800000.mesh",
+          "bytes": 94428,
+          "sha256": "f8ecf3f09875b42ae32a979990d587fa8c9181dc15bcedfc1089abe7b483bf68"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Media-41a00000-3fc00000.mesh",
+          "bytes": 73876,
+          "sha256": "7d70d9132d278698a46bdb44e2cf57bafa6c7e9f0e45e4496c7f283963e5aa9f"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Media-41a00000-40000000.mesh",
+          "bytes": 72892,
+          "sha256": "8fc72440eca1bd3e297a84f17eaba2fe3904860d333ac79cacadcd31b85aa5bd"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Media-41c00000-3f800000.mesh",
+          "bytes": 52816,
+          "sha256": "aa136d04970f7fe8ab444899ac145fe7c6edf36b890c4f9606e6bd555af268ad"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Media-41c00000-3fc00000.mesh",
+          "bytes": 72956,
+          "sha256": "2b742766ab9667f30c366bae1a173fbf86ba75916d7c3f47bf8e06c6a8291a05"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Media-41c00000-40000000.mesh",
+          "bytes": 71120,
+          "sha256": "5c4673d962e5960823a7857ef459904ac90546e28084fe7fcbe40fa5100d45d0"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Media-41f9999a-3f800000.mesh",
+          "bytes": 73976,
+          "sha256": "816ff53986f22086a7c8cd222621676a05fc816eaa03344bfc49344c4ac0e776"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Media-41f9999a-3fc00000.mesh",
+          "bytes": 70492,
+          "sha256": "c23b3ac7711404c64fbd0a05b34e9961e4741e675bde806a64f36f4b811f7cbe"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Media-41f9999a-40000000.mesh",
+          "bytes": 70508,
+          "sha256": "89ef7c51fbcf9355ab128880ab641ef89524ac92513f2582b00e6613da21febb"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Model-4179999a-3f800000.mesh",
+          "bytes": 84404,
+          "sha256": "02f08064443a4d71dfb853fb9b5ef34f1655d30a8cb8223c1951aee53bfc52f7"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Model-4179999a-3fc00000.mesh",
+          "bytes": 88772,
+          "sha256": "e1624a66cfe9ab0b209c33404fb806bef43702be17611e9c78cdd5ec0d4e9352"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Model-4179999a-40000000.mesh",
+          "bytes": 91504,
+          "sha256": "2fa5fc62692451fdad0127ffd13caa6055e6c68e27dc008929f0a5bc635bf1ad"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Model-41800000-3f800000.mesh",
+          "bytes": 81628,
+          "sha256": "2c22bca9fa57ff1c40c97cccd988577eb163e5939fba2eee75beb18cb05025fc"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Model-41800000-3fc00000.mesh",
+          "bytes": 73720,
+          "sha256": "1c95549336a0c03d3993419630bd345de4208935a1cf979722fb7108687b975e"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Model-41800000-40000000.mesh",
+          "bytes": 88644,
+          "sha256": "1d66510e9949b1551614ff9ccf9a6bd087e1f30007efa74c84b5b4f80c084cd6"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Model-41a00000-3f800000.mesh",
+          "bytes": 84044,
+          "sha256": "161d1a878e3f09478966389c40eb8ea6cb01283ce0216328cfdd6a90d30684cd"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Model-41a00000-3fc00000.mesh",
+          "bytes": 88060,
+          "sha256": "09eac3d511e00a2b4c961d4af59a1f11ab90bc75ae5d7f01d3777700dbc45c60"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Model-41a00000-40000000.mesh",
+          "bytes": 87700,
+          "sha256": "bbdcb5716f093297e773fa3db5d41d026b78dd3dcd881c330fd39a0c72233d15"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Model-41c00000-3f800000.mesh",
+          "bytes": 73720,
+          "sha256": "1c95549336a0c03d3993419630bd345de4208935a1cf979722fb7108687b975e"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Model-41c00000-3fc00000.mesh",
+          "bytes": 84708,
+          "sha256": "e5419b39124afe9df93e9e3c6ae926e2e5f4ab9fc3d8846d717b67ba8423dc73"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Model-41c00000-40000000.mesh",
+          "bytes": 89464,
+          "sha256": "5a346da6a44db3a38f2563530cc1a543344a44daaaf78ad4c839d89e1dcf1980"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Model-41f9999a-3f800000.mesh",
+          "bytes": 91504,
+          "sha256": "2fa5fc62692451fdad0127ffd13caa6055e6c68e27dc008929f0a5bc635bf1ad"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Model-41f9999a-3fc00000.mesh",
+          "bytes": 88616,
+          "sha256": "ace9d049dc30e2d6e051bfb580870a88d95579fa1ad3d0155e66b67ed4d096b0"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Model-41f9999a-40000000.mesh",
+          "bytes": 86100,
+          "sha256": "0594fdfee37722ea678af71e4e24431d4129dd20927060c7e7048f0e30e0ec3e"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Sliders-4179999a-3f800000.mesh",
+          "bytes": 236548,
+          "sha256": "871e49a95e1a647a697f90a51241133972823b6e5624332f639940aa602ad206"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Sliders-4179999a-3fc00000.mesh",
+          "bytes": 224688,
+          "sha256": "c85b016d8ea1ef4747d1e7eef976ae68f11f25de417b3edb440043b6f1fb61e8"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Sliders-4179999a-40000000.mesh",
+          "bytes": 212800,
+          "sha256": "1164ee3bf6ad3dc03a11609d2179ff1d81c3999faaf19aa7b41deba4bea0ada3"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Sliders-41800000-3f800000.mesh",
+          "bytes": 244612,
+          "sha256": "93f2fae9f8509851db317ef53bedcaf8798cde4f0f23cc54ba5f5a88383028eb"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Sliders-41800000-3fc00000.mesh",
+          "bytes": 172240,
+          "sha256": "03028c45d47d3cbddb6fc4aa0d115fa789ee04a72786c2c17748d3b63b9b73b0"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Sliders-41800000-40000000.mesh",
+          "bytes": 210624,
+          "sha256": "3d48f33f2798e1bee96170a7889304091fac6f81353f3d10600de30af9acd2c0"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Sliders-41a00000-3f800000.mesh",
+          "bytes": 233628,
+          "sha256": "06b4fda7a1f2a3ccc16e4405c18e466a526cfcbcbf1de4bf47e8f005645e1003"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Sliders-41a00000-3fc00000.mesh",
+          "bytes": 210668,
+          "sha256": "661f07fcbc81f039321221dd3bdd638d502516b9da1bece71d52a0f2a629ef2a"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Sliders-41a00000-40000000.mesh",
+          "bytes": 212940,
+          "sha256": "6c9ce049931823289d7a5c8bb33dc7120b4c5fa16108722326fcb5dcf5394d8e"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Sliders-41c00000-3f800000.mesh",
+          "bytes": 172240,
+          "sha256": "03028c45d47d3cbddb6fc4aa0d115fa789ee04a72786c2c17748d3b63b9b73b0"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Sliders-41c00000-3fc00000.mesh",
+          "bytes": 213496,
+          "sha256": "44c6655732e8e146f352764f8f463e3ad3bf331323f7a6d355620a4805a8acd0"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Sliders-41c00000-40000000.mesh",
+          "bytes": 208520,
+          "sha256": "1b1536a0bc1f443ba849df4d00118ef532e14d9e0edc24f60b538de50944eabe"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Sliders-41f9999a-3f800000.mesh",
+          "bytes": 212800,
+          "sha256": "1164ee3bf6ad3dc03a11609d2179ff1d81c3999faaf19aa7b41deba4bea0ada3"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Sliders-41f9999a-3fc00000.mesh",
+          "bytes": 216444,
+          "sha256": "9ee28b59891ea65ed7c00f0b207409056b8e77ccf10bd479f0e6909a0c9ec9c8"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Sliders-41f9999a-40000000.mesh",
+          "bytes": 198320,
+          "sha256": "c05488a79f29bedcfd1c47d848450340508284ef8971162849bcc77d4f8f7bc2"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/TextDoc-4179999a-3f800000.mesh",
+          "bytes": 135604,
+          "sha256": "967ca016b4871e787af3dfccfa93af7a4bf2da1219d28369ecfc37f518f54f8d"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/TextDoc-4179999a-3fc00000.mesh",
+          "bytes": 114892,
+          "sha256": "47eef6e5a1897e855eec19b9c9eecb7da7599f12d87742a2dd2e6e309b196528"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/TextDoc-4179999a-40000000.mesh",
+          "bytes": 96884,
+          "sha256": "113d74b2e6aba36f96b77f87ee10a823683613c94a9d9cd8952eb3e7437edb32"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/TextDoc-41800000-3f800000.mesh",
+          "bytes": 129564,
+          "sha256": "0655e8d497b00293e617c216a743521aaa359a3f5b7874361d6b50e34339a4b5"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/TextDoc-41800000-3fc00000.mesh",
+          "bytes": 73884,
+          "sha256": "ebe934e6d59d78d788cf99efd9d62fd3402665af672b7e69d9b1b2bebed46644"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/TextDoc-41800000-40000000.mesh",
+          "bytes": 98336,
+          "sha256": "670fca94e1c0f09a41dbc600e437621a9ad4e89464bec3465103680d155551d2"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/TextDoc-41a00000-3f800000.mesh",
+          "bytes": 134276,
+          "sha256": "cd44c778219da88b5b7933ce04aea329d33a912bf371ea8e5718fbcfe1e9a345"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/TextDoc-41a00000-3fc00000.mesh",
+          "bytes": 96752,
+          "sha256": "d146bf150e182b8fcc9df363a20656836c396610c919d0f6a9b0911e82aa2107"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/TextDoc-41a00000-40000000.mesh",
+          "bytes": 90308,
+          "sha256": "9c24b84d5ab8d786a4b676ca2175838312fdb7f924111477443711cb214af211"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/TextDoc-41c00000-3f800000.mesh",
+          "bytes": 73884,
+          "sha256": "ebe934e6d59d78d788cf99efd9d62fd3402665af672b7e69d9b1b2bebed46644"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/TextDoc-41c00000-3fc00000.mesh",
+          "bytes": 89844,
+          "sha256": "6421919d1604bb143a49a767d02f4a37fe6f59eeb89e692358315ab4c9fea37c"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/TextDoc-41c00000-40000000.mesh",
+          "bytes": 90796,
+          "sha256": "c12730873c95b38cedbc5674d45c143bd1e753413eedb75bdf05b9013bbdecb4"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/TextDoc-41f9999a-3f800000.mesh",
+          "bytes": 96884,
+          "sha256": "113d74b2e6aba36f96b77f87ee10a823683613c94a9d9cd8952eb3e7437edb32"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/TextDoc-41f9999a-3fc00000.mesh",
+          "bytes": 91400,
+          "sha256": "dc8664f7f57228b2dbb8609fa84a739fc6a1073467b687554ffb965750a3ac84"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/TextDoc-41f9999a-40000000.mesh",
+          "bytes": 85536,
+          "sha256": "1a117ac5bab142f8f91dfa347a93e33965bb519664f7c3d9265cbb5797ee380d"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Video-4179999a-3f800000.mesh",
+          "bytes": 46796,
+          "sha256": "7987b65fe0b3c2f2c0abf3635f88ddb016a487b9f710dd4ca8e01f4bdb8b38fd"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Video-4179999a-3fc00000.mesh",
+          "bytes": 40556,
+          "sha256": "d84cf2f18b4ed75e2ef564120f50d5d3f65ebed27370ae5fba21e42b6afc42bd"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Video-4179999a-40000000.mesh",
+          "bytes": 36156,
+          "sha256": "87cdcd4ccbe7f599f75e62acbd153eaa09de20dbff79fcc9751481ea2dd94d02"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Video-41800000-3f800000.mesh",
+          "bytes": 41152,
+          "sha256": "183e7249af0129c198a6e39e0b2977ed1082aecd09cf3fbdf8e7ac0cfeb591b5"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Video-41800000-3fc00000.mesh",
+          "bytes": 24324,
+          "sha256": "aa5603df109abce80e680f1dbacc40b7009032ac8596270f27696ec2b2a426f9"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Video-41800000-40000000.mesh",
+          "bytes": 37692,
+          "sha256": "ea8ffc2336a6673dc6ed1cf83d5d86db04746dce86525993d75c42970693b11e"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Video-41a00000-3f800000.mesh",
+          "bytes": 46396,
+          "sha256": "0df444d506693e572f798af0990b9ea53531d22927779275fa73276868a4cae7"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Video-41a00000-3fc00000.mesh",
+          "bytes": 37016,
+          "sha256": "e89e6643bde3d295fba3e68a6e6400ca869a7016451cbff49332d862dedf25c6"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Video-41a00000-40000000.mesh",
+          "bytes": 37880,
+          "sha256": "6e01602335d7ead470203b1f08667298a2016d4fbb5fbc2aa8ded5c289ccada3"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Video-41c00000-3f800000.mesh",
+          "bytes": 24324,
+          "sha256": "aa5603df109abce80e680f1dbacc40b7009032ac8596270f27696ec2b2a426f9"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Video-41c00000-3fc00000.mesh",
+          "bytes": 37576,
+          "sha256": "3d77fe4e274ec338f03486cca6f2f8424e20cc991fdd3ea72d31861c4ff6a105"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Video-41c00000-40000000.mesh",
+          "bytes": 38228,
+          "sha256": "f3782a7fcd6ae515dc5fac9642aa56020f895551205a72982982b27b78a99bd0"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Video-41f9999a-3f800000.mesh",
+          "bytes": 36156,
+          "sha256": "87cdcd4ccbe7f599f75e62acbd153eaa09de20dbff79fcc9751481ea2dd94d02"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Video-41f9999a-3fc00000.mesh",
+          "bytes": 37740,
+          "sha256": "c86ea5d4e2f4769f527387f0fb7463dc5127472552adcc86086f34607aaac506"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/geometry/Video-41f9999a-40000000.mesh",
+          "bytes": 37332,
+          "sha256": "3c3496df168d2cff137ef2d05d5423a4fb8039d9db65460d7b5e9566397e1d4c"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/manifest.json",
+          "bytes": 328979,
+          "sha256": "324c9131de924abbbbad9e61d414af8de8743d3613fdcf16fd3faaf60a6cbaf2"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/media-dark-host-dark-1.5x.png",
+          "bytes": 167672,
+          "sha256": "b107fa4ef685d1714b3451ca263c43415495e0b97579b3b2da3fc2606d707665"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/media-dark-host-dark-1x.png",
+          "bytes": 100144,
+          "sha256": "2ef71dcf112329aff10cf5153ce7c4f311a074c453f3e19bd1ef1c78a3bdc42e"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/media-dark-host-dark-2x.png",
+          "bytes": 239735,
+          "sha256": "346a0a037415b62073e8c48d1d24acc83e26f55a2fef110578582e005dcafdf7"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/media-dark-host-light-1.5x.png",
+          "bytes": 183537,
+          "sha256": "2084d609cac2a66c86131c915073803256c6f2eff383b29dc9b665196e6307ba"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/media-dark-host-light-1x.png",
+          "bytes": 105734,
+          "sha256": "e384b1e3ad861af61f274227391a4bf2a98aaf68d2149908727eaa77cc87fd15"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/media-dark-host-light-2x.png",
+          "bytes": 273310,
+          "sha256": "44f705ef5cb0ac761a5a78d9d7c363a24b7437ae6eb18992b98817dbd06e365d"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/media-light-host-dark-1.5x.png",
+          "bytes": 236084,
+          "sha256": "c7804833195d9557b113f8729268eef0e37fd6f8bf1cf871db9c8d2aa5a0f380"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/media-light-host-dark-1x.png",
+          "bytes": 134783,
+          "sha256": "47a39ac7aa3ade91fb61845473c8cdf2568f4d2d8fac7f154c60ab4075e29d65"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/media-light-host-dark-2x.png",
+          "bytes": 343045,
+          "sha256": "15ecb8d1e9543e947530ad34036e795175bafdd5e35a823efa898ba6b22b2cf3"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/media-light-host-light-1.5x.png",
+          "bytes": 175881,
+          "sha256": "587e7c3eafcf4c39765bfbe5ed9e833b60b104b8fd1d537a1ce0bd63285891a9"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/media-light-host-light-1x.png",
+          "bytes": 107651,
+          "sha256": "7239393ee5fae16a0902fbf85f76f9e4430d76f8044032555fe6ac357a5b2bd6"
+        },
+        {
+          "path": "design/media-ui-2026-10-17/native/presence-baseline-shared-matrix-winpaths-20261018/media-light-host-light-2x.png",
+          "bytes": 249392,
+          "sha256": "0c7a4c24146a5ebb33b35325bde38ba72b4a6727e0ff1cf0c59e93b3719406ec"
+        }
+      ],
+      "boundary": "Shared CPU component export/paint only, using the identified and actually passed normal shared harness without rebuild. A failed parent workspace remains failed; this is a diagnostic, never a workspace or timing-threshold pass. No GPU, native/input/human acceptance. Matrix MIM1/texture audit remains separate."
+    },
+    {
+      "operation": "Retained completed exact production-material audit; no audit rerun by this documentation amendment",
+      "result": "passed-exact-material-audit",
+      "identity": "target/presence-baseline-shared-matrix-exact-audit-20261018.json",
+      "identitySha256": "7ca8324ef75c5f53c2d21b3fcb982ff215324353dc4b8e650fda2b662b461c5c",
+      "createdAt": "2026-10-18T06:32:16.719Z",
+      "cases": 195,
+      "allWarmReuse": true,
+      "manifestSha256": "324c9131de924abbbbad9e61d414af8de8743d3613fdcf16fd3faaf60a6cbaf2",
+      "comparison": {
+        "priorAudit": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\target\\presence-projection-sat-matrix-audit-20261018.json",
+        "exactGeometryEqual": true,
+        "mismatches": [],
+        "missing": []
+      },
+      "coldTotalUs": 2885980,
+      "maxColdCase": {
+        "key": "Agent/15.600000381469727/1",
+        "cold_us": 65656,
+        "exact_mesh_file": "geometry/Agent-4179999a-3f800000.mesh",
+        "icon": "Agent",
+        "ppp": 1,
+        "slot_points": 15.600000381469727,
+        "texture_id": "Managed(0)",
+        "triangles": 4868,
+        "vertices": 10398,
+        "warm_reused_geometry": true,
+        "warm_us": 3,
+        "bytes": 266388,
+        "sha256": "1f1598a0dd4448f0c0cb6db85d897761cd14a5aebb335ec1836e1232113ca6e0"
+      },
+      "sevenGlyphBundles": [
+        {
+          "slot_points": 15.600000381469727,
+          "ppp": 1,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 179172,
+          "warm_us": 16
+        },
+        {
+          "slot_points": 15.600000381469727,
+          "ppp": 1.5,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 148857,
+          "warm_us": 16
+        },
+        {
+          "slot_points": 15.600000381469727,
+          "ppp": 2,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 131537,
+          "warm_us": 13
+        },
+        {
+          "slot_points": 16,
+          "ppp": 1,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 168487,
+          "warm_us": 15
+        },
+        {
+          "slot_points": 16,
+          "ppp": 1.5,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 114064,
+          "warm_us": 12
+        },
+        {
+          "slot_points": 16,
+          "ppp": 2,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 124526,
+          "warm_us": 12
+        },
+        {
+          "slot_points": 20,
+          "ppp": 1,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 153777,
+          "warm_us": 13
+        },
+        {
+          "slot_points": 20,
+          "ppp": 1.5,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 127636,
+          "warm_us": 19
+        },
+        {
+          "slot_points": 20,
+          "ppp": 2,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 131930,
+          "warm_us": 14
+        },
+        {
+          "slot_points": 24,
+          "ppp": 1,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 111647,
+          "warm_us": 14
+        },
+        {
+          "slot_points": 24,
+          "ppp": 1.5,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 124560,
+          "warm_us": 15
+        },
+        {
+          "slot_points": 24,
+          "ppp": 2,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 125347,
+          "warm_us": 15
+        },
+        {
+          "slot_points": 31.200000762939453,
+          "ppp": 1,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 129939,
+          "warm_us": 13
+        },
+        {
+          "slot_points": 31.200000762939453,
+          "ppp": 1.5,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 125898,
+          "warm_us": 18
+        },
+        {
+          "slot_points": 31.200000762939453,
+          "ppp": 2,
+          "icons": [
+            "Ellipse",
+            "Sliders",
+            "Agent",
+            "Fill",
+            "Corners",
+            "Brush",
+            "Media"
+          ],
+          "cold_us": 123966,
+          "warm_us": 16
+        }
+      ],
+      "boundary": "Exact production material mesh bits and cold/warm exporter timings only; not native visual, opacity or human acceptance. Exact 195-case parity is scoped to the retained baseline component export; it discharges none of the 37 app UI blockers or the failed workspace."
+    },
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "result": "passed-format-only",
+      "exitCode": 0,
+      "elapsedSeconds": 8,
+      "elapsedMethod": "cloud Bash SECONDS",
+      "environment": "Linux Codex cloud task task_e_6ad45f4984ac83208f171c4901f65a15",
+      "actualCheckout": "c9a3fba8659780de5946a76597df92ad295d7411",
+      "sourceAppliedLocally": false,
+      "rawLog": {
+        "path": "target/presence-projected-cloud-validation-20261018-1ee17818d6a34014baab6b91ce64e7d0/returned-evidence/01-cargo-fmt.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "resultFile": {
+        "path": "target/presence-projected-cloud-validation-20261018-1ee17818d6a34014baab6b91ce64e7d0/returned-evidence/01-cargo-fmt.result",
+        "bytes": 25,
+        "sha256": "ee1fadcea29aec901dee3903d6f0d7a816c064371252b99a1477dcfeeab5a583"
+      },
+      "returnedPatch": {
+        "path": "target/presence-projected-cloud-validation-20261018-1ee17818d6a34014baab6b91ce64e7d0/returned-evidence.patch",
+        "bytes": 15064,
+        "sha256": "529ed7f2358bc7ca60de015c7813de8770c270f0db51a50bbef0f7d195cdc694"
+      },
+      "testsExecuted": false,
+      "executedTestCount": 0,
+      "boundary": "Formatting passed only. The three compile/test/lint attempts were blocked downloading schemars by crates.io CONNECT HTTP403 before compilation; no test binary or lint findings. This projected candidate was never applied locally, and this cloud task is separate from GitHub PR58 CI."
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "slate",
+        "--lib",
+        "app::agent_presence::",
+        "--jobs",
+        "1",
+        "--no-fail-fast"
+      ],
+      "result": "blocked-prerequisite-before-compilation",
+      "exitCode": 101,
+      "elapsedSeconds": 12,
+      "elapsedMethod": "cloud Bash SECONDS",
+      "environment": "Linux Codex cloud task task_e_6ad45f4984ac83208f171c4901f65a15",
+      "actualCheckout": "c9a3fba8659780de5946a76597df92ad295d7411",
+      "sourceAppliedLocally": false,
+      "rawLog": {
+        "path": "target/presence-projected-cloud-validation-20261018-1ee17818d6a34014baab6b91ce64e7d0/returned-evidence/02-slate-agent-presence.log",
+        "bytes": 1629,
+        "sha256": "770600119a826749d9a3e972c1f4ada75c6a08420cfcebc6afea4e0e281e5ae6"
+      },
+      "resultFile": {
+        "path": "target/presence-projected-cloud-validation-20261018-1ee17818d6a34014baab6b91ce64e7d0/returned-evidence/02-slate-agent-presence.result",
+        "bytes": 28,
+        "sha256": "035780963bcf5acab0d978d845afa1845c8dee11d0060367ea546cf6a2f5a79a"
+      },
+      "returnedPatch": {
+        "path": "target/presence-projected-cloud-validation-20261018-1ee17818d6a34014baab6b91ce64e7d0/returned-evidence.patch",
+        "bytes": 15064,
+        "sha256": "529ed7f2358bc7ca60de015c7813de8770c270f0db51a50bbef0f7d195cdc694"
+      },
+      "testsExecuted": false,
+      "executedTestCount": 0,
+      "boundary": "Formatting passed only. The three compile/test/lint attempts were blocked downloading schemars by crates.io CONNECT HTTP403 before compilation; no test binary or lint findings. This projected candidate was never applied locally, and this cloud task is separate from GitHub PR58 CI."
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "atlas-shell",
+        "--lib",
+        "--jobs",
+        "1",
+        "--no-fail-fast"
+      ],
+      "result": "blocked-prerequisite-before-compilation",
+      "exitCode": 101,
+      "elapsedSeconds": 12,
+      "elapsedMethod": "cloud Bash SECONDS",
+      "environment": "Linux Codex cloud task task_e_6ad45f4984ac83208f171c4901f65a15",
+      "actualCheckout": "c9a3fba8659780de5946a76597df92ad295d7411",
+      "sourceAppliedLocally": false,
+      "rawLog": {
+        "path": "target/presence-projected-cloud-validation-20261018-1ee17818d6a34014baab6b91ce64e7d0/returned-evidence/03-atlas-shell-lib.log",
+        "bytes": 1629,
+        "sha256": "770600119a826749d9a3e972c1f4ada75c6a08420cfcebc6afea4e0e281e5ae6"
+      },
+      "resultFile": {
+        "path": "target/presence-projected-cloud-validation-20261018-1ee17818d6a34014baab6b91ce64e7d0/returned-evidence/03-atlas-shell-lib.result",
+        "bytes": 28,
+        "sha256": "035780963bcf5acab0d978d845afa1845c8dee11d0060367ea546cf6a2f5a79a"
+      },
+      "returnedPatch": {
+        "path": "target/presence-projected-cloud-validation-20261018-1ee17818d6a34014baab6b91ce64e7d0/returned-evidence.patch",
+        "bytes": 15064,
+        "sha256": "529ed7f2358bc7ca60de015c7813de8770c270f0db51a50bbef0f7d195cdc694"
+      },
+      "testsExecuted": false,
+      "executedTestCount": 0,
+      "boundary": "Formatting passed only. The three compile/test/lint attempts were blocked downloading schemars by crates.io CONNECT HTTP403 before compilation; no test binary or lint findings. This projected candidate was never applied locally, and this cloud task is separate from GitHub PR58 CI."
+    },
+    {
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "--workspace",
+        "--all-targets",
+        "--jobs",
+        "1",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "result": "blocked-prerequisite-before-compilation",
+      "exitCode": 101,
+      "elapsedSeconds": 12,
+      "elapsedMethod": "cloud Bash SECONDS",
+      "environment": "Linux Codex cloud task task_e_6ad45f4984ac83208f171c4901f65a15",
+      "actualCheckout": "c9a3fba8659780de5946a76597df92ad295d7411",
+      "sourceAppliedLocally": false,
+      "rawLog": {
+        "path": "target/presence-projected-cloud-validation-20261018-1ee17818d6a34014baab6b91ce64e7d0/returned-evidence/04-cargo-clippy.log",
+        "bytes": 1629,
+        "sha256": "770600119a826749d9a3e972c1f4ada75c6a08420cfcebc6afea4e0e281e5ae6"
+      },
+      "resultFile": {
+        "path": "target/presence-projected-cloud-validation-20261018-1ee17818d6a34014baab6b91ce64e7d0/returned-evidence/04-cargo-clippy.result",
+        "bytes": 28,
+        "sha256": "035780963bcf5acab0d978d845afa1845c8dee11d0060367ea546cf6a2f5a79a"
+      },
+      "returnedPatch": {
+        "path": "target/presence-projected-cloud-validation-20261018-1ee17818d6a34014baab6b91ce64e7d0/returned-evidence.patch",
+        "bytes": 15064,
+        "sha256": "529ed7f2358bc7ca60de015c7813de8770c270f0db51a50bbef0f7d195cdc694"
+      },
+      "testsExecuted": false,
+      "executedTestCount": 0,
+      "boundary": "Formatting passed only. The three compile/test/lint attempts were blocked downloading schemars by crates.io CONNECT HTTP403 before compilation; no test binary or lint findings. This projected candidate was never applied locally, and this cloud task is separate from GitHub PR58 CI."
+    },
+    {
+      "command": [
+        "cargo",
+        "clippy",
+        "--workspace",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "result": "failure",
+      "environment": "GitHub Actions hosted Linux",
+      "pullRequest": "https://github.com/jmmoser7/AtlasFileExplorer/pull/58",
+      "jobId": 117602015664,
+      "actualCheckout": "b32de1738d946b3b73a03afe25cd0442f47c4f43",
+      "candidateHead": "c9a3fba8659780de5946a76597df92ad295d7411",
+      "base": "7e05d8cea519ef2f3811d50f2e41e6585670d642",
+      "perCommandResult": {
+        "job": 117602015664,
+        "platform": "Linux",
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "conclusion": "failure",
+        "reportedWorkflowStepExitCode": 101,
+        "explicitSeparateCargoExitCode": null,
+        "diagnostic": "clippy::collapsible_if at crates/atlas-connector/src/params.rs:232:9",
+        "actualTestSummaries": [],
+        "boundary": "Lint compilation failure; no tests established."
+      },
+      "rawLog": {
+        "path": "target/presence-hosted-candidate-observer-20261018-626e2a50/job-117602015664-clippy-linux.log",
+        "bytes": 50774,
+        "sha256": "4dd0038268620374ae4ffb658e88a447c336fe79d36d88b166033d16756568e1"
+      },
+      "summaryIdentity": {
+        "path": "target/presence-hosted-candidate-observer-20261018-626e2a50/hosted-candidate-final-summary.json",
+        "bytes": 6879,
+        "sha256": "708394948bf61177bb7f8d1cefff440c4a484f4e3959a06466abc5946414873c"
+      },
+      "terminalStatusIdentities": [
+        {
+          "path": "target/presence-hosted-candidate-observer-20261018-626e2a50/run-39102690966-status-0004.json",
+          "bytes": 6448,
+          "sha256": "8359c153f54c3096fabe092a7122e1f53ca5dcd2cad1af30b53aa5e5f397fffb"
+        },
+        {
+          "path": "target/presence-hosted-candidate-observer-20261018-626e2a50/run-39102690949-status-0006.json",
+          "bytes": 4474,
+          "sha256": "c86aeb1d6b452cd234e4fd9718e160999d74037b42ed8fb562b9ca3e7a7e50f9"
+        }
+      ],
+      "boundary": "Lint compilation failure; no tests established. No aggregate/integrated pass, final binary, native GPU/provider/human verdict follows."
+    },
+    {
+      "command": [
+        "cargo",
+        "check",
+        "--workspace"
+      ],
+      "result": "success",
+      "environment": "GitHub Actions hosted Windows",
+      "pullRequest": "https://github.com/jmmoser7/AtlasFileExplorer/pull/58",
+      "jobId": 117602015657,
+      "actualCheckout": "b32de1738d946b3b73a03afe25cd0442f47c4f43",
+      "candidateHead": "c9a3fba8659780de5946a76597df92ad295d7411",
+      "base": "7e05d8cea519ef2f3811d50f2e41e6585670d642",
+      "perCommandResult": {
+        "job": 117602015657,
+        "platform": "Windows",
+        "command": [
+          "cargo",
+          "check",
+          "--workspace"
+        ],
+        "conclusion": "success",
+        "reportedProfile": "dev optimized + debuginfo",
+        "reportedDuration": "4m 40s",
+        "warnings": {
+          "atlas-connector-runtime": 1,
+          "slate-lib": 11
+        },
+        "actualTestSummaries": [],
+        "boundary": "Metadata check only; no executable tests or release/native acceptance."
+      },
+      "rawLog": {
+        "path": "target/presence-hosted-candidate-observer-20261018-626e2a50/job-117602015657-check-windows.log",
+        "bytes": 99831,
+        "sha256": "b79bc3afa8e26f88c03ff4e3d4ad1ab16a903298468905491580b9b1c6cba5ee"
+      },
+      "summaryIdentity": {
+        "path": "target/presence-hosted-candidate-observer-20261018-626e2a50/hosted-candidate-final-summary.json",
+        "bytes": 6879,
+        "sha256": "708394948bf61177bb7f8d1cefff440c4a484f4e3959a06466abc5946414873c"
+      },
+      "terminalStatusIdentities": [
+        {
+          "path": "target/presence-hosted-candidate-observer-20261018-626e2a50/run-39102690966-status-0004.json",
+          "bytes": 6448,
+          "sha256": "8359c153f54c3096fabe092a7122e1f53ca5dcd2cad1af30b53aa5e5f397fffb"
+        },
+        {
+          "path": "target/presence-hosted-candidate-observer-20261018-626e2a50/run-39102690949-status-0006.json",
+          "bytes": 4474,
+          "sha256": "c86aeb1d6b452cd234e4fd9718e160999d74037b42ed8fb562b9ca3e7a7e50f9"
+        }
+      ],
+      "boundary": "Metadata check only; no executable tests or release/native acceptance. No aggregate/integrated pass, final binary, native GPU/provider/human verdict follows."
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--workspace",
+        "--no-fail-fast"
+      ],
+      "result": "failure",
+      "environment": "GitHub Actions hosted Linux",
+      "pullRequest": "https://github.com/jmmoser7/AtlasFileExplorer/pull/58",
+      "jobId": 117602015466,
+      "actualCheckout": "b32de1738d946b3b73a03afe25cd0442f47c4f43",
+      "candidateHead": "c9a3fba8659780de5946a76597df92ad295d7411",
+      "base": "7e05d8cea519ef2f3811d50f2e41e6585670d642",
+      "perCommandResult": {
+        "job": 117602015466,
+        "platform": "Linux",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--workspace",
+          "--no-fail-fast"
+        ],
+        "logWrapper": "set -o pipefail; Cargo stdout/stderr piped to tee test-output.log",
+        "conclusion": "failure",
+        "reportedWorkflowStepExitCode": 101,
+        "explicitSeparateCargoExitCode": null,
+        "diagnostic": "E0282 at crates/atlas-shell/src/agent_presence/roster_overlay_tests.rs:197:25",
+        "actualTestSummaries": [],
+        "boundary": "atlas-shell lib-test compilation failed before any harness execution; no test-pass/failure counts inferred."
+      },
+      "rawLog": {
+        "path": "target/presence-hosted-candidate-observer-20261018-626e2a50/job-117602015466-fmt-test-linux.log",
+        "bytes": 114310,
+        "sha256": "3e84ecde552e4613f40fe9b95fb487bdddb214b222f7addd1bc2fa00145cf4a9"
+      },
+      "summaryIdentity": {
+        "path": "target/presence-hosted-candidate-observer-20261018-626e2a50/hosted-candidate-final-summary.json",
+        "bytes": 6879,
+        "sha256": "708394948bf61177bb7f8d1cefff440c4a484f4e3959a06466abc5946414873c"
+      },
+      "terminalStatusIdentities": [
+        {
+          "path": "target/presence-hosted-candidate-observer-20261018-626e2a50/run-39102690966-status-0004.json",
+          "bytes": 6448,
+          "sha256": "8359c153f54c3096fabe092a7122e1f53ca5dcd2cad1af30b53aa5e5f397fffb"
+        },
+        {
+          "path": "target/presence-hosted-candidate-observer-20261018-626e2a50/run-39102690949-status-0006.json",
+          "bytes": 4474,
+          "sha256": "c86aeb1d6b452cd234e4fd9718e160999d74037b42ed8fb562b9ca3e7a7e50f9"
+        }
+      ],
+      "boundary": "atlas-shell lib-test compilation failed before any harness execution; no test-pass/failure counts inferred. No aggregate/integrated pass, final binary, native GPU/provider/human verdict follows."
+    },
+    {
+      "command": "./scripts/test-windows-update.ps1",
+      "result": "success",
+      "environment": "GitHub Actions hosted Windows",
+      "pullRequest": "https://github.com/jmmoser7/AtlasFileExplorer/pull/58",
+      "jobId": 117602015566,
+      "actualCheckout": "b32de1738d946b3b73a03afe25cd0442f47c4f43",
+      "candidateHead": "c9a3fba8659780de5946a76597df92ad295d7411",
+      "base": "7e05d8cea519ef2f3811d50f2e41e6585670d642",
+      "perCommandResult": {
+        "job": 117602015566,
+        "platform": "Windows",
+        "step": "Test real installation and coordinated upgrade",
+        "command": "./scripts/test-windows-update.ps1",
+        "conclusion": "success",
+        "exactResult": "PASS: install, two-process wait, real upgrade, restart and saved data.",
+        "boundary": "Hosted installation fixture only; no Slate agent-presence UX acceptance."
+      },
+      "rawLog": {
+        "path": "target/presence-hosted-candidate-observer-20261018-626e2a50/job-117602015566-windows-installer.log",
+        "bytes": 243112,
+        "sha256": "ef58bd55aaffef762d8c92ae526da0a6f5f6a516ba09d839969fc60fda5bc0e4"
+      },
+      "summaryIdentity": {
+        "path": "target/presence-hosted-candidate-observer-20261018-626e2a50/hosted-candidate-final-summary.json",
+        "bytes": 6879,
+        "sha256": "708394948bf61177bb7f8d1cefff440c4a484f4e3959a06466abc5946414873c"
+      },
+      "terminalStatusIdentities": [
+        {
+          "path": "target/presence-hosted-candidate-observer-20261018-626e2a50/run-39102690966-status-0004.json",
+          "bytes": 6448,
+          "sha256": "8359c153f54c3096fabe092a7122e1f53ca5dcd2cad1af30b53aa5e5f397fffb"
+        },
+        {
+          "path": "target/presence-hosted-candidate-observer-20261018-626e2a50/run-39102690949-status-0006.json",
+          "bytes": 4474,
+          "sha256": "c86aeb1d6b452cd234e4fd9718e160999d74037b42ed8fb562b9ca3e7a7e50f9"
+        }
+      ],
+      "boundary": "Hosted installation fixture only; no Slate agent-presence UX acceptance. No aggregate/integrated pass, final binary, native GPU/provider/human verdict follows."
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--workspace",
+        "--no-fail-fast"
+      ],
+      "result": "failure",
+      "environment": "GitHub Actions hosted Windows",
+      "pullRequest": "https://github.com/jmmoser7/AtlasFileExplorer/pull/58",
+      "jobId": 117602015566,
+      "actualCheckout": "b32de1738d946b3b73a03afe25cd0442f47c4f43",
+      "candidateHead": "c9a3fba8659780de5946a76597df92ad295d7411",
+      "base": "7e05d8cea519ef2f3811d50f2e41e6585670d642",
+      "perCommandResult": {
+        "job": 117602015566,
+        "platform": "Windows",
+        "step": "Test workspace on Windows",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--workspace",
+          "--no-fail-fast"
+        ],
+        "conclusion": "failure",
+        "reportedWorkflowStepExitCode": 1,
+        "explicitSeparateCargoExitCode": null,
+        "diagnostic": "E0282 at crates/atlas-shell/src/agent_presence/roster_overlay_tests.rs:197:25",
+        "actualTestSummaries": [],
+        "boundary": "Normal workspace test compilation failed before any harness execution. The job log reports step exit 1; no separate Cargo exit value was printed."
+      },
+      "rawLog": {
+        "path": "target/presence-hosted-candidate-observer-20261018-626e2a50/job-117602015566-windows-installer.log",
+        "bytes": 243112,
+        "sha256": "ef58bd55aaffef762d8c92ae526da0a6f5f6a516ba09d839969fc60fda5bc0e4"
+      },
+      "summaryIdentity": {
+        "path": "target/presence-hosted-candidate-observer-20261018-626e2a50/hosted-candidate-final-summary.json",
+        "bytes": 6879,
+        "sha256": "708394948bf61177bb7f8d1cefff440c4a484f4e3959a06466abc5946414873c"
+      },
+      "terminalStatusIdentities": [
+        {
+          "path": "target/presence-hosted-candidate-observer-20261018-626e2a50/run-39102690966-status-0004.json",
+          "bytes": 6448,
+          "sha256": "8359c153f54c3096fabe092a7122e1f53ca5dcd2cad1af30b53aa5e5f397fffb"
+        },
+        {
+          "path": "target/presence-hosted-candidate-observer-20261018-626e2a50/run-39102690949-status-0006.json",
+          "bytes": 4474,
+          "sha256": "c86aeb1d6b452cd234e4fd9718e160999d74037b42ed8fb562b9ca3e7a7e50f9"
+        }
+      ],
+      "boundary": "Normal workspace test compilation failed before any harness execution. The job log reports step exit 1; no separate Cargo exit value was printed. No aggregate/integrated pass, final binary, native GPU/provider/human verdict follows."
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "native-file-atlas",
+        "delete_key_removes_the_card_under_the_cursor",
+        "-j2",
+        "--",
+        "--nocapture"
+      ],
+      "result": "success",
+      "environment": "GitHub Actions hosted Windows",
+      "pullRequest": "https://github.com/jmmoser7/AtlasFileExplorer/pull/58",
+      "jobId": 117602015566,
+      "actualCheckout": "b32de1738d946b3b73a03afe25cd0442f47c4f43",
+      "candidateHead": "c9a3fba8659780de5946a76597df92ad295d7411",
+      "base": "7e05d8cea519ef2f3811d50f2e41e6585670d642",
+      "perCommandResult": {
+        "job": 117602015566,
+        "platform": "Windows",
+        "step": "Rerun focused File Atlas failure diagnostic",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "native-file-atlas",
+          "delete_key_removes_the_card_under_the_cursor",
+          "-j2",
+          "--",
+          "--nocapture"
+        ],
+        "conclusion": "success",
+        "explicitCargoExitCode": 0,
+        "initiatedByObserver": false,
+        "test": "app::tests::delete::delete_key_removes_the_card_under_the_cursor",
+        "library": {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "filteredOut": 64,
+          "elapsedSeconds": 0.22
+        },
+        "main": {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0,
+          "filteredOut": 0
+        },
+        "actualTestSummaries": [
+          "2026-10-18T06:26:03.4743007Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 64 filtered out; finished in 0.22s",
+          "2026-10-18T06:26:03.4955696Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+        ],
+        "boundary": "Existing workflow diagnostic after failed workspace step; one passing test is not integrated success."
+      },
+      "rawLog": {
+        "path": "target/presence-hosted-candidate-observer-20261018-626e2a50/job-117602015566-windows-installer.log",
+        "bytes": 243112,
+        "sha256": "ef58bd55aaffef762d8c92ae526da0a6f5f6a516ba09d839969fc60fda5bc0e4"
+      },
+      "summaryIdentity": {
+        "path": "target/presence-hosted-candidate-observer-20261018-626e2a50/hosted-candidate-final-summary.json",
+        "bytes": 6879,
+        "sha256": "708394948bf61177bb7f8d1cefff440c4a484f4e3959a06466abc5946414873c"
+      },
+      "terminalStatusIdentities": [
+        {
+          "path": "target/presence-hosted-candidate-observer-20261018-626e2a50/run-39102690966-status-0004.json",
+          "bytes": 6448,
+          "sha256": "8359c153f54c3096fabe092a7122e1f53ca5dcd2cad1af30b53aa5e5f397fffb"
+        },
+        {
+          "path": "target/presence-hosted-candidate-observer-20261018-626e2a50/run-39102690949-status-0006.json",
+          "bytes": 4474,
+          "sha256": "c86aeb1d6b452cd234e4fd9718e160999d74037b42ed8fb562b9ca3e7a7e50f9"
+        }
+      ],
+      "boundary": "Existing workflow diagnostic after failed workspace step; one passing test is not integrated success. No aggregate/integrated pass, final binary, native GPU/provider/human verdict follows."
+    },
+    {
+      "operation": "Completed read-only Windows event-log correlation for the three OS5 doctest starts",
+      "result": "no-matching-events-control-unidentified",
+      "identity": "target/presence-doctest-event-diagnostic-20261018.json",
+      "identitySha256": "8069400e9d5a210d49288f057c4df0d249626287d6bbd00d278ef54428b58b02",
+      "capturedUtc": "2026-10-18T06:37:29.5005924+00:00",
+      "startUtc": "2026-10-18T06:15:00Z",
+      "endUtc": "2026-10-18T06:26:00Z",
+      "queryResults": [
+        {
+          "log": "Microsoft-Windows-CodeIntegrity/Operational",
+          "queryStatus": "unavailable-or-no-matches",
+          "error": "No events were found that match the specified selection criteria.",
+          "events": []
+        },
+        {
+          "log": "Microsoft-Windows-AppLocker/EXE and DLL",
+          "queryStatus": "unavailable-or-no-matches",
+          "error": "No events were found that match the specified selection criteria.",
+          "events": []
+        },
+        {
+          "log": "Microsoft-Windows-Windows Defender/Operational",
+          "queryStatus": "unavailable-or-no-matches",
+          "error": "No events were found that match the specified selection criteria.",
+          "events": []
+        }
+      ],
+      "enforcingControl": "UNIDENTIFIED",
+      "testsExecuted": false,
+      "boundary": "Each retained query says unavailable-or-no-matches with no events. This does not establish which security/control component denied execution, that a named log was available, or that the doctest code failed. No retry, elevation, flags/paths, settings or security change."
     }
   ],
   "pendingChecks": [
@@ -4222,8 +7343,8 @@
   "evaluation": "native-acceptance.html",
   "coordination": {
     "cargo": "Coordinator reports THIRD sole normal release workspace run69441 active, still compiling: target/presence-workspace-test-and-zoom-fixed-20261018.log. No completed receipt or test verdict is supplied; this update does not read/hash/snapshot that partial log. Second run completed Cargo101 before tests and is retained separately.",
-    "currentJob": "Completed early actual-app Chrome diagnostic failed101,0passed/1failed/1975filtered at firstattached25 known AA sizing assertion, source1349/harness/fingerprint stable; nine PNG+phaseJSON retained, no13-state metadata. Guardian personally reviewed all9 and confirmed roster/profile/chat/composer/self-reopen geometry while identifying inline-menu transcript jumps, oversize short identity and missing blue selected-hat tint. Parent workspace69441 remains active/no completed verdict. Proposal initial opaque preview→original+ghost/instantAccept and stale mode status after grant toggle are original-intent gaps; extract-first scratch fix approved/planned, not applied/tested. Source remains frozen; no native/provider/GPU/human pass;37 UI blockers/finalBinarynull.",
-    "nextQueue": "Collect completed parent69441 workspace receipt before a current parent verdict. After its source lease, review/apply the scratch AA diagnostic correction and the approved extract-first proposal-witness fix; preserve actual initial/transitional/accept motion and update mode status after grant changes. Repair guardian-observed floating menu behavior, compact short identity width and blue selected-hat tint, preserving accepted design. Rerun exact13-phase software capture and actual app tests, inspect real retained artifacts, then complete current performance/native/executable-bound human validation. No current screenshot or source approval passes37 native UI blockers.",
+    "currentJob": "Baseline validation queue completed and failed its integrated gates. The ordinary workspace receipt and six app opt-ins now have final actual results; shared zoom/matrix diagnostics and hosted/cloud results are retained separately. No parent run remains active in this amendment. No projected/later source was executed locally, no new release binary or native acceptance exists, and the three OS5 doctest denials remain unidentified/no-retry.",
+    "nextQueue": "Compose/apply the separately reviewed source and documentation stages once, preserving original criteria and every failure. Run ordinary metadata/lint, full tests and release build on that resulting source; inspect actual final app software/native GPU frames and obtain human/provider acceptance. Do not turn old baseline component passes, one focused hosted diagnostic, source approval or skipped packaging into an integrated pass.",
     "followupCheck": "The completed child Chrome diagnostic is a real full-app software failure and nine retained images; it is separate from still-active parent69441. Positive geometry observations do not discharge37 native UI blockers. Menu positioning/identity width/hat selection differences and proposal-witness/mode-status gaps remain unresolved. AA correction and extract-first proposal fix remain unapplied scratch work; finalBinarynull/humanUntested.",
     "workspaceHold": "The second completed attempt retained1349 guarded source/asset inputs stable. The THIRD run69441 owns the current compile lease and live source is frozen for it; do not apply scratch AA corrections or infer a final validated whole-app identity. Latest published source7e05d8ce includes compile/copy/Work/chrome source and67-record docs; this68-record update and the unapplied scratch diagnostic correction are outside that snapshot.",
     "native": "User away since 01:41 UTC; no native input or unlock requests. Existing native fixture may perform normal production catalog queries but submits no agent task; isolated cfg(test) frame fixtures pin catalogs. Full-app chrome source is guardian-approved, but its captures have not executed or passed. A later native interaction lease still requires a fresh exact executable, explicit coordinated ownership and human availability.",
@@ -8306,6 +11427,169 @@
       "modeStatusGap": "Status text stale after grant-mode toggle",
       "otherMissingFeaturePathsIdentified": false,
       "boundary": "Coordinator-reported original-intent functional/source finding; it is not one of the nine empty-board Chrome render observations. No fix, runtime, native/provider or human pass is claimed."
+    },
+    "completedBaselineEvidence20261018": {
+      "createdUtc": "2026-10-18T06:42:25.931802+00:00",
+      "previousStatusAtAmendment": {
+        "implementation": "Integration remains incomplete. A completed actual Slate software Chrome diagnostic failed0passed/1failed at known firstattached25 AA measurement after retaining nine PNG+JSON phases; no final13-state metadata. Guardian reviewed all9: exact roster/profile/chat geometry and self-reopen evidence coexist with menu transcript shifts, oversize short identity and missing blue hat tint. Original-intent proposal witness/instantAccept and stale grant-mode status gaps have planned approved extract-first scratch work, not applied/tested. Parent workspace69441 remains active/no verdict, source frozen. Earlier compile failures/history remain intact; finalBinarynull/humanUntested/all37 native UI blockers open.",
+        "currentJob": "Completed early actual-app Chrome diagnostic failed101,0passed/1failed/1975filtered at firstattached25 known AA sizing assertion, source1349/harness/fingerprint stable; nine PNG+phaseJSON retained, no13-state metadata. Guardian personally reviewed all9 and confirmed roster/profile/chat/composer/self-reopen geometry while identifying inline-menu transcript jumps, oversize short identity and missing blue selected-hat tint. Parent workspace69441 remains active/no completed verdict. Proposal initial opaque preview→original+ghost/instantAccept and stale mode status after grant toggle are original-intent gaps; extract-first scratch fix approved/planned, not applied/tested. Source remains frozen; no native/provider/GPU/human pass;37 UI blockers/finalBinarynull.",
+        "nextQueue": "Collect completed parent69441 workspace receipt before a current parent verdict. After its source lease, review/apply the scratch AA diagnostic correction and the approved extract-first proposal-witness fix; preserve actual initial/transitional/accept motion and update mode status after grant changes. Repair guardian-observed floating menu behavior, compact short identity width and blue selected-hat tint, preserving accepted design. Rerun exact13-phase software capture and actual app tests, inspect real retained artifacts, then complete current performance/native/executable-bound human validation. No current screenshot or source approval passes37 native UI blockers."
+      },
+      "supersedes": "Earlier active/pending wording is retained as chronology; these completed receipts alone are current for the frozen baseline.",
+      "localBaseline": {
+        "workspace": {
+          "path": "target/presence-workspace-test-and-zoom-fixed-20261018.json",
+          "bytes": 517178,
+          "sha256": "1987ab8006395f0f7476340b1a2339bfdedce0af13342d563279c22ddda11bb1"
+        },
+        "appOptins": {
+          "path": "target/presence-baseline-app-artifacts-winpaths-20261018.json",
+          "bytes": 511301,
+          "sha256": "6cb38402c5d00ad6c7cf9e9c63fcd8f4bfd1bbdb57da99c61553ccf101f3e1e1"
+        },
+        "zoom": {
+          "path": "target/presence-baseline-shared-zoom-winpaths-20261018.json",
+          "bytes": 496614,
+          "sha256": "c8935c6fbd005a2af12db7d2960be0ce68b7913eda292f8a40e4007801e8b11a"
+        },
+        "matrix": {
+          "path": "target/presence-baseline-shared-matrix-winpaths-20261018.json",
+          "bytes": 548109,
+          "sha256": "dbe515d4f1eef7eb73ea1cac0bb06a359df7c2bcb46d65a86b24155c3050d52d"
+        },
+        "materialAudit": {
+          "path": "target/presence-baseline-shared-matrix-exact-audit-20261018.json",
+          "bytes": 93471,
+          "sha256": "7ca8324ef75c5f53c2d21b3fcb982ff215324353dc4b8e650fda2b662b461c5c"
+        },
+        "sourceIdentityCount": 1349,
+        "sourceStable": true
+      },
+      "projectedCandidate": {
+        "head": "c9a3fba8659780de5946a76597df92ad295d7411",
+        "base": "7e05d8cea519ef2f3811d50f2e41e6585670d642",
+        "actualHostedMerge": "b32de1738d946b3b73a03afe25cd0442f47c4f43",
+        "pullRequest": 58,
+        "appliedLocally": false,
+        "laterScratchRuntimeValidated": false,
+        "cloudReturnedPatch": {
+          "path": "target/presence-projected-cloud-validation-20261018-1ee17818d6a34014baab6b91ce64e7d0/returned-evidence.patch",
+          "bytes": 15064,
+          "sha256": "529ed7f2358bc7ca60de015c7813de8770c270f0db51a50bbef0f7d195cdc694"
+        },
+        "cloudExtraction": {
+          "path": "target/presence-projected-cloud-validation-20261018-1ee17818d6a34014baab6b91ce64e7d0/returned-evidence-extraction.json",
+          "bytes": 3874,
+          "sha256": "6487e0fed332bf8fe8991c2fb9153816f0c78172d35fab63ee113c345ea20faa"
+        },
+        "cloudFiles": [
+          {
+            "path": "target/presence-projected-cloud-validation-20261018-1ee17818d6a34014baab6b91ce64e7d0/returned-evidence/01-cargo-fmt.log",
+            "bytes": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "path": "target/presence-projected-cloud-validation-20261018-1ee17818d6a34014baab6b91ce64e7d0/returned-evidence/01-cargo-fmt.result",
+            "bytes": 25,
+            "sha256": "ee1fadcea29aec901dee3903d6f0d7a816c064371252b99a1477dcfeeab5a583"
+          },
+          {
+            "path": "target/presence-projected-cloud-validation-20261018-1ee17818d6a34014baab6b91ce64e7d0/returned-evidence/02-slate-agent-presence.log",
+            "bytes": 1629,
+            "sha256": "770600119a826749d9a3e972c1f4ada75c6a08420cfcebc6afea4e0e281e5ae6"
+          },
+          {
+            "path": "target/presence-projected-cloud-validation-20261018-1ee17818d6a34014baab6b91ce64e7d0/returned-evidence/02-slate-agent-presence.result",
+            "bytes": 28,
+            "sha256": "035780963bcf5acab0d978d845afa1845c8dee11d0060367ea546cf6a2f5a79a"
+          },
+          {
+            "path": "target/presence-projected-cloud-validation-20261018-1ee17818d6a34014baab6b91ce64e7d0/returned-evidence/03-atlas-shell-lib.log",
+            "bytes": 1629,
+            "sha256": "770600119a826749d9a3e972c1f4ada75c6a08420cfcebc6afea4e0e281e5ae6"
+          },
+          {
+            "path": "target/presence-projected-cloud-validation-20261018-1ee17818d6a34014baab6b91ce64e7d0/returned-evidence/03-atlas-shell-lib.result",
+            "bytes": 28,
+            "sha256": "035780963bcf5acab0d978d845afa1845c8dee11d0060367ea546cf6a2f5a79a"
+          },
+          {
+            "path": "target/presence-projected-cloud-validation-20261018-1ee17818d6a34014baab6b91ce64e7d0/returned-evidence/04-cargo-clippy.log",
+            "bytes": 1629,
+            "sha256": "770600119a826749d9a3e972c1f4ada75c6a08420cfcebc6afea4e0e281e5ae6"
+          },
+          {
+            "path": "target/presence-projected-cloud-validation-20261018-1ee17818d6a34014baab6b91ce64e7d0/returned-evidence/04-cargo-clippy.result",
+            "bytes": 28,
+            "sha256": "035780963bcf5acab0d978d845afa1845c8dee11d0060367ea546cf6a2f5a79a"
+          },
+          {
+            "path": "target/presence-projected-cloud-validation-20261018-1ee17818d6a34014baab6b91ce64e7d0/returned-evidence/README.md",
+            "bytes": 3379,
+            "sha256": "17c1b7374c9b46ae866ac67a4d5279aa2e81fc281a6d20c3de2d0962c07345fa"
+          },
+          {
+            "path": "target/presence-projected-cloud-validation-20261018-1ee17818d6a34014baab6b91ce64e7d0/returned-evidence/provenance-and-prerequisites.txt",
+            "bytes": 684,
+            "sha256": "8a98f48dfe13af9de6907ec6655d4c09d8cb2863881cb2bfa77152c0f285c8cf"
+          },
+          {
+            "path": "target/presence-projected-cloud-validation-20261018-1ee17818d6a34014baab6b91ce64e7d0/returned-evidence/source-identities.txt",
+            "bytes": 1475,
+            "sha256": "b9bd123baaf35e8a0c34221c7e530ba55f568430e37ac82d3e3e90ddc5232a30"
+          }
+        ]
+      },
+      "hostedSummary": {
+        "path": "target/presence-hosted-candidate-observer-20261018-626e2a50/hosted-candidate-final-summary.json",
+        "bytes": 6879,
+        "sha256": "708394948bf61177bb7f8d1cefff440c4a484f4e3959a06466abc5946414873c"
+      },
+      "hostedManifest": {
+        "path": "target/presence-hosted-candidate-observer-20261018-626e2a50/final-retention-manifest.json",
+        "bytes": 10962,
+        "sha256": "0742bed8f64f0e4174f81c25e242d62547cfd116938ea576654fc4af17455c65"
+      },
+      "doctestEventDiagnostic": {
+        "path": "target/presence-doctest-event-diagnostic-20261018.json",
+        "bytes": 1469,
+        "sha256": "8069400e9d5a210d49288f057c4df0d249626287d6bbd00d278ef54428b58b02"
+      },
+      "baselineSoftwareVisualReadback": {
+        "reviewer": "coordinator root, reported personal inspection",
+        "artifacts": [
+          {
+            "path": "target/review/presence-motion-req-87556-1792304909652711500-25/crop-intermediate-2.png",
+            "bytes": 88170,
+            "sha256": "e23fc41f414cb97073754ff6f5e7874a715c62e0da9daacc6ad605491c9a37e8"
+          },
+          {
+            "path": "target/review/presence-motion-req-87556-1792304913051821400-33/drag-late.png",
+            "bytes": 54175,
+            "sha256": "bad36c63a035367233d569db6f953c55070fbd0380fdbf489d318d92364b447f"
+          },
+          {
+            "path": "target/review/presence-chrome-req-87556-1792304903456613900-0/agent-chat.png",
+            "bytes": 91835,
+            "sha256": "57979d18ce0edbee311766e48c97c6ea91a14f8774fd640a0bed909c6b0fdab2"
+          }
+        ],
+        "observation": "Actual world-sized avatar on intermediate crop/image and enclosing chat shell. Known old name-width/menu/material issues remain.",
+        "boundary": "Baseline software visual inspection only; not this documentation agent's inspection, new-fix execution, native GPU, smoothness or acceptance."
+      },
+      "proposalReplyBoundary": "BoardLinks owns a single terminal reply per call. Proposal work returns staged; there is no later provider completion notification after that staged reply. The projected single-reply amendment removes ineffective duplicate applied responses while preserving created-chat scope bookkeeping. UI completion/durable acceptance must not imply automatic provider resume or notification; no live provider run establishes otherwise.",
+      "openGates": {
+        "appUiBlockers": 37,
+        "allAppUiBlockers": "OPEN",
+        "integratedWorkspacePass": "OPEN",
+        "commandPerformanceProbe": "OPEN",
+        "newSizeCpuCost": "OPEN",
+        "finalBinary": null,
+        "nativeGpuUx": "OPEN",
+        "liveProvider": "OPEN",
+        "humanAcceptance": "Untested"
+      },
+      "evidenceRules": "All69 older automated records and existing history branches are retained. New per-command records describe execution only where a real completed harness or audit ran. No source test, plan, fixture definition or formatting result is counted as test execution."
     }
   }
 }

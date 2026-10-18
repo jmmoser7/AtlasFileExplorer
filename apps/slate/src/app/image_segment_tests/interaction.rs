@@ -11,13 +11,17 @@ fn image_tools(h: &mut Harness, id: NodeId) -> [Rect; 3] {
     h.app.shape_properties.panel = Some(Panel::Brush);
     h.frame();
     pause(h);
-    let rect = h
-        .app
-        .board_xf()
-        .rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
-    let layout =
-        chrome::image_presentation_layout(rect, h.app.tab().cam.z, chrome::ImagePanelKind::Brush);
-    chrome::image_brush_header_groups(layout.brush_header.unwrap(), h.app.tab().cam.z)
+    let (attached, layout, _) =
+        h.app
+            .observed_image_palette_layout_for_test(&h.ctx, id, chrome::ImagePanelKind::Brush);
+    assert!(
+        !attached,
+        "the 400x320 segment fixture uses the external image editor"
+    );
+    chrome::image_brush_header_groups(
+        layout.brush_header.expect("Brush editor header"),
+        h.app.tab().cam.z,
+    )
 }
 
 fn button(

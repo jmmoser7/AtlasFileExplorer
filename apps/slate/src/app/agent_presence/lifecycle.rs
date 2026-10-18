@@ -76,13 +76,19 @@ impl SlateApp {
         let position = self.board_xf().s2w(self.canvas_rect.center());
         let spawn = parent
             .as_ref()
-            .and_then(|p| self.presence.roster.session(&p.1))
-            .map(|s| {
-                let p = s.sample().position;
-                WorldPoint {
-                    x: p.x + 44.0,
-                    y: p.y,
-                }
+            .and_then(|p| self.presence.agents.iter().find(|a| a.profile.id == p.0))
+            .and_then(|a| a.position(&self.presence.roster))
+            // presence_call temporarily owns detached parents; helper admission
+            // rejects active work, so their settled session position is exact.
+            .or_else(|| {
+                parent
+                    .as_ref()
+                    .and_then(|p| self.presence.roster.session(&p.1))
+                    .map(|session| session.sample().position)
+            })
+            .map(|p| WorldPoint {
+                x: p.x + 44.0,
+                y: p.y,
             })
             .unwrap_or_else(|| point(position.x, position.y));
         let parent_motion = parent.as_ref().map(|p| p.1.clone());
@@ -289,6 +295,7 @@ impl SlateApp {
             }
             a.read = None;
             a.launched.clear();
+            a.cancel_motion(&mut self.presence.roster)?;
             if let Some(work) = a.work.take() {
                 let _ = self.presence.links.reply(
                     &a.dir,
@@ -347,11 +354,7 @@ impl SlateApp {
             .map(|a| {
                 (
                     a.profile.id.clone(),
-                    self.presence
-                        .roster
-                        .session(&a.motion)
-                        .map(|s| s.sample().position)
-                        .unwrap_or(point(0.0, 0.0)),
+                    a.position(&self.presence.roster).unwrap_or(point(0.0, 0.0)),
                 )
             })
             .collect();

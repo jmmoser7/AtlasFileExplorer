@@ -297,7 +297,7 @@ fn click_point(f: &mut Fixture, at: Pos2) -> egui::FullOutput {
     f.step(primary_button(at, false, false));
     f.settle()
 }
-fn click_text(f: &mut Fixture, out: &egui::FullOutput, text: &str) -> egui::FullOutput {
+pub(super) fn click_text(f: &mut Fixture, out: &egui::FullOutput, text: &str) -> egui::FullOutput {
     click_point(f, required(out, text).center())
 }
 fn click_text_in(
@@ -308,7 +308,7 @@ fn click_text_in(
 ) -> egui::FullOutput {
     click_point(f, required_in(out, text, inside).center())
 }
-fn required(out: &egui::FullOutput, text: &str) -> Rect {
+pub(super) fn required(out: &egui::FullOutput, text: &str) -> Rect {
     required_in(out, text, screen())
 }
 fn required_in(out: &egui::FullOutput, text: &str, inside: Rect) -> Rect {
@@ -342,7 +342,7 @@ fn label(out: &egui::FullOutput, text: &str, inside: Rect) -> Option<Rect> {
     );
     found.pop()
 }
-fn seek(f: &mut Fixture, text: &str, panel: Rect) -> egui::FullOutput {
+pub(super) fn seek(f: &mut Fixture, text: &str, panel: Rect) -> egui::FullOutput {
     let out = f.settle();
     seek_from(f, out, text, panel)
 }

@@ -86,9 +86,8 @@ impl SlateApp {
             None
         };
         for a in self.presence.agents.iter().filter(|a| a.tab == tab) {
-            let sample = self.presence.roster.session(&a.motion).map(|s| s.sample());
-            let position = sample
-                .map(|s| s.position)
+            let position = a
+                .position(&self.presence.roster)
                 .or_else(|| a.departure.as_ref().map(|d| d.2));
             let Some(position) = position else {
                 continue;

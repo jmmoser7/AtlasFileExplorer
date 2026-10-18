@@ -1,11 +1,17 @@
 //! Full-app paint/input evidence; fixture data and I/O stay in test-owned stores.
+#[path = "chrome_render_capture.rs"]
+mod capture;
+#[path = "chrome_render_scenarios.rs"]
+mod scenarios;
 use super::super::*;
 use crate::app::tests::{
-    capture_frame, painted_strings, painted_textures, primary_button, review_shot, FrameRaster,
+    capture_frame, painted_strings, painted_textures, primary_button, FrameRaster,
 };
 use eframe::egui::{self, Id, Pos2, Rect};
+use scenarios::Declarations;
+pub(super) use scenarios::Scenario;
 use serde_json::json;
-use std::{io::Write, time::Duration};
+use std::time::Duration;
 
 pub(super) struct Fixture {
     pub h: Harness,
@@ -16,13 +22,26 @@ pub(super) struct Fixture {
     time: f64,
     rows: Vec<serde_json::Value>,
     camera: (egui::Vec2, f32),
+    declarations: Declarations,
+    started: Instant,
+    retained: usize,
 }
 
 impl Fixture {
     pub fn new() -> Self {
+        Self::for_scenario(Scenario::Chrome)
+    }
+
+    pub fn for_scenario(scenario: Scenario) -> Self {
         let mut h = host();
         // All recognized catalog routes are injected before the first app frame.
         h.app.set_agent_programs_for_test(&["codex", "cursor"]);
+        if scenario == Scenario::Harness {
+            for provider in ["codex", "cursor"] {
+                h.app
+                    .pin_pack_for_test(provider, atlas_ai::packs::PackHealth::Ok);
+            }
+        }
         for key in [
             "codex",
             "cursor",
@@ -36,7 +55,7 @@ impl Fixture {
         h.app.ensure_work_tab();
         h.app.doc_mut().view.active_view = slate_doc::ViewKind::Board;
         h.app.dark_mode = false;
-        h.app.settings.presence_reduced_motion = true;
+        h.app.settings.presence_reduced_motion = scenario == Scenario::Chrome;
         h.app.settings.recovery.enabled = false;
         h.app.tab_mut().cam.z = 1.0;
         h.app.tab_mut().cam.offset = egui::Vec2::ZERO;
@@ -58,6 +77,9 @@ impl Fixture {
             time: 0.0,
             rows: Vec::new(),
             camera,
+            declarations: Declarations::new(scenario),
+            started: Instant::now(),
+            retained: 0,
         };
         f.step(|_| {});
         f.h.app
@@ -321,103 +343,10 @@ impl Fixture {
             assert!(self.h.app.agents.catalog_error(key).is_none());
         }
         for agent in &self.h.app.presence.agents {
-            assert!(agent.request.is_empty() && !agent.inflight);
             assert!(agent.runtime.is_none() && agent.cursor.is_none());
-            assert!(agent.work.is_none() && agent.read.is_none());
-            assert!(agent.pending_harness.is_none() && agent.switch_offer.is_none());
-            assert_eq!(agent.profile.provider, "local");
+            assert!(agent.work.is_none() && agent.launched.is_empty());
+            self.declarations.assert_agent(agent);
         }
-    }
-
-    fn conversations(&self) -> serde_json::Value {
-        json!({"self":self.h.app.presence_conversation("self"),
-            "agent":self.h.app.presence_conversation(&self.who),
-            "savedParticipants":self.h.app.settings.collaborators.iter().map(|p|
-                (&p.id,self.h.app.presence_conversation(&p.id))).collect::<Vec<_>>()})
-    }
-
-    fn state(&self) -> serde_json::Value {
-        json!({"frame":self.h.app.frame_no,"scene":self.h.app.doc().scene,
-            "undoDepth":self.h.app.tab().journal.undo_depth(),"conversations":self.conversations(),
-            "activeChat":self.h.app.presence.chrome.active_chat(),
-            "canvasChat":self.h.app.presence.chrome.canvas_chat(),
-            "popupOpen":self.h.app.presence.chrome.is_open(),
-            "human":self.h.app.settings.presence_identity,
-            "agent":self.h.app.presence.agents.first().map(|a|&a.profile),
-            "participants":self.h.app.presence.agents.iter().map(|a|json!({
-                "profile":a.profile,"parent":a.parent,"paused":a.paused,"activity":a.activity,
-                "status":a.status,"binding":a.binding,"grant":a.grant,"request":a.request,
-                "departing":a.departure.is_some()})).collect::<Vec<_>>(),
-            "savedProfiles":self.h.app.settings.collaborators,
-            "peopleSetupOpen":self.h.app.presence.human_chat.setup.open,
-            "agentState":self.h.app.presence.agents.first().map(|a|json!({
-                "paused":a.paused,"activity":a.activity,"status":a.status,
-                "position":self.h.app.presence.roster.session(&a.motion)
-                    .map(|s|{let p=s.sample().position;[p.x,p.y]})})),
-            "camera":[self.h.app.tab().cam.offset.x,self.h.app.tab().cam.offset.y,self.h.app.tab().cam.z]})
-    }
-
-    pub fn save(&mut self, phase: &str, out: egui::FullOutput, geometry: serde_json::Value) {
-        let labels = painted_strings(&out);
-        assert!(
-            !labels.iter().any(|s| s.contains("An open board")),
-            "Welcome overlaps a live collaborator"
-        );
-        assert_eq!(
-            self.h.app.brush_tiles.last.pending_jobs, 0,
-            "capture cannot advance pending work"
-        );
-        let before = self.state();
-        let path = self.directory().join(format!("{phase}.png"));
-        assert!(
-            !path.exists(),
-            "phase evidence must never overwrite a previous frame"
-        );
-        review_shot(&mut self.h, &mut self.raster, out, &self.case, phase);
-        assert_eq!(
-            self.state(),
-            before,
-            "saving advanced or changed the labeled UI state"
-        );
-        assert_eq!(image::image_dimensions(&path).unwrap(), (1440, 900));
-        let row = json!({"phase":phase,"file":path.file_name().unwrap().to_string_lossy(),
-            "bytes":std::fs::metadata(&path).unwrap().len(),"geometry":geometry,"labels":labels,"state":before});
-        self.write_json(&format!("{phase}.json"), &row);
-        self.rows.push(row);
-    }
-
-    fn directory(&self) -> PathBuf {
-        review_directory().join(&self.case)
-    }
-
-    fn write_json(&self, name: &str, value: &serde_json::Value) {
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(self.directory().join(name))
-            .unwrap();
-        serde_json::to_writer_pretty(&mut file, value).unwrap();
-        file.write_all(b"\n").unwrap();
-    }
-
-    pub fn finish(&self) {
-        self.finish_kind(false);
-    }
-    pub fn finish_management(&self) {
-        self.finish_kind(true);
-    }
-    fn finish_kind(&self, management: bool) {
-        self.write_json("metadata.json", &json!({"status":"assertions-passed",
-            "evidence":"actual full-app headless software paint; native GPU and human acceptance remain separate",
-            "management":management,
-            "reducedMotion":true,"catalogs":"injected and launch-pinned before first frame",
-            "history":if management {"synthetic test-owned agent history; no provider send"} else {"self sent locally; agent history synthetic; both saved and reloaded in test-owned temporary store"},
-            "hatWheel":if management {"not activated in management states"} else {"real shared album input changes fixture hat in memory; cfg(test) never saves human preferences"},
-            "omitted":["OS profile-photo picker", "actual provider message or harness switch"],"phases":self.rows}));
-        println!(
-            "Retained full-app presence chrome: {}",
-            self.directory().display()
-        );
     }
 }
 

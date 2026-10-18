@@ -242,11 +242,11 @@ fn fixture(
 #[test]
 #[ignore = "visual review: writes 36 real palette PNGs to target/review/image-workflow"]
 fn capture_image_palettes() {
-    for (size, width, height) in [
-        ("small_squircle", 220.0, 260.0),
-        ("narrow_blister", 360.0, 260.0),
-        ("square", 360.0, 360.0),
-        ("wide", 680.0, 300.0),
+    for (size, width, height, attached) in [
+        ("small_squircle", 220.0, 260.0, false),
+        ("narrow_external", 360.0, 260.0, false),
+        ("square_external", 360.0, 360.0, false),
+        ("wide", 680.0, 300.0, true),
     ] {
         for state in [
             State::Idle,
@@ -292,7 +292,7 @@ fn capture_image_palettes() {
             assert_eq!(
                 h.app
                     .image_blister_eligible(h.app.doc().scene.node(host).unwrap()),
-                size != "small_squircle",
+                attached,
                 "visual fixture exercises its declared property presentation"
             );
             if state == State::Generator {

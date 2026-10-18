@@ -329,11 +329,18 @@ fn effective_handles_end_on_the_painted_clamped_window_or_uniform_source_grip() 
                 };
                 assert_eq!(resolved, handle);
                 assert_ne!(world, (-900.0, 1200.0));
-                assert_eq!(Some(world), gesture_contact(&exact_prepared, requested));
+                let painted = gesture_contact(&exact_prepared, requested).unwrap();
                 let endpoint_replay = apply_gesture(&before, effective).unwrap();
                 let replay = gesture_contact(&endpoint_replay, effective).unwrap();
-                close(replay.0, world.0);
-                close(replay.1, world.1);
+                close(replay.0, painted.0);
+                close(replay.1, painted.1);
+                if masked && rotation == 0.0 && handle == 2 {
+                    assert_ne!(world, painted, "cover slide separates control and grip");
+                    close(world.0, 140.0);
+                    close(world.1, 50.0);
+                    close(painted.0, 140.0);
+                    close(painted.1, 40.0);
+                }
                 if masked {
                     assert_eq!(exact_prepared.rect, before.rect);
                     assert_eq!(exact_prepared.clip, before.clip);

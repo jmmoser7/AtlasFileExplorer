@@ -249,6 +249,11 @@ fn widget_center(f: &Fixture, id: egui::Id) -> egui::Pos2 {
             .unwrap_or_default();
     let rect = transform * response.rect;
     assert!((transform * response.interact_rect).contains(rect.center()));
+    assert_eq!(
+        f.h.ctx.layer_id_at(rect.center()),
+        Some(response.layer_id),
+        "the real foreground target must own its visible center"
+    );
     rect.center()
 }
 
@@ -298,8 +303,15 @@ fn primary_press_takes_over_the_last_painted_crop_even_at_the_ready_boundary() {
 fn foreground_composer_press_holds_crop_without_takeover_or_terminal_commit() {
     for ready_boundary in [false, true] {
         let mut f = fixture();
+        // Joining Dot changes this right-pivoted Area's width. Let its actual
+        // layout settle before clicking response geometry from the prior pass.
+        for _ in 0..3 {
+            f.step();
+        }
+        let chat = egui::Id::new(("presence-chat", "self"));
+        let at = widget_center(&f, chat);
         f.step();
-        let at = widget_center(&f, egui::Id::new(("presence-chat", "self")));
+        assert_eq!(widget_center(&f, chat), at, "roster target must be stable");
         f.h.frame_with(primary_button(at, true, false));
         f.h.frame_with(primary_button(at, false, false));
         f.step();
@@ -335,5 +347,122 @@ fn foreground_composer_press_holds_crop_without_takeover_or_terminal_commit() {
         f.h.app.stop_presence(&f.who, false).unwrap();
         f.h.frame_with(primary_button(at, false, false));
         assert_eq!(f.h.ctx.memory(|memory| memory.focused()), Some(composer));
+    }
+}
+
+#[test]
+fn masked_handle_contact_survives_completion_stop_retirement_and_next_travel() {
+    for (rotation, ending) in [0.0, 37.0, 90.0]
+        .into_iter()
+        .flat_map(|rotation| ["commit", "stop", "retire"].map(|ending| (rotation, ending)))
+    {
+        let mut f = fixture();
+        let target = f.images[0];
+        f.h.app.patch_nodes(&[target], |node| {
+            node.rotation_deg = rotation;
+            if let NodeKind::Image(image) = &mut node.kind {
+                image.flip_x = true;
+                image.flip_y = true;
+            }
+        });
+        let before = f.h.app.doc().scene.node(target).unwrap().clone();
+        let depth = f.h.app.tab().journal.undo_depth();
+        let request = before.rect.rotate_point([-900.0, 1200.0], rotation);
+        let gesture = CropGesture::Handle {
+            handle: 2,
+            world: (request[0], request[1]),
+        };
+        let expected = apply_gesture(&before, gesture).unwrap();
+        f.invoke(
+            0,
+            "board.objects.crop",
+            &[target],
+            json!({"mode":"handle","handle":2,"x":request[0],"y":request[1]}),
+        );
+        let motion_id = f.h.app.presence.agents[0].motion.clone();
+        let mut contact = None;
+        for _ in 0..80 {
+            let out = f.step();
+            let sample = f.sample();
+            if sample.phase != MotionPhase::Work || sample.progress < 0.75 {
+                continue;
+            }
+            let preview = f.h.app.presence_preview(target).unwrap();
+            let (x, y) = crate::app::board_crop::gesture_contact(preview, gesture).unwrap();
+            let physical = point(x, y);
+            assert_ne!(
+                physical, sample.position,
+                "cover translation separates grip and control"
+            );
+            assert_eq!(
+                f.h.app.presence.agents[0].position(&f.h.app.presence.roster),
+                Some(physical)
+            );
+            assert_eq!(preview.rect, before.rect);
+            assert_eq!(preview.clip, before.clip);
+            assert_eq!(f.h.app.doc().scene.node(target), Some(&before));
+            assert_eq!(f.h.app.tab().journal.undo_depth(), depth);
+            f.draw(&out);
+            contact = Some(physical);
+            break;
+        }
+        let physical =
+            contact.expect("actual full-app crop must paint a separated grip before completion");
+        match ending {
+            "stop" => {
+                let at =
+                    f.h.app
+                        .board_xf()
+                        .w2s(egui::pos2(physical.x as f32, physical.y as f32));
+                f.h.frame_with(primary_button(at, true, false));
+                assert!(
+                    f.h.app.presence.avatar_hold.is_some(),
+                    "painted grip avatar owns the press"
+                );
+                assert!(f.pending());
+                assert_eq!(f.h.app.doc().scene.node(target), Some(&before));
+                f.h.app.stop_presence(&f.who, false).unwrap();
+                let session = f.h.app.presence.roster.session(&motion_id).unwrap();
+                assert_eq!(session.sample().position, physical);
+                assert_eq!(session.sample().phase, MotionPhase::Idle);
+                assert_eq!(f.h.app.doc().scene.node(target), Some(&before));
+                assert_eq!(f.h.app.tab().journal.undo_depth(), depth);
+                assert!(f.h.app.presence_preview(target).is_none());
+                f.h.frame_with(primary_button(at, false, false));
+            }
+            "retire" => {
+                f.h.app.retire_presence(&f.who, "bow").unwrap();
+                assert_eq!(
+                    f.h.app.presence.agents[0].departure.as_ref().unwrap().2,
+                    physical
+                );
+                assert_eq!(f.h.app.doc().scene.node(target), Some(&before));
+                assert_eq!(f.h.app.tab().journal.undo_depth(), depth);
+                assert!(f.h.app.presence.roster.session(&motion_id).is_none());
+            }
+            "commit" => {
+                for _ in 0..20 {
+                    f.step();
+                    if !f.pending() {
+                        break;
+                    }
+                }
+                assert!(!f.pending());
+                assert_eq!(f.h.app.doc().scene.node(target), Some(&expected));
+                assert_eq!(f.h.app.tab().journal.undo_depth(), depth + 1);
+                assert_eq!(
+                    f.h.app.tab().journal.last_author(),
+                    Some(&CmdAuthor::Agent("Dot".into()))
+                );
+                let (x, y) = crate::app::board_crop::gesture_contact(&expected, gesture).unwrap();
+                let final_contact = point(x, y);
+                assert_eq!(f.sample().position, final_contact);
+                f.invoke(1, "board.objects.move", &[target], json!({"dx":20,"dy":0}));
+                f.step();
+                let session = f.h.app.presence.roster.session(&motion_id).unwrap();
+                assert_eq!(session.current_plan().unwrap().start, final_contact);
+            }
+            _ => unreachable!(),
+        }
     }
 }

@@ -1,4 +1,12 @@
 //! Opt-in screenshots from the real Slate app, never a component mock or provider run.
+#[path = "chrome_render_activity.rs"]
+mod activity;
+#[path = "chrome_render_catalogue.rs"]
+mod catalogue;
+#[path = "chrome_render_departures.rs"]
+mod departures;
+#[path = "chrome_render_harness.rs"]
+mod harness;
 #[path = "chrome_render_management.rs"]
 mod management;
 #[path = "chrome_render_support.rs"]
@@ -238,6 +246,10 @@ fn full_app_presence_chrome_retains_actual_ui_states() {
     }
     f.finish();
     management::run();
+    activity::run();
+    catalogue::run();
+    departures::run();
+    harness::run();
 }
 
 fn is_surface(shape: &egui::Shape, panel: Rect, fill: egui::Color32) -> bool {

@@ -97,8 +97,7 @@ impl SlateApp {
                             .agents
                             .iter()
                             .find(|a| a.profile.id == who)
-                            .and_then(|a| self.presence.roster.session(&a.motion))
-                            .map(|s| s.sample().position);
+                            .and_then(|a| a.position(&self.presence.roster));
                         if let Some(position) = position {
                             // Reproduce the observed lower-screen 80% clip;
                             // other zooms keep the enlarged shell fully visible.

@@ -4205,11 +4205,10 @@ mod tests {
             item_kinds(&live_property_strip_items(&h.app, &[node(pdf)])),
             ["stroke", "corners", "filter", "pages"]
         );
-        // A selected picture offers the Agent squircle (portal-agent-link D01,
-        // DYNAMIC_PANELS.md). A PDF is pages, not that media.
+        // Raster images retain the seven shared image capabilities; PDF keeps Pages.
         assert_eq!(
             item_kinds(&live_property_strip_items(&h.app, &[node(image)])),
-            ["stroke", "corners", "filter", "agent"]
+            ["fill", "stroke", "corners", "filter", "brush", "layers", "agent"]
         );
         assert_eq!(
             item_kinds(&live_property_strip_items(

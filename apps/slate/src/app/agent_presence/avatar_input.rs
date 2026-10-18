@@ -287,8 +287,7 @@ impl SlateApp {
         let xf = self.board_xf();
         if let Some(who) = self.presence.chrome.canvas_chat().map(str::to_owned) {
             if let Some(a) = self.presence.agents.iter().find(|a| a.profile.id == who) {
-                if let Some(session) = self.presence.roster.session(&a.motion) {
-                    let p = session.sample().position;
+                if let Some(p) = a.position(&self.presence.roster) {
                     let center = xf.w2s(egui::pos2(p.x as f32, p.y as f32));
                     self.presence
                         .chrome
@@ -324,10 +323,8 @@ impl SlateApp {
             .iter()
             .filter(|a| a.tab == self.tab().id && a.departure.is_none())
             .filter_map(|a| {
-                self.presence
-                    .roster
-                    .session(&a.motion)
-                    .map(|s| (a.profile.id.clone(), s.sample().position))
+                a.position(&self.presence.roster)
+                    .map(|p| (a.profile.id.clone(), p))
             })
             .find_map(|(id, p)| {
                 let center = xf.w2s(egui::pos2(p.x as f32, p.y as f32));
@@ -405,13 +402,9 @@ impl SlateApp {
             .ok_or("Unknown collaborator")?;
         a.activity = "listening".into();
         a.status = "Board task paused · listening".into();
-        let p = self
-            .presence
-            .roster
-            .session(&a.motion)
-            .ok_or("Collaborator has left")?
-            .sample()
-            .position;
+        let p = a
+            .position(&self.presence.roster)
+            .ok_or("Collaborator has left")?;
         let center = xf.w2s(egui::pos2(p.x as f32, p.y as f32));
         self.presence
             .chrome

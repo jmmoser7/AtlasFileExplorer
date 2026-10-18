@@ -6,7 +6,8 @@ fn small_panoramic_and_round_images_route_to_external_squircles_at_every_zoom() 
         ("small", 180.0, 180.0, 0.0, false),
         ("panorama", 520.0, 60.0, 0.0, false),
         ("round", 360.0, 360.0, 180.0, false),
-        ("blister", 360.0, 240.0, 0.0, true),
+        ("insufficient-width", 360.0, 240.0, 0.0, false),
+        ("blister", 680.0, 380.0, 0.0, true),
     ];
     for (name, width, height, radius, attached) in cases {
         let mut h = Harness::new(&format!("image-palette-route-{name}"));
@@ -96,17 +97,7 @@ fn fallback_image_body_inspection_retains_the_editor_including_locked_hosts() {
                     .any(|hit| hit.contains(point)),
                 "the press is on the picture body, not its controls"
             );
-            frame_with_events(&mut h, &mut time, vec![egui::Event::PointerMoved(point)]);
-            frame_with_events(
-                &mut h,
-                &mut time,
-                vec![egui::Event::PointerButton {
-                    pos: point,
-                    button: egui::PointerButton::Primary,
-                    pressed: true,
-                    modifiers: egui::Modifiers::NONE,
-                }],
-            );
+            crate::app::tests::click_board(&mut h, point);
             if let Some(other) = other {
                 assert!(
                     h.app.shape_properties.panel.is_none(),
@@ -160,7 +151,10 @@ fn fallback_images_keep_external_brush_and_layers_controls_at_full_width() {
 
         click_external_image_panel(&mut h, &mut time, Panel::Brush);
         assert_eq!(h.app.shape_properties.panel, Some(Panel::Brush), "{name}");
-        let brush_layout = external_image_layout(&h, id, chrome::ImagePanelKind::Brush);
+        let (attached, brush_layout, _) =
+            h.app
+                .observed_image_palette_layout_for_test(&h.ctx, id, chrome::ImagePanelKind::Brush);
+        assert!(!attached, "{name} Brush remains external");
         let brush_header = brush_layout
             .brush_header
             .expect("Brush header in shared layout");
@@ -175,7 +169,12 @@ fn fallback_images_keep_external_brush_and_layers_controls_at_full_width() {
 
         click_external_image_panel(&mut h, &mut time, Panel::Layers);
         assert_eq!(h.app.shape_properties.panel, Some(Panel::Layers), "{name}");
-        let layers_layout = external_image_layout(&h, id, chrome::ImagePanelKind::Layers);
+        let (attached, layers_layout, _) = h.app.observed_image_palette_layout_for_test(
+            &h.ctx,
+            id,
+            chrome::ImagePanelKind::Layers,
+        );
+        assert!(!attached, "{name} Layers remains external");
         let layer_layout = chrome::image_layer_palette_layout(
             &layers_layout,
             h.app.image_paint_layer_choices(id).len(),
@@ -211,7 +210,12 @@ fn fallback_images_keep_external_brush_and_layers_controls_at_full_width() {
             for _ in 0..2 {
                 frame(&mut h, &mut time);
             }
-            let locked_layout = external_image_layout(&h, id, chrome::ImagePanelKind::Layers);
+            let (attached, locked_layout, _) = h.app.observed_image_palette_layout_for_test(
+                &h.ctx,
+                id,
+                chrome::ImagePanelKind::Layers,
+            );
+            assert!(!attached, "{name} locked Layers remains external");
             let add = chrome::image_layer_palette_layout(
                 &locked_layout,
                 before,
@@ -236,11 +240,14 @@ fn click_external_image_panel(h: &mut Harness, time: &mut f64, panel: Panel) {
         .iter()
         .position(|item| *item == StripItem::Panel(panel))
         .expect("external strip includes the requested image control");
-    let strip = chrome::strip_rect_below(
-        state.bottom,
-        state.count,
-        xf.z,
-        chrome::strip_fade(&h.ctx, egui::Id::new("selection_property_strip"), true),
+    let (attached, _, strip) = h.app.observed_image_palette_layout_for_test(
+        &h.ctx,
+        state.host.expect("single image host").1,
+        image_palette::panel_kind(h.app.shape_properties.panel),
+    );
+    assert!(
+        !attached,
+        "requested control is on the observed external strip"
     );
     let rect = chrome::strip_button_rect(strip, index, xf.z);
     click_point(h, time, rect.center());
@@ -260,22 +267,4 @@ fn click_point(h: &mut Harness, time: &mut f64, point: Pos2) {
             }],
         );
     }
-}
-
-fn external_image_layout(
-    h: &Harness,
-    id: slate_doc::NodeId,
-    kind: chrome::ImagePanelKind,
-) -> chrome::ImagePresentationLayout {
-    let xf = h.app.board_xf();
-    let host = h.app.doc().scene.node(id).unwrap();
-    let host_screen = xf.rect_w2s(host.rect.rotated_bounds(host.rotation_deg));
-    let state = h.app.shape_properties.last_chrome.as_ref().unwrap();
-    let strip = chrome::strip_rect_below(
-        state.bottom,
-        state.count,
-        xf.z,
-        chrome::strip_fade(&h.ctx, egui::Id::new("selection_property_strip"), true),
-    );
-    chrome::image_editor_presentation_layout(host_screen, strip, xf.z, kind, h.app.canvas_rect)
 }

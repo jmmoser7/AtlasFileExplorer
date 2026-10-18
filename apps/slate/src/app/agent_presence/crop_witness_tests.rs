@@ -278,3 +278,54 @@ fn cover_clamped_pan_witness_stops_with_the_source_and_keeps_the_exact_prepared_
     assert!(work_samples >= 3);
     assert_eq!(h.app.doc().scene.node(image), Some(&before));
 }
+
+#[test]
+fn a_detached_helper_parent_spawns_from_its_settled_contact_instead_of_canvas_center() {
+    let mut h = host();
+    h.app.set_agent_programs_for_test(&[]);
+    h.app.ensure_work_tab();
+    add(&mut h, "Dot");
+    // The normal call dispatcher owns a removed parent while admitting helpers.
+    let parent = h.app.presence.agents.remove(0);
+    let physical = point(320.0, 180.0);
+    h.app
+        .presence
+        .roster
+        .session_mut(&parent.motion)
+        .unwrap()
+        .settle_idle_position(physical)
+        .unwrap();
+    let helper = StoredAgent {
+        id: atlas_agent::request_id(),
+        name: "Dot helper".into(),
+        hat: "beanie".into(),
+        provider: parent.profile.provider.clone(),
+        retired: false,
+    };
+    h.app
+        .join_scoped_presence(
+            helper,
+            Some((
+                parent.profile.id.clone(),
+                parent.motion.clone(),
+                parent.grant.clone().unwrap(),
+            )),
+        )
+        .unwrap();
+    let helper = &h.app.presence.agents[0];
+    assert_eq!(helper.parent.as_deref(), Some(parent.profile.id.as_str()));
+    assert_eq!(
+        helper.position(&h.app.presence.roster),
+        Some(point(364.0, 180.0))
+    );
+    assert_eq!(
+        h.app
+            .presence
+            .roster
+            .session(&parent.motion)
+            .unwrap()
+            .sample()
+            .position,
+        physical
+    );
+}

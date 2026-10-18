@@ -109,6 +109,27 @@ pub(crate) struct Collaborator {
     reply_from: usize,
 }
 
+impl Collaborator {
+    fn position(&self, roster: &PresenceRoster) -> Option<WorldPoint> {
+        let sample = roster.session(&self.motion)?.sample();
+        Some(
+            self.work
+                .as_ref()
+                .map_or(sample.position, |work| work.display_position(sample)),
+        )
+    }
+    fn cancel_motion(&self, roster: &mut PresenceRoster) -> Result<(), String> {
+        if let Some(motion) = roster.session_mut(&self.motion) {
+            if let Some(work) = &self.work {
+                work.cancel_motion(motion)?;
+            } else {
+                motion.cancel_motion();
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Default)]
 pub struct PresenceRuntime {
     proposals: HashMap<String, proposals::ProposalContext>,

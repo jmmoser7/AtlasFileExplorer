@@ -37,7 +37,17 @@ pub(super) fn photo_board(tag: &str) -> (Harness, NodeId) {
 /// Large enough to exercise the attached image blister, rather than the
 /// intentional small-host squircle fallback. Keep `photo_board` small.
 pub(super) fn blister_board(tag: &str) -> (Harness, NodeId) {
-    photo_board_at(tag, WorldRect::new(-180.0, -120.0, 360.0, 240.0))
+    let (h, id) = photo_board_at(tag, WorldRect::new(-340.0, -190.0, 680.0, 380.0));
+    let (attached, _, _) = h.app.observed_image_palette_layout_for_test(
+        &h.ctx,
+        id,
+        atlas_shell::selection_tools::ImagePanelKind::Layers,
+    );
+    assert!(
+        attached,
+        "the named 680x380 fixture must use the attached image blister"
+    );
+    (h, id)
 }
 
 fn photo_board_at(tag: &str, rect: WorldRect) -> (Harness, NodeId) {

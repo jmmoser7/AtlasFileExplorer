@@ -1,3 +1,5 @@
+#[path = "session_test_support.rs"]
+pub(super) mod session_support;
 use super::super::tests::Harness;
 use super::*;
 
@@ -354,22 +356,7 @@ fn publish_helper_state(h: &mut Harness, who: &str, status: atlas_agent::AgentSt
         ..Default::default()
     };
     delivery::wait_request(&dir.join("request.json"), &session.request);
-    atlas_ai::agent::atomic_write_json(&dir.join("session.json"), &session).unwrap();
-    h.app.presence.sources.expect(&dir, &session.request);
-    let deadline = Instant::now() + std::time::Duration::from_secs(15);
-    loop {
-        h.app.presence_pump(&h.ctx);
-        if h.app
-            .presence
-            .agents
-            .iter()
-            .any(|a| a.profile.id == who && a.snapshot.as_deref().is_some_and(|s| s == &session))
-        {
-            break;
-        }
-        assert!(Instant::now() < deadline, "helper session was not observed");
-        std::thread::sleep(std::time::Duration::from_millis(5));
-    }
+    session_support::publish_and_observe(h, who, &session);
 }
 
 #[test]

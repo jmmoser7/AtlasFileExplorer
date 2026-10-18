@@ -154,7 +154,7 @@ fn attached_overlay_body_and_hits_keep_the_opener_world_transform_at_every_zoom(
         (Popover::More, 211.0, "Full conversation"),
         (Popover::Provider, 238.0, "Cursor"),
     ] {
-        let mut reference = None;
+        let mut reference: Option<[f32; 3]> = None;
         for zoom in [0.25, 0.8, 1.0, 2.0] {
             let mut f = Fixture::new();
             f.screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 1200.0));

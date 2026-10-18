@@ -340,6 +340,9 @@ fn export_media_changing_zoom_paint_cost() {
         std::env::var("ATLAS_MEDIA_ICON_AUDIT_DIR").expect("audit output directory"),
     );
     std::fs::create_dir_all(&dir).unwrap();
+    let profile_enabled = std::env::var("SLATE_MEDIA_ICON_PROFILE")
+        .map(|value| value == "1")
+        .unwrap_or(false);
     let mut records = Vec::new();
     for ppp in [1.0_f32, 1.5, 2.0] {
         records.extend(
@@ -366,6 +369,7 @@ fn export_media_changing_zoom_paint_cost() {
                 let theme = crate::theme::Palette::dark();
                 let mut seen = std::collections::HashSet::new();
                 let mut frames = Vec::new();
+                let profiler = profile_enabled.then(density::media::BuildProfiler::enable);
                 for frame in 0..=40 {
                     let step = if frame <= 20 { frame } else { 40 - frame };
                     let z = 0.5 + step as f32 * 0.025;
@@ -399,6 +403,7 @@ fn export_media_changing_zoom_paint_cost() {
                         },
                     );
                     let paint_us = start.elapsed().as_micros();
+                    let attribution = profiler.as_ref().map(|profile| profile.drain_frame());
                     let (meshes, vertices, triangles) =
                         output
                             .shapes
@@ -417,7 +422,26 @@ fn export_media_changing_zoom_paint_cost() {
                         "ppp": ppp, "frame": frame, "zoom": z,
                         "phase": if frame <= 20 { "outbound-new-size" } else { "returning-size" },
                         "repeated_size": repeated_size, "paint_us": paint_us,
+                        "profile_enabled": profile_enabled,
                         "meshes": meshes, "vertices": vertices, "triangles": triangles,
+                        "attribution": attribution.as_ref().map(|attribution| serde_json::json!({
+                            "records": attribution.records.iter().map(|record| serde_json::json!({
+                                "icon": record.icon,
+                                "physical_size": record.physical_size,
+                                "physical_size_bits": format!("{:08x}", record.physical_size_bits),
+                                "source_material_ns": record.source_material_ns,
+                                "max_coverage_mesh_ns": record.max_coverage_mesh_ns,
+                                "to_egui_ns": record.to_egui_ns,
+                                "source_vertices": record.source_vertices,
+                                "source_indices": record.source_indices,
+                                "covered_vertices": record.covered_vertices,
+                                "covered_indices": record.covered_indices,
+                                "egui_vertices": record.egui_vertices,
+                                "egui_indices": record.egui_indices,
+                            })).collect::<Vec<_>>(),
+                            "cache_miss_builds_recorded": attribution.records.len(),
+                            "dropped_cache_miss_records": attribution.dropped_records,
+                        })),
                     }));
                 }
                 frames
@@ -431,7 +455,20 @@ fn export_media_changing_zoom_paint_cost() {
         "timed": "Context::run including layout and icon paint; no glyph prewarm",
         "excluded": "Context construction, output counting, serialization, tessellation, GPU and app frame work",
         "cache_scope": "fresh thread/context per DPI; returning sizes are identified, not presumed cache hits",
+        "profile_enabled": profile_enabled,
+        "profile_opt_in": "Set SLATE_MEDIA_ICON_PROFILE=1 to enable; default is off.",
         "boundary": "shared CPU component measurement only; no timing pass or app/native smoothness inference",
+        "measurement_kind": if profile_enabled {
+            "instrumented diagnostic; paint_us includes the observer and is not an unprofiled smoothness measurement or pass"
+        } else {
+            "unprofiled measurement; retain as a separate baseline result"
+        },
+        "attribution_scope": if profile_enabled {
+            "records are actual media mesh cache-miss builds; no record means no cache-miss build was observed"
+        } else {
+            "disabled; null attribution is not evidence of a cache hit"
+        },
+        "unprofiled_baseline": "Keep the previously collected 127512us fresh123 new-size p95 result separate from this export.",
         "frames": records,
     });
     std::fs::write(

@@ -140,6 +140,18 @@ impl PresenceSession {
             })
     }
 
+    /// Settle a host-resolved physical contact after existing terminal/cancel
+    /// handling. Active or queued motion keeps its authoritative start untouched.
+    /// This emits no signals and retains every request and replay fence.
+    pub fn settle_idle_position(&mut self, position: WorldPoint) -> Result<(), PresenceError> {
+        position.validate()?;
+        if self.active.is_some() || !self.queue.is_empty() {
+            return Err(PresenceError::DiscontinuousStart);
+        }
+        self.position = position;
+        Ok(())
+    }
+
     /// Local reservation hints only. This acquires no document or filesystem lease.
     pub fn leased_targets(&self) -> &[PresenceId] {
         match self.sample().phase {

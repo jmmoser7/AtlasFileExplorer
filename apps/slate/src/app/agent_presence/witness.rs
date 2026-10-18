@@ -182,6 +182,33 @@ impl WitnessedCommand {
         self.started = true;
         Ok(())
     }
+    /// Control samples drive canonical crop math; actual grips own the avatar.
+    pub(super) fn display_position(&self, sample: MotionSample) -> WorldPoint {
+        if matches!(sample.phase, MotionPhase::Work | MotionPhase::ReadyToCommit) {
+            if let Some(gesture @ crate::app::board_crop::CropGesture::Handle { .. }) =
+                self.prepared.crop_gesture()
+            {
+                if let Some((_, Some(after))) = self.steps.get(self.index) {
+                    if let Some(preview) = self.previews.get(&after.id) {
+                        if let Some((x, y)) =
+                            crate::app::board_crop::gesture_contact(preview, gesture)
+                        {
+                            return point(x, y);
+                        }
+                    }
+                }
+            }
+        }
+        sample.position
+    }
+    pub(super) fn cancel_motion(&self, motion: &mut PresenceSession) -> Result<(), String> {
+        let displayed = self.display_position(motion.sample());
+        displayed.validate().map_err(|error| error.to_string())?;
+        motion.cancel_motion();
+        motion
+            .settle_idle_position(displayed)
+            .map_err(|error| error.to_string())
+    }
     pub(super) fn complete_step(&mut self) {
         self.index += 1;
         while self.skipped.contains(&self.index) {

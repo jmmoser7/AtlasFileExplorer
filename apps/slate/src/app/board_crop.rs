@@ -328,17 +328,45 @@ pub fn gesture_geometry(before: &Node, gesture: CropGesture) -> Option<CropGeome
     Some(with_window_geometry(before, rect, crop))
 }
 
-/// Bound visual travel to the gesture's actual source/window movement. The
-/// requested gesture still owns the exact prepared Node; callers keep that
+/// Bound replay controls to the actual source/window movement. A fixed-mask
+/// source grip can slide under cover; its painted contact is resolved separately.
+/// The requested gesture still owns the exact prepared Node; callers keep that
 /// original Node at the final sample rather than recomputing it from this
 /// world endpoint (whose inverse transform can round by a few ULPs).
 pub fn effective_gesture(before: &Node, requested: CropGesture) -> Option<CropGesture> {
     let after = apply_gesture(before, requested)?;
     match requested {
-        CropGesture::Handle { handle, .. } => Some(CropGesture::Handle {
-            handle,
-            world: gesture_contact(&after, requested)?,
-        }),
+        CropGesture::Handle { handle, .. } => {
+            let world = if before.clip.is_some() {
+                let (NodeKind::Image(start), NodeKind::Image(end)) = (&before.kind, &after.kind)
+                else {
+                    return None;
+                };
+                let content = content_rect(before.rect, start.crop);
+                let scaled = content_rect(after.rect, end.crop);
+                // Cover may slide the source after uniform scaling. Reconstruct
+                // the bounded control before that slide, not its painted grip.
+                let x = if matches!(handle, 0 | 6 | 7) {
+                    content.x + content.w - scaled.w
+                } else if matches!(handle, 2..=4) {
+                    content.x + scaled.w
+                } else {
+                    content.center().0
+                };
+                let y = if matches!(handle, 0..=2) {
+                    content.y + content.h - scaled.h
+                } else if matches!(handle, 4..=6) {
+                    content.y + scaled.h
+                } else {
+                    content.center().1
+                };
+                let point = before.rect.rotate_point([x, y], before.rotation_deg);
+                (point[0], point[1])
+            } else {
+                gesture_contact(&after, requested)?
+            };
+            Some(CropGesture::Handle { handle, world })
+        }
         CropGesture::Pan { .. } => {
             let (NodeKind::Image(start), NodeKind::Image(end)) = (&before.kind, &after.kind) else {
                 return None;

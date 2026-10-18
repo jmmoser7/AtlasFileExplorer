@@ -179,11 +179,8 @@ impl SlateApp {
                     .iter()
                     .find(|a| a.profile.id == id && a.tab == self.tab().id)
                     .ok_or("This collaborator is on another board")?;
-                let p = self
-                    .presence
-                    .roster
-                    .session(&a.motion)
-                    .map(|s| s.sample().position)
+                let p = a
+                    .position(&self.presence.roster)
                     .ok_or("Collaborator has retired")?;
                 self.tab_mut().cam.offset = egui::vec2(p.x as f32, p.y as f32);
                 ctx.request_repaint();

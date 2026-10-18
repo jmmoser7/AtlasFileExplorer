@@ -145,7 +145,7 @@ fn a_closed_image_blister_keeps_all_result_thumbnail_squares_visible() {
     let images = h.app.agent_images(id);
     for image in images.iter() {
         let path = slate_doc::scene::resolve_source(h.app.tab().path.as_deref(), &image.source);
-        let pixels = egui::ColorImage::new([20, 10], egui::Color32::from_rgb(80, 120, 160));
+        let pixels = egui::ColorImage::new([20, 10], egui::Color32::WHITE);
         let tex = h.ctx.load_texture(
             format!("album-result-{}", image.id),
             pixels.clone(),
@@ -201,8 +201,8 @@ fn a_closed_image_blister_keeps_all_result_thumbnail_squares_visible() {
     assert!(
         old_squares
             .iter()
-            .any(|(_, rect)| rect.center().y <= chrome_bottom),
-        "the regression fixture places an old thumbnail hit inside occupied chrome"
+            .any(|(_, rect)| rect.top() <= chrome_bottom),
+        "the regression fixture places an old thumbnail square overlapping occupied chrome"
     );
     fn under(shape: &egui::Shape, clip: Rect, texture: egui::TextureId, bottom: f32) -> bool {
         match shape {

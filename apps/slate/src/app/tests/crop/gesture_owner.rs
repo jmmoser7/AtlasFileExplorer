@@ -345,11 +345,14 @@ fn real_human_pan_uses_the_same_immutable_start_gesture_and_one_undo() {
             .map(|p| sample(&raster, xf.w2s(*p)))
             .collect();
         let target = start + delta;
+        // Replay the actual event delta: adding to a rotated f32 point can
+        // round the requested translation before the gesture subtracts start.
+        let event_delta = target - start;
         let depth = h.app.tab().journal.undo_depth();
         let mut expected = board_crop::apply_gesture(
             &before,
             CropGesture::Pan {
-                delta_world: (delta.x, delta.y),
+                delta_world: (event_delta.x, event_delta.y),
             },
         )
         .unwrap();

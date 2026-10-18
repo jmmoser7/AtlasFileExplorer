@@ -1,5 +1,6 @@
 use super::*;
 use crate::app::board_properties::Panel;
+use atlas_shell::selection_tools as chrome;
 
 #[test]
 fn clearing_a_focused_image_prompt_compacts_its_field_before_committing() {
@@ -189,17 +190,22 @@ fn image_agent_count_clicks_reach_the_authored_generator_settings() {
         h.frame();
     }
     let xf = h.app.board_xf();
-    let image = xf.rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
-    let editor = atlas_shell::selection_tools::image_presentation_layout(
-        image,
-        xf.z,
-        atlas_shell::selection_tools::ImagePanelKind::Custom {
-            main_height: h
-                .app
-                .image_agent_body_height(&h.ctx.layer_painter(egui::LayerId::background()), id),
+    let (attached, presentation, _) = h.app.observed_image_palette_layout_for_test(
+        &h.ctx,
+        id,
+        chrome::ImagePanelKind::Custom {
+            main_height: h.app.image_agent_body_height_for_width(
+                &h.ctx.layer_painter(egui::LayerId::background()),
+                id,
+                chrome::EDITOR_WIDTH,
+            ),
         },
-    )
-    .main;
+    );
+    assert!(
+        !attached,
+        "the 480x480 generator uses the external Agent editor"
+    );
+    let editor = presentation.main;
     // Wide datum: play is 20, gap is 6, count's plus target is 13 wide.
     let inner = editor.shrink(12.0 * xf.z);
     let plus = Pos2::new(
@@ -269,19 +275,22 @@ fn a_running_frame_shows_what_it_is_doing_and_for_how_long() {
         h.frame();
     }
     painted(&mut h, Pos2::new(2.0, 890.0));
-    let xf = h.app.board_xf();
-    let image = xf.rect_w2s(h.app.doc().scene.node(generator).unwrap().rect);
-    let editor = atlas_shell::selection_tools::image_presentation_layout(
-        image,
-        xf.z,
-        atlas_shell::selection_tools::ImagePanelKind::Custom {
-            main_height: h.app.image_agent_body_height(
+    let (attached, presentation, _) = h.app.observed_image_palette_layout_for_test(
+        &h.ctx,
+        generator,
+        chrome::ImagePanelKind::Custom {
+            main_height: h.app.image_agent_body_height_for_width(
                 &h.ctx.layer_painter(egui::LayerId::background()),
                 generator,
+                chrome::EDITOR_WIDTH,
             ),
         },
-    )
-    .main;
+    );
+    assert!(
+        !attached,
+        "the 480x480 generator uses the external Agent editor"
+    );
+    let editor = presentation.main;
     // The image blister's bare Play/Stop control occupies the top-right
     // of its datum row in the wide layout.
     let datum = editor.shrink(12.0);

@@ -138,7 +138,7 @@ pub(super) fn review(ui: &mut egui::Ui, theme: Palette) {
         for (center, inward, color) in ports {
             ui.painter().line_segment(
                 [center - inward * 20.0, center],
-                egui::Stroke::new(2.0, Color32::from_gray(160)),
+                egui::Stroke::new(2.0_f32, Color32::from_gray(160)),
             );
             ui.painter().circle_filled(center, 6.0, color);
         }

@@ -1,5 +1,4 @@
 use super::*;
-use serde_json::json;
 use std::time::Duration;
 
 pub(super) fn command_activity(command: &str) -> &'static str {
@@ -340,7 +339,22 @@ impl SlateApp {
                             let sample = motion.advance(elapsed);
                             work.preview(sample)?;
                             if sample.phase == MotionPhase::ReadyToCommit {
+                                let displayed = work.display_position(sample);
+                                let settle = displayed != sample.position;
+                                if settle {
+                                    displayed.validate().map_err(|error| error.to_string())?;
+                                    if motion.queued_len() != 0 {
+                                        return Err(
+                                            "Queued motion prevents crop contact settlement".into(),
+                                        );
+                                    }
+                                }
                                 let _ = motion.resolve_ready(|_| true);
+                                if settle {
+                                    motion
+                                        .settle_idle_position(displayed)
+                                        .map_err(|error| error.to_string())?;
+                                }
                                 work.complete_step();
                             }
                             Ok(work.index == work.steps.len())
@@ -371,9 +385,14 @@ impl SlateApp {
                                 .links
                                 .reply(&a.dir, BoardReply::error(&work.call, &error));
                             if let Some(m) = self.presence.roster.session_mut(&a.motion) {
-                                m.cancel_motion();
+                                if let Err(settlement) = work.cancel_motion(m) {
+                                    a.status = format!("{error}; {settlement}");
+                                } else {
+                                    a.status = error;
+                                }
+                            } else {
+                                a.status = error;
                             }
-                            a.status = error;
                             a.activity = "blocked".into();
                         }
                     }

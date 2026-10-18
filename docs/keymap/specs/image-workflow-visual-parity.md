@@ -8,11 +8,11 @@ the executable geometry. It is not a replacement interaction contract.
 
 ## Reference authority
 
-Later refinement (17 October): the selected host has a clean, persistent bottom
-notch with full-height eased shoulders and bare glyphs. This supersedes the
-11 October photograph-visible tab-backing fade. Shared content clipping,
-exterior stroke and shadow follow P1.image.notch. The four later references
-and their normalized targets live in
+The latest 17 October refinement distinguishes collapsed and expanded chrome.
+Follow P1.image.notch for the collapsed cutout with softened shoulders and the
+expanded bare-icon overlay inside the uncut host. This supersedes earlier
+backing and full-height notch treatments. Current references and measured
+targets live in
 [the media refinement evidence](../../../design/media-ui-2026-10-17/metrics.json).
 
 Earlier live-use refinement (11 October; backing treatment superseded): retain the agreed geometry, but use a

@@ -174,11 +174,9 @@ impl SlateApp {
             .iter_mut()
             .find(|a| a.profile.id == who)
             .unwrap();
-        if let Some(motion) = self.presence.roster.session_mut(&a.motion) {
-            // A paused read can remain parked, but its old cursor travel must
-            // not become the approved command's first motion sample.
-            motion.cancel_motion();
-        }
+        // A paused read can remain parked, but its old cursor travel must
+        // not become the approved command's first motion sample.
+        a.cancel_motion(&mut self.presence.roster)?;
         self.presence
             .proposals
             .get_mut(&proposal.id)
@@ -409,10 +407,12 @@ impl SlateApp {
                 .as_ref()
                 .is_some_and(|w| w.purpose == WitnessPurpose::ApprovedProposal(id.into()))
             {
-                a.work = None;
-                if let Some(m) = self.presence.roster.session_mut(&a.motion) {
-                    m.cancel_motion();
+                if let Err(error) = a.cancel_motion(&mut self.presence.roster) {
+                    a.status = error;
+                    a.activity = "blocked".into();
+                    return;
                 }
+                a.work = None;
                 a.status = if a.paused {
                     "Listening; task suspended"
                 } else {

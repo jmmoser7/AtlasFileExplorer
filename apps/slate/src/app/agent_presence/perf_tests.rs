@@ -205,6 +205,18 @@ fn benchmark(f: &mut Fixture, case: Case, warm: bool) {
         let mut after_doc = f.authored.clone();
         after_doc.scene = after.clone();
         let created = prepared.created_ids();
+        // Successful creation refreshes persisted color usage independently of
+        // scene undo. Derive the complete expected document from prepared nodes
+        // through the existing color owner, never from the observed result.
+        assert!(after_doc.view.recent_colors.is_some());
+        for color in crate::app::board_color::committed_colors(
+            created.iter().map(|id| (None, after.node(*id).unwrap())),
+        ) {
+            after_doc.view.remember_color(color);
+        }
+        let mut undo_doc = after_doc.clone();
+        assert!(undo_doc.scene.revert_all(&prepared.cmds));
+        assert_eq!(undo_doc.scene.nodes, f.scene.nodes);
         f.reset(warm);
         let rebuilds = f.h.app.doc().scene.spatial_rebuilds();
         let start = Instant::now();
@@ -228,6 +240,19 @@ fn benchmark(f: &mut Fixture, case: Case, warm: bool) {
         let tab = f.h.app.tab_mut();
         assert!(tab.journal.undo(&mut tab.doc.scene));
         assert_eq!(tab.doc.scene.nodes, f.scene.nodes);
+        assert_eq!(tab.doc, undo_doc);
+        assert_eq!(tab.journal.undo_depth(), 0);
+        assert!(tab.journal.can_redo());
+        assert!(tab.journal.redo(&mut tab.doc.scene));
+        assert_eq!(tab.doc, after_doc);
+        assert_eq!(tab.journal.undo_depth(), 1);
+        assert_eq!(
+            tab.journal.last_author(),
+            Some(&CmdAuthor::Agent("Probe".into()))
+        );
+        assert!(!tab.journal.can_redo());
+        assert!(tab.journal.undo(&mut tab.doc.scene));
+        assert_eq!(tab.doc, undo_doc);
         assert_eq!(tab.journal.undo_depth(), 0);
     }
     for (phase, samples) in [

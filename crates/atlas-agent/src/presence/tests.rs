@@ -429,3 +429,58 @@ fn short_plans_are_refused_and_coarse_frames_witness_every_phase() {
         .resolve_ready(|_| panic!("already resolved"))
         .is_none());
 }
+
+#[test]
+fn idle_contact_settlement_rejects_busy_motion_and_preserves_replay_and_next_start() {
+    let (mut roster, session_id) = roster();
+    let session = roster.session_mut(&session_id).unwrap();
+    session.reduce(event(session, 1)).unwrap();
+    let request = session.request_id().cloned();
+    let initial = session.sample();
+    assert_eq!(
+        session.settle_idle_position(WorldPoint {
+            x: f64::NAN,
+            y: 0.0
+        }),
+        Err(PresenceError::InvalidPoint)
+    );
+    assert_eq!(session.sample(), initial);
+    let first = plan(session, "first", 0.0, 30.0);
+    session.enqueue(first.clone()).unwrap();
+    assert_eq!(
+        session.settle_idle_position(point(14.0, 4.0)),
+        Err(PresenceError::DiscontinuousStart)
+    );
+    assert_eq!(session.queued_len(), 1);
+    session.advance(Duration::from_millis(50));
+    let active = session.sample();
+    assert_eq!(
+        session.settle_idle_position(point(14.0, 4.0)),
+        Err(PresenceError::DiscontinuousStart)
+    );
+    assert_eq!(session.sample(), active);
+    assert_eq!(session.cancel_motion().len(), 1);
+    let physical = point(14.0, 4.0);
+    session.settle_idle_position(physical).unwrap();
+    assert_eq!(session.sample().position, physical);
+    assert_eq!(session.request_id().cloned(), request);
+    assert_eq!(
+        session.reduce(event(session, 1)),
+        Err(PresenceError::StaleSequence)
+    );
+    assert_eq!(session.enqueue(first), Err(PresenceError::DuplicateAction));
+    let mut next = plan(session, "next", 14.0, 30.0);
+    next.start = physical;
+    session.enqueue(next).unwrap();
+    for _ in 0..40 {
+        if session.advance(Duration::from_millis(50)).phase == MotionPhase::ReadyToCommit {
+            break;
+        }
+    }
+    assert_eq!(session.sample().phase, MotionPhase::ReadyToCommit);
+    assert!(session.resolve_ready(|_| true).is_some());
+    session.settle_idle_position(point(29.0, 1.0)).unwrap();
+    assert_eq!(session.sample().position, point(29.0, 1.0));
+    assert!(session.resolve_ready(|_| true).is_none());
+    assert_eq!(session.request_id().cloned(), request);
+}
