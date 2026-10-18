@@ -61,7 +61,7 @@ fn read_workspace_png(
     source: &Path,
     cloud_guard: Option<fn(&Path) -> bool>,
 ) -> Result<Vec<u8>, String> {
-    if cloud_guard.map_or(true, |guard| guard(source)) {
+    if cloud_guard.is_none_or(|guard| guard(source)) {
         return Err("Image artifact is unavailable under the cloud-safe file policy".into());
     }
     let workspace = workspace
@@ -81,7 +81,7 @@ fn read_workspace_png(
     let resolved = source
         .canonicalize()
         .map_err(|_| "Image artifact is unavailable")?;
-    if cloud_guard.map_or(true, |guard| guard(&resolved)) {
+    if cloud_guard.is_none_or(|guard| guard(&resolved)) {
         return Err("Image artifact is unavailable under the cloud-safe file policy".into());
     }
     let canonical_workspace = workspace.as_path();
