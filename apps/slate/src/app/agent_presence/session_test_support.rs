@@ -89,7 +89,33 @@ fn publish_session_until(
         if observed(h) {
             break;
         }
-        assert!(Instant::now() < deadline, "helper session was not observed");
+        if Instant::now() >= deadline {
+            let expected = serde_json::to_value(session).unwrap();
+            let actual = h
+                .app
+                .presence
+                .agents
+                .iter()
+                .find(|a| a.dir == dir)
+                .and_then(|a| a.snapshot.as_deref())
+                .map(|s| serde_json::to_value(s).unwrap())
+                .unwrap_or_default();
+            let differing = |value: &serde_json::Value| {
+                expected
+                    .as_object()
+                    .unwrap()
+                    .keys()
+                    .filter(|field| expected[field.as_str()] != value[field.as_str()])
+                    .cloned()
+                    .collect::<Vec<_>>()
+            };
+            let saved = std::fs::read(dir.join("session.json"))
+                .ok()
+                .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+                .unwrap_or_default();
+            panic!("helper session was not observed; expected update {}, activity {:?}; snapshot fields {:?}; disk fields {:?}",
+                session.updated_at, session.activity.last().map(|e| (e.at, e.text.chars().count())), differing(&actual), differing(&saved));
+        }
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
 }

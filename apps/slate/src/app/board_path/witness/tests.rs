@@ -104,10 +104,25 @@ fn pen_up_keeps_contours_disjoint_and_brush_style_tips_aligned() {
     let preview = StrokePreview::new(&source, 0.1).unwrap();
     let node = preview.through(1, 0, point(90.0, 80.0), false, false);
     let path = preview_path(&node);
-    assert_eq!(path.segs, vec![PathSeg::Line { to: [0.5, 0.2] }]);
+    assert_eq!(
+        path.segs,
+        vec![
+            PathSeg::Line { to: [0.5, 0.2] },
+            PathSeg::Line { to: [0.5, 0.8] },
+        ],
+        "the contour before the pen-up is complete"
+    );
     assert_eq!(path.extra.len(), 1);
+    assert_eq!(path.extra[0].start, [0.8, 0.8]);
     assert!(path.extra[0].segs.is_empty());
-    assert_eq!(path.tips.len(), 1 + path.segs.len() + 1);
+    let preview_anchor_count = 1
+        + path.segs.len()
+        + path
+            .extra
+            .iter()
+            .map(|contour| 1 + contour.segs.len())
+            .sum::<usize>();
+    assert_eq!(path.tips.len(), preview_anchor_count);
     let NodeKind::Shape(shape) = &node.kind else {
         unreachable!()
     };

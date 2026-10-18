@@ -370,6 +370,10 @@ mod tests {
         h.frame();
         h.app.doc_mut().scene.node_mut(id).unwrap().rect.x = 100_000.0;
         h.frame();
+        // Visibility recorded by the preceding board paint feeds the next
+        // admission pass. Let that cached on-screen observation expire before
+        // asserting that the portal is genuinely offscreen.
+        h.frame();
         assert!(!h.app.web.is_live(id));
         let camera = h.app.tab().cam;
 

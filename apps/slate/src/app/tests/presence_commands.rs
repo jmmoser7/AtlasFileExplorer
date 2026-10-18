@@ -251,8 +251,10 @@ fn public_command_schema_and_argument_validation_share_one_catalogue() {
     let schema = SlateApp::targeted_command_schema();
     let entries = schema.as_object().unwrap();
     let approved = std::collections::BTreeSet::from([
+        "board.eraser.stroke",
         "board.objects.create_frame",
         "board.objects.create_generator",
+        "board.objects.create_portal",
         "board.objects.create_shape",
         "board.objects.create_text",
         "board.objects.create_train",
@@ -264,9 +266,22 @@ fn public_command_schema_and_argument_validation_share_one_catalogue() {
         "board.objects.resize",
         "board.objects.set_text",
         "board.objects.wire",
+        "board.path.join",
+        "board.paths.draw",
         "board.shape.edit",
         "board.wire.edit",
         "portal.agent.run",
+        "portal.atlas.highlight",
+        "portal.atlas.list",
+        "portal.atlas.read_file",
+        "portal.web.capture",
+        "portal.web.click",
+        "portal.web.focus",
+        "portal.web.key",
+        "portal.web.navigate",
+        "portal.web.read_text",
+        "portal.web.scroll",
+        "portal.web.type",
         "presence.read_text",
     ]);
     assert_eq!(
