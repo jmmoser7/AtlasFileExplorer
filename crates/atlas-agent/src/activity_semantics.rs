@@ -10,6 +10,7 @@ pub const ACTIVITY_TARGET_ID_LIMIT: usize = 256;
 pub enum AgentActivityAction {
     Idle,
     Resting,
+    Listening,
     Reasoning,
     Reading,
     Searching,
@@ -107,6 +108,7 @@ mod tests {
         let actions = [
             Idle,
             Resting,
+            Listening,
             Reasoning,
             Reading,
             Searching,

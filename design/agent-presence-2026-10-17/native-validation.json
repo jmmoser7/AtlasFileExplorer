@@ -8112,6 +8112,393 @@
       "buildInputsAfter": 1381,
       "finishedUtc": "2026-10-18T07:51:19.813360+00:00",
       "boundary": "Source application/publication evidence only; not a build, test, provider, native UX, performance, or human acceptance pass. Earlier v3/v4 test outcomes do not validate these latest bytes. The former61-path plan was superseded by the actual69-path application; no pending policy/source approval is described as execution."
+    },
+    {
+      "operation": "v5-format-check",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "result": "PASS formatting only",
+      "receipt": {
+        "path": "target/presence-v5-format-check-20261018.json",
+        "bytes": 493167,
+        "sha256": "09d7974a10a64c161bb3c32d6a7bff2451e05b440aad14f670fd397953128835"
+      },
+      "rawLog": {
+        "path": "target/presence-v5-format-check-20261018.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "cargoExitCode": 0,
+      "buildInputs": 1381,
+      "sourceAndConfigurationStable": true,
+      "finishedUtc": "2026-10-18T07:52:07.579052+00:00",
+      "executedRuntimeTests": 0,
+      "boundary": "Completed command only for its exact source/configuration identities. cargo check, fmt and Clippy do not execute test bodies or establish app/native/provider/human acceptance; failures remain failures."
+    },
+    {
+      "operation": "v5-affected-test-target-check",
+      "command": [
+        "cargo",
+        "check",
+        "--locked",
+        "--release",
+        "-p",
+        "atlas-shell",
+        "-p",
+        "slate",
+        "--tests",
+        "--jobs",
+        "1"
+      ],
+      "result": "FAIL compile E0599: review fixture still called cfg(test)-only presence_call; no tests executed",
+      "receipt": {
+        "path": "target/presence-v5-affected-tests-check-20261018.json",
+        "bytes": 493313,
+        "sha256": "ade552d2a15a7038969cf7dc4764d24009a656396a1dfa66b358c0bcda382fc1"
+      },
+      "rawLog": {
+        "path": "target/presence-v5-affected-tests-check-20261018.log",
+        "bytes": 2301,
+        "sha256": "f8c69826c6f282b11e828fe798134eb95e14a35b9a09ecb687a45aeda8f79490"
+      },
+      "cargoExitCode": 101,
+      "buildInputs": 1381,
+      "sourceAndConfigurationStable": true,
+      "finishedUtc": "2026-10-18T07:54:13.821719+00:00",
+      "executedRuntimeTests": 0,
+      "boundary": "Completed command only for its exact source/configuration identities. cargo check, fmt and Clippy do not execute test bodies or establish app/native/provider/human acceptance; failures remain failures."
+    },
+    {
+      "operation": "v6-affected-test-target-check",
+      "command": [
+        "cargo",
+        "check",
+        "--locked",
+        "--release",
+        "-p",
+        "atlas-shell",
+        "-p",
+        "slate",
+        "--tests",
+        "--jobs",
+        "1"
+      ],
+      "result": "PASS compilation only, with retained dead-code/import warnings; no tests executed",
+      "receipt": {
+        "path": "target/presence-v6-affected-tests-check-20261018.json",
+        "bytes": 493295,
+        "sha256": "53a3876891fa919563df790037f658d742fc64017c9ad0d54d32f905a91d496a"
+      },
+      "rawLog": {
+        "path": "target/presence-v6-affected-tests-check-20261018.log",
+        "bytes": 1119,
+        "sha256": "fb67e70032aa90840a53984d3f3f7d6ebb80817bfe5dd9ce7dbb7858cc57512f"
+      },
+      "cargoExitCode": 0,
+      "buildInputs": 1381,
+      "sourceAndConfigurationStable": true,
+      "finishedUtc": "2026-10-18T07:56:49.899822+00:00",
+      "executedRuntimeTests": 0,
+      "boundary": "Completed command only for its exact source/configuration identities. cargo check, fmt and Clippy do not execute test bodies or establish app/native/provider/human acceptance; failures remain failures."
+    },
+    {
+      "operation": "v7-format-check",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "result": "FAIL formatting in review.rs wrapping and actual-gesture test module ordering",
+      "receipt": {
+        "path": "target/presence-v7-format-check-20261018.json",
+        "bytes": 493569,
+        "sha256": "8878ce06baafad4b3afd26f7239dce0369584625478f0a4506a2341474808fcc"
+      },
+      "rawLog": {
+        "path": "target/presence-v7-format-check-20261018.log",
+        "bytes": 1059,
+        "sha256": "5b689dd296b2057c20164d7b9aa0a6dc2aa8b5c5f9304492c11d61458703def5"
+      },
+      "cargoExitCode": 1,
+      "buildInputs": 1382,
+      "sourceAndConfigurationStable": true,
+      "finishedUtc": "2026-10-18T08:01:09.947105+00:00",
+      "executedRuntimeTests": 0,
+      "boundary": "Completed command only for its exact source/configuration identities. cargo check, fmt and Clippy do not execute test bodies or establish app/native/provider/human acceptance; failures remain failures."
+    },
+    {
+      "operation": "v8-format-check",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "result": "PASS formatting only",
+      "receipt": {
+        "path": "target/presence-v8-format-check-20261018.json",
+        "bytes": 493552,
+        "sha256": "d850e5a9db348791bf12c13be24f69032e738c523d9b29ae04b493d4aaf4c52f"
+      },
+      "rawLog": {
+        "path": "target/presence-v8-format-check-20261018.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "cargoExitCode": 0,
+      "buildInputs": 1382,
+      "sourceAndConfigurationStable": true,
+      "finishedUtc": "2026-10-18T08:02:42.220876+00:00",
+      "executedRuntimeTests": 0,
+      "boundary": "Completed command only for its exact source/configuration identities. cargo check, fmt and Clippy do not execute test bodies or establish app/native/provider/human acceptance; failures remain failures."
+    },
+    {
+      "operation": "v8-affected-test-target-check",
+      "command": [
+        "cargo",
+        "check",
+        "--locked",
+        "--release",
+        "-p",
+        "atlas-shell",
+        "-p",
+        "slate",
+        "--tests",
+        "--jobs",
+        "1"
+      ],
+      "result": "PASS warning-free compilation including actual-avatar gesture regression source; no tests executed",
+      "receipt": {
+        "path": "target/presence-v8-affected-tests-check-20261018.json",
+        "bytes": 493679,
+        "sha256": "904059166351c76d6107b4da5591a108e0bc4c692a7fcec8862c15db3a3111ae"
+      },
+      "rawLog": {
+        "path": "target/presence-v8-affected-tests-check-20261018.log",
+        "bytes": 149,
+        "sha256": "5d8a6e63cce7bcc81fcfab44629847f5ea356aa8f205fcf9d4bdaf963cf75a4f"
+      },
+      "cargoExitCode": 0,
+      "buildInputs": 1382,
+      "sourceAndConfigurationStable": true,
+      "finishedUtc": "2026-10-18T08:03:49.992034+00:00",
+      "executedRuntimeTests": 0,
+      "boundary": "Completed command only for its exact source/configuration identities. cargo check, fmt and Clippy do not execute test bodies or establish app/native/provider/human acceptance; failures remain failures."
+    },
+    {
+      "operation": "v8-strict-workspace-Clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "--release",
+        "--workspace",
+        "--all-targets",
+        "--jobs",
+        "1",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "result": "FAIL six atlas-shell lint errors; no runtime tests executed",
+      "receipt": {
+        "path": "target/presence-v8-strict-clippy-20261018.json",
+        "bytes": 493548,
+        "sha256": "02310223a77c9e2b505981e759c6c0356d0ecd6275bcb9dfad72f895cfb15194"
+      },
+      "rawLog": {
+        "path": "target/presence-v8-strict-clippy-20261018.log",
+        "bytes": 4984,
+        "sha256": "540f1e0623e592da2ab5a1dc5c0b3fe5aee5aec833317fd35e309c369ed54e3f"
+      },
+      "cargoExitCode": 101,
+      "buildInputs": 1382,
+      "sourceAndConfigurationStable": true,
+      "finishedUtc": "2026-10-18T08:04:19.626206+00:00",
+      "executedRuntimeTests": 0,
+      "boundary": "Completed command only for its exact source/configuration identities. cargo check, fmt and Clippy do not execute test bodies or establish app/native/provider/human acceptance; failures remain failures."
+    },
+    {
+      "operation": "v9-format-check",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "result": "PASS formatting after six-file lint application",
+      "receipt": {
+        "path": "target/presence-v9-format-check-20261018.json",
+        "bytes": 493560,
+        "sha256": "e681d0faa39532563e9317a9ab6bcf9c69a50dfe4797e4b92cfe4ce81596e9bf"
+      },
+      "rawLog": {
+        "path": "target/presence-v9-format-check-20261018.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "cargoExitCode": 0,
+      "buildInputs": 1382,
+      "sourceAndConfigurationStable": true,
+      "finishedUtc": "2026-10-18T08:13:33.314748+00:00",
+      "executedRuntimeTests": 0,
+      "boundary": "Completed command only for its exact source/configuration identities. cargo check, fmt and Clippy do not execute test bodies or establish app/native/provider/human acceptance; failures remain failures."
+    },
+    {
+      "operation": "v9-strict-workspace-Clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "--release",
+        "--workspace",
+        "--all-targets",
+        "--jobs",
+        "1",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "result": "FAIL three atlas-connector-runtime lint errors: two large HostError returns and one let-and-return",
+      "receipt": {
+        "path": "target/presence-v9-strict-clippy-20261018.json",
+        "bytes": 493547,
+        "sha256": "61cc4d65f30e005e850fb136b05bdd3834a55bda695dc1f00930e68a90d809a8"
+      },
+      "rawLog": {
+        "path": "target/presence-v9-strict-clippy-20261018.log",
+        "bytes": 2431,
+        "sha256": "aa0fd4252bf4d765c16253dd40d395db36296292f6614030502d828d55d24a91"
+      },
+      "cargoExitCode": 101,
+      "buildInputs": 1382,
+      "sourceAndConfigurationStable": true,
+      "finishedUtc": "2026-10-18T08:13:56.315517+00:00",
+      "executedRuntimeTests": 0,
+      "boundary": "Completed command only for its exact source/configuration identities. cargo check, fmt and Clippy do not execute test bodies or establish app/native/provider/human acceptance; failures remain failures."
+    },
+    {
+      "operation": "actual source-only checkpoint1449 publication",
+      "result": "PUBLISHED and independently remote-read-verified source-only commit1449; not a build, CI dispatch or runtime result",
+      "receipt": {
+        "path": "target/presence-v7-checkpoint-19d9ae8a450749f0ac5cd33e634e8ec6/publication-current-586e25fdf79d4b618b3e4964890682d5/publication.json",
+        "bytes": 221189,
+        "sha256": "e932545ac3110c8059c48dc79762e6123b52245f535a8e9ce50533b89e0bed22"
+      },
+      "commit": "1449df850072610735ac665cb367f6bfb602a1a9",
+      "tree": "9b486507357e1a4160ef21678a6e20854897d929",
+      "parent": "47eb22939368082f9c24973814742e85c9ca310b",
+      "branch": "refs/heads/codex/presence-v7-checkpoint-20261018-19d9ae8a",
+      "finishedUtc": "2026-10-18T08:11:42.346457+00:00",
+      "ownerHeadAndIndexPreserved": true,
+      "ciCloudPrDispatchPerformed": false,
+      "boundary": "Publication predates the later six-file lint application. The receipt's inherited HOLD PUBLISH classification string is not its terminal state; pushed=true, push exit0, remote read and terminal published state establish this source-only backup. No latest-live-source, release or hosted-test pass follows."
+    },
+    {
+      "operation": "actual six-file v9 lint source application",
+      "result": "APPLIED and verified6/6 writes; 1382 build-input identities retained; source-only",
+      "receipt": {
+        "path": "target/review/presence-followup-application-c3ad6cd7c44348d58e1e01269f82369d/receipt.json",
+        "bytes": 580969,
+        "sha256": "371f998df250697fa33d9dadd28ada88e60c5dbb45669af3fa84b8750487f47b"
+      },
+      "writeCount": 6,
+      "verifiedWrites": 6,
+      "buildInputsBefore": 1382,
+      "buildInputsAfter": 1382,
+      "finishedUtc": "2026-10-18T08:12:54.739374+00:00",
+      "boundary": "These six later changes are outside checkpoint1449. v9 formatting passed afterward; v9 strict Clippy still failed in the connector crate. Source application does not execute tests or establish performance/native/provider/human acceptance."
+    },
+    {
+      "operation": "v9-normal-Slate-libtest",
+      "result": "FAILED normal suite: 1937 passed; 6 failed; 79 ignored",
+      "receipt": {
+        "path": "target/presence-v9-slate-tests-20261018.json",
+        "bytes": 493937,
+        "sha256": "36afc97da14dae3fe1fffdd8d6a12e2bd732c15cb199291751fbc7bae2bcd939"
+      },
+      "rawLog": {
+        "path": "target/presence-v9-slate-tests-20261018.log",
+        "bytes": 208364,
+        "sha256": "dcddc1cee2618f8ae4b8c47a1c981ea5e634671f4f6862d1af4c1dfc9840cb23"
+      },
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "slate",
+        "--lib",
+        "--jobs",
+        "1"
+      ],
+      "cargoExitCode": 101,
+      "summary": "FAILED. 1937 passed; 6 failed; 79 ignored; 0 measured; 0 filtered out; finished in 262.33s",
+      "executedRuntimeTests": 1943,
+      "sourceAndConfigurationStable": true,
+      "buildInputs": 1382,
+      "finishedUtc": "2026-10-18T08:53:22.473153+00:00",
+      "boundary": "Actual ordinary Windows test execution. 79 ignored test bodies were not executed. This failed suite is diagnostic evidence, not overall or native/provider/human acceptance. Earlier receipt acceptance.testExecutionEstablished=false is retained unchanged; this amendment derives actual execution from its libtest log."
+    },
+    {
+      "operation": "v9-two-exact-Media-diagnostics-after-failed-parent",
+      "result": "Expanded menu FAILED 0/1; held-hover PASSED 1/0; two separate exact selections",
+      "receipt": {
+        "path": "target/presence-v9-media-diagnostics-20261018.json",
+        "bytes": 498004,
+        "sha256": "1eb8e466e15f8861066eee3d35862df55d61459cddd9df79f4ab0f8af9c74e08"
+      },
+      "parentReceipt": {
+        "path": "target/presence-v9-slate-tests-20261018.json",
+        "bytes": 493937,
+        "sha256": "36afc97da14dae3fe1fffdd8d6a12e2bd732c15cb199291751fbc7bae2bcd939"
+      },
+      "tests": [
+        {
+          "selector": "app::board_flow::result_actions::tests::expanded::expanded_history_actions_and_batch_name_field_are_reachable_above_the_editor",
+          "exitCode": 101,
+          "summary": {
+            "outcome": "FAILED",
+            "passed": 0,
+            "failed": 1,
+            "ignored": 0
+          },
+          "rawLog": {
+            "path": "target/presence-v9-media-diagnostics-20261018/expanded.log",
+            "bytes": 3196,
+            "sha256": "4c3915e94529b3856d873ee55537677b5cfb6df4ef37bf65f39615367e497ed2"
+          }
+        },
+        {
+          "selector": "app::board_flow::result_actions::tests::held_hover::hover_only_strip_survives_the_gap_and_a_held_click_without_selecting_the_host_first",
+          "exitCode": 0,
+          "summary": {
+            "outcome": "ok",
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          },
+          "rawLog": {
+            "path": "target/presence-v9-media-diagnostics-20261018/held-hover.log",
+            "bytes": 5947,
+            "sha256": "ef93481abe1dcfca39305ea393af05818f914f8d21b12fe2ef229bd9bc54247f"
+          }
+        }
+      ],
+      "executedRuntimeTests": 2,
+      "sourceAndConfigurationStable": true,
+      "finishedUtc": "2026-10-18T08:55:51.171360+00:00",
+      "boundary": "Existing harness, one attempt each, child-only trace flag. Do not add focused test counts to the normal suite, convert the failed parent to pass, or infer native/provider/human acceptance."
     }
   ],
   "pendingChecks": [
@@ -12670,5 +13057,279 @@
     "finalBinary": null,
     "humanAcceptance": "Untested",
     "sourceAndEvidenceBoundary": "This successor records source-only applications and completed historical commands. It performs no live source/doc writes, Git/network/ref mutation, process launch, Cargo/provider/native command, workflow dispatch or retry. Latest root formatting/workspace/native checks remain pending. No gate is closed by source approval or diagnostic exports."
+  },
+  "currentEvidence20261018V9": {
+    "schema": "presence-operational-evidence-append/v1",
+    "preparedUtc": "2026-10-18T08:18:02.538539+00:00",
+    "scope": "Scratch successor for root review; append-only record values and exact old Markdown prefix preserved; no live edit or command execution by this reconciliation",
+    "supersedesOperationalStatementsOnly": [
+      "top-level implementation and old pendingChecks that still describe c9/v3 fixes as unapplied",
+      "currentEvidence20261018V3V4.appliedSource.latest69Writes/currentBuildInputsReportedByLatestApplication/latestRuntimeStatus as descriptions of the latest live source",
+      "old13-state/nine-phase render and 85-record wording when read as current totals; retain as historical snapshot counts"
+    ],
+    "recordCounts": {
+      "preservedAutomatedRecords": 108,
+      "newCompletedCommandOrSourceRecords": 11,
+      "resultingAutomatedRecords": 119
+    },
+    "currentBuildInputCount": 1382,
+    "countBoundary": "1381 belongs to the exact69-path application receipt. Later completed checks record1382 canonical build inputs (Rust/manifests/assets), not1382 Rust files or executed tests. 69 and6 describe distinct source applications; do not total them into a runtime result.",
+    "completedReceipts": [
+      {
+        "operation": "v5-format-check",
+        "result": "PASS formatting only",
+        "receipt": {
+          "path": "target/presence-v5-format-check-20261018.json",
+          "bytes": 493167,
+          "sha256": "09d7974a10a64c161bb3c32d6a7bff2451e05b440aad14f670fd397953128835"
+        },
+        "buildInputs": 1381,
+        "cargoExitCode": 0
+      },
+      {
+        "operation": "v5-affected-test-target-check",
+        "result": "FAIL compile E0599: review fixture still called cfg(test)-only presence_call; no tests executed",
+        "receipt": {
+          "path": "target/presence-v5-affected-tests-check-20261018.json",
+          "bytes": 493313,
+          "sha256": "ade552d2a15a7038969cf7dc4764d24009a656396a1dfa66b358c0bcda382fc1"
+        },
+        "buildInputs": 1381,
+        "cargoExitCode": 101
+      },
+      {
+        "operation": "v6-affected-test-target-check",
+        "result": "PASS compilation only, with retained dead-code/import warnings; no tests executed",
+        "receipt": {
+          "path": "target/presence-v6-affected-tests-check-20261018.json",
+          "bytes": 493295,
+          "sha256": "53a3876891fa919563df790037f658d742fc64017c9ad0d54d32f905a91d496a"
+        },
+        "buildInputs": 1381,
+        "cargoExitCode": 0
+      },
+      {
+        "operation": "v7-format-check",
+        "result": "FAIL formatting in review.rs wrapping and actual-gesture test module ordering",
+        "receipt": {
+          "path": "target/presence-v7-format-check-20261018.json",
+          "bytes": 493569,
+          "sha256": "8878ce06baafad4b3afd26f7239dce0369584625478f0a4506a2341474808fcc"
+        },
+        "buildInputs": 1382,
+        "cargoExitCode": 1
+      },
+      {
+        "operation": "v8-format-check",
+        "result": "PASS formatting only",
+        "receipt": {
+          "path": "target/presence-v8-format-check-20261018.json",
+          "bytes": 493552,
+          "sha256": "d850e5a9db348791bf12c13be24f69032e738c523d9b29ae04b493d4aaf4c52f"
+        },
+        "buildInputs": 1382,
+        "cargoExitCode": 0
+      },
+      {
+        "operation": "v8-affected-test-target-check",
+        "result": "PASS warning-free compilation including actual-avatar gesture regression source; no tests executed",
+        "receipt": {
+          "path": "target/presence-v8-affected-tests-check-20261018.json",
+          "bytes": 493679,
+          "sha256": "904059166351c76d6107b4da5591a108e0bc4c692a7fcec8862c15db3a3111ae"
+        },
+        "buildInputs": 1382,
+        "cargoExitCode": 0
+      },
+      {
+        "operation": "v8-strict-workspace-Clippy",
+        "result": "FAIL six atlas-shell lint errors; no runtime tests executed",
+        "receipt": {
+          "path": "target/presence-v8-strict-clippy-20261018.json",
+          "bytes": 493548,
+          "sha256": "02310223a77c9e2b505981e759c6c0356d0ecd6275bcb9dfad72f895cfb15194"
+        },
+        "buildInputs": 1382,
+        "cargoExitCode": 101
+      },
+      {
+        "operation": "v9-format-check",
+        "result": "PASS formatting after six-file lint application",
+        "receipt": {
+          "path": "target/presence-v9-format-check-20261018.json",
+          "bytes": 493560,
+          "sha256": "e681d0faa39532563e9317a9ab6bcf9c69a50dfe4797e4b92cfe4ce81596e9bf"
+        },
+        "buildInputs": 1382,
+        "cargoExitCode": 0
+      },
+      {
+        "operation": "v9-strict-workspace-Clippy",
+        "result": "FAIL three atlas-connector-runtime lint errors: two large HostError returns and one let-and-return",
+        "receipt": {
+          "path": "target/presence-v9-strict-clippy-20261018.json",
+          "bytes": 493547,
+          "sha256": "61cc4d65f30e005e850fb136b05bdd3834a55bda695dc1f00930e68a90d809a8"
+        },
+        "buildInputs": 1382,
+        "cargoExitCode": 101
+      }
+    ],
+    "publishedSourceOnly": {
+      "commit": "1449df850072610735ac665cb367f6bfb602a1a9",
+      "tree": "9b486507357e1a4160ef21678a6e20854897d929",
+      "parent": "47eb22939368082f9c24973814742e85c9ca310b",
+      "receipt": {
+        "path": "target/presence-v7-checkpoint-19d9ae8a450749f0ac5cd33e634e8ec6/publication-current-586e25fdf79d4b618b3e4964890682d5/publication.json",
+        "bytes": 221189,
+        "sha256": "e932545ac3110c8059c48dc79762e6123b52245f535a8e9ce50533b89e0bed22"
+      },
+      "publishedBeforeSixLintChanges": true,
+      "newCiOrPrDispatchByPublisher": false
+    },
+    "latestCompletedSourceApplication": {
+      "receipt": {
+        "path": "target/review/presence-followup-application-c3ad6cd7c44348d58e1e01269f82369d/receipt.json",
+        "bytes": 580969,
+        "sha256": "371f998df250697fa33d9dadd28ada88e60c5dbb45669af3fa84b8750487f47b"
+      },
+      "verifiedWrites": 6,
+      "buildInputs": 1382
+    },
+    "pendingParent": {
+      "path": "target/presence-v9-slate-tests-20261018",
+      "completedReceiptPresentAtPreparation": false,
+      "status": "BUILDING per coordinator; no completed runtime result, summary, harness identity or exit inferred from partial log"
+    },
+    "approvedButUnappliedConnectorRepair": {
+      "plan": {
+        "path": "target/review/presence-v10-connector-root-plan-20261018/apply-plan.json",
+        "bytes": 1394,
+        "sha256": "fb02eac688e2036e90722d28c7ede6c33a3cc333b960c0f54615392ad603cba4"
+      },
+      "files": 2,
+      "currentBytesMatchBeforeGuards": true,
+      "status": "SOURCE REVIEW APPROVED; UNAPPLIED at preparation; no Clippy/test pass"
+    },
+    "historicalHostedBoundary": "Retained PR58 results remain head47eb/merge7b57303. Source-only checkpoint1449 publication does not establish hosted validation for that commit or later six-file bytes.",
+    "openGates": {
+      "appUiBlockers": 37,
+      "allAppUiBlockers": "OPEN",
+      "integratedWorkspacePass": "OPEN",
+      "commandPerformanceProbe": "OPEN",
+      "newSizeCpuCost": "OPEN",
+      "finalBinary": null,
+      "nativeGpuUx": "OPEN",
+      "liveProvider": "OPEN",
+      "humanAcceptance": "Untested"
+    },
+    "finalBinary": null,
+    "humanAcceptance": "Untested"
+  },
+  "currentEvidence20261018V9Runtime": {
+    "preparedUtc": "2026-10-18T09:00:51.263973+00:00",
+    "supersedesOperationalStatus": "currentEvidence20261018V9.pendingParent completed; every historical preparation-status field/value remains unchanged",
+    "normalParent": {
+      "operation": "v9-normal-Slate-libtest",
+      "result": "FAILED normal suite: 1937 passed; 6 failed; 79 ignored",
+      "receipt": {
+        "path": "target/presence-v9-slate-tests-20261018.json",
+        "bytes": 493937,
+        "sha256": "36afc97da14dae3fe1fffdd8d6a12e2bd732c15cb199291751fbc7bae2bcd939"
+      },
+      "rawLog": {
+        "path": "target/presence-v9-slate-tests-20261018.log",
+        "bytes": 208364,
+        "sha256": "dcddc1cee2618f8ae4b8c47a1c981ea5e634671f4f6862d1af4c1dfc9840cb23"
+      },
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "slate",
+        "--lib",
+        "--jobs",
+        "1"
+      ],
+      "cargoExitCode": 101,
+      "summary": "FAILED. 1937 passed; 6 failed; 79 ignored; 0 measured; 0 filtered out; finished in 262.33s",
+      "executedRuntimeTests": 1943,
+      "sourceAndConfigurationStable": true,
+      "buildInputs": 1382,
+      "finishedUtc": "2026-10-18T08:53:22.473153+00:00",
+      "boundary": "Actual ordinary Windows test execution. 79 ignored test bodies were not executed. This failed suite is diagnostic evidence, not overall or native/provider/human acceptance. Earlier receipt acceptance.testExecutionEstablished=false is retained unchanged; this amendment derives actual execution from its libtest log."
+    },
+    "focusedDiagnostics": {
+      "operation": "v9-two-exact-Media-diagnostics-after-failed-parent",
+      "result": "Expanded menu FAILED 0/1; held-hover PASSED 1/0; two separate exact selections",
+      "receipt": {
+        "path": "target/presence-v9-media-diagnostics-20261018.json",
+        "bytes": 498004,
+        "sha256": "1eb8e466e15f8861066eee3d35862df55d61459cddd9df79f4ab0f8af9c74e08"
+      },
+      "parentReceipt": {
+        "path": "target/presence-v9-slate-tests-20261018.json",
+        "bytes": 493937,
+        "sha256": "36afc97da14dae3fe1fffdd8d6a12e2bd732c15cb199291751fbc7bae2bcd939"
+      },
+      "tests": [
+        {
+          "selector": "app::board_flow::result_actions::tests::expanded::expanded_history_actions_and_batch_name_field_are_reachable_above_the_editor",
+          "exitCode": 101,
+          "summary": {
+            "outcome": "FAILED",
+            "passed": 0,
+            "failed": 1,
+            "ignored": 0
+          },
+          "rawLog": {
+            "path": "target/presence-v9-media-diagnostics-20261018/expanded.log",
+            "bytes": 3196,
+            "sha256": "4c3915e94529b3856d873ee55537677b5cfb6df4ef37bf65f39615367e497ed2"
+          }
+        },
+        {
+          "selector": "app::board_flow::result_actions::tests::held_hover::hover_only_strip_survives_the_gap_and_a_held_click_without_selecting_the_host_first",
+          "exitCode": 0,
+          "summary": {
+            "outcome": "ok",
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          },
+          "rawLog": {
+            "path": "target/presence-v9-media-diagnostics-20261018/held-hover.log",
+            "bytes": 5947,
+            "sha256": "ef93481abe1dcfca39305ea393af05818f914f8d21b12fe2ef229bd9bc54247f"
+          }
+        }
+      ],
+      "executedRuntimeTests": 2,
+      "sourceAndConfigurationStable": true,
+      "finishedUtc": "2026-10-18T08:55:51.171360+00:00",
+      "boundary": "Existing harness, one attempt each, child-only trace flag. Do not add focused test counts to the normal suite, convert the failed parent to pass, or infer native/provider/human acceptance."
+    },
+    "sourceApplicationsSinceTheseResults": "None at preparation; all next connector/profile/listening/book/freshness/gesture/fixture repairs remain unapplied and untested",
+    "recordCounts": {
+      "originalPreserved": 108,
+      "priorCompletedAppend": 11,
+      "runtimeAppend": 2,
+      "total": 121
+    },
+    "openGates": {
+      "appUiBlockers": 37,
+      "allAppUiBlockers": "OPEN",
+      "integratedWorkspacePass": "OPEN",
+      "commandPerformanceProbe": "OPEN",
+      "newSizeCpuCost": "OPEN",
+      "finalBinary": null,
+      "nativeGpuUx": "OPEN",
+      "liveProvider": "OPEN",
+      "humanAcceptance": "Untested"
+    },
+    "humanAcceptance": "Untested",
+    "finalBinary": null
   }
 }

@@ -303,8 +303,8 @@ fn menu_selector(
                     // The declared row height includes its spacing. Extra
                     // inherited gaps otherwise hide the last Settings action.
                     ui.spacing_mut().item_spacing.y = 0.0;
-                    for i in 0..count {
-                        let choice = rows.map_or_else(
+                    let choices = (0..count).map(|i| {
+                        rows.map_or_else(
                             || SelectorRow {
                                 label: options[i],
                                 detail: None,
@@ -314,7 +314,9 @@ fn menu_selector(
                                 danger: false,
                             },
                             |rows| rows.get(i).expect("row source length"),
-                        );
+                        )
+                    });
+                    for (i, choice) in choices.enumerate() {
                         let option = choice.label;
                         let (row, response) = ui.allocate_exact_size(
                             Vec2::new(ui.available_width(), row_h),

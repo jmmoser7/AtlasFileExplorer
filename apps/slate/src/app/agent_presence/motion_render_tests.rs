@@ -12,6 +12,9 @@ mod crop;
 #[path = "approved_render_tests.rs"]
 mod approved;
 
+#[path = "frame_carry_render_tests.rs"]
+mod frame_carry;
+
 fn move_image(f: &mut Fixture, dx: f32, dy: f32) {
     let source = f.h.app.doc().scene.node(f.images[0]).unwrap().clone();
     let scene = f.h.app.doc().scene.clone();
@@ -230,6 +233,7 @@ fn witnessed_linked_image_wire_and_cancellation_retain_actual_motion_frames() {
     assert!(tab.journal.undo(&mut tab.doc.scene));
     assert_eq!(tab.doc.scene.nodes, original.nodes);
     f.finish();
+    frame_carry::run();
 }
 
 #[test]

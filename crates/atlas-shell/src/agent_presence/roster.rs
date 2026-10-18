@@ -214,7 +214,12 @@ fn capsules_ui(
                 .min((screen.right() - width - 12.0).max(screen.left() + 12.0)),
             roster.bottom() + 10.0,
         );
-        let mut height = (screen.bottom() - top.y - 16.0).min(720.0).max(180.0);
+        let available_height = screen.bottom() - top.y - 16.0;
+        let mut height = if available_height.is_nan() {
+            720.0
+        } else {
+            available_height.clamp(180.0, 720.0)
+        };
         let zoom = attached.map_or(1.0, |(_, z)| z);
         if let Some((point, z)) = attached {
             top = Pos2::new(point.x / z, point.y / z);

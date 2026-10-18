@@ -69,7 +69,7 @@ impl MessageStream {
                 request: session.request.clone(),
                 kind: atlas_agent::AgentActivityKind::Commentary,
                 text: message.text.clone(),
-                at: self.at,
+                at: super::now(),
                 semantics: Some(atlas_agent::AgentActivitySemantics::new(
                     atlas_agent::AgentActivityAction::Chat,
                 )),
@@ -381,7 +381,7 @@ mod tests {
     fn commentary_streams_as_activity_and_final_is_the_only_answer() {
         let mut session = session_from_thread(&json!({"id":"thread"}));
         session.status = AgentStatus::Thinking;
-        let mut messages = MessageStream::new(0, 17);
+        let mut messages = MessageStream::new(0, 0);
         messages.apply(
             "item/started",
             &item("progress", json!("commentary"), ""),
@@ -399,6 +399,23 @@ mod tests {
         );
         assert!(session.turns.is_empty());
         assert_eq!(session.status, AgentStatus::Thinking);
+        let prefix = "界".repeat(atlas_agent::ACTIVITY_TEXT_LIMIT);
+        messages.apply(
+            "item/completed",
+            &item("progress", json!("commentary"), &prefix),
+            &mut session,
+        );
+        session.activity[0].at = 0;
+        messages.apply(
+            "item/agentMessage/delta",
+            &json!({"itemId":"progress","delta":" More public text beyond the cap."}),
+            &mut session,
+        );
+        assert_eq!(session.activity[0].text, prefix);
+        assert!(
+            session.activity[0].at > 0,
+            "capped commentary still observes current wall time"
+        );
         messages.apply(
             "item/started",
             &item("answer", json!("final_answer"), ""),
@@ -417,6 +434,10 @@ mod tests {
         );
         assert_eq!(session.turns.len(), 1);
         assert_eq!(session.turns[0].text, "Hello!");
+        assert_eq!(
+            session.turns[0].at, 0,
+            "transcript keeps the original turn timestamp"
+        );
     }
 
     #[test]

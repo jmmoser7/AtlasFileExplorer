@@ -112,7 +112,7 @@ pub struct CodexLink {
 }
 
 enum Engine {
-    Codex(atlas_codex::Client),
+    Codex(Box<atlas_codex::Client>),
     Ollama(atlas_ollama::Client),
     Comfy(atlas_comfy::Client),
     OpenAi(atlas_openai::Client),
@@ -243,13 +243,13 @@ impl Engine {
             if provider == "codex-image" {
                 c.set_image_dir(images);
             }
-            return Ok(Self::Codex(c));
+            return Ok(Self::Codex(Box::new(c)));
         }
         let mut c = atlas_codex::Client::start(&executable, cwd, previous.as_deref())?;
         c.set_approval_dir(dir);
         c.set_board_cloud_guard(atlas_core::cloud::is_dehydrated);
         std::fs::write(dir.join("codex-thread.txt"), c.thread_id()).map_err(|e| e.to_string())?;
-        Ok(Self::Codex(c))
+        Ok(Self::Codex(Box::new(c)))
     }
     fn run(
         &mut self,

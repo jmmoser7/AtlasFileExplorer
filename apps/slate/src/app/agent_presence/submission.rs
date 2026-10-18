@@ -131,7 +131,7 @@ impl SlateApp {
         a.sequences = 0;
         a.calls = 0;
         a.seen_running = false;
-        a.last_event.clear();
+        a.last_event = None;
         let delivered = (|| -> Result<(), String> {
             if a.profile.provider == "codex" {
                 let runtime = a.runtime.get_or_insert_with(|| {

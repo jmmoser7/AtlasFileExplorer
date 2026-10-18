@@ -67,9 +67,41 @@ fn frame(
                                 ctx.read_response(ui.id().with(("image-agent-history", index)))
                             {
                                 if index == 0 && std::env::var_os("SLATE_TEST_CHROME_TRACE").is_some() {
-                                    let (time, events) = ctx.input(|i| (i.time, i.events.clone()));
+                                    let (time, events, latest_pos, interact_pos, primary_down, primary_pressed, primary_released) = ctx.input(|i| (
+                                        i.time,
+                                        i.events.clone(),
+                                        i.pointer.latest_pos(),
+                                        i.pointer.interact_pos(),
+                                        i.pointer.button_down(egui::PointerButton::Primary),
+                                        i.pointer.button_pressed(egui::PointerButton::Primary),
+                                        i.pointer.button_released(egui::PointerButton::Primary),
+                                    ));
+                                    let (clicked, drag_started, dragged, drag_stopped, hovered_ids, contained_ids) =
+                                        ctx.interaction_snapshot(|s| (
+                                            s.clicked,
+                                            s.drag_started,
+                                            s.dragged,
+                                            s.drag_stopped,
+                                            s.hovered.iter().copied().collect::<Vec<_>>(),
+                                            s.contains_pointer.iter().copied().collect::<Vec<_>>(),
+                                        ));
+                                    let mut observed_ids = hovered_ids.clone();
+                                    observed_ids.extend(contained_ids.iter().copied());
+                                    observed_ids.extend([clicked, drag_started, dragged, drag_stopped].into_iter().flatten());
+                                    let observed_widgets: Vec<_> = observed_ids.into_iter().filter_map(|id| {
+                                        ctx.read_response(id).map(|r| format!(
+                                            "id={:?} rect={:?} interact_rect={:?} layer={:?} sense={:?} enabled={} down_on={} interact_pointer={:?}",
+                                            r.id, r.rect, r.interact_rect, r.layer_id, r.sense, r.enabled(),
+                                            r.is_pointer_button_down_on(), r.interact_pointer_pos,
+                                        ))
+                                    }).collect();
                                     eprintln!(
-                                        "[SLATE_TEST_CHROME_TRACE] expanded history[0] time={time} events={events:?} rect={:?} interact_rect={:?} layer={:?} owner={:?} hovered={} contains={} clicked={} drag_started={} menu_after_paint={}",
+                                        "[SLATE_TEST_CHROME_TRACE] expanded history[0] time={time} events={events:?} pointer_latest={latest_pos:?} pointer_interact={interact_pos:?} primary_down={primary_down} primary_pressed={primary_pressed} primary_released={primary_released} response_id={:?} response_sense={:?} response_enabled={} response_down_on={} response_interact_pointer={:?} rect={:?} interact_rect={:?} layer={:?} owner={:?} hovered={} contains={} clicked={} drag_started={} snapshot_clicked={clicked:?} snapshot_drag_started={drag_started:?} snapshot_dragged={dragged:?} snapshot_drag_stopped={drag_stopped:?} hovered_ids={hovered_ids:?} contained_ids={contained_ids:?} observed_widgets={observed_widgets:?} menu_after_paint={}",
+                                        response.id,
+                                        response.sense,
+                                        response.enabled(),
+                                        response.is_pointer_button_down_on(),
+                                        response.interact_pointer_pos,
                                         response.rect,
                                         response.interact_rect,
                                         response.layer_id,

@@ -71,12 +71,11 @@ fn fallback_image_body_inspection_retains_the_editor_including_locked_hosts() {
             });
             // Force selection also permits inspection of a locked host.
             h.app.board_sel = std::iter::once(id).collect();
-            let mut time = h.ctx.input(|i| i.time);
-            frame(&mut h, &mut time);
-            frame(&mut h, &mut time);
+            h.frame();
+            h.frame();
             h.app.shape_properties.panel = Some(Panel::Fill);
             for _ in 0..12 {
-                frame(&mut h, &mut time);
+                h.frame();
             }
             let chrome = h.app.shape_properties.last_chrome.as_ref().unwrap();
             assert!(

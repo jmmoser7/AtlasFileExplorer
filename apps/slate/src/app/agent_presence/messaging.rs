@@ -7,7 +7,7 @@ mod relay_tests;
 pub(super) use relay::PreparedRelay;
 #[cfg(test)]
 #[path = "messaging_mention_tests.rs"]
-mod mention_tests;
+pub(super) mod mention_tests;
 #[path = "messaging_mentions.rs"]
 mod mentions;
 pub(super) use mentions::MentionQueue;

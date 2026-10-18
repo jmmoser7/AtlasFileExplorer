@@ -30,7 +30,7 @@ pub enum HostErrorKind {
 #[derive(Debug)]
 pub struct HostError {
     kind: HostErrorKind,
-    receipt: Option<ReplyEnvelope>,
+    receipt: Option<Box<ReplyEnvelope>>,
 }
 
 impl HostError {
@@ -38,7 +38,7 @@ impl HostError {
         &self.kind
     }
     pub fn uncertain_receipt(&self) -> Option<&ReplyEnvelope> {
-        self.receipt.as_ref()
+        self.receipt.as_deref()
     }
 
     fn before_dispatch(kind: HostErrorKind) -> Self {
@@ -243,7 +243,7 @@ impl HostChannel {
             .expect("dispatched request owns a terminal receipt slot");
         HostError {
             kind,
-            receipt: Some(receipt),
+            receipt: Some(Box::new(receipt)),
         }
     }
 }

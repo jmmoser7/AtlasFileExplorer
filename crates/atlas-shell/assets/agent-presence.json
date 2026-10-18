@@ -17,6 +17,7 @@
     "slides": "<rect x=\"2\" y=\"3\" width=\"16\" height=\"13\" rx=\"1.5\" fill=\"#e9f0df\"/><rect x=\"6\" y=\"7\" width=\"16\" height=\"13\" rx=\"1.5\" fill=\"#fffef7\"/><path d=\"M10 11h8M10 14h5\"/>",
     "wire": "<path d=\"M3 5c11-4 4 18 17 13\" stroke-width=\"2\"/><circle cx=\"3\" cy=\"5\" r=\"2\" fill=\"#e3edd8\"/><circle cx=\"20\" cy=\"18\" r=\"2\" fill=\"#e3edd8\"/>",
     "bubbles": "<path d=\"M3 4h18v13h-8l-5 4v-4H3Z\" fill=\"#fffef7\"/><g fill=\"#82996d\" stroke=\"none\"><circle class=\"talk-dot\" cx=\"7\" cy=\"10\" r=\"1.3\"/><circle class=\"talk-dot\" cx=\"12\" cy=\"10\" r=\"1.3\"/><circle class=\"talk-dot\" cx=\"17\" cy=\"10\" r=\"1.3\"/></g>",
+    "attention": "<path d=\"M3 4h18v13h-8l-5 4v-4H3Z\" fill=\"#fffef7\"/><circle class=\"canvas-mark\" cx=\"12\" cy=\"10\" r=\"2\" fill=\"#82996d\" stroke=\"none\"/>",
     "relay": "<path d=\"M3 6h13l-3-3M21 18H8l3 3M16 6l-3 3M8 18l3-3\"/><circle cx=\"3\" cy=\"6\" r=\"2\" fill=\"#e0ecd3\"/><circle cx=\"21\" cy=\"18\" r=\"2\" fill=\"#e0ecd3\"/>",
     "hourglass": "<path d=\"M6 3h12M6 21h12M7 3v5l5 4-5 4v5M17 3v5l-5 4 5 4v5\" fill=\"#fcfff5\"/><path class=\"canvas-mark\" d=\"m9 6 3 3 3-3M9 18h6\" stroke-width=\"2\"/>",
     "check": "<circle cx=\"12\" cy=\"12\" r=\"9\" fill=\"#eff6e5\"/><path d=\"m7 12 3.5 3.5L17 9\" stroke-width=\"2\"/>",

@@ -122,3 +122,119 @@ fn props_survive_a_nonzero_canvas_origin_and_keep_the_screen_clip() {
         }
     }
 }
+
+#[test]
+fn attentive_pulse_animates_without_speech_dots_and_freezes_with_reduced_motion() {
+    let svg = &master().props["attention"];
+    let xml = format!("<svg>{svg}</svg>");
+    let xml = roxmltree::Document::parse(&xml).unwrap();
+    let dots: Vec<_> = xml
+        .descendants()
+        .filter(|n| n.has_tag_name("circle"))
+        .collect();
+    assert_eq!(
+        dots.len(),
+        1,
+        "listening must not use speaking's three dots"
+    );
+    assert_eq!(dots[0].attribute("class"), Some("canvas-mark"));
+    assert_eq!(dots[0].attribute("cx"), Some("12"));
+    assert_eq!(dots[0].attribute("cy"), Some("10"));
+    let ctx = egui::Context::default();
+    let mut cache = ArtCache::default();
+    let mut render = |now: f64, reduced| {
+        let mut animated = false;
+        let output = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(200.0, 200.0),
+                )),
+                time: Some(now),
+                ..Default::default()
+            },
+            |ctx| {
+                let painter = ctx.layer_painter(egui::LayerId::new(
+                    egui::Order::Middle,
+                    Id::new("attention-pulse"),
+                ));
+                animated = cache.paint(
+                    &painter,
+                    &AvatarVisual {
+                        id: "listening",
+                        center: egui::pos2(100.0, 100.0),
+                        expression: "curious",
+                        orientation: "up-right",
+                        hat: "none",
+                        prop: "attention",
+                        opacity: 1.0,
+                    },
+                    now,
+                    reduced,
+                    master().head_points,
+                    1.0,
+                );
+            },
+        );
+        let mut vertices = Vec::new();
+        for primitive in ctx.tessellate(output.shapes, output.pixels_per_point) {
+            if let egui::epaint::Primitive::Mesh(mesh) = primitive.primitive {
+                vertices.extend(mesh.vertices);
+            }
+        }
+        assert!(
+            !vertices.is_empty(),
+            "the actual prop painter must emit visible geometry"
+        );
+        (animated, vertices)
+    };
+    let (moving_a, a) = render(0.0, false);
+    let (moving_b, b) = render(0.65, false);
+    assert!(moving_a && moving_b);
+    assert_eq!(a.len(), b.len());
+    let delta = a
+        .iter()
+        .zip(&b)
+        .map(|(a, b)| {
+            assert_eq!(
+                a.pos, b.pos,
+                "the attentive pulse changes opacity, not position"
+            );
+            a.color.a().abs_diff(b.color.a())
+        })
+        .max()
+        .unwrap();
+    assert!(
+        delta >= 64,
+        "the two pulse phases must differ visibly: {delta}"
+    );
+    let (moving_a, a) = render(1.3, true);
+    let (moving_b, b) = render(1.95, true);
+    assert!(!moving_a && !moving_b);
+    assert_eq!(
+        a, b,
+        "reduced motion must retain the same visible attentive prop"
+    );
+}
+
+#[test]
+fn every_canonical_activity_prop_resolves_to_existing_artwork_or_none() {
+    let catalog: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../atlas-agent/assets/agent-activities.json"
+    ))
+    .unwrap();
+    for row in catalog["activities"].as_array().unwrap() {
+        for field in ["prop", "animatedProp"] {
+            let prop = row[field].as_str().unwrap();
+            if prop == "none" {
+                continue;
+            }
+            let resolved = master().aliases.get(prop).map_or(prop, String::as_str);
+            assert!(
+                master().props.contains_key(resolved),
+                "activity {} {field} silently loses missing prop {prop}",
+                row["id"]
+            );
+        }
+    }
+}

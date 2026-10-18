@@ -249,3 +249,88 @@ fn successful_helper_departure_preserves_its_parents_queued_harness_change() {
     h.app.finish_presence_handoffs();
     assert_eq!(h.app.presence.agents[0].profile.provider, "codex");
 }
+
+#[test]
+fn coalesced_public_activity_refreshes_only_for_real_observation_changes_and_resets_per_request() {
+    use crate::app::agent_presence::lifecycle_tests::session_support::publish_and_observe;
+    use atlas_agent::{
+        AgentActivity, AgentActivityAction, AgentActivityKind, AgentActivitySemantics,
+    };
+    use std::time::Duration;
+
+    let mut h = host();
+    let who = add(&mut h);
+    h.app.presence_send_chat(&who, "Read the brief").unwrap();
+    assert!(h.app.presence.agents[0].last_event.is_none());
+    let request = h.app.presence.agents[0].request.clone();
+    let mut session = AgentSession {
+        request: request.clone(),
+        status: atlas_agent::AgentStatus::Thinking,
+        ..Default::default()
+    };
+    session.record_activity(AgentActivity {
+        id: "one-public-commentary-item".into(),
+        request: request.clone(),
+        kind: AgentActivityKind::Commentary,
+        text: "Reading the brief.".into(),
+        at: 1,
+        semantics: Some(AgentActivitySemantics::new(AgentActivityAction::Chat)),
+    });
+    publish_and_observe(&mut h, &who, &session);
+    assert_eq!(h.app.presence.agents[0].activity, "chat");
+    let old = Instant::now() - Duration::from_secs(9);
+    h.app.presence.agents[0].last_active = old;
+    // Exact same ID and timestamp: actual public content growth is still fresh.
+    session.activity[0]
+        .text
+        .push_str(" Comparing its frame titles.");
+    publish_and_observe(&mut h, &who, &session);
+    assert!(h.app.presence.agents[0].last_active > old);
+    assert_eq!(h.app.presence.agents[0].activity, "chat");
+    assert_eq!(
+        h.app.presence.agents[0].last_event.as_ref(),
+        session.activity.last()
+    );
+
+    // A full prefix is unchanged once the adapter reaches the public-text cap.
+    session.activity[0].text = "界".repeat(atlas_agent::ACTIVITY_TEXT_LIMIT);
+    publish_and_observe(&mut h, &who, &session);
+    let old = Instant::now() - Duration::from_secs(9);
+    h.app.presence.agents[0].last_active = old;
+    session.activity[0].at += 1;
+    publish_and_observe(&mut h, &who, &session);
+    assert!(h.app.presence.agents[0].last_active > old);
+    assert_eq!(h.app.presence.agents[0].activity, "chat");
+
+    // Reusing an unchanged cached snapshot must not keep a quiet agent speaking.
+    let quiet = Instant::now() - Duration::from_secs(9);
+    h.app.presence.agents[0].last_active = quiet;
+    h.app.presence_pump(&h.ctx);
+    assert_eq!(h.app.presence.agents[0].last_active, quiet);
+    assert_eq!(h.app.presence.agents[0].activity, "reasoning");
+    // Even a new snapshot carrying only a generic heartbeat is not public work.
+    session.updated_at += 1;
+    publish_and_observe(&mut h, &who, &session);
+    assert_eq!(h.app.presence.agents[0].last_active, quiet);
+    assert_eq!(h.app.presence.agents[0].activity, "reasoning");
+    assert_eq!(
+        h.app.presence.agents[0].last_event.as_ref(),
+        session.activity.last()
+    );
+
+    h.app.stop_presence(&who, false).unwrap();
+    h.app
+        .presence_send_chat(&who, "Read the next brief")
+        .unwrap();
+    let next = h.app.presence.agents[0].request.clone();
+    assert_ne!(next, request);
+    assert!(h.app.presence.agents[0].last_event.is_none());
+    session.request = next.clone();
+    session.activity[0].request = next;
+    publish_and_observe(&mut h, &who, &session);
+    assert_eq!(
+        h.app.presence.agents[0].last_event.as_ref(),
+        session.activity.last()
+    );
+    assert_eq!(h.app.presence.agents[0].activity, "chat");
+}

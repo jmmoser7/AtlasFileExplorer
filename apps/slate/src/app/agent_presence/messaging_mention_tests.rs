@@ -5,7 +5,7 @@ use super::super::*;
 use serde_json::json;
 use std::time::Duration;
 
-fn setup() -> (crate::app::tests::Harness, String) {
+pub(in super::super) fn setup() -> (crate::app::tests::Harness, String) {
     let mut h = host();
     h.app.ensure_work_tab();
     h.app.tab_mut().path = Some(h.base.join("mentions.slate"));
@@ -32,7 +32,10 @@ fn card(h: &mut crate::app::tests::Harness, text: &str) -> Vec<slate_doc::scene:
     assert!(h.app.commit_scene(cmds.clone()));
     cmds
 }
-fn until(h: &mut crate::app::tests::Harness, done: impl Fn(&SlateApp) -> bool) {
+pub(in super::super) fn until(
+    h: &mut crate::app::tests::Harness,
+    done: impl Fn(&SlateApp) -> bool,
+) {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         h.app.presence.conversations.poll();
@@ -44,6 +47,20 @@ fn until(h: &mut crate::app::tests::Harness, done: impl Fn(&SlateApp) -> bool) {
         std::thread::yield_now();
     }
 }
+pub(in super::super) fn idle_queued_request(h: &crate::app::tests::Harness, who: &str) -> String {
+    let thread = h.app.presence.conversations.get(who).unwrap();
+    let turn = thread.turns.last().unwrap();
+    assert_eq!(turn.status, "queued");
+    assert_eq!(turn.board_origin.as_ref().unwrap().recipient, who);
+    let agent = &h.app.presence.agents[0];
+    assert_eq!(agent.profile.id, who);
+    assert!(
+        agent.request.is_empty(),
+        "save acknowledgement precedes provider submission"
+    );
+    turn.request.clone()
+}
+
 #[test]
 fn busy_board_mention_persists_then_submits_once_without_clobbering_draft() {
     let (mut h, who) = setup();
@@ -355,9 +372,13 @@ fn queued_message_tab_binding_revocation_retirement_and_handoff_cancellation_tab
                 // Availability fixture only; after-task selection launches nothing.
                 h.app.set_agent_programs_for_test(&["cursor"]);
                 h.app
+                    .pin_pack_for_test("cursor", atlas_ai::packs::PackHealth::Ok);
+                h.app.agents.set_catalog_for_test("cursor", vec![]);
+                h.app
                     .presence_set_harness(&who, "cursor", "after-task")
                     .unwrap();
                 assert!(h.app.presence.agents[0].pending_harness.is_some());
+                assert_eq!(h.app.presence.agents[0].profile.provider, "local");
             }
         }
         until(&mut h, |app| {

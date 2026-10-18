@@ -412,10 +412,8 @@ fn provider_failure_after_assistant_progress_survives_helper_expiry_in_board_rea
 
 #[test]
 fn human_text_patch_sends_the_complete_message_and_agent_or_layout_patches_do_not() {
-    let mut h = host();
-    let agent = profile("Dot");
-    let who = agent.id.clone();
-    h.app.join_presence(agent, None).unwrap();
+    // Authored @cards require the real durable queue, not a disconnected store.
+    let (mut h, who) = messaging::mention_tests::setup();
     let prepared = h
         .app
         .prepare_targeted_command(
@@ -432,8 +430,9 @@ fn human_text_patch_sends_the_complete_message_and_agent_or_layout_patches_do_no
         };
         text.text = "@Dot: Please organize the three images".into();
     });
-    let request_id = h.app.presence.agents[0].request.clone();
+    let request_id = messaging::mention_tests::idle_queued_request(&h, &who);
     assert!(!request_id.is_empty());
+    messaging::mention_tests::until(&mut h, |app| app.presence.agents[0].request == request_id);
     let path = h.app.presence.agents[0].dir.join("request.json");
     let first = delivery::wait_request(&path, &request_id);
     assert_eq!(first.id, request_id);
@@ -453,11 +452,28 @@ fn human_text_patch_sends_the_complete_message_and_agent_or_layout_patches_do_no
     assert!(h.app.presence.agents[0].request.is_empty());
     h.app.patch_nodes(&[node], |node| node.rect.x += 20.0);
     assert!(h.app.presence.agents[0].request.is_empty());
+    assert_eq!(
+        h.app
+            .presence
+            .conversations
+            .get(&who)
+            .unwrap()
+            .turns
+            .iter()
+            .filter(|turn| turn.role == "user")
+            .count(),
+        1,
+        "agent and layout patches must not enqueue another message"
+    );
     h.app.patch_nodes(&[node], |node| {
         let slate_doc::scene::NodeKind::Text(text) = &mut node.kind else {
             panic!("expected authored text")
         };
         text.text = "@Dot: This later human edit is complete too".into();
     });
-    assert!(!h.app.presence.agents[0].request.is_empty());
+    let second_id = messaging::mention_tests::idle_queued_request(&h, &who);
+    assert_ne!(second_id, request_id);
+    messaging::mention_tests::until(&mut h, |app| app.presence.agents[0].request == second_id);
+    let second = delivery::wait_request(&path, &second_id);
+    assert_eq!(second.prompt, "This later human edit is complete too");
 }

@@ -354,13 +354,24 @@
       "requiresBoardMetadata": false
     },
     {
+      "id": "listening",
+      "label": "Listening to a person",
+      "expression": "curious",
+      "orientation": "toward-human",
+      "prop": "attention",
+      "animatedProp": "attention",
+      "evidence": "Actual local addressing or pause; the board task is suspended while the person speaks. No provider state announcement is required.",
+      "confidence": "direct",
+      "requiresBoardMetadata": false
+    },
+    {
       "id": "resting",
       "label": "Resting / paused",
       "expression": "resting",
       "orientation": "forward",
-      "prop": "breathing",
-      "animatedProp": "breathing",
-      "evidence": "Explicit pause or a declared UI idle threshold; a decorative presentation state, not an inferred mental state.",
+      "prop": "none",
+      "animatedProp": "none",
+      "evidence": "Explicit pause or a declared UI idle threshold. The approved resting face is static with no prop; this is a decorative presentation state, not an inferred mental state.",
       "confidence": "inferred",
       "requiresBoardMetadata": false
     }

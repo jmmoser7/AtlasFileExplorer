@@ -242,14 +242,14 @@ fn clipped_shape(
     let mut shapes: Vec<_> = ctx
         .tessellate(vec![complete], ctx.pixels_per_point())
         .into_iter()
-        .filter_map(|primitive| match primitive.primitive {
-            Primitive::Mesh(mesh) => Some(egui::Shape::mesh(if notched_stroke {
+        .map(|primitive| match primitive.primitive {
+            Primitive::Mesh(mesh) => egui::Shape::mesh(if notched_stroke {
                 mesh
             } else {
                 clip_mesh(&mesh, &cuts)
-            })),
+            }),
             // Native media uses texture meshes; leave a foreign callback intact.
-            Primitive::Callback(callback) => Some(egui::Shape::Callback(callback)),
+            Primitive::Callback(callback) => egui::Shape::Callback(callback),
         })
         .collect();
     match shapes.len() {

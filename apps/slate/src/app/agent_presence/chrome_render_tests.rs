@@ -9,6 +9,8 @@ mod departures;
 mod harness;
 #[path = "chrome_render_management.rs"]
 mod management;
+#[path = "chrome_render_stress.rs"]
+mod stress;
 #[path = "chrome_render_support.rs"]
 mod support;
 use eframe::egui::{self, Id, Pos2, Rect};
@@ -250,6 +252,7 @@ fn full_app_presence_chrome_retains_actual_ui_states() {
     catalogue::run();
     departures::run();
     harness::run();
+    stress::run();
 }
 
 fn is_surface(shape: &egui::Shape, panel: Rect, fill: egui::Color32) -> bool {

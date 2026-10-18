@@ -262,8 +262,12 @@ fn public_command_schema_and_argument_validation_share_one_catalogue() {
         "board.objects.order",
         "board.objects.place_images",
         "board.objects.resize",
+        "board.objects.set_text",
         "board.objects.wire",
+        "board.shape.edit",
+        "board.wire.edit",
         "portal.agent.run",
+        "presence.read_text",
     ]);
     assert_eq!(
         entries
@@ -276,6 +280,25 @@ fn public_command_schema_and_argument_validation_share_one_catalogue() {
         assert!(commands::SPECS.iter().any(|spec| spec.id.0 == command));
         assert!(definition["arguments"].is_object());
         assert!(definition["targets"].is_string());
+    }
+    for (command, expected) in [
+        ("board.objects.set_text", vec!["text"]),
+        ("board.shape.edit", vec!["edits"]),
+        ("board.wire.edit", vec!["edits"]),
+        ("presence.read_text", vec!["cursor", "generation", "limit"]),
+    ] {
+        assert_eq!(
+            schema[command]["arguments"]
+                .as_object()
+                .unwrap()
+                .keys()
+                .map(String::as_str)
+                .collect::<std::collections::BTreeSet<_>>(),
+            expected
+                .into_iter()
+                .collect::<std::collections::BTreeSet<_>>(),
+            "argument catalogue drift for {command}"
+        );
     }
     let frame_args = &schema["board.objects.create_frame"]["arguments"];
     assert!(frame_args.get("title").is_some());

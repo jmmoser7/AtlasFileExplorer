@@ -22,6 +22,14 @@ impl FrameRaster {
         }
     }
 
+    /// Resize only the output surface; keep uploaded image and font textures.
+    pub(crate) fn resize(&mut self, w: usize, h: usize) {
+        assert!(w > 0 && h > 0);
+        self.w = w;
+        self.h = h;
+        self.px.resize(w * h, [0.0, 0.0, 0.0, 1.0]);
+    }
+
     pub(crate) fn apply(&mut self, delta: &egui::TexturesDelta) {
         for (id, d) in &delta.set {
             let (w, h, pixels) = match &d.image {

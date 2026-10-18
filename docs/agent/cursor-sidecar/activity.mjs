@@ -2,7 +2,7 @@ export const ACTIVITY_LIMIT = 64;
 export const ACTIVITY_TEXT_LIMIT = 1024;
 const KINDS = new Set(['commentary', 'tool_started', 'tool_finished']);
 // Stable protocol IDs; face/prop choices live only in atlas-agent's catalog.
-const ACTIONS = new Set(['idle', 'resting', 'reasoning', 'reading', 'searching', 'writing', 'editing',
+const ACTIONS = new Set(['idle', 'resting', 'listening', 'reasoning', 'reading', 'searching', 'writing', 'editing',
   'creating-image', 'editing-image', 'organizing', 'moving', 'resizing', 'frames',
   'presentations', 'wiring', 'working', 'tool-waiting', 'approval', 'question',
   'blocked', 'error', 'verifying', 'success', 'chat', 'exchanging', 'delegating',

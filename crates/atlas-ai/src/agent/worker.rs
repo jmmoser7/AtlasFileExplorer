@@ -27,10 +27,12 @@ pub(super) fn run(
                 None
             }
             LinkWork::Context(dir, ctx) => {
+                let ctx = *ctx;
                 link.tick_write_context_in(&dir, &ctx);
                 None
             }
             LinkWork::Request(dir, req) => {
+                let req = *req;
                 artifact_request = req.artifact.is_some();
                 link.send_request_in(&dir, &req)
                     .err()

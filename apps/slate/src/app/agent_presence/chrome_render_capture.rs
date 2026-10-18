@@ -15,17 +15,33 @@ pub(in super::super) struct RetainedFrame {
 impl Fixture {
     /// Inspect only the actual app output; this does not construct a pose.
     pub fn mesh_vertices(out: &egui::FullOutput, area: Rect, dark: bool) -> Vec<[u32; 3]> {
-        fn walk(shape: &egui::Shape, area: Rect, dark: bool, into: &mut Vec<[u32; 3]>) {
+        Self::mesh_vertices_at_least_alpha(out, area, dark, 129)
+    }
+    /// Zero includes transparent fringe vertices, keeping opacity-only motion's
+    /// geometry fixed so its actual alpha delta can be measured without a cutoff.
+    pub fn mesh_vertices_at_least_alpha(
+        out: &egui::FullOutput,
+        area: Rect,
+        dark: bool,
+        min_alpha: u8,
+    ) -> Vec<[u32; 3]> {
+        fn walk(
+            shape: &egui::Shape,
+            area: Rect,
+            dark: bool,
+            min_alpha: u8,
+            into: &mut Vec<[u32; 3]>,
+        ) {
             match shape {
-                egui::Shape::Vec(children) => {
-                    children.iter().for_each(|s| walk(s, area, dark, into))
-                }
+                egui::Shape::Vec(children) => children
+                    .iter()
+                    .for_each(|s| walk(s, area, dark, min_alpha, into)),
                 egui::Shape::Mesh(mesh) => into.extend(
                     mesh.vertices
                         .iter()
                         .filter(|v| {
                             area.contains(v.pos)
-                                && v.color.a() > 128
+                                && v.color.a() >= min_alpha
                                 && (!dark
                                     || (v.color.r() < 25 && v.color.g() < 25 && v.color.b() < 25))
                         })
@@ -46,6 +62,7 @@ impl Fixture {
                 &clipped.shape,
                 area.intersect(clipped.clip_rect),
                 dark,
+                min_alpha,
                 &mut vertices,
             );
         }
@@ -60,7 +77,7 @@ impl Fixture {
     }
 
     fn state(&self) -> serde_json::Value {
-        json!({"frame":self.h.app.frame_no,"scene":self.h.app.doc().scene,
+        json!({"frame":self.h.app.frame_no,"viewport":rect_json(self.viewport()),"scene":self.h.app.doc().scene,
             "undoDepth":self.h.app.tab().journal.undo_depth(),"conversations":self.conversations(),
             "activeChat":self.h.app.presence.chrome.active_chat(),
             "canvasChat":self.h.app.presence.chrome.canvas_chat(),
@@ -126,6 +143,7 @@ impl Fixture {
             font.pixels, font_pixels,
             "later glyph uploads cannot stand in for captured textures"
         );
+        let pixels_per_point = out.pixels_per_point;
         let labels = painted_strings(&out);
         assert!(
             !labels.iter().any(|s| s.contains("An open board")),
@@ -149,10 +167,14 @@ impl Fixture {
             before,
             "saving advanced or changed the labeled UI state"
         );
-        assert_eq!(image::image_dimensions(&path).unwrap(), (1440, 900));
+        assert_eq!(
+            image::image_dimensions(&path).unwrap(),
+            (self.raster.w as u32, self.raster.h as u32)
+        );
         let row = json!({"phase":phase,"file":path.file_name().unwrap().to_string_lossy(),
             "bytes":std::fs::metadata(&path).unwrap().len(),"geometry":geometry,"labels":labels,"state":state,
-            "observedWallMs":wall_ms,"fontAtlas":font_size});
+            "observedWallMs":wall_ms,"fontAtlas":font_size,"pixelsPerPoint":pixels_per_point,
+            "outputDimensions":[self.raster.w,self.raster.h]});
         self.write_json(&format!("{phase}.json"), &row);
         self.rows.push(row);
         self.retained -= 1;

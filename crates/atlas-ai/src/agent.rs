@@ -88,8 +88,8 @@ pub fn launch_provider(provider: &str, workspace: &Path) -> Result<(), String> {
 pub use atlas_agent::*;
 
 enum LinkWork {
-    Context(PathBuf, AgentContext),
-    Request(PathBuf, AgentRequest),
+    Context(PathBuf, Box<AgentContext>),
+    Request(PathBuf, Box<AgentRequest>),
     Read(PathBuf),
     /// Folders `return.json` paths resolve against after the output folder.
     Roots(Vec<PathBuf>),
@@ -107,7 +107,10 @@ pub struct AgentRequestSender {
 impl AgentRequestSender {
     pub fn send(&self) -> std::io::Result<()> {
         self.tx
-            .try_send(LinkWork::Request(self.dir.clone(), self.request.clone()))
+            .try_send(LinkWork::Request(
+                self.dir.clone(),
+                Box::new(self.request.clone()),
+            ))
             .map_err(|_| {
                 std::io::Error::new(
                     std::io::ErrorKind::WouldBlock,
@@ -251,7 +254,7 @@ impl AgentLink {
         }
         self.next_write = Some(Instant::now());
         self.tx
-            .try_send(LinkWork::Context(dir.into(), ctx.clone()))
+            .try_send(LinkWork::Context(dir.into(), Box::new(ctx.clone())))
             .is_ok()
     }
     pub fn send_request(&mut self, ws: &Path, id: &str, req: &AgentRequest) -> std::io::Result<()> {

@@ -88,7 +88,7 @@ pub fn menu(ui: &mut egui::Ui, count: usize, dark: bool) -> Option<ResultAction>
     menu::prepare(ui, dark);
     ui.set_width(menu::tokens().min_width);
     let plural = if count == 1 { "image" } else { "images" };
-    menu::heading(ui, &format!("{count} {plural}"), dark);
+    menu::heading(ui, format!("{count} {plural}"), dark);
     menu::separator(ui, dark);
     if menu::item(ui, MenuIcon::Copy, "Copy", dark).clicked() {
         return Some(ResultAction::Copy);

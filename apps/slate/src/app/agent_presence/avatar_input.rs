@@ -278,6 +278,10 @@ impl SlateApp {
     }
     /// Run before board hit testing; no human click passes through an avatar.
     pub(super) fn presence_avatar_input(&mut self, ctx: &egui::Context) -> bool {
+        // A press that starts on an avatar owns its entire gesture, even if
+        // the pointer leaves the head or the temporary motion hold expires.
+        let captured = self.presence.avatar_gesture_captured;
+        self.presence.avatar_gesture_captured &= ctx.input(|i| i.pointer.any_down());
         let xf = self.board_xf();
         if let Some(who) = self.presence.chrome.canvas_chat().map(str::to_owned) {
             if let Some(a) = self.presence.agents.iter().find(|a| a.profile.id == who) {
@@ -290,10 +294,10 @@ impl SlateApp {
             }
         }
         let Some(pointer) = ctx.pointer_latest_pos() else {
-            return false;
+            return captured;
         };
         if !self.canvas_rect.contains(pointer) {
-            return false;
+            return captured;
         }
         if self.presence.chrome.occludes_point(ctx, pointer)
             || ctx.layer_id_at(pointer).is_some_and(|layer| {
@@ -309,12 +313,13 @@ impl SlateApp {
                 .any(|name| layer.id == egui::Id::new(name))
             })
         {
-            return false;
+            return captured;
         }
         let hit = self
             .presence
             .agents
             .iter()
+            .rev()
             .filter(|a| a.tab == self.tab().id && a.departure.is_none())
             .filter_map(|a| {
                 a.position(&self.presence.roster)
@@ -325,8 +330,11 @@ impl SlateApp {
                 (center.distance(pointer) <= (18.0 * xf.z).max(12.0)).then_some((id, center))
             });
         let Some((who, _center)) = hit else {
-            return false;
+            return captured;
         };
+        if ctx.input(|i| i.pointer.any_pressed()) {
+            self.presence.avatar_gesture_captured = true;
+        }
         // Hold briefly for the native double-click window. A single click or
         // drag resumes automatically; only addressing establishes a real pause.
         if ctx.input(|i| i.pointer.primary_pressed())
@@ -366,7 +374,7 @@ impl SlateApp {
                 Some(serde_json::json!({"id":who}).to_string()),
             );
         }
-        ctx.input(|i| i.pointer.any_down() || i.pointer.any_click())
+        captured || ctx.input(|i| i.pointer.any_down() || i.pointer.any_click())
     }
     pub(crate) fn presence_address(
         &mut self,

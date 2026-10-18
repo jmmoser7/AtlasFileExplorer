@@ -316,7 +316,7 @@ fn a_detached_helper_parent_spawns_from_its_settled_contact_instead_of_canvas_ce
     assert_eq!(helper.parent.as_deref(), Some(parent.profile.id.as_str()));
     assert_eq!(
         helper.position(&h.app.presence.roster),
-        Some(point(364.0, 180.0))
+        Some(point(384.0, 180.0))
     );
     assert_eq!(
         h.app
@@ -328,4 +328,64 @@ fn a_detached_helper_parent_spawns_from_its_settled_contact_instead_of_canvas_ce
             .position,
         physical
     );
+    let mut positions = vec![physical, point(384.0, 180.0)];
+    for n in 1..4 {
+        let before: Vec<_> = h
+            .app
+            .presence
+            .agents
+            .iter()
+            .map(|a| a.position(&h.app.presence.roster).unwrap())
+            .collect();
+        h.app
+            .join_scoped_presence(
+                StoredAgent {
+                    id: atlas_agent::request_id(),
+                    name: format!("Dot helper {n}"),
+                    hat: "beanie".into(),
+                    provider: parent.profile.provider.clone(),
+                    retired: false,
+                },
+                Some((
+                    parent.profile.id.clone(),
+                    parent.motion.clone(),
+                    parent.grant.clone().unwrap(),
+                )),
+            )
+            .unwrap();
+        let now: Vec<_> = h
+            .app
+            .presence
+            .agents
+            .iter()
+            .map(|a| a.position(&h.app.presence.roster).unwrap())
+            .collect();
+        assert_eq!(&now[..before.len()], before.as_slice());
+        let spawn = *now.last().unwrap();
+        assert!(positions
+            .iter()
+            .all(|p| (p.x - spawn.x).hypot(p.y - spawn.y) >= 64.0));
+        positions.push(spawn);
+        let child = h.app.presence.agents.last().unwrap();
+        let grant = child.grant.as_ref().unwrap();
+        // The existing admission owner explicitly adds each child's own chat
+        // endpoint after checking the inherited subset; no other scope expands.
+        let mut inherited = grant.clone();
+        inherited
+            .conversation_ids
+            .retain(|id| id != &child.profile.id);
+        assert!(parent.grant.as_ref().unwrap().allows_helper(&inherited));
+        assert_eq!(grant.helper_limit, 0);
+        assert!(!grant.mutation_autonomy);
+        assert_eq!(
+            h.app
+                .presence
+                .roster
+                .session(&parent.motion)
+                .unwrap()
+                .sample()
+                .position,
+            physical
+        );
+    }
 }

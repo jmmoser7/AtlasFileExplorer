@@ -57,7 +57,12 @@ pub(super) fn show(
                     ui.set_width(width - 20.0);
                     // Area remembers the previous content size. Let a newly
                     // expanded timing choice grow instead of clipping to it.
-                    let max_content_height = (local_screen.height() - 48.0).min(420.0).max(0.0);
+                    let available_height = local_screen.height() - 48.0;
+                    let max_content_height = if available_height.is_nan() {
+                        420.0
+                    } else {
+                        available_height.clamp(0.0, 420.0)
+                    };
                     ui.set_max_height(max_content_height);
                     ui.spacing_mut().item_spacing.y = if more { 0.0 } else { 6.0 };
                     egui::ScrollArea::vertical()

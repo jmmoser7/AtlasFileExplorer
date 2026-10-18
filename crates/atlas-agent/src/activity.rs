@@ -29,7 +29,7 @@ pub struct AgentActivity {
 
 impl AgentSession {
     pub fn record_activity(&mut self, mut activity: AgentActivity) {
-        if activity.request != self.request || activity.id.is_empty() {
+        if activity.request != self.request || !crate::collaborator::valid_id(&activity.id) {
             return;
         }
         activity.text = activity.text.chars().take(ACTIVITY_TEXT_LIMIT).collect();
@@ -78,5 +78,74 @@ mod tests {
         assert!(checkpoint(&session.turns, None).unwrap().is_empty());
         session.record_activity(item("99".into(), "current"));
         assert_eq!(session.activity.len(), ACTIVITY_LIMIT);
+    }
+}
+
+#[cfg(test)]
+mod id_tests {
+    use super::*;
+
+    #[test]
+    fn activity_ids_use_the_existing_bounded_grammar_without_rewriting_source_identity() {
+        let request = request_id();
+        let turns = vec![AgentTurn {
+            role: "assistant".into(),
+            text: "Keep this answer".into(),
+            at: 7,
+        }];
+        let mut session = AgentSession {
+            request: request.clone(),
+            turns: turns.clone(),
+            ..Default::default()
+        };
+        let event = |id: String, text: &str, at| AgentActivity {
+            id,
+            request: request.clone(),
+            kind: AgentActivityKind::Commentary,
+            text: text.into(),
+            at,
+            semantics: None,
+        };
+        // Actual adapter forms plus both supported stable-ID punctuation kinds.
+        for id in [
+            "commentary:7d3f25be-55c1-42d8-9968-7b0aad54d846".to_string(),
+            "tool:call_123:start".into(),
+            "tool:call_123:finish".into(),
+            format!("{request}:activity:1"),
+            "public-event-0".into(),
+            "a.b_c-d:1".into(),
+        ] {
+            assert!(crate::collaborator::valid_id(&id));
+            session.record_activity(event(id.clone(), "Observed public progress", 1));
+            assert_eq!(session.activity.last().unwrap().id, id);
+        }
+        let boundary = "x".repeat(256);
+        session.record_activity(event(boundary.clone(), "First observation", 1));
+        assert_eq!(session.activity.last().unwrap().id, boundary);
+        let accepted = session.clone();
+        for invalid in [
+            "x".repeat(257),
+            String::new(),
+            "two words".into(),
+            "path/id".into(),
+            "line\nbreak".into(),
+            "界".into(),
+        ] {
+            assert!(!crate::collaborator::valid_id(&invalid));
+            session.record_activity(event(invalid, "Rejected public progress", 99));
+            assert_eq!(
+                session, accepted,
+                "reject progress without changing identity or transcript"
+            );
+        }
+        let count = session.activity.len();
+        session.record_activity(event(boundary.clone(), "A genuine coalesced update", 2));
+        assert_eq!(session.activity.len(), count);
+        let latest = session.activity.last().unwrap();
+        assert_eq!(latest.id, boundary);
+        assert_eq!(latest.text, "A genuine coalesced update");
+        assert_eq!(latest.at, 2);
+        assert_eq!(session.request, request);
+        assert_eq!(session.turns, turns);
     }
 }

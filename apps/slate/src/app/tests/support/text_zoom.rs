@@ -153,6 +153,8 @@ pub(crate) fn frame_on(h: &mut Harness, node: NodeId, zoom: f32) -> egui::FullOu
 /// One painted text block, in world units relative to its first glyph.
 #[derive(Debug, Clone)]
 pub(crate) struct Block {
+    /// Actual first-glyph origin in screen points, before clipping.
+    pub origin: Pos2,
     pub rows: Vec<String>,
     /// Top of each row, relative to the first row.
     pub tops: Vec<f32>,
@@ -186,6 +188,7 @@ pub(crate) fn painted_block(out: &egui::FullOutput, mark: &str, zoom: f32) -> Op
     let origin = screen(first.glyphs.first()?.pos);
     let world = |p: Pos2| ((screen(p) - origin) / zoom).to_pos2();
     Some(Block {
+        origin,
         rows: galley.rows.iter().map(|r| r.text()).collect(),
         tops: galley
             .rows

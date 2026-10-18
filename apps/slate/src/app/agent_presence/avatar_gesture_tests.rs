@@ -130,8 +130,17 @@ impl Gesture {
 }
 #[test]
 fn actual_avatar_press_double_click_close_escape_and_wheel_keep_the_canvas_contract() {
-    for zoom in [1.0, 0.5] {
+    for (zoom, mode) in [1.0, 0.5]
+        .into_iter()
+        .flat_map(|zoom| ["Select", "Pan", "ZoomArmed"].map(|mode| (zoom, mode)))
+    {
         let mut f = Gesture::new(zoom);
+        if mode == "Pan" {
+            f.h.app.set_board_tool(crate::app::board::BoardTool::Pan);
+        } else if mode == "ZoomArmed" {
+            f.h.app.zoom_armed = true;
+        }
+        let gesture_camera = f.camera();
         let out = f.paint();
         let head = f.head(&out);
         let scene = f.h.app.doc().scene.clone();
@@ -160,6 +169,11 @@ fn actual_avatar_press_double_click_close_escape_and_wheel_keep_the_canvas_contr
         let dragged = head.center() + Vec2::new(32.0, 0.0);
         f.input(|i| i.events.push(egui::Event::PointerMoved(dragged)));
         f.button(dragged, false);
+        assert_eq!(
+            f.camera(),
+            gesture_camera,
+            "avatar owns press, drag and release in {mode} at {zoom}"
+        );
         assert!(
             f.h.app.board_sel.is_empty(),
             "avatar press/drag never selects the object beneath it"
@@ -173,6 +187,11 @@ fn actual_avatar_press_double_click_close_escape_and_wheel_keep_the_canvas_contr
         let head = f.head(&out);
         f.double_click(head.center());
         let out = f.paint();
+        assert_eq!(
+            f.camera(),
+            gesture_camera,
+            "addressing cannot trigger {mode} navigation at {zoom}"
+        );
         let a = &f.h.app.presence.agents[0];
         assert!(a.paused);
         assert_eq!(a.activity, "listening");
@@ -265,5 +284,181 @@ fn actual_avatar_press_double_click_close_escape_and_wheel_keep_the_canvas_contr
         assert_eq!(f.h.app.doc().scene, scene);
         assert_eq!(f.h.app.tab().journal.undo_depth(), depth);
         assert!(f.h.app.board_sel.is_empty());
+        // The avatar's completed press must not swallow the next ordinary input.
+        f.h.app.zoom_armed = false;
+        f.h.app.set_board_tool(crate::app::board::BoardTool::Select);
+        let at = f.h.app.board_xf().w2s(egui::pos2(
+            underlay.rect.x + underlay.rect.w * 0.25,
+            underlay.rect.y + underlay.rect.h * 0.25,
+        ));
+        assert!(f.h.app.canvas_rect.shrink(24.0).contains(at));
+        let out = f.paint();
+        let p = f.h.app.presence.agents[0]
+            .position(&f.h.app.presence.roster)
+            .unwrap();
+        let center = f.h.app.board_xf().w2s(egui::pos2(p.x as f32, p.y as f32));
+        let head = world_opaque_head(&out, center, f.camera().1);
+        assert!(!head.expand(8.0).contains(at));
+        f.button(at, true);
+        f.button(at, false);
+        f.paint();
+        assert_eq!(f.h.app.board_sel.len(), 1);
+        assert!(f.h.app.board_sel.contains(&f.underlay));
+        assert_eq!(f.h.app.doc().scene, scene);
+        assert_eq!(f.h.app.tab().journal.undo_depth(), depth);
     }
+}
+
+#[test]
+fn ordinary_joins_are_separated_in_world_space_without_moving_existing_actors_or_camera() {
+    for zoom in [0.5, 1.0, 2.0] {
+        let mut h = host();
+        h.app.ensure_work_tab();
+        h.app.set_agent_programs_for_test(&[]);
+        h.frame();
+        h.app.tab_mut().cam.z = zoom;
+        let camera = (h.app.tab().cam.offset, h.app.tab().cam.z);
+        let scene = h.app.doc().scene.clone();
+        let depth = h.app.tab().journal.undo_depth();
+        let mut positions: Vec<WorldPoint> = Vec::new();
+        for n in 0..12 {
+            add(&mut h, &format!("Dot {n}"));
+            let now: Vec<_> = h
+                .app
+                .presence
+                .agents
+                .iter()
+                .map(|a| a.position(&h.app.presence.roster).unwrap())
+                .collect();
+            assert_eq!(&now[..positions.len()], positions.as_slice());
+            let spawn = *now.last().unwrap();
+            assert!(
+                positions
+                    .iter()
+                    .all(|p| { (spawn.x - p.x).hypot(spawn.y - p.y) >= 64.0 }),
+                "twelve normal joins have separated world-space heads at zoom {zoom}"
+            );
+            positions = now;
+            assert_eq!((h.app.tab().cam.offset, h.app.tab().cam.z), camera);
+            assert_eq!(h.app.doc().scene, scene);
+            assert_eq!(h.app.tab().journal.undo_depth(), depth);
+        }
+        let retired = h.app.presence.agents[0].profile.id.clone();
+        h.app.retire_presence(&retired, "bow").unwrap();
+        assert!(h.app.presence.agents[0]
+            .position(&h.app.presence.roster)
+            .is_none());
+        assert_eq!(
+            h.app.presence.agents[0].departure.as_ref().unwrap().2,
+            positions[0]
+        );
+        add(&mut h, "Arriving during departure");
+        let arriving = h
+            .app
+            .presence
+            .agents
+            .last()
+            .unwrap()
+            .position(&h.app.presence.roster)
+            .unwrap();
+        assert!(positions
+            .iter()
+            .all(|p| (arriving.x - p.x).hypot(arriving.y - p.y) >= 64.0));
+        assert_eq!((h.app.tab().cam.offset, h.app.tab().cam.z), camera);
+        assert_eq!(h.app.doc().scene, scene);
+        assert_eq!(h.app.tab().journal.undo_depth(), depth);
+        // Membership is global, occupancy is board-local. Another tab may use
+        // the same preferred world point rather than avoiding invisible agents.
+        h.app.new_tab();
+        h.app.doc_mut().view.active_view = slate_doc::ViewKind::Board;
+        h.app.tab_mut().cam.offset = camera.0;
+        h.app.tab_mut().cam.z = camera.1;
+        add(&mut h, "Other board");
+        assert_eq!(
+            h.app
+                .presence
+                .agents
+                .last()
+                .unwrap()
+                .position(&h.app.presence.roster),
+            Some(positions[0])
+        );
+    }
+}
+
+#[test]
+fn actual_overlapped_avatar_double_click_addresses_only_the_last_painted_actor() {
+    let mut h = host();
+    h.app.ensure_work_tab();
+    h.app.set_agent_programs_for_test(&[]);
+    h.app.set_board_tool(crate::app::board::BoardTool::Select);
+    h.frame();
+    let back = add(&mut h, "Back");
+    let p = h.app.presence.agents[0]
+        .position(&h.app.presence.roster)
+        .unwrap();
+    // Measure the actual single painted head before deliberately overlapping
+    // a second one; the shared head helper correctly refuses ambiguous meshes.
+    let out = h.frame_output(|_| {});
+    let center = h.app.board_xf().w2s(egui::pos2(p.x as f32, p.y as f32));
+    let at = world_opaque_head(&out, center, 1.0).center();
+    let front = add(&mut h, "Front");
+    let motion = h.app.presence.agents[1].motion.clone();
+    // Deliberate overlap fixtures the recovery case, not normal admission.
+    h.app
+        .presence
+        .roster
+        .session_mut(&motion)
+        .unwrap()
+        .settle_idle_position(p)
+        .unwrap();
+    add_filled_rect(
+        &mut h.app,
+        p.x as f32 - 80.0,
+        p.y as f32 - 80.0,
+        160.0,
+        160.0,
+    );
+    h.app.board_sel.clear();
+    h.app.presence.conversations.edit(&front).unwrap().push(
+        "assistant",
+        "Front conversation",
+        "Front",
+        None,
+        "synthetic-front",
+        "complete",
+    );
+    let scene = h.app.doc().scene.clone();
+    let depth = h.app.tab().journal.undo_depth();
+    let camera = (h.app.tab().cam.offset, h.app.tab().cam.z);
+    h.frame();
+    let mut time = h.ctx.input(|i| i.time);
+    for pressed in [true, false, true, false] {
+        time += 0.05;
+        h.frame_with(|i| {
+            i.time = Some(time);
+            primary_button(at, pressed, false)(i);
+        });
+        assert!(
+            !h.app.presence.agents[0].paused,
+            "backmost {back} stays active"
+        );
+        assert!(
+            h.app.presence.agents[1].paused,
+            "topmost {front} owns the press"
+        );
+    }
+    time += 0.05;
+    let out = h.frame_output(|i| i.time = Some(time));
+    assert_eq!(h.app.presence.chrome.canvas_chat(), Some(front.as_str()));
+    assert_eq!(h.app.presence.chrome.active_chat(), Some(front.as_str()));
+    assert_eq!(h.app.presence.agents[1].activity, "listening");
+    assert!(painted_strings(&out)
+        .iter()
+        .any(|s| s.contains("Front conversation")));
+    assert!(h.app.board_sel.is_empty());
+    assert!(h.app.board_drag.is_none());
+    assert_eq!((h.app.tab().cam.offset, h.app.tab().cam.z), camera);
+    assert_eq!(h.app.doc().scene, scene);
+    assert_eq!(h.app.tab().journal.undo_depth(), depth);
 }

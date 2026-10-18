@@ -392,9 +392,9 @@ impl SlateApp {
         let card_scrolls = self.pointer_over_project_picker(&xf, pointer)
             || self.pointer_over_scrolling_agent_card(&xf, pointer)
             || atlas_shell::menu_wheel::wheel_owned(ui.ctx());
-
         // --- camera ---
         if !card_scrolls
+            && !presence_capture
             && !over_image_album
             && (resp.hovered()
                 || over_agent_card
@@ -444,12 +444,12 @@ impl SlateApp {
         }
         let space = ui.input(|i| i.key_down(egui::Key::Space));
         let hand_pan = self.board_tool == BoardTool::Pan;
-        // A live page that took the pointer owns the right button too (D22):
-        // no tip HUD chord, turbo pan, right-drag pan, or board menu.
+        // Avatars and live pages own captured button chords and navigation.
+        let button_capture = page_capture || presence_capture;
         let (secondary_down, secondary_pressed) = ui.input(|i| {
             (
-                i.pointer.button_down(egui::PointerButton::Secondary) && !page_capture,
-                i.pointer.button_pressed(egui::PointerButton::Secondary) && !page_capture,
+                i.pointer.button_down(egui::PointerButton::Secondary) && !button_capture,
+                i.pointer.button_pressed(egui::PointerButton::Secondary) && !button_capture,
             )
         });
         // The right-button chord has to see the modifiers on the press
@@ -497,7 +497,7 @@ impl SlateApp {
             ui.ctx(),
             rect,
             pointer,
-            tag_popup || claim_right || page_capture || model_pointer,
+            tag_popup || claim_right || button_capture || model_pointer,
         );
         if turbo_pan_active {
             canvas_nav = true;
@@ -509,7 +509,7 @@ impl SlateApp {
             ui.ctx(),
             &resp,
             rect,
-            !tag_popup && !turbo_pan_active && !web_capture && !model_pointer,
+            !tag_popup && !turbo_pan_active && !web_capture && !model_pointer && !presence_capture,
             dock_nav.canvas_pan() || other_toolbar_captures || shot_captures,
             space || hand_pan,
         );
@@ -520,6 +520,7 @@ impl SlateApp {
         }
         let hold_right = claim_right || brush_right;
         let panning = !tag_popup
+            && !presence_capture
             && !web_capture
             && (resp.dragged_by(egui::PointerButton::Middle)
                 || (space && resp.dragged_by(egui::PointerButton::Primary))
@@ -544,12 +545,11 @@ impl SlateApp {
         if canvas_nav {
             self.bump_grid_fade(now);
         }
-
         // Z zoom tool: while armed, the primary button belongs to the tool
         // (click = step, drag = zoom window); pans keep their buttons.
-        let zoom_tool =
-            !web_capture && self.zoom_tool_frame(ui, &resp, rect, space || panning || hand_pan);
-
+        let zoom_tool = !button_capture
+            && !web_capture
+            && self.zoom_tool_frame(ui, &resp, rect, space || panning || hand_pan);
         // Connector grips: Select tool, idle pointer near a node edge.
         if self.board_tool == BoardTool::Select
             && self.board_drag.is_none()

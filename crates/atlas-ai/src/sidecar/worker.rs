@@ -7,7 +7,10 @@ use std::sync::{
 };
 
 enum Work {
-    Send(atlas_agent::AgentRequest, crate::agent::AgentRequestSender),
+    Send(
+        Box<atlas_agent::AgentRequest>,
+        Box<crate::agent::AgentRequestSender>,
+    ),
     Cancel(String),
     Stop,
 }
@@ -111,7 +114,7 @@ impl CursorLink {
             return Err("This collaborator is retired.".into());
         }
         self.tx
-            .try_send(Work::Send(request, sender))
+            .try_send(Work::Send(Box::new(request), Box::new(sender)))
             .map_err(|_| "Cursor collaborator is busy.".into())
     }
     pub fn cancel(&self, request_id: &str) -> Result<(), String> {

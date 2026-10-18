@@ -1,5 +1,7 @@
 use super::*;
 
+const SPAWN_CLEARANCE: f64 = 64.0;
+
 impl SlateApp {
     pub(super) fn join_presence(
         &mut self,
@@ -74,7 +76,7 @@ impl SlateApp {
         }
         let profile_id = id(&profile.id)?;
         let position = self.board_xf().s2w(self.canvas_rect.center());
-        let spawn = parent
+        let parent_position = parent
             .as_ref()
             .and_then(|p| self.presence.agents.iter().find(|a| a.profile.id == p.0))
             .and_then(|a| a.position(&self.presence.roster))
@@ -85,12 +87,29 @@ impl SlateApp {
                     .as_ref()
                     .and_then(|p| self.presence.roster.session(&p.1))
                     .map(|session| session.sample().position)
-            })
-            .map(|p| WorldPoint {
-                x: p.x + 44.0,
+            });
+        let preferred = parent_position.map_or_else(
+            || point(position.x, position.y),
+            |p| WorldPoint {
+                x: p.x + SPAWN_CLEARANCE,
                 y: p.y,
+            },
+        );
+        let mut occupied: Vec<_> = self
+            .presence
+            .agents
+            .iter()
+            .filter(|a| a.tab == self.tab().id && a.profile.id != profile.id)
+            .filter_map(|a| {
+                a.position(&self.presence.roster)
+                    .or_else(|| a.departure.as_ref().map(|d| d.2))
             })
-            .unwrap_or_else(|| point(position.x, position.y));
+            .collect();
+        if let Some(p) = parent_position.filter(|p| !occupied.contains(p)) {
+            occupied.push(p);
+        }
+        let spawn = PresenceRoster::vacant_spawn(preferred, &occupied, SPAWN_CLEARANCE)
+            .map_err(|e| e.to_string())?;
         let parent_motion = parent.as_ref().map(|p| p.1.clone());
         let stored = AgentProfile {
             id: profile_id.clone(),
@@ -188,7 +207,7 @@ impl SlateApp {
             snapshot: None,
             status: "Ready · proposal mode".into(),
             activity: "idle".into(),
-            last_event: String::new(),
+            last_event: None,
             last_active: Instant::now(),
             work: None,
             read: None,

@@ -25,6 +25,7 @@ pub(super) struct Fixture {
     declarations: Declarations,
     started: Instant,
     retained: usize,
+    viewport: Option<Rect>,
 }
 
 impl Fixture {
@@ -80,6 +81,7 @@ impl Fixture {
             declarations: Declarations::new(scenario),
             started: Instant::now(),
             retained: 0,
+            viewport: None,
         };
         f.step(|_| {});
         f.h.app
@@ -109,12 +111,34 @@ impl Fixture {
     pub fn step(&mut self, prepare: impl FnOnce(&mut egui::RawInput)) -> egui::FullOutput {
         self.time += 1.0 / 60.0;
         let time = self.time;
+        let viewport = self.viewport;
         let out = capture_frame(&mut self.h, &mut self.raster, |input| {
             input.time = Some(time);
+            if let Some(rect) = viewport {
+                input.screen_rect = Some(rect);
+            }
             prepare(input);
         });
         self.assert_local();
         out
+    }
+
+    pub fn viewport(&self) -> Rect {
+        self.viewport.unwrap_or_else(screen)
+    }
+
+    pub fn resize_viewport(&mut self, width: usize, height: usize) {
+        assert_eq!(self.retained, 0, "serialize retained outputs before resize");
+        let textures = self.raster.textures.clone();
+        self.raster.resize(width, height);
+        assert_eq!(
+            self.raster.textures, textures,
+            "resize retains actual uploaded textures"
+        );
+        self.viewport = Some(Rect::from_min_size(
+            Pos2::ZERO,
+            egui::vec2(width as f32, height as f32),
+        ));
     }
 
     pub fn settle(&mut self) -> egui::FullOutput {
@@ -142,7 +166,7 @@ impl Fixture {
             "clipped target {id:?}: {rect:?} hit {hit:?}"
         );
         assert!(
-            screen().contains_rect(rect),
+            self.viewport().contains_rect(rect),
             "offscreen target {id:?}: {rect:?}"
         );
         rect
@@ -284,7 +308,7 @@ impl Fixture {
             .min_by(|a, b| a.area().total_cmp(&b.area()))
             .expect("one painted card encloses the actual controls");
         assert!(
-            screen().contains_rect(panel),
+            self.viewport().contains_rect(panel),
             "enclosing surface leaves viewport: {panel:?}"
         );
         panel

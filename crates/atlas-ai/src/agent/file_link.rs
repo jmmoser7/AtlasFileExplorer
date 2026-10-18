@@ -121,7 +121,15 @@ impl FileAgentLink {
             return Some(AgentSession { activity: Vec::new(), usage: None, approval:None, conversation: String::new(), artifacts: Vec::new(),request:String::new(),provider:String::new(),turns:vec![],updated_at:0,bundle:Default::default(),status:AgentStatus::Error("The sidecar session exceeds 16 MB. Archive its older turns in the source program.".into())});
         }
         let text = std::fs::read_to_string(path).ok()?;
-        let session = serde_json::from_str::<AgentSession>(&text).ok()?;
+        let mut session = serde_json::from_str::<AgentSession>(&text).ok()?;
+        // This blocking transport runs on the link worker. Retain only the
+        // recent raw window, then reuse the one public-activity normalizer before
+        // an immutable snapshot can reach the frame loop (at most 64 calls).
+        let activity = std::mem::take(&mut session.activity);
+        let start = activity.len().saturating_sub(ACTIVITY_LIMIT);
+        for event in activity.into_iter().skip(start) {
+            session.record_activity(event);
+        }
         self.last_session_mtime = Some(mtime);
         Some(session)
     }

@@ -381,12 +381,11 @@ fn focus_window(hwnd: HWND) -> Result<(), SurfaceError> {
         SetLastError(WIN32_ERROR(0));
     }
     let _ = unsafe { SetFocus(Some(hwnd)) };
-    let result = if unsafe { GetFocus() } == hwnd {
+    if unsafe { GetFocus() } == hwnd {
         Ok(())
     } else {
         Err(win32("SetFocus"))
-    };
-    result
+    }
 }
 
 fn win32(operation: &'static str) -> SurfaceError {

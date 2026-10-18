@@ -246,3 +246,49 @@ impl PresenceRuntime {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn locally_emitted_activity_ids_resolve_exact_catalogue_rows() {
+        // Local lifecycle/reducer states plus every registered command result.
+        // Provider observations are separately checked by the enum/catalogue
+        // parity test in atlas-agent; no new provider state event is needed.
+        let local = [
+            "idle",
+            "cancel",
+            "retire",
+            "success",
+            "reasoning",
+            "exchanging",
+            "blocked",
+            "working",
+            "listening",
+            "resting",
+            "error",
+            "offline",
+            "approval",
+            "reading",
+            "tool-waiting",
+        ];
+        for activity in local.into_iter().chain(
+            BOARD_COMMANDS
+                .iter()
+                .map(|command| work::command_activity(command)),
+        ) {
+            assert_eq!(
+                pose(activity).id,
+                activity,
+                "unmapped emitted activity: {activity}"
+            );
+        }
+        let listening = pose("listening");
+        assert_eq!(listening.expression, "curious");
+        assert_eq!(listening.orientation, "toward-human");
+        assert_eq!(listening.prop, "attention");
+        assert_ne!(listening.prop, pose("idle").prop);
+        assert_eq!(pose("future-unknown-activity").id, "idle");
+    }
+}

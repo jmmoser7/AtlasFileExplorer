@@ -129,8 +129,14 @@ impl SlateApp {
                             "Provider ended the task before its board action completed".into(),
                         ));
                     }
-                    if let Some(event) = snapshot.activity.last().filter(|e| e.id != a.last_event) {
-                        a.last_event = event.id.clone();
+                    // Public commentary can grow under one event ID. Compare
+                    // its bounded observation, not a snapshot heartbeat or ID.
+                    if let Some(event) = snapshot
+                        .activity
+                        .last()
+                        .filter(|event| a.last_event.as_ref() != Some(*event))
+                    {
+                        a.last_event = Some(event.clone());
                         a.last_active = now;
                         a.activity = event
                             .semantics

@@ -153,14 +153,15 @@ pub fn measure_tag_palette(
 
 fn paint_tag(
     ui: &egui::Ui,
-    origin: Pos2,
+    placement: &TagPalettePlacement,
     layout: &TagPaletteLayout,
     index: usize,
-    scale: f32,
     item: &TagPaletteItem<'_>,
     theme: Palette,
     hovered: bool,
 ) {
+    let origin = placement.origin;
+    let scale = placement.scale;
     let circle = layout.circle(origin, index, scale);
     let diameter = circle.width();
     let color = Color32::from_rgb(item.color[0], item.color[1], item.color[2]);
@@ -241,16 +242,7 @@ pub fn paint_tag_palette_card(
             .ctx()
             .pointer_latest_pos()
             .is_some_and(|point| slot.contains(point));
-        paint_tag(
-            ui,
-            placement.origin,
-            &layout,
-            index,
-            placement.scale,
-            item,
-            theme,
-            hovered,
-        );
+        paint_tag(ui, &placement, &layout, index, item, theme, hovered);
     }
 }
 
@@ -264,6 +256,11 @@ pub fn tag_palette(
     let mut result = TagPaletteResponse::default();
     let layout = measure_tag_palette(ui.ctx(), items, diameter);
     let (rect, _) = ui.allocate_exact_size(layout.size, Sense::hover());
+    let placement = TagPalettePlacement {
+        card: rect,
+        origin: rect.min,
+        scale: 1.0,
+    };
     for (index, item) in items.iter().enumerate() {
         let slot = layout.slot(rect.min, index, 1.0);
         let response = ui
@@ -274,10 +271,9 @@ pub fn tag_palette(
         });
         paint_tag(
             ui,
-            rect.min,
+            &placement,
             &layout,
             index,
-            1.0,
             item,
             theme,
             response.hovered(),
